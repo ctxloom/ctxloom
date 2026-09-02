@@ -21,7 +21,7 @@ import (
 // engine's backend type lands in the registry, and the output must be valid
 // YAML ending in a newline.
 func TestGenerateConfig(t *testing.T) {
-	for _, engine := range []string{"claude-code", "codex"} {
+	for _, engine := range []string{"claude-code", "mock"} {
 		t.Run(engine, func(t *testing.T) {
 			data, err := operations.BuildInitialConfig(engine, "")
 			require.NoError(t, err)
@@ -250,11 +250,11 @@ func TestPromptAllEngines_LeavesTheCallersSliceAlone(t *testing.T) {
 	var err error
 	captureStdout(t, func() {
 		p := newInitPromptsFrom(strings.NewReader("2\n"))
-		got, err = p.promptAllEngines(primary, []string{"codex", "kiro"})
+		got, err = p.promptAllEngines(primary, []string{"mock", "other-engine"})
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, "codex", got, "option 2 of [claude-code codex kiro]")
+	assert.Equal(t, "mock", got, "option 2 of [claude-code mock other-engine]")
 	assert.Equal(t, []string{"claude-code", "SENTINEL-1", "SENTINEL-2"}, backing,
 		"the combined menu must not be built through the caller's backing array")
 }
@@ -272,7 +272,7 @@ func writeEngineConfig(t *testing.T, appDir, engine string) {
 }
 
 // TestEngineForExistingDir pins the engine precedence on the
-// RE-INIT path. `ctxloom init --engine codex` in a project whose config names
+// RE-INIT path. `ctxloom init --engine mock` in a project whose config names
 // another engine used to launch the CONFIG's engine: the resolver consulted the
 // stored value first and returned it whenever it was set, so the flag the user
 // typed on this invocation was read and then discarded — a flag silently
@@ -290,7 +290,7 @@ func TestEngineForExistingDir(t *testing.T) {
 
 	require.Equal(t, "claude-code", engineForExistingDir("", appDir),
 		"with no flag, the engine recorded in the existing config is used")
-	assert.Equal(t, "codex", engineForExistingDir("codex", appDir),
+	assert.Equal(t, "mock", engineForExistingDir("mock", appDir),
 		"an explicit --engine must win over the engine recorded in the config")
 }
 
@@ -319,12 +319,12 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 	// The .ctxloom this init actually targets: names codex.
 	target := t.TempDir()
 	targetApp := filepath.Join(target, ".ctxloom")
-	writeEngineConfig(t, targetApp, "codex")
+	writeEngineConfig(t, targetApp, "mock")
 
 	config.Invalidate()
 	t.Cleanup(config.Invalidate)
 
-	assert.Equal(t, "codex", engineForExistingDir("", targetApp),
+	assert.Equal(t, "mock", engineForExistingDir("", targetApp),
 		"the engine must come from the .ctxloom this init targets")
 
 	var gotAppDir string
@@ -339,7 +339,7 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 		loaded, lerr := req.ConfigLoader()
 		require.NoError(t, lerr)
 		gotAppDir = loaded.GetAppDir()
-		return &operations.ApplyHooksResult{Status: "ok", Backends: []string{"codex"}}, nil
+		return &operations.ApplyHooksResult{Status: "ok", Backends: []string{"mock"}}, nil
 	}
 	t.Cleanup(func() { applyHooksFn = orig })
 

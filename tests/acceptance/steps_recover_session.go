@@ -91,14 +91,17 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 	// scenario is about identity surviving the round trip, not about bounding.
 	ctx.Step(`^a captured session "([^"]*)" bound to a backend-native session id$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
-		transcriptPath := w.env.HomeDir + "/" + j001200HarpHome(harp) + "/persist/transcript.jsonl"
+		// Binds the VENDOR transcript, not the canonical one: mock is a real
+		// engine with a real vendor reader, so the index must name the file
+		// ctxloom would actually convert (see j001200VendorTranscriptPath).
+		transcriptPath := j001200VendorTranscriptPath(w, harp)
 		if err := j001200AddIndexEntry(w, harp, "seeded production-shape session", transcriptPath); err != nil {
 			return fmt.Errorf("seed index entry for %s: %w", harp, err)
 		}
 		// Two turns, not zero: Compact short-circuits an empty session to a
 		// placeholder dump with no LLM call, which would let this pass without
 		// a real distillation ever happening.
-		return j001200WriteCanonicalTranscript(w, harp, []string{
+		return j001200SeedTranscripts(w, harp, []string{
 			"What broke the essence read-back? " + recoverIdentityMarker,
 			"The write key and the read key disagreed. " + recoverIdentityMarker,
 		})

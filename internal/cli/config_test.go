@@ -30,7 +30,7 @@ func fixtureConfig() *config.Config {
 		LM: config.LMConfig{
 			Defaults: config.RoleDefaults{Primary: "big"},
 			Configs: map[string]config.LLMConfig{
-				"big": {Type: "antigravity", Body: map[string]interface{}{"model": "gemini-3-pro"}},
+				"big": {Type: "mock", Body: map[string]interface{}{"model": "gemini-3-pro"}},
 			},
 		},
 	})

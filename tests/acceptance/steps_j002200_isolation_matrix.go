@@ -18,7 +18,7 @@
 // binary elsewhere on the developer's PATH and made a real (if cheap)
 // completion call — discovered by hand while building this file, not by a
 // gate. Rebuilding PATH from scratch instead means the literal binary name
-// a backend execs ("claude"/"codex"/"opencode") resolves
+// a backend execs ("claude") resolves
 // ONLY to the recording script this file writes, or to nothing at all
 // (ENOENT) — never to a real installed engine. No scenario in this file
 // makes a network call or touches a real credential.
@@ -162,13 +162,6 @@ echo '{"result":"ctxloom-isolation-matrix-spy","modelUsage":{"m":{"inputTokens":
 exit 0
 `
 
-// isoFixtureCredMarker is the deterministic, obviously-fake host credential
-// content the CODEX credential fixture seeds — never a real token, so there is
-// nothing to leak even if a bug somehow let this content escape the throwaway
-// test HOME. codex copies its auth.json VERBATIM (no credential projector), so
-// an opaque marker still exercises that path faithfully.
-const isoFixtureCredMarker = "ISO-MATRIX-FIXTURE-CREDENTIAL-NOT-A-REAL-SECRET"
-
 // The two halves of claude's OAuth credential, each obviously fake. The
 // access-token-only copy (easiest-stomp) KEEPS the access marker and STRIPS the
 // refresh marker; the fixture carries both so the strip has something real to
@@ -191,10 +184,8 @@ const isoFixtureClaudeCred = `{"claudeAiOauth":{"accessToken":"` + isoFixtureAcc
 // verbatim and keeps the opaque marker.
 func isoCredFixtureContent(engine string) (string, error) {
 	switch engine {
-	case "claude-code":
+	case config.BackendClaudeCode:
 		return isoFixtureClaudeCred, nil
-	case "codex":
-		return isoFixtureCredMarker, nil
 	default:
 		return "", fmt.Errorf("iso matrix: no credential fixture content for engine %q", engine)
 	}
@@ -217,12 +208,8 @@ const (
 // spy script must answer to on the sanitized PATH.
 func isoBinaryNames(engine string) ([]string, error) {
 	switch engine {
-	case "claude-code":
+	case config.BackendClaudeCode:
 		return []string{"claude"}, nil
-	case "codex":
-		return []string{"codex"}, nil
-	case "opencode":
-		return []string{"opencode"}, nil
 	default:
 		return nil, fmt.Errorf("iso matrix: unknown engine %q", engine)
 	}
@@ -232,12 +219,8 @@ func isoBinaryNames(engine string) ([]string, error) {
 // credential seeding (auth.go's credentialSeedSpecs[...].envTrigger).
 func isoAPIKeyEnvVar(engine string) (string, error) {
 	switch engine {
-	case "claude-code":
+	case config.BackendClaudeCode:
 		return "ANTHROPIC_API_KEY", nil
-	case "codex":
-		return "OPENAI_API_KEY", nil
-	case "opencode":
-		return "OPENROUTER_API_KEY", nil
 	default:
 		return "", fmt.Errorf("iso matrix: engine %q has no API-key bypass", engine)
 	}
@@ -247,10 +230,8 @@ func isoAPIKeyEnvVar(engine string) (string, error) {
 // relative to HOME (auth.go's credentialSeedSpecs[...].sourceFiles).
 func isoCredHostPath(engine string) (string, error) {
 	switch engine {
-	case "claude-code":
+	case config.BackendClaudeCode:
 		return filepath.Join(".claude", ".credentials.json"), nil
-	case "codex":
-		return filepath.Join(".codex", "auth.json"), nil
 	default:
 		return "", fmt.Errorf("iso matrix: no known host credential path for engine %q", engine)
 	}
@@ -261,10 +242,8 @@ func isoCredHostPath(engine string) (string, error) {
 // must stop reading and writing. Relative to $HOME.
 func isoHostHomeDirRel(engine string) (string, error) {
 	switch engine {
-	case "claude-code":
+	case config.BackendClaudeCode:
 		return ".claude", nil
-	case "codex":
-		return ".codex", nil
 	default:
 		return "", fmt.Errorf("iso matrix: no known host config home for engine %q", engine)
 	}
@@ -278,10 +257,8 @@ func isoHostHomeDirRel(engine string) (string, error) {
 // the production code uses would make the assertion tautological.
 func isoInstanceLeaf(engine string) (string, error) {
 	switch engine {
-	case "claude-code":
+	case config.BackendClaudeCode:
 		return "claude", nil
-	case "codex":
-		return ".codex", nil
 	default:
 		return "", fmt.Errorf("iso matrix: engine %q has no ctxloom-controlled in-tree home", engine)
 	}
@@ -339,10 +316,8 @@ func mustIsoCredHostPath(engine string) string {
 // preceding its credential dump (see isoMatrixSpyScript).
 func isoCredsSectionMarker(engine string) (string, error) {
 	switch engine {
-	case "claude-code":
+	case config.BackendClaudeCode:
 		return "===CLAUDE_CONFIG_DIR_CREDS===", nil
-	case "codex":
-		return "===CODEX_HOME_CREDS===", nil
 	default:
 		return "", fmt.Errorf("iso matrix: no credential section marker for engine %q", engine)
 	}
@@ -708,7 +683,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice has whatever host credentials "([^"]*)" needs to authenticate$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
 		switch engine {
-		case "claude-code", "codex":
+		case config.BackendClaudeCode:
 			rel, err := isoCredHostPath(engine)
 			if err != nil {
 				return err

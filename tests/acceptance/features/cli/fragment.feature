@@ -14,8 +14,8 @@ Feature: fragment — reusable context units, and the engine surface each one re
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
   including the engine-surface matrix that only matters to a machine parsing
   a generated file. The narrative version — Carol's team writing one shared
-  profile once and it reaching claude-code and codex in
-  their own native format — is journeys/j000400_multi_engine.feature, which
+  profile once and it reaching every engine in its own
+  native format — is journeys/j000400_multi_engine.feature, which
   asserts what a PERSON sees; MCP, hooks, and commands are that same
   journey's other three surfaces, and live in cli/mcp.feature,
   cli/manage.feature, and cli/command.feature respectively — this file owns
@@ -115,12 +115,10 @@ Feature: fragment — reusable context units, and the engine surface each one re
     # file that engine actually looks at, without anyone hand-translating it.
     # Each row PARSES the generated file in its own format (plain markdown
     # for every engine here) and asserts the actual marker content lands
-    # inside it — never a bare file-exists. codex is the interesting row:
-    # AGENTS.md is its NATIVE route (managed-section markers, exactly like
-    # claude's CLAUDE.md), but codex ALSO keeps a
+    # inside it — never a bare file-exists. An engine may ALSO keep a
     # second, separate context route — a content-addressed cache file a
     # SessionStart hook reads at run time, carrying a per-invocation content
-    # hash the AGENTS.md route cannot provide. That second route is keyed on
+    # hash a native-file route cannot provide. That second route is keyed on
     # resolved Fragment objects, which `profile materialize` never populates
     # (it only ever has the assembled context STRING) — so it is exercised by
     # the live run/launch path, not by materialization, and has no assertion

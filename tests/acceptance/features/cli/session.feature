@@ -162,10 +162,10 @@ Feature: session — the record of what your assistant did, and the tools to pru
     # name rather than silently scanning nothing.
     Scenario: An unsupported backend refuses by name
       Given an initialized ctxloom project
-      And a recorded session "amber-swift-owl" for backend "codex"
+      And a recorded session "amber-swift-owl" for backend "mock"
       When I run "ctxloom session adopt amber-swift-owl"
       Then the command fails
-      And the output contains "codex"
+      And the output contains "mock"
       And the output contains "not supported yet"
 
   Rule: The transcript is a population of its own

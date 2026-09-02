@@ -113,7 +113,7 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 					"PreTool":  []wire.Hook{{Command: "new"}},
 					"PostTool": []wire.Hook{{Command: "post"}},
 				},
-				"antigravity": {
+				"mock": {
 					"PreTool": []wire.Hook{{Command: "antigravity-hook"}},
 				},
 			},
@@ -123,7 +123,7 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 
 		assert.Len(t, dest.Plugins["claude-code"]["PreTool"], 2)
 		assert.Len(t, dest.Plugins["claude-code"]["PostTool"], 1)
-		assert.Len(t, dest.Plugins["antigravity"]["PreTool"], 1)
+		assert.Len(t, dest.Plugins["mock"]["PreTool"], 1)
 	})
 }
 

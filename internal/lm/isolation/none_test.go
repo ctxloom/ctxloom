@@ -30,11 +30,11 @@ func TestNoneStartRunner_LaunchFailureNamesTheAgent(t *testing.T) {
 		return nil, assert.AnError
 	})
 
-	_, err := None{}.StartRunner(context.Background(), "kiro", "member-3", 0, hostWorkspace{dir: "/proj"}, nil)
+	_, err := None{}.StartRunner(context.Background(), "mock", "member-3", 0, hostWorkspace{dir: "/proj"}, nil)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, assert.AnError, "the cause must survive wrapping")
-	assert.Contains(t, err.Error(), "kiro", "the failure names the backend whose runner died")
+	assert.Contains(t, err.Error(), "mock", "the failure names the backend whose runner died")
 	assert.Contains(t, err.Error(), "member-3", "the failure names the member label whose runner died")
 }
 
@@ -52,7 +52,7 @@ func TestNoneSpawnEnv_BothHalvesStampTheCellWorkDir(t *testing.T) {
 	})
 
 	caller := map[string]string{"CTXLOOM_COORD_URL": "http://host:9000"}
-	_, _ = None{}.StartRunner(context.Background(), "kiro", "m", 0, hostWorkspace{dir: "/ws"}, caller)
+	_, _ = None{}.StartRunner(context.Background(), "mock", "m", 0, hostWorkspace{dir: "/ws"}, caller)
 
 	assert.Equal(t, "/ws", got[envCellWorkDir], "the workspace dir is stamped for the runner's discovery marker")
 	assert.Equal(t, "http://host:9000", got["CTXLOOM_COORD_URL"], "the caller's per-spawn env rides along")

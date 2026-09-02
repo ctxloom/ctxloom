@@ -42,7 +42,7 @@ func TestSelectAdapter_VersionBehindThePinButInsideTheRange(t *testing.T) {
 		Versions:         VersionRange{MinInclusive: "0.144.0", MaxExclusive: "0.145.0"},
 		ValidatedVersion: "0.144.6",
 	}}
-	got, err := SelectAdapter("codex", "0.144.4", "harp", codex)
+	got, err := SelectAdapter("claude-code", "0.144.4", "harp", codex)
 	require.NoError(t, err)
 	assert.Equal(t, namedAdapter{"codex-0.144"}, got)
 }
@@ -122,7 +122,7 @@ func TestSelectAdapter_UnparseableRecordedVersionRefuses(t *testing.T) {
 // version, and says so — "none at all" is a real answer a user can act on,
 // where an empty range list rendered as nothing would read like a bug.
 func TestSelectAdapter_NoCandidatesRefuses(t *testing.T) {
-	_, err := SelectAdapter("kiro", "2.13.0", "", nil)
+	_, err := SelectAdapter("mock", "2.13.0", "", nil)
 	var unsupported *UnsupportedVersionError
 	require.ErrorAs(t, err, &unsupported)
 	assert.Contains(t, err.Error(), "none at all")

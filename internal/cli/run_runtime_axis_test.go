@@ -29,7 +29,7 @@ func TestResolveLaunchSource_RefusesATypodProjectRuntime(t *testing.T) {
 		return newPermissionRunState(t, config.NewFixture(config.Fixture{
 			AppPaths: []string{t.TempDir()},
 			Runtime:  runtime,
-		}), "codex", "codex")
+		}), "mock", "mock")
 	}
 
 	for _, axis := range []isolation.RuntimeAxis{isolation.RuntimeContainerRootless, isolation.RuntimeContainerRootful} {
@@ -78,7 +78,7 @@ func TestBuildRunRequest_CarriesTheResolvedRuntimeAxis(t *testing.T) {
 		withRunPermissionsFlag(t, "")
 		st := newPermissionRunState(t, config.NewFixture(config.Fixture{
 			AppPaths: []string{t.TempDir()},
-		}), "codex", "codex")
+		}), "mock", "mock")
 		st.agentRuntime = axis
 		require.NoError(t, st.buildRunRequest())
 		return st

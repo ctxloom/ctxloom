@@ -2097,7 +2097,7 @@ func usableLLMs(cfg *config.Config) []string {
 		set[label] = true
 	}
 	for _, name := range backends.List() {
-		if isMockBackend(name) {
+		if isTestOnlyBackend(name) {
 			continue
 		}
 		if backends.IsAvailable(name) {

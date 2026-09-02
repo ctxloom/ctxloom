@@ -52,7 +52,7 @@
 // it sounds: for codex the mechanisms are genuinely separable by OUTCOME. Its
 // hook route is the one the codex hook finding indicts (profile fragments
 // dropped from the cache file the hook actually reads, recorded on
-// liveAgents["codex"]), and its AGENTS.md route is not. If that defect is still
+// the live registry), and its native-file route is not. If that defect is still
 // live, the hook cell reds with a CONTEXT-DELIVERY failure while the unsafe-file
 // cell goes green — and that differential IS the measurement the registry row
 // for this cell asks for.

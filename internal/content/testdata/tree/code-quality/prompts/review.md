@@ -12,7 +12,7 @@ exports:
       - Read
       - Grep
     model: sonnet
-  codex:
+  disabled-engine:
     enabled: false
     argument_hint: "[path]"
   some-future-engine:

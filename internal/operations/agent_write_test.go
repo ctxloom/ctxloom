@@ -635,7 +635,7 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 
 	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
 		Name:     "scout",
-		LLM:      ptr("opencode"),
+		LLM:      ptr("mock"),
 		Surfaces: map[string]string{"context": "system-prompt"},
 	})
 	require.Error(t, err, "system-prompt is claude-only; opencode must refuse it")

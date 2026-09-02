@@ -40,8 +40,8 @@ func main() { os.Exit(run(os.Args[1:])) }
 // agent.CanonicalEngineName, the repo-wide alias table, whose own doc warns
 // that engine names are shared user-facing vocabulary and that "two tables
 // drift into one spelling resolving under one binary and erroring under the
-// other" — which is exactly what a hand-written --claude/--claude-code/--codex
-// switch here was, and it had already drifted (--claude worked while
+// other" — which is exactly what a hand-written per-engine flag switch here
+// was, and it had already drifted (--claude worked while
 // --personality claude did not). MEMBERSHIP comes from the backend registry,
 // so this package names no engine and a newly impersonable backend is
 // selectable the same way the existing ones are without editing main.

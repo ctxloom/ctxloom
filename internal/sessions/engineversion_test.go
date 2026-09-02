@@ -45,7 +45,7 @@ func TestRecordEngineVersion_PersistsToTheIndexFile(t *testing.T) {
 // their engine would be chasing a difference ctxloom invented.
 func TestRecordEngineVersion_StoresTheEnginesOwnRendering(t *testing.T) {
 	m, _ := newIndexManager(t)
-	e, err := m.AssignHarp("/proj", "codex")
+	e, err := m.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 
 	require.NoError(t, m.RecordEngineVersion(e.HarpName, "0.144.4"))
@@ -61,7 +61,7 @@ func TestRecordEngineVersion_StoresTheEnginesOwnRendering(t *testing.T) {
 // conclude the probe had worked.
 func TestRecordEngineVersion_EmptyVersionWritesNothing(t *testing.T) {
 	m, _ := newIndexManager(t)
-	e, err := m.AssignHarp("/proj", "kiro")
+	e, err := m.AssignHarp("/proj", "mock")
 	require.NoError(t, err)
 	require.NoError(t, m.RecordEngineVersion(e.HarpName, "2.13.0"))
 

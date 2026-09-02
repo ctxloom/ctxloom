@@ -46,7 +46,7 @@ func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 	// Bind the STALE one first so insertion order is [B, A]; only an
 	// activity-descending sort produces the expected [A, B]. A worked most
 	// recently; B is an hour stale.
-	harpB := bindProjectSession(t, mgr, projB, "codex", "sidB", now.Add(-time.Hour))
+	harpB := bindProjectSession(t, mgr, projB, "claude-code", "sidB", now.Add(-time.Hour))
 	harpA := bindProjectSession(t, mgr, projA, "claude-code", "sidA", now)
 	require.NoError(t, mgr.SetSummary(harpA, "worked on A", nil, 0))
 
@@ -80,7 +80,7 @@ func TestHandleListSessions_DefaultScopeIsCwdProject(t *testing.T) {
 	projB := t.TempDir()
 	now := time.Now()
 	harpA := bindProjectSession(t, mgr, projA, "claude-code", "sidA", now)
-	harpB := bindProjectSession(t, mgr, projB, "codex", "sidB", now)
+	harpB := bindProjectSession(t, mgr, projB, "claude-code", "sidB", now)
 
 	t.Chdir(projA)
 	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}

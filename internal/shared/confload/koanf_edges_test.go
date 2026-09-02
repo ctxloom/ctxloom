@@ -71,13 +71,13 @@ func TestKoanf_DottedMapKeySurvives(t *testing.T) {
 // project could never shorten or remove an inherited entry without
 // inventing a negation syntax.
 func TestKoanf_ListsReplaceNotConcat(t *testing.T) {
-	home := map[string]any{"isolation_engines": []any{"claude-code", "codex", "kiro"}}
-	project := map[string]any{"isolation_engines": []any{"codex"}}
+	home := map[string]any{"isolation_engines": []any{"claude-code", "mock"}}
+	project := map[string]any{"isolation_engines": []any{"mock"}}
 
 	merged, err := Merge(home, project)
 	require.NoError(t, err)
 
-	assert.Equal(t, []any{"codex"}, merged["isolation_engines"])
+	assert.Equal(t, []any{"mock"}, merged["isolation_engines"])
 }
 
 // TestKoanf_ExplicitZeroBeatsInheritance pins D3: a project explicitly

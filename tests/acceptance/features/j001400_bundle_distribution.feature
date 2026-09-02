@@ -323,8 +323,8 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # agent.WriteManagedContext, and a SKILLS surface — the shared
   # agent.ManagedSkillPackagesDelivery bound to the shared
   # agent.WriteManagedSkillPackages — producing a .mock/skills/ tree. Both are
-  # the same writers claude's .claude/skills/, codex's .codex/skills/, and opencode's
-  # .opencode/skill/ go through, differing only in
+  # the same writers every engine's own skills directory goes through,
+  # differing only in
   # the directory they target, so a row that passes here is exercising the
   # shared seam rather than a mock-only path.
   #
@@ -339,7 +339,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # calls Cleanup immediately after Execute, and the shared LIFO reversal
   # strips the delivered managed section — removing the file outright when
   # nothing user-authored remains. A step that shells out to `run` and then
-  # stats the directory observes nothing, exactly as it would for codex's
+  # stats the directory observes nothing, exactly as it would for any engine's
   # AGENTS.md. The LIVE-RUN half of the claim is covered where it can be
   # observed mid-turn: tests/integration/delivery_approach_matrix_test.go (mock
   # is in all three matrix tests) and grpc_test's

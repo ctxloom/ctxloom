@@ -65,7 +65,7 @@ func writeCanonicalFixture(t *testing.T, harp, engine, content string) {
 // which the reader refuses outright rather than guessing at.
 func writeCorruptCanonicalFixture(t *testing.T, harp string) {
 	t.Helper()
-	writeCanonicalFixture(t, harp, "codex", "about to be clobbered")
+	writeCanonicalFixture(t, harp, "claude-code", "about to be clobbered")
 	path, err := paths.HarpCanonicalTranscriptPath(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, []byte(`{"v":9999,"ts":"2026-01-01T00:00:00Z"}`+"\n"), 0o600))
@@ -135,7 +135,7 @@ func TestCanonicalFallbackSource_GetSession_PrefersCanonical(t *testing.T) {
 
 	store := sessions.NewMemStore()
 	mintBoundHarp(t, store, "harp-canonical", "/proj", "backend-uuid-1")
-	writeCanonicalFixture(t, "harp-canonical", "codex", "REAL-CANONICAL-PAYLOAD")
+	writeCanonicalFixture(t, "harp-canonical", "claude-code", "REAL-CANONICAL-PAYLOAD")
 
 	legacy := &fakeSessionSource{getErr: fmt.Errorf("legacy GetSession must not be called when canonical exists")}
 	src := NewCanonicalFallbackSource(legacy, "/proj", store)
@@ -187,7 +187,7 @@ func TestCanonicalFallbackSource_GetSession_ResolvesHarpDirectly(t *testing.T) {
 
 	store := sessions.NewMemStore()
 	mintBoundHarp(t, store, "harp-direct", "/proj", "backend-uuid-direct")
-	writeCanonicalFixture(t, "harp-direct", "codex", "DIRECT-HARP-PAYLOAD")
+	writeCanonicalFixture(t, "harp-direct", "claude-code", "DIRECT-HARP-PAYLOAD")
 
 	legacy := &fakeSessionSource{getErr: fmt.Errorf("legacy GetSession must not be called when the harp resolves directly")}
 	src := NewCanonicalFallbackSource(legacy, "/proj", store)
@@ -212,7 +212,7 @@ func TestCanonicalFallbackSource_GetSession_HarpFirstDoesNotBreakSessionIDPath(t
 
 	store := sessions.NewMemStore()
 	mintBoundHarp(t, store, "harp-canonical-2", "/proj", "backend-uuid-still-works")
-	writeCanonicalFixture(t, "harp-canonical-2", "codex", "STILL-WORKS-PAYLOAD")
+	writeCanonicalFixture(t, "harp-canonical-2", "claude-code", "STILL-WORKS-PAYLOAD")
 
 	legacy := &fakeSessionSource{getErr: fmt.Errorf("legacy GetSession must not be called when canonical exists")}
 	src := NewCanonicalFallbackSource(legacy, "/proj", store)
@@ -249,7 +249,7 @@ func TestCanonicalFallbackSource_CurrentSession_PrefersCanonical(t *testing.T) {
 
 	store := sessions.NewMemStore()
 	mintBoundHarp(t, store, "harp-current", "/proj", "backend-uuid-3")
-	writeCanonicalFixture(t, "harp-current", "codex", "CURRENT-CANONICAL-PAYLOAD")
+	writeCanonicalFixture(t, "harp-current", "claude-code", "CURRENT-CANONICAL-PAYLOAD")
 
 	legacy := &fakeSessionSource{current: &agent.Session{ID: "should-not-be-used"}}
 	src := NewCanonicalFallbackSource(legacy, "/proj", store)
@@ -290,7 +290,7 @@ func TestCanonicalFallbackSource_ListSessions_MergesAndDedupes(t *testing.T) {
 
 	store := sessions.NewMemStore()
 	mintBoundHarp(t, store, "harp-listed", "/proj", "backend-uuid-covered")
-	writeCanonicalFixture(t, "harp-listed", "codex", "LISTED-PAYLOAD")
+	writeCanonicalFixture(t, "harp-listed", "claude-code", "LISTED-PAYLOAD")
 
 	legacy := &fakeSessionSource{metas: []agent.SessionMeta{
 		{ID: "backend-uuid-covered"}, // same session as harp-listed: must be deduped away
@@ -396,7 +396,7 @@ func listSessionsIndexReads(t *testing.T, n int) int {
 	for i := 0; i < n; i++ {
 		harp := fmt.Sprintf("harp-count-%d", i)
 		mintBoundHarp(t, store.MemStore, harp, "/proj", fmt.Sprintf("backend-uuid-c%d", i))
-		writeCanonicalFixture(t, harp, "codex", "payload")
+		writeCanonicalFixture(t, harp, "claude-code", "payload")
 	}
 
 	src := NewCanonicalFallbackSource(&fakeSessionSource{}, "/proj", store)

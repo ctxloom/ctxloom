@@ -138,14 +138,14 @@ func TestSessionAdopt_UnsupportedBackendFails(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
-	entry, err := mgr.AssignHarp(dir, "codex")
+	entry, err := mgr.AssignHarp(dir, "mock")
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(entry.HarpName, "id-1", filepath.Join(t.TempDir(), "id-1.jsonl")))
 	t.Cleanup(func() { resetSessionAdoptFlags(t) })
 
 	_, _, err = execRootCmdBoth(t, "session", "adopt", entry.HarpName)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "codex")
+	assert.Contains(t, err.Error(), "mock")
 	assert.Contains(t, err.Error(), "not supported yet")
 }
 

@@ -20,7 +20,7 @@ import (
 // schema version this build does not know.
 func futureVersionLine() []byte {
 	return fmt.Appendf(nil,
-		`{"v":%d,"harp":"h","engine":"codex","seq":0,"ts":"2026-07-31T00:00:00Z","kind":"entry","entry":{"type":"user","content":"hi"}}`+"\n",
+		`{"v":%d,"harp":"h","engine":"claude-code","seq":0,"ts":"2026-07-31T00:00:00Z","kind":"entry","entry":{"type":"user","content":"hi"}}`+"\n",
 		SchemaVersion+7)
 }
 
@@ -67,7 +67,7 @@ func TestListSessions_VersionMismatchWarningIsActionable(t *testing.T) {
 	const projectDir = "/proj/version-skew"
 
 	good := "codex-fixture-harp"
-	installFixture(t, "codex", good)
+	installFixture(t, "claude", good)
 	future := "future-version-harp"
 	writeTempTranscript(t, future, futureVersionLine())
 

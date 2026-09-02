@@ -54,7 +54,7 @@ func TestContainerBuildOptions_ConfigBaseContainerfileAppliesWithoutBaseImage(t 
 func TestContainerBuildOptions_ExplicitBaseContainerfileBeatsConfig(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
 		IsolationBaseContainerfile:   "/proj/.ctxloom/base.Containerfile",
-		IsolationEngines:             []string{"codex"},
+		IsolationEngines:             []string{"mock"},
 		IsolationDevcontainerService: "app",
 	})
 
@@ -112,7 +112,7 @@ func TestContainerBuildOptions_ConfiguredIsolationImageWarnsThatTheBuildIsUnused
 // the ordinary project (no pinned image) must not warn.
 func TestContainerBuildOptions_NoIsolationImageIsSilent(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
-		IsolationImages: map[string]string{"codex": "ghcr.io/example/other:1"},
+		IsolationImages: map[string]string{"mock": "ghcr.io/example/other:1"},
 	})
 
 	var warn bytes.Buffer

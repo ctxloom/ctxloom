@@ -197,7 +197,7 @@ func TestGRPCServer_Chat_DrivesBackendAndStreamsEvents(t *testing.T) {
 
 func TestGRPCServer_Chat_UnimplementedWhenBackendLacksCapability(t *testing.T) {
 	// fakeBackend does NOT implement agent.StructuredChat.
-	srv := &GRPCServer{Impl: &fakeBackend{name: "antigravity"}}
+	srv := &GRPCServer{Impl: &fakeBackend{name: "mock"}}
 	stream := &fakeChatServerStream{
 		ctx:  context.Background(),
 		recv: []*ChatInput{{Input: &ChatInput_Start{Start: &ChatStart{}}}},
@@ -510,7 +510,7 @@ func TestGRPCClient_Chat_CapturesTranscriptWhenHarpPresent(t *testing.T) {
 	})
 	c := &GRPCClient{client: &fakeLLMClient{
 		chatStream: cs,
-		infoResp:   &LLMInfo{Name: "codex"},
+		infoResp:   &LLMInfo{Name: "claude-code"},
 	}}
 
 	req := agent.ChatRequest{Model: "m", Env: map[string]string{agent.SessionHarpEnv: harp}}
@@ -538,7 +538,7 @@ func TestGRPCClient_Chat_CapturesTranscriptWhenHarpPresent(t *testing.T) {
 	recs := readCanonicalTranscript(t, harp)
 	require.Len(t, recs, 3)
 	assert.Equal(t, transcript.KindSession, recs[0].Kind)
-	assert.Equal(t, "codex", recs[0].Engine)
+	assert.Equal(t, "claude-code", recs[0].Engine)
 	assert.Equal(t, harp, recs[0].Harp)
 	require.NotNil(t, recs[1].Entry)
 	assert.Equal(t, "hi there", recs[1].Entry.Content)
@@ -560,7 +560,7 @@ func TestGRPCClient_Chat_CapturesUserTurn(t *testing.T) {
 	})
 	c := &GRPCClient{client: &fakeLLMClient{
 		chatStream: cs,
-		infoResp:   &LLMInfo{Name: "codex"},
+		infoResp:   &LLMInfo{Name: "claude-code"},
 	}}
 
 	req := agent.ChatRequest{Model: "m", Env: map[string]string{agent.SessionHarpEnv: harp}}
@@ -604,7 +604,7 @@ func TestGRPCClient_Chat_CapturesUserTurn(t *testing.T) {
 	require.Len(t, recs, 3)
 	for _, r := range recs {
 		assert.Equal(t, harp, r.Harp)
-		assert.Equal(t, "codex", r.Engine)
+		assert.Equal(t, "claude-code", r.Engine)
 	}
 
 	var userRec, sessionRec, assistantRec *transcript.Record
@@ -637,7 +637,7 @@ func TestGRPCClient_Chat_PermissionAndCancelMessagesNotRecordedAsUserTurns(t *te
 	cs := newFakeChatClientStream(nil)
 	c := &GRPCClient{client: &fakeLLMClient{
 		chatStream: cs,
-		infoResp:   &LLMInfo{Name: "codex"},
+		infoResp:   &LLMInfo{Name: "claude-code"},
 	}}
 
 	req := agent.ChatRequest{Model: "m", Env: map[string]string{agent.SessionHarpEnv: harp}}
@@ -749,7 +749,7 @@ func TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq(t *te
 	cs := newFakeChatClientStream(canned)
 	c := &GRPCClient{client: &fakeLLMClient{
 		chatStream: cs,
-		infoResp:   &LLMInfo{Name: "codex"},
+		infoResp:   &LLMInfo{Name: "claude-code"},
 	}}
 
 	req := agent.ChatRequest{Model: "m", Env: map[string]string{agent.SessionHarpEnv: harp}}

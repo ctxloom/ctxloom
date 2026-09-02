@@ -55,7 +55,7 @@ func TestOpenAndReadJSONLLines_Success(t *testing.T) {
 	path := filepath.Join(dir, "fixture.jsonl")
 	require.NoError(t, os.WriteFile(path, []byte("{\"a\":1}\n{\"b\":2}\n"), 0o644))
 
-	lines, err := OpenAndReadJSONLLines("codex", path)
+	lines, err := OpenAndReadJSONLLines("claude-code", path)
 	require.NoError(t, err)
 	require.Len(t, lines, 2)
 	assert.Equal(t, `{"a":1}`, string(lines[0]))

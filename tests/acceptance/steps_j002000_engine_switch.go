@@ -42,7 +42,7 @@ const (
 	j002000Marker = "J002000-TEAM-GUIDANCE-MARKER"
 
 	j002000OldEngine = "claude-code"
-	j002000NewEngine = "mock"
+	j002000NewEngine = config.BackendMockLossy
 
 	// j002000Agent is the binding the whole team runs through — the thing the
 	// switch is performed ON.

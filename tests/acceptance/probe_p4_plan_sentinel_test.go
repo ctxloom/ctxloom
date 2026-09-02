@@ -211,7 +211,7 @@ func TestP4Plan_InheritsItsMeaningFromTheControl(t *testing.T) {
 
 	t.Run("another engine's control does not license this one", func(t *testing.T) {
 		l := newP4ControlLedger()
-		l.Record("codex", nil)
+		l.Record("mock", nil)
 		require.NoError(t, p4AssertPlan(intact, l),
 			"an unrelated engine's control is simply not a record for this one — it must fall through to the provisional note, not borrow another engine's evidence")
 		if _, recorded := l.Lookup("claude-code"); recorded {
@@ -383,18 +383,18 @@ func TestP4Postures_RunTheControlFirst(t *testing.T) {
 func TestP4ControlLedger_DistinguishesUnrunFromFailed(t *testing.T) {
 	l := newP4ControlLedger()
 
-	v, recorded := l.Lookup("codex")
+	v, recorded := l.Lookup("mock")
 	assert.False(t, recorded, "nothing has been recorded for codex")
 	assert.NoError(t, v)
 
-	l.Record("codex", nil)
-	v, recorded = l.Lookup("codex")
+	l.Record("mock", nil)
+	v, recorded = l.Lookup("mock")
 	assert.True(t, recorded)
 	assert.NoError(t, v, "a landed control records a nil verdict")
 
 	boom := fmt.Errorf("control did not land")
-	l.Record("codex", boom)
-	v, recorded = l.Lookup("codex")
+	l.Record("mock", boom)
+	v, recorded = l.Lookup("mock")
 	assert.True(t, recorded)
 	assert.Equal(t, boom, v, "a failed control must be retrievable as a failure, not merely as 'recorded'")
 }

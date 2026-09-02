@@ -73,7 +73,7 @@ func oneshotTestConfig(t *testing.T) *config.Config {
 				// unrelated coverage (see TestRunOneshot_ResolvesHeadlessPosture
 				// for the dedicated permission-resolution cases).
 				"claude-fast": {Type: "claude-code", Permissions: "bypass"},
-				"agy-code":    {Type: "antigravity", Permissions: "bypass"},
+				"agy-code":    {Type: "mock", Permissions: "bypass"},
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},
 		},
@@ -101,8 +101,8 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 
 	// Profile's llm (agy-code) resolved to the antigravity backend.
 	assert.Equal(t, "agy-code", res.Label)
-	assert.Equal(t, "antigravity", res.Backend)
-	assert.Equal(t, "antigravity", gotBackend)
+	assert.Equal(t, "mock", res.Backend)
+	assert.Equal(t, "mock", gotBackend)
 
 	// Output captured and trimmed.
 	assert.Equal(t, "REVIEW FINDINGS", res.Output)
@@ -143,7 +143,7 @@ func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 			Configs: map[string]config.LLMConfig{
 				"claude-plan": {Type: "claude-code", Permissions: "plan"},
 				"claude-none": {Type: "claude-code"},
-				"agy-plan":    {Type: "antigravity", Permissions: "plan"},
+				"agy-plan":    {Type: "mock", Permissions: "plan"},
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-none"},
 		},
@@ -182,12 +182,12 @@ func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 
 func TestResolveBackend(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
-		"agy-code": {Type: "antigravity", Body: map[string]any{"model": "gemini-3-pro"}},
+		"agy-code": {Type: "mock", Body: map[string]any{"model": "gemini-3-pro"}},
 	}}})
 
 	t.Run("configured label resolves to its type and model", func(t *testing.T) {
 		backend, model := ResolveBackend(cfg, "agy-code")
-		assert.Equal(t, "antigravity", backend)
+		assert.Equal(t, "mock", backend)
 		assert.Equal(t, "gemini-3-pro", model)
 	})
 

@@ -23,34 +23,26 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
   #
   # cli/manage.feature's own "shipped commands in its own idiom" scenario
   # covers a DIFFERENT claim through the same renderer: that `manage install`
-  # ships ctxloom's own first-party "discover" command, including to a fourth
-  # engine (opencode) this outline does not reach. Built-in content via
+  # ships ctxloom's own first-party "discover" command, to engines this
+  # outline does not reach. Built-in content via
   # install, a team's own authored content via materialize — two claims, not
   # one doubled.
 
   Rule: A materialized command lands in each engine's own native surface
 
     # ONE command, PARSED in its own native shape, never a bare file-exists.
-    # claude and codex each get a flat command file. Genuine Agent Skill
-    # packages are a different SurfaceKind, covered by cli/skill.feature.
+    # Each engine here gets a flat command file. Genuine Agent Skill packages
+    # are a different SurfaceKind, covered by cli/skill.feature.
     #
-    # codex's row is the one asymmetric idiom worth calling out by name:
-    # every other engine's command surface is project-local, codex's own
-    # prompts directory is not — codex discovers prompts ONLY from
-    # $CODEX_HOME/prompts, with no project-level directory of its own
-    # (internal/codex/enginecli.go). ctxloom scopes CODEX_HOME to the
-    # materialize target for the run, which is what keeps this row hermetic
-    # rather than reaching for a real home directory.
+    # An engine whose command surface is HOME-keyed rather than project-local
+    # is absent from this outline by declaration, not by omission: it has no
+    # durable project copy to parse, and materialize says so instead (see
+    # manage.feature's launch-only scenario).
     Scenario Outline: A team's command lands in each engine's own command surface
       Given Carol's team profile carries a shared fragment, command, MCP server, and hook
       When Alice materializes the team profile for <engine>
       Then the materialized <engine> command file carries the shared command's body, in its own native shape
 
-      # codex is absent from this outline since the declared absence
-      # (codex.LaunchOnlySettingsReason): its prompts dir is home-keyed and
-      # ctxloom writes no durable project copy — commands reach codex
-      # per-session at launch (j002200) and materialize says so
-      # (manage.feature's launch-only scenario).
       Examples:
         | engine      |
         | claude-code |

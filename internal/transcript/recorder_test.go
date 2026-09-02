@@ -51,7 +51,7 @@ func TestRecorder_RoundTrip_RealKiroToolCallTurn(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "kiro-roundtrip-harp"
 
-	rec, err := NewRecorder(harp, "kiro")
+	rec, err := NewRecorder(harp, "mock")
 	require.NoError(t, err)
 
 	events := []agent.ChatEvent{
@@ -95,7 +95,7 @@ func TestRecorder_RoundTrip_RealKiroToolCallTurn(t *testing.T) {
 		assert.Equal(t, i, r.Seq)
 		assert.Equal(t, SchemaVersion, r.V)
 		assert.Equal(t, harp, r.Harp)
-		assert.Equal(t, "kiro", r.Engine)
+		assert.Equal(t, "mock", r.Engine)
 		assert.Equal(t, "3808ae21-1a82-4c80-83f1-132256adce36", r.SessionID)
 		assert.False(t, r.TS.IsZero(), "ts must be stamped")
 	}
@@ -123,7 +123,7 @@ func TestRecorder_EmptyInput_WritesNoFile(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "empty-harp"
 
-	rec, err := NewRecorder(harp, "codex")
+	rec, err := NewRecorder(harp, "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, rec.Close()) // never called Record
 
@@ -140,7 +140,7 @@ func TestRecorder_RejectsEmptyChatEvent(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "reject-empty-harp"
 
-	rec, err := NewRecorder(harp, "codex")
+	rec, err := NewRecorder(harp, "claude-code")
 	require.NoError(t, err)
 
 	err = rec.Record(agent.ChatEvent{})
@@ -166,7 +166,7 @@ func TestRecorder_ConcurrentAppends_Safe(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "concurrent-harp"
 
-	rec, err := NewRecorder(harp, "codex")
+	rec, err := NewRecorder(harp, "claude-code")
 	require.NoError(t, err)
 
 	const n = 100
@@ -203,7 +203,7 @@ func TestRecorder_ConcurrentAppends_Safe(t *testing.T) {
 func TestNewRecorder_ValidatesArgs(t *testing.T) {
 	testsupport.Isolate(t)
 
-	_, err := NewRecorder("", "codex")
+	_, err := NewRecorder("", "claude-code")
 	assert.Error(t, err)
 
 	_, err = NewRecorder("some-harp", "")
@@ -218,7 +218,7 @@ func TestTee_ForwardsAndRecords(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "tee-harp"
 
-	rec, err := NewRecorder(harp, "codex")
+	rec, err := NewRecorder(harp, "claude-code")
 	require.NoError(t, err)
 
 	in := make(chan agent.ChatEvent)

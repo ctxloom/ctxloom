@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -243,25 +244,30 @@ func TestPrintDiscoveryPostureHint(t *testing.T) {
 // TestPingEngineAuth_FailsLoud_NamesTheFix: a dead engine (nonzero exit, as a
 // real backend reports when auth is missing) fails the ping with an error
 // naming BOTH the engine and its specific fix — never a bare "failed."
+//
+// EVERY registered backend runs the SAME assertions: this is a conformance
+// suite over backends.List(), not a hand-maintained table of engine/expected
+// pairs. A table drifts the moment a backend is added or removed, and it
+// duplicates the fix strings that engineAuthFix already owns — so the expected
+// text is read from production via engineAuthFixHint rather than re-typed
+// here. A newly registered backend is covered without editing this file.
 func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
-	tests := []struct {
-		engine   string
-		wantText string
-	}{
-		{"claude-code", "claude login"},
-		{"codex", "codex login"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.engine, func(t *testing.T) {
+	engines := backends.List()
+	require.NotEmpty(t, engines,
+		"the backend registry is empty — every subtest below would be skipped and this suite would pass having checked nothing")
+
+	for _, engine := range engines {
+		t.Run(engine, func(t *testing.T) {
 			stub := &stubPingClient{exitCode: 1}
 			orig := authPingFactory
 			authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
 			t.Cleanup(func() { authPingFactory = orig })
 
-			err := pingEngineAuth(context.Background(), authPingTestConfig(t), tt.engine, t.TempDir())
+			err := pingEngineAuth(context.Background(), authPingTestConfig(t), engine, t.TempDir())
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.engine, "error must name the engine that failed")
-			assert.Contains(t, err.Error(), tt.wantText, "error must name THIS engine's specific fix")
+			assert.Contains(t, err.Error(), engine, "error must name the engine that failed")
+			assert.Contains(t, err.Error(), engineAuthFixHint(engine),
+				"error must name THIS engine's specific fix, as production states it")
 		})
 	}
 }

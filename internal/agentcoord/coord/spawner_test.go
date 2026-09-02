@@ -54,7 +54,7 @@ func TestViaStartRunBackends(t *testing.T) {
 // loud, never silently downgrading to persistent.
 func TestResolveResumeMode(t *testing.T) {
 	t.Run("conversational is always persistent, any backend", func(t *testing.T) {
-		for _, backend := range []string{"claude-code", "kiro", "mock", "unknown", ""} {
+		for _, backend := range []string{"claude-code", "mock", "unknown", ""} {
 			mode, err := resolveResumeMode(agents.DrivingConversational, backend)
 			require.NoError(t, err, "backend %q", backend)
 			assert.Equal(t, ResumeModePersistent, mode, "backend %q", backend)
@@ -76,7 +76,7 @@ func TestResolveResumeMode(t *testing.T) {
 	})
 
 	t.Run("oneshot on a NON-resumable backend FAILS LOUD, never silently downgrades", func(t *testing.T) {
-		for _, backend := range []string{"kiro", "mock", "unknown-backend", "antigravity", ""} {
+		for _, backend := range []string{"mock", "unknown-backend", ""} {
 			mode, err := resolveResumeMode(agents.DrivingOneshot, backend)
 			require.Error(t, err, "backend %q", backend)
 			assert.Equal(t, ResumeModePersistent, mode, "the returned mode on error must never be ResumeModeOneShot (backend %q)", backend)

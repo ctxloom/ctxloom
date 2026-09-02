@@ -106,11 +106,11 @@ func TestGetDefaultLLM(t *testing.T) {
 	t.Run("resolves the primary label's backend type", func(t *testing.T) {
 		cfg := &Config{lm: LMConfig{
 			Configs: map[string]LLMConfig{
-				"big": {Type: "antigravity", Body: map[string]interface{}{"model": "pro"}},
+				"big": {Type: "mock", Body: map[string]interface{}{"model": "pro"}},
 			},
 			Defaults: RoleDefaults{Primary: "big"},
 		}}
-		assert.Equal(t, "antigravity", cfg.GetDefaultLLM())
+		assert.Equal(t, "mock", cfg.GetDefaultLLM())
 	})
 
 	t.Run("returns claude-code as fallback when no label resolves", func(t *testing.T) {
@@ -123,7 +123,7 @@ func TestGetDefaultLLM(t *testing.T) {
 // set, so a single-config project resolves without naming a role.
 func TestPrimaryLabel_SingleConfigFallback(t *testing.T) {
 	cfg := &Config{lm: LMConfig{Configs: map[string]LLMConfig{
-		"only": {Type: "codex"},
+		"only": {Type: "claude-code"},
 	}}}
 	assert.Equal(t, "only", cfg.PrimaryLabel())
 }
@@ -138,12 +138,12 @@ func TestFastLabel_FallsBackToPrimary(t *testing.T) {
 // unknown label degrades to the built-in default backend with no model.
 func TestResolveLLM(t *testing.T) {
 	cfg := &Config{lm: LMConfig{Configs: map[string]LLMConfig{
-		"g":    {Type: "antigravity", Body: map[string]interface{}{"model": "gemini-3-pro"}},
+		"g":    {Type: "mock", Body: map[string]interface{}{"model": "gemini-3-pro"}},
 		"bare": {Type: "claude-code"},
 	}}}
 
 	backend, model := cfg.ResolveLLM("g")
-	assert.Equal(t, "antigravity", backend)
+	assert.Equal(t, "mock", backend)
 	assert.Equal(t, "gemini-3-pro", model)
 
 	backend, model = cfg.ResolveLLM("bare")
@@ -436,7 +436,7 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 		lm: LMConfig{
 			Configs: map[string]LLMConfig{
 				"big":  {Type: "claude-code", Body: map[string]interface{}{"model": "opus"}},
-				"fast": {Type: "antigravity", Body: map[string]interface{}{"model": "haiku"}},
+				"fast": {Type: "mock", Body: map[string]interface{}{"model": "haiku"}},
 			},
 			Defaults: RoleDefaults{Primary: "big", Fast: "fast"},
 		},
@@ -456,7 +456,7 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "big", loaded.lm.Defaults.Primary)
 	assert.Equal(t, "fast", loaded.lm.Defaults.Fast)
-	assert.Equal(t, "antigravity", loaded.GetCompactionLLM())
+	assert.Equal(t, "mock", loaded.GetCompactionLLM())
 	assert.Equal(t, "haiku", loaded.GetCompactionModel())
 	assert.Equal(t, 4096, loaded.GetEssenceMaxChars())
 	assert.Equal(t, "vim", loaded.editor.Command)
@@ -1603,18 +1603,18 @@ func TestGetDefaultLLMModel(t *testing.T) {
 func TestGetCompactionLLM(t *testing.T) {
 	t.Run("returns the fast role's backend", func(t *testing.T) {
 		cfg := &Config{lm: LMConfig{
-			Configs:  map[string]LLMConfig{"f": {Type: "antigravity"}},
+			Configs:  map[string]LLMConfig{"f": {Type: "mock"}},
 			Defaults: RoleDefaults{Fast: "f"},
 		}}
-		assert.Equal(t, "antigravity", cfg.GetCompactionLLM())
+		assert.Equal(t, "mock", cfg.GetCompactionLLM())
 	})
 
 	t.Run("falls back to the primary role when no fast role", func(t *testing.T) {
 		cfg := &Config{lm: LMConfig{
-			Configs:  map[string]LLMConfig{"p": {Type: "codex"}},
+			Configs:  map[string]LLMConfig{"p": {Type: "claude-code"}},
 			Defaults: RoleDefaults{Primary: "p"},
 		}}
-		assert.Equal(t, "codex", cfg.GetCompactionLLM())
+		assert.Equal(t, "claude-code", cfg.GetCompactionLLM())
 	})
 
 	t.Run("falls back to claude-code", func(t *testing.T) {

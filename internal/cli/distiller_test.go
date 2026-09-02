@@ -33,7 +33,7 @@ func TestNewLLMDistiller_UnresolvableLabelSaysContentWillBeStoredRaw(t *testing.
 		cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"a": {Type: "claude-code"},
-				"b": {Type: "codex"},
+				"b": {Type: "mock"},
 			},
 		}})
 		require.Empty(t, cfg.FastLabel(), "fixture precondition: no label resolves")

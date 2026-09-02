@@ -13,7 +13,7 @@ import (
 
 func TestConvertJSONLLines_NilInfoEmitsNoSessionEvent(t *testing.T) {
 	fr := &fakeRecorder{}
-	err := ConvertJSONLLines(context.Background(), fr, [][]byte{[]byte("x")}, "codex", nil,
+	err := ConvertJSONLLines(context.Background(), fr, [][]byte{[]byte("x")}, "claude-code", nil,
 		func([]byte) error { return nil },
 		func() error { return nil })
 	require.NoError(t, err)
@@ -26,7 +26,7 @@ func TestConvertJSONLLines_EmitsSessionEventFirst(t *testing.T) {
 	fr := &fakeRecorder{}
 	info := &agent.ChatSessionInfo{SessionID: "s1"}
 	var dispatched [][]byte
-	err := ConvertJSONLLines(context.Background(), fr, [][]byte{[]byte("a"), []byte("b")}, "codex", info,
+	err := ConvertJSONLLines(context.Background(), fr, [][]byte{[]byte("a"), []byte("b")}, "claude-code", info,
 		func(line []byte) error { dispatched = append(dispatched, line); return nil },
 		func() error { return nil })
 	require.NoError(t, err)
@@ -39,7 +39,7 @@ func TestConvertJSONLLines_EmitsSessionEventFirst(t *testing.T) {
 func TestConvertJSONLLines_FlushRunsAfterAllLines(t *testing.T) {
 	fr := &fakeRecorder{}
 	var order []string
-	err := ConvertJSONLLines(context.Background(), fr, [][]byte{[]byte("a")}, "codex", nil,
+	err := ConvertJSONLLines(context.Background(), fr, [][]byte{[]byte("a")}, "claude-code", nil,
 		func([]byte) error { order = append(order, "dispatch"); return nil },
 		func() error { order = append(order, "flush"); return nil })
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestConvertJSONLLines_FlushRunsAfterAllLines(t *testing.T) {
 func TestConvertJSONLLines_DispatchErrorStopsAndSkipsFlush(t *testing.T) {
 	fr := &fakeRecorder{}
 	flushed := false
-	err := ConvertJSONLLines(context.Background(), fr, [][]byte{[]byte("a")}, "codex", nil,
+	err := ConvertJSONLLines(context.Background(), fr, [][]byte{[]byte("a")}, "claude-code", nil,
 		func([]byte) error { return errors.New("bad line") },
 		func() error { flushed = true; return nil })
 	require.Error(t, err)
@@ -61,7 +61,7 @@ func TestConvertJSONLLines_ContextCancelledStopsBeforeDispatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	called := false
-	err := ConvertJSONLLines(ctx, fr, [][]byte{[]byte("a")}, "codex", nil,
+	err := ConvertJSONLLines(ctx, fr, [][]byte{[]byte("a")}, "claude-code", nil,
 		func([]byte) error { called = true; return nil },
 		func() error { return nil })
 	require.ErrorIs(t, err, context.Canceled)
@@ -88,7 +88,7 @@ func TestConvertJSONLLines_ContextCancelledMidStreamStopsAtThatLine(t *testing.T
 	var dispatched [][]byte
 	flushed := false
 
-	err := ConvertJSONLLines(ctx, fr, lines, "codex", nil,
+	err := ConvertJSONLLines(ctx, fr, lines, "claude-code", nil,
 		func(line []byte) error {
 			dispatched = append(dispatched, line)
 			if len(dispatched) == 2 {

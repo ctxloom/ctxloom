@@ -23,18 +23,6 @@ const claudeFixture = `{
   }
 }`
 
-const codexFixture = `[hooks]
-[[hooks.SessionStart]]
-[[hooks.SessionStart.hooks]]
-command = 'ctxloom hook session-bind'
-type = 'command'
-
-[mcp_servers]
-[mcp_servers.ctxloom]
-args = ['mcp']
-command = 'ctxloom'
-`
-
 func jsonServers(t *testing.T, config []byte) map[string]any {
 	t.Helper()
 	var doc map[string]any
@@ -58,7 +46,6 @@ func TestEngines_InstallIntoEmpty_CreatesEntry(t *testing.T) {
 func TestEngines_Install_PreservesForeignContent(t *testing.T) {
 	fixtures := map[string]string{
 		"claude-code": claudeFixture,
-		"codex":       codexFixture,
 	}
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
@@ -100,7 +87,6 @@ func TestEngines_Install_Idempotent(t *testing.T) {
 func TestEngines_Uninstall_RemovesOnlyOurs(t *testing.T) {
 	fixtures := map[string]string{
 		"claude-code": claudeFixture,
-		"codex":       codexFixture,
 	}
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {

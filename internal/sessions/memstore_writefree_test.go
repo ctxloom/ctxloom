@@ -30,18 +30,18 @@ func TestMemStore_BindSessionWritesNothingToDisk(t *testing.T) {
 	// --- the fixture must be hostile: prove the real store writes here. ---
 	mgr, err := Open(filepath.Join(t.TempDir(), "index.yaml"))
 	require.NoError(t, err)
-	real, err := mgr.AssignHarp("/proj", "codex")
+	real, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(real.HarpName, "sid-1", transcript))
 
-	realLink, err := paths.HarpEngineTranscriptLinkPath(real.HarpName, "codex", "sid-1")
+	realLink, err := paths.HarpEngineTranscriptLinkPath(real.HarpName, "claude-code", "sid-1")
 	require.NoError(t, err)
 	require.FileExists(t, realLink,
 		"the real store must drop the per-harp engine-transcript link here, or this test cannot detect MemStore doing so")
 
 	// --- MemStore, same lifecycle, must leave HOME untouched. ---
 	mem := NewMemStore()
-	e, err := mem.AssignHarp("/proj", "codex")
+	e, err := mem.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, mem.BindSession(e.HarpName, "sid-2", transcript))
 	require.NoError(t, mem.MarkEnded(e.HarpName, real.StartedAt))

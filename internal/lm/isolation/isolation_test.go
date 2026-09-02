@@ -492,14 +492,14 @@ func TestImageConfigZeroValue_DisablesDevcontainerDetectionSilently(t *testing.T
 func TestImageOverrideAndBaseImageAreOppositeConcepts(t *testing.T) {
 	rt := fakeRuntime{name: "docker", binary: "false", available: true}
 
-	c := containerFor(rt, "kiro", ImageConfig{Image: "my-registry/my-kiro:v2"})
-	assert.Equal(t, "my-registry/my-kiro:v2", c.image, "the override IS the image, verbatim")
+	c := containerFor(rt, "mock", ImageConfig{Image: "my-registry/my-mock:v2"})
+	assert.Equal(t, "my-registry/my-mock:v2", c.image, "the override IS the image, verbatim")
 	sources, _, _ := c.containerBuildSources("")
 	assert.Empty(t, sources, "an isolation_images override has NO build recipe — the user owns its lifecycle")
 
-	overlay := buildSources(engineContainerSpecFor("kiro"), buildSourcesOptions{baseOverride: "my-registry/my-kiro:v2"})
+	overlay := buildSources(engineContainerSpecFor("mock"), buildSourcesOptions{baseOverride: "my-registry/my-mock:v2"})
 	require.Len(t, overlay, 1, "the same string as a BaseImage is a base to build onto, not an image to run")
-	assert.Contains(t, string(overlay[0].containerfile), "FROM my-registry/my-kiro:v2\n")
+	assert.Contains(t, string(overlay[0].containerfile), "FROM my-registry/my-mock:v2\n")
 	assert.Contains(t, string(overlay[0].containerfile), "COPY ctxloom /usr/local/bin/ctxloom\n",
 		"a build base gets ctxloom layered onto it; a run-as-is override never would")
 }

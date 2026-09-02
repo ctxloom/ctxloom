@@ -25,10 +25,10 @@ func seedCanonicalFeedHarp(t *testing.T, content string) *sessions.Entry {
 	t.Helper()
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
-	minted, err := mgr.AssignHarp("/proj", "codex")
+	minted, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 
-	rec, err := transcript.NewRecorder(minted.HarpName, "codex")
+	rec, err := transcript.NewRecorder(minted.HarpName, "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{
 		Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: content},
@@ -53,7 +53,7 @@ func TestFeedScrollback_ReadsCanonical(t *testing.T) {
 	testsupport.Isolate(t)
 	entry := seedCanonicalFeedHarp(t, "SCROLLBACK-REAL-PAYLOAD")
 
-	entries := feedScrollback(context.Background(), entry, "codex")
+	entries := feedScrollback(context.Background(), entry, "claude-code")
 	require.Len(t, entries, 1)
 	assert.Equal(t, "SCROLLBACK-REAL-PAYLOAD", entries[0].Content)
 }
@@ -68,7 +68,7 @@ func TestWatchStoreFeed_StreamsCanonical(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), feedWait)
 	defer cancel()
 
-	feed, err := watchStoreFeed(ctx, entry, "codex")
+	feed, err := watchStoreFeed(ctx, entry, "claude-code")
 	require.NoError(t, err)
 	assert.Equal(t, "store", feed.Source)
 

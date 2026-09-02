@@ -671,8 +671,8 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		!slices.Equal(cc.AllowedTools, []string{"Read", "Grep"}) || cc.Model != "sonnet" {
 		t.Errorf("claude-code export = %+v", cc)
 	}
-	if cmd.Exports.IsEnabledFor("codex") {
-		t.Error("codex export is explicitly disabled but read as enabled")
+	if cmd.Exports.IsEnabledFor("disabled-engine") {
+		t.Error("an explicitly disabled export was read as enabled")
 	}
 	if cmd.Exports.IsEnabledFor("engine-with-no-settings") != true {
 		t.Error("an engine with no declared settings must be enabled (opt-out model)")
@@ -698,7 +698,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 	if len(skill.Files) != 3 || skill.Notes == "" {
 		t.Errorf("skill = %+v", skill)
 	}
-	if !skill.Exports.IsEnabledFor("claude-code") || skill.Exports.IsEnabledFor("kiro") {
+	if !skill.Exports.IsEnabledFor("claude-code") || skill.Exports.IsEnabledFor("other-engine") {
 		t.Errorf("skill per-engine enablement = %+v", skill.Exports)
 	}
 	var execCount int
@@ -894,11 +894,11 @@ func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 // every signature. This fails loudly if that ever changes.
 func TestEngineExports_EncodeIsDeterministic(t *testing.T) {
 	exports := EngineExports{
-		"opencode":    {Description: "o"},
+		"engine-e":    {Description: "e"},
 		"claude-code": {Description: "c"},
-		"kiro":        {Description: "k"},
-		"codex":       {Description: "x"},
-		"antigravity": {Description: "a"},
+		"engine-d":    {Description: "d"},
+		"engine-b":    {Description: "b"},
+		"engine-a":    {Description: "a"},
 	}
 	first, err := marshalYAML(skillMeta{Exports: exports})
 	if err != nil {

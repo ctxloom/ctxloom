@@ -107,11 +107,11 @@ func TestProbeEngine_CarriesName(t *testing.T) {
 func TestFormatLiveEngineReport(t *testing.T) {
 	report := []engineStatus{
 		{name: "claude", available: true},
-		{name: "opencode", available: true},
-		{name: "codex", available: false, reason: "binary not found"},
+		{name: "mock", available: true},
+		{name: "other-engine", available: false, reason: "binary not found"},
 	}
 	got := formatLiveEngineReport(report)
-	assert.Equal(t, "live engines: claude ✓ · opencode ✓ · codex ✗ (binary not found)", got)
+	assert.Equal(t, "live engines: claude ✓ · mock ✓ · other-engine ✗ (binary not found)", got)
 }
 
 // TestComputeLiveEngineReport_OrderAndCoverage is computeLiveEngineReport's
@@ -148,8 +148,8 @@ func TestParseRequiredEngines(t *testing.T) {
 		{name: "empty is nil (floor off by default)", raw: "", want: nil},
 		{name: "whitespace-only is nil", raw: "   ", want: nil},
 		{name: "single engine", raw: "claude", want: []string{"claude"}},
-		{name: "comma separated, trimmed, lowercased", raw: " Claude, OPENCODE ,codex", want: []string{"claude", "opencode", "codex"}},
-		{name: "empty entries between commas are dropped", raw: "claude,,codex", want: []string{"claude", "codex"}},
+		{name: "comma separated, trimmed, lowercased", raw: " Claude, MOCK ,other-engine", want: []string{"claude", "mock", "other-engine"}},
+		{name: "empty entries between commas are dropped", raw: "claude,,other-engine", want: []string{"claude", "other-engine"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -165,8 +165,8 @@ func TestParseRequiredEngines(t *testing.T) {
 func TestCheckRequiredEngines_Floor(t *testing.T) {
 	report := []engineStatus{
 		{name: "claude", available: true},
-		{name: "opencode", available: true},
-		{name: "codex", available: false, reason: "binary not found on PATH"},
+		{name: "mock", available: true},
+		{name: "other-engine", available: false, reason: "binary not found on PATH"},
 	}
 
 	cases := []struct {
@@ -182,20 +182,20 @@ func TestCheckRequiredEngines_Floor(t *testing.T) {
 		},
 		{
 			name:     "all required engines available: passes",
-			required: []string{"claude", "opencode"},
+			required: []string{"claude", "mock"},
 			wantErr:  false,
 		},
 		{
 			name:        "required engine unavailable: fails, names the engine and the reason",
-			required:    []string{"codex"},
+			required:    []string{"other-engine"},
 			wantErr:     true,
-			wantMatches: []string{"codex", "binary not found on PATH"},
+			wantMatches: []string{"other-engine", "binary not found on PATH"},
 		},
 		{
 			name:        "mixed available+unavailable required: fails, names only the missing one",
-			required:    []string{"claude", "codex"},
+			required:    []string{"claude", "other-engine"},
 			wantErr:     true,
-			wantMatches: []string{"codex", "binary not found on PATH"},
+			wantMatches: []string{"other-engine", "binary not found on PATH"},
 		},
 		{
 			name:        "unknown engine name in require-list: fails, says so rather than silently ignoring it",
@@ -273,7 +273,7 @@ func TestMatchedEnvAndEnvSet(t *testing.T) {
 }
 
 // TestBackendTypeToLiveKey guards the one mapping the hermetic j002200 matrix's
-// backend-type vocabulary (claude-code/codex/opencode) and
+// backend-type vocabulary and
 // the live isolation probe (tests/acceptance/isolation_probe.go, behind the
 // acceptance tag) both resolve through to reach this registry's own liveAgents
 // keys — kept here, untagged, so `just lint`'s default (no build-tag) pass
@@ -281,8 +281,8 @@ func TestMatchedEnvAndEnvSet(t *testing.T) {
 func TestBackendTypeToLiveKey(t *testing.T) {
 	cases := []struct{ backendType, want string }{
 		{"claude-code", "claude"},
-		{"codex", "codex"},
-		{"opencode", "opencode"},
+		// Pass-through: any other backend type IS its own live key.
+		{"mock", "mock"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.backendType, func(t *testing.T) {
@@ -329,22 +329,6 @@ func TestLiveAgents_ConfigValidatesAgainstSchema(t *testing.T) {
 	}
 }
 
-// TestCodexRegistryEntry_IsWiredNotStub guards against a regression back to
-// the old authCheckCodex stub ("codex has no live authentication probe
-// implemented (declared but unavailable)") — codex now has a real probe, a
-// real credential copier, and a real pinned-cheap-model config, confirmed
-// live against an authenticated `codex login status`.
-func TestCodexRegistryEntry_IsWiredNotStub(t *testing.T) {
-	a, ok := liveAgents["codex"]
-	assert.True(t, ok, "codex must remain a registered live agent")
-	assert.Equal(t, "codex", a.binary)
-	assert.Equal(t, ".codex", a.credDir)
-	assert.NotNil(t, a.authCheck, "codex must have a real authCheck, not the old permanently-unavailable stub")
-	assert.NotNil(t, a.copyCreds, "codex must have a credential copier, not nil (the old declared-but-unavailable state)")
-	assert.Contains(t, a.config, "type: codex")
-	assert.Contains(t, a.config, "gpt-5.4-mini", "codex must pin a cheap model — live tests prove context delivery, not model quality")
-}
-
 // TestCopyCredentials_ZeroFilesCopiedIsAnError pins that every
 // copy*Credentials function used to succeed silently while copying zero
 // bytes — continuing/returning past a missing source with no signal at
@@ -357,8 +341,6 @@ func TestCopyCredentials_ZeroFilesCopiedIsAnError(t *testing.T) {
 		fn   func(realHome, fakeHome string) error
 	}{
 		{"claude", copyClaudeCredentials},
-		{"codex", copyCodexCredentials},
-		{"opencode", copyOpencodeCredentials},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -443,9 +425,7 @@ func seedFakeRealHome(t *testing.T) string {
 	t.Helper()
 	realHome := t.TempDir()
 	for rel, body := range map[string]string{
-		filepath.Join(".claude", ".credentials.json"):             `{"claudeAiOauth":{"refreshToken":"real"}}`,
-		filepath.Join(".codex", "auth.json"):                      `{"tokens":{"refresh_token":"real"}}`,
-		filepath.Join(".local", "share", "opencode", "auth.json"): `{"openrouter":{"type":"api"}}`,
+		filepath.Join(".claude", ".credentials.json"): `{"claudeAiOauth":{"refreshToken":"real"}}`,
 	} {
 		p := filepath.Join(realHome, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -461,8 +441,8 @@ func seedFakeRealHome(t *testing.T) string {
 // TestMapCredentials_PointAtTheRealDirectory is the core of the mapped-not-copied
 // policy: each mappable engine's own config-home env var is set to the REAL
 // host directory, by exact name and exact value. Copying is what consumed the
-// human's codex refresh token (jovial-employee); mapping lets the engine
-// rotate the REAL file in place.
+// human's single-use refresh token; mapping lets the engine rotate the REAL
+// file in place.
 func TestMapCredentials_PointAtTheRealDirectory(t *testing.T) {
 	realHome := seedFakeRealHome(t)
 	cases := []struct {
@@ -473,13 +453,6 @@ func TestMapCredentials_PointAtTheRealDirectory(t *testing.T) {
 		// credentialSeedSpecs["claude-code"]: HonoursVarForCreds true,
 		// CLAUDE_CONFIG_DIR relocates config AND credentials.
 		{"claude", "CLAUDE_CONFIG_DIR", filepath.Join(realHome, ".claude")},
-		// credentialSeedSpecs["codex"]: HonoursVarForCreds true, auth.json
-		// resolves from $CODEX_HOME only.
-		{"codex", "CODEX_HOME", filepath.Join(realHome, ".codex")},
-		// credentialSeedSpecs["opencode"]: HonoursVarForCreds true, but its
-		// destSubdir is NESTED because opencode appends "/opencode" itself —
-		// so the var points one level ABOVE the credential directory.
-		{"opencode", "XDG_DATA_HOME", filepath.Join(realHome, ".local", "share")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.engine, func(t *testing.T) {
@@ -506,12 +479,12 @@ func TestSeedLiveCredentials_SetsTheMappedVarOnTheChild(t *testing.T) {
 	before := treeSnapshot(t, realHome)
 
 	got, setEnv := recordEnv()
-	if err := seedLiveCredentials("codex", liveAgents["codex"], realHome, fakeHome, setEnv); err != nil {
+	if err := seedLiveCredentials("claude", liveAgents["claude"], realHome, fakeHome, setEnv); err != nil {
 		t.Fatalf("seedLiveCredentials: %v", err)
 	}
 
-	assert.Equal(t, map[string]string{"CODEX_HOME": filepath.Join(realHome, ".codex")}, got,
-		"codex must be MAPPED at the real ~/.codex, by that exact var and value")
+	assert.Equal(t, map[string]string{"CLAUDE_CONFIG_DIR": filepath.Join(realHome, ".claude")}, got,
+		"the engine must be MAPPED at its real credential home, by that exact var and value")
 	assert.Empty(t, treeSnapshot(t, fakeHome),
 		"mapping must write NOTHING into the isolated HOME — a copy there is the jovial-employee bug")
 	assert.Equal(t, before, treeSnapshot(t, realHome),
@@ -522,12 +495,12 @@ func TestSeedLiveCredentials_SetsTheMappedVarOnTheChild(t *testing.T) {
 // policy's two permitted paths: an API key rides the inherited env, so no var
 // is set and no byte is written.
 func TestSeedLiveCredentials_APIKeyPathMapsAndCopiesNothing(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "sk-fake-for-this-test")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-fake-for-this-test")
 	realHome := seedFakeRealHome(t)
 	fakeHome := t.TempDir()
 
 	got, setEnv := recordEnv()
-	if err := seedLiveCredentials("codex", liveAgents["codex"], realHome, fakeHome, setEnv); err != nil {
+	if err := seedLiveCredentials("claude", liveAgents["claude"], realHome, fakeHome, setEnv); err != nil {
 		t.Fatalf("seedLiveCredentials: %v", err)
 	}
 	assert.Empty(t, got, "the API-key path must set no credential mapping at all")
@@ -545,8 +518,6 @@ func TestSeedLiveCredentials_MissingCredentialIsLoud(t *testing.T) {
 		wantText string // the exact directory the failure must name
 	}{
 		{"claude", ".claude"},
-		{"codex", ".codex"},
-		{"opencode", filepath.Join(".local", "share")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.engine, func(t *testing.T) {
@@ -568,12 +539,12 @@ func TestSeedLiveCredentials_MissingCredentialIsLoud(t *testing.T) {
 // behind" case, which a mere directory-presence check would wave through.
 func TestMapCredentialHome_RequiredFileMissingNamesIt(t *testing.T) {
 	realHome := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(realHome, ".codex"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(realHome, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, err := mapCodexCredentials(realHome)
-	assert.Error(t, err, "an existing $CODEX_HOME with no auth.json must fail loudly")
-	assert.Contains(t, err.Error(), filepath.Join(realHome, ".codex", "auth.json"))
+	_, err := mapClaudeCredentials(realHome)
+	assert.Error(t, err, "an existing credential home with no credential file must fail loudly")
+	assert.Contains(t, err.Error(), filepath.Join(realHome, ".claude", ".credentials.json"))
 }
 
 // TestMapCredentialHome_NotADirectoryIsRejected pins that a FILE at the
@@ -582,11 +553,11 @@ func TestMapCredentialHome_RequiredFileMissingNamesIt(t *testing.T) {
 // that credential writers use.
 func TestMapCredentialHome_NotADirectoryIsRejected(t *testing.T) {
 	realHome := t.TempDir()
-	p := filepath.Join(realHome, ".codex")
+	p := filepath.Join(realHome, ".claude")
 	if err := os.WriteFile(p, []byte("not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := mapCodexCredentials(realHome)
+	_, err := mapClaudeCredentials(realHome)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not a directory")
 }
@@ -596,7 +567,7 @@ func TestMapCredentialHome_NotADirectoryIsRejected(t *testing.T) {
 // map. That must be an error, not a silent no-op.
 func TestSeedLiveCredentials_NoRealHomeIsLoud(t *testing.T) {
 	got, setEnv := recordEnv()
-	err := seedLiveCredentials("codex", liveAgents["codex"], "", t.TempDir(), setEnv)
+	err := seedLiveCredentials("claude", liveAgents["claude"], "", t.TempDir(), setEnv)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no real HOME")
 	assert.Empty(t, got)
@@ -613,15 +584,14 @@ func TestSeedLiveCredentials_NoMechanismIsLoud(t *testing.T) {
 }
 
 // TestLiveAgents_MappableEnginesAreMappedUnmappableOnesAreNot is the registry
-// floor for the policy. claude/codex/opencode are the engines
-// internal/lm/isolation/auth.go's credentialSeedSpecs records as
-// HonoursVarForCreds TRUE, so all of them must be MAPPED. An engine whose
+// floor for the policy. Every engine internal/lm/isolation/auth.go's
+// credentialSeedSpecs records as HonoursVarForCreds TRUE must be MAPPED. An engine whose
 // credentials no config-home var relocates (HonoursVarForCreds FALSE) cannot
 // be mapped this way and must keep a copier instead; the false arm below is
 // what stops a future edit from quietly mapping such an engine at a
 // directory the engine never reads.
 func TestLiveAgents_MappableEnginesAreMappedUnmappableOnesAreNot(t *testing.T) {
-	mappable := map[string]bool{"claude": true, "codex": true, "opencode": true}
+	mappable := map[string]bool{"claude": true}
 	for _, name := range liveAgentOrder {
 		a := liveAgents[name]
 		want, known := mappable[name]

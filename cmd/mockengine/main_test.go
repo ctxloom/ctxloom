@@ -62,7 +62,8 @@ func TestRun_NoPersonality_NamesTheEnvVar(t *testing.T) {
 }
 
 // The mock's leading flags carried their own engine-name table: --claude and
-// --claude-code mapped to the literal "claude-code", --codex to "codex". The
+// --claude-code mapped to the literal "claude-code", and each other engine to
+// its own literal. The
 // repo already has exactly one such table — agent.CanonicalEngineName, whose
 // own doc says engine names are shared user-facing vocabulary and that "two
 // tables drift into one spelling resolving under one binary and erroring under
@@ -98,7 +99,7 @@ func TestRun_PersonalitySpellingsAgreeAcrossChannels(t *testing.T) {
 
 // Selectability by a leading --<engine> flag must come from the registry, not
 // from a switch in this file: a third impersonable backend should not need
-// this main package edited to be reachable the way claude-code and codex are.
+// this main package edited to be reachable the way the registered backends are.
 func TestPersonalityFromFlag_CoversEveryImpersonableBackend(t *testing.T) {
 	var checked int
 	for _, name := range backends.List() {

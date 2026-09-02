@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -68,7 +69,30 @@ func readFixtureLines(t *testing.T, engine string) ([]string, []Record) {
 	return raw, recs
 }
 
-var allFixtureEngines = []string{"codex", "claude", "opencode", "acp", "antigravity"}
+// allFixtureEngines is DERIVED from the fixture directory, never hand-listed.
+// A hand-maintained roster here is an unchecked binding: it silently disagrees
+// with the directory the moment a fixture is added or removed, and the failure
+// surfaces as a missing FILE, which reads like a broken test rather than a
+// stale list. Globbing cannot drift.
+//
+// Some names are engines this build has REMOVED. That is provenance, not a
+// claim the engine exists — the fixtures are canonical, engine-agnostic JSONL.
+// See testdata/fixtures/MANIFEST.json.
+var allFixtureEngines = discoverFixtureEngines()
+
+func discoverFixtureEngines() []string {
+	const suffix = ".transcript.acp.jsonl"
+	matches, err := filepath.Glob(filepath.Join("testdata", "fixtures", "*"+suffix))
+	if err != nil {
+		panic("glob fixtures: " + err.Error())
+	}
+	names := make([]string, 0, len(matches))
+	for _, m := range matches {
+		names = append(names, strings.TrimSuffix(filepath.Base(m), suffix))
+	}
+	sort.Strings(names)
+	return names
+}
 
 // TestFixtures_ConformToJSONSchema validates every line of every per-engine
 // fixture against docs/transcript.schema.json — the machine-checkable half of
@@ -179,4 +203,40 @@ func TestFixtures_EngineEnumMatchesManifest(t *testing.T) {
 		assert.Equal(t, engine, v["engine"])
 		require.NoError(t, schema.Validate(v))
 	}
+}
+
+// readFixtureManifest returns the fixture basenames MANIFEST.json documents,
+// with the shared suffix stripped so they are comparable to allFixtureEngines.
+func readFixtureManifest(t *testing.T) []string {
+	t.Helper()
+	const suffix = ".transcript.acp.jsonl"
+
+	data, err := os.ReadFile(filepath.Join("testdata", "fixtures", "MANIFEST.json"))
+	require.NoError(t, err, "read fixture MANIFEST.json")
+
+	var m struct {
+		Fixtures map[string]json.RawMessage `json:"fixtures"`
+	}
+	require.NoError(t, json.Unmarshal(data, &m), "parse fixture MANIFEST.json")
+
+	names := make([]string, 0, len(m.Fixtures))
+	for k := range m.Fixtures {
+		names = append(names, strings.TrimSuffix(k, suffix))
+	}
+	return names
+}
+
+// TestFixtureRoster_IsNotEmpty guards the derivation itself. allFixtureEngines
+// drives three table tests by `for range`; if the glob ever matched nothing —
+// a moved directory, a renamed suffix, a test run from the wrong working
+// directory — every one of them would iterate zero times and PASS, reporting
+// coverage that did not run. That is this project's characteristic silent
+// no-op, so the roster is asserted rather than trusted.
+func TestFixtureRoster_IsNotEmpty(t *testing.T) {
+	require.NotEmpty(t, allFixtureEngines,
+		"the fixture glob matched nothing — the schema, seq and manifest tables would all pass vacuously")
+
+	manifest := readFixtureManifest(t)
+	assert.ElementsMatch(t, manifest, allFixtureEngines,
+		"the fixture directory and MANIFEST.json must describe the same set — a fixture with no manifest entry has undocumented provenance, and a manifest entry with no fixture is a stale claim")
 }

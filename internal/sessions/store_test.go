@@ -160,7 +160,7 @@ func TestSessionStoreContract_FindPopulatesCanonicalTranscript(t *testing.T) {
 			testsupport.Isolate(t) // paths.HarpCanonicalTranscriptPath is HOME-rooted
 
 			s := a.make(t)
-			e, err := s.AssignHarp("/proj", "codex")
+			e, err := s.AssignHarp("/proj", "claude-code")
 			if err != nil {
 				t.Fatalf("AssignHarp: %v", err)
 			}

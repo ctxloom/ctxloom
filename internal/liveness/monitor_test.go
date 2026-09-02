@@ -374,7 +374,7 @@ func TestMonitor_DiedVersusCleanEnd(t *testing.T) {
 	m := liveness.New(liveness.Options{Now: func() time.Time { return now }, Probes: []liveness.Probe{dead}})
 
 	const openHarp = "died-mid-turn"
-	rec, err := transcript.NewRecorder(openHarp, "codex")
+	rec, err := transcript.NewRecorder(openHarp, "claude-code")
 	require.NoError(t, err)
 	transcript.RecordUserText(rec, "do the thing")
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{

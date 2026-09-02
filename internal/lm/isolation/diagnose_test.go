@@ -152,10 +152,10 @@ func TestDiagnoseStaleness_NamesTheNotCheckedCases(t *testing.T) {
 	t.Run("user-owned override is never inspected", func(t *testing.T) {
 		c := Container{
 			runtime: fakeRuntime{name: "docker", binary: "true", available: true},
-			image:   "my-registry/my-kiro:v2",
+			image:   "my-registry/my-mock:v2",
 		}
 		d := &Diagnosis{ImagePresent: true}
-		diagnoseStaleness(context.Background(), c, "kiro", nil, nil, d)
+		diagnoseStaleness(context.Background(), c, "mock", nil, nil, d)
 
 		assert.False(t, d.ImageStale)
 		require.NotEmpty(t, d.Guidance, "a never-inspected image must not report a bare false")
@@ -178,7 +178,7 @@ func TestDiagnoseStaleness_NamesTheNotCheckedCases(t *testing.T) {
 		require.NotEmpty(t, sources, "precondition: a composable spec has build sources")
 
 		d := &Diagnosis{ImagePresent: true}
-		diagnoseStaleness(context.Background(), c, "kiro", sources, devBase, d)
+		diagnoseStaleness(context.Background(), c, "mock", sources, devBase, d)
 
 		assert.False(t, d.ImageStale)
 		require.NotEmpty(t, d.Guidance)

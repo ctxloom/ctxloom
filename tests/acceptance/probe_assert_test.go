@@ -85,7 +85,7 @@ func TestProbeMint_IsStablePerCellAndUniqueAcrossCells(t *testing.T) {
 	if a1 != a2 {
 		t.Fatalf("a cell's fixture step and its assertion step are separate steps and must agree on the nonce; got %q then %q", a1, a2)
 	}
-	b, err := l.Mint(testCell("codex"))
+	b, err := l.Mint(testCell("mock"))
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -110,13 +110,13 @@ func TestProbeMint_SnapshotIsACopy(t *testing.T) {
 // --- cell identity ----------------------------------------------------------
 
 func TestProbeCellID_StampsEveryAxisAndOmitsEmptyOnes(t *testing.T) {
-	full := probeCellID{Probe: "p4-plan-sentinel", Engine: "codex", Runtime: "container", Workspace: "worktree", Variant: "control"}
-	for _, want := range []string{"probe=p4-plan-sentinel", "engine=codex", "runtime=container", "workspace=worktree", "variant=control"} {
+	full := probeCellID{Probe: "p4-plan-sentinel", Engine: "mock", Runtime: "container", Workspace: "worktree", Variant: "control"}
+	for _, want := range []string{"probe=p4-plan-sentinel", "engine=mock", "runtime=container", "workspace=worktree", "variant=control"} {
 		if !strings.Contains(full.String(), want) {
 			t.Fatalf("a cell stamp missing %q is unusable in the one context it is ever read in — a matrix of them; got %s", want, full)
 		}
 	}
-	bare := probeCellID{Engine: "codex", Runtime: "host", Workspace: "none"}
+	bare := probeCellID{Engine: "mock", Runtime: "host", Workspace: "none"}
 	if strings.Contains(bare.String(), "probe=") || strings.Contains(bare.String(), "variant=") {
 		t.Fatalf("a probe with one dimension must not stamp empty fields into its own evidence; got %s", bare)
 	}
@@ -247,7 +247,7 @@ func TestProbeCarriesNonce_CannedOutputIsAttributedToTheDeclaredChannel(t *testi
 // result must not report a CONTEXT-DELIVERY failure, or the ladder's whole
 // attribution story collapses into one indistinguishable red.
 func TestProbeCarriesNonce_ChannelLabelComesFromTheProbeNotTheHelper(t *testing.T) {
-	v := probeVerdict{Family: "probe", Cell: testCell("codex"), Channel: channelMCPToolResult}
+	v := probeVerdict{Family: "probe", Cell: testCell("mock"), Channel: channelMCPToolResult}
 	err := v.carriesNonce(`{"nonce":"world"}`, "swift-amber-falcon")
 	if err == nil {
 		t.Fatal("missing nonce must fail")
@@ -318,7 +318,7 @@ func TestProbeExactObject_WrongValueIsAValueFailureNotAShapeFailure(t *testing.T
 
 func TestForeignHarps_AnotherCellsHarpInThisCellsOutputIsALeak(t *testing.T) {
 	self := testCell("claude-code")
-	other := testCell("codex")
+	other := testCell("mock")
 	ledger := map[probeCellID]string{self: "swift-amber-falcon", other: "brisk-copper-otter"}
 
 	err := assertNoForeignHarps(self, ledger,
@@ -329,14 +329,14 @@ func TestForeignHarps_AnotherCellsHarpInThisCellsOutputIsALeak(t *testing.T) {
 	if shape, _ := probeShapeOf(err); shape != shapeLeak {
 		t.Fatalf("a leak must carry the leak shape, got %q", shape)
 	}
-	if !strings.Contains(err.Error(), "brisk-copper-otter") || !strings.Contains(err.Error(), "engine=codex") {
+	if !strings.Contains(err.Error(), "brisk-copper-otter") || !strings.Contains(err.Error(), "engine=mock") {
 		t.Fatalf("a leak report must name the harp AND the cell it belongs to, or nobody can chase it; got: %v", err)
 	}
 }
 
 func TestForeignHarps_ThisCellsOwnHarpIsNotALeak(t *testing.T) {
 	self := testCell("claude-code")
-	ledger := map[probeCellID]string{self: "swift-amber-falcon", testCell("codex"): "brisk-copper-otter"}
+	ledger := map[probeCellID]string{self: "swift-amber-falcon", testCell("mock"): "brisk-copper-otter"}
 	if err := assertNoForeignHarps(self, ledger, probeArtifact{Name: "stdout", Body: `{"hello":"swift-amber-falcon"}`}); err != nil {
 		t.Fatalf("a cell echoing its OWN nonce is the probe working, not a leak: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestForeignHarps_ThisCellsOwnHarpIsNotALeak(t *testing.T) {
 // finds no leak for the most literal reason there is.
 func TestForeignHarps_NoArtifactsIsAnErrorNotAPass(t *testing.T) {
 	self := testCell("claude-code")
-	ledger := map[probeCellID]string{self: "swift-amber-falcon", testCell("codex"): "brisk-copper-otter"}
+	ledger := map[probeCellID]string{self: "swift-amber-falcon", testCell("mock"): "brisk-copper-otter"}
 	if err := assertNoForeignHarps(self, ledger); err == nil {
 		t.Fatal("a scan with nothing to scan must refuse, not report cleanliness")
 	}
@@ -357,7 +357,7 @@ func TestForeignHarps_NoArtifactsIsAnErrorNotAPass(t *testing.T) {
 // the scan is inert while looking like it ran.
 func TestForeignHarps_CellMissingFromTheLedgerIsAnError(t *testing.T) {
 	self := testCell("claude-code")
-	ledger := map[probeCellID]string{testCell("codex"): "brisk-copper-otter"}
+	ledger := map[probeCellID]string{testCell("mock"): "brisk-copper-otter"}
 	err := assertNoForeignHarps(self, ledger, probeArtifact{Name: "stdout", Body: "{}"})
 	if err == nil {
 		t.Fatal("a cell absent from the mint ledger must refuse: its nonce was never minted through the ledger, so the scan is measuring the wrong thing")

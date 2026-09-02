@@ -80,8 +80,10 @@ import (
 // would red claude's cell for failing to do something ctxloom never
 // asked it to do, and a red that blames the wrong subsystem is worse than no
 // cell at all.
-func hookProbeIngestsHookStdout(engine string) bool {
-	return engine == "codex"
+func hookProbeIngestsHookStdout(string) bool {
+	// No shipped engine ingests hook stdout today. The predicate stays because
+	// the distinction is real and an engine that does would need it again.
+	return false
 }
 
 // --- the fixture --------------------------------------------------------------

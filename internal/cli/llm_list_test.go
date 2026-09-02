@@ -12,10 +12,10 @@ import (
 )
 
 func TestLLMListEntries_MarksDefaultLabel(t *testing.T) {
-	entries := llmListEntries([]string{"antigravity", "claude-code", "mock"}, "claude-code", nil, nil)
+	entries := llmListEntries([]string{"mock-b", "claude-code", "mock"}, "claude-code", nil, nil)
 
 	assert.Equal(t, []llmEntry{
-		{Label: "antigravity"},
+		{Label: "mock-b"},
 		{Label: "claude-code", Default: true},
 		{Label: "mock"},
 	}, entries)

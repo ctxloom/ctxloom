@@ -207,13 +207,15 @@ func TestScanAdoptCandidates_SkipsAlreadyKnownAndAnotherHarp(t *testing.T) {
 // than silently scanning nothing.
 func TestScanAdoptCandidates_UnsupportedBackendErrors(t *testing.T) {
 	mgr := newAdoptManager(t)
-	entry, err := mgr.AssignHarp("/proj", "codex")
+	// A REGISTERED backend that adopt does not support — not an unknown name,
+	// which is a different refusal on a different path.
+	entry, err := mgr.AssignHarp("/proj", config.BackendMock)
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(entry.HarpName, "id-1", "/tmp/does-not-matter.jsonl"))
 
 	_, err = ScanAdoptCandidates(entry.HarpName)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "codex")
+	assert.Contains(t, err.Error(), config.BackendMock)
 	assert.Contains(t, err.Error(), "not supported yet")
 }
 

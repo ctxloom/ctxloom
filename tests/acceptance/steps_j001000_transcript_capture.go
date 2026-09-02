@@ -28,7 +28,9 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/transcript"
+	mockreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/mock"
 )
 
 // j001000State accumulates this journey's fixture state across a scenario's
@@ -101,17 +103,52 @@ func j001000FixturePath(engineKey string) (string, error) {
 // seeded session claims exactly the version ctxloom's readers are validated
 // against. An unrecognised backend deliberately gets no version, so a
 // scenario that WANTS the refusal can still ask for one.
+//
+// Each backend's version is DERIVED from wherever that backend declares it,
+// never re-typed here — a hand-copied table agrees with its source on the day
+// it is written and silently disagrees forever after, and a seeded session
+// would then claim a version no reader is validated against while the
+// scenario still passed. The two sources differ because the backends differ:
+// a real engine's pin lives in .github/engine-versions.env, the lock CI
+// drift-checks against the vendor's published feed; mock has no vendor and no
+// feed, so its adapter's own ValidatedVersion is the authority.
 func j001000SeededEngineVersion(backend string) string {
 	switch backend {
-	case "claude-code":
-		return "2.1.214"
-	case "codex":
-		return "0.144.6"
-	case "kiro":
-		return "2.13.0"
+	case config.BackendClaudeCode:
+		return enginePinFromLock("CLAUDE_CODE_CLI_VERSION")
+	case config.BackendMock:
+		if len(mockreader.VersionedAdapters) == 0 {
+			return ""
+		}
+		return mockreader.VersionedAdapters[0].ValidatedVersion
 	default:
 		return ""
 	}
+}
+
+// enginePinFromLock reads one KEY=value out of .github/engine-versions.env,
+// the tested-version lock. Returns "" when the key is absent, which seeds a
+// session with no version and therefore a refusal — loud, and never a guess.
+func enginePinFromLock(key string) string {
+	_, self, _, ok := runtime.Caller(0)
+	if !ok {
+		return ""
+	}
+	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(self)))
+	raw, err := os.ReadFile(filepath.Join(repoRoot, ".github", "engine-versions.env"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if k, v, found := strings.Cut(line, "="); found && k == key {
+			return v
+		}
+	}
+	return ""
 }
 
 // j001000SessionID is the backend-native session id a seeded entry binds. It is

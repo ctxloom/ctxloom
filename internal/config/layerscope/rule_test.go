@@ -97,7 +97,7 @@ func TestPolicy_Check_ArraysAreOneLeafNeverRecursedInto(t *testing.T) {
 	// reported once, at the list's own path — never per element (Flatten
 	// never descends into a slice).
 	p := Policy{{Path: "isolation_engines", Scope: ScopeMachine}}
-	values := map[string]any{"isolation_engines": []any{"claude-code", "codex"}}
+	values := map[string]any{"isolation_engines": []any{"claude-code", "mock"}}
 	violations := p.Check(LayerProject, values)
 	if len(violations) != 1 {
 		t.Fatalf("expected exactly 1 violation for the whole list, got %d", len(violations))

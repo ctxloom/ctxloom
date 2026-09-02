@@ -97,8 +97,6 @@ func TestSurfaceHelpFor_DescribesEachEngineFromTheBackendsThemselves(t *testing.
 	// the hook. If those render identically the table has stopped describing
 	// anything.
 	assert.Contains(t, help, "system-prompt", "claude-code's extra context approaches must show")
-	assert.Contains(t, help, "(folded into another surface on this engine)",
-		"mock folds MCP into its config surface; an empty row must SAY that rather than look like an oversight")
 	assert.Contains(t, help, "(default)", "a reader has to be able to tell which approach is taken without asking")
 }
 
@@ -112,7 +110,7 @@ func TestSurfaceHelpFor_DescribesEachEngineFromTheBackendsThemselves(t *testing.
 // delivered, not whether the user is left with a file, so it cannot answer that
 // question and must never be asked it.
 func TestSurfaceHelpFor_NeverClaimsAnEngineCannotProduceAContextFile(t *testing.T) {
-	for _, engine := range []string{"mock", "claude-code", "kiro"} {
+	for _, engine := range []string{"mock", "claude-code"} {
 		help := strings.ToLower(surfaceHelpFor([]string{engine}))
 		assert.NotContains(t, help, "no way to",
 			"%s: help must not deny a capability it cannot see from the approach table", engine)

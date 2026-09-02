@@ -4,7 +4,7 @@
 // itself was launched with a minimal environment. A detached GUI launch (a
 // Dock/Finder icon, a desktop launcher, an editor extension host) inherits a
 // bare PATH that omits those additions — sometimes with $SHELL itself unset —
-// so a bare-name spawn ("claude", "codex", "kiro-cli", ...) fails with ENOENT
+// so a bare-name spawn ("claude", ...) fails with ENOENT
 // even though the binary is on the user's ordinary interactive PATH. This is
 // the exact class of bug ctxloom-vscode already fixed for its OWN spawns
 // (src/shell-env.ts, commit 9dbaa40, mirroring VS Code's own

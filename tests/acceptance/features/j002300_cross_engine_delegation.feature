@@ -54,7 +54,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # A SECOND finding surfaced live-verifying the @live scenario below, first
   # recorded here as "a real permission-ladder gap". It was not one: the root
   # cause turned out to be runner WIRING, and the last thing keeping that
-  # scenario red after the fix was a consumed codex refresh token on the host.
+  # scenario red after the fix was a consumed refresh token on the host.
   # Both are resolved and both are kept, in full, in that scenario's own
   # comment — the misdiagnosis included, because it is the reason the
   # per-engine floor at the bottom of this file exists at all.
@@ -130,7 +130,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     And the received message is from "librarian" and its body carries its own guidance, not "cartographer"'s
 
   # @live, both requirement 2 (genuine cross-ENGINE, the claim the hermetic
-  # tier above explicitly declines — claude-code and codex, the two
+  # tier above explicitly declines — the
   # proven-working pair; the isolation probe just passed both, both axes)
   # and the child->coordinator half of requirement 4 the hermetic tier
   # structurally cannot reach (see the finding above). Each child's marker
@@ -142,7 +142,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # value, and each child is instructed, in its OWN turn, to make that call
   # itself — a real model decision, not a scripted echo, which is exactly
   # what the hermetic tier's mock backend cannot supply.
-  # SELF-SKIPS LOUDLY: the gate step probes claude AND codex independently
+  # SELF-SKIPS LOUDLY: the gate step probes each engine independently
   # and names whichever is missing, and how, before spending a single live
   # turn.
   #
@@ -169,21 +169,17 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # reports its marker over the real bus — the two claude assertions here
   # pass.
   #
-  # SUPERSEDED 2026-08-03 — the "codex drops the stdio server's env"
-  # diagnosis recorded here previously is NOT what blocks this scenario, and
-  # a live re-run found no evidence for it: no "this session is the
-  # coordinator — it has no parent" was raised by either child, and no rogue
-  # local coordinator stood up. What was actually broken was
-  # ENGINE-INDEPENDENT and had been failing silently in the hermetic suite
-  # too: the bare-`ctxloom mcp` coordinator ran with an EMPTY Identity.Harp
+  # AN EMPTY COORDINATOR HARP SILENTLY EATS MAIL, and it is
+  # ENGINE-INDEPENDENT: the bare-`ctxloom mcp` coordinator can run with an
+  # EMPTY Identity.Harp
   # (internal/cli's selfIdentityFromEnv read CTXLOOM_SESSION_HARP, which
   # `ctxloom run` exports but the .mcp.json entry `manage install` writes
   # does not). The harp IS the coordinator's mailbox address, so with it
-  # empty, bridgeTurnResult's mail was refused at queueMailPayloadID's
-  # `to == ""` guard and childSend's `parent == ""` arm rejected any
-  # agent_send(to:"parent") — while agent_run kept returning success. Fixed
-  # 2026-08-03 by minting a harp when no ambient session supplies one;
-  # gated hermetically by the bridge scenario above.
+  # empty, bridgeTurnResult's mail is refused at queueMailPayloadID's
+  # `to == ""` guard and childSend's `parent == ""` arm rejects any
+  # agent_send(to:"parent") — while agent_run keeps returning success. A harp
+  # is minted when no ambient session supplies one; gated hermetically by the
+  # bridge scenario above.
   #
   # STATE AFTER THAT FIX, live-verified 2026-08-03 on this host:
   #   - CLAUDE half: GREEN end to end. The claude child decided to call
@@ -191,23 +187,34 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   #     and the round-trip ECHO token came back over the bus. All four
   #     claude assertions pass (12 of 18 steps, up from 4).
   #   - CODEX half: the BUS works — agent_recv really did return a message
-  #     from codex-child — but the body is a runner-exit report, not the
-  #     marker, because the codex ENGINE could not authenticate:
+  #     from the second child — but the body is a runner-exit report, not the
+  #     marker, because that ENGINE could not authenticate:
   #     "Your access token could not be refreshed because your refresh
   #     token was already used" (401 refresh_token_reused).
   #
   # RESOLVED 2026-08-12 — and it was never a ctxloom defect, exactly as the
-  # entry above judged. The host's own `codex exec`, with no ctxloom in the
-  # picture, failed with the identical 401; a human ran `codex login`; this
+  # entry above judged. The host's own engine invocation, with no ctxloom in
+  # the picture, failed with the identical 401; a human re-authenticated; this
   # scenario then passed unchanged, no product change of any kind. Read a
   # future red here with that precedent in hand: a runner-exit body carrying a
   # 401 means re-authenticate the engine, and only a body that is neither the
   # marker nor a credential error is evidence against ctxloom. The per-engine
   # floor below now guards each engine of that pair separately, so a repeat of
   # this failure names ONE engine instead of taking the pair down together.
-  @live
+  # PARKED — this scenario needs TWO engines that can each ACT as an agent:
+  # read the context they were given and call agent_send back. Only one such
+  # engine ships. The registered double cannot stand in — it reports which
+  # surfaces it received, it does not reason over them — so repointing the
+  # second child at it would assert a reply nothing can produce.
+  #
+  # What is NOT in doubt is the machinery: per-child profile isolation and the
+  # two-way bus are exercised by the hermetic rows below. What goes unproven
+  # meanwhile is the differently-vendored half, which is the headline claim.
+  #
+  # UNTAG WHEN: a second engine that can act as an agent is available.
+  @live @wip
   Scenario: A coordinator delegates the same kind of task to two real, differently-vendored engines, and each proves it saw its own context over the real bus
-    Given real "claude" and "codex" engines are both available for cross-engine delegation
+    Given real "claude" and a second agent-capable engine are both available for cross-engine delegation
     When the agent calls tool "agent_run" with:
       | agent  | claude-child |
       | prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
@@ -215,15 +222,15 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     And "claude-child"'s session harp is remembered
     When the agent calls tool "agent_recv" repeatedly, waiting up to 120s total, until "claude-child" reports
     Then the tool call succeeds
-    And the received message is from "claude-child" and its body carries its own guidance, not "codex-child"'s
+    And the received message is from "claude-child" and its body carries its own guidance, not "second-child"'s
     When the agent calls tool "agent_run" with:
-      | agent  | codex-child |
+      | agent  | second-child |
       | prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
     Then the tool call succeeds
-    And "codex-child"'s session harp is remembered
-    When the agent calls tool "agent_recv" repeatedly, waiting up to 120s total, until "codex-child" reports
+    And "second-child"'s session harp is remembered
+    When the agent calls tool "agent_recv" repeatedly, waiting up to 120s total, until "second-child" reports
     Then the tool call succeeds
-    And the received message is from "codex-child" and its body carries its own guidance, not "claude-child"'s
+    And the received message is from "second-child" and its body carries its own guidance, not "claude-child"'s
     When the agent calls tool "agent_send" addressed to "claude-child"'s session with body "Call the MCP tool agent_send with recipient parent and body set to EXACTLY this token, verbatim: J002300-LIVE-ECHO-TOKEN-4a6f18. Do this now, then stop."
     Then the tool call succeeds
     When the agent calls tool "agent_recv" repeatedly, waiting up to 120s total, until "claude-child" reports
@@ -233,12 +240,12 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # THE PER-ENGINE FLOOR — one live row per engine ctxloom 0.7 can delegate to.
   #
   # WHY IT EXISTS. Every scenario above proves delegation against either the
-  # mock (hermetic) or the claude/codex PAIR (@live). Neither answers the
+  # mock (hermetic) or a real engine PAIR (@live). Neither answers the
   # question an operator actually asks before trusting `agent_run` on their own
   # box: "does a delegated child on MY engine really launch, really receive its
   # composed context, and really get a word back to its coordinator?" Until
   # this outline existed, two of the three 0.7 engines had never had a full
-  # live delegation round trip verified AT ALL — opencode's child path was
+  # live delegation round trip verified AT ALL — that child path was
   # migrated onto the StartRun/runner model (see coord.viaStartRunBackends)
   # with no live proof behind it. A per-engine
   # matrix, in the suite's own live lane, is the difference between "the code
@@ -291,66 +298,6 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     Examples:
       | engine      | marker                                       |
       | claude-code | J002300-DELEGATE-MARKER-CLAUDE-CODE-1d4c07ab |
-
-    # GREEN, but it took a human to get here, and the detour is worth keeping:
-    # this row's FIRST live run was red, and not for any reason in this repo.
-    # The child launched, the runner dialled home, and a message really did
-    # reach the coordinator's mailbox from the child's harp — the delegation
-    # path worked — but the body was a runner-exit report carrying codex's own
-    # 401 refresh_token_reused. Confirmed HOST-side, independent of ctxloom, by
-    # running `codex exec` with no ctxloom in the picture: identical 401. A
-    # human ran `codex login`, and the row returned its own marker unchanged.
-    #
-    # THE PROBE GAP THAT DETOUR EXPOSED IS STILL REAL (live_engine_registry.go):
-    # the availability report said `codex ✓` throughout, because
-    # authCheckCodex's `codex login status` is a LOCAL read of auth.json that
-    # never attempts a refresh — INSTALLED and AUTHENTICATED are distinguished,
-    # AUTHENTICATED and STILL-VALID are not. So a consumed refresh token
-    # surfaces here as a loud RED row rather than a named skip. That is the
-    # honest failure shape (a skip would be worse), and there is no cheap fix:
-    # the only probe that would know is one that performs a refresh, which is
-    # what consumes the token. If this row ever goes red again with a 401 in the
-    # body, read it as "re-run `codex login`", not as a delegation regression.
-    @codex
-    Examples:
-      | engine | marker                                 |
-      | codex  | J002300-DELEGATE-MARKER-CODEX-8b3f52cd |
-
-    # GREEN — and the one row here whose history is a warning about this row
-    # itself, not about opencode. Keep it: it is the reason to distrust a
-    # single live failure.
-    #
-    # WHAT WAS FILED (2026-08-12): opencode child delegation had ridden the
-    # StartRun/runner model since the spool cutover's S3b slice
-    # (coord.viaStartRunBackends["opencode"] == true) with no live round trip
-    # ever run behind it, and this row's first run found ZERO messages reaching
-    # the coordinator's mailbox in 240s — no agent_send, no bridgeTurnResult
-    # turn copy, not even a runner-exit report, while the codex row delivered
-    # one through that exact machinery. Both other suspects were excluded at
-    # the time (`opencode run` answered normally; `ctxloom run --agent
-    # delegate --one-shot` against this row's exact fixture returned the marker
-    # verbatim), so it was filed as a delegated-child defect.
-    #
-    # WHAT THE INVESTIGATION FOUND (obstinate-amulet): it does NOT reproduce.
-    # 13 consecutive live runs at that same base came back green, and the
-    # original trigger remains unexplained — so the filed defect was closed
-    # unreproduced rather than "fixed". What the hunt DID find is the reason
-    # that silence was so hard to read: a runner whose standup died reported
-    # nothing at all for five minutes, so any cause presented identically as
-    # "zero messages". That is fixed at 2725325e — a dead runner now fails
-    # immediately, naming itself and carrying its own stderr.
-    #
-    # SO: if this row ever shows zero messages again, do not re-file from the
-    # symptom. The coordinator will now name the dead runner and quote its
-    # stderr, and THAT is the evidence to file. A bare timeout with no such
-    # message means something else entirely.
-    # Live-verified green here on the merged base (2725325e), with its own
-    # assertion-side mutation proof.
-    @opencode
-    Examples:
-      | engine   | marker                                    |
-      | opencode | J002300-DELEGATE-MARKER-OPENCODE-7f05b391 |
-
   # P6 — THE STEER ECHO. Capability-probe ladder rung p6-steer-echo
   # (tests/acceptance/capability_probe_registry.go), living here rather than in a
   # file of its own because it extends this journey's machinery rather than
@@ -364,8 +311,8 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # The other direction — the coordinator reaching INTO a live session
   # mid-flight, and the child acting on what it was handed — was proven for
   # claude-code alone, by the J002300-LIVE-ECHO-TOKEN step of the @live
-  # cross-engine scenario above. Capability-inventory row 13 records codex
-  # and opencode as claimed-and-unproven for exactly that half. These three rows
+  # cross-engine scenario above. Capability-inventory row 13 records the
+  # removed engines as claimed-and-unproven for exactly that half. These three rows
   # are that gap.
   #
   # THE CHANNEL IS THE BUS MESSAGE BODY, AND ONLY THAT. The value the child must

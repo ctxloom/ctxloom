@@ -127,7 +127,7 @@ const codexHookNotWrittenWarning = "ctxloom: warning: codex hooks and MCP server
 // is precisely why the check has to live off stdout.
 func TestApproachAssert_RefusesAHookCellWhoseHookWasNeverWritten(t *testing.T) {
 	s := approachCellFixture()
-	s.engine, s.variant, s.approach = "codex", "hook", "hook"
+	s.engine, s.variant, s.approach = "mock", "hook", "hook"
 	s.stdout = "{\"hello\":\"swift-amber-falcon\"}\n"
 	s.stderr = codexHookNotWrittenWarning
 
@@ -150,7 +150,7 @@ func TestApproachRequiredSurfaceDelivered_IsScopedToTheApproachThatRidesTheHook(
 	for _, approach := range []string{"unsafe-file", "system-prompt"} {
 		t.Run(approach, func(t *testing.T) {
 			s := approachCellFixture()
-			s.engine, s.variant, s.approach = "codex", approach, approach
+			s.engine, s.variant, s.approach = "mock", approach, approach
 			s.stderr = codexHookNotWrittenWarning
 			require.NoError(t, approachAssert(s),
 				"%s carries itself and does not ride the hook surface; reddening it for an unwritten hook would be a red nobody can act on", approach)
@@ -159,7 +159,7 @@ func TestApproachRequiredSurfaceDelivered_IsScopedToTheApproachThatRidesTheHook(
 
 	t.Run("an unrelated NOT-written line does not red a hook cell", func(t *testing.T) {
 		s := approachCellFixture()
-		s.engine, s.variant, s.approach = "codex", "hook", "hook"
+		s.engine, s.variant, s.approach = "mock", "hook", "hook"
 		s.stderr = "ctxloom: warning: codex slash-command prompts were NOT written: no durable project home exists\n"
 		require.NoError(t, approachAssert(s),
 			"the guard must require BOTH the not-written signal and the hook on the same line: undelivered PROMPTS say nothing about the context channel")

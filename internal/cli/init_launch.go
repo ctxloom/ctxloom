@@ -215,8 +215,6 @@ const authPingTask = "Reply with exactly: ok"
 // fallback rather than blocking on a missing entry.
 var engineAuthFix = map[string]string{
 	"claude-code": "run `claude login` (or set ANTHROPIC_API_KEY)",
-	"codex":       "run `codex login` (or set OPENAI_API_KEY)",
-	"opencode":    "authenticate opencode (see its `auth` subcommand) or set OPENROUTER_API_KEY",
 }
 
 // engineAuthFixHint returns engine's named fix, or a generic fallback for an

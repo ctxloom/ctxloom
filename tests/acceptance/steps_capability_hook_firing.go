@@ -414,8 +414,10 @@ func hookProbeConfigYAML(a liveAgent, llmKey, engine, runtime string) string {
 // claude needs nothing here — it writes cwd-keyed or ephemeral
 // per-session surfaces that ctxloom delivers under a default binding, and
 // claude's cell is green on exactly that path.
-func hookProbeNeedsProjectConfigHome(engine string) bool {
-	return engine == "codex"
+func hookProbeNeedsProjectConfigHome(string) bool {
+	// No shipped engine needs a project config home today — every one delivers
+	// cwd-keyed or ephemeral per-session surfaces under a default binding.
+	return false
 }
 
 // --- driving the in-container carriage scan ---------------------------------

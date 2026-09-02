@@ -560,7 +560,7 @@ func TestContainerFor_PropagatesEveryImageConfigField(t *testing.T) {
 		AppRoot:             "/some/project",
 		NoDevcontainerBase:  true,
 		DevcontainerService: "devservice",
-		Engines:             []string{"claude-code", "kiro"},
+		Engines:             []string{"claude-code", "mock"},
 	}
 	c := containerFor(rt, "claude-code", img)
 	assert.Equal(t, img.BaseContainerfile, c.baseContainerfile)

@@ -11,7 +11,7 @@ Feature: A skill you author once, and your assistant simply has
   it is that what arrived is her work, whole and usable.
 
   # WHAT THIS JOURNEY DELIBERATELY DOES NOT CARRY. Which directory each of the
-  # four engines expects, whether opencode registers the folder explicitly, the
+  # each engine expects, whether it registers the folder explicitly, the
   # per-engine path table — all of that is the skill noun's own surface and
   # lives in cli/skill.feature. This file asserts what ALICE can see. The spec
   # asserts it exhaustively, engine by engine, which is why the claim below is

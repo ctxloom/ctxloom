@@ -62,7 +62,7 @@ func TestAssignSession_RecordsAVersionBehindThePin(t *testing.T) {
 	testsupport.Isolate(t)
 	stubProbe(t, "0.144.4", nil)
 
-	entry, err := AssignSession(context.Background(), t.TempDir(), "codex")
+	entry, err := AssignSession(context.Background(), t.TempDir(), "claude-code")
 	require.NoError(t, err)
 	assert.Equal(t, "0.144.4", entry.EngineVersion)
 }
@@ -73,9 +73,9 @@ func TestAssignSession_RecordsAVersionBehindThePin(t *testing.T) {
 // the READ path, where an unrecorded version is treated as unknown and stops.
 func TestAssignSession_ProbeFailureLeavesTheVersionUnsetWithoutFailingTheRun(t *testing.T) {
 	testsupport.Isolate(t)
-	stubProbe(t, "", &engineversion.BinaryAbsentError{Engine: "kiro", Err: errors.New("not on PATH")})
+	stubProbe(t, "", &engineversion.BinaryAbsentError{Engine: "mock", Err: errors.New("not on PATH")})
 
-	entry, err := AssignSession(context.Background(), t.TempDir(), "kiro")
+	entry, err := AssignSession(context.Background(), t.TempDir(), "mock")
 	require.NoError(t, err, "an unprobeable engine must still get a harp and still run")
 	assert.NotEmpty(t, entry.HarpName)
 	assert.Empty(t, entry.EngineVersion, "a failed probe must record NOTHING, not a guess and not an empty-looking success")

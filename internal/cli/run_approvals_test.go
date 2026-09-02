@@ -33,13 +33,13 @@ func TestResolvePermissionMode(t *testing.T) {
 	}{
 		{"flag beats agent, label, and default", "plan", "bypass", "default", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
 		{"agent beats label and default", "", "acceptEdits", "bypass", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionAcceptEdits},
-		{"label beats default", "", "", "plan", "", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"label beats default", "", "", "plan", "", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
 		{"claude-code default bypasses on the host", "", "", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
 		// The opt-out path: an EXPLICIT default must beat claude's host-bypass
 		// default (ParsePermissionMode distinguishes explicit "default" from unset).
 		{"explicit default beats claude host-bypass", "default", "", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
 		{"explicit default via label beats claude host-bypass", "", "", "default", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
-		{"other backend default prompts", "", "", "", "", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
+		{"other backend default prompts", "", "", "", "", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
 		// An unparseable config-sourced value (agent/label) is a declaration that
 		// MISSED, not an absent one: it stops the chain at the most restrictive
 		// posture instead of falling through to the claude-code host stopgap. The
@@ -50,16 +50,16 @@ func TestResolvePermissionMode(t *testing.T) {
 		// The floor survives BOTH widening steps below it: the plan collapse on a
 		// backend with no read-only tier, and the ONESHOT floor that follows it.
 		// Letting either apply walks a typo back up to bypass.
-		{"unparseable value is not collapsed on a non-enforcing backend", "", "nonsense", "", "", "antigravity", pb.ExecutionMode_INTERACTIVE, false, agent.PermissionFloor},
-		{"unparseable value is not widened by the oneshot floor", "", "nonsense", "", "", "antigravity", pb.ExecutionMode_ONESHOT, false, agent.PermissionFloor},
-		{"oneshot upgrades a would-block default to bypass", "default", "", "", "", "codex", pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
-		{"oneshot keeps safe-headless plan on an enforcing backend", "plan", "", "", "", "codex", pb.ExecutionMode_ONESHOT, true, agent.PermissionPlan},
+		{"unparseable value is not collapsed on a non-enforcing backend", "", "nonsense", "", "", "mock", pb.ExecutionMode_INTERACTIVE, false, agent.PermissionFloor},
+		{"unparseable value is not widened by the oneshot floor", "", "nonsense", "", "", "mock", pb.ExecutionMode_ONESHOT, false, agent.PermissionFloor},
+		{"oneshot upgrades a would-block default to bypass", "default", "", "", "", "mock", pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
+		{"oneshot keeps safe-headless plan on an enforcing backend", "plan", "", "", "", "mock", pb.ExecutionMode_ONESHOT, true, agent.PermissionPlan},
 		{"oneshot upgrades acceptEdits to bypass", "acceptEdits", "", "", "", claude, pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
 		// Fix A: a backend with no read-only tier can't honor plan. Interactively it
 		// collapses to default (a human still gates each tool call — no silent
 		// read-write); headless it then upgrades to bypass so it can't hang.
-		{"plan on a non-enforcing backend collapses to prompt", "plan", "", "", "", "antigravity", pb.ExecutionMode_INTERACTIVE, false, agent.PermissionDefault},
-		{"headless plan on a non-enforcing backend upgrades to bypass", "plan", "", "", "", "antigravity", pb.ExecutionMode_ONESHOT, false, agent.PermissionBypass},
+		{"plan on a non-enforcing backend collapses to prompt", "plan", "", "", "", "mock", pb.ExecutionMode_INTERACTIVE, false, agent.PermissionDefault},
+		{"headless plan on a non-enforcing backend upgrades to bypass", "plan", "", "", "", "mock", pb.ExecutionMode_ONESHOT, false, agent.PermissionBypass},
 		{"plan on an enforcing backend stays plan interactively", "plan", "", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
 	}
 	for _, tc := range cases {

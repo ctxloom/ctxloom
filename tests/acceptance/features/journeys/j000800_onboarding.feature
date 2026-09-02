@@ -130,5 +130,5 @@ Feature: A new engineer clones the repo and is already set up
   # no mention of hooks, and turns this red.
   Scenario: Materializing for an engine that cannot carry hooks says so
     Given Carol's team profile carries a shared fragment, command, MCP server, and hook
-    When Alice materializes the team profile for mock
-    Then the materialize report names the hook it could not deliver to mock
+    When Alice materializes the team profile for mock-lossy
+    Then the materialize report names the hook it could not deliver to mock-lossy

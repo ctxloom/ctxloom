@@ -10,8 +10,8 @@ Feature: Isolation probe — live proof against real vendor engines
 
   This feature is that other half, built to be run on its own — for ONE engine and
   ONE axis at a time — because its job is not "pass once in this repo's CI" but
-  "answer the same question again, unattended, every time claude-code / codex /
-  opencode ships a new version." See
+  "answer the same question again, unattended, every time an engine
+  ships a new version." See
   website/src/content/docs/security/isolation.md's "The executable probe" section
   for how to run a single row and how to read a failure (vendor regression vs
   ctxloom regression — they read differently, see below), and
@@ -82,41 +82,15 @@ Feature: Isolation probe — live proof against real vendor engines
       | engine      | axis              |
       | claude-code | container-rootful |
 
-    @codex @worktree
-    Examples:
-      | engine | axis     |
-      | codex  | worktree |
 
-    @codex @container-rootless
-    Examples:
-      | engine | axis               |
-      | codex  | container-rootless |
 
-    # container-rootful: WIRED, UNVERIFIED — see claude-code's row above.
-    @codex @container-rootful
-    Examples:
-      | engine | axis              |
-      | codex  | container-rootful |
 
-    @opencode @worktree
-    Examples:
-      | engine   | axis     |
-      | opencode | worktree |
 
-    @opencode @container-rootless
-    Examples:
-      | engine   | axis               |
-      | opencode | container-rootless |
 
-    # container-rootful: WIRED, UNVERIFIED — see claude-code's row above.
-    @opencode @container-rootful
-    Examples:
-      | engine   | axis              |
-      | opencode | container-rootful |
 
   # Auth-path duality: the primary sweep above reports which path it took, but a
   # dev box with subscription credentials on disk will always land on "seeded"
-  # for claude/codex/opencode, never exercising the ENV-KEY BYPASS path — the
+  # for a credentialed engine, never exercising the ENV-KEY BYPASS path — the
   # path a credentialed CI lane (secrets only, no host credential file) actually
   # takes. These four rows FORCE that path and self-skip loudly when the engine's
   # own API-key env var is not set, rather than silently falling back to the
@@ -131,15 +105,7 @@ Feature: Isolation probe — live proof against real vendor engines
       | engine      |
       | claude-code |
 
-    @codex @bypass
-    Examples:
-      | engine |
-      | codex  |
 
-    @opencode @bypass
-    Examples:
-      | engine   |
-      | opencode |
 
   # Back to: tests/acceptance/features/j002200_isolation.feature (the hermetic layer
   # this feature complements) · website/src/content/docs/security/isolation.md

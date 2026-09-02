@@ -15,7 +15,7 @@ import (
 func TestBuildRoster_SelfFirstAndIndexOrder(t *testing.T) {
 	ended := time.Now()
 	rows := BuildRoster([]sessions.Entry{
-		{HarpName: "older-oak-hen", Backend: "codex", EndedAt: &ended},
+		{HarpName: "older-oak-hen", Backend: "claude-code", EndedAt: &ended},
 		{HarpName: "perky-same-chevy", Backend: "claude-code"},
 	}, nil, "perky-same-chevy")
 
@@ -30,7 +30,7 @@ func TestBuildRoster_ChildrenNestUnderParent(t *testing.T) {
 	rows := BuildRoster(
 		[]sessions.Entry{
 			{HarpName: "perky-same-chevy", Backend: "claude-code"},
-			{HarpName: "unrelated-flat-owl", Backend: "codex"},
+			{HarpName: "unrelated-flat-owl", Backend: "claude-code"},
 			{HarpName: "swift-elm-fox", Backend: "claude-code"},
 		},
 		[]coord.RosterEntry{
@@ -62,7 +62,7 @@ func TestBuildRoster_EmptyHeldFieldsDoNotBlankTheIndexRow(t *testing.T) {
 	rows := BuildRoster(
 		[]sessions.Entry{
 			{HarpName: "perky-same-chevy", Backend: "claude-code"},
-			{HarpName: "older-oak-hen", Backend: "codex", EndedAt: &ended},
+			{HarpName: "older-oak-hen", Backend: "claude-code", EndedAt: &ended},
 		},
 		[]coord.RosterEntry{
 			{Harp: "perky-same-chevy", Agent: "", State: "", Parent: ""},

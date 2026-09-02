@@ -234,7 +234,7 @@ type CLIProbe struct {
 
 // EngineCLI is a backend's declaration of ONE process surface.
 type EngineCLI struct {
-	// Engine is the backend registry name ("claude-code", "codex").
+	// Engine is the backend registry name ("claude-code").
 	Engine string
 	// Surface is which of the engine's process surfaces this declares.
 	Surface CLISurface

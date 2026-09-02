@@ -176,7 +176,7 @@ func TestManagerUpdate_TargetingHomeDirectly_PersistsScopeMachineValues(t *testi
 			d.LM.Configs = map[string]LLMConfig{}
 		}
 		entry := d.LM.Configs["big"]
-		entry.Type = "codex"
+		entry.Type = "mock"
 		entry.Body = map[string]any{"env": map[string]any{"OPENAI_API_KEY": "sk-secret"}}
 		d.LM.Configs["big"] = entry
 		return nil

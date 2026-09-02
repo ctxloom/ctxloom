@@ -52,12 +52,12 @@ func TestProber_CachesUntilTheBinaryChanges(t *testing.T) {
 	bin := fakeBinary(t, "v1")
 	p, runs := probeAtToken0(t, bin, "1.18.4", nil)
 
-	v, err := p.Probe(context.Background(), "opencode")
+	v, err := p.Probe(context.Background(), "mock")
 	require.NoError(t, err)
 	assert.Equal(t, "1.18.4", v)
 	assert.Equal(t, 1, *runs, "first probe must actually execute the binary")
 
-	_, err = p.Probe(context.Background(), "opencode")
+	_, err = p.Probe(context.Background(), "mock")
 	require.NoError(t, err)
 	assert.Equal(t, 1, *runs,
 		"a second probe of the SAME binary must be served from cache — ctxloom's CLI is invoked constantly and probing every time is the startup cost this cache exists to avoid")
@@ -67,27 +67,27 @@ func TestProber_CachesUntilTheBinaryChanges(t *testing.T) {
 	require.NoError(t, os.Chtimes(bin, time.Now().Add(time.Minute), time.Now().Add(time.Minute)))
 
 	assert.Equal(t, 1, *runs, "sanity: nothing has re-probed yet")
-	_, err = p.Probe(context.Background(), "opencode")
+	_, err = p.Probe(context.Background(), "mock")
 	require.NoError(t, err)
 	assert.Equal(t, 2, *runs,
 		"an upgraded binary must re-probe: a cache that survives the upgrade reports the OLD version and selects the OLD reader for a NEW format")
 }
 
-// An absent binary is an ordinary state of the world (kiro is
-// not installed on this project's dev host), so it gets its own type rather
+// An absent binary is an ordinary state of the world (an engine simply is
+// not installed on this host), so it gets its own type rather
 // than being folded into "something went wrong" — but it is still a REFUSAL,
 // never a version.
 func TestProber_AbsentBinaryRefusesWithItsOwnType(t *testing.T) {
 	p := NewProber(func(engine string) (string, Command, error) {
-		return "", Command{}, &BinaryAbsentError{Engine: engine, Err: errors.New("kiro-cli not found in $PATH")}
+		return "", Command{}, &BinaryAbsentError{Engine: engine, Err: errors.New("mock-cli not found in $PATH")}
 	})
 
-	v, err := p.Probe(context.Background(), "kiro")
+	v, err := p.Probe(context.Background(), "mock")
 	assert.Empty(t, v, "an unfindable engine must yield NO version, not a guess")
 
 	var absent *BinaryAbsentError
 	require.ErrorAs(t, err, &absent, "an uninstalled engine must be distinguishable from an installed one that misbehaved")
-	assert.Equal(t, "kiro", absent.Engine)
+	assert.Equal(t, "mock", absent.Engine)
 	assert.Contains(t, err.Error(), "cannot be determined",
 		"the refusal must name what could not be determined, not just fail")
 }
@@ -98,7 +98,7 @@ func TestProber_AbsentBinaryRefusesWithItsOwnType(t *testing.T) {
 func TestProber_UnstattableBinaryRefusesAsAbsent(t *testing.T) {
 	p, runs := probeAtToken0(t, filepath.Join(t.TempDir(), "never-created"), "1.0.0", nil)
 
-	_, err := p.Probe(context.Background(), "opencode")
+	_, err := p.Probe(context.Background(), "mock")
 	var absent *BinaryAbsentError
 	require.ErrorAs(t, err, &absent)
 	assert.Zero(t, *runs, "a binary that cannot be stat'd must never be executed")
@@ -110,7 +110,7 @@ func TestProber_FailedVersionCommandRefusesAndCarriesItsOutput(t *testing.T) {
 	bin := fakeBinary(t, "x")
 	p, _ := probeAtToken0(t, bin, "panic: cannot load config", errors.New("exit status 1"))
 
-	v, err := p.Probe(context.Background(), "codex")
+	v, err := p.Probe(context.Background(), "claude-code")
 	assert.Empty(t, v)
 
 	var failed *CommandFailedError
@@ -151,11 +151,11 @@ func TestProber_DoesNotCacheAFailure(t *testing.T) {
 		return out, runErr
 	}
 
-	_, err := p.Probe(context.Background(), "codex")
+	_, err := p.Probe(context.Background(), "claude-code")
 	require.Error(t, err)
 
 	out, runErr = "0.144.4", nil
-	v, err := p.Probe(context.Background(), "codex")
+	v, err := p.Probe(context.Background(), "claude-code")
 	require.NoError(t, err, "a transient failure must not poison the probe until the binary changes")
 	assert.Equal(t, "0.144.4", v)
 	assert.Equal(t, 2, runs)

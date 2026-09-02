@@ -1,23 +1,17 @@
 {
-  "_comment": "Provenance for each canonical-transcript fixture: which fields come from a REAL captured engine session on this box vs are SYNTHETIC (schema-accurate but fabricated), and why. recorder_test.go asserts on the REAL fields specifically, per the project's payload-assertion discipline (memory 'silent-no-op-failure-mode') — never a mere entry count.",
+  "_comment": "Provenance for each canonical-transcript fixture: which fields come from a REAL captured engine session on this box vs are SYNTHETIC (schema-accurate but fabricated), and why. recorder_test.go asserts on the REAL fields specifically, per the project's payload-assertion discipline (memory 'silent-no-op-failure-mode') \u2014 never a mere entry count. NOTE: some fixtures are named for engines this build has REMOVED. That name is PROVENANCE, not a claim the engine still exists: the file is CANONICAL ACP-shaped JSONL, which is engine-agnostic, so it still exercises the parser. The real captures cannot be remade now the engines are gone, which is why they are kept. A fixture with real_source: null for a removed engine has no such claim on us and was deleted.",
   "fixtures": {
     "codex.transcript.acp.jsonl": {
       "real_source": "~/.codex/sessions/2026/07/14/rollout-2026-07-14T14-42-24-019f6226-e5d2-75f3-b8bb-667866092679.jsonl (live codex CLI session on this box)",
       "real_fields": "session_id, model (gpt-5.4-mini), context_window (258400), the user prompt 'Reply with exactly this token and nothing else: RAWNONCE-7Q4Z', the assistant reply 'RAWNONCE-7Q4Z', and the token_count accounting (input_tokens 20240, cached/cache_read_tokens 4480, output_tokens 27)",
-      "synthetic": "thinking entry (codex's reasoning.summary was empty in every rollout on this box — no visible reasoning text to capture at the configured effort level) and the tool_use/tool_result pair (no rollout on this box contains a function_call)",
+      "synthetic": "thinking entry (codex's reasoning.summary was empty in every rollout on this box \u2014 no visible reasoning text to capture at the configured effort level) and the tool_use/tool_result pair (no rollout on this box contains a function_call)",
       "why_not_fully_real": "S1 has no capture wiring yet (that lands in S2); this fixture's real fields are hand-extracted from the engine's own native rollout file, not tee'd through a live ACP stream."
     },
     "claude.transcript.acp.jsonl": {
-      "real_source": "~/.claude/projects/-tmp-TestACPLive-ClaudeBackendDelegation1132179987-001/eeacb0c6-c962-40f8-8322-c8615ea00631.jsonl — an ACTUAL claude-code-acp structured session (internal/acp live-acceptance test fixture) recorded on this box",
-      "real_fields": "session_id, model (claude-opus-4-6), the user prompt 'Reply with exactly the single word: ping', and the assistant reply 'ping' — genuinely driven over the same ACP seam this schema targets",
+      "real_source": "~/.claude/projects/-tmp-TestACPLive-ClaudeBackendDelegation1132179987-001/eeacb0c6-c962-40f8-8322-c8615ea00631.jsonl \u2014 an ACTUAL claude-code-acp structured session (internal/acp live-acceptance test fixture) recorded on this box",
+      "real_fields": "session_id, model (claude-opus-4-6), the user prompt 'Reply with exactly the single word: ping', and the assistant reply 'ping' \u2014 genuinely driven over the same ACP seam this schema targets",
       "synthetic": "thinking entry, tool_use/tool_result pair, and the complete/token accounting (the real fixture was a minimal ping/pong with no tool call and no token footer recorded in the jsonl line captured)",
       "why_not_fully_real": "the available real ACP-driven claude session was a bare connectivity probe; no real tool-calling claude-code-acp transcript was found on this box in this slice"
-    },
-    "opencode.transcript.acp.jsonl": {
-      "real_source": null,
-      "real_fields": "none",
-      "synthetic": "entire fixture",
-      "why_not_fully_real": "opencode is installed on this box (~/.opencode/bin/opencode 1.18.1) and has its own store (~/.local/share/opencode/opencode.db), but `opencode session list` returns zero sessions on this box — nothing has been driven through it here, so no real opencode conversation was capturable in this slice. The shape is schema-accurate: opencode also drives structured chat through internal/acp's mapSessionUpdate (internal/opencode/chat.go delegates to `opencode acp`), so a real capture would look exactly like this once S2 wires the tee."
     },
     "acp.transcript.acp.jsonl": {
       "real_source": null,
@@ -28,7 +22,7 @@
     "antigravity.transcript.acp.jsonl": {
       "real_source": "~/.gemini/antigravity-cli/brain/29a3edd2-aa5f-4228-8bb7-ecae010306c6/.system_generated/logs/transcript_full.jsonl (live antigravity session on this box)",
       "real_fields": "the user prompt 'Reply with just: ok' and the assistant reply 'ok'",
-      "synthetic": "none — but the REGIME modeled is synthetic in the sense that antigravity has no StructuredChat capability (internal/antigravity has no chat.go), so this fixture models the plan's §2d ONESHOT two-entry capture (a user entry from the request prompt + one assistant entry from captured stdout), not a tee'd ACP stream. No thinking/tool_use/tool_result lines exist for antigravity by design — the oneshot regime is honestly low-fidelity."
+      "synthetic": "none \u2014 but the REGIME modeled is synthetic in the sense that antigravity has no StructuredChat capability (internal/antigravity has no chat.go), so this fixture models the plan's \u00a72d ONESHOT two-entry capture (a user entry from the request prompt + one assistant entry from captured stdout), not a tee'd ACP stream. No thinking/tool_use/tool_result lines exist for antigravity by design \u2014 the oneshot regime is honestly low-fidelity."
     }
   }
 }

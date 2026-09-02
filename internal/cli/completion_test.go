@@ -69,7 +69,7 @@ func TestCompleteLLMNames_BackendFallbackIsAdmissible(t *testing.T) {
 func TestCompleteLLMNames_PrefersConfigLabels(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
 		LM: config.LMConfig{Configs: map[string]config.LLMConfig{
-			"big":  {Type: "antigravity"},
+			"big":  {Type: "mock"},
 			"fast": {Type: "claude-code"},
 		}},
 	})

@@ -33,7 +33,7 @@ func (f *fakeRecorder) Close() error { return nil }
 
 func TestRecordFunc_Success(t *testing.T) {
 	fr := &fakeRecorder{}
-	record := RecordFunc(fr, "codex")
+	record := RecordFunc(fr, "claude-code")
 
 	ev := agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: "hi"}}
 	require.NoError(t, record(ev))

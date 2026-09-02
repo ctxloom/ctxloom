@@ -118,7 +118,7 @@ func TestRecord_JSONRoundTrip(t *testing.T) {
 		V:         SchemaVersion,
 		Harp:      "sixth-moist-kite",
 		SessionID: "019f6226-e5d2-75f3-b8bb-667866092679",
-		Engine:    "codex",
+		Engine:    "claude-code",
 		Seq:       3,
 		Kind:      KindEntry,
 		Entry: &EntryPayload{

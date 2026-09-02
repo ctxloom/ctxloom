@@ -70,7 +70,7 @@ func TestConvertVendorTranscriptOnExit_UnregisteredBackend(t *testing.T) {
 	testsupport.Isolate(t)
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
-	entry, err := mgr.AssignHarp("/tmp/project", "opencode")
+	entry, err := mgr.AssignHarp("/tmp/project", "mock")
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", claudeVendorFixturePath(t)))
 

@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	mockreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/mock"
 )
 
 // Shared fixtures for the `session` noun's CLI tests. They live in their own
@@ -63,13 +67,50 @@ func execRootCmdBoth(t *testing.T, args ...string) (stdout, stderr string, err e
 // (vendorreader.SelectAdapter). Seeding it is what makes these fixtures fail —
 // or pass — for the reason the test names instead of for a missing version.
 //
-// The values are .github/engine-versions.env's pins, so a seeded session claims
-// exactly the version ctxloom's readers are validated against. Same rationale
-// and same source as j001000SeededEngineVersion in the acceptance suite.
-var pinnedEngineVersion = map[string]string{
-	"claude-code": "2.1.214",
-	"codex":       "0.144.6",
-	"kiro":        "2.13.0",
+// The value is DERIVED per backend from wherever that backend declares it —
+// never re-typed here. A hand-copied table is an unchecked binding: it agrees
+// with the source on the day it is written and silently disagrees forever
+// after, and a seeded session would then claim a version no reader is
+// validated against while the test still passed.
+//
+// The two sources differ because the two backends differ, which is the point:
+//   - a REAL engine's pin lives in .github/engine-versions.env, the lock CI
+//     drift-checks against the vendor's published release feed.
+//   - mock has no vendor and no feed, so it declares its own validated version
+//     in its adapter, and that declaration is the authority.
+func pinnedEngineVersion(t *testing.T, backend string) (string, bool) {
+	t.Helper()
+	switch backend {
+	case config.BackendMock:
+		require.NotEmpty(t, mockreader.VersionedAdapters, "mock declares no versioned adapter")
+		return mockreader.VersionedAdapters[0].ValidatedVersion, true
+	case config.BackendClaudeCode:
+		return enginePinFromLock(t, "CLAUDE_CODE_CLI_VERSION"), true
+	}
+	return "", false
+}
+
+// enginePinFromLock reads one KEY=value out of .github/engine-versions.env.
+func enginePinFromLock(t *testing.T, key string) string {
+	t.Helper()
+	_, self, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(self)))
+	raw, err := os.ReadFile(filepath.Join(repoRoot, ".github", "engine-versions.env"))
+	require.NoError(t, err, "read .github/engine-versions.env")
+
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if k, v, found := strings.Cut(line, "="); found && k == key {
+			require.NotEmpty(t, v, "%s is present but empty in the lock", key)
+			return v
+		}
+	}
+	t.Fatalf("%s is not pinned in .github/engine-versions.env", key)
+	return ""
 }
 
 // seedHookSession mints an indexed session for backend and puts its harp in
@@ -100,7 +141,7 @@ func seedHookSession(t *testing.T, backend string) string {
 // the behaviour it was written for rather than the unknown-version refusal.
 func seedEngineVersion(t *testing.T, mgr *sessions.Manager, harp, backend string) {
 	t.Helper()
-	v, ok := pinnedEngineVersion[backend]
+	v, ok := pinnedEngineVersion(t, backend)
 	require.True(t, ok, "no pinned engine version for backend %q", backend)
 	require.NoError(t, mgr.RecordEngineVersion(harp, v))
 }

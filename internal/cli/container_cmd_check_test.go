@@ -44,7 +44,7 @@ func TestRenderContainerCheck(t *testing.T) {
 			SharedFS: "unprobed: no runtime",
 			Guidance: []string{"no container runtime is reachable"},
 		}
-		assert.NoError(t, renderContainerCheck(&buf, "kiro", d))
+		assert.NoError(t, renderContainerCheck(&buf, "mock", d))
 		out := buf.String()
 		assert.Contains(t, out, "in a container:  no")
 		assert.Contains(t, out, "runtime:         none")

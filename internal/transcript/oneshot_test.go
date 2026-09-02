@@ -19,7 +19,7 @@ func TestRecordOneshot_WritesTwoEntryTranscript(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "oneshot-roundtrip-harp"
 
-	err := RecordOneshot(harp, "kiro", "  what is 2+2?  ", "  4.  ")
+	err := RecordOneshot(harp, "mock", "  what is 2+2?  ", "  4.  ")
 	require.NoError(t, err)
 
 	path, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -41,7 +41,7 @@ func TestRecordOneshot_WritesTwoEntryTranscript(t *testing.T) {
 func TestRecordOneshot_NoHarpWritesNothing(t *testing.T) {
 	testsupport.Isolate(t)
 
-	err := RecordOneshot("", "codex", "prompt", "output")
+	err := RecordOneshot("", "claude-code", "prompt", "output")
 	require.Error(t, err)
 }
 
@@ -55,7 +55,7 @@ func TestRecordOneshot_EmptyPromptAndOutputWritesNothing(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "oneshot-empty-harp"
 
-	err := RecordOneshot(harp, "codex", "   ", "\n\t  ")
+	err := RecordOneshot(harp, "claude-code", "   ", "\n\t  ")
 	require.NoError(t, err)
 
 	path, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -72,7 +72,7 @@ func TestRecordOneshot_PromptOnly_WritesOneEntry(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "oneshot-prompt-only-harp"
 
-	err := RecordOneshot(harp, "antigravity", "do the thing", "")
+	err := RecordOneshot(harp, "mock", "do the thing", "")
 	require.NoError(t, err)
 
 	path, err := paths.HarpCanonicalTranscriptPath(harp)

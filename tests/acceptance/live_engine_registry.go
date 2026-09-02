@@ -14,16 +14,12 @@
 //     the BINARY to probe (not necessarily the engine's own name), how to
 //     tell INSTALLED apart from AUTHENTICATED, the
 //     credential material an isolated run needs, and one cheap pinned model.
-//     codex's authCheck and credential copier are real,
-//     but a direct (non-suite) live run found its run-path
-//     context delivery broken — see the codex entry's own comment; it is NOT
-//     yet a proven context-delivering row.
 //  2. computeLiveEngineReport / formatLiveEngineReport: what actually ran vs.
 //     skipped, per engine, WITH THE REASON — printed on every acceptance run
 //     (TestAcceptance), not only live ones, so credential expiry shows up as
 //     a loud line instead of a silently-lower pass count.
 //  3. parseRequiredEngines / checkRequiredEngines: the floor.
-//     CTXLOOM_LIVE_REQUIRE=claude,codex makes a missing/
+//     CTXLOOM_LIVE_REQUIRE naming an engine makes a missing/
 //     unauthenticated engine a hard failure instead of a quiet skip — this is
 //     what stops a credential expiry from silently deleting live coverage.
 package acceptance
@@ -43,12 +39,12 @@ import (
 
 // realHomeDir is the user's actual home, captured in TestMain (acceptance_test.go)
 // before any scenario overrides HOME. Used to locate each engine's real
-// credential material (~/.claude, ~/.codex) for the
+// credential material (~/.claude, say) for the
 // subscription-auth path, and to run each engine's own authentication probe.
 var realHomeDir string
 
 // authProbeTimeout bounds every authCheck subprocess (`claude auth status`,
-// `codex login status`). These are meant to be fast, local, non-interactive
+// a local auth-status read). These are meant to be fast, local, non-interactive
 // status reads — never a hung prompt and never a paid model call — so a
 // generous-but-finite timeout catches a hang without slowing down a normal
 // run, which pays this cost on EVERY acceptance run, live or not.
@@ -81,8 +77,8 @@ type liveAgent struct {
 	// policy (task erased-collar). Non-nil only for engines whose own
 	// config-home var relocates CREDENTIALS
 	// (internal/lm/isolation/auth.go's credentialSeedSpecs
-	// HonoursVarForCreds==true: claude's CLAUDE_CONFIG_DIR, codex's
-	// CODEX_HOME, opencode's XDG_DATA_HOME). It NEVER writes, copies, moves
+	// HonoursVarForCreds==true: claude's CLAUDE_CONFIG_DIR, say). It NEVER
+	// writes, copies, moves
 	// or chmods a credential file: it only points at directories, and errors
 	// loudly when the real credential material is absent.
 	//
@@ -91,7 +87,7 @@ type liveAgent struct {
 	// copy, the provider ROTATES the refresh token and invalidates the old
 	// one SERVER-SIDE, the rotated value dies with the temp dir, and the
 	// host's file is left holding a token the provider considers consumed —
-	// measured for codex as `401 refresh_token_reused`, which costs the
+	// measured as `401 refresh_token_reused`, which costs the
 	// human a manual re-login. A read-only copy does NOT fix this: the
 	// damage is the server-side consumption, not the local mutation. A
 	// symlink does not fix it either — credential files are written with an
@@ -119,18 +115,12 @@ type liveAgent struct {
 	authCheck func(realHome string) (ok bool, reason string)
 }
 
-// liveAgentOrder is the availability report's fixed display order, matching
-// the Examples tables' own convention (claude) plus codex
-// and opencode last — codex now genuinely authenticates on a box with a real
-// `codex` on PATH, so it is no longer a
-// permanently-unavailable row; opencode joined once its own
-// local-credential-file authCheck existed. Both stay last
-// as the newest/most-recently-wired entries. Kept separate from the map
-// because map iteration order is unspecified and this report's whole point
-// is to be predictable and diffable across runs.
-var liveAgentOrder = []string{"claude", "codex", "opencode"}
+// liveAgentOrder is the availability report's fixed display order. Kept
+// separate from the map because map iteration order is unspecified and this
+// report's whole point is to be predictable and diffable across runs.
+var liveAgentOrder = []string{"claude"}
 
-// liveAgents maps the lowercased scenario token ("claude", "codex") to its
+// liveAgents maps the lowercased scenario token ("claude") to its
 // backend wiring.
 var liveAgents = map[string]liveAgent{
 	"claude": {
@@ -150,116 +140,12 @@ var liveAgents = map[string]liveAgent{
 		copyCreds: copyClaudeCredentials,
 		authCheck: authCheckClaude,
 	},
-	// Codex CLI (codex) authenticates via `codex login` (ChatGPT subscription
-	// OAuth) or an OPENAI_API_KEY/CODEX_API_KEY env var for headless
-	// (internal/codex/backend.go:102's own comment names the latter; not
-	// live-verified here, so both are offered as candidates rather than
-	// asserted). Confirmed live on this box: `codex login status`
-	// → "Logged in using ChatGPT" (real probe, see authCheckCodex).
-	//
-	// CODEX'S HOME IS A LANDMINE: codex resolves BOTH its config surface and
-	// its ENTIRE runtime state (sessions, memories, logs, goals, model cache,
-	// plugins, temp — confirmed 472MB on this box) from the single
-	// $CODEX_HOME var (default ~/.codex). The credential is the ONE file
-	// auth.json (confirmed: `~/.codex/auth.json`, holds auth_mode +
-	// id/access/refresh tokens) — copyCodexCredentials copies only that file,
-	// never the tree, the same principle copyClaudeCredentials states
-	// explicitly and internal/lm/isolation/auth.go's
-	// credentialSeedSpecs["codex"] now applies to a worktree-isolated run's
-	// config-home (a COPY, replacing the former linkUserCodexAuth symlink).
-	//
-	// PRODUCT BUG FOUND while proving this live (direct
-	// `ctxloom run --one-shot` against a real authenticated codex, NOT via this
-	// suite): codex's run-path composed
-	// context cache file (.ctxloom/cache/context/<hash>.md, written by the
-	// RawContext Setup step) carries ONLY companion-contributed fragments
-	// (ltk/taskloom docs) and DROPS the active profile's own bundle
-	// fragments — confirmed reproducibly: `run --dry-run` correctly shows
-	// the profile's fragment in "Assembled Context", but the on-disk cache
-	// file codex's SessionStart hook actually reads does not contain it, and
-	// its hash is IDENTICAL across two profiles with different fragment
-	// content. So a real, authenticated codex run genuinely executes (~9-12s,
-	// not a skip) but currently answers questions about context it was never
-	// given — bigger than the known materialize-only gap, since
-	// this is the launch/run path. So codex reports AUTHENTICATED here (that
-	// axis is real and correct), but is NOT YET a proven context-delivering
-	// live row — do not add a J000400 @live Examples row for codex until this is
-	// fixed, or it would be red (or falsely green on a weakened assertion).
-	//
-	// STATUS, after one false start — read both paragraphs, they say
-	// different things.
-	//
-	// THE FRAGMENT-DROP FINDING ABOVE IS STILL OPEN. P1 briefly recorded it closed,
-	// on a green hook-pinned codex cell. That was wrong and has been retracted:
-	// ctxloom wrote no codex hook in that session at all (it warns "codex hooks
-	// and MCP servers were NOT written ... no durable project home exists — see
-	// config_home"), and codex's SurfaceFor resolves (context, Hook) to a
-	// COMPOSED delivery that also writes the native AGENTS.md. The nonce arrived
-	// by AGENTS.md. Nothing touched the cache file the fragment-drop defect is
-	// about, so nothing re-measured it. See the retraction note in
-	// capability_probe_registry.go.
-	//
-	// WHAT IS PROVEN: codex delivers context live through AGENTS.md. P1's
-	// unsafe-file cell is green (harp "smug-fatal-rush"), as are
-	// codex's P0 rows. So the prohibition above — no live codex context row —
-	// is lifted for the AGENTS.md route specifically, and NOT for the hook
-	// route, which remains unproven and unprobed. Note also that this green is
-	// not side-channel-controlled: codex has no out-of-cwd delivery, so its
-	// context lands in the working directory, and S4 measured codex satisfying a
-	// nonce probe by searching the workspace with rg.
-	"codex": {
-		binary:     "codex",
-		apiKeyEnvs: []string{"OPENAI_API_KEY", "CODEX_API_KEY"},
-		credDir:    ".codex",
-		config: fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
-  configs:
-    codex:
-      type: codex
-      model: gpt-5.4-mini
-  defaults:
-    primary: codex
-    fast: codex
-`,
-		mapCreds:  mapCodexCredentials,
-		copyCreds: copyCodexCredentials,
-		authCheck: authCheckCodex,
-	},
-	// opencode authenticates via `opencode auth login` (interactive, any
-	// configured provider) or an API key riding the environment
-	// (OPENROUTER_API_KEY — OpenRouter is ctxloom's documented default
-	// opencode provider, matching internal/lm/isolation/auth.go's
-	// credentialSeedSpecs["opencode"].envTrigger and
-	// opencodeAuthEnvVars). Its subscription-shaped credential is NOT an
-	// OAuth session at all — confirmed by reading this host's own
-	// ~/.local/share/opencode/auth.json (shape only, no values captured):
-	// {"openrouter":{"type":"api","key":"<the same OPENROUTER_API_KEY
-	// string>"}}. So unlike claude/codex's real OAuth tokens, opencode's
-	// "subscription" file is just the API key wrapped in JSON — see
-	// website/src/content/docs/security/isolation.md's probe section for
-	// why that distinction matters for CI eligibility.
-	"opencode": {
-		binary:     "opencode",
-		apiKeyEnvs: []string{"OPENROUTER_API_KEY"},
-		credDir:    filepath.Join(".local", "share", "opencode"),
-		config: fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
-  configs:
-    opencode:
-      type: opencode
-      model: openrouter/openai/gpt-oss-20b:free
-  defaults:
-    primary: opencode
-    fast: opencode
-`,
-		mapCreds:  mapOpencodeCredentials,
-		copyCreds: copyOpencodeCredentials,
-		authCheck: authCheckOpencode,
-	},
 }
 
 // backendTypeToLiveKey maps a REGISTERED backend type name (the config
 // `llm.configs.*.type` value, and the identifier
 // tests/acceptance/steps_j002200_isolation_matrix.go's spy fixture and the
-// isolation-probe feature both use: "claude-code"/"codex"/"opencode")
+// isolation-probe feature both use: "claude-code")
 // onto this registry's own liveAgents map key. Every name is
 // identical except claude-code -> claude, a historical mismatch (the @live
 // Examples tables predate the isolation matrix and used the short form).
@@ -360,7 +246,7 @@ func computeLiveEngineReport(realHome string, optIn bool) []engineStatus {
 
 // formatLiveEngineReport renders the loud, one-line availability table, e.g.:
 //
-//	live engines: claude ✓ · codex ✗ (binary not found)
+//	live engines: claude ✓
 //
 // A skip is never silent: every unavailable engine carries its reason inline,
 // right next to the ones that ran.
@@ -376,7 +262,7 @@ func formatLiveEngineReport(report []engineStatus) string {
 	return "live engines: " + strings.Join(parts, " · ")
 }
 
-// parseRequiredEngines splits CTXLOOM_LIVE_REQUIRE ("claude,codex")
+// parseRequiredEngines splits CTXLOOM_LIVE_REQUIRE ("claude,...")
 // into lowercased, trimmed, non-empty engine names. Empty/unset returns nil —
 // the floor is off by default (a dev box runs whatever is available).
 func parseRequiredEngines(raw string) []string {
@@ -457,71 +343,6 @@ func authCheckClaude(realHome string) (bool, string) {
 	return true, "claude auth status: logged in"
 }
 
-// authCheckCodex runs `codex login status`, a local, non-interactive status
-// read confirmed live (~0.1s, no network stall observed): exit 0
-// with "Logged in using ChatGPT" on the subscription path, exit 1 with "Not
-// logged in" otherwise — a genuine authenticated/not-authenticated probe, the
-// same INSTALLED-vs-AUTHENTICATED distinction authCheckClaude
-// makes, replacing the
-// old hardcoded "codex has no live authentication probe implemented" stub
-// that reported unavailable regardless of reality.
-//
-// MEASURED LIMIT — this probe distinguishes INSTALLED from
-// AUTHENTICATED, but NOT authenticated from STILL-VALID. `codex login status`
-// is a local read of auth.json's stored mode; it never attempts a refresh, so
-// it prints "Logged in using ChatGPT" and exits 0 even when the stored refresh
-// token has already been consumed server-side. Observed exactly that: this
-// probe reported codex ✓ while a real delegated child (and a bare `codex exec`
-// with no ctxloom involved) both died on 401 "Your access token could not be
-// refreshed because your refresh token was already used". The consequence is
-// that such a box gets a loud RED @live row rather than a named skip. No cheap
-// fix exists — the only probe that would know is one that performs a refresh,
-// and performing one is what consumes the token. See the @codex @wip Examples
-// block in j002300_cross_engine_delegation.feature.
-func authCheckCodex(realHome string) (bool, string) {
-	ctx, cancel := context.WithTimeout(context.Background(), authProbeTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "codex", "login", "status")
-	cmd.Env = append(os.Environ(), "HOME="+realHome)
-	out, err := cmd.CombinedOutput()
-	text := strings.TrimSpace(string(out))
-	if err != nil {
-		return false, fmt.Sprintf("`codex login status` reports not logged in: %s", text)
-	}
-	return true, fmt.Sprintf("codex login status: %s", text)
-}
-
-// authCheckOpencode is a LOCAL CREDENTIAL FILE heuristic: opencode 1.18.1
-// exposes no auth-status/whoami subcommand of its own (`opencode auth list`
-// prints configured providers,
-// not a login/expiry verdict), so this parses
-// ~/.local/share/opencode/auth.json (matching auth.go's
-// credentialSeedSpecs["opencode"] destination) and treats a non-empty
-// top-level object as evidence of a configured provider credential. Unlike
-// claude/codex's real OAuth tokens, this file typically holds a plain API
-// key (see the liveAgents["opencode"] entry's own doc) — so this is
-// "some provider is configured", not "a subscription is logged in"; there is
-// no expiry to check. NEVER logs the file's contents.
-func authCheckOpencode(realHome string) (bool, string) {
-	p := filepath.Join(realHome, ".local", "share", "opencode", "auth.json")
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return false, fmt.Sprintf("%s not found or unreadable: %v — NOTE: local credential-file heuristic only, opencode has no auth-status subcommand", p, err)
-	}
-	var providers map[string]json.RawMessage
-	if jerr := json.Unmarshal(data, &providers); jerr != nil {
-		return false, fmt.Sprintf("%s exists but is not a valid JSON object: %v", p, jerr)
-	}
-	if len(providers) == 0 {
-		return false, fmt.Sprintf("%s exists but configures no provider", p)
-	}
-	names := make([]string, 0, len(providers))
-	for k := range providers {
-		names = append(names, k)
-	}
-	return true, fmt.Sprintf("%s: provider(s) configured: %s (local credential-file heuristic only, not a verified login check)", p, strings.Join(names, ","))
-}
-
 // credentialMapping is one env-var-to-directory pointer: setting EnvVar to Dir
 // on the child process makes the engine resolve its credential material from
 // Dir, the REAL host directory, rather than from the scenario's isolated HOME.
@@ -574,43 +395,6 @@ func mapCredentialHome(engine, envVar, dir string, required ...string) ([]creden
 // engine writing a rotated token where the host can see it.
 func mapClaudeCredentials(realHome string) ([]credentialMapping, error) {
 	return mapCredentialHome("claude", "CLAUDE_CONFIG_DIR", filepath.Join(realHome, ".claude"), ".credentials.json")
-}
-
-// mapCodexCredentials points CODEX_HOME at the REAL ~/.codex. This is the
-// engine jovial-employee was measured on: codex's auth.json resolves from
-// $CODEX_HOME only (credentialSeedSpecs["codex"], HonoursVarForCreds true),
-// so the var is a complete mapping and the copy it replaces is what consumed
-// the human's refresh token.
-//
-// COST, ACCEPTED AND STATED, AND THE LARGEST OF THE THREE: $CODEX_HOME is
-// codex's ENTIRE runtime state root, not just its credential — sessions/
-// rollouts, memories, logs, goals, the model-list cache and plugins all
-// resolve from it (472MB on this box). Mapping it means a live scenario's
-// rollouts are written into the human's real ~/.codex/sessions. erased-collar
-// accepts this rather than keep a copy-back mess; it is worth re-reading if
-// that directory's growth ever becomes a nuisance.
-func mapCodexCredentials(realHome string) ([]credentialMapping, error) {
-	return mapCredentialHome("codex", "CODEX_HOME", filepath.Join(realHome, ".codex"), "auth.json")
-}
-
-// mapOpencodeCredentials points XDG_DATA_HOME at the REAL ~/.local/share.
-// credentialSeedSpecs["opencode"] records HonoursVarForCreds true, and its
-// destSubdir is NESTED ("xdg-data/opencode") because opencode appends
-// "/opencode" onto XDG_DATA_HOME itself — so the var must point one level
-// ABOVE the credential directory, and the required file is checked at
-// opencode/auth.json beneath it.
-//
-// COST, STATED AND WORTH A SECOND LOOK: XDG_DATA_HOME is not an
-// opencode-owned directory the way CLAUDE_CONFIG_DIR/CODEX_HOME are — it is a
-// SHARED XDG root. Mapping it hands the child the human's whole
-// ~/.local/share, which may hold other tools' credential material. No other
-// engine runs in an opencode @live scenario, and opencode's own auth.json is
-// a wrapped API key that does not rotate at all (so this engine had the least
-// to gain from mapping), but this is the one mapping whose blast radius is
-// wider than the engine that needs it. XDG_CONFIG_HOME is deliberately NOT
-// mapped: it carries no credentials, so widening it would buy nothing.
-func mapOpencodeCredentials(realHome string) ([]credentialMapping, error) {
-	return mapCredentialHome("opencode", "XDG_DATA_HOME", filepath.Join(realHome, ".local", "share"), filepath.Join("opencode", "auth.json"))
 }
 
 // seedLiveCredentials is THE single door every @live scenario gate goes
@@ -679,31 +463,6 @@ func copyOneCredFile(srcDir, dstDir, name string) (copied bool, err error) {
 	return true, nil
 }
 
-// copyOpencodeCredentials copies opencode's auth material into the isolated
-// home: auth.json (the credential that matters) plus mcp-auth.json when
-// present (per-MCP-server OAuth tokens, optional — internal/lm/isolation/
-// auth.go's credentialSeedSpecs["opencode"] treats it the same way). Both
-// live under ~/.local/share/opencode, matching opencode's own XDG_DATA_HOME
-// resolution (live-verified against opencode 1.18.1, same auth.go doc).
-// Errors when it copied zero files: a caller that seeded no credentials must
-// not be indistinguishable from one that seeded correctly.
-func copyOpencodeCredentials(realHome, fakeHome string) error {
-	srcDir := filepath.Join(realHome, ".local", "share", "opencode")
-	dstDir := filepath.Join(fakeHome, ".local", "share", "opencode")
-	copiedAny := false
-	for _, name := range []string{"auth.json", "mcp-auth.json"} {
-		copied, err := copyOneCredFile(srcDir, dstDir, name)
-		if err != nil {
-			return fmt.Errorf("copy opencode credentials: %w", err)
-		}
-		copiedAny = copiedAny || copied
-	}
-	if !copiedAny {
-		return fmt.Errorf("copy opencode credentials: copied 0 files from %s (checked auth.json, mcp-auth.json)", srcDir)
-	}
-	return nil
-}
-
 // copyClaudeCredentials copies just the auth-relevant files from the real
 // ~/.claude into the isolated home, best effort — never the whole tree (which
 // holds caches, history, and backups). Errors when it copied zero files.
@@ -727,36 +486,6 @@ func copyClaudeCredentials(realHome, fakeHome string) error {
 	copiedAny = copiedAny || copied
 	if !copiedAny {
 		return fmt.Errorf("copy claude credentials: copied 0 files from %s or %s/.claude.json", srcDir, realHome)
-	}
-	return nil
-}
-
-// copyCodexCredentials copies the ONE file codex's subscription auth lives
-// in: ~/.codex/auth.json (auth_mode + id/access/refresh tokens; confirmed
-// live against a real `codex login status` → "Logged in using ChatGPT")
-// — never the rest of ~/.codex, which on this box holds 472MB of
-// sessions, memories, logs, goals, a model-list cache, and plugins, all
-// mixed with config under the SAME $CODEX_HOME codex uses for its credential
-// lookup (confirmed: pointing CODEX_HOME at a project dir once made codex
-// dump 91MB of sqlite/temp state there). This is the identical "never the
-// whole tree" principle copyClaudeCredentials states explicitly, and the
-// identical file internal/lm/isolation/auth.go's credentialSeedSpecs["codex"]
-// COPIES (replacing the former linkUserCodexAuth symlink) into
-// a worktree-isolated run's config-home — applied here to the isolated test
-// HOME instead. codexHome() (internal/codex/commandfiles.go) resolves
-// $CODEX_HOME if set, else $HOME/.codex, so once the acceptance harness
-// overrides HOME to the isolated fakeHome, writing auth.json under
-// fakeHome/.codex is exactly where codex (and ctxloom's own credential-seed
-// copy, when a real isolated run follows) will find it.
-func copyCodexCredentials(realHome, fakeHome string) error {
-	srcDir := filepath.Join(realHome, ".codex")
-	dstDir := filepath.Join(fakeHome, ".codex")
-	copied, err := copyOneCredFile(srcDir, dstDir, "auth.json")
-	if err != nil {
-		return fmt.Errorf("copy codex credentials: %w", err)
-	}
-	if !copied {
-		return fmt.Errorf("copy codex credentials: copied 0 files from %s", srcDir)
 	}
 	return nil
 }

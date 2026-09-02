@@ -36,6 +36,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 const (
@@ -76,6 +78,7 @@ func j001200AddIndexEntry(w *World, harp, summary, transcriptPath string) error 
 		"  - harp_name: %s\n"+
 			"    session_id: seeded-%s\n"+
 			"    backend: mock\n"+
+			"    engine_version: "+j001000SeededEngineVersion(config.BackendMock)+"\n"+
 			"    project_dir: %s\n"+
 			"    started_at: 2026-03-14T00:00:00Z\n"+
 			"    ended_at: 2026-03-14T02:00:00Z\n"+
@@ -126,6 +129,60 @@ func j001200WriteCanonicalTranscript(w *World, harp string, turns []string) erro
 		b.WriteByte('\n')
 	}
 	return w.env.WriteHomeFile(j001200HarpHome(harp)+"/persist/transcript.jsonl", b.String())
+}
+
+// j001200VendorTranscriptPath is where a seeded mock session's VENDOR-native
+// transcript lives — the file the index binds, and the one ctxloom converts
+// into the canonical transcript beside it.
+//
+// It exists because mock is a REAL engine here, not a hole in the registry.
+// These fixtures used to bind the CANONICAL transcript as the entry's
+// transcript_path, which only worked while mock had no vendor reader: nothing
+// ever tried to convert it. Once mock gained one, RefreshVendorTranscript read
+// that canonical file as though it were vendor-native, recognized none of its
+// lines, and replaced it with the conversion's (empty) output. Binding a real
+// vendor file makes the fixture match how every engine actually works, and
+// makes acceptance exercise the conversion instead of stepping around it.
+func j001200VendorTranscriptPath(w *World, harp string) string {
+	return w.env.HomeDir + "/" + j001200HarpHome(harp) + "/vendor/mock-session.jsonl"
+}
+
+// j001200WriteMockVendorTranscript writes turns as MOCK-format vendor JSONL
+// ({"role":..,"text":..,"ts":..}), the format
+// internal/transcript/vendorreader/mock parses. Same turns as
+// j001200WriteCanonicalTranscript, one format earlier in the pipeline.
+func j001200WriteMockVendorTranscript(w *World, harp string, turns []string) error {
+	var b strings.Builder
+	ts := time.Date(2026, 3, 14, 0, 0, 0, 0, time.UTC)
+	for i, text := range turns {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		line, err := json.Marshal(map[string]any{
+			"role": role,
+			"text": text,
+			"ts":   ts.Add(time.Duration(i) * time.Minute).Format(time.RFC3339),
+		})
+		if err != nil {
+			return fmt.Errorf("render mock vendor line %d: %w", i, err)
+		}
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	return w.env.WriteHomeFile(j001200HarpHome(harp)+"/vendor/mock-session.jsonl", b.String())
+}
+
+// j001200SeedTranscripts writes BOTH representations of the same turns: the
+// vendor-native file the index binds, and the canonical file conversion would
+// produce. Both, deliberately — a scenario that reads the canonical transcript
+// without ever triggering a conversion still finds one, and a scenario that
+// does convert gets equivalent content rather than a contradiction.
+func j001200SeedTranscripts(w *World, harp string, turns []string) error {
+	if err := j001200WriteMockVendorTranscript(w, harp, turns); err != nil {
+		return err
+	}
+	return j001200WriteCanonicalTranscript(w, harp, turns)
 }
 
 // j001200Setup is the Background: a project, plus the March session as a fully

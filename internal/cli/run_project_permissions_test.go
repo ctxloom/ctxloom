@@ -75,7 +75,7 @@ func TestResolvePermissionMode_ProjectDefault(t *testing.T) {
 
 		// The collapses/floors that sit downstream of the whole chain apply to a
 		// project-sourced posture exactly as to any other.
-		{"a project plan collapses on a backend with no read-only tier", "", "", "", "plan", "antigravity", pb.ExecutionMode_INTERACTIVE, false, agent.PermissionDefault},
+		{"a project plan collapses on a backend with no read-only tier", "", "", "", "plan", "mock", pb.ExecutionMode_INTERACTIVE, false, agent.PermissionDefault},
 		{"a project default floors up for a headless oneshot", "", "", "", "default", "mock", pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
 	}
 	for _, tc := range cases {

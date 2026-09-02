@@ -64,7 +64,7 @@ func TestSelectPreviousEntry(t *testing.T) {
 	// Entries arrive most-recent-first; the active harp ("self") is index 0.
 	entries := []sessions.Entry{
 		{HarpName: "self", SessionID: "s-self", Backend: "claude-code"},
-		{HarpName: "prev", SessionID: "s-prev", Backend: "antigravity"},
+		{HarpName: "prev", SessionID: "s-prev", Backend: "mock"},
 		{HarpName: "old", SessionID: "s-old", Backend: "claude-code"},
 	}
 
@@ -72,7 +72,7 @@ func TestSelectPreviousEntry(t *testing.T) {
 		ref := selectPreviousEntry(entries, "self")
 		require.NotNil(t, ref)
 		assert.Equal(t, "s-prev", ref.SessionID)
-		assert.Equal(t, "antigravity", ref.Backend, "agent-of-origin must come through for cross-agent handoff")
+		assert.Equal(t, "mock", ref.Backend, "agent-of-origin must come through for cross-agent handoff")
 	})
 
 	t.Run("skips entries not yet bound to a session id", func(t *testing.T) {
@@ -92,13 +92,13 @@ func TestSelectPreviousEntry(t *testing.T) {
 		// must ride through so the caller can distill by harp.
 		ref := selectPreviousEntry([]sessions.Entry{
 			{HarpName: "self", SessionID: "s-self"},
-			{HarpName: "acp-prev", SessionID: "", Backend: "opencode",
+			{HarpName: "acp-prev", SessionID: "", Backend: "claude-code",
 				CanonicalTranscriptPath: "/home/u/.ctxloom/sessions/acp-prev/transcript.jsonl"},
 		}, "self")
 		require.NotNil(t, ref)
 		assert.Equal(t, "acp-prev", ref.Harp, "canonical entry must carry its harp for by-harp distillation")
 		assert.Empty(t, ref.SessionID, "ACP entry has no backend session id")
-		assert.Equal(t, "opencode", ref.Backend)
+		assert.Equal(t, "claude-code", ref.Backend)
 	})
 
 	t.Run("nil when only the active harp exists", func(t *testing.T) {

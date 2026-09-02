@@ -55,7 +55,7 @@ func TestRecorder_WriteFailure_IsObservable(t *testing.T) {
 		restore := clidiag.SetSink(&sink)
 		defer restore()
 
-		rec, err := NewRecorder(harp, "codex")
+		rec, err := NewRecorder(harp, "claude-code")
 		require.NoError(t, err)
 
 		ev := agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "hello"}}
@@ -87,7 +87,7 @@ func TestRecorder_WriteFailure_IsObservable(t *testing.T) {
 		restore := clidiag.SetSink(&sink)
 		defer restore()
 
-		rec, err := NewRecorder(harp, "codex")
+		rec, err := NewRecorder(harp, "claude-code")
 		require.NoError(t, err)
 
 		in := make(chan agent.ChatEvent, 1)

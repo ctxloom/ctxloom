@@ -57,7 +57,7 @@ func TestAvailableLLMNames_Sorted(t *testing.T) {
 // =============================================================================
 
 // TestSetDefaultLLM_SetsAndPersists proves the write survives a reload. The
-// seed names an explicit starting primary ("codex") rather than leaving
+// seed names an explicit starting primary ("mock") rather than leaving
 // llm.defaults.primary absent — an absent primary is filled in-memory by the
 // shipped-default overlay (mergeDefaultConfig) at load time, which would make
 // "claude-code" look already-current and turn this into an unchanged-status

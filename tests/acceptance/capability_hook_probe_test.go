@@ -157,7 +157,7 @@ func TestHookProbeAssert_FailureCarriesTheCarriageEvidence(t *testing.T) {
 
 func hookEchoCell(stampHarp, echoHarp, stdout string) *hookProbeState {
 	h := &hookProbeState{
-		engine: "codex", runtime: "host", workspace: "none",
+		engine: "claude-code", runtime: "host", workspace: "none",
 		stampHarp: stampHarp,
 		echoHarp:  echoHarp,
 		stampBody: stampHarp + "\n",
@@ -266,9 +266,12 @@ func TestHookProbeAssert_StageAOnlyCellIgnoresStdoutShape(t *testing.T) {
 // claude for failing to do something ctxloom never asked of it.
 func TestHookProbeIngestsHookStdout_MatchesTheDeclaredApproachTables(t *testing.T) {
 	for engine, want := range map[string]bool{
-		"codex":       true,  // codexApproaches: ApproachHook FIRST for SurfaceContext — the default context route
-		"claude-code": false, // declares ApproachHook, but SurfaceFor resolves it to noopContextDelivery
-		"opencode":    false, // noHooksReason: no hook mechanism at all
+		// No shipped engine ingests hook stdout: claude declares ApproachHook
+		// but SurfaceFor resolves it to noopContextDelivery, and mock's
+		// context surface is a native file. The permissive direction is the
+		// expensive mistake, so the table states false rather than omitting.
+		"claude-code": false,
+		"mock":        false,
 	} {
 		if got := hookProbeIngestsHookStdout(engine); got != want {
 			t.Errorf("hookProbeIngestsHookStdout(%q) = %v, want %v — this function decides whether a cell is asked to prove ingestion, so a wrong answer reds an engine for a claim ctxloom never made", engine, got, want)

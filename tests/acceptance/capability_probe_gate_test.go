@@ -45,7 +45,7 @@ func gateCell(engine, runtime, workspace string) probeCellID {
 func TestProbeCellDecide_UnavailableEngineSkipsAndAvailableOneProceeds(t *testing.T) {
 	t.Run("unavailable engine yields the skip reason", func(t *testing.T) {
 		report, skip := probeCellDecide(engineStatus{
-			name: "codex", available: false, reason: "binary not on PATH",
+			name: "mock", available: false, reason: "binary not on PATH",
 		})
 		require.Equal(t, "binary not on PATH", skip,
 			"an unavailable engine must skip, carrying production's own reason — a cell that runs anyway buys a paid turn and reds for a reason that is not about the claim")
@@ -55,7 +55,7 @@ func TestProbeCellDecide_UnavailableEngineSkipsAndAvailableOneProceeds(t *testin
 
 	t.Run("available engine yields no skip", func(t *testing.T) {
 		report, skip := probeCellDecide(engineStatus{
-			name: "codex", available: true, reason: "",
+			name: "mock", available: true, reason: "",
 		})
 		require.Empty(t, skip,
 			"an available engine must proceed; a gate that skips it makes the cell indistinguishable from one nobody wrote")
@@ -69,7 +69,7 @@ func TestProbeCellDecide_UnavailableEngineSkipsAndAvailableOneProceeds(t *testin
 // fact — and the standing rule that a blank cell always carries a reason is
 // enforced upstream, where the reason is produced.
 func TestProbeCellDecide_ReportsEvenWhenTheReasonIsEmpty(t *testing.T) {
-	report, skip := probeCellDecide(engineStatus{name: "codex", available: false})
+	report, skip := probeCellDecide(engineStatus{name: "mock", available: false})
 	assert.Empty(t, skip, "an unavailable status with no reason still must not proceed to buy a turn")
 	assert.NotEmpty(t, report)
 }
@@ -160,7 +160,7 @@ func TestProbeCellResolve_EmptyRuntimeAxisIsHost(t *testing.T) {
 // provisional note, not a measurement.
 func TestProbeCellSkip_NamesTheFamilyAndTheWholeCell(t *testing.T) {
 	err := probeCellSkip("plan-sentinel",
-		probeCellID{Probe: probeP4, Engine: "codex", Runtime: "host", Workspace: "none", Variant: "control"},
+		probeCellID{Probe: probeP4, Engine: "mock", Runtime: "host", Workspace: "none", Variant: "control"},
 		"codex is not authenticated here")
 	require.ErrorIs(t, err, godog.ErrSkip, "a gate refusal is a skip, never a pass and never a red")
 }
@@ -169,7 +169,7 @@ func TestProbeCellSkip_NamesTheFamilyAndTheWholeCell(t *testing.T) {
 // already the first word of the line; stamping the probe name again inside the
 // brackets reads as two different identifiers for one cell.
 func TestProbeCellSkip_DropsTheProbeFieldSoTheLineNamesOneIdentifier(t *testing.T) {
-	cell := probeCellID{Probe: probeP4, Engine: "codex", Runtime: "host", Workspace: "none", Variant: "control"}
+	cell := probeCellID{Probe: probeP4, Engine: "mock", Runtime: "host", Workspace: "none", Variant: "control"}
 	_ = probeCellSkip("plan-sentinel", cell, "unauthenticated")
 	require.Equal(t, probeP4, cell.Probe,
 		"probeCellSkip must not mutate its caller's cell — the caller goes on to use it as a ledger key")

@@ -19,11 +19,16 @@ import (
 // installFixture copies a testdata fixture verbatim to harp's canonical
 // transcript path (paths.HarpCanonicalTranscriptPath), creating the persist/
 // dir as NewRecorder's real writer would. Returns the destination path.
-func installFixture(t *testing.T, engine, harp string) string {
+// installFixture copies testdata/fixtures/<name>.transcript.acp.jsonl into
+// harp's canonical transcript path. NOTE: name is the FIXTURE BASENAME, not a
+// backend registry name — the claude fixture is "claude", not "claude-code".
+// Passing a registry name here fails as a missing FILE, which reads like a
+// broken test rather than a wrong argument.
+func installFixture(t *testing.T, name, harp string) string {
 	t.Helper()
-	src := filepath.Join("testdata", "fixtures", engine+".transcript.acp.jsonl")
+	src := filepath.Join("testdata", "fixtures", name+".transcript.acp.jsonl")
 	data, err := os.ReadFile(src)
-	require.NoError(t, err, "read fixture for %s", engine)
+	require.NoError(t, err, "read fixture %s", name)
 	return writeTempTranscript(t, harp, data)
 }
 
@@ -59,7 +64,7 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 	testsupport.Isolate(t)
 	ctx := context.Background()
 
-	t.Run("codex", func(t *testing.T) {
+	t.Run("full session with tool call", func(t *testing.T) {
 		harp := "codex-fixture-harp"
 		installFixture(t, "codex", harp)
 		h := NewCanonicalHistory("/proj/codex", sessions.NewMemStore())
@@ -113,27 +118,6 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 		assert.Equal(t, "probe file contents", byType["tool_result"][0].ToolOutput)
 	})
 
-	t.Run("opencode", func(t *testing.T) {
-		harp := "opencode-fixture-harp"
-		installFixture(t, "opencode", harp)
-		h := NewCanonicalHistory("/proj/opencode", sessions.NewMemStore())
-
-		sess, err := h.GetSession(ctx, harp)
-		require.NoError(t, err)
-		require.Len(t, sess.Entries, 5)
-
-		byType := entriesByType(sess.Entries)
-		require.Len(t, byType["user"], 1)
-		assert.Contains(t, byType["user"][0].Content, "What does this function do?")
-		require.Len(t, byType["tool_use"], 1)
-		assert.Equal(t, "read", byType["tool_use"][0].ToolName)
-		assert.Contains(t, string(byType["tool_use"][0].ToolInput), "main.go")
-		require.Len(t, byType["tool_result"], 1)
-		assert.Equal(t, "func main() { ... }", byType["tool_result"][0].ToolOutput)
-		require.Len(t, byType["assistant"], 1)
-		assert.Equal(t, "It's the program's entry point.", byType["assistant"][0].Content)
-	})
-
 	t.Run("acp", func(t *testing.T) {
 		harp := "acp-fixture-harp"
 		installFixture(t, "acp", harp)
@@ -158,7 +142,7 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 		assert.Contains(t, byType["assistant"][0].Content, "/tmp/scratch is gone")
 	})
 
-	t.Run("antigravity", func(t *testing.T) {
+	t.Run("two-entry oneshot", func(t *testing.T) {
 		harp := "antigravity-fixture-harp"
 		installFixture(t, "antigravity", harp)
 		h := NewCanonicalHistory("/proj/antigravity", sessions.NewMemStore())

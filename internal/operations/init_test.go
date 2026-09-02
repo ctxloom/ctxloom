@@ -237,9 +237,9 @@ func TestBuildInitialConfig(t *testing.T) {
 			wantFast: "claude-fast", wantFastBE: "claude-code", wantFastMod: "claude-haiku-4-5-20251001",
 		},
 		{
-			name: "engine without role markers falls back to a single entry", engine: "codex",
-			wantPrimary: "codex", wantBackend: "codex", wantModel: "",
-			wantFast: "codex", wantFastBE: "codex", wantFastMod: "",
+			name: "engine without role markers falls back to a single entry", engine: "mock",
+			wantPrimary: "mock", wantBackend: "mock", wantModel: "",
+			wantFast: "mock", wantFastBE: "mock", wantFastMod: "",
 		},
 	}
 	for _, tt := range tests {

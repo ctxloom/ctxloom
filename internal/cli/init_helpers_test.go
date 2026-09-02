@@ -27,9 +27,9 @@ func TestPickDefaultEngine(t *testing.T) {
 		primary  []string
 		want     string
 	}{
-		{"explicit selection wins", "antigravity", []string{"claude-code"}, "antigravity"},
-		{"explicit wins even with empty primary", "antigravity", nil, "antigravity"},
-		{"first primary when none selected", "", []string{"claude-code", "antigravity"}, "claude-code"},
+		{"explicit selection wins", "mock", []string{"claude-code"}, "mock"},
+		{"explicit wins even with empty primary", "mock", nil, "mock"},
+		{"first primary when none selected", "", []string{"claude-code", "mock"}, "claude-code"},
 		{"hardcoded fallback when nothing available", "", nil, "claude-code"},
 		{"hardcoded fallback with empty slice", "", []string{}, "claude-code"},
 	}

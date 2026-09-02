@@ -411,9 +411,12 @@ func j000400Excerpt(body, marker string, context int) string {
 // "Bob starts a session on <engine>" outline).
 func engineContextRelPath(dir, engine string) (string, error) {
 	switch engine {
-	case "claude-code":
+	case config.BackendClaudeCode:
 		return filepath.Join(dir, "CLAUDE.md"), nil
-	case "mock":
+	// Both doubles share mock's native layout: mock-lossy differs only in the
+	// hook kinds its descriptor declares unsupported, and it builds its
+	// surfaces through the same NewMockSurfaces.
+	case config.BackendMock, config.BackendMockLossy:
 		return filepath.Join(dir, "MOCK_CONTEXT.md"), nil
 	default:
 		return "", fmt.Errorf("unknown engine %q for native context surface", engine)
@@ -555,7 +558,7 @@ func j000400AssertCtxloomMCPInvocation(w *World, engine, want string) error {
 // than handing back a path nothing will ever be at.
 func j000400MCPRegistryFor(dir, engine string) (rel, key string, err error) {
 	switch engine {
-	case "claude-code":
+	case config.BackendClaudeCode:
 		return filepath.Join(dir, ".mcp.json"), "mcpServers", nil
 	default:
 		return "", "", fmt.Errorf("j000400: unknown engine %q", engine)
@@ -646,7 +649,7 @@ func j000400AssertHook(w *World, engine string) error {
 		rel   string
 	)
 	switch engine {
-	case "claude-code":
+	case config.BackendClaudeCode:
 		rel = filepath.Join(dir, ".claude", "settings.json")
 		doc, err = j000400ReadJSON(w, rel)
 		event = "SessionStart"
@@ -753,10 +756,8 @@ func j000400AssertCommand(w *World, engine string) error {
 	dir := j000400.target
 	var rel string
 	switch engine {
-	case "claude-code":
+	case config.BackendClaudeCode:
 		rel = filepath.Join(dir, ".claude", "commands", "team-onboarding.md")
-	case "opencode":
-		rel = filepath.Join(dir, ".opencode", "command", "team", "onboarding.md")
 	default:
 		return fmt.Errorf("j000400: unknown engine %q", engine)
 	}

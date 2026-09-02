@@ -15,7 +15,7 @@ func TestResolveRunLLM(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{
 		Configs: map[string]config.LLMConfig{
 			"claude-fast": {Type: "claude-code"},
-			"agy-code":    {Type: "antigravity"},
+			"agy-code":    {Type: "mock"},
 		},
 		Defaults: config.RoleDefaults{Primary: "claude-fast"},
 	}})

@@ -3,7 +3,7 @@ Feature: One shared profile, reaching every engine in its own native format
 
   A team does not standardize on one assistant. Carol's team writes one shared
   profile — a fragment, a command, an MCP server, a hook — once. Alice's teammates
-  use claude-code and codex, and every one of them needs that
+  use different engines, and every one of them needs that
   same profile to reach their own engine, in whatever native shape that engine
   actually reads. ctxloom's job is to be the one place the team's standard is
   authored, and to speak every engine's own dialect on the way out — nobody
@@ -15,23 +15,22 @@ Feature: One shared profile, reaching every engine in its own native format
   Verified straight from each engine's own surfaces declaration
   (each engine package's surfaces.go, plus backends/mock_surfaces.go):
 
-    | engine      | context lands in                                          | MCP lands in                              | hooks land in                | commands land in                   |
-    |-------------|-------------------------------------------------------------|----------------------------------------------|-------------------------------|--------------------------------------|
-    | claude-code | CLAUDE.md (managed markers)                                | .mcp.json                                   | .claude/settings.json          | .claude/commands/                    |
-    | codex       | AGENTS.md (managed markers, native) + a hook-read cache file | NO native file — folded into config.toml   | $CODEX_HOME/config.toml [hooks] — per-session only | $CODEX_HOME/prompts/ (global) — per-session only |
+    | engine      | context lands in            | MCP lands in   | hooks land in         | commands land in  |
+    |-------------|-----------------------------|----------------|-----------------------|-------------------|
+    | claude-code | CLAUDE.md (managed markers) | .mcp.json      | .claude/settings.json | .claude/commands/ |
+    | mock        | MOCK_CONTEXT.md (managed markers) | .mock/mcp.json | .mock/settings.json | .mock/commands/   |
 
-  codex's rows name $CODEX_HOME rather than a project-root .codex, and that is
-  the second divergence worth stating: codex is the ONE engine with no
-  cwd-keyed place for its hooks, MCP servers and prompts at all. They live in
-  $CODEX_HOME/config.toml and $CODEX_HOME/prompts, and the only $CODEX_HOME
-  ctxloom may write is a PER-SESSION one it creates when an agent launches.
-  Alice's real ~/.codex is hers; ctxloom does not write it.
+  ONE REAL VENDOR SHIPS TODAY, and the second row is the test double. That is
+  stated rather than glossed: the mechanism below — one profile, each engine's
+  own native shape — is genuinely exercised across two engines, but the
+  stronger claim this journey was written for, that engines from DIFFERENT
+  VENDORS diverge in shape, is not currently demonstrable. mock stands in for
+  a second vendor and its surfaces are all project-local, so it cannot show
+  the sharpest divergence there is: an engine whose hooks, MCP servers and
+  prompts have no cwd-keyed home at all and are delivered per-session at
+  launch. That engine's narrowed materialize is the parked scenario below.
 
-  So `profile materialize --backend codex` is NARROWED rather than gutted, and
-  the third scenario below is where that is proven: codex's cwd-keyed surface,
-  AGENTS.md, is materialized exactly like everyone else's context, while the
-  three home-keyed surfaces are DECLARED as delivered per-session at launch and
-  land in the materialized tree nowhere at all. An absence a report states is a
+  An absence a report states is a
   fact a team can plan around; an absence nothing mentions is the same tree with
   a lie on top of it.
 
@@ -55,9 +54,9 @@ Feature: One shared profile, reaching every engine in its own native format
   # a substring of a key name: a key name is satisfied by the file merely
   # mentioning it, which is true whether or not any content landed.
   #
-  # codex's context row is the one to read carefully. Its surface writes
-  # AGENTS.md from agent.SurfaceInputs.Context — the assembled string, which
-  # materialize populates. It must never be keyed on SurfaceInputs.Fragments:
+  # READ EVERY CONTEXT ROW CAREFULLY. A context surface must write from
+  # agent.SurfaceInputs.Context — the assembled string, which materialize
+  # populates. It must never be keyed on SurfaceInputs.Fragments:
   # materialize never fills that field, so a fragments-keyed context surface is
   # a silent no-op on this path, exit 0 with nothing written. Adding an engine
   # here is adding a ROW, not new Go.
@@ -73,12 +72,12 @@ Feature: One shared profile, reaching every engine in its own native format
       | engine      |
       | claude-code |
 
-  # codex is the OTHER engine of the fan-out and it gets its own scenario, not
-  # a row, because its answer is genuinely different: one surface materializes
-  # and three are DECLARED as launch-only. Keeping it as a row would have meant
-  # either asserting files the product deliberately does not write, or quietly
-  # dropping codex from the journey — and dropping it is how a narrowing
-  # becomes a regression nobody notices.
+  # A HOME-KEYED engine gets its own scenario, not a row, because its answer is
+  # genuinely different: one surface materializes and three are DECLARED as
+  # launch-only. Keeping it as a row would mean either asserting files the
+  # product deliberately does not write, or quietly dropping it from the
+  # journey — and dropping it is how a narrowing becomes a regression nobody
+  # notices.
   #
   # ABSENCE OVER THE WHOLE TREE, never "the file I guessed is missing": the
   # interesting failure is a fallback landing somewhere nobody thought to look,
@@ -101,17 +100,17 @@ Feature: One shared profile, reaching every engine in its own native format
   # UNTAG WHEN: an engine with HOME-KEYED, launch-delivered surfaces returns —
   # then repoint the scenario at it; the steps need no new Go.
   @wip
-  Scenario: codex materializes its native context, and declares the three surfaces it delivers at launch instead
+  Scenario: A home-keyed engine materializes its native context, and declares the three surfaces it delivers at launch instead
     Given Carol's team profile carries a shared fragment, command, MCP server, and hook
-    When Alice materializes the team profile for codex
-    Then the materialized codex context carries the shared fragment's marker, in its own native shape
-    And no codex surface anywhere in the materialized tree carries the shared hook's command
-    And no codex surface anywhere in the materialized tree carries the shared MCP server's command
-    And no codex surface anywhere in the materialized tree carries the shared command's body
-    And the materialize report says codex delivers those surfaces per-session at launch
+    When Alice materializes the team profile for a home-keyed engine
+    Then the materialized context carries the shared fragment's marker, in its own native shape
+    And no surface anywhere in the materialized tree carries the shared hook's command
+    And no surface anywhere in the materialized tree carries the shared MCP server's command
+    And no surface anywhere in the materialized tree carries the shared command's body
+    And the materialize report says that engine delivers those surfaces per-session at launch
 
   # Regression coverage for taskloom lanky-plop (P0 data loss): materializing a
-  # profile for claude-code/codex must never destroy a team's hand-authored
+  # profile for an engine with a native context file must never destroy a team's hand-authored
   # CLAUDE.md / AGENTS.md — content outside ctxloom's managed markers must
   # survive byte-for-byte, and ctxloom's own content must still land alongside
   # it. BREAK-POINT VERIFIED: reverting the marker-merge core
@@ -130,15 +129,9 @@ Feature: One shared profile, reaching every engine in its own native format
       | claude-code | CLAUDE.md       |
       | mock        | MOCK_CONTEXT.md |
 
-  # LOCKED — @live: claude and codex have a working live
-  # path today.
-  # codex joined this table once 7beee9a routed AGENTS.md through SurfaceFor
-  # on the real materialize/run path (not just the dead Deliveries() path) —
-  # a logged-in codex CLI genuinely reads the materialized AGENTS.md and
-  # echoes the sentinel back. Each present row self-skips without
-  # credentials, exactly like J000200's own @live scenario. Adding an engine here
-  # is adding a ROW, no new Go and no new steps — proven true again by
-  # codex's row below.
+  # @live: one real vendor ships today, so this table has one row. Each row
+  # self-skips without credentials, exactly like J000200's own @live scenario.
+  # Adding an engine here is adding a ROW — no new Go and no new steps.
   @live
   Scenario Outline: A real engine actually receives the shared context and can use it
     Given a real <engine> agent is available
@@ -149,4 +142,3 @@ Feature: One shared profile, reaching every engine in its own native format
     Examples:
       | engine      |
       | Claude      |
-      | Codex       |

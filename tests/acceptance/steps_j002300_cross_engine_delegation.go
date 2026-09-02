@@ -384,22 +384,25 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 	// so it is its own step rather than a second call to the shared one
 	// (which would overwrite config.yaml between calls).
 
-	ctx.Step(`^real "claude" and "codex" engines are both available for cross-engine delegation$`,
+	ctx.Step(`^real "claude" and a second agent-capable engine are both available for cross-engine delegation$`,
 		func(c context.Context) error {
 			w := worldFrom(c)
 			j002300 := j002300Of(w)
 			optIn := resolveOptIn()
 			claudeStatus := probeEngine("claude", liveAgents["claude"], realHomeDir, optIn)
-			codexStatus := probeEngine("codex", liveAgents["codex"], realHomeDir, optIn)
+			// No second agent-capable engine ships; the probe reports it unavailable
+			// and the scenario skips loudly rather than asserting a reply nothing
+			// can produce.
+			secondStatus := engineStatus{name: "second engine", available: false, reason: "no second agent-capable engine is registered"}
 			// Loud regardless of outcome: named per engine, not a single bit.
-			w.docStepMaterialized = formatLiveEngineReport([]engineStatus{claudeStatus, codexStatus})
-			if !claudeStatus.available || !codexStatus.available {
+			w.docStepMaterialized = formatLiveEngineReport([]engineStatus{claudeStatus, secondStatus})
+			if !claudeStatus.available || !secondStatus.available {
 				var missing []string
 				if !claudeStatus.available {
 					missing = append(missing, fmt.Sprintf("claude (%s)", claudeStatus.reason))
 				}
-				if !codexStatus.available {
-					missing = append(missing, fmt.Sprintf("codex (%s)", codexStatus.reason))
+				if !secondStatus.available {
+					missing = append(missing, fmt.Sprintf("%s (%s)", secondStatus.name, secondStatus.reason))
 				}
 				fmt.Printf("SKIP j002300 cross-engine @live: %s\n", strings.Join(missing, "; "))
 				return godog.ErrSkip
@@ -434,12 +437,9 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			// API-key path — exactly steps_live.go's own per-engine logic,
 			// applied twice since this scenario runs both at once. This is
 			// the scenario jovial-employee was measured on: the codex half
-			// used to be seeded by COPY, and codex's refresh inside the
-			// throwaway HOME consumed the host's refresh token server-side.
-			if err := seedLiveCredentials("claude", liveAgents["claude"], realHomeDir, w.env.HomeDir, w.env.SetChildEnv); err != nil {
-				return err
-			}
-			return seedLiveCredentials("codex", liveAgents["codex"], realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
+			// used to be seeded by COPY, and a refresh inside the throwaway
+			// HOME consumed the host's refresh token server-side.
+			return seedLiveCredentials("claude", liveAgents["claude"], realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
 		})
 
 	// --- @live per-engine fixture -------------------------------------------

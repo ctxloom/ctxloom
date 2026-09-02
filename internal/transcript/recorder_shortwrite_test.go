@@ -60,7 +60,7 @@ func TestRecorder_ShortWriteBoundsTheDamageAndShowsTheGap(t *testing.T) {
 	const harp = "shortwrite-harp"
 
 	sw := &shortWriter{}
-	rec, err := NewRecorder(harp, "codex", func(r *fileRecorder) {
+	rec, err := NewRecorder(harp, "claude-code", func(r *fileRecorder) {
 		r.open = func(path string) (io.WriteCloser, error) {
 			f, oerr := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 			if oerr != nil {
@@ -121,7 +121,7 @@ func TestRecorder_TotallyFailedWriteLeavesNoGap(t *testing.T) {
 	const harp = "zerowrite-harp"
 
 	fail := &failingWriter{}
-	rec, err := NewRecorder(harp, "codex", func(r *fileRecorder) {
+	rec, err := NewRecorder(harp, "claude-code", func(r *fileRecorder) {
 		r.open = func(path string) (io.WriteCloser, error) {
 			f, oerr := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 			if oerr != nil {

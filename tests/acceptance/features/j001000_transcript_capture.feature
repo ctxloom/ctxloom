@@ -83,14 +83,6 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #      only under @live, which self-skips without credentials — never faked
   #      here. The recall trigger above proves the identical conversion from
   #      the other moment.
-  #   2. KIRO's conversion is real code (vendorreader_kiro.go's
-  #      locateKiroConversation over the conversations_v2 sqlite store) but is
-  #      NOT hermetically seeded below: kiroDBPath reads a fixed
-  #      $XDG_DATA_HOME/kiro-cli/data.sqlite3 rather than the index entry's
-  #      transcript_path, and the no-bound-id path falls back to a best-effort
-  #      WorkDir/UpdatedAt enumeration heuristic that two concurrent same-dir
-  #      sessions defeat. Documented as a deferral, not written as a weak
-  #      scenario. See the note above the Examples table.
 
   Background:
     Given an initialized ctxloom project

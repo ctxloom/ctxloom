@@ -161,6 +161,7 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 		&mcp.Tool{
 			Name:        "list_sessions",
 			Description: listSessionsDesc,
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		},
 		s.handleListSessions)
 
@@ -182,6 +183,7 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 		&mcp.Tool{
 			Name:        "get_previous_session",
 			Description: getPreviousSessionDesc,
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		},
 		s.handleGetPreviousSession)
 }

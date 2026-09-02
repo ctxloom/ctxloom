@@ -235,7 +235,14 @@ func (b *ClaudeCode) chatArgs(req agent.ChatRequest, mcpConfigPath string) []str
 	if req.Model != "" {
 		args = append(args, flagModel, req.Model)
 	}
-	args = append(args, permissionArgs(req.Permissions)...)
+	// The attached servers' names, for the plan-posture grant. Inline rather
+	// than a named helper: it had one caller and the extracted form was an
+	// exact duplicate of four existing pluck-the-name loops.
+	mcpNames := make([]string, 0, len(req.MCPServers))
+	for _, s := range req.MCPServers {
+		mcpNames = append(mcpNames, s.Name)
+	}
+	args = append(args, permissionArgs(req.Permissions, mcpNames)...)
 	if req.ResumeSessionID != "" {
 		args = append(args, flagResume, req.ResumeSessionID)
 	}
@@ -311,3 +318,4 @@ func (b *ClaudeCode) spawnChatTransport(ctx context.Context, args []string, env 
 		},
 	}, nil
 }
+

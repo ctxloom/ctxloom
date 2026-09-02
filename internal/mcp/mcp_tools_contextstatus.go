@@ -70,6 +70,7 @@ func (s *ctxServer) registerContextStatusTool(server *mcp.Server) []string {
 		&mcp.Tool{
 			Name:        "context_status",
 			Description: contextStatusDesc,
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		},
 		s.handleContextStatus)
 	return []string{"context_status"}

@@ -104,6 +104,7 @@ const (
 	flagSkipPermissions  = "--dangerously-skip-permissions"
 	flagPermissionMode   = "--permission-mode"
 	flagDisallowedTools  = "--disallowedTools"
+	flagAllowedTools     = "--allowedTools"
 	flagModel            = "--model"
 	flagName             = "--name"
 	flagPrint            = "--print"
@@ -130,6 +131,8 @@ func commonFlags() []agent.CLIFlag {
 			Note: "acceptEdits | plan"},
 		{Name: flagDisallowedTools, Value: agent.ValueString,
 			Note: "ONE comma-joined value token (Bash,Edit,Write,NotebookEdit), not repeated flags; plan posture only"},
+		{Name: flagAllowedTools, Value: agent.ValueString,
+			Note: "ONE comma-joined value token of mcp__ctxloom__* grants; plan posture only. VARIADIC in claude's parser like --disallowedTools, so it must never be the last flag before a positional"},
 		{Name: flagModel, Value: agent.ValueString},
 		{Name: flagAppendSystemFile, Value: agent.ValuePath,
 			Note: "the framed out-of-cwd sysprompt scratch; SharedCell delivery only"},

@@ -309,19 +309,80 @@ func sessionNameArgs(env map[string]string) []string {
 // collapsed read-only, this is the LESS broken of the under-mapped
 // engines), so this is defense-in-depth, not the fix itself: if a future
 // claude release ever narrows plan's own semantics, the explicit deny
-// list still holds. The generalized permission posture has no per-tool
-// policy input yet, so the set is a fixed, conservative write/exec list —
-// Bash (arbitrary exec, including file writes via shell), Edit, Write,
+// list still holds. The DENY set stays fixed and conservative — Bash
+// (arbitrary exec, including file writes via shell), Edit, Write,
 // NotebookEdit (every built-in mutating tool this codebase's own tool
-// vocabulary names).
-func permissionArgs(mode agent.PermissionMode) []string {
+// vocabulary names) — because it names BUILT-IN tools, which do not vary
+// by launch. The grant below does vary, which is why it takes an argument
+// and this does not.
+//
+// plan ALSO gets an --allowedTools GRANT naming each attached MCP SERVER,
+// because plan gates an MCP call TWICE and the two gates are independent.
+// Measured against claude 2.1.251, one server, one run, varying one thing:
+//
+//	hint + grant    -> the call SUCCEEDS
+//	hint, no grant  -> "requested permissions ... but you haven't granted it yet"
+//	grant, no hint  -> "Cannot call <tool> while in plan mode"
+//
+// So the readOnlyHint stamped at registration is necessary but NOT sufficient.
+// Without this grant a plan agent reaches none of its MCP tools — not even
+// search_content — which is the state this replaced.
+//
+// The grant is deliberately SERVER-level (mcp__<server>, no tool suffix) even
+// though it reads as coarser than naming tools. Two reasons, and the first is
+// why it is not actually coarser:
+//
+//   - The GATES COMPOSE. Measured on one server with one server-level grant:
+//     an annotated tool succeeded and an unannotated one still returned
+//     "Cannot call ... while in plan mode". readOnlyHint stays the real
+//     per-tool filter; the grant only says which servers are in play.
+//   - It is the only form that can cover COMPANION servers. ctxloom does not
+//     know taskloom's or a bundle-supplied server's tool inventory, so it
+//     cannot enumerate their read-only tools — but it does know which servers
+//     it attached. A companion that annotates honestly gets its read tools
+//     through; one that annotates nothing gets nothing, which is the safe way
+//     to be wrong.
+//
+// This is therefore plan-ONLY. Under a posture with no read-only tier the
+// hint gate is absent, and a server-level grant WOULD be blanket permission
+// for that server's mutating tools.
+// mcpServerNames lists the MCP servers this launch actually attaches, sorted.
+//
+// The delivered bundle map is the honest answer to "which servers is this argv
+// wiring up": it already carries ctxloom's own server alongside the config- and
+// bundle-supplied ones, which is why it is read here rather than the ctxloom
+// name being appended separately. A server attached but not named here is a
+// server a plan agent cannot reach.
+func (s Surfaces) mcpServerNames() []string {
+	if s.MCP == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.MCP.bundle))
+	for name := range s.MCP.bundle {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func permissionArgs(mode agent.PermissionMode, mcpServers []string) []string {
 	switch mode {
 	case agent.PermissionBypass:
 		return []string{flagSkipPermissions}
 	case agent.PermissionAcceptEdits:
 		return []string{flagPermissionMode, "acceptEdits"}
 	case agent.PermissionPlan:
-		return []string{flagPermissionMode, "plan", flagDisallowedTools, "Bash,Edit,Write,NotebookEdit"}
+		args := []string{
+			flagPermissionMode, "plan",
+			flagDisallowedTools, "Bash,Edit,Write,NotebookEdit",
+		}
+		// No attached servers means no grant to make. Emitting the flag with
+		// an empty value would declare "grant nothing" to a VARIADIC parser
+		// sitting next to a positional — the argv hazard buildArgs documents.
+		if granted := agent.QualifyMCPServers(mcpServers); len(granted) > 0 {
+			args = append(args, flagAllowedTools, strings.Join(granted, ","))
+		}
+		return args
 	}
 	return nil
 }
@@ -353,7 +414,7 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	args := make([]string, len(b.Args))
 	copy(args, b.Args)
 
-	args = append(args, permissionArgs(req.Permissions)...)
+	args = append(args, permissionArgs(req.Permissions, b.surfaces.mcpServerNames())...)
 
 	// The model is resolved by the caller (the fast role's labeled config for
 	// compression, the primary role's for coding); the backend no longer

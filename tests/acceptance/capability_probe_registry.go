@@ -137,7 +137,7 @@ type probeCell struct {
 	// and it changes what the feature file must contain.
 	//
 	// A gate enforced by ABSENCE (the default) means the engine declares the
-	// capability gone — opencode's noHooksReason, resolveResumeMode's refusal —
+	// capability gone — a backend's own noHooksReason, resolveResumeMode's refusal —
 	// so there is nothing to run and the feature must carry NO Examples row for
 	// it. A gate enforced AT RUNTIME means production itself refuses, loudly,
 	// naming the reason, when the cell is attempted — an axis that needs a
@@ -206,10 +206,10 @@ var (
 	// rather than as a variation on channelHookStamp because the two fail for
 	// different reasons in different subsystems. The stamp channel fails when
 	// the engine never EXECUTED the hook; this one fails when the engine
-	// executed it and never INGESTED what it printed. Only an engine whose
-	// declared context approach is the hook can be asked the second question —
-	// codex, whose codexApproaches lists agent.ApproachHook first for
-	// agent.SurfaceContext, and no other engine at this base.
+	// executed it and never INGESTED what it printed. The second question can
+	// only be put to an engine whose ApproachTable declares the hook its
+	// context route; no engine at this base does, so the channel is currently
+	// carried by hookProbeAssertEcho alone and no cell reaches it.
 	channelHookStdout = probeChannel{
 		Shape: "HOOK-OUTPUT-INGESTION failure",
 		Where: "the session_start hook's STANDARD OUTPUT, written to no file the engine reads and present in no prompt",
@@ -263,7 +263,7 @@ const (
 // liveEngines is the ladder's engine vocabulary, in the display order the
 // availability report and the Examples tables already use. Backend-type spelling
 // (what a cell writes); backendTypeToLiveKey maps it to liveAgents' own key.
-var probeEngines = []string{"claude-code", "codex", "opencode"}
+var probeEngines = []string{"claude-code"}
 
 // hostCell / containerCell are shorthands, so a table row reads as data rather
 // than as four repeated field names.
@@ -312,20 +312,6 @@ var probeRegistry = []probeSpec{
 				Status: probeLiveVerified, Reason: "measured 2026-08-25: 1 scenario / 3 steps green in 71s, nonce harp \"weird-idle-punch\" echoed back exactly, no degrade warning. THE MIXED CORNER, and it was run because P6 measured what skipping one costs — its host/worktree cell failed where both-off and both-on passed, since the axes resolve credentials by DIFFERENT mechanisms (a container bind-mounts, a worktree seeds via credentialSeedSpecs). Here both boundaries hold together: the system-prompt scratch file survives a container whose workspace is also an isolated checkout."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "worktree", Variant: "unsafe-file-shared",
 				Status: probeLiveVerified, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion, and the worktree axis is where that matters. Measured 2026-08-13: 1 scenario / 3 steps green in 5.5s, harp \"snug-void-rebel\", no degrade warning. CLAUDE.md into an isolated checkout delivers."},
-			// RETRACTED after S4's hook-firing probe
-			// forced a re-adjudication. This cell WAS recorded live-verified
-			// with "the codex hook finding is fixed". It was not fixed; the cell
-			// never touched the hook. See the retraction note below the table.
-			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "hook",
-				Status: probeDeferred, Reason: "NO SELECTABLE CONFIGURATION ISOLATES CODEX'S HOOK CONTEXT CHANNEL, so an attributing cell cannot be built here yet — deferred rather than left standing as a green that measures something else. Two independent reasons, both pinned hermetically in capability_context_channels_test.go: (1) codex's Surfaces.SurfaceFor resolves (context, Hook) to a COMPOSED delivery that also writes the native AGENTS.md, which codex reads by itself with no hook involved (TestCodexHookApproach_AlsoWritesAGENTSMD); (2) on this fixture ctxloom writes codex no hook AT ALL — it warns \"codex hooks and MCP servers were NOT written ... no durable project home exists — see config_home\" — so the channel is absent from the session entirely. An attributing cell needs a binding with `config_home: project` (so a hook is written), plus S4's stamp-file discipline (so hook EXECUTION is observed rather than inferred), plus a way to suppress the AGENTS.md leg. approachRequiredSurfaceDelivered now reds any hook cell whose hook was not written, so this cannot silently come back."},
-			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "unsafe-file",
-				Status: probeLiveVerified, Reason: "codex's AGENTS.md route. Measured 2026-08-13: 1 scenario / 3 steps green in 7.0s, harp \"smug-fatal-rush\", no degrade warning. NOT SIDE-CHANNEL-CONTROLLED, and the registry says so rather than implying otherwise: codex has no out-of-cwd realization for any surface (TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace), so this delivery writes AGENTS.md INTO the working directory, and the fixture's own bundle YAML sits in the project tree beside it. S4 measured codex satisfying a nonce probe by searching the workspace with rg. So this cell proves the bytes reached the workspace and the model produced them; it does not separate native AGENTS.md ingestion from agentic file search. The claim is stated at that strength deliberately."},
-			{Engine: "opencode", Runtime: "host", Workspace: "none", Variant: "hook",
-				Status: probeGatedOut, Reason: "agent.ApproachHook is absent from opencodeApproaches' ApproachTable entry for SurfaceContext (unsafe-file only); opencode declares no hook surface at all either (noHooksReason)"},
-			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "system-prompt",
-				Status: probeGatedOut, Reason: "agent.ApproachSystemPrompt is absent from codex's ApproachTable — claude-only capability"},
-			{Engine: "opencode", Runtime: "host", Workspace: "none", Variant: "system-prompt",
-				Status: probeGatedOut, Reason: "agent.ApproachSystemPrompt is absent from opencode's ApproachTable — claude-only capability"},
 		},
 	},
 	{
@@ -355,10 +341,6 @@ var probeRegistry = []probeSpec{
 		Cells: []probeCell{
 			hostCell("claude-code", probeLiveVerified,
 				"RE-MEASURED 2026-08-26 on the BUNDLE surface after c5228d46 deleted config.yaml's mcp.servers key: 1 scenario / 3 steps green, harp \"tidy-jaded-cusp\", call log carrying the whole round trip — start / initialize / notifications/initialized / tools/list / tools/call / tool_call. This row proves the migrated registration path works end to end, and it doubles as the CONTROL for the two container rows below, which share this fixture and stop one step short of the call. Prior measurement 2026-08-13 on the now-deleted config surface: 1 scenario / 3 steps green in 9.9s, harp \"messy-plump-exit\", served only by the fixture server's get_nonce tool and echoed back exactly. Path: config mcp.servers → ManagedConfig.MCP → claude's --mcp-config scratch file (shared cell; layered rather than strict, so a user's own .mcp.json still loads). FIRST proof anywhere that a non-forwarder MCP server reaches a real engine through ctxloom and gets called."),
-			hostCell("codex", probeLiveVerified,
-				"measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 89s, harp \"lunar-soft-navy\". Path: config mcp.servers → ManagedConfig.MCP → codex's folded config.toml [mcp_servers] table (codex advertises no distinct SurfaceMCP — MCP folds into its config surface). EVIDENCE PREDATES THE SURFACE CHANGE and has NOT been re-measured: this run used config.yaml's top-level mcp.servers key, which c5228d46 DELETED on 2026-08-19 — an MCP server is now declared in a bundle, and composing that bundle is what registers it. The fixture was migrated to the bundle surface on 2026-08-26 and only the claude row was re-run. What this row measured about THE ENGINE (that it connects and calls) is very likely still true; what it says about THE DELIVERY PATH is about a path that no longer exists. Re-run before citing it."),
-			hostCell("opencode", probeLiveVerified,
-				"measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 56s, harp \"petty-ratty-study\". The call log carries the whole round trip — start / initialize / notifications/initialized / tools/list / tools/call / tool_call / notifications/cancelled / eof — so this row evidences discovery AND invocation, not just the echo. Path: config mcp.servers → ManagedConfig.MCP → opencode.json's mcp block (folded into opencode's settings surface). EVIDENCE PREDATES THE SURFACE CHANGE and has NOT been re-measured: this run used config.yaml's top-level mcp.servers key, which c5228d46 DELETED on 2026-08-19 — an MCP server is now declared in a bundle, and composing that bundle is what registers it. The fixture was migrated to the bundle surface on 2026-08-26 and only the claude row was re-run. What this row measured about THE ENGINE (that it connects and calls) is very likely still true; what it says about THE DELIVERY PATH is about a path that no longer exists. Re-run before citing it."),
 			// THE CONTAINER CELLS. These four rows previously read
 			// "container MCP reach-back is undesigned — the endpoint DISCOVERY
 			// gap ... (cross-container-comms finding)" and carried a bare
@@ -393,14 +375,6 @@ var probeRegistry = []probeSpec{
 				ExpectedFailure:     channelMCPToolResult.Shape,
 				ExpectedFailureNote: "measured 2026-08-26: IDENTICAL to the container/none row above (server started in-container, handshake and tools/list completed, get_nonce never called), so the mixed corner adds no separate defect. It DID prove the evidence path: probeCellRunDir resolved the per-agent checkout from `git worktree list --porcelain` and read the call log out of it, which works here because the server's writes leave the checkout dirty and the WIP-safe teardown spares it. P3's worktree cell shows the other side of that — its hook never fired, the checkout stayed clean, teardown pruned it, and there was no evidence left to read.",
 				Reason:              "LANDED WITH the container/none row, never after it, for the reason that kept them paired while both were deferred: P6 measured what skipping a mixed corner costs — its host/worktree cell failed where both-off and both-on passed, because the axes resolve the credential by DIFFERENT mechanisms (a container bind-mounts it, a worktree seeds it via credentialSeedSpecs). This row carries one thing its partner does not: the engine runs a per-agent CHECKOUT, so the fixture arrives only because it is committed, and its call log is written there rather than in the project. probeCellRunDir resolves that checkout from `git worktree list --porcelain` AFTER the run; reading the project copy instead would report that the server never ran."},
-			// codex/opencode: deferred to 0.8.0 by decision, NOT by a
-			// technical blocker. Their runtime value is corrected here so the
-			// retired "container" spelling does not outlive the split, but they
-			// are deliberately not admitted — 0.7.0 propagates claude-code only.
-			{Engine: "codex", Runtime: "container-rootless", Workspace: "none", Status: probeDeferred,
-				Reason: "deferred to 0.8.0 — 0.7.0 propagates claude-code onto the container axis only. No technical blocker is known for this cell now that the fixture needs no interpreter; it is unbuilt by scope, not by obstacle."},
-			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Status: probeDeferred,
-				Reason: "deferred to 0.8.0 — see the codex container row"},
 		},
 	},
 	{
@@ -413,14 +387,6 @@ var probeRegistry = []probeSpec{
 		Cells: []probeCell{
 			hostCell("claude-code", probeLiveVerified,
 				"GREEN, measured 2026-08-13 on this branch: 1 scenario / 3 steps, stamp file carrying the 18-byte argv harp, run exit 0. Corroborated OUTSIDE the harness by a hand-built project run of the same fixture. This is the first live proof anywhere in the repo that a ctxloom-written hook is EXECUTED by a vendor binary (inventory row 7). Stage (a) only: claude declares agent.ApproachHook for SurfaceContext, but claude's SurfaceFor resolves that pair to noopContextDelivery, the documented no-op that never carries, so ctxloom does not deliver claude's context through a hook and this cell must not assert an output echo production never asked for."),
-			{Engine: "codex", Runtime: "host", Workspace: "none", Status: probeWired,
-				Reason:              "the ONLY cell that would run both stages. codexApproaches lists agent.ApproachHook FIRST for agent.SurfaceContext, making the hook codex's DEFAULT context route, so stage (b) - the harp printed on the hook's stdout reaching the model - is a claim production actually makes here. RED at this base; see the note.",
-				ExpectedFailure:     "HOOK-DELIVERY failure",
-				ExpectedFailureNote: "MEASURED 2026-08-13, and this is a CAPABILITY FINDING, not a harness fault: codex hooks written by ctxloom NEVER FIRE. Carriage is proven - with `config_home: project` the hook command was observed live in <project>/.ctxloom/state/<harp>/home/.codex/config.toml while the engine ran - and no stamp file appeared. Root cause isolated against the vendor binary directly, ctxloom out of the picture: with a hand-built CODEX_HOME carrying the identical [[hooks.SessionStart]] block, `codex exec` did NOT run the hook, and `codex exec --dangerously-bypass-hook-trust` DID (stamp written, same config, same turn). codex 0.144.4 gates hooks behind a PERSISTED HOOK TRUST that ctxloom does not satisfy and does not bypass, and codex says nothing when it declines. CONSEQUENCE BEYOND THIS PROBE: the hook is codex's DEFAULT CONTEXT ROUTE, so ctxloom's hook-carried context delivery to codex is inert too - P1's codex hook cell should expect the same red, and any green codex context row is arriving through the compositional AGENTS.md route instead. AND THE PROBE'S OWN DESIGN EARNED ITS KEEP HERE: on the run of 2026-08-13 codex ANSWERED WITH THE CORRECT stage-(b) HARP while its hook had never fired - its stderr shows it ran `rg` across the temp tree and the session store until it found the phrase in the fixture's own script. A probe that asserted only the echo would have gone GREEN on a completely dead hook mechanism. It reds because stage (a) is a FILE and is judged FIRST. DO NOT loosen this cell to green; it goes green when ctxloom satisfies codex's hook trust."},
-			{Engine: "opencode", Runtime: "host", Workspace: "none", Status: probeGatedOut,
-				Reason: "opencode declares hooks absent: noHooksReason (\"opencode has no hook mechanism\"). Not a gap - a declared absence, gated by ABSENCE, which is why capability_hook_firing.feature carries no Examples row for it."},
-			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "session-end", Status: probeGatedOut,
-				Reason: "unsupportedHookKinds[bundles.HookEventSessionEnd] / codex.NoSessionEndReason (\"codex has no session-end event\") - codex declares this one kind unsupported while supporting the rest, which is the reason P3 plants on session_start; gated by ABSENCE, so this variant gets no Examples row"},
 			// THE CONTAINER CELLS. P3 had NO container rows at all until the
 			// fixture moved into the workspace: the stamp file was a host-
 			// absolute path, so a containerized engine would have written it
@@ -432,10 +398,7 @@ var probeRegistry = []probeSpec{
 			// checked out.
 			//
 			// claude-code only, and that is SCOPE rather than obstacle — 0.7.0
-			// propagates claude onto the container axis. codex is red on the
-			// host row for a vendor hook-trust gate it would hit identically
-			// here; opencode is unbuilt for the same 0.8.0 reason as
-			// its P2 row.
+			// propagates claude onto the container axis.
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Status: probeWired,
 				ExpectedFailure:     "HOOK-DELIVERY failure",
 				ExpectedFailureNote: "MEASURED 2026-08-26 and it is a CAPABILITY FINDING: a containerized claude run does not produce the stamp. exit 0, the turn answered normally, no stamp file on the bind-mounted workspace. CONTROLLED AGAINST THE OBVIOUS HARNESS CAUSE: the run was repeated with the hook command written as a HOST-ABSOLUTE path (valid in-container under the identity mapper) instead of the workspace-relative one, and it did not fire either — so the relative path is not the cause. The identical fixture on host/none fires reliably the same day. NOT YET ISOLATED between ctxloom never writing the hook into the container and claude never running one it was given: the carriage scan reads the project tree and the session root on the HOST, and a container's settings are written where neither looks, so carriage is unobservable here rather than absent. Isolating it needs a scan inside the container.",
@@ -463,8 +426,6 @@ var probeRegistry = []probeSpec{
 		Paid:         true,
 		Cells: []probeCell{
 			hostCell("claude-code", probePlanned, "adapter engine — the parked-forever class of bug lives here, so it lands first"),
-			hostCell("codex", probePlanned, "adapter engine — lands with claude-code"),
-			hostCell("opencode", probePlanned, "native ACP — sequenced after the adapter engines"),
 		},
 	},
 	{
@@ -500,10 +461,6 @@ var probeRegistry = []probeSpec{
 		Cells: []probeCell{
 			hostCell("claude-code", probeLiveVerified,
 				"measured 2026-08-13 on this branch: 1 scenario / 11 steps green, the child echoed the minted harp `still-brave-ankle` as its whole body, and the coordinator's steer was on disk as in/consumed/…coord.md carrying that harp. RE-PROVES what J002300-LIVE-ECHO-TOKEN proves inside a LOCKED scenario; the two now guard the claim by different routes and this one asserts the spool substrate as well. Assertion-side mutation run (the verdict looking for harp+\"-MUTANT\") went RED with a BUS-DELIVERY shape."),
-			hostCell("codex", probeLiveVerified,
-				"measured 2026-08-13: FIRST live proof of coordinator→child mid-session steer on codex (inventory row 13 previously read 'marker only; no mid-session steer'). 1 scenario / 11 steps green, echo `elder-zippy-dad`, steer on disk in the child's in plane. Assertion-side mutation went RED with a BUS-DELIVERY shape."),
-			hostCell("opencode", probeLiveVerified,
-				"measured 2026-08-13: FIRST live proof of coordinator→child mid-session steer on opencode, the engine whose delegated-child path shipped on the StartRun/runner model with no live round trip behind it. 1 scenario / 11 steps green, echo `slack-inept-prude`; slowest of the four (the echo turn landed ~79s after the steer), so do not shorten the 240s budget on its account. Assertion-side mutation went RED with a BUS-DELIVERY shape."),
 			// THE ISOLATED CELL. Every row above runs host/none — isolated on
 			// NEITHER axis — so until this one goes green, "delegation works"
 			// and "delegation works across the isolation boundary" are
@@ -540,10 +497,7 @@ var probeRegistry = []probeSpec{
 		Channel:      channelTurnOnePrompt,
 		Paid:         true,
 		Cells: []probeCell{
-			hostCell("claude-code", probePlanned, "coord.resumeCapableBackends and oneShotSupportedBackends both hold {claude-code, codex}"),
-			hostCell("codex", probePlanned, "coord.resumeCapableBackends and oneShotSupportedBackends both hold {claude-code, codex}"),
-			{Engine: "opencode", Runtime: "host", Workspace: "none", Status: probeGatedOut,
-				Reason: "resolveResumeMode refuses loudly for opencode — resume is a declared absence, not an untested claim"},
+			hostCell("claude-code", probePlanned, "coord.resumeCapableBackends and oneShotSupportedBackends both hold claude-code alone"),
 		},
 	},
 	{
@@ -563,8 +517,6 @@ var probeRegistry = []probeSpec{
 		Paid:         false,
 		Cells: []probeCell{
 			hostCell("claude-code", probePlanned, "unpaid: versionCommand is a local exec, no model turn"),
-			hostCell("codex", probePlanned, "unpaid: versionCommand is a local exec, no model turn"),
-			hostCell("opencode", probePlanned, "unpaid: versionCommand is a local exec, no model turn"),
 		},
 	},
 	{
@@ -583,7 +535,7 @@ var probeRegistry = []probeSpec{
 		Channel:      channelComposedContext,
 		Paid:         true,
 		Cells: func() []probeCell {
-			const why = "headless invocation of a delivered slash command is not a uniform engine surface: claude -p \"/cmd\" is plausible, codex prompts are $CODEX_HOME-global. Delivery BYTES stay proven hermetically by the golden tests; invocation becomes a rung when someone needs the claim."
+			const why = "headless invocation of a delivered slash command is not a uniform engine surface: claude -p \"/cmd\" is plausible, but nothing makes the same ask portable across engines. Delivery BYTES stay proven hermetically by the golden tests; invocation becomes a rung when someone needs the claim."
 			var cells []probeCell
 			for _, e := range probeEngines {
 				cells = append(cells, hostCell(e, probeDeferred, why))
@@ -608,8 +560,8 @@ var probeRegistry = []probeSpec{
 	},
 }
 
-// p0Cells is the 24-cell floor that engine_isolation_matrix.feature already
-// runs: four engines × (host|container-rootless|container-rootful) ×
+// p0Cells is the floor that engine_isolation_matrix.feature already runs:
+// every probe engine × (host|container-rootless|container-rootful) ×
 // (none|worktree). container-rootless and container-rootful are ownership
 // modes of the SAME containerization axis, not a fourth engine dimension — see
 // isolation.IsContainerRuntimeAxis and the feature file's own header for why
@@ -623,9 +575,9 @@ func p0Cells() []probeCell {
 	// demonstrably correct, and the map of which cells failed and how was the
 	// measure of the container-auth work. That work landed ("container auth
 	// keys on the engine"), and the coordinator then
-	// ran the container cells serially: claude-code, codex and opencode
-	// went GREEN on both container axes against real engines through the
-	// real-home read-write credential mount.
+	// ran the container cells serially, and they went GREEN on both container
+	// axes against real engines through the real-home read-write credential
+	// mount.
 	//
 	// So the red map is spent, and flipping it is exactly the conscious one-line
 	// edit the completeness gate was built to force. What replaces it is not a
@@ -654,7 +606,7 @@ func p0Cells() []probeCell {
 		}
 	}
 
-	for _, e := range []string{"claude-code", "codex", "opencode"} {
+	for _, e := range []string{"claude-code"} {
 		for _, ws := range []string{"none", "worktree"} {
 			setCell(cells, e, "container-rootless", ws, func(c *probeCell) {
 				c.Status = probeLiveVerified
@@ -674,12 +626,6 @@ func p0Cells() []probeCell {
 		}
 	}
 
-	// opencode host/worktree: passes, but FLAKY, recorded rather than smoothed
-	// over — two consecutive attempts, first failed, second passed.
-	setCell(cells, "opencode", "host", "worktree", func(c *probeCell) {
-		c.Status = probeLiveVerified
-		c.Reason = "measured 2026-08-13 (with the PRE-HARP hex nonce — see the note below): green in 100s on the second of two consecutive attempts. The failing attempt dialled 127.0.0.1:1 — a placeholder reach-back address, not a live one (same family as the standup-death silence fixed at 2725325e). If this cell reds in a lane, check the dial address before blaming the engine."
-	})
 	// The ONE cell measured with the minted-harp nonce — see the note below.
 	setCell(cells, "claude-code", "host", "none", func(c *probeCell) {
 		c.Status = probeLiveVerified
@@ -695,11 +641,9 @@ func p0Cells() []probeCell {
 	})
 
 	// claude-code's two container-rootless cells already carry the
-	// coordinator-chain evidence (containerEvidence, above), which codex and
-	// opencode's container-rootless cells share verbatim. Append claude's own
-	// re-verification here rather than edit the shared constant,
-	// since codex and opencode were not re-run at the same time and their
-	// existing evidence must not be touched.
+	// coordinator-chain evidence (containerEvidence, above). Append claude's
+	// own re-verification here rather than edit the shared constant, which is
+	// worded for the sweep that produced it rather than for this one cell.
 	setCell(cells, "claude-code", "container-rootless", "none", func(c *probeCell) {
 		c.Reason += " RE-VERIFIED 2026-08-16 on the subscription lane, part of the same four-cell claude sweep: passed in 57s including the image build (measured before the container-rootless/container-rootful split; see containerEvidence's own reattribution note)."
 	})
@@ -729,51 +673,20 @@ func p0Cells() []probeCell {
 // a CONTEXT-DELIVERY failure while the engine is plainly healthy, the nonce is
 // still the first thing to rule out, and matrixBundleYAML is where to look.
 
-// RETRACTION: P1's CODEX HOOK FINDING WAS WRONG, AND THE WAY IT WAS
-// WRONG IS THE MOST USEFUL THING THIS PROBE HAS PRODUCED.
-//
-// P1 first recorded, against the codex hook cell: "THE CODEX HOOK FINDING IS
-// FIXED, and this cell is the measurement that says so." The cell was green, the
-// pin validated, no degrade warning. Every word of the evidence was true and the
-// conclusion did not follow. S4's hook-firing probe forced the re-check by
-// measuring, independently, that codex hooks never fire under `codex exec` and
-// that codex will satisfy a nonce probe by searching the workspace for the
-// phrase.
-//
-// The re-adjudication needed no new paid turn, because the disproof was already
-// in the first run's own captured stderr, unread:
-//
-//	ctxloom: warning: codex hooks and MCP servers were NOT written: codex
-//	settings/prompts/skills are delivered per-session at launch; no durable
-//	project home exists — see config_home. ... codex's cwd-keyed AGENTS.md
-//	context is unaffected and was still written.
-//
-// There was no hook in that session. ctxloom said so, on the run that was cited
-// as proof that the hook worked. Two independent facts, both now pinned
-// hermetically in capability_context_channels_test.go, close it:
-//
-//  1. codex's SurfaceFor resolves (context, Hook) to a COMPOSED delivery that
-//     ALSO writes the native AGENTS.md, which codex reads by itself. So even
-//     with a hook installed, a green hook-pinned codex cell cannot attribute
-//     anything to the hook.
-//  2. On this fixture no codex hook is written at all.
-//
-// So the fragment-drop finding is REOPENED. It was never re-measured;
-// a different channel answered and the answer was credited to the wrong one. The
-// cell is deferred with what an attributing version would require.
-//
-// WHAT WENT WRONG METHODOLOGICALLY, stated plainly because it generalises. The
-// verdict asked "did the pinned approach get selected" and never "did the
-// mechanism get installed", and it read the model's answer instead of ctxloom's
-// report. For a tool-using engine the model's answer is downstream of every
-// channel at once, so it can never attribute one. approachRequiredSurfaceDelivered
-// is the corrective, and it is retrospective: it exists because of this, not in
+// WHY approachRequiredSurfaceDelivered EXISTS, stated plainly because it
+// generalises. A context cell was once recorded green on the strength of the
+// model's answer, while ctxloom's own captured stderr on that very run said the
+// mechanism under test had never been installed. The verdict had asked "did the
+// pinned approach get selected" and never "did the mechanism get installed".
+// For a tool-using engine the model's answer is downstream of every channel at
+// once, so it can never attribute one. approachRequiredSurfaceDelivered is the
+// corrective, and it is retrospective: it exists because of that, not in
 // anticipation of it.
 //
 // WHAT EVERY OTHER CONTEXT PROBE INHERITS — P0 INCLUDED. The nonce lives in a
-// bundle file inside the project tree, and every engine except claude-at-
-// system-prompt also has its context DELIVERED into the working directory (no
-// out-of-cwd realization exists for codex or opencode). So for any
+// bundle file inside the project tree, and every context approach except
+// claude's system-prompt route DELIVERS into the working directory (only that
+// one has an out-of-cwd realization). So for any
 // tool-using engine, a nonce-echo context cell cannot separate "ctxloom
 // delivered the context" from "the engine read the bytes off disk". Every P0
 // cell is in this position. That is not a reason to delete them — they
@@ -876,10 +789,10 @@ func setCell(cells []probeCell, engine, runtime, workspace string, fn func(*prob
 	panic(fmt.Sprintf("capability probe registry: no cell [engine=%s runtime=%s workspace=%s] to annotate — a measured finding would have been silently dropped", engine, runtime, workspace))
 }
 
-// p4Cells is the plan-sentinel ladder: four engines, each with the cell under
-// test and its own positive control. Eight rows, eight paid turns, and the
-// pairing is the design — see capability_plan_sentinel.feature's header and
-// probe_p4_plan_sentinel.go's.
+// p4Cells is the plan-sentinel ladder: every probe engine, each with the cell
+// under test and its own positive control. Two rows and two paid turns per
+// engine, and the pairing is the design — see capability_plan_sentinel.feature's
+// header and probe_p4_plan_sentinel.go's.
 //
 // WHY THE CONTROLS ARE ROWS AND NOT AN IMPLEMENTATION DETAIL. A control that
 // lives inside the plan cell's scenario is invisible: nobody can address it,
@@ -898,13 +811,9 @@ func setCell(cells []probeCell, engine, runtime, workspace string, fn func(*prob
 // rows. They are recorded as deferred on the p4 rows' own reasons rather than as
 // silently missing axes.
 func p4Cells() []probeCell {
-	// Why each engine is here, in its own words. The first two rows PORT proofs
-	// that already exist but are unrepeatable; the second two make a claim that
-	// has never been checked against a running binary at all.
+	// Why each engine is here, in its own words.
 	why := map[string]string{
 		"claude-code": "ports the AD HOC live proof recorded at enforcesReadOnlyPlan (2026-07-15, sentinel denied) into a repeatable cell. Production surface: permissionArgs maps plan to --permission-mode plan plus an explicit --disallowedTools Bash,Edit,Write,NotebookEdit.",
-		"codex":       "--sandbox read-only is asserted host-side and has never been live-run. Production surface: codex.buildArgs maps plan to --sandbox read-only.",
-		"opencode":    "the written permission {edit:deny,bash:deny} is asserted stricter than opencode's own plan agent and has never been live-run. Production surface: opencode's interactiveManaged/chat managed config sets readOnly for plan.",
 	}
 	const controlWhy = "the bypass positive control: an unchanged file is equally consistent with a posture that refused the write and with a run that never attempted one, so the control's success is part of the plan cell's assertion (p4AssertPlan consults the control ledger and reds when the control is dead)."
 
@@ -944,77 +853,12 @@ func p4Cells() []probeCell {
 	// tolerates the opposite: claude's plan one-shot exits ZERO. The refusal is
 	// reported in the turn's prose, not in the exit status. p4RunHappened's
 	// choice not to gate on the exit code was therefore not needed HERE — it is
-	// insurance for the three engines whose plan behaviour is still unobserved,
-	// and it stays.
+	// insurance for any engine whose plan behaviour is still unobserved, and it
+	// stays.
 	setP4Cell(cells, "claude-code", p4Control,
 		"live-verified 2026-08-13 as HALF OF A PAIR (`just plan-sentinel claude-code pair`, 2 scenarios / 6 steps, no skip): under permissions=bypass the ordered overwrite LANDED — the sentinel planted with harp legal-rosy-pouch came back carrying the overwrite token instead. exit=0, 55B stdout, plan-oneshot-warning=false (correctly absent: the control is not a plan run). This is what licenses the plan cell beside it.")
 	setP4Cell(cells, "claude-code", p4Plan,
 		"live-verified 2026-08-13 as HALF OF A PAIR, same process and same fixture as its control, differing in one line of config.yaml: under permissions=plan the sentinel planted with harp proud-saucy-amino came back BYTE-UNCHANGED after the engine was ordered to overwrite it. exit=0 (claude reports the refusal in prose, not in its exit status), 273B stdout, plan-oneshot-warning=true — production's own warnPlanOneshotCancels confirming the plan posture survived the ONESHOT floor into this run, on exactly the cell that bound it. Replaces the AD HOC 2026-07-15 terminal proof recorded at the descriptor's enforcesReadOnlyPlan with something anybody can re-run.")
-
-	// CODEX: THE PAIR RAN AND BOTH HALVES PASSED, which makes this the first
-	// live evidence anywhere that codex's --sandbox read-only actually stops a
-	// write. The claim had only ever been asserted host-side, against the argv
-	// codex.buildArgs produces, which proves what ctxloom TYPED and nothing
-	// about what codex then did with it.
-	//
-	// `just plan-sentinel codex pair`: 2 scenarios / 6 steps, no skip.
-	//
-	//   control (harp silly-wide-many):  exit=0, 18B stdout,  plan-oneshot-warning=false
-	//   plan    (harp pure-true-flyer):  exit=0, 52B stdout,  plan-oneshot-warning=true
-	//
-	// The warning flag is again the independent witness that the pair differed
-	// in POSTURE and not merely in outcome: warnPlanOneshotCancels fires only
-	// when a plan posture survives resolvePermissionMode's ONESHOT floor into
-	// the run, and it fired on exactly the cell that bound `permissions: plan`.
-	//
-	// Codex ALSO exits zero under plan, like claude — so two of the four
-	// engines now report the refusal in prose rather than in the exit status,
-	// and p4RunHappened's decision not to gate on the exit code has been the
-	// right one on every engine measured so far.
-	setP4Cell(cells, "codex", p4Control,
-		"live-verified 2026-08-13 as HALF OF A PAIR (`just plan-sentinel codex pair`, 2 scenarios / 6 steps, no skip): under permissions=bypass the ordered overwrite LANDED — the sentinel planted with harp silly-wide-many came back carrying the overwrite token instead. exit=0, 18B stdout, plan-oneshot-warning=false (correctly absent: the control is not a plan run). This is what licenses the plan cell beside it.")
-	setP4Cell(cells, "codex", p4Plan,
-		"live-verified 2026-08-13 as HALF OF A PAIR, same process and same fixture as its control, differing in one line of config.yaml: under permissions=plan the sentinel planted with harp pure-true-flyer came back BYTE-UNCHANGED after the engine was ordered to overwrite it. exit=0 (codex, like claude, reports the refusal in prose rather than in its exit status), 52B stdout, plan-oneshot-warning=true — production's own warnPlanOneshotCancels confirming the plan posture reached this run and not its control. FIRST live evidence that codex.buildArgs' --sandbox read-only actually stops a write; before this the claim was asserted host-side against the argv only, which proves what ctxloom typed and nothing about what codex did with it.")
-
-	// OPENCODE: THE CONTROL LANDED, TWICE; THE PLAN ARM DIED BEFORE THE ENGINE
-	// SPOKE, TWICE, AND THE TWO DEATHS HAD DIFFERENT CAUSES.
-	//
-	// Run once, then run again precisely because the first cause looked
-	// determinate and worth confirming. `just plan-sentinel opencode pair`,
-	// 2 scenarios / 6 steps, 5 passed 1 failed, both times:
-	//
-	//   run 1  control (harp dense-same-blade):   exit=0, 18B stdout — LANDED
-	//          plan    (harp gruff-spicy-mulch):  exit=1, 0B stdout
-	//            502 Upstream error from Darkbloom: "model emitted an
-	//            undeclared tool call" (error_type provider_unavailable)
-	//   run 2  control (harp peaky-neat-rule):    exit=0, 18B stdout — LANDED
-	//          plan    (harp zippy-lean-jiffy):   exit=1, 0B stdout
-	//            502 Upstream error from Darkbloom: all providers for model
-	//            "gpt-oss-20b" are at capacity (queue timeout)
-	//
-	// WHY THE SECOND RUN WAS BOUGHT, and what it settled. Run 1's cause was
-	// interesting rather than boring: opencode's plan posture writes
-	// {edit:deny,bash:deny}, so the write tool is not declared to the model,
-	// and "model emitted an undeclared tool call" would then be the plan
-	// posture PROVOKING a provider-level error rather than producing a graceful
-	// refusal — a real finding if it reproduced. It did not: run 2 died on a
-	// capacity queue timeout instead. So the sub-cause is NOT determinate and
-	// the hypothesis is unproven, neither confirmed nor refuted.
-	//
-	// WHAT IS REPRODUCIBLE is the outer shape: the plan arm produces NO stdout
-	// at all and exits 1, twice, while its control speaks and writes in the
-	// same process minutes earlier. Whether the plan arm is genuinely more
-	// fragile or merely went second both times is open.
-	//
-	// NOT LOOSENED. The verdict already tolerates a nonzero exit; what it will
-	// not tolerate is SILENCE, because the prompt ends with an unconditional
-	// one-sentence report and an engine that got the turn says something either
-	// way. An untouched sentinel after a process that died before speaking
-	// proves nothing about the posture, which is the whole reason this reds.
-	setP4Cell(cells, "opencode", p4Control,
-		"live-verified 2026-08-13, and TWICE: under permissions=bypass the ordered overwrite LANDED on both runs of `just plan-sentinel opencode pair` (harps dense-same-blade then peaky-neat-rule, exit=0, 18B stdout, plan-oneshot-warning=false each time). The control's own claim — bypass lands the write — is fully measured. Note it does NOT license the plan cell beside it here, because that cell never produced a run to license: see its red map.")
-	redMapP4Cell(cells, "opencode", p4Plan, shapeSilentNoOp,
-		"MEASURED TWICE 2026-08-13 and red both times with the same shape and DIFFERENT causes: the run produced no stdout at all and exited 1, while its control landed the write in the same process. Run 1 (harp gruff-spicy-mulch): 502 from the provider, \"model emitted an undeclared tool call\", error_type provider_unavailable. Run 2 (harp zippy-lean-jiffy): 502, all providers for model \"gpt-oss-20b\" at capacity (queue timeout). The second run was bought deliberately because run 1's cause would have been a finding if it reproduced — opencode's plan posture writes {edit:deny,bash:deny}, so an undeclared-tool-call error could be the posture provoking a provider fault instead of a graceful refusal. It did not reproduce, so that reading is unproven. What IS reproducible is the outer shape. NOT loosened: the verdict tolerates a nonzero exit by design, but not silence — the prompt ends with an unconditional one-sentence report, so a process that died before the engine spoke leaves an untouched sentinel proving nothing about the posture.")
 
 	return cells
 }
@@ -1035,28 +879,6 @@ func setP4Cell(cells []probeCell, engine string, posture p4Posture, reason strin
 		}
 	}
 	panic(fmt.Sprintf("capability probe registry: no p4 cell [engine=%s variant=%s] to annotate — a measured live verdict would have been silently dropped", engine, posture))
-}
-
-// redMapP4Cell records a P4 cell that was RUN and came back RED, with the shape
-// it produced and the story behind it. The status stays wired on purpose: the
-// cell runs, it is expected to fail, and a sweep diffs its shape rather than
-// counting it — which is what separates a recorded finding from a cell somebody
-// quietly deleted because it was inconvenient.
-//
-// It panics on a miss for the same reason setP4Cell does, and the reason bites
-// harder here: a dropped red is a finding that stops being reported while the
-// table goes on looking complete.
-func redMapP4Cell(cells []probeCell, engine string, posture p4Posture, shape probeShape, note string) {
-	for i := range cells {
-		c := &cells[i]
-		if c.Engine == engine && c.Variant == string(posture) {
-			c.Status = probeWired
-			c.ExpectedFailure = shape
-			c.ExpectedFailureNote = note
-			return
-		}
-	}
-	panic(fmt.Sprintf("capability probe registry: no p4 cell [engine=%s variant=%s] to red-map — a measured failure shape would have been silently dropped", engine, posture))
 }
 
 // --- derived views ------------------------------------------------------------

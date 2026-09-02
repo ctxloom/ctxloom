@@ -397,11 +397,11 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # on while nothing is written is this project's characteristic bug wearing the
   # cutover's clothes.
   #
-  # MEASURED 2026-08-13, ALL THREE ROWS GREEN — and two of them are new. The
-  # claude-code row re-proves what the LOCKED scenario above already proves;
-  # codex and opencode had coordinator->child mid-session steer claimed
-  # and never demonstrated (capability inventory row 13 read "marker only; no
-  # mid-session steer" for both). Each child returned the minted harp as
+  # MEASURED 2026-08-13, EVERY ROW GREEN. The
+  # claude-code row re-proves what the LOCKED scenario above already proves,
+  # against a coordinator->child mid-session steer that had been claimed and
+  # never demonstrated (capability inventory row 13 read "marker only; no
+  # mid-session steer"). Each child returned the minted harp as
   # its whole message body. Each row's assertion was then mutated on the
   # ASSERTION SIDE ONLY — the verdict made to look for harp+"-MUTANT" while the
   # fixture still sent the real one — and each went RED with a BUS-DELIVERY
@@ -424,13 +424,13 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # regression gate for a neighbouring subsystem's scope. If child->parent file
   # delivery is meant to be guaranteed, that belongs in its own assertion.
   #
-  # TIMING, for whoever tunes the budget: claude-code and codex completed
-  # in well under a minute each; opencode's echo turn landed roughly 79 seconds
-  # after the steer. Do not shorten 240s on the strength of the fast two.
+  # TIMING, for whoever tunes the budget: an echo turn has landed as much as 79
+  # seconds after the steer on a slow engine. Do not shorten 240s on the
+  # strength of a fast one.
   #
   # ONE ROW AT A TIME, two paid turns each (the wake-up and the steer). Address
   # exactly one cell with the registry's own tag expression:
-  #   ACCEPTANCE_TAGS="@live && @probe-p6-steer-echo && @codex && @host && @ws-none"
+  #   ACCEPTANCE_TAGS="@live && @probe-p6-steer-echo && @claude-code && @host && @ws-none"
   # (probeCell.TagExpression renders it; the `just capability-probe` wrapper is
   # slice S10's, not this one's).
   @live @probe-p6-steer-echo
@@ -453,22 +453,6 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     Examples:
       | engine      | runtime | workspace | marker                                |
       | claude-code | host    | none      | P6-WAKE-MARKER-CLAUDE-CODE-5b1e07c4   |
-
-    # The engine whose availability probe cannot tell AUTHENTICATED from
-    # STILL-VALID (authCheckCodex reads auth.json locally and never refreshes),
-    # so a consumed refresh token surfaces here as a loud RED rather than a named
-    # skip — the honest failure shape, and the reason p6AssertEcho classifies a
-    # credential-shaped body as a RUN failure carrying the re-login precedent
-    # instead of blaming the bus.
-    @codex @host @ws-none
-    Examples:
-      | engine | runtime | workspace | marker                          |
-      | codex  | host    | none      | P6-WAKE-MARKER-CODEX-2f9d61a8   |
-
-    @opencode @host @ws-none
-    Examples:
-      | engine   | runtime | workspace | marker                            |
-      | opencode | host    | none      | P6-WAKE-MARKER-OPENCODE-71a0d9be  |
 
     # THE ISOLATED CELL. Every row above runs host/none — isolated on NEITHER
     # axis — so they prove the round trip works, not that it survives the

@@ -23,11 +23,10 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
   WHAT THESE CELLS CANNOT SEPARATE, LEARNED THE HARD WAY. A nonce-echo cell asks
   a model a question, and a model's answer is downstream of EVERY channel at
   once — so it can never, by itself, attribute one. This probe recorded a false
-  finding on exactly that mistake (a green codex hook cell credited to a hook
-  that ctxloom's own stderr said had never been written; see the retraction where
-  that Examples block used to be), and S4's hook-firing probe found the same
-  class from the other side by catching codex answering a nonce probe after
-  searching the workspace with rg.
+  finding on exactly that mistake (a green hook cell credited to a hook that
+  ctxloom's own stderr said had never been written), and S4's hook-firing probe
+  found the same class from the other side by catching an engine answering a
+  nonce probe after searching the workspace with rg.
 
   Two corrections came out of it, and both are load-bearing here:
 
@@ -40,14 +39,13 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
       system-prompt cell is: its delivery writes out of cwd, and its negative
       control is the hook cell beside it, which sees the identical project tree
       with the identical tools and comes back with nothing. Every other context
-      delivery in the ladder lands IN the working directory (no engine but claude
-      has an out-of-cwd realization), so those cells prove the bytes reached the
+      delivery in the ladder lands IN the working directory (only claude's
+      system-prompt route has an out-of-cwd realization), so those cells prove the bytes reached the
       workspace and the model produced them — not which route the model read.
 
   WHICH APPROACHES EXIST IS THE ENGINE'S ANSWER, NOT OURS. The cells below are
   exactly the (engine, approach) pairs the engines' own `ApproachTable`s
-  declare: claude-code carries all three for its context surface, codex carries
-  hook and unsafe-file, and opencode carries unsafe-file alone. A pair an
+  declare: claude-code carries all three for its context surface. A pair an
   engine does not declare has NO Examples row here — a scenario for a capability
   the engine says it does not have would skip forever and read as coverage — and
   the absence is written down in the probe registry
@@ -58,7 +56,7 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
 
   THE DEFAULT IS ALREADY COVERED, AND THAT IS WHY THESE CELLS LOOK REDUNDANT
   AND ARE NOT. claude's default at a shared-cwd launch is the system-prompt
-  scratch file and codex's is the hook, so two of the five cells below pin what
+  scratch file, so some cells below pin what
   their engine would have chosen anyway. They still earn their turn: what P0
   measured was the engine's default, and a default can move — the pin is what
   makes "this mechanism works" a claim that survives ctxloom changing its mind
@@ -213,41 +211,3 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
     Examples:
       | engine      | runtime | workspace | approach    | variant            |
       | claude-code | host    | worktree  | unsafe-file | unsafe-file-shared |
-
-    # THE CODEX HOOK CELL WAS HERE, AND IT WAS RETRACTED ON 2026-08-13.
-    #
-    # It ran green and P1 recorded, on that basis, that the 2026-07-14
-    # fragment-drop finding was fixed. It was not. The run's own stderr — saved
-    # and not read — said:
-    #
-    #   ctxloom: warning: codex hooks and MCP servers were NOT written: codex
-    #   settings/prompts/skills are delivered per-session at launch; no durable
-    #   project home exists — see config_home. ... codex's cwd-keyed AGENTS.md
-    #   context is unaffected and was still written.
-    #
-    # There was no hook in that session, and there could not have been a clean
-    # measurement even with one: codex's SurfaceFor resolves (context, Hook) to a
-    # COMPOSED delivery that also writes the native AGENTS.md, which codex reads
-    # by itself. The nonce arrived by AGENTS.md and the credit went to the hook.
-    #
-    # So the 2026-07-14 finding is REOPENED, the cell is deferred in the registry
-    # with what an attributing version would need (a `config_home: project`
-    # binding so a hook exists, S4's stamp-file discipline so its EXECUTION is
-    # observed, and a way to suppress the AGENTS.md leg), and
-    # approachRequiredSurfaceDelivered now reds any hook cell whose hook was
-    # never written — so this cannot come back quietly.
-    #
-    # Do not re-add an Examples row here without that machinery. A green cell
-    # that cannot attribute is worse than no cell: it retires the question.
-
-    # codex's native-file route (AGENTS.md) — now the ONLY codex context cell,
-    # since the hook cell above was retracted. Green 2026-08-13 in 7.0s. It
-    # proves codex ingests a ctxloom-delivered AGENTS.md live, which nothing in
-    # the suite proved before; it does NOT distinguish that native ingestion
-    # from codex reading the same bytes with a file-search tool, because codex
-    # has no out-of-cwd delivery and no negative control exists for it. The
-    # registry row states the claim at that strength.
-    @codex @host @ws-none @var-unsafe-file
-    Examples:
-      | engine | runtime | workspace | approach    | variant     |
-      | codex  | host    | none      | unsafe-file | unsafe-file |

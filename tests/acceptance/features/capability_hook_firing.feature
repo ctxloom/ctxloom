@@ -1,8 +1,8 @@
 @live
 Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
 
-  ctxloom writes hooks into its engines' native surfaces: claude's
-  .claude/settings.json and codex's $CODEX_HOME/config.toml [hooks].
+  ctxloom writes hooks into its engines' native surfaces — for claude, that is
+  .claude/settings.json.
   That ctxloom writes the right BYTES is well proven —
   golden tests, the settings-io tests, and
   TestDeliveryApproach_HookCarriageMatchesDeclaration in tests/integration all
@@ -37,25 +37,23 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
   carries bytes that are not this cell's harp (something ran, but not this hook
   with this argument). A bare existence check would blur all three.
 
-  TWO STAGES, AND ONLY CODEX HAS BOTH. Stage (a) — firing — runs on every cell.
-  Stage (b) asks whether the engine INGESTS what the hook printed, and it is
-  asserted only where production itself makes that claim: codexApproaches lists
-  agent.ApproachHook FIRST for agent.SurfaceContext, so the hook is codex's
-  DEFAULT context route. claude declares ApproachHook too, but claude's
-  SurfaceFor resolves that pair to noopContextDelivery — the documented no-op
-  that never carries — so asserting an echo on a claude cell would red it for
-  failing to do something ctxloom never asked. Stage (b) uses a SECOND minted
-  harp, planted only in the hook's
+  TWO STAGES. Stage (a) — firing — runs on every cell. Stage (b) asks whether the
+  engine INGESTS what the hook printed, and it is asserted only where production
+  itself makes that claim: an ApproachTable that lists agent.ApproachHook FIRST
+  for agent.SurfaceContext, making the hook that engine's DEFAULT context route.
+  claude declares ApproachHook too, but claude's SurfaceFor resolves that pair to
+  noopContextDelivery — the documented no-op that never carries — so asserting an
+  echo on a claude cell would red it for failing to do something ctxloom never
+  asked. No engine at this base declares the hook its context route, so stage (b)
+  runs on no cell today. It uses a SECOND minted harp, planted only in the hook's
   standard output, so the two stages cannot satisfy each other.
 
-  WHAT IS ABSENT HERE IS DECLARED, NOT FORGOTTEN. opencode has no Examples row
-  because opencode declares hooks gone at the mechanism level (noHooksReason:
-  "opencode has no hook mechanism") — a gate by ABSENCE, recorded in the probe
-  registry, where the completeness test refuses an undeclared gap. codex's
-  session_end kind is absent for the same reason at finer grain
-  (unsupportedHookKinds[bundles.HookEventSessionEnd] / codex.NoSessionEndReason,
-  "codex has no session-end event"), which is precisely why this probe plants on
-  session_start: it is the one kind both engines carry.
+  WHAT IS ABSENT HERE IS DECLARED, NOT FORGOTTEN. A backend that declares hooks
+  gone at the mechanism level (noHooksReason) gets no Examples row — a gate by
+  ABSENCE, recorded in the probe registry, where the completeness test refuses an
+  undeclared gap. The same holds at finer grain for a single unsupported kind
+  (unsupportedHookKinds[bundles.HookEventSessionEnd]), which is precisely why
+  this probe plants on session_start.
 
   THE CONTAINER AXIS, AND THE REASON IT WAITED. This probe was host/none only,
   and the reason was physical rather than cautious: the stamp file was an
@@ -71,9 +69,9 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
 
   Moving the fixture inside the workspace does mean an agent can now READ the
   stamp script. That costs nothing: the verdict demands the file EXIST carrying
-  this cell's argv harp, and reading a path does not create a file. The codex row
-  below is the measured proof — it found its harp by grepping the fixture's own
-  script, answered correctly, and red anyway.
+  this cell's argv harp, and reading a path does not create a file. That is not a
+  theoretical guard — a P3 cell of 2026-08-13 found its harp by grepping the
+  fixture's own script, answered correctly, and red anyway.
 
   ADDRESSING ONE CELL. Every Examples block carries its engine and both axes as
   tags, so an ACCEPTANCE_TAGS expression of the live tag, this probe's tag, the
@@ -135,49 +133,3 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
     Examples:
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | worktree  |
-
-    # @wip — RED, and it is a CAPABILITY FINDING: codex hooks written by ctxloom
-    # NEVER FIRE. This is the row that made building this probe worth it.
-    #
-    # This would otherwise be the one cell running BOTH stages: codex ingests
-    # its session-start hook's stdout as context by declaration, so it would
-    # additionally prove the harp the hook printed came back in the turn.
-    #
-    # WHAT WAS MEASURED, 2026-08-13:
-    #
-    #   1. Carriage is FINE. With the binding declaring `config_home: project`,
-    #      the hook command was observed live in
-    #      <project>/.ctxloom/state/<harp>/home/.codex/config.toml while the
-    #      engine was running. ctxloom wrote what it claims to write.
-    #   2. Firing does not happen. No stamp file, on any attempt.
-    #   3. The cause is the VENDOR's, isolated with ctxloom out of the picture:
-    #      a hand-built CODEX_HOME carrying the identical [[hooks.SessionStart]]
-    #      block was run twice against codex 0.144.4, same config, same prompt —
-    #
-    #        codex exec                                  → hook did NOT run
-    #        codex exec --dangerously-bypass-hook-trust  → hook RAN (stamp written)
-    #
-    #      codex gates hooks behind a PERSISTED HOOK TRUST that ctxloom neither
-    #      satisfies nor bypasses. codex says nothing when it declines, so the
-    #      whole mechanism is silently inert.
-    #
-    # AND THIS ROW IS WHY THE ASSERTION IS A FILE. On the 2026-08-13 run codex
-    # answered with the CORRECT stage-(b) harp — while its hook had never fired.
-    # Its own stderr shows how: it ran `rg` across the temp tree and the session
-    # store until it found the phrase sitting in the fixture's hook script. A
-    # probe that asserted only the echo would have reported GREEN on a hook
-    # mechanism that is completely dead. This cell reds because stage (a) is a
-    # file on disk and is judged FIRST.
-    #
-    # WHY THIS MATTERS WELL BEYOND THIS FEATURE: the hook is codex's DEFAULT
-    # CONTEXT ROUTE (codexApproaches lists ApproachHook first for
-    # SurfaceContext). If hooks never fire, ctxloom's hook-carried context
-    # delivery to codex is inert too, and any codex row that looks green for
-    # context is arriving through the compositional AGENTS.md route instead.
-    #
-    # DO NOT loosen this cell, and do not delete it because it fails. Untag when
-    # ctxloom satisfies codex's hook trust; the cell is how you will know.
-    @codex @host @ws-none @probe-p3-hook-firing @wip
-    Examples:
-      | engine | runtime | workspace |
-      | codex  | host    | none      |

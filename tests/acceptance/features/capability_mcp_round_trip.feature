@@ -3,9 +3,8 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
 
   ctxloom tells every engine it drives about the MCP servers a project declares.
   Every engine claims to accept them, and each has its own native place to put
-  them: claude gets a --mcp-config file, codex a [mcp_servers] table in its
-  config.toml, opencode an `mcp` block inside
-  opencode.json. Until this probe, none of that was ever demonstrated end to end.
+  them: claude gets a --mcp-config file. Until this probe, none of that was ever
+  demonstrated end to end.
   What HAD been demonstrated is narrower than it looks: j002300's delegated
   children each called mcp__ctxloom__agent_send, which is ctxloom's OWN
   auto-registered forwarder, over a socket the coordinator stood up, on host/none
@@ -28,8 +27,8 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
   that only matched strings would be satisfied by an engine that found the value
   some other way, and this one is deliberately not: the fixture server records
   every tools/call it serves, and the verdict REQUIRES one. Reading the nonce
-  file cannot forge that record. This is measured rather than argued — P3's codex
-  cell of 2026-08-13 grepped its harp out of the fixture's own script, answered
+  file cannot forge that record. This is measured rather than argued — a P3 cell
+  of 2026-08-13 grepped its harp out of the fixture's own script, answered
   correctly, and red anyway — and it is why the fixture could be moved into the
   workspace to reach the container axis at all.
 
@@ -67,8 +66,7 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
   authoritatively and both were wrong: until 2026-08-25 this said MCP reach-back
   was undesigned, which misattributed a COORDINATOR-bus finding to a fixture that
   never used the bus; it was then replaced by a call for a probe-only bind-mount
-  seam, which mistook defence in depth for the mechanism. codex and
-  opencode stay host-only by SCOPE — 0.7.0 propagates claude onto this axis.
+  seam, which mistook defence in depth for the mechanism.
   Every cell here self-skips LOUDLY, naming the engine and the reason: an absent
   or unauthenticated engine. There is no interpreter to miss any more — the
   fixture server is a Go binary the fixture builds (cmd/probe-mcp-server), so a
@@ -117,13 +115,3 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
     Examples:
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | worktree  |
-
-    @probe-p2-mcp-round-trip @codex @host @ws-none
-    Examples:
-      | engine | runtime | workspace |
-      | codex  | host    | none      |
-
-    @probe-p2-mcp-round-trip @opencode @host @ws-none
-    Examples:
-      | engine   | runtime | workspace |
-      | opencode | host    | none      |

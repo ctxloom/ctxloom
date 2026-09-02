@@ -77,7 +77,7 @@ type SpawnPlan struct {
 	// Resolve() via resolveResumeMode, mirroring MCPServers above: a
 	// later config edit must not retroactively change a
 	// live run. Since Slice 4, Resolve() returns ResumeModeOneShot for the
-	// WIRED backends (oneShotSupportedBackends: claude-code, codex) and the
+	// WIRED backends (oneShotSupportedBackends) and the
 	// coordinator's turn loop (children.go's oneShotReady/onTurnIdle) actually
 	// tears the engine down and resumes it by key at each turn boundary. A
 	// backend that is resume-capable but NOT yet wired end to end still fails
@@ -103,8 +103,8 @@ const (
 	// LIVE for the wired backends. Reaching this value requires BOTH a
 	// `driving: oneshot` agent declaration and a statically resume-capable
 	// backend (resolveResumeMode); Resolve() narrows it once more to the
-	// backends whose turn loop is wired end to end (oneShotSupportedBackends:
-	// claude-code, codex) and fails loud for any other resume-capable one
+	// backends whose turn loop is wired end to end (oneShotSupportedBackends)
+	// and fails loud for any other resume-capable one
 	// rather than returning a mode the turn loop would not act on.
 	ResumeModeOneShot
 )
@@ -209,8 +209,6 @@ func newProdSpawner(cfg *config.Config, projectDir string, factory pb.ClientFact
 // through any backend-specific config file a Setup step would have to write.
 var viaStartRunBackends = map[string]bool{
 	config.BackendClaudeCode: true,
-	"codex":                  true,
-	"opencode":               true,
 }
 
 // legacyChatBackends is the RETIRE-FIRST freeze gate for the legacy
@@ -224,9 +222,8 @@ var viaStartRunBackends = map[string]bool{
 // added: a backend in NEITHER table used to be swept silently onto the
 // legacy loop and is now refused loudly at Resolve (checkLegacyChatFreeze).
 //
-//   - mock: the test backend, and — since S3b migrated opencode onto
-//     StartRun — the table's SOLE remaining member. No production backend
-//     rides the frozen path by backend identity any more.
+//   - mock: the test backend, and the table's SOLE remaining member. No
+//     production backend rides the frozen path by backend identity any more.
 //
 // The frozen path's OTHER reachable arm — a degraded (no-reach-back) spawn
 // of a viaStartRunBackends member, where StartRun is impossible because the
@@ -260,27 +257,21 @@ func checkLegacyChatFreeze(backend string) error {
 // wire path a child's Chat rides; this one is about whether ASKING an
 // already-ended engine to continue its own native session is even possible).
 //
-//   - claude-code / codex: resume by asking the engine to load its own prior
+//   - claude-code: resume by asking the engine to load its own prior
 //     session — LIVE-gated a second time on
 //     the adapter's advertised loadSession capability once Slice 4 records it
 //     from the first StartRunResult/init (see SpawnPlan.ResumeMode's doc);
 //     this table is the STATIC half alone.
-//   - opencode: FALSE, deliberately absent even though S3b migrated it onto
-//     the StartRun path (viaStartRunBackends["opencode"] == true) — the two
-//     tables answer different questions. It neither consumes
-//     ChatRequest.ResumeSessionID nor emits a native session-id Session
-//     event; its only resume surface is
-//     read-only `opencode export`. No cheap resume-by-key primitive exists;
-//     new backend work (v0.8+), not a config toggle. A resumed opencode child
-//     therefore re-primes from rendered history (resumeChild's
-//     ResumeContext fallback), over StartRun like every other migrated
-//     backend.
+//   - a MIGRATED backend is not automatically resume-capable: the two tables
+//     answer different questions, and one that neither consumes
+//     ChatRequest.ResumeSessionID nor emits a native session-id Session event
+//     stays FALSE here and re-primes from rendered history instead
+//     (resumeChild's ResumeContext fallback), over StartRun all the same.
 //   - mock (tests) and any unlisted/future backend: FALSE — an allowlist,
 //     exactly like viaStartRunBackends, so a new backend is reviewed onto
 //     resume explicitly rather than swept in by implementing StructuredChat.
 var resumeCapableBackends = map[string]bool{
 	config.BackendClaudeCode: true,
-	"codex":                  true,
 }
 
 // oneShotSupportedBackends is the set of backends whose driving:oneshot turn
@@ -289,13 +280,12 @@ var resumeCapableBackends = map[string]bool{
 // capability the coordinator confirms before tearing an engine down at a turn
 // boundary (children.go's oneShotReady) and then resumes by native session key
 // via StartRun{ResumeSessionId} → ACP session/load. That is the intersection of
-// viaStartRunBackends and resumeCapableBackends: claude-code and codex.
+// viaStartRunBackends and resumeCapableBackends.
 //
-// kiro/opencode never reach the gate at all: resolveResumeMode already fails
-// them loud on the capability reason (neither is in resumeCapableBackends).
+// A backend in neither table never reaches the gate at all: resolveResumeMode
+// already fails it loud on the capability reason.
 var oneShotSupportedBackends = map[string]bool{
 	config.BackendClaudeCode: true,
-	"codex":                  true,
 }
 
 // resolveResumeMode is the per-engine resume-capability gate (Fork 3's
@@ -407,13 +397,13 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, rmErr)
 	}
 	// Slice 4 landed the one-shot turn loop for oneShotSupportedBackends (the
-	// migrated, live-loadSession-confirmed engines: claude-code, codex). A
+	// migrated, live-loadSession-confirmed engines). A
 	// backend that is statically resume-capable but NOT yet wired end to end
 	// still fails loud here rather than resolving a ResumeModeOneShot value
 	// the turn loop would silently run conversationally (ctxloom's banned
-	// silent-no-op; see oneShotSupportedBackends' doc). opencode/kiro never
-	// reach this gate: resolveResumeMode already fails them loud on the
-	// capability reason above. Every backend currently in
+	// silent-no-op; see oneShotSupportedBackends' doc). A backend in neither
+	// table never reaches this gate: resolveResumeMode already fails it loud
+	// on the capability reason above. Every backend currently in
 	// resumeCapableBackends is also in oneShotSupportedBackends today, so
 	// this branch is a defensive residual, not a live gate — it stays wired
 	// for the next resume-capable-but-unwired backend rather than being

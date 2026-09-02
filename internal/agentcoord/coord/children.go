@@ -771,9 +771,8 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 	c.setState(rt, StateExecuting)
 
-	// MIGRATED (C1 landed claude; C3 extended the allowlist to codex/kiro/
-	// acp; the spool cutover's S3b added opencode — see spawner.go's
-	// viaStartRunBackends): engine control rides
+	// MIGRATED: for every backend in spawner.go's viaStartRunBackends,
+	// engine control rides
 	// StartRun on the runner's RunnerChannel. A degraded spawn without
 	// reach-back (url == "") cannot — the runner could never dial home — so
 	// it keeps the legacy dial. This is now the go-plugin Chat dial's ONE
@@ -1442,10 +1441,9 @@ func (c *Coordinator) onTurnIdle(role string) {
 // Spawner.Launch) are retired-in-place. They are never ported to the
 // file-spool messaging substrate that replaces the coordinator mailbox
 // (takeNextMail/pushMail below), and spawner.go's checkLegacyChatFreeze
-// refuses any backend not already frozen onto this path (legacyChatBackends:
-// opencode, mock — plus the degraded no-reach-back spawn of a StartRun
-// backend). When the mailbox machinery is deleted, whatever still rides this
-// loop has either migrated onto StartRun or loses delegation.
+// refuses any backend not already frozen onto this path (legacyChatBackends).
+// When the mailbox machinery is deleted, whatever still rides this loop has
+// either migrated onto StartRun or loses delegation.
 // A legacy child is therefore not LIVE-observable via ConsumerService (D1's
 // watchHub only covers RunChannel item events, which this path never emits)
 // — an accepted, documented gap on an already-degraded path; its transcript

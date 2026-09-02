@@ -11,8 +11,8 @@ import (
 
 // containerAuthBackend is the key a container spawn hands isolation: the plan's
 // BACKEND (the engine), never its AgentName. Container auth is keyed on the
-// engine — isolation.engineContainerSpecFor maps "claude-code"/"codex"/"kiro"/
-// "opencode"/"mock" to their credential resolvers — so an agent NAME (or a
+// engine — isolation.engineContainerSpecFor maps each registered engine to
+// its credential resolver — so an agent NAME (or a
 // label, or the empty string the deleted image-only constructors passed) hits
 // the table's fail-closed default arm and the run dies at PrepareWorkspace's
 // auth gate with "no container auth is registered for this engine".

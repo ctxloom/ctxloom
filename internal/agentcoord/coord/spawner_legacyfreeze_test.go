@@ -19,7 +19,7 @@ import (
 // the replacement, not just a generic failure.
 func TestCheckLegacyChatFreeze(t *testing.T) {
 	t.Run("StartRun backends pass", func(t *testing.T) {
-		for _, backend := range []string{"claude-code", "codex", "opencode"} {
+		for _, backend := range []string{"claude-code"} {
 			assert.NoError(t, checkLegacyChatFreeze(backend), "backend %q", backend)
 		}
 	})
@@ -52,12 +52,10 @@ func TestCheckLegacyChatFreeze(t *testing.T) {
 // path (a backend that migrates must LEAVE this table, not straddle both).
 //
 // The expected set is the residue as it stands NOW, not as it stood at
-// retirement: the table was frozen with {opencode, mock} and the spool
-// cutover's S3b slice performed the first (and only sanctioned) mutation —
-// the SHRINK to {mock} — by migrating opencode onto viaStartRunBackends.
-// Pinning the current set rather than the retirement set is what makes the
-// property directional: re-adding opencode (or anything else) fails here,
-// while a further shrink to the empty set does not.
+// retirement: the table has only ever shrunk, by migrating a member onto
+// viaStartRunBackends. Pinning the CURRENT set rather than the retirement set
+// is what makes the property directional: re-adding anything fails here, while
+// a further shrink to the empty set does not.
 func TestLegacyChatBackendsOnlyEmpties(t *testing.T) {
 	stillFrozen := map[string]bool{"mock": true}
 	for backend, ok := range legacyChatBackends {
@@ -69,13 +67,12 @@ func TestLegacyChatBackendsOnlyEmpties(t *testing.T) {
 		assert.False(t, viaStartRunBackends[backend],
 			"backend %q is in BOTH legacyChatBackends and viaStartRunBackends: a migrated backend must leave the frozen table", backend)
 	}
-	// The shrink itself, asserted directly: opencode is GONE from the frozen
-	// residue and present on the replacement path. Without this, removing
-	// opencode from viaStartRunBackends and restoring it to legacyChatBackends
-	// (the exact revert this slice must not silently tolerate) would leave the
-	// loop above entirely green.
-	assert.False(t, legacyChatBackends["opencode"], "S3b removed opencode from the frozen residue; it must not return")
-	assert.True(t, viaStartRunBackends["opencode"], "S3b migrated opencode onto the StartRun path")
+	// Non-vacuity: the loop above says nothing if the table is empty, and an
+	// empty table is a legitimate END state — so assert what the residue
+	// actually is today. A deliberate shrink to {} edits this line; an
+	// ACCIDENTAL emptying, or a re-add, does not pass silently.
+	require.Len(t, legacyChatBackends, 1, "the frozen residue is {mock} today; change this line deliberately, never to make a red run green")
+	assert.True(t, legacyChatBackends["mock"])
 }
 
 // TestProdSpawner_Resolve_LegacyFreeze is the end-to-end refusal at the real
@@ -84,8 +81,7 @@ func TestLegacyChatBackendsOnlyEmpties(t *testing.T) {
 // driveChild loop (the per-turn oneshot fallback, since no such backend
 // implements StructuredChat) — the house silent-no-op shape. It now fails
 // loud at Resolve. The frozen resident (mock) still resolves, off the
-// StartRun path, proving the gate freezes rather than removes — and
-// opencode, migrated by S3b, resolves ONTO StartRun.
+// StartRun path, proving the gate freezes rather than removes.
 func TestProdSpawner_Resolve_LegacyFreeze(t *testing.T) {
 	newSpawner := func(t *testing.T, body string) *prodSpawner {
 		t.Helper()
@@ -114,37 +110,4 @@ func TestProdSpawner_Resolve_LegacyFreeze(t *testing.T) {
 		assert.Equal(t, "mock", plan.Backend)
 		assert.False(t, plan.ViaStartRun, "a frozen resident is not on the StartRun path; it rides the frozen legacy loop")
 	})
-}
-
-// TestProdSpawner_Resolve_OpencodeViaStartRun is S3b's resolve-level proof at
-// the REAL Spawner.Resolve entry point: an agent whose llm entry names
-// opencode resolves onto the MIGRATED path, so its delegated children spawn a
-// runner and take engine control over StartRun instead of the retired
-// coordinator-driven go-plugin Chat dial (children.go's `rt.plan.ViaStartRun
-// && url != ""` branch is keyed on exactly this field).
-//
-// Payload-asserted on the resolved launch shape rather than an error code:
-// the backend that rode through unmodified, the ViaStartRun routing flag the
-// spawn tail branches on, and the resume mode — opencode has no
-// resume-by-key primitive (resumeCapableBackends), so migrating it must NOT
-// have quietly made it one; a conversational opencode agent stays
-// ResumeModePersistent.
-func TestProdSpawner_Resolve_OpencodeViaStartRun(t *testing.T) {
-	resetStrictness(t)
-	t.Setenv("HOME", t.TempDir())
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: opencode\n    permissions: bypass\n")
-	cfg, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	s := newProdSpawner(cfg, filepath.Dir(appDir), nil)
-
-	plan, err := s.Resolve(context.Background(), "dev")
-	require.NoError(t, err)
-	assert.Equal(t, "opencode", plan.Backend, "the resolved backend rides the plan unmodified")
-	assert.True(t, plan.ViaStartRun,
-		"opencode must resolve onto the StartRun path (S3b): with ViaStartRun false its children take the RETIRED legacy driveChild dial")
-	assert.Equal(t, ResumeModePersistent, plan.ResumeMode,
-		"migrating opencode's WIRE path must not claim a resume-by-key primitive it does not have")
-	assert.NoError(t, checkLegacyChatFreeze(plan.Backend),
-		"a migrated backend still passes the freeze gate — via viaStartRunBackends, not the residue")
 }

@@ -178,7 +178,7 @@ func TestRunnerLoss_StderrTailReachesParentMailbox(t *testing.T) {
 // error already embeds (both implementations wrap the exit with their bounded
 // stderr tail). It stands in for the real shapes: an unknown backend name, a
 // config the runner refused, a fail-loud startup finding.
-const runnerDeathTail = `host runner exited: exit status 1 (stderr tail: Error: unknown backend: opencode)`
+const runnerDeathTail = `host runner exited: exit status 1 (stderr tail: Error: unknown backend: nosuchengine)`
 
 // deadRunnerSpawner spawns a runner that NEVER dials home and whose process
 // exits immediately afterwards. It deliberately does NOT build the fake's

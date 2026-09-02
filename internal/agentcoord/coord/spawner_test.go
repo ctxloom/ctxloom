@@ -38,8 +38,6 @@ func TestChildVerbosity(t *testing.T) {
 func TestViaStartRunBackends(t *testing.T) {
 	cases := map[string]bool{
 		"claude-code":  true,
-		"codex":        true,
-		"opencode":     true,
 		"mock":         false,
 		"":             false,
 		"unknown-type": false,
@@ -56,7 +54,7 @@ func TestViaStartRunBackends(t *testing.T) {
 // loud, never silently downgrading to persistent.
 func TestResolveResumeMode(t *testing.T) {
 	t.Run("conversational is always persistent, any backend", func(t *testing.T) {
-		for _, backend := range []string{"claude-code", "codex", "opencode", "kiro", "mock", "unknown", ""} {
+		for _, backend := range []string{"claude-code", "kiro", "mock", "unknown", ""} {
 			mode, err := resolveResumeMode(agents.DrivingConversational, backend)
 			require.NoError(t, err, "backend %q", backend)
 			assert.Equal(t, ResumeModePersistent, mode, "backend %q", backend)
@@ -64,13 +62,13 @@ func TestResolveResumeMode(t *testing.T) {
 	})
 
 	t.Run("empty driving (the zero value) is persistent", func(t *testing.T) {
-		mode, err := resolveResumeMode("", "opencode")
+		mode, err := resolveResumeMode("", "mock")
 		require.NoError(t, err)
 		assert.Equal(t, ResumeModePersistent, mode)
 	})
 
 	t.Run("oneshot on a resume-capable backend resolves to ResumeModeOneShot", func(t *testing.T) {
-		for _, backend := range []string{"claude-code", "codex"} {
+		for _, backend := range []string{"claude-code"} {
 			mode, err := resolveResumeMode(agents.DrivingOneshot, backend)
 			require.NoError(t, err, "backend %q", backend)
 			assert.Equal(t, ResumeModeOneShot, mode, "backend %q", backend)
@@ -78,7 +76,7 @@ func TestResolveResumeMode(t *testing.T) {
 	})
 
 	t.Run("oneshot on a NON-resumable backend FAILS LOUD, never silently downgrades", func(t *testing.T) {
-		for _, backend := range []string{"opencode", "kiro", "mock", "unknown-backend", "antigravity", ""} {
+		for _, backend := range []string{"kiro", "mock", "unknown-backend", "antigravity", ""} {
 			mode, err := resolveResumeMode(agents.DrivingOneshot, backend)
 			require.Error(t, err, "backend %q", backend)
 			assert.Equal(t, ResumeModePersistent, mode, "the returned mode on error must never be ResumeModeOneShot (backend %q)", backend)
@@ -211,24 +209,17 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 	})
 
 	t.Run("driving: oneshot on a non-resumable engine fails loud with the capability reason", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: opencode\n    permissions: bypass\n    driving: oneshot\n")
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: mock\n    permissions: bypass\n    driving: oneshot\n")
 		_, err := s.Resolve(context.Background(), "dev")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "resume-capable")
-		assert.Contains(t, err.Error(), "opencode")
+		assert.Contains(t, err.Error(), "mock")
 	})
 
 	t.Run("driving: oneshot on a SUPPORTED migrated engine (claude-code) now RESOLVES to ResumeModeOneShot (Slice 4 landed)", func(t *testing.T) {
 		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n    driving: oneshot\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err, "the one-shot turn loop is wired end to end for claude-code (Slice 4)")
-		assert.Equal(t, ResumeModeOneShot, plan.ResumeMode)
-	})
-
-	t.Run("driving: oneshot on codex also resolves to ResumeModeOneShot", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: codex\n    permissions: bypass\n    driving: oneshot\n")
-		plan, err := s.Resolve(context.Background(), "dev")
-		require.NoError(t, err)
 		assert.Equal(t, ResumeModeOneShot, plan.ResumeMode)
 	})
 

@@ -832,10 +832,10 @@ func asciiLower(s string) string {
 // The two shipping ACP adapters differ exactly here: claude-code-acp passes
 // its own env through to a spawned stdio MCP server (so the ambient
 // CTXLOOM_MCP_SOCKET reached the shim and its agent_send forwarded to the
-// coordinator), but codex-acp does NOT — the shim then found no socket, fell
+// coordinator), but a vendor shim may NOT — it then found no socket, fell
 // back to its LOCAL surface, stood up a second rogue coordinator in-process,
 // and every `agent_send(to:"parent")` failed with "this session is the
-// coordinator — it has no parent" (j002300 @live, codex-child). Injecting the
+// coordinator — it has no parent" (j002300 @live). Injecting the
 // value into the entry's declared env removes the dependency on adapter
 // behavior entirely — the isolation-must-not-negotiate discipline applied to
 // reach-back delivery: make it a property of what we send, not a promise we

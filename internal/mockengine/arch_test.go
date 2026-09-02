@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/mockengine"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -30,7 +30,7 @@ import (
 //     same report. runtime_test.go's `if rep.PromptSHA256 == ""` assertion
 //     could not fail.
 //   - A ScopeEnvDir probe whose env var was unset fell back to the REAL $HOME
-//     and reported present:true off the developer's own ~/.codex — a run in
+//     and reported present:true off the developer's own config dir — a run in
 //     which ctxloom delivered nothing rendered as a run in which it delivered
 //     everything, and nothing in the digest said which.
 //   - The declared SetEnv/StripEnv contract was read by nothing at all: a run
@@ -54,7 +54,7 @@ import (
 // limbRun is one launch of the mock: what the harness delivered, and what the
 // engine was told.
 type limbRun struct {
-	// cli overrides the personality (default codex oneshot).
+	// cli overrides the personality (default claude oneshot).
 	cli *agent.EngineCLI
 	// prompt is what arrives on stdin.
 	prompt string
@@ -77,7 +77,7 @@ func fingerprint(rep mockengine.Report) string {
 // runLimb drives one launch over a fresh workspace and returns its report.
 func runLimb(t *testing.T, r limbRun) mockengine.Report {
 	t.Helper()
-	cli := codexOneshot(t)
+	cli := claudeOneshot(t)
 	if r.cli != nil {
 		cli = *r.cli
 	}
@@ -93,9 +93,9 @@ func runLimb(t *testing.T, r limbRun) mockengine.Report {
 		argv = append(argv, cli.Subcommand)
 	}
 	stdin := ""
-	// Deliver the prompt on the channel L1 DECLARES — codex oneshot takes a
-	// trailing positional, claude oneshot takes stdin. A harness that always
-	// used stdin would be testing the wrong limb for half the personalities.
+	// Deliver the prompt on the channel L1 DECLARES — claude oneshot takes
+	// stdin, another personality may take a trailing positional. A harness that
+	// always used stdin would be testing the wrong limb for half of them.
 	if r.prompt != "" {
 		if cli.Prompt == agent.PromptPositional {
 			argv = append(argv, r.prompt)
@@ -130,11 +130,20 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 	// A synthetic declaration is the only way to exercise StripEnv: no shipped
 	// backend declares one today, and a limb with no production declaration is
 	// exactly the limb that rots.
-	stripCLI := codexOneshot(t)
+	stripCLI := claudeOneshot(t)
 	stripCLI.StripEnv = []string{"ANTHROPIC_API_KEY"}
 
+	// Synthetic for the same reason: no shipped backend declares a ScopeEnvDir
+	// probe today, and the $HOME-fallback marker below is precisely the limb
+	// that rots once nothing exercises it.
+	envDirCLI := claudeOneshot(t)
+	envDirCLI.Probes = append(append([]agent.CLIProbe(nil), envDirCLI.Probes...), agent.CLIProbe{
+		Kind: agent.ProbeKindSettings, Scope: agent.ScopeEnvDir,
+		EnvVar: syntheticHomeEnv, EnvHomeDefault: ".mock-engine", Rel: "config.toml",
+	})
+
 	const promptBody = "composed context\n\ndo the task"
-	codexHome := "/nonexistent-codex-home"
+	syntheticHome := "/nonexistent-engine-home"
 
 	for _, tc := range []struct {
 		name string
@@ -159,7 +168,7 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 		{
 			name: "cwd context surface",
 			no:   limbRun{},
-			yes:  limbRun{files: map[string]string{codex.AgentsMDFile: "# AGENTS.md\n"}},
+			yes:  limbRun{files: map[string]string{claude.ContextFileName: "# CLAUDE.md\n"}},
 			check: func(t *testing.T, no mockengine.Report) {
 				rec, ok := recordByKind(no, string(agent.ProbeKindContext))
 				if !ok || rec.Present {
@@ -169,11 +178,11 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 		},
 		{
 			name: "env-dir root",
-			// CODEX_HOME unset: the walk falls back to $HOME/.codex, which on a
-			// developer's machine is a REAL config directory. The two runs must
-			// not be able to render alike.
-			no:  limbRun{},
-			yes: limbRun{env: map[string]string{codex.CodexHomeEnv: codexHome}},
+			// The env var unset: the walk falls back to $HOME/<default>, which
+			// on a developer's machine is a REAL config directory. The two runs
+			// must not be able to render alike.
+			no:  limbRun{cli: &envDirCLI},
+			yes: limbRun{cli: &envDirCLI, env: map[string]string{syntheticHomeEnv: syntheticHome}},
 			check: func(t *testing.T, no mockengine.Report) {
 				var fell bool
 				for _, rec := range no.Records {
@@ -230,12 +239,11 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 // question it exists for in one call, so a caller need not re-derive the
 // honoured/violated rule that the record already knows.
 func TestArch_EvidenceReport_EnvViolationsNameEveryBreach(t *testing.T) {
-	cli := codexOneshot(t)
+	cli := claudeOneshot(t)
 	cli.StripEnv = []string{"ANTHROPIC_API_KEY"}
 	rep := runLimb(t, limbRun{
 		cli: &cli,
 		env: map[string]string{
-			codex.CodexHomeEnv:      "/nonexistent-codex-home",
 			agent.SessionHarpEnv:    "witty-tag",
 			"ANTHROPIC_API_KEY":     "sk-leaked",
 			agent.SCMContextFileEnv: "", // set, but EMPTY: ctxloom's own silent no-op shape
@@ -255,6 +263,11 @@ func TestArch_EvidenceReport_EnvViolationsNameEveryBreach(t *testing.T) {
 		t.Error("a correctly set variable was reported as a violation")
 	}
 }
+
+// syntheticHomeEnv is the env var the synthetic ScopeEnvDir probe above reads.
+// It names no shipped engine on purpose: the limb under test is the FALLBACK
+// marker, not any one engine's home.
+const syntheticHomeEnv = "MOCK_ENGINE_HOME"
 
 // envRecord finds one env observation by name.
 func envRecord(rep mockengine.Report, name string) (mockengine.EnvRecord, bool) {

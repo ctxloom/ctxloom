@@ -115,7 +115,7 @@ func (Worktree) Name() string { return "worktree" }
 // workspace.
 //
 // The lever, when the backend is registered in credentialSeedSpecs (auth.go),
-// is a SCOPED env var (CLAUDE_CONFIG_DIR/CODEX_HOME) pointed at a
+// is a SCOPED env var (CLAUDE_CONFIG_DIR) pointed at a
 // per-agent subdir; the rest of the process env, including HOME, is
 // untouched. A backend not in that registry gets the pre-fix,
 // config-only-isolation no-op (no per-agent env at all).
@@ -343,7 +343,7 @@ func (w Worktree) prepareHomeVarDirs(configHome string, denied map[string]bool) 
 // (resolveClaudeContainerAuth / container.go).
 // It routes through isolation.CopyAmbient — the ONE one-way ambient copy-in,
 // shared with the in-tree axis (D8, ruled). Sharing the mechanism is
-// what makes the D4/D5 rulings — claude's field-scoped .claude.json, codex's
+// what makes the D4/D5 rulings — claude's field-scoped .claude.json, another engine's
 // [mcp_servers]/[hooks] elision — apply to a fan-out member for free, instead
 // of being an in-tree-only privilege the worktree axis silently missed. The
 // LOCATION stays split: this axis's homes remain home-rooted under

@@ -28,7 +28,7 @@ type AmbientFile struct {
 	HostRel string
 	// DestRel is the path under the instance home root, slash-separated. It
 	// carries the engine's own leaf (e.g. "claude/.credentials.json",
-	// ".codex/auth.json"), so one instance root hosts every engine without
+	// ".claude/.credentials.json"), so one instance root hosts every engine without
 	// collision.
 	DestRel string
 	// Mode is the mode the COPY is written at — 0600 for credential material,
@@ -50,7 +50,7 @@ type AmbientFile struct {
 // ALLOW-LIST, NEVER DENY-LIST. Under a deny-list, a file the engine vendor adds
 // tomorrow is copied by DEFAULT, and the default direction of a mistake there
 // is a confidentiality leak: claude's `.claude.json` carries the user's own
-// mcpServers registrations, codex's config.toml carries theirs. Listing what
+// mcpServers registrations, and each engine's own config carries theirs. Listing what
 // crosses — by name, one line each — is what makes D4 and D5 decisions rather
 // than accidents.
 func AmbientSet(engine string) []AmbientFile {
@@ -94,7 +94,7 @@ func AmbientEngineNames() []string { return CredentialSeedEngineNames() }
 // AmbientRequest is one ambient copy-in: which engine, into which instance
 // home, for which working directory.
 type AmbientRequest struct {
-	// Engine is the REGISTERED backend name ("claude-code", "codex", ...).
+	// Engine is the REGISTERED backend name ("claude-code", ...).
 	Engine string
 	// InstanceHome is the config-home ROOT to copy into — a per-session in-tree
 	// instance (paths.SessionHomePath) or a per-agent worktree config home.
@@ -131,7 +131,7 @@ type AmbientCopyReport struct {
 	// var). Empty unless NoSource.
 	NoSourceReason string
 	// Generated lists the paths the ENGINE's own instance-config writer wrote
-	// (claude's .claude.json, codex's config.toml base). Empty for an engine
+	// (claude's .claude.json, for instance). Empty for an engine
 	// with a declared-empty contribution.
 	Generated []string
 	// Warnings carries the engine's fail-loud notices (host-file schema drift,
@@ -234,7 +234,7 @@ func credentialProjectorFor(engine string) agent.CredentialProjector {
 //  1. copies req.Engine's ALLOW-LISTED ambient files (AmbientSet) out of the
 //     real host home, at 0600, into the instance;
 //  2. asks the ENGINE to generate its own instance config (the engine
-//     write-config directive) — claude's field-scoped `.claude.json`, codex's
+//     write-config directive) — claude's field-scoped `.claude.json`, another engine's
 //     `config.toml` base minus the elided sections. Every byte-level edit of a
 //     vendor's format happens inside that vendor's package; this function only
 //     decides WHICH files and classes cross.

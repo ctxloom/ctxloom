@@ -85,7 +85,7 @@ func safePathSegment(s string) bool {
 //	~/.ctxloom/locks → the same leaf under the container home
 //	    (c.home/.ctxloom/locks). RULED (human): an engine-settings
 //	    file this run's config-overlay write mounts expose (.claude/
-//	    settings.json, .mcp.json, and their codex/opencode counterparts)
+//	    settings.json, .mcp.json, and each engine's counterparts)
 //	    is bind-mounted host↔container at an IDENTICAL absolute path, but
 //	    paths.HomePathFor resolves its lock sidecar against EACH SIDE'S OWN
 //	    $HOME — the host's real home on one side, the container's fresh
@@ -105,7 +105,7 @@ func safePathSegment(s string) bool {
 //	    project, or bundle.
 //
 //	    Every registered engineContainerSpec ships a non-empty overlayDirs
-//	    today (defaultOverlayDirs/codexOverlayDirs/opencodeOverlayDirs/
+//	    today (defaultOverlayDirs/
 //	    mockOverlayDirs — enginespec.go), so every
 //	    container this method runs for already carries the write mounts this
 //	    lock protects; there is no narrower engine spec to condition on, so

@@ -11,7 +11,7 @@ import (
 // worktree-in-container composition), which are otherwise engine-agnostic:
 //
 //   - image: the agent image tag this engine runs in (it must carry the engine
-//     CLI — a codex run in a claude image would launch a container whose engine
+//     CLI — a foreign-engine run in a claude image would launch a container whose engine
 //     spawn fails, which is worse than degrading). For a COMPOSABLE spec
 //     (engineInstall != nil) this is only the FALLBACK when the shared composed
 //     tag cannot be computed (e.g. the base content is unreadable); containerFor
@@ -38,7 +38,7 @@ import (
 //     run's host-side scratch dir too, a seam-signature remnant: no current
 //     resolver writes a credential under it (claude's token-refresh case now
 //     bind-mounts the REAL host credential read-write instead of a scratch
-//     copy — auth.go's claudeCredentialMounts; codex/opencode mount their real
+//     copy — auth.go's claudeCredentialMounts; other engines mount their real
 //     host credential read-only). Every resolver ignores the scratch dir today.
 //   - authHint: the degrade diagnostic when resolveAuth finds nothing — names
 //     the engine's trigger var/credential source without leaking values.
@@ -53,11 +53,11 @@ import (
 //     survive teardown. The ROOT, never a leaf: the transcript file name is a
 //     runtime-generated sessionID/uuid the host cannot pre-create, and the
 //     container's fresh HOME already scopes the root to this one run. Resolved
-//     against the CONTAINER home; an engine-home env override (CODEX_HOME &
+//     against the CONTAINER home; an engine-home env override (&
 //     co.) is deliberately not consulted — the container axis never sets one.
 //
 // Specs are keyed by the REGISTERED backend name (internal/lm/backends
-// registry: "claude-code", "codex", ...). The isolation package deliberately does
+// registry: "claude-code", ...). The isolation package deliberately does
 // not import the backends registry (it would drag the whole backend tree into
 // the seam); the names are part of the descriptor contract.
 type engineContainerSpec struct {
@@ -79,40 +79,17 @@ var defaultOverlayDirs = []string{
 	filepath.FromSlash(".ctxloom/cache"),
 }
 
-// codexOverlayDirs shadows codex's managed-config surface: everything ctxloom
-// writes for codex (config.toml, prompts/, skills/ — internal/codex's
-// commandfiles.go/skillfiles.go/settings.go) lives under .codex, project-
-// relative, plus the shared .ctxloom/cache. No project-root single-file
-// residue (unlike claude's .mcp.json) — codex's own config.toml already sits
-// inside .codex.
-var codexOverlayDirs = []string{
-	".codex",
-	filepath.FromSlash(".ctxloom/cache"),
-}
-
-// opencodeOverlayDirs shadows opencode's managed-config surface: ctxloom's
-// custom commands/skills/context land under .opencode (command/, skill/,
-// ctxloom-context.md — internal/opencode's commandfiles.go/skillfiles.go/
-// settings.go) plus the shared .ctxloom/cache. Like claude's .mcp.json,
-// opencode's project-ROOT opencode.json (opencodeConfigFile) is a single-file
-// residue NOT covered here — see defaultOverlayDirs' doc (single-file
-// overlays would break the writers' atomic write+rename).
-var opencodeOverlayDirs = []string{
-	".opencode",
-	filepath.FromSlash(".ctxloom/cache"),
-}
-
 // mockOverlayDirs shadows mock's ONLY project-relative managed-config
 // DIRECTORY: .mock/skills (internal/lm/backends/mock_surfaces.go's
 // mockSkillsPath — the shared ManagedSkillPackages delivery, the same
 // mechanism every other backend's skills surface uses). The whole ".mock"
 // parent is shadowed, not just "skills" underneath it, mirroring every other
-// spec's whole-managed-dir mount (.claude/.codex/.opencode); .mock
-// has no other sibling content today, so the wider shadow costs nothing.
+// spec's whole-managed-dir mount; .mock has no other sibling content today,
+// so the wider shadow costs nothing.
 // mock's CONTEXT surface (MOCK_CONTEXT.md, mockContextPath) is a PROJECT-ROOT
 // SINGLE FILE, deliberately NOT listed here — the same single-file residue
-// defaultOverlayDirs' doc flags for claude's .mcp.json and opencodeOverlayDirs'
-// for opencode.json: a file bind-mount would break the writers' atomic
+// defaultOverlayDirs' doc flags for claude's .mcp.json: a file bind-mount
+// would break the writers' atomic
 // write+rename (containerConfigOverlay's own doc: "directories only"). The
 // shared .ctxloom/cache rides along like every other spec's set — the
 // framed context file cache is engine-agnostic, not mock-specific.
@@ -126,8 +103,8 @@ var mockOverlayDirs = []string{
 // vendor CLI to install: its "engine" is the ctxloom binary itself
 // (internal/lm/backends' Mock — compiled into ctxloom, calling no external
 // process), so there is no client to fetch, no adapter to validate, nothing
-// this fragment could do that claudeCodeInstallFragment/codexInstallFragment/
-// etc. do for their own engines.
+// this fragment could do that claudeCodeInstallFragment and its siblings do
+// for their own engines.
 //
 // The two things a mock container run actually needs — ctxloom itself at
 // defaultContainerBinary, and a `cat` for the shared-filesystem probe
@@ -200,37 +177,12 @@ var claudeCodeInstallFragment = []byte(nodeFloorFragment + `RUN npm install -g @
     && claude --version
 `)
 
-// codexInstallFragment installs the codex CLI via its npm package (the
-// official installer table also lists the chatgpt.com/codex/install.sh shell
-// script; npm is used here to mirror claude's prereq/validate shape and keep
-// the fragment self-contained), then RUNS it (`codex --version`) rather than
-// merely locating it.
-var codexInstallFragment = []byte(nodeFloorFragment + `RUN npm install -g @openai/codex \
-    && codex --version
-`)
-
-// opencodeInstallFragment installs opencode via its official install script.
-// The installer lands the binary under $HOME/.opencode/bin (per the opencode
-// backend's own binary_path finding — it is NOT put on PATH), so this fragment
-// relocates it onto PATH itself. Its own auth resolver is
-// resolveOpencodeContainerAuth (auth.go: OpenRouter env / seeded
-// ~/.local/share/opencode/auth.json) — see the opencode case below.
-//
-// The validate gate RUNS the client (`opencode --version`) rather than merely
-// locating it.
-var opencodeInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip && rm -rf /var/lib/apt/lists/*) || true) \
-    && curl -fsSL https://opencode.ai/install | bash \
-    && { command -v opencode >/dev/null 2>&1 \
-         || install -m 0755 "$HOME/.opencode/bin/opencode" /usr/local/bin/opencode; } \
-    && opencode --version
-`)
-
 // composableEngines is the deterministic default engine set a composed agent
 // image bakes when isolation_engines is unconfigured — every backend with a
 // known OFFICIAL-installer fragment (locked decision 3: "all engines CAN be
 // present" by default; isolation_engines trims it down), alphabetical order.
 func composableEngines() []string {
-	return []string{"claude-code", "codex", "opencode"}
+	return []string{"claude-code"}
 }
 
 // ComposableEngines exports composableEngines() (one of the four
@@ -284,38 +236,6 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 			overlayDirs:        defaultOverlayDirs,
 			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
 		}
-	case "codex":
-		// codex is now COMPOSABLE (its own official-installer fragment) AND
-		// has its OWN auth/overlay set — it no longer inherits
-		// the default (claude) spec's resolveAuth/authHint/overlayDirs,
-		// which was a security edge (a containerized codex run
-		// silently mounting/passing the user's ANTHROPIC_* credentials into a
-		// foreign, non-Anthropic engine). image stays the default fallback
-		// tag: the REAL image a codex run gets is the composed multi-engine
-		// tag computed from engineInstall by composedIdentity
-		// (imagebuild.go), which already carries the codex CLI — this field
-		// is only the name used when that composition cannot be computed.
-		p := engineContainerSpecFor("")
-		p.engineInstall = codexInstallFragment
-		p.validate = "codex --version"
-		p.resolveAuth = resolveCodexContainerAuth
-		p.authHint = "no OPENAI_API_KEY and no ~/.codex/auth.json to authenticate the in-container engine"
-		p.overlayDirs = codexOverlayDirs
-		p.transcriptStoreRel = filepath.FromSlash(".codex/sessions")
-		return p
-	case "opencode":
-		// opencode is now COMPOSABLE (its own official-installer fragment)
-		// AND has its OWN auth/overlay set — see codex's case comment above
-		// for why inheriting the default (claude) auth was wrong for a
-		// non-Anthropic engine; the same fix applies here.
-		p := engineContainerSpecFor("")
-		p.engineInstall = opencodeInstallFragment
-		p.validate = "opencode --version"
-		p.resolveAuth = resolveOpencodeContainerAuth
-		p.authHint = "no OPENROUTER_API_KEY and no seeded ~/.local/share/opencode/auth.json to authenticate the in-container engine"
-		p.overlayDirs = opencodeOverlayDirs
-		p.transcriptStoreRel = filepath.FromSlash(".local/share/opencode")
-		return p
 	// mock is COMPOSABLE (engineInstall != nil, so buildSources stops
 	// reporting "no local build recipe" for it) but — unlike every other
 	// case above — installs NO vendor CLI at all; see mockInstallFragment's
@@ -358,8 +278,8 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 		// engineContainerSpecFor("") call sites above) got the
 		// user's ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN passed through and
 		// ~/.claude credentials copy-mounted into a FOREIGN engine's
-		// container. codex/opencode above each earned their
-		// own resolveAuth for exactly this reason; the default must not hand
+		// container. Every non-claude engine must earn its OWN resolveAuth
+		// for exactly this reason; the default must not hand
 		// out Anthropic credentials to an engine nobody vetted. It now fails
 		// closed (noContainerAuth) so an unmapped engine degrades
 		// honestly instead of silently authenticating as claude.
@@ -400,15 +320,14 @@ func HasContainerAuth(backend string) bool {
 // TestContainerAuthEngines_AllHaveAuth, so a spec added to the table without a
 // listing here (or vice versa) fails loudly.
 func ContainerAuthEngines() []string {
-	return []string{"claude-code", "codex", "opencode", "mock"}
+	return []string{"claude-code", "mock"}
 }
 
 // ContainerOverlayDirsFor returns a copy of engineContainerSpecFor(backend)'s
 // overlayDirs — the project-relative managed-config directories a
 // containerized run of backend shadows. Exported read-only so tests/arch's
 // engine-layout gate can check this package's
-// defaultOverlayDirs/codexOverlayDirs/
-// opencodeOverlayDirs/mockOverlayDirs literals against each owning engine
+// defaultOverlayDirs/mockOverlayDirs literals against each owning engine
 // package's own ConfigDirName constant, the same import-cycle reasoning as
 // ComposableEngines/CredentialSeedEngineNames above applies here too.
 func ContainerOverlayDirsFor(backend string) []string {

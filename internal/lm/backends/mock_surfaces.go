@@ -66,8 +66,14 @@ func hostStart(dir string) present.Start {
 
 // mockContextPath returns the mock context file's path under dir, via the
 // declared context presenter.
-func mockContextPath(dir string) string {
-	d := mockPresentations[agent.SurfaceContext]
+func mockContextPath(dir string) string { return mockSurfacePath(agent.SurfaceContext, dir) }
+
+// mockSurfacePath resolves ONE surface's path through its declared presenter.
+// Every mock path goes through here rather than through a per-kind copy: the
+// bodies differed only by which SurfaceKind they looked up, and five copies of
+// a resolve chain is five places for it to drift.
+func mockSurfacePath(kind agent.SurfaceKind, dir string) string {
+	d := mockPresentations[kind]
 	return d.Resolve(d.Default(), hostStart(dir)).HostPath
 }
 
@@ -145,10 +151,7 @@ const mockSkillsDirName = MockConfigDirName + "/skills"
 
 // mockSkillsPath returns the mock skills directory's path under dir, via the
 // declared skills presenter.
-func mockSkillsPath(dir string) string {
-	d := mockPresentations[agent.SurfaceSkills]
-	return d.Resolve(d.Default(), hostStart(dir)).HostPath
-}
+func mockSkillsPath(dir string) string { return mockSurfacePath(agent.SurfaceSkills, dir) }
 
 // newMockSkillsSurface builds mock's skills surface: the SHARED
 // agent.ManagedSkillPackagesDelivery bound to the SHARED
@@ -191,20 +194,11 @@ const (
 // path through its declared presenter, exactly as the context and skills
 // halves do — never by joining strings here, so Route() and the delivery agree
 // by construction.
-func mockMCPPath(dir string) string {
-	d := mockPresentations[agent.SurfaceMCP]
-	return d.Resolve(d.Default(), hostStart(dir)).HostPath
-}
+func mockMCPPath(dir string) string { return mockSurfacePath(agent.SurfaceMCP, dir) }
 
-func mockSettingsPath(dir string) string {
-	d := mockPresentations[agent.SurfaceSettings]
-	return d.Resolve(d.Default(), hostStart(dir)).HostPath
-}
+func mockSettingsPath(dir string) string { return mockSurfacePath(agent.SurfaceSettings, dir) }
 
-func mockCommandsPath(dir string) string {
-	d := mockPresentations[agent.SurfaceCommands]
-	return d.Resolve(d.Default(), hostStart(dir)).HostPath
-}
+func mockCommandsPath(dir string) string { return mockSurfacePath(agent.SurfaceCommands, dir) }
 
 func mockMCPPresenter(s present.Start) present.Presentation {
 	return s.UnderProjectRoot(mockMCPFilename).Build()

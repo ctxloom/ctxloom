@@ -98,11 +98,17 @@ func (c MockConfig) GetEnv() map[string]string { return c.Env }
 // is mock in every respect but its registered NAME and the hook kind its
 // descriptor declares unsupported — see config.BackendMockLossy for why a
 // second double beats making the first one imperfect.
-func NewMockLossy() *Mock {
+func NewMockLossy() *Mock { return newMockBackend(config.BackendMockLossy) }
+
+// newMockBackend builds a mock-family backend under the given registry name.
+// The two doubles differ ONLY in that name and in what their descriptors
+// declare, so they share one constructor rather than two bodies that could
+// drift into behaving differently.
+func newMockBackend(name string) *Mock {
 	b := &Mock{}
-	b.BaseBackend = agent.NewBaseBackend(config.BackendMockLossy, "1.0.0")
+	b.BaseBackend = agent.NewBaseBackend(name, "1.0.0")
 	b.InitLaunch(
-		agent.NewBaseLifecycle(config.BackendMockLossy),
+		agent.NewBaseLifecycle(name),
 		agent.NewBaseContextProvider(),
 		&NilSessionHistory{},
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewMockSurfaces)},
@@ -110,17 +116,7 @@ func NewMockLossy() *Mock {
 	return b
 }
 
-func NewMock() *Mock {
-	b := &Mock{}
-	b.BaseBackend = agent.NewBaseBackend("mock", "1.0.0")
-	b.InitLaunch(
-		agent.NewBaseLifecycle("mock"),
-		agent.NewBaseContextProvider(),
-		&NilSessionHistory{},
-		&agent.CellDelivery{Build: agent.BuildWellKnown(NewMockSurfaces)},
-	)
-	return b
-}
+func NewMock() *Mock { return newMockBackend(config.BackendMock) }
 
 // Setup stashes the payload Execute's echo and record file are built from, then
 // runs the shared launch Setup so the context surface is actually delivered.

@@ -140,9 +140,11 @@ func TestManageInstall_NoEngineFlagAppliesAllBackends(t *testing.T) {
 	_, err := runCLIErr(t, "manage", "install", "--print=false")
 	require.NoError(t, err)
 
-	for _, backend := range []string{".claude", backends.MockConfigDirName} {
-		assert.DirExists(t, filepath.Join(dir, backend), "omitting --engine must still wire %s", backend)
-	}
+	// "all" is backends.BackendsWithSettings() — the backends that HAVE a
+	// settings surface to wire. mock is deliberately not among them (it
+	// declares noHooksReason: no settings/hook surface), so its absence here
+	// is the correct outcome, not a gap.
+	assert.DirExists(t, filepath.Join(dir, ".claude"), "omitting --engine must still wire every backend with a settings surface")
 }
 
 // TestCheckInstallEngineApplies covers the decision itself, free of the cobra

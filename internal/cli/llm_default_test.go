@@ -32,7 +32,7 @@ func TestIsKnownLLM_BuiltIn(t *testing.T) {
 	if !isKnownLLM(cfg, "claude-code") {
 		t.Error("expected claude-code to be known")
 	}
-	if !isKnownLLM(cfg, "codex") {
+	if !isKnownLLM(cfg, "mock") {
 		t.Error("expected codex to be known")
 	}
 }
@@ -67,7 +67,7 @@ func llmDefaultTestCmd(format string) (*cobra.Command, *bytes.Buffer) {
 // the read-only known-LLM check, mgr is what SetDefaultLLM's transaction
 // actually writes through.
 //
-// The seeded config.yaml names an explicit starting primary ("codex") rather
+// The seeded config.yaml names an explicit starting primary ("mock") rather
 // than leaving llm.defaults.primary absent: an absent primary is filled
 // in-memory by the shipped-default overlay (mergeDefaultConfig) at load
 // time, which would make "claude-code" look already-current the moment
@@ -155,7 +155,7 @@ func TestIsKnownLLM_AgreesWithTheAdvertisedSet(t *testing.T) {
 	})
 
 	for _, name := range []string{
-		"claude-code", "codex", "opencode", mockBackendName,
+		"claude-code", "mock", "opencode", mockBackendName,
 		"my-claude", "stale", "nonexistent-plugin", "",
 	} {
 		advertised := slices.Contains(operations.AvailableLLMNames(cfg), name)

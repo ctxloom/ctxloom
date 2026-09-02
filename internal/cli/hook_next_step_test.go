@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -179,35 +176,4 @@ func TestRunHookNextStep_NeverFailsTheTurnAndSaysWhy(t *testing.T) {
 		"a failed capture must not fail the turn")
 	assert.Contains(t, sink.String(), "no next step captured",
 		"a capture that did not happen must be NAMED, not silent")
-}
-
-// TestCaptureNextStep_CapturesOnCodex is the cross-engine assertion. The
-// TurnEnd hook is installed on every hooking backend, so a capture wired to
-// one vendor's format fires every turn on the others and stores nothing —
-// leaving task-aware distillation permanently disengaged there while
-// reporting no fault a user would notice.
-//
-// It reads the FILE, not the exit status: the failure being pinned is
-// precisely a hook that ran, reported nothing wrong, and wrote zero bytes.
-//
-// MUTATION — have operations.ResolveTurnTranscript select the reader for
-// config.BackendClaudeCode instead of the session's own entry.Backend —
-// turns this red while the claude fixtures above stay green.
-func TestCaptureNextStep_CapturesOnCodex(t *testing.T) {
-	testsupport.Isolate(t)
-	harp := seedHookSession(t, "codex")
-	const final = "Next I will re-run the codex adapter fixtures."
-
-	p := filepath.Join(t.TempDir(), "rollout-2026-08-27.jsonl")
-	lines := []string{
-		`{"timestamp":"2026-08-27T10:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"what next"}]}}`,
-		`{"timestamp":"2026-08-27T10:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":` + jsonString(final) + `}]}}`,
-	}
-	require.NoError(t, os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644))
-
-	require.NoError(t, captureNextStep(nextStepCmd(stopPayload(p))))
-
-	got, ok := memory.ReadNextStep(harp)
-	require.True(t, ok, "a codex turn must leave a next step on disk, not merely exit 0")
-	assert.Equal(t, final, got)
 }

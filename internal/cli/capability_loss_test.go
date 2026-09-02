@@ -33,9 +33,10 @@ import (
 
 // capabilityLossFixtureProfile is a project's own default profile carrying a
 // team guardrail on two unified events. session_start is the shape a backend
-// with NO hook mechanism drops wholesale (opencode); session_end is the
-// per-EVENT shape a backend that has hooks generally still has no native event
-// for (codex). One fixture exercises both.
+// with NO hook mechanism drops wholesale; session_end is the per-EVENT shape a
+// backend that has hooks generally still has no native event for. No
+// currently-registered backend declares the per-event shape, so only the
+// whole-mechanism arm is exercised today.
 const capabilityLossFixtureProfile = `description: "capability-loss fixture: a team guardrail on two unified events"
 hooks:
   unified:
@@ -109,13 +110,13 @@ func lineContaining(t *testing.T, out, needle string) string {
 
 // --- DOCTOR-CHECK-CAPABILITY-LOSS-u1 ---
 
-// TestDoctorCmd_CapabilityLoss_NamesTheHooksOpencodeCannotCarry is the
+// TestDoctorCmd_CapabilityLoss_NamesTheHooksAnEngineCannotCarry is the
 // terminal-facing proof for the whole-mechanism shape. Pre-fix `doctor` ran
 // twenty-one checks and not one of them mentioned that this project's
 // guardrail will never fire.
-func TestDoctorCmd_CapabilityLoss_NamesTheHooksOpencodeCannotCarry(t *testing.T) {
-	root, cfg := setupCapabilityLossProject(t, "opencode")
-	requireFixtureLosesSomething(t, cfg, "session_start", "opencode has no hook mechanism")
+func TestDoctorCmd_CapabilityLoss_NamesTheHooksAnEngineCannotCarry(t *testing.T) {
+	root, cfg := setupCapabilityLossProject(t, "mock")
+	requireFixtureLosesSomething(t, cfg, "session_start", "mock has no settings/hook surface")
 
 	out, err := runDoctor(t, root)
 	require.NoError(t, err, "doctor stays diagnostic-only: a capability gap is reported, never fatal")
@@ -127,28 +128,8 @@ func TestDoctorCmd_CapabilityLoss_NamesTheHooksOpencodeCannotCarry(t *testing.T)
 		"the detail must name WHICH agent loses it, or a multi-agent roster is unactionable:\n"+out)
 	assert.Contains(t, check.Detail, "session_start",
 		"naming the hook event the user actually wrote is what makes the detail actionable rather than ominous:\n"+out)
-	assert.Contains(t, check.Detail, "opencode has no hook mechanism",
+	assert.Contains(t, check.Detail, "mock has no settings/hook surface",
 		"the detail must say WHY the engine cannot give it, so a reader can tell a capability gap from a ctxloom bug:\n"+out)
-}
-
-// TestDoctorCmd_CapabilityLoss_NamesThePerEventGapCodexHas covers the OTHER
-// shape, the one a whole-mechanism check structurally cannot see: codex has
-// hooks, but no native session-end event. A check that only knew "does this
-// engine have hooks at all" would report this project clean.
-func TestDoctorCmd_CapabilityLoss_NamesThePerEventGapCodexHas(t *testing.T) {
-	root, cfg := setupCapabilityLossProject(t, "codex")
-	requireFixtureLosesSomething(t, cfg, "session_end", "codex has no session-end event")
-
-	out, err := runDoctor(t, root)
-	require.NoError(t, err)
-
-	check := doctorCheckNamed(t, out, "DOCTOR-CHECK-CAPABILITY-LOSS-u1")
-	assert.Equal(t, doctorWarn, check.Status, out)
-	assert.Contains(t, check.Detail, "session_end",
-		"the per-EVENT gap must name the event, not just the surface:\n"+out)
-	assert.Contains(t, check.Detail, "codex has no session-end event", out)
-	assert.NotContains(t, check.Detail, "session_start",
-		"codex DOES carry session_start here; reporting it as lost would be the false alarm that teaches readers to skip the check that matters:\n"+out)
 }
 
 // TestDoctorCmd_CapabilityLoss_StaysQuietWhenNothingIsLost is the false-alarm
@@ -213,13 +194,13 @@ func execManageCheckAs(t *testing.T, root, format string) (string, error) {
 	return buf.String(), err
 }
 
-// TestManageCheck_CapabilityLoss_NamesTheHooksOpencodeCannotCarry pins the
+// TestManageCheck_CapabilityLoss_NamesTheHooksAnEngineCannotCarry pins the
 // wiring report's half. `manage check` answers "what has ctxloom wired in",
 // and every line of it was true while the guardrail it could not wire went
 // unmentioned — the same silence the delivery report had.
-func TestManageCheck_CapabilityLoss_NamesTheHooksOpencodeCannotCarry(t *testing.T) {
-	root, cfg := setupCapabilityLossProject(t, "opencode")
-	requireFixtureLosesSomething(t, cfg, "session_start", "opencode has no hook mechanism")
+func TestManageCheck_CapabilityLoss_NamesTheHooksAnEngineCannotCarry(t *testing.T) {
+	root, cfg := setupCapabilityLossProject(t, "mock")
+	requireFixtureLosesSomething(t, cfg, "session_start", "mock has no settings/hook surface")
 
 	out, err := execManageCheck(t, root)
 	require.NoError(t, err)
@@ -228,7 +209,7 @@ func TestManageCheck_CapabilityLoss_NamesTheHooksOpencodeCannotCarry(t *testing.
 	line := lineContaining(t, out, "NOT carried")
 	assert.Contains(t, line, "default", "the line must name which agent loses it:\n"+out)
 	assert.Contains(t, line, "session_start", "the line must name the hook event that was requested:\n"+out)
-	assert.Contains(t, line, "opencode has no hook mechanism", "the line must say why it is not available:\n"+out)
+	assert.Contains(t, line, "mock has no settings/hook surface", "the line must say why it is not available:\n"+out)
 }
 
 // TestManageCheck_CapabilityLoss_StaysQuietWhenNothingIsLost is the
@@ -254,8 +235,8 @@ func TestManageCheck_CapabilityLoss_StaysQuietWhenNothingIsLost(t *testing.T) {
 // A report that named the loss only in prose would state it to a human and
 // withhold it from every machine consumer.
 func TestManageCheck_CapabilityLoss_JSONCarriesTheLoss(t *testing.T) {
-	root, cfg := setupCapabilityLossProject(t, "opencode")
-	requireFixtureLosesSomething(t, cfg, "session_start", "opencode has no hook mechanism")
+	root, cfg := setupCapabilityLossProject(t, "mock")
+	requireFixtureLosesSomething(t, cfg, "session_start", "mock has no settings/hook surface")
 
 	out, err := execManageCheckAs(t, root, "json")
 	require.NoError(t, err)
@@ -266,7 +247,7 @@ func TestManageCheck_CapabilityLoss_JSONCarriesTheLoss(t *testing.T) {
 	require.Len(t, got.CapabilityLoss, 1, "exactly the one configured agent loses something:\n"+out)
 	entry := got.CapabilityLoss[0]
 	assert.Equal(t, "default", entry.Agent, "the payload must name WHICH agent loses it")
-	assert.Equal(t, "opencode", entry.Backend, "the payload must name the engine that cannot carry it")
+	assert.Equal(t, "mock", entry.Backend, "the payload must name the engine that cannot carry it")
 	require.NotEmpty(t, entry.Losses, "an agent listed as losing something must say what")
 	assert.Equal(t, "hooks", entry.Losses[0].Surface, "the surface is named in the user's own vocabulary")
 	assert.Contains(t, entry.Losses[0].Detail, "session_start", "the detail must name the hook event actually requested")

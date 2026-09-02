@@ -301,7 +301,7 @@ func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 // backend", since the backend itself no longer resolves; that is a different
 // failure shape than this test pins, not the same one with a renamed message.
 func TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly(t *testing.T) {
-	for _, backend := range []string{"claude-code", "codex"} {
+	for _, backend := range []string{"claude-code"} {
 		t.Run(backend, func(t *testing.T) {
 			home := testsupport.Isolate(t)
 			harp := seedUnboundHarp(t, home, backend, "t.jsonl", "{}\n")

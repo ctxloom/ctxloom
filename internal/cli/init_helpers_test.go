@@ -54,7 +54,7 @@ func TestSelectSoleEngine(t *testing.T) {
 		want      string
 	}{
 		{"sole primary engine", []string{"claude-code"}, nil, "claude-code"},
-		{"sole secondary engine", nil, []string{"codex"}, "codex"},
+		{"sole secondary engine", nil, []string{"mock"}, "mock"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -71,7 +71,7 @@ func TestSelectSoleEngine(t *testing.T) {
 func TestWriteInitialConfig(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 
-	if err := writeInitialConfig(appDir, "codex", "copy", false); err != nil {
+	if err := writeInitialConfig(appDir, "mock", "copy", false); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
 	}
 
@@ -88,7 +88,7 @@ func TestWriteInitialConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config.yaml: %v", err)
 	}
-	if !strings.Contains(string(cfg), "codex") {
+	if !strings.Contains(string(cfg), "mock") {
 		t.Errorf("config.yaml should mention chosen engine; got:\n%s", cfg)
 	}
 	if !strings.Contains(string(cfg), "dirty_tree_handler: copy") {
@@ -149,14 +149,14 @@ func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 	if err := writeInitialConfig(appDir, "claude-code", "", false); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if err := writeInitialConfig(appDir, "codex", "", false); err != nil {
+	if err := writeInitialConfig(appDir, "mock", "", false); err != nil {
 		t.Fatalf("second write should succeed: %v", err)
 	}
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
 	if err != nil {
 		t.Fatalf("read config.yaml: %v", err)
 	}
-	if !strings.Contains(string(cfg), "codex") {
+	if !strings.Contains(string(cfg), "mock") {
 		t.Errorf("second write should have overwritten engine to codex; got:\n%s", cfg)
 	}
 }
@@ -194,7 +194,7 @@ func TestApplyInitHooks_ReportsTheBackendsItWrote(t *testing.T) {
 
 	orig := applyHooksFn
 	applyHooksFn = func(context.Context, operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
-		return &operations.ApplyHooksResult{Status: "ok", Backends: []string{"claude-code", "codex"}}, nil
+		return &operations.ApplyHooksResult{Status: "ok", Backends: []string{"claude-code", "mock"}}, nil
 	}
 	t.Cleanup(func() { applyHooksFn = orig })
 
@@ -203,6 +203,6 @@ func TestApplyInitHooks_ReportsTheBackendsItWrote(t *testing.T) {
 
 	out := captureStdout(t, func() { applyInitHooks(&cobra.Command{}, appDir) })
 
-	assert.Contains(t, out, "Applied hooks for: [claude-code codex]")
+	assert.Contains(t, out, "Applied hooks for: [claude-code mock]")
 	assert.Empty(t, warnings.String())
 }

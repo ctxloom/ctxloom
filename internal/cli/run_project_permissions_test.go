@@ -47,36 +47,36 @@ func TestResolvePermissionMode_ProjectDefault(t *testing.T) {
 		// The rung itself: nothing narrower declared, so the project default is
 		// what the run launches at — on a NON-claude backend (no stopgap in
 		// play) this is the plain "the project widened its own dir" case.
-		{"project default is honored when nothing narrower is declared", "", "", "", "bypass", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
-		{"project default can also narrow", "", "", "", "plan", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"project default is honored when nothing narrower is declared", "", "", "", "bypass", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
+		{"project default can also narrow", "", "", "", "plan", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
 
 		// Narrower always wins — one row per rung above the project default.
-		{"label beats the project default", "", "", "plan", "bypass", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
-		{"agent binding beats the project default", "", "plan", "", "bypass", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
-		{"flag beats the project default", "plan", "", "", "bypass", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"label beats the project default", "", "", "plan", "bypass", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"agent binding beats the project default", "", "plan", "", "bypass", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"flag beats the project default", "plan", "", "", "bypass", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
 		// ...and an explicitly-declared WIDER posture above still wins too: the
 		// rule is precedence, not "most restrictive". A project that pinned plan
 		// has not taken away a binding's right to declare bypass for itself.
-		{"a wider label still beats a narrow project default", "", "", "bypass", "plan", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
+		{"a wider label still beats a narrow project default", "", "", "bypass", "plan", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
 
 		// The stopgap interaction, both directions.
 		{"a declared project default beats the claude-code host stopgap", "", "", "", "plan", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
 		{"an explicit project default:default opts out of the stopgap", "", "", "", "default", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
 		{"an undeclared project default leaves the stopgap standing", "", "", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
-		{"an undeclared project default leaves a non-claude backend prompting", "", "", "", "", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
+		{"an undeclared project default leaves a non-claude backend prompting", "", "", "", "", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
 
 		// A hand-edited misspelling is refused as a fatal finding rather than
 		// hard-failing the launch here (only the typed --permissions flag is
 		// strict — validatePermissionFlag), and the posture it lands on is the
 		// floor: falling THROUGH would hand the run whatever the rung below
 		// happens to say, up to and including the claude-code host stopgap.
-		{"an unparseable project default floors to read-only", "", "", "", "nonsense", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
+		{"an unparseable project default floors to read-only", "", "", "", "nonsense", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
 		{"an unparseable project default floors on claude-code too", "", "", "", "nonsense", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
 
 		// The collapses/floors that sit downstream of the whole chain apply to a
 		// project-sourced posture exactly as to any other.
 		{"a project plan collapses on a backend with no read-only tier", "", "", "", "plan", "antigravity", pb.ExecutionMode_INTERACTIVE, false, agent.PermissionDefault},
-		{"a project default floors up for a headless oneshot", "", "", "", "default", "codex", pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
+		{"a project default floors up for a headless oneshot", "", "", "", "default", "mock", pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -138,7 +138,7 @@ func TestBuildRunRequest_HonorsProjectPermissionDefault(t *testing.T) {
 			AppPaths:    []string{t.TempDir()},
 			Permissions: "bypass",
 		})
-		st := newPermissionRunState(t, cfg, "codex", "codex")
+		st := newPermissionRunState(t, cfg, "mock", "mock")
 		require.NoError(t, st.buildRunRequest())
 
 		require.NotNil(t, st.req)
@@ -158,10 +158,16 @@ func TestBuildRunRequest_HonorsProjectPermissionDefault(t *testing.T) {
 			AppPaths:    []string{t.TempDir()},
 			Permissions: "bypass",
 			LM: config.LMConfig{Configs: map[string]config.LLMConfig{
-				"careful": {Type: "codex", Permissions: "plan"},
+				// claude-code, not mock: this arm asserts the resolved posture
+				// as it reaches the WIRE, and only a backend that ENFORCES a
+				// read-only plan (backends.EnforcesReadOnlyPlan) sends "plan"
+				// rather than degrading to "default". The subject here is
+				// precedence, so the carrier must be an engine that can
+				// actually carry the narrower posture.
+				"careful": {Type: "claude-code", Permissions: "plan"},
 			}},
 		})
-		st := newPermissionRunState(t, cfg, "careful", "codex")
+		st := newPermissionRunState(t, cfg, "careful", "claude-code")
 		require.NoError(t, st.buildRunRequest())
 
 		require.NotNil(t, st.req)
@@ -177,7 +183,7 @@ func TestBuildRunRequest_HonorsProjectPermissionDefault(t *testing.T) {
 		withRunPermissionsFlag(t, "")
 
 		cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
-		st := newPermissionRunState(t, cfg, "codex", "codex")
+		st := newPermissionRunState(t, cfg, "mock", "mock")
 		require.NoError(t, st.buildRunRequest())
 
 		require.NotNil(t, st.req)

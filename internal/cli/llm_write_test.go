@@ -63,13 +63,13 @@ func TestCheckLLMExistence_BareBackendNameCountsAsExisting(t *testing.T) {
 func TestBuildSetLLMRequest_OnlySendsChangedFlags(t *testing.T) {
 	cmd := &cobra.Command{}
 	registerLLMWriteFlags(cmd)
-	require.NoError(t, cmd.Flags().Parse([]string{"--type", "codex"}))
+	require.NoError(t, cmd.Flags().Parse([]string{"--type", "mock"}))
 
 	req, err := buildSetLLMRequest(cmd, "big")
 	require.NoError(t, err)
 	assert.Equal(t, "big", req.Label)
 	require.NotNil(t, req.Type, "the flag that WAS typed must be sent")
-	assert.Equal(t, "codex", *req.Type)
+	assert.Equal(t, "mock", *req.Type)
 	assert.Nil(t, req.Model, "an untyped flag must stay nil so SetLLM preserves it")
 	assert.Nil(t, req.Permissions)
 	assert.Nil(t, req.Env, "--env-file not passed must leave Env nil, never an empty map that would clear a stored one")
@@ -87,12 +87,12 @@ func TestBuildSetLLMRequest_ExplicitEmptyIsSentAsAClear(t *testing.T) {
 }
 
 func TestRenderLLMWritten_NamesWhichVerbRan(t *testing.T) {
-	entry := &operations.LLMEntry{Label: "big", Type: "codex", Model: "o1", Permissions: "bypass"}
+	entry := &operations.LLMEntry{Label: "big", Type: "mock", Model: "o1", Permissions: "bypass"}
 
 	var created bytes.Buffer
 	require.NoError(t, renderLLMWritten(&created, entry, false))
 	assert.Contains(t, created.String(), `Created llm "big"`)
-	assert.Contains(t, created.String(), "codex")
+	assert.Contains(t, created.String(), "mock")
 	assert.Contains(t, created.String(), "o1")
 	assert.Contains(t, created.String(), "bypass")
 
@@ -124,7 +124,7 @@ func TestRenderLLMWritten_NeverEchoesASecretEnvValue(t *testing.T) {
 	const secret = "sk-TOTALLY-SECRET-abc123-do-not-print-this"
 	entry, err := operations.SetLLM(config.NewManager(), operations.SetLLMRequest{
 		Label: "big",
-		Type:  strPtr("codex"),
+		Type:  strPtr("mock"),
 		Env:   map[string]string{"OPENAI_API_KEY": secret},
 	})
 	require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestRunLLMCreate_EnvFileNeverTakesArgv(t *testing.T) {
 
 	cmd, out := textCmd()
 	registerLLMWriteFlags(cmd)
-	require.NoError(t, cmd.Flags().Parse([]string{"--type", "codex", "--env-file", envFile}))
+	require.NoError(t, cmd.Flags().Parse([]string{"--type", "mock", "--env-file", envFile}))
 
 	require.NoError(t, runLLMCreate(cmd, []string{"big"}))
 	assert.Contains(t, out.String(), "OPENAI_API_KEY")

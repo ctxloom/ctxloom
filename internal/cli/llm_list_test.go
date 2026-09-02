@@ -12,18 +12,18 @@ import (
 )
 
 func TestLLMListEntries_MarksDefaultLabel(t *testing.T) {
-	entries := llmListEntries([]string{"antigravity", "claude-code", "codex"}, "claude-code", nil, nil)
+	entries := llmListEntries([]string{"antigravity", "claude-code", "mock"}, "claude-code", nil, nil)
 
 	assert.Equal(t, []llmEntry{
 		{Label: "antigravity"},
 		{Label: "claude-code", Default: true},
-		{Label: "codex"},
+		{Label: "mock"},
 	}, entries)
 }
 
 func TestLLMListEntries_NoDefaultWhenLabelEmpty(t *testing.T) {
 	// Config-unavailable degradation: names enumerate, nothing is default.
-	entries := llmListEntries([]string{"claude-code", "codex"}, "", nil, nil)
+	entries := llmListEntries([]string{"claude-code", "mock"}, "", nil, nil)
 
 	for _, e := range entries {
 		assert.False(t, e.Default, "no entry should be default without a primary label")
@@ -38,11 +38,11 @@ func TestLLMListEntries_MarksAuthoredFromPredicate(t *testing.T) {
 	authored := func(name string) bool { return name == "mine" }
 
 	assert.Equal(t, []llmEntry{
-		{Label: "codex"},
+		{Label: "mock"},
 		{Label: "mine", Default: true, Authored: true},
-	}, llmListEntries([]string{"codex", "mine"}, "mine", authored, nil))
+	}, llmListEntries([]string{"mock", "mine"}, "mine", authored, nil))
 
-	for _, e := range llmListEntries([]string{"codex", "mine"}, "mine", nil, nil) {
+	for _, e := range llmListEntries([]string{"mock", "mine"}, "mine", nil, nil) {
 		assert.False(t, e.Authored, "%s: a nil predicate authors nothing", e.Label)
 	}
 }
@@ -65,7 +65,7 @@ func TestRunLLMList_TextMarksAuthoredAndFallbackDifferently(t *testing.T) {
 	// ("claude-code"), in a single listing. The default is pinned to a THIRD
 	// name so the two markers are checked both with and without "(default)"
 	// sitting between them.
-	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: codex }\n  defaults:\n    primary: codex\n")
+	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: mock }\n  defaults:\n    primary: mock\n")
 	cmd, out := textCmd()
 	require.NoError(t, runLLMList(cmd, nil))
 
@@ -74,12 +74,12 @@ func TestRunLLMList_TextMarksAuthoredAndFallbackDifferently(t *testing.T) {
 		"a label config.yaml declares must be marked as the user's own")
 	assert.Contains(t, got, "claude-code [built-in]",
 		"a bare engine name the registry fallback supplied must be marked as such")
-	assert.Contains(t, got, "codex (default) [built-in]",
+	assert.Contains(t, got, "mock (default) [built-in]",
 		"the default marker keeps its place immediately after the label")
 }
 
 func TestRunLLMList_JSONCarriesAuthored(t *testing.T) {
-	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: codex }\n")
+	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: mock }\n")
 	cmd, out := textCmd()
 	cmd.Flags().String("format", formatText, "")
 	require.NoError(t, cmd.Flags().Set("format", formatJSON))
@@ -127,7 +127,7 @@ func TestRunLLMList_WholeRegistryFallbackIsNeverAuthored(t *testing.T) {
 // misreading this listing was added to prevent, and worst exactly when the
 // config is broken and the reader is already trying to work out what is real.
 func TestLLMList_DegradedConfigAuthorsNothing(t *testing.T) {
-	entries := llmListEntries([]string{"claude-code", "codex"}, "", noneAuthored, nil)
+	entries := llmListEntries([]string{"claude-code", "mock"}, "", noneAuthored, nil)
 
 	require.Len(t, entries, 2, "the built-in names still list")
 	for _, e := range entries {

@@ -67,10 +67,10 @@ type ResolvedSource struct {
 	// resolved AFTER the heal attempt above so a fresh conversion's path is
 	// what staleness compares against.
 	SourcePath string
-	// StampedSize is the byte size recorded when the harp's essence was last
-	// distilled (Entry.SourceSize) — the fingerprint EssenceCurrent compares
+	// StampedEntries is the entry count recorded when the harp's essence was last
+	// distilled (Entry.SourceEntries) — the fingerprint EssenceCurrent compares
 	// SourcePath's live size against. Zero when never distilled.
-	StampedSize int64
+	StampedEntries int
 }
 
 // ResolveAndHeal is the ONE source-resolution + heal seam every distillation
@@ -113,7 +113,7 @@ func ResolveAndHeal(ctx context.Context, harp string, live Liveness) (ResolvedSo
 	if entry.CanonicalTranscriptPath != "" {
 		src.SourcePath = entry.CanonicalTranscriptPath
 	}
-	src.StampedSize = entry.SourceSize
+	src.StampedEntries = entry.SourceEntries
 	return src, nil
 }
 
@@ -131,7 +131,7 @@ func ResolveAndHeal(ctx context.Context, harp string, live Liveness) (ResolvedSo
 //     cache hit: the size being compared against is whatever the last
 //     successful heal left behind, not a true fact about this call;
 //   - otherwise, current is the inverse of sessions.TranscriptStale(src.
-//     SourcePath, src.StampedSize), and known carries forward unchanged —
+//     SourcePath, src.StampedEntries), and known carries forward unchanged —
 //     callers that want to trust an indeterminate result anyway (an archived
 //     session rarely changes) apply that bias themselves; this predicate only
 //     answers what it can prove.
@@ -139,7 +139,7 @@ func EssenceCurrent(src ResolvedSource, cached []byte) (current, known bool) {
 	if len(cached) == 0 || len(cached) > memory.MaxEssenceChars || src.HealErr != nil {
 		return false, true
 	}
-	stale, known := sessions.TranscriptStale(src.SourcePath, src.StampedSize)
+	stale, known := sessions.TranscriptStale(src.SourcePath, src.StampedEntries)
 	return !stale, known
 }
 

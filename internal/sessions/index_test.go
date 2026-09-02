@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -452,23 +453,39 @@ func TestMarkEnded(t *testing.T) {
 func TestSetSummary(t *testing.T) {
 	m := newManager(t)
 	e, _ := m.AssignHarp("/proj", "claude-code")
-	require.NoError(t, m.SetSummary(e.HarpName, "Designed bundle review on startup.", []string{"- ship the picker", "- write tests"}, 184320))
+	require.NoError(t, m.SetSummary(e.HarpName, "Designed bundle review on startup.", []string{"- ship the picker", "- write tests"}, 42))
 	found, _ := m.Find(e.HarpName)
 	assert.Equal(t, "Designed bundle review on startup.", found.Summary)
 	assert.Equal(t, []string{"- ship the picker", "- write tests"}, found.Detail)
-	assert.Equal(t, int64(184320), found.SourceSize, "the source-size fingerprint must round-trip through the index")
+	assert.Equal(t, 42, found.SourceEntries, "the entry-count fingerprint must round-trip through the index")
+}
+
+// writeEntryTranscript writes a canonical transcript carrying exactly n
+// conversational entry records, plus one non-entry record. The non-entry line
+// is the point: the fingerprint counts CONVERSATION, so a session/complete
+// record must not move it — a count that included every line would be a
+// line-count wearing an entry-count's name.
+func writeEntryTranscript(t *testing.T, path string, n int) {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString(`{"v":1,"harp":"h","engine":"mock","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"session","session":{"model":"m"}}` + "\n")
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, `{"v":1,"harp":"h","engine":"mock","seq":%d,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"turn %d"}}`+"\n", i+1, i)
+	}
+	require.NoError(t, os.WriteFile(path, []byte(b.String()), 0o644))
 }
 
 func TestTranscriptStale(t *testing.T) {
-	// A real file on disk lets the size comparison run; the staleness fingerprint
-	// is the byte size stamped at distill time vs the live file.
+	// The fingerprint is the ENTRY COUNT stamped at distill time vs the live
+	// file's, so the fixture is a real canonical transcript rather than a blob
+	// of bytes: counting is what is under test.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "transcript.jsonl")
-	require.NoError(t, os.WriteFile(path, []byte("0123456789"), 0o644)) // 10 bytes
+	writeEntryTranscript(t, path, 10)
 
 	t.Run("unknown when never stamped", func(t *testing.T) {
 		stale, known := TranscriptStale(path, 0)
-		assert.False(t, known, "a zero stamped size means staleness can't be determined")
+		assert.False(t, known, "a zero stamped count means staleness can't be determined")
 		assert.False(t, stale)
 	})
 	t.Run("unknown when no transcript path", func(t *testing.T) {
@@ -478,59 +495,83 @@ func TestTranscriptStale(t *testing.T) {
 	})
 	t.Run("unknown when transcript missing", func(t *testing.T) {
 		stale, known := TranscriptStale(filepath.Join(dir, "gone.jsonl"), 10)
-		assert.False(t, known, "a stat failure degrades to can't-tell, never an error")
+		assert.False(t, known, "an unreadable transcript degrades to can't-tell, never an error")
 		assert.False(t, stale)
 	})
-	t.Run("current when size matches", func(t *testing.T) {
+	t.Run("current when the entry count matches", func(t *testing.T) {
 		stale, known := TranscriptStale(path, 10)
 		assert.True(t, known)
-		assert.False(t, stale, "size unchanged → essence still current")
+		assert.False(t, stale, "no new entries → essence still current")
 	})
-	t.Run("stale when transcript grew", func(t *testing.T) {
+	t.Run("stale when new entries arrived", func(t *testing.T) {
 		stale, known := TranscriptStale(path, 4)
 		assert.True(t, known)
-		assert.True(t, stale, "live transcript is larger than the distilled slice → out of date")
+		assert.True(t, stale, "live transcript carries more entries than the distilled slice → out of date")
+	})
+	t.Run("REFORMATTING the same conversation is NOT stale", func(t *testing.T) {
+		// The whole reason this is an entry count and not a byte size: a
+		// converted transcript is REWRITTEN wholesale, so its bytes move
+		// whenever an adapter's field set or formatting changes. That must not
+		// cost a re-distillation when not one word was added.
+		reformatted := filepath.Join(dir, "reformatted.jsonl")
+		var b strings.Builder
+		b.WriteString(`{"v":1,"harp":"h","engine":"mock","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"session","session":{"model":"m"}}` + "\n")
+		for i := 0; i < 10; i++ {
+			// Same ten entries, materially different bytes.
+			fmt.Fprintf(&b, `{"v":1,"harp":"h","engine":"mock","seq":%d,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"turn %d with substantially more text than before"}}`+"\n", i+1, i)
+		}
+		require.NoError(t, os.WriteFile(reformatted, []byte(b.String()), 0o644))
+
+		orig, err := os.Stat(path)
+		require.NoError(t, err)
+		grown, err := os.Stat(reformatted)
+		require.NoError(t, err)
+		require.NotEqual(t, orig.Size(), grown.Size(), "fixture must actually differ in BYTES, or this proves nothing")
+
+		stale, known := TranscriptStale(reformatted, 10)
+		assert.True(t, known)
+		assert.False(t, stale, "same ten entries, different bytes → still current")
 	})
 }
 
 func TestEntry_SourceStale_DelegatesToFingerprint(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "transcript.jsonl")
-	require.NoError(t, os.WriteFile(path, []byte("hello world"), 0o644)) // 11 bytes
+	writeEntryTranscript(t, path, 3)
 
-	stale, known := Entry{TranscriptPath: path, SourceSize: 5}.SourceStale()
+	stale, known := Entry{TranscriptPath: path, SourceEntries: 1}.SourceStale()
 	assert.True(t, known)
 	assert.True(t, stale)
 
-	stale, known = Entry{TranscriptPath: path, SourceSize: 11}.SourceStale()
+	stale, known = Entry{TranscriptPath: path, SourceEntries: 3}.SourceStale()
 	assert.True(t, known)
 	assert.False(t, stale)
 }
 
 // TestEntry_SourceStale_PrefersCanonicalTranscriptPath pins the
 // S4 fix: once a harp has a captured canonical transcript, THAT is the file
-// SourceSize was fingerprinted against (memory.transcriptSize's matching
+// SourceEntries was fingerprinted against (memory.transcriptEntryCount's matching
 // preference) — so staleness must compare against it, not the legacy
 // TranscriptPath, or the badge would compare two unrelated files.
 func TestEntry_SourceStale_PrefersCanonicalTranscriptPath(t *testing.T) {
 	dir := t.TempDir()
 	legacyPath := filepath.Join(dir, "legacy.jsonl")
-	require.NoError(t, os.WriteFile(legacyPath, []byte("0123456789"), 0o644)) // 10 bytes
+	writeEntryTranscript(t, legacyPath, 2)
 	canonicalPath := filepath.Join(dir, "transcript.acp.jsonl")
-	require.NoError(t, os.WriteFile(canonicalPath, []byte("0123456789012345678901234"), 0o644)) // 25 bytes
+	writeEntryTranscript(t, canonicalPath, 7)
 
-	e := Entry{TranscriptPath: legacyPath, CanonicalTranscriptPath: canonicalPath, SourceSize: 25}
+	e := Entry{TranscriptPath: legacyPath, CanonicalTranscriptPath: canonicalPath, SourceEntries: 7}
 	stale, known := e.SourceStale()
 	assert.True(t, known)
-	assert.False(t, stale, "stamped size (25) matches the CANONICAL file, so this must read as current")
+	assert.False(t, stale, "stamped count (7) matches the CANONICAL file, so this must read as current")
 
-	// The same stamped size against the legacy file's real size (10) would
+	// The same stamped count against the legacy file's real count (2) would
 	// read as stale — proving the two paths are genuinely different sources,
 	// not a coincidence.
-	legacyOnly := Entry{TranscriptPath: legacyPath, SourceSize: 25}
+	legacyOnly := Entry{TranscriptPath: legacyPath, SourceEntries: 7}
 	stale, known = legacyOnly.SourceStale()
 	assert.True(t, known)
-	assert.True(t, stale, "sanity check: the legacy file alone does NOT match a 25-byte stamp")
+	assert.True(t, stale, "sanity check: the legacy file alone does NOT carry 7 entries")
 }
 
 func TestLoad_ToleratesLegacyPythonTimestamps(t *testing.T) {

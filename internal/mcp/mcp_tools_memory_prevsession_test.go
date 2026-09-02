@@ -34,7 +34,7 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 	projectDir := t.TempDir()
 	// AssignHarp mints an ACP-style entry: a harp with no bound SessionID
 	// (BindSession is never called on the ACP path).
-	entry, err := mgr.AssignHarp(projectDir, "opencode")
+	entry, err := mgr.AssignHarp(projectDir, "mock")
 	require.NoError(t, err)
 	harp := entry.HarpName
 	require.Empty(t, entry.SessionID, "ACP entry must have no backend session id")
@@ -44,16 +44,22 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(canonPath), 0o755))
-	transcript := []byte("{\"role\":\"user\"}\n{\"role\":\"assistant\"}\n")
+	// Canonical records, not a stand-in blob: the staleness fingerprint counts
+	// kind=="entry" records, so a fixture in any other shape counts as zero and
+	// the essence would read as never-stamped rather than fresh.
+	const transcriptEntries = 2
+	transcript := []byte(
+		`{"v":1,"harp":"h","engine":"mock","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"a"}}` + "\n" +
+			`{"v":1,"harp":"h","engine":"mock","seq":1,"ts":"2026-01-01T00:00:01Z","kind":"entry","entry":{"type":"assistant","content":"b"}}` + "\n")
 	require.NoError(t, os.WriteFile(canonPath, transcript, 0o644))
 
 	// A pre-existing essence in the HARP dir (the correct location the fix
-	// targets), plus a matching SourceSize so SourceStale reports fresh.
+	// targets), plus a matching entry count so SourceStale reports fresh.
 	essPath, err := paths.HarpEssencePath(harp)
 	require.NoError(t, err)
 	const essenceBody = "## Previous session\nPicked up where we left off.\n"
 	require.NoError(t, os.WriteFile(essPath, []byte(essenceBody), 0o644))
-	require.NoError(t, mgr.SetSummary(harp, "prev work", nil, int64(len(transcript))))
+	require.NoError(t, mgr.SetSummary(harp, "prev work", nil, transcriptEntries))
 
 	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")})}
 	_, out, err := s.previousSessionByHarp(context.Background(), harp, "")

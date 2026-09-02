@@ -1005,8 +1005,8 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	// specifically — a cache hit is exactly the path that would otherwise
 	// hand back stale, oversized content with no compaction pipeline in the
 	// loop at all to catch it.
-	if cached, stampedSize := loadCachedDistilledSession(sessionsDir, sessionID); cached != nil {
-		stale, known := sessions.TranscriptStale(transcriptPath, stampedSize)
+	if cached, stampedEntries := loadCachedDistilledSession(sessionsDir, sessionID); cached != nil {
+		stale, known := sessions.TranscriptStale(transcriptPath, stampedEntries)
 		withinBound := len(cached.Content) <= memory.MaxEssenceChars
 		// A live refresh that FAILED forfeits the cache hit. The size the
 		// essence is being compared against was measured on a canonical
@@ -1085,7 +1085,7 @@ func sessionHarpForID(id string) string {
 // loadCachedDistilledSession returns a result from an already-distilled session
 // on disk plus the transcript byte size stamped into its frontmatter (the
 // staleness fingerprint), or (nil, 0) when none is cached.
-func loadCachedDistilledSession(sessionsDir, sessionID string) (*loadSessionResult, int64) {
+func loadCachedDistilledSession(sessionsDir, sessionID string) (*loadSessionResult, int) {
 	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
 	if err != nil {
 		return nil, 0
@@ -1097,7 +1097,7 @@ func loadCachedDistilledSession(sessionsDir, sessionID string) (*loadSessionResu
 		WasCached: true,
 		Tokens:    distilled.TokensOut,
 		CreatedAt: distilled.DistilledAt.Format("2006-01-02 15:04:05"),
-	}, distilled.SourceSize
+	}, distilled.SourceEntries
 }
 
 // singleflightDistill runs fn unless an identical distillation is already in

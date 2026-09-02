@@ -11,6 +11,9 @@
 package sessions
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -69,14 +72,29 @@ type Entry struct {
 	// summary. Kept separate from Summary so the single-line consumers (session
 	// list table, MCP resource) stay one line while the picker can render more.
 	Detail []string `yaml:"detail,omitempty" json:"detail,omitempty"`
-	// SourceSize is the byte size of the backend transcript at the moment this
-	// session was last distilled — the staleness fingerprint. `session list` and
-	// the resume picker stat the live transcript (TranscriptPath) and flag the
-	// row "out of date" once the size has moved past this. Append-only
-	// transcripts only grow, so any change means the essence covers an earlier
-	// slice. Zero when never distilled (or distilled before staleness tracking);
-	// omitempty keeps those rows clean.
-	SourceSize int64 `yaml:"source_size,omitempty" json:"source_size,omitempty"`
+	// SourceEntries is the transcript's ENTRY COUNT at the moment this session
+	// was last distilled — the staleness fingerprint. `session list` and the
+	// resume picker count the live transcript's entries and flag the row "out
+	// of date" once more have arrived.
+	//
+	// It counts PROGRESS, not bytes, and that distinction is load-bearing. The
+	// previous fingerprint was byte size, justified by "append-only transcripts
+	// only grow" — true of a CAPTURED transcript and false of a CONVERTED one,
+	// because operations.RefreshVendorTranscript replaces the canonical file
+	// wholesale. Under byte size, changing a vendor adapter's field set or
+	// timestamp format re-sized every canonical transcript and falsely staled
+	// every essence in the index, each costing a real LLM re-distillation; and
+	// two different contents of equal length compared as current. An entry
+	// count moves only when the conversation actually advances and is
+	// invariant to re-serialisation.
+	//
+	// The trade accepted: an edit WITHIN an existing entry is invisible here,
+	// where a byte size would have caught it. For a derived artifact that is
+	// the right way round — re-serialisation is common, in-place entry edits
+	// are not.
+	//
+	// Zero when never distilled; omitempty keeps those rows clean.
+	SourceEntries int `yaml:"source_entries,omitempty" json:"source_entries,omitempty"`
 
 	// LastActivity is the last-worked time used to order the resume picker:
 	// most-recent-first by actual activity, not by session creation. Computed
@@ -925,25 +943,75 @@ func enrichAndSortByActivity(entries []Entry) []Entry {
 	return entries
 }
 
-// TranscriptStale compares a transcript file's current byte size to the size
-// stamped when an essence was distilled from it (Entry.SourceSize). It reports
-// whether the essence is out of date and whether that could be determined at
-// all: known=false (stale=false) when there is no stamped size (never distilled,
-// or distilled before staleness tracking), no transcript path, or the stat
-// fails. Append-only transcripts only grow, so any size difference means the
-// essence covers an earlier slice. Read-only and best-effort per the
-// fault-tolerance philosophy — an unreadable transcript degrades to "can't
-// tell", never an error.
-func TranscriptStale(transcriptPath string, stampedSize int64) (stale, known bool) {
-	if stampedSize == 0 || transcriptPath == "" {
+// TranscriptStale compares a transcript's current ENTRY COUNT to the count
+// stamped when an essence was distilled from it (Entry.SourceEntries). It
+// reports whether the essence is out of date and whether that could be
+// determined at all: known=false (stale=false) when there is no stamped count
+// (never distilled), no transcript path, or the file cannot be read.
+//
+// See Entry.SourceEntries for WHY this counts entries rather than bytes.
+// Read-only and best-effort per the fault-tolerance philosophy — an unreadable
+// transcript degrades to "can't tell", never an error.
+func TranscriptStale(transcriptPath string, stampedEntries int) (stale, known bool) {
+	if stampedEntries == 0 || transcriptPath == "" {
 		return false, false
 	}
-	info, err := os.Stat(transcriptPath)
-	if err != nil {
+	live, ok := CountTranscriptEntries(transcriptPath)
+	if !ok {
 		return false, false
 	}
-	return info.Size() != stampedSize, true
+	return live != stampedEntries, true
 }
+
+// CountTranscriptEntries counts the conversational ENTRY records in a
+// canonical transcript (one JSON record per line, kind "entry"). It reports
+// ok=false when the file cannot be read at all.
+//
+// It decodes only each line's kind — never the whole record — because this
+// runs on the cache-HIT path, where the entire point is to avoid work. A
+// malformed line is skipped rather than fatal, matching how every transcript
+// reader in this project treats one.
+//
+// It lives here, not in internal/transcript, because internal/transcript
+// imports this package: the counter must be self-contained or the two form a
+// cycle. It needs nothing but stdlib, so that costs nothing.
+func CountTranscriptEntries(path string) (int, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, false
+	}
+	defer func() { _ = f.Close() }()
+
+	var kindOnly struct {
+		Kind string `json:"kind"`
+	}
+	count := 0
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		kindOnly.Kind = ""
+		if err := json.Unmarshal(line, &kindOnly); err != nil {
+			continue // malformed line: skip, never fatal
+		}
+		if kindOnly.Kind == transcriptEntryKind {
+			count++
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, false
+	}
+	return count, true
+}
+
+// transcriptEntryKind is the canonical transcript's conversational record
+// kind. Named rather than inlined so the string appears once (see
+// internal/transcript.KindEntry, which this must agree with; this package
+// cannot import that one without a cycle).
+const transcriptEntryKind = "entry"
 
 // SourceStale reports whether this entry's distilled essence is out of date
 // relative to its source transcript, and whether that could be determined (see
@@ -951,16 +1019,16 @@ func TranscriptStale(transcriptPath string, stampedSize int64) (stale, known boo
 //
 // Prefers CanonicalTranscriptPath over TranscriptPath (S4): once a
 // harp has a captured canonical transcript, that IS the file the compactor
-// actually distills from (memory.transcriptSize stamps its size the same way),
-// so staleness must compare against it — comparing the essence's stamped size
-// to the legacy engine file's size would compare two different sources and
-// the badge would lie.
+// actually distills from (memory stamps its entry count the same way), so
+// staleness must compare against it — comparing the essence's stamped count
+// to the legacy engine file's would compare two different sources and the
+// badge would lie.
 func (e Entry) SourceStale() (stale, known bool) {
 	path := e.TranscriptPath
 	if e.CanonicalTranscriptPath != "" {
 		path = e.CanonicalTranscriptPath
 	}
-	return TranscriptStale(path, e.SourceSize)
+	return TranscriptStale(path, e.SourceEntries)
 }
 
 // MarkEnded sets EndedAt on the named entry. Idempotent.
@@ -1212,9 +1280,9 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 // SetSummary updates the cached summary, detail lines, and source-size
 // fingerprint on the index entry. summary mirrors the `summary:` line from the
 // compacted essence.md frontmatter; detail holds the extra picker lines (Open
-// Items); sourceSize is the transcript byte size the essence was distilled from,
+// Items); sourceEntries is the transcript ENTRY COUNT the essence was distilled from,
 // used for staleness detection (see TranscriptStale). Passing nil detail clears
-// it; a zero sourceSize leaves the fingerprint unset (no staleness badge).
+// it; a zero sourceEntries leaves the fingerprint unset (no staleness badge).
 //
 // An EMPTY summary is refused. Accepting it made this the
 // destructive variant of the house empty-input bug: SetSummary(harp, "", nil,
@@ -1224,7 +1292,7 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 // session's summary was a caller remembering to check first (memory.
 // Compactor.updateSessionIndex does; nothing made it). The refusal lives here,
 // where the data is.
-func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSize int64) error {
+func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceEntries int) error {
 	if strings.TrimSpace(summary) == "" {
 		return fmt.Errorf("refusing to set an empty summary on %q: that would erase the existing summary, detail lines and staleness fingerprint", harpName)
 	}
@@ -1247,7 +1315,7 @@ func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSi
 		}
 		idx.Sessions[i].Summary = summary
 		idx.Sessions[i].Detail = detail
-		idx.Sessions[i].SourceSize = sourceSize
+		idx.Sessions[i].SourceEntries = sourceEntries
 		return m.saveLocked(idx)
 	}
 	return fmt.Errorf("harp not found: %q", harpName)

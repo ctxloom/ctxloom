@@ -318,7 +318,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// read and before the slow distill — so the fingerprint best matches the
 	// content actually distilled. If the live session appends during the distill,
 	// the next staleness check sees live > stamped and correctly re-distills.
-	sourceSize := transcriptSize(harpName)
+	sourceEntries := transcriptEntryCount(harpName)
 
 	// Plans are the session's own .plan.md documents, read from its ctxloom
 	// session directory and served by the agent server — not mined from the
@@ -347,7 +347,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// subprocess spawned at all) and persist a trivial dump instead, so the
 	// resume flow still finds a valid essence.
 	if isEmptySession(session.Entries) || rendersToNothing(logText) {
-		return c.dumpEmptySession(session, harpName, sourceSize, app, result, start)
+		return c.dumpEmptySession(session, harpName, sourceEntries, app, result, start)
 	}
 
 	// ONE distillation call over the whole transcript. An oversized transcript
@@ -394,7 +394,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		return nil, fmt.Errorf("distilled essence for session %s is %d chars, over the %d-char bound (MaxEssenceChars); refusing to save or return an unbounded summary", session.ID, len(cleanedBody), MaxEssenceChars)
 	}
 
-	return c.finishDistill(session, harpName, sourceSize, app, result, summary, cleanedBody, start)
+	return c.finishDistill(session, harpName, sourceEntries, app, result, summary, cleanedBody, start)
 }
 
 // isEmptySession reports whether a session has no main-thread content at all
@@ -445,7 +445,7 @@ const emptySessionPlaceholder = "_(empty session — no conversation content to 
 // later `session list` / resume picker sees a well-formed entry rather than
 // a hole. Returns success: an empty session is not a failure, just nothing
 // to compact.
-func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, sourceSize int64, app appendices, result *CompactionResult, start time.Time) (*CompactionResult, error) {
+func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, sourceEntries int, app appendices, result *CompactionResult, start time.Time) (*CompactionResult, error) {
 	label := harpName
 	if label == "" {
 		label = session.ID
@@ -472,7 +472,7 @@ func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, so
 
 	result.TotalTokensOut = result.TotalTokensIn // verbatim dump: no compression ran
 
-	return c.finishDistill(session, harpName, sourceSize, app, result, "", emptySessionPlaceholder, start)
+	return c.finishDistill(session, harpName, sourceEntries, app, result, "", emptySessionPlaceholder, start)
 }
 
 // rotationEssencePath returns where THIS session's per-rotation essence lives:
@@ -523,7 +523,7 @@ func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 // Shared by the normal compaction path (cleanedBody is the LLM's combined,
 // possibly-reduced output) and dumpEmptySession (cleanedBody is the trivial
 // placeholder) so both produce an identically-shaped on-disk essence.
-func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourceSize int64, app appendices, result *CompactionResult, frontmatterSummary, cleanedBody string, start time.Time) (*CompactionResult, error) {
+func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourceEntries int, app appendices, result *CompactionResult, frontmatterSummary, cleanedBody string, start time.Time) (*CompactionResult, error) {
 	// Fall back to the first prose line when there's no frontmatter summary,
 	// so a distilled session never renders as "(no summary)" in the picker.
 	summary := deriveSummary(frontmatterSummary, cleanedBody)
@@ -543,14 +543,13 @@ func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourc
 		PlanBlocks: len(app.Plans),
 		Summary:    summary,
 		HarpName:   harpName,
-		SourceSize: sourceSize,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("save distilled: %w", err)
 	}
 	result.DistilledPath = distilledPath
 
-	c.updateSessionIndex(harpName, session.ID, summary, detail, sourceSize)
+	c.updateSessionIndex(harpName, session.ID, summary, detail, sourceEntries)
 
 	result.Duration = time.Since(start)
 	return result, nil
@@ -870,7 +869,7 @@ func (c *Compactor) identityBoundSessionID() string {
 // later `ctxloom session distill <harp>` finds the transcript) and updates the
 // picker summary, detail lines, and source-size staleness fingerprint. No-op
 // without a harp name; all failures warn, never fatal.
-func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, detail []string, sourceSize int64) {
+func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, detail []string, sourceEntries int) {
 	if harpName == "" {
 		return
 	}
@@ -900,24 +899,24 @@ func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, deta
 		}
 	}
 	// Guarded on a non-empty summary so a failed distill (no frontmatter) never
-	// clobbers a previously good summary; the size fingerprint rides along with
-	// it. The essence.md frontmatter carries SourceSize unconditionally, so the
+	// clobbers a previously good summary; the fingerprint rides along with it.
+	// The essence.md frontmatter carries EntryCount unconditionally, so the
 	// authoritative staleness check (loadOrDistillSession) works even here.
 	if summary != "" {
-		if err := mgr.SetSummary(harpName, summary, detail, sourceSize); err != nil {
+		if err := mgr.SetSummary(harpName, summary, detail, sourceEntries); err != nil {
 			c.warnf("index summary update failed: %v", err)
 		}
 	}
 }
 
-// transcriptSize returns the byte size of the harp's bound transcript, or 0 when
-// it can't be determined (no harp, no bound path, or stat failure). This is the
-// staleness fingerprint stamped into the essence and index: `session list`, the
-// resume picker, and loadOrDistillSession stat the same TranscriptPath and flag
-// the essence out of date once the transcript has grown past it. Best-effort and
-// read-only per the fault-tolerance philosophy — an unresolvable path degrades
-// to "no fingerprint", never an error.
-func transcriptSize(harpName string) int64 {
+// transcriptEntryCount returns the ENTRY COUNT of the harp's bound transcript,
+// or 0 when it can't be determined (no harp, no bound path, or unreadable).
+// This is the staleness fingerprint stamped into the essence and index:
+// `session list`, the resume picker, and loadOrDistillSession count the same
+// transcript and flag the essence out of date once more entries have arrived.
+// Best-effort and read-only per the fault-tolerance philosophy — an
+// unresolvable path degrades to "no fingerprint", never an error.
+func transcriptEntryCount(harpName string) int {
 	if harpName == "" {
 		return 0
 	}
@@ -941,19 +940,19 @@ func transcriptSize(harpName string) int64 {
 	if path == "" {
 		return 0
 	}
-	info, err := os.Stat(path)
-	if err != nil {
+	count, ok := sessions.CountTranscriptEntries(path)
+	if !ok {
 		// Unlike the branches above (no harp, no index, no path
 		// bound at all — all ordinary "nothing to fingerprint" states), a
-		// BOUND path that can't be stat'd is a real, surprising degradation
+		// BOUND path that cannot be read is a real, surprising degradation
 		// (deleted/rotated/permission-denied). Silently returning 0 here
 		// permanently zeroed the staleness fingerprint with no diagnostic —
 		// warn, naming the harp and path, so an operator has something to
 		// act on.
-		clidiag.Warn("ctxloom", "transcript size: harp %q: stat %s: %v — staleness fingerprint stamped as 0", harpName, path, err)
+		clidiag.Warn("ctxloom", "transcript entries: harp %q: cannot read %s — staleness fingerprint stamped as 0", harpName, path)
 		return 0
 	}
-	return info.Size()
+	return count
 }
 
 // maxPickerDetailLines caps the Open Items shown under a picker row. With the
@@ -1173,17 +1172,21 @@ type distilledMeta struct {
 	SessionID   string    `yaml:"session_id"`
 	HarpName    string    `yaml:"harp_name,omitempty"`
 	DistilledAt time.Time `yaml:"distilled_at"`
-	// SourceSize is the backend transcript's byte size at distill time — the
-	// staleness fingerprint. loadOrDistillSession stats the live transcript and
-	// re-distills when it has moved past this; the resume picker badges the row
-	// "out of date". Append-only transcripts only grow, so a size change is a
-	// reliable "this essence covers an earlier slice" signal. Zero when the
-	// transcript path couldn't be resolved or statted (graceful: no staleness).
-	SourceSize int64 `yaml:"source_size,omitempty"`
-	EntryCount int   `yaml:"entry_count"`
-	TokensIn   int   `yaml:"tokens_in,omitempty"`
-	TokensOut  int   `yaml:"tokens_out,omitempty"`
-	PlanBlocks int   `yaml:"plan_blocks"`
+	// EntryCount is the number of entries this essence was distilled from, and
+	// doubles as the STALENESS FINGERPRINT: loadOrDistillSession counts the
+	// live transcript's entries and re-distills once more have arrived; the
+	// resume picker badges the row "out of date".
+	//
+	// It replaced a separate byte-size fingerprint, which was justified by
+	// "append-only transcripts only grow" — false for a CONVERTED transcript,
+	// since operations.RefreshVendorTranscript rewrites the canonical file
+	// wholesale. See sessions.Entry.SourceEntries for the full argument. One
+	// field rather than two because the two were always equal by construction
+	// and a second copy is a second thing to disagree.
+	EntryCount int `yaml:"entry_count"`
+	TokensIn   int `yaml:"tokens_in,omitempty"`
+	TokensOut  int `yaml:"tokens_out,omitempty"`
+	PlanBlocks int `yaml:"plan_blocks"`
 	// Summary is the one-line essence emitted by the LLM in its own YAML
 	// frontmatter; see parseLLMFrontmatter. Empty when distillation produced
 	// no valid frontmatter (graceful degrade: picker shows "no summary").
@@ -1351,11 +1354,11 @@ func harpSessionDir(harpName string) (string, error) {
 // front-matter fields plus the full markdown body (everything after
 // the closing "---").
 type DistilledSession struct {
-	SessionID   string
-	DistilledAt time.Time
-	SourceSize  int64
-	TokensOut   int
-	Body        string
+	SessionID     string
+	DistilledAt   time.Time
+	SourceEntries int
+	TokensOut     int
+	Body          string
 }
 
 // LoadDistilledSession reads <sessionsDir>/<sessionID>.md.
@@ -1385,11 +1388,11 @@ func parseDistilledMarkdown(data []byte) (*DistilledSession, error) {
 	}
 	body := strings.TrimLeft(rest[end+len("\n---\n"):], "\n")
 	return &DistilledSession{
-		SessionID:   meta.SessionID,
-		DistilledAt: meta.DistilledAt,
-		SourceSize:  meta.SourceSize,
-		TokensOut:   meta.TokensOut,
-		Body:        body,
+		SessionID:     meta.SessionID,
+		DistilledAt:   meta.DistilledAt,
+		SourceEntries: meta.EntryCount,
+		TokensOut:     meta.TokensOut,
+		Body:          body,
 	}, nil
 }
 

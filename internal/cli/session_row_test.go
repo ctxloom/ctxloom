@@ -49,12 +49,14 @@ func TestNewSessionRow_SummaryFallbackAndStaleBadge(t *testing.T) {
 	t.Run("stale essence gets the out-of-date badge", func(t *testing.T) {
 		dir := t.TempDir()
 		transcript := dir + "/transcript.jsonl"
-		require.NoError(t, os.WriteFile(transcript, []byte("grown past the stamped size"), 0o644))
+		require.NoError(t, os.WriteFile(transcript, []byte(
+			`{"v":1,"harp":"h","engine":"mock","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"a"}}`+"\n"+
+				`{"v":1,"harp":"h","engine":"mock","seq":1,"ts":"2026-01-01T00:00:01Z","kind":"entry","entry":{"type":"assistant","content":"b"}}`+"\n"), 0o644))
 		row := newSessionRow(sessions.Entry{
 			HarpName:       "h",
 			Summary:        "Fixed the bug",
 			TranscriptPath: transcript,
-			SourceSize:     1, // essence was stamped when the transcript was 1 byte; it has grown since
+			SourceEntries:  1, // essence was stamped at one entry; a second has arrived since
 		}, "")
 		assert.Contains(t, row.Summary, "out of date")
 	})

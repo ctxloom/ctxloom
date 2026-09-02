@@ -16,7 +16,7 @@ func TestSetSummary_EmptySummaryDoesNotEraseAGoodOne(t *testing.T) {
 	m := newManager(t)
 	e, err := m.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
-	require.NoError(t, m.SetSummary(e.HarpName, "a real distilled summary", []string{"open item"}, 4096))
+	require.NoError(t, m.SetSummary(e.HarpName, "a real distilled summary", []string{"open item"}, 12))
 
 	err = m.SetSummary(e.HarpName, "", nil, 0)
 	assert.Error(t, err, "an empty summary must be refused, not written over a good one")
@@ -25,7 +25,7 @@ func TestSetSummary_EmptySummaryDoesNotEraseAGoodOne(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, "a real distilled summary", got.Summary, "the good summary must survive")
 	assert.Equal(t, []string{"open item"}, got.Detail)
-	assert.Equal(t, int64(4096), got.SourceSize)
+	assert.Equal(t, 12, got.SourceEntries)
 }
 
 // saveLocked(nil) would marshal to the literal `null` and atomically

@@ -30,14 +30,14 @@ func TestTranscriptSize_PrefersCanonicalOverLegacy(t *testing.T) {
 
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
-	entry, err := mgr.AssignHarp("/proj", "codex")
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 
 	legacyPath := filepath.Join(t.TempDir(), "legacy.jsonl")
 	require.NoError(t, os.WriteFile(legacyPath, []byte("0123456789"), 0o644)) // exactly 10 bytes
 	require.NoError(t, mgr.BindSession(entry.HarpName, "backend-uuid", legacyPath))
 
-	rec, err := transcript.NewRecorder(entry.HarpName, "codex")
+	rec, err := transcript.NewRecorder(entry.HarpName, "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{
 		Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "canonical payload, deliberately longer than 10 bytes"},
@@ -46,48 +46,50 @@ func TestTranscriptSize_PrefersCanonicalOverLegacy(t *testing.T) {
 
 	canonicalPath, err := paths.HarpCanonicalTranscriptPath(entry.HarpName)
 	require.NoError(t, err)
-	info, err := os.Stat(canonicalPath)
+	_, err = os.Stat(canonicalPath)
 	require.NoError(t, err)
 
-	got := transcriptSize(entry.HarpName)
-	assert.Equal(t, info.Size(), got, "must stat the canonical file's real size")
-	assert.NotEqual(t, int64(10), got, "must NOT have stat'd the legacy 10-byte file once canonical exists")
+	got := transcriptEntryCount(entry.HarpName)
+	assert.Equal(t, 1, got, "must count the CANONICAL file's one entry record")
+	assert.NotEqual(t, 0, got, "must NOT have read the legacy file once canonical exists")
 }
 
-// TestTranscriptSize_FallsBackToLegacyWhenNoCanonical proves the transitional
+// TestTranscriptEntryCount_FallsBackToLegacyWhenNoCanonical proves the transitional
 // half: a harp with no canonical transcript (predates capture) still
 // fingerprints against its legacy TranscriptPath, unchanged from pre-S4
 // behavior.
-func TestTranscriptSize_FallsBackToLegacyWhenNoCanonical(t *testing.T) {
+func TestTranscriptEntryCount_FallsBackToLegacyWhenNoCanonical(t *testing.T) {
 	testsupport.Isolate(t)
 
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
-	entry, err := mgr.AssignHarp("/proj", "codex")
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 
 	legacyPath := filepath.Join(t.TempDir(), "legacy.jsonl")
-	require.NoError(t, os.WriteFile(legacyPath, []byte("0123456789"), 0o644)) // exactly 10 bytes
+	require.NoError(t, os.WriteFile(legacyPath, []byte(
+		`{"v":1,"harp":"h","engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"one"}}`+"\n"+
+			`{"v":1,"harp":"h","engine":"claude-code","seq":1,"ts":"2026-01-01T00:00:01Z","kind":"entry","entry":{"type":"assistant","content":"two"}}`+"\n"), 0o644))
 	require.NoError(t, mgr.BindSession(entry.HarpName, "backend-uuid", legacyPath))
 	// Deliberately no canonical transcript written for this harp.
 
-	assert.Equal(t, int64(10), transcriptSize(entry.HarpName))
+	assert.Equal(t, 2, transcriptEntryCount(entry.HarpName))
 }
 
 // A harp with a BOUND transcript path that
 // can no longer be stat'd (deleted, rotated, permission changed) is a real,
 // surprising degradation — unlike "no harp" or "no path bound at all", which
-// are ordinary "nothing to fingerprint" cases. transcriptSize silently
+// are ordinary "nothing to fingerprint" cases. The counter silently
 // returned 0 for this case with no warning anywhere, so a transient stat
 // failure permanently zeroed the staleness fingerprint (disabling the "out
 // of date" badge for that harp) with no diagnostic an operator could ever
 // see.
-func TestTranscriptSize_DanglingBoundPath_Warns(t *testing.T) {
+func TestTranscriptEntryCount_DanglingBoundPath_Warns(t *testing.T) {
 	testsupport.Isolate(t)
 
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
-	entry, err := mgr.AssignHarp("/proj", "codex")
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 
 	gone := filepath.Join(t.TempDir(), "gone.jsonl")
@@ -98,7 +100,7 @@ func TestTranscriptSize_DanglingBoundPath_Warns(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	assert.Equal(t, int64(0), transcriptSize(entry.HarpName))
+	assert.Equal(t, 0, transcriptEntryCount(entry.HarpName))
 	assert.Contains(t, buf.String(), entry.HarpName,
-		"a bound-but-unstatable transcript path must warn, naming the harp, instead of silently zeroing the staleness fingerprint")
+		"a bound-but-unreadable transcript path must warn, naming the harp, instead of silently zeroing the staleness fingerprint")
 }

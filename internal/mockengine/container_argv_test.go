@@ -13,8 +13,8 @@ import (
 // two functions are that argv, lifted out of the docker-gated file so the
 // assertions below bind the very bytes the container run uses.
 //
-// containerPrompt is the task both container runs deliver; codex carries it in
-// argv, claude on stdin, which is the whole point of the delivery pin.
+// containerPrompt is the task the container run delivers; claude carries it on
+// stdin, which is the whole point of the delivery pin.
 const containerPrompt = "summarize the project rules"
 
 // claudeContainerVendorArgv mirrors what claude's buildArgs emits under
@@ -22,12 +22,6 @@ const containerPrompt = "summarize the project rules"
 // consumes the leading --claude before this reaches ParseArgv.
 func claudeContainerVendorArgv() []string {
 	return []string{"--print", "--output-format", "json", "--model", "mock-model"}
-}
-
-// codexContainerVendorArgv mirrors what codex's buildArgs emits: the exec
-// subcommand, the sandbox tier, then the prompt as the TRAILING POSITIONAL.
-func codexContainerVendorArgv() []string {
-	return []string{"exec", "--sandbox", "read-only", containerPrompt}
 }
 
 // oneshotCLI resolves a backend's oneshot declaration through the same seam the
@@ -50,8 +44,8 @@ func oneshotCLI(t *testing.T, backend string) agent.EngineCLI {
 // DECLARATION, not the DRIVER. The hand-writing is real. The consequence is
 // not: the driver is bound to the same declaration, in both
 // directions, by its own anti-drift gates (TestEngineCLI_BuildArgsFlagsAreDeclared
-// and TestEngineCLI_EveryDeclaredFlagIsEmitted in internal/claude and
-// internal/codex), and the mock refuses any argv the declaration cannot read.
+// and TestEngineCLI_EveryDeclaredFlagIsEmitted in internal/claude), and the
+// mock refuses any argv the declaration cannot read.
 // Driver-versus-declaration drift therefore fails at the driver.
 //
 // What NOTHING pinned is the third edge: this hand-written argv against the
@@ -64,7 +58,6 @@ func TestContainerArgv_ParsesAgainstTheLiveDeclaration(t *testing.T) {
 		argv    []string
 	}{
 		{"claude-code", claudeContainerVendorArgv()},
-		{"codex", codexContainerVendorArgv()},
 	} {
 		t.Run(tc.backend, func(t *testing.T) {
 			cli := oneshotCLI(t, tc.backend)
@@ -77,8 +70,8 @@ func TestContainerArgv_ParsesAgainstTheLiveDeclaration(t *testing.T) {
 }
 
 // The edge a green container run cannot catch. Each container test delivers the
-// prompt on a channel it hard-codes — claude on cmd.Stdin, codex as the trailing
-// positional — and the mock reads it from wherever the DECLARATION says. Move a
+// prompt on a channel it hard-codes — claude on cmd.Stdin — and the mock reads
+// it from wherever the DECLARATION says. Move a
 // declaration's delivery and the container run still exits 0 with a parseable
 // report and a non-empty reply, having proved nothing about prompt delivery,
 // because neither container test asserts PromptSHA256.
@@ -92,26 +85,4 @@ func TestContainerArgv_PromptChannelMatchesTheDeclaration(t *testing.T) {
 			claude.Prompt)
 	}
 
-	codexCLI := oneshotCLI(t, "codex")
-	if codexCLI.Prompt != agent.PromptPositional {
-		t.Errorf("codex oneshot now declares prompt delivery %q, but the container test passes the prompt as a trailing argv positional",
-			codexCLI.Prompt)
-	}
-	if codexCLI.Subcommand != "exec" {
-		t.Errorf("codex oneshot now declares subcommand %q, but the container test hand-writes \"exec\"", codexCLI.Subcommand)
-	}
-
-	// And the positional the mock would read must be the prompt itself, not the
-	// sandbox tier that precedes it: readPrompt takes the LAST positional.
-	parsed, err := codexCLI.ParseArgv(codexContainerVendorArgv())
-	if err != nil {
-		t.Fatalf("codex container argv: %v", err)
-	}
-	n := len(parsed.Positionals)
-	if n == 0 {
-		t.Fatal("codex container argv carries no positional, so the mock would see no prompt at all")
-	}
-	if got := parsed.Positionals[n-1]; got != containerPrompt {
-		t.Errorf("the last positional is %q, not the prompt — the mock reads the wrong token as the task", got)
-	}
 }

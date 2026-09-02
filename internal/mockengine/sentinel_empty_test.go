@@ -55,7 +55,7 @@ func TestDispatch_UnsetResponseLeavesTheDefault(t *testing.T) {
 	}
 }
 
-// End to end on the wire: codex's oneshot adapter streams the response straight
+// End to end on the wire: the oneshot adapter streams the response straight
 // through, so an explicitly empty reply must reach stdout as zero bytes — the
 // shape a test needs in order to assert ctxloom does not silently substitute
 // something for it.
@@ -63,7 +63,7 @@ func TestRuntime_EmptyResponseReachesTheWireAsZeroBytes(t *testing.T) {
 	var stdout, stderr strings.Builder
 	rt := &Runtime{
 		CLI: agent.EngineCLI{
-			Engine:  "codex",
+			Engine:  "claude-code",
 			Surface: agent.CLISurfaceOneshot,
 			Prompt:  agent.PromptStdin,
 		},

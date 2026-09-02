@@ -161,7 +161,7 @@ func (r *Runtime) emitReport(report Report) error {
 
 // render puts the outcome on the wire in the surface's format. Oneshot dispatches
 // to the engine's per-personality wire adapter (renderOneshotWire — claude's
-// {result,modelUsage} envelope under SkipSetup, codex's plain text), because the
+// {result,modelUsage} envelope under SkipSetup, another personality's plain text), because the
 // oneshot stdout contract is per-engine and not derivable from L1. Interactive —
 // deferred in this slice to a plain echo — writes the response text without the
 // pty/keystroke/SIGWINCH behaviour a real interactive engine has (see the package

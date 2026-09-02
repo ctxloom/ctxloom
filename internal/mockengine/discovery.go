@@ -107,10 +107,10 @@ func probeOne(order int, p agent.CLIProbe, cli agent.EngineCLI, argv agent.Parse
 	case agent.ScopeEnvDir:
 		root := res.getenv(p.EnvVar)
 		if root == "" {
-			// The fallback is RECORDED, not silent. ctxloom points CODEX_HOME
+			// The fallback is RECORDED, not silent. ctxloom points the engine's home var
 			// at a per-run directory; a run where it did not is a run where
 			// this surface was never delivered, and the fallback root is the
-			// DEVELOPER's own ~/.codex — which statts present:true and hashes
+			// DEVELOPER's own engine home — which statts present:true and hashes
 			// their personal config. Without this marker the two runs render
 			// identically in the digest, so the host path greens on evidence
 			// ctxloom never produced.

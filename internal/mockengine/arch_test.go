@@ -92,6 +92,15 @@ func runLimb(t *testing.T, r limbRun) mockengine.Report {
 	if cli.Subcommand != "" {
 		argv = append(argv, cli.Subcommand)
 	}
+	// Every REQUIRED valueless flag the surface declares, so the line the
+	// harness builds is one the real binary would accept. Read off the
+	// declaration rather than hardcoded, so a personality that requires a
+	// different flag is driven correctly without editing this harness.
+	for _, f := range cli.Flags {
+		if f.Required && f.Value == agent.ValueNone {
+			argv = append(argv, f.Name)
+		}
+	}
 	stdin := ""
 	// Deliver the prompt on the channel L1 DECLARES — claude oneshot takes
 	// stdin, another personality may take a trailing positional. A harness that

@@ -48,15 +48,13 @@ import (
 // A backend named here has no History() implementation left — its
 // Backend.History() now returns nil — so a caller resolving a SessionSource
 // for it must not construct a legacy leg at all (there is nothing there to
-// ask). Every other backend (opencode's native reader, any future backend)
-// keeps its legacy leg.
+// ask). Every other backend keeps its legacy leg.
 //
 // Unexported: a roster is data this package owns, and an exported map is
 // writable by every importer. Reach it through IsRetiredScraperBackend or
 // RetiredScraperBackendNames — the same shape the sibling engine rosters use
 // (operations.VendorReaderEngineNames, isolation.ComposableEngines).
 var retiredScraperBackends = map[string]bool{
-	"codex":       true,
 	"claude-code": true,
 }
 

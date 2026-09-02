@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -178,7 +177,7 @@ type deliverySpec struct {
 	wantFile string
 	// wantSlot is the sentinel that must appear inside wantFile.
 	wantSlot string
-	// alsoFile / alsoSlot pin a SECOND route the same pair delivers (codex's
+	// alsoFile / alsoSlot pin a SECOND route the same pair delivers (a
 	// hook approach writes both the cache file the hook reads and the native
 	// AGENTS.md). alsoFile may end in "/*" to match one file in that directory.
 	alsoFile, alsoSlot string
@@ -202,18 +201,6 @@ type deliverySpec struct {
 	// not an open mismatch to reconcile.
 	elsewhere string
 }
-
-// codexLaunchOnly is the noOp reason codex's three HOME-keyed pairs carry at
-// this seam. codex is the ONE engine whose settings/commands/skills surfaces
-// are home-keyed rather than cwd-keyed, and since S7 the only homes that exist
-// are a per-session instance and the user's own ~/.codex — neither of which
-// this loop's harpless BuildSurfaces + Deliver(root) can name. Quoted from
-// codex's own declaration so this file cannot paraphrase it into something
-// subtly different.
-var codexLaunchOnly = "codex's home-keyed surfaces are a DECLARED ABSENCE on any harpless path: " +
-	codex.LaunchOnlySettingsReason + ". The real delivery — into a resolved CODEX_HOME — is covered by " +
-	"internal/codex's TestConfigSurface_DeliverWritesConfigTOML and its commands/skills siblings, and the " +
-	"absence itself by TestCodexHome_StaticSurfaceDeliveryWritesNothingHomeKeyed."
 
 // matrixSpecs is the expected destination for every DECLARED pair.
 // TestDeliveryApproach_DeclaredPairsAreExhaustive holds these keys equal to the
@@ -240,48 +227,14 @@ var matrixSpecs = map[string]deliverySpec{
 	"claude-code/commands/unsafe-file": {wantFile: ".claude/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
 	"claude-code/skills/unsafe-file":   {wantFile: ".claude/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 
-	// ---- codex -------------------------------------------------------------
-	// codex declares TWO context approaches, and they are not two spellings of
-	// one thing. Hook is the DEFAULT and delivers BOTH routes — the raw cache
-	// file the SessionStart hook reads (keyed on Fragments) and the native
-	// AGENTS.md (keyed on Context) — because materialize and launch each get a
-	// single SurfaceFor call and both need what the other needs.
-	"codex/context/hook": {
-		wantFile: "AGENTS.md", wantSlot: slotContext,
-		alsoFile: ".ctxloom/cache/context/*", alsoSlot: slotFragment,
-	},
-	// unsafe-file is the native file ALONE: the artifact codex reads by itself,
-	// which is what makes it the one that outlives ctxloom being uninstalled.
-	// Deliberately NO alsoFile — a cache file riding along would make this a
-	// second spelling of hook, and would hand someone asking for a portable
-	// document a file that means nothing without ctxloom.
-	"codex/context/unsafe-file": {wantFile: "AGENTS.md", wantSlot: slotContext},
-	// The three CODEX_HOME-keyed surfaces write NOTHING on this harpless seam —
-	// see codexLaunchOnly. They stay in the matrix rather than being dropped
-	// because a declared pair with no stated destination is a test bug, and
-	// because the day codex regrows a project-root fallback this is where the
-	// silence stops being expected.
-	"codex/settings/unsafe-file": {noOp: codexLaunchOnly},
-	"codex/commands/unsafe-file": {noOp: codexLaunchOnly},
-	"codex/skills/unsafe-file":   {noOp: codexLaunchOnly},
-
-	// ---- opencode ----------------------------------------------------------
-	// opencode's settings surface is asserted on the MCP payload, NOT the hook:
-	// opencode has no hooks mechanism at all and drops the hook silently. That
-	// omission is pinned by TestDeliveryApproach_OpencodeDropsHooksWithoutSaying.
-	"opencode/context/unsafe-file":  {wantFile: ".opencode/ctxloom-context.md", wantSlot: slotContext},
-	"opencode/settings/unsafe-file": {wantFile: "opencode.json", wantSlot: slotMCPCmd},
-	"opencode/commands/unsafe-file": {wantFile: ".opencode/command/ctxsentinelcmd.md", wantSlot: slotCommand},
-	"opencode/skills/unsafe-file":   {wantFile: ".opencode/skill/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
-
 	// ---- mock ----------------------------------------------------------
 	// mock declares context and skills (mock_surfaces.go's mockPresentations):
 	// a hermetic, managed-marker MOCK_CONTEXT.md at the target dir root — the
-	// same DeliverManagedContext shape claude's CLAUDE.md and codex's
-	// AGENTS.md use — and a hermetic .mock/skills/ package tree through the
+	// same DeliverManagedContext shape claude's CLAUDE.md uses — and a
+	// hermetic .mock/skills/ package tree through the
 	// same agent.WriteManagedSkillPackages writer every real engine's skills
 	// surface goes through. Its hook loss is declared via noHooksReason
-	// (registry.go) the same way opencode's is, and pinned by
+	// (registry.go) the same way any hookless backend's is, and pinned by
 	// TestDeliveryApproach_HookCarriageMatchesDeclaration.
 	"mock/context/unsafe-file": {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
 	"mock/skills/unsafe-file":  {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
@@ -437,7 +390,7 @@ func sortedTreePaths(tree map[string]string) []string {
 // backend, the surface, and the approach — never accepted and silently skipped.
 //
 // The one deliberate exception is a kind a backend FOLDS or omits entirely
-// (codex's and opencode's MCP, which rides their config surface): SurfaceFor
+// (a backend whose MCP rides its config surface): SurfaceFor
 // still refuses it loudly, but agent.SurfaceSelection.Build treats selecting it
 // as a permitted no-op. That asymmetry is documented, so it is pinned here
 // rather than left to chance.
@@ -501,9 +454,9 @@ func containsApproachValue(list []agent.Approach, a agent.Approach) bool {
 // does not support must fail agent.SurfaceSelection.Build with the SUPPORTED SET
 // in the message, not deliver a different approach's file.
 func TestDeliveryApproach_UndeclaredApproachFailsTheBuilder(t *testing.T) {
-	// opencode declares context as unsafe-file ONLY, so both the
+	// mock declares context as unsafe-file ONLY, so both the
 	// hook and the system-prompt approaches must be refused by the builder.
-	for _, name := range []string{"opencode"} {
+	for _, name := range []string{"mock"} {
 		for _, w := range []struct {
 			label string
 			write agent.ContextWrite
@@ -673,60 +626,6 @@ type scratchPlacement struct{ dir string }
 
 func (p scratchPlacement) Dir() string { return p.dir }
 
-// TestDeliveryApproach_OpencodeSaysWhatItCannotCarry covers the one
-// structurally-unsupported surface in the matrix: opencode has no hooks
-// mechanism at all, so a profile's session_start hook is dropped. The delivery
-// report itself CANNOT show that — it lists what landed, and every one of its
-// lines is true — so the loss is read from the declaration instead, alongside
-// it.
-//
-// This test used to assert the opposite: that the drop happened with nothing
-// said about it, with an untag condition naming exactly this fix. The delivered
-// tree half is unchanged (the hook still reaches no file, and everything else
-// still arrives); what changed is that the omission is now REPORTABLE.
-func TestDeliveryApproach_OpencodeSaysWhatItCannotCarry(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	root := "/cell"
-	require.NoError(t, fs.MkdirAll(root, 0o755))
-
-	inputs := matrixSentinelInputs()
-	set := backends.BuildSurfaces("opencode", inputs, fs)
-
-	// Structural: opencode declares no approach for a hooks-bearing surface
-	// beyond the folded settings file.
-	require.Empty(t, set.SupportedApproaches(agent.SurfaceMCP),
-		"opencode folds MCP into settings; if that changed, this test's premise moved")
-
-	_, kinds, errs := agent.Select(set).WithEverything().DeliverUnder(root)
-	require.Empty(t, errs, "a structural gap is not a write failure — nothing errored")
-
-	var wrote []string
-	for _, k := range kinds {
-		wrote = append(wrote, k.String())
-	}
-	assert.Equal(t, []string{"context", "settings", "commands", "skills"}, wrote,
-		"the delivery report is unchanged: it lists what landed, and the hook did not")
-
-	// The loss the report structurally cannot hold, held beside it.
-	losses := backends.UncarriedSurfaces("opencode", inputs)
-	require.Len(t, losses, 1, "opencode's dropped hooks must be reportable")
-	assert.Equal(t, "hooks", losses[0].Surface)
-	assert.Equal(t, "1 session_start", losses[0].Detail,
-		"the loss names WHICH hooks, by the config key the user wrote")
-	assert.Equal(t, "opencode has no hook mechanism", losses[0].Reason)
-
-	tree := matrixTree(t, fs, root)
-	require.NotEmpty(t, tree)
-	// Everything else DID arrive...
-	assert.NotEmpty(t, findSentinel(tree, slotContext), "context must still be delivered")
-	assert.NotEmpty(t, findSentinel(tree, slotMCPCmd), "MCP must still be delivered (folded into opencode.json)")
-	assert.NotEmpty(t, findSentinel(tree, slotCommand), "commands must still be delivered")
-	assert.NotEmpty(t, findSentinel(tree, slotSkill), "skills must still be delivered")
-	// ...and the hook still did not, which is what the loss line is FOR.
-	assert.Empty(t, findSentinel(tree, slotHook),
-		"opencode has no hooks surface, so the session_start hook reaches no file")
-}
-
 // TestDeliveryApproach_HookCarriageMatchesDeclaration is the drift guard on the
 // declaration the loss report reads: a backend's noHooksReason is a claim about
 // what its settings writer DOES, and a claim nobody checks is how the silence
@@ -738,12 +637,11 @@ func TestDeliveryApproach_OpencodeSaysWhatItCannotCarry(t *testing.T) {
 // sentinel in no file, and a backend that declares nothing must land it in one.
 //
 // TWO DECLARATIONS COUNT AS ONE HERE, deliberately. noHooksReason says the
-// ENGINE has no hook mechanism (opencode, mock); launchOnlySettingsReason says
-// a HARPLESS caller — which is exactly what this loop is, BuildSurfaces with no
-// session — has nowhere to write one (codex). The claim under test is "if
-// anything was declared, nothing landed", and both declarations make that claim
-// about this seam. Reading only the first would fail codex for honouring its
-// own declaration.
+// ENGINE has no hook mechanism at all; launchOnlySettingsReason says a HARPLESS
+// caller — which is exactly what this loop is, BuildSurfaces with no session —
+// has nowhere to write one. The claim under test is "if anything was declared,
+// nothing landed", and both declarations make that claim about this seam.
+// Reading only the first would fail a backend for honouring the second.
 func TestDeliveryApproach_HookCarriageMatchesDeclaration(t *testing.T) {
 	for _, name := range matrixBackends(t) {
 		t.Run(name, func(t *testing.T) {

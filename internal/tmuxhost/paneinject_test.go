@@ -299,3 +299,58 @@ func TestPaneInjector_StagingFileIsRemovedAfterThePaste(t *testing.T) {
 			"the staging file must not outlive the paste: %q", e.Name())
 	}
 }
+
+// TestPaneInjector_AdmitsTheEngineNameTheLauncherActuallySends pins the
+// allowlist to the spelling that reaches it in production, which is NOT the
+// one the other tests in this file use.
+//
+// The chain that decides the key: agent.BaseBackend.run stamps
+// LaunchSpec.Engine from b.name, the claude backend registers that name as
+// "claude-code" (agent.NewBaseBackend("claude-code", ...) in
+// internal/claude/claudecode.go), and backends.launchInPane copies
+// LaunchSpec.Engine into PaneSpec.Engine verbatim. So a real interactive
+// claude run arrives here as "claude-code" — while every other test in this
+// package hands Inject the alias "claude" and is therefore blind to which of
+// the two the allowlist admits.
+//
+// That blindness is the whole point of this test. An allowlist keyed on the
+// alias alone looks completely healthy under this package's tests and refuses
+// every actual run, because the two spellings only diverge on the production
+// path no unit test was driving. Both must be admitted: they name one engine
+// (agent.CanonicalEngineName resolves "claude" -> "claude-code"), and an
+// allowlist that admits a name depending on how the caller spelled it is not
+// an allowlist over engines.
+//
+// It asserts the EFFECT, not the absence of an error: the program in the pane
+// only echoes once `read` returns, so a refusal — or a paste that never
+// actuated — produces nothing here.
+func TestPaneInjector_AdmitsTheEngineNameTheLauncherActuallySends(t *testing.T) {
+	for _, engine := range []string{"claude-code", "claude"} {
+		t.Run(engine, func(t *testing.T) {
+			h := newPaneHostForTest(t)
+			ctx := context.Background()
+
+			require.NoError(t, h.Start(ctx, "canon", PaneSpec{
+				Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"},
+				Engine: engine, Surface: agent.CLISurfaceInteractive,
+			}))
+			t.Cleanup(func() { _ = h.Stop(context.Background(), "canon") })
+
+			var r recorder
+			detach, err := h.Attach("canon", &r)
+			require.NoError(t, err)
+			defer detach()
+
+			waitFor(t, "the pane must exist before injection", func() bool {
+				_, perr := h.pane("canon")
+				return perr == nil
+			})
+
+			require.NoError(t, h.Injector().Inject(ctx, "canon", "canon-9f31", true),
+				"engine %q is the measured claude TUI under another spelling and must be admitted", engine)
+
+			waitFor(t, "the injected paste must reach the program AND be submitted",
+				func() bool { return strings.Contains(r.text(), "PASTED-[canon-9f31]") })
+		})
+	}
+}

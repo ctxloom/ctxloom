@@ -181,6 +181,9 @@ func DefaultPolicy() Policy {
 		{Path: "sync.auto_sync", Scope: ScopePreference},
 
 		{Path: "config.use_distilled", Scope: ScopePreference},
+		{Path: "config.essence_max_chars", Scope: ScopePreference},
+		{Path: "config.tool_reflect_bytes", Scope: ScopePreference},
+		{Path: "config.silence_unsupported", Scope: ScopePreference},
 		// DIVERGES from the design doc (ScopeMachine there). MEASURED against
 		// a real acceptance scenario (features/manage.feature "Statusline
 		// can be disabled and re-enabled"): `manage statusline

@@ -18,7 +18,8 @@ func TestEngineContainerSpecFor_Claude(t *testing.T) {
 	assert.Contains(t, string(p.engineInstall), "npm install -g @anthropic-ai/claude-code")
 	assert.Equal(t, "claude --version", p.validate)
 	assert.Contains(t, p.overlayDirs, ".claude")
-	assert.NotContains(t, p.overlayDirs, ".codex")
+	assert.NotContains(t, p.overlayDirs, ".mock",
+		"another REGISTERED engine's overlay dir — naming a deleted engine here would assert an absence nothing could ever violate")
 
 	// The auth axis: the degrade hint names claude's trigger var, and the wired
 	// resolver IS the claude (ANTHROPIC_*) one — asserted behaviorally since a
@@ -56,70 +57,6 @@ func TestEngineContainerSpecFor_UnknownIsDefault(t *testing.T) {
 		assert.False(t, ok, "backend %q must NOT authenticate as claude — no spec is registered for it", name)
 		assert.NotContains(t, p.authHint, "ANTHROPIC_API_KEY", "backend %q must not inherit claude's degrade hint", name)
 	}
-}
-
-// TestEngineContainerSpecFor_NoRegisteredEngineReachesClaudeDefault is a
-// regression guard: every REGISTERED backend in the composable set must
-// resolve its OWN auth — none of them may reach
-// resolveClaudeContainerAuth/defaultOverlayDirs, the security edge where a
-// containerized codex/opencode run would silently authenticate with (or
-// overlay) the user's Anthropic credentials into a foreign engine.
-func TestEngineContainerSpecFor_NoRegisteredEngineReachesClaudeDefault(t *testing.T) {
-	withFakeHome(t) // no real ~/.codex or ~/.local/share/opencode creds to fall back onto
-	claudeDefault := engineContainerSpecFor("")
-	for _, name := range []string{"codex", "opencode"} {
-		p := engineContainerSpecFor(name)
-		require.NotNil(t, p.resolveAuth, "backend %q must wire its own auth resolver", name)
-		// Behavioral check: feed the resolver an ANTHROPIC_API_KEY only and
-		// confirm it does NOT authenticate via it — a func value can't be
-		// compared for equality, so this proves it is not
-		// resolveClaudeContainerAuth by behavior rather than identity. The
-		// fake (creds-free) home means the ONLY way any resolver could
-		// return ok=true here is misreading ANTHROPIC_API_KEY.
-		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-		t.Setenv("OPENAI_API_KEY", "")
-		t.Setenv("OPENROUTER_API_KEY", "")
-		_, ok := p.resolveAuth("/root", t.TempDir())
-		assert.False(t, ok, "backend %q must NOT authenticate off ANTHROPIC_API_KEY (that would be the claude-shaped security edge)", name)
-		assert.NotEqual(t, claudeDefault.authHint, p.authHint, "backend %q must not inherit claude's degrade hint verbatim", name)
-	}
-}
-
-// TestEngineContainerSpecFor_Codex pins that codex is composable (its own
-// official-installer fragment) AND has its own auth/overlay set — no longer
-// inheriting the default (claude) spec's auth axis.
-func TestEngineContainerSpecFor_Codex(t *testing.T) {
-	p := engineContainerSpecFor("codex")
-	assert.NotNil(t, p.engineInstall, "codex is composable")
-	assert.Equal(t, "codex --version", p.validate)
-	assert.Contains(t, p.overlayDirs, ".codex")
-	assert.NotContains(t, p.overlayDirs, ".claude", "codex writes no .claude config")
-	assert.Contains(t, p.authHint, "OPENAI_API_KEY")
-	require.NotNil(t, p.resolveAuth)
-
-	t.Setenv("OPENAI_API_KEY", "sk-codex-test")
-	auth, ok := p.resolveAuth("/root", t.TempDir())
-	require.True(t, ok, "with OPENAI_API_KEY set the wired resolver authenticates")
-	assert.Equal(t, authEnv, auth.mode)
-	assert.Contains(t, auth.envPassthrough, "OPENAI_API_KEY")
-}
-
-// TestEngineContainerSpecFor_Opencode pins opencode's own auth/overlay set — no
-// longer inheriting the default (claude) spec's auth axis.
-func TestEngineContainerSpecFor_Opencode(t *testing.T) {
-	p := engineContainerSpecFor("opencode")
-	assert.NotNil(t, p.engineInstall, "opencode is composable")
-	assert.Equal(t, "opencode --version", p.validate)
-	assert.Contains(t, p.overlayDirs, ".opencode")
-	assert.NotContains(t, p.overlayDirs, ".claude", "opencode writes no .claude config")
-	assert.Contains(t, p.authHint, "OPENROUTER_API_KEY")
-	require.NotNil(t, p.resolveAuth)
-
-	t.Setenv("OPENROUTER_API_KEY", "or-test")
-	auth, ok := p.resolveAuth("/root", t.TempDir())
-	require.True(t, ok, "with OPENROUTER_API_KEY set the wired resolver authenticates")
-	assert.Equal(t, authEnv, auth.mode)
-	assert.Contains(t, auth.envPassthrough, "OPENROUTER_API_KEY")
 }
 
 // TestEngineContainerSpecFor_Mock pins mock's own spec: composable (so

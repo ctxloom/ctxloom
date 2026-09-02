@@ -626,9 +626,9 @@ func TestWorktree_GitIdentity_AttributesToAgentNotHuman(t *testing.T) {
 
 // TestWorktree_HomeVars_PerBackend is the "descriptor table guard" the
 // per-engine-isolation-home plan §9 asks for: each backend's Env() var-set
-// size must match the cartography table — claude:1, codex:1, opencode:2, and
-// "" (no backend context):0 config-home vars (the pre-fix, config-only-isolation
-// default — see
+// size must match the cartography table — a registered backend gets its own
+// scoped config-home var(s), and "" (no backend context) gets 0 of them (the
+// pre-fix, config-only-isolation default — see
 // TestWorktree_NoBackendSkipsSeedingAndFailLoud) — PLUS the 6 toolchain vars
 // (spawner-env: TMPDIR, GOTMPDIR, GIT_AUTHOR_{NAME,EMAIL},
 // GIT_COMMITTER_{NAME,EMAIL}) every backend gets UNCONDITIONALLY, including
@@ -638,9 +638,7 @@ func TestWorktree_GitIdentity_AttributesToAgentNotHuman(t *testing.T) {
 func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 	resetStrictness(t)
 	withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test")  // skip claude's seed attempt — only var COUNT matters here
-	t.Setenv("OPENAI_API_KEY", "sk-test")     // skip codex's seed attempt
-	t.Setenv("OPENROUTER_API_KEY", "sk-test") // skip opencode's seed attempt
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test") // skip claude's seed attempt — only var COUNT matters here
 
 	const toolchainVars = 6 // TMPDIR, GOTMPDIR, GIT_AUTHOR_{NAME,EMAIL}, GIT_COMMITTER_{NAME,EMAIL}
 	cases := []struct {
@@ -648,8 +646,6 @@ func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 		want    int
 	}{
 		{"claude-code", 1 + toolchainVars},
-		{"codex", 1 + toolchainVars},
-		{"opencode", 2 + toolchainVars},
 		{"", 0 + toolchainVars},
 	}
 	for _, c := range cases {
@@ -668,7 +664,7 @@ func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 
 // TestWorktree_ScopedLeverEngines_NoHomeOverride pins that every
 // credentialSeedSpecs-registered engine gets its OWN scoped config-home var
-// (CLAUDE_CONFIG_DIR/CODEX_HOME/XDG_DATA_HOME) with no blanket HOME
+// (claude-code's is CLAUDE_CONFIG_DIR) with no blanket HOME
 // override — a scoped var leaves ~/.gitconfig/~/.ssh identity untouched,
 // which a HOME override would strip. Formerly lived alongside the curated-HOME
 // mechanism (deleted with antigravity, its only registrant) as the negative
@@ -680,15 +676,11 @@ func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 		envVar  string
 	}{
 		{"claude-code", "CLAUDE_CONFIG_DIR"},
-		{"codex", "CODEX_HOME"},
-		{"opencode", "XDG_DATA_HOME"},
 	} {
 		t.Run(tc.backend, func(t *testing.T) {
 			resetStrictness(t)
 			withFakeHome(t)
 			t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-			t.Setenv("OPENAI_API_KEY", "sk-test")
-			t.Setenv("OPENROUTER_API_KEY", "sk-test")
 
 			common := t.TempDir()
 			f := &git.Fake{CommonDirValue: common}
@@ -702,96 +694,6 @@ func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 			assert.Contains(t, env, tc.envVar)
 		})
 	}
-}
-
-// --- opencode host+worktree credential seeding ------------------------------
-
-// TestWorktree_PrepareSeedsOpencodeCredentials is the end-to-end
-// PAYLOAD-asserting regression test: a "opencode" worktree, no
-// OPENROUTER_API_KEY, real host auth.json available (via the hostHomeDir
-// seam) → Env()'s XDG_DATA_HOME points at a directory that ACTUALLY
-// CONTAINS the seeded auth.json at the opencode/ subpath opencode itself
-// resolves — not an empty dir `opencode auth list` would report "0
-// credentials" against, exactly as the task's live experiment showed.
-func TestWorktree_PrepareSeedsOpencodeCredentials(t *testing.T) {
-	resetStrictness(t)
-	home := withFakeHome(t)
-	t.Setenv("OPENROUTER_API_KEY", "")
-	writeOpencodeAuth(t, home, false)
-
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "opencode").PrepareWorkspace(context.Background(), "/proj", "member-oc-seed")
-	require.NoError(t, err)
-	requireCleanWorkspace(t, ws)
-
-	env := WorkspaceEnv(ws)
-	require.NotNil(t, env)
-	require.NotEmpty(t, env["XDG_CONFIG_HOME"], "opencode's config lever isolates too")
-	xdgData := env["XDG_DATA_HOME"]
-	require.NotEmpty(t, xdgData)
-
-	wantAuth, err := os.ReadFile(filepath.Join(home, ".local", "share", "opencode", "auth.json"))
-	require.NoError(t, err)
-	gotAuth, err := os.ReadFile(filepath.Join(xdgData, "opencode", "auth.json"))
-	require.NoError(t, err, "XDG_DATA_HOME must actually contain the seeded auth.json under opencode/, not be empty")
-	assert.Equal(t, wantAuth, gotAuth, "seeded bytes must be byte-identical to the host source")
-
-	assert.Empty(t, strictness.All(), "a successfully-seeded opencode worktree records no ClassIsolation finding")
-	require.NoError(t, ws.Cleanup())
-}
-
-// TestWorktree_PrepareFailsLoudForOpencodeWhenNoCredsAndNoKey pins the
-// closed silent no-op: before this fix, an "opencode" worktree with no
-// OPENROUTER_API_KEY and no host auth.json made NO finding at all
-// (credentialSeedSpecs had no "opencode" entry, so seedCredentials
-// short-circuited silently) — strictly worse than the loud "nothing seedable"
-// handling a registered spec gets. Now it records the same fatal
-// ClassIsolation finding every other registered engine already gets.
-func TestWorktree_PrepareFailsLoudForOpencodeWhenNoCredsAndNoKey(t *testing.T) {
-	resetStrictness(t)
-	withFakeHome(t) // empty fake home — nothing to seed
-	t.Setenv("OPENROUTER_API_KEY", "")
-
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "opencode").PrepareWorkspace(context.Background(), "/proj", "member-oc-nokey")
-	require.NoError(t, err, "PrepareWorkspace itself still succeeds — the fail-loud gate is the CALLER's job")
-	requireCleanWorkspace(t, ws)
-
-	findings := strictness.All()
-	require.Len(t, findings, 1, "no creds + no key must record exactly one fatal finding (previously: silently NONE)")
-	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "member-oc-nokey")
-	assert.Contains(t, findings[0].Message, "logged out")
-	assert.NotEmpty(t, findings[0].FixIt)
-
-	env := WorkspaceEnv(ws)
-	assert.NoDirExists(t, filepath.Join(env["XDG_DATA_HOME"], "opencode"), "nothing is seeded when there is nothing to seed")
-
-	require.NoError(t, ws.Cleanup())
-}
-
-// TestWorktree_PrepareSkipsOpencodeSeedingWithOpenrouterKeyNoFailLoud:
-// OPENROUTER_API_KEY set (even with no host auth.json at all) rides the env
-// exactly as the container path prefers env passthrough — no seed attempt,
-// and critically NO fail-loud finding.
-func TestWorktree_PrepareSkipsOpencodeSeedingWithOpenrouterKeyNoFailLoud(t *testing.T) {
-	resetStrictness(t)
-	withFakeHome(t) // no host auth.json
-	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
-
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "opencode").PrepareWorkspace(context.Background(), "/proj", "member-oc-key")
-	require.NoError(t, err)
-	requireCleanWorkspace(t, ws)
-
-	assert.Empty(t, strictness.All(), "OPENROUTER_API_KEY covers auth — no finding, seeding skipped")
-	env := WorkspaceEnv(ws)
-	assert.NoDirExists(t, filepath.Join(env["XDG_DATA_HOME"], "opencode"), "no seed dir is created when the key rides the env")
-
-	require.NoError(t, ws.Cleanup())
 }
 
 // TestWorktree_HomeVarDirsExist pins that every directory Env() names

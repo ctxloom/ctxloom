@@ -226,16 +226,11 @@ func TestAmbientSet_IsAnExplicitAllowListPerEngine(t *testing.T) {
 
 	names := AmbientEngineNames()
 	sort.Strings(names)
-	assert.Equal(t, []string{"claude-code", "codex", "opencode"}, names,
+	assert.Equal(t, []string{"claude-code"}, names,
 		"every registered backend needs an EXPLICIT ambient declaration, empty or not")
 
 	want := map[string][]AmbientFile{
 		"claude-code": {{HostRel: ".claude/.credentials.json", DestRel: "claude/.credentials.json", Mode: 0o600, Required: true}},
-		"codex":       {{HostRel: ".codex/auth.json", DestRel: ".codex/auth.json", Mode: 0o600, Required: true}},
-		"opencode": {
-			{HostRel: ".local/share/opencode/auth.json", DestRel: "xdg-data/opencode/auth.json", Mode: 0o600, Required: true},
-			{HostRel: ".local/share/opencode/mcp-auth.json", DestRel: "xdg-data/opencode/mcp-auth.json", Mode: 0o600, Required: false},
-		},
 	}
 	for engine, files := range want {
 		assert.Equal(t, files, AmbientSet(engine), "%s's ambient set", engine)

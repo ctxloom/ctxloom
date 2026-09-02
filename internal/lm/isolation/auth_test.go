@@ -232,22 +232,6 @@ func TestCredentialSeedSpecs_ClaudeCodeRegistered(t *testing.T) {
 	assert.Equal(t, "ANTHROPIC_API_KEY", spec.envTrigger)
 }
 
-// TestCredentialSeedSpecs_CodexRegisteredWithCopyableCreds pins codex's
-// registry shape (per-engine-isolation-home plan §6): codex IS registered —
-// this registry is its ONE credential-seed mechanism (backend.go's
-// linkUserCodexAuth symlink is deleted) — with copyable sourceFiles and
-// HonoursVarForCreds true, because CODEX_HOME relocates credentials and not
-// merely config. Its single HomeVar is that same CODEX_HOME, so Env() has one
-// place to read the lever from.
-func TestCredentialSeedSpecs_CodexRegisteredWithCopyableCreds(t *testing.T) {
-	codexSpec, codexOK := credentialSeedSpecs["codex"]
-	require.True(t, codexOK, "codex now rides this registry's copy-seed, replacing linkUserCodexAuth's symlink")
-	assert.NotNil(t, codexSpec.sourceFiles, "codex has a copyable auth.json to seed")
-	assert.True(t, codexSpec.HonoursVarForCreds, "CODEX_HOME relocates codex's auth.json too")
-	require.Len(t, codexSpec.HomeVars, 1)
-	assert.Equal(t, "CODEX_HOME", codexSpec.HomeVars[0].EnvVar)
-}
-
 // TestHostCredentialSeed_SkipsWhenEnvTriggerSet: ANTHROPIC_API_KEY present →
 // seeding is skipped entirely (auth rides the env, mirroring
 // resolveClaudeContainerAuth's authEnv precedence) — even when no host creds
@@ -344,97 +328,6 @@ func TestHostCredentialSeed_UnresolvableHostHome(t *testing.T) {
 	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result)
-}
-
-// writeCodexAuth writes a host ~/.codex/auth.json under home.
-func writeCodexAuth(t *testing.T, home string) {
-	t.Helper()
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".codex"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(home, ".codex", "auth.json"), []byte(`{"tokens":"x"}`), 0o600))
-}
-
-// =============================================================================
-// CopyAmbient, codex arm — THE one-way ambient copy-in, exercised through the
-// in-tree axis's shape (a per-session instance root the worktree axis's
-// provisionConfigHome never sees). It superseded the PrepareCodexHome /
-// PrepareClaudeHome pair, which were this one function twice.
-// =============================================================================
-
-// TestCopyAmbient_Codex_CopiesAuthJson is the PAYLOAD-asserting case: the host's
-// ~/.codex/auth.json lands byte-identical, owner-only, at destDir/.codex/auth.json
-// — exactly where cellScopedCodexHome(destDir) resolves CODEX_HOME to.
-func TestCopyAmbient_Codex_CopiesAuthJson(t *testing.T) {
-	home := withFakeHome(t)
-	t.Setenv("OPENAI_API_KEY", "")
-	writeCodexAuth(t, home)
-	dest := t.TempDir()
-
-	report, err := CopyAmbient(AmbientRequest{Engine: "codex", InstanceHome: dest, WorkDir: t.TempDir()})
-	require.NoError(t, err)
-	assert.False(t, report.SkippedEnv)
-	assert.False(t, report.NoSource)
-	assert.Equal(t, 1, report.Copied, "the report must count the bytes that actually moved")
-
-	want, err := os.ReadFile(filepath.Join(home, ".codex", "auth.json"))
-	require.NoError(t, err)
-	got, err := os.ReadFile(filepath.Join(dest, ".codex", "auth.json"))
-	require.NoError(t, err, "seeded auth.json must exist at destDir/.codex/auth.json")
-	assert.Equal(t, want, got, "seeded bytes are byte-identical to the host source")
-
-	info, err := os.Stat(filepath.Join(dest, ".codex", "auth.json"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
-}
-
-// TestCopyAmbient_Codex_EnvTriggerSkips: OPENAI_API_KEY set → SkippedEnv, nil
-// error, no copy attempted (matches hostCredentialSeed's envTrigger precedence).
-func TestCopyAmbient_Codex_EnvTriggerSkips(t *testing.T) {
-	withFakeHome(t) // no ~/.codex/auth.json on disk
-	t.Setenv("OPENAI_API_KEY", "sk-test")
-	dest := t.TempDir()
-
-	report, err := CopyAmbient(AmbientRequest{Engine: "codex", InstanceHome: dest, WorkDir: t.TempDir()})
-	require.NoError(t, err)
-	assert.True(t, report.SkippedEnv)
-	assert.False(t, report.NoSource)
-	assert.NoFileExists(t, filepath.Join(dest, ".codex", "auth.json"))
-}
-
-// TestCopyAmbient_Codex_NoSourceFailsLoud pins the fail-loud contract: no
-// OPENAI_API_KEY and no host ~/.codex/auth.json reports NoSource with an
-// actionable reason — NEVER a silent success that would let codex launch
-// straight into a 401. It is a DECISION rather than a Go error because the two
-// axes act on it differently; both callers surface this exact string.
-func TestCopyAmbient_Codex_NoSourceFailsLoud(t *testing.T) {
-	withFakeHome(t) // empty fake home — no .codex at all
-	t.Setenv("OPENAI_API_KEY", "")
-	dest := t.TempDir()
-
-	report, err := CopyAmbient(AmbientRequest{Engine: "codex", InstanceHome: dest, WorkDir: t.TempDir()})
-	require.NoError(t, err, "nothing seedable is a DECISION, not an I/O error")
-	require.True(t, report.NoSource)
-	assert.Contains(t, report.NoSourceReason, "OPENAI_API_KEY")
-	assert.Contains(t, report.NoSourceReason, "auth.json")
-	assert.Contains(t, report.NoSourceReason, "codex login", "the reason must name a fix that works")
-}
-
-// TestCopyAmbient_Codex_NoSourceOffersNoDegradedEscape pins the REMOVAL of the
-// "(or pass --degraded)" clause this error used to carry. The flag relaxes
-// this package's strictness recording; the caller that surfaces this error
-// (internal/codex's ensureCodexCredentials → Codex.Setup, whose result
-// Execute refuses to launch on) never consults strictness, so --degraded
-// changes nothing on this path. An error naming an escape hatch that does
-// not exist sends the user round a loop that cannot terminate — a worse
-// failure than saying less.
-func TestCopyAmbient_Codex_NoSourceOffersNoDegradedEscape(t *testing.T) {
-	withFakeHome(t)
-	t.Setenv("OPENAI_API_KEY", "")
-
-	report, err := CopyAmbient(AmbientRequest{Engine: "codex", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
-	require.NoError(t, err)
-	require.True(t, report.NoSource)
-	assert.NotContains(t, report.NoSourceReason, "degraded",
-		"--degraded does not unblock this path — internal/codex never reads strictness")
 }
 
 // =============================================================================
@@ -534,6 +427,8 @@ func TestCopyAmbient_Claude_NoSourceFailsLoud(t *testing.T) {
 	assert.Contains(t, report.NoSourceReason, "ANTHROPIC_API_KEY")
 	assert.Contains(t, report.NoSourceReason, ".credentials.json")
 	assert.Contains(t, report.NoSourceReason, "claude login", "the reason must name a fix that works")
+	assert.NotContains(t, report.NoSourceReason, "degraded",
+		"--degraded must not be offered as a way past a missing credential: the seeder never consults strictness, so advising it would name a remedy the caller cannot take")
 }
 
 // realisticDotClaudeJSON is a stand-in for a real user's ~/.claude.json: on a
@@ -605,179 +500,6 @@ func TestHostCredentialSeed_NeverLeaksPersonalMCPConfig(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// opencode host+worktree credential seeding ---------------------------
-//
-// Before this registry entry, "opencode" had NO credentialSeedSpec: worktree.go's
-// seedCredentials short-circuited at `if !ok { return nil }` with no
-// strictness.Fail at all — a SILENT no-op, strictly worse than the loud
-// handling every OTHER registered backend gets (an unregistered engine simply
-// isn't offered isolation; a registered-but-unseedable one fails loud). This
-// closes that gap: XDG_DATA_HOME/XDG_CONFIG_HOME are UNDOCUMENTED opencode
-// behaviour (only OPENCODE_CONFIG/OPENCODE_CONFIG_DIR are documented) — pinned
-// against opencode 1.18.1 by direct interrogation of its compiled binary
-// (`process.env.XDG_DATA_HOME` read directly, joined with "opencode" then
-// "auth.json"/"mcp-auth.json") and confirmed live: an isolated `opencode auth
-// list` under a fresh scratch HOME + XDG_DATA_HOME pointed at a seeded
-// auth.json printed the RELOCATED path and "1 credentials" (OpenRouter),
-// where the same command against an unseeded scratch XDG_DATA_HOME printed
-// "0 credentials" — the exact experiment the task brief ran. Must be
-// re-verified on any opencode upgrade; this is not a vendor-documented
-// contract.
-// =============================================================================
-
-// writeOpencodeAuth writes a host ~/.local/share/opencode/auth.json (and,
-// when withMcpAuth, a sibling mcp-auth.json — confirmed to live in the SAME
-// directory by the same join(Path.data, ...) call in opencode's own binary)
-// under home.
-func writeOpencodeAuth(t *testing.T, home string, withMcpAuth bool) {
-	t.Helper()
-	dir := filepath.Join(home, ".local", "share", "opencode")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{"openrouter":{"type":"api","key":"sk-or-test"}}`), 0o600))
-	if withMcpAuth {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "mcp-auth.json"), []byte(`{}`), 0o600))
-	}
-}
-
-// TestCredentialSeedSpecs_OpencodeRegistered pins the registry entry itself:
-// keyed by the registered backend name "opencode" (enginespec.go's
-// engineContainerSpecFor uses the same key), OPENROUTER_API_KEY as envTrigger
-// (mirroring resolveOpencodeContainerAuth's container-side trigger — the
-// same var covers both axes), HonoursVarForCreds TRUE — opencode's
-// XDG_DATA_HOME genuinely relocates its credential file, rather than leaving
-// it in a global unrelocatable store — and two HomeVars, neither gated
-// (gating only applies to a HonoursVarForCreds==false spec).
-func TestCredentialSeedSpecs_OpencodeRegistered(t *testing.T) {
-	spec, ok := credentialSeedSpecs["opencode"]
-	require.True(t, ok, "opencode must have a credentialSeedSpec (sunny-saga)")
-	assert.Equal(t, "opencode", spec.engine)
-	assert.Equal(t, "OPENROUTER_API_KEY", spec.envTrigger)
-	assert.True(t, spec.HonoursVarForCreds, "opencode's XDG_DATA_HOME genuinely relocates auth.json, not just config")
-	require.NotNil(t, spec.sourceFiles, "opencode has a copyable auth.json to seed")
-
-	require.Len(t, spec.HomeVars, 2)
-	byVar := map[string]homeVar{}
-	for _, hv := range spec.HomeVars {
-		byVar[hv.EnvVar] = hv
-	}
-	_, hasConfig := byVar["XDG_CONFIG_HOME"]
-	_, hasData := byVar["XDG_DATA_HOME"]
-	assert.True(t, hasConfig, "XDG_CONFIG_HOME must be one of opencode's HomeVars")
-	assert.True(t, hasData, "XDG_DATA_HOME must be one of opencode's HomeVars")
-	assert.False(t, byVar["XDG_CONFIG_HOME"].GatedOnCreds, "HonoursVarForCreds==true specs are never gated")
-	assert.False(t, byVar["XDG_DATA_HOME"].GatedOnCreds, "HonoursVarForCreds==true specs are never gated")
-}
-
-// TestCredentialSeedSpecs_OpencodeSourceFilesIncludeAuthAndOptionalMcpAuth
-// pins WHICH files opencode's spec copies: auth.json REQUIRED (the file
-// `opencode auth login` writes, and the one this task's live `opencode auth
-// list` proof read back), and mcp-auth.json OPTIONAL — confirmed present in
-// opencode 1.18.1's own binary at the SAME Path.data-joined location as
-// auth.json (MCP server OAuth tokens), but not every user configures an
-// OAuth MCP server, so its absence must never block seeding.
-func TestCredentialSeedSpecs_OpencodeSourceFilesIncludeAuthAndOptionalMcpAuth(t *testing.T) {
-	spec := credentialSeedSpecs["opencode"]
-	files := spec.sourceFiles("/home/u")
-	require.Len(t, files, 2)
-	byName := map[string]seedFile{}
-	for _, f := range files {
-		byName[f.destName] = f
-	}
-	auth, ok := byName["auth.json"]
-	require.True(t, ok)
-	assert.True(t, auth.required, "auth.json is the credential itself — required")
-	assert.Equal(t, filepath.Join("/home/u", ".local", "share", "opencode", "auth.json"), auth.host)
-
-	mcpAuth, ok := byName["mcp-auth.json"]
-	require.True(t, ok)
-	assert.False(t, mcpAuth.required, "mcp-auth.json is optional — not every user has OAuth MCP servers configured")
-	assert.Equal(t, filepath.Join("/home/u", ".local", "share", "opencode", "mcp-auth.json"), mcpAuth.host)
-}
-
-// TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode is the
-// PAYLOAD-asserting regression test: the seeded auth.json
-// must land NOT at <configHome>/xdg-data/auth.json but at
-// <configHome>/xdg-data/opencode/auth.json — the exact path opencode itself
-// resolves ($XDG_DATA_HOME + "/opencode/auth.json"). If the destSubdir
-// nesting were wrong, Env()'s XDG_DATA_HOME and opencode's own resolution
-// would disagree, and an isolated agent would silently see no credentials —
-// exactly the failure mode a bare exit-code check would miss.
-func TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode(t *testing.T) {
-	home := withFakeHome(t)
-	t.Setenv("OPENROUTER_API_KEY", "")
-	writeOpencodeAuth(t, home, true)
-	dest := t.TempDir()
-
-	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest, nil)
-	require.NoError(t, err)
-	assert.Equal(t, seedOK, result)
-
-	xdgDataHome := filepath.Join(dest, "xdg-data") // the HomeVar's own Subdir
-	wantAuth, err := os.ReadFile(filepath.Join(home, ".local", "share", "opencode", "auth.json"))
-	require.NoError(t, err)
-	gotAuth, err := os.ReadFile(filepath.Join(xdgDataHome, "opencode", "auth.json"))
-	require.NoError(t, err, "auth.json must exist at $XDG_DATA_HOME/opencode/auth.json — opencode's OWN resolution path")
-	assert.Equal(t, wantAuth, gotAuth, "seeded bytes must be byte-identical to the host source")
-
-	info, err := os.Stat(filepath.Join(xdgDataHome, "opencode", "auth.json"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
-
-	wantMcp, err := os.ReadFile(filepath.Join(home, ".local", "share", "opencode", "mcp-auth.json"))
-	require.NoError(t, err)
-	gotMcp, err := os.ReadFile(filepath.Join(xdgDataHome, "opencode", "mcp-auth.json"))
-	require.NoError(t, err, "mcp-auth.json rides along at the same directory as auth.json")
-	assert.Equal(t, wantMcp, gotMcp)
-}
-
-// TestHostCredentialSeed_OpencodeMcpAuthOptionalAbsence: no mcp-auth.json on
-// the host (the common case — most users have not configured an OAuth MCP
-// server) still seeds OK off auth.json alone.
-func TestHostCredentialSeed_OpencodeMcpAuthOptionalAbsence(t *testing.T) {
-	home := withFakeHome(t)
-	t.Setenv("OPENROUTER_API_KEY", "")
-	writeOpencodeAuth(t, home, false) // no mcp-auth.json
-	dest := t.TempDir()
-
-	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest, nil)
-	require.NoError(t, err)
-	assert.Equal(t, seedOK, result)
-	assert.FileExists(t, filepath.Join(dest, "xdg-data", "opencode", "auth.json"))
-	assert.NoFileExists(t, filepath.Join(dest, "xdg-data", "opencode", "mcp-auth.json"))
-}
-
-// TestHostCredentialSeed_OpencodeSkipsWhenOpenrouterKeySet: OPENROUTER_API_KEY
-// present → seeding is skipped entirely, mirroring
-// resolveOpencodeContainerAuth's authEnv precedence — even with no host
-// auth.json at all, this is NOT the fail-loud case, and no seed dir is created.
-func TestHostCredentialSeed_OpencodeSkipsWhenOpenrouterKeySet(t *testing.T) {
-	withFakeHome(t) // no opencode auth on disk
-	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
-	dest := t.TempDir()
-
-	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest, nil)
-	require.NoError(t, err)
-	assert.Equal(t, seedSkippedEnv, result)
-	assert.NoDirExists(t, filepath.Join(dest, "xdg-data"))
-}
-
-// TestHostCredentialSeed_OpencodeNoSourceReturnsNoSourceNotError: no
-// OPENROUTER_API_KEY and no host auth.json → seedNoSource — the fail-loud case
-// the CALLER (worktree.go's seedCredentials) turns into a strictness.Fail. This
-// is the exact silent no-op this spec exists to close: before it was
-// registered, an unregistered "opencode" backend made seedCredentials
-// short-circuit with no finding recorded at all.
-func TestHostCredentialSeed_OpencodeNoSourceReturnsNoSourceNotError(t *testing.T) {
-	withFakeHome(t) // empty fake home — no opencode auth at all
-	t.Setenv("OPENROUTER_API_KEY", "")
-	dest := t.TempDir()
-
-	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest, nil)
-	require.NoError(t, err)
-	assert.Equal(t, seedNoSource, result)
-}
-
 // TestFileExists pins this package's copy of the "existing regular file"
 // predicate; see internal/cli's TestFileExists for why all three verbatim
 // copies are pinned separately rather than compared to each other.
@@ -842,7 +564,7 @@ func TestHostCredentialSeed_TightensAPreExistingSeedDir(t *testing.T) {
 // TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced pins a
 // regression. An unresolvable host HOME was folded into seedNoSource with the
 // error discarded, so a genuine environment fault reached the user as the
-// caller's "no credentials found to authenticate this run — run `codex login`"
+// caller's "no credentials found to authenticate this run — run `<engine> login`"
 // — advice that cannot possibly help, for a cause never named.
 //
 // The RESULT deliberately stays seedNoSource with no hard error: an existing

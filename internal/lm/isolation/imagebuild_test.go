@@ -211,10 +211,12 @@ func TestBuildSources_MockIsComposable(t *testing.T) {
 func TestComposeAgentContainerfile_ExactlyOneEngineStage(t *testing.T) {
 	// Every other engine's PROOF-OF-PRESENCE string, so a stray fragment is
 	// caught by what it installs rather than by a comment we control.
+	// Only engines that still EXIST belong here: a proof string for a deleted
+	// engine can never appear in any containerfile, so asserting its absence
+	// is satisfied for free and gates nothing.
 	others := map[string][]string{
 		"claude-code": {"claude --version"},
-		"codex":       {"codex --version"},
-		"opencode":    {"opencode --version"},
+		"mock":        {"cat --version"},
 	}
 	for _, engine := range composableEngines() {
 		t.Run(engine, func(t *testing.T) {

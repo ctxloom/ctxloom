@@ -318,4 +318,3 @@ func (b *ClaudeCode) spawnChatTransport(ctx context.Context, args []string, env 
 		},
 	}, nil
 }
-

@@ -84,7 +84,6 @@ func TestNonPlanModesEmitNoGrant(t *testing.T) {
 	}
 }
 
-
 func grantedTools(t *testing.T, args []string) []string {
 	t.Helper()
 	i := indexOf(args, flagAllowedTools)

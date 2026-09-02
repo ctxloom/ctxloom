@@ -10,8 +10,6 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
-	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 )
@@ -64,7 +62,7 @@ func (MockConfig) BackendType() string { return "mock" }
 // assertion instead of a concrete-type switch — internal/operations may not
 // import engine plugin packages directly (ADR-0026), and MockConfig lives in
 // internal/lm/backends itself (the injected seam), not an engine plugin, but
-// keeps the same accessor shape as ClaudeConfig/CodexConfig for one uniform
+// keeps the same accessor shape as ClaudeConfig for one uniform
 // call in LLMEnvFor.
 func (c MockConfig) GetEnv() map[string]string { return c.Env }
 
@@ -152,17 +150,13 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 // engine's own global-config isolation knob. Sourced from each engine
 // package's own exported env-var constant (this package already imports
 // the engine packages directly in registry.go, so no cycle) rather
-// than re-typed literals, so a roster gap like the one this doc used to
-// carry — opencode's XDG_CONFIG_HOME/XDG_DATA_HOME were missing despite this
-// comment claiming to mirror EnvWorkspace — cannot recur silently.
+// than re-typed literals, so a roster gap between this list and the env vars
+// EnvWorkspace actually threads cannot recur silently.
 // tests/arch's engine-layout gate pins this roster equal to the full set of
 // env vars internal/lm/isolation's credentialSeedSpecs HomeVars name across
 // every engine.
 var configHomeEnvKeys = []string{
 	claude.ConfigDirEnv,
-	codex.CodexHomeEnv,
-	opencode.XDGConfigHomeEnv,
-	opencode.XDGDataHomeEnv,
 }
 
 // ConfigHomeEnvKeys returns a copy of configHomeEnvKeys, exported read-only

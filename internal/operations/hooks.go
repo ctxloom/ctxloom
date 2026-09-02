@@ -561,6 +561,20 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []config.B
 	uniqueFragments := dedupeFragmentRefs(allFragments)
 	orderedRefs := sortFragmentsByPriority(uniqueFragments)
 
+	// The SAME premise filter AssembleContext applies. A premised fragment is
+	// CONDITIONAL: it is withheld from unconditional assembly and offered to
+	// the agent to ask for by name. Injecting it here would deliver, at
+	// SessionStart and unconditionally, the exact content the mechanism exists
+	// to hold back.
+	//
+	// Nothing is "requested" on this path -- it regenerates the default
+	// agent's context with no per-call selection -- so the explicit set is
+	// empty and every premised fragment is withheld. The index it builds has
+	// nowhere to go: this function returns a content HASH for a file, and the
+	// offer is structured data (AssembleContextResult.PremiseIndex) that the
+	// context file has no place to carry.
+	premises := newPremiseFilter(nil)
+
 	// The SAME ingest accumulator AssembleContext uses, for the same reason:
 	// this function has two routes into one context (loader-resolved here,
 	// injected builtins below) and only one of them may deliver a given piece
@@ -571,6 +585,12 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []config.B
 		content, err := loadFragmentRef(pipe, ref)
 		if err != nil {
 			warnFragmentLoadFailure(ref, err)
+			continue
+		}
+		// Withheld is NOT a load failure and must not warn like one: it loaded
+		// fine and is conditional. Keyed on ref.Name, the canonical qualified
+		// ref, which is what AssembleContext withholds on too.
+		if premises.withhold(ref.Name, content.Premise) {
 			continue
 		}
 		// Ref is the canonical item ref (identity); Name is the reporting name

@@ -2630,6 +2630,27 @@ func (c *Config) remoteBundleReaders() []bundles.Reader {
 	if len(c.appPaths) == 0 {
 		return nil
 	}
+	// PINS RIDE A PROJECT, NEVER HOME. When findAppDir fell back to
+	// ~/.ctxloom there is no project, and a lockfile there pins a closure
+	// nothing declares — home config carries settings (llm configs,
+	// delegation), not bundles or profiles.
+	//
+	// This is not symmetry with the config chain, and deliberately so: config
+	// LAYERS because settings merge sensibly, but two dependency closures do
+	// not merge — their union is a set neither side asked for. So home may
+	// supply CONFIG; only a project supplies a CLOSURE.
+	//
+	// It is also the only way this state can stay true. `deps` writes at
+	// project scope and would never revisit a home lock, so a home lock is
+	// read-but-never-written — and that always rots. The one on this machine
+	// pinned 33 bundles against ZERO declarations for six weeks, until both
+	// pinned revisions stopped parsing against the current bundle schema and
+	// every project-less launch aborted on findings no supported command
+	// could clear. Refusing to read it here is what makes the reader agree
+	// with `deps check`, which already reports nothing installed there.
+	if c.source == SourceHome {
+		return nil
+	}
 	baseDir := c.appPaths[0]
 
 	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), c.registryFSOptions()...)

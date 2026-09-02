@@ -42,7 +42,7 @@ const (
 	j002000Marker = "J002000-TEAM-GUIDANCE-MARKER"
 
 	j002000OldEngine = "claude-code"
-	j002000NewEngine = "codex"
+	j002000NewEngine = "mock"
 
 	// j002000Agent is the binding the whole team runs through — the thing the
 	// switch is performed ON.
@@ -50,9 +50,9 @@ const (
 
 	// j002000HookCommand is the team's session_end hook — real config the switch
 	// actually costs something against. claude-code (the old engine) carries
-	// session_end; codex (the new one) has no native session-end event
-	// (codex.NoSessionEndReason), so this is what "what did the team just
-	// give up" measures concretely.
+	// session_end; the new engine declares no hook surface at all (its
+	// noHooksReason), so this is what "what did the team just give up"
+	// measures concretely.
 	j002000HookCommand = "echo j002000-session-end"
 )
 
@@ -118,15 +118,20 @@ func j002000Materialize(w *World, engine string) (string, error) {
 		return "", err
 	}
 	// Each engine reads its own filename; the whole point of P1 is that the
-	// same composed context lands in each engine's own idiom.
-	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
-		if body, err := w.env.ReadFile(filepath.Join(target, name)); err == nil {
-			w.docStepMaterialized = body
-			return body, nil
-		}
+	// same composed context lands in each engine's own idiom. The per-engine
+	// path table has a single owner (engineContextRelPath) — a second copy
+	// here would drift from it.
+	rel, err := engineContextRelPath(target, engine)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("materializing for %s wrote neither AGENTS.md nor CLAUDE.md into %s; ctxloom reported:\n%s",
-		engine, target, w.env.LastOutput())
+	body, err := w.env.ReadFile(rel)
+	if err != nil {
+		return "", fmt.Errorf("materializing for %s wrote no %s; ctxloom reported:\n%s",
+			engine, rel, w.env.LastOutput())
+	}
+	w.docStepMaterialized = body
+	return body, nil
 }
 
 // j002000ConfigSaysEngine reads the llm label actually recorded for the agent in

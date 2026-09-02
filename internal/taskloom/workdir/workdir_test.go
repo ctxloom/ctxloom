@@ -96,14 +96,23 @@ func TestHoming_WorktreeRedirectAppliesInBothModes(t *testing.T) {
 	assert.Equal(t, filepath.Join(mainRoot, paths.RepoDirName, paths.RepoTasksFileName), mainRepoLog)
 }
 
-// TestResolve_WorktreeWithOwnCtxloomStaysSeparate is the opt-out: a linked
-// worktree that carries its own .ctxloom (e.g. `ctxloom init` run there) is a
-// deliberately separate project and must resolve to ITSELF, not the primary
-// checkout.
-func TestResolve_WorktreeWithOwnCtxloomStaysSeparate(t *testing.T) {
+// TestResolve_WorktreeWithOwnProjectIDStaysSeparate is the opt-out at THIS
+// tier: a linked worktree carrying its own project-id MARKER has had an
+// explicit `ctxloom init` run in it, is a deliberately separate project, and
+// must resolve to ITSELF rather than the primary checkout.
+//
+// The marker file is what carries the intent, not the .ctxloom DIRECTORY.
+// .ctxloom is routinely committed (profiles/ and content/ are tracked), so
+// `git worktree add` alone materializes one in every linked worktree of every
+// config-committing project; keying the opt-out on the directory made each of
+// those mint a brand-new empty project in silence. projectroot's
+// TestTaskStoreRoot_CommittedCtxloomIsNotAnOptOut pins that same distinction
+// one tier down.
+func TestResolve_WorktreeWithOwnProjectIDStaysSeparate(t *testing.T) {
 	taskstest.Isolate(t)
 	_, linked := taskstest.RealGitWorktreeFixture(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(linked, ".ctxloom"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(linked, ".ctxloom", "project-id"), []byte("own-proj\n"), 0o644))
 
 	taskstest.ChangeDir(t, linked)
 	root, found, err := ResolveBoundary()

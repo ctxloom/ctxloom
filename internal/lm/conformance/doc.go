@@ -1,7 +1,6 @@
 // Package conformance holds the cross-agent equity suite: table-driven tests
-// asserting TWO of the repo's four agent.SettingsWriter implementations —
-// claude-code and codex, the only ones agentCases()
-// (conformance_test.go) currently lists — honor the shared contract:
+// asserting that the agent.SettingsWriter implementations agentCases()
+// (conformance_test.go) lists honor the shared contract:
 // fault-tolerant load (refuse rather than overwrite unparseable prior
 // settings), atomic write + backup, hook-event REACH, MCP auto-register, and
 // managed removal that preserves the user's own settings.
@@ -14,16 +13,14 @@
 // attachment needs per-agent format knowledge, which is exactly what this
 // suite refuses to hold, and is asserted where that knowledge lives: the
 // per-agent tests (claude/hooks_wire_test.go, claude/surfacedelivery_test.go,
-// codex/settings_test.go). This sentence used
+// and each other engine's own settings tests). This sentence used
 // to say "full hook-event coverage", which reads as the stronger claim.
 //
-// opencode and kiro also implement agent.SettingsWriter and are DELIBERATELY
-// absent, each for its own structural reason spelled out at agentCases'
-// definition — not because nobody got around to adding them.
-// This sentence used to read "every supported agent's SettingsWriter", which
-// was true when written but stopped being true once opencode/kiro shipped;
-// say "two" here, not "every", so this comment cannot silently drift back
-// into overclaiming coverage the suite does not have.
+// An agent.SettingsWriter implementation may be DELIBERATELY absent for a
+// structural reason spelled out at agentCases' definition — not because nobody
+// got around to adding it. Say what agentCases lists, never "every supported
+// agent", so this comment cannot silently drift back into overclaiming
+// coverage the suite does not have.
 //
 // The tests are gated behind the `conformance` build tag (see
 // conformance_test.go) so they never run in the default `go test ./...` that

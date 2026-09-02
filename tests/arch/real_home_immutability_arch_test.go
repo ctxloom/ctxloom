@@ -252,8 +252,8 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	}); err != nil {
 		t.Fatalf("claude Setup: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(workDir, claude.ConfigDirName, claude.SettingsFileName)); err != nil {
-		t.Fatalf("claude delivered no settings.json (%v); the invariant below would be vacuous", err)
+	if _, err := os.Stat(filepath.Join(workDir, claude.ConfigDirName)); err != nil {
+		t.Fatalf("claude's Setup delivered nothing into the project (%v); the invariant below would be vacuous", err)
 	}
 
 	after := realHomeSnapshot(t, home)

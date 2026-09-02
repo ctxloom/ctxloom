@@ -109,8 +109,6 @@ func loadCuratedSkills(pipe *bundles.Pipeline, refs []string) []*bundles.LoadedS
 func forceExportSkill(ls *bundles.LoadedSkill) *bundles.LoadedSkill {
 	on := true
 	ls.LLM.ClaudeCode.Enabled = &on
-	ls.LLM.Codex.Enabled = &on
-	ls.LLM.Opencode.Enabled = &on
 	return ls
 }
 
@@ -137,16 +135,6 @@ func buildSkillExports(skills []*bundles.LoadedSkill, pick func(*bundles.LoadedS
 // claudeSkillExports resolves claude-code's per-skill enablement.
 func claudeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
 	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.ClaudeCode.IsEnabled() })
-}
-
-// codexSkillExports resolves codex's per-skill enablement (Part B4).
-func codexSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Codex.IsEnabled() })
-}
-
-// opencodeSkillExports resolves opencode's per-skill enablement (Part B4).
-func opencodeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Opencode.IsEnabled() })
 }
 
 // mockSkillExports resolves the mock engine's per-skill enablement: every

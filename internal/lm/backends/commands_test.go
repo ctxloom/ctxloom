@@ -44,18 +44,23 @@ func TestBuiltinCommands_RealResourcesLoad(t *testing.T) {
 
 // forceExport must force-enable a curated command for EVERY engine with a
 // per-prompt opt-out flag. Before the fix, a bundle that set
-// `opencode: {enabled: false}` on a prompt a profile explicitly curates via
+// `<engine>: {enabled: false}` on a prompt a profile explicitly curates via
 // `commands:` still exported nothing for that engine — contradicting
 // forceExport's own doc ("the per-prompt opt-out flag is overridden").
 // forceExportSkill (skillfiles.go) is its skill-side twin and must match.
+//
+// NOTE ON REACH: one engine declares a per-prompt opt-out today, so "every
+// engine" is currently one row. A second engine's field belongs here the day
+// it exists — the bug this pins was precisely a per-engine field the loop
+// forgot.
 func TestForceExport_EnablesEveryEngine(t *testing.T) {
 	off := false
 	c := &bundles.LoadedContent{Name: "x", Content: "body"}
-	c.LLM.Opencode.Enabled = &off
+	c.LLM.ClaudeCode.Enabled = &off
 
 	forceExport(c)
 
-	assert.True(t, c.LLM.Opencode.IsEnabled(), "forceExport must override opencode's opt-out, like every other engine")
+	assert.True(t, c.LLM.ClaudeCode.IsEnabled(), "forceExport must override the per-prompt opt-out")
 }
 
 // LoadCommandExports(nil, ...) must not panic. Before the fix, it

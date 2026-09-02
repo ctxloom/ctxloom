@@ -320,10 +320,10 @@ func skillFilePerm(m content.ComponentMode) os.FileMode {
 // internal/bundles' four near-identical per-engine structs. An engine absent
 // from the map is left zero; nothing is invented.
 //
-// It carries exactly the fields commandExports carries, no more. Codex's
-// ArgumentHint is the one field bundles declares and the forward mapping drops,
-// so reading it back here would invent a value the tree never held — the
-// asymmetry belongs in commandExports, where the field is lost, not here.
+// It carries exactly the fields commandExports carries, no more: a field an
+// engine declares that the forward mapping drops must not be read back here,
+// or this would invent a value the tree never held — that asymmetry belongs in
+// commandExports, where the field is lost, not here.
 func commandLLM(e content.EngineExports) LLMExports {
 	var out LLMExports
 	if x, ok := e.For("claude-code"); ok {
@@ -331,12 +331,6 @@ func commandLLM(e content.EngineExports) LLMExports {
 			Enabled: x.Enabled, Description: x.Description,
 			ArgumentHint: x.ArgumentHint, AllowedTools: x.AllowedTools, Model: x.Model,
 		}
-	}
-	if x, ok := e.For("codex"); ok {
-		out.Codex = CodexConfig{Enabled: x.Enabled, Description: x.Description}
-	}
-	if x, ok := e.For("opencode"); ok {
-		out.Opencode = OpencodeConfig{Enabled: x.Enabled, Description: x.Description}
 	}
 	return out
 }
@@ -350,8 +344,6 @@ func skillLLM(e content.EngineExports) SkillLLMExports {
 		}
 	}
 	set(&out.ClaudeCode, "claude-code")
-	set(&out.Codex, "codex")
-	set(&out.Opencode, "opencode")
 	return out
 }
 

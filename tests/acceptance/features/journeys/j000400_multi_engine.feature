@@ -12,8 +12,8 @@ Feature: One shared profile, reaching every engine in its own native format
 
   The engines do NOT converge on one shape, and this is not incidental —
   it is the whole point of proving it here rather than asserting it in prose.
-  Verified straight from each engine's own surfaces.go
-  (internal/{claude,codex}/surfaces.go):
+  Verified straight from each engine's own surfaces declaration
+  (each engine package's surfaces.go, plus backends/mock_surfaces.go):
 
     | engine      | context lands in                                          | MCP lands in                              | hooks land in                | commands land in                   |
     |-------------|-------------------------------------------------------------|----------------------------------------------|-------------------------------|--------------------------------------|

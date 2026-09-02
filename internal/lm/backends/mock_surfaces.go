@@ -159,8 +159,9 @@ func newMockSkillsSurface(skills []agent.SkillExport, fs afero.Fs) *agent.Manage
 
 // mockContextPresenter composes mock's context surface: the well-known
 // MOCK_CONTEXT.md at the target dir's root. It roots UnderProjectRoot, never
-// UnderEngineHome — mock has no out-of-cwd redirect, matching codex/
-// opencode (claude is the one backend with an out-of-cwd scratch conversion).
+// UnderEngineHome — mock has no out-of-cwd redirect. claude is the one shipped
+// backend that does convert to an out-of-cwd scratch, which is what this
+// contrast exists to state.
 func mockContextPresenter(s present.Start) present.Presentation {
 	return s.UnderProjectRoot(mockContextFilename).Build()
 }

@@ -1,10 +1,12 @@
 package backends
 
 import (
+	"sort"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -21,10 +23,32 @@ var allSurfaceKinds = []agent.SurfaceKind{
 	agent.SurfaceKind(99),
 }
 
-// nativeSurfaceBackends is every registered backend whose real (non-Empty)
-// SurfaceSet has its SupportedApproaches/DefaultApproach pair served by the
-// shared agent.TableDispatch carrier.
-var nativeSurfaceBackends = []string{"claude-code", "codex", "opencode"}
+// nativeSurfaceBackends is every registered backend with a REAL (non-Empty)
+// SurfaceSet — exactly the backends BuildSurfaces answers with something other
+// than agent.EmptySurfaceSet, which is the same `newSurfaces != nil` predicate
+// BuildSurfaces itself branches on.
+//
+// DERIVED from the registry rather than listed. A hand-written roster of engine
+// names silently stops covering a backend the moment one is added, and silently
+// names a backend that no longer exists the moment one is deleted — the second
+// of which is how this list came to name two removed engines while still
+// reading as an authority. Deriving it means a backend cannot enter or leave
+// the registry without entering or leaving this gate with it.
+// It takes t and refuses an EMPTY result on purpose: every caller ranges over
+// it, so a derivation that silently returned nothing would run zero subtests
+// and report a confident pass having gated no backend at all.
+func nativeSurfaceBackends(t *testing.T) []string {
+	t.Helper()
+	var names []string
+	for name, d := range descriptors {
+		if d.newSurfaces != nil {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	require.NotEmpty(t, names, "no registered backend has a real SurfaceSet; this gate would range over nothing")
+	return names
+}
 
 // TestApproachDispatch_DefaultIsFirstSupported is the parity gate for
 // approach dispatch.
@@ -42,7 +66,7 @@ var nativeSurfaceBackends = []string{"claude-code", "codex", "opencode"}
 // agent.SurfaceSet interface, not against any backend's concrete Surfaces, so it
 // keeps gating a backend added later.
 func TestApproachDispatch_DefaultIsFirstSupported(t *testing.T) {
-	for _, name := range nativeSurfaceBackends {
+	for _, name := range nativeSurfaceBackends(t) {
 		t.Run(name, func(t *testing.T) {
 			set := BuildSurfaces(name, agent.SurfaceInputs{Context: "ctx"}, afero.NewMemMapFs())
 
@@ -71,7 +95,7 @@ func TestApproachDispatch_DefaultIsFirstSupported(t *testing.T) {
 // silent-no-op shape — Build() accepts the selection and the delivery writes
 // nothing.
 func TestApproachDispatch_SupportedIsResolvable(t *testing.T) {
-	for _, name := range nativeSurfaceBackends {
+	for _, name := range nativeSurfaceBackends(t) {
 		t.Run(name, func(t *testing.T) {
 			set := BuildSurfaces(name, agent.SurfaceInputs{Context: "ctx"}, afero.NewMemMapFs())
 			for _, kind := range allSurfaceKinds {

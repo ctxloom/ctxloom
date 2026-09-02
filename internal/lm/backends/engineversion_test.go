@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The three `--version` output shapes MEASURED on this project's dev host.
-// They are three genuinely different shapes — version-first, name-first,
-// bare — which is why per-engine parsing lives in the descriptor and not in
-// one shared regex. If a future refactor collapses them, this table is the
-// evidence that it cannot be done.
+// The `--version` output shape MEASURED on this project's dev host, per engine
+// that can be asked. Per-engine parsing lives in the descriptor rather than in
+// one shared regex because the shapes genuinely differ — version-first,
+// name-first, bare — and TestVersionParsers_RefuseAShapeItDoesNotOwn is what
+// keeps a parser from drifting into accepting a shape it does not own.
 func TestVersionParsers_MatchMeasuredEngineOutput(t *testing.T) {
 	cases := []struct {
 		engine string
@@ -19,8 +19,6 @@ func TestVersionParsers_MatchMeasuredEngineOutput(t *testing.T) {
 		want   string
 	}{
 		{"claude-code", "2.1.225 (Claude Code)", "2.1.225"}, // version first, name in parentheses
-		{"codex", "codex-cli 0.144.4", "0.144.4"},           // name first, then version
-		{"opencode", "1.18.4", "1.18.4"},                    // bare version
 	}
 	for _, tc := range cases {
 		t.Run(tc.engine, func(t *testing.T) {
@@ -35,22 +33,23 @@ func TestVersionParsers_MatchMeasuredEngineOutput(t *testing.T) {
 	}
 }
 
-// Each engine's parser must REFUSE the other engines' shapes. This is what
-// stops a "close enough" parser from quietly picking up the wrong token — a
-// codex parser applied to claude's output would return "(Claude", and a claude
-// parser applied to codex's would return "codex-cli", both of which are then
-// carried into the session index as if they were versions.
-func TestVersionParsers_RefuseAnotherEnginesShape(t *testing.T) {
+// A parser must REFUSE a shape it does not own. This is what stops a "close
+// enough" parser from quietly picking up the wrong token: a version-first
+// parser turned loose on a NAME-first banner would return the name
+// ("codex-cli"), which is then carried into the session index as if it were a
+// version — wrong, and silently so.
+//
+// The banner literals here are just strings; they do not require the engines
+// that once emitted them to be registered.
+func TestVersionParsers_RefuseAShapeItDoesNotOwn(t *testing.T) {
 	claude, ok := VersionCommandFor("claude-code")
-	require.True(t, ok)
-	codex, ok := VersionCommandFor("codex")
 	require.True(t, ok)
 
 	_, err := claude.Parse("codex-cli 0.144.4")
-	assert.Error(t, err, "claude's version-first parser must refuse codex's name-first banner")
+	assert.Error(t, err, "a version-first parser must refuse a name-first banner rather than return the name")
 
-	_, err = codex.Parse("2.1.225 (Claude Code)")
-	assert.Error(t, err, "codex's name-first parser must refuse claude's version-first banner")
+	_, err = claude.Parse("garbage")
+	assert.Error(t, err, "a non-version token must be refused, never returned as a version")
 }
 
 // Every engine whose vendor transcripts ctxloom READS must be askable for its
@@ -60,7 +59,7 @@ func TestVersionParsers_RefuseAnotherEnginesShape(t *testing.T) {
 // pins); this test states the requirement where the descriptors live so a new
 // engine cannot be added without one.
 func TestVersionCommands_DeclaredForEveryVendorReaderEngine(t *testing.T) {
-	for _, engine := range []string{"claude-code", "codex"} {
+	for _, engine := range []string{"claude-code"} {
 		cmd, ok := VersionCommandFor(engine)
 		assert.True(t, ok, "%s reads a vendor transcript, so it must declare a version command", engine)
 		if ok {

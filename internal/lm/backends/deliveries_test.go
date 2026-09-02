@@ -28,7 +28,7 @@ import (
 // A backend that silently resolves to nothing is exactly the silent-no-op shape
 // (exit 0, success, zero bytes) the raw path's absence must not reintroduce.
 func TestDeliveries_ResolvedSelectionMaterializesEverySurface(t *testing.T) {
-	for _, name := range nativeSurfaceBackends {
+	for _, name := range nativeSurfaceBackends(t) {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
 			root := "/cell"

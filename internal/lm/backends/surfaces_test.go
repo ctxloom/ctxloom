@@ -72,26 +72,36 @@ func TestBuildSurfaces_Claude(t *testing.T) {
 	assert.Len(t, resolved.Deliveries(), 5, "claude has context + MCP + settings + commands + skills surfaces")
 }
 
-// TestBuildSurfaces_CodexNoNativeContextFile pins the codex opt-out invariant
-// through the delivery seam: materializing codex writes only its config/cache
-// surfaces — never a native context file (no CLAUDE.md, no AGENTS.md), which is
-// what makes codex correct by CONSTRUCTION rather than by an orchestrator special
-// case. contextHash "" is preserved by passing an empty (non-injecting) hook set.
-func TestBuildSurfaces_CodexNoNativeContextFile(t *testing.T) {
+// TestBuildSurfaces_WritesOnlyItsOwnNativeContextFile pins, through the
+// delivery seam, that a backend's context surface lands on ITS OWN well-known
+// file and never on another engine's — correct by CONSTRUCTION rather than by
+// an orchestrator special case. contextHash "" is preserved by passing an empty
+// (non-injecting) hook set.
+//
+// It asserts the POSITIVE first, and that ordering is the point: an assertion
+// that some other engine's file is absent is satisfied for free by a backend
+// that delivered nothing at all, so the absence half only means something once
+// the delivery is known to have happened.
+func TestBuildSurfaces_WritesOnlyItsOwnNativeContextFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	set := BuildSurfaces("codex", agent.SurfaceInputs{
+	set := BuildSurfaces("mock", agent.SurfaceInputs{
 		Context:   "assembled context",
 		Hooks:     &wire.HooksConfig{},
 		BundleMCP: map[string]wire.MCPServer{},
 	}, fs)
 	_, _, errs := agent.Select(set).WithEverything().DeliverUnder(dir)
-	require.Empty(t, errs, "codex surfaces deliver cleanly")
+	require.Empty(t, errs, "mock surfaces deliver cleanly")
 
-	for _, native := range []string{"CLAUDE.md", filepath.Join(".agents", "AGENTS.md")} {
-		exists, _ := afero.Exists(fs, filepath.Join(dir, native))
-		assert.False(t, exists, "codex must not write a native context file (%s)", native)
+	own, err := afero.ReadFile(fs, filepath.Join(dir, "MOCK_CONTEXT.md"))
+	require.NoError(t, err, "mock's context surface must write its own well-known file")
+	assert.Contains(t, string(own), "assembled context",
+		"the delivered file must carry the assembled context, not merely exist")
+
+	for _, foreign := range []string{"CLAUDE.md", filepath.Join(".agents", "AGENTS.md")} {
+		exists, _ := afero.Exists(fs, filepath.Join(dir, foreign))
+		assert.False(t, exists, "a backend must not write another engine's native context file (%s)", foreign)
 	}
 }

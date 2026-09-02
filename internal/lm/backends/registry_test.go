@@ -21,14 +21,19 @@ func TestRegistry_GetBuiltinBackends(t *testing.T) {
 	// Every supported backend must be registered for `ctxloom run` to work
 	builtinNames := []string{
 		"claude-code",
-		"codex",
 		"mock",
 	}
 
 	for _, name := range builtinNames {
 		t.Run(name, func(t *testing.T) {
 			backend := Get(name)
-			assert.NotNil(t, backend)
+			// require, not assert: Get returns a nil INTERFACE for an
+			// unregistered name, so an assert here continues into
+			// backend.Name() and panics — which aborts the whole test binary
+			// and silently cancels every test declared after this one. That is
+			// exactly how a stale roster here hid unrelated failures in this
+			// package rather than reporting one.
+			require.NotNil(t, backend, "%s must be registered", name)
 			assert.Equal(t, name, backend.Name())
 		})
 	}
@@ -48,11 +53,27 @@ func TestRegistry_Exists(t *testing.T) {
 }
 
 func TestRegistry_List(t *testing.T) {
-	// List enables help output and tab completion
+	// List enables help output and tab completion.
+	//
+	// The expectation is DERIVED from the registry, not a hard-coded floor.
+	// The floor this replaces ("at least 4") was a census of the engines that
+	// happened to exist the day it was written: it went stale the moment the
+	// roster shrank, and until then it constrained nothing about List() that
+	// the roster size did not already decide.
 	names := List()
-	assert.GreaterOrEqual(t, len(names), 4) // At least the builtin backends
 
-	sort.Strings(names)
+	var want []string
+	for name, d := range descriptors {
+		if d.newBackend != nil {
+			want = append(want, name)
+		}
+	}
+	sort.Strings(want)
+	require.NotEmpty(t, want, "no descriptor can construct a backend, so this comparison would be trivially satisfied")
+	assert.Equal(t, want, names,
+		"List() must name every descriptor that can construct a backend, in sorted order, and only those")
+
+	// Concrete anchors, so both sides going empty together cannot pass.
 	assert.Contains(t, names, "claude-code")
 	assert.Contains(t, names, "mock")
 }

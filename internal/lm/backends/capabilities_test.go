@@ -14,10 +14,13 @@ func TestMock_History(t *testing.T) {
 }
 
 // TestEnforcesReadOnlyPlan pins which backends map PermissionPlan to a genuine
-// read-only, non-prompting mode. claude-code (--permission-mode plan) and
-// codex (--sandbox read-only --ask-for-approval never) do.
+// read-only, non-prompting mode. claude-code does, via --permission-mode plan.
+//
+// The mock row is the one that bites: it is REGISTERED and still must report
+// false, so the predicate cannot degrade into "is this backend known?" — which
+// would hand every future backend a read-only guarantee it never implemented.
 func TestEnforcesReadOnlyPlan(t *testing.T) {
 	assert.True(t, EnforcesReadOnlyPlan("claude-code"), "claude enforces read-only plan")
-	assert.True(t, EnforcesReadOnlyPlan("codex"), "codex enforces read-only plan")
+	assert.False(t, EnforcesReadOnlyPlan("mock"), "a registered backend that does not enforce it must not claim it")
 	assert.False(t, EnforcesReadOnlyPlan("unknown"), "unregistered backend cannot enforce anything")
 }

@@ -131,7 +131,10 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 		expected bool
 	}{
 		{"claude-code", "claude-code", true},
-		{"codex", "codex", true},      // config.toml hooks + MCP
+		// A REGISTERED backend with no settings surface at all — a different
+		// case from an unknown name, and the one that catches a factory that
+		// hands back a writer for anything it recognizes.
+		{"mock", "mock", false},
 		{"unknown", "unknown", false}, // Unknown backend
 		{"empty", "", false},          // Empty string
 	}

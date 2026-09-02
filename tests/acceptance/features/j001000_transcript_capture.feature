@@ -1,11 +1,11 @@
 @doc
 Feature: Cross-engine transcript capture — every engine's native log becomes one transcript you own
 
-  You drive whichever engine you like — claude, codex, kiro —
+  You drive whichever engine you like,
   through its own native TUI, and you still keep a durable memory of what
   happened. Each engine writes its conversation into its OWN private,
-  version-unstable session store (claude's project JSONL, codex's rollout
-  JSONL, kiro's sqlite conversations_v2). This journey
+  version-unstable session store (claude's project JSONL, for one). This
+  journey
   is the promise on top of that mess: whatever engine ran, its native log
   becomes ONE canonical transcript ctxloom owns — the same on-disk schema
   (transcript.jsonl, one JSONL Record per line) a live structured/ACP session
@@ -42,7 +42,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #     launching any backend. Every hermetic scenario below builds on exactly
   #     that: seed an index entry whose transcript_path points at a
   #     vendor-native fixture this repo ALREADY ships in-tree
-  #     (internal/transcript/vendorreader/{claude,codex}/testdata/
+  #     (internal/transcript/vendorreader/claude/testdata/
   #     *-fixture.jsonl), then ask for that session's memory. The conversion
   #     (vendorreader.VendorAdapter.Convert) is a PURE file->file transform
   #     through a transcript.Recorder — it spawns no engine — so this is
@@ -50,14 +50,14 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #
   #   * Each recall names its engine explicitly, so the read resolves through
   #     the canonical store rather than through whichever backend the fixture
-  #     project happens to default to. The three reader engines are
+  #     project happens to default to. The reader engines are
   #     retired-scraper backends (grpc.IsRetiredScraperBackend), so a canonical
   #     miss is a clean "nothing captured" that triggers the conversion instead
   #     of a scrape attempt that would mask it.
   #
   #   * The mock backend the suite CAN drive hermetically has NO entry in
-  #     vendorreader.go's vendorReaderRegistry (only claude-code/codex/kiro
-  #     are registered), because it has no vendor-native store to
+  #     vendorreader.go's vendorReaderRegistry, because it has no
+  #     vendor-native store to
   #     read back. That boundary is asserted as its own scenario below rather
   #     than left in this comment.
   #
@@ -67,9 +67,8 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #     registry comment makes this load-bearing on purpose (a harp's oneshot
   #     and interactive lines must not disagree about who wrote them). So a
   #     converted CLAUDE transcript's engine reads "claude-code" (NOT the
-  #     "claude" its package testdata golden happens to show); codex reads
-  #     "codex". The assertions below pin the
-  #     registry name deliberately.
+  #     "claude" its package testdata golden happens to show). The assertions
+  #     below pin the registry name deliberately.
   #
   #   * Canonical filename: transcript.jsonl
   #     (paths.CanonicalTranscriptFileName). Reads resolve via
@@ -136,27 +135,21 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
     And the canonical transcript for "queued-claude-harp" contains no trace of the removed, never-delivered prompt
 
   # The SAME conversion holds for an engine whose vendor store is a bare
-  # per-session file (locateBoundTranscript). codex's shipped golden was
-  # checked: its rollout carries a session line (model gpt-5.5) then
-  # user/tool_use/... turns. The shared step asserts the fixture's own real
-  # turns replayed in seq order.
-  Scenario Outline: A prior <engine> session's own log comes back as the transcript you own
-    Given a recorded "<engine>" session "<harp>" bound to the shipped <engine> vendor-transcript fixture
+  # per-session file (locateBoundTranscript). The shared step asserts the
+  # fixture's own real turns replayed in seq order.
+  # ONE ENGINE, stated as a plain scenario rather than a one-row table: the
+  # vendor-reader roster (operations.VendorReaderEngineNames) has a single
+  # member, so an Outline here would assert a variation it no longer has.
+  # KIRO is absent for a second reason — its conversations_v2 sqlite store is
+  # resolved via a fixed $XDG_DATA_HOME path plus a best-effort enumeration
+  # heuristic, not the index entry's transcript_path, so it cannot be seeded
+  # by the same file-path fixture route this one uses.
+  Scenario: A prior claude session's own log comes back as the transcript you own
+    Given a recorded "claude-code" session "amber-claude-harp" bound to the shipped claude vendor-transcript fixture
     And the compaction LLM is a mock that never compresses
-    When the assistant recovers the memory of session "<harp>"
-    Then the canonical transcript for "<harp>" replays the <engine> fixture's real conversation turns in seq order
-    And every line of the canonical transcript for "<harp>" is stamped engine "<engine>"
-
-    # KIRO is intentionally absent from this table — see deferral (2) in the
-    # honesty block: its conversations_v2 sqlite store is resolved via a fixed
-    # $XDG_DATA_HOME path plus a best-effort enumeration heuristic, not the
-    # index entry's transcript_path, so it cannot be seeded by the same
-    # file-path fixture route this one uses. Its reader path is real
-    # (vendorreader_kiro.go) but needs a real sqlite fixture plus @live-style
-    # setup this journey does not yet own.
-    Examples:
-      | engine      | harp                    |
-      | codex       | amber-codex-harp        |
+    When the assistant recovers the memory of session "amber-claude-harp"
+    Then the canonical transcript for "amber-claude-harp" replays the claude fixture's real conversation turns in seq order
+    And every line of the canonical transcript for "amber-claude-harp" is stamped engine "claude-code"
 
   # "ONE canonical transcript you own", asserted against the failure mode that
   # would break it. A recall of a session that is still being written re-reads
@@ -169,13 +162,13 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   # so identical BYTES would be the wrong invariant to demand, while a doubled
   # record count or a repeated seq is exactly the damage worth catching.
   Scenario: Recovering the same memory twice never doubles the conversation
-    Given a recorded "codex" session "keen-codex-harp" bound to the shipped codex vendor-transcript fixture
+    Given a recorded "claude-code" session "keen-claude-harp" bound to the shipped claude vendor-transcript fixture
     And the compaction LLM is a mock that never compresses
-    When the assistant recovers the memory of session "keen-codex-harp"
-    And I note the conversation the canonical transcript for "keen-codex-harp" holds
-    And the assistant recovers the memory of session "keen-codex-harp"
-    Then the canonical transcript for "keen-codex-harp" still holds exactly that conversation, not a second copy of it
-    And the canonical transcript for "keen-codex-harp" replays the codex fixture's real conversation turns in seq order
+    When the assistant recovers the memory of session "keen-claude-harp"
+    And I note the conversation the canonical transcript for "keen-claude-harp" holds
+    And the assistant recovers the memory of session "keen-claude-harp"
+    Then the canonical transcript for "keen-claude-harp" still holds exactly that conversation, not a second copy of it
+    And the canonical transcript for "keen-claude-harp" replays the claude fixture's real conversation turns in seq order
 
   # THE CAPTURED TRUTH WINS. Loading a FINISHED session serves what ctxloom
   # already captured — the live structured/ACP tee's own record — and never
@@ -224,4 +217,3 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
     Examples:
       | agent       | engine      |
       | Claude      | claude-code |
-      | Codex       | codex       |

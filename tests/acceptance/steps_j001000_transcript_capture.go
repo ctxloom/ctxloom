@@ -61,7 +61,6 @@ func j001000From(w *World) *j001000State {
 // against, never a hand-rolled duplicate.
 var j001000FixtureFile = map[string]string{
 	"claude": filepath.Join("internal", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl"),
-	"codex":  filepath.Join("internal", "transcript", "vendorreader", "codex", "testdata", "rollout-fixture.jsonl"),
 }
 
 // j001000RepoRoot resolves the repo root relative to THIS source file via
@@ -234,18 +233,18 @@ type j001000EngineTurnCheck struct {
 // sentinel. kiro is deliberately absent — see the feature file's own
 // deferral note.
 var j001000EngineTurnChecks = map[string][]j001000EngineTurnCheck{
-	"codex": {
+	"claude": {
 		{"the real user prompt", func(e transcript.EntryPayload) bool {
-			return e.Type == "user" && strings.Contains(e.Content, "Run `echo HELLO_FROM_TOOL_CALL_42` and tell me what it printed.")
+			return e.Type == "user" && strings.Contains(e.Content, "Truthfulness audit (READ-ONLY, no file edits)")
 		}},
-		{"the real exec_command tool call", func(e transcript.EntryPayload) bool {
-			return e.Type == "tool_use" && e.ToolName == "exec_command" && strings.Contains(string(e.ToolInput), "echo HELLO_FROM_TOOL_CALL_42")
+		{"the real reply announcing the search", func(e transcript.EntryPayload) bool {
+			return e.Type == "assistant" && strings.Contains(e.Content, "searching the documentation for claims about trust-gated MCP")
+		}},
+		{"the real Glob tool call", func(e transcript.EntryPayload) bool {
+			return e.Type == "tool_use" && e.ToolName == "Glob" && strings.Contains(string(e.ToolInput), "website/src/content/docs/**/*.md")
 		}},
 		{"the real tool result output", func(e transcript.EntryPayload) bool {
-			return e.Type == "tool_result" && strings.Contains(e.ToolOutput, "HELLO_FROM_TOOL_CALL_42")
-		}},
-		{"the real final reply", func(e transcript.EntryPayload) bool {
-			return e.Type == "assistant" && strings.Contains(e.Content, "HELLO_FROM_TOOL_CALL_42")
+			return e.Type == "tool_result" && strings.Contains(e.ToolOutput, "website/src/content/docs/contributing.md")
 		}},
 	},
 }

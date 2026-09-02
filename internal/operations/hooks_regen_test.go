@@ -158,3 +158,67 @@ func TestUpdateProfile_ValidationFailureIsRejected(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// TestRegenerateContext_WithholdsPremisedFragments pins regenerateContext to
+// the premise filter AssembleContext applies, and it is the same class of bug
+// as TestRegenerateContext_AppliesExcludeFragments above: this path
+// hand-rolls its own copy of the ingest loop, so every selection rule added to
+// AssembleContext has to be added here too or the two silently disagree.
+//
+// A premised fragment is CONDITIONAL — it is withheld from unconditional
+// assembly and offered to the agent to ask for by name. Injecting it at
+// SessionStart delivers, unconditionally, the exact content the mechanism
+// exists to hold back, and it does so on the path the agent never chose. The
+// premise commit added the filter to AssembleContext and never touched this
+// function.
+//
+// It asserts the EFFECT — the bytes of the regenerated context file — and
+// pins BOTH sides of the rule: the premiseless fragment must still be there,
+// so a filter that simply withheld everything cannot pass. The second half
+// asserts the two paths AGREE, which is the invariant regenerateContext's own
+// doc states ("This function's output MUST match AssembleContext").
+func TestRegenerateContext_WithholdsPremisedFragments(t *testing.T) {
+	appDir, workDir := regenTestApp(t)
+	writeRegenBundle(t, appDir, "dev", `version: "1.0"
+fragments:
+  always:
+    tags: ["security"]
+    content: "UNCONDITIONAL-CONTENT"
+  conditional:
+    tags: ["security"]
+    premise: "You are about to remove a worktree."
+    content: "PREMISED-CONTENT"
+`)
+
+	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		"default": {SelectTags: []string{"security"}},
+	}, config.Fixture{
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
+	})
+
+	hash, err := regenerateContext(cfg, workDir, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, hash)
+
+	content, err := agent.ReadContextFile(workDir, hash)
+	require.NoError(t, err)
+	assert.Contains(t, content, "UNCONDITIONAL-CONTENT",
+		"a fragment with no premise applies unconditionally and must still be injected")
+	assert.NotContains(t, content, "PREMISED-CONTENT",
+		"a premised fragment is withheld from unconditional assembly; injecting it at "+
+			"SessionStart delivers the content the premise mechanism exists to hold back")
+
+	// The other half of the invariant: the launch path must reach the same
+	// verdict on the same corpus, and must OFFER what it withheld.
+	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profiles: []string{"default"}})
+	require.NoError(t, err)
+	assert.Contains(t, res.Context, "UNCONDITIONAL-CONTENT")
+	assert.NotContains(t, res.Context, "PREMISED-CONTENT",
+		"AssembleContext is the reference behaviour regenerateContext must match")
+	require.Len(t, res.PremiseIndex, 1,
+		"the withheld fragment must be OFFERED on the launch path, not merely dropped")
+	// The index names the CANONICAL qualified ref, which is also the key the
+	// filter withholds on -- not the bare fragment name.
+	assert.Equal(t, "ctxloom+local:dev#fragments/conditional", res.PremiseIndex[0].Name)
+}

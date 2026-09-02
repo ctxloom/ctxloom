@@ -2408,13 +2408,12 @@ func (c *Config) buildBundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
 	// builtin still reaches the session by injection either way — the two routes
 	// are collapsed by the ingest identity rule, not by the catalog.
 	//
-	// It goes AFTER the project reader, and that is not cosmetic. Loader.FS()
-	// returns the first reader that has a filesystem, and the builtin reader has
-	// one — the EMBEDDED fs. Listing it first made FS() report the embedded
-	// filesystem, so every project skill's trust preimage was derived from a
-	// tree that does not exist there and the skill was silently withheld. That
-	// is precisely the hazard Loader.FS()'s own doc warns about, reached by
-	// reader order alone.
+	// Its position here is NAME precedence only. It once also decided which
+	// filesystem Loader.FS() reported — the builtin reader has one, the
+	// EMBEDDED fs — so listing it first derived every project skill's trust
+	// preimage from a tree that does not exist there and withheld the skill in
+	// silence. bundles.readersFS now selects by provenance instead, so that
+	// failure is no longer reachable by reordering this slice.
 	readers := []bundles.Reader{bundles.NewProjectReader(fsys, c.bundleReaderDirs(), bundles.WithTrustRoot(c.TrustRoot()))}
 	readers = append(readers, bundles.NewBuiltinReader(bundles.WithTrustRoot(c.TrustRoot())))
 	readers = append(readers, c.remoteBundleReaders()...)

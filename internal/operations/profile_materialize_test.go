@@ -436,3 +436,48 @@ func TestMaterializeProfile_SurfaceOverrideChangesWhereContextLands(t *testing.T
 			"context was routed to the hook, so the native context file must not carry the assembled payload")
 	}
 }
+
+// TestResolveMaterializeTarget_ResolvesEveryDeclaredSpellingToTheCanonicalName
+// pins the resolver to agent.CanonicalEngineName rather than to a spelling
+// enumerated here.
+//
+// resolveMaterializeTarget used to carry its own one-entry alias table
+// (`backend == "claude"`), a hand-rolled second copy of agent.engineAliases.
+// That copy got the one spelling it named right and every other declared
+// spelling wrong: "claudecode" is a declared alias and "CLAUDE" differs only
+// in case, and both passed backends.Exists (which canonicalizes internally via
+// lookup) and were then returned VERBATIM as the resolved backend — the name
+// the result reports and the CLI prints.
+//
+// The cases below are therefore not a wish-list: each is a spelling
+// agent.CanonicalEngineName already resolves, so any of them coming back
+// unresolved means this resolver is consulting a private alias table again,
+// which is the duplication CanonicalEngineName's own doc exists to prevent
+// ("One table for the whole repo ... two tables drift").
+func TestResolveMaterializeTarget_ResolvesEveryDeclaredSpellingToTheCanonicalName(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+
+	for _, spelling := range []string{"claude", "claude-code", "claudecode", "CLAUDE", "Claude-Code"} {
+		t.Run(spelling, func(t *testing.T) {
+			got, err := resolveMaterializeTarget(cfg, MaterializeProfileRequest{
+				Target: t.TempDir(), Profiles: []string{"p"}, Backend: spelling,
+			})
+			require.NoError(t, err, "%q is a declared spelling of a registered backend and must resolve", spelling)
+			assert.Equal(t, agent.CanonicalEngineName(spelling), got,
+				"resolved backend must be the canonical name, not the caller's spelling: "+
+					"it is what the result reports, what the CLI prints, and what every "+
+					"backends.* lookup is keyed on")
+		})
+	}
+
+	// The empty request still means the default, which must itself be
+	// canonical — a non-canonical default would make every unqualified
+	// materialize report a name no registry key matches.
+	got, err := resolveMaterializeTarget(cfg, MaterializeProfileRequest{
+		Target: t.TempDir(), Profiles: []string{"p"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, DefaultMaterializeBackend, got, "an unspecified backend means the default")
+	assert.Equal(t, agent.CanonicalEngineName(DefaultMaterializeBackend), got,
+		"the default backend constant must itself be canonical")
+}

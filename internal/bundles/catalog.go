@@ -54,10 +54,11 @@ type Catalog struct {
 	// withholds it in silence. The set therefore reads skill trees through
 	// the same filesystem it resolved from, by construction.
 	//
-	// It is the first reader's filesystem in reader order (readersFS), which
-	// makes reader ORDER decide it — the embedded builtin filesystem ahead of
-	// the project's would redirect every project skill's preimage at a tree
-	// that does not exist there.
+	// readersFS picks it by PROVENANCE, not by position: the project tree wins
+	// over a builtin reader's embedded filesystem however the readers were
+	// composed. Selecting it by order instead let the embedded filesystem
+	// redirect every project skill's preimage at a tree that does not exist
+	// there, and withhold the skill in silence.
 	fs afero.Fs
 
 	// failures is what the readers could say about a name they produced NO
@@ -250,18 +251,41 @@ func readerFailures(readers []Reader) map[string]error {
 }
 
 // readersFS reports the filesystem a composed set of readers reads local
-// content from: the first reader that has one, falling back to the OS
-// filesystem when none does.
+// content from: the first NON-BUILTIN reader that has one, falling back to a
+// builtin reader's embedded filesystem when that is all there is, and to the
+// OS filesystem when no reader has one at all.
 //
-// ORDER decides it, and that is load-bearing rather than incidental. The
-// builtin reader has a filesystem too — the EMBEDDED one — so composing it
-// ahead of the project reader derives every project skill's trust preimage
-// from a tree that does not exist there and withholds the skill in silence.
+// The builtin reader is skipped on the first pass rather than merely ordered
+// after, and that is the whole point. It has a filesystem too — the EMBEDDED
+// one — so a plain "first reader with an FS" derives every project skill's
+// trust preimage from a tree that does not exist there and withholds the skill
+// IN SILENCE. That shipped once already, and the only thing preventing it
+// since has been a comment at the composition root asking callers to list the
+// builtin reader last. A comment is not a mechanism: it cannot fail, so the
+// next edit that prepends a reader reintroduces the bug with nothing to catch
+// it. Deciding on PROVENANCE instead makes composition order irrelevant here.
+//
+// The builtin fallback is not a courtesy: a builtin-only loader must resolve
+// its content against the embedded tree, and answering the OS filesystem there
+// would be the same class of error in the other direction.
 func readersFS(readers []Reader) afero.Fs {
+	var builtin afero.Fs
 	for _, r := range readers {
-		if fsr, ok := r.(interface{ FS() afero.Fs }); ok {
-			return fsr.FS()
+		fsr, ok := r.(interface{ FS() afero.Fs })
+		if !ok {
+			continue
 		}
+		if pr, ok := r.(interface{ contentProvenance() ProvenanceClass }); ok &&
+			pr.contentProvenance() == ProvenanceBuiltin {
+			if builtin == nil {
+				builtin = fsr.FS()
+			}
+			continue
+		}
+		return fsr.FS()
+	}
+	if builtin != nil {
+		return builtin
 	}
 	return afero.NewOsFs()
 }

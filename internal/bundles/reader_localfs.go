@@ -120,6 +120,13 @@ func ProjectAuthoredRead(ref string, b *Bundle) BundleRead {
 // produces a different hash for the same skill and silently withholds it.
 func (r *localFSReader) FS() afero.Fs { return r.fsys }
 
+// contentProvenance reports what this reader's filesystem HOLDS, so readersFS
+// can pick the project tree over the embedded one without depending on the
+// order the readers were composed in. It is deliberately not the exported
+// Provenance of a read: this answers "whose filesystem is this", which is the
+// only question the fs choice turns on.
+func (r *localFSReader) contentProvenance() ProvenanceClass { return r.provenance }
+
 // Read reports every bundle in every search directory.
 //
 // A directory that does not exist is ordinary — most search dirs are

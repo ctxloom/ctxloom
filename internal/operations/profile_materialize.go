@@ -57,8 +57,8 @@ type MaterializeProfileResult struct {
 }
 
 // resolveMaterializeTarget validates the request and resolves the backend whose
-// native surfaces will be written. "" and the "claude" alias both mean
-// claude-code; anything unregistered is an error, as is a missing config,
+// native surfaces will be written, canonicalizing the requested name. "" means
+// the default; anything unregistered is an error, as is a missing config,
 // target or profile set.
 func resolveMaterializeTarget(cfg *config.Config, req MaterializeProfileRequest) (string, error) {
 	if cfg == nil {
@@ -70,8 +70,13 @@ func resolveMaterializeTarget(cfg *config.Config, req MaterializeProfileRequest)
 	if len(req.Profiles) == 0 {
 		return "", fmt.Errorf("at least one profile is required")
 	}
-	backend := req.Backend
-	if backend == "" || backend == "claude" {
+	// Resolved through the ONE alias table (agent.CanonicalEngineName), never a
+	// private copy: the resolved name is what the result reports, what the CLI
+	// prints, and what every backends.* lookup keys on, so a caller's spelling
+	// must not survive into it. A local `== "claude"` branch here got that one
+	// spelling right and returned every other declared alias verbatim.
+	backend := agent.CanonicalEngineName(req.Backend)
+	if backend == "" {
 		backend = DefaultMaterializeBackend
 	}
 	if !backends.Exists(backend) {

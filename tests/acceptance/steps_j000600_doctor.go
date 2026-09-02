@@ -12,7 +12,7 @@
 // is GLOBAL on every path ($CODEX_HOME/skills) and that a `profile
 // materialize --backend codex` invocation would need $CODEX_HOME redirected
 // to observe it. Live-verified false: on the static `profile materialize`
-// CLI path, codex.NewSurfaces (internal/codex/surfaces.go) binds Skills to
+// CLI path, the engine's own NewSurfaces binds Skills to
 // a closure with no homeOverride, so it cell-scopes under --target exactly
 // like its Commands surface already does (j000400_multi_engine.feature's own
 // codex row) — see engineSkillMDPath's doc below for the exact citation.
@@ -25,8 +25,6 @@ import (
 	"path/filepath"
 
 	"github.com/cucumber/godog"
-
-	"github.com/ctxloom/ctxloom/internal/codex"
 )
 
 // doctorSkillMD is the "ctxloom-doctor" skill's authored SKILL.md: frontmatter
@@ -146,10 +144,6 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 		switch j000600.engine {
 		case "claude-code":
 			return filepath.Join(j000600.target, ".claude", "skills", "ctxloom-doctor", "SKILL.md"), nil
-		case "opencode":
-			return filepath.Join(j000600.target, ".opencode", "skill", "ctxloom-doctor", "SKILL.md"), nil
-		case "codex":
-			return "", fmt.Errorf("j000600: codex materializes no skill package on this path — %s", codex.LaunchOnlySettingsReason)
 		default:
 			return "", fmt.Errorf("j000600: unknown engine %q for the skill surface", j000600.engine)
 		}

@@ -21,7 +21,6 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -568,10 +567,6 @@ func j000400MCPRegistryFor(dir, engine string) (rel, key string, err error) {
 	switch engine {
 	case "claude-code":
 		return filepath.Join(dir, ".mcp.json"), "mcpServers", nil
-	case "codex":
-		return "", "", fmt.Errorf("j000400: codex has no materialized MCP registry to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
-	case "opencode":
-		return filepath.Join(dir, "opencode.json"), "mcp", nil
 	default:
 		return "", "", fmt.Errorf("j000400: unknown engine %q", engine)
 	}
@@ -665,11 +660,6 @@ func j000400AssertHook(w *World, engine string) error {
 		rel = filepath.Join(dir, ".claude", "settings.json")
 		doc, err = j000400ReadJSON(w, rel)
 		event = "SessionStart"
-	case "codex":
-		// No row, for the same reason j000400MCPRegistryFor has none: codex's
-		// hooks live in $CODEX_HOME/config.toml, which a harpless materialize
-		// cannot name at all.
-		return fmt.Errorf("j000400: codex has no materialized hook configuration to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
 	default:
 		return fmt.Errorf("j000400: unknown engine %q", engine)
 	}
@@ -775,10 +765,6 @@ func j000400AssertCommand(w *World, engine string) error {
 	switch engine {
 	case "claude-code":
 		rel = filepath.Join(dir, ".claude", "commands", "team-onboarding.md")
-	case "codex":
-		// No row: codex's prompts are $CODEX_HOME-global, so a harpless
-		// materialize writes none (internal/codex/declared_absence.go).
-		return fmt.Errorf("j000400: codex has no materialized command file to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
 	case "opencode":
 		rel = filepath.Join(dir, ".opencode", "command", "team", "onboarding.md")
 	default:

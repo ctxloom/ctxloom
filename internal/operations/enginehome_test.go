@@ -54,7 +54,6 @@ func mustClaudeInstance(t *testing.T, workDir, harp string) string {
 	return dir
 }
 
-
 // The two session names every case here keys its instances by.
 const (
 	harpA = "ugly-icy-squid"

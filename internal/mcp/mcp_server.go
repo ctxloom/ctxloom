@@ -32,6 +32,11 @@ import (
 // serving process's env.
 type ctxServer struct {
 	cfg *config.Config
+	// dryRun suppresses the startup apply's single write. Starting this
+	// server normally REWRITES the project's managed settings — that is what
+	// ctxloom does — so this is the way to ask what a start would change
+	// without changing it. See operations.ApplyHooksRequest.DryRun.
+	dryRun bool
 	// self is the caller identity every identity-consuming tool uses: from
 	// the credential on the coordinator's HTTP surface, from env on stdio.
 	self coord.Identity
@@ -116,7 +121,7 @@ func sessionInstructions(harp string) string {
 // (graceful-egomaniac unit 2: identity/stamp mismatch) is different — it
 // falls back to local startup exactly like a session that was never
 // forward-triggered at all, so it DOES reach gate.
-func ServeStdio(ctx context.Context, cwd string, gate func() error) error {
+func ServeStdio(ctx context.Context, cwd string, gate func() error, dryRun bool) error {
 	// FORWARD MODE (agentcoord B1.6): when the harness-inherited env names
 	// the runner's MCP socket, this whole server is a stdio↔HTTP-over-unix
 	// proxy onto it. No local startup (config, sync, hooks) runs — the
@@ -151,7 +156,7 @@ func ServeStdio(ctx context.Context, cwd string, gate func() error) error {
 		// forwardOutcomeRefused: same fall-through as the env-var trigger.
 	}
 
-	s := &ctxServer{self: selfIdentityFromEnv(cwd)}
+	s := &ctxServer{self: selfIdentityFromEnv(cwd), dryRun: dryRun}
 	if err := s.startup(ctx); err != nil {
 		// startup() only returns context.Canceled — anything else
 		// (config load failure, sync errors, hook failures) is
@@ -193,11 +198,19 @@ func ServeStdio(ctx context.Context, cwd string, gate func() error) error {
 // same order, with the same fault-tolerance semantics:
 //
 //  1. Load config (warn on failure, use a minimal empty config)
-//  2. Auto-sync remote bundles/profiles if enabled (warn on failure)
-//  3. Apply hooks (warn on failure)
+//  2. Auto-sync remote bundles/profiles if enabled
+//  3. Apply hooks
 //
-// Any step failing produces a stderr warning but doesn't abort startup —
-// the agent must still come up. The only abort path is ctx.Done().
+// Steps 2 and 3 RECORD findings rather than deciding their own fatality; the
+// caller's gate aborts the launch when any were fatal, and --degraded lowers
+// them to warnings. So "the agent must still come up" is no longer true and is
+// not meant to be: a launch that succeeds without doing the thing is worse than
+// one that refuses, because nothing downstream can tell the difference.
+//
+// ORDERING IS LOAD-BEARING. Step 1 and the reporting around it RESOLVE without
+// mutating; everything that writes, sweeps or syncs comes after, behind the
+// dry-run gate. A write that happened before that gate could not be suppressed
+// by it, which is the whole point of the flag.
 func (s *ctxServer) startup(ctx context.Context) error {
 	cfg := loadStartupConfig()
 	s.cfg = cfg
@@ -211,6 +224,26 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// with, version-probed via `<bin> version --format json`. The wiring itself
 	// happens in applyStartupHooks below via the built-in bundles.
 	operations.ReportCompanions(os.Stderr)
+
+	// EVERYTHING BELOW MUTATES, so it is gated as one block. Config
+	// resolution and the companion report above do not, which is the
+	// ordering this depends on: resolve first, write second, so a dry run
+	// still surfaces what a real start would find.
+	//
+	// The reapers are the reason this gate is not optional. They DELETE
+	// worktrees, KILL containers and MOVE authored session files — a
+	// "--dry-run" that still reaped would be strictly more destructive than
+	// the flag's name admits, and the damage would be to the exact artifacts
+	// (an agent's only copy of its work) that are hardest to get back.
+	if s.dryRun {
+		fmt.Fprintf(os.Stderr,
+			"ctxloom: --dry-run: skipping startup reapers, remote sync, and the managed-surface apply; resolving only\n")
+		s.applyStartupHooks(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return nil
+	}
 
 	// Startup reaper (bony-carry bug #2): sweep any per-agent worktree
 	// checkout left behind by a crashed/killed prior run — see
@@ -288,9 +321,14 @@ func fallbackConfigForLoadFailure(err error) *config.Config {
 	})
 }
 
-// runStartupSync auto-syncs remote bundles/profiles when enabled. The sync is
-// bounded to 60s and fully fault-tolerant: a failure (other than cancellation)
-// warns and continues so the agent still comes up (CLAUDE.md).
+// runStartupSync auto-syncs remote bundles/profiles when enabled, bounded to
+// 60s.
+//
+// A failure is REPORTED as a ClassSync finding, not swallowed: the startup gate
+// decides its fatality, so by default the launch aborts and --degraded warns and
+// continues. Cancellation alone returns quietly. This is the refuse-by-default
+// posture, not the older always-launch one — a sync that silently continued was
+// how a session came up against content nobody could see had failed to load.
 func runStartupSync(ctx context.Context, cfg *config.Config) {
 	syncCfg := cfg.GetSyncConfig()
 	if !syncCfg.ShouldAutoSync() {
@@ -319,6 +357,7 @@ func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 	if _, err := operations.ApplyHooks(ctx, operations.ApplyHooksRequest{
 		Backend:           "all",
 		RegenerateContext: true,
+		DryRun:            s.dryRun,
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		clidiag.Warn("ctxloom", "failed to apply hooks: %v", err)
 	}

@@ -53,13 +53,41 @@ taskloom binary; its MCP server ('taskloom mcp') serves the task_* tools.`,
 
 // MCP subcommands for managing MCP server configurations
 
+// mcpServeDryRun configures THIS invocation only — it is a per-run posture,
+// not a config key, so it is deliberately not routed through the config chain.
+var mcpServeDryRun bool
+
 var mcpServeCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Serve ctxloom as an MCP server over stdio",
 	Long: `Serve ctxloom as an MCP (Model Context Protocol) server over stdio.
 
 This is the machine surface: the invocation ctxloom writes into every engine's
-own MCP settings, and the only spelling that speaks the protocol.`,
+own MCP settings, and the only spelling that speaks the protocol.
+
+STARTING THIS SERVER WRITES TO YOUR PROJECT. Startup runs the same apply every
+other entry point runs: it regenerates the assembled context and rewrites each
+backend's managed settings, hooks, MCP config and command files. That is
+ctxloom's job, not a side effect — the managed surfaces are meant to be current
+whenever ctxloom runs — but it does mean this is not a read-only command, and a
+run started merely to inspect something still rewrites those files.
+
+Use --dry-run to resolve the apply and leave the MANAGED SURFACES alone: no
+settings file, MCP config, hook, command file, or delivered context surface
+(AGENTS.md and the like) is written or rewritten. It also skips the startup
+reapers and the remote sync. Two things it deliberately does NOT promise:
+
+  - It is not "touch nothing". Startup still scaffolds a project (.ctxloom/,
+    .gitignore) in a directory that has none, and still populates the derived
+    context CACHE under .ctxloom/cache/ — both happen before the apply this
+    flag gates, and the cache is gitignored derived state rather than a
+    surface anything reads as configuration.
+  - It stops before the write, so findings only a write can produce — a
+    settings file that has DRIFTED since ctxloom last wrote it, say — are not
+    reported by a dry run.
+
+When the environment names a running runner's socket, this process forwards to
+it and no local apply happens at all.`,
 	// NoArgs because this RunE is the stdio server: `ctxloom mcp serve list`
 	// would otherwise sit waiting on stdin instead of reporting the mistake.
 	Args: cobra.NoArgs,
@@ -309,6 +337,10 @@ func init() {
 	// engine surface names (agent.CtxloomMCPArgs). A server's definition lives
 	// in the bundle that ships it, so `mcp server` reads and edits there.
 	mcpCmd.AddCommand(mcpServeCmd)
+	mcpServeCmd.Flags().BoolVar(&mcpServeDryRun, "dry-run", false,
+		"resolve the startup apply and report findings, but write nothing: "+
+			"starting the server normally rewrites this project's managed "+
+			"settings, hooks, MCP config and context")
 
 	mcpCmd.AddCommand(mcpServerCmd)
 	mcpServerCmd.AddCommand(mcpServerListCmd)

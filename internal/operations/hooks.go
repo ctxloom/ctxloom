@@ -36,6 +36,14 @@ type ApplyHooksRequest struct {
 	// the apply proceeds — the escape hatch for a genuine intentional global
 	// install.
 	Force bool `json:"force"`
+	// DryRun resolves the whole apply — config, profiles, hooks, MCP servers,
+	// context — and then writes NOTHING. It exists because applying IS what
+	// ctxloom does at startup: a command that merely starts the MCP server
+	// still rewrites the project's settings, which is correct behaviour and
+	// also the reason there has to be a way to ask "what would this change?"
+	// without changing it. Resolution still runs in full, so findings a real
+	// apply would report are reported here too.
+	DryRun bool `json:"dry_run"`
 }
 
 // ApplyHooksResult contains the result of applying hooks.
@@ -177,6 +185,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	prompts := backends.LoadCommandExports(freshCfg, nil, bundleLoaderOpts(req)...)
 
 	applied, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
+		dryRun:           req.DryRun,
 		backendNames:     hookBackendNames(backend),
 		freshCfg:         freshCfg,
 		workDir:          workDir,
@@ -411,6 +420,8 @@ type hookApplyParams struct {
 	bundleMCP   map[string]wire.MCPServer
 	prompts     []*bundles.LoadedContent
 	fs          afero.Fs
+	// dryRun stops short of the single write, see ApplyHooksRequest.DryRun.
+	dryRun bool
 }
 
 // applyHooksToBackends applies hooks to each backend, returning the backends
@@ -496,6 +507,12 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	}
 	if len(p.prompts) > 0 {
 		sel = sel.WithCommands(agent.CommandsWriteUnsafeFile)
+	}
+	// The ONE write in this function. Everything above resolves; nothing above
+	// touches disk. A dry run therefore stops exactly here, having done all the
+	// work that can surface a problem and none that can cause one.
+	if p.dryRun {
+		return nil
 	}
 	if _, _, errs := sel.DeliverUnder(p.workDir); len(errs) > 0 {
 		return fmt.Errorf("failed to apply %s: %w", backendName, errors.Join(errs...))

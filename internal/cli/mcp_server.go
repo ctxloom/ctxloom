@@ -34,5 +34,5 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 
 	return mcp.ServeStdio(ctx, cwd, func() error {
 		return gates.close(PhaseStartup)
-	})
+	}, mcpServeDryRun)
 }

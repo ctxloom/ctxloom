@@ -180,25 +180,25 @@ func TestWarnBypassOnLostContainer(t *testing.T) {
 	containerAxes := isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeContainerRootless}
 
 	t.Run("successful container-worktree run does not warn", func(t *testing.T) {
-		assert.False(t, warnBypassOnLostContainer(containerAxes, "container-worktree", agent.PermissionBypass, "codex"),
+		assert.False(t, warnBypassOnLostContainer(containerAxes, "container-worktree", agent.PermissionBypass, "mock"),
 			"container-worktree IS a container boundary — a successful sandboxed run must not warn")
 	})
 
 	t.Run("successful plain-container run does not warn", func(t *testing.T) {
-		assert.False(t, warnBypassOnLostContainer(containerAxes, "container", agent.PermissionBypass, "codex"))
+		assert.False(t, warnBypassOnLostContainer(containerAxes, "container", agent.PermissionBypass, "mock"))
 	})
 
 	t.Run("genuine degrade to the host warns", func(t *testing.T) {
-		assert.True(t, warnBypassOnLostContainer(containerAxes, "worktree", agent.PermissionBypass, "codex"),
+		assert.True(t, warnBypassOnLostContainer(containerAxes, "worktree", agent.PermissionBypass, "mock"),
 			"container requested, worktree prepared → the boundary is lost; bypass on the host must warn")
-		assert.True(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionBypass, "codex"))
+		assert.True(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionBypass, "mock"))
 	})
 
 	t.Run("no warning without a container request, without bypass, or for the claude-code stopgap", func(t *testing.T) {
 		hostAxes := isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost}
-		assert.False(t, warnBypassOnLostContainer(hostAxes, "worktree", agent.PermissionBypass, "codex"),
+		assert.False(t, warnBypassOnLostContainer(hostAxes, "worktree", agent.PermissionBypass, "mock"),
 			"no container was requested — nothing was lost")
-		assert.False(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionDefault, "codex"),
+		assert.False(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionDefault, "mock"),
 			"a prompting posture on the host is the normal degrade, not a silent full-auto")
 		assert.False(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionBypass, config.BackendClaudeCode),
 			"bypass-on-host is the claude-code stopgap's intended posture")

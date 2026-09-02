@@ -1272,6 +1272,27 @@ func (c *Coordinator) captureRunFailure(role string, ev *agentcoordpb.AgentEvent
 // produced nothing to deliver; that is warned rather than queued as an empty
 // message (an empty body is this project's signature silent no-op, not a
 // report).
+// maxBridgedTurnBody bounds what the turn-boundary bridge puts in a parent's
+// mailbox. The bridge is a FALLBACK for a child that filed no report, and an
+// unbounded one hands the coordinator an entire model turn — the opposite of
+// the delegation rule that children return conclusions and artifacts travel by
+// reference. A coordinator's context is the scarce resource; the moment this
+// path fires is precisely when it is least affordable to flood it.
+const maxBridgedTurnBody = 4000
+
+// boundedTurnBody caps a bridged turn and says where the rest is, so the parent
+// learns THAT the child finished and where to read it without paying for the
+// whole text. Under the cap the text is returned untouched — a bound nobody
+// hits costs nothing.
+func boundedTurnBody(text, harp string) string {
+	if len(text) <= maxBridgedTurnBody {
+		return text
+	}
+	return text[:maxBridgedTurnBody] + fmt.Sprintf(
+		"\n\n[truncated: %d of %d bytes shown. The full turn is in agent %q's transcript.]",
+		maxBridgedTurnBody, len(text), harp)
+}
+
 func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 	c.mu.Lock()
 	out := rt.turnOutput
@@ -1343,7 +1364,21 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 		// from the accumulator that still accumulates.
 		return
 	}
-	if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "result", text); err != nil {
+	// A NON-oneshot child that ends a turn without reporting has skipped its
+	// completion contract. The bridge still delivers what it said — losing the
+	// text would be worse — but the parent is told the contract was missed, in
+	// the mailbox, which is the only channel an agent can actually read. A
+	// oneshot child is exempt: the bridge IS its delivery mechanism, and
+	// flagging every one would be crying wolf on the normal case.
+	if !oneshot {
+		if _, _, err := c.queueMail(rt.harp, rt.parentHarp, KindError,
+			fmt.Sprintf("agent %q (run %s) ended a turn without filing a report; its turn text was bridged instead",
+				rt.harp, rt.runID)); err != nil {
+			clidiag.Warn("ctxloom", "agent %s: notify parent of unreported turn: %v", rt.harp, err)
+		}
+	}
+
+	if _, _, err := c.queueMail(rt.harp, rt.parentHarp, KindResult, boundedTurnBody(text, rt.harp)); err != nil {
 		clidiag.Warn("ctxloom", "agent %s: bridge turn result: %v", rt.harp, err)
 		// The accumulator was already cleared above (so a
 		// concurrent append during the failed queueMail call lands cleanly

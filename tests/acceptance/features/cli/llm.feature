@@ -5,7 +5,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
   `llm default`, and the bare `ctxloom llm` form.
 
   An LLM entry is a LABEL for an engine configuration: a backend type
-  (claude-code, codex, ...), a model string, a launch-time permission
+  (claude-code, mock, ...), a model string, a launch-time permission
   posture, and — the part that makes this noun different from every other one
   in the CLI — an `env` block holding API credentials. Agents reference these
   labels by name (`ctxloom agent create dev --llm big`), so this is the
@@ -51,13 +51,13 @@ Feature: llm — the named engine configurations, and the credentials they hold
         """
       Then the command succeeds
       And the output reports "[label=claude-code].default" as "<claude-code is the default>"
-      And the output reports "[label=codex].label" as "<names codex too>"
+      And the output reports "[label=claude-fast].label" as "<names another built-in too>"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | claude-code is the default | names codex too |
-        |               | true                        | codex            |
-        | --format json | true                        | codex            |
-        | --format text | (default)                   | codex            |
+        | flags         | claude-code is the default | names another built-in too |
+        |               | true                        | claude-fast                 |
+        | --format json | true                        | claude-fast                 |
+        | --format text | (default)                   | claude-fast                 |
 
     # The bare noun answers the question somebody typing it has, rather than
     # teaching them what they could have typed instead.
@@ -81,8 +81,8 @@ Feature: llm — the named engine configurations, and the credentials they hold
 
     Scenario Outline: A label the team wrote is told apart from an engine ctxloom supplied
       Given an initialized ctxloom project
-      And I run "ctxloom llm create big --type codex --model o1"
-      And I run "ctxloom llm default codex"
+      And I run "ctxloom llm create big --type mock --model o1"
+      And I run "ctxloom llm default mock"
       When Alice asks which of these engines her team actually configured:
         """
         ctxloom llm list <flags>
@@ -95,8 +95,8 @@ Feature: llm — the named engine configurations, and the credentials they hold
       # The origin marker does not displace the default marker: a row can be
       # the fallback engine everything resolves to and still be one nobody
       # configured.
-      And the output reports "[label=codex].default" as "<codex is the default>"
-      And the output reports "[label=codex].authored" as "<and still built-in>"
+      And the output reports "[label=mock].default" as "<mock is the default>"
+      And the output reports "[label=mock].authored" as "<and still built-in>"
       # The marker is not decoration — it predicts what the label can DO. A
       # name ctxloom supplied has no entry to take away, and remove says so
       # rather than reporting a deletion that never happened.
@@ -105,7 +105,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
       And the output contains "not defined in config.yaml"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | big is configured | claude-code is built-in | codex is the default | and still built-in |
+        | flags         | big is configured | claude-code is built-in | mock is the default | and still built-in |
         |               | true               | false                    | true                  | false                |
         | --format json | true               | false                    | true                  | false                |
         | --format text | [configured]       | [built-in]               | (default)             | [built-in]           |
@@ -128,22 +128,22 @@ Feature: llm — the named engine configurations, and the credentials they hold
     # from stored config, so it can only move if the write landed.
     Scenario Outline: Setting the default moves the marker in the listing
       Given an initialized ctxloom project
-      When Alice makes codex the engine everything falls back to:
+      When Alice makes claude-fast the engine everything falls back to:
         """
-        ctxloom llm default codex <flags>
+        ctxloom llm default claude-fast <flags>
         """
       Then the command succeeds
       And the output reports "status" as "<confirms the change>"
       When I run "ctxloom llm default <flags>"
-      Then the output reports "default" as "<reads back codex>"
+      Then the output reports "default" as "<reads back claude-fast>"
       When I run "ctxloom llm list <flags>"
-      Then the output reports "[label=codex].default" as "<codex is now marked default>"
+      Then the output reports "[label=claude-fast].default" as "<claude-fast is now marked default>"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | confirms the change       | reads back codex | codex is now marked default |
-        |               | set                        | codex             | true                          |
-        | --format json | set                        | codex             | true                          |
-        | --format text | Default LLM set to: codex | codex             | codex (default)               |
+        | flags         | confirms the change             | reads back claude-fast | claude-fast is now marked default |
+        |               | set                              | claude-fast             | true                                |
+        | --format json | set                              | claude-fast             | true                                |
+        | --format text | Default LLM set to: claude-fast | claude-fast             | claude-fast (default)               |
 
     # A default nobody can resolve is a project that fails at run time with no
     # clue why. The refusal names the set it would have accepted, which is the
@@ -171,7 +171,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
       Given an initialized ctxloom project
       When Alice names an engine configuration her team can bind by label:
         """
-        ctxloom llm create big --type codex --model o1 <flags>
+        ctxloom llm create big --type mock --model o1 <flags>
         """
       Then the command succeeds
       And the output reports "type" as "<names the backend>"
@@ -185,21 +185,21 @@ Feature: llm — the named engine configurations, and the credentials they hold
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the backend | names the model | the label round-trips |
-        |               | codex              | o1               | big                    |
-        | --format json | codex              | o1               | big                    |
-        | --format text | codex              | o1               | big                    |
+        |               | mock               | o1               | big                    |
+        | --format json | mock               | o1               | big                    |
+        | --format text | mock               | o1               | big                    |
 
     Scenario: Create refuses a label that already resolves, including a built-in backend
       Given an initialized ctxloom project
-      And I run "ctxloom llm create big --type codex --model o1"
-      When I run "ctxloom llm create big --type codex"
+      And I run "ctxloom llm create big --type mock --model o1"
+      When I run "ctxloom llm create big --type mock"
       Then the command fails
       And the output contains "already exists"
       And the output contains "ctxloom llm edit big"
       # The built-in half of "already resolves": shadowing claude-code with a
       # config entry that answers to the same name is the ambiguity the guard
       # exists to refuse.
-      When I run "ctxloom llm create claude-code --type codex"
+      When I run "ctxloom llm create claude-code --type mock"
       Then the command fails
       And the output contains "already exists"
       # Neither refusal wrote: the original entry is intact.
@@ -222,7 +222,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
     # at the wrong backend — and would satisfy a model-only assertion.
     Scenario Outline: An edit naming only --model leaves the backend type intact
       Given an initialized ctxloom project
-      And I run "ctxloom llm create big --type codex --model o1"
+      And I run "ctxloom llm create big --type mock --model o1"
       When Alice moves one label onto a newer model:
         """
         ctxloom llm edit big --model o1-pro <flags>
@@ -231,20 +231,20 @@ Feature: llm — the named engine configurations, and the credentials they hold
       And the output reports "model" as "<the new model>"
       And the output reports "type" as "<the backend survives unmerged>"
       And the file ".ctxloom/config.yaml" contains "o1-pro"
-      And the file ".ctxloom/config.yaml" contains "codex"
+      And the file ".ctxloom/config.yaml" contains "mock"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the new model | the backend survives unmerged |
-        |               | o1-pro         | codex                          |
-        | --format json | o1-pro         | codex                          |
-        | --format text | o1-pro         | codex                          |
+        |               | o1-pro         | mock                           |
+        | --format json | o1-pro         | mock                           |
+        | --format text | o1-pro         | mock                           |
 
     # --permissions is the launch-time posture, a project-file field distinct
     # from the credential rule below (which is about the machine-scoped env
     # block). Read back out of the project config, not the echo.
     Scenario Outline: Setting the permission posture records it in the project config
       Given an initialized ctxloom project
-      And I run "ctxloom llm create big --type codex --model o1"
+      And I run "ctxloom llm create big --type mock --model o1"
       When Alice sets the posture this label launches with:
         """
         ctxloom llm edit big --permissions bypass <flags>
@@ -270,7 +270,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
 
     Scenario Outline: Bare remove reports and destroys nothing
       Given an initialized ctxloom project
-      And I run "ctxloom llm create big --type codex --model o1"
+      And I run "ctxloom llm create big --type mock --model o1"
       When I run "ctxloom llm remove big <flags>"
       Then the command succeeds
       And the output reports "applied" as "<nothing was applied>"
@@ -287,7 +287,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
 
     Scenario Outline: --yes takes the entry out of the project file
       Given an initialized ctxloom project
-      And I run "ctxloom llm create big --type codex --model o1"
+      And I run "ctxloom llm create big --type mock --model o1"
       And the file ".ctxloom/config.yaml" contains "big"
       When Alice retires a label her team no longer binds:
         """
@@ -334,9 +334,9 @@ Feature: llm — the named engine configurations, and the credentials they hold
         """
         OPENAI_API_KEY=sk-acceptance-MUST-NEVER-BE-PRINTED
         """
-      When Alice records the credential her codex label needs:
+      When Alice records the credential her mock label needs:
         """
-        ctxloom llm create big --type codex --env-file openai.env
+        ctxloom llm create big --type mock --env-file openai.env
         """
       Then the command succeeds
       # POSITIVE 1 — the env file was really read and its key parsed out.
@@ -357,7 +357,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
     # merge (the type and model it did not name survive) in one act.
     Scenario: A credential piped on stdin never touches argv, and the unnamed fields survive
       Given an initialized ctxloom project
-      And I run "ctxloom llm create big --type codex --model o1"
+      And I run "ctxloom llm create big --type mock --model o1"
       When I run "ctxloom llm edit big --env-file -" with input:
         """
         ANTHROPIC_API_KEY=sk-stdin-MUST-NEVER-BE-PRINTED
@@ -369,7 +369,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
       And the home file ".ctxloom/config.yaml" contains "sk-stdin-MUST-NEVER-BE-PRINTED"
       # ...and now the withholding, plus the per-field merge in the same act.
       And the output does not contain "sk-stdin-MUST-NEVER-BE-PRINTED"
-      And the output contains "codex"
+      And the output contains "mock"
       And the output contains "o1"
       And the file ".ctxloom/config.yaml" does not contain "sk-stdin-MUST-NEVER-BE-PRINTED"
 
@@ -378,7 +378,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
     # is the one place this rule exists to keep it out of.
     Scenario: There is no way to put a credential on the command line
       Given an initialized ctxloom project
-      And I run "ctxloom llm create big --type codex --model o1"
+      And I run "ctxloom llm create big --type mock --model o1"
       When I run "ctxloom llm edit big --env ANTHROPIC_API_KEY=sk-on-the-command-line"
       Then the command fails
       And the output contains "unknown flag"
@@ -393,7 +393,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
         """
         OPENAI_API_KEY=sk-survives-the-removal
         """
-      And I run "ctxloom llm create big --type codex --env-file openai.env"
+      And I run "ctxloom llm create big --type mock --env-file openai.env"
       And the home file ".ctxloom/config.yaml" contains "sk-survives-the-removal"
       When Alice removes the label from her project:
         """

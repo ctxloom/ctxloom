@@ -24,6 +24,13 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 		return worldFrom(c).env.WriteFile(rel, body.Content)
 	})
 
+	// The HOME-layer twin of the step above. A scenario that needs to prove a
+	// claim about CONFIG SCOPE has to place the same bytes at each layer in
+	// turn, and only the project half could be written until now.
+	ctx.Step(`^the home already has the file "([^"]*)":$`, func(c context.Context, rel string, body *godog.DocString) error {
+		return worldFrom(c).env.WriteHomeFile(rel, body.Content)
+	})
+
 	ctx.Step(`^the file "([^"]*)" exists$`, func(c context.Context, rel string) error {
 		w := worldFrom(c)
 		if !w.env.FileExists(rel) {
@@ -221,6 +228,44 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 		slices.Sort(removed)
 		slices.Sort(modified)
 		return fmt.Errorf("the project tree changed: added %v, removed %v, modified %v", added, removed, modified)
+	})
+
+	// The CONTROL half of "the project tree is unchanged", and the reason that
+	// step can be believed. An unchanged tree is the assertion this project's
+	// characteristic bug satisfies for free: a command that exits 0 having done
+	// nothing at all leaves the tree pristine, and so does a command correctly
+	// declining to write. Nothing in the negative claim alone tells the two
+	// apart.
+	//
+	// So a scenario asserting a no-write must also run the SAME command without
+	// whatever suppressed the write, from the SAME recorded snapshot, and land
+	// here. This step failing means the control wrote nothing either — the
+	// fixture never had anything to suppress, and the paired negative proved
+	// nothing.
+	ctx.Step(`^the project tree has changed$`, func(c context.Context) error {
+		w := worldFrom(c)
+		// Same zero-length guard as its sibling, for the mirrored reason:
+		// against an unrecorded snapshot every file in the project reads as
+		// "added", so this would pass without the command doing anything.
+		if len(w.projectTree) == 0 {
+			return fmt.Errorf(`the recorded project tree is EMPTY — every file would count as added, so this passes without the command writing anything; the "I record the project tree" step must run first, against a project that has files`)
+		}
+		now, err := snapshotProjectTree(w.env.ProjectDir)
+		if err != nil {
+			return fmt.Errorf("re-read project tree: %w", err)
+		}
+		for rel, sum := range now {
+			switch before, ok := w.projectTree[rel]; {
+			case !ok, before != sum:
+				return nil // an addition or a modification: the tree moved
+			}
+		}
+		for rel := range w.projectTree {
+			if _, ok := now[rel]; !ok {
+				return nil // a removal counts too
+			}
+		}
+		return fmt.Errorf("the project tree is UNCHANGED across %d files — this step is the control for a paired no-write assertion, so the command was expected to write; if it wrote nothing, the negative half of that pair proves nothing", len(now))
 	})
 }
 

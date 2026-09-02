@@ -34,7 +34,7 @@
 // surface.
 //
 // THE PID CONVENTION mirrors internal/lm/isolation/worktree_reap_test.go's:
-// j001300DeadPid exceeds even a kernel.pid_max=4194304 configuration by a wide
+// deadOwnerPid exceeds even a kernel.pid_max=4194304 configuration by a wide
 // margin, so "this owner is confirmed dead" is deterministic with no
 // fork/kill/race. A LIVE owner is this test process's own pid, which is
 // trivially alive for exactly as long as the scenario runs.
@@ -44,7 +44,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -53,16 +52,6 @@ import (
 )
 
 const (
-	// j001300DeadPid names no live process on any Linux configuration — see the
-	// file doc. Copied deliberately rather than imported: the isolation
-	// package's constant is unexported, and an acceptance fixture that
-	// silently changed meaning when that package was refactored would be
-	// worse than a duplicated literal with this comment attached.
-	j001300DeadPid = 999999999
-
-	// j001300SessionsRel is the harp store, relative to the isolated HOME.
-	j001300SessionsRel = ".ctxloom/sessions"
-
 	// Markers. Each names a CONTENT CLASS from FLOWS-UNIFIED §5.4, so a purge
 	// assertion says which class survived rather than which file did.
 	j001300BulkMarker     = "J001300-MACHINE-WRITTEN-BULK"
@@ -96,18 +85,6 @@ func j001300Of(w *World) *j001300State {
 	return w.j001300
 }
 
-// j001300Git runs a git command in dir under the harness's isolated environment.
-func j001300Git(w *World, dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = w.env.Command(nil, "version").Env // the isolated env every helper trusts
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(out), fmt.Errorf("git %s in %s: %s: %w", strings.Join(args, " "), dir, out, err)
-	}
-	return string(out), nil
-}
-
 // j001300Setup is the Background: a real git repo with a commit to branch
 // worktrees from, and a configured project.
 func j001300Setup(w *World) error {
@@ -130,12 +107,6 @@ func j001300Setup(w *World) error {
 	return nil
 }
 
-// j001300HarpDir returns the absolute path of a harp's directory in the isolated
-// home — ~/.ctxloom/sessions/<harp>, the layout paths.HarpDir builds.
-func j001300HarpDir(w *World, harp string) string {
-	return filepath.Join(w.env.HomeDir, filepath.FromSlash(j001300SessionsRel), harp)
-}
-
 // j001300SeedHarp plants one harp directory carrying every content class §5.4
 // inventories, so a purge scenario can assert per-class outcomes:
 //
@@ -150,7 +121,7 @@ func j001300HarpDir(w *World, harp string) string {
 // containers) nor ephemeral/ (rightly excluded).
 func j001300SeedHarp(w *World, harp string, essence, authored bool) error {
 	st := j001300Of(w)
-	dir := j001300HarpDir(w, harp)
+	dir := harpDirIn(w, harp)
 	for _, sub := range []string{"persist/transcripts", "ephemeral"} {
 		if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(sub)), 0o755); err != nil {
 			return fmt.Errorf("create %s/%s: %w", harp, sub, err)
@@ -200,32 +171,25 @@ func j001300WriteIndex(w *World) error {
 		fmt.Fprintf(&b, "    project_dir: %s\n", w.env.ProjectDir)
 		b.WriteString("    started_at: 2026-01-01T00:00:00Z\n")
 		b.WriteString("    ended_at: 2026-01-02T00:00:00Z\n")
-		fmt.Fprintf(&b, "    transcript_path: %s\n", filepath.Join(j001300HarpDir(w, name), "transcript.jsonl"))
+		fmt.Fprintf(&b, "    transcript_path: %s\n", filepath.Join(harpDirIn(w, name), "transcript.jsonl"))
 		fmt.Fprintf(&b, "    summary: seeded close-out session %s\n", name)
 	}
-	return w.env.WriteHomeFile(j001300SessionsRel+"/index.yaml", b.String())
+	return w.env.WriteHomeFile(harpSessionsRel+"/index.yaml", b.String())
 }
 
-// j001300AddScratchWorktree creates a REAL linked git worktree inside a harp's own
-// ephemeral directory, named with the "ctxloom-wt-" prefix the candidate
-// finder matches, plus the sibling ".owner.pid" marker the reaper reads.
-// ownerPid of 0 means "write no marker at all" — the "can't prove who owned
-// this" case, which the reaper must treat exactly like a live owner.
+// j001300AddScratchWorktree seeds one scratch worktree (seedScratchWorktree,
+// which owns the layout and the ownerPid convention) inside an already-seeded
+// harp, recording it against that harp and optionally planting the uncommitted
+// work a reaper must refuse to destroy.
 func j001300AddScratchWorktree(w *World, harp, name string, ownerPid int, dirty bool) (string, error) {
 	st := j001300Of(w)
 	h, ok := st.harps[harp]
 	if !ok {
 		return "", fmt.Errorf("harp %q has not been seeded", harp)
 	}
-	wtDir := filepath.Join(h.dir, "ephemeral", "ctxloom-wt-"+name)
-	if _, err := j001300Git(w, w.env.ProjectDir, "worktree", "add", "-q", "-b", "wt-"+name, wtDir); err != nil {
+	wtDir := scratchWorktreeDir(w, harp, name)
+	if err := seedScratchWorktree(w, wtDir, "wt-"+name, ownerPid); err != nil {
 		return "", err
-	}
-	if ownerPid != 0 {
-		marker := wtDir + ".owner.pid"
-		if err := os.WriteFile(marker, fmt.Appendf(nil, "%d\n", ownerPid), 0o600); err != nil {
-			return "", fmt.Errorf("write owner marker for %s: %w", wtDir, err)
-		}
 	}
 	if dirty {
 		// Uncommitted work that no reaper may ever destroy.
@@ -247,7 +211,7 @@ func j001300AddForeignWorktree(w *World, branch string, dirty bool) (string, err
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return "", fmt.Errorf("create foreign worktrees parent: %w", err)
 	}
-	if _, err := j001300Git(w, w.env.ProjectDir, "worktree", "add", "-q", "-b", branch, dir); err != nil {
+	if _, err := isolatedGit(w, w.env.ProjectDir, "worktree", "add", "-q", "-b", branch, dir); err != nil {
 		return "", err
 	}
 	if dirty {
@@ -332,12 +296,12 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^session "([^"]*)" left a clean scratch worktree whose owning process is dead$`, func(c context.Context, harp string) error {
-		_, err := j001300AddScratchWorktree(worldFrom(c), harp, "clean", j001300DeadPid, false)
+		_, err := j001300AddScratchWorktree(worldFrom(c), harp, "clean", deadOwnerPid, false)
 		return err
 	})
 
 	ctx.Step(`^session "([^"]*)" left a scratch worktree holding uncommitted work$`, func(c context.Context, harp string) error {
-		_, err := j001300AddScratchWorktree(worldFrom(c), harp, "wip", j001300DeadPid, true)
+		_, err := j001300AddScratchWorktree(worldFrom(c), harp, "wip", deadOwnerPid, true)
 		return err
 	})
 
@@ -364,10 +328,10 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("unmerged work\n"), 0o644); err != nil {
 			return err
 		}
-		if _, err := j001300Git(w, dir, "add", "-A"); err != nil {
+		if _, err := isolatedGit(w, dir, "add", "-A"); err != nil {
 			return err
 		}
-		_, err = j001300Git(w, dir, "commit", "-m", "unmerged feature work")
+		_, err = isolatedGit(w, dir, "commit", "-m", "unmerged feature work")
 		return err
 	})
 
@@ -402,7 +366,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the report names each scratch worktree with its harp, its owner and its verdict$`, func(c context.Context) error {
 		w := worldFrom(c)
 		return j001300Answered(w, "`ctxloom session worktrees`",
-			"ctxloom-wt-clean", "ctxloom-wt-wip", fmt.Sprintf("%d", j001300DeadPid))
+			"ctxloom-wt-clean", "ctxloom-wt-wip", fmt.Sprintf("%d", deadOwnerPid))
 	})
 
 	ctx.Step(`^only the clean, provably-orphaned worktree is gone from disk$`, func(c context.Context) error {
@@ -534,7 +498,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 					h.name, w.env.LastExitCode(), w.env.LastOutput())
 			}
 		}
-		idx, err := w.env.ReadHomeFile(j001300SessionsRel + "/index.yaml")
+		idx, err := w.env.ReadHomeFile(harpSessionsRel + "/index.yaml")
 		if err != nil {
 			return fmt.Errorf("the session index was destroyed: %w", err)
 		}
@@ -601,7 +565,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		st := j001300Of(w)
-		out, err := j001300Git(w, w.env.ProjectDir, "worktree", "list", "--porcelain")
+		out, err := isolatedGit(w, w.env.ProjectDir, "worktree", "list", "--porcelain")
 		if err != nil {
 			return err
 		}

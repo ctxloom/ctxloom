@@ -33,6 +33,13 @@ type World struct {
 
 	projectTree map[string]string // project-relative path -> content digest, from "I record the project tree"
 
+	// orphanWorktree is the absolute path of the scratch worktree seeded by
+	// "a crashed run left a clean orphaned per-agent worktree". Empty until
+	// that step runs, which is what stops the reaper assertions from being
+	// satisfied by a fixture that was never built (an absent directory is
+	// exactly what "the reaper removed it" looks like).
+	orphanWorktree string
+
 	j000200Sources         map[string]*j000200Source // J000200: named source fixtures (personal/company/third-party/…)
 	j000200Live            bool                      // J000200 @live: whether this scenario's real agent is available (else every step no-ops toward a clean skip)
 	j000200RestartRecorded string                    // J000200: the mock's recorded input from the last "restart" (runFreshMockSession)
@@ -207,5 +214,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerSkillSteps(ctx)
 	registerRecoverSessionSteps(ctx)
 	registerContextStatusSteps(ctx)
+	registerStartupBoundarySteps(ctx)
 	registerDocCaptureHooks(ctx)
 }

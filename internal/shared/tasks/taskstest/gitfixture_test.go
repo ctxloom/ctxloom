@@ -30,6 +30,15 @@ import (
 // internal/cli/session_worktrees_test.go needs the identical population (the
 // CLI's own fast, non-acceptance-harness coverage of the same taxonomy) for
 // the identical reason.
+//
+// tests/acceptance/scratch_worktree_fixture.go is the TestEnvironment
+// exception applied to a second subject: the startup worktree reaper. Its
+// input is not "a linked worktree" but a checkout at the exact path
+// isolation.findEphemeralWorktrees scans, carrying the sibling owner-pid
+// marker isolation.readWorktreeOwner reads — neither of which
+// RealGitWorktreeFixture builds. It also runs git through the acceptance
+// World's isolated env, and godog step code has no *testing.T to hand the
+// canonical body, so calling it is not merely undesirable but impossible.
 var sanctionedWorktreeFixtureFiles = map[string]bool{
 	filepath.Join("internal", "shared", "tasks", "taskstest", "gitfixture.go"):      true,
 	filepath.Join("internal", "shared", "tasks", "taskstest", "gitfixture_test.go"): true,
@@ -37,6 +46,7 @@ var sanctionedWorktreeFixtureFiles = map[string]bool{
 	filepath.Join("tests", "integration", "testenv", "environment.go"):              true,
 	filepath.Join("tests", "acceptance", "steps_j001300_closeout.go"):               true,
 	filepath.Join("internal", "cli", "session_worktrees_test.go"):                   true,
+	filepath.Join("tests", "acceptance", "scratch_worktree_fixture.go"):             true,
 }
 
 // worktreeFixtureMarker is the distinguishing shape of a hand-built fixture: a

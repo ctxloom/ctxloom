@@ -14,20 +14,19 @@ import (
 // itself resolved into the gitdir pointer.
 //
 // This is the CANONICAL body for every package that needs a REAL linked
-// worktree to exercise worktree-detection/redirect logic against
-// (internal/projectroot, internal/taskloom/workdir, this package's own
-// callers in internal/shared/tasks/operations). Exactly two other sites build
-// a linked worktree by hand, each for a reason that rules out calling this
-// one, and there must be no others — gitfixture_test.go enforces the list:
+// worktree to exercise worktree-detection/redirect logic against. A handful of
+// other sites build one by hand, each for a reason that rules out calling this
+// one, and there must be no others. The sanctioned set is not restated here —
+// it is enumerated and ENFORCED by sanctionedWorktreeFixtureFiles in
+// gitfixture_test.go, which fails on any body outside it. Two reasons recur
+// there and cannot be derived from the list itself:
 //
-//   - internal/config/worktree_signpost_test.go keeps a verbatim copy: it is a
-//     frozen acceptance gate (task brown-canal) and must stay byte-for-byte
-//     unmodified, so it cannot take on a dependency.
-//   - tests/integration/testenv's TestEnvironment.AddGitWorktree is a
-//     differently-shaped helper, not a copy of this body: it branches an
-//     already-initialized repo, returns an error instead of failing the test,
-//     and must run git through TestEnvironment's own isolated env/dir plumbing
-//     so callers land in the same isolated HOME every acceptance helper trusts.
+//   - a frozen acceptance gate must stay byte-for-byte unmodified, so it
+//     cannot take on a dependency and keeps a verbatim copy instead.
+//   - a harness fixture must run git through its OWN isolated env/dir
+//     plumbing, so callers land in the isolated HOME the harness trusts. This
+//     body takes a *testing.T and reaches the ambient environment, so such a
+//     caller cannot invoke it at all.
 //
 // Every other caller uses this one.
 func RealGitWorktreeFixture(t *testing.T) (main, linked string) {

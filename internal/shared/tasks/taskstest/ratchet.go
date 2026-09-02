@@ -41,7 +41,6 @@ var appDirEscapeRatchet = map[string]bool{
 	"internal/lm/isolation":                   true,
 	"internal/mcp":                            true,
 	"internal/memory":                         true,
-	"internal/opencode":                       true,
 	"internal/operations":                     true,
 	"internal/paths":                          true,
 	"internal/projectroot":                    true,
@@ -51,7 +50,6 @@ var appDirEscapeRatchet = map[string]bool{
 	"internal/shared/tasks/operations":        true,
 	"internal/transcript":                     true,
 	"internal/transcript/vendorreader/claude": true,
-	"internal/transcript/vendorreader/codex":  true,
 	"internal/vpio/dockerexec":                true,
 
 	// The two isolation helpers themselves. Their own tests drive Isolate and

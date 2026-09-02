@@ -72,11 +72,9 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/opencode"
 )
 
 // legacyCodexConfigFileName and legacyCodexAuthFileName are gitignore.go's
@@ -94,7 +92,6 @@ const (
 // a failure names the drifted row, the table it came from, and both values.
 func TestArch_EngineLayoutAgreement(t *testing.T) {
 	t.Run("credentialSeedSpecs_HomeVarEnvNames", testCredentialSeedHomeVarEnvNames)
-	t.Run("credentialSeedSpecs_CodexDestSubdir", testCredentialSeedCodexDestSubdir)
 	t.Run("credentialSeedSpecs_SourceFiles", testCredentialSeedSourceFiles)
 	t.Run("spec_OverlayDirs", testSpecOverlayDirs)
 	t.Run("spec_TranscriptStoreRel", testSpecTranscriptStoreRel)
@@ -114,8 +111,6 @@ type homeVarEnvCheck struct {
 func testCredentialSeedHomeVarEnvNames(t *testing.T) {
 	checks := []homeVarEnvCheck{
 		{seedKey: "claude-code", want: []string{claude.ConfigDirEnv}},
-		{seedKey: "codex", want: []string{codex.CodexHomeEnv}},
-		{seedKey: "opencode", want: []string{opencode.XDGConfigHomeEnv, opencode.XDGDataHomeEnv}},
 	}
 	for _, c := range checks {
 		t.Run(c.seedKey, func(t *testing.T) {
@@ -135,30 +130,6 @@ func testCredentialSeedHomeVarEnvNames(t *testing.T) {
 	}
 }
 
-// testCredentialSeedCodexDestSubdir gates the ONE destSubdir/Subdir pair
-// homeVar's own doc documents as required to agree with the engine's
-// ConfigDirName — see this file's package doc for why the other engines'
-// destSubdir is NOT gated the same way.
-func testCredentialSeedCodexDestSubdir(t *testing.T) {
-	destSubdir, ok := isolation.CredentialSeedDestSubdir("codex")
-	if !ok {
-		t.Fatal(`isolation.CredentialSeedDestSubdir("codex") reports no such row`)
-	}
-	if destSubdir != codex.ConfigDirName {
-		t.Errorf("isolation.credentialSeedSpecs[\"codex\"].destSubdir = %q, want codex.ConfigDirName %q (codex's own cellScopedCodexHome join depends on this leaf name matching)",
-			destSubdir, codex.ConfigDirName)
-	}
-
-	hv := isolation.CredentialSeedHomeVars("codex")
-	if len(hv) != 1 {
-		t.Fatalf(`isolation.CredentialSeedHomeVars("codex") = %v, want exactly one entry`, hv)
-	}
-	if hv[0].Subdir != codex.ConfigDirName {
-		t.Errorf("isolation.credentialSeedSpecs[\"codex\"].HomeVars[0].Subdir = %q, want codex.ConfigDirName %q",
-			hv[0].Subdir, codex.ConfigDirName)
-	}
-}
-
 // sourceFileCheck names one credentialSeedSpecs row's expected seed-file
 // facts: the directory component every listed file must live under (an
 // engine-owned constant), and the set of known destination file names mapped
@@ -175,19 +146,6 @@ func testCredentialSeedSourceFiles(t *testing.T) {
 			seedKey:  "claude-code",
 			wantDir:  claude.ConfigDirName,
 			wantDest: map[string]bool{claude.CredentialsFileName: true},
-		},
-		{
-			seedKey:  "codex",
-			wantDir:  codex.ConfigDirName,
-			wantDest: map[string]bool{codex.AuthFileName: true},
-		},
-		{
-			seedKey: "opencode",
-			// opencode's sourceFiles land under $HOME/.local/share/opencode —
-			// ".local/share" is the generic XDG_DATA_HOME default (not
-			// opencode-owned), "opencode" is opencode.DataDirName.
-			wantDir:  filepath.ToSlash(filepath.Join(".local", "share", opencode.DataDirName)),
-			wantDest: map[string]bool{opencode.AuthFileName: true, opencode.MCPAuthFileName: false},
 		},
 	}
 
@@ -237,8 +195,6 @@ type overlayCheck struct {
 func testSpecOverlayDirs(t *testing.T) {
 	checks := []overlayCheck{
 		{backend: "claude-code", want: claude.ConfigDirName},
-		{backend: "codex", want: codex.ConfigDirName},
-		{backend: "opencode", want: opencode.ConfigDirName},
 		{backend: "mock", want: backends.MockConfigDirName},
 	}
 	for _, c := range checks {
@@ -260,8 +216,6 @@ type transcriptCheck struct {
 func testSpecTranscriptStoreRel(t *testing.T) {
 	checks := []transcriptCheck{
 		{backend: "claude-code", want: filepath.ToSlash(filepath.Join(claude.ConfigDirName, claude.TranscriptsDirName))},
-		{backend: "codex", want: filepath.ToSlash(filepath.Join(codex.ConfigDirName, codex.SessionsDirName))},
-		{backend: "opencode", want: filepath.ToSlash(filepath.Join(".local", "share", opencode.DataDirName))},
 	}
 	for _, c := range checks {
 		t.Run(c.backend, func(t *testing.T) {
@@ -277,8 +231,7 @@ func testSpecTranscriptStoreRel(t *testing.T) {
 // testMockConfigHomeEnvKeysRoster pins backends.ConfigHomeEnvKeys() equal to
 // the FULL, DEDUPLICATED set of env var names every credentialSeedSpecs
 // engine's HomeVars names — the roster fix this gate was written to prove
-// (mock's table used to omit opencode's XDG_CONFIG_HOME/XDG_DATA_HOME
-// entirely).
+// (mock's table used to omit a registered engine's home vars entirely).
 func testMockConfigHomeEnvKeysRoster(t *testing.T) {
 	want := map[string]bool{}
 	for _, engine := range isolation.CredentialSeedEngineNames() {
@@ -324,9 +277,6 @@ func testGitignoreLivePatterns(t *testing.T) {
 		{claude.ConfigDirName + "/", "claude.ConfigDirName"},
 		{claude.MCPFileName, "claude.MCPFileName"},
 		{claude.ContextFileName, "claude.ContextFileName"},
-		{opencode.ConfigDirName + "/", "opencode.ConfigDirName"},
-		{opencode.ConfigFileName, "opencode.ConfigFileName"},
-		{codex.AgentsMDFile, "codex.AgentsMDFile"},
 	}
 	for _, w := range want {
 		if !slices.Contains(patterns, w.pattern) {

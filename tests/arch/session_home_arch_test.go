@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
@@ -90,7 +89,6 @@ func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
 		{"paths.SessionStatePath", func(h string) (string, error) { return paths.SessionStatePath(app, h) }},
 		{"paths.SessionHomePath", func(h string) (string, error) { return paths.SessionHomePath(app, h) }},
 		{"claude.SessionConfigDir", func(h string) (string, error) { return claude.SessionConfigDir(workDir, h) }},
-		{"codex.SessionHome", func(h string) (string, error) { return codex.SessionHome(workDir, h) }},
 	}
 
 	for _, r := range resolvers {
@@ -120,6 +118,11 @@ func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
 // root host every engine: each engine's own leaf hangs off the same
 // <harp>/home directory, so two engines in one session can never read each
 // other's config or credentials.
+//
+// NOTE ON REACH: only one home-controlled engine is registered today, so the
+// hangs-off-the-root assertion is live while the PAIRWISE half cannot fire —
+// a one-element map has no pair. Adding a second home-controlled engine here
+// is what restores it; do not read the current green as covering collisions.
 func TestArch_EngineInstanceLeavesArePairwiseDistinct(t *testing.T) {
 	const workDir = "/proj"
 	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), archHarpA)
@@ -131,15 +134,7 @@ func TestArch_EngineInstanceLeavesArePairwiseDistinct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claude.SessionConfigDir() error = %v", err)
 	}
-	codexRoot, err := codex.SessionHome(workDir, archHarpA)
-	if err != nil {
-		t.Fatalf("codex.SessionHome() error = %v", err)
-	}
-	// codex's own leaf is appended by cellScopedCodexHome; ConfigDirName is the
-	// package's exported statement of what that leaf is.
-	codexDir := filepath.Join(codexRoot, codex.ConfigDirName)
-
-	dirs := map[string]string{"claude-code": claudeDir, "codex": codexDir}
+	dirs := map[string]string{"claude-code": claudeDir}
 	for engine, dir := range dirs {
 		if filepath.Dir(dir) != root {
 			t.Errorf("%s's instance %q does not hang directly off the session home root %q", engine, dir, root)
@@ -166,7 +161,6 @@ func TestArch_SessionInstancesDoNotShareAcrossSessions(t *testing.T) {
 		fn   func(harp string) (string, error)
 	}{
 		{"claude.SessionConfigDir", func(h string) (string, error) { return claude.SessionConfigDir(workDir, h) }},
-		{"codex.SessionHome", func(h string) (string, error) { return codex.SessionHome(workDir, h) }},
 	} {
 		a, err := r.fn(archHarpA)
 		if err != nil {

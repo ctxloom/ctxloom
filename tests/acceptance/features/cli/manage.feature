@@ -43,7 +43,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command succeeds
       And the file ".ctxloom/config.yaml" is valid YAML
       And the file "<context_surface>" contains "<context_marker>"
-      And the file ".gitignore" contains "ctxloom"
+      And the file ".ctxloom/.gitignore" contains "ctxloom"
 
       Examples: engines with a session hook — context is injected at launch
         | engine      | context_surface       | context_marker      |
@@ -63,21 +63,8 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # names it: a registration with the right key and an empty body gives the
     # engine a server with no command to launch, and a key-only assertion
     # cannot tell that apart from a working one.
-    # PARKED — the fan-out this scenario exists to prove needs at least TWO
-    # engines carrying an MCP surface, and only ONE remains. The other
-    # registered engine, mock, has NO MCP surface at all: mockPresentations
-    # (internal/lm/backends/mock_surfaces.go) declares context and skills
-    # only, and MCP/settings/commands stay on the refusal path deliberately.
-    # So the opencode row cannot be repointed at mock — mock writes no MCP
-    # file for the assertion to read — and repointing it would mean asserting
-    # a surface that does not exist. Dropping the row instead would leave a
-    # single-row "in its own dialect" outline, which proves no dialect at all.
-    # The cost is accepted and stated: this per-engine-idiom claim goes
-    # UNEXERCISED meanwhile.
-    #
-    # UNTAG WHEN: a second engine carrying an MCP surface is added — then
-    # restore this row as that engine's, and the fan-out has a contrast again.
-    @wip
+    # TWO engines carry an MCP surface, which is what makes this a fan-out
+    # rather than a single-row claim that proves no dialect at all.
     Scenario Outline: Every engine gets ctxloom registered as an MCP server, in its own dialect
       Given an empty project directory
       When Alice installs ctxloom for <engine>:
@@ -88,17 +75,13 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file "<mcp_surface>" contains "<server_key>"
       And the file "<mcp_surface>" contains "<launch_marker>"
 
+      # No "folded into a config the engine already owns" block: no shipped
+      # engine folds its MCP registry into another surface today. The block is
+      # restored, not invented, when one does.
       Examples: a file of its own
-        | engine      | mcp_surface              | server_key   | launch_marker |
-        | claude-code | .mcp.json                | mcpServers   | ${CLAUDE_PROJECT_DIR} |
-
-      # codex folds its servers into a config the engine owns too — but into
-      # $CODEX_HOME's copy, which only a session has, so a static install
-      # registers nothing (the scenario above asserts that absence). opencode
-      # is the only engine left in this shape.
-      Examples: folded into a config the engine already owns
-        | engine   | mcp_surface        | server_key            | launch_marker |
-        | opencode | opencode.json      | ctxloom               | mcp           |
+        | engine      | mcp_surface     | server_key | launch_marker |
+        | claude-code | .mcp.json       | mcpServers | ${CLAUDE_PROJECT_DIR} |
+        | mock        | .mock/mcp.json  | mcpServers | ctxloom |
 
     # THE COMMAND SURFACE, the third thing install writes. ctxloom ships
     # first-party commands, and every engine gets them in its own idiom: a flat
@@ -115,17 +98,8 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # surfaces but no command surface of its own, and asserting an absent
     # surface would be asserting nothing.
     #
-    # PARKED — same shape as the MCP outline above, and for the same reason:
-    # proving "in its own idiom" needs two idioms to differ, and only ONE
-    # engine with a command surface remains. mock is the only other
-    # registered engine and it has NO command surface (see the note just
-    # above), so the opencode row has no honest substitute — a repoint would
-    # assert a file mock never writes. The cost is accepted and stated: this
-    # per-engine-idiom claim goes UNEXERCISED meanwhile.
-    #
-    # UNTAG WHEN: a second engine carrying a command surface is added — then
-    # restore this row as that engine's.
-    @wip
+    # Two engines carry a command surface, which is what makes "in its own
+    # idiom" a claim two rows can disagree about.
     Scenario Outline: Every engine gets ctxloom's shipped commands in its own idiom
       Given an empty project directory
       When Alice installs ctxloom for <engine>:
@@ -135,12 +109,12 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command succeeds
       And the file "<command_surface>" contains "Scan the current project and discover matching ctxloom content"
 
-      # codex has no row: its prompts are $CODEX_HOME-global, delivered into a
-      # session's own home at launch, so a static install writes none.
+      # An engine whose prompts are home-global — delivered into a session's
+      # own home at launch — has no row: a static install writes none.
       Examples: a flat command file
-        | engine      | command_surface               |
-        | claude-code | .claude/commands/discover.md  |
-        | opencode    | .opencode/command/discover.md |
+        | engine      | command_surface              |
+        | claude-code | .claude/commands/discover.md |
+        | mock        | .mock/commands/discover.md   |
 
     # NOTHING IS WRITTEN UNTIL THE ARGUMENT IS UNDERSTOOD. The "does not
     # exist" checks are the load-bearing half — a wrong-but-loud message
@@ -475,14 +449,13 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command succeeds
       And the file ".ctxloom/.gitignore" contains "/cache"
       And the file ".ctxloom/.gitignore" contains "/state"
-      And the file ".gitignore" does not contain ".ctxloom/"
-      And the file ".gitignore" contains ".codex/auth.json"
+      And the file ".gitignore" does not exist
 
     # The shipped defect this replaced: the writer emitted a fresh comment header
-    # above only the MISSING patterns, so every run added another header, and one
-    # of the five accumulated copies ended up captioning .codex/auth.json as
-    # "ctxloom private working state". Installing twice is what makes the header
-    # count meaningful -- a single install would read 1 either way.
+    # above only the MISSING patterns, so every run added another header and the
+    # copies accumulated, one of them captioning an unrelated entry. Installing
+    # twice is what makes the header count meaningful -- a single install would
+    # read 1 either way.
     Scenario: Repeated gitignore installs do not stack comment headers
       Given an initialized ctxloom project
       When Alice adds ctxloom's gitignore entries:
@@ -494,8 +467,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage gitignore install
         """
       Then the command succeeds
-      And the file ".gitignore" contains "# ctxloom-generated engine surfaces" exactly 1 times
-      And the file ".gitignore" does not contain "ctxloom private working state"
+      And the file ".ctxloom/.gitignore" contains "ctxloom's private working state" exactly 1 times
 
     # The dirty-tree-commit acknowledgement moved out of config.yaml into its
     # own gitignored state-store record: the value records a prior HUMAN

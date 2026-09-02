@@ -262,6 +262,12 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 	}
 
 	for _, name := range backends.BackendsWithSettings() {
+		// A test double is not part of a user's wiring, so it never appears in
+		// their report. Stated rather than implied: an exclusion that depends
+		// on a backend staying incomplete stops holding when it is completed.
+		if backends.IsTestOnly(name) {
+			continue
+		}
 		set := backends.BuildSurfaces(name, agent.SurfaceInputs{}, fs)
 		reader, ok := contextFileReader(set)
 		if !ok {
@@ -418,12 +424,17 @@ func manageWorkDir(workDir string) string {
 // `removed`. The user's harness was still installed and they had been told it
 // was gone. MaterializeProfile in this same package already guards with
 // backends.Exists — this is that guard, at the other door.
+// The empty default is EXHAUSTIVE here, and the asymmetry with the apply path
+// (hookBackendNames, which defaults to the project's configured engines) is
+// deliberate: removal must reach managed hooks in an engine the project has
+// since stopped configuring. Write narrowly, clean widely; the reverse leaves
+// litter nothing will collect.
+//
+// Exhaustiveness is a property of REMOVAL, not a value anyone types — there is
+// no "all".
 func manageBackendNames(backend string) ([]string, error) {
-	if backend == "" || backend == "all" {
+	if backend == "" {
 		return backends.BackendsWithSettings(), nil
 	}
-	if !backends.Exists(backend) {
-		return nil, fmt.Errorf("unknown backend %q (supported: %s)", backend, strings.Join(backends.BackendsWithSettings(), ", "))
-	}
-	return []string{backend}, nil
+	return namedBackend(backend)
 }

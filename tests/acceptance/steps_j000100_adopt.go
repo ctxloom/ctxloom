@@ -102,13 +102,16 @@ func registerJ000100Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// The rules live in the NESTED .ctxloom/.gitignore ctxloom owns, not in the
+	// project's own file: ctxloom does not write the project's .gitignore, so
+	// asserting there would assert a file the product never produces.
 	ctx.Step(`^ctxloom's own working state is kept out of source control$`, func(c context.Context) error {
-		body, err := worldFrom(c).env.ReadFile(".gitignore")
+		body, err := worldFrom(c).env.ReadFile(".ctxloom/.gitignore")
 		if err != nil {
 			return err
 		}
 		if !strings.Contains(string(body), "ctxloom") {
-			return fmt.Errorf(".gitignore does not exclude any ctxloom state:\n%s", body)
+			return fmt.Errorf(".ctxloom/.gitignore does not exclude any ctxloom state:\n%s", body)
 		}
 		return nil
 	})

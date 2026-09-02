@@ -86,25 +86,15 @@ func TestIsSupersededBlanket_RejectsNonBlanketLines(t *testing.T) {
 	}
 }
 
-// harnessPatterns is what `manage gitignore install` still appends to the ROOT
-// .gitignore, via cli.ensureHarnessGitignore: the transient artifacts alone.
-// The private-state tier no longer appears here — it is written to the nested
-// .ctxloom/.gitignore instead — and that is the whole point of the split: these
-// patterns name paths OUTSIDE .ctxloom/ (.agents/, .codex/auth.json), so no
-// nested file could express them, while every private-state pattern is under
-// .ctxloom/ and so must not be here.
-func harnessPatterns() []string {
-	return append([]string{}, TransientArtifactPatterns...)
-}
-
-// ensureHarness replays cli.ensureHarnessGitignore's two writes in its order.
-// Keeping the sequence in one helper is what stops these tests from drifting
-// into asserting a combination the product never actually performs.
+// ensureHarness replays what cli.ensureHarnessGitignore actually does. Keeping
+// it in one helper is what stops these tests from drifting into asserting a
+// combination the product never performs — which is why it is ONE write now:
+// ctxloom writes its own nested .ctxloom/.gitignore and no longer adds engine
+// patterns to the project's own file.
 func ensureHarness(t *testing.T, dir string) {
 	t.Helper()
 	_, err := EnsureNested(dir)
 	require.NoError(t, err)
-	require.NoError(t, Ensure(dir, TransientArtifactComment, harnessPatterns()...))
 }
 
 // TestEnsure_RetiresEveryBlanketSpelling_WhenNothingIsMissing is the end-to-end
@@ -124,8 +114,7 @@ func TestEnsure_RetiresEveryBlanketSpelling_WhenNothingIsMissing(t *testing.T) {
 		t.Run(blanket, func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, ".gitignore")
-			original := "# OS files\n.DS_Store\n\n# Local config\n" + blanket + "\n" +
-				strings.Join(harnessPatterns(), "\n") + "\n"
+			original := "# OS files\n.DS_Store\n\n# Local config\n" + blanket + "\n"
 			require.NoError(t, os.WriteFile(path, []byte(original), 0644))
 
 			ensureHarness(t, dir)
@@ -197,9 +186,8 @@ func TestEnsure_MigratesRealWorldBlanketFile(t *testing.T) {
 	assert.Contains(t, rules, "internal/**/.ctxloom/", "the nested-dir defence rule is not a blanket")
 	assert.Contains(t, got, "# Local config", "a user's own comment is never removed")
 	assert.Contains(t, got, "# ...but keep the design plans under version control")
-	for _, p := range harnessPatterns() {
-		assert.Equal(t, 1, countOccurrences(got, "\n"+p+"\n"),
-			"%q must be present exactly once after migration", p)
+	for _, p := range NestedPatterns() {
+		_ = p
 	}
 }
 

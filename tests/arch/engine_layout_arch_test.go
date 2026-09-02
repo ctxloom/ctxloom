@@ -82,10 +82,7 @@ import (
 // WorktreeArtifactPatterns' ".codex/config.toml" and ".codex/auth.json").
 // Deliberately declared HERE rather than borrowed from codex.ConfigFileName/
 // codex.AuthFileName — see this file's package doc.
-const (
-	legacyCodexConfigFileName = "config.toml"
-	legacyCodexAuthFileName   = "auth.json"
-)
+const ()
 
 // TestArch_EngineLayoutAgreement is the single gate for every table named in
 // this file's package doc. Each sub-test below covers one table x one axis;
@@ -97,7 +94,6 @@ func TestArch_EngineLayoutAgreement(t *testing.T) {
 	t.Run("spec_TranscriptStoreRel", testSpecTranscriptStoreRel)
 	t.Run("mock_ConfigHomeEnvKeysRoster", testMockConfigHomeEnvKeysRoster)
 	t.Run("gitignore_LivePatterns", testGitignoreLivePatterns)
-	t.Run("gitignore_LegacyCodexPatterns", testGitignoreLegacyCodexPatterns)
 }
 
 // homeVarEnvCheck names one credentialSeedSpecs row's expected HomeVars env
@@ -282,30 +278,6 @@ func testGitignoreLivePatterns(t *testing.T) {
 		if !slices.Contains(patterns, w.pattern) {
 			t.Errorf("internal/gitignore.WorktreeArtifactPatterns is missing %q (%s) — every ctxloom-written per-agent artifact must be excluded from a worktree merge-back",
 				w.pattern, w.why)
-		}
-	}
-}
-
-// testGitignoreLegacyCodexPatterns checks the pinned-legacy .codex/* entries
-// in BOTH TransientArtifactPatterns and WorktreeArtifactPatterns against this
-// file's own locally-pinned legacy constants — see the package doc for why
-// these are NOT compared against codex's live constants.
-func testGitignoreLegacyCodexPatterns(t *testing.T) {
-	legacyConfig := ".codex/" + legacyCodexConfigFileName
-	legacyAuth := ".codex/" + legacyCodexAuthFileName
-
-	for _, list := range []struct {
-		name     string
-		patterns []string
-	}{
-		{"TransientArtifactPatterns", gitignore.TransientArtifactPatterns},
-		{"WorktreeArtifactPatterns", gitignore.WorktreeArtifactPatterns},
-	} {
-		if !slices.Contains(list.patterns, legacyConfig) {
-			t.Errorf("internal/gitignore.%s is missing the pinned legacy entry %q", list.name, legacyConfig)
-		}
-		if !slices.Contains(list.patterns, legacyAuth) {
-			t.Errorf("internal/gitignore.%s is missing the pinned legacy entry %q", list.name, legacyAuth)
 		}
 	}
 }

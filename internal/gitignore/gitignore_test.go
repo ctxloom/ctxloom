@@ -147,33 +147,12 @@ func TestWorktreeArtifactPatterns_MatchExpectedSet(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		".mcp.json",
 		".claude/",
-		".agents/",
-		".codex/config.toml",
-		".codex/auth.json",
-		".kiro/",
 		".ctxloom/cache/",
 		"CLAUDE.md",
-		"AGENTS.md",
-		".opencode/",
-		"opencode.json",
+		".mock/",
+		"MOCK_CONTEXT.md",
 		ledger.Name,
 	}, WorktreeArtifactPatterns)
-}
-
-// TestWorktreeArtifactPatterns_CoverTransientOnes pins that the two sets
-// are documented as standing in a definite relationship — WorktreeArtifact is
-// "the BROADENED set … must keep EVERY ctxloom-written config out of a
-// developer member's merge-back" — but nothing enforced it, and the sets had
-// in fact drifted: the per-file hook backups (since retired) were ignored in
-// the project .gitignore and NOT hidden inside a per-agent worktree, where
-// hook application writes them just the same. The BROADENING direction is by
-// design (.mcp.json, .claude/ and CLAUDE.md are deliberately the project's
-// choice in a plain checkout); the containment direction is the invariant.
-func TestWorktreeArtifactPatterns_CoverTransientOnes(t *testing.T) {
-	for _, p := range TransientArtifactPatterns {
-		assert.Contains(t, WorktreeArtifactPatterns, p,
-			"every artifact ctxloom keeps out of a plain checkout must also be kept out of a per-agent worktree's merge-back")
-	}
 }
 
 // TestPatternSets_AreNonEmpty pins against a pattern list arriving empty. Every production call site of Ensure /
@@ -186,55 +165,21 @@ func TestWorktreeArtifactPatterns_CoverTransientOnes(t *testing.T) {
 // become a no-op rather than failing.
 func TestPatternSets_AreNonEmpty(t *testing.T) {
 	assert.NotEmpty(t, PrivateStatePatterns)
-	assert.NotEmpty(t, TransientArtifactPatterns)
 	assert.NotEmpty(t, WorktreeArtifactPatterns,
 		"isolation passes this as git.ListTracked's pathspec list, where empty means MATCH NOTHING")
 	assert.NotEmpty(t, SupersededPatterns)
 }
 
-// TestTransientArtifactPatterns_IgnoreCodexCredential pins that
-// internal/lm/isolation/auth.go's PrepareCodexHome actively copies the
-// host's ~/.codex/auth.json into <workDir>/.codex/auth.json on every plain
-// (non-isolated) codex run — a live credential landing directly in the
-// project's tracked working tree. Only .codex/config.toml was ever ignored;
-// the credential file sitting right next to it was not.
-func TestTransientArtifactPatterns_IgnoreCodexCredential(t *testing.T) {
-	assert.Contains(t, TransientArtifactPatterns, ".codex/auth.json",
-		"the copied credential file must be gitignored exactly like .codex/config.toml is")
-	assert.Contains(t, WorktreeArtifactPatterns, ".codex/auth.json",
-		"a per-agent worktree fan-out member must also keep the credential out of merge-back")
-}
-
 // TestArtifactPatterns_GranularityRule pins that the file-granular vs
-// directory-granular choice is made per entry, and broadening one to its whole
-// directory is irreversible in one direction: it un-tracks whatever the
-// project had already committed there, silently. .codex/ holds a user's own
-// files alongside the two ctxloom writes, so it must stay named file by file
-// — the same reasoning .agents/ fails, which is why THAT one is wholesale.
+// directory-granular choice is made per entry. Broadening an entry to its whole
+// directory is irreversible in one direction: it un-tracks whatever the project
+// had committed there, silently. A directory ctxloom owns outright may be named
+// wholesale; one holding a user's own files alongside ctxloom's writes may not.
 func TestArtifactPatterns_GranularityRule(t *testing.T) {
-	for _, set := range [][]string{TransientArtifactPatterns, WorktreeArtifactPatterns} {
-		assert.NotContains(t, set, ".codex/",
-			"a project's own .codex files must not be swept up; name the ctxloom-written ones individually")
-		assert.Contains(t, set, ".codex/config.toml")
-		assert.Contains(t, set, ".codex/auth.json")
-		assert.Contains(t, set, ".agents/",
-			"everything under .agents/ is machine-written, so it is ignored wholesale")
-	}
-}
-
-// TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts pins that
-// WorktreeArtifactPatterns is documented as "the FULL written set across all
-// engines", but opencode's own written artifacts (.opencode/ command+skill+
-// context files, opencode.json, and the shared managed-content marker
-// ledger) were absent, so a per-agent worktree run using the opencode backend
-// left untracked ctxloom files the exclude block did not hide.
-func TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts(t *testing.T) {
-	assert.Contains(t, WorktreeArtifactPatterns, ".opencode/",
-		"opencode's command/skill/context files under .opencode/ must be kept out of merge-back")
-	assert.Contains(t, WorktreeArtifactPatterns, "opencode.json",
-		"opencode's project-local managed config must be kept out of merge-back")
-	assert.Contains(t, WorktreeArtifactPatterns, ledger.Name,
-		"the shared managed-content marker must be kept out of merge-back")
+	assert.Contains(t, WorktreeArtifactPatterns, ".claude/",
+		"a directory ctxloom owns outright is named wholesale")
+	assert.Contains(t, WorktreeArtifactPatterns, "CLAUDE.md",
+		"a single owned file is named as a file, not by sweeping its directory")
 }
 
 // TestEnsureNested_InitBehavior_CommitsContentIgnoresPrivateState mirrors the
@@ -308,7 +253,7 @@ func TestNestedPatterns_RelativizeAndStayAnchored(t *testing.T) {
 func TestPrivateStatePatterns_AreAllUnderTheCtxloomDir(t *testing.T) {
 	for _, p := range PrivateStatePatterns {
 		assert.True(t, strings.HasPrefix(p, appDirPrefix),
-			"%q is not under %s, so it has no nested file it could live in — either move it to TransientArtifactPatterns or teach nestedPattern about it", p, appDirPrefix)
+			"%q is not under %s, so it has no nested file it could live in — either keep it out of the nested set or teach nestedPattern about it", p, appDirPrefix)
 	}
 }
 
@@ -659,33 +604,6 @@ func TestEnsureNested_RetiresTheBlanketThatWouldMakeItUnreadable(t *testing.T) {
 	}
 }
 
-// TestEnsure_RetiringBlanketRuleReplacesPrivateStateRules guards the leak that
-// retirement could otherwise cause. The hook path calls Ensure with ONLY
-// TransientArtifactPatterns. The blanket .ctxloom/ rule it retires was the very
-// thing keeping cache/ and sessions/ out of git, so Ensure must install the
-// granular private-state replacement even when the caller never asked for it —
-// otherwise repairing the content bug leaks private working state into the repo.
-func TestEnsure_RetiringBlanketRuleReplacesPrivateStateRules(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
-		[]byte("# ctxloom local files\n.ctxloom/\n"), 0644))
-
-	// Exactly what internal/operations/hooks.go passes.
-	require.NoError(t, Ensure(dir, TransientArtifactComment, TransientArtifactPatterns...))
-
-	got := readGitignore(t, dir)
-	assert.NotContains(t, got, "\n.ctxloom/\n", "the blanket rule must be retired")
-	for _, p := range NestedPatterns() {
-		assert.Contains(t, ignoreRules(readNested(t, dir)), p,
-			"retiring the blanket rule must not leak private state: %s should still be ignored", p)
-	}
-	for _, p := range TransientArtifactPatterns {
-		assert.Contains(t, got, p, "the caller's own patterns must still be written: %s", p)
-	}
-	assert.NotContains(t, ignoreRules(got), ".ctxloom/cache/",
-		"the replacement belongs in the nested file; writing it back into the root file is the behaviour being removed")
-}
-
 // TestEnsureFile_WarnsWhenAppendingOverAUserNegation pins that .gitignore
 // is LAST-MATCH-WINS and Ensure only ever appends at the end of the file, so a
 // pattern ctxloom appends silently overrides a user's earlier `!` re-include
@@ -732,38 +650,6 @@ func TestEnsureFile_DoesNotWarnWithoutAnAffectedNegation(t *testing.T) {
 	require.NoError(t, EnsureFile(path, testComment, ".ctxloom/cache/", ".agents/"))
 
 	assert.Empty(t, warnings.String(), "an unrelated re-include is none of ctxloom's business")
-}
-
-// TestEnsure_NoBlanketRule_DoesNotInjectPrivateState pins the converse: Ensure
-// must not smuggle PrivateStatePatterns into projects that never had the
-// superseded rule. Only a retirement triggers the replacement.
-func TestEnsure_NoBlanketRule_DoesNotInjectPrivateState(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("# OS files\n.DS_Store\n"), 0644))
-
-	require.NoError(t, Ensure(dir, TransientArtifactComment, TransientArtifactPatterns...))
-
-	got := readGitignore(t, dir)
-	assert.NotContains(t, got, ".ctxloom/cache/",
-		"a project with no superseded rule must not have private-state patterns injected by a transient-only Ensure")
-	assert.Empty(t, readNested(t, dir),
-		"and no nested file either: only a retirement triggers the replacement write")
-}
-
-// TestEnsure_LabelsTransientArtifactsAsSuchNotAsPrivateState pins the mislabel
-// directly. hooks.go passes TransientArtifactPatterns on every apply; under
-// the private-state header, appendBlock's fresh-header-per-append behaviour
-// captioned .codex/auth.json — a real credential — and three engine surfaces
-// as "ctxloom private working state", five times over in this repo alone.
-func TestEnsure_LabelsTransientArtifactsAsSuchNotAsPrivateState(t *testing.T) {
-	dir := t.TempDir()
-
-	require.NoError(t, Ensure(dir, TransientArtifactComment, TransientArtifactPatterns...))
-
-	got := readGitignore(t, dir)
-	assert.Contains(t, got, TransientArtifactComment)
-	assert.NotContains(t, got, "private working state",
-		"generated engine surfaces and a copied credential must never be captioned as ctxloom's private state")
 }
 
 // TestCloseChecked_PropagatesCloseError pins that appendBlock's old

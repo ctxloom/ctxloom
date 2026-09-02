@@ -300,7 +300,6 @@ func refreshManagedArtifacts(ctx context.Context, cfg *config.Config) {
 		return
 	}
 	if _, err := operations.ApplyHooks(ctx, operations.ApplyHooksRequest{
-		Backend:           "all",
 		RegenerateContext: true,
 	}); err != nil {
 		clidiag.Warn("ctxloom", "failed to refresh managed artifacts after trust change: %v", err)

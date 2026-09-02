@@ -20,22 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
-// TransientArtifactComment is the header under which TransientArtifactPatterns
-// are grouped in a project's ROOT .gitignore.
-//
-// It exists because these patterns used to be written under the PRIVATE-STATE
-// header, which is a different claim about a different tier, and the mislabel
-// was not cosmetic: appendBlock emits a fresh header above only the patterns
-// still MISSING, so every time this list grew, another copy of that header
-// landed above the new entries. In ctxloom's own repo the header accumulated
-// five times and ended up captioning .codex/auth.json — a real credential —
-// plus three engine surfaces as "ctxloom private working state". Anyone
-// auditing what ctxloom keeps out of git was misled at each of those lines.
-// Two headers that say what they actually head is the fix; the accumulation
-// itself is now bounded because the private-state tier no longer appends here
-// at all (see EnsureNested).
-const TransientArtifactComment = "# ctxloom-generated engine surfaces (regenerated from config; never authored here)"
-
 // PrivateStatePatterns are the .ctxloom paths that are rebuildable or purely
 // local and so must never ride a distributable tree: the resolved-artifact
 // cache, per-project session state, the project-id marker (ADR 0025 — private
@@ -256,45 +240,6 @@ func RedundantRootPatterns(projectDir string) ([]string, error) {
 	return found, nil
 }
 
-// TransientArtifactPatterns are unambiguous generated artifacts that accumulate
-// during hook application: the per-file settings backups, the antigravity
-// workspace directory (legacy — antigravity itself was removed in 0.7.0, but
-// a pre-upgrade project may still carry its debris, and nothing else writes
-// there to reclaim the pattern), and Codex's project config plus the
-// credential copy that lands beside it.
-//
-// GRANULARITY RULE. A directory is ignored WHOLESALE only when everything
-// under it is machine-written; anywhere a project's own files share the
-// directory, each ctxloom-written file is named individually so what a content
-// repo may legitimately track (.claude/commands/*.md, .mcp.json) stays the
-// project's choice.
-//
-//   - .agents/ qualifies wholesale: besides ctxloom's generated
-//     hooks.json/mcp_config.json/skills, agy (antigravity, removed in 0.7.0)
-//     filled it with per-conversation subagent scratch that must never be
-//     committed — kept as a legacy-debris pattern for pre-upgrade projects.
-//
-//   - .codex/ does not, so its members are listed one by one: config.toml,
-//     which ctxloom generates, and auth.json, which
-//     internal/lm/isolation/auth.go's PrepareCodexHome copies from the host's
-//     ~/.codex/auth.json. The latter is a live credential rather than a config
-//     artifact, but it has to be kept out of the tree exactly the same way.
-//
-//     THE .codex ENTRIES ARE NOW LEGACY, kept for checkouts an older ctxloom
-//     wrote. A ctxloom-controlled codex home is a PER-SESSION INSTANCE under
-//     .ctxloom/state/<harp>/home/.codex (paths.SessionHomePath), covered by
-//     PrivateStatePatterns' ".ctxloom/state/" above — one rule for the whole
-//     tier, credential included. NOTHING migrates the old locations: the
-//     legacy <WorkDir>/.codex is simply no longer referenced (ruled
-//     2026-08-11), so a checkout that still has one keeps it forever, and
-//     un-ignoring it would surface a credential in `git status`. So these
-//     stay, and blanket_retirement_test pins them.
-//
-// The rule is stated because it is per-entry and irreversible in one
-// direction: broadening an entry to its whole directory later un-tracks
-// whatever the project had committed there, silently.
-var TransientArtifactPatterns = []string{".agents/", ".codex/config.toml", ".codex/auth.json"}
-
 // WorktreeComment is the header under which the per-agent-worktree exclude block
 // is grouped in .git/info/exclude.
 const WorktreeComment = "# ctxloom per-agent worktree config (isolation; NEVER merge back)"
@@ -326,20 +271,14 @@ const WorktreeComment = "# ctxloom per-agent worktree config (isolation; NEVER m
 var WorktreeArtifactPatterns = []string{
 	".mcp.json",
 	".claude/",
-	".agents/",
-	".codex/config.toml",
-	".codex/auth.json",
-	".kiro/",
 	".ctxloom/cache/",
 	"CLAUDE.md",
-	"AGENTS.md",
-	// opencode's own written artifacts (command/skill/context files
-	// under .opencode/, its project-local opencode.json, and the managed-MCP
-	// sidecar ledger) were missing from this set despite the doc comment above
-	// calling it "the FULL written set across all engines" — an opencode-backed
-	// per-agent worktree run left these untracked and unhidden.
-	".opencode/",
-	"opencode.json",
+	// mock's own written set. It is here for the same reason claude's is: mock
+	// delivers every surface, so a mock-backed worktree leaves these behind,
+	// and an uncovered artifact reads as a DIRTY worktree that teardown then
+	// refuses to remove — orphaning it permanently.
+	".mock/",
+	"MOCK_CONTEXT.md",
 	// The shared managed-content marker, in whatever directory a writer puts
 	// it. It replaces the five per-engine sidecar names this list used to
 	// enumerate one at a time, and the per-file "*.ctxloom.bak" settings

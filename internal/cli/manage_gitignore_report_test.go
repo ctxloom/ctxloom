@@ -31,16 +31,6 @@ func runGitignoreInstall(t *testing.T, args ...string) string {
 	return out.String()
 }
 
-// harnessPatternCount is how many pattern lines ensureHarnessGitignore writes
-// into a ROOT .gitignore that has none of them.
-//
-// It counts the transient artifacts ONLY. The private-state tier is no longer
-// appended here — it is written wholesale to .ctxloom/.gitignore — so summing
-// both lists would assert a root file the product never produces.
-func harnessPatternCount() int {
-	return len(gitignore.TransientArtifactPatterns)
-}
-
 // TestManageGitignoreInstall_NoChangeDoesNotClaimUpdate is the reporting
 // regression. `manage gitignore install` printed "Updated <path>" and reported
 // status "updated" UNCONDITIONALLY — on a file it had not touched by a single
@@ -57,7 +47,8 @@ func TestManageGitignoreInstall_NoChangeDoesNotClaimUpdate(t *testing.T) {
 	// --format is explicit: it is a persistent flag on the shared rootCmd, so a
 	// value another test in this package set would otherwise stick.
 	first := runGitignoreInstall(t, "--format", formatText)
-	require.Contains(t, first, "Added", "the first run writes every pattern and must say so")
+	require.Contains(t, first, "Wrote",
+		"the first run writes ctxloom's own nested .gitignore and must say so")
 
 	second := runGitignoreInstall(t, "--format", formatText)
 	require.NotContains(t, second, "Updated",
@@ -89,40 +80,6 @@ func runGitignoreInstallJSON(t *testing.T, args ...string) map[string]any {
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal([]byte(out), &payload))
 	return payload
-}
-
-// TestManageGitignoreInstall_ReportsAddedPatterns pins the "added N" case: a
-// project with no ctxloom entries gets every pattern, and the count reported is
-// the count written rather than a fixed string.
-func TestManageGitignoreInstall_ReportsAddedPatterns(t *testing.T) {
-	dir := testsupport.ProjectDir(t)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
-		[]byte("# OS files\n.DS_Store\n"), 0o644))
-
-	payload := runGitignoreInstallJSON(t)
-	require.Equal(t, "updated", payload["status"])
-	require.Len(t, payload["added"], harnessPatternCount(),
-		"every harness pattern was missing, so every one of them is reported added")
-	require.Empty(t, payload["retired"], "there was no blanket rule to retire")
-	require.Equal(t, true, payload["nested_written"],
-		"the private-state tier has to go somewhere, and the nested file is now that somewhere")
-
-	// The root file must carry the transient artifacts and NOTHING under
-	// .ctxloom/. Asserting the absence is the load-bearing half: the count above
-	// would still pass if private-state rules were appended here as well.
-	root, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	require.NoError(t, err)
-	for _, p := range gitignore.PrivateStatePatterns {
-		require.NotContains(t, ignoreRules(string(root)), p,
-			"private state belongs in .ctxloom/.gitignore, never appended to the project's root file")
-	}
-
-	nested, err := os.ReadFile(gitignore.NestedGitignorePath(dir))
-	require.NoError(t, err, "the nested file the command reported writing must exist on disk")
-	for _, p := range gitignore.NestedPatterns() {
-		require.Contains(t, ignoreRules(string(nested)), p,
-			"every private-state rule must survive the move: %s", p)
-	}
 }
 
 // TestManageGitignoreInstall_ReportsPreExistingRootRulesAsRedundant pins the
@@ -168,7 +125,7 @@ func TestManageGitignoreInstall_ReportsPreExistingRootRulesAsRedundant(t *testin
 // from one that never ran.
 func TestManageGitignoreInstall_ReportsRetiredBlanket(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
-	patterns := append(append([]string{}, gitignore.PrivateStatePatterns...), gitignore.TransientArtifactPatterns...)
+	patterns := append([]string{}, gitignore.PrivateStatePatterns...)
 	content := "# Local config\n.ctxloom/*\n!.ctxloom/plans/\n" + strings.Join(patterns, "\n") + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(content), 0o644))
 
@@ -182,40 +139,6 @@ func TestManageGitignoreInstall_ReportsRetiredBlanket(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(after), "\n.ctxloom/*\n", "the blanket really is gone")
 	require.Contains(t, string(after), "!.ctxloom/plans/", "the user's re-include really did survive")
-}
-
-// TestManageGitignoreInstall_ReportedChangeMatchesTheFile is the truthfulness
-// assertion the whole change exists for: every line the command CLAIMS to have
-// retired must really be gone from the file, and every line it claims to have
-// added must really be there — checked against the file on disk rather than
-// against the code's own diff helper.
-//
-// The expected values are written out literally instead of recomputed, so a
-// helper that agrees with itself cannot make this pass.
-func TestManageGitignoreInstall_ReportedChangeMatchesTheFile(t *testing.T) {
-	dir := testsupport.ProjectDir(t)
-	path := filepath.Join(dir, ".gitignore")
-	require.NoError(t, os.WriteFile(path, []byte("# Local config\n.ctxloom/\nnode_modules/\n"), 0o644))
-
-	payload := runGitignoreInstallJSON(t)
-
-	require.Equal(t, "updated", payload["status"])
-	require.Equal(t, []any{".ctxloom/"}, payload["retired"])
-	require.Len(t, payload["added"], harnessPatternCount())
-
-	after, err := os.ReadFile(path)
-	require.NoError(t, err)
-	rules := ignoreRules(string(after))
-
-	for _, claimed := range payload["retired"].([]any) {
-		require.NotContains(t, rules, claimed,
-			"the command reported retiring %v, so it must be gone from the file", claimed)
-	}
-	for _, claimed := range payload["added"].([]any) {
-		require.Contains(t, rules, claimed,
-			"the command reported adding %v, so it must be present in the file", claimed)
-	}
-	require.Contains(t, rules, "node_modules/", "an unrelated user rule survives")
 }
 
 // ignoreRules returns content's non-empty, non-comment lines, trimmed — the

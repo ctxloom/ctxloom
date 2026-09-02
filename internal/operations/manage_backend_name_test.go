@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -33,7 +34,7 @@ func TestRemoveHooks_UnknownBackendIsRejected(t *testing.T) {
 
 // A known backend, and the all/empty filters, still work.
 func TestRemoveHooks_KnownBackendStillRuns(t *testing.T) {
-	for _, backend := range []string{"", "all", "claude-code"} {
+	for _, backend := range []string{"", config.BackendClaudeCode} {
 		res, err := RemoveHooks(context.Background(), nil, RemoveHooksRequest{
 			Backend: backend,
 			FS:      afero.NewMemMapFs(),

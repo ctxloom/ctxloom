@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -79,9 +79,6 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	defer strictness.Close(mark)
 
 	backend := req.Backend
-	if backend == "" {
-		backend = "all"
-	}
 
 	fs := getFS(req.FS)
 	contextOpts := []agent.ContextFileOption{agent.WithContextFS(fs)}
@@ -109,7 +106,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// `backend` (not every backend unconditionally) so a codex-only apply is
 	// never blocked on a claude collision neither of them is asking about,
 	// and vice versa.
-	if err := checkHookTargetScope(workDir, backend, req.Force); err != nil {
+	if err := checkHookTargetScope(freshCfg, workDir, backend, req.Force); err != nil {
 		return nil, err
 	}
 
@@ -184,9 +181,14 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	bundleMCP := freshCfg.ResolveBundleMCPServers(nil)
 	prompts := backends.LoadCommandExports(freshCfg, nil, bundleLoaderOpts(req)...)
 
+	backendNames, err := hookBackendNames(freshCfg, backend)
+	if err != nil {
+		return nil, err
+	}
+
 	applied, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
 		dryRun:           req.DryRun,
-		backendNames:     hookBackendNames(backend),
+		backendNames:     backendNames,
 		freshCfg:         freshCfg,
 		workDir:          workDir,
 		contextHash:      contextHash,
@@ -213,15 +215,6 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// Advisory: tell the user if a bundle executable (MCP server / hook / prompt
 	// export) was withheld by the trust gate (content-free).
 	execGate.WarnWithheld()
-
-	// Self-heal the transient-artifact ignores (settings backups, generated
-	// .agents/) so they stay covered after any hook apply, not just at init.
-	// Skipped when a test FS is injected — the os-based writer would miss it.
-	if req.FS == nil {
-		if gitErr := gitignore.Ensure(workDir, gitignore.TransientArtifactComment, gitignore.TransientArtifactPatterns...); gitErr != nil {
-			clidiag.Warn("ctxloom", "failed to update .gitignore: %v", gitErr)
-		}
-	}
 
 	// Partial success is success: report which backends took and which
 	// failed rather than collapsing the whole call to an error.
@@ -302,7 +295,7 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 // agents/settings/steering home — all the SAME collision
 // class: each backend's project-scoped home is a workDir join, so it
 // collapses onto the bare global exactly when workDir == $HOME too. Scoped
-// to backend ("all" runs every backend with a settings writer; a named
+// to backend (empty targets the project's configured engines; a named
 // backend runs only itself) so a single-backend apply is never blocked on a
 // collision for a DIFFERENT backend it never touches.
 //
@@ -333,8 +326,12 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 // duplicating the /clear banner; home entries were removed by hand as a
 // stopgap. The codex/kiro guards above are completions of the
 // same audit.
-func checkHookTargetScope(workDir, backend string, force bool) error {
-	for _, name := range hookBackendNames(backend) {
+func checkHookTargetScope(cfg *config.Config, workDir, backend string, force bool) error {
+	// Deliberately UNVALIDATED: the scope guard also covers engines registered
+	// through the guard's own table rather than the descriptor registry, and
+	// rejecting those here would skip the very check they need. ApplyHooks
+	// validates the name on its own path.
+	for _, name := range hookBackendNamesUnchecked(cfg, backend) {
 		if err := backends.CheckHookTargetScope(name, workDir, force); err != nil {
 			return err
 		}
@@ -398,12 +395,93 @@ func trustStoreFindingsError(mark strictness.Mark) error {
 	return fmt.Errorf("refusing to apply hooks or context: %s", strings.Join(msgs, "; "))
 }
 
-// hookBackendNames resolves the backend filter to the list of backends to apply.
-func hookBackendNames(backend string) []string {
-	if backend == "all" {
-		return backends.BackendsWithSettings()
+// hookBackendNames resolves an APPLY's backend filter: a named backend is
+// exactly that one, and the empty default — the common case — is every engine
+// THE PROJECT CONFIGURES.
+//
+// There is no "all". Writing to engines the project does not use is not merely
+// untidy: an apply that creates another engine's context file wins a race with
+// that engine's own delivery, and agent.AtomicWriteFile REUSES an existing
+// file's mode rather than widening it, so the delivery inherits whatever mode
+// the apply chose.
+//
+// Uninstall does NOT share this default — see manageBackendNames, which is
+// exhaustive so a narrow install cannot strand managed hooks in an engine
+// nothing will clean up.
+// An unknown NAME is an error, never a one-element list: every layer below
+// reads an unregistered backend as a permitted no-op, so a typo would report
+// success having applied nothing. manageBackendNames guards the removal door
+// the same way.
+func hookBackendNames(cfg *config.Config, backend string) ([]string, error) {
+	if backend == "" {
+		return ConfiguredEngines(cfg), nil
+	}
+	return namedBackend(backend)
+}
+
+// namedBackend resolves ONE named backend, refusing an unregistered name.
+//
+// Shared by both resolvers because only their DEFAULTS differ (this path's is
+// the project's configured engines, removal's is exhaustive) — the refusal is
+// the same fact and must read the same either side, or one door gets a guard
+// the other does not.
+func namedBackend(backend string) ([]string, error) {
+	if !backends.Exists(backend) {
+		return nil, fmt.Errorf("unknown backend %q (supported: %s)", backend, strings.Join(backends.BackendsWithSettings(), ", "))
+	}
+	return []string{backend}, nil
+}
+
+// hookBackendNamesUnchecked is hookBackendNames without the registration
+// guard, for the scope check (see checkHookTargetScope).
+func hookBackendNamesUnchecked(cfg *config.Config, backend string) []string {
+	if backend == "" {
+		return ConfiguredEngines(cfg)
 	}
 	return []string{backend}
+}
+
+// ConfiguredEngines returns every backend THIS PROJECT configures, sorted and
+// de-duplicated: the engines resolved from the configured agents' LLM labels.
+// It is what an unqualified apply targets.
+//
+// A project that configures none gets an empty list, and an apply over nothing
+// writes nothing — the correct outcome, not a reason to fall back to the whole
+// registry.
+func ConfiguredEngines(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	add := func(label string) {
+		if backend, _ := ResolveBackend(cfg, label); backend != "" {
+			seen[backend] = true
+		}
+	}
+	for _, a := range cfg.GetConfiguredAgents() {
+		add(a.LLM)
+	}
+	// The DEFAULTS count too: a project with no explicit agent still runs on
+	// its primary (and distills on its fast) engine, and an apply that skipped
+	// them would write nothing for the most common setup of all.
+	lm := cfg.GetLMConfig()
+	add(lm.Defaults.Primary)
+	add(lm.Defaults.Fast)
+	// A project that names no engine anywhere still RUNS on one — the shipped
+	// default — so it is what an unqualified apply targets. Returning nothing
+	// here would silently write nothing for the simplest possible project.
+	if len(seen) == 0 {
+		if backends.Exists(config.DefaultLLM) {
+			seen[config.DefaultLLM] = true
+		}
+	}
+
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // hookApplyParams bundles the per-backend apply inputs (shared across the loop).

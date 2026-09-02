@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -142,14 +143,15 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	// An EXPLICIT --engine scopes the hook apply to that one backend — the flag
-	// reads like "install for this engine" and used to wire all five
-	// regardless (`.opencode/`, `.kiro/`, etc. materializing in a project that
-	// uses only one engine). Omitting the flag keeps the prior "all" default:
+	// reads like "install for this engine" and used to wire every registered
+	// engine regardless, materializing config dirs in a project that uses one.
+	// Omitting the flag now means THIS PROJECT'S CONFIGURED ENGINES (see
+	// operations.ConfiguredEngines) rather than every engine ctxloom knows:
 	// manageInstallEngine always holds a value (its flag default is
 	// "claude-code"), so Changed is the only reliable signal that the user
 	// actually asked for one engine — see checkInstallEngineApplies above,
 	// which gates on the same Changed() check for the same reason.
-	hookBackend := "all"
+	hookBackend := ""
 	if cmd.Flags().Changed("engine") {
 		hookBackend = manageInstallEngine
 	}
@@ -338,18 +340,13 @@ func ensureHarnessGitignore(projectDir string) (gitignoreOutcome, error) {
 	// gitignore.Ensure is about to hit and report with its own context.
 	before, _ := os.ReadFile(path)
 
-	// The private-state tier goes to the nested .ctxloom/.gitignore ctxloom
-	// owns; only the transient artifacts, which name paths OUTSIDE .ctxloom/
-	// and so have no nested file to live in, are appended to the project's own
-	// root file. Splitting them is what stops a private-state header from ever
-	// again being written above an engine surface or a credential.
+	// Everything ctxloom ignores goes to the nested .ctxloom/.gitignore it
+	// owns. The project's own root file is never ADDED to — it is touched only
+	// to RETIRE a blanket rule that would stop git descending into .ctxloom/
+	// and make the nested file unreadable.
 	nested, err := gitignore.EnsureNested(projectDir)
 	if err != nil {
 		return gitignoreOutcome{}, fmt.Errorf("failed to write %s: %w", gitignore.NestedGitignorePath(projectDir), err)
-	}
-
-	if err := gitignore.Ensure(projectDir, gitignore.TransientArtifactComment, gitignore.TransientArtifactPatterns...); err != nil {
-		return gitignoreOutcome{}, fmt.Errorf("failed to update .gitignore: %w", err)
 	}
 
 	// Read from the file rather than from `before`: Ensure may have retired a
@@ -359,13 +356,15 @@ func ensureHarnessGitignore(projectDir string) (gitignoreOutcome, error) {
 		return gitignoreOutcome{}, fmt.Errorf("failed to inspect %s: %w", path, err)
 	}
 
-	// Ensure returned nil, so the file it was asked to maintain must be
-	// readable. Failing to read it back is not something to soften into "no
-	// change" — that is exactly the claim this function exists to stop being
-	// made without evidence.
+	// An ABSENT root .gitignore is a legitimate outcome now: ctxloom adds
+	// nothing to it, so a project that never had one still does not. Any OTHER
+	// read failure stays loud — softening that into "no change" is exactly the
+	// unevidenced claim this function exists to prevent.
 	after, err := os.ReadFile(path)
-	if err != nil {
-		return gitignoreOutcome{}, fmt.Errorf("failed to read back %s after updating it: %w", path, err)
+	if errors.Is(err, os.ErrNotExist) {
+		after = nil
+	} else if err != nil {
+		return gitignoreOutcome{}, fmt.Errorf("failed to read back %s: %w", path, err)
 	}
 
 	retired, added := ignoreLineDiff(before, after)
@@ -419,41 +418,55 @@ func ignoreRuleLines(content []byte) []string {
 	return out
 }
 
-func runManageUninstall(cmd *cobra.Command, _ []string) error {
+// removeHooksAndReport is the shared body of `manage uninstall` and
+// `manage hooks uninstall`. They differ only in the backend they target and in
+// what they print; sharing the removal, the error handling and the emit is what
+// stops one of them being fixed and the other quietly left behind.
+//
+// WarnErrors prints the per-item warnings AND returns non-nil so the run
+// actually fails. The old shape warned and returned nil: a refused engine
+// removal exited 0, and any script gating on the exit code believed it worked.
+func removeHooksAndReport(cmd *cobra.Command, backend string, render func(operations.RemoveHooksResult) (any, func() error)) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return err
 	}
-	result, err := operations.RemoveHooks(cmd.Context(), cfg, operations.RemoveHooksRequest{Backend: "all"})
+	result, err := operations.RemoveHooks(cmd.Context(), cfg, operations.RemoveHooksRequest{Backend: backend})
 	if err != nil {
 		return err
 	}
-	// WarnErrors prints the same per-item warnings this used to print, but
-	// ALSO returns non-nil so the run actually fails. The old shape warned and
-	// returned nil: a refused engine apply exited 0, and any script or CI step
-	// gating on the exit code believed the hooks were installed.
 	warnErr := clidiag.WarnErrors("ctxloom", result.Errors)
 
-	type manageUninstallResult struct {
-		Status   string   `json:"status"`
-		Backends []string `json:"backends"`
-		Errors   []string `json:"errors,omitempty"`
-		Note     string   `json:"note"`
-	}
-	out := manageUninstallResult{
-		Status:   result.Status,
-		Backends: result.Backends,
-		Errors:   result.Errors,
-		Note:     "The .ctxloom directory and its contents were left in place.",
-	}
-	if err := emit(cmd, out, func() error {
-		fmt.Fprintf(cmd.OutOrStdout(), "Removed ctxloom harness from: %v\n", result.Backends)
-		fmt.Fprintln(cmd.OutOrStdout(), out.Note)
-		return nil
-	}); err != nil {
+	payload, text := render(*result)
+	if err := emit(cmd, payload, text); err != nil {
 		return err
 	}
 	return warnErr
+}
+
+func runManageUninstall(cmd *cobra.Command, _ []string) error {
+	// Backend "" is EXHAUSTIVE for removal, deliberately: `manage uninstall`
+	// takes no engine and must reach managed hooks in an engine the project has
+	// since stopped configuring.
+	return removeHooksAndReport(cmd, "", func(result operations.RemoveHooksResult) (any, func() error) {
+		type manageUninstallResult struct {
+			Status   string   `json:"status"`
+			Backends []string `json:"backends"`
+			Errors   []string `json:"errors,omitempty"`
+			Note     string   `json:"note"`
+		}
+		out := manageUninstallResult{
+			Status:   result.Status,
+			Backends: result.Backends,
+			Errors:   result.Errors,
+			Note:     "The .ctxloom directory and its contents were left in place.",
+		}
+		return out, func() error {
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed ctxloom harness from: %v\n", result.Backends)
+			fmt.Fprintln(cmd.OutOrStdout(), out.Note)
+			return nil
+		}
+	})
 }
 
 func runManageCheck(cmd *cobra.Command, _ []string) error {
@@ -588,33 +601,18 @@ var manageHooksUninstallCmd = &cobra.Command{
 }
 
 func runManageHooksUninstall(cmd *cobra.Command, _ []string) error {
-	cfg, err := GetConfig()
-	if err != nil {
-		return err
-	}
-	result, err := operations.RemoveHooks(cmd.Context(), cfg, operations.RemoveHooksRequest{Backend: manageHooksBackend})
-	if err != nil {
-		return err
-	}
-	// WarnErrors prints the same per-item warnings this used to print, but
-	// ALSO returns non-nil so the run actually fails. The old shape warned and
-	// returned nil: a refused engine apply exited 0, and any script or CI step
-	// gating on the exit code believed the hooks were installed.
-	warnErr := clidiag.WarnErrors("ctxloom", result.Errors)
-
-	type manageHooksUninstallResult struct {
-		Status   string   `json:"status"`
-		Backends []string `json:"backends"`
-		Errors   []string `json:"errors,omitempty"`
-	}
-	out := manageHooksUninstallResult{Status: result.Status, Backends: result.Backends, Errors: result.Errors}
-	if err := emit(cmd, out, func() error {
-		fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v\n", result.Status, result.Backends)
-		return nil
-	}); err != nil {
-		return err
-	}
-	return warnErr
+	return removeHooksAndReport(cmd, manageHooksBackend, func(result operations.RemoveHooksResult) (any, func() error) {
+		type manageHooksUninstallResult struct {
+			Status   string   `json:"status"`
+			Backends []string `json:"backends"`
+			Errors   []string `json:"errors,omitempty"`
+		}
+		out := manageHooksUninstallResult{Status: result.Status, Backends: result.Backends, Errors: result.Errors}
+		return out, func() error {
+			fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v\n", result.Status, result.Backends)
+			return nil
+		}
+	})
 }
 
 var manageHooksCheckCmd = &cobra.Command{
@@ -951,7 +949,12 @@ func init() {
 		"Resolve against these profiles instead of the configured defaults (repeatable)")
 	manageHooksInstallCmd.Flags().BoolVar(&manageHooksForce, "force", false, "Proceed even if the resolved project directory would write Claude Code's user-global settings (not inside a project / $HOME)")
 	for _, c := range []*cobra.Command{manageHooksInstallCmd, manageHooksUninstallCmd} {
-		c.Flags().StringVar(&manageHooksBackend, "backend", "all", "Backend to target (claude-code, codex, or all)")
+		// No default and no "all": omitted means this project's configured
+		// engines, which is the common case and the honest one. The value is
+		// deliberately not enumerated in the help text — the registry is the
+		// authority on what is valid, and a hand-written list here named an
+		// engine that had already been removed.
+		c.Flags().StringVar(&manageHooksBackend, "backend", "", "Engine to target (default: the engines this project configures)")
 	}
 
 	// statusline opt-out.

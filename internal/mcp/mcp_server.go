@@ -355,7 +355,6 @@ func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 	// with settings must see the same regenerated context/hooks/commands —
 	// refreshing only one leaves the others serving stale managed sets.
 	if _, err := operations.ApplyHooks(ctx, operations.ApplyHooksRequest{
-		Backend:           "all",
 		RegenerateContext: true,
 		DryRun:            s.dryRun,
 	}); err != nil && !errors.Is(err, context.Canceled) {

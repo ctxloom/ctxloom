@@ -51,7 +51,7 @@ func TestRemoveHooks_StripsWiring(t *testing.T) {
 	wireClaudeHarness(t, fs, dir)
 
 	cfg := &config.Config{}
-	res, err := RemoveHooks(context.Background(), cfg, RemoveHooksRequest{Backend: "all", FS: fs, WorkDir: dir})
+	res, err := RemoveHooks(context.Background(), cfg, RemoveHooksRequest{Backend: "", FS: fs, WorkDir: dir})
 	require.NoError(t, err)
 	assert.Equal(t, "removed", res.Status)
 	assert.Contains(t, res.Backends, "claude-code")

@@ -96,7 +96,9 @@ func TestWorktreeMember_ManagedConfigLandsInWorktree(t *testing.T) {
 	// (NOT the tracked .gitignore) so the now-written config never rides a merge-back.
 	excl, err := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude"))
 	require.NoError(t, err, "the common-dir info/exclude must exist")
-	for _, pat := range []string{".mcp.json", ".claude/", ".kiro/", ".ctxloom/cache/"} {
+	// Every shipped engine's written set, so a member that writes one of these
+	// cannot leave the worktree reading as dirty and refuse teardown.
+	for _, pat := range []string{".mcp.json", ".claude/", "CLAUDE.md", ".mock/", "MOCK_CONTEXT.md", ".ctxloom/cache/"} {
 		assert.Contains(t, string(excl), pat, "info/exclude covers %q", pat)
 	}
 	assert.NoFileExists(t, filepath.Join(repo, ".gitignore"), "excludes must NOT touch the tracked .gitignore")

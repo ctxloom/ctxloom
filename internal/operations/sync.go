@@ -353,7 +353,6 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 	// inside ApplyHooks); degraded mode warns and continues.
 	if req.ApplyHooks && result.Total > 0 {
 		if _, err := syncHooksStep(ctx, ApplyHooksRequest{
-			Backend:           "all",
 			RegenerateContext: true,
 		}); err != nil {
 			strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)",

@@ -84,16 +84,16 @@ func TestApplyHooksRequest_ClaudeCode(t *testing.T) {
 
 func TestApplyHooksRequest_Antigravity(t *testing.T) {
 	req := ApplyHooksRequest{
-		Backend: "antigravity",
+		Backend: "mock",
 	}
 
-	assert.Equal(t, "antigravity", req.Backend)
+	assert.Equal(t, "mock", req.Backend)
 }
 
 func TestApplyHooksResult_Fields(t *testing.T) {
 	result := ApplyHooksResult{
 		Status:      "applied",
-		Backends:    []string{"claude-code", "antigravity"},
+		Backends:    []string{"claude-code", "mock"},
 		ContextHash: "abc123",
 	}
 
@@ -113,7 +113,7 @@ func TestApplyHooksResult_NoContextHash(t *testing.T) {
 }
 
 func TestApplyHooksRequest_BackendValues(t *testing.T) {
-	validBackends := []string{"all", "claude-code", "antigravity", ""}
+	validBackends := []string{"all", "claude-code", "mock", ""}
 
 	for _, backend := range validBackends {
 		req := ApplyHooksRequest{
@@ -316,7 +316,7 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
 	assert.Contains(t, result.Backends, "claude-code")
-	assert.NotContains(t, result.Backends, "antigravity")
+	assert.NotContains(t, result.Backends, "mock")
 
 	// Verify Claude Code settings file was created
 	exists, err := afero.Exists(fs, "/project/.claude/settings.json")
@@ -330,7 +330,7 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 }
 
 // TestApplyHooks_AllBackends tests applying hooks to all backends.
-func TestApplyHooks_AllBackends(t *testing.T) {
+func TestApplyHooks_NamedBackendTargetsOnlyThatOne(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	tmpDir := "/project"
 
@@ -341,7 +341,7 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "all",
+		Backend:      config.BackendClaudeCode,
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
@@ -374,11 +374,14 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	// DERIVED, not a count: an empty Backend means "all", and "all" is exactly
-	// backends.BackendsWithSettings(). Pinning a number here only restated how
-	// many engines existed the day it was written.
-	want := backends.BackendsWithSettings()
-	require.NotEmpty(t, want, "no backend has a settings surface; this comparison would be vacuous")
+	// DERIVED, not a list: an empty Backend means this project's configured
+	// engines. A hand-listed expectation would restate which engines exist
+	// today, and would pass just as happily if the default fanned out over
+	// the whole registry instead.
+	cfg, cerr := mockConfigLoader()
+	require.NoError(t, cerr)
+	want := ConfiguredEngines(cfg)
+	require.NotEmpty(t, want, "the fixture configures no engine; this comparison would be vacuous")
 	assert.ElementsMatch(t, want, result.Backends)
 }
 

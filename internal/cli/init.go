@@ -506,7 +506,6 @@ func applyInitHooks(cmd *cobra.Command, appDir string) {
 	// ConfigLoader is the seam ApplyHooks actually honours, so the appDir goes
 	// there. A load failure now surfaces through applyErr below.
 	result, applyErr := applyHooksFn(context.Background(), operations.ApplyHooksRequest{
-		Backend:           "all",
 		RegenerateContext: false,
 		ConfigLoader: func() (*config.Config, error) {
 			return config.Load(config.WithAppDir(appDir))

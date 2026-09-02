@@ -226,15 +226,23 @@ func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 	assert.False(t, converted)
 }
 
-// TestVendorReaderRegistry_CoversTwoEngines locks in exactly which backend
-// names carry a vendor reader — a change here (adding/removing an engine) should
-// be a deliberate, visible edit to this test, not a silent registry drift.
+// TestVendorReaderRegistry_Membership locks in exactly which backend names
+// carry a vendor reader — a change here (adding/removing an engine) should be
+// a deliberate, visible edit to this test, not a silent registry drift.
+//
+// TWO members is the load-bearing part, not an accident of which engines
+// exist: claude-code is the real vendor reader, and mock is the degenerate
+// second adapter that keeps this a PORT rather than a single-implementation
+// seam (see vendorReaderRegistry's doc and the mock reader package). If this
+// ever drops back to one entry, the version-dispatch and locate mutations
+// stop dying — so a change reducing it needs to explain what replaced the
+// polymorphism, not merely update the expected list.
 func TestVendorReaderRegistry_Membership(t *testing.T) {
 	got := make([]string, 0, len(vendorReaderRegistry))
 	for name := range vendorReaderRegistry {
 		got = append(got, name)
 	}
-	assert.ElementsMatch(t, []string{config.BackendClaudeCode}, got)
+	assert.ElementsMatch(t, []string{config.BackendClaudeCode, config.BackendMock}, got)
 }
 
 // TestLocateBoundTranscript exercises the shared locate func directly

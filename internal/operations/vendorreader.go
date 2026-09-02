@@ -32,6 +32,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
+	mockreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/mock"
 )
 
 // lockFileMode and lockDirMode are the modes the canonical-transcript
@@ -75,8 +76,14 @@ type vendorReaderEntry struct {
 // "claude-code") and its interactive-mode entries (this file) disagree about
 // which engine wrote a canonical transcript's Engine field.
 //
-// mock has no entry: it has no vendor-native transcript store of its own to
-// import from.
+// mock IS registered, and the objection to that is real enough to answer
+// here: mock has no vendor-native transcript store of its own, so on the
+// product's own terms it has nothing to import. It carries a DEGENERATE
+// adapter anyway (internal/transcript/vendorreader/mock) because a
+// single-entry registry cannot fail — version dispatch, the locate
+// indirection and the lookup below have no branch to take wrongly with one
+// engine, so mutations to them all survive. The second adapter is what makes
+// them die. Mock's adapter must stay degenerate; see that package's doc.
 //
 // Every registered engine PREFERS the already-bound transcript path
 // (locateBoundTranscript): the SessionStart bind hook already resolved the
@@ -86,6 +93,7 @@ type vendorReaderEntry struct {
 // (docs/transcript-schema.md §8).
 var vendorReaderRegistry = map[string]vendorReaderEntry{
 	config.BackendClaudeCode: {adapters: claudereader.VersionedAdapters, locate: locateBoundTranscript},
+	config.BackendMock:       {adapters: mockreader.VersionedAdapters, locate: locateBoundTranscript},
 }
 
 // VendorReaderEngineNames returns the backend names vendorReaderRegistry
@@ -107,7 +115,7 @@ func VendorReaderEngineNames() []string {
 
 // VendorReaderAdaptersFor returns the version-scoped transcript adapters
 // ctxloom carries for one engine, and whether that engine has a vendor reader
-// at all (mock does not — see vendorReaderRegistry's doc).
+// at all.
 //
 // Exported read-only, for `ctxloom doctor`'s transcript-reader check: a user
 // meeting a vendorreader refusal needs the detected engine version against the

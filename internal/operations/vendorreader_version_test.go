@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -173,4 +174,52 @@ func TestConvertVendorTranscript_MalformedLineInAKnownVersionDegradesToPartial(t
 	assert.True(t, converted)
 	assert.NotEmpty(t, canonicalLines(t, harp),
 		"the readable remainder of the transcript must still land: one corrupt line may not cost the whole session")
+}
+
+// TestVendorReaderRegistry_IsAPortNotASingleImplementation is the CONTRACT
+// TEST across every registered adapter: the same assertions, run against each
+// member, so the registry is exercised as a port rather than as one hard-wired
+// engine wearing an interface.
+//
+// It exists because a single-entry registry cannot fail. With one engine the
+// lookup below has no wrong key to take, so a mutation replacing the keyed
+// lookup with a constant survives — the test is green and blind. mock is
+// registered as a deliberately degenerate second adapter precisely so that
+// mutation dies here (see internal/transcript/vendorreader/mock's doc).
+//
+// If this ever drops to one member again, it stops proving anything: the
+// require below fails loudly rather than passing vacuously, which is the
+// point.
+func TestVendorReaderRegistry_IsAPortNotASingleImplementation(t *testing.T) {
+	require.GreaterOrEqual(t, len(vendorReaderRegistry), 2,
+		"a one-entry registry cannot prove polymorphism — every mutation to the keyed lookup would survive")
+
+	seen := map[string]string{}
+	for engine, reg := range vendorReaderRegistry {
+		require.NotEmpty(t, reg.adapters, "%s must declare at least one versioned adapter", engine)
+		require.NotNil(t, reg.locate, "%s must declare a locate func", engine)
+
+		// Each engine's OWN cited version must resolve through its OWN entry.
+		for _, a := range reg.adapters {
+			got, err := vendorreader.SelectAdapter(engine, a.ValidatedVersion, "", reg.adapters)
+			require.NoError(t, err, "%s: its own validated version %s must resolve", engine, a.ValidatedVersion)
+			require.NotNil(t, got)
+		}
+
+		// Go through the REAL keyed lookup, not the map literal: a mutation
+		// that resolves every engine to one hard-coded entry is invisible to
+		// a test that ranges the map itself.
+		viaLookup, ok := VendorReaderAdaptersFor(engine)
+		require.True(t, ok, "%s must resolve through the exported keyed lookup", engine)
+		require.NotEmpty(t, viaLookup)
+
+		// The adapter a lookup returns must be DISTINCT per engine. A lookup
+		// that ignores its key returns the same concrete type for every
+		// engine, and this is what catches that.
+		concrete := fmt.Sprintf("%T", viaLookup[0].Adapter)
+		if prev, dup := seen[concrete]; dup {
+			t.Fatalf("engines %s and %s resolve to the same adapter type %s — the registry lookup is not keyed", prev, engine, concrete)
+		}
+		seen[concrete] = engine
+	}
 }

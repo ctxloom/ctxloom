@@ -53,6 +53,28 @@ type LMConfig struct {
 // change to the default-label concept.
 const BackendClaudeCode = "claude-code"
 
+// BackendMock is the test/development double's registry name. It is a real
+// registered backend (internal/lm/backends builds a SurfaceSet for it), and
+// it is the SECOND implementation that keeps engine-facing ports honest —
+// see internal/transcript/vendorreader/mock. Named here so the identity is
+// one constant rather than a literal re-typed at each site; a hand-written
+// == "mock" is the drift this replaces.
+const BackendMock = "mock"
+
+// BackendMockLossy is the deliberately-LOSSY test double's registry name.
+//
+// It exists because mock is complete: mock delivers every surface, so it
+// declares no capability loss, and it was the last backend that did. That left
+// UncarriedSurfaces, doctor's capability-loss check and `manage check`'s loss
+// reporting as live production code no engine could exercise — a diagnostic
+// nobody can trigger is a diagnostic nobody notices breaking.
+//
+// So the two concerns get two doubles rather than one compromised double:
+// mock proves the seam is polymorphic, and this one proves the seam REPORTS
+// what an engine cannot carry. Both are test-only (backends.IsTestOnly) and
+// neither is ever offered to a user.
+const BackendMockLossy = "mock-lossy"
+
 // DefaultLLM is the backend type used when no config resolves a label. It is
 // claude-code today; DefaultLLM and BackendClaudeCode name distinct concepts
 // (the default fallback vs. the claude-code engine) that happen to coincide.

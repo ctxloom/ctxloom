@@ -1,0 +1,5 @@
+{"role":"user","text":"first question","ts":"2026-01-01T00:00:00Z"}
+{"role":"assistant","text":"first answer","ts":"2026-01-01T00:00:01Z"}
+{"role":"session-meta","text":"administrative, contributes nothing"}
+this line is not json at all
+{"role":"user","text":"second question"}

@@ -413,10 +413,12 @@ func engineContextRelPath(dir, engine string) (string, error) {
 	switch engine {
 	case config.BackendClaudeCode:
 		return filepath.Join(dir, "CLAUDE.md"), nil
-	// Both doubles share mock's native layout: mock-lossy differs only in the
-	// hook kinds its descriptor declares unsupported, and it builds its
-	// surfaces through the same NewMockSurfaces.
-	case config.BackendMock, config.BackendMockLossy:
+	// All three doubles share mock's native CONTEXT layout, and each differs
+	// elsewhere: mock-lossy in the hook kinds its descriptor declares
+	// unsupported, mock-launch in delivering only context at materialize time
+	// (its other four surfaces arrive at launch). Context is the one surface
+	// all three write, which is why one case covers them.
+	case config.BackendMock, config.BackendMockLossy, config.BackendMockLaunch:
 		return filepath.Join(dir, "MOCK_CONTEXT.md"), nil
 	default:
 		return "", fmt.Errorf("unknown engine %q for native context surface", engine)

@@ -85,42 +85,26 @@ Feature: One shared profile, reaching every engine in its own native format
   # because a narrowing a user is not told about is indistinguishable from a
   # loss.
   #
-  # PARKED — this scenario's claim is NARROWING-IS-DECLARED, and its last step
-  # asserts the materialize report names those surfaces "delivered per-session
-  # at launch" (steps_j000400.go's "the materialize report says <engine>
-  # delivers those surfaces per-session at launch"). The first four steps would
-  # pass against an engine that simply HAS no such surfaces — nothing exists
-  # rather than something is deferred — and the fifth would then have to be
-  # rewritten into a weaker claim. Weakening it is exactly what must not
-  # happen, so it is parked whole instead.
+  # THE CLAIM IS NARROWING-IS-DECLARED, which is why the last step matters most:
+  # a user must be told where the three missing surfaces DO come from, or the
+  # report reads as this engine silently losing them. The subject is
+  # mock-launch, whose surfaces skip at materialize time while its descriptor
+  # declares launchOnlySettingsReason — both halves, because skipping without
+  # declaring is a silent no-op and declaring without skipping reports a
+  # surface as absent while its file sits in the tree.
   #
-  # THE BLOCKER, stated so it can be CHECKED rather than re-derived: the
-  # "delivered per-session at launch" wording originates in a descriptor's
-  # launchOnlySettingsReason, which backends.LaunchOnlySurfaces turns into the
-  # materialize report's "NOT carried" lines. NO descriptor assigns that field
-  # today, so LaunchOnlySurfaces returns nil for every registered backend and
-  # no engine can produce the sentence the last step reads. Per its own doc the
-  # field is "set only by a backend with no cwd-keyed equivalent of
-  # .claude/settings.json" — which is what "home-keyed" means here.
-  #
-  # NOT the same thing as isolation's per-agent config home. Worktree.
-  # provisionConfigHome and claude's surface DeliverIsolated relocate where a
-  # RUNNING agent's config lands; this scenario is about what a STATIC
-  # materialize can declare it did not write. An engine can have the first and
-  # still not satisfy this. That conflation has already cost one investigation.
-  #
-  # UNTAG WHEN: some descriptor assigns launchOnlySettingsReason — grep it; the
-  # empty result IS the current blocker. Then repoint the scenario at that
-  # engine; the steps need no new Go.
-  @wip
+  # The first four steps must NOT be read as "passes because nothing exists".
+  # mock-launch keeps its command and skill exports precisely so the inputs
+  # genuinely carry something to deliver; a double that asked for nothing would
+  # satisfy the absence steps without the question ever being posed.
   Scenario: A home-keyed engine materializes its native context, and declares the three surfaces it delivers at launch instead
     Given Carol's team profile carries a shared fragment, command, MCP server, and hook
-    When Alice materializes the team profile for a home-keyed engine
-    Then the materialized context carries the shared fragment's marker, in its own native shape
-    And no surface anywhere in the materialized tree carries the shared hook's command
-    And no surface anywhere in the materialized tree carries the shared MCP server's command
-    And no surface anywhere in the materialized tree carries the shared command's body
-    And the materialize report says that engine delivers those surfaces per-session at launch
+    When Alice materializes the team profile for mock-launch
+    Then the materialized mock-launch context carries the shared fragment's marker, in its own native shape
+    And no mock-launch surface anywhere in the materialized tree carries the shared hook's command
+    And no mock-launch surface anywhere in the materialized tree carries the shared MCP server's command
+    And no mock-launch surface anywhere in the materialized tree carries the shared command's body
+    And the materialize report says mock-launch delivers those surfaces per-session at launch
 
   # Regression coverage for taskloom lanky-plop (P0 data loss): materializing a
   # profile for an engine with a native context file must never destroy a team's hand-authored

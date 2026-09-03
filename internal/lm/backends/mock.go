@@ -92,6 +92,23 @@ func (MockLossyConfig) BackendType() string { return config.BackendMockLossy }
 // GetEnv returns the labeled entry's env map, the same way MockConfig does.
 func (c MockLossyConfig) GetEnv() map[string]string { return c.Env }
 
+// MockLaunchConfig is the launch-delivered double's config. It carries the same
+// fields as MockConfig and exists for the same reason MockLossyConfig does: the
+// config must NAME ITS OWN BACKEND, because
+// TestDescriptorTable_ConfigDecodesToItsOwnType requires every descriptor's
+// decoded config to report the backend it was registered under, and a shared
+// type would report "mock" for all three.
+type MockLaunchConfig struct {
+	Model string            `mapstructure:"model"`
+	Env   map[string]string `mapstructure:"env"`
+}
+
+// BackendType identifies the backend this config drives.
+func (MockLaunchConfig) BackendType() string { return config.BackendMockLaunch }
+
+// GetEnv returns the labeled entry's env map, the same way MockConfig does.
+func (c MockLaunchConfig) GetEnv() map[string]string { return c.Env }
+
 // GetEnv returns the labeled entry's env map. Lets shared code (see
 // operations.LLMEnvFor) reach a decoded config's Env through an interface
 // assertion instead of a concrete-type switch — internal/operations may not
@@ -116,6 +133,9 @@ func (c MockConfig) GetEnv() map[string]string { return c.Env }
 // descriptor declares unsupported — see config.BackendMockLossy for why a
 // second double beats making the first one imperfect.
 func NewMockLossy() *Mock { return newMockBackend(config.BackendMockLossy) }
+
+// NewMockLaunch builds the launch-delivered double. See config.BackendMockLaunch.
+func NewMockLaunch() *Mock { return newMockBackend(config.BackendMockLaunch) }
 
 // newMockBackend builds a mock-family backend under the given registry name.
 // The two doubles differ ONLY in that name and in what their descriptors

@@ -75,6 +75,25 @@ const BackendMock = "mock"
 // neither is ever offered to a user.
 const BackendMockLossy = "mock-lossy"
 
+// BackendMockLaunch is the LAUNCH-DELIVERED test double's registry name: an
+// engine whose settings, MCP, commands and skills exist only inside a
+// per-session engine home, so a static `profile materialize` has nowhere to
+// write them and reports them as arriving at launch instead.
+//
+// A THIRD double for the same reason there is a second: the three prove
+// different things and one double cannot prove all three. mock proves the
+// surface seam is POLYMORPHIC (it must be complete); mock-lossy proves the
+// seam REPORTS what an engine can NEVER carry (it must be lossy);
+// this one proves the seam distinguishes "never carried" from "carried
+// LATER" — a distinction with no subject at all once the home-keyed engines
+// were deleted, which left backends.LaunchOnlySurfaces unexercisable.
+//
+// Both halves of that are load-bearing and neither is optional: its surfaces
+// SKIP at materialize time, and its descriptor DECLARES why. Skipping without
+// declaring is a silent no-op; declaring without skipping reports a surface
+// as not-carried while its file sits in the tree.
+const BackendMockLaunch = "mock-launch"
+
 // DefaultLLM is the backend type used when no config resolves a label. It is
 // claude-code today; DefaultLLM and BackendClaudeCode name distinct concepts
 // (the default fallback vs. the claude-code engine) that happen to coincide.

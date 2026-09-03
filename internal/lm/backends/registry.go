@@ -554,4 +554,40 @@ func init() {
 			"session_end":   config.BackendMockLossy + " has no native session_end event",
 		},
 	})
+
+	// The LAUNCH-DELIVERED double. See config.BackendMockLaunch for why a third
+	// double rather than a flag on one of the other two.
+	//
+	// It keeps exports and skillExports even though it writes neither. That is
+	// the point: those populate SurfaceInputs.Commands and .Skills, and
+	// LaunchOnlySurfaces reports a surface only when the inputs actually
+	// CARRIED something to deliver. Drop them and the double asks for nothing,
+	// so nothing is reported missing, and the scenario passes because the
+	// question was never posed — the shape of vacuous pass this repo keeps
+	// finding.
+	//
+	// It DOES declare a settings writer, and that is the whole shape rather than
+	// a concession to the table invariant: the writer is the LAUNCH-time
+	// mechanism and the surface is the MATERIALIZE-time one. This engine has no
+	// materialize surface for settings precisely BECAUSE its writer runs at
+	// launch, into the per-session home. An engine with neither would not be
+	// launch-delivered; it would simply have no settings.
+	registerDescriptor(agentDescriptor{
+		name:       config.BackendMockLaunch,
+		newBackend: func() agent.Backend { return NewMockLaunch() },
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &MockLaunchConfig{})
+		},
+		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return NewMockLaunchSurfaces(in, fs) },
+		newWriter:    NewMockSettingsWriter,
+		exports:      mockExports,
+		skillExports: mockSkillExports,
+		testOnly:     true,
+		// The clause has to SAY WHERE THEY COME FROM, not merely that they were
+		// not written. "not carried" alone reads as this engine losing them;
+		// "delivered per-session at launch" is the sentence that turns a
+		// apparent loss into a narrowing the user can reason about.
+		launchOnlySettingsReason: config.BackendMockLaunch +
+			" keeps settings, MCP servers, commands and skills in a per-session engine home: they are delivered per-session at launch, which a static materialize has no home to write into",
+	})
 }

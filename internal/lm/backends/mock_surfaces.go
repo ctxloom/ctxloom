@@ -215,9 +215,13 @@ func mockCommandsPresenter(s present.Start) present.Presentation {
 // mockPresentations is mock's declared per-surface presentation table — one
 // entry per SurfaceKind, each with exactly one delivery (unsafe-file) built by
 // a presenter above. It is the present-package counterpart of the per-backend
-// ApproachTable every other backend declares, and it is the SINGLE place
-// mock's surface membership is stated: SupportedApproaches, DefaultApproach
-// and SurfaceFor all derive from this map rather than repeating the list.
+// ApproachTable every other backend declares, and it states the COMPLETE mock's
+// surface membership in one place rather than repeating the list at
+// SupportedApproaches, DefaultApproach and SurfaceFor.
+//
+// Those three read MockSurfaces.table(), not this map directly, because the
+// launch-delivered double presents a narrower set (mockLaunchPresentations).
+// This map remains the default that a nil instance table resolves to.
 //
 // mock declares EVERY kind, deliberately: it is a complete engine with no real
 // model behind it, not a hole in the registry. A partial double makes its gaps
@@ -420,6 +424,26 @@ type MockSurfaces struct {
 	Commands *agent.ManagedCommandsDelivery
 
 	dispatch map[agent.SurfaceKind]agent.Delivery
+	// presentations is this INSTANCE's surface-membership table. It exists so
+	// the launch-delivered double can present a narrower set than the complete
+	// mock without a second copy of the three methods below.
+	//
+	// A nil table means the COMPLETE mock table, never "no surfaces". That
+	// direction is deliberate: defaulting to absent would let a forgotten field
+	// silently report every surface as missing, which is the same
+	// opt-in-for-an-absence trap the declared-absence family already sets. A
+	// wrong "complete" fails loudly the moment a surface does not write; a
+	// wrong "absent" is indistinguishable from an engine that has none.
+	presentations map[agent.SurfaceKind]agent.Presentations
+}
+
+// table returns this instance's surface-membership table, defaulting to the
+// complete mock set. See the presentations field for why nil means complete.
+func (s MockSurfaces) table() map[agent.SurfaceKind]agent.Presentations {
+	if s.presentations == nil {
+		return mockPresentations
+	}
+	return s.presentations
 }
 
 // NewMockSurfaces builds mock's surfaces from a run's shared inputs. fs nil
@@ -435,11 +459,12 @@ func NewMockSurfaces(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
 	settings := &mockSettingsSurface{hooks: in.Hooks, fs: fs}
 	commands := newMockCommandsSurface(in.Commands, fs)
 	return MockSurfaces{
-		Context:  context,
-		Skills:   skills,
-		MCP:      mcp,
-		Settings: settings,
-		Commands: commands,
+		Context:       context,
+		Skills:        skills,
+		MCP:           mcp,
+		Settings:      settings,
+		Commands:      commands,
+		presentations: mockPresentations,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  context,
 			agent.SurfaceSkills:   skills,
@@ -450,11 +475,44 @@ func NewMockSurfaces(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
 	}
 }
 
+// mockLaunchPresentations is the launch-delivered double's table: CONTEXT ONLY.
+// The other four surfaces are absent here because a launch-keyed engine has no
+// stable path a static materialize could write them to — they arrive per
+// session, inside an engine home this harpless call cannot name.
+//
+// Absent from the table is what makes materialize SKIP them. That is only half
+// the contract: the descriptor's launchOnlySettingsReason supplies the other
+// half, the report line saying where they DO come from. Skipping without
+// declaring writes four true "wrote" lines and stays silent about everything
+// that went nowhere — this project's characteristic silent no-op. Declaring
+// without skipping reports a surface as not-carried while its file sits in the
+// tree. Neither half is optional.
+var mockLaunchPresentations = map[agent.SurfaceKind]agent.Presentations{
+	agent.SurfaceContext: mockPresentations[agent.SurfaceContext],
+}
+
+// NewMockLaunchSurfaces builds the launch-delivered double's surfaces: the
+// context surface only. It takes the same agent.SurfaceInputs as every other
+// backend and deliberately IGNORES Hooks, BundleMCP, Commands and Skills — not
+// because they were not asked for, but because this engine delivers them at
+// launch and a static caller has nowhere to put them.
+func NewMockLaunchSurfaces(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
+	fs = agent.GetFS(fs)
+	context := &mockContextSurface{context: in.Context, fs: fs}
+	return MockSurfaces{
+		Context:       context,
+		presentations: mockLaunchPresentations,
+		dispatch: map[agent.SurfaceKind]agent.Delivery{
+			agent.SurfaceContext: context,
+		},
+	}
+}
+
 // SupportedApproaches implements SurfaceSet.SupportedApproaches, derived from
 // mockPresentations rather than a second declared list — a kind absent from
 // the map reports nil (folded/absent), never an error.
 func (s MockSurfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
-	d, ok := mockPresentations[kind]
+	d, ok := s.table()[kind]
 	if !ok {
 		return nil
 	}
@@ -464,7 +522,7 @@ func (s MockSurfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approa
 // DefaultApproach implements SurfaceSet.DefaultApproach: the Presentations'
 // own declared default, translated back to the shared Approach vocabulary.
 func (s MockSurfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
-	d, ok := mockPresentations[kind]
+	d, ok := s.table()[kind]
 	if !ok {
 		return 0, false
 	}
@@ -479,7 +537,7 @@ func (s MockSurfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, b
 // plain table lookup, since mock's surfaces (unlike claude's context) each
 // have only the one approach and no Hook/SystemPrompt arm to special-case.
 func (s MockSurfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
-	d, ok := mockPresentations[kind]
+	d, ok := s.table()[kind]
 	if !ok {
 		return nil, fmt.Errorf("mock: no %s surface", kind)
 	}

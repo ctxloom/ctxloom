@@ -49,11 +49,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cucumber/godog"
 
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
@@ -124,11 +126,24 @@ func j002300HermeticConfigYAML(specs ...*j002300AgentSpec) string {
 	return b.String()
 }
 
-// j002300LiveConfigYAML renders config.yaml for the @live tier: TWO distinct,
-// real backend types (claude-code, codex — the proven-working pair; see
-// live_engine_registry.go), each pinned to the same cheap model the rest of
-// the @live suite already uses, so this is genuinely two different vendor
-// engines, not one engine under two labels.
+// j002300LiveConfigYAML renders config.yaml for the @live tier: two distinct
+// VENDOR engines, each pinned to the same cheap model the rest of the @live
+// suite already uses, so the scenario is genuinely cross-vendor rather than one
+// engine wearing two labels.
+//
+// THE codex LITERAL IS A DELIBERATE PLACEHOLDER, NOT RESIDUE. codex was DELETED
+// in the engine sweep, so this fixture names a backend type that no longer
+// registers — and its scenario is @wip for precisely that reason: claude-code
+// is currently the only real vendor, and cross-VENDOR context isolation cannot
+// be proven with one vendor. Kept rather than deleted because nothing else
+// records that intent, and the @live tier self-skips, so carrying it costs a
+// run nothing.
+//
+// Do NOT "repair" this by swapping in mock or mock-lossy. Those are registered
+// but they are not VENDORS: the scenario would keep its name while proving
+// cross-BACKEND isolation, which the hermetic tier already covers — a test that
+// lies about what it establishes. codex is replaced only by a second real
+// vendor.
 func j002300LiveConfigYAML(claudeSpec, codexSpec *j002300AgentSpec) string {
 	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`workspace: none
 llm:
@@ -707,7 +722,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if !ok {
 				return fmt.Errorf("j002300: no session harp remembered for %q", self)
 			}
-			msg, err := j002300FindMessageFrom(w, harp)
+			msg, err := j002300FindMessageFrom(w, harp, coord.KindResult)
 			if err != nil {
 				return err
 			}
@@ -730,7 +745,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if !ok {
 				return fmt.Errorf("j002300: no session harp remembered for %q", self)
 			}
-			msg, err := j002300FindMessageFrom(w, harp)
+			msg, err := j002300FindMessageFrom(w, harp, "")
 			if err != nil {
 				return err
 			}
@@ -759,17 +774,46 @@ func j002300Messages(w *World) ([]map[string]any, error) {
 	return out, nil
 }
 
-// j002300FindMessageFrom returns the received message whose "from" is harp
-// (@live only).
-func j002300FindMessageFrom(w *World, harp string) (map[string]any, error) {
+// j002300FindMessageFrom returns the received message whose "from" is harp and,
+// when kind is non-empty, whose "kind" matches it (@live only). Pass "" to
+// accept any kind.
+//
+// The kind filter is not a refinement, it is the correctness condition: one
+// harp can have several messages pending, so POSITION selects nothing
+// meaningful. Asking for coord.KindResult is how a caller says it wants the
+// child's turn result rather than whatever the coordinator queued first.
+func j002300FindMessageFrom(w *World, harp, kind string) (map[string]any, error) {
 	msgs, err := j002300Messages(w)
 	if err != nil {
 		return nil, err
 	}
 	for _, m := range msgs {
-		if f, _ := m["from"].(string); f == harp {
-			return m, nil
+		if f, _ := m["from"].(string); f != harp {
+			continue
 		}
+		// One harp can have SEVERAL messages pending, so position is not a
+		// selector. A child that ends a turn without filing a report queues a
+		// coord.KindError contract notice AHEAD of its coord.KindResult turn
+		// text (coord.bridgeTurnResult), and taking the first match silently
+		// asserted against the notice — reporting "the body does not carry its
+		// own guidance" for a body that was never the result at all.
+		if kind != "" {
+			if k, _ := m["kind"].(string); k != kind {
+				continue
+			}
+		}
+		return m, nil
 	}
-	return nil, fmt.Errorf("j002300: no message from harp %q among %d received message(s); result:\n%s", harp, len(msgs), w.lastTool.JSON())
+	return nil, fmt.Errorf("j002300: no %s message from harp %q among %d received message(s); result:\n%s",
+		kindLabel(kind), harp, len(msgs), w.lastTool.JSON())
+}
+
+// kindLabel names the filter in a miss, so "no message from harp X" and "no
+// RESULT message from harp X" are distinguishable — they have different causes
+// and the second one is the interesting failure.
+func kindLabel(kind string) string {
+	if kind == "" {
+		return "matching"
+	}
+	return strconv.Quote(kind) + "-kind"
 }

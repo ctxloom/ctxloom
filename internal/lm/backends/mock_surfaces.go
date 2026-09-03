@@ -424,6 +424,13 @@ type MockSurfaces struct {
 	Commands *agent.ManagedCommandsDelivery
 
 	dispatch map[agent.SurfaceKind]agent.Delivery
+	// name is the REGISTERED backend this set belongs to, and it is a
+	// constructor parameter rather than a constant because three doubles share
+	// this type. A refusal that spelled a hardcoded "mock" told a caller asking
+	// about mock-lossy or mock-launch about a different backend entirely —
+	// which is what tests/integration's refusalLabel documents as the one
+	// permitted divergence, and it should not have needed permitting.
+	name string
 	// presentations is this INSTANCE's surface-membership table. It exists so
 	// the launch-delivered double can present a narrower set than the complete
 	// mock without a second copy of the three methods below.
@@ -451,14 +458,15 @@ func (s MockSurfaces) table() map[agent.SurfaceKind]agent.Presentations {
 // agent.SurfaceInputs every other backend does — mock simply ignores every
 // field but Context and Skills, exactly as claude ignores Fragments/AgentName (see
 // claude.NewSurfaces's doc for why a shared struct beats a hand-mapped copy).
-func NewMockSurfaces(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
+func NewMockSurfaces(name string, in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
 	fs = agent.GetFS(fs)
 	context := &mockContextSurface{context: in.Context, fs: fs}
 	skills := newMockSkillsSurface(in.Skills, fs)
 	mcp := &mockMCPSurface{bundle: in.BundleMCP, override: in.MCPCommandOverride, fs: fs}
-	settings := &mockSettingsSurface{hooks: in.Hooks, fs: fs}
+	settings := &mockSettingsSurface{hooks: stripUnsupportedHookKinds(name, in.Hooks), fs: fs}
 	commands := newMockCommandsSurface(in.Commands, fs)
 	return MockSurfaces{
+		name:          name,
 		Context:       context,
 		Skills:        skills,
 		MCP:           mcp,
@@ -496,10 +504,11 @@ var mockLaunchPresentations = map[agent.SurfaceKind]agent.Presentations{
 // backend and deliberately IGNORES Hooks, BundleMCP, Commands and Skills — not
 // because they were not asked for, but because this engine delivers them at
 // launch and a static caller has nowhere to put them.
-func NewMockLaunchSurfaces(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
+func NewMockLaunchSurfaces(name string, in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
 	fs = agent.GetFS(fs)
 	context := &mockContextSurface{context: in.Context, fs: fs}
 	return MockSurfaces{
+		name:          name,
 		Context:       context,
 		presentations: mockLaunchPresentations,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
@@ -539,7 +548,7 @@ func (s MockSurfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, b
 func (s MockSurfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
 	d, ok := s.table()[kind]
 	if !ok {
-		return nil, fmt.Errorf("mock: no %s surface", kind)
+		return nil, fmt.Errorf("%s: no %s surface", s.name, kind)
 	}
 	found := false
 	for _, name := range d.Names() {
@@ -549,11 +558,11 @@ func (s MockSurfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agen
 		}
 	}
 	if !found {
-		return nil, fmt.Errorf("mock: no %s surface via %s", kind, a)
+		return nil, fmt.Errorf("%s: no %s surface via %s", s.name, kind, a)
 	}
 	del, ok := s.dispatch[kind]
 	if !ok {
-		return nil, fmt.Errorf("mock: no %s surface", kind)
+		return nil, fmt.Errorf("%s: no %s surface", s.name, kind)
 	}
 	return del, nil
 }

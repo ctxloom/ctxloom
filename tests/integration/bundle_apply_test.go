@@ -70,7 +70,9 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 	})
 
 	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
-		Backend:      "all",
+		// Empty, not "all": that selector was removed. An omitted backend now
+		// means the project's CONFIGURED engines, and a named one must resolve.
+		Backend:      "",
 		WorkDir:      projectDir,
 		FS:           afero.NewOsFs(),
 		ConfigLoader: func() (*config.Config, error) { return cfg, nil },

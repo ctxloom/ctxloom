@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -55,7 +56,7 @@ func (p fixedPlacement) Dir() string { return p.dir }
 // SystemPrompt is claude-only, so a backend whose context surface declares
 // native-file delivery alone rejects it.
 func TestBuild_RejectsSystemPrompt_OnANativeFileOnlyBackend(t *testing.T) {
-	mockSet := backends.NewMockSurfaces(agent.SurfaceInputs{}, nil)
+	mockSet := backends.NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{}, nil)
 	_, err := agent.Select(mockSet).WithContext(agent.ContextWriteSystemPrompt).Build()
 	assert.Error(t, err, "a native-file-only context surface must reject system-prompt")
 }
@@ -68,7 +69,7 @@ func TestBuild_RejectsSystemPrompt_OnANativeFileOnlyBackend(t *testing.T) {
 // a native file with no hook route at all — so (context, hook) is a genuinely
 // unsupported pair rather than a limitation that might later be declared.
 func TestBuild_RejectsUnsupportedContextApproach(t *testing.T) {
-	mockSet := backends.NewMockSurfaces(agent.SurfaceInputs{}, nil)
+	mockSet := backends.NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{}, nil)
 	_, err := agent.Select(mockSet).WithContext(agent.ContextWriteHook).WithSettings(agent.SettingsWriteUnsafeFile).Build()
 	assert.Error(t, err, "a native-file-only context surface must refuse hook, not downgrade to it")
 }
@@ -155,7 +156,7 @@ func TestDeliverShared_ClaudeContextRawBuilderResolvesTableDefault_U100F05(t *te
 func TestDeliverShared_NoRealization_WarnsThenWritesWellKnown(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/live"
-	set := backends.NewMockSurfaces(agent.SurfaceInputs{
+	set := backends.NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{
 		Skills: []agent.SkillExport{{Name: "review", Enabled: true,
 			Files: []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("do it")}}}},
 	}, fs)

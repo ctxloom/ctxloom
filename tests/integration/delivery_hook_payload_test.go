@@ -67,7 +67,9 @@ func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 	})
 
 	res, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
-		Backend:           "all",
+		// Empty, not "all": that selector was removed. An omitted backend now
+		// means the project's CONFIGURED engines, and a named one must resolve.
+		Backend:           "",
 		RegenerateContext: true,
 		WorkDir:           projectDir,
 		FS:                afero.NewOsFs(),

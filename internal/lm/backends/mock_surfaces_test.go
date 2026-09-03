@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -210,7 +211,7 @@ func TestMockContextSurface_State_IgnoresUserContentOutsideMarkersForCurrency(t 
 // that delivered.
 func TestMockContextSurface_IsTheSameObjectThroughSurfaceFor(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	set := NewMockSurfaces(agent.SurfaceInputs{Context: "X"}, fs)
+	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{Context: "X"}, fs)
 
 	resolved, err := set.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
 	require.NoError(t, err)
@@ -230,7 +231,7 @@ func TestMockContextSurface_IsTheSameObjectThroughSurfaceFor(t *testing.T) {
 // Each kind must also RESOLVE to a concrete surface: declaring an approach and
 // then failing to dispatch would be a surface that exists only in the roster.
 func TestMockSurfaces_SupportedApproaches_EveryKind(t *testing.T) {
-	set := NewMockSurfaces(agent.SurfaceInputs{Context: "X"}, afero.NewMemMapFs())
+	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{Context: "X"}, afero.NewMemMapFs())
 
 	for _, kind := range []agent.SurfaceKind{
 		agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings,
@@ -259,7 +260,7 @@ func TestMockSurfaces_WithEverything_MaterializesEverySurface(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	set := NewMockSurfaces(agent.SurfaceInputs{
+	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{
 		Context:   "END-TO-END-MARKER",
 		Skills:    []agent.SkillExport{reviewerSkillExport()},
 		BundleMCP: map[string]wire.MCPServer{"postgres": {Command: "mcp-postgres"}},
@@ -479,7 +480,7 @@ func TestMockSkillsSurface_Cleanup_LeavesUserAuthoredFilesAlone(t *testing.T) {
 // must yield the SAME object NewMockSurfaces built, not a second
 // independently-constructed delivery that could disagree with it.
 func TestMockSkillsSurface_IsTheSameObjectThroughSurfaceFor(t *testing.T) {
-	set := NewMockSurfaces(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, afero.NewMemMapFs())
+	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, afero.NewMemMapFs())
 
 	resolved, err := set.SurfaceFor(agent.SurfaceSkills, agent.ApproachUnsafeFile)
 	require.NoError(t, err)

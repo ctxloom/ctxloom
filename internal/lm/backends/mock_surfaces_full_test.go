@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -20,7 +21,7 @@ import (
 
 func TestMockMCPSurface_WritesTheServersItWasGiven(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	set := NewMockSurfaces(agent.SurfaceInputs{
+	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{
 		BundleMCP: map[string]wire.MCPServer{
 			"postgres": {Command: "mcp-postgres", Args: []string{"--readonly"}},
 		},
@@ -46,7 +47,7 @@ func TestMockSettingsSurface_PreservesKeysCtxloomDoesNotOwn(t *testing.T) {
 	path := mockSettingsPath("/proj")
 	require.NoError(t, afero.WriteFile(fs, path, []byte(`{"theme":"dark"}`), 0o600))
 
-	set := NewMockSurfaces(agent.SurfaceInputs{
+	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{
 		Hooks: &wire.HooksConfig{},
 	}, fs)
 
@@ -103,7 +104,7 @@ func TestMockSettingsWriter_RemoveNeverCreatesAFile(t *testing.T) {
 
 func TestMockCommandsSurface_WritesEnabledCommands(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	set := NewMockSurfaces(agent.SurfaceInputs{
+	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{
 		Commands: []agent.CommandExport{
 			{Name: "review", Content: "Review the diff.", Enabled: true},
 			{Name: "skipped", Content: "Never written.", Enabled: false},

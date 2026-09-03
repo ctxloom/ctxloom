@@ -62,8 +62,14 @@ const (
 	slotMCP      = "CTXSENTINEL-mcpserver"
 	slotMCPCmd   = "CTXSENTINEL-mcpcmd"
 	slotHook     = "CTXSENTINEL-hookcmd"
-	slotCommand  = "CTXSENTINEL-command"
-	slotSkill    = "CTXSENTINEL-skill"
+	// slotHookPreTool is a SECOND hook sentinel, on a kind no backend declares
+	// unsupported. Without it a partially-lossy backend was untestable: the
+	// inputs carried only session_start, which mock-lossy declares it cannot
+	// carry, so "strips the declared loss" and "carries nothing at all" produced
+	// the identical empty result and no assertion could tell them apart.
+	slotHookPreTool = "CTXSENTINEL-pretoolcmd"
+	slotCommand     = "CTXSENTINEL-command"
+	slotSkill       = "CTXSENTINEL-skill"
 )
 
 // matrixSentinelInputs is a fully populated agent.SurfaceInputs in which every
@@ -77,8 +83,13 @@ func matrixSentinelInputs() agent.SurfaceInputs {
 		BundleMCP: map[string]wire.MCPServer{
 			slotMCP: {Command: slotMCPCmd},
 		},
+		// TWO hook kinds, on purpose. session_start is the one mock-lossy
+		// declares unsupported; pre_tool is one every backend carries. A
+		// partially-lossy engine must therefore drop exactly one and deliver the
+		// other, and each half is asserted on its OWN sentinel.
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			SessionStart: []wire.Hook{{Command: slotHook, Type: "command"}},
+			PreTool:      []wire.Hook{{Command: slotHookPreTool, Type: "command"}},
 		}},
 		Commands: []agent.CommandExport{
 			{Name: "ctxsentinelcmd", Description: "sentinel command", Content: slotCommand, Enabled: true},
@@ -228,16 +239,59 @@ var matrixSpecs = map[string]deliverySpec{
 	"claude-code/skills/unsafe-file":   {wantFile: ".claude/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 
 	// ---- mock ----------------------------------------------------------
-	// mock declares context and skills (mock_surfaces.go's mockPresentations):
-	// a hermetic, managed-marker MOCK_CONTEXT.md at the target dir root — the
-	// same DeliverManagedContext shape claude's CLAUDE.md uses — and a
-	// hermetic .mock/skills/ package tree through the
-	// same agent.WriteManagedSkillPackages writer every real engine's skills
-	// surface goes through. Its hook loss is declared via noHooksReason
-	// (registry.go) the same way any hookless backend's is, and pinned by
-	// TestDeliveryApproach_HookCarriageMatchesDeclaration.
-	"mock/context/unsafe-file": {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
-	"mock/skills/unsafe-file":  {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
+	// mock is a COMPLETE engine minus a model: it declares all five surfaces
+	// (mock_surfaces.go's mockPresentations). Context is a managed-marker
+	// MOCK_CONTEXT.md at the target root — the same DeliverManagedContext shape
+	// claude's CLAUDE.md uses — and the rest live under its own .mock/ config
+	// dir, the shape every real engine has rather than a top-level scatter.
+	// Completeness is the point: mock exists to prove the surface seam is
+	// POLYMORPHIC, and a partial double makes its gaps load-bearing somewhere
+	// nothing states them.
+	"mock/context/unsafe-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
+	"mock/skills/unsafe-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
+	"mock/mcp/unsafe-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
+	"mock/settings/unsafe-file": {wantFile: ".mock/settings.json", wantSlot: slotHook},
+	"mock/commands/unsafe-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+
+	// ---- mock-lossy ----------------------------------------------------
+	// Byte-for-byte mock's surfaces: it shares NewMockSurfaces and differs ONLY
+	// in the hook KINDS its descriptor declares unsupported. Its rows are
+	// therefore identical, and that identity is the evidence — a lossy double
+	// whose deliveries diverged from the complete one would be testing two
+	// things at once, and its loss reporting could no longer be attributed to
+	// the declaration rather than to a different surface set.
+	"mock-lossy/context/unsafe-file": {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
+	"mock-lossy/skills/unsafe-file":  {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
+	"mock-lossy/mcp/unsafe-file":     {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
+	// The ONE row where mock-lossy diverges from mock, and the divergence is
+	// the entire reason this double exists. The sentinel inputs configure a
+	// single session_start hook — precisely the kind mock-lossy declares it has
+	// no native event for — so its settings surface strips it and reports
+	// delivering nothing. The file is still created (an empty unified block),
+	// which is why this is a noOp rather than a missing file.
+	//
+	// If a payload ever lands here again, the declaration and the delivery have
+	// come apart, and it is the LOSS REPORT that becomes false: it would tell a
+	// user their guardrail did not land while the hook sits in the file.
+	// TestDeliveryApproach_HookCarriageMatchesDeclaration is the other side of
+	// this same coin.
+	// The pair carries the pre_tool sentinel and NOT the session_start one, and
+	// that asymmetry is the assertion: mock-lossy delivers what it can while
+	// stripping exactly what it declared it cannot. Pinning slotHookPreTool here
+	// and slotHook's ABSENCE in
+	// TestDeliveryApproach_HookCarriageMatchesDeclaration is what separates
+	// "honoured the declaration" from "carried nothing at all".
+	"mock-lossy/settings/unsafe-file": {wantFile: ".mock/settings.json", wantSlot: slotHookPreTool},
+	"mock-lossy/commands/unsafe-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+
+	// ---- mock-launch ---------------------------------------------------
+	// ONE row, and the absence of the other four is the assertion. This double
+	// delivers only context at materialize time; its settings, MCP, commands
+	// and skills arrive per session at launch, so they are declared through
+	// launchOnlySettingsReason and reported by backends.LaunchOnlySurfaces
+	// rather than written anywhere a static caller could find them. If rows for
+	// them ever appear here, the double has stopped being launch-delivered.
+	"mock-launch/context/unsafe-file": {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
 }
 
 // TestDeliveryApproach_DeclaredPairsAreExhaustive holds the DERIVED matrix equal

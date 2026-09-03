@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 )
@@ -113,7 +114,7 @@ func TestMockContextPresenter_ContainerizedRun_EnginePathDivergesFromHostPath(t 
 // mockPresentations would pass a test asserting only "non-empty"; this
 // compares against the declaration's own Names()/Default().
 func TestMockPresentations_SupportedAndDefault_AgreeWithTheDeclaration(t *testing.T) {
-	set := NewMockSurfaces(agent.SurfaceInputs{}, nil)
+	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{}, nil)
 
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSkills} {
 		decl := mockPresentations[kind]
@@ -140,7 +141,7 @@ func TestMockPresentations_SupportedAndDefault_AgreeWithTheDeclaration(t *testin
 // ApproachHook on the context surface must be refused, not silently resolved
 // to something else.
 func TestMockSurfaces_SurfaceFor_UnsupportedApproach_Errors(t *testing.T) {
-	set := NewMockSurfaces(agent.SurfaceInputs{Context: "X"}, nil)
+	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{Context: "X"}, nil)
 
 	_, err := set.SurfaceFor(agent.SurfaceContext, agent.ApproachHook)
 	require.Error(t, err)
@@ -160,7 +161,7 @@ func TestMockSurfaces_SurfaceFor_UnsupportedApproach_Errors(t *testing.T) {
 // takes a position), and it is the branch that must refuse rather than return
 // a nil Delivery a caller would then use.
 func TestMockSurfaces_SurfaceFor_UnsupportedKind_Errors(t *testing.T) {
-	set := NewMockSurfaces(agent.SurfaceInputs{}, nil)
+	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{}, nil)
 
 	const notASurface = agent.SurfaceKind(9999)
 	_, err := set.SurfaceFor(notASurface, agent.ApproachUnsafeFile)

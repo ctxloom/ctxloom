@@ -196,6 +196,60 @@ func unsupportedHookKindLosses(d *agentDescriptor, hooks wire.HooksConfig) []age
 	return losses
 }
 
+// stripUnsupportedHookKinds removes the hook kinds the named backend DECLARES
+// it has no native event for, so the delivered file matches the loss report.
+//
+// A declaration without this is a lie in the user's favour and the worse of the
+// two directions: unsupportedHookKindLosses tells the user their session_start
+// guardrail did not land while the surface writes it anyway, so the report and
+// the filesystem disagree and the report is the one people act on. The delivery
+// test says it plainly — "the loss report would be telling users something
+// false".
+//
+// Returns the input unchanged when the backend declares nothing, and never
+// mutates the caller's config: the same HooksConfig is handed to every surface
+// in a run, so stripping in place would silently narrow the others too.
+func stripUnsupportedHookKinds(name string, hooks *wire.HooksConfig) *wire.HooksConfig {
+	if hooks == nil {
+		return nil
+	}
+	d, ok := lookup(name)
+	if !ok || len(d.unsupportedHookKinds) == 0 {
+		return hooks
+	}
+	stripped := *hooks
+	for kind := range d.unsupportedHookKinds {
+		setUnifiedEventHooks(&stripped.Unified, kind, nil)
+	}
+	// Nothing left to deliver is reported as NO CONFIG, not as an empty one.
+	// A surface handed an empty-but-present config writes its managed block
+	// anyway — {"hooks":{"unified":{}}} — which claims ctxloom manages hooks
+	// here and found none, when the truth is this engine cannot carry the ones
+	// that were asked for. Returning nil takes the surface's own existing
+	// no-hooks path, so the declaration, the delivery and the loss report all
+	// say the same thing.
+	if !carriesAnyHook(stripped) {
+		return nil
+	}
+	return &stripped
+}
+
+// carriesAnyHook reports whether a config still has a hook to deliver, across
+// both the unified events and the backend-native passthrough map.
+func carriesAnyHook(h wire.HooksConfig) bool {
+	for _, event := range HookEvents() {
+		if len(unifiedEventHooks(h.Unified, event)) > 0 {
+			return true
+		}
+	}
+	for _, hs := range h.Plugins {
+		if len(hs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // droppedHookDetail names what a hookless backend loses, in the user's own
 // vocabulary: the seven unified events by their config keys (in HookEvents order,
 // so the line is stable run to run) plus any backend-native passthrough hooks

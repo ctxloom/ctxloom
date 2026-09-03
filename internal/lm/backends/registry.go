@@ -511,10 +511,12 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &MockConfig{})
 		},
-		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return NewMockSurfaces(in, fs) },
-		newWriter:   NewMockSettingsWriter,
-		exports:     mockExports,
-		testOnly:    true,
+		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
+			return NewMockSurfaces(config.BackendMock, in, fs)
+		},
+		newWriter: NewMockSettingsWriter,
+		exports:   mockExports,
+		testOnly:  true,
 		// Without this mapper SurfaceInputs.Skills is always empty for mock and
 		// the skills surface above delivers nothing — a surface that exists,
 		// reports success and writes zero bytes, which is precisely the
@@ -539,7 +541,9 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &MockLossyConfig{})
 		},
-		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return NewMockSurfaces(in, fs) },
+		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
+			return NewMockSurfaces(config.BackendMockLossy, in, fs)
+		},
 		newWriter:    NewMockSettingsWriter,
 		exports:      mockExports,
 		skillExports: mockSkillExports,
@@ -578,7 +582,9 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &MockLaunchConfig{})
 		},
-		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return NewMockLaunchSurfaces(in, fs) },
+		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
+			return NewMockLaunchSurfaces(config.BackendMockLaunch, in, fs)
+		},
 		newWriter:    NewMockSettingsWriter,
 		exports:      mockExports,
 		skillExports: mockSkillExports,

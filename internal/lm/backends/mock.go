@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -138,9 +140,18 @@ func NewMockLossy() *Mock { return newMockBackend(config.BackendMockLossy) }
 func NewMockLaunch() *Mock { return newMockBackend(config.BackendMockLaunch) }
 
 // newMockBackend builds a mock-family backend under the given registry name.
-// The two doubles differ ONLY in that name and in what their descriptors
-// declare, so they share one constructor rather than two bodies that could
+// The three doubles differ ONLY in that name and in what their descriptors
+// declare, so they share one constructor rather than three bodies that could
 // drift into behaving differently.
+//
+// Every one of them gets the COMPLETE surface set here, mock-launch included,
+// and that is not an oversight. This is the CELLS/LAUNCH path: a
+// launch-delivered engine receives all five surfaces into its per-session home
+// at launch — that is what "delivered at launch" means. Only the static
+// MATERIALIZE path is narrowed, and that narrowing lives on the descriptor
+// (newSurfaces -> NewMockLaunchSurfaces), not here. Wiring the narrow set on
+// both paths would make the double an engine that simply LOSES four surfaces,
+// which is the different fact mock-lossy already covers.
 func newMockBackend(name string) *Mock {
 	b := &Mock{}
 	b.BaseBackend = agent.NewBaseBackend(name, "1.0.0")
@@ -148,7 +159,9 @@ func newMockBackend(name string) *Mock {
 		agent.NewBaseLifecycle(name),
 		agent.NewBaseContextProvider(),
 		&NilSessionHistory{},
-		&agent.CellDelivery{Build: agent.BuildWellKnown(NewMockSurfaces)},
+		&agent.CellDelivery{Build: agent.BuildWellKnown(func(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
+			return NewMockSurfaces(name, in, fs)
+		})},
 	)
 	return b
 }

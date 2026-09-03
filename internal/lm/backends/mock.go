@@ -36,7 +36,8 @@ import (
 // never a replacement for it.
 //
 // Environment variables for test control:
-//   - CTXLOOM_MOCK_RESPONSE: Custom response text to output
+//   - CTXLOOM_MOCK_RESPONSE: Custom response text to output. SET TO EMPTY is a
+//     request for an empty reply, and is distinct from leaving it unset
 //   - CTXLOOM_MOCK_EXIT_CODE: Exit code to return (default: 0)
 //   - CTXLOOM_MOCK_RECORD_FILE: File to write received input to for verification
 //   - CTXLOOM_MOCK_FAIL_PREFIX: "1" prefixes the response with MockFailPrefix,
@@ -215,9 +216,9 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 		return &agent.ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, err
 	}
 
-	customResponse := getEnvFromMap(req.Env, "CTXLOOM_MOCK_RESPONSE")
+	customResponse, hasCustomResponse := lookupEnvFromMap(req.Env, "CTXLOOM_MOCK_RESPONSE")
 	failPrefix := getEnvFromMap(req.Env, "CTXLOOM_MOCK_FAIL_PREFIX") == "1"
-	response := buildMockResponse(customResponse, contextStr, promptContent, req.Mode, len(b.fragments), failPrefix)
+	response := buildMockResponse(customResponse, hasCustomResponse, contextStr, promptContent, req.Mode, len(b.fragments), failPrefix)
 
 	if _, err := stdout.Write([]byte(response)); err != nil {
 		return &agent.ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, fmt.Errorf("failed to write response: %w", err)
@@ -383,12 +384,16 @@ func mockExitCode(req *agent.ExecuteRequest) int32 {
 // echo. It is orthogonal to CTXLOOM_MOCK_RESPONSE on purpose: that knob REPLACES
 // the response, so a test using it to signal failure can only assert a literal it
 // wrote itself, which proves nothing about what reached the child.
-func buildMockResponse(customResponse, contextStr, promptContent string, mode agent.ExecutionMode, fragmentCount int, failPrefix bool) string {
+func buildMockResponse(customResponse string, hasCustomResponse bool, contextStr, promptContent string, mode agent.ExecutionMode, fragmentCount int, failPrefix bool) string {
 	var response strings.Builder
 	if failPrefix {
 		response.WriteString(MockFailPrefix + "\n")
 	}
-	if customResponse != "" {
+	// SET, not non-empty: an override of "" is a deliberate request for an empty
+	// reply, and treating it as absent would silently answer with the echo
+	// instead — the caller asking to prove a zero-byte reply gets a
+	// several-hundred-byte one and the test passes for the wrong reason.
+	if hasCustomResponse {
 		response.WriteString(customResponse)
 		return response.String()
 	}
@@ -496,17 +501,36 @@ func (b *Mock) executeInteractiveEcho(ctx context.Context, req *agent.ExecuteReq
 
 // getEnvFromMap retrieves an environment variable from a map or os.Environ.
 // Handles case-insensitive lookup since config parser may lowercase keys.
+//
+// It DISCARDS the found/not-found bit, so it may only be used for knobs where
+// an empty value and an unset one mean the same thing. Where they differ, use
+// lookupEnvFromMap.
 func getEnvFromMap(env map[string]string, key string) string {
+	v, _ := lookupEnvFromMap(env, key)
+	return v
+}
+
+// lookupEnvFromMap is getEnvFromMap's TWO-VALUE form: it reports whether the
+// knob was SET, which an empty string cannot.
+//
+// CTXLOOM_MOCK_RESPONSE="" is a request for an EMPTY engine reply, and a
+// zero-byte reply is the exact shape this project's characteristic bug
+// produces — exit 0, a success message, nothing written. A mock that cannot be
+// asked for one cannot be used to prove ctxloom surfaces it rather than
+// papering over it, so "set to empty" and "unset" have to be distinguishable.
+// internal/mockengine's Dispatch takes a two-value reader for the same reason.
+//
+// The lookup ORDER lives here alone (exact key, then the lowercase the config
+// parser may produce, then the process environment) rather than being written
+// twice and drifting.
+func lookupEnvFromMap(env map[string]string, key string) (string, bool) {
 	if env != nil {
-		// Try exact case first
 		if v, ok := env[key]; ok {
-			return v
+			return v, true
 		}
-		// Try lowercase (config parser may lowercase keys)
 		if v, ok := env[strings.ToLower(key)]; ok {
-			return v
+			return v, true
 		}
 	}
-	// Fall back to os environment
-	return os.Getenv(key)
+	return os.LookupEnv(key)
 }

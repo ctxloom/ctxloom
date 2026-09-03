@@ -361,7 +361,7 @@ hook in [`.claude/settings.json`](.claude/settings.json). They redirect
 [Versionator](https://github.com/benjaminabbitt/versionator) instead of a
 hand-cut `git tag`, swap `git push --force` for `--force-with-lease`, and point
 `golangci-lint` at the gocyclo gate (the pinned golangci-lint can't analyze this
-go1.25 module). It also carries cooperative nudges off common LLM-agent
+go1.26 module). It also carries cooperative nudges off common LLM-agent
 footguns — `--no-verify`, `git reset --hard` / `git clean`, blanket `git add -A`,
 rewriting the git identity, `rm -rf`, `sudo`, `pkill`/`killall`, and whole-tree
 `gofmt -w`. See [`.ltk/config.yaml`](.ltk/config.yaml) for the live set. The hook runs

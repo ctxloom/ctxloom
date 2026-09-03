@@ -174,7 +174,7 @@ For development or to get the latest unreleased features. Also the most secure o
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - [buf](https://buf.build/docs/installation) for protobuf code generation
 - [just](https://github.com/casey/just) command runner (optional)
 - C compiler — only needed for the tree-sitter build below (`-tags treesitter`
@@ -212,7 +212,7 @@ project devcontainer — it needs Docker or Podman on the host.
 
 ### Go Install (requires buf)
 
-If you have Go 1.25+ and buf installed:
+If you have Go 1.26+ and buf installed:
 
 ```bash
 # Clone, generate, and install

@@ -23,10 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     container:
       # goreleaser-cross includes cross-compilation toolchains for CGO.
-      # Pinned to v1.25 to match go.mod's `go 1.25.0` (and the devcontainer's
-      # 1.25.x) so the release builds on the same major.minor as CI without an
+      # Pinned to v1.26 to match go.mod's `go 1.26.0` (and the devcontainer's
+      # 1.26.x) so the release builds on the same major.minor as CI without an
       # implicit GOTOOLCHAIN download at release time.
-      image: ghcr.io/goreleaser/goreleaser-cross:v1.25
+      image: ghcr.io/goreleaser/goreleaser-cross:v1.26
     env:
       # This job has no docker-in-docker, so it must use the CONTAINER
       # justfile: the host justfile's same-named `proto`/`validate` recipes

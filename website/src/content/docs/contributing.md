@@ -6,7 +6,7 @@ Guide for contributing to ctxloom development.
 
 ## Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - [just](https://github.com/casey/just) command runner
 - Docker or Podman — the standard recipes build and run inside a devcontainer image, which carries the pinned tooling (golangci-lint, [buf](https://buf.build) for protobuf codegen) so you don't install it on the host
 

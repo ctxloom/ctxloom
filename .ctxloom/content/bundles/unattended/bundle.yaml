@@ -67,6 +67,11 @@ commands:
 
             $ARGUMENTS
 skills:
+    admit:
+        files:
+            SKILL.md:
+                sha256: sha256:a8d81b6ae08c7f63e83b5723f3a7ecae3178eac5e76c51c17a3ad3131164a90c
+                mode: "0644"
     closeout:
         files:
             SKILL.md:

@@ -1,0 +1,80 @@
+#!/bin/sh
+# Restart THIS session's gopls when the commit graph moved under it.
+#
+# WHY THIS EXISTS. gopls is spawned once per Claude Code session and lives as
+# long as that session — days, here. It keeps file CONTENTS fresh via the
+# client's watcher, but its PACKAGE-METADATA graph is cached, and it does not
+# reliably reconcile packages that were added or deleted underneath it. A
+# server that has watched a branch switch or a mass deletion go by then reports
+# "undefined: <symbol>" for constants that exist and BrokenImport for packages
+# that are gone.
+#
+# That failure mode is the expensive kind: not an obviously stale answer, but a
+# CONFIDENT WRONG one. On 2026-09-03 it reported three real symbols undefined
+# and named a deleted function as a live reference; the compiler disagreed, and
+# the compiler was right. An agent that trusts the language server over a build
+# reaches a wrong conclusion and acts on it.
+#
+# WHY A STAMP AND NOT THE HOOK ARGUMENTS. post-checkout fires for file
+# checkouts too (git checkout -- some/file), which cannot move the package
+# graph, and re-indexing on those would tax the most common command in the
+# repo. Comparing HEAD against a recorded stamp keys the restart to what
+# actually matters — the commit graph moving — and behaves identically under
+# every hook that sources it, so the three hooks need no argument handling of
+# their own.
+#
+# WHY IT KILLS ONLY ONE PROCESS. Several Claude Code sessions run against this
+# checkout at once, each owning its own gopls as a DIRECT CHILD. Killing by
+# name would take out other sessions' servers mid-request. Walking up to this
+# process's own claude ancestor and killing that ancestor's child restarts
+# exactly the server belonging to whoever ran the git command, and nobody
+# else's. When there is no claude ancestor — a human in a plain terminal — the
+# right number of processes to kill is zero.
+#
+# This never fails a git operation: every path exits 0.
+
+set -u
+
+# --force skips the stamp check, for the manual escape hatch (just lsp-restart).
+# The hooks key off the commit graph moving; a human reaching for the target has
+# a reason the stamp cannot see — a mass deletion, a rebased worktree, or a
+# server that is simply lying.
+force=0
+[ "${1:-}" = "--force" ] && force=1
+
+# The stamp lives beside the ref state it tracks. --git-path resolves the real
+# directory for a linked worktree too, which a hardcoded .git/ would not.
+stamp=$(git rev-parse --git-path lsp-refresh-head 2>/dev/null) || exit 0
+head=$(git rev-parse HEAD 2>/dev/null) || exit 0
+
+prev=""
+[ -f "$stamp" ] && prev=$(cat "$stamp" 2>/dev/null)
+[ "$force" -eq 0 ] && [ "$head" = "$prev" ] && exit 0
+printf '%s\n' "$head" > "$stamp" 2>/dev/null || :
+
+# Walk up to the owning claude process. `ps -o ppid=` rather than /proc so this
+# behaves the same on macOS, where /proc does not exist. The bound is a
+# guard against a pid cycle, not an expected depth.
+pid=$$
+claude_pid=""
+i=0
+while [ "$i" -lt 40 ]; do
+	i=$((i + 1))
+	[ -z "$pid" ] && break
+	[ "$pid" -le 1 ] 2>/dev/null && break
+	case $(ps -o comm= -p "$pid" 2>/dev/null) in
+	*claude) claude_pid=$pid; break ;;
+	esac
+	pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+done
+
+[ -z "$claude_pid" ] && exit 0
+
+# Only this session's server. pgrep -P restricts to direct children of that
+# claude process, which is exactly the one server it owns.
+for g in $(pgrep -P "$claude_pid" gopls 2>/dev/null); do
+	kill -TERM "$g" 2>/dev/null && \
+		printf 'lsp-refresh: restarted gopls (pid %s) — HEAD moved to %s\n' "$g" "$(echo "$head" | cut -c1-9)" >&2
+done
+
+exit 0

@@ -2181,3 +2181,21 @@ dev-shell: dev-image
         -w /workspace \
         {{devcontainer_image}}:{{devcontainer_tag}} \
         bash
+
+# Restart THIS Claude Code session's gopls, now.
+#
+# The git hooks (lefthook: post-checkout/post-merge/post-rewrite) already do
+# this whenever the commit graph moves, which covers branch switches, merges and
+# rebases. This target is for the cases a stamp cannot see: a mass deletion that
+# was never committed, a worktree someone reset underneath you, or a server that
+# is simply lying — reporting a real symbol undefined, or naming a deleted one
+# as live. When gopls and the compiler disagree, the compiler is right and this
+# is the fix.
+#
+# Restarts only the server owned by the session that runs it; other agents'
+# gopls processes against this same checkout are left alone.
+#
+# Restart this session's gopls (only its own) after the package graph changed.
+lsp-restart:
+    @./scripts/lsp-refresh --force || true
+    @echo "gopls will respawn on the next language-server request."

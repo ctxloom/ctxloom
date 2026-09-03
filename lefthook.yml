@@ -176,3 +176,28 @@ pre-push:
       # Local only by design: CI runners get ephemeral disks, so this protects
       # the developer boxes that actually fill up.
       run: just cache-report
+
+# The three hooks below all run the same script, which decides for itself
+# whether anything needs doing. They exist because these are the git operations
+# that MOVE THE COMMIT GRAPH, which is what a long-lived language server fails
+# to reconcile — see scripts/lsp-refresh for the full account of the failure and
+# why it is keyed off HEAD rather than off each hook's own arguments.
+#
+# NEVER FAILS A GIT OPERATION. The script exits 0 on every path, including "no
+# claude ancestor" (a human in a plain terminal owns no server to restart) and
+# "nothing changed". A hook that could abort a merge to refresh an editor
+# convenience would be a far worse trade than the stale index it prevents.
+post-checkout:
+  commands:
+    lsp-refresh:
+      run: ./scripts/lsp-refresh
+
+post-merge:
+  commands:
+    lsp-refresh:
+      run: ./scripts/lsp-refresh
+
+post-rewrite:
+  commands:
+    lsp-refresh:
+      run: ./scripts/lsp-refresh

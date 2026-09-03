@@ -22,17 +22,21 @@ bundles:
     # morning report and holding the decision queue are this role's job, not a
     # leaf's.
     #
-    # LOCAL COPY, not the remote ref, and that is NOT a preference: the remote
-    # fetcher resolves a bundle ref to `<name>.yaml`, a single file, so
-    # directory-form bundles cannot be fetched — and a bundle carrying a skill
-    # MUST be directory-form.
+    # LOCAL COPY, not the remote ref, and that is NOT a preference — but the
+    # reason is NOT the one this comment used to give. It claimed the fetcher
+    # resolves a ref to `<name>.yaml` so directory-form bundles cannot be
+    # FETCHED. Tested 2026-09-03: false. The fetch and install both work; the
+    # bytes land complete under .ctxloom/cache/bundles/. What fails is LOADING
+    # — resolution returns errs.ErrBundleNotFound and no skill resolves. See
+    # task unrevised-backspace.
     #
-    # THIS COPY IS NOW THE SOURCE OF TRUTH (ruled 2026-08-30). It previously
-    # deferred to ctxloom-personal@bundles/unattended, but the two diverged —
-    # the personal copy still carried a skill under its pre-rename name and
-    # lacked closeout entirely — so the personal copy was DELETED rather than
-    # resynced. Two copies with no mechanism keeping them equal is exactly the
-    # drift that produced the divergence; keeping one is the fix.
+    # So this copy is a WORKAROUND for that defect, not a ruling. ctxloom-
+    # personal owns the bundle and carries the same content, pushed; this repo
+    # cannot even sign its copy honestly, since git config here points at the
+    # personal key rather than the ctxloom project key, so the signature
+    # verifies only via an untracked allowed_signers asserting one as the
+    # other. When unrevised-backspace is fixed, this line becomes the remote
+    # ref and this local copy is deleted.
     - unattended
 # NOTE (2026-07-22): deny_tools deliberately does NOT list Task. Task is
 # claude-code's internal coordination mechanism and stays available. The

@@ -37,6 +37,8 @@ import (
 //   - CTXLOOM_MOCK_RESPONSE: Custom response text to output
 //   - CTXLOOM_MOCK_EXIT_CODE: Exit code to return (default: 0)
 //   - CTXLOOM_MOCK_RECORD_FILE: File to write received input to for verification
+//   - CTXLOOM_MOCK_FAIL_PREFIX: "1" prefixes the response with MockFailPrefix,
+//     leaving the rest of the response INTACT (see MockFailPrefix)
 type Mock struct {
 	agent.LaunchBackend
 	fragments []*agent.Fragment
@@ -46,6 +48,21 @@ type Mock struct {
 	// nil is a legitimate value (skip_setup/distill paths send none).
 	managed *agent.ManagedConfig
 }
+
+// MockFailPrefix marks a response as the failure outcome WITHOUT discarding the
+// evidence of what the engine actually observed. It is deliberately additive: a
+// failure that replaced the response with a constant would render identically
+// whether or not ctxloom delivered anything, and the mock's class gate
+// (internal/mockengine/arch_test.go) forbids exactly that — "a limb that renders
+// identically either way is not evidence". Prefixing instead of replacing is
+// what lets a NEGATIVE scenario assert positively: the run can only produce
+// "FAIL" followed by the observed context if the engine was actually reached and
+// the value actually flowed, where asserting the ABSENCE of something is
+// satisfied just as well by an engine that never launched.
+//
+// internal/mockengine references this constant rather than re-typing it, so the
+// two mock halves cannot drift to different markers.
+const MockFailPrefix = "FAIL"
 
 // MockConfig is the test backend's typed LLM config. Env carries the
 // CTXLOOM_MOCK_* knobs (response, exit code, record file) through to Execute via
@@ -166,7 +183,8 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 	}
 
 	customResponse := getEnvFromMap(req.Env, "CTXLOOM_MOCK_RESPONSE")
-	response := buildMockResponse(customResponse, contextStr, promptContent, req.Mode, len(b.fragments))
+	failPrefix := getEnvFromMap(req.Env, "CTXLOOM_MOCK_FAIL_PREFIX") == "1"
+	response := buildMockResponse(customResponse, contextStr, promptContent, req.Mode, len(b.fragments), failPrefix)
 
 	if _, err := stdout.Write([]byte(response)); err != nil {
 		return &agent.ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, fmt.Errorf("failed to write response: %w", err)
@@ -327,12 +345,21 @@ func mockExitCode(req *agent.ExecuteRequest) int32 {
 // buildMockResponse returns the custom response when provided, else the default
 // echo of mode/fragments/context/prompt (plus a distilled marker for distill or
 // compress contexts).
-func buildMockResponse(customResponse, contextStr, promptContent string, mode agent.ExecutionMode, fragmentCount int) string {
+//
+// failPrefix prepends MockFailPrefix to WHATEVER response is produced, custom or
+// echo. It is orthogonal to CTXLOOM_MOCK_RESPONSE on purpose: that knob REPLACES
+// the response, so a test using it to signal failure can only assert a literal it
+// wrote itself, which proves nothing about what reached the child.
+func buildMockResponse(customResponse, contextStr, promptContent string, mode agent.ExecutionMode, fragmentCount int, failPrefix bool) string {
+	var response strings.Builder
+	if failPrefix {
+		response.WriteString(MockFailPrefix + "\n")
+	}
 	if customResponse != "" {
-		return customResponse
+		response.WriteString(customResponse)
+		return response.String()
 	}
 
-	var response strings.Builder
 	_, _ = fmt.Fprintf(&response, "[mock] mode=%d\n", mode)
 	_, _ = fmt.Fprintf(&response, "[mock] fragments=%d\n", fragmentCount)
 

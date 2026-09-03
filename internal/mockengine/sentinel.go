@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // Sentinels are deterministic control markers a test embeds in the prompt to
@@ -15,7 +17,11 @@ import (
 // not control the env of can still be steered.
 const (
 	// SentinelFail makes the run exit nonzero — the fault path, so a test can
-	// prove ctxloom surfaces a failing engine rather than swallowing it.
+	// prove ctxloom surfaces a failing engine rather than swallowing it. The
+	// response carries backends.MockFailPrefix followed by the OBSERVED PROMPT,
+	// not a constant: a fixed failure string renders identically whether or not
+	// ctxloom delivered anything, so a test asserting it could not tell a
+	// surfaced failure from an engine that never received a thing.
 	SentinelFail = "CTXLOOM_MOCK_FAIL"
 	// SentinelEcho makes the response echo the text that follows the marker on
 	// the same line, so a test can round-trip a known token through the engine.
@@ -70,7 +76,7 @@ func Dispatch(prompt string, lookup func(string) (string, bool)) (Outcome, error
 	switch {
 	case strings.Contains(prompt, SentinelFail):
 		out.ExitCode = failExitCode
-		out.Response = "mock-engine: fail sentinel matched"
+		out.Response = backends.MockFailPrefix + " mock-engine: " + prompt
 	case strings.Contains(prompt, SentinelEcho):
 		out.Response = "mock-engine: " + echoPayload(prompt)
 	}

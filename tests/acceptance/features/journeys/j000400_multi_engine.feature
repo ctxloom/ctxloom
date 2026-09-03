@@ -88,17 +88,30 @@ Feature: One shared profile, reaching every engine in its own native format
   # PARKED — this scenario's claim is NARROWING-IS-DECLARED, and its last step
   # asserts the materialize report names those surfaces "delivered per-session
   # at launch" (steps_j000400.go's "the materialize report says <engine>
-  # delivers those surfaces per-session at launch"). The only other registered
-  # engine, mock, cannot carry that claim: its MCP/settings/command surfaces
-  # are ABSENT outright, declared as "mock has no settings/hook surface"
-  # (backends/registry.go) — a different fact from home-keyed surfaces
-  # delivered at launch. The first four steps would pass against mock for the
-  # wrong reason (nothing exists rather than something is deferred), and the
-  # fifth would have to be rewritten into a weaker claim. Weakening it is
-  # exactly what must not happen, so it is parked whole instead.
+  # delivers those surfaces per-session at launch"). The first four steps would
+  # pass against an engine that simply HAS no such surfaces — nothing exists
+  # rather than something is deferred — and the fifth would then have to be
+  # rewritten into a weaker claim. Weakening it is exactly what must not
+  # happen, so it is parked whole instead.
   #
-  # UNTAG WHEN: an engine with HOME-KEYED, launch-delivered surfaces returns —
-  # then repoint the scenario at it; the steps need no new Go.
+  # THE BLOCKER, stated so it can be CHECKED rather than re-derived: the
+  # "delivered per-session at launch" wording originates in a descriptor's
+  # launchOnlySettingsReason, which backends.LaunchOnlySurfaces turns into the
+  # materialize report's "NOT carried" lines. NO descriptor assigns that field
+  # today, so LaunchOnlySurfaces returns nil for every registered backend and
+  # no engine can produce the sentence the last step reads. Per its own doc the
+  # field is "set only by a backend with no cwd-keyed equivalent of
+  # .claude/settings.json" — which is what "home-keyed" means here.
+  #
+  # NOT the same thing as isolation's per-agent config home. Worktree.
+  # provisionConfigHome and claude's surface DeliverIsolated relocate where a
+  # RUNNING agent's config lands; this scenario is about what a STATIC
+  # materialize can declare it did not write. An engine can have the first and
+  # still not satisfy this. That conflation has already cost one investigation.
+  #
+  # UNTAG WHEN: some descriptor assigns launchOnlySettingsReason — grep it; the
+  # empty result IS the current blocker. Then repoint the scenario at that
+  # engine; the steps need no new Go.
   @wip
   Scenario: A home-keyed engine materializes its native context, and declares the three surfaces it delivers at launch instead
     Given Carol's team profile carries a shared fragment, command, MCP server, and hook

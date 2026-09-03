@@ -16,13 +16,40 @@ rules:
     match: { command: [go, build] }
     message: "Build through the task runner, not `go build` directly, so flags/ldflags match a real build."
     suggest: "just build   # or `just build-verbose` locally"
+  # The exemption is a SHAPE, not a flag. `go install <module>@<version>`
+  # installs a THIRD-PARTY tool, which by Go's own rules is a build of something
+  # other than this module; a bare `go install` builds this one. Without the
+  # carve-out the refusal named a remedy that installs the WRONG PROGRAM, and a
+  # guard whose advice cannot be followed teaches people to route around guards
+  # generally — the one thing a cooperative redirect cannot survive.
+  #
+  # ORDERING, learned the hard way: a config naming a field only a NEWER ltk
+  # understands makes the installed ltk fail closed on every guarded tool,
+  # including the ones needed to undo the edit. Ship the binary first
+  # (just install), then the rule.
   - id: install-via-just
-    match: { command: [go, install] }
+    match:
+      command: [go, install]
+      unless_arg_contains: ["@"]
     message: "Install through the task runner, not `go install` directly."
     suggest: "just install"
   # The host has no upx and no cross toolchain, so a host-run goreleaser emits
   # "-upx" artifacts that were never compressed — a snapshot that lies about
   # what a release contains. goreleaser lives in the devcontainer only.
+  # Migrated from .claude/hooks/no-direct-go.sh, which predated ltk and
+  # duplicated its build/test/install rules. Two guards for one intent is the
+  # drift this repo warns about, and it bit: the ltk rule gained a carve-out for
+  # third-party installs while the shell hook kept blocking them, so the fix
+  # looked applied and was not. One guard now, and these two rules are the
+  # coverage the hook carried that ltk did not.
+  - id: run-via-just
+    match: { command: [go, run] }
+    message: "Run through the task runner, not `go run` directly, so the binary matches a real build."
+    suggest: "just run -- <args>"
+  - id: complexity-via-just
+    match: { command: [lizard] }
+    message: "Complexity is reported through the task runner, which carries the project's thresholds and baseline."
+    suggest: "just complexity   # or `just complexity-csv`"
   - id: goreleaser-via-just
     match: { command: [goreleaser] }
     message: "goreleaser must run in the devcontainer, never on the host: the host lacks upx, so a host snapshot produces uncompressed binaries masquerading as the `-upx` release artifacts."

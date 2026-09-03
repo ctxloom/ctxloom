@@ -280,6 +280,21 @@ type Match struct {
 	// rule does NOT match. This is the read-only/safe escape hatch — e.g. block
 	// `git tag` `unless: [--list]` so the read-only listing form is exempt.
 	Unless []string `yaml:"unless"`
+	// UnlessArgContains is Unless's SUBSTRING twin: if any argument CONTAINS
+	// any listed text, the rule does not match. Unless tests whole tokens,
+	// which cannot express a shape — and some exceptions are shapes rather
+	// than flags.
+	//
+	// The case it exists for: `go install <module>@<version>` installs a
+	// THIRD-PARTY tool, which by Go's own rules is a build of something other
+	// than this module, while a bare `go install` builds this one. A rule
+	// redirecting the latter to the task runner must not also catch the former,
+	// because the task runner cannot install someone else's tool — the refusal
+	// would name a remedy the caller cannot take.
+	//
+	// A glob cannot do this job: Go's path.Match (what Path uses) stops `*` at
+	// `/`, so no pattern spans a module path like golang.org/x/tools/gopls@v1.
+	UnlessArgContains []string `yaml:"unless_arg_contains"`
 	// Shells restricts the rule to these shells.
 	Shells []ir.Shell `yaml:"shells"`
 	// Path makes this a FILE-EDIT rule instead of a command rule: it matches when
@@ -319,7 +334,7 @@ func (m Match) mixesCommandAndPath() bool {
 func (m Match) hasConstraint() bool {
 	return len(m.Command) > 0 || len(m.ArgsAny) > 0 ||
 		len(m.ArgsAll) > 0 || len(m.Unless) > 0 || len(m.Shells) > 0 ||
-		len(m.Path) > 0
+		len(m.UnlessArgContains) > 0 || len(m.Path) > 0
 }
 
 // matchesPath reports whether a file-edit of file is caught by this path rule.
@@ -456,7 +471,14 @@ func (m Match) matchesArgs(args []string) bool {
 	}
 	// unless: any listed token present means this invocation is an exception
 	// (e.g. a read-only `--list`/`--dry-run` form), so the rule does not match.
-	return !slices.ContainsFunc(m.Unless, func(a string) bool { return slices.Contains(args, a) })
+	if slices.ContainsFunc(m.Unless, func(a string) bool { return slices.Contains(args, a) }) {
+		return false
+	}
+	// unless_arg_contains: the same exception, matched on a SHAPE inside an
+	// argument rather than on a whole token.
+	return !slices.ContainsFunc(m.UnlessArgContains, func(sub string) bool {
+		return slices.ContainsFunc(args, func(a string) bool { return strings.Contains(a, sub) })
+	})
 }
 
 // shellForProgram maps program (a command's argv[0]) to the shell it itself

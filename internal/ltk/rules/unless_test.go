@@ -115,3 +115,58 @@ func TestUnlessParsesAndCountsAsConstraint(t *testing.T) {
 		t.Error("`unless` alone should be a valid match constraint")
 	}
 }
+
+// `unless_arg_contains` carves out an exception by SHAPE rather than by token.
+//
+// The case: `go install <module>@<version>` installs a THIRD-PARTY tool, which
+// by Go's own rules is a build of something other than this module, while a
+// bare `go install` builds this one. A rule redirecting the latter to the task
+// runner must not catch the former — `just install` installs ctxloom, so the
+// refusal would name a remedy that installs the wrong program.
+//
+// Both directions are asserted, and that pairing is the point: an exemption
+// tested alone is satisfied just as well by a rule that stopped matching
+// anything at all.
+func TestUnlessArgContainsExemptsAShape(t *testing.T) {
+	cfg := &Config{Rules: []Rule{{
+		ID:      "install-via-just",
+		Match:   Match{Command: CommandPattern{"go", "install"}, UnlessArgContains: []string{"@"}},
+		Message: "Install through the task runner",
+	}}}
+
+	allow := [][]string{
+		{"go", "install", "golang.org/x/tools/gopls@v0.23.0"}, // versioned module
+		{"go", "install", "golang.org/x/tools/gopls@latest"},  // and its floating form
+	}
+	for _, argv := range allow {
+		if !Evaluate(cfg, cmd(ir.ShellBash, argv...)).Allowed {
+			t.Errorf("%v should be allowed: a versioned module is not this module's build", argv)
+		}
+	}
+
+	deny := [][]string{
+		{"go", "install", "./cmd/ctxloom"}, // this module, by path
+		{"go", "install"},                  // and bare
+	}
+	for _, argv := range deny {
+		if Evaluate(cfg, cmd(ir.ShellBash, argv...)).Allowed {
+			t.Errorf("%v should still be denied; the exemption must not disable the rule", argv)
+		}
+	}
+}
+
+// A glob cannot express the case above, which is why the field matches a
+// substring: Go's path.Match stops `*` at `/`, so no pattern spans a module
+// path like golang.org/x/tools/gopls@v1. Pinned so nobody "simplifies" the
+// field into a glob and silently stops exempting anything.
+func TestUnlessArgContainsIsNotAGlob(t *testing.T) {
+	cfg := &Config{Rules: []Rule{{
+		ID:      "install-via-just",
+		Match:   Match{Command: CommandPattern{"go", "install"}, UnlessArgContains: []string{"@"}},
+		Message: "Install through the task runner",
+	}}}
+	argv := []string{"go", "install", "example.com/deep/nested/path/tool@v1.2.3"}
+	if !Evaluate(cfg, cmd(ir.ShellBash, argv...)).Allowed {
+		t.Errorf("%v should be allowed: the match is a substring, so path separators are irrelevant", argv)
+	}
+}

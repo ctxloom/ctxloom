@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -271,6 +272,13 @@ func writeAndSync(path string, data []byte) error {
 // error worth failing a delivery over — the bytes are already durable and the
 // entry is already visible — so an EINVAL-class refusal is tolerated while a
 // missing directory is not.
+//
+// A permission denial is tolerated too. This is surprising — the process
+// just wrote into the directory it is now being refused fsync on — but it is
+// observed on some overlay/bind-mount setups where the write path and the
+// fsync path resolve through different permission checks; it is treated the
+// same as the EINVAL case rather than failing a delivery whose bytes are
+// already durable.
 func syncDir(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -286,10 +294,13 @@ func syncDir(path string) error {
 	return nil
 }
 
+// errorIsInvalid reports whether err is the OS's EINVAL — some filesystems
+// refuse fsync(2) on a directory file descriptor with this errno, and that
+// refusal is tolerated by syncDir rather than failing the delivery. Checked
+// against the typed errno via errors.Is (which unwraps the *os.PathError
+// f.Sync returns to reach it), never against the error's rendered message:
+// that text is locale- and platform-dependent and a mismatch would silently
+// stop the tolerance from firing instead of failing loudly.
 func errorIsInvalid(err error) bool {
-	var pathErr *os.PathError
-	if !errors.As(err, &pathErr) {
-		return false
-	}
-	return errors.Is(pathErr.Err, os.ErrInvalid) || strings.Contains(pathErr.Err.Error(), "invalid argument")
+	return errors.Is(err, syscall.EINVAL)
 }

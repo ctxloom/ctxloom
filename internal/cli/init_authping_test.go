@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // authPingTestConfig is a minimal, isolated config for pingEngineAuth tests:
@@ -135,7 +136,7 @@ func TestDiscoveryRunRequest_StatesDefaultPermissionExplicitly(t *testing.T) {
 			"config declaring no key": config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}}),
 		} {
 			t.Run(name, func(t *testing.T) {
-				req := discoveryRunRequest(cfg, t.TempDir())
+				req := discoveryRunRequest(cfg, t.TempDir(), "test-harp")
 
 				require.NotNil(t, req)
 				require.NotNil(t, req.Options)
@@ -164,7 +165,7 @@ func TestDiscoveryRunRequest_StatesDefaultPermissionExplicitly(t *testing.T) {
 					AppPaths:    []string{t.TempDir()},
 					Permissions: want.String(),
 				})
-				req := discoveryRunRequest(cfg, t.TempDir())
+				req := discoveryRunRequest(cfg, t.TempDir(), "test-harp")
 
 				require.NotNil(t, req)
 				require.NotNil(t, req.Options)
@@ -183,13 +184,37 @@ func TestDiscoveryRunRequest_StatesDefaultPermissionExplicitly(t *testing.T) {
 			AppPaths:    []string{t.TempDir()},
 			Permissions: "byapss",
 		})
-		req := discoveryRunRequest(cfg, t.TempDir())
+		req := discoveryRunRequest(cfg, t.TempDir(), "test-harp")
 
 		require.NotNil(t, req)
 		require.NotNil(t, req.Options)
 		assert.Equal(t, agent.PermissionDefault.String(), req.Options.PermissionMode,
 			"a misspelled posture must never resolve to anything wider than the pinned default")
 	})
+}
+
+// TestDiscoveryRunRequest_StampsTheHarpIntoEnv pins the actual bug fix: the
+// discovery launch's wire request must carry the session's harp under
+// agent.SessionHarpEnv, the SAME key BaseBackend.run reads to populate
+// LaunchSpec.Harp (internal/shared/agent/base.go) and panelaunch.go's
+// runInteractiveInPane refuses outright without ("interactive launch
+// requires a named session"). Before this fix discoveryRunRequest had no way
+// to receive a harp at all — the init discovery launch built its request with
+// none, so every interactive `ctxloom init` failed to hand off. This is a
+// PAYLOAD assertion on the actual request object, not on discoveryRunRequest
+// returning non-nil.
+//
+// MUTATION TARGET: deleting the Env assignment (or stamping the wrong key)
+// from discoveryRunRequest turns this red.
+func TestDiscoveryRunRequest_StampsTheHarpIntoEnv(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+
+	req := discoveryRunRequest(cfg, t.TempDir(), "brave-otter-harp")
+
+	require.NotNil(t, req)
+	require.NotNil(t, req.Options)
+	assert.Equal(t, "brave-otter-harp", req.Options.Env[agent.SessionHarpEnv],
+		"the request must carry the minted harp under the same env key every other session-identity consumer reads")
 }
 
 // TestPrintDiscoveryPostureHint pins the one line the discovery handoff prints
@@ -362,32 +387,61 @@ func TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint(t *testing.
 	}
 }
 
-// TestLaunchDiscovery_SessionError_StillExitsCleanly: a session that starts
-// (ping succeeded) but ends in error — an interrupted setup, a crashed
-// engine — degrades to a warning; launchDiscovery itself still returns nil
-// (init exits 0), matching the pre-existing fault-tolerant behavior for a
-// launch failure (only the NEW ping is fail-loud).
-func TestLaunchDiscovery_SessionError_StillExitsCleanly(t *testing.T) {
-	stub := &stubPingClient{exitCode: 0}
-	origFactory := authPingFactory
-	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
-	t.Cleanup(func() { authPingFactory = origFactory })
+// TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag: a
+// session that starts (ping succeeded) but fails to launch or ends in error —
+// an unminted harp, an interrupted setup, a crashed engine — must NOT be
+// swallowed into a clean exit (CLAUDE.md's refuse-when-something-is-amiss
+// posture: default REFUSE, --degraded WARNS and continues). This replaces the
+// prior fault-tolerant "degrades to a warning always" behavior, which was the
+// exact defect this fix closes: init's setup session could fail to start and
+// `ctxloom init` would still report success.
+//
+// Both arms are pinned per CLAUDE.md's testing bar for a refuse/--degraded
+// choke: the same failure must refuse by default and warn-then-continue
+// under --degraded, never just one arm.
+func TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag(t *testing.T) {
+	setup := func(t *testing.T) *cobra.Command {
+		t.Helper()
+		stub := &stubPingClient{exitCode: 0}
+		origFactory := authPingFactory
+		authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
+		t.Cleanup(func() { authPingFactory = origFactory })
 
-	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, string, string) error {
-		return assert.AnError
+		origLaunch := launchEngineWithPromptFn
+		launchEngineWithPromptFn = func(context.Context, string, string) error {
+			return assert.AnError
+		}
+		t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
+
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.Background())
+		return cmd
 	}
-	t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
 
-	cmd := &cobra.Command{}
-	cmd.SetContext(context.Background())
+	t.Run("strict mode (default) refuses", func(t *testing.T) {
+		resetStrictness(t)
+		cmd := setup(t)
 
-	var err error
-	out := captureStdout(t, func() {
-		err = launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
+		var err error
+		out := captureStdout(t, func() {
+			err = launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
+		})
+		require.Error(t, err, "a session that failed to launch must refuse, not exit clean")
+		assert.NotContains(t, out, "/ctxloom-init", "no re-entry hint when the session itself errored")
 	})
-	require.NoError(t, err, "a launch/session error degrades — it is not the ping gate")
-	assert.NotContains(t, out, "/ctxloom-init", "no re-entry hint when the session itself errored")
+
+	t.Run("--degraded warns and continues", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+		cmd := setup(t)
+
+		var err error
+		out := captureStdout(t, func() {
+			err = launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
+		})
+		require.NoError(t, err, "degraded mode is the escape hatch — it must not abort init")
+		assert.NotContains(t, out, "/ctxloom-init", "no re-entry hint when the session itself errored")
+	})
 }
 
 // TestLaunchDiscovery_NonInteractive_SkipsPingAndLaunch pins §7/§3's

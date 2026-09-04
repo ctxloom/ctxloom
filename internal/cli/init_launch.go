@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/vpio"
 	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
 )
@@ -73,7 +74,17 @@ func discoverySessionPrompt(cfg *config.Config) string {
 // do, and honouring that is not inheritance. Pinning `default` over their own
 // declaration would also make init lie: setup would prompt for everything and
 // the very next `ctxloom run` in the same directory would not.
-func discoveryRunRequest(cfg *config.Config, workDir string) *pb.RunStart {
+// harp is this run's session name, minted by the caller via
+// operations.AssignSession before this function runs (the same primitive
+// `ctxloom run`'s openSession uses) — never "" on a real launch. It rides on
+// Options.Env under agent.SessionHarpEnv, the SAME env key every other
+// consumer of session identity already reads (BaseBackend.run stamps
+// LaunchSpec.Harp from exactly this key; internal/lm/grpc/chat.go's transcript
+// capture reads it the same way), so this is the existing wire path, not a
+// new one. Without it, panelaunch.runInteractiveInPane's pane-hosted launch
+// refuses outright ("interactive launch requires a named session") because a
+// tmux pane is addressed by harp and an empty one addresses none.
+func discoveryRunRequest(cfg *config.Config, workDir, harp string) *pb.RunStart {
 	posture, _ := discoveryPermissionMode(cfg)
 	return &pb.RunStart{
 		Prompt: &pb.Fragment{Content: discoverySessionPrompt(cfg)},
@@ -81,6 +92,7 @@ func discoveryRunRequest(cfg *config.Config, workDir string) *pb.RunStart {
 			WorkDir:        workDir,
 			Mode:           pb.ExecutionMode_INTERACTIVE,
 			PermissionMode: posture.String(),
+			Env:            map[string]string{agent.SessionHarpEnv: harp},
 		},
 	}
 }
@@ -135,10 +147,11 @@ func printDiscoveryPostureHint(cfg *config.Config) {
 // launchEngineWithPrompt starts the engine's own raw CLI/TUI with the merged
 // setup-skill prompt (pty passthrough — the vendor's real interactive binary
 // on this terminal, exactly as `ctxloom run`'s interactive path). Errors
-// (failed launch, errored session) are returned for the caller to degrade on
-// — a session ending badly (an interrupted setup, a crashed engine) warns and
-// init still exits cleanly; there is no relaunch loop or review offer to gate
-// on a clean return anymore (both deleted — init hands off once and is done).
+// (a harp that could not be minted, a failed launch, an errored session) are
+// returned to the caller, which reports them through strictness and refuses
+// by default rather than swallowing them — there is no relaunch loop or
+// review offer to gate on a clean return anymore (both deleted — init hands
+// off once and is done).
 func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	client, err := pb.NewSelfInvokingClientForLabel(engine, "", 0)
 	if err != nil {
@@ -152,7 +165,22 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	// which discoverySessionPrompt already degrades to the built-in body for.
 	cfg, _ := GetConfig()
 
-	req := discoveryRunRequest(cfg, workDir)
+	// Mint this session's harp via the SAME primitive `ctxloom run`'s
+	// openSession uses (operations.AssignSession), rather than proceeding
+	// with an unnamed session: an empty harp reaches panelaunch's pane-hosted
+	// launch and refuses outright ("interactive launch requires a named
+	// session"), which is exactly the bug this closes — the discovery launch
+	// used to build its request with no harp at all. Unlike openSession,
+	// this does NOT degrade to an unharped run on failure: a pane-hosted
+	// launch cannot proceed without one anyway (no ptyrunner fallback), so
+	// warning and continuing here would only defer the same failure one
+	// level deeper with a worse diagnosis.
+	entry, err := operations.AssignSession(ctx, workDir, engine)
+	if err != nil {
+		return fmt.Errorf("failed to name the setup session: %w", err)
+	}
+
+	req := discoveryRunRequest(cfg, workDir, entry.HarpName)
 
 	// The discovery session is interactive, so the frontend must own the
 	// terminal exactly as `ctxloom run` does: raw-mode keystrokes and resize
@@ -274,11 +302,14 @@ var launchEngineWithPromptFn = launchEngineWithPrompt
 // --skip-launch or non-interactive — launches it with the setup skill in
 // context via its own raw CLI/TUI (launchEngineWithPrompt). A failed ping
 // fails init loud (returned as an error) rather than dropping the user into a
-// dead vendor-TUI session; a session that starts but ends in error (an
-// interrupted setup, a crashed engine) only warns — init still hands off and
-// exits cleanly. There is no relaunch loop and no review offer afterward
-// (both deleted: re-entry is `/ctxloom-init` or `ctxloom init prompt`, and
-// review is the setup skill's own phase 3d/5).
+// dead vendor-TUI session. A session that fails to launch, fails to start, or
+// ends in error (an unminted harp, an interrupted setup, a crashed engine) is
+// reported through strictness and refuses by default too — the same
+// refuse-unless-degraded posture as the ping, not a separate swallow — so
+// init's own working outcome not happening is never mistaken for success.
+// There is no relaunch loop and no review offer afterward (both deleted:
+// re-entry is `/ctxloom-init` or `ctxloom init prompt`, and review is the
+// setup skill's own phase 3d/5).
 func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool) error {
 	if !interactive || initSkipLaunch {
 		return nil
@@ -307,8 +338,21 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 	fmt.Println()
 
 	if launchErr := launchEngineWithPromptFn(cmd.Context(), engine, workDir); launchErr != nil {
-		clidiag.Warn("ctxloom", "%v", launchErr)
-		return nil
+		// A setup session that failed to launch (or start) is init's own
+		// working outcome not happening, so it must not exit clean — that
+		// is the exit-0-success-message-nothing-happened shape CLAUDE.md
+		// singles out. Reported through strictness rather than a bespoke
+		// degraded check here: FailOnce streams the warning in BOTH modes
+		// (so --degraded still tells the user what did not happen), and
+		// FindingsError is what turns it fatal in strict mode and not under
+		// --degraded, matching every other refuse-by-default choke in this
+		// codebase without this call site deciding fatality itself.
+		mark := strictness.Checkpoint()
+		defer strictness.Close(mark)
+		strictness.FailOnce(strictness.ClassConfig,
+			"check the engine's auth/config, then retry `ctxloom init`, or run `ctxloom init prompt` to reconfigure without relaunching",
+			"the setup session failed to launch: %v", launchErr)
+		return strictness.FindingsError(mark)
 	}
 
 	printReentryHint()

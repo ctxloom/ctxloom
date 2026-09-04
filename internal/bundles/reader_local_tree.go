@@ -101,14 +101,22 @@ func (r *localFSReader) openLocalTree(ctx context.Context, manifestPath string) 
 	return tree, nil
 }
 
-// treeProvenance carries this reader's hard-coded provenance across to the
-// content store, which stamps it onto every enumerated trust.Ref.
+// treeProvenance translates this reader's hard-coded class into the one the
+// content store demands, because content.Provenance REJECTS its own zero value
+// and a store cannot be opened without it.
 //
-// It is a translation, not a decision: content.Provenance rejects its own zero
-// value, so a reader whose class had no mapping would otherwise open a store
-// with an unstamped ref and hand a builtin item local trust identity. The
-// default arm therefore FAILS rather than picking a class — a wrong trust
-// stamp is invisible at read time and decides gate outcomes later.
+// WHAT IT DOES NOT DO, measured rather than assumed: it does not decide this
+// bundle's trust identity. The store stamps the value onto every trust.Ref it
+// enumerates, but ReadTree folds items by SURFACE and reads nothing off those
+// refs except a kind name in an error message, so the stamps are discarded
+// before a bundle exists. Trust identity is established where it is for every
+// other form — newRead, from r.provenance, in readBundle. A mutation flipping
+// the two arms below therefore changes no observable behaviour, and that is a
+// property of this path, not a gap in its tests.
+//
+// The default arm still FAILS rather than picking a class. It guards a third
+// reader class arriving later, when the value may well stop being inert;
+// defaulting would answer that question silently and wrongly.
 func (r *localFSReader) treeProvenance() (content.Provenance, error) {
 	switch r.provenance {
 	case ProvenanceProject:

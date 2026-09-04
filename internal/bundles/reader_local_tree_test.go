@@ -134,6 +134,38 @@ func TestLocalTreeForm_SingleFileDocumentStillReads(t *testing.T) {
 	require.Equal(t, "SOLO-BODY-MARKER", b.Fragments["solo-frag"].Content)
 }
 
+// TestLocalTreeForm_SingleFileDocumentBesideItemDirsStillReads pins the
+// manifest-name guard, which the plain single-file case does NOT reach.
+//
+// Found by mutation, and the fixture is this specific for a reason — two
+// EARLIER mutation attempts survived, and each one narrowed it:
+//
+//   - A document at <dir>/vault.yaml roots a tree at <dir>'s PARENT with id
+//     "<dir>". A search directory does not normally hold fragments/ of its own,
+//     so the enumeration is empty and the empty-tree fall-through rescues the
+//     read by accident. Hence the stray item directory below.
+//   - A document that declares items inline returns at the inlineKeys guard
+//     before the manifest name is ever consulted. Hence a document that
+//     declares NOTHING — the only shape for which this guard is the sole
+//     defence.
+//
+// Without the guard this bundle is read as a tree whose envelope
+// (<dir>/bundle.yaml) does not exist, the read fails, and a valid single-file
+// bundle disappears from the listing entirely.
+func TestLocalTreeForm_EmptySingleFileDocumentBesideItemDirsStillReads(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(fsys, "/bundles/vault.yaml", []byte(treeEnvelope), 0o644))
+	// A stray item-kind directory in the SEARCH dir, not in any bundle: enough
+	// to make that directory enumerate as a tree if the guard stops holding.
+	require.NoError(t, afero.WriteFile(fsys, "/bundles/fragments/stray.md", []byte("STRAY"), 0o644))
+
+	// The bundle must still be THERE, and it must be the document's own bytes:
+	// the version is carried by no other file in this fixture.
+	b := readOneLocal(t, fsys)
+	require.Equal(t, "1.2.3", b.Version)
+	require.Equal(t, "the vault bundle", b.Description)
+}
+
 // TestLocalTreeForm_HalfMigratedBundleReadsItsInlineItems pins the boundary
 // against readEnvelope's refusal, which this change must not have relaxed.
 //
@@ -150,6 +182,36 @@ func TestLocalTreeForm_HalfMigratedBundleReadsItsInlineItems(t *testing.T) {
 
 	require.Len(t, b.Fragments, 1, "the inline item is the only answer; the file is not merged in")
 	require.Equal(t, "INLINE-BODY-MARKER", b.Fragments["inline-frag"].Content)
+}
+
+// TestLocalTreeForm_UnreadableTreeIsReportedNotSilentlyEmptied pins the
+// no-swallow rule, which is the whole point of the change.
+//
+// A tree holding a file no surface type claims (guard.yml, the mis-extensioned
+// hook content.Refs refuses to enumerate past) must not degrade into a bundle
+// that loads with zero items. Falling back to the document read on error would
+// do exactly that: the envelope of a tree-form bundle deliberately carries no
+// items, so the fallback's "success" is an empty bundle and a zero exit — the
+// shape this work exists to delete.
+//
+// The assertion is on the EFFECT in both directions: the bundle is absent from
+// the read AND the reader can say why, which is what keeps "will not load" from
+// reaching the user as "does not exist".
+func TestLocalTreeForm_UnreadableTreeIsReportedNotSilentlyEmptied(t *testing.T) {
+	fsys := stageLocalTree(t, treeEnvelope, func(w content.Writer) {
+		putFragment(w, "house-style", "FRAG-BODY-MARKER")
+	})
+	require.NoError(t, afero.WriteFile(fsys, "/bundles/vault/hooks/guard.yml", []byte("bad"), 0o644))
+
+	r := NewProjectReader(fsys, []string{"/bundles"})
+	reads, err := r.Read(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, reads, "an unreadable tree must not read as a bundle at all")
+
+	failures, ok := r.(interface{ ReadFailures() map[string]error })
+	require.True(t, ok)
+	require.Contains(t, failures.ReadFailures(), "vault",
+		"the reader must record WHY the bundle is missing, not drop it silently")
 }
 
 // TestLocalTreeForm_MetadataOnlyDirectoryBundleStillLoads pins the empty-tree

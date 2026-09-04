@@ -362,14 +362,17 @@ func TestRemoveSigner_ProjectRequestedButNoneConfigured_FallsBackToUserStore(t *
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 
-	homePath, herr := paths.HomeAllowedSignersPath()
-	require.NoError(t, herr)
-	require.NoError(t, afero.WriteFile(fs, homePath, []byte(""), 0o600))
+	// Seed the (fallback) user store via the SAME fallback AddSigner uses —
+	// this is what actually creates ~/.ctxloom and the file; a direct
+	// afero.WriteFile to the unresolved homePath here would fail outright
+	// (no parent dir yet) and was this test's own bug, not a defect in the
+	// fallback it exists to prove.
 	_, line := testKeyLine(t)
 	k, err := ResolveSignerKey(line, fs, nil)
 	require.NoError(t, err)
-	_, err = AddSigner(cfg, AddSignerRequest{Principal: "x@example.com", Key: k, Project: true, FS: fs})
+	seed, err := AddSigner(cfg, AddSignerRequest{Principal: "x@example.com", Key: k, Project: true, FS: fs})
 	require.NoError(t, err, "sanity: seed the (fallback) user store via the same fallback AddSigner uses")
+	homePath := seed.Path
 
 	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "x@example.com", Project: true, FS: fs})
 	require.NoError(t, err, "no project configured must fall back, never fail")

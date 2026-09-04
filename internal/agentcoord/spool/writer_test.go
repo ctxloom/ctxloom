@@ -1,11 +1,13 @@
 package spool
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -198,5 +200,64 @@ func TestParseName_RoundTripAndRejections(t *testing.T) {
 	} {
 		_, err := ParseName(bad)
 		require.Error(t, err, "ParseName must refuse %q", bad)
+	}
+}
+
+// invalidArgumentText is the rendered message syscall.EINVAL happens to
+// produce on this platform. errorIsInvalid must NOT match on this text — it
+// exists here only to construct a message-alike error that is deliberately
+// NOT the typed errno, proving the check does not fall back to string
+// comparison.
+var invalidArgumentText = syscall.EINVAL.Error()
+
+// TestErrorIsInvalid_TypedErrnoOnly pins errorIsInvalid to the typed errno
+// syscall.EINVAL rather than any rendering of its message. The case that
+// matters most is errLooksLikeEINVALButIsnt: an error whose .Error() is the
+// exact same text os.PathError.Err.Error() would produce for a real EINVAL,
+// but whose underlying value is not syscall.EINVAL. A string-match
+// implementation (strings.Contains(err.Error(), "invalid argument")) passes
+// that case; the typed check must reject it.
+func TestErrorIsInvalid_TypedErrnoOnly(t *testing.T) {
+	errLooksLikeEINVALButIsnt := &os.PathError{
+		Op:   "sync",
+		Path: "/some/dir",
+		Err:  errors.New(invalidArgumentText),
+	}
+
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "PathError wrapping the real syscall.EINVAL",
+			err:  &os.PathError{Op: "sync", Path: "/some/dir", Err: syscall.EINVAL},
+			want: true,
+		},
+		{
+			name: "bare syscall.EINVAL with no PathError wrapper",
+			err:  syscall.EINVAL,
+			want: true,
+		},
+		{
+			name: "PathError wrapping a different errno (ENOENT)",
+			err:  &os.PathError{Op: "sync", Path: "/some/dir", Err: syscall.ENOENT},
+			want: false,
+		},
+		{
+			name: "PathError whose message merely reads like EINVAL's",
+			err:  errLooksLikeEINVALButIsnt,
+			want: false,
+		},
+		{
+			name: "a plain error with no PathError wrapper at all",
+			err:  errors.New(invalidArgumentText),
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, errorIsInvalid(tc.err), "errorIsInvalid(%v)", tc.err)
+		})
 	}
 }

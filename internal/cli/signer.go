@@ -57,17 +57,22 @@ func runSignerAddCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	return runSignerAdd(cmd, cfg, args[0], signerAddKey, signerAddNamespaces, signerAddComment,
-		effectiveSignerAddProject(signerAddProject, signerAddUser), signerAddYes)
+		effectiveSignerProject(signerAddProject, signerAddUser), signerAddYes)
 }
 
-// effectiveSignerAddProject resolves signer trust's write-target flag pair —
-// --project (default true: the project store is now the default posture)
-// and --user (the inverse, for the per-machine case) — into the single
-// `project` bool AddSigner takes. --user wins when both are set, so an
-// explicit `--user` always means the user store regardless of --project's
-// default. Split out from runSignerAddCmd so this resolution is testable
-// without cobra flag parsing.
-func effectiveSignerAddProject(project, user bool) bool {
+// effectiveSignerProject resolves a signer command's write-target flag pair —
+// --project (default true: the project store is the default posture for
+// BOTH `signer trust` and `signer untrust`) and --user (the inverse, for the
+// per-machine case) — into the single `project` bool AddSigner/RemoveSigner
+// take. --user wins when both are set, so an explicit `--user` always means
+// the user store regardless of --project's default. Shared by both verbs
+// deliberately: trust and untrust used to resolve their default scope
+// independently, and disagreed — trust defaulted to the project store,
+// untrust defaulted to the user store, so the DESTRUCTIVE verb had the wider,
+// more permanent blast radius by default. One function used by both call
+// sites is what keeps that from happening again. Split out from the RunE
+// bodies so this resolution is testable without cobra flag parsing.
+func effectiveSignerProject(project, user bool) bool {
 	return project && !user
 }
 
@@ -268,46 +273,77 @@ func runSignerShowCmd(cmd *cobra.Command, args []string) error {
 	return emit(cmd, listings, func() error { return printSignerListings(cmd.OutOrStdout(), listings) })
 }
 
-var signerRemoveProject bool
+var (
+	signerRemoveProject bool
+	signerRemoveUser    bool
+)
 
 // signerDeleteLong documents `ctxloom signer untrust`.
-const signerDeleteLong = `Removes every entry for <principal> from your allowed_signers store (user
-store by default; --project for the committable project store). This does
-NOT reject any content that signer already published or approved — it
-means "I will review this myself from now on", not "deny". Use
+const signerDeleteLong = `Removes every entry for <principal> from your allowed_signers store.
+
+By default this writes to the COMMITTABLE PROJECT store
+(.ctxloom/allowed_signers) — matching 'signer trust': trust and distrust
+travel together, so a team distributes "we no longer trust this signer" the
+same way it distributes trust in the first place. --user writes to your
+PER-MACHINE USER store (~/.ctxloom/allowed_signers) instead. Run outside a
+project (no .ctxloom directory found), the default falls back to the user
+store automatically and says so.
+
+This does NOT reject any content that signer already published or approved
+— it means "I will review this myself from now on", not "deny". Use
 'ctxloom bundle reject <ref>' to actually reject content.
 
 <principal> naming ctxloom's OWN embedded release key is a special case: that
-key is compiled into the binary and cannot be deleted by this command. Instead
-this records a LOCAL distrust decision (only a new binary changes the
-compiled-in bytes themselves) — content signed only by that key is withheld
-from here on, on this machine or project.`
+key is compiled into the binary and cannot be deleted by this command.
+Instead this records a LOCAL distrust decision in your distrusted_signers
+store — the same project-by-default/--user scope as above, since only a new
+binary changes the compiled-in bytes themselves. Content signed only by that
+key is withheld from here on, on this machine or project.
+
+Examples:
+  ctxloom signer untrust context@acme.com
+  ctxloom signer untrust lead@team.example --user`
 
 func runSignerRemoveCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	return runSignerRemove(cmd, cfg, args[0], effectiveSignerProject(signerRemoveProject, signerRemoveUser))
+}
+
+// runSignerRemove is the testable body of `ctxloom signer untrust`: cfg is
+// DI'd (a real config.Config over a temp project) and project is an explicit
+// parameter, mirroring runSignerAdd's split — so a test can drive the
+// resolve → write → report path without touching cobra's global flag vars or
+// a real home directory.
+func runSignerRemove(cmd *cobra.Command, cfg *config.Config, principal string, project bool) error {
 	res, err := operations.RemoveSigner(cfg, operations.RemoveSignerRequest{
-		Principal: args[0],
-		Project:   signerRemoveProject,
+		Principal: principal,
+		Project:   project,
 	})
 	if err != nil {
 		return err
 	}
 	return emit(cmd, res, func() error {
+		w := cmd.OutOrStdout()
+		if res.Fallback {
+			if _, err := fmt.Fprintf(w, "%s\n", res.FallbackReason); err != nil {
+				return err
+			}
+		}
 		switch {
 		case res.EmbeddedSuppressed:
-			_, err := fmt.Fprintf(cmd.OutOrStdout(),
+			_, err := fmt.Fprintf(w,
 				"%s is ctxloom's embedded release key; it cannot be deleted (only a new binary changes it), "+
 					"but it is now DISTRUSTED on this machine — content signed only by it will be withheld until reviewed (recorded in %s)\n",
 				res.Principal, res.SuppressionPath)
 			return err
 		case res.Removed == 0:
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "no entry for %s in %s\n", res.Principal, res.Path)
+			_, err := fmt.Fprintf(w, "no entry for %s in %s\n", res.Principal, res.Path)
 			return err
 		default:
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "removed %d entr%s for %s from %s\n",
+			_, err := fmt.Fprintf(w, "removed %d entr%s for %s from %s\n",
 				res.Removed, plural(res.Removed, "y", "ies"), res.Principal, res.Path)
 			return err
 		}
@@ -383,5 +419,7 @@ func init() {
 	signerTrustCmd.MarkFlagsMutuallyExclusive("project", "user")
 	_ = signerTrustCmd.MarkFlagRequired("key")
 
-	signerUntrustCmd.Flags().BoolVar(&signerRemoveProject, "project", false, "delete from the committable project store instead of the user store")
+	signerUntrustCmd.Flags().BoolVar(&signerRemoveProject, "project", true, "write the removal/distrust decision to the committable project store — the default; falls back to the user store when no project is configured")
+	signerUntrustCmd.Flags().BoolVar(&signerRemoveUser, "user", false, "write to your PER-MACHINE user store (~/.ctxloom/allowed_signers) instead of the project store")
+	signerUntrustCmd.MarkFlagsMutuallyExclusive("project", "user")
 }

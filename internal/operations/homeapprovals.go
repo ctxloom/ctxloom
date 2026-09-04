@@ -116,6 +116,26 @@ func homeAllowedSignersPath() (string, error) {
 	return path, nil
 }
 
+// homeDistrustedSignersPath is the sibling chokepoint for the OTHER
+// home-rooted store this package WRITES: ~/.ctxloom/distrusted_signers, the
+// local-suppression record `ctxloom signer untrust` writes when the named
+// principal matches ctxloom's own embedded key. It is the exact file an
+// unguarded test run once wrote a permanent, machine-wide distrust of
+// ctxloom's own publishing principal into — withholding every remote bundle
+// from a freshly-initialised project with nothing telling the user why — so
+// it gets the same refusal homeAllowedSignersPath gives its sibling store.
+func homeDistrustedSignersPath() (string, error) {
+	path, err := paths.HomeDistrustedSignersPath()
+	if err != nil {
+		return "", err
+	}
+	if err := unsandboxedHomeError("user distrusted-signers store", path,
+		"testsupport.SandboxedMain / testsupport.Isolate, or --project against a temp checkout"); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // unsandboxedHomeError is the belt to the override's braces: under a TEST
 // BINARY, a home approvals store outside the OS temp root is refused rather
 // than returned. In a production binary it is always nil — the real

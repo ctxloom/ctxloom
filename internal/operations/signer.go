@@ -113,52 +113,34 @@ func keyInfoFromPublicKey(pub ssh.PublicKey, comment string) SignerKeyInfo {
 	}
 }
 
-// signerStorePath resolves which allowed_signers file `signer remove` writes
-// to: the committable project store (.ctxloom/allowed_signers) when project
-// is true, else the user store (~/.ctxloom/allowed_signers) — spec §7,
-// locations 2 and 3. Locations are chosen explicitly, never inferred,
-// because writing to the wrong one is a trust-root mistake. A project
-// request with none configured is a hard error here — unlike
-// resolveSignerAddPath below, `signer untrust --project` outside a project
-// has nothing sensible to fall back to (removing from a user store the
-// caller never asked about would be its own surprise).
-func signerStorePath(cfg *config.Config, project bool) (string, error) {
-	if project {
-		if cfg == nil || len(cfg.GetAppPaths()) == 0 {
-			return "", fmt.Errorf("no .ctxloom directory configured — cannot resolve the project allowed_signers path")
-		}
-		return paths.AllowedSignersPath(cfg.GetAppPaths()[0]), nil
-	}
-	return homeAllowedSignersPath()
-}
-
-// resolveSignerAddPath resolves the allowed_signers file `signer trust`
-// (AddSigner) writes to. project is now the DEFAULT posture (the committable
-// project store is what makes team trust work — a colleague who clones the
-// repo inherits it, rather than every colleague trusting the publisher
-// individually), so unlike signerStorePath a project request with none
-// configured does not fail: it falls back to the user store, and says so via
-// the returned usedProject/fallbackReason — silently writing somewhere other
-// than the project store a caller asked for is exactly the defect shape this
-// project keeps removing.
-func resolveSignerAddPath(cfg *config.Config, project bool) (path string, usedProject bool, fallbackReason string, err error) {
+// resolveSignerScopedPath resolves a project-or-home destination for one of
+// the two write-scoped signer stores (allowed_signers, distrusted_signers).
+// project is the DEFAULT posture for BOTH `signer trust` and `signer
+// untrust` — trust and distrust travel together, so a team distributes "we
+// no longer trust this signer" the same way it distributes trust in the
+// first place, via the committable project store a colleague inherits on
+// clone. A project request with none configured is therefore not an error:
+// it falls back to the user store, and says so via the returned
+// usedProject/fallbackReason — silently writing somewhere other than the
+// store a caller asked for is exactly the defect shape this project keeps
+// removing. projectPath/rawHomePath/guardedHomePath let one function serve
+// both stores: rawHomePath is used only to test whether a configured app
+// path actually resolves to the home app dir (naming, not a destination the
+// caller asked to write), while guardedHomePath is the real fallback
+// destination and carries the unsandboxed-home test-binary guard.
+func resolveSignerScopedPath(cfg *config.Config, project bool, projectPath func(string) string, rawHomePath, guardedHomePath func() (string, error)) (path string, usedProject bool, fallbackReason string, err error) {
 	if project && cfg != nil && len(cfg.GetAppPaths()) > 0 {
 		// A non-empty app path is NOT evidence of a project: outside one it
 		// resolves to the HOME app dir, and taking this branch there writes
 		// the user store while reporting the project store — the exact
 		// silent-wrong-destination this function exists to prevent. Compare
 		// against home so only a genuine project checkout qualifies.
-		// The raw vocabulary path, deliberately not homeAllowedSignersPath:
-		// this asks "is the resolved app dir the HOME one?", a question about
-		// naming, not a store this branch is about to write. Routing it
-		// through the guard would turn a refusal into "not home", which is
-		// the wrong answer in the one direction that matters.
-		candidate := paths.AllowedSignersPath(cfg.GetAppPaths()[0])
-		if home, herr := paths.HomeAllowedSignersPath(); herr != nil || candidate != home {
+		candidate := projectPath(cfg.GetAppPaths()[0])
+		if home, herr := rawHomePath(); herr != nil || candidate != home {
 			return candidate, true, "", nil
 		}
 	}
-	path, err = homeAllowedSignersPath()
+	path, err = guardedHomePath()
 	if err != nil {
 		return "", false, "", err
 	}
@@ -166,6 +148,14 @@ func resolveSignerAddPath(cfg *config.Config, project bool) (path string, usedPr
 		fallbackReason = "no project (.ctxloom directory) found in this checkout — falling back to your user store"
 	}
 	return path, false, fallbackReason, nil
+}
+
+// signerStorePath resolves the allowed_signers file both `signer trust`
+// (AddSigner) and `signer untrust` (RemoveSigner) write to — spec §7,
+// locations 2 and 3. Locations are chosen explicitly, never inferred,
+// because writing to the wrong one is a trust-root mistake.
+func signerStorePath(cfg *config.Config, project bool) (path string, usedProject bool, fallbackReason string, err error) {
+	return resolveSignerScopedPath(cfg, project, paths.AllowedSignersPath, paths.HomeAllowedSignersPath, homeAllowedSignersPath)
 }
 
 // AddSignerRequest is the input to AddSigner.
@@ -219,7 +209,7 @@ func AddSigner(cfg *config.Config, req AddSignerRequest) (*AddSignerResult, erro
 		}
 	}
 
-	path, usedProject, fallbackReason, err := resolveSignerAddPath(cfg, req.Project)
+	path, usedProject, fallbackReason, err := signerStorePath(cfg, req.Project)
 	if err != nil {
 		return nil, err
 	}
@@ -439,6 +429,14 @@ type RemoveSignerResult struct {
 	Principal string `json:"principal"`
 	Path      string `json:"path"`
 	Removed   int    `json:"removed"`
+	// Fallback is true when req.Project asked for the committable project
+	// store but none was configured, so this call wrote to the user store
+	// instead of failing. The CLI must SAY SO — see FallbackReason. Mirrors
+	// AddSignerResult.Fallback: `signer trust` and `signer untrust` share the
+	// same project-default-with-fallback posture.
+	Fallback bool `json:"fallback"`
+	// FallbackReason explains why, for CLI output. Empty unless Fallback.
+	FallbackReason string `json:"fallback_reason"`
 	// EmbeddedSuppressed is true when Principal ALSO matched ctxloom's
 	// EMBEDDED trust root (spec §7, location 1), in which case this call
 	// additionally persisted a local suppression record: ADDITIVE with
@@ -451,8 +449,8 @@ type RemoveSignerResult struct {
 	// only a new binary changes those — but the suppression is REAL:
 	// config.TrustRoot() subtracts the matching embedded entry from the
 	// trust root on every subsequent decision, so content signed only by
-	// that key is withheld from here on (this machine, or this project
-	// with --project).
+	// that key is withheld from here on (this machine, or this project when
+	// writing to the project store).
 	EmbeddedSuppressed bool `json:"embedded_suppressed"`
 	// SuppressionPath is the distrusted_signers file EmbeddedSuppressed was
 	// recorded in, when applicable ("" otherwise).
@@ -481,7 +479,7 @@ func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerRes
 	if req.Principal == "" {
 		return nil, fmt.Errorf("a principal is required")
 	}
-	path, err := signerStorePath(cfg, req.Project)
+	path, usedProject, fallbackReason, err := signerStorePath(cfg, req.Project)
 	if err != nil {
 		return nil, err
 	}
@@ -491,7 +489,13 @@ func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerRes
 	if err != nil {
 		return nil, err
 	}
-	result := &RemoveSignerResult{Principal: req.Principal, Path: path, Removed: removed}
+	result := &RemoveSignerResult{
+		Principal:      req.Principal,
+		Path:           path,
+		Removed:        removed,
+		Fallback:       req.Project && !usedProject,
+		FallbackReason: fallbackReason,
+	}
 
 	if entry := matchingEmbeddedEntry(req.Principal); entry != nil {
 		suppressionPath, serr := suppressEmbeddedPrincipal(fs, cfg, *entry, req.Project)
@@ -602,18 +606,16 @@ func matchingEmbeddedEntry(principal string) *allowedsigners.Entry {
 }
 
 // distrustedSignersStorePath resolves which distrusted_signers file A2's
-// embedded-suppression write targets — the SAME user/project choice
-// signerStorePath makes for allowed_signers, so a team distributes "we no
-// longer trust the embedded key" via --project exactly like they distribute
-// a trust decision.
-func distrustedSignersStorePath(cfg *config.Config, project bool) (string, error) {
-	if project {
-		if cfg == nil || len(cfg.GetAppPaths()) == 0 {
-			return "", fmt.Errorf("no .ctxloom directory configured — cannot resolve the project distrusted_signers path")
-		}
-		return paths.DistrustedSignersPath(cfg.GetAppPaths()[0]), nil
-	}
-	return paths.HomeDistrustedSignersPath()
+// embedded-suppression write targets — the SAME project-default-with-
+// fallback resolution signerStorePath makes for allowed_signers, so a team
+// distributes "we no longer trust the embedded key" via the committable
+// project store exactly like they distribute a trust decision. Its
+// usedProject/fallbackReason are not surfaced separately: this shares cfg
+// and project with the signerStorePath call RemoveSigner already makes for
+// the same request, so the two can never disagree about whether a project
+// was found, and RemoveSignerResult.Fallback already reports it once.
+func distrustedSignersStorePath(cfg *config.Config, project bool) (path string, usedProject bool, fallbackReason string, err error) {
+	return resolveSignerScopedPath(cfg, project, paths.DistrustedSignersPath, paths.HomeDistrustedSignersPath, homeDistrustedSignersPath)
 }
 
 // suppressEmbeddedPrincipal persists a LOCAL record that entry — an embedded
@@ -630,7 +632,7 @@ func distrustedSignersStorePath(cfg *config.Config, project bool) (string, error
 // closes that gap and is what the read side's literal check needs to see.
 // Idempotent: a principal already recorded is left as-is, never duplicated.
 func suppressEmbeddedPrincipal(fs afero.Fs, cfg *config.Config, entry allowedsigners.Entry, project bool) (string, error) {
-	path, err := distrustedSignersStorePath(cfg, project)
+	path, _, _, err := distrustedSignersStorePath(cfg, project)
 	if err != nil {
 		return "", err
 	}

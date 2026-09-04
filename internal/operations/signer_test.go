@@ -351,6 +351,84 @@ func TestRemoveSigner_UnknownPrincipalIsNoopNotError(t *testing.T) {
 	assert.Equal(t, 0, res.Removed)
 }
 
+// TestRemoveSigner_ProjectRequestedButNoneConfigured_FallsBackToUserStore
+// pins `signer untrust`'s new default posture — the mirror of
+// TestAddSigner_ProjectRequestedButNoneConfigured_FallsBackToUserStore. This
+// is the exact scope the ruling changed: RemoveSigner used to hard-error
+// here (signerStorePath had no fallback), which is the asymmetry that let
+// `signer untrust` default to a DIFFERENT store than `signer trust`.
+func TestRemoveSigner_ProjectRequestedButNoneConfigured_FallsBackToUserStore(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{}) // no AppPaths: outside a project
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	homePath, herr := paths.HomeAllowedSignersPath()
+	require.NoError(t, herr)
+	require.NoError(t, afero.WriteFile(fs, homePath, []byte(""), 0o600))
+	_, line := testKeyLine(t)
+	k, err := ResolveSignerKey(line, fs, nil)
+	require.NoError(t, err)
+	_, err = AddSigner(cfg, AddSignerRequest{Principal: "x@example.com", Key: k, Project: true, FS: fs})
+	require.NoError(t, err, "sanity: seed the (fallback) user store via the same fallback AddSigner uses")
+
+	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "x@example.com", Project: true, FS: fs})
+	require.NoError(t, err, "no project configured must fall back, never fail")
+	assert.Equal(t, homePath, res.Path, "the removal must target the USER store when no project is configured")
+	assert.True(t, res.Fallback, "the result must say a fallback happened")
+	assert.NotEmpty(t, res.FallbackReason, "the result must say WHY")
+	assert.Equal(t, 1, res.Removed, "the fallback must actually operate on the user store, not silently no-op")
+}
+
+// TestRemoveSigner_ProjectConfigured_NoFallbackAndNeverTouchesUserStore is
+// the companion proof: WITH a project configured, requesting the project
+// store (the default) must land there — Fallback false — and must never
+// touch the user store even incidentally.
+func TestRemoveSigner_ProjectConfigured_NoFallbackAndNeverTouchesUserStore(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	fs := afero.NewOsFs()
+	_, line := testKeyLine(t)
+	k, err := ResolveSignerKey(line, fs, nil)
+	require.NoError(t, err)
+	_, err = AddSigner(cfg, AddSignerRequest{Principal: "team@example.com", Key: k, Project: true, FS: fs})
+	require.NoError(t, err)
+
+	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "team@example.com", Project: true, FS: fs})
+	require.NoError(t, err)
+	assert.False(t, res.Fallback, "a configured project must never report a fallback")
+
+	homePath, herr := paths.HomeAllowedSignersPath()
+	require.NoError(t, herr)
+	exists, eerr := afero.Exists(fs, homePath)
+	require.NoError(t, eerr)
+	assert.False(t, exists, "untrusting from the project store must never create/touch the user store")
+}
+
+// TestRemoveSigner_EmbeddedPrincipal_SuppressionAlsoFallsBackToUserStore
+// proves the fallback reaches the OTHER write-scoped store `signer untrust`
+// can target: the local distrust record for ctxloom's own embedded key. This
+// is the exact file the real incident wrote a permanent distrust into.
+func TestRemoveSigner_EmbeddedPrincipal_SuppressionAlsoFallsBackToUserStore(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{}) // no AppPaths: outside a project
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: testEmbeddedPrincipal, Project: true, FS: fs})
+	require.NoError(t, err, "no project configured must fall back, never fail")
+	assert.True(t, res.Fallback)
+	assert.True(t, res.EmbeddedSuppressed)
+
+	homeDistrustedPath, herr := paths.HomeDistrustedSignersPath()
+	require.NoError(t, herr)
+	assert.Equal(t, homeDistrustedPath, res.SuppressionPath,
+		"the embedded-suppression record must also land in the USER store when no project is configured")
+
+	data, rerr := afero.ReadFile(fs, homeDistrustedPath)
+	require.NoError(t, rerr)
+	assert.Contains(t, string(data), testEmbeddedPrincipal)
+}
+
 // TestSignerWrites_LeaveNoLeftoverTempFile: both write sites
 // (appendAllowedSignersLine via AddSigner, removeFromAllowedSignersFile via
 // RemoveSigner) now go through iox.WriteFileAtomicFs (temp file + rename)
@@ -382,7 +460,7 @@ func TestSignerWrites_LeaveNoLeftoverTempFile(t *testing.T) {
 
 func mustAllowedSignersProjectPath(t *testing.T, cfg *config.Config) string {
 	t.Helper()
-	path, err := signerStorePath(cfg, true)
+	path, _, _, err := signerStorePath(cfg, true)
 	require.NoError(t, err)
 	return path
 }

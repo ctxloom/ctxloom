@@ -134,10 +134,14 @@ engine per image — in order:
 9. `RUN /usr/local/bin/ctxloom version`
 10. `companionGate` — drops ABI-incompatible companions with a warning rather than failing
 
-Identity is content-keyed: `composedContentHash` is `sha256(base content ‖ NUL ‖
-engine)`, tagged `ctxloom-agent-<engine>:<hash>` by `composedImageTagFor` — the
-engine is in the TAG, not only the hash, so a wrong image is visible in
-`docker images` rather than only by recomputing a digest.
+Identity is keyed on the ctxloom VERSION together with the content:
+`composedContentHash` is `sha256(base content ‖ NUL ‖ engine)`, tagged
+`ctxloom-agent-<engine>:<version key>-<hash>` by `composedImageTagFor`. Both the
+engine and the version are in the TAG, not only the hash, so a wrong image is
+visible in `docker images` rather than only by recomputing a digest — and images
+built by different ctxloom versions COEXIST instead of overwriting one shared
+tag. The version key is `versionCommitKey` (semver + short sha), not the raw
+stamp, which embeds a build timestamp.
 
 **THE ORDER ABOVE IS LOAD-BEARING.** The version `LABEL`s interpolate
 `ARG CTXLOOM_VERSION`, which changes on every build, and docker invalidates
@@ -146,8 +150,12 @@ every layer after a changed one — so while they sat ABOVE the engine install
 how a claude-code cell came to die three times on opencode's installer
 exhausting GitHub's anonymous API quota. The engine install goes above
 everything that changes per build; the ctxloom binary goes last.
-Provenance (`HostProvenanceDigest`) hashes the running ctxloom plus each present
-companion and is stamped as `LABEL ctxloom.provenance`, checked by `imageStale`.
+Provenance (`HostProvenanceDigest`) is `versionProvenanceKey` suffixed with the
+base config's content hash, stamped as `LABEL ctxloom.provenance` and checked by
+`imageStale`. It keys on the VERSION rather than a digest of the running
+binary's bytes: that digest changed on every build, so every agent image read as
+stale and was rebuilt for nothing. A tracked-dirty build still rebuilds, because
+`versionProvenanceKey` keeps the build timestamp for a dirty stamp.
 
 Build orchestration: `Container.ensureImage` (single-flight per `(runtime, tag)`)
 → `runEnsureImage` → `buildFromSource` → `buildBaseImage` → `buildImage`. **No

@@ -11,50 +11,51 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// TestComputeProvenanceDigest_UnresolvableSelfExeIsAnnounced pins that losing
-// the image-staleness check is SAID rather than merely happening.
+// TestHostVersionKey_UnstampedBinaryIsAnnounced pins that losing the
+// image-staleness check is SAID rather than merely happening.
 //
-// An empty provenance digest turns imageRunsAsIs's staleness comparison off
-// entirely (`wantProvenance != "" && ...`), and on a non-linux host that is not
-// an edge case: selfLinuxExe rejects any GOOS other than linux, so
-// resolveSelfExe fails on EVERY macOS/Windows run and the disable is the
-// default. `ctxloom container provenance` prints the same empty digest and
-// exits 0. Returning "" quietly is therefore the house silent-no-op shape --
-// a check reporting success while doing nothing -- so the degrade must be
-// announced.
-func TestComputeProvenanceDigest_UnresolvableSelfExeIsAnnounced(t *testing.T) {
-	orig := resolveSelfExe
-	resolveSelfExe = func() (string, error) { return "", assert.AnError }
-	t.Cleanup(func() { resolveSelfExe = orig })
+// An empty provenance key turns imageRunsAsIs's staleness comparison off
+// entirely (`wantProvenance != "" && ...`), and `ctxloom container provenance`
+// prints the same empty value and exits 0. Returning "" quietly is therefore
+// the house silent-no-op shape — a check reporting success while doing
+// nothing — so the degrade must be announced.
+func TestHostVersionKey_UnstampedBinaryIsAnnounced(t *testing.T) {
+	unsetVersionStamp(t)
 
-	// The fixture must be hostile from computeProvenanceDigest's own vantage
-	// point before anything else is asserted: a seam that silently still
-	// resolves would make every assertion below vacuous.
-	_, ferr := resolveSelfExe()
-	require.Error(t, ferr, "the seam must actually fail, or this test proves nothing")
+	// The fixture must be hostile from hostVersionKey's own vantage point
+	// before anything else is asserted: a stamp that still parsed would make
+	// every assertion below vacuous.
+	require.Empty(t, versionProvenanceKey(binaryVersion),
+		"the stamp must actually be unusable, or this test proves nothing")
 
 	var sink bytes.Buffer
 	restore := clidiag.SetSink(&sink)
 	t.Cleanup(restore)
 
-	got := computeProvenanceDigest()
-	require.Empty(t, got, "an unresolvable self-exe still yields no digest")
+	// warnProvenanceDisabled is WarnOnce, whose dedup is process-wide: without
+	// this reset an identical warning fired by an earlier test in this binary
+	// silently blanks the sink, and the assertion below fails for a reason that
+	// has nothing to do with the behaviour it names.
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
+
+	require.Empty(t, hostVersionKey(), "an unstamped binary still yields no key")
 
 	out := sink.String()
-	require.NotEmpty(t, out, "the disabled staleness check must be announced, not silently returned as an empty digest")
-	assert.True(t, strings.Contains(out, "provenance"),
+	require.NotEmpty(t, out, "the disabled staleness check must be announced, not silently returned as an empty key")
+	assert.True(t, strings.Contains(out, "staleness"),
 		"the warning must name what was disabled; got %q", out)
 }
 
-// TestComputeProvenanceDigest_ResolvableSelfExeIsQuiet is the other half: the
-// announcement is a degrade signal, not chatter on the healthy path.
-func TestComputeProvenanceDigest_ResolvableSelfExeIsQuiet(t *testing.T) {
-	withFakeSelfExe(t)
-
+// TestHostVersionKey_StampedBinaryIsQuiet is the other half: the announcement
+// is a degrade signal, not chatter on the healthy path.
+func TestHostVersionKey_StampedBinaryIsQuiet(t *testing.T) {
 	var sink bytes.Buffer
 	restore := clidiag.SetSink(&sink)
 	t.Cleanup(restore)
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
 
-	require.NotEmpty(t, computeProvenanceDigest())
-	assert.Empty(t, sink.String(), "a resolvable self-exe must produce no warning")
+	require.NotEmpty(t, hostVersionKey(), "TestMain's stamp must resolve a key")
+	assert.Empty(t, sink.String(), "a usable stamp must produce no warning")
 }

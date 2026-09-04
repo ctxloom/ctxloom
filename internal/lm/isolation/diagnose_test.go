@@ -163,7 +163,7 @@ func TestDiagnoseStaleness_NamesTheNotCheckedCases(t *testing.T) {
 	})
 
 	t.Run("unresolvable provenance is not checked", func(t *testing.T) {
-		clearProvenanceCache(t)
+		unsetVersionStamp(t)
 		orig := resolveSelfExe
 		resolveSelfExe = func() (string, error) { return "", errors.New("no linux ctxloom here") }
 		t.Cleanup(func() { resolveSelfExe = orig })

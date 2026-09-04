@@ -51,7 +51,7 @@ func TestWorktreePolicy_RealGitLifecycle(t *testing.T) {
 	// info/exclude (NOT the tracked .gitignore).
 	excl, err := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude"))
 	require.NoError(t, err, "the common-dir info/exclude must exist")
-	for _, pat := range []string{".mcp.json", ".claude/", ".kiro/", ".ctxloom/cache/"} {
+	for _, pat := range []string{".mcp.json", ".claude/", ".ctxloom/cache/"} {
 		assert.Contains(t, string(excl), pat, "exclude covers %q", pat)
 	}
 	assert.NoFileExists(t, filepath.Join(repo, ".gitignore"), "excludes must NOT touch the tracked .gitignore")

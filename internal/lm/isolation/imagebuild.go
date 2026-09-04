@@ -736,7 +736,7 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		return fmt.Errorf("container image %q is not present and cannot be built from this binary: %w", c.image, err)
 	}
 	if present {
-		clidiag.Warn("ctxloom", "container image %q was built from different ctxloom/companion binaries (or base Containerfile/devcontainer/engine-set config) than are installed now; rebuilding it", c.image)
+		clidiag.Warn("ctxloom", "container image %q was built by a different ctxloom version (or from different base Containerfile/devcontainer/engine-set config) than is running now; rebuilding it", c.image)
 	} else {
 		clidiag.Warn("ctxloom", "container image %q not found; building it locally (first run — this may take a few minutes)", c.image)
 	}

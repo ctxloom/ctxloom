@@ -375,44 +375,47 @@ func TestImageStale(t *testing.T) {
 	}
 }
 
-// TestComputeProvenanceDigest_TracksBinaryContent: the digest changes when the
-// ctxloom binary content changes, when a companion's content changes, and when
-// the present-companion set changes — the three "rebuild the image" triggers —
-// and is stable when nothing changed. An unresolvable self-exe yields "".
-func TestComputeProvenanceDigest_TracksBinaryContent(t *testing.T) {
-	bin := t.TempDir()
-	self := filepath.Join(bin, "ctxloom")
-	require.NoError(t, os.WriteFile(self, []byte("ctxloom-v1"), 0o755))
-	writeCompanion := func(name, content string) {
-		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte(content), 0o755))
+// TestHostProvenanceDigest_TracksTheVersionNotTheBinary is the point of the
+// whole change: the provenance is a function of the VERSION STAMP, so two
+// builds of one version agree and the image is reused — while a new version,
+// or a tracked-dirty rebuild of the same commit, still invalidates.
+//
+// The digest it replaced hashed the running ctxloom's bytes, which change on
+// every build; every agent image therefore read as stale on every `just build`
+// and was rebuilt for nothing.
+func TestHostProvenanceDigest_TracksTheVersionNotTheBinary(t *testing.T) {
+	stampedDigest := func(stamp string) string {
+		orig := binaryVersion
+		SetBinaryVersion(stamp)
+		defer SetBinaryVersion(orig)
+		return HostProvenanceDigest("")
 	}
-	writeCompanion("taskloom", "taskloom-v1")
-	writeCompanion("ltk", "ltk-v1")
-	// reprise deliberately absent to start.
-	t.Setenv("PATH", bin)
 
-	orig := resolveSelfExe
-	resolveSelfExe = func() (string, error) { return self, nil }
-	t.Cleanup(func() { resolveSelfExe = orig })
+	first := stampedDigest(testStamp)
+	require.NotEmpty(t, first)
+	assert.Equal(t, first, stampedDigest(testStamp),
+		"the same version must resolve to the same provenance, or nothing is ever reused")
 
-	base := computeProvenanceDigest()
-	require.NotEmpty(t, base)
-	assert.Equal(t, base, computeProvenanceDigest(), "stable when nothing changes")
+	// The SAME commit, rebuilt later: only the stamp's build timestamp moves.
+	// This is the exact input that used to churn, so it is the assertion that
+	// would go red if the timestamp crept back into the key.
+	assert.Equal(t, first, stampedDigest("v0.7.0-abc1234-20261225T121212"),
+		"a rebuild of the same commit must NOT change the provenance")
 
-	require.NoError(t, os.WriteFile(self, []byte("ctxloom-v2"), 0o755))
-	afterSelf := computeProvenanceDigest()
-	assert.NotEqual(t, base, afterSelf, "ctxloom rebuild changes the digest")
+	assert.NotEqual(t, first, stampedDigest("v0.7.0-def5678-20260904T031516"),
+		"a different commit is a different provenance")
+	assert.NotEqual(t, first, stampedDigest("v0.8.0-abc1234-20260904T031516"),
+		"a different semver is a different provenance")
+	assert.NotEqual(t, first, stampedDigest(testStampDirty),
+		"a tracked-dirty build must not be mistaken for the clean build of that commit")
 
-	writeCompanion("taskloom", "taskloom-v2")
-	afterCompanion := computeProvenanceDigest()
-	assert.NotEqual(t, afterSelf, afterCompanion, "companion update changes the digest")
+	// Two dirty builds of one commit differ, which is what FORCES the rebuild:
+	// a dirty tree has no stable identity, so nothing may be reused across one.
+	assert.NotEqual(t, stampedDigest(testStampDirty), stampedDigest("v0.7.0-abc1234-20260904T999999-dirty"),
+		"each dirty build must key differently, or a dirty rebuild is silently reused")
 
-	writeCompanion("reprise", "reprise-v1")
-	afterAdd := computeProvenanceDigest()
-	assert.NotEqual(t, afterCompanion, afterAdd, "a newly-present companion changes the digest")
-
-	resolveSelfExe = func() (string, error) { return "", assert.AnError }
-	assert.Empty(t, computeProvenanceDigest(), "unresolvable self-exe → empty (check disabled)")
+	assert.Empty(t, stampedDigest(""), "an unstamped binary → empty (check disabled)")
+	assert.Empty(t, stampedDigest("v0.7.0-abc1234"), "a malformed stamp → empty (check disabled)")
 }
 
 // TestEnsureImage_UserOwnedOverrideRunsAsIs: a present image with NO local
@@ -760,38 +763,30 @@ exit 0
 	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
 }
 
-// forceProvenance reseeds the process-global provenance cache (HostProvenance-
-// Digest memoizes once per process) so the staleness gate is LIVE and
-// deterministic regardless of test order. Requires resolveSelfExe to already
-// point at a readable stand-in (withFakeSelfExe), which makes the digest
-// non-empty. The cleanup clears it so the next caller recomputes against the
-// restored (real) binary.
+// forceProvenance asserts the staleness gate is LIVE for this test: a
+// non-empty provenance, so imageRunsAsIs actually COMPARES rather than
+// short-circuiting on an unresolvable key. TestMain stamps the package, so
+// this is a guard rather than a setup step — and it is the guard that stops
+// every "the image is reused" assertion below from passing vacuously against
+// a gate that was switched off.
 func forceProvenance(t *testing.T) {
 	t.Helper()
-	provenanceOnce = sync.Once{}
-	provenanceCached = ""
-	require.NotEmpty(t, HostProvenanceDigest(""), "the fake selfExe must yield a non-empty provenance digest")
-	t.Cleanup(func() {
-		provenanceOnce = sync.Once{}
-		provenanceCached = ""
-	})
+	require.NotEmpty(t, HostProvenanceDigest(""), "the staleness gate must be live, or the assertions below prove nothing")
 }
 
-// clearProvenanceCache empties the process-global provenance memo WITHOUT
-// seeding it, so the next computation runs against whatever resolveSelfExe is
-// installed at that moment. forceProvenance's inverse: it exists because
-// seeding first and breaking resolveSelfExe afterwards builds a state
-// production can never reach (production resolves the digest lazily, through
-// the SAME seam the build path later uses), which is how an unreachable
-// branch can look covered.
-func clearProvenanceCache(t *testing.T) {
+// unsetVersionStamp makes the provenance key UNRESOLVABLE for one test, which
+// is the only way the digest can now come back empty: it is derived from the
+// version stamp, not from reading any file.
+//
+// It replaced a helper that cleared a memo of a binary-content digest, whose
+// callers emptied the digest by breaking resolveSelfExe. That no longer empties
+// anything — those tests would have kept their names and stopped testing the
+// gate they name.
+func unsetVersionStamp(t *testing.T) {
 	t.Helper()
-	provenanceOnce = sync.Once{}
-	provenanceCached = ""
-	t.Cleanup(func() {
-		provenanceOnce = sync.Once{}
-		provenanceCached = ""
-	})
+	orig := binaryVersion
+	SetBinaryVersion("")
+	t.Cleanup(func() { SetBinaryVersion(orig) })
 }
 
 // TestEnsureImage_UnverifiableProvenanceIsNotCurrent pins that the
@@ -804,7 +799,7 @@ func clearProvenanceCache(t *testing.T) {
 // the gate returned before that branch could ever run.
 func TestEnsureImage_UnverifiableProvenanceIsNotCurrent(t *testing.T) {
 	resetStrictness(t)
-	clearProvenanceCache(t)
+	unsetVersionStamp(t)
 	dir := t.TempDir()
 	script := filepath.Join(dir, "fake-docker")
 	writeInspectOKBuildFailScript(t, script, `{"ctxloom.provenance":"whatever-was-baked"}`)

@@ -115,7 +115,7 @@ func diagnoseStaleness(ctx context.Context, c Container, backend string, sources
 	if imageStale(c.imageLabels(ctx), wantProvenance) {
 		d.ImageStale = true
 		d.Guidance = append(d.Guidance,
-			fmt.Sprintf("agent image %s was built from different ctxloom/companion binaries (or base Containerfile/devcontainer/engine-set config) than are installed now; the next containerized run rebuilds it (or run `ctxloom container build %s`)", c.image, backend))
+			fmt.Sprintf("agent image %s was built by a different ctxloom version (or from different base Containerfile/devcontainer/engine-set config) than is running now; the next containerized run rebuilds it (or run `ctxloom container build %s`)", c.image, backend))
 	}
 }
 

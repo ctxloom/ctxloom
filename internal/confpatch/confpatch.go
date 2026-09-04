@@ -166,6 +166,25 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build) (Result, er
 			if err != nil {
 				return fmt.Errorf("confpatch: %s has drifted since ctxloom last wrote it, so the previous application could not be reversed; refusing to write rather than clobber the change: %w", target, err)
 			}
+			// A reversal that RETURNS cleanly has still not necessarily done its
+			// job: it can succeed and hand back the wrong bytes. That is not
+			// hypothetical — a hew defect corrupted a reversal silently in JSON
+			// and JSONC, the two formats written here, while yaml and toml at
+			// least failed loudly.
+			//
+			// It compounds, which is why this is checked rather than trusted:
+			// the next reversal is rendered FROM this restored document, so a
+			// wrong one is inherited by every later write and no later write can
+			// notice. The record already carries the digest of the file as it
+			// stood before the previous application, so reversing that
+			// application must reproduce exactly that digest.
+			if want := recordedBefore(prev, target); want != "" {
+				if got := sha256Digest(restored); got != want {
+					return fmt.Errorf("confpatch: reversing ctxloom's previous write to %s did not reproduce the file that write recorded (recorded %s, reversal produced %s); "+
+						"refusing to write, because every later reversal is derived from this one and would inherit the error. "+
+						"Restore %s from version control or delete ctxloom's record for it and re-apply", target, want, got, target)
+				}
+			}
 			res.Reversed = true
 		}
 		res.Restored = restored
@@ -308,4 +327,17 @@ func writeTarget(fs afero.Fs, target string, out []byte) error {
 		return fmt.Errorf("confpatch: write %s: %w", target, err)
 	}
 	return nil
+}
+
+// recordedBefore reports the digest a record holds for target's pre-application
+// bytes, or "" when the record does not describe that target. Empty means "no
+// claim to check against" and is not treated as a mismatch: an older record
+// written before this field was relied on must not make a write impossible.
+func recordedBefore(rec Record, target string) string {
+	for _, t := range rec.Targets {
+		if t.Target == target {
+			return t.Before
+		}
+	}
+	return ""
 }

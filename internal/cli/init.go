@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 var initCmd = &cobra.Command{
@@ -237,6 +239,34 @@ func engineForExistingDir(selected, appDir string) string {
 	return ""
 }
 
+// ctxloomDefaultTrusted reports whether THIS machine actually trusts
+// ctxloom's own embedded publishing key for the publish namespace — the key
+// that signs every bundle the "ctxloom-default" remote serves. It reads the
+// live trust root (Config.TrustRoot) rather than asserting trust
+// unconditionally: a human can locally distrust an embedded principal
+// (`ctxloom signer remove <principal>`, writing
+// ~/.ctxloom/distrusted_signers or its project equivalent), and init used to
+// claim "this binary trusts" the seeded remote regardless, then in the same
+// run print a dozen "withheld: signed by a key this machine does not trust"
+// warnings when that remote's content was actually admitted.
+//
+// A nil cfg (the config init just wrote could not be read back) answers
+// false: the honest answer when trust cannot be established is "do not
+// claim it," not "assume the common case."
+func ctxloomDefaultTrusted(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	root := cfg.TrustRoot()
+	now := time.Now()
+	for _, e := range config.EmbeddedSigners().Entries() {
+		if root.TrustedForNamespace(e.PublicKey, signing.NamespacePublish, now).Trusted {
+			return true
+		}
+	}
+	return false
+}
+
 // setupNewCtxloomDir performs first-time setup for a non-existent .ctxloom dir:
 // resolve the engine (with interactive prompts), write the skeleton, register
 // personal/discovery remotes, apply hooks, and update .gitignore. Returns the
@@ -253,8 +283,16 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	}
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
 	fmt.Printf("Default AI engine: %s\n", engine)
-	fmt.Println("Seeded remote \"ctxloom-default\" (official curated repo). Its bundles are signed")
-	fmt.Println("by ctxloom's publishing key, which this binary trusts, so they need no review.")
+	fmt.Println("Seeded remote \"ctxloom-default\" (official curated repo).")
+	trustCfg, trustCfgErr := config.Load(config.WithAppDir(appDir))
+	if trustCfgErr != nil {
+		trustCfg = nil
+	}
+	if ctxloomDefaultTrusted(trustCfg) {
+		fmt.Println("Its bundles are signed by ctxloom's publishing key, which this binary trusts, so they need no review.")
+	} else {
+		fmt.Println("Its bundles are signed by ctxloom's publishing key, which this machine does not trust — they will await `ctxloom review`.")
+	}
 
 	// Targeted system-dependency gate, right after the marker dir/minimal
 	// config and BEFORE the clone two lines down: git is a hard prerequisite

@@ -8,12 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -45,6 +47,44 @@ func TestGenerateConfig_DefaultsBlock(t *testing.T) {
 	// The engine's role pair is wired into llm.defaults.
 	assert.Contains(t, body, "primary: claude-code")
 	assert.Contains(t, body, "fast: claude-fast")
+}
+
+// TestCtxloomDefaultTrusted pins init's trust claim about the seeded
+// "ctxloom-default" remote to the ACTUAL trust root, rather than asserting it
+// unconditionally regardless of local state.
+//
+// MUTATION TARGET: replacing ctxloomDefaultTrusted's body with `return true`
+// turns the "locally distrusted" subtest red; replacing it with `return
+// false` turns the "default trust root" subtest red.
+func TestCtxloomDefaultTrusted(t *testing.T) {
+	t.Run("nil config never claims trust", func(t *testing.T) {
+		assert.False(t, ctxloomDefaultTrusted(nil))
+	})
+
+	t.Run("an unmodified trust root trusts ctxloom's embedded publishing key", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
+		cfg.SetFS(afero.NewMemMapFs())
+
+		assert.True(t, ctxloomDefaultTrusted(cfg),
+			"an unmodified trust root must still trust ctxloom's own embedded publishing key")
+	})
+
+	t.Run("a locally distrusted embedded principal is no longer trusted", func(t *testing.T) {
+		embedded := config.EmbeddedSigners().Entries()
+		require.NotEmpty(t, embedded, "the embedded trust root must ship at least one signer for this test to mean anything")
+		principal := embedded[0].Principals[0]
+
+		dir := t.TempDir()
+		fs := afero.NewMemMapFs()
+		require.NoError(t, afero.WriteFile(fs, paths.DistrustedSignersPath(dir), []byte(principal+"\n"), 0o644))
+
+		cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
+		cfg.SetFS(fs)
+
+		assert.False(t, ctxloomDefaultTrusted(cfg),
+			"a locally distrusted embedded principal must no longer be reported as trusted")
+	})
 }
 
 // TestPromptDirtyTreeHandler_EachOptionAndDefault exercises the init

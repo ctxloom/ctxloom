@@ -32,6 +32,27 @@ import (
 // while testsupport may import shared — one body, no duplicate.
 func WriteFile(t testing.TB, fs afero.Fs, path string, data []byte, perm os.FileMode) {
 	t.Helper()
+	writeFile(t, fs, path, data, perm)
+}
+
+// fatalReporter is the part of testing.TB writeFile needs to report a
+// failure. It exists — rather than writeFile taking testing.TB directly —
+// for the same reason appDirReporter does (see requireIsolatedAppDir): a
+// check that can only report by failing the test that calls it cannot be
+// asserted ON, and testing.TB cannot be implemented outside the testing
+// package (its unexported method blocks exactly that). A recorder standing
+// in for fatalReporter lets writefile_test.go prove WriteFile stops on error
+// without the proving test itself going red.
+type fatalReporter interface {
+	Helper()
+	Fatalf(format string, args ...any)
+}
+
+// writeFile is WriteFile's body, over the narrower fatalReporter so it is
+// callable from a test with a recorder in place of t. testing.TB satisfies
+// fatalReporter structurally, so WriteFile's callers need nothing extra.
+func writeFile(t fatalReporter, fs afero.Fs, path string, data []byte, perm os.FileMode) {
+	t.Helper()
 	dir := filepath.Dir(path)
 	if err := fs.MkdirAll(dir, dirPermFor(perm)); err != nil {
 		t.Fatalf("taskstest.WriteFile: mkdir %s: %v", dir, err)

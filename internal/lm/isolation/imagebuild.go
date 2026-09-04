@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"hash"
 	"io"
 	"os"
 	"os/exec"
@@ -71,18 +70,36 @@ func composedContentHash(content []byte, engine string) string {
 }
 
 // composedImageTagFor is the shared image tag a COMPOSABLE spec's build
-// resolves to: one tag per (resolved base content, ENGINE) — the same
-// (base, engine) across different projects and sessions shares the SAME tag
+// resolves to: one tag per (ctxloom version, resolved base content, ENGINE) —
+// the same triple across different projects and sessions shares the SAME tag
 // and the runtime's layer cache. One engine per image, so the identity is a
 // function of the engine alone and cannot shift when some other project binds
 // a different set.
+//
+// The CTXLOOM VERSION is in the tag so images built by DIFFERENT ctxloom
+// versions COEXIST. Keyed on content and engine alone, one tag was shared by
+// every version: a newer ctxloom found the tag present, its provenance stale,
+// and rebuilt OVER it — then switching back rebuilt again, because the tag the
+// older one wanted now held the newer one's image. Two versions could not both
+// hold an image. It is versionCommitKey and not the raw stamp because the
+// stamp embeds a build timestamp; see versionCommitKey.
+//
 // The ENGINE IS IN THE TAG, not only in the hash. A hash-only tag made two
 // images for different engines indistinguishable in `docker images`, so a
 // wrong-engine image could not be spotted by looking — and image identity is
 // content-addressed, meaning a wrong composition builds, runs, and is simply
-// the wrong thing. Naming the engine makes that visible at a glance.
-func composedImageTagFor(content []byte, engine string) string {
-	return "ctxloom-agent-" + engine + ":" + composedContentHash(content, engine)
+// the wrong thing. Naming the engine makes that visible at a glance; naming
+// the version does the same for "which ctxloom built this".
+//
+// An empty versionKey (an unstamped binary, which internal/cli's root gate
+// refuses to run) is OMITTED rather than interpolated: a leading "-" is not a
+// legal tag, so a degraded key must not be allowed to mint an unusable name.
+func composedImageTagFor(content []byte, engine, versionKey string) string {
+	tag := composedContentHash(content, engine)
+	if versionKey != "" {
+		tag = versionKey + "-" + tag
+	}
+	return "ctxloom-agent-" + engine + ":" + tag
 }
 
 // baseForIdentity resolves WHICH base stage a spec's local build would use
@@ -114,9 +131,9 @@ func composedIdentity(p engineContainerSpec, baseContainerfile string, devBase *
 	if err != nil {
 		return "", "", false
 	}
-	image = composedImageTagFor(content, engine)
-	if bd := hostBinariesDigest(); bd != "" {
-		provenance = bd + "-" + composedContentHash(content, engine)
+	image = composedImageTagFor(content, engine, versionCommitKey(binaryVersion))
+	if vk := hostVersionKey(); vk != "" {
+		provenance = vk + "-" + composedContentHash(content, engine)
 	}
 	return image, provenance, true
 }
@@ -547,64 +564,66 @@ func stageCompanions(contextDir string) error {
 
 // binaryVersion is the running binary's version stamp, injected by the CLI at
 // startup (isolation cannot import internal/cli — the dependency runs the other
-// way). It is baked into built images as the ctxloom.version label for
-// diagnostics only. It is NOT the staleness signal: the stamp is git-derived
-// (commit sha + commit time), so it cannot see an uncommitted dev change or a
-// same-commit rebuild — that is what provenance (a content digest) is for.
+// way). It is baked into built images as the ctxloom.version label, and it IS
+// the staleness signal: versionCommitKey keys the image TAG and
+// versionProvenanceKey keys the ctxloom.provenance label.
+//
+// It replaced a content digest over the running ctxloom and its companions.
+// That digest changed on every `just build`, so every agent image read as
+// stale and was rebuilt even when nothing meaningful had changed. An
+// uncommitted change is still caught — the stamp carries a tracked-dirty
+// marker, and versionProvenanceKey turns that into a per-build key.
 var binaryVersion string
 
-// SetBinaryVersion injects the running binary's version stamp for the
-// diagnostic image label. Called once by the CLI at startup.
+// SetBinaryVersion injects the running binary's version stamp. Called once by
+// the CLI at startup. Everything downstream of the image-staleness gate reads
+// it, so an empty value disables that gate loudly (hostVersionKey).
 func SetBinaryVersion(v string) { binaryVersion = v }
 
 const provenanceLabel = "ctxloom.provenance"
 
-var (
-	provenanceOnce   sync.Once
-	provenanceCached string
-)
-
 // HostProvenanceDigest returns the provenance label an agent image built NOW —
-// from this host's binaries, on the given base Containerfile config ("" = the
-// embedded default) — would carry: a content digest over the running ctxloom
-// plus each companion present on the host PATH, suffixed with the base
-// config's content hash. It is the STALENESS SIGNAL: a changed binary (a dev
-// `just install` of ctxloom, a taskloom/ltk/reprise update, even an
-// uncommitted rebuild the version stamp can't see) or a changed base config
-// changes the digest, and ensureImage rebuilds. Empty when the running binary
-// can't be resolved (non-linux dev hosts, test seams) or the base config can't
-// be read — the check then disables rather than churn. The binaries half is
-// computed once per process (fixed for a running ctxloom). Exported so the
-// build tooling (`ctxloom container provenance`) can stamp a matching label.
+// by this ctxloom, on the given base Containerfile config ("" = the embedded
+// default) — would carry: this build's version key, suffixed with the base
+// config's content hash. It is the STALENESS SIGNAL: a new ctxloom version, an
+// uncommitted (tracked-dirty) rebuild, or a changed base config changes it,
+// and ensureImage rebuilds. Empty when this binary carries no usable stamp or
+// the base config can't be read — the check then disables rather than churn.
+// Exported so the build tooling (`ctxloom container provenance`) can stamp a
+// matching label.
 func HostProvenanceDigest(baseContainerfile string) string {
-	return combineProvenance(hostBinariesDigest(), baseContainerfile)
+	return combineProvenance(hostVersionKey(), baseContainerfile)
 }
 
-// hostBinariesDigest is the memoized binaries-only half of the provenance
-// digest (the running ctxloom + present companions), shared by
-// HostProvenanceDigest and composedIdentity's engine-aware suffix — computed
-// once per process via provenanceOnce.
-func hostBinariesDigest() string {
-	provenanceOnce.Do(func() { provenanceCached = computeProvenanceDigest() })
-	return provenanceCached
+// hostVersionKey is the running binary's provenance key, shared by
+// HostProvenanceDigest and composedIdentity's engine-aware suffix. It is empty
+// only for a binary carrying no usable stamp — which internal/cli's root gate
+// refuses to run — and that emptiness is ANNOUNCED, because a check that
+// silently stops checking is indistinguishable from one that passed.
+func hostVersionKey() string {
+	key := versionProvenanceKey(binaryVersion)
+	if key == "" {
+		warnProvenanceDisabled(binaryVersion)
+	}
+	return key
 }
 
-// combineProvenance suffixes the binaries digest with the base-config content
+// combineProvenance suffixes the version key with the base-config content
 // hash, so the ONE existing staleness gate (the ctxloom.provenance label vs
 // imageStale) also rebuilds an agent image whose base Containerfile config
 // changed — no parallel staleness mechanism. The suffix is baseContentHash,
 // i.e. the baseImageTagFor generation the image rode on. Either half unknown
-// yields "" — an untrustable digest disables the check rather than forcing a
-// wrong rebuild, matching computeProvenanceDigest.
-func combineProvenance(binariesDigest, baseContainerfile string) string {
-	if binariesDigest == "" {
+// yields "" — an untrustable key disables the check rather than forcing a
+// wrong rebuild.
+func combineProvenance(versionKey, baseContainerfile string) string {
+	if versionKey == "" {
 		return ""
 	}
 	content, err := baseContent(baseContainerfile)
 	if err != nil {
 		return ""
 	}
-	return binariesDigest + "-" + baseContentHash(content)
+	return versionKey + "-" + baseContentHash(content)
 }
 
 // baseContent resolves the base Containerfile content a build on this config
@@ -617,63 +636,16 @@ func baseContent(baseContainerfile string) ([]byte, error) {
 	return os.ReadFile(baseContainerfile)
 }
 
-// computeProvenanceDigest hashes the running ctxloom (which also covers the
-// embedded entrypoint script and Containerfiles — they compile into the binary)
-// followed by each present companion, in companionBinaries order, every file
-// tagged by name so an added/removed/renamed companion changes the digest even
-// when two binaries share content. Any read failure yields "" — an untrustable
-// digest disables the check rather than forcing a wrong rebuild.
+// warnProvenanceDisabled names the capability lost when this build cannot be
+// keyed. Emitted at most once per process.
 //
-// That degrade is ANNOUNCED, because it is not rare: imageRunsAsIs turns the
-// staleness comparison off entirely on an empty digest, selfLinuxExe rejects
-// every non-linux host, and `ctxloom container provenance` prints the empty
-// digest and exits 0. A check that silently stops checking is indistinguishable
-// from one that passed.
-func computeProvenanceDigest() string {
-	selfExe, err := resolveSelfExe()
-	if err != nil {
-		warnProvenanceDisabled(err)
-		return ""
-	}
-	h := sha256.New()
-	if err := hashFileTagged(h, "ctxloom", selfExe); err != nil {
-		warnProvenanceDisabled(err)
-		return ""
-	}
-	for _, name := range companionBinaries {
-		p, lerr := exec.LookPath(name)
-		if lerr != nil {
-			continue // absent on host → not baked → not part of the digest
-		}
-		if err := hashFileTagged(h, name, p); err != nil {
-			warnProvenanceDisabled(err)
-			return ""
-		}
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-// warnProvenanceDisabled names the capability lost when the digest cannot be
-// computed. Emitted at most once per process in production (the only caller
-// runs under provenanceOnce).
-func warnProvenanceDisabled(err error) {
-	clidiag.Warn("ctxloom", "cannot compute this host's container image provenance digest (%v); the image-staleness check is DISABLED, so an agent image built from older ctxloom/companion binaries will be run as-is", err)
-}
-
-// hashFileTagged folds a NUL-terminated name tag then the file's full content
-// into h. The tag makes the digest sensitive to WHICH binary a set of bytes
-// belongs to (a rename, or an absent→present transition), not just the bytes.
-func hashFileTagged(h hash.Hash, name, path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-	if _, err := fmt.Fprintf(h, "%s\x00", name); err != nil {
-		return err
-	}
-	_, err = io.Copy(h, f)
-	return err
+// The degrade is ANNOUNCED rather than silent, and it does not fall back to
+// rebuilding: imageRunsAsIs turns the staleness comparison off entirely on an
+// empty key, and `ctxloom container provenance` prints the empty key and exits
+// 0. A check that silently stops checking is indistinguishable from one that
+// passed.
+func warnProvenanceDisabled(stamp string) {
+	clidiag.WarnOnce("ctxloom", "this ctxloom carries no usable version stamp (%q); the container image-staleness check is DISABLED, so an agent image built by an older ctxloom will be run as-is", stamp)
 }
 
 // imageEnsureFlight is one in-flight ensureImage outcome: err is set before

@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -62,7 +63,7 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 
 		if !remote.IsSelfContainedRef(ref) && !strings.Contains(ref, "@") {
 			// A bare name is a bundle in this project's own tree.
-			require.NoError(t, afero.WriteFile(projectFS, "/bundles/"+ref+".yaml", data, 0o644))
+			testsupport.WriteFile(t, projectFS, "/bundles/"+ref+".yaml", data, 0o644)
 			local = true
 			continue
 		}

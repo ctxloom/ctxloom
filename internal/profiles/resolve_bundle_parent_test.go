@@ -6,6 +6,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // seededParentLoader returns a loader over memfs with one fs profile ("dev")
@@ -22,8 +24,8 @@ func seededParentLoader(t *testing.T, parentRef string) *Loader {
 		},
 	}
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/profiles/dev.yaml",
-		[]byte("parents:\n  - "+parentRef+"\nbundles:\n  - own-bundle\n"), 0644))
+	testsupport.WriteFileString(t, fs, "/profiles/dev.yaml",
+		"parents:\n  - "+parentRef+"\nbundles:\n  - own-bundle\n", 0644)
 	return NewLoader([]string{"/profiles"}, WithFS(fs), WithSeededProfiles(seed))
 }
 

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // countPathKeys counts the lines a stanza-blind scan would accept as a
@@ -26,9 +28,7 @@ func countPathKeys(doc string) int {
 func parsePaths(t *testing.T, doc string) []string {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	if err := afero.WriteFile(fs, "/repo/.gitmodules", []byte(doc), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testsupport.WriteFileString(t, fs, "/repo/.gitmodules", doc, 0o644)
 	got, err := SubmodulePaths(fs, "/repo")
 	if err != nil {
 		t.Fatalf("SubmodulePaths: %v", err)

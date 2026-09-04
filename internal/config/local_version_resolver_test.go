@@ -68,8 +68,8 @@ func localResolverLoader(t *testing.T, appDir string) *bundles.Pipeline {
 	// The working-tree default is read as what it is: a project bundle on a
 	// filesystem, through the project reader.
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/go-tools.yaml", []byte(
-		"version: \"1.0\"\nfragments:\n  fmt:\n    content: WORKTREE-BODY\ncommands:\n  review:\n    content: WORKTREE-PROMPT\n"), 0o644))
+	testsupport.WriteFileString(t, fsys, "/bundles/go-tools.yaml",
+		"version: \"1.0\"\nfragments:\n  fmt:\n    content: WORKTREE-BODY\ncommands:\n  review:\n    content: WORKTREE-PROMPT\n", 0o644)
 	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{"/bundles"})).WithVersionResolver(resolver)
 	// AdmitAll: this test resolves versions, not trust, and states so.
 	return bundles.NewPipeline(loader, bundles.AdmitAll(), false)

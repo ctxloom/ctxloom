@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // seedOption presents authored bundle VALUES as what they are — project
@@ -25,7 +26,7 @@ func seedOption(t *testing.T, seed map[string]*bundles.Bundle) config.BundleLoad
 	for name, b := range seed {
 		data, err := yaml.Marshal(b)
 		require.NoError(t, err)
-		require.NoError(t, afero.WriteFile(fsys, "/seed/"+name+".yaml", data, 0o644))
+		testsupport.WriteFile(t, fsys, "/seed/"+name+".yaml", data, 0o644)
 	}
 	return config.WithExtraBundleReaders(bundles.NewProjectReader(fsys, []string{"/seed"}))
 }

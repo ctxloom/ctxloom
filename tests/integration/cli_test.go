@@ -93,10 +93,13 @@ func TestVersion(t *testing.T) {
 	_ = env.Run("version")
 
 	assert.Equal(t, 0, env.LastExitCode())
-	// Version outputs version string like "v0.0.12-abc123" or "dev" in CI
+	// The binary under test is stamped by the task runner. There is no
+	// unstamped alternative to accept: internal/version.Version has no default
+	// and an unstamped binary refuses to start, so a run that got this far is
+	// stamped by construction.
 	output := strings.TrimSpace(env.LastOutput())
-	assert.True(t, output == "dev" || regexp.MustCompile(`v\d+\.\d+\.\d+`).MatchString(output),
-		"Expected version to be 'dev' or match semver pattern, got: %s", output)
+	assert.Regexp(t, regexp.MustCompile(`v\d+\.\d+\.\d+`), output,
+		"Expected the reported version to match the semver pattern, got: %s", output)
 }
 
 // =============================================================================

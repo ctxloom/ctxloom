@@ -650,13 +650,14 @@ func lastOutputJSONArray(w *World, path string) ([]any, error) {
 }
 
 // versionStampRE is the shape a ctxloom version string can legitimately take:
-// the ldflags-stamped family stamp (`v<maj.min.patch>[-<sha>-<utc>]`), or the
-// literal "dev" an unstamped `go build` leaves in internal/version.Version. Any
-// other text — notably a rendering that forgot to print the version at all —
-// is refused. A looser pattern is worthless here: `matches "."` accepts one
-// arbitrary character, which the literal "MUTATION-not-the-version" satisfies
-// as happily as the truth does.
-var versionStampRE = regexp.MustCompile(`^(dev|v?[0-9]+\.[0-9]+\.[0-9]+\S*)$`)
+// the ldflags-stamped family stamp, `v<maj.min.patch>[-<sha>-<utc>]`. There is
+// no unstamped alternative to allow: a binary with no stamp refuses to start
+// (internal/version.Version has no default), so this suite can only ever be
+// driving a stamped one. Any other text — notably a rendering that forgot to
+// print the version at all — is refused. A looser pattern is worthless here:
+// `matches "."` accepts one arbitrary character, which the literal
+// "MUTATION-not-the-version" satisfies as happily as the truth does.
+var versionStampRE = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+\S*$`)
 
 func registerVersionSteps(ctx *godog.ScenarioContext) {
 	// One step, three surfaces. The version is not knowable to this test

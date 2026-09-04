@@ -11,39 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// setRootKey sets a single top-level key. The document root always exists, so
-// unlike setServer in confpatch_test.go this needs no cur.Root().Member check
-// for an absent parent container.
-func setRootKey(key string, val any) Build {
-	return func(doc *hew.Doc, cur hew.Document) (int, error) {
-		p, err := hew.ParsePathIn(doc.Format(), "/"+key)
-		if err != nil {
-			return 0, err
-		}
-		doc.AtPath(p).Set(val)
-		return 1, nil
-	}
-}
-
-// setRootKeys batches setting TWO top-level keys against one Doc, in one
-// Apply -- the exact shape reported broken: two brand-new sibling keys added
-// to an empty object in a single batch.
-func setRootKeys(key1 string, val1 any, key2 string, val2 any) Build {
-	return func(doc *hew.Doc, cur hew.Document) (int, error) {
-		p1, err := hew.ParsePathIn(doc.Format(), "/"+key1)
-		if err != nil {
-			return 0, err
-		}
-		doc.AtPath(p1).Set(val1)
-		p2, err := hew.ParsePathIn(doc.Format(), "/"+key2)
-		if err != nil {
-			return 0, err
-		}
-		doc.AtPath(p2).Set(val2)
-		return 2, nil
-	}
-}
-
 // setPath sets a value at an arbitrary path whose parent already exists in
 // the fixture being applied against.
 func setPath(path string, val any) Build {
@@ -76,89 +43,8 @@ func surgicalSet(t *testing.T, fs afero.Fs, target, path string, val any) {
 	require.NoError(t, afero.WriteFile(fs, target, after, 0o644))
 }
 
-// --- Defect 1: batched sibling adds emit invalid JSON (taskloom moonlit-sprawl) ---
-//
-// Reported: adding exactly TWO brand-new sibling keys to an empty object {}
-// in one batch dropped the separating comma, producing
-// {"hooks":{...} "statusLine":{...}} -- invalid JSON. Narrowed empirically:
-// one key into {} is fine; two new keys alongside existing keys is fine;
-// exactly two-new-into-{} is broken. All three shapes are asserted here so
-// the test says which shapes work, not merely that one does.
-
-func TestDefect1_OneNewKeyIntoEmptyObject(t *testing.T) {
-	s, fs := newStore(t)
-	const target = "/proj/one.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte("{}"), 0o644))
-
-	res, err := s.Apply(fs, target, setRootKey("hooks", map[string]any{
-		"PreToolUse": []any{"x"},
-	}))
-	require.NoError(t, err)
-	t.Logf("after: %s", res.After)
-
-	require.True(t, json.Valid(res.After), "one key into {} must be valid JSON; got: %s", res.After)
-	var doc map[string]any
-	require.NoError(t, json.Unmarshal(res.After, &doc))
-	assert.Contains(t, doc, "hooks")
-}
-
-func TestDefect1_TwoNewKeysAlongsideExistingKey(t *testing.T) {
-	s, fs := newStore(t)
-	const target = "/proj/two_existing.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(`{"existing":"keep-me"}`), 0o644))
-
-	res, err := s.Apply(fs, target, setRootKeys(
-		"hooks", map[string]any{"PreToolUse": []any{"x"}},
-		"statusLine", map[string]any{"type": "command", "command": "echo hi"},
-	))
-	require.NoError(t, err)
-	t.Logf("after: %s", res.After)
-
-	require.True(t, json.Valid(res.After), "two new keys alongside an existing key must be valid JSON; got: %s", res.After)
-	var doc map[string]any
-	require.NoError(t, json.Unmarshal(res.After, &doc))
-	assert.Contains(t, doc, "hooks")
-	assert.Contains(t, doc, "statusLine")
-	assert.Equal(t, "keep-me", doc["existing"], "the pre-existing sibling must survive untouched")
-}
-
-func TestDefect1_TwoNewKeysIntoEmptyObject(t *testing.T) {
-	s, fs := newStore(t)
-	const target = "/proj/two_empty.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte("{}"), 0o644))
-
-	res, err := s.Apply(fs, target, setRootKeys(
-		"hooks", map[string]any{"PreToolUse": []any{"x"}},
-		"statusLine", map[string]any{"type": "command", "command": "echo hi"},
-	))
-	// Log unconditionally, BEFORE any assertion that might FailNow: res.After
-	// and res.Restored are populated by confpatch's closure before it returns
-	// an error, so the invalid/corrupted bytes are the evidence even when
-	// Apply itself errors.
-	t.Logf("err: %v", err)
-	t.Logf("after: %s", res.After)
-	require.NoError(t, err, "Apply itself must not error")
-
-	require.True(t, json.Valid(res.After),
-		"batching two brand-new siblings into {} must emit valid JSON, not drop the separating comma; got: %s", res.After)
-
-	var doc map[string]any
-	require.NoError(t, json.Unmarshal(res.After, &doc), "must parse as JSON; got: %s", res.After)
-	require.Contains(t, doc, "hooks")
-	require.Contains(t, doc, "statusLine")
-
-	hooks, ok := doc["hooks"].(map[string]any)
-	require.True(t, ok, "hooks must be an object")
-	assert.Contains(t, hooks, "PreToolUse")
-
-	sl, ok := doc["statusLine"].(map[string]any)
-	require.True(t, ok, "statusLine must be an object")
-	assert.Equal(t, "command", sl["type"])
-	assert.Equal(t, "echo hi", sl["command"])
-}
-
-// --- Defect 2: reversal is context-sensitive across disjoint paths, and
-// corrupts (taskloom moonlit-sprawl) ---
+// Defect 2 from taskloom moonlit-sprawl: reversal is context-sensitive
+// across disjoint paths, and corrupts.
 //
 // Reported: seed settings.json with a hooks entry; apply a hooks change
 // through confpatch; insert a /statusLine sibling with a plain surgical hew
@@ -172,22 +58,23 @@ func TestDefect1_TwoNewKeysIntoEmptyObject(t *testing.T) {
 // err == nil: this defect produces corrupted bytes silently, not a refusal,
 // so a bare error check would pass against the broken library and prove
 // nothing.
-
-type hookEntryFixture struct {
-	Type    string `json:"type"`
-	Command string `json:"command"`
-}
-
-type hookMatcherFixture struct {
-	Matcher string             `json:"matcher"`
-	Hooks   []hookEntryFixture `json:"hooks"`
-}
-
-type settingsFixture struct {
-	Hooks      map[string][]hookMatcherFixture `json:"hooks"`
-	StatusLine map[string]any                  `json:"statusLine"`
-}
-
+//
+// STILL RED at github.com/benjaminabbitt/hew/go
+// v0.1.1-0.20260904151914-916fbee740f4 -- the "reparse before each
+// transform" upstream fix (feat/sequential-resolution) fixed the sibling
+// taskloom moonlit-sprawl's other defect (batched two-new-siblings-into-{}
+// dropping a separator) but NOT this one: the restored document still
+// carries the un-reversed prior entry plus two duplicate entries wrapped in
+// spurious nested arrays, byte-for-byte the same corruption as on the
+// previous pin. Do not delete this test on a green run alone -- it is red on
+// both pins tried so far. Keep it until it goes green against a pin that
+// actually fixes it.
+//
+// A companion defect (batched sibling adds emit invalid JSON) was
+// reproduced alongside this one and went GREEN on the pin above; that test
+// was removed once confirmed passing, since it exercised hew's own fixed
+// behaviour rather than ctxloom's, and hew's own branch already carries
+// test(sequential-resolution) and test(corpus) coverage for it.
 func TestDefect2_ReversalCorruptedByDisjointSiblingWrite(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/settings.json"
@@ -262,4 +149,19 @@ func TestDefect2_ReversalCorruptedByDisjointSiblingWrite(t *testing.T) {
 	assert.Equal(t, "echo second", afterDoc.Hooks["PreToolUse"][0].Hooks[0].Command)
 	require.NotNil(t, afterDoc.StatusLine, "the independent writer's statusLine must survive")
 	assert.Equal(t, "echo status", afterDoc.StatusLine["command"])
+}
+
+type hookEntryFixture struct {
+	Type    string `json:"type"`
+	Command string `json:"command"`
+}
+
+type hookMatcherFixture struct {
+	Matcher string             `json:"matcher"`
+	Hooks   []hookEntryFixture `json:"hooks"`
+}
+
+type settingsFixture struct {
+	Hooks      map[string][]hookMatcherFixture `json:"hooks"`
+	StatusLine map[string]any                  `json:"statusLine"`
 }

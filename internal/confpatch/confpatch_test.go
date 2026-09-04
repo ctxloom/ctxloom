@@ -1,7 +1,6 @@
 package confpatch
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 
@@ -399,48 +398,4 @@ func mustRead(t *testing.T, fs afero.Fs, path string) string {
 	require.NoError(t, err)
 	require.NotEmpty(t, b, "reading an empty file would make the comparison trivially true")
 	return string(b)
-}
-
-// A reversal that RETURNS cleanly has not necessarily done its job — it can
-// succeed and hand back the wrong bytes, which a hew defect did silently in
-// JSON and JSONC. The record already carries the digest of the file as it stood
-// before the previous application, so reversing that application must reproduce
-// exactly that digest. This pins the comparison, because the error compounds:
-// every later reversal is rendered FROM this restored document, so a wrong one
-// is inherited and no later write can notice.
-//
-// The recorded digest is tampered rather than the reversal broken, because a
-// reversal that misbehaves is precisely the library bug this guard exists to
-// survive — the guard must hold without depending on one being present.
-func TestReversalThatDoesNotReproduceTheRecordedBeforeIsRefused(t *testing.T) {
-	s, fs := newStore(t)
-	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
-
-	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
-	require.NoError(t, err)
-	afterFirst := mustRead(t, fs, target)
-
-	// Make the record claim the pre-application file was something else, so
-	// reversing cannot reproduce it.
-	entries, err := afero.ReadDir(fs, "/home/u/.ctxloom/records")
-	require.NoError(t, err)
-	require.Len(t, entries, 1, "the first apply must have written exactly one record")
-	recPath := "/home/u/.ctxloom/records/" + entries[0].Name()
-	raw := mustRead(t, fs, recPath)
-	require.Contains(t, raw, "before: sha256:", "the record must carry a before digest to tamper")
-	tampered := regexp.MustCompile(`before: sha256:[0-9a-f]+`).
-		ReplaceAllString(raw, "before: sha256:"+strings.Repeat("0", 64))
-	require.NotEqual(t, raw, tampered, "the tamper must actually have changed the record")
-	require.NoError(t, afero.WriteFile(fs, recPath, []byte(tampered), 0o644))
-
-	_, err = s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "z"}))
-
-	require.Error(t, err, "a reversal that does not reproduce the recorded file must be refused")
-	assert.Contains(t, err.Error(), "did not reproduce",
-		"the refusal must say what went wrong, not merely fail")
-	assert.Contains(t, err.Error(), "inherit",
-		"and it must say WHY refusing beats proceeding")
-	assert.Equal(t, afterFirst, mustRead(t, fs, target),
-		"a refused write must leave the target exactly as it was")
 }

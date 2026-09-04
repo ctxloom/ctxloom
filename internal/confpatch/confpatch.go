@@ -28,6 +28,7 @@
 package confpatch
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -166,25 +167,6 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build) (Result, er
 			if err != nil {
 				return fmt.Errorf("confpatch: %s has drifted since ctxloom last wrote it, so the previous application could not be reversed; refusing to write rather than clobber the change: %w", target, err)
 			}
-			// A reversal that RETURNS cleanly has still not necessarily done its
-			// job: it can succeed and hand back the wrong bytes. That is not
-			// hypothetical — a hew defect corrupted a reversal silently in JSON
-			// and JSONC, the two formats written here, while yaml and toml at
-			// least failed loudly.
-			//
-			// It compounds, which is why this is checked rather than trusted:
-			// the next reversal is rendered FROM this restored document, so a
-			// wrong one is inherited by every later write and no later write can
-			// notice. The record already carries the digest of the file as it
-			// stood before the previous application, so reversing that
-			// application must reproduce exactly that digest.
-			if want := recordedBefore(prev, target); want != "" {
-				if got := sha256Digest(restored); got != want {
-					return fmt.Errorf("confpatch: reversing ctxloom's previous write to %s did not reproduce the file that write recorded (recorded %s, reversal produced %s); "+
-						"refusing to write, because every later reversal is derived from this one and would inherit the error. "+
-						"Restore %s from version control or delete ctxloom's record for it and re-apply", target, want, got, target)
-				}
-			}
 			res.Reversed = true
 		}
 		res.Restored = restored
@@ -234,6 +216,49 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build) (Result, er
 		if err != nil {
 			return err
 		}
+
+		// PROVE THE REVERSAL BEFORE STORING IT. A reversal is only worth
+		// keeping if it actually reverses, and that is checkable here and
+		// nowhere else: both images are in hand, in memory, this instant.
+		//
+		// It is checked rather than trusted because a reversal can SUCCEED and
+		// still hand back the wrong bytes — a hew defect did exactly that, and
+		// silently, in the two formats written here. And it compounds: the next
+		// write renders ITS reversal from the document this one restores, so a
+		// bad reversal is inherited by every later write and no later write can
+		// notice.
+		//
+		// Deliberately NOT a digest compared against a previous invocation. The
+		// question is whether THIS reversal round-trips, which is a property of
+		// the pair being written now — not whether the file changed since last
+		// time, which is a legitimate thing for a user's file to do.
+		// Only when the file already EXISTED. Creating one from nothing has no
+		// document to restore to — a reversal takes ctxloom's entries back out,
+		// it cannot express "make this file not exist" — so the round trip
+		// legitimately cannot hold there and is not evidence of anything.
+		if existed && !bytes.Equal(after, restored) {
+			roundTripped, rtErr := applyPatchText(binding, after, reversal, target)
+			if rtErr != nil {
+				return fmt.Errorf("confpatch: the reversal computed for %s does not apply to the document it was derived from, so ctxloom could not take its own entries back out later; refusing to write: %w", target, rtErr)
+			}
+			if !bytes.Equal(roundTripped, restored) {
+				// BYTE-EXACT ON PURPOSE. The likeliest way to reach this is not
+				// corruption but REORDERING: hew's emitters write a map's keys
+				// sorted, so a Set on a container the document spelled in another
+				// order permutes it, and the reversal brings the content back
+				// without the position. That failure is LEGITIMATE and must
+				// refuse — the file is the user's, and returning their keys in
+				// an order they did not write is not restoring it.
+				//
+				// Do NOT relax this to a parsed or semantic comparison to make
+				// reordering pass. A parsed comparison cannot see order at all,
+				// so it would accept exactly the case this exists to catch, and
+				// the permutation would then be inherited by every later
+				// reversal rendered from this document.
+				return fmt.Errorf("confpatch: the reversal computed for %s applies but does not restore the document it was derived from byte for byte, so ctxloom's entries could not be taken back out cleanly; refusing to write rather than store an undo that does not undo (a likely cause is member ORDER changing rather than content)", target)
+			}
+		}
+
 		recordPath, err := s.write(target, format, want, restored, after, reversal)
 		if err != nil {
 			return err
@@ -327,17 +352,4 @@ func writeTarget(fs afero.Fs, target string, out []byte) error {
 		return fmt.Errorf("confpatch: write %s: %w", target, err)
 	}
 	return nil
-}
-
-// recordedBefore reports the digest a record holds for target's pre-application
-// bytes, or "" when the record does not describe that target. Empty means "no
-// claim to check against" and is not treated as a mismatch: an older record
-// written before this field was relied on must not make a write impossible.
-func recordedBefore(rec Record, target string) string {
-	for _, t := range rec.Targets {
-		if t.Target == target {
-			return t.Before
-		}
-	}
-	return ""
 }

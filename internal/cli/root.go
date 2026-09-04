@@ -137,6 +137,12 @@ func rootPersistentPostRunE(cmd *cobra.Command, args []string) error {
 
 func rootPersistentPreRunE(cmd *cobra.Command, args []string) error {
 	rootPersistentPreRun(cmd, args)
+	// Refuse a binary that cannot name its own build. Placed after
+	// rootPersistentPreRun because that is where --degraded is applied, and
+	// this finding's fatality is decided by that mode.
+	if err := refuseUnstampedBuild(cmd); err != nil {
+		return err
+	}
 	// Refuse an unsupported machine format HERE, before RunE runs. Returning
 	// an error from PersistentPreRunE stops cobra before dispatch, which is
 	// the whole point: the post-run guard could only report the failure after
@@ -200,6 +206,22 @@ func rootCommand() *cobra.Command {
 	rootAssembly.Do(func() {
 		installHelpFlag(rootCmd)
 		disableHelpCommand(rootCmd)
+
+		// version.Version is read HERE and not in init() because a TEST binary
+		// receives its stamp from TestMain (testsupport.StampTestBinary), which
+		// runs after every package init() has already fired. First assembly is
+		// the earliest point that observes the real value under both a stamped
+		// build and a test binary, so these two consumers cannot read "" in
+		// tests while the gate that guards them reads a stamp.
+
+		// Enables the --version flag.
+		rootCmd.Version = version.Version
+
+		// The isolation layer bakes this stamp into agent images (ctxloom.version
+		// label) and compares it against present images to rebuild stale ones.
+		// isolation could import internal/version directly (it's a leaf), but
+		// this stays a Set* push for now rather than churning that wiring too.
+		isolation.SetBinaryVersion(version.Version)
 	})
 	resetHelpFlag(rootCmd)
 	return rootCmd
@@ -245,9 +267,6 @@ func exitCodeFor(err error) (int, bool) {
 }
 
 func init() {
-	// Enable --version flag
-	rootCmd.Version = version.Version
-
 	// The fail-loudly escape hatch, on every command (startup chokes gate on
 	// it; management commands simply ignore it). Env fallback: CTXLOOM_DEGRADED=1.
 	rootCmd.PersistentFlags().BoolVar(&degradedFlag, "degraded", false,
@@ -259,12 +278,6 @@ func init() {
 	// Env fallback: CTXLOOM_NO_COMPANIONS=1.
 	rootCmd.PersistentFlags().BoolVar(&noCompanionsFlag, "no-companions", false,
 		"skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context")
-
-	// The isolation layer bakes this stamp into agent images (ctxloom.version
-	// label) and compares it against present images to rebuild stale ones.
-	// isolation could import internal/version directly (it's a leaf), but
-	// this stays a Set* push for now rather than churning that wiring too.
-	isolation.SetBinaryVersion(version.Version)
 
 	// --config-set is the ONLY source of CLI-layer config overrides (see
 	// confload.ConfigSetFlagName's doc): a dedicated, repeatable, PERSISTENT flag

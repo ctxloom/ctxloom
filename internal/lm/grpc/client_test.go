@@ -471,22 +471,22 @@ func TestLLMRunnerKill_NilReceiverFromFailedSpawn_NoPanic(t *testing.T) {
 	assert.NotPanics(t, func() { client.Kill() }, "Kill on a never-started runner must be a safe no-op, not a panic that masks the spawn's own error")
 }
 
-// TestCheckDaemonVersion pins the unstamped-build safety valve directly:
-// "" and "dev" on either side are "cannot verify", never a refusal — a bare
-// `go build` (bypassing the task runner's ldflags stamp) must not brick
-// every daemon dial for local iteration.
+// TestCheckDaemonVersion pins the skew check now that the unstamped exemption
+// is gone. A ctxloom that cannot name its own build is refused at startup, so
+// "cannot verify" is no longer a state this check has to tolerate: anything
+// that is not this client's exact stamp is a stale or unidentifiable daemon
+// and must be refused. The unstamped cases are asserted as REFUSALS, because
+// they were the exemption, and an exemption that quietly came back would
+// otherwise leave the whole gate passing while comparing nothing.
 func TestCheckDaemonVersion(t *testing.T) {
 	orig := version.Version
 	t.Cleanup(func() { version.Version = orig })
 
-	version.Version = "v1.0.0"
-	assert.NoError(t, checkDaemonVersion("v1.0.0"), "identical stamps must pass")
-	assert.Error(t, checkDaemonVersion("v0.9.0"), "a different stamp must be refused")
-	assert.NoError(t, checkDaemonVersion(""), "an unstamped daemon (predates this field) cannot be verified, so it passes")
-	assert.NoError(t, checkDaemonVersion("dev"), "a bare-`go build` daemon cannot be verified either")
-
-	version.Version = "dev"
-	assert.NoError(t, checkDaemonVersion("v9.9.9"), "an unstamped CLIENT cannot verify a daemon either, regardless of the daemon's own stamp")
+	version.Version = "v1.0.0-abcdef0-20260101T000000"
+	assert.NoError(t, checkDaemonVersion(version.Version), "identical stamps must pass")
+	assert.Error(t, checkDaemonVersion("v0.9.0-abcdef0-20260101T000000"), "a different stamp must be refused")
+	assert.Error(t, checkDaemonVersion(""), "a daemon reporting no stamp has no establishable identity and must be refused")
+	assert.Error(t, checkDaemonVersion("dev"), "the retired sentinel is just another mismatch now, not an exemption")
 }
 
 // TestNewContainerClient_ThreadsRunnerFuncAndSocketDir characterizes the whole

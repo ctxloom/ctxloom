@@ -435,25 +435,26 @@ func runnerFromConn(conn llmConnection) (*LLMRunner, error) {
 	}, nil
 }
 
-// checkDaemonVersion refuses daemonVersion when it names a ctxloom build
-// other than this process's own (version.Version) — see runnerFromConn's
-// doc for the daemon-staleness defect this closes. Either side reporting no
-// usable stamp — "" or "dev" (a bare `go build` bypassing the task runner's
-// ldflags stamp) — has nothing to compare, so that is "cannot verify" and
-// passes: refusing every unstamped dev build would break local iteration
-// outright, and the whole point is to catch a REAL mismatch, not to demand
-// a stamp exists.
+// checkDaemonVersion refuses daemonVersion when it does not name this
+// process's own ctxloom build (version.Version) — see runnerFromConn's doc for
+// the daemon-staleness defect this closes.
+//
+// There is no unstamped exemption, and that is the whole design. A ctxloom
+// that cannot name its own build does not run at all: the stamp is required at
+// startup (internal/cli's stamp gate, on internal/version.ValidStamp), so a
+// client reaching this call is always stamped, and a daemon answering without
+// one is not "an old build we cannot verify" — it is a process whose identity
+// cannot be established, which is precisely what this check exists to refuse.
+// A comparison that declines to compare is the failure mode, not the safe
+// default: it is how a plugin from an earlier install kept answering.
 func checkDaemonVersion(daemonVersion string) error {
-	if version.Version == "" || version.Version == "dev" || daemonVersion == "" || daemonVersion == "dev" {
+	if daemonVersion == version.Version {
 		return nil
 	}
-	if daemonVersion != version.Version {
-		return fmt.Errorf(
-			"llm serve: stale daemon — it reports ctxloom %s, this client is %s; a plugin process from an earlier install is still answering instead of the current binary. Refusing to run against compiled-in behavior that predates this install: stop the stale `ctxloom llm serve`/`llm host` process (or let it exit) and retry",
-			daemonVersion, version.Version,
-		)
-	}
-	return nil
+	return fmt.Errorf(
+		"llm serve: stale daemon — it reports ctxloom %q, this client is %q; a plugin process from an earlier install is still answering instead of the current binary. Refusing to run against compiled-in behavior that predates this install: stop the stale `ctxloom llm serve`/`llm host` process (or let it exit) and retry",
+		daemonVersion, version.Version,
+	)
 }
 
 // NewContainerClient creates a plugin client whose backend server runs INSIDE a

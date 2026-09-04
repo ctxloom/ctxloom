@@ -2,11 +2,6 @@ package version
 
 import "regexp"
 
-// Dev is the unstamped value Version carries when no ldflags were applied --
-// a plain `go build`, `go test`, or `go run`. It is legitimate, and distinct
-// from a stamp that was ATTEMPTED and came out malformed.
-const Dev = "dev"
-
 // stampShape is the documented stamp:
 //
 //	v<major>.<minor>.<patch>-<short-sha>-<YYYYMMDDTHHMMSS>[-dirty]
@@ -23,13 +18,16 @@ const Dev = "dev"
 // agents are told to work -- that mechanism silently returned nothing.
 var stampShape = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+-[0-9a-f]+-[0-9]{8}T[0-9]{6}(-dirty)?$`)
 
-// ValidStamp reports whether s is a usable version stamp: either the unstamped
-// Dev sentinel, or a complete stamp with every field present.
+// ValidStamp reports whether s is a usable version stamp: a COMPLETE stamp,
+// every field present. Nothing else qualifies -- there is no unstamped
+// sentinel, because a binary that cannot name its own build is refused rather
+// than tolerated (see Version).
 //
-// It exists so the build can REFUSE a malformed stamp rather than ship one.
-// The shape lives here, in the package that owns Version, so the build-time
-// gate and any test assert against one authority rather than two regexes that
-// will eventually disagree.
+// It is the one authority on the shape, read by both gates that enforce it:
+// cmd/validate refuses to bake a malformed stamp into a binary, and internal/cli's
+// root gate refuses to RUN a binary that did not get one. The shape lives here,
+// in the package that owns Version, so those two assert against one authority
+// rather than two regexes that will eventually disagree.
 func ValidStamp(s string) bool {
-	return s == Dev || stampShape.MatchString(s)
+	return stampShape.MatchString(s)
 }

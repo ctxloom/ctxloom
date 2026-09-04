@@ -69,6 +69,13 @@ func SandboxedMain(m *testing.M) int {
 		defer cleanup()
 	}
 
+	// A `go test` binary gets no ldflags, so internal/version.Version is empty
+	// and every ctxloom command this binary drives would refuse to start over
+	// its missing stamp. Stamp it here, in the one seam that runs whether a
+	// test opts in or not, for the same reason the sandbox is installed here:
+	// a per-test helper cannot cover the tests that forget to call it.
+	StampTestBinary()
+
 	if err := AppDirIsolationError(); err != nil {
 		fmt.Fprintf(os.Stderr, "test sandbox: REFUSING TO RUN TESTS — %v\n"+
 			"These tests drive code that resolves ctxloom's app directory; running them "+

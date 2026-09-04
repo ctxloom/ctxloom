@@ -155,6 +155,38 @@ func TestResolveLLM(t *testing.T) {
 	assert.Empty(t, model)
 }
 
+// A bare (empty-string) label must honour the project's configured primary —
+// it is what a caller like `container check`/`container build` passes when
+// invoked with no backend named, and unsent-refinish ruled that a bare
+// invocation must resolve to llm.defaults.primary rather than silently
+// falling through to the built-in default backend.
+func TestResolveLLM_EmptyLabelHonoursPrimary(t *testing.T) {
+	cfg := &Config{lm: LMConfig{
+		Configs: map[string]LLMConfig{
+			"mock": {Type: "mock", Body: map[string]interface{}{"model": "test-model"}},
+		},
+		Defaults: RoleDefaults{Primary: "mock"},
+	}}
+
+	backend, model := cfg.ResolveLLM("")
+	assert.Equal(t, "mock", backend, "empty label must resolve through cfg.PrimaryLabel(), not a raw map miss")
+	assert.Equal(t, "test-model", model)
+}
+
+// With no primary resolvable (no defaults.primary and not exactly one
+// configured label), an empty label must still degrade to the built-in
+// default backend rather than crash or loop.
+func TestResolveLLM_EmptyLabelNoDefaultDegradesToBuiltin(t *testing.T) {
+	cfg := &Config{lm: LMConfig{Configs: map[string]LLMConfig{
+		"a": {Type: "mock"},
+		"b": {Type: "claude-code"},
+	}}}
+
+	backend, model := cfg.ResolveLLM("")
+	assert.Equal(t, "claude-code", backend, "no resolvable primary: empty label degrades to the built-in default backend")
+	assert.Empty(t, model)
+}
+
 // =============================================================================
 // Profile Resolution Tests
 // =============================================================================

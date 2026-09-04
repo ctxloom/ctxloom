@@ -926,7 +926,19 @@ func (c *Config) FastLabel() string {
 // type and model it specifies. A missing label or empty type degrades to the
 // built-in default backend with no model (backend default). The model is read
 // only from the entry's own body — never by branching on the backend name.
+//
+// An empty label means "no label was named" (a bare invocation, e.g.
+// `container check` with no backend argument) and is resolved through
+// PrimaryLabel() rather than looked up directly — c.lm.Configs[""] is never a
+// real entry, so without this a bare invocation silently fell through to the
+// built-in default backend instead of the project's configured primary
+// (unsent-refinish). This is a single substitution, not a loop: PrimaryLabel()
+// itself may also return "" (no defaults.primary and not exactly one
+// configured label), in which case the lookup below simply misses as before.
 func (c *Config) ResolveLLM(label string) (backend, model string) {
+	if label == "" {
+		label = c.PrimaryLabel()
+	}
 	entry, ok := c.lm.Configs[label]
 	if !ok {
 		return DefaultLLM, ""

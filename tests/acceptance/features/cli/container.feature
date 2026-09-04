@@ -125,27 +125,20 @@ Feature: container — the images isolated agents run in, and the questions you 
     # named no engine at all would describe nothing while still looking like a
     # report.
     #
-    # KNOWN UNRESOLVED (dragging-neatness, escalated 2026-09-04): with no
-    # argument, `container check`/`container build` resolve through
-    # operations.ResolveBackend(cfg, "") -> Config.ResolveLLM(""), a raw
-    # `c.lm.Configs[""]` lookup that never consults cfg.PrimaryLabel() /
-    # llm.defaults.primary — VERIFIED: a project config setting both
-    # llm.configs.mock and llm.defaults.primary: mock still resolved
-    # "claude-code" here. So this scenario's resolved default cannot be
-    # redirected to the network-free mock subject by any config this suite
-    # may set, and this Rule's Background cannot make its shared_fs "ok"
-    # without either building a VENDOR image (claude-code; ruled out for
-    # this file's time budget) or changing that resolution behavior, a
-    # production change outside this fix's scope. Left asserting "ok" and
-    # RED rather than loosened — see this file's own header on why a
-    # regex loosened to accept "unprobed" is the one fix ruled out.
+    # unsent-refinish, ruled 2026-09-04: a bare invocation resolves through
+    # cfg.PrimaryLabel() (Config.ResolveLLM's empty-label case), so setting
+    # llm.defaults.primary: mock here redirects the resolved default to the
+    # image this Rule's Background already builds, and shared_fs can genuinely
+    # earn "ok" without a vendor build.
     Scenario Outline: With no backend named, the check reports on the project's default
       Given an initialized ctxloom project
+      And the mock LLM responds "MOCK-REPLY-NEVER-SENT-CONTAINER-CHECK-ONLY-PROBES"
       When I run "ctxloom container check <flags>"
       Then the command succeeds
       And the output reports "image" matching "<names the backend it resolved>"
       And the output does not contain "(unresolved)"
       And the output reports "shared_fs" matching "<reports the shared fs>"
+      And the output does not contain "MOCK-REPLY-NEVER-SENT-CONTAINER-CHECK-ONLY-PROBES"
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | names the backend it resolved  | reports the shared fs |

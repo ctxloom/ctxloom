@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -223,4 +224,99 @@ func TestSweep_RefusesInvalidHarp(t *testing.T) {
 	hostHome(t)
 	_, err := Sweep(NewHomeMapper(), "../escape", DirIn)
 	require.Error(t, err)
+}
+
+// TestSweepNames_OrdersAndReportsBadNamesLikeSweep pins that SweepNames
+// agrees with Sweep on everything readdir alone can decide: filename order,
+// sub-directories skipped as structure, and a name outside the message-file
+// grammar reported as a Problem rather than silently dropped. If SweepNames
+// swept the wrong set, or in the wrong order, or dropped a bad name instead
+// of reporting it, this must fail even though nothing here reads a body.
+func TestSweepNames_OrdersAndReportsBadNamesLikeSweep(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	require.NoError(t, err)
+
+	var refs []Ref
+	for i := range 5 {
+		ref, err := w.Write(&Message{Kind: "message", Body: string(rune('a'+i)) + "\n"})
+		require.NoError(t, err)
+		refs = append(refs, ref)
+	}
+
+	inDir, err := DirPath(m, testHarp, DirIn)
+	require.NoError(t, err)
+	junk := map[string]string{
+		"not-a-message-name.md": "irrelevant\n",
+		"README.txt":            "notes\n",
+	}
+	for name, body := range junk {
+		require.NoError(t, os.WriteFile(filepath.Join(inDir, name), []byte(body), 0o600))
+	}
+
+	swept, err := Sweep(m, testHarp, DirIn)
+	require.NoError(t, err)
+	named, err := SweepNames(m, testHarp, DirIn)
+	require.NoError(t, err)
+
+	require.Len(t, named.Entries, len(refs))
+	require.Equal(t, len(swept.Entries), len(named.Entries), "SweepNames must find the same SET Sweep does")
+	for i, entry := range named.Entries {
+		require.Equal(t, refs[i].Name, entry.Ref.Name, "entry %d out of order", i)
+		require.Equal(t, swept.Entries[i].Ref.Name, entry.Ref.Name, "SweepNames and Sweep must agree on order")
+		require.Nil(t, entry.Message, "SweepNames must never read a body")
+	}
+
+	require.Len(t, named.Problems, len(junk), "a bad filename must still be reported, not skipped")
+	reported := map[string]bool{}
+	for _, p := range named.Problems {
+		require.Error(t, p.Err)
+		reported[filepath.Base(p.Path)] = true
+	}
+	for name := range junk {
+		require.True(t, reported[name], "SweepNames silently dropped %q", name)
+	}
+}
+
+// TestSweepNames_CreditsAnEntryWithAnUnreadableBody is the divergence
+// SweepNames is FOR: a validly-named file whose body Sweep could not parse
+// is still reported as an Entry, because a names-only sweep never opens the
+// file to find out. This is the proof the redundant read-and-parse is gone,
+// not merely slow: if SweepNames still called os.ReadFile/Parse under the
+// hood, this fixture would come back as a Problem, exactly as it does from
+// Sweep itself.
+func TestSweepNames_CreditsAnEntryWithAnUnreadableBody(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	consumedDir, err := DirPath(m, testHarp, DirInConsumed)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(consumedDir, 0o700))
+	name := "00000000000000000042.00000001.coord.md"
+	require.NoError(t, os.WriteFile(filepath.Join(consumedDir, name), []byte("not frontmatter, not yaml, just garbage\n"), 0o600))
+
+	// Sweep (the read-and-parse contract) treats this as a Problem, never an
+	// Entry -- the baseline SweepNames must diverge from.
+	swept, err := Sweep(m, testHarp, DirInConsumed)
+	require.NoError(t, err)
+	require.Empty(t, swept.Entries, "an unparseable body must not be an Entry under Sweep")
+	require.Len(t, swept.Problems, 1)
+
+	named, err := SweepNames(m, testHarp, DirInConsumed)
+	require.NoError(t, err)
+	require.Empty(t, named.Problems, "a valid NAME with a bad body is not a names-only problem")
+	require.Len(t, named.Entries, 1, "the name existing is the whole signal SweepNames reports")
+	assert.Equal(t, name, named.Entries[0].Ref.Name)
+	assert.Nil(t, named.Entries[0].Message)
+}
+
+// TestSweepNames_MissingDirectoryIsAnError mirrors
+// TestSweep_MissingDirectoryIsAnError: a spool that was never created must
+// say so, not report an empty drain.
+func TestSweepNames_MissingDirectoryIsAnError(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	_, err := SweepNames(m, testHarp, DirIn)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, os.ErrNotExist))
 }

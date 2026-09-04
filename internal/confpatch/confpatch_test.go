@@ -439,3 +439,35 @@ func TestForeignEditDoesNotRefuseAndSurvivesTheWrite(t *testing.T) {
 	assert.Contains(t, got, `"$schema": "https://example.com/mcp.schema.json"`)
 	assert.Contains(t, got, `"headers": {"Authorization": "Bearer abc123"}`)
 }
+
+// The mechanism behind the test above, asserted directly: the stored reversal
+// must make claims about ctxloom's OWN entry and nothing else.
+//
+// Two things ride on the scope. A reversal that asserts a neighbour refuses to
+// apply once the user edits that neighbour, wedging the file; and it copies the
+// user's adjacent content — here a bearer token, in a server ctxloom does not
+// manage — into ctxloom's home-rooted record store.
+func TestTheStoredReversalAssertsOnlyCtxloomsOwnEntry(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+
+	res, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
+	require.NoError(t, err)
+
+	rec, found, err := s.Last(target)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.NotEmpty(t, rec.Reversal, "an empty reversal would satisfy every assertion below trivially")
+	require.NotEmpty(t, res.RecordPath)
+
+	// It names what it undoes...
+	assert.Contains(t, rec.Reversal, "ctxloom", "the reversal must still name the entry it removes")
+	// ...and nothing of the user's.
+	assert.NotContains(t, rec.Reversal, "remote-thing",
+		"the reversal must not assert a server ctxloom never wrote")
+	assert.NotContains(t, rec.Reversal, "Bearer abc123",
+		"ctxloom must not copy the user's adjacent secrets into its own record store")
+	assert.NotContains(t, rec.Reversal, "mcp.example.com",
+		"the reversal must not assert the user's own values")
+}

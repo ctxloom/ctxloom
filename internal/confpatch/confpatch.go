@@ -288,7 +288,7 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build) (Result, er
 // applyPatchText is what proves the record's reversal is usable at the moment
 // it is written rather than years later when it is needed.
 func renderReversal(format hew.FormatID, before, after []byte, target string) ([]byte, error) {
-	tl, err := hew.Invert(format, before, after, hew.DiffOptions{Target: target})
+	tl, err := hew.Invert(format, before, after, inversionOptions(target))
 	if err != nil {
 		return nil, fmt.Errorf("confpatch: derive how to undo the write to %s: %w", target, err)
 	}
@@ -297,6 +297,36 @@ func renderReversal(format hew.FormatID, before, after []byte, target string) ([
 		return nil, fmt.Errorf("confpatch: render the reversal of the write to %s: %w", target, err)
 	}
 	return out, nil
+}
+
+// inversionOptions is how ctxloom inverts an application. Both inversions —
+// the executable reversal and the record's audit statement — take it, so the
+// Context choice below is made once and cannot drift between them.
+//
+// CONTEXT IS THE WHOLE POINT OF THIS FUNCTION. hew's differ defaults to
+// §9.4-R2's sibling radius of 1: every UNCHANGED member adjacent to a changed
+// one is emitted as a `test` assertion alongside the mutation. In a file
+// ctxloom owns that is free strictness. In a file ctxloom does NOT own it is a
+// standing assertion about the USER's content: the reversal for a write to
+// /mcpServers/ctxloom asserted the neighbouring /mcpServers/remote-thing
+// verbatim, headers and all. The user editing that neighbour — their own
+// server, which ctxloom never wrote — then made the reversal itself refuse to
+// apply, and every subsequent write aborted as drift, naming a path ctxloom has
+// no business in. The file stayed wedged until someone deleted the record.
+//
+// ContextNone narrows the window to the CHANGED slots alone. It does not
+// weaken the guard, and that is the load-bearing claim: hew emits a changed
+// slot's own `test` carrying its full before-image regardless of the radius
+// (its differ's window and tests functions are the pair to read), so the
+// reversal still asserts every member ctxloom itself wrote, and a hand edit to
+// one of those still refuses — which is what
+// TestDriftRefusesAndLeavesTheTargetUntouched pins. What the radius drops is
+// exactly the assertions about members ctxloom did not touch.
+//
+// It also stops ctxloom copying the user's adjacent secrets into its own
+// home-rooted record store, which the radius did as a side effect.
+func inversionOptions(target string) hew.DiffOptions {
+	return hew.DiffOptions{Target: target, Context: hew.ContextNone}
 }
 
 // applyPatchText parses stored .hew text and applies it. Parsing at APPLY time,

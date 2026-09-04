@@ -219,7 +219,7 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 // be applied to: the pointers have to name positions in the file as it stands
 // now, not as it stood before the write.
 func inverseOps(b hew.Binding, format hew.FormatID, target string, after, before []byte) ([]hew.ResolvedOp, error) {
-	tl, err := hew.Invert(format, before, after, hew.DiffOptions{Target: target})
+	tl, err := hew.Invert(format, before, after, inversionOptions(target))
 	if err != nil {
 		return nil, fmt.Errorf("confpatch: derive the inverse of the application to %s: %w", target, err)
 	}

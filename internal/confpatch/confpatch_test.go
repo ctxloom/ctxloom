@@ -399,3 +399,43 @@ func mustRead(t *testing.T, fs afero.Fs, path string) string {
 	require.NotEmpty(t, b, "reading an empty file would make the comparison trivially true")
 	return string(b)
 }
+
+// The companion to TestDriftRefusesAndLeavesTheTargetUntouched, and the line
+// between them is the whole point: the refusal exists to protect a user's edit
+// to the region ctxloom MANAGES, and it must not extend one inch past that.
+//
+// A user editing their OWN server — content ctxloom never wrote and has no
+// business in — used to wedge the file permanently: the stored reversal
+// asserted the neighbouring member as CONTEXT (hew's §9.4-R2 sibling radius
+// defaults to 1), so it no longer applied, and every later write refused with
+// a drift error naming /mcpServers/remote-thing — a path ctxloom does not own.
+func TestForeignEditDoesNotRefuseAndSurvivesTheWrite(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+
+	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
+	require.NoError(t, err)
+
+	// The user edits THEIR OWN server, inside a neighbouring entry.
+	const edit = "https://mcp.example.com/v2-EDITED"
+	edited := strings.Replace(mustRead(t, fs, target), "https://mcp.example.com/v1", edit, 1)
+	require.Contains(t, edited, edit, "the fixture must actually have been edited")
+	require.NoError(t, afero.WriteFile(fs, target, []byte(edited), 0o644))
+
+	res, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "z"}))
+	require.NoError(t, err, "an edit to content ctxloom does not own must not refuse the write")
+	assert.True(t, res.Reversed, "the prior application must still have been reversed")
+
+	got := mustRead(t, fs, target)
+	// The user's edit SURVIVED — not merely "the write succeeded".
+	assert.Contains(t, got, edit, "the user's own edit must survive ctxloom's write")
+	assert.NotContains(t, got, "https://mcp.example.com/v1", "the user's edit must not be reverted")
+	// And ctxloom's own write landed, exactly once.
+	assert.Contains(t, got, `"command": "z"`)
+	assert.NotContains(t, got, `"command": "x"`, "the previous ctxloom entry must be gone, not merged over")
+	assert.Equal(t, 1, strings.Count(got, `"ctxloom"`))
+	// The rest of the user's file is untouched.
+	assert.Contains(t, got, `"$schema": "https://example.com/mcp.schema.json"`)
+	assert.Contains(t, got, `"headers": {"Authorization": "Bearer abc123"}`)
+}

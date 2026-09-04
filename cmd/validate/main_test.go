@@ -209,3 +209,18 @@ func TestCheckStamp_SilentWhenUnset(t *testing.T) {
 		t.Fatalf("gate fired with no stamp supplied: %v", err)
 	}
 }
+
+// TestCheckStamp_RefusesTheRetiredDevSentinel pins what makes the task
+// runner's own fallback safe. The version derivation in the justfile falls
+// back to "dev" when versionator cannot be reached; "dev" used to be an
+// accepted value, so that fallback produced a binary silently unable to name
+// its commit. It is refused now, which turns an unreachable versionator into a
+// loud BUILD failure rather than a binary that refuses at startup telling its
+// user to do the thing they just did.
+func TestCheckStamp_RefusesTheRetiredDevSentinel(t *testing.T) {
+	t.Setenv(stampEnv, "dev")
+
+	if err := checkStamp(); err == nil {
+		t.Fatal("build gate accepted \"dev\"; a binary stamped with it cannot name its commit")
+	}
+}

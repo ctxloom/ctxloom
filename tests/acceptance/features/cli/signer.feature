@@ -221,27 +221,27 @@ Feature: signer — whose signature stands in for your review
     it removes entries, and rejects nothing the signer already published — that
     is `ctxloom bundle reject`'s job.
 
-    Its default store is the USER one, which is the OPPOSITE of `signer
-    trust`'s. Stated here as behaviour rather than argued about, because the
-    asymmetry surprises people and a scenario that quietly assumed either
-    default would be reporting on the wrong file.
+    Both verbs default to the PROJECT store, and `--user` is what reaches the
+    per-machine one. The destructive verb must not default to the wider blast
+    radius: a bare untrust that silently wrote the per-machine store is how one
+    machine came to distrust ctxloom's own publishing key with nobody deciding
+    to, withholding every bundle from every project on that machine.
 
     # Removed is the count of lines actually deleted, so 0 and 1 are the whole
     # difference between "I looked in the wrong store" and "I withdrew a grant"
     # — a distinction the success exit code cannot make.
-    Scenario Outline: A bare untrust looks in the user store, so a project trust survives it
+    Scenario Outline: A bare untrust withdraws from the project store, the one trust wrote
       Given an initialized ctxloom project
       And I run "ctxloom signer trust context@acme.example --key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPu3qoOrcLwuHKdsczSsVcMrm+R6iPISwuP1K1/82kLr acceptance-signer' --yes"
       And the file ".ctxloom/allowed_signers" contains "context@acme.example"
-      When I run "ctxloom signer untrust context@acme.example <flags>"
+      # --user reaches the OTHER store, so it must leave the project grant
+      # standing. Asserted BEFORE the removal below: a bare untrust that had
+      # already emptied the store would satisfy any later "it is gone" check.
+      When I run "ctxloom signer untrust context@acme.example --user <flags>"
       Then the command succeeds
       And the output reports "removed" as "<nothing removed>"
-      # The report-side of a destroyer: the thing it did not remove still exists.
       And the file ".ctxloom/allowed_signers" contains "context@acme.example"
-      When Alice withdraws trust from the store she actually wrote to:
-        """
-        ctxloom signer untrust context@acme.example --project <flags>
-        """
+      When I run "ctxloom signer untrust context@acme.example <flags>"
       Then the command succeeds
       And the output reports "removed" as "<one entry gone>"
       And the file ".ctxloom/allowed_signers" does not contain "context@acme.example"

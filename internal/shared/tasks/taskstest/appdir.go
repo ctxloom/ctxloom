@@ -25,7 +25,7 @@ func AppDirIsolationError() error {
 	if err != nil {
 		return fmt.Errorf("cannot resolve the working directory: %w", err)
 	}
-	return appDirIsolationError(home, cwd, os.TempDir())
+	return appDirIsolationError(home, cwd, testTempRoots())
 }
 
 // appDirIsolationError is the pure predicate behind AppDirIsolationError, with
@@ -35,42 +35,55 @@ func AppDirIsolationError() error {
 // It mirrors the two routes config.findAppDir resolves by — deliberately as a
 // STRICTER superset, not a second copy of that function:
 //
-//  1. the home fallback, ~/.ctxloom — so os.UserHomeDir() must be inside
-//     tempRoot;
+//  1. the home fallback, ~/.ctxloom — so os.UserHomeDir() must be inside one
+//     of tempRoots;
 //  2. the walk UP FROM cwd, which findAppDir stops at os.TempDir() — so no
 //     ancestor of cwd, up to that same boundary, may hold a .ctxloom that
-//     lives outside tempRoot.
+//     lives outside every root in tempRoots.
 //
-// Anything findAppDir would resolve is therefore inside tempRoot whenever this
-// returns nil. It never tries to predict WHICH directory findAppDir picks;
-// asserting "not the user's real one" needs only the weaker containment fact,
-// and a predictor would have to be kept in lockstep with findAppDir forever.
-func appDirIsolationError(home, cwd, tempRoot string) error {
-	tempRoot = resolveRealPath(tempRoot)
-
-	if !underRoot(home, tempRoot) {
-		return fmt.Errorf("HOME resolves to %q, outside the temp root %q: the ~/.ctxloom fallback would hit the developer's real home", home, tempRoot)
+// Anything findAppDir would resolve is therefore inside a recognized root
+// whenever this returns nil. It never tries to predict WHICH directory
+// findAppDir picks; asserting "not the user's real one" needs only the weaker
+// containment fact, and a predictor would have to be kept in lockstep with
+// findAppDir forever.
+//
+// tempRoots is a SLICE, not a single root, because home and cwd can be
+// sandboxed under DIFFERENT roots at the same time: a per-test Isolate()
+// mints a fresh HOME via t.TempDir() (which lands under GOTMPDIR when it is
+// set — see testTempRoots), while the working directory is often still
+// wherever the package-level testsupport.SandboxedMain left it, built via
+// os.MkdirTemp("", ...) directly under os.TempDir(). Checking home and cwd
+// against ANY recognized root, independently, is what makes both mechanisms
+// valid at once instead of only whichever one happened to be tried first.
+func appDirIsolationError(home, cwd string, tempRoots []string) error {
+	roots := make([]string, len(tempRoots))
+	for i, r := range tempRoots {
+		roots[i] = resolveRealPath(r)
 	}
-	if esc, err := escapingAppDirAncestor(cwd, tempRoot); err != nil {
+
+	if !underAnyRoot(home, roots) {
+		return fmt.Errorf("HOME resolves to %q, outside every recognized temp root %v: the ~/.ctxloom fallback would hit the developer's real home", home, roots)
+	}
+	if esc, err := escapingAppDirAncestor(cwd, roots); err != nil {
 		return err
 	} else if esc != "" {
-		return fmt.Errorf("the working directory %q has an ancestor app dir at %q, outside the temp root %q: findAppDir's walk-up would adopt it as the project", cwd, esc, tempRoot)
+		return fmt.Errorf("the working directory %q has an ancestor app dir at %q, outside every recognized temp root %v: findAppDir's walk-up would adopt it as the project", cwd, esc, roots)
 	}
 	return nil
 }
 
 // escapingAppDirAncestor walks up from cwd exactly as config.findAppDir does —
-// same AppDirName marker, same "stop at the OS temp root" boundary — and
-// returns the first app dir it finds that is NOT inside tempRoot.
-func escapingAppDirAncestor(cwd, tempRoot string) (string, error) {
+// same AppDirName marker, same "stop at the OS temp root" boundary, now
+// generalized to a set of boundaries — and returns the first app dir it finds
+// that is NOT inside any of tempRoots.
+func escapingAppDirAncestor(cwd string, tempRoots []string) (string, error) {
 	dir := resolveRealPath(cwd)
 	if dir == "" {
 		return "", errors.New("the working directory does not exist")
 	}
-	tempRoot = resolveRealPath(tempRoot)
-	for dir != tempRoot {
+	for !containsResolvedRoot(dir, tempRoots) {
 		candidate := filepath.Join(dir, appDirName)
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() && !underRoot(candidate, tempRoot) {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() && !underAnyRoot(candidate, tempRoots) {
 			return candidate, nil
 		}
 		parent := filepath.Dir(dir)
@@ -82,11 +95,55 @@ func escapingAppDirAncestor(cwd, tempRoot string) (string, error) {
 	return "", nil
 }
 
+// containsResolvedRoot reports whether dir (already symlink-resolved) IS one
+// of tempRoots (also symlink-resolved by the caller) — the walk's stopping
+// condition, checked separately from underAnyRoot's "at or beneath" test
+// because the walk must stop exactly AT a root, not merely once it is
+// beneath one.
+func containsResolvedRoot(dir string, tempRoots []string) bool {
+	for _, root := range tempRoots {
+		if dir == root {
+			return true
+		}
+	}
+	return false
+}
+
+// underAnyRoot reports whether path is at or beneath any of roots.
+func underAnyRoot(path string, roots []string) bool {
+	for _, root := range roots {
+		if underRoot(path, root) {
+			return true
+		}
+	}
+	return false
+}
+
 // appDirName duplicates paths.AppDirName rather than importing it: the shared
 // tree is self-contained and cannot reach internal/paths, and this package is
 // imported BY internal/config's own tests, so any edge into the config/paths
 // tree also risks an import cycle.
 const appDirName = ".ctxloom"
+
+// testTempRoots duplicates operations.testTempRoots (see its doc for the
+// mechanism) rather than importing it: this package must stay self-contained
+// (see the resolveRealPath / appDirName notes above for why), and
+// internal/operations already imports this package's Isolate/ChangeDir for
+// its own tests, so the reverse edge would cycle.
+//
+// In one sentence: os.TempDir() is what a TestMain-style sandbox
+// (enterSandbox) mkdirs into directly, and GOTMPDIR — read directly by
+// go1.26.8's testing.(*common).makeTempDir, bypassing os.TempDir() — is what
+// t.TempDir() actually allocates under whenever it is set, which this
+// project's justfile does on purpose. Both are live sandbox roots; neither
+// alone is sufficient.
+func testTempRoots() []string {
+	roots := []string{os.TempDir()}
+	if v := os.Getenv("GOTMPDIR"); v != "" {
+		roots = append(roots, v)
+	}
+	return roots
+}
 
 // underRoot reports whether path is root itself or lives beneath it, comparing
 // symlink-resolved paths (the OS temp root is a symlink on macOS, and t.TempDir

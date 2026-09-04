@@ -27,7 +27,7 @@ func TestAppDirIsolationError_CatchesBothEscapeRoutes(t *testing.T) {
 	}
 
 	t.Run("isolated home and cwd pass", func(t *testing.T) {
-		if err := appDirIsolationError(sandboxHome, sandboxCwd, tempRoot); err != nil {
+		if err := appDirIsolationError(sandboxHome, sandboxCwd, []string{tempRoot}); err != nil {
 			t.Fatalf("a home and cwd both inside the temp root must be accepted: %v", err)
 		}
 	})
@@ -35,7 +35,7 @@ func TestAppDirIsolationError_CatchesBothEscapeRoutes(t *testing.T) {
 	// Route 1: findAppDir's ~/.ctxloom home fallback. This is the escape
 	// setupEditProject had — chdir into a t.TempDir but never isolate HOME.
 	t.Run("unisolated HOME is red", func(t *testing.T) {
-		err := appDirIsolationError(realHome, sandboxCwd, tempRoot)
+		err := appDirIsolationError(realHome, sandboxCwd, []string{tempRoot})
 		if err == nil {
 			t.Fatal("a HOME outside the temp root must be reported: the ~/.ctxloom fallback reaches the real home")
 		}
@@ -58,7 +58,7 @@ func TestAppDirIsolationError_CatchesBothEscapeRoutes(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err := appDirIsolationError(sandboxHome, deep, tempRoot)
+		err := appDirIsolationError(sandboxHome, deep, []string{tempRoot})
 		if err == nil {
 			t.Fatal("an ancestor .ctxloom outside the temp root must be reported: findAppDir's walk-up adopts it as the project")
 		}
@@ -73,7 +73,7 @@ func TestAppDirIsolationError_CatchesBothEscapeRoutes(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(sandboxCwd, appDirName), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := appDirIsolationError(sandboxHome, sandboxCwd, tempRoot); err != nil {
+		if err := appDirIsolationError(sandboxHome, sandboxCwd, []string{tempRoot}); err != nil {
 			t.Fatalf("a fixture app dir inside the temp root must be accepted: %v", err)
 		}
 	})

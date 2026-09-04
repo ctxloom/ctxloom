@@ -89,12 +89,23 @@ Feature: container — the images isolated agents run in, and the questions you 
     # runtime name/status line) — moved down here rather than restated in two
     # places, so the noun's own spec is the one place asserting every axis the
     # report claims to answer.
+    #
+    # shared_fs="ok" is a claim the check can only earn against a PRESENT
+    # image (Diagnose only runs the definitive marker probe when one exists;
+    # otherwise it falls back to an advisory heuristic). This Rule's
+    # Background builds one on demand rather than leaving that claim resting
+    # on whatever happens to already be on the machine (dragging-neatness).
+    # The subject is "mock", not a vendor engine, because that build costs
+    # nothing beyond the base image — see the Background's own comment.
+    Background:
+      Given the mock agent image is available for the shared-filesystem probe
+
     Scenario Outline: The capability check is diagnostic-only
       Given an initialized ctxloom project
       And I record the project tree
       When Alice asks whether containerized agents could run here:
         """
-        ctxloom container check claude-code <flags>
+        ctxloom container check mock <flags>
         """
       Then the command succeeds
       And the output reports "image" matching "<names the backend it checked>"
@@ -104,18 +115,22 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the project tree is unchanged
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-      | flags         | names the backend it checked                | says whether it is in a container | names the runtime | reports the shared fs |
-      |               | claude-code                                 | false                             | \S               | ok                    |
-      | --format json | claude-code                                 | false                             | \S               | ok                    |
-      | --format text | Container capability (backend: claude-code) | in a container:                   | runtime:          | shared fs:            |
+      | flags         | names the backend it checked          | says whether it is in a container | names the runtime | reports the shared fs |
+      |               | mock                                  | false                             | \S               | ok                    |
+      | --format json | mock                                  | false                             | \S               | ok                    |
+      | --format text | Container capability (backend: mock)  | in a container:                   | runtime:          | shared fs:            |
 
     # Named backend vs. resolved default are two different code paths: with no
     # argument the project's configured default is resolved, and a report that
     # named no engine at all would describe nothing while still looking like a
-    # report.
+    # report. The default is pointed at "mock" here (--config-set, for this
+    # invocation only) so the resolved image is the SAME one the Background
+    # already built — a real project's default is normally a vendor engine,
+    # but proving THAT resolution path works does not require paying for a
+    # second image build.
     Scenario Outline: With no backend named, the check reports on the project's default
       Given an initialized ctxloom project
-      When I run "ctxloom container check <flags>"
+      When I run "ctxloom --config-set llm.defaults.primary=mock container check <flags>"
       Then the command succeeds
       And the output reports "image" matching "<names the backend it resolved>"
       And the output does not contain "(unresolved)"

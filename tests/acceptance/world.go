@@ -215,5 +215,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerRecoverSessionSteps(ctx)
 	registerContextStatusSteps(ctx)
 	registerStartupBoundarySteps(ctx)
+	registerContainerImageSteps(ctx)
 	registerDocCaptureHooks(ctx)
 }

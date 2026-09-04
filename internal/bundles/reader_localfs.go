@@ -160,7 +160,7 @@ func (r *localFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 		if !exists {
 			continue
 		}
-		out = r.readDir(dir, out, seen)
+		out = r.readDir(ctx, dir, out, seen)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ref < out[j].ref })
 	return out, nil
@@ -169,7 +169,7 @@ func (r *localFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 // readDir walks one search directory, appending a read per bundle found. Names
 // already seen in an earlier directory win, which is the search-path precedence
 // the loader has always had.
-func (r *localFSReader) readDir(dir string, out []BundleRead, seen collections.Set[string]) []BundleRead {
+func (r *localFSReader) readDir(ctx context.Context, dir string, out []BundleRead, seen collections.Set[string]) []BundleRead {
 	walkErr := afero.Walk(r.fsys, dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			// Per-entry walk failure: report and keep walking, so one unreadable
@@ -182,7 +182,7 @@ func (r *localFSReader) readDir(dir string, out []BundleRead, seen collections.S
 		if !ok || seen.Has(name) {
 			return nil
 		}
-		read, rerr := r.readBundle(manifest, name)
+		read, rerr := r.readBundle(ctx, manifest, name)
 		if rerr != nil {
 			r.recordFailure(name, rerr)
 			// A local bundle that fails to load is fatal-class in strict mode
@@ -253,7 +253,7 @@ func (r *localFSReader) bundleAt(dir, path string, info os.FileInfo) (manifest, 
 }
 
 // readBundle parses one bundle document and establishes its signature facts.
-func (r *localFSReader) readBundle(path, name string) (BundleRead, error) {
+func (r *localFSReader) readBundle(ctx context.Context, path, name string) (BundleRead, error) {
 	data, err := afero.ReadFile(r.fsys, path)
 	if err != nil {
 		return BundleRead{}, fmt.Errorf("failed to read bundle: %w", err)
@@ -261,6 +261,17 @@ func (r *localFSReader) readBundle(path, name string) (BundleRead, error) {
 	bundle, err := ParseBundle(data)
 	if err != nil {
 		return BundleRead{}, fmt.Errorf("failed to parse bundle %s: %w", path, err)
+	}
+	// A TREE-form bundle keeps its items in files beside this envelope, so the
+	// parse above yielded only the bundle-level metadata. Replacing the value
+	// here — rather than branching around everything below — is what keeps ONE
+	// answer for identity, provenance and signature facts regardless of which
+	// form the bundle was authored in. Non-tree forms return nil and fall
+	// through unchanged; see readLocalTreeForm for how the three are told apart.
+	if treeBundle, terr := r.readLocalTreeForm(ctx, path, bundle); terr != nil {
+		return BundleRead{}, terr
+	} else if treeBundle != nil {
+		bundle = treeBundle
 	}
 	bundle.Path = path
 	// A DECLARED name wins. The path-derived leaf name ("go" for

@@ -68,19 +68,32 @@ func TestUnstampedBuild_RefusesByDefault(t *testing.T) {
 	assert.Contains(t, out, versionStampFixIt, "the refusal must state the remedy, not just the complaint")
 }
 
-// TestUnstampedBuild_LaunchesUnderDegraded is the other arm, and it is not
-// optional: --degraded is a promise that the user always reaches a working
-// tool, and a test covering only the refusal would let this half rot into a
-// second refusal with nothing going red.
-func TestUnstampedBuild_LaunchesUnderDegraded(t *testing.T) {
+// TestUnstampedBuild_RefusesEvenUnderDegraded is the other arm, and it is not
+// optional: it pins a DELIBERATE exception to --degraded's standing promise
+// that the user always reaches a working tool, and without it that exception
+// would rot back into an ordinary degradable finding with nothing going red.
+//
+// Why the exception was granted (human, 2026-09-03): the version stamp is what
+// KEYS the agent container image, so a --degraded launch could tag or reuse an
+// image under an empty version — the ambiguous-identity hazard that motivated
+// removing the "dev" sentinel in the first place. A binary that cannot say
+// which build it is has nothing safe to do, so launching IS the harm here.
+//
+// The accepted cost, stated so it is not mistaken for an oversight: this is the
+// one finding that is not a trust or isolation boundary and still refuses under
+// --degraded. Do not widen that exception by copying this pattern; the default
+// remains that --degraded reaches a working LLM.
+func TestUnstampedBuild_RefusesEvenUnderDegraded(t *testing.T) {
 	unstampedBuild(t)
 
 	out, err := runRoot(t, "--degraded", "version")
 
-	require.NoError(t, err, "--degraded must warn and continue, not refuse")
-	assert.Contains(t, out, versionPayloadMarker, "the command must actually have RUN and produced its output, not merely exited 0")
-	assert.Contains(t, out, "dev", "and it must have reported the stamp it was given")
-	assert.NotContains(t, out, "aborting", "nothing may abort under --degraded for a degradable finding")
+	require.Error(t, err, "an unstamped binary must refuse even under --degraded")
+	var exitErr *ExitError
+	require.True(t, errors.As(err, &exitErr), "the refusal must carry an exit status, not just fail: got %#v", err)
+	assert.Equal(t, exitCodeFatalFindings, exitErr.Code, "a non-degradable startup refusal reports the fatal-findings status")
+	assert.NotContains(t, out, versionPayloadMarker, "refusing must stop the command before dispatch, not report alongside it")
+	assert.Contains(t, out, versionStampFixIt, "the refusal must state the remedy, not just the complaint")
 }
 
 // TestStampedBuild_Runs pins the direction that a gate refusing everything

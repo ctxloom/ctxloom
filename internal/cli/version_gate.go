@@ -25,11 +25,22 @@ const versionStampFixIt = "build through the task runner: `just build` applies t
 // nothing to compare. Proceeding under an unidentifiable identity is the
 // always-launch failure this project pivoted away from.
 //
-// It is DEGRADABLE — `--degraded` warns and launches — because the harm is
-// diagnosability, not the launch itself: the user still gets a working LLM,
-// having explicitly asked for one from a binary that cannot name itself. The
-// remedy above stays followable in both modes, which FailAlways would require
-// and this does not.
+// It is NOT DEGRADABLE — `--degraded` refuses too — ruled by the maintainer on
+// 2026-09-03 against the opposite reading. The deciding argument is the one
+// above: this stamp KEYS the agent container image, so a degraded launch can
+// tag or reuse an image under an unusable version, and the launch itself is
+// then the harm rather than merely a loss of diagnosability.
+//
+// That makes this the one finding which is neither a trust nor an isolation
+// boundary and still refuses under `--degraded`. It is a deliberate widening of
+// that exception to cover "cannot identify itself", and it is recorded here so
+// the next reader does not mistake it for a mis-classified ordinary finding and
+// quietly relax it. Do NOT copy this pattern for other findings: the standing
+// promise is that `--degraded` reaches a working LLM.
+//
+// The remedy above is followable in both modes — build through the task runner
+// so the stamp is applied — which is what makes refusing in both modes fair
+// rather than a dead end.
 //
 // It fires from the root PersistentPreRunE rather than from `run`'s startup
 // gate on purpose: the stamp is a property of the BINARY, so every command is
@@ -41,7 +52,7 @@ func refuseUnstampedBuild(cmd *cobra.Command) error {
 	}
 	// Opened only on the failing path, so a stamped run adds no checkpoint.
 	g := newPhaseGates(cmd.ErrOrStderr())
-	strictness.FailOnce(strictness.ClassConfig, versionStampFixIt,
+	strictness.FailAlways(strictness.ClassConfig, versionStampFixIt,
 		"this binary carries no usable version stamp (%q): it cannot say which build or commit is answering, and nothing downstream can tell it apart from any other ctxloom",
 		version.Version)
 	return g.close(PhaseStartup)

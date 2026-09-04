@@ -709,6 +709,38 @@ func TestSpoolDelivery_PendingCountReadsTheSpool(t *testing.T) {
 	assert.Zero(t, c.pendingCount("no-such-harp"))
 }
 
+// TestSpoolDelivery_ConsumedAckCreditedWithoutReadableBody pins that
+// sweepChildConsumed reads in/consumed/ NAMES ONLY (deceptive-copartner): it
+// must credit an acknowledgement even when the file's body is unparseable
+// garbage, because the name existing in consumed/ IS the whole signal a
+// rename-based ack carries.
+//
+// This is also the regression pin against the fix regressing to the
+// read-and-parse contract: if sweepChildConsumed still swept via
+// spool.Sweep, this fixture would come back as a Problem (spool.Sweep
+// reports an unparseable body that way, see TestSweepNames_
+// CreditsAnEntryWithAnUnreadableBody in the spool package) and never reach
+// spoolSeen at all, so the stat below would never move.
+func TestSpoolDelivery_ConsumedAckCreditedWithoutReadableBody(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
+
+	dir, err := spool.DirPath(spool.NewHomeMapper(), out.Harp, spool.DirInConsumed)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "00000000000000000099.00000001.coord.md"),
+		[]byte("not frontmatter, not yaml, just garbage\n"), 0o600))
+
+	before := c.SpoolDeliveryStats().Consumed
+	c.sweepChildConsumed(out.Harp)
+	require.Eventually(t, func() bool { return c.SpoolDeliveryStats().Consumed >= before+1 }, conformanceWait, 10*time.Millisecond,
+		"an in/consumed/ entry with an unreadable body must still be credited: the name is the whole signal")
+}
+
 // TestSpoolDelivery_UnparsableFileIsReportedNeverSkipped pins the loud half of
 // the reader contract. A file in in/ that is not a message must be COUNTED as
 // a failure, because a reader that silently skips what it cannot understand is

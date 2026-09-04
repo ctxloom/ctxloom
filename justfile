@@ -2138,6 +2138,15 @@ _run +ARGS:
                 git_mount=(--mount "type=bind,src=$gitcommon,dst=$gitcommon")
             fi
         fi
+        # The version stamp is computed on the HOST and handed in, never
+        # recomputed inside. The mount below overlays justfile.container onto
+        # justfile, so the container's git ALWAYS reports that tracked file as
+        # modified -- MEASURED: `git describe --always --dirty` says clean on the
+        # host and "-dirty" inside, over a justfile diff the container itself
+        # created. isolation.versionProvenanceKey turns a dirty stamp into a
+        # per-build agent-image key, so recomputing here would mark every local
+        # build dirty and rebuild every image, which is the churn this key exists
+        # to remove.
         {{container_cmd}} run --rm \
             "${user_flag[@]}" \
             "${cache_mount[@]}" \
@@ -2147,6 +2156,7 @@ _run +ARGS:
             -e GOMODCACHE=/tmp/gomodcache \
             -e GOCACHE=/tmp/.gocache \
             -e GOWORK=off \
+            -e CTXLOOM_VERSION_STAMP="{{version}}" \
             -v "$(pwd):/workspace" \
             -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
             -w /workspace \

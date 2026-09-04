@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -260,8 +261,8 @@ func staleLocalRead(t *testing.T, name string) bundles.BundleRead {
 	body := []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n")
 	sig, root := signAs(t, body, "author@example.test")
 	edited := append(append([]byte{}, body...), []byte("# edited, never re-signed\n")...)
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/"+name+".yaml", edited, 0o644))
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/"+name+".yaml"+bundles.SigSuffix, sig, 0o644))
+	testsupport.WriteFile(t, fsys, "/bundles/"+name+".yaml", edited, 0o644)
+	testsupport.WriteFile(t, fsys, "/bundles/"+name+".yaml"+bundles.SigSuffix, sig, 0o644)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{"/bundles"}, bundles.WithTrustRoot(root)))
 	read := readOf(t, loader, name)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // =============================================================================
@@ -37,7 +38,7 @@ func writeSkillBundle(t *testing.T, fsys afero.Fs, bundlesDir, bundleName, skill
 		enabledYAML = "false"
 	}
 	bundleYAML := "version: \"1.0\"\nskills:\n  " + skillName + ":\n    llm:\n      claude-code:\n        enabled: " + enabledYAML + "\n"
-	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(bundleYAML), 0644))
+	testsupport.WriteFileString(t, fsys, bundleDir+"/bundle.yaml", bundleYAML, 0644)
 	return writeSkillFixture(t, fsys, bundleDir+"/skills/"+skillName, skillName)
 }
 

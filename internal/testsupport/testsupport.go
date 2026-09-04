@@ -98,6 +98,37 @@ func ScrubbedEnv(t *testing.T) []string {
 	return env
 }
 
+// WriteFile creates path's parent directory and then writes data atomically,
+// matching the MkdirAll-then-iox sequence a production writer uses (e.g.
+// internal/operations/signer.go#appendAllowedSignersLine) — so a fixture
+// calling this never disagrees with production about what "write a file"
+// means. It fails the test immediately on error.
+//
+// Delegated to taskstest for the same reason ChangeDir is: the shared tree
+// cannot import testsupport, so the canonical body lives there. One body, no
+// duplicate.
+func WriteFile(t testing.TB, fs afero.Fs, path string, data []byte, perm os.FileMode) {
+	t.Helper()
+	taskstest.WriteFile(t, fs, path, data, perm)
+}
+
+// WriteFileString is WriteFile for a string payload. Delegated for the reason
+// given on WriteFile.
+func WriteFileString(t testing.TB, fs afero.Fs, path, content string, perm os.FileMode) {
+	t.Helper()
+	taskstest.WriteFileString(t, fs, path, content, perm)
+}
+
+// SeedTree writes every entry in files (a path relative to root, mapped to
+// its content) through WriteFile, creating whatever nested directories each
+// entry needs — the shape roughly forty fixtures across the repo
+// re-implement inline as a per-file afero.WriteFile loop. Delegated for the
+// reason given on WriteFile.
+func SeedTree(t testing.TB, fs afero.Fs, root string, files map[string]string) {
+	t.Helper()
+	taskstest.SeedTree(t, fs, root, files)
+}
+
 // WriteDirProfiles writes one .ctxloom/profiles/<name>.yaml per entry under
 // appDir, marshalling each value as YAML.
 //

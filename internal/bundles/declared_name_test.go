@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // projectReaderOver writes one bundle document at dir/rel and returns a reader
@@ -18,7 +19,7 @@ func projectReaderOver(t *testing.T, rel, doc string) Reader {
 	t.Helper()
 	fsys := afero.NewMemMapFs()
 	const dir = "/proj/content/bundles"
-	require.NoError(t, afero.WriteFile(fsys, dir+"/"+rel, []byte(doc), 0o644))
+	testsupport.WriteFileString(t, fsys, dir+"/"+rel, doc, 0o644)
 	return NewProjectReader(fsys, []string{dir})
 }
 

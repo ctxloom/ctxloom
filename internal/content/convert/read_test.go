@@ -10,13 +10,14 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // stageEnvelope OVERWRITES the bundle.yaml Convert wrote, so a test can pin an
 // exact envelope (including the half-migrated one Convert would never emit).
 func stageEnvelope(t *testing.T, fsys afero.Fs, bundle, yaml string) {
 	t.Helper()
-	require.NoError(t, afero.WriteFile(fsys, "/tree/"+bundle+"/bundle.yaml", []byte(yaml), 0o644))
+	testsupport.WriteFileString(t, fsys, "/tree/"+bundle+"/bundle.yaml", yaml, 0o644)
 }
 
 // everyKindBundle is the document both directions are exercised against: one

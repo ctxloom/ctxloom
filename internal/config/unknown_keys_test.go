@@ -19,7 +19,7 @@ import (
 func loadYAML(t *testing.T, cfgYAML string) *Config {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml", []byte(cfgYAML), 0644))
+	testsupport.WriteFileString(t, fs, "/proj/.ctxloom/config.yaml", cfgYAML, 0644)
 	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)
 	return cfg

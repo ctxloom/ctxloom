@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/spf13/afero"
 )
 
 func TestIsolate_ClearsHostEnvAndRootsHome(t *testing.T) {
@@ -59,6 +61,53 @@ func TestChangeDir_ChangesAndRestoresCwd(t *testing.T) {
 
 	if after := evalCwd(t); after != before {
 		t.Errorf("cwd not restored: before=%q after=%q", before, after)
+	}
+}
+
+// TestWriteFile_DelegatesToTaskstest is a smoke test for the delegation
+// itself, not the write semantics — those are proved thoroughly (including on
+// a real-backed fs) by taskstest's own tests, per WriteFile's doc. This only
+// has to catch a delegation that silently stops calling through.
+func TestWriteFile_DelegatesToTaskstest(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	WriteFile(t, fs, "/a/b/c.txt", []byte("hi"), 0o644)
+
+	got, err := afero.ReadFile(fs, "/a/b/c.txt")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != "hi" {
+		t.Fatalf("content = %q, want %q", got, "hi")
+	}
+}
+
+// TestWriteFileString_DelegatesToTaskstest is WriteFile's smoke test, for the
+// string-payload entry point.
+func TestWriteFileString_DelegatesToTaskstest(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	WriteFileString(t, fs, "/a/b/c.txt", "hi", 0o644)
+
+	got, err := afero.ReadFile(fs, "/a/b/c.txt")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != "hi" {
+		t.Fatalf("content = %q, want %q", got, "hi")
+	}
+}
+
+// TestSeedTree_DelegatesToTaskstest is WriteFile's smoke test, for the
+// multi-file entry point.
+func TestSeedTree_DelegatesToTaskstest(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	SeedTree(t, fs, "/proj", map[string]string{"nested/leaf.yaml": "content"})
+
+	got, err := afero.ReadFile(fs, "/proj/nested/leaf.yaml")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != "content" {
+		t.Fatalf("content = %q, want %q", got, "content")
 	}
 }
 

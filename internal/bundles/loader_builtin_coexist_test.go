@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -18,8 +19,8 @@ import (
 func coexistFS(t *testing.T, name string) afero.Fs {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/bundles/"+name+".yaml",
-		[]byte("version: 1.0.0\ndescription: the PROJECT one\n"), 0o644))
+	testsupport.WriteFileString(t, fs, "/bundles/"+name+".yaml",
+		"version: 1.0.0\ndescription: the PROJECT one\n", 0o644)
 	return fs
 }
 

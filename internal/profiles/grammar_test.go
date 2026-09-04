@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // grammarLoader returns a loader seeded with one remote bundle profile and one
@@ -31,8 +32,8 @@ func grammarLoader(t *testing.T) *Loader {
 		},
 	}
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/profiles/personal/go-developer.yaml",
-		[]byte("description: local subdir profile\n"), 0644))
+	testsupport.WriteFileString(t, fs, "/profiles/personal/go-developer.yaml",
+		"description: local subdir profile\n", 0644)
 	return NewLoader([]string{"/profiles"},
 		WithFS(fs),
 		WithSeededProfiles(seed),

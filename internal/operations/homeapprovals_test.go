@@ -165,16 +165,26 @@ func TestHomeAllowedSignersPath_RefusesAnUnsandboxedHomeUnderTest(t *testing.T) 
 }
 
 // TestSignerStorePath_UserRefusesAnUnsandboxedHome proves the guard is wired
-// into the WRITE-destination resolver `signer trust`/`signer untrust` use, not
-// only into the helper. An unwired guard is no guard.
+// into the single WRITE-destination resolver both `signer trust` (AddSigner)
+// and `signer untrust` (RemoveSigner) now share, not only into the helper.
+// An unwired guard is no guard.
 func TestSignerStorePath_UserRefusesAnUnsandboxedHome(t *testing.T) {
 	t.Setenv("HOME", string(filepath.Separator)+"ctxloom-unsandboxed-home")
 
-	path, err := signerStorePath(nil, false)
+	path, _, _, err := signerStorePath(nil, false)
 	require.Error(t, err, "the user allowed_signers destination must be refused, got %q", path)
+}
 
-	path, _, _, err = resolveSignerAddPath(nil, false)
-	require.Error(t, err, "`signer trust`'s user fallback destination must be refused too, got %q", path)
+// TestDistrustedSignersStorePath_UserRefusesAnUnsandboxedHome pins the same
+// guard on the OTHER write-scoped store `signer untrust` resolves: the
+// distrusted_signers file that, unguarded, once let a test/dev run
+// permanently distrust ctxloom's own embedded publishing principal on a real
+// machine (see RemoveSigner's embedded-suppression path).
+func TestDistrustedSignersStorePath_UserRefusesAnUnsandboxedHome(t *testing.T) {
+	t.Setenv("HOME", string(filepath.Separator)+"ctxloom-unsandboxed-home")
+
+	path, _, _, err := distrustedSignersStorePath(nil, false)
+	require.Error(t, err, "the user distrusted_signers destination must be refused, got %q", path)
 }
 
 // TestSignerStorePath_ProjectIsUnaffected is the positive control: the guard
@@ -184,7 +194,7 @@ func TestSignerStorePath_ProjectIsUnaffected(t *testing.T) {
 	t.Setenv("HOME", string(filepath.Separator)+"ctxloom-unsandboxed-home")
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
 
-	path, err := signerStorePath(config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), true)
+	path, _, _, err := signerStorePath(config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), true)
 	require.NoError(t, err)
 	assert.Equal(t, paths.AllowedSignersPath(appDir), path)
 }

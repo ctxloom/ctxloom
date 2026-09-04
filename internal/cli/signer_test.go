@@ -127,24 +127,70 @@ func TestRunSignerAdd_InsideProjectNeverFallsBack(t *testing.T) {
 	assert.Equal(t, "project", found[0].Source)
 }
 
-// --- signer trust's --project/--user flag wiring ---------------------------
+// TestRunSignerRemove_ProjectFlagRemovesFromProjectStore proves `signer
+// untrust`'s CLI-layer wiring (effectiveSignerProject -> RemoveSigner) — the
+// same round trip operations/signer_test.go already proves cryptographically;
+// this test is about the CLI wiring, mirroring
+// TestRunSignerAdd_ProjectFlagWritesProjectStore for the untrust verb.
+func TestRunSignerRemove_ProjectFlagRemovesFromProjectStore(t *testing.T) {
+	_, cfg := setupSignTestDir(t)
+	line := testSignerKeyLine(t)
+
+	cmd, _ := testCmd()
+	require.NoError(t, runSignerAdd(cmd, cfg, "team@example.com", line, nil, "", true, true))
+	found, err := operations.ShowSigner(cfg, "team@example.com", nil)
+	require.NoError(t, err)
+	require.Len(t, found, 1)
+	require.Equal(t, "project", found[0].Source, "sanity: the entry must be seeded into the project store")
+
+	cmd2, out := testCmd()
+	require.NoError(t, runSignerRemove(cmd2, cfg, "team@example.com", true))
+	assert.Contains(t, out.String(), "removed 1 entry for team@example.com")
+
+	found, err = operations.ShowSigner(cfg, "team@example.com", nil)
+	require.NoError(t, err)
+	assert.Empty(t, found, "the project-store entry must actually be gone")
+}
+
+// TestRunSignerRemove_OutsideProjectFallsBackAndSaysSo is untrust's mirror of
+// TestRunSignerAdd_OutsideProjectFallsBackAndSaysSo — the CLI-level pin for
+// the ruling this change implements: `signer untrust` run outside a project
+// must fall back to the user store and say so, exactly like `signer trust`.
+func TestRunSignerRemove_OutsideProjectFallsBackAndSaysSo(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{}) // no AppPaths: outside a project
+	t.Setenv("HOME", t.TempDir())
+	line := testSignerKeyLine(t)
+
+	cmd, _ := testCmd()
+	require.NoError(t, runSignerAdd(cmd, cfg, "solo@example.com", line, nil, "", true, true))
+
+	cmd2, out := testCmd()
+	require.NoError(t, runSignerRemove(cmd2, cfg, "solo@example.com", true))
+
+	output := out.String()
+	assert.Contains(t, output, "no project", "the output must say WHY it fell back")
+	assert.Contains(t, output, "user store", "the output must name WHICH store it used")
+}
+
+// --- signer trust/untrust's shared --project/--user flag wiring ------------
 //
-// effectiveSignerAddProject is the pure resolution function runSignerAddCmd
-// calls to turn the two flags into the single `project` bool AddSigner
-// takes; tested directly, independent of cobra flag parsing. The flags'
-// DEFAULT VALUES are tested against the live cobra.Command below — that is
-// the one property a pure-function test cannot see.
+// effectiveSignerProject is the pure resolution function both runSignerAddCmd
+// and runSignerRemoveCmd call to turn the two flags into the single
+// `project` bool AddSigner/RemoveSigner take; tested directly, independent
+// of cobra flag parsing. The flags' DEFAULT VALUES are tested against the
+// live cobra.Command below — that is the one property a pure-function test
+// cannot see.
 
-func TestEffectiveSignerAddProject_DefaultIsProjectStore(t *testing.T) {
-	assert.True(t, effectiveSignerAddProject(true, false), "project defaults true, user defaults false: the default posture is the project store")
+func TestEffectiveSignerProject_DefaultIsProjectStore(t *testing.T) {
+	assert.True(t, effectiveSignerProject(true, false), "project defaults true, user defaults false: the default posture is the project store")
 }
 
-func TestEffectiveSignerAddProject_UserFlagOverridesProject(t *testing.T) {
-	assert.False(t, effectiveSignerAddProject(true, true), "--user must win even though --project is still true by default")
+func TestEffectiveSignerProject_UserFlagOverridesProject(t *testing.T) {
+	assert.False(t, effectiveSignerProject(true, true), "--user must win even though --project is still true by default")
 }
 
-func TestEffectiveSignerAddProject_UserAlone(t *testing.T) {
-	assert.False(t, effectiveSignerAddProject(false, true))
+func TestEffectiveSignerProject_UserAlone(t *testing.T) {
+	assert.False(t, effectiveSignerProject(false, true))
 }
 
 func TestSignerTrustCmd_ProjectFlagDefaultsTrue(t *testing.T) {
@@ -156,6 +202,23 @@ func TestSignerTrustCmd_ProjectFlagDefaultsTrue(t *testing.T) {
 func TestSignerTrustCmd_HasUserFlagDefaultingFalse(t *testing.T) {
 	f := signerTrustCmd.Flags().Lookup("user")
 	require.NotNil(t, f, "`signer trust` needs the inverse of --project for the per-machine case")
+	assert.Equal(t, "false", f.DefValue)
+}
+
+// TestSignerUntrustCmd_ProjectFlagDefaultsTrue is the decisive pin for the
+// scope-symmetry fix: `signer untrust` used to default --project to false
+// (the user store) while `signer trust` defaulted it to true (the project
+// store) — the destructive verb had the wider, more permanent blast radius
+// by default. Both must now agree.
+func TestSignerUntrustCmd_ProjectFlagDefaultsTrue(t *testing.T) {
+	f := signerUntrustCmd.Flags().Lookup("project")
+	require.NotNil(t, f, "`signer untrust` must still carry --project")
+	assert.Equal(t, "true", f.DefValue, "the project store is now the default write target, matching `signer trust`")
+}
+
+func TestSignerUntrustCmd_HasUserFlagDefaultingFalse(t *testing.T) {
+	f := signerUntrustCmd.Flags().Lookup("user")
+	require.NotNil(t, f, "`signer untrust` needs the inverse of --project for the per-machine case, mirroring `signer trust`")
 	assert.Equal(t, "false", f.DefValue)
 }
 

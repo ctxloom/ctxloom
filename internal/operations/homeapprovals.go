@@ -137,9 +137,9 @@ func homeDistrustedSignersPath() (string, error) {
 }
 
 // unsandboxedHomeError is the belt to the override's braces: under a TEST
-// BINARY, a home approvals store outside the OS temp root is refused rather
-// than returned. In a production binary it is always nil — the real
-// ~/.ctxloom/approvals is exactly where a real decision belongs.
+// BINARY, a home approvals store outside every recognized temp root is
+// refused rather than returned. In a production binary it is always nil — the
+// real ~/.ctxloom/approvals is exactly where a real decision belongs.
 //
 // Why refuse instead of silently redirecting: a redirect would make the test
 // pass while leaving the mistake in place, and the next home-rooted store
@@ -147,23 +147,54 @@ func homeDistrustedSignersPath() (string, error) {
 // the fix is cheap.
 //
 // The containment test mirrors testsupport.appDirIsolationError's HOME arm —
-// "is this inside os.TempDir()" — deliberately as the same weak, stable fact
-// rather than a prediction of which directory a harness will mint. Every
-// sanctioned isolation in this repo satisfies it: testsupport.SandboxedMain
-// and testsupport.Isolate root HOME at a temp dir, t.TempDir() is under the
-// temp root, and tests/integration/testenv's os.MkdirTemp root is too.
+// "is this inside a recognized temp root" — deliberately as the same weak,
+// stable fact rather than a prediction of which directory a harness will
+// mint. See testTempRoots for why there are two roots rather than one.
 func unsandboxedHomeError(what, dir, remedy string) error {
 	if !runningUnderGoTest() {
 		return nil
 	}
-	tempRoot := resolveRealPath(os.TempDir())
-	if underTempRoot(dir, tempRoot) {
-		return nil
+	roots := testTempRoots()
+	for _, root := range roots {
+		if underTempRoot(dir, resolveRealPath(root)) {
+			return nil
+		}
 	}
 	return fmt.Errorf(
-		"REFUSING to use the %s at %q from a test binary: it is outside the temp root %q, so anything recorded there "+
+		"REFUSING to use the %s at %q from a test binary: it is outside every recognized temp root %v, so anything recorded there "+
 			"would land in the developer's real home and outlive this run. Isolate the test — %s",
-		what, dir, tempRoot, remedy)
+		what, dir, roots, remedy)
+}
+
+// testTempRoots returns every root a test binary may legitimately place a
+// sandboxed HOME or store under. There are two, independently, in live use
+// across this repo, and a check pinned to only one of them silently
+// misjudges paths built by the other:
+//
+//   - os.TempDir() itself — what a TestMain-style sandbox mkdirs into
+//     directly via os.MkdirTemp("", ...) (testsupport.enterSandbox,
+//     internal/operations' own acquireSandbox), independent of the go tool
+//     and unaffected by GOTMPDIR.
+//   - GOTMPDIR, when set — what testing.T.TempDir() actually allocates
+//     under. go1.26.8's testing.(*common).makeTempDir builds a test's temp
+//     directory via os.MkdirTemp(os.Getenv("GOTMPDIR"), pattern): it reads
+//     GOTMPDIR directly and bypasses os.TempDir() (and the TMPDIR it
+//     honours) entirely whenever GOTMPDIR is set. This project's justfile
+//     sets GOTMPDIR=/var/tmp/ctxloom-gotmp on purpose — a tmpfs /tmp
+//     ENOSPCs the linker under this suite's parallel builds — so a check
+//     pinned to os.TempDir() alone silently checks a t.TempDir()-derived
+//     path against the wrong root the moment that export takes effect.
+//
+// This is not a guess at where t.TempDir() lands: os.MkdirTemp's own
+// documented behavior for an empty dir argument is to fall back to
+// os.TempDir(), so reading GOTMPDIR-or-os.TempDir() here is the exact same
+// two-step resolution makeTempDir performs.
+func testTempRoots() []string {
+	roots := []string{os.TempDir()}
+	if v := os.Getenv("GOTMPDIR"); v != "" {
+		roots = append(roots, v)
+	}
+	return roots
 }
 
 // runningUnderGoTest reports whether this process is a `go test` binary.

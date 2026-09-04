@@ -135,6 +135,41 @@ func TestHomeApprovalsDir_AllowsASandboxedHome(t *testing.T) {
 	assert.Equal(t, resolveRealPath(filepath.Join(home, paths.AppDirName, paths.ApprovalsDirName)), resolveRealPath(dir))
 }
 
+// TestHomeApprovalsDir_HonoursGOTMPDIREvenWhenOSTempDirDisagrees pins the
+// mechanism this guard depends on, deterministically rather than relying on
+// the ambient environment: go1.26.8's testing.(*common).makeTempDir builds
+// t.TempDir() via os.MkdirTemp(os.Getenv("GOTMPDIR"), pattern) — reading
+// GOTMPDIR directly and bypassing os.TempDir() (and the TMPDIR it honours)
+// whenever GOTMPDIR is set. This project's justfile does exactly that
+// (GOTMPDIR=/var/tmp/ctxloom-gotmp, kept off tmpfs /tmp to avoid ENOSPCing
+// the linker under parallel builds), so a HOME sandboxed under GOTMPDIR must
+// be accepted even though it disagrees with os.TempDir(). TMPDIR and GOTMPDIR
+// are both pinned explicitly here so the test does not depend on whatever the
+// ambient environment happens to export.
+func TestHomeApprovalsDir_HonoursGOTMPDIREvenWhenOSTempDirDisagrees(t *testing.T) {
+	scratch := t.TempDir()
+	osRoot := filepath.Join(scratch, "os-temp-root")
+	altRoot := filepath.Join(scratch, "gotmpdir-root")
+	require.NoError(t, os.MkdirAll(osRoot, 0o700))
+	require.NoError(t, os.MkdirAll(altRoot, 0o700))
+
+	t.Setenv("TMPDIR", osRoot)
+	require.Equal(t, resolveRealPath(osRoot), resolveRealPath(os.TempDir()),
+		"precondition: TMPDIR must steer os.TempDir(), so this test controls both roots explicitly")
+
+	t.Setenv("GOTMPDIR", altRoot)
+
+	home := filepath.Join(altRoot, "home")
+	require.NoError(t, os.MkdirAll(home, 0o700))
+	t.Setenv("HOME", home)
+
+	dir, err := homeApprovalsDir()
+	require.NoError(t, err,
+		"a HOME under the configured GOTMPDIR must be accepted even though it is outside os.TempDir() — "+
+			"the exact live disagreement this project's justfile creates")
+	assert.Equal(t, resolveRealPath(filepath.Join(home, paths.AppDirName, paths.ApprovalsDirName)), resolveRealPath(dir))
+}
+
 // TestUnsandboxedHomeError_IsInertOutsideATestBinary pins the half a test
 // binary cannot observe about itself: in the shipped ctxloom the real
 // ~/.ctxloom/approvals is exactly where a decision belongs, and the guard must

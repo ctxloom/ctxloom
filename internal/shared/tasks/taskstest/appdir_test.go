@@ -49,7 +49,12 @@ func TestRequireIsolatedAppDir_RefusesAnEscapingWorkingDirectory(t *testing.T) {
 	ancestor := filepath.Join(realPath(t, repoRoot(t)), appDirName)
 	assert.Contains(t, msg, ancestor,
 		"the refusal must name the app dir findAppDir's walk-up would have adopted")
-	assert.Contains(t, msg, realPath(t, os.TempDir()),
+	// AppDirIsolationError tries every root testTempRoots() names and surfaces
+	// the LAST attempt's error; isolateEnv's HOME (t.TempDir()) is isolated
+	// under whichever root is last in that list (GOTMPDIR when set, else
+	// os.TempDir()), so that is the root this refusal is measured against.
+	roots := testTempRoots()
+	assert.Contains(t, msg, realPath(t, roots[len(roots)-1]),
 		"the refusal must name the temp root the escape is measured against")
 	assert.Contains(t, msg, unratchetedPackage,
 		"the refusal must name the package, since the package is the unit that gets fixed")
@@ -88,6 +93,44 @@ func TestRequireIsolatedAppDir_RatchetedPackageIsExempt(t *testing.T) {
 	requireIsolatedAppDir(rec, exempt)
 
 	assert.Empty(t, rec.msgs, "%s is on the ratchet and must not be refused", exempt)
+}
+
+// TestRequireIsolatedAppDir_HonoursGOTMPDIREvenWhenOSTempDirDisagrees pins the
+// mechanism testTempRoots depends on, deterministically rather than relying
+// on the ambient environment: go1.26.8's testing.(*common).makeTempDir builds
+// t.TempDir() via os.MkdirTemp(os.Getenv("GOTMPDIR"), pattern) — reading
+// GOTMPDIR directly and bypassing os.TempDir() (and the TMPDIR it honours)
+// whenever GOTMPDIR is set, which this project's justfile does on purpose. A
+// HOME and cwd sandboxed under GOTMPDIR must be accepted even though they
+// disagree with os.TempDir(). TMPDIR and GOTMPDIR are both pinned explicitly
+// so the test does not depend on whatever the ambient environment exports.
+func TestRequireIsolatedAppDir_HonoursGOTMPDIREvenWhenOSTempDirDisagrees(t *testing.T) {
+	scratch := t.TempDir()
+	osRoot := filepath.Join(scratch, "os-temp-root")
+	altRoot := filepath.Join(scratch, "gotmpdir-root")
+	require.NoError(t, os.MkdirAll(osRoot, 0o700))
+	require.NoError(t, os.MkdirAll(altRoot, 0o700))
+
+	t.Setenv("TMPDIR", osRoot)
+	require.Equal(t, realPath(t, osRoot), realPath(t, os.TempDir()),
+		"precondition: TMPDIR must steer os.TempDir(), so this test controls both roots explicitly")
+	t.Setenv("GOTMPDIR", altRoot)
+
+	home := filepath.Join(altRoot, "home")
+	work := filepath.Join(altRoot, "work")
+	require.NoError(t, os.MkdirAll(home, 0o700))
+	require.NoError(t, os.MkdirAll(work, 0o700))
+	ChangeDir(t, work)
+
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	rec := &fatalRecorder{}
+	requireIsolatedAppDir(rec, unratchetedPackage)
+
+	assert.Empty(t, rec.msgs,
+		"a HOME and cwd both sandboxed under the configured GOTMPDIR must be accepted even though they are "+
+			"outside os.TempDir() — the exact live disagreement this project's justfile creates; got %v", rec.msgs)
 }
 
 // TestCallerPackage_NamesTheTestBinarysPackage pins the ratchet's KEY against
@@ -215,11 +258,11 @@ func TestRatchetEntryFacts_StaleReason(t *testing.T) {
 // list quietly stop shrinking, which is the one thing a ratchet must not do.
 func TestAppDirEscapeRatchet_IsLive(t *testing.T) {
 	root := repoRoot(t)
-	tempRoot := os.TempDir()
+	tempRoots := testTempRoots()
 
 	for pkg := range appDirEscapeRatchet {
 		t.Run(pkg, func(t *testing.T) {
-			facts := observeRatchetEntry(t, filepath.Join(root, filepath.FromSlash(pkg)), tempRoot)
+			facts := observeRatchetEntry(t, filepath.Join(root, filepath.FromSlash(pkg)), tempRoots)
 			assert.Emptyf(t, facts.staleReason(),
 				"%s is on appDirEscapeRatchet, but %s; delete the entry", pkg, facts.staleReason())
 		})
@@ -227,7 +270,7 @@ func TestAppDirEscapeRatchet_IsLive(t *testing.T) {
 }
 
 // observeRatchetEntry reads the four facts staleReason judges off disk.
-func observeRatchetEntry(t *testing.T, dir, tempRoot string) ratchetEntryFacts {
+func observeRatchetEntry(t *testing.T, dir string, tempRoots []string) ratchetEntryFacts {
 	t.Helper()
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
@@ -239,7 +282,7 @@ func observeRatchetEntry(t *testing.T, dir, tempRoot string) ratchetEntryFacts {
 	facts.adoptedSandbox = anyContains(sources, sandboxedMainMarker)
 	facts.callsIsolate = anyContains(sources, "Isolate(", "ProjectDir(")
 
-	esc, err := escapingAppDirAncestor(dir, tempRoot)
+	esc, err := escapingAppDirAncestor(dir, tempRoots)
 	require.NoError(t, err)
 	facts.escapesAppDir = esc != ""
 	return facts

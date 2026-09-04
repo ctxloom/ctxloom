@@ -63,6 +63,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -313,7 +314,7 @@ func buildBinary(ctx context.Context) (string, error) {
 	defer func() { _ = os.RemoveAll(staging) }()
 
 	tmp := filepath.Join(staging, "ctxloom")
-	cmd := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", tmp, "./cmd/ctxloom")
+	cmd := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-ldflags", testsupport.TestBinaryLDFlags, "-o", tmp, "./cmd/ctxloom")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64", "GOWORK=off")
 	if out, berr := cmd.CombinedOutput(); berr != nil {

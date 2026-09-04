@@ -34,3 +34,18 @@ const TestBinaryStamp = "v0.0.0-0000000-19700101T000000"
 func StampTestBinary() {
 	version.Version = TestBinaryStamp
 }
+
+// TestBinaryLDFlags stamps a ctxloom binary that a TEST COMPILES FOR ITSELF.
+//
+// Several suites build a real ./cmd/ctxloom and then execute it — the MCP wire
+// harness, the container cells, the docker exec probes. That binary is a
+// separate process: nothing a TestMain does in the parent reaches it, and
+// without a stamp it now refuses to start, so the suite would be measuring the
+// refusal instead of the behaviour it came to test. Pass this to `go build`
+// -ldflags, exactly as the task runner passes the real stamp.
+//
+// It is one constant rather than a string built at each site so that the flag
+// name and the import path cannot drift apart across those suites; a wrong path
+// in an -X flag is silently ignored by the linker, which would leave the binary
+// unstamped and the failure looking like the gate misfiring.
+const TestBinaryLDFlags = "-X github.com/ctxloom/ctxloom/internal/version.Version=" + TestBinaryStamp

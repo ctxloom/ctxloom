@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // busIntegrationImage is this file's own minimal image (a distinct tag from
@@ -49,7 +50,7 @@ func buildBusIntegrationImage(t *testing.T) string {
 	dir := t.TempDir()
 
 	bin := filepath.Join(dir, "ctxloom")
-	build := exec.Command("go", "build", "-buildvcs=false", "-o", bin, "github.com/ctxloom/ctxloom/cmd/ctxloom")
+	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags", testsupport.TestBinaryLDFlags, "-o", bin, "github.com/ctxloom/ctxloom/cmd/ctxloom")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build static ctxloom: %v\n%s", err, out)

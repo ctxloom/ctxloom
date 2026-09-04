@@ -20,12 +20,26 @@
 _git_top := `git rev-parse --show-toplevel 2>/dev/null || true`
 TOP := if _git_top == "" { justfile_directory() } else { _git_top }
 
-# Version stamp — the SAME versionator invocation the root justfiles use, run
-# identically in every app so all three binaries stamp the same value (lockstep).
+# Version stamp — run identically in every app so all binaries stamp the same
+# value (lockstep). THIS is the copy that reaches a binary's ldflags (_go-build
+# below), so it is the one that decides what a build calls itself.
 # Standardized stamp format across the ctxloom family:
 #   v<major.minor.patch>-<short-sha>-<YYYYMMDDTHHMMSS commit datetime, utc>
 # versionator emits the compact datetime (no separator); sed inserts the 'T'.
-version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{BuildDateTimeCompact}}" --prefix 2>/dev/null); then v=$(echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'); d=$(versionator output version -t "{{Dirty}}" 2>/dev/null); if [ -n "$d" ]; then echo "$v-dirty"; else echo "$v"; fi; else echo dev; fi`
+#
+# CTXLOOM_VERSION_STAMP, when set, WINS. The root justfile computes the stamp on
+# the HOST and hands it in, because a stamp computed in here is computed inside
+# the devcontainer, where ./justfile is bind-mounted over by justfile.container
+# and git therefore always reports that tracked file as modified. MEASURED:
+# `git describe --always --dirty` says clean on the host and "-dirty" inside.
+#
+# The -dirty marker uses git-describe semantics (TRACKED modifications only) and
+# NOT versionator's {{Dirty}}, which calls a tree dirty when its only change is
+# an untracked file — and ctxloom writes untracked files into its own checkout.
+# isolation.versionProvenanceKey turns a dirty stamp into a per-build
+# agent-image key, so either wrong definition rebuilds every agent image on
+# every build.
+version := env_var_or_default("CTXLOOM_VERSION_STAMP", `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{BuildDateTimeCompact}}" --prefix 2>/dev/null); then v=$(echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'); case "$(git describe --always --dirty 2>/dev/null)" in *-dirty) echo "$v-dirty";; *) echo "$v";; esac; else echo dev; fi`)
 
 # Disable VCS stamping (git is often unusable inside the container worktree).
 buildvcs := "-buildvcs=false"

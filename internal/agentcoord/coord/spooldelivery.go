@@ -433,6 +433,25 @@ func (c *Coordinator) spoolPendingCount(role string) int {
 // messages, no complaint) from a real failure (loud, counted). ok=false means
 // the caller has nothing to process.
 func (c *Coordinator) sweepSpoolDir(harp string, dir spool.Dir, why string) (spool.SweepResult, bool) {
+	return c.sweepSpoolDirWith(harp, dir, why, spool.Sweep)
+}
+
+// sweepSpoolDirNames is sweepSpoolDir with the read-and-parse contract
+// dropped: it lists the directory and validates filenames only, never opening
+// a file's body. It exists for a directory where the filename IS the whole
+// signal — see spool.SweepNames — and it shares every non-body-reading part
+// of sweepSpoolDir's behaviour (path resolution, the not-there/real-failure
+// distinction, the warn-and-count-failed path) by routing through the same
+// function with only the sweep primitive swapped, so those cannot drift
+// between the two modes.
+func (c *Coordinator) sweepSpoolDirNames(harp string, dir spool.Dir, why string) (spool.SweepResult, bool) {
+	return c.sweepSpoolDirWith(harp, dir, why, spool.SweepNames)
+}
+
+// sweepSpoolDirWith is the shared body of sweepSpoolDir and
+// sweepSpoolDirNames, parameterized on which spool primitive actually reads
+// the directory.
+func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, sweep func(spool.PathMapper, string, spool.Dir) (spool.SweepResult, error)) (spool.SweepResult, bool) {
 	mapper := spool.NewHomeMapper()
 	path, err := spool.DirPath(mapper, harp, dir)
 	if err != nil {
@@ -443,7 +462,7 @@ func (c *Coordinator) sweepSpoolDir(harp string, dir spool.Dir, why string) (spo
 	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
 		return spool.SweepResult{Dir: dir}, false
 	}
-	res, err := spool.Sweep(mapper, harp, dir)
+	res, err := sweep(mapper, harp, dir)
 	if err != nil {
 		clidiag.Warn("ctxloom", "coordinator: sweeping %s's %s spool (%s): %v", harp, dir, why, err)
 		c.spoolDeliveryCount.failed.Add(1)
@@ -692,7 +711,7 @@ func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
 // is no retention prune of consumed/ yet, which is what makes the set
 // necessary.
 func (c *Coordinator) sweepChildConsumed(role string) {
-	res, ok := c.sweepSpoolDir(role, spool.DirInConsumed, "reading delivery acknowledgements")
+	res, ok := c.sweepSpoolDirNames(role, spool.DirInConsumed, "reading delivery acknowledgements")
 	if !ok {
 		return
 	}

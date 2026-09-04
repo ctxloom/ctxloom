@@ -265,17 +265,10 @@ func Sweep(m PathMapper, harp string, dir Dir) (SweepResult, error) {
 	if err != nil {
 		return res, err
 	}
-	entries, err := os.ReadDir(path)
+	names, isDir, err := sortedDirEntries(path)
 	if err != nil {
 		return res, fmt.Errorf("spool: sweeping %s: %w", path, err)
 	}
-	names := make([]string, 0, len(entries))
-	isDir := make(map[string]bool, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-		isDir[e.Name()] = e.IsDir()
-	}
-	sort.Strings(names)
 	for _, name := range names {
 		if isDir[name] {
 			continue
@@ -305,4 +298,68 @@ func Sweep(m PathMapper, harp string, dir Dir) (SweepResult, error) {
 		res.Entries = append(res.Entries, Entry{Ref: ref, Name: parsed, Message: msg})
 	}
 	return res, nil
+}
+
+// SweepNames lists one spool directory in filename order without reading or
+// parsing any file's body: readdir + ParseName only, never os.ReadFile,
+// never Parse. Every returned Entry has a nil Message.
+//
+// It exists for a directory where the filename IS the whole signal —
+// in/consumed/'s acknowledgement bookkeeping only ever asks "does this name
+// exist yet", never what the message said. Sweep's read-and-parse contract is
+// right where the body is the payload (in/, out/); applying it to an archive
+// that is never pruned means every sweep re-reads and re-parses the whole
+// delivery history to learn a set of filenames readdir already had — a cost
+// that grows without bound with the run's mail.
+//
+// It shares Sweep's ordering and its treatment of everything readdir alone
+// can decide: sub-directories are skipped as structure, and a filename
+// outside the message-file grammar is still a reported Problem, never
+// silently dropped. The one place it diverges from Sweep is a file whose BODY
+// is unreadable or unparseable: Sweep reports that as a Problem, but a
+// names-only sweep never opens the file to find out, so it reports the entry
+// as it would if the body were fine. That is the intended trade for a
+// directory whose body nobody reads any more, not an oversight.
+func SweepNames(m PathMapper, harp string, dir Dir) (SweepResult, error) {
+	res := SweepResult{Dir: dir}
+	path, err := DirPath(m, harp, dir)
+	if err != nil {
+		return res, err
+	}
+	names, isDir, err := sortedDirEntries(path)
+	if err != nil {
+		return res, fmt.Errorf("spool: sweeping %s: %w", path, err)
+	}
+	for _, name := range names {
+		if isDir[name] {
+			continue
+		}
+		ref := Ref{Harp: harp, Dir: dir, Name: name}
+		parsed, err := ParseName(name)
+		if err != nil {
+			res.Problems = append(res.Problems, Problem{Path: filepath.Join(path, name), Err: err})
+			continue
+		}
+		res.Entries = append(res.Entries, Entry{Ref: ref, Name: parsed})
+	}
+	return res, nil
+}
+
+// sortedDirEntries lists path's entries in filename (sort.Strings) order,
+// alongside which of them are sub-directories — the readdir step Sweep and
+// SweepNames share, so their notion of "order" and "what counts as
+// structure, not a file" can never quietly drift apart from each other.
+func sortedDirEntries(path string) (names []string, isDir map[string]bool, err error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	names = make([]string, 0, len(entries))
+	isDir = make(map[string]bool, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+		isDir[e.Name()] = e.IsDir()
+	}
+	sort.Strings(names)
+	return names, isDir, nil
 }

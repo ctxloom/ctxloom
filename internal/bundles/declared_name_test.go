@@ -19,7 +19,9 @@ func projectReaderOver(t *testing.T, rel, doc string) Reader {
 	t.Helper()
 	fsys := afero.NewMemMapFs()
 	const dir = "/proj/content/bundles"
-	testsupport.WriteFileString(t, fsys, dir+"/"+rel, doc, 0o644)
+	// rel is a single-file document, which lives in the v1 layout root; the
+	// reader is still handed the bundles root and descends into it.
+	testsupport.WriteFileString(t, fsys, dir+"/v1/"+rel, doc, 0o644)
 	return NewProjectReader(fsys, []string{dir})
 }
 

@@ -102,7 +102,7 @@ func TestSkillsFromBundleRef_PerEngineDisabledStillResolves(t *testing.T) {
 func TestSkillsFromBundleRef_TamperedManifestWithheld(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := bundlesDir + "/skill-bundle"
+	bundleDir := bundlesDir + "/v2/skill-bundle"
 	writeSkillFixture(t, fsys, bundleDir+"/skills/humanize", "humanize")
 
 	// Author a bundle.yaml whose recorded manifest hash for SKILL.md does NOT
@@ -189,7 +189,7 @@ func TestListAllSkills_NoBundlesReturnsEmpty(t *testing.T) {
 func TestListAllSkills_WithheldSkillOmittedNotErrored(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := bundlesDir + "/bundle-a"
+	bundleDir := bundlesDir + "/v2/bundle-a"
 	bundleYAML := `
 version: "1.0"
 skills:
@@ -360,7 +360,7 @@ func TestSearchSkill_AllWithheldReturnsErrSkillWithheld(t *testing.T) {
 func TestSkillContent_MalformedAuthoredModeIsWithheldNotDowngraded(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := bundlesDir + "/skill-bundle"
+	bundleDir := bundlesDir + "/v2/skill-bundle"
 	writeSkillFixture(t, fsys, bundleDir+"/skills/humanize", "humanize")
 
 	// An authored manifest whose scripts/run.sh mode is not octal at all.
@@ -414,7 +414,7 @@ func TestSkillContent_ExecBitSurvivesLoad(t *testing.T) {
 func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := bundlesDir + "/skill-bundle"
+	bundleDir := bundlesDir + "/v2/skill-bundle"
 	// A skill entry with NO authored manifest and NO source tree: the preimage
 	// must be derived from a tree that is not there.
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml",
@@ -448,7 +448,7 @@ func TestLoadFile_ConcurrencyContract(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
 	for _, n := range []string{"a", "b", "c"} {
-		require.NoError(t, afero.WriteFile(fsys, bundlesDir+"/"+n+".yaml",
+		require.NoError(t, afero.WriteFile(fsys, bundlesDir+"/v1/"+n+".yaml",
 			[]byte("version: \"1.0\"\nfragments:\n  f:\n    content: "+n+"\n"), 0644))
 	}
 	l := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
@@ -490,7 +490,7 @@ func TestLoadFile_ConcurrencyContract(t *testing.T) {
 func TestSkillContent_UmaskCheckoutIsDeliveredNotWithheld(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := bundlesDir + "/skill-bundle"
+	bundleDir := bundlesDir + "/v2/skill-bundle"
 	skillDir := bundleDir + "/skills/humanize"
 	writeSkillFixture(t, fsys, skillDir, "humanize")
 

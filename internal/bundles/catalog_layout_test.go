@@ -104,7 +104,7 @@ func TestLocate_V1AloneStillResolvesAndSaysSo(t *testing.T) {
 	loc, b := locate(t, fsys, "/bundles", "solo")
 	assert.Equal(t, paths.LayoutV1, loc.Layout)
 	assert.Empty(t, loc.AlsoIn, "a name in one layout has no other layout to report")
-	assert.Equal(t, filepath.Join("/bundles", "solo.yaml"), loc.Path)
+	assert.Equal(t, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), "solo.yaml"), loc.Path)
 	assert.Equal(t, "ONLY-V1-MARKER", b.Fragments["marker"].Content)
 }
 
@@ -164,7 +164,7 @@ func TestSearchDirPrecedenceStillDominatesLayout(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, paths.LayoutV1, loc.Layout,
 		"the first search directory wins even though the second holds a v2 tree")
-	assert.Equal(t, filepath.Join("/first", "vault.yaml"), loc.Path)
+	assert.Equal(t, filepath.Join(paths.BundlesLayoutRoot("/first", paths.LayoutV1), "vault.yaml"), loc.Path)
 }
 
 // TestFind_DelegatesToLocate keeps the two answers from drifting: Find is

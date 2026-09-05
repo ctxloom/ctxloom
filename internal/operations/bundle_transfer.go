@@ -371,24 +371,9 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		return nil, fmt.Errorf("invalid bundle file: %w", err)
 	}
 
-	bundleDir := paths.LocalBundlesPath(cfg.GetAppPaths()[0])
-	destPath := filepath.Join(bundleDir, filepath.Base(req.SourcePath))
-	if err := requireSafeBundlePath([]string{bundleDir}, destPath); err != nil {
-		return nil, err
-	}
-	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
-	}
-	// The error matters: a destination that cannot be STATTED (permissions, a
-	// broken symlink) used to read as "does not exist" and was overwritten
-	// without --force — the one outcome this guard exists to prevent. Matches
-	// ImportProfile, which already reads it.
-	exists, err := afero.Exists(fs, destPath)
+	destPath, _, err := prepareImportDest(fs, cfg, filepath.Base(req.SourcePath), req.Force)
 	if err != nil {
-		return nil, fmt.Errorf("cannot check whether %s already exists: %w", destPath, err)
-	}
-	if exists && !req.Force {
-		return nil, fmt.Errorf("bundle already exists: %s (use --force to overwrite)", destPath)
+		return nil, err
 	}
 	// No AllowEmpty: srcData already parsed as a valid bundle above
 	// (bundles.ParseBundle refuses a document that declares nothing).
@@ -472,20 +457,9 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 		return nil, fmt.Errorf("import %s: %w", srcDir, err)
 	}
 
-	bundleDir := paths.LocalBundlesPath(cfg.GetAppPaths()[0])
-	destPath := filepath.Join(bundleDir, name)
-	if err := requireSafeBundlePath([]string{bundleDir}, destPath); err != nil {
-		return nil, err
-	}
-	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
-	}
-	exists, err := afero.Exists(fs, destPath)
+	destPath, exists, err := prepareImportDest(fs, cfg, name, req.Force)
 	if err != nil {
-		return nil, fmt.Errorf("cannot check whether %s already exists: %w", destPath, err)
-	}
-	if exists && !req.Force {
-		return nil, fmt.Errorf("bundle already exists: %s (use --force to overwrite)", destPath)
+		return nil, err
 	}
 	if exists {
 		// Replace the tree wholesale rather than copying over it. A file the
@@ -522,4 +496,38 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 		res.SigDest = sigDest
 	}
 	return res, nil
+}
+
+// prepareImportDest resolves and guards the path an import writes to: the given
+// leaf name under this project's committed bundles directory, refusing a
+// symlinked component, creating the parent, and refusing an existing
+// destination unless force was given. It reports the path and whether something
+// is already there.
+//
+// Both import forms run it, and that is the whole point. The single-file and
+// tree paths differ only in what they COPY, so a guard living inside one of
+// them is a guard the other silently does without — and the guards here are the
+// symlink-traversal refusal and the no-clobber-without-force refusal, neither
+// of which has a harmless absence.
+func prepareImportDest(fs afero.Fs, cfg *config.Config, leaf string, force bool) (string, bool, error) {
+	bundleDir := paths.LocalBundlesPath(cfg.GetAppPaths()[0])
+	destPath := filepath.Join(bundleDir, leaf)
+	if err := requireSafeBundlePath([]string{bundleDir}, destPath); err != nil {
+		return "", false, err
+	}
+	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
+		return "", false, fmt.Errorf("failed to create bundles directory: %w", err)
+	}
+	// The error matters: a destination that cannot be STATTED (permissions, a
+	// broken symlink) used to read as "does not exist" and was overwritten
+	// without --force — the one outcome this guard exists to prevent. Matches
+	// ImportProfile, which already reads it.
+	exists, err := afero.Exists(fs, destPath)
+	if err != nil {
+		return "", false, fmt.Errorf("cannot check whether %s already exists: %w", destPath, err)
+	}
+	if exists && !force {
+		return "", false, fmt.Errorf("bundle already exists: %s (use --force to overwrite)", destPath)
+	}
+	return destPath, exists, nil
 }

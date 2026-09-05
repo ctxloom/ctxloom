@@ -638,7 +638,7 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 func TestApplyHooks_RegenerateContextWithTags(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with tagged fragments
@@ -734,7 +734,7 @@ func TestApplyHooks_RegenerateContextFailure_PreservesExistingNativeContext(t *t
 	t.Setenv("HOME", t.TempDir())
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	bundleContent := `version: "1.0"
@@ -800,7 +800,7 @@ fragments:
 func TestApplyHooks_RegenerateContextSubstitutesVariables(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	bundleContent := `version: "1.0"
@@ -855,7 +855,7 @@ fragments:
 func TestApplyHooks_RegenerateContextUndefinedVariableWarns(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	bundleContent := `version: "1.0"
@@ -904,7 +904,7 @@ fragments:
 func TestApplyHooks_RegenerateContextUndefinedVariableWarningNamesFragment(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	bundleContent := `version: "1.0"
@@ -958,7 +958,7 @@ fragments:
 func TestApplyHooks_RegenerateContextWithFragments(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with fragments
@@ -1005,7 +1005,7 @@ fragments:
 func TestApplyHooks_RegenerateContextUnresolvedProfile(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with a fragment
@@ -1059,7 +1059,7 @@ fragments:
 func TestApplyHooks_RegenerateContextMissingFragment(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle but fragment doesn't exist

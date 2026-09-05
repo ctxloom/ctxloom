@@ -274,11 +274,13 @@ func resolveMoveDest(cfg *config.Config, fs afero.Fs, to string) (moveDest, erro
 // takes the bundle into its committed content tree; any other directory takes it
 // as-is.
 func destBundlesDir(fs afero.Fs, dir string) string {
+	// LayoutV1: move carries a single-file bundle document (it refuses
+	// directory form, requireWholeMovable), so v1 is where it lands.
 	if filepath.Base(dir) == paths.AppDirName {
-		return paths.LocalBundlesPath(dir)
+		return paths.LocalBundlesPathFor(dir, paths.LayoutV1)
 	}
 	if isDir, _ := afero.DirExists(fs, filepath.Join(dir, paths.AppDirName)); isDir {
-		return paths.LocalBundlesPath(filepath.Join(dir, paths.AppDirName))
+		return paths.LocalBundlesPathFor(filepath.Join(dir, paths.AppDirName), paths.LayoutV1)
 	}
 	return dir
 }

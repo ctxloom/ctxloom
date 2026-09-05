@@ -441,7 +441,7 @@ func TestExposureWithheld_Characterization_RealPath_StoreErrorWithholds(t *testi
 func realExposureProject(t *testing.T, fs afero.Fs) (*config.Config, string) {
 	t.Helper()
 	appDir := "/proj/" + paths.AppDirName
-	bundlesDir := paths.LocalBundlesPath(appDir)
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, fs.MkdirAll(bundlesDir, 0o755))
 	const bundleYAML = `version: "1.0"
 description: local dev

@@ -39,7 +39,7 @@ import (
 func TestTrustRefKindDirs_MatchTheTrustAuthority(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := bundlesDir + "/kit"
+	bundleDir := bundlesDir + "/v2/kit" // directory form lives in the v2 layout root
 
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(
 		"version: \"1.0\"\n"+

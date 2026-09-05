@@ -23,7 +23,7 @@ import (
 // tests); the body matches BundleHook's authoring fields.
 func seedLocalHookBundle(t *testing.T, appDir, bundle string, hook bundles.BundleHook) {
 	t.Helper()
-	dir := paths.LocalBundlesPath(appDir)
+	dir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	yaml := "version: \"1.0\"\nhooks:\n  pre_tool:\n" +
 		"    - matcher: " + hook.Matcher + "\n" +

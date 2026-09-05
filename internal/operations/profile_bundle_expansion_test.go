@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // These integration tests guard against the regression where directory
@@ -45,7 +46,7 @@ bundles:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profileYAML), 0644))
 
-	bundleDir := filepath.Join(root, ".ctxloom", "content", "bundles", "test")
+	bundleDir := filepath.Join(paths.LocalBundlesPathFor(filepath.Join(root, ".ctxloom"), paths.LayoutV1), "test")
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
 
 	alphaYAML := `version: "1.0.0"

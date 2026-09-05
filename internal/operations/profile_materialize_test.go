@@ -265,7 +265,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 	appDir, _ := regenTestApp(t)
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-	bundlesDir := paths.LocalBundlesPath(appDir)
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	skillDir := filepath.Join(bundlesDir, "skill-bundle", "skills", "humanize")
 	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "scripts"), 0755))
 
@@ -318,7 +318,7 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 	appDir, _ := regenTestApp(t)
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-	bundlesDir := paths.LocalBundlesPath(appDir)
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	skillDir := filepath.Join(bundlesDir, "skill-bundle", "skills", "reviewer")
 	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "scripts"), 0755))
 

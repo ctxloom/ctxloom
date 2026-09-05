@@ -67,7 +67,7 @@ mod harp "cmd/harp/justfile"
 # into its own checkout. isolation.versionProvenanceKey turns this marker into a
 # per-build image key, so versionator's definition would force an agent-image
 # rebuild on nearly every local build and deliver reuse only to CI.
-version := env_var_or_default("CTXLOOM_VERSION_STAMP", `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{BuildDateTimeCompact}}" --prefix 2>/dev/null); then v=$(echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'); case "$(git describe --always --dirty 2>/dev/null)" in *-dirty) echo "$v-dirty";; *) echo "$v";; esac; else echo dev; fi`)
+version := env_var_or_default("CTXLOOM_VERSION_STAMP", `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{BuildDateTimeCompact}}" --prefix 2>/dev/null); then v=$(echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'); case "$(git describe --always --dirty 2>/dev/null)" in *-dirty) echo "$v-dirty";; *) echo "$v";; esac; else echo "no version stamp: versionator is not installed or failed. Install it (version pinned in .devcontainer/tool-versions.env; CI uses 'just release-install-tools'), or set CTXLOOM_VERSION_STAMP to a stamp of the form v<major>.<minor>.<patch>-<short-sha>-<YYYYMMDDTHHMMSS>." >&2; echo no-versionator; fi`)
 
 # Static linking flags for builds that support it
 static_ldflags := "-linkmode external -extldflags '-static -pthread'"

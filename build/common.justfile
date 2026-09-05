@@ -39,7 +39,7 @@ TOP := if _git_top == "" { justfile_directory() } else { _git_top }
 # isolation.versionProvenanceKey turns a dirty stamp into a per-build
 # agent-image key, so either wrong definition rebuilds every agent image on
 # every build.
-version := env_var_or_default("CTXLOOM_VERSION_STAMP", `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{BuildDateTimeCompact}}" --prefix 2>/dev/null); then v=$(echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'); case "$(git describe --always --dirty 2>/dev/null)" in *-dirty) echo "$v-dirty";; *) echo "$v";; esac; else echo dev; fi`)
+version := env_var_or_default("CTXLOOM_VERSION_STAMP", `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{BuildDateTimeCompact}}" --prefix 2>/dev/null); then v=$(echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'); case "$(git describe --always --dirty 2>/dev/null)" in *-dirty) echo "$v-dirty";; *) echo "$v";; esac; else echo "no version stamp: versionator is not installed or failed. Install it (version pinned in .devcontainer/tool-versions.env; CI uses 'just release-install-tools'), or set CTXLOOM_VERSION_STAMP to a stamp of the form v<major>.<minor>.<patch>-<short-sha>-<YYYYMMDDTHHMMSS>." >&2; echo no-versionator; fi`)
 
 # Disable VCS stamping (git is often unusable inside the container worktree).
 buildvcs := "-buildvcs=false"

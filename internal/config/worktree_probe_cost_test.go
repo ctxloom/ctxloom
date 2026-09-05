@@ -14,10 +14,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// statCountingFs counts Stat calls per suffix. countingFs (stranded_bundles_test.go)
-// already counts Open in this package and is deliberately left alone; the walk
-// measured here is driven entirely by Stat, so it needs its own counter rather
-// than a second responsibility bolted onto that one.
+// statCountingFs counts Stat calls per suffix: the walk measured here is driven
+// entirely by Stat, so counting Open would measure nothing.
 type statCountingFs struct {
 	afero.Fs
 	stats map[string]int

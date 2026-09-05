@@ -34,9 +34,12 @@ bundles:
     # personal owns the bundle and carries the same content, pushed; this repo
     # cannot even sign its copy honestly, since git config here points at the
     # personal key rather than the ctxloom project key, so the signature
-    # verifies only via an untracked allowed_signers asserting one as the
-    # other. When unrevised-backspace is fixed, this line becomes the remote
-    # ref and this local copy is deleted.
+    # verifies via an allowed_signers entry asserting one as the other.
+    # (That file was UNTRACKED when this was written; it is committed as of
+    # 2026-09-04, so the assertion now travels with the repo rather than
+    # living only on one machine. The key mismatch it papers over is
+    # unchanged.) When unrevised-backspace is fixed, this line becomes the
+    # remote ref and this local copy is deleted.
     - unattended
 # NOTE (2026-07-22): deny_tools deliberately does NOT list Task. Task is
 # claude-code's internal coordination mechanism and stays available. The

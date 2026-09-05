@@ -550,7 +550,7 @@ func stageCompanions(contextDir string) error {
 		return fmt.Errorf("companions build context: %w", err)
 	}
 	for _, name := range companionBinaries {
-		src, err := exec.LookPath(name)
+		src, err := companionLookPath(name)
 		if err != nil {
 			clidiag.Warn("ctxloom", "companion %s not on PATH; the agent image builds without it", name)
 			continue
@@ -584,10 +584,11 @@ const provenanceLabel = "ctxloom.provenance"
 
 // HostProvenanceDigest returns the provenance label an agent image built NOW —
 // by this ctxloom, on the given base Containerfile config ("" = the embedded
-// default) — would carry: this build's version key, suffixed with the base
+// default) — would carry: this build's version key (ctxloom's own version plus
+// the staged companions' versions — see hostVersionKey), suffixed with the base
 // config's content hash. It is the STALENESS SIGNAL: a new ctxloom version, an
-// uncommitted (tracked-dirty) rebuild, or a changed base config changes it,
-// and ensureImage rebuilds. Empty when this binary carries no usable stamp or
+// uncommitted (tracked-dirty) rebuild, an updated companion, or a changed base
+// config changes it, and ensureImage rebuilds. Empty when this binary carries no usable stamp or
 // the base config can't be read — the check then disables rather than churn.
 // Exported so the build tooling (`ctxloom container provenance`) can stamp a
 // matching label.
@@ -600,12 +601,19 @@ func HostProvenanceDigest(baseContainerfile string) string {
 // only for a binary carrying no usable stamp — which internal/cli's root gate
 // refuses to run — and that emptiness is ANNOUNCED, because a check that
 // silently stops checking is indistinguishable from one that passed.
+//
+// It keys on EVERYTHING the image bakes, not just ctxloom: the companion half
+// (companionVersionKey) is what makes a new ltk/taskloom/reprise invalidate an
+// image the way a new ctxloom does. The companion digest is appended
+// unconditionally — including when no companion is installed at all — so
+// "no companions" is a stated state rather than a missing suffix.
 func hostVersionKey() string {
 	key := versionProvenanceKey(binaryVersion)
 	if key == "" {
 		warnProvenanceDisabled(binaryVersion)
+		return ""
 	}
-	return key
+	return key + companionKeySeparator + companionVersionKey()
 }
 
 // combineProvenance suffixes the version key with the base-config content

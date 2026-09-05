@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
@@ -203,6 +204,19 @@ type BundleRead struct {
 	// ctxloom:companion@<bin> ref. It is unexported for the same reason the
 	// axes are: identity decides which content answers to a name.
 	ref string
+
+	// layout is the on-disk bundle layout that answered for this read, or
+	// paths.LayoutUnknown for a read that came from somewhere with no layout at
+	// all — an installed remote tree, a companion, a builtin compiled into the
+	// binary. It is unexported for the same reason the axes are, and reaches a
+	// caller through Catalog.Locate.
+	layout paths.BundleLayout
+	// alsoIn names every OTHER layout the same resolution name was found in.
+	// A bundle present in both layouts is not an error — it is the expected
+	// steady state of a migration that is deliberately non-destructive — but a
+	// caller that cannot see it has no way to tell a migrated bundle from one
+	// whose migration silently changed nothing.
+	alsoIn []paths.BundleLayout
 
 	trustCtx  TrustCtx
 	signature Signature

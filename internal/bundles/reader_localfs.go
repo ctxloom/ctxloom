@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -147,29 +148,112 @@ func (r *localFSReader) contentProvenance() ProvenanceClass { return r.provenanc
 func (r *localFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 	var out []BundleRead
 	seen := collections.NewSet[string]()
-	for _, dir := range r.dirs {
+	// sightings records EVERY layout a name was found in, including the ones
+	// `seen` shadowed. Without it a bundle present in both layouts is
+	// indistinguishable from one present in a single layout, which is exactly
+	// the fact Located.AlsoIn exists to report.
+	sightings := map[string][]paths.BundleLayout{}
+	for _, root := range r.searchRoots() {
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
-		exists, err := afero.DirExists(r.fsys, dir)
+		exists, err := afero.DirExists(r.fsys, root.dir)
 		if err != nil {
 			strictness.FailOnce(strictness.ClassBundle, "check the permissions on your bundles directory",
-				"cannot read bundles directory %s: %v", dir, err)
+				"cannot read bundles directory %s: %v", root.dir, err)
 			continue
 		}
 		if !exists {
 			continue
 		}
-		out = r.readDir(ctx, dir, out, seen)
+		out = r.readDir(ctx, root, out, seen, sightings)
+	}
+	for i := range out {
+		out[i].alsoIn = otherLayouts(sightings[out[i].ref], out[i].layout)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ref < out[j].ref })
 	return out, nil
 }
 
+// bundleSearchRoot is one directory to walk together with the layout it holds.
+// The pair travels as one value because a read is worthless without it: a bare
+// path cannot say which form answered, which is the silent wrong answer
+// Catalog.Locate exists to remove.
+type bundleSearchRoot struct {
+	dir    string
+	layout paths.BundleLayout
+	// exclude is a subdirectory of dir this walk must not descend into. It is
+	// non-empty only for the layout whose root CONTAINS the other's — today
+	// that is v1, whose root is the bundles directory itself and therefore has
+	// v2 sitting inside it. It goes away when v1 is relocated into its own
+	// directory and the two roots become siblings.
+	exclude string
+}
+
+// bundleLayoutPrecedence is the order layouts are searched WITHIN one search
+// directory, most preferred first.
+//
+// V2 WINS, and that is an INVERSION of what this reader used to do: a walk
+// yields "<name>" before "<name>.yaml" only by lexical accident, and the
+// bundle-as-tree design names the consequence of getting it wrong — a
+// same-name migration keeps serving the monolith, so the migration "would
+// appear to succeed and change nothing". Pinned by
+// TestLocate_V2WinsOverV1AndReportsTheOther.
+var bundleLayoutPrecedence = []paths.BundleLayout{paths.LayoutV2, paths.LayoutV1}
+
+// searchRoots expands each configured search directory into its per-layout
+// roots, most preferred first.
+//
+// The expansion is DIR-MAJOR: every layout of the first search directory is
+// tried before any layout of the second. That keeps the search-path precedence
+// this loader has always had — an earlier directory still wins outright — and
+// makes the layout preference a tiebreak within one directory rather than a
+// second axis competing with it.
+func (r *localFSReader) searchRoots() []bundleSearchRoot {
+	roots := make([]bundleSearchRoot, 0, len(r.dirs)*len(bundleLayoutPrecedence))
+	for _, dir := range r.dirs {
+		for _, l := range bundleLayoutPrecedence {
+			root := bundleSearchRoot{dir: paths.BundlesLayoutRoot(dir, l), layout: l}
+			// Any OTHER layout whose root is nested inside this one must be
+			// excluded, or its bundles are also found by this walk under a
+			// path-derived name carrying the layout segment ("v2/unattended").
+			for _, other := range bundleLayoutPrecedence {
+				if other == l {
+					continue
+				}
+				if o := paths.BundlesLayoutRoot(dir, other); o != root.dir && strings.HasPrefix(o, root.dir+string(filepath.Separator)) {
+					root.exclude = o
+				}
+			}
+			roots = append(roots, root)
+		}
+	}
+	return roots
+}
+
+// otherLayouts reduces every layout a name was seen in to the ones that did NOT
+// answer, deduplicated and in precedence order.
+func otherLayouts(seen []paths.BundleLayout, winner paths.BundleLayout) []paths.BundleLayout {
+	var out []paths.BundleLayout
+	for _, l := range bundleLayoutPrecedence {
+		if l == winner {
+			continue
+		}
+		for _, s := range seen {
+			if s == l {
+				out = append(out, l)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // readDir walks one search directory, appending a read per bundle found. Names
 // already seen in an earlier directory win, which is the search-path precedence
 // the loader has always had.
-func (r *localFSReader) readDir(ctx context.Context, dir string, out []BundleRead, seen collections.Set[string]) []BundleRead {
+func (r *localFSReader) readDir(ctx context.Context, root bundleSearchRoot, out []BundleRead, seen collections.Set[string], sightings map[string][]paths.BundleLayout) []BundleRead {
+	dir := root.dir
 	walkErr := afero.Walk(r.fsys, dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			// Per-entry walk failure: report and keep walking, so one unreadable
@@ -178,8 +262,15 @@ func (r *localFSReader) readDir(ctx context.Context, dir string, out []BundleRea
 				"skipping unreadable bundle path %s: %v", path, err)
 			return nil
 		}
+		if root.exclude != "" && info.IsDir() && path == root.exclude {
+			return filepath.SkipDir
+		}
 		manifest, name, ok := r.bundleAt(dir, path, info)
-		if !ok || seen.Has(name) {
+		if !ok {
+			return nil
+		}
+		sightings[name] = append(sightings[name], root.layout)
+		if seen.Has(name) {
 			return nil
 		}
 		read, rerr := r.readBundle(ctx, manifest, name)
@@ -193,6 +284,7 @@ func (r *localFSReader) readDir(ctx context.Context, dir string, out []BundleRea
 			return nil
 		}
 		seen.Add(name)
+		read.layout = root.layout
 		out = append(out, read)
 		return nil
 	})

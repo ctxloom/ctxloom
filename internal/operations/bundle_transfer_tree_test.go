@@ -100,7 +100,9 @@ func memTreeBundleFS(t *testing.T) (afero.Fs, *config.Config, string) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	src := filepath.Join(paths.LocalBundlesPath(appDir), "toolkit")
+	// LayoutV2: "toolkit" is DIRECTORY form, so it is seeded in the v2 root —
+	// the one the reader searches for a tree.
+	src := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV2), "toolkit")
 	writeTree(t, fs, src, treeBundleFiles)
 	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), src
 }
@@ -140,7 +142,7 @@ func TestImportBundleTree_LandsUnderItsOwnNameNotBundle(t *testing.T) {
 	imported, err := ImportBundle(context.Background(), consumer, ImportBundleRequest{SourcePath: exported.Dest, FS: fs})
 	require.NoError(t, err)
 
-	consumerBundles := paths.LocalBundlesPath(consumer.GetAppPaths()[0])
+	consumerBundles := paths.LocalBundlesPathFor(consumer.GetAppPaths()[0], paths.LayoutV2)
 	assert.Equal(t, filepath.Join(consumerBundles, "toolkit"), imported.Dest)
 
 	// The old defect landed the manifest flat, renamed to "bundle" — a path
@@ -163,7 +165,7 @@ func TestImportBundleTree_ManifestPathResolvesToTheWholeTree(t *testing.T) {
 		ImportBundleRequest{SourcePath: filepath.Join(exported.Dest, "bundle.yaml"), FS: fs})
 	require.NoError(t, err)
 
-	assert.Equal(t, filepath.Join(paths.LocalBundlesPath(consumer.GetAppPaths()[0]), "toolkit"), imported.Dest)
+	assert.Equal(t, filepath.Join(paths.LocalBundlesPathFor(consumer.GetAppPaths()[0], paths.LayoutV2), "toolkit"), imported.Dest)
 	assertTreesIdentical(t, want, readTree(t, fs, imported.Dest))
 }
 
@@ -196,7 +198,7 @@ func TestImportBundleTree_ExistingTreeRefusedThenReplacedWholesale(t *testing.T)
 // tree work: a single-file bundle still lands as one file named for the bundle.
 func TestExportBundle_SingleFileFormUnchanged(t *testing.T) {
 	fs, cfg := memBundleFS(t)
-	want, err := afero.ReadFile(fs, filepath.Join(paths.LocalBundlesPath(filepath.Join("/proj", ".ctxloom")), "seed.yaml"))
+	want, err := afero.ReadFile(fs, filepath.Join(paths.LocalBundlesPathFor(filepath.Join("/proj", ".ctxloom"), paths.LayoutV1), "seed.yaml"))
 	require.NoError(t, err)
 	require.NotZero(t, len(want), "fixture bundle is empty; the byte comparison below would prove nothing")
 

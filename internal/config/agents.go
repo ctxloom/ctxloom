@@ -58,11 +58,9 @@ func (c *Config) Agent(name string) (agents.Agent, bool) {
 // move is demanded, not performed: ctxloom does not rewrite content it did not
 // author in this run.
 //
-// Same shape and same reason as legacyCacheBundlesSignpost, the other "this
-// location is no longer read" gate — including FailOnce, because Agent(name)
-// re-runs LoadAgents on every lookup and one command reaches it several times
-// (ResolveAgent, DefaultAgentProfiles, `agent show`), so the finding must not
-// stack up inside one startup window.
+// FailOnce, because Agent(name) re-runs LoadAgents on every lookup and one
+// command reaches it several times (ResolveAgent, DefaultAgentProfiles,
+// `agent show`), so the finding must not stack up inside one startup window.
 func (c *Config) retiredAgentsDirSignpost() {
 	fs := c.getFS()
 	for _, appPath := range c.appPaths {

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
@@ -2095,15 +2094,10 @@ func worktreeSignpost(fs afero.Fs, dir string) {
 // publishing repo's bundles ARE this directory). The cache
 // (paths.CacheBundlesPath) holds remote-pull artifacts the project has no authority
 // to author or sign, so it is deliberately absent.
-//
-// A cache/bundles left holding AUTHORED work from the pre-content layout is
-// not silently skipped — that would delete a user's bundles from view. See
-// legacyCacheBundlesSignpost.
 func (c *Config) GetBundleDirs() []string {
 	fs := c.getFS()
 	var dirs []string
 	for _, appPath := range c.appPaths {
-		c.legacyCacheBundlesSignpost(fs, appPath)
 		bundleDir := paths.LocalBundlesPath(appPath)
 		if info, err := fs.Stat(bundleDir); err == nil && info.IsDir() {
 			dirs = append(dirs, bundleDir)
@@ -2127,167 +2121,11 @@ func (c *Config) GetBundleDirs() []string {
 // Passing the configured dirs unconditionally costs nothing: localFSReader.Read
 // already skips a directory that is not there.
 func (c *Config) bundleReaderDirs() []string {
-	fs := c.getFS()
 	dirs := make([]string, 0, len(c.appPaths))
 	for _, appPath := range c.appPaths {
-		c.legacyCacheBundlesSignpost(fs, appPath)
 		dirs = append(dirs, paths.LocalBundlesPath(appPath))
 	}
 	return dirs
-}
-
-// legacyCacheBundlesSignpost records a fatal ClassMigration finding when
-// .ctxloom/cache/bundles still holds AUTHORED bundles — bundles written there
-// by the pre-content-tree `bundle create`, which the authored read/write path
-// no longer looks at. Ignoring them silently would make a user's own work
-// vanish from `bundle list` and `sign --all` with no explanation, so the move
-// is demanded, not performed: ctxloom does not rewrite content it did not
-// author in this run (no-backward-compat-shims — re-place, don't shim).
-//
-// Remote-pull artifacts in the same tree (identified by a `_source.sha`) are
-// genuine cache and
-// never fire this: they are regenerable from the lockfile + clone cache.
-//
-// A pulled DIRECTORY-FORM bundle is regenerable cache too, and it carries no
-// `_source` block — it cannot: its files are the publisher's exact bytes, and
-// stamping a marker into them would mean the tree a consumer holds is not the
-// tree that was published. The lockfile is asked instead, which is the actual
-// authority on what was pulled, and it is asked LAZILY: only once a walk has
-// already found something it would otherwise complain about, so the ordinary
-// path (nothing stranded) still costs no lockfile read.
-//
-// FailOnce, because GetBundleDirs is called many times per process (every
-// loader build) and the finding must not stack up inside one startup window.
-func (c *Config) legacyCacheBundlesSignpost(fs afero.Fs, appPath string) {
-	cacheBundles := paths.CacheBundlesPath(appPath)
-	stranded := strandedAuthoredBundles(fs, cacheBundles)
-	if len(stranded) == 0 {
-		return
-	}
-	stranded = withoutPulledTrees(stranded, c.pulledTreeRoots(appPath))
-	if len(stranded) == 0 {
-		return
-	}
-	strictness.FailOnce(strictness.ClassMigration,
-		fmt.Sprintf("move them into the committed content tree: mkdir -p %s && git mv %s/* %s/ (or plain mv outside git)",
-			paths.LocalBundlesPath(appPath), cacheBundles, paths.LocalBundlesPath(appPath)),
-		"%s holds %d authored bundle(s) (%s) but authored bundles now live in %s — the cache is gitignored and is no longer read, so these are invisible to `bundle list`, `run`, and `sign --all`",
-		cacheBundles, len(stranded), strings.Join(stranded, ", "), paths.LocalBundlesPath(appPath))
-}
-
-// pulledTreeRoots returns the cache-relative directories that lockfile-pinned
-// DIRECTORY-FORM bundles install into, as forward-slash prefixes.
-//
-// A failure to read the lockfile yields nothing, which makes the caller's
-// filter a no-op and every cache YAML stranded again. That is the safe
-// direction: the signpost's whole bias is that anything it cannot prove is
-// regenerable gets named, and a lockfile it could not read proves nothing.
-func (c *Config) pulledTreeRoots(appPath string) []string {
-	lock, err := remote.NewLockfileManager(appPath, c.lockfileFSOptions()...).Load()
-	if err != nil || lock == nil {
-		return nil
-	}
-	cacheBundles := paths.CacheBundlesPath(appPath)
-	var roots []string
-	for key := range lock.Bundles {
-		ref, perr := remote.ParseReference(key)
-		if perr != nil || !ref.IsCanonical() {
-			continue
-		}
-		rel, rerr := filepath.Rel(cacheBundles, ref.LocalTreePath(appPath))
-		if rerr != nil {
-			continue
-		}
-		roots = append(roots, filepath.ToSlash(rel)+"/")
-	}
-	return roots
-}
-
-// withoutPulledTrees drops every stranded entry that lies inside one of the
-// pulled tree roots. Matching is on the SLASH-TERMINATED root so a bundle named
-// "atelier" cannot swallow a stranded "atelier-notes.yaml" beside it.
-func withoutPulledTrees(stranded, roots []string) []string {
-	if len(roots) == 0 {
-		return stranded
-	}
-	kept := stranded[:0:0]
-	for _, s := range stranded {
-		pulled := false
-		for _, root := range roots {
-			if strings.HasPrefix(s, root) {
-				pulled = true
-				break
-			}
-		}
-		if !pulled {
-			kept = append(kept, s)
-		}
-	}
-	return kept
-}
-
-// strandedAuthoredBundles walks a legacy cache/bundles tree and returns the
-// base names of every YAML that is NOT a remote-pull artifact — i.e. every file
-// that can only have been authored locally. Unreadable/unparseable files are
-// treated as authored: a file we cannot prove is regenerable cache is work we
-// must not tell the user to ignore.
-func strandedAuthoredBundles(fs afero.Fs, cacheBundles string) []string {
-	if info, err := fs.Stat(cacheBundles); err != nil || !info.IsDir() {
-		return nil
-	}
-	var stranded []string
-	rel := func(path string) string {
-		r, rerr := filepath.Rel(cacheBundles, path)
-		if rerr != nil {
-			return filepath.Base(path)
-		}
-		return filepath.ToSlash(r)
-	}
-	walkErr := afero.Walk(fs, cacheBundles, func(path string, info os.FileInfo, err error) error {
-		if strandedCacheEntry(fs, path, info, err) {
-			stranded = append(stranded, rel(path))
-		}
-		return nil //nolint:nilerr // one unreadable entry never aborts the scan
-	})
-	if walkErr != nil {
-		// The callback never returns an error, so this is defence against a
-		// future one rather than a live path — but a scan that stopped early
-		// under-reports, and under-reporting is precisely what this function
-		// must not do silently.
-		clidiag.Warn("ctxloom", "scan of %s stopped early (%v); the stranded-bundle list may be incomplete", cacheBundles, walkErr)
-	}
-	sort.Strings(stranded)
-	return stranded
-}
-
-// strandedCacheEntry decides whether one walked entry under a legacy
-// cache/bundles tree is authored work rather than regenerable cache.
-//
-// The bias is stated in strandedAuthoredBundles' doc and this is where it lives:
-// anything we cannot PROVE is regenerable counts. An entry we could not even
-// read is the strongest such case — a directory we cannot enumerate hides an
-// unknown number of authored bundles, and naming it is the only honest thing
-// left to say — while anything that is neither a directory nor a YAML was never
-// a bundle and stays out.
-func strandedCacheEntry(fs afero.Fs, path string, info os.FileInfo, err error) bool {
-	if err != nil {
-		return (info != nil && info.IsDir()) || strings.HasSuffix(path, ".yaml")
-	}
-	if info == nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") {
-		return false
-	}
-	data, rerr := afero.ReadFile(fs, path)
-	if rerr != nil {
-		return true // unreadable: cannot be shown to be cache, so it is authored
-	}
-	// Legacy remote-pull artifacts embed a `_source` block; a non-empty SHA
-	// there unambiguously marks one.
-	var meta struct {
-		Source struct {
-			SHA string `yaml:"sha"`
-		} `yaml:"_source"`
-	}
-	return yaml.Unmarshal(data, &meta) != nil || meta.Source.SHA == ""
 }
 
 // BundleLoaderOption configures how a Config builds its bundle loader. It is a

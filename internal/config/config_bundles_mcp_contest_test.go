@@ -21,7 +21,7 @@ func mcpContestFixture(t *testing.T, bundleYAML map[string]string, profileBundle
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1) // committed content tree
+	bundlesDir := paths.LocalBundlesPath(appDir) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 

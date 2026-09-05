@@ -25,7 +25,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/errs"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -341,26 +340,13 @@ func ListLocalBundleNames(cfg *config.Config, fs afero.Fs) ([]string, error) {
 			names = append(names, name)
 		}
 	}
-	// GetBundleDirs returns the bundles ROOT; the bundles themselves live in
-	// its per-layout subdirectories. Walking the root itself would name every
-	// bundle by its path RELATIVE TO THE ROOT, so the layout segment would ride
-	// into the name ("v1/my-tools") and `sign --all` would then ask to sign a
-	// bundle nothing can resolve. Names must be relative to the LAYOUT root, so
-	// each layout is walked as its own search root — exactly as the bundle
-	// reader does it (bundles.localFSReader.searchRoots).
-	var roots []string
 	for _, dir := range cfg.GetBundleDirs() {
-		for _, layout := range []paths.BundleLayout{paths.LayoutV1, paths.LayoutV2} {
-			roots = append(roots, paths.BundlesLayoutRoot(dir, layout))
-		}
-	}
-	for _, dir := range roots {
-		// An ABSENT dir is legitimately nothing to list — a project may hold
-		// only one of the two layouts. An unreadable one (wrong permissions, a
-		// file where a directory should be, an I/O error) is a failure to find
-		// out, and swallowing it made a misconfigured GetBundleDirs
-		// indistinguishable from an empty project — `sign --all` then reported
-		// "no local bundles to sign" and exited 0.
+		// An ABSENT dir is legitimately nothing to list; an unreadable one
+		// (wrong permissions, a file where a directory should be, an I/O
+		// error) is a failure to find out, and swallowing it made a
+		// misconfigured GetBundleDirs indistinguishable from an empty
+		// project — `sign --all` then reported "no local bundles to sign"
+		// and exited 0.
 		if _, err := afero.ReadDir(fs, dir); err != nil {
 			if errors.Is(err, fs2.ErrNotExist) {
 				continue

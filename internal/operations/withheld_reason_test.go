@@ -126,7 +126,7 @@ func TestAssembleContext_WarnWithheld_NamesReason_FullPath(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "") // no ssh-agent: SetBlacklist below degrades to the unsigned path
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
+	bundlesDir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, fs.MkdirAll(bundlesDir, 0o755))
 	bundleYAML := `version: "1.0"
 description: local dev

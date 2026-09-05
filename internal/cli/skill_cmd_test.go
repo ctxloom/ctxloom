@@ -149,7 +149,7 @@ func TestSkillSyncTarget_RefusesAnotherKindsSelector(t *testing.T) {
 // require (a single-file bundle cannot hold a skill package).
 func dirFormBundle(t *testing.T, appDir, name string) {
 	t.Helper()
-	dir := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV2), name)
+	dir := filepath.Join(paths.LocalBundlesPath(appDir), name)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "bundle.yaml"), []byte("version: \"1.0\"\n"), 0o644))
 }

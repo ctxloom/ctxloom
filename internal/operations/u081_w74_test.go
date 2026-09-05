@@ -39,18 +39,13 @@ func w74ShortNameFS(t *testing.T, withLocalFile bool) (afero.Fs, *config.Config,
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "remotes.yaml"),
 		[]byte("default: personal\nremotes:\n  personal:\n    url: "+w74RemoteURL+"\n    version: v1\n"), 0644))
 
-	// root is the bundles ROOT handed to NewProjectReader (which does its own
-	// v1/v2 layout search); bdir is where the fixture actually writes the
-	// single-file document — those are two different paths since the
-	// relocation.
-	root := paths.LocalBundlesPath(appDir)
-	bdir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
+	bdir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, fs.MkdirAll(filepath.Join(bdir, "personal"), 0755))
 	if withLocalFile {
 		require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "personal", "tool.yaml"),
 			[]byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
 	}
-	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), []string{root}
+	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), []string{bdir}
 }
 
 // TestCanonicalizeBundleArg_ResolvesAgainstTheInjectedFS proves the filesystem

@@ -195,7 +195,7 @@ func setupBundleTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	_ = fs.MkdirAll(paths.LocalBundlesPathFor(testBaseDir, paths.LayoutV1), 0755)
+	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
 
 	// Create a test bundle with fragments and prompts
 	bundleContent := `version: "1.0"
@@ -225,7 +225,7 @@ commands:
       # Refactoring
       Refactor this code for clarity
 `
-	_ = afero.WriteFile(fs, paths.LocalBundlesPathFor(testBaseDir, paths.LayoutV1)+"/test-bundle.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/test-bundle.yaml", []byte(bundleContent), 0644)
 
 	// Create another bundle
 	anotherBundle := `version: "1.0"
@@ -234,7 +234,7 @@ fragments:
     tags: ["python", "scripting"]
     content: Python development tips
 `
-	_ = afero.WriteFile(fs, paths.LocalBundlesPathFor(testBaseDir, paths.LayoutV1)+"/another.yaml", []byte(anotherBundle), 0644)
+	_ = afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/another.yaml", []byte(anotherBundle), 0644)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 	return fs, loader

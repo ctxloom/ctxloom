@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -35,10 +34,9 @@ func writeFile(t *testing.T, path, body string) {
 func writeAgentProfileFixture(t *testing.T, root string) {
 	t.Helper()
 	app := filepath.Join(root, ".ctxloom")
-	bundlesV1 := paths.LocalBundlesPathFor(app, paths.LayoutV1)
-	writeFile(t, filepath.Join(bundlesV1, "kit1.yaml"),
+	writeFile(t, filepath.Join(app, "content", "bundles", "kit1.yaml"),
 		"version: \"1.0.0\"\nfragments:\n  f1:\n    content: \"FRAG-ONE\"\n")
-	writeFile(t, filepath.Join(bundlesV1, "kit2.yaml"),
+	writeFile(t, filepath.Join(app, "content", "bundles", "kit2.yaml"),
 		"version: \"1.0.0\"\nfragments:\n  f2:\n    content: \"FRAG-TWO\"\n")
 	writeFile(t, filepath.Join(app, "profiles", "p1.yaml"),
 		"llm: fast\nbundles:\n  - ctxloom:local@bundles/kit1\n")

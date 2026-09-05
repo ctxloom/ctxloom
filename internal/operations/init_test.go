@@ -32,13 +32,9 @@ func TestInitializeProject(t *testing.T) {
 	// `role` is registry-only metadata stripped on write — it must never persist.
 	assert.NotContains(t, body, "role:")
 
-	// The LAYOUT ROOT, not merely its parent: init scaffolds where authored
-	// bundles actually go, and the parent exists as a side effect of creating
-	// any child — so asserting the parent passes even when init scaffolds a
-	// directory the reader never searches.
-	bundlesDir, err := afero.DirExists(fs, paths.LocalBundlesPathFor(appDir, paths.LayoutV1))
+	bundlesDir, err := afero.DirExists(fs, paths.LocalBundlesPath(appDir))
 	require.NoError(t, err)
-	assert.True(t, bundlesDir, "the v1 bundles layout root should be created")
+	assert.True(t, bundlesDir, "bundles dir should be created")
 
 	remotesExists, err := afero.Exists(fs, paths.RemotesPath(appDir))
 	require.NoError(t, err)

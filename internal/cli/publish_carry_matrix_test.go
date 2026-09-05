@@ -167,7 +167,7 @@ var editedBundleBytes = []byte("version: 2.0.0\nfragments:\n  intro:\n    conten
 // localBundlePath is the on-disk path of the "for-push" bundle in a
 // pushSignTestSetup project.
 func localBundlePath(cfg *config.Config) string {
-	return filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV1), "for-push.yaml")
+	return filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml")
 }
 
 // applySidecarState puts the bundle into the requested (bytes, sidecar) state

@@ -13,7 +13,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -24,7 +23,7 @@ func regenTestApp(t *testing.T) (appDir, workDir string) {
 	t.Helper()
 	tmp := t.TempDir()
 	appDir = filepath.Join(tmp, ".ctxloom")
-	require.NoError(t, os.MkdirAll(paths.LocalBundlesPathFor(appDir, paths.LayoutV1), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "content", "bundles"), 0o755))
 	workDir = filepath.Join(tmp, "work")
 	require.NoError(t, os.MkdirAll(workDir, 0o755))
 	return appDir, workDir
@@ -33,7 +32,7 @@ func regenTestApp(t *testing.T) (appDir, workDir string) {
 func writeRegenBundle(t *testing.T, appDir, name, content string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(
-		filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV1), name+".yaml"), []byte(content), 0o644))
+		filepath.Join(appDir, "content", "bundles", name+".yaml"), []byte(content), 0o644))
 }
 
 // TestRegenerateContext_AppliesExcludeFragments pins regenerateContext to the

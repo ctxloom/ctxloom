@@ -35,21 +35,6 @@ type localFSReader struct {
 	provenance ProvenanceClass
 	cfg        readerConfig
 
-	// layered says whether dirs are bundles ROOTS carrying the v1/v2 layout
-	// subdirectories, or directories holding bundles DIRECTLY.
-	//
-	// It is hard-coded per constructor, like fsys and provenance and for the
-	// same reason: it decides where this reader looks, and a caller free to
-	// choose could point the layered walk at a tree that has no layout
-	// directories and get a silent empty read.
-	//
-	// The project's authored tree is layered; the EMBEDDED builtin tree is not
-	// — its bundles sit at the root of the embed.FS, and there is no v1/ or v2/
-	// to descend into. An unlayered read stamps LayoutUnknown, which is what
-	// that constant is for: a builtin compiled into the binary genuinely has no
-	// on-disk layout, and attributing one to it would be a fact nothing backs.
-	layered bool
-
 	// failed records, per resolution name, WHY a bundle this reader should
 	// have had is missing. Without it an unparseable bundle reaches the person
 	// who asked for it by name as a bare "not found", which points them at
@@ -79,7 +64,6 @@ func NewProjectReader(fsys afero.Fs, dirs []string, opts ...ReaderOption) Reader
 		dirs:       dirs,
 		provenance: ProvenanceProject,
 		cfg:        newReaderConfig(opts),
-		layered:    true,
 	}
 }
 
@@ -198,6 +182,12 @@ func (r *localFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 type bundleSearchRoot struct {
 	dir    string
 	layout paths.BundleLayout
+	// exclude is a subdirectory of dir this walk must not descend into. It is
+	// non-empty only for the layout whose root CONTAINS the other's — today
+	// that is v1, whose root is the bundles directory itself and therefore has
+	// v2 sitting inside it. It goes away when v1 is relocated into its own
+	// directory and the two roots become siblings.
+	exclude string
 }
 
 // bundleLayoutPrecedence is the order layouts are searched WITHIN one search
@@ -220,24 +210,22 @@ var bundleLayoutPrecedence = []paths.BundleLayout{paths.LayoutV2, paths.LayoutV1
 // makes the layout preference a tiebreak within one directory rather than a
 // second axis competing with it.
 func (r *localFSReader) searchRoots() []bundleSearchRoot {
-	if !r.layered {
-		// An unlayered tree holds its bundles directly, with no v1/ or v2/ to
-		// descend into. Searching the layout roots here would walk two
-		// directories that do not exist and report the tree as empty.
-		roots := make([]bundleSearchRoot, 0, len(r.dirs))
-		for _, dir := range r.dirs {
-			roots = append(roots, bundleSearchRoot{dir: dir, layout: paths.LayoutUnknown})
-		}
-		return roots
-	}
 	roots := make([]bundleSearchRoot, 0, len(r.dirs)*len(bundleLayoutPrecedence))
 	for _, dir := range r.dirs {
 		for _, l := range bundleLayoutPrecedence {
-			// No layout root nests inside another: every layout contributes a
-			// real segment, so v1/ and v2/ are siblings and one walk cannot
-			// reach the other's bundles under a name carrying a layout segment
-			// ("v2/unattended").
-			roots = append(roots, bundleSearchRoot{dir: paths.BundlesLayoutRoot(dir, l), layout: l})
+			root := bundleSearchRoot{dir: paths.BundlesLayoutRoot(dir, l), layout: l}
+			// Any OTHER layout whose root is nested inside this one must be
+			// excluded, or its bundles are also found by this walk under a
+			// path-derived name carrying the layout segment ("v2/unattended").
+			for _, other := range bundleLayoutPrecedence {
+				if other == l {
+					continue
+				}
+				if o := paths.BundlesLayoutRoot(dir, other); o != root.dir && strings.HasPrefix(o, root.dir+string(filepath.Separator)) {
+					root.exclude = o
+				}
+			}
+			roots = append(roots, root)
 		}
 	}
 	return roots
@@ -273,6 +261,9 @@ func (r *localFSReader) readDir(ctx context.Context, root bundleSearchRoot, out 
 			strictness.FailOnce(strictness.ClassBundle, "check the permissions on your bundles directory",
 				"skipping unreadable bundle path %s: %v", path, err)
 			return nil
+		}
+		if root.exclude != "" && info.IsDir() && path == root.exclude {
+			return filepath.SkipDir
 		}
 		manifest, name, ok := r.bundleAt(dir, path, info)
 		if !ok {

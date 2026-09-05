@@ -45,9 +45,9 @@ func builtinIsolationContent(t *testing.T) string {
 // writeIngestBundle drops a bundle into the test project's bundles dir.
 func writeIngestBundle(t *testing.T, fs afero.Fs, name, body string) {
 	t.Helper()
-	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPathFor(testBaseDir, paths.LayoutV1), 0o755))
+	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0o755))
 	require.NoError(t, afero.WriteFile(fs,
-		paths.LocalBundlesPathFor(testBaseDir, paths.LayoutV1)+"/"+name+".yaml", []byte(body), 0o644))
+		paths.LocalBundlesPath(testBaseDir)+"/"+name+".yaml", []byte(body), 0o644))
 }
 
 // ingestLoader rebuilds a loader over fs after extra bundles have been written.

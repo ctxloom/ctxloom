@@ -271,9 +271,7 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		return nil, fmt.Errorf("invalid bundle file: %w", err)
 	}
 
-	// LayoutV1: this import accepts a single-file bundle document only (the
-	// requireLoadableName gate above), which is exactly what v1 holds.
-	bundleDir := paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV1)
+	bundleDir := paths.LocalBundlesPath(cfg.GetAppPaths()[0])
 	destPath := filepath.Join(bundleDir, filepath.Base(req.SourcePath))
 	if err := requireSafeBundlePath([]string{bundleDir}, destPath); err != nil {
 		return nil, err

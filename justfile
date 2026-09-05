@@ -52,7 +52,20 @@ go_tmp := env_var_or_default("CTXLOOM_GOTMPDIR", "/var/tmp/ctxloom-gotmp")
 _ensure-gotmpdir:
     @mkdir -p "{{go_tmp}}"
 
-# Get version from versionator (with fallback for CI without versionator).
+# Get version from versionator. There is no placeholder stamp: when versionator
+# cannot produce one, the else branch names the cause and the remedy on stderr
+# and emits a value cmd/validate refuses, so the problem is reported where it
+# happens instead of surfacing later as an unexplained build failure.
+#
+# That branch deliberately does NOT `exit 1`, and this is load-bearing rather
+# than stylistic: just evaluates every variable assignment EAGERLY on any
+# recipe run, and `env_var_or_default` evaluates its backtick even when the env
+# var is set. A nonzero exit here would therefore abort recipes that never use
+# the stamp -- including `ci-git-safe-directory` and `release-install-tools`,
+# which release-completer.yml runs inside goreleaser-cross BEFORE versionator
+# exists. MEASURED: `just ci-git-safe-directory` with versionator off PATH
+# exits 0 as written and exits 1 with an `exit 1` there, deadlocking the recipe
+# whose whole job is to install versionator.
 # Standardized stamp format across the ctxloom family:
 #   v<major.minor.patch>-<short-sha>-<YYYYMMDDTHHMMSS commit datetime, utc>
 # versionator emits the compact datetime (no separator); sed inserts the 'T'.
@@ -62,7 +75,7 @@ _ensure-gotmpdir:
 # into its own checkout. isolation.versionProvenanceKey turns this marker into a
 # per-build image key, so versionator's definition would force an agent-image
 # rebuild on nearly every local build and deliver reuse only to CI.
-version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{BuildDateTimeCompact}}" --prefix 2>/dev/null); then v=$(echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'); case "$(git describe --always --dirty 2>/dev/null)" in *-dirty) echo "$v-dirty";; *) echo "$v";; esac; else echo dev; fi`
+version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{BuildDateTimeCompact}}" --prefix 2>/dev/null); then v=$(echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'); case "$(git describe --always --dirty 2>/dev/null)" in *-dirty) echo "$v-dirty";; *) echo "$v";; esac; else echo "no version stamp: versionator is not installed or failed. Install it (version pinned in .devcontainer/tool-versions.env; CI uses 'just release-install-tools'), or set CTXLOOM_VERSION_STAMP to a stamp of the form v<major>.<minor>.<patch>-<short-sha>-<YYYYMMDDTHHMMSS>." >&2; echo no-versionator; fi`
 
 # ===== Version management (versionator) =====
 

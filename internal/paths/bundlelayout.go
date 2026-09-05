@@ -160,6 +160,16 @@ func RepoBundlesRoot() string {
 	return path.Join(RepoContentPrefix, BundlesDir)
 }
 
+// ContentBundlesRoot returns the bundles root RELATIVE TO THE CONTENT ROOT —
+// what RepoBundlesRoot names, for a reader that has already resolved
+// .ctxloom/content/ itself.
+//
+// Like RepoBundlesRoot this is the parent of every layout, not one layout's
+// prefix, because it is what a LISTING walks.
+func ContentBundlesRoot() string {
+	return BundlesDir
+}
+
 // bundleLayouts is every layout that names a real on-disk shape, longest
 // segment first so TrimBundlesLayoutSegment cannot strip a shorter segment that
 // happens to prefix a longer one.

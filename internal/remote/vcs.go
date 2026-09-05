@@ -228,7 +228,7 @@ func (v *fsVCS) ReadFile(_ context.Context, path string) ([]byte, error) {
 // regardless — rather than surfacing that the listing could not actually
 // run. Only a genuine, cleanly-answered "not there" degrades to empty.
 func (v *fsVCS) ListItems(_ context.Context, kind ItemType) ([]string, error) {
-	base := filepath.Join(v.root, kind.DirName())
+	base := filepath.Join(v.root, ContentItemRoot(kind))
 	exists, err := afero.DirExists(v.fs, base)
 	if err != nil {
 		return nil, fmt.Errorf("check %s exists: %w", base, err)
@@ -248,7 +248,8 @@ func (v *fsVCS) ListItems(_ context.Context, kind ItemType) ([]string, error) {
 		if relErr != nil {
 			return fmt.Errorf("relativize %s under %s: %w", p, base, relErr)
 		}
-		items = append(items, strings.TrimSuffix(filepath.ToSlash(rel), ".yaml"))
+		name := strings.TrimSuffix(filepath.ToSlash(rel), ".yaml")
+		items = append(items, RepoItemName(kind, name))
 		return nil
 	})
 	if walkErr != nil {

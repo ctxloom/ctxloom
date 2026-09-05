@@ -48,6 +48,13 @@ func RepoItemRoot(_ ItemType) string {
 	return paths.RepoBundlesRoot()
 }
 
+// ContentItemRoot is RepoItemRoot relative to an already-open content root —
+// the root a FILESYSTEM listing walks, for a backend handed .ctxloom/content/
+// rather than a repository.
+func ContentItemRoot(_ ItemType) string {
+	return paths.ContentBundlesRoot()
+}
+
 // RepoItemName reduces a RepoItemRoot-relative path to the item's BARE name.
 //
 // A listing names each item by its path relative to the root it walked, so the

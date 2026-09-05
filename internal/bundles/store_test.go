@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -16,8 +17,12 @@ func TestFSStore_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFSStore(nil, []string{dir})
 
+	// The store saves to the bundle's own Path and loads through the reader,
+	// which searches the layout roots — so a round trip only closes if the
+	// single-file document is saved into v1 where the reader will look.
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "v1"), 0o755))
 	b := &Bundle{
-		Path:      filepath.Join(dir, "rt.yaml"),
+		Path:      filepath.Join(dir, "v1", "rt.yaml"),
 		Version:   "1.0",
 		Fragments: map[string]BundleFragment{"a": {Content: "hello"}},
 	}
@@ -57,24 +62,24 @@ func TestFSStore_RoundTrip(t *testing.T) {
 func TestFSStore_Delete_DirectoryFormBundleLeavesItsSubtreesOnDisk(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	dir := "/bundles"
-	require.NoError(t, afero.WriteFile(fsys, dir+"/kit/bundle.yaml",
+	require.NoError(t, afero.WriteFile(fsys, dir+"/v2/kit/bundle.yaml",
 		[]byte("version: \"1.0\"\n"), 0o644))
-	require.NoError(t, afero.WriteFile(fsys, dir+"/kit/fragments/notes.md", []byte("authored\n"), 0o644))
-	require.NoError(t, afero.WriteFile(fsys, dir+"/kit/skills/humanize/SKILL.md",
+	require.NoError(t, afero.WriteFile(fsys, dir+"/v2/kit/fragments/notes.md", []byte("authored\n"), 0o644))
+	require.NoError(t, afero.WriteFile(fsys, dir+"/v2/kit/skills/humanize/SKILL.md",
 		[]byte("---\nname: humanize\ndescription: d\n---\nbody\n"), 0o644))
 
 	store := NewFSStore(fsys, []string{dir})
 	require.NoError(t, store.Delete("kit"))
 
-	gone, err := afero.Exists(fsys, dir+"/kit/bundle.yaml")
+	gone, err := afero.Exists(fsys, dir+"/v2/kit/bundle.yaml")
 	require.NoError(t, err)
 	assert.False(t, gone, "the resolved bundle file is what Delete removes")
 
-	frag, err := afero.Exists(fsys, dir+"/kit/fragments/notes.md")
+	frag, err := afero.Exists(fsys, dir+"/v2/kit/fragments/notes.md")
 	require.NoError(t, err)
 	assert.True(t, frag, "TODAY: an authored fragment outlives the bundle that named it (U031-F13, escalated)")
 
-	skill, err := afero.Exists(fsys, dir+"/kit/skills/humanize/SKILL.md")
+	skill, err := afero.Exists(fsys, dir+"/v2/kit/skills/humanize/SKILL.md")
 	require.NoError(t, err)
 	assert.True(t, skill, "TODAY: a skill package outlives the bundle that named it (U031-F13, escalated)")
 }

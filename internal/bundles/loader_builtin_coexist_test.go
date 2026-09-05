@@ -19,7 +19,7 @@ import (
 func coexistFS(t *testing.T, name string) afero.Fs {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/bundles/v1/"+name+".yaml",
+	testsupport.WriteFileString(t, fs, "/bundles/"+name+".yaml",
 		"version: 1.0.0\ndescription: the PROJECT one\n", 0o644)
 	return fs
 }

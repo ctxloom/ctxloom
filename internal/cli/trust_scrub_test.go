@@ -45,7 +45,7 @@ func scrubProjectRoot(t *testing.T) string {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
 		[]byte("name: dev\nbundles:\n  - tools\n"), 0o644))
 
-	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
+	bundlesDir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "tools.yaml"),
 		[]byte("version: \"1.0\"\n"+

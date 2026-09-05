@@ -21,7 +21,7 @@ import (
 func TestConfig_ResolveBundleSkills_FromDirectoryProfile(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
+	bundlesDir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	skillDir := filepath.Join(bundlesDir, "skill-bundle", "skills", "humanize")
 	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "scripts"), 0755))
@@ -63,7 +63,7 @@ func TestConfig_ResolveBundleSkills_FromDirectoryProfile(t *testing.T) {
 func TestConfig_ResolveBundleSkills_ScopedToSelectedProfile(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
+	bundlesDir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 
 	writeSkill := func(bundleName, skillName string) {

@@ -24,7 +24,7 @@ import (
 //
 // # The other v1 on these paths versions something else entirely
 //
-// A real path reads
+// A real path after this change reads
 //
 //	bundles/v2/<name>/.sigs/SHA256SUMS.publish.v1.ctxloom.dev.<hash>.sig
 //
@@ -57,19 +57,17 @@ const (
 // message.
 var ErrUnknownBundleLayout = errors.New("not a known bundle layout")
 
-// The directory names that separate the two layouts beneath a bundles root.
-const (
-	layoutV1Segment = "v1"
-	layoutV2Segment = "v2"
-)
+// layoutV2Segment is the directory name that separates the two layouts beneath
+// a bundles root.
+const layoutV2Segment = "v2"
 
 // String names the layout for a diagnostic.
 func (l BundleLayout) String() string {
 	switch l {
 	case LayoutV1:
-		return layoutV1Segment
+		return "v1"
 	case LayoutV2:
-		return layoutV2Segment
+		return "v2"
 	default:
 		return "unknown"
 	}
@@ -77,15 +75,16 @@ func (l BundleLayout) String() string {
 
 // Segment is the path segment this layout adds beneath a bundles root.
 //
-// Every layout contributes one: v1/ and v2/ are siblings, and no bundle sits
-// loose at the root between them. That symmetry is what lets one resolver serve
-// all three roots — the local content tree, the published repo prefix and the
-// cache install root — so a consumer cannot end up looking somewhere a
-// publisher does not write.
+// LayoutV1 adds NOTHING today: the single-file bundles have not moved, so
+// LayoutV1 resolves to exactly the path LocalBundlesPath has always returned and
+// every accessor below is a no-op for it. When v1 is relocated into its own
+// directory this is the ONE line that changes, and the move and this segment
+// must land in the same commit — a window in which the bytes are in one place
+// and the resolver looks in another produces a bundle that resolves nowhere.
 func (l BundleLayout) Segment() (string, error) {
 	switch l {
 	case LayoutV1:
-		return layoutV1Segment, nil
+		return "", nil
 	case LayoutV2:
 		return layoutV2Segment, nil
 	default:
@@ -109,13 +108,14 @@ func (l BundleLayout) mustSegment() string {
 }
 
 // LocalBundlesPathFor returns one layout's subtree of the COMMITTED
-// authored-bundles directory.
+// authored-bundles directory. LayoutV1 is LocalBundlesPath unchanged.
 func LocalBundlesPathFor(appPath string, l BundleLayout) string {
 	return BundlesLayoutRoot(LocalBundlesPath(appPath), l)
 }
 
 // CacheBundlesPathFor returns one layout's subtree of the CACHE bundles
-// directory — the install root a pull writes into.
+// directory — the install root a pull writes into. LayoutV1 is
+// CacheBundlesPath unchanged.
 func CacheBundlesPathFor(appPath string, l BundleLayout) string {
 	return BundlesLayoutRoot(CacheBundlesPath(appPath), l)
 }
@@ -127,7 +127,10 @@ func CacheBundlesPathFor(appPath string, l BundleLayout) string {
 // travels to a git host and is compared against forward-slash refs, so it must
 // not pick up a separator from whatever OS happens to be publishing.
 func RepoBundlesPrefixFor(l BundleLayout) string {
-	return path.Join(RepoContentPrefix, BundlesDir, l.mustSegment())
+	if seg := l.mustSegment(); seg != "" {
+		return path.Join(RepoContentPrefix, BundlesDir, seg)
+	}
+	return path.Join(RepoContentPrefix, BundlesDir)
 }
 
 // BundlesLayoutRoot returns the subdirectory of an ALREADY-RESOLVED bundles
@@ -135,5 +138,8 @@ func RepoBundlesPrefixFor(l BundleLayout) string {
 // above, exported for the reader, which is handed its search directories and
 // never an appPath.
 func BundlesLayoutRoot(bundlesDir string, l BundleLayout) string {
-	return filepath.Join(bundlesDir, l.mustSegment())
+	if seg := l.mustSegment(); seg != "" {
+		return filepath.Join(bundlesDir, seg)
+	}
+	return bundlesDir
 }

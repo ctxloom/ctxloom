@@ -44,10 +44,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -56,7 +54,6 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
@@ -278,103 +275,43 @@ func j001600VerifyTreeAttestation(w *World, name string) error {
 	return nil
 }
 
-// j001600AuthoredBundle is one authored bundle the corpus found on disk, and
-// the LAYOUT it was found in. The layout is not decoration: the two forms are
-// verified by different assertions (a sibling beside a single-file document vs
-// one beside a directory bundle's manifest), so a scan that returns bare names
-// forces every caller to guess which it is holding.
-type j001600AuthoredBundle struct {
-	Name   string
-	Layout paths.BundleLayout
-}
-
-// j001600ListSignatures returns every `.sig` file under the authored bundle
-// tree, root-relative and sorted, so a scenario can assert a COUNT.
-//
-// It walks BOTH layout roots, and recursively. The two roots are siblings, so
-// reading only one silently misses every signature of the other form — and the
-// counts this feeds include "exactly 0 signature files exist", which is the
-// absence-satisfies-absence shape that passes hardest when it is looking in the
-// wrong place. Recursion matters for the same reason: a directory bundle's
-// signatures sit BESIDE its manifest and under its .sigs/, never at the root.
+// j001600ListSignatures returns every `.sig` file under the authored bundle tree,
+// project-relative and sorted, so a scenario can assert a COUNT.
 func j001600ListSignatures(w *World) ([]string, error) {
+	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(singleFileBundlesRoot()))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", singleFileBundlesRoot(), err)
+	}
 	var out []string
-	for _, root := range authoredBundlesRoots() {
-		dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(root))
-		err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-			if err != nil {
-				if os.IsNotExist(err) {
-					return nil
-				}
-				return err
-			}
-			if d.IsDir() || !strings.HasSuffix(d.Name(), ".sig") {
-				return nil
-			}
-			rel, rerr := filepath.Rel(dir, p)
-			if rerr != nil {
-				return rerr
-			}
-			out = append(out, path.Join(root, filepath.ToSlash(rel)))
-			return nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("walk %s: %w", root, err)
-		}
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
-// j001600ListBundles returns every authored bundle, of EITHER form, tagged with
-// the layout it was found in. Same reason as j001600ListSignatures: the roots
-// are siblings, and a scan of one is a scan that reports "Trent has authored no
-// bundles yet" while a bundle of the other form sits right there.
-func j001600ListBundles(w *World) ([]j001600AuthoredBundle, error) {
-	var out []j001600AuthoredBundle
-	for _, root := range []struct {
-		rel    string
-		layout paths.BundleLayout
-	}{
-		{singleFileBundlesRoot(), singleFileBundleLayout},
-		{dirFormBundlesRoot(), dirFormBundleLayout},
-	} {
-		dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(root.rel))
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, fmt.Errorf("read %s: %w", root.rel, err)
-		}
-		for _, e := range entries {
-			switch {
-			case !e.IsDir() && strings.HasSuffix(e.Name(), ".yaml"):
-				out = append(out, j001600AuthoredBundle{
-					Name:   strings.TrimSuffix(e.Name(), ".yaml"),
-					Layout: root.layout,
-				})
-			case e.IsDir():
-				// A directory is a bundle only if it carries a manifest;
-				// anything else in the root is not one, and counting it would
-				// inflate every count assertion this feeds.
-				manifest := filepath.Join(dir, e.Name(), bundles.DirectoryFormManifest)
-				if _, serr := os.Stat(manifest); serr == nil {
-					out = append(out, j001600AuthoredBundle{Name: e.Name(), Layout: paths.LayoutV2})
-				}
-			}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sig") {
+			out = append(out, e.Name())
 		}
 	}
 	return out, nil
 }
 
-// j001600VerifyAuthoredSignature verifies one authored bundle's detached
-// signature through whichever assertion its FORM calls for.
-func j001600VerifyAuthoredSignature(w *World, b j001600AuthoredBundle) error {
-	if b.Layout == paths.LayoutV2 {
-		return j001600VerifyDirectorySignature(w, b.Name)
+// j001600ListBundles returns every authored bundle file name (without the .yaml).
+func j001600ListBundles(w *World) ([]string, error) {
+	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(singleFileBundlesRoot()))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", singleFileBundlesRoot(), err)
 	}
-	return j001600VerifyDetachedSignature(w, b.Name)
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".yaml") {
+			out = append(out, strings.TrimSuffix(e.Name(), ".yaml"))
+		}
+	}
+	return out, nil
 }
 
 // j001600Setup is the Background: a hermetic publisher's machine. Deliberately
@@ -752,12 +689,12 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Trent has authored no bundles yet$`, func(c context.Context) error {
 		w := worldFrom(c)
-		found, err := j001600ListBundles(w)
+		names, err := j001600ListBundles(w)
 		if err != nil {
 			return err
 		}
-		if len(found) != 0 {
-			return fmt.Errorf("expected an empty publish set, found %v", found)
+		if len(names) != 0 {
+			return fmt.Errorf("expected an empty publish set, found %v", names)
 		}
 		return nil
 	})
@@ -866,11 +803,8 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		if len(bundles) == 0 {
 			return fmt.Errorf("no published bundles at all — refusing to report a verification that checked nothing")
 		}
-		for _, b := range bundles {
-			rel := bundleFilePath(b.Name)
-			if b.Layout == paths.LayoutV2 {
-				rel = bundleDirManifestPath(b.Name)
-			}
+		for _, name := range bundles {
+			rel := bundleFilePath(name)
 			body, rerr := w.env.ReadFile(rel)
 			if rerr != nil {
 				return fmt.Errorf("read %s: %w", rel, rerr)
@@ -928,8 +862,8 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		if len(bundles) != want {
 			return fmt.Errorf("expected exactly %d published bundles to sign, found %d (%v)", want, len(bundles), bundles)
 		}
-		for _, b := range bundles {
-			if err := j001600VerifyAuthoredSignature(w, b); err != nil {
+		for _, name := range bundles {
+			if err := j001600VerifyDetachedSignature(w, name); err != nil {
 				return err
 			}
 		}

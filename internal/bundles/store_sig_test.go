@@ -102,8 +102,7 @@ func TestFSStore_Save_UnsignedBundleSavesQuietly(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(nil, []string{dir}, &warnings)
 
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "v1"), 0o755))
-	path := filepath.Join(dir, "v1", "plain.yaml")
+	path := filepath.Join(dir, "plain.yaml")
 	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "one"}}}
 	require.NoError(t, store.Save(b))
 	b.Fragments["a"] = BundleFragment{Content: "two"}

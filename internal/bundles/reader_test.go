@@ -107,7 +107,7 @@ func TestLoader_WithholdsAnUnclaimedRead(t *testing.T) {
 
 func TestNewProjectReader_ReportsProjectProvenanceAndLocalContext(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/v1/kit.yaml", readerBundleYAML, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, "/bundles/kit.yaml", readerBundleYAML, 0o644))
 
 	reads, err := NewProjectReader(fsys, []string{"/bundles"}).Read(context.Background())
 
@@ -243,9 +243,9 @@ func TestNewRepoFSReader_SignatureFactsAreEstablishedNotAssumed(t *testing.T) {
 // told to the author.
 func TestNewProjectReader_ReportsSignatureFactsAsDiagnostics(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/v1/kit.yaml", readerBundleYAML, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, "/bundles/kit.yaml", readerBundleYAML, 0o644))
 	sig, root, _ := signFor(t, readerBundleYAML, "author@example.test")
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/v1/kit.yaml.sig", sig, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, "/bundles/kit.yaml.sig", sig, 0o644))
 
 	reads, err := NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root)).Read(context.Background())
 
@@ -353,11 +353,11 @@ func TestLoader_RemoteInvalidSignatureIsWithheldNotDegradedToUnsigned(t *testing
 // moment it stopped being publishable rather than at publish time.
 func TestLoader_LocalInvalidSignatureIsAdmittedAndTheAuthorIsTold(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/v1/wave6-stale.yaml", readerBundleYAML, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, "/bundles/wave6-stale.yaml", readerBundleYAML, 0o644))
 	sig, root, _ := signFor(t, readerBundleYAML, "author@example.test")
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/v1/wave6-stale.yaml.sig", sig, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, "/bundles/wave6-stale.yaml.sig", sig, 0o644))
 	edited := append(append([]byte{}, readerBundleYAML...), []byte("# edited, never re-signed\n")...)
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/v1/wave6-stale.yaml", edited, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, "/bundles/wave6-stale.yaml", edited, 0o644))
 
 	var warnings bytes.Buffer
 	restore := clidiag.SetSink(&warnings)

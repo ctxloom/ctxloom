@@ -86,7 +86,7 @@ func newPushManagerFixture(t *testing.T) (*config.Config, pushManagerFixture) {
 // ordinary shape: what push says it published is the path it published to.
 func TestPushBundle_ReportedPathIsTheWrittenPath_SingleFile(t *testing.T) {
 	cfg, fix := newPushManagerFixture(t)
-	bundlePath := filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV1), "for-push.yaml")
+	bundlePath := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml")
 
 	reported, written := pushOneBundle(t, cfg, fix, bundlePath)
 

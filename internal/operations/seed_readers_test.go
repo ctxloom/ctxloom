@@ -15,7 +15,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
@@ -63,10 +62,8 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 		require.NoError(t, err)
 
 		if !remote.IsSelfContainedRef(ref) && !strings.Contains(ref, "@") {
-			// A bare name is a bundle in this project's own tree. The reader
-			// searches "/bundles"'s own v1/v2 layout subdirectories, never the
-			// bare root, so the seeded document lands under v1.
-			testsupport.WriteFile(t, projectFS, path.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), ref+".yaml"), data, 0o644)
+			// A bare name is a bundle in this project's own tree.
+			testsupport.WriteFile(t, projectFS, "/bundles/"+ref+".yaml", data, 0o644)
 			local = true
 			continue
 		}

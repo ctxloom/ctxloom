@@ -71,7 +71,7 @@ func TestCreateBundle_SkeletonOnly(t *testing.T) {
 	assert.Equal(t, "created", result.Status)
 	assert.Equal(t, "test-bundle", result.Name)
 
-	expectedPath := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV1), "test-bundle.yaml")
+	expectedPath := filepath.Join(paths.LocalBundlesPath(appDir), "test-bundle.yaml")
 	assert.Equal(t, expectedPath, result.Path)
 
 	data, err := os.ReadFile(expectedPath)
@@ -758,7 +758,7 @@ remotes:
     version: v1
 `)
 	createSeedBundle(t, cfg, "shape-test")
-	bundlePath := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV1), "shape-test.yaml")
+	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "shape-test.yaml")
 
 	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 		Path:     bundlePath,
@@ -839,7 +839,7 @@ remotes:
     version: v1
 `)
 	createSeedBundle(t, cfg, "for-push")
-	bundlePath = filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV1), "for-push.yaml")
+	bundlePath = filepath.Join(paths.LocalBundlesPath(appDir), "for-push.yaml")
 
 	registry, err := remote.NewRegistry(filepath.Join(appDir, "remotes.yaml"))
 	require.NoError(t, err)
@@ -978,9 +978,8 @@ func TestCreateBundle_RejectsPathTraversal(t *testing.T) {
 func TestCreateBundle_RejectsSymlinkInParent(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 
-	// Plant: content/bundles/v1/personal -> evil/ (outside the bundles root).
-	bundlesRoot := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
-	require.NoError(t, os.MkdirAll(bundlesRoot, 0755))
+	// Plant: content/bundles/personal -> evil/ (outside the bundles root).
+	bundlesRoot := paths.LocalBundlesPath(appDir)
 	evilDir := filepath.Join(t.TempDir(), "evil")
 	require.NoError(t, os.MkdirAll(evilDir, 0755))
 	require.NoError(t, os.Symlink(evilDir, filepath.Join(bundlesRoot, "personal")))
@@ -998,8 +997,7 @@ func TestCreateBundle_RejectsSymlinkInParent(t *testing.T) {
 // is a symlink to some other YAML, Save would clobber the target. Refuse.
 func TestUpdateBundle_RejectsSymlinkedBundleFile(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
-	bundlesRoot := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
-	require.NoError(t, os.MkdirAll(bundlesRoot, 0755))
+	bundlesRoot := paths.LocalBundlesPath(appDir)
 
 	// Plant a victim YAML elsewhere, then symlink a "bundle" at it.
 	victimDir := t.TempDir()
@@ -1028,7 +1026,7 @@ func TestCreateBundle_NestedName_CreatesParentDir(t *testing.T) {
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "personal/foo"})
 	require.NoError(t, err)
 
-	_, err = os.Stat(filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV1), "personal", "foo.yaml"))
+	_, err = os.Stat(filepath.Join(paths.LocalBundlesPath(appDir), "personal", "foo.yaml"))
 	require.NoError(t, err, "nested bundle file should exist on disk")
 }
 

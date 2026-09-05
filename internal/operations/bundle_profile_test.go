@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -25,7 +24,7 @@ import (
 // "ctxloom:local@bundles/kit#profiles/p1".
 func writeBundleProfileFixture(t *testing.T, root string) {
 	t.Helper()
-	bundleDir := paths.LocalBundlesPathFor(filepath.Join(root, ".ctxloom"), paths.LayoutV1)
+	bundleDir := filepath.Join(root, ".ctxloom", "content", "bundles")
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
 
 	kitYAML := `version: "1.0.0"

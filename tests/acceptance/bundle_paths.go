@@ -31,21 +31,21 @@ import (
 
 // The layout each on-disk FORM of an authored bundle is written into.
 //
-// The two forms live in SIBLING roots: paths.LayoutV1 holds the single-file
-// document form and paths.LayoutV2 the directory tree form, and neither root
-// contains the other. Anything that means "every authored bundle" must
-// therefore visit BOTH — a scan of one root silently misses the other form and
-// stays green while proving less.
+// Both are paths.LayoutV1 today, and the pair is not redundant. paths.LayoutV1
+// names the single-file document form and paths.LayoutV2 the directory tree
+// form, but LayoutV2's segment ALREADY resolves to a "v2" subdirectory while
+// the corpus's directory-form fixtures have not moved there — they still sit at
+// the bare root the reader still searches. Writing paths.LayoutV2 here today
+// would relocate every directory-form fixture out from under the resolver.
+//
+// Flipping dirFormBundleLayout to paths.LayoutV2 IS the relocation, and it must
+// land in the same commit as the production move: a window where the bytes are
+// in one place and the resolver looks in another produces a bundle that
+// resolves nowhere.
 const (
 	singleFileBundleLayout = paths.LayoutV1
-	dirFormBundleLayout    = paths.LayoutV2
+	dirFormBundleLayout    = paths.LayoutV1
 )
-
-// authoredBundlesRoots is every repo-relative root an authored bundle can sit
-// in, for the scans that mean "all of them" rather than one form.
-func authoredBundlesRoots() []string {
-	return []string{singleFileBundlesRoot(), dirFormBundlesRoot()}
-}
 
 // singleFileBundlesRoot is the repo-relative directory holding SINGLE-FILE
 // (<name>.yaml) authored bundles.

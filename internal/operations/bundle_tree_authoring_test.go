@@ -135,7 +135,7 @@ func TestCreateBundle_WithoutTree_IsUnchanged(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(paths.LocalBundlesPathFor(appPath, paths.LayoutV1), "classic.yaml"), res.Path)
+	assert.Equal(t, filepath.Join(paths.LocalBundlesPath(appPath), "classic.yaml"), res.Path)
 }
 
 // TestCreateSkill_InATree_WritesNoInlineSkillsKey is the second half of the

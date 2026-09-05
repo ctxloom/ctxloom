@@ -24,7 +24,7 @@ func TestCreateBundle_WritesToCommittedContentTree(t *testing.T) {
 	res, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "authored"})
 	require.NoError(t, err)
 
-	want := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV1), "authored.yaml")
+	want := filepath.Join(paths.LocalBundlesPath(appDir), "authored.yaml")
 	assert.Equal(t, want, res.Path)
 	assert.FileExists(t, want)
 
@@ -38,7 +38,7 @@ func TestListLocalBundleNames_FindsContentTreeBundles(t *testing.T) {
 	// Real tempdir: GetBundleDirs os.Stat-gates on the real filesystem.
 	fs := afero.NewOsFs()
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	content := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
+	content := paths.LocalBundlesPath(appDir)
 	require.NoError(t, fs.MkdirAll(content, 0o755))
 	for _, n := range []string{"alpha", "beta", "gamma"} {
 		require.NoError(t, afero.WriteFile(fs, filepath.Join(content, n+".yaml"),

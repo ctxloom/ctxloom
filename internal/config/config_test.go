@@ -917,7 +917,7 @@ func TestConfig_ItemScopedBundleRefIsNotAFailure(t *testing.T) {
 	resetConfigStrictness(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
+	bundlesDir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "local.yaml"),
@@ -974,7 +974,7 @@ func resetConfigStrictness(t *testing.T) {
 func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1) // committed content tree
+	bundlesDir := paths.LocalBundlesPath(appDir) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
@@ -1002,7 +1002,7 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1) // committed content tree
+	bundlesDir := paths.LocalBundlesPath(appDir) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
@@ -1031,7 +1031,7 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1) // committed content tree
+	bundlesDir := paths.LocalBundlesPath(appDir) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
@@ -1110,7 +1110,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		t.Helper()
 		appDir = filepath.Join(t.TempDir(), ".ctxloom")
 		profilesDir = filepath.Join(appDir, "profiles")
-		bundlesDir = paths.LocalBundlesPathFor(appDir, paths.LayoutV1) // committed content tree
+		bundlesDir = paths.LocalBundlesPath(appDir) // committed content tree
 		require.NoError(t, os.MkdirAll(profilesDir, 0755))
 		require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 		return appDir, profilesDir, bundlesDir
@@ -1195,7 +1195,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 func TestLoadMCPFromBundleRef_LocalBundle(t *testing.T) {
 	tmpDir := t.TempDir()
 	bundlesDir := filepath.Join(tmpDir, "bundles")
-	require.NoError(t, os.MkdirAll(filepath.Join(bundlesDir, "v1"), 0755))
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create a test bundle
 	bundleContent := `
@@ -1205,7 +1205,7 @@ mcp:
     command: test-cmd
     args: ["--arg"]
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "v1", "test-bundle.yaml"), []byte(bundleContent), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test-bundle.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 	result := loadMCPFromBundleRef("test-bundle", loader.Catalog(), bundles.AdmitAll())
@@ -1251,7 +1251,7 @@ func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
 func TestLoadHooksFromBundleRef_LocalBundle(t *testing.T) {
 	tmpDir := t.TempDir()
 	bundlesDir := filepath.Join(tmpDir, "bundles")
-	require.NoError(t, os.MkdirAll(filepath.Join(bundlesDir, "v1"), 0755))
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	bundleContent := `
 version: "1.0"
@@ -1265,7 +1265,7 @@ hooks:
       command: ctxloom hook stamp-plan
       type: command
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "v1", "with-hooks.yaml"), []byte(bundleContent), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "with-hooks.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 	result := loadHooksFromBundleRef("with-hooks", loader.Catalog(), bundles.AdmitAll())
@@ -1282,7 +1282,7 @@ hooks:
 func TestLoadHooksFromBundleRef_NoHooksField(t *testing.T) {
 	tmpDir := t.TempDir()
 	bundlesDir := filepath.Join(tmpDir, "bundles")
-	require.NoError(t, os.MkdirAll(filepath.Join(bundlesDir, "v1"), 0755))
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// A bundle without any hooks should produce a zero-valued UnifiedHooks.
 	bundleContent := `
@@ -1291,7 +1291,7 @@ mcp:
   some-server:
     command: foo
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "v1", "no-hooks.yaml"), []byte(bundleContent), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "no-hooks.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 	result := loadHooksFromBundleRef("no-hooks", loader.Catalog(), bundles.AdmitAll())

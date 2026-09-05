@@ -18,10 +18,13 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/convert"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -83,6 +86,20 @@ type CreateBundleRequest struct {
 	// Store, when non-nil, is the bundle storage adapter to persist through
 	// (ADR 0026); nil defaults to the filesystem. Frontends leave it nil.
 	Store bundles.Store `json:"-"`
+
+	// Tree authors the bundle as a TREE in the v2 layout — bundle.yaml plus one
+	// file per item — instead of a single-file document in v1.
+	//
+	// It is a BOOL and not a paths.BundleLayout because form and layout are one
+	// axis here, not two: the v1 layout holds documents and the v2 layout holds
+	// trees, so a layout-typed field would admit "a document in v2" and "a tree
+	// in v1", neither of which any reader can resolve.
+	Tree bool `json:"tree,omitempty"`
+
+	// FS, when non-nil, is the afero filesystem a TREE is written to; nil
+	// defaults to the OS filesystem. It has no effect on a single-file create,
+	// which persists through Store.
+	FS afero.Fs `json:"-"`
 }
 
 // BundleFragmentInput describes a fragment to add or update via operations.
@@ -152,21 +169,40 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
-	dir := paths.LocalBundlesPath(cfg.GetAppPaths()[0])
+	// The layout and the on-disk form are one choice: v1 holds documents, v2
+	// holds trees. See CreateBundleRequest.Tree.
+	layout := paths.LayoutV1
+	if req.Tree {
+		layout = paths.LayoutV2
+	}
+	dir := paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], layout)
 	path := filepath.Join(dir, req.Name+".yaml")
+	if req.Tree {
+		// A tree's document is the ENVELOPE inside the bundle's own directory,
+		// not a sibling file named for it. This is the ONLY place that path is
+		// derived — createTreeBundle takes it rather than recomputing it, so
+		// there is no second answer to drift from this one.
+		path = filepath.Join(dir, req.Name, bundles.DirectoryFormManifest)
+	}
 	if err := requireSafeBundlePath([]string{dir}, path); err != nil {
 		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
 	}
 	// Fail fast on a bundle that already exists, before distillation spends an
 	// LLM round trip per item on a create that cannot land. This check is an
 	// economy, NOT the decision: it is racy by construction, and the window it
-	// opens is as long as distillation takes. reserveNewBundlePath below is
-	// what actually decides.
-	if _, err := os.Stat(path); err == nil {
+	// opens is as long as distillation takes. reserveNewBundlePath (or, for a
+	// tree, createTreeBundle's own check) is what actually decides.
+	//
+	// It consults the REQUEST's filesystem, which for every caller that passes
+	// none is the OS filesystem this always used. Checking os unconditionally
+	// would consult a filesystem the tree write never touches.
+	if exists, err := afero.Exists(getFS(req.FS), path); err == nil && exists {
 		return nil, fmt.Errorf("bundle already exists: %s", path)
+	}
+	if !req.Tree {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return nil, fmt.Errorf("failed to create bundles directory: %w", err)
+		}
 	}
 
 	version := req.Version
@@ -187,6 +223,10 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 
 	distillFragments(ctx, bundle, namesNeedingFragmentDistill(bundle, req.Fragments), req.Distiller)
 	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Commands), req.Distiller)
+
+	if req.Tree {
+		return createTreeBundle(ctx, getFS(req.FS), path, req.Name, bundle)
+	}
 
 	if err := reserveNewBundlePath(path); err != nil {
 		return nil, err
@@ -224,6 +264,52 @@ func reserveNewBundlePath(path string) error {
 		return fmt.Errorf("failed to create bundle file: %w", err)
 	}
 	return f.Close()
+}
+
+// createTreeBundle authors a new bundle as a TREE through internal/content/convert
+// — the SAME converter a migration runs, rather than a second one written for
+// authoring. Two converters would drift, and the drift would surface as a
+// signature that stops verifying rather than as a test failure.
+//
+// The store is rooted at the bundle directory's PARENT and the id is that
+// directory's base name, because a bundle id must be a single path segment
+// (content.validateBundleID) — a nested authored name ("personal/foo") is
+// absorbed by the root rather than smuggled into the id. This is the same
+// rooting rule bundles.localFSReader.openLocalTree uses, and the two must agree
+// or a bundle would read differently depending on how it arrived.
+func createTreeBundle(ctx context.Context, fsys afero.Fs, envelope, name string, b *bundles.Bundle) (*CreateBundleResult, error) {
+	dir := filepath.Dir(envelope)
+	root := filepath.Dir(dir)
+	id := content.BundleID(filepath.Base(dir))
+
+	if exists, err := afero.Exists(fsys, envelope); err != nil {
+		return nil, fmt.Errorf("failed to check for an existing bundle: %w", err)
+	} else if exists {
+		return nil, fmt.Errorf("bundle already exists: %s", envelope)
+	}
+	if err := fsys.MkdirAll(root, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
+	}
+	store, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open the bundles tree at %s: %w", root, err)
+	}
+	// SkillFiles is nil: a bundle being CREATED declares no skills, because there
+	// is no directory for their packages to have been authored in yet. Skills are
+	// added afterwards, by CreateSkill.
+	if err := convert.Convert(ctx, store, id, b, convert.Options{}); err != nil {
+		_ = fsys.RemoveAll(dir)
+		return nil, fmt.Errorf("failed to write bundle tree: %w", err)
+	}
+	// convert.Convert is deliberately a NO-OP for a bundle that plans to zero
+	// items, so without this the call above returns nil having written nothing:
+	// exit 0, a "created" result, and no bytes. Assert the envelope landed
+	// rather than trusting the report.
+	if exists, err := afero.Exists(fsys, envelope); err != nil || !exists {
+		_ = fsys.RemoveAll(dir)
+		return nil, fmt.Errorf("bundle %q would hold nothing: a tree bundle has no inline items, so it must be created with at least one fragment, command or MCP server — add one, or create a single-file bundle instead", name)
+	}
+	return &CreateBundleResult{Status: "created", Name: name, Path: envelope}, nil
 }
 
 // UpdateBundleRequest is the input for UpdateBundle. Pointer fields

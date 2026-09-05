@@ -11,7 +11,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-var bundleCreateDesc string
+var (
+	bundleCreateDesc string
+	bundleCreateTree bool
+)
 
 var bundleCreateCmd = &cobra.Command{
 	Use:   "create <name>",
@@ -49,6 +52,7 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 		Commands: map[string]operations.BundleCommandInput{
 			"example": {Description: "Example prompt", Tags: []string{"example"}, Content: "Example prompt content. Describe what this prompt does.", NoDistill: true},
 		},
+		Tree: bundleCreateTree,
 	})
 	if err != nil {
 		return err
@@ -279,6 +283,7 @@ func bundleRemoveDetail(b *bundles.Bundle) []string {
 // registerBundleCreateFlags defines `bundle create`'s flags.
 func registerBundleCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
+	cmd.Flags().BoolVar(&bundleCreateTree, "tree", false, "author as a tree (bundle.yaml plus one file per item) in the v2 layout, instead of a single-file document")
 }
 
 // registerBundleRemoveFlags defines `bundle remove`'s flags. There is no

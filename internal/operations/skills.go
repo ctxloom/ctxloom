@@ -229,7 +229,7 @@ func skillTemplate(name, description string) string {
 // detectLegacySkillsKey/dir-form gate). The scaffold is validated with
 // ParseSkillPackage before anything is registered — a template that wouldn't
 // itself pass validation is never left on disk claiming success.
-func CreateSkill(_ context.Context, cfg *config.Config, req CreateSkillRequest) (*CreateSkillResult, error) {
+func CreateSkill(ctx context.Context, cfg *config.Config, req CreateSkillRequest) (*CreateSkillResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -260,6 +260,14 @@ func CreateSkill(_ context.Context, cfg *config.Config, req CreateSkillRequest) 
 	}
 
 	fs := getFS(req.FS)
+	// Decided BEFORE the scaffold is written. Afterwards the tree holds this
+	// very skill's files, so a metadata-only directory bundle — one with an
+	// empty envelope and no items yet — would look like a tree that had always
+	// been one, and would silently stop getting its envelope registration.
+	tree, err := bundles.IsTreeFormBundle(ctx, fs, bundle.Path)
+	if err != nil {
+		return nil, err
+	}
 	if exists, _ := afero.DirExists(fs, dir); exists {
 		return nil, fmt.Errorf("skill %q: %w (directory %s already exists)", req.Name, ErrItemExists, dir)
 	}
@@ -284,14 +292,27 @@ func CreateSkill(_ context.Context, cfg *config.Config, req CreateSkillRequest) 
 		return nil, fmt.Errorf("scaffolded skill %q failed validation: %w", req.Name, err)
 	}
 
-	if bundle.Skills == nil {
-		bundle.Skills = make(map[string]bundles.BundleSkill)
+	if !tree {
+		if bundle.Skills == nil {
+			bundle.Skills = make(map[string]bundles.BundleSkill)
+		}
+		bundle.Skills[req.Name] = entry
+		if err := store.Save(bundle); err != nil {
+			_ = fs.RemoveAll(dir)
+			return nil, fmt.Errorf("failed to save bundle: %w", err)
+		}
 	}
-	bundle.Skills[req.Name] = entry
-	if err := store.Save(bundle); err != nil {
-		_ = fs.RemoveAll(dir)
-		return nil, fmt.Errorf("failed to save bundle: %w", err)
-	}
+	// A TREE bundle gets NO envelope registration, and that is the fix rather
+	// than an omission. Its items are enumerated by walking the tree, so the
+	// package just written is already found; writing bundle.Skills would put an
+	// inline `skills:` key into the envelope, which bundles.readEnvelope refuses
+	// outright — the scaffold would succeed and the whole bundle would stop
+	// loading. That is exactly what this verb used to do.
+	//
+	// The tree's SHA256SUMS no longer covers it, so the bundle reads as an
+	// invalid signature until it is signed again. That is the manifest working:
+	// new content in a signed tree is a real change, and re-signing is the
+	// remedy the reader names.
 
 	return &CreateSkillResult{Status: "created", Bundle: req.Bundle, Name: req.Name, Dir: dir}, nil
 }

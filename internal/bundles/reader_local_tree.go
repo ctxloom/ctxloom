@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
 )
@@ -50,10 +52,7 @@ import (
 // items and hand back an empty bundle: the exit-0/zero-bytes shape this
 // function exists to remove.
 func (r *localFSReader) readLocalTreeForm(ctx context.Context, manifestPath string, env *Bundle) (content.Bundle, *Bundle, error) {
-	if filepath.Base(manifestPath) != DirectoryFormManifest {
-		return nil, nil, nil
-	}
-	if len(inlineKeys(env)) > 0 {
+	if !treeFormEnvelope(manifestPath, env) {
 		return nil, nil, nil
 	}
 	tree, err := r.openLocalTree(ctx, manifestPath)
@@ -131,6 +130,54 @@ func invalidTreeFacts(format string, args ...any) signatureFacts {
 	}
 }
 
+// treeFormEnvelope is the ONE rule for "is this bundle tree form": a
+// directory-form envelope that declares NO items inline, so its payload is in
+// files beside it.
+//
+// It is shared by the read path above and by IsTreeFormBundle below because a
+// second copy of this rule is how a writer comes to disagree with the reader
+// about what it is writing — which is the defect that made ctxloom's only
+// directory-form authoring verb produce the shape its own reader refuses.
+func treeFormEnvelope(manifestPath string, env *Bundle) bool {
+	return filepath.Base(manifestPath) == DirectoryFormManifest && len(inlineKeys(env)) == 0
+}
+
+// IsTreeFormBundle reports whether the bundle whose envelope sits at
+// manifestPath is TREE form, reading the envelope and the tree from fsys.
+//
+// It re-reads rather than inspecting a loaded *Bundle on purpose: a tree bundle
+// that has already been READ carries its items in the same maps an inline
+// bundle does — that is the whole point of the read — so a loaded value cannot
+// answer this question. Only the bytes on disk can.
+//
+// It applies BOTH halves of the rule, exactly as the read path does. The second
+// half is the one that is easy to drop: a directory bundle whose envelope
+// declares nothing AND whose tree holds no item files is a METADATA-ONLY
+// bundle, not a tree — nothing was migrated — and calling it a tree would make
+// every brand-new directory bundle claim a form it has no content in.
+func IsTreeFormBundle(ctx context.Context, fsys afero.Fs, manifestPath string) (bool, error) {
+	data, err := afero.ReadFile(fsys, manifestPath)
+	if err != nil {
+		return false, fmt.Errorf("bundles: reading the envelope at %s: %w", manifestPath, err)
+	}
+	env, err := ParseBundle(data)
+	if err != nil {
+		return false, fmt.Errorf("bundles: parsing the envelope at %s: %w", manifestPath, err)
+	}
+	if !treeFormEnvelope(manifestPath, env) {
+		return false, nil
+	}
+	tree, err := openTreeAt(ctx, fsys, manifestPath, content.Provenance{IsLocal: true})
+	if err != nil {
+		return false, err
+	}
+	refs, err := tree.Refs(ctx)
+	if err != nil {
+		return false, fmt.Errorf("bundles: enumerating the tree at %s: %w", filepath.Dir(manifestPath), err)
+	}
+	return len(refs) > 0, nil
+}
+
 // openLocalTree opens the directory holding manifestPath as a content.Bundle.
 //
 // The store is rooted at the bundle directory's PARENT and the id is that
@@ -140,12 +187,19 @@ func invalidTreeFacts(format string, args ...any) signatureFacts {
 // config.treeBundleReader uses for an installed tree; the two must agree or a
 // bundle would read differently depending on how it arrived.
 func (r *localFSReader) openLocalTree(ctx context.Context, manifestPath string) (content.Bundle, error) {
-	dir := filepath.Dir(manifestPath)
 	prov, err := r.treeProvenance()
 	if err != nil {
 		return nil, err
 	}
-	tfs, err := content.NewAferoTreeFS(r.fsys, filepath.Dir(dir))
+	return openTreeAt(ctx, r.fsys, manifestPath, prov)
+}
+
+// openTreeAt opens the directory holding manifestPath as a content.Bundle, on
+// any filesystem. It is the ONE place the rooting rule lives, so a writer and a
+// reader cannot disagree about which directory a bundle id names.
+func openTreeAt(ctx context.Context, fsys afero.Fs, manifestPath string, prov content.Provenance) (content.Bundle, error) {
+	dir := filepath.Dir(manifestPath)
+	tfs, err := content.NewAferoTreeFS(fsys, filepath.Dir(dir))
 	if err != nil {
 		return nil, fmt.Errorf("bundles: opening the tree at %s: %w", dir, err)
 	}

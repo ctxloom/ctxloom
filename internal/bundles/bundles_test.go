@@ -814,7 +814,10 @@ func TestClaudeCodeConfig_IsEnabled(t *testing.T) {
 // that read nothing at all, which is this project's characteristic bug.
 func TestNewLoader_ReadsWhatItsReadersReport(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/bundles/kit.yaml", []byte("version: \"1.0\"\n"), 0o644))
+	// The fixture goes in the v1 layout root: a single-file bundle document
+	// is what v1 holds, and the reader searches the layout roots beneath the
+	// bundles directory it is handed, never the bare directory itself.
+	require.NoError(t, afero.WriteFile(fs, "/bundles/v1/kit.yaml", []byte("version: \"1.0\"\n"), 0o644))
 	loader := NewLoader(NewProjectReader(fs, []string{"/bundles"}))
 
 	infos, err := loader.List()
@@ -842,13 +845,15 @@ func TestNewLoader_NoReadersSeesNothing(t *testing.T) {
 func TestLoader_Find(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create test bundle file
-	bundlePath := filepath.Join(tmpDir, "test-bundle.yaml")
+	// Each form goes in the layout root that holds it: the single-file
+	// document in v1, the directory form in v2.
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "v1"), 0755))
+	bundlePath := filepath.Join(tmpDir, "v1", "test-bundle.yaml")
 	err := os.WriteFile(bundlePath, []byte("version: 1.0"), 0644)
 	require.NoError(t, err)
 
 	// Create directory-style bundle
-	dirBundle := filepath.Join(tmpDir, "dir-bundle")
+	dirBundle := filepath.Join(tmpDir, "v2", "dir-bundle")
 	require.NoError(t, os.MkdirAll(dirBundle, 0755))
 	err = os.WriteFile(filepath.Join(dirBundle, "bundle.yaml"), []byte("version: 1.0"), 0644)
 	require.NoError(t, err)
@@ -892,7 +897,8 @@ fragments:
     content: |
       Fragment content
 `
-	bundlePath := filepath.Join(tmpDir, "test.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "v1"), 0755))
+	bundlePath := filepath.Join(tmpDir, "v1", "test.yaml")
 	err := os.WriteFile(bundlePath, []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
@@ -911,7 +917,8 @@ func TestLoader_Load(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	bundleYAML := `version: "1.0"`
-	bundlePath := filepath.Join(tmpDir, "my-bundle.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "v1"), 0755))
+	bundlePath := filepath.Join(tmpDir, "v1", "my-bundle.yaml")
 	err := os.WriteFile(bundlePath, []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
@@ -927,8 +934,9 @@ func TestLoader_List(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create multiple bundles
-	bundle1 := filepath.Join(tmpDir, "bundle1.yaml")
-	bundle2 := filepath.Join(tmpDir, "bundle2.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "v1"), 0755))
+	bundle1 := filepath.Join(tmpDir, "v1", "bundle1.yaml")
+	bundle2 := filepath.Join(tmpDir, "v1", "bundle2.yaml")
 
 	err := os.WriteFile(bundle1, []byte(`version: "1.0"
 description: Bundle 1
@@ -966,7 +974,8 @@ fragments:
   frag2:
     content: content 2
 `
-	err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "v1"), 0755))
+	err := os.WriteFile(filepath.Join(tmpDir, "v1", "test.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
@@ -998,7 +1007,8 @@ commands:
   prompt1:
     content: prompt content
 `
-	err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "v1"), 0755))
+	err := os.WriteFile(filepath.Join(tmpDir, "v1", "test.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
@@ -1283,7 +1293,8 @@ fragments:
       - documentation
     content: Docs content
 `
-	err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "v1"), 0755))
+	err := os.WriteFile(filepath.Join(tmpDir, "v1", "test.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))

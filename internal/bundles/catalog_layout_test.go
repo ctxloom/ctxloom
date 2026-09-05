@@ -44,11 +44,11 @@ func stageBothLayouts(t *testing.T, root, name, v1Body, v2Body string) afero.Fs 
 	return fsys
 }
 
-// writeV1 writes the single-file document form at the bundles root.
+// writeV1 writes the single-file document form into the v1 layout root.
 func writeV1(t *testing.T, fsys afero.Fs, root, name, body string) {
 	t.Helper()
 	doc := "name: " + name + "\nversion: 1.0.0\nfragments:\n  marker:\n    content: " + body + "\n"
-	testsupport.WriteFileString(t, fsys, filepath.Join(root, name+".yaml"), doc, 0o644)
+	testsupport.WriteFileString(t, fsys, filepath.Join(paths.BundlesLayoutRoot(root, paths.LayoutV1), name+".yaml"), doc, 0o644)
 }
 
 // putFragmentIn writes one fragment into a NAMED bundle, so a fixture can

@@ -32,7 +32,8 @@ import (
 // assets tree via writeSkillFixture. Returns the fixture's exact file bytes.
 func writeSkillBundle(t *testing.T, fsys afero.Fs, bundlesDir, bundleName, skillName string, llmEnabled bool) map[string][]byte {
 	t.Helper()
-	bundleDir := bundlesDir + "/" + bundleName
+	// Directory-form bundles live in the v2 layout root.
+	bundleDir := bundlesDir + "/v2/" + bundleName
 	enabledYAML := "true"
 	if !llmEnabled {
 		enabledYAML = "false"

@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -16,8 +17,11 @@ import (
 )
 
 // ExportBundleRequest is the input for ExportBundle. Exactly one of OutputFile
-// (a target file path) or DestDir (a directory the bundle's filename lands in)
-// must be set.
+// (the exact path the bundle lands at) or DestDir (a directory the bundle's own
+// name lands in) must be set.
+//
+// A DIRECTORY-form bundle lands as a DIRECTORY under both, because that is what
+// it is: OutputFile then names the destination tree's root rather than a file.
 type ExportBundleRequest struct {
 	Name       string `json:"name"`
 	OutputFile string `json:"output_file,omitempty"`
@@ -83,6 +87,15 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 		return nil, fmt.Errorf("export %s: %w", req.Name, err)
 	}
 
+	// A DIRECTORY-form bundle's manifest is only its envelope: the items live in
+	// sibling files, with the SHA256SUMS that covers them and the .sigs/ store
+	// that attests it. Copying bundle.yaml alone wrote a destination file
+	// literally NAMED "bundle.yaml", holding an envelope whose content was no
+	// longer beside it — exit 0, "exported", payload gone.
+	if filepath.Base(bundle.Path) == bundles.DirectoryFormManifest {
+		return exportBundleTree(fs, req, bundle.Path, sig)
+	}
+
 	var dest string
 	switch {
 	case req.OutputFile != "":
@@ -112,6 +125,77 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 		return nil, fmt.Errorf("export %s: %w", req.Name, err)
 	}
 	return &ExportBundleResult{Status: "exported", Name: req.Name, Source: bundle.Path, Dest: dest, SigDest: sigDest}, nil
+}
+
+// exportBundleTree exports a DIRECTORY-form bundle: the whole subtree beneath
+// its manifest, verbatim, landing under the bundle's own directory name.
+//
+// Files at the destination are overwritten, but the destination is never
+// PRUNED — and the asymmetry with ImportBundle, which does replace wholesale,
+// is deliberate. An import destination is a path this package DERIVES inside
+// its own bundles tree; an export destination is arbitrary user-chosen space,
+// where removing a directory outright would delete files the user never handed
+// us.
+func exportBundleTree(fs afero.Fs, req ExportBundleRequest, manifestPath string, sig []byte) (*ExportBundleResult, error) {
+	srcDir := filepath.Dir(manifestPath)
+	var dest string
+	switch {
+	case req.OutputFile != "":
+		dest = req.OutputFile
+	case req.DestDir != "":
+		dest = filepath.Join(req.DestDir, filepath.Base(srcDir))
+	default:
+		return nil, fmt.Errorf("either an output file or a destination directory must be specified")
+	}
+	if err := copyBundleTree(fs, srcDir, dest); err != nil {
+		return nil, fmt.Errorf("export %s: %w", req.Name, err)
+	}
+	res := &ExportBundleResult{Status: "exported", Name: req.Name, Source: manifestPath, Dest: dest}
+	if sig != nil {
+		// The detached sibling lives INSIDE the tree, beside the manifest, so
+		// the copy above already carried it. Naming it here is reporting, not a
+		// second write.
+		res.SigDest = filepath.Join(dest, bundles.DirectoryFormManifest+sigSuffix)
+	}
+	return res, nil
+}
+
+// copyBundleTree copies every file under src to dest, preserving each file's
+// path relative to src and its permission bits.
+//
+// Every file travels, with no filter. A bundle tree states its own integrity
+// through a SHA256SUMS covering all of it and a .sigs/ store attesting that
+// manifest, so a copy that dropped — or added — a single file would arrive
+// reporting tampering rather than arriving incomplete.
+func copyBundleTree(fs afero.Fs, src, dest string) error {
+	return afero.Walk(fs, src, func(p string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, rel)
+		if info.IsDir() {
+			if err := fs.MkdirAll(target, 0755); err != nil {
+				return fmt.Errorf("create %s: %w", target, err)
+			}
+			return nil
+		}
+		data, err := afero.ReadFile(fs, p)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", p, err)
+		}
+		// AllowEmpty: the source tree is the authority on what this bundle
+		// contains. A legitimately empty file in it is covered by SHA256SUMS
+		// like any other, so refusing to copy it would land a tree that reports
+		// content MISSING rather than one that failed to write.
+		if err := iox.WriteFileAtomicFs(fs, target, data, info.Mode().Perm(), iox.AllowEmpty()); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // sigSuffix is the detached-signature sibling suffix (spec §4.2): the armored
@@ -245,17 +329,33 @@ type ImportBundleResult struct {
 	SigDest string `json:"sig_dest,omitempty"`
 }
 
-// ImportBundle validates a bundle file — its name (*.yaml, since that is all
-// the loader ever looks for) and its content (bundles.ParseBundle refuses a
-// document that declares nothing) — and copies it into the project's
-// committed content bundles directory (symlink-guarded, like CreateBundle),
-// carrying its detached `.sig` sibling when one exists. Refuses to overwrite
-// without Force.
+// ImportBundle validates a bundle — its name (*.yaml, since that is all the
+// loader ever looks for in single-file form) and its content
+// (bundles.ParseBundle refuses a document that declares nothing) — and copies it
+// into the project's committed content bundles directory (symlink-guarded, like
+// CreateBundle), carrying its detached `.sig` sibling when one exists. Refuses
+// to overwrite without Force.
+//
+// A DIRECTORY-form bundle is imported WHOLE, by importBundleTree.
 func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest) (*ImportBundleResult, error) {
 	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 	fs := getFS(req.FS)
+	// A DIRECTORY-form bundle arrives as a tree, addressed either by its own
+	// directory or by the manifest inside it, and NEITHER spelling survived the
+	// single-file path below. A directory has no extension, so
+	// requireLoadableName refused it outright. "<name>/bundle.yaml" PASSED that
+	// gate and then landed flat as bundles/bundle.yaml — renamed to "bundle",
+	// its items left behind, at a path localFSReader deliberately skips, so
+	// nothing would ever have loaded what was written.
+	treeSrc, isTree, err := bundleTreeSource(fs, req.SourcePath)
+	if err != nil {
+		return nil, err
+	}
+	if isTree {
+		return importBundleTree(fs, cfg, req, treeSrc)
+	}
 	// .yaml ONLY: bundles.Loader.Find stats "<name>.yaml" and
 	// "<name>/bundle.yaml" and nothing else, so a ".yml" bundle is as
 	// unloadable as a ".txt" one.
@@ -321,4 +421,105 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		MCP:       len(bundle.MCP),
 		SigDest:   sigDest,
 	}, nil
+}
+
+// bundleTreeSource resolves an import source to the root directory of a
+// DIRECTORY-form bundle.
+//
+// It reports false for a single-file bundle and for a source that does not
+// exist — the single-file path already names a missing source well, and giving
+// the same mistake two different messages depending on which gate saw it first
+// is how a diagnostic stops being trustworthy.
+func bundleTreeSource(fs afero.Fs, sourcePath string) (string, bool, error) {
+	info, err := fs.Stat(sourcePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("cannot read %s: %w", sourcePath, err)
+	}
+	if info.IsDir() {
+		return filepath.Clean(sourcePath), true, nil
+	}
+	if filepath.Base(sourcePath) == bundles.DirectoryFormManifest {
+		return filepath.Dir(sourcePath), true, nil
+	}
+	return "", false, nil
+}
+
+// importBundleTree copies a DIRECTORY-form bundle into the project's committed
+// content bundles directory — whole, and under its OWN name.
+//
+// The name comes from bundles.ExtractBundleName, the same derivation the loader
+// itself uses, rather than from the source's basename. Basename is what the
+// single-file path uses and it is right there; for a tree it is the manifest's
+// filename, which is "bundle.yaml" for every directory bundle that has ever
+// existed, so it would name each of them "bundle" and every import would land on
+// top of the last.
+func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, srcDir string) (*ImportBundleResult, error) {
+	srcManifest := filepath.Join(srcDir, bundles.DirectoryFormManifest)
+	srcData, err := afero.ReadFile(fs, srcManifest)
+	if err != nil {
+		return nil, fmt.Errorf("import %s: a directory-form bundle must carry its %s manifest: %w",
+			srcDir, bundles.DirectoryFormManifest, err)
+	}
+	bundle, err := bundles.ParseBundle(srcData)
+	if err != nil {
+		return nil, fmt.Errorf("invalid bundle file: %w", err)
+	}
+	name := bundles.ExtractBundleName(srcManifest)
+	if err := bundles.ValidateBundleName(name); err != nil {
+		return nil, fmt.Errorf("import %s: %w", srcDir, err)
+	}
+
+	bundleDir := paths.LocalBundlesPath(cfg.GetAppPaths()[0])
+	destPath := filepath.Join(bundleDir, name)
+	if err := requireSafeBundlePath([]string{bundleDir}, destPath); err != nil {
+		return nil, err
+	}
+	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
+	}
+	exists, err := afero.Exists(fs, destPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot check whether %s already exists: %w", destPath, err)
+	}
+	if exists && !req.Force {
+		return nil, fmt.Errorf("bundle already exists: %s (use --force to overwrite)", destPath)
+	}
+	if exists {
+		// Replace the tree wholesale rather than copying over it. A file the
+		// incoming version DROPPED would otherwise survive as an extra that the
+		// incoming SHA256SUMS does not cover, and every reader of the result
+		// would report content added after signing — a tamper finding produced
+		// by the import itself.
+		if err := fs.RemoveAll(destPath); err != nil {
+			return nil, fmt.Errorf("failed to replace existing bundle %s: %w", destPath, err)
+		}
+	}
+	if err := copyBundleTree(fs, srcDir, destPath); err != nil {
+		return nil, fmt.Errorf("import %s: %w", srcDir, err)
+	}
+
+	res := &ImportBundleResult{
+		Status:    "imported",
+		Source:    srcDir,
+		Dest:      destPath,
+		Version:   bundle.Version,
+		Fragments: len(bundle.Fragments),
+		Commands:  len(bundle.Commands),
+		MCP:       len(bundle.MCP),
+	}
+	// Import PLACES a signature and never judges it (see ImportBundleResult). For
+	// a tree the detached sibling travelled inside the copy, so this reports
+	// where it landed rather than writing it again.
+	sigDest := filepath.Join(destPath, bundles.DirectoryFormManifest+sigSuffix)
+	present, err := afero.Exists(fs, sigDest)
+	if err != nil {
+		return nil, fmt.Errorf("import %s: cannot check for %s: %w", srcDir, sigDest, err)
+	}
+	if present {
+		res.SigDest = sigDest
+	}
+	return res, nil
 }

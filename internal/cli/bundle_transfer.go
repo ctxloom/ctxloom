@@ -80,8 +80,10 @@ var bundleExportCmd = &cobra.Command{
 
 Useful for publishing bundles to a shared repository like ctxloom-default.
 The bundle is copied as-is, preserving all content including distilled versions.
+A directory-form bundle is exported WHOLE — its items, SHA256SUMS and .sigs/
+travel with the manifest — and lands as a directory under its own name.
 
-Use -o to specify an output file path directly.
+Use -o to name the destination path directly.
 
 Examples:
   ctxloom bundle export go-tools ../ctxloom-default/ctxloom/bundles
@@ -123,14 +125,17 @@ var bundleImportForce bool
 
 var bundleImportCmd = &cobra.Command{
 	Use:   "import <path>",
-	Short: "Import a bundle from a local file",
-	Long: `Import a bundle from a local YAML file into .ctxloom/content/bundles.
+	Short: "Import a bundle from a local file or directory",
+	Long: `Import a bundle from a local YAML file, or a directory-form bundle from its
+directory, into .ctxloom/content/bundles.
 
-The bundle is copied into the local .ctxloom/content/bundles directory.
-Use --force to overwrite an existing bundle.
+The bundle is copied into the local .ctxloom/content/bundles directory. A
+directory-form bundle is copied WHOLE and keeps its own name. Use --force to
+overwrite an existing bundle.
 
 Examples:
   ctxloom bundle import ../ctxloom-default/ctxloom/bundles/go-tools.yaml
+  ctxloom bundle import ../ctxloom-default/ctxloom/bundles/unattended
   ctxloom bundle import ./my-bundle.yaml --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleImport,
@@ -168,5 +173,5 @@ func registerBundleImportFlags(cmd *cobra.Command) {
 
 // registerBundleExportFlags defines `bundle export`'s flags.
 func registerBundleExportFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVarP(&bundleExportOutput, "output", "o", "", "Output file path")
+	cmd.Flags().StringVarP(&bundleExportOutput, "output", "o", "", "Destination path (a file, or a directory for a directory-form bundle)")
 }

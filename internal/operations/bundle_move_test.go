@@ -154,6 +154,25 @@ func TestMoveBundle_ToProjectCheckout_LandsInContentBundles(t *testing.T) {
 	assert.False(t, inCache, "a moved bundle must not land in the destination's gitignored cache")
 }
 
+// The destination named DIRECTLY as a .ctxloom directory, rather than as the
+// checkout containing one. destBundlesDir has a branch for each, and only the
+// containing-checkout branch was exercised — so the .ctxloom-named branch could
+// resolve to the bare bundles root (where nothing is searched any more) and
+// every test still passed. Confirmed by mutation: pointing that branch back at
+// the bare root left the whole package green before this row existed.
+func TestMoveBundle_ToDotCtxloomDirectly_LandsInTheV1LayoutRoot(t *testing.T) {
+	fs, cfg := memMoveFS(t, false)
+	require.NoError(t, fs.MkdirAll("/other/.ctxloom", 0755))
+
+	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/other/.ctxloom", FS: fs})
+	require.NoError(t, err)
+
+	want := filepath.Join(paths.LocalBundlesPathFor("/other/.ctxloom", paths.LayoutV1), "seed.yaml")
+	assert.Equal(t, want, res.Dest)
+	exists, _ := afero.Exists(fs, want)
+	assert.True(t, exists, "the bundle must land where the reader will actually search for it")
+}
+
 // THE safety invariant: a destination write that fails must leave the source
 // exactly where it was.
 func TestMoveBundle_LocalWriteFails_SourceIntact(t *testing.T) {

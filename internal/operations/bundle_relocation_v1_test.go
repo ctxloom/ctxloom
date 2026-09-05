@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestListLocalBundleNames_RelocatedLayoutsEnumerateUnderBareNames pins the
@@ -44,11 +45,9 @@ func TestListLocalBundleNames_RelocatedLayoutsEnumerateUnderBareNames(t *testing
 
 	// v1 holds single-file documents; v2 holds tree form.
 	for _, n := range []string{"alpha", "beta"} {
-		require.NoError(t, afero.WriteFile(fs, filepath.Join(v1, n+".yaml"),
-			[]byte("version: 1.0.0\n"), 0o644))
+		testsupport.WriteFileString(t, fs, filepath.Join(v1, n+".yaml"), "version: 1.0.0\n", 0o644)
 	}
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(v2, "gamma", "bundle.yaml"),
-		[]byte("version: 2.0.0\n"), 0o644))
+	testsupport.WriteFileString(t, fs, filepath.Join(v2, "gamma", "bundle.yaml"), "version: 2.0.0\n", 0o644)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
@@ -90,13 +89,11 @@ func TestListLocalBundleNames_IgnoresFilesLooseAtTheBundlesRoot(t *testing.T) {
 
 	v1 := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, fs.MkdirAll(v1, 0o755))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(v1, "real.yaml"),
-		[]byte("version: 1.0.0\n"), 0o644))
+	testsupport.WriteFileString(t, fs, filepath.Join(v1, "real.yaml"), "version: 1.0.0\n", 0o644)
 
 	// Loose at the root, below no layout.
-	require.NoError(t, afero.WriteFile(fs,
-		filepath.Join(paths.LocalBundlesPath(appDir), "stray.yaml"),
-		[]byte("version: 1.0.0\n"), 0o644))
+	testsupport.WriteFileString(t, fs,
+		filepath.Join(paths.LocalBundlesPath(appDir), "stray.yaml"), "version: 1.0.0\n", 0o644)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 

@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -74,7 +75,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 	t.Setenv("SSH_AUTH_SOCK", "")
 
 	appDir := filepath.Join(projectDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))

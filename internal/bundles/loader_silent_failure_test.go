@@ -97,7 +97,7 @@ func TestCommandsFromBundleRef_ItemScopedRefIsSilentEmpty(t *testing.T) {
 	buf := captureBundleWarner(t)
 	fsys := afero.NewMemMapFs()
 	dir := "/bundles"
-	require.NoError(t, afero.WriteFile(fsys, dir+"/proj.yaml",
+	require.NoError(t, afero.WriteFile(fsys, dir+"/v1/proj.yaml",
 		[]byte("version: \"1.0\"\nfragments:\n  config-hierarchy:\n    content: hi\n"), 0o644))
 
 	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithWarnWriter(buf)
@@ -126,7 +126,7 @@ func TestSkillsFromBundleRef_ItemScopedRefIsSilentEmpty(t *testing.T) {
 	buf := captureBundleWarner(t)
 	fsys := afero.NewMemMapFs()
 	dir := "/bundles"
-	require.NoError(t, afero.WriteFile(fsys, dir+"/proj.yaml",
+	require.NoError(t, afero.WriteFile(fsys, dir+"/v1/proj.yaml",
 		[]byte("version: \"1.0\"\nfragments:\n  config-hierarchy:\n    content: hi\n"), 0o644))
 
 	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithWarnWriter(buf)
@@ -148,7 +148,7 @@ func TestCommandsFromBundleRef_CommandSelectorResolvesNotSilent(t *testing.T) {
 	buf := captureBundleWarner(t)
 	fsys := afero.NewMemMapFs()
 	dir := "/bundles"
-	require.NoError(t, afero.WriteFile(fsys, dir+"/proj.yaml",
+	require.NoError(t, afero.WriteFile(fsys, dir+"/v1/proj.yaml",
 		[]byte("version: \"1.0\"\ncommands:\n  deploy:\n    content: run the deploy script\n"), 0o644))
 
 	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithWarnWriter(buf)

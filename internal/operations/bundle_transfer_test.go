@@ -18,7 +18,7 @@ func memBundleFS(t *testing.T) (afero.Fs, *config.Config) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	bdir := paths.LocalBundlesPath(appDir)
+	bdir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, fs.MkdirAll(bdir, 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "seed.yaml"),
 		[]byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
@@ -92,7 +92,7 @@ func TestImportBundle_WritesToCommittedContentTree(t *testing.T) {
 	res, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/in/imported.yaml", FS: fs})
 	require.NoError(t, err)
 
-	assert.Equal(t, filepath.Join(paths.LocalBundlesPath(appDir), "imported.yaml"), res.Dest)
+	assert.Equal(t, filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV1), "imported.yaml"), res.Dest)
 	inCache, _ := afero.Exists(fs, filepath.Join(paths.CacheBundlesPath(appDir), "imported.yaml"))
 	assert.False(t, inCache, "imported bundle must not land in the gitignored cache")
 }
@@ -101,7 +101,7 @@ func TestImportBundle_WritesToCommittedContentTree(t *testing.T) {
 // silently strips it, so the copy arrives unsigned and unverifiable.
 func TestExportBundle_CarriesDetachedSignature(t *testing.T) {
 	fs, cfg := memBundleFS(t)
-	src := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "seed.yaml")
+	src := filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV1), "seed.yaml")
 	armored := signOnDisk(t, fs, src)
 
 	res, err := ExportBundle(context.Background(), cfg, ExportBundleRequest{Name: "seed", DestDir: "/out", FS: fs})
@@ -134,7 +134,7 @@ func TestImportBundle_CarriesDetachedSignature(t *testing.T) {
 	res, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/in/signed.yaml", FS: fs})
 	require.NoError(t, err)
 
-	wantSig := filepath.Join(paths.LocalBundlesPath(appDir), "signed.yaml.sig")
+	wantSig := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV1), "signed.yaml.sig")
 	assert.Equal(t, wantSig, res.SigDest)
 	got, err := afero.ReadFile(fs, wantSig)
 	require.NoError(t, err)

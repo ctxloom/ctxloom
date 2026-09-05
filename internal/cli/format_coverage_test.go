@@ -423,7 +423,7 @@ func TestFormatCoverage_AllRootCmdDescendants(t *testing.T) {
 
 	// The shared read fixture behind bundle view/edit/export/distill.
 	ctx := context.Background()
-	_, err := operations.CreateBundle(ctx, cfg, operations.CreateBundleRequest{
+	created, err := operations.CreateBundle(ctx, cfg, operations.CreateBundleRequest{
 		Name:        "coverage-target",
 		Description: "clifmt format-coverage fixture",
 		Fragments: map[string]operations.BundleFragmentInput{
@@ -431,7 +431,7 @@ func TestFormatCoverage_AllRootCmdDescendants(t *testing.T) {
 		},
 	})
 	require.NoError(t, err, "seed the shared coverage-target bundle fixture")
-	coverageTargetBundlePath = cfg.GetBundleDirs()[0] + "/coverage-target.yaml"
+	coverageTargetBundlePath = created.Path
 
 	paths := formatCoverageWalk(t)
 	require.NotEmpty(t, paths, "rootCmd must have runnable descendants")

@@ -39,7 +39,7 @@ import (
 // and returns its manifest path.
 func writeDirFormBundle(t *testing.T, cfg *config.Config, name string) string {
 	t.Helper()
-	dir := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), name)
+	dir := filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV2), name)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "greet"), 0o755))
 	manifest := filepath.Join(dir, "bundle.yaml")
 	require.NoError(t, os.WriteFile(manifest, []byte(

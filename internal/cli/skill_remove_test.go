@@ -25,7 +25,7 @@ import (
 // returns the skill's on-disk directory.
 func seedRemovableSkill(t *testing.T, cfg *config.Config) string {
 	t.Helper()
-	bundleDir := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "b")
+	bundleDir := filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV2), "b")
 	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "bundle.yaml"), []byte("version: \"1.0\"\n"), 0o644))
 

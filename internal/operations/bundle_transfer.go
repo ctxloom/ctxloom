@@ -371,7 +371,9 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		return nil, fmt.Errorf("invalid bundle file: %w", err)
 	}
 
-	destPath, _, err := prepareImportDest(fs, cfg, filepath.Base(req.SourcePath), req.Force)
+	// LayoutV1: this import accepts a single-file bundle document only (the
+	// requireLoadableName gate above), which is exactly what v1 holds.
+	destPath, _, err := prepareImportDest(fs, cfg, filepath.Base(req.SourcePath), paths.LayoutV1, req.Force)
 	if err != nil {
 		return nil, err
 	}
@@ -457,7 +459,8 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 		return nil, fmt.Errorf("import %s: %w", srcDir, err)
 	}
 
-	destPath, exists, err := prepareImportDest(fs, cfg, name, req.Force)
+	// LayoutV2: a tree import writes the directory form, which is what v2 holds.
+	destPath, exists, err := prepareImportDest(fs, cfg, name, paths.LayoutV2, req.Force)
 	if err != nil {
 		return nil, err
 	}
@@ -499,18 +502,18 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 }
 
 // prepareImportDest resolves and guards the path an import writes to: the given
-// leaf name under this project's committed bundles directory, refusing a
-// symlinked component, creating the parent, and refusing an existing
-// destination unless force was given. It reports the path and whether something
+// leaf name under the given layout's root in this project's committed bundles
+// directory, refusing a symlinked component, creating the parent, and refusing
+// an existing destination unless force was given. It reports the path and whether something
 // is already there.
 //
 // Both import forms run it, and that is the whole point. The single-file and
-// tree paths differ only in what they COPY, so a guard living inside one of
-// them is a guard the other silently does without — and the guards here are the
-// symlink-traversal refusal and the no-clobber-without-force refusal, neither
-// of which has a harmless absence.
-func prepareImportDest(fs afero.Fs, cfg *config.Config, leaf string, force bool) (string, bool, error) {
-	bundleDir := paths.LocalBundlesPath(cfg.GetAppPaths()[0])
+// tree paths differ only in what they COPY and which layout root receives it,
+// so a guard living inside one of them is a guard the other silently does
+// without — and the guards here are the symlink-traversal refusal and the
+// no-clobber-without-force refusal, neither of which has a harmless absence.
+func prepareImportDest(fs afero.Fs, cfg *config.Config, leaf string, layout paths.BundleLayout, force bool) (string, bool, error) {
+	bundleDir := paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], layout)
 	destPath := filepath.Join(bundleDir, leaf)
 	if err := requireSafeBundlePath([]string{bundleDir}, destPath); err != nil {
 		return "", false, err

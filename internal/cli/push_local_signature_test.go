@@ -33,14 +33,14 @@ import (
 // localSigPath returns the on-disk path of the "for-push" bundle's detached
 // signature sibling in a pushSignTestSetup project.
 func localSigPath(cfg *config.Config) string {
-	return filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml.sig")
+	return filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV1), "for-push.yaml.sig")
 }
 
 // signLocalBundleOnDisk signs the "for-push" bundle's exact current bytes and
 // writes the sibling `.sig`, exactly as `ctxloom bundle sign for-push` does.
 func signLocalBundleOnDisk(t *testing.T, cfg *config.Config) []byte {
 	t.Helper()
-	path := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml")
+	path := filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV1), "for-push.yaml")
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -105,7 +105,7 @@ func TestPushBundleCfg_StaleLocalSignature_PlainPushRefusesAndNamesTheRemedy(t *
 	signLocalBundleOnDisk(t, cfg)
 
 	// The edit that strands the signature.
-	bundlePath := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml")
+	bundlePath := filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV1), "for-push.yaml")
 	edited := []byte("version: 2.0.0\nfragments:\n  intro:\n    content: rewritten\n")
 	require.NoError(t, os.WriteFile(bundlePath, edited, 0o644))
 	sig, err := os.ReadFile(localSigPath(cfg))
@@ -134,7 +134,7 @@ func TestPushBundleCfg_StaleLocalSignature_SignFlagResignsAndProceeds(t *testing
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
 	stale := signLocalBundleOnDisk(t, cfg)
 
-	bundlePath := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml")
+	bundlePath := filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV1), "for-push.yaml")
 	edited := []byte("version: 2.0.0\nfragments:\n  intro:\n    content: rewritten\n")
 	require.NoError(t, os.WriteFile(bundlePath, edited, 0o644))
 

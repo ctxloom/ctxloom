@@ -132,7 +132,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("generate company signer: %w", err)
 		}
-		rel := ".ctxloom/content/bundles/" + bundleName + ".yaml"
+		rel := bundleFilePath(bundleName)
 		url, err := w.env.SeedSignedRemote(map[string]string{rel: j001700BundleYAML(j001700Marker)}, []string{rel}, signer)
 		if err != nil {
 			return fmt.Errorf("seed signed company remote: %w", err)

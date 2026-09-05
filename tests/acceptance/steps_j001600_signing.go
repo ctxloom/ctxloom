@@ -88,10 +88,6 @@ const (
 	j001600PublishedName = "secure-coding"
 )
 
-// j001600BundlesDir is the authored (committed, publishable) bundle tree — the set
-// `bundle sign --all` signs and `bundle move` relocates out of.
-const j001600BundlesDir = ".ctxloom/content/bundles"
-
 // j001600State is this journey's fixture state.
 type j001600State struct {
 	signer    *testenv.TestSigner
@@ -158,9 +154,6 @@ func j001600BundleYAML(frags ...j001600Fragment) string {
 	return b.String()
 }
 
-// j001600BundlePath is the authored bundle file's project-relative path.
-func j001600BundlePath(name string) string { return j001600BundlesDir + "/" + name + ".yaml" }
-
 // j001600VerifyDetachedSignature is THE assertion this journey exists for: read
 // the bundle bytes and the `.sig` sibling FRESH OFF DISK and verify the pair
 // with internal/signing's own verifier against Trent's public key — never by
@@ -171,7 +164,7 @@ func j001600BundlePath(name string) string { return j001600BundlesDir + "/" + na
 // codebase's characteristic bug (exit 0, a success message, no payload), and
 // it must produce a message that names THAT rather than a generic parse error.
 func j001600VerifyDetachedSignature(w *World, bundleName string) error {
-	rel := j001600BundlePath(bundleName)
+	rel := bundleFilePath(bundleName)
 	body, err := w.env.ReadFile(rel)
 	if err != nil {
 		return fmt.Errorf("read signed bundle %s: %w", rel, err)
@@ -210,11 +203,6 @@ func j001600DeclarePublisher(w *World, principal string, key *testenv.TestSigner
 	return w.env.WriteFile(j001600DeclaredSignersPath, line+"\n")
 }
 
-// j001600DirBundleDir / j001600DirBundleManifest name a DIRECTORY-form bundle's tree
-// and its manifest — the shape whose detached signature was never refreshed.
-func j001600DirBundleDir(name string) string      { return j001600BundlesDir + "/" + name }
-func j001600DirBundleManifest(name string) string { return j001600DirBundleDir(name) + "/bundle.yaml" }
-
 // j001600VerifyDirectorySignature is defect B's assertion: the detached signature
 // beside a directory bundle's manifest must cover the manifest's CURRENT bytes.
 //
@@ -222,7 +210,7 @@ func j001600DirBundleManifest(name string) string { return j001600DirBundleDir(n
 // earlier signing of the same bundle — which is precisely what `bundle sign`
 // used to leave behind — cannot satisfy it.
 func j001600VerifyDirectorySignature(w *World, name string) error {
-	rel := j001600DirBundleManifest(name)
+	rel := bundleDirManifestPath(name)
 	body, err := w.env.ReadFile(rel)
 	if err != nil {
 		return fmt.Errorf("read signed manifest %s: %w", rel, err)
@@ -255,7 +243,7 @@ func j001600VerifyDirectorySignature(w *World, name string) error {
 // The sibling's own signature verifies perfectly in that world, so nothing but
 // this assertion can tell the two orderings apart.
 func j001600VerifyTreeAttestation(w *World, name string) error {
-	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(j001600DirBundleDir(name)))
+	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(bundleDirPath(name)))
 	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(dir), content.Provenance{IsLocal: true})
 	if err != nil {
 		return fmt.Errorf("open the bundle tree at %s: %w", dir, err)
@@ -290,13 +278,13 @@ func j001600VerifyTreeAttestation(w *World, name string) error {
 // j001600ListSignatures returns every `.sig` file under the authored bundle tree,
 // project-relative and sorted, so a scenario can assert a COUNT.
 func j001600ListSignatures(w *World) ([]string, error) {
-	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(j001600BundlesDir))
+	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(singleFileBundlesRoot()))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("read %s: %w", j001600BundlesDir, err)
+		return nil, fmt.Errorf("read %s: %w", singleFileBundlesRoot(), err)
 	}
 	var out []string
 	for _, e := range entries {
@@ -309,13 +297,13 @@ func j001600ListSignatures(w *World) ([]string, error) {
 
 // j001600ListBundles returns every authored bundle file name (without the .yaml).
 func j001600ListBundles(w *World) ([]string, error) {
-	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(j001600BundlesDir))
+	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(singleFileBundlesRoot()))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("read %s: %w", j001600BundlesDir, err)
+		return nil, fmt.Errorf("read %s: %w", singleFileBundlesRoot(), err)
 	}
 	var out []string
 	for _, e := range entries {
@@ -344,7 +332,7 @@ func j001600Setup(w *World) error {
 	// The authored bundle tree exists but is empty: GetBundleDirs stats it, and
 	// "the directory is missing" and "the directory holds nothing" are
 	// different diagnostics from `sign --all`.
-	if err := os.MkdirAll(filepath.Join(w.env.ProjectDir, filepath.FromSlash(j001600BundlesDir)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(w.env.ProjectDir, filepath.FromSlash(singleFileBundlesRoot())), 0o755); err != nil {
 		return fmt.Errorf("create authored bundles dir: %w", err)
 	}
 
@@ -411,7 +399,7 @@ func j001600PublishedBundle(tddContent string) string {
 // released nothing and `bundle reject` withheld nothing, both while exiting 0.
 func j001600SeedFromDisk(w *World, name string) error {
 	st := j001600Of(w)
-	rel := j001600BundlePath(name)
+	rel := bundleFilePath(name)
 	body, err := w.env.ReadFile(rel)
 	if err != nil {
 		return fmt.Errorf("read authored bundle to publish: %w", err)
@@ -713,12 +701,12 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Trent's project publishes a bundle "([^"]*)" carrying the fragment "([^"]*)"$`, func(c context.Context, name, frag string) error {
 		w := worldFrom(c)
-		return w.env.WriteFile(j001600BundlePath(name), j001600BundleYAML(j001600Fragment{name: frag, content: j001600TDDMarker}))
+		return w.env.WriteFile(bundleFilePath(name), j001600BundleYAML(j001600Fragment{name: frag, content: j001600TDDMarker}))
 	})
 
 	ctx.Step(`^Trent's project publishes the "([^"]*)" bundle his team depends on$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		return w.env.WriteFile(j001600BundlePath(name), j001600PublishedBundle(j001600TDDMarker))
+		return w.env.WriteFile(bundleFilePath(name), j001600PublishedBundle(j001600TDDMarker))
 	})
 
 	ctx.Step(`^Trent's project publishes (\d+) bundles$`, func(c context.Context, n int) error {
@@ -726,7 +714,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		for i := 0; i < n; i++ {
 			name := fmt.Sprintf("standard-%d", i)
 			body := j001600BundleYAML(j001600Fragment{name: "guidance", content: fmt.Sprintf("%s-%d", j001600TDDMarker, i)})
-			if err := w.env.WriteFile(j001600BundlePath(name), body); err != nil {
+			if err := w.env.WriteFile(bundleFilePath(name), body); err != nil {
 				return err
 			}
 		}
@@ -742,7 +730,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	// refreshed.
 	ctx.Step(`^Trent's project publishes the directory bundle "([^"]*)" carrying the fragment "([^"]*)"$`, func(c context.Context, name, frag string) error {
 		w := worldFrom(c)
-		return w.env.WriteFile(j001600DirBundleManifest(name), j001600BundleYAML(j001600Fragment{name: frag, content: j001600TDDMarker}))
+		return w.env.WriteFile(bundleDirManifestPath(name), j001600BundleYAML(j001600Fragment{name: frag, content: j001600TDDMarker}))
 	})
 
 	// Edited IN PLACE, not through `ctxloom bundle modify`: this is the
@@ -750,7 +738,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	// it is what leaves a signature covering bytes that are no longer there.
 	ctx.Step(`^Trent revises the directory bundle "([^"]*)"$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		rel := j001600DirBundleManifest(name)
+		rel := bundleDirManifestPath(name)
 		body, err := w.env.ReadFile(rel)
 		if err != nil {
 			return err
@@ -816,7 +804,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("no published bundles at all — refusing to report a verification that checked nothing")
 		}
 		for _, name := range bundles {
-			rel := j001600BundlePath(name)
+			rel := bundleFilePath(name)
 			body, rerr := w.env.ReadFile(rel)
 			if rerr != nil {
 				return fmt.Errorf("read %s: %w", rel, rerr)
@@ -844,11 +832,11 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Trent edits the bundle "([^"]*)" after signing it$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		body, err := w.env.ReadFile(j001600BundlePath(name))
+		body, err := w.env.ReadFile(bundleFilePath(name))
 		if err != nil {
 			return err
 		}
-		return w.env.WriteFile(j001600BundlePath(name), body+"  late-addition:\n    content: \"added after the signature\"\n")
+		return w.env.WriteFile(bundleFilePath(name), body+"  late-addition:\n    content: \"added after the signature\"\n")
 	})
 
 	// --- Signature payload assertions ---------------------------------------
@@ -1244,7 +1232,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		if frag != "tdd" {
 			return fmt.Errorf("this fixture only revises the tdd fragment, not %q", frag)
 		}
-		if err := w.env.WriteFile(j001600BundlePath(j001600PublishedName), j001600PublishedBundle(j001600TDDRevised)); err != nil {
+		if err := w.env.WriteFile(bundleFilePath(j001600PublishedName), j001600PublishedBundle(j001600TDDRevised)); err != nil {
 			return err
 		}
 		if err := runOK(w, "bundle", "sign", j001600PublishedName); err != nil {
@@ -1380,7 +1368,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^I run "ctxloom bundle move" to relocate "([^"]*)" into the shared standards directory$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		st := j001600Of(w)
-		body, err := w.env.ReadFile(j001600BundlePath(name))
+		body, err := w.env.ReadFile(bundleFilePath(name))
 		if err != nil {
 			return err
 		}
@@ -1417,7 +1405,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the source bundle "([^"]*)" and its signature are gone$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		for _, rel := range []string{j001600BundlePath(name), j001600BundlePath(name) + ".sig"} {
+		for _, rel := range []string{bundleFilePath(name), bundleFilePath(name) + ".sig"} {
 			if w.env.FileExists(rel) {
 				return fmt.Errorf("%s still exists after the move", rel)
 			}
@@ -1427,7 +1415,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the source bundle "([^"]*)" and its signature are untouched$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		for _, rel := range []string{j001600BundlePath(name), j001600BundlePath(name) + ".sig"} {
+		for _, rel := range []string{bundleFilePath(name), bundleFilePath(name) + ".sig"} {
 			if !w.env.FileExists(rel) {
 				return fmt.Errorf("%s was removed by a move that failed — a failed move must never eat the source (move reported:\n%s)", rel, w.env.LastOutput())
 			}

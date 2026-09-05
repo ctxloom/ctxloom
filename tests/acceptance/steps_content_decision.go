@@ -79,7 +79,7 @@ func tcLocalRef(bundle, fragment string) (string, error) {
 // lookup below is over the same bytes the CLI signed rather than over
 // something this test re-derived its own way.
 func tcFragmentPayload(w *World, bundle, fragment string) ([]byte, error) {
-	rel := paths.RepoContentPrefix + "/" + paths.BundlesDir + "/" + bundle + ".yaml"
+	rel := bundleFilePath(bundle)
 	body, err := w.env.ReadFile(rel)
 	if err != nil {
 		return nil, fmt.Errorf("read authored bundle %s: %w", rel, err)

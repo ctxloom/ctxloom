@@ -78,9 +78,6 @@ const (
 	j001900KeyComment = "carol@acme.example"
 	j001900Principal  = "runbooks@acme.example"
 	j001900PubKeyFile = "acme-runbooks.pub"
-
-	// j001900BundlesDir is the authored (committed, publishable) bundle tree.
-	j001900BundlesDir = ".ctxloom/content/bundles"
 )
 
 // j001900State is this journey's fixture state.
@@ -152,7 +149,7 @@ func j001900BundleYAML(version, content string) string {
 	return fmt.Sprintf("version: %q\nfragments:\n  %s:\n    content: %q\n", version, j001900Fragment, content)
 }
 
-func j001900BundlePath() string { return j001900BundlesDir + "/" + j001900Bundle + ".yaml" }
+func j001900BundlePath() string { return bundleFilePath(j001900Bundle) }
 
 // j001900Setup is the Background: a hermetic project with one engine, a seed
 // bundle and a "default" profile, plus Carol's signing key live in an
@@ -166,7 +163,7 @@ func j001900Setup(w *World) error {
 	if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(w.env.ProjectDir, filepath.FromSlash(j001900BundlesDir)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(w.env.ProjectDir, filepath.FromSlash(singleFileBundlesRoot())), 0o755); err != nil {
 		return fmt.Errorf("create authored bundles dir: %w", err)
 	}
 

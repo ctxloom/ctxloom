@@ -147,11 +147,11 @@ type j001400File struct {
 
 const j001400Bundle = "atelier"
 
-// j001400BundleRel is where a bundle's tree lives inside a publishing repo — the
-// same ".ctxloom/content/bundles/<name>/" layout an authored project uses,
-// which is what makes "publish" a copy rather than a transformation.
+// j001400BundleRel is where a bundle's tree lives inside a publishing repo. It
+// resolves through the same seam an authored project writes through, which is
+// what makes "publish" a copy rather than a transformation.
 func j001400BundleRel(rel string) string {
-	return ".ctxloom/content/bundles/" + j001400Bundle + "/" + rel
+	return bundleDirItemPath(j001400Bundle, rel)
 }
 
 // j001400ConfigYAML is Alice's project config. It declares TWO engines rather than
@@ -395,7 +395,7 @@ func j001400SignTree(work string, st *j001400State) error {
 	if st.signer == nil {
 		return fmt.Errorf("there is no publishing key for Trent, so the tree cannot be signed")
 	}
-	root := filepath.Join(work, ".ctxloom", "content", "bundles")
+	root := filepath.Join(work, filepath.FromSlash(dirFormBundlesRoot()))
 	store, err := content.NewTreeStore(afero.NewOsFs(), root, content.Provenance{RepoURL: "https://example.test/trent/company"})
 	if err != nil {
 		return fmt.Errorf("open the authored tree at %s: %w", root, err)
@@ -541,7 +541,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		// create a profile" rather than "the published tree never arrived".
 		// ensureProjectWithEngine may already have seeded this bundle; creating
 		// it again is a hard error, so create only when absent.
-		if !w.env.FileExists(".ctxloom/content/bundles/seed.yaml") {
+		if !w.env.FileExists(bundleFilePath("seed")) {
 			if err := runOK(w, "bundle", "create", "seed", "-d", "J001400 consumer seed bundle"); err != nil {
 				return err
 			}

@@ -98,7 +98,7 @@ func j002000Setup(w *World) error {
 	if err := scaffoldProjectWithConfig(w, j002000Config()); err != nil {
 		return err
 	}
-	if err := w.env.WriteFile(".ctxloom/content/bundles/house.yaml",
+	if err := w.env.WriteFile(bundleFilePath("house"),
 		fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  house-guidance:\n    content: %q\nhooks:\n  session_end:\n    - command: %q\n      type: command\n",
 			j002000Marker, j002000HookCommand)); err != nil {
 		return err

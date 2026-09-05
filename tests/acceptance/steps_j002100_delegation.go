@@ -251,10 +251,10 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			if err := w.env.InitGitRepo(); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/content/bundles/bundle-review.yaml", j002100BundleYAML(j002100.specs[nameA])); err != nil {
+			if err := w.env.WriteFile(bundleFilePath("bundle-review"), j002100BundleYAML(j002100.specs[nameA])); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/content/bundles/bundle-fix.yaml", j002100BundleYAML(j002100.specs[nameB])); err != nil {
+			if err := w.env.WriteFile(bundleFilePath("bundle-fix"), j002100BundleYAML(j002100.specs[nameB])); err != nil {
 				return err
 			}
 			if err := w.env.WriteFile(".ctxloom/profiles/review-profile.yaml", j002100ProfileYAML(j002100.specs[nameA])); err != nil {

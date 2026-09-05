@@ -119,7 +119,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		// Team's own first-party fragment (LOCAL — authored straight into the
 		// project bundle, so it is allowed unconditionally, no signing/trust
 		// needed — see internal/operations/trust.go's EffectiveTrust step 3).
-		if err := w.env.WriteFile(".ctxloom/content/bundles/"+j000700Bundle+".yaml", j000700FragmentBundleYAML(j000800TeamMarker)); err != nil {
+		if err := w.env.WriteFile(bundleFilePath(j000700Bundle), j000700FragmentBundleYAML(j000800TeamMarker)); err != nil {
 			return err
 		}
 		// Later scenarios (2/5) have Carol run `deps pull`, which populates a
@@ -234,7 +234,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("generate upstream signer: %w", err)
 		}
 		j000800.upstreamSigner = signer
-		rel := ".ctxloom/content/bundles/" + j000800UpstreamBundle + ".yaml"
+		rel := bundleFilePath(j000800UpstreamBundle)
 		url, err := w.env.SeedSignedRemote(map[string]string{rel: j000700FragmentBundleYAML(j000800PinnedMarker)}, []string{rel}, signer)
 		if err != nil {
 			return fmt.Errorf("seed signed upstream remote: %w", err)
@@ -283,7 +283,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^an upstream has since published a newer version$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j000800 := w.j000800()
-		rel := ".ctxloom/content/bundles/" + j000800UpstreamBundle + ".yaml"
+		rel := bundleFilePath(j000800UpstreamBundle)
 		return w.env.AdvanceSignedRemote(j000800.upstreamBare, map[string]string{rel: j000700FragmentBundleYAML(j000800NewerMarker)}, []string{rel}, j000800.upstreamSigner)
 	})
 
@@ -342,7 +342,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("generate company signer: %w", err)
 		}
 		j000800.companySigner = signer
-		rel := ".ctxloom/content/bundles/" + j000800CompanyBundle + ".yaml"
+		rel := bundleFilePath(j000800CompanyBundle)
 		url, err := w.env.SeedSignedRemote(map[string]string{rel: j000700FragmentBundleYAML(j000800CompanyMarker)}, []string{rel}, signer)
 		if err != nil {
 			return fmt.Errorf("seed signed company remote: %w", err)

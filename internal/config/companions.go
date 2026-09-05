@@ -2,9 +2,7 @@ package config
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,32 +18,29 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// companionProbeTimeout bounds the `<bin> version --format json` exec at
+// companionProbeTimeout bounds the `<bin> loadout --format json` exec at
 // boot. A wedged companion must degrade to a warning, never a stalled
 // startup. companionProbeWaitDelay bounds how long Output keeps waiting for
 // the stdout pipe to close after the direct child is dead — without it, a
 // companion that spawned a grandchild inheriting stdout would stall startup
 // forever despite the context kill. Vars (not consts) so tests can shrink them.
+// The VERSION probe's equivalents live with that probe, in
+// cliversion.ProbeTimeout / cliversion.ProbeWaitDelay.
 var (
 	companionProbeTimeout   = 3 * time.Second
 	companionProbeWaitDelay = time.Second
 )
 
-// companionVersionOutput runs a companion's version probe; seam for tests.
-var companionVersionOutput = func(path string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), companionProbeTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "version", "--format", "json")
-	cmd.WaitDelay = companionProbeWaitDelay
-	return cmd.Output()
-}
-
 // SetCompanionVersionOutputForTesting overrides the version-probe exec seam
 // and returns a restore function. Companion of SetLookPathForTesting.
+//
+// The seam lives with the probe, in cliversion — the owner of the
+// cross-binary `version --format json` contract, and the ONE implementation
+// the agent image's version key (internal/lm/isolation) reads through as
+// well. Two probes could disagree about what a companion's version IS, and
+// the disagreement would surface as an image that never rebuilds.
 func SetCompanionVersionOutputForTesting(fn func(string) ([]byte, error)) func() {
-	prev := companionVersionOutput
-	companionVersionOutput = fn
-	return func() { companionVersionOutput = prev }
+	return cliversion.SetOutputForTesting(fn)
 }
 
 // CompanionStatus is one boot-time probe of a companion binary — a standalone
@@ -122,31 +117,12 @@ func ProbeCompanions() []CompanionStatus {
 		wg.Add(1)
 		go func(i int, st CompanionStatus) {
 			defer wg.Done()
-			st.Version, st.Err = companionVersion(st.Path)
+			st.Version, st.Err = cliversion.Probe(st.Path)
 			out[i] = st
 		}(i, st)
 	}
 	wg.Wait()
 	return out
-}
-
-// companionVersion runs `<path> version --format json` and extracts the
-// version. It decodes into cliversion.Info — the same struct every companion
-// marshals to PRODUCE that output — so the cross-binary contract has exactly
-// one declaration and cannot drift between its writer and its reader.
-func companionVersion(path string) (string, error) {
-	raw, err := companionVersionOutput(path)
-	if err != nil {
-		return "", fmt.Errorf("run version --format json: %w", err)
-	}
-	var info cliversion.Info
-	if err := json.Unmarshal(raw, &info); err != nil {
-		return "", fmt.Errorf("parse version --format json output: %w", err)
-	}
-	if info.Version == "" {
-		return "", errors.New("version --format json output has no version field")
-	}
-	return info.Version, nil
 }
 
 // ===== Companion LOADOUT discovery (signature-envelope spec §4.3, §6) =====

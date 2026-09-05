@@ -119,14 +119,26 @@ func writeFakeCompanion(t *testing.T, dir, name, body string) string {
 
 // shrinkProbeDurations shortens the probe timeout and wait-delay so the
 // stall-path tests run in milliseconds, restoring them on cleanup.
+//
+// BOTH pairs, because the two probes are bounded in different packages: the
+// loadout probe by this package's vars, the version probe by cliversion's
+// (which owns that exec). Shrinking only one leaves whichever test drives the
+// other waiting the full production timeout.
 func shrinkProbeDurations(t *testing.T, timeout, waitDelay time.Duration) {
 	t.Helper()
 	origTimeout, origDelay := companionProbeTimeout, companionProbeWaitDelay
+	origProbe, origProbeDelay := cliversion.ProbeTimeout, cliversion.ProbeWaitDelay
 	companionProbeTimeout, companionProbeWaitDelay = timeout, waitDelay
+	cliversion.ProbeTimeout, cliversion.ProbeWaitDelay = timeout, waitDelay
 	t.Cleanup(func() {
 		companionProbeTimeout, companionProbeWaitDelay = origTimeout, origDelay
+		cliversion.ProbeTimeout, cliversion.ProbeWaitDelay = origProbe, origProbeDelay
 	})
 }
+
+// TestCompanionVersionOutput_RealExec below drives cliversion.Probe directly:
+// it is the production body ProbeCompanions runs, and every other test in this
+// package replaces the seam over it.
 
 // TestCompanionVersionOutput_RealExec exercises the production seam body —
 // the actual `version --format json` argv, the probe timeout, and the
@@ -144,7 +156,7 @@ func TestCompanionVersionOutput_RealExec(t *testing.T) {
 		bin := writeFakeCompanion(t, dir, "goodtool",
 			`[ "$1 $2 $3" = "version --format json" ] || exit 2
 echo '{"name":"goodtool","version":"v9.9.9"}'`)
-		version, err := companionVersion(bin)
+		version, err := cliversion.Probe(bin)
 		require.NoError(t, err)
 		assert.Equal(t, "v9.9.9", version)
 	})
@@ -153,7 +165,7 @@ echo '{"name":"goodtool","version":"v9.9.9"}'`)
 		shrinkProbeDurations(t, 200*time.Millisecond, 100*time.Millisecond)
 		bin := writeFakeCompanion(t, dir, "wedged", "sleep 30")
 		start := time.Now()
-		_, err := companionVersion(bin)
+		_, err := cliversion.Probe(bin)
 		require.Error(t, err, "a wedged companion must fail the probe, not hang it")
 		assert.Less(t, time.Since(start), 5*time.Second, "probe must be bounded by timeout+WaitDelay")
 	})
@@ -166,7 +178,7 @@ echo '{"name":"goodtool","version":"v9.9.9"}'`)
 		// forever for a daemonized companion) and startup stalls.
 		bin := writeFakeCompanion(t, dir, "spawner", "sleep 30 &\nexit 0")
 		start := time.Now()
-		_, err := companionVersion(bin)
+		_, err := cliversion.Probe(bin)
 		require.Error(t, err)
 		assert.Less(t, time.Since(start), 5*time.Second, "WaitDelay must cut the pipe wait short")
 	})
@@ -401,7 +413,7 @@ func TestCompanionVersion_ReadsTheCliversionContract(t *testing.T) {
 	})
 	defer restore()
 
-	got, err := companionVersion("/fake/taskloom")
+	got, err := cliversion.Probe("/fake/taskloom")
 	require.NoError(t, err)
 	assert.Equal(t, "v1.2.3", got)
 }
@@ -418,7 +430,7 @@ func TestCompanionVersion_RejectsAContractWithNoVersion(t *testing.T) {
 	})
 	defer restore()
 
-	_, err = companionVersion("/fake/taskloom")
+	_, err = cliversion.Probe("/fake/taskloom")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no version field")
 }

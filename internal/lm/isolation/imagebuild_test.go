@@ -434,6 +434,7 @@ func TestEnsureImage_UserOwnedOverrideRunsAsIs(t *testing.T) {
 // rest — the dir itself always exists so the agent stages' `COPY companions/`
 // succeeds even when nothing shipped.
 func TestStageCompanions_MirrorsPresentSkipsMissing(t *testing.T) {
+	withRealCompanionLookPath(t)
 	bin := t.TempDir()
 	for _, name := range []string{"taskloom", "reprise"} { // ltk deliberately absent
 		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755))
@@ -455,6 +456,7 @@ func TestStageCompanions_MirrorsPresentSkipsMissing(t *testing.T) {
 // TestStageCompanions_EmptyPathStillCreatesDir: with no companion on PATH the
 // staging still creates the (empty) companions dir the Containerfiles COPY.
 func TestStageCompanions_EmptyPathStillCreatesDir(t *testing.T) {
+	withRealCompanionLookPath(t)
 	t.Setenv("PATH", t.TempDir())
 	ctxDir := t.TempDir()
 	require.NoError(t, stageCompanions(ctxDir))

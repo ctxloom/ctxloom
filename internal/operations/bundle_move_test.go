@@ -50,7 +50,7 @@ func memMoveFS(t *testing.T, signed bool) (afero.Fs, *config.Config) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	bdir := paths.LocalBundlesPath(appDir)
+	bdir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, fs.MkdirAll(bdir, 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "seed.yaml"), []byte(moveBundleBody), 0644))
 	if signed {
@@ -60,7 +60,7 @@ func memMoveFS(t *testing.T, signed bool) (afero.Fs, *config.Config) {
 }
 
 func srcBundlePath(cfg *config.Config) string {
-	return filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "seed.yaml")
+	return filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV1), "seed.yaml")
 }
 
 // failWriteFs fails every create/write whose path matches a predicate — a fake
@@ -146,7 +146,7 @@ func TestMoveBundle_ToProjectCheckout_LandsInContentBundles(t *testing.T) {
 	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/other", FS: fs})
 	require.NoError(t, err)
 
-	want := filepath.Join(paths.LocalBundlesPath("/other/.ctxloom"), "seed.yaml")
+	want := filepath.Join(paths.LocalBundlesPathFor("/other/.ctxloom", paths.LayoutV1), "seed.yaml")
 	assert.Equal(t, want, res.Dest)
 	exists, _ := afero.Exists(fs, want)
 	assert.True(t, exists)
@@ -307,7 +307,7 @@ func memMoveDirFS(t *testing.T) (afero.Fs, *config.Config) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	dir := filepath.Join(paths.LocalBundlesPath(appDir), "seed")
+	dir := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV2), "seed")
 	require.NoError(t, fs.MkdirAll(filepath.Join(dir, "skills", "reviewer"), 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "bundle.yaml"),
 		[]byte("version: 1.0.0\nskills:\n  reviewer: {}\n"), 0644))
@@ -343,7 +343,7 @@ func TestMoveBundle_DirectoryFormRefusal_LeavesBothSidesUntouched(t *testing.T) 
 	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
 	require.Error(t, err)
 
-	dir := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "seed")
+	dir := filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV2), "seed")
 	for _, p := range []string{
 		filepath.Join(dir, "bundle.yaml"),
 		filepath.Join(dir, "skills", "reviewer", "SKILL.md"),
@@ -362,7 +362,7 @@ func TestMoveBundle_DirectoryFormRefusal_LeavesBothSidesUntouched(t *testing.T) 
 func TestMoveBundle_DirectoryFormWithNoPayloadBesideTheManifest_StillMoves(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	dir := filepath.Join(paths.LocalBundlesPath(appDir), "seed")
+	dir := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV2), "seed")
 	require.NoError(t, fs.MkdirAll(dir, 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "bundle.yaml"), []byte(moveBundleBody), 0644))
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})

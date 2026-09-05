@@ -29,7 +29,7 @@ import (
 func setupHeadingTestFS(t *testing.T) *bundles.Loader {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPathFor(testBaseDir, paths.LayoutV1), 0755))
 
 	bundleContent := `version: "1.0"
 description: Heading-stripping fixtures
@@ -56,7 +56,7 @@ commands:
       body of the hashtag command
 `
 	require.NoError(t, afero.WriteFile(fs,
-		paths.LocalBundlesPath(testBaseDir)+"/headings.yaml", []byte(bundleContent), 0644))
+		paths.LocalBundlesPathFor(testBaseDir, paths.LayoutV1)+"/headings.yaml", []byte(bundleContent), 0644))
 
 	return bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 }
@@ -264,7 +264,7 @@ func (d *plantingDistiller) Distill(context.Context, DistillRequest) (DistillRes
 // trip per item — and what it destroys is another author's bundle.
 func TestCreateBundle_ConcurrentCreateIsNotClobbered(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
-	path := filepath.Join(paths.LocalBundlesPath(appDir), "contested.yaml")
+	path := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV1), "contested.yaml")
 
 	rival := []byte("version: 1.0.0\ndescription: authored by the other writer\n")
 	d := &plantingDistiller{t: t, path: path, content: rival}

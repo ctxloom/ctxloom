@@ -281,7 +281,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		rel := ".ctxloom/content/bundles/" + ts.bundleName + ".yaml"
+		rel := bundleFilePath(ts.bundleName)
 		// Deliberately UNSIGNED: every item is born pending (denied by
 		// default), so approving one is the only thing that can expose it —
 		// the meaningful state for the APPROVE outline (see file doc).
@@ -298,7 +298,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		rel := ".ctxloom/content/bundles/" + ts.bundleName + ".yaml"
+		rel := bundleFilePath(ts.bundleName)
 		signer, err := testenv.GenerateTestSigner()
 		if err != nil {
 			return fmt.Errorf("generate trust-surface signer: %w", err)
@@ -377,7 +377,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("trust-surface: rename-and-resign requires the signed fixture (no signer recorded)")
 		}
 		bareDir := strings.TrimPrefix(ts.url, "file://")
-		rel := ".ctxloom/content/bundles/" + ts.bundleName + ".yaml"
+		rel := bundleFilePath(ts.bundleName)
 		if err := w.env.AdvanceSignedRemote(bareDir, map[string]string{rel: tsBundleYAMLFragmentRenamed()}, []string{rel}, ts.signer); err != nil {
 			return fmt.Errorf("advance signed trust-surface remote (rename fragment): %w", err)
 		}
@@ -392,7 +392,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		rel := ".ctxloom/content/bundles/" + ts.bundleName + ".yaml"
+		rel := bundleFilePath(ts.bundleName)
 		url, err := w.env.SeedRemote(map[string]string{rel: tsDualFormBundleYAML()})
 		if err != nil {
 			return fmt.Errorf("seed dual-form trust-surface remote: %w", err)
@@ -442,7 +442,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		ts := tsOf(w)
 		bareDir := strings.TrimPrefix(ts.url, "file://")
-		rel := ".ctxloom/content/bundles/" + ts.bundleName + ".yaml"
+		rel := bundleFilePath(ts.bundleName)
 		if err := w.env.AdvanceRemote(bareDir, map[string]string{rel: tsBundleYAMLFragmentDistilledAdded()}); err != nil {
 			return fmt.Errorf("advance unsigned trust-surface remote (add distilled form): %w", err)
 		}
@@ -1209,7 +1209,7 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("fixture does not actually collide: fragment payload %q != mcp preimage %q", fragPayload, execPayload)
 		}
 		ts := tsOf(w)
-		rel := ".ctxloom/content/bundles/" + ts.bundleName + ".yaml"
+		rel := bundleFilePath(ts.bundleName)
 		url, err := w.env.SeedRemote(map[string]string{rel: tsCollisionBundleYAML(execPayload)})
 		if err != nil {
 			return fmt.Errorf("seed collision trust-surface remote: %w", err)

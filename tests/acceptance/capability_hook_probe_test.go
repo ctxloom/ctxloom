@@ -411,7 +411,7 @@ func TestHookProbeCarriageScan_FindsTheDeliveredHookAndSaysNothingWhenAbsent(t *
 // confidently at the wrong subsystem, which is worse than one that says nothing.
 func TestHookProbeCarriageScan_ExcludesTheFixturesOwnDeclaration(t *testing.T) {
 	root := t.TempDir()
-	bundle := writeCarriageFile(t, filepath.Join(root, ".ctxloom", "content", "bundles", "bundle-hookprobe.yaml"),
+	bundle := writeCarriageFile(t, filepath.Join(root, filepath.FromSlash(bundleFilePath("bundle-hookprobe"))),
 		"hooks:\n  session_start:\n    - command: \""+carriageNeedle+" swift-amber-falcon\"\n")
 
 	got := hookProbeCarriageScan(hookProbeCarriage{
@@ -861,7 +861,7 @@ func TestHookProbeContainerCarriageScript_MatchesLiterallyAndExpandsHomeInside(t
 // The host scan already had Authored for exactly this; the container scan
 // reintroduced the bug by not having it.
 func TestHookProbeContainerScan_ExcludesTheFixturesOwnDeclarationAndGit(t *testing.T) {
-	authored := "/proj/.ctxloom/content/bundles/bundle-hookprobe.yaml"
+	authored := "/proj/" + bundleFilePath("bundle-hookprobe")
 	run := func(string, map[string]string, ...string) ([]byte, error) {
 		return []byte(authored + "\n"), nil
 	}

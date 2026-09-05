@@ -245,7 +245,7 @@ func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec,
 
 // j002300WriteAgent writes one agent's bundle + profile files.
 func j002300WriteAgent(w *World, s *j002300AgentSpec) error {
-	if err := w.env.WriteFile(".ctxloom/content/bundles/"+s.Bundle+".yaml", j002300BundleYAML(s)); err != nil {
+	if err := w.env.WriteFile(bundleFilePath(s.Bundle), j002300BundleYAML(s)); err != nil {
 		return err
 	}
 	return w.env.WriteFile(".ctxloom/profiles/"+s.Profile+".yaml", j002300ProfileYAML(s))

@@ -145,7 +145,7 @@ func fixtureCommandBody(name string) string {
 // time (operations.AddItem's Content field has exactly one caller, and it
 // hard-codes the placeholder).
 func seedItemContent(w *World, bundle, section, name, content string) error {
-	rel := ".ctxloom/content/bundles/" + bundle + ".yaml"
+	rel := bundleFilePath(bundle)
 	body, err := w.env.ReadFile(rel)
 	if err != nil {
 		return fmt.Errorf("seed %s %q: read bundle %q: %w", section, name, bundle, err)
@@ -295,7 +295,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 			"    description: tools this bundle's content needs in the agent image\n"+
 			"    content: |\n"+
 			"      %s: install the tools this bundle's content needs.\n", marker)
-		return worldFrom(c).env.WriteFile(".ctxloom/content/bundles/"+name+".yaml", body)
+		return worldFrom(c).env.WriteFile(bundleFilePath(name), body)
 	})
 
 	// A profile requires at least one bundle or parent. The fixture creates a
@@ -366,7 +366,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a git remote "([^"]*)" serving a ctxloom bundle$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		url, err := w.env.SeedRemote(map[string]string{
-			".ctxloom/content/bundles/demo.yaml": "version: 1.0.0\n" +
+			bundleFilePath("demo"): "version: 1.0.0\n" +
 				"author: test\n" +
 				"description: Demo bundle\n" +
 				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content.\n" +
@@ -396,7 +396,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		if bare == "" {
 			return fmt.Errorf("remote %q was not seeded", name)
 		}
-		return w.env.UnpublishFromRemote(bare, ".ctxloom/content/bundles/"+bundle+".yaml")
+		return w.env.UnpublishFromRemote(bare, bundleFilePath(bundle))
 	})
 
 	// Takes a seeded remote off the air. The bare repo IS the remote at this
@@ -427,7 +427,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("remote %q was not seeded", name)
 		}
 		return w.env.AdvanceRemote(bare, map[string]string{
-			".ctxloom/content/bundles/demo.yaml": "version: 2.0.0\n" +
+			bundleFilePath("demo"): "version: 2.0.0\n" +
 				"author: test\n" +
 				"description: Demo bundle v2\n" +
 				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content, version two.\n",
@@ -448,7 +448,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("remote %q was not seeded", name)
 		}
 		return w.env.AdvanceRemote(bare, map[string]string{
-			".ctxloom/content/bundles/demo.yaml": "version: 1.1.0\n" +
+			bundleFilePath("demo"): "version: 1.1.0\n" +
 				"author: test\n" +
 				"description: Demo bundle\n" +
 				"fragments:\n  " + frag + ":\n    tags: [demo]\n    content: |\n      " + content + "\n" +

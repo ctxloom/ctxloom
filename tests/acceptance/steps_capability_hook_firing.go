@@ -171,7 +171,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 			// actually take. A fixture that wrote .claude/settings.json itself
 			// would prove an engine execs files WE hand-made, which is not the
 			// claim.
-			if err := w.env.WriteFile(".ctxloom/content/bundles/bundle-"+hookProbeAgent+".yaml",
+			if err := w.env.WriteFile(bundleFilePath("bundle-"+hookProbeAgent),
 				hookProbeBundleYAML(h.scriptPath, h.stampHarp)); err != nil {
 				return err
 			}
@@ -190,7 +190,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 			// text, so a scan that counted it would report "ctxloom delivered
 			// the hook" on a run where no writer ever executed.
 			for _, rel := range []string{
-				".ctxloom/content/bundles/bundle-" + hookProbeAgent + ".yaml",
+				bundleFilePath("bundle-" + hookProbeAgent),
 				".ctxloom/profiles/" + hookProbeAgent + "-profile.yaml",
 				".ctxloom/config.yaml",
 			} {

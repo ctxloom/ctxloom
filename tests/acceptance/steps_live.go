@@ -60,7 +60,7 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 		func(c context.Context, bundle, fragment string) error {
 			w := worldFrom(c)
 			body := liveBundleYAML(fragment)
-			rel := filepath.Join(".ctxloom", "content", "bundles", bundle+".yaml")
+			rel := filepath.FromSlash(bundleFilePath(bundle))
 			return w.env.WriteFile(rel, body)
 		})
 
@@ -135,7 +135,7 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 	// asserted on the fragment above.
 	ctx.Step(`^the bundle "([^"]*)" records a distillation$`, func(c context.Context, bundle string) error {
 		w := worldFrom(c)
-		rel := filepath.Join(".ctxloom", "content", "bundles", bundle+".yaml")
+		rel := filepath.FromSlash(bundleFilePath(bundle))
 		body, err := w.env.ReadFile(rel)
 		if err != nil {
 			return err

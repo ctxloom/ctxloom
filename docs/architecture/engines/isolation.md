@@ -150,12 +150,20 @@ every layer after a changed one — so while they sat ABOVE the engine install
 how a claude-code cell came to die three times on opencode's installer
 exhausting GitHub's anonymous API quota. The engine install goes above
 everything that changes per build; the ctxloom binary goes last.
-Provenance (`HostProvenanceDigest`) is `versionProvenanceKey` suffixed with the
-base config's content hash, stamped as `LABEL ctxloom.provenance` and checked by
-`imageStale`. It keys on the VERSION rather than a digest of the running
+Provenance (`HostProvenanceDigest`) is `versionProvenanceKey`, then a digest of
+the staged companions' self-reported versions (`companionVersionKey`), then the
+base config's content hash — stamped as `LABEL ctxloom.provenance` and checked
+by `imageStale`. It keys on the VERSION rather than a digest of the running
 binary's bytes: that digest changed on every build, so every agent image read as
 stale and was rebuilt for nothing. A tracked-dirty build still rebuilds, because
 `versionProvenanceKey` keeps the build timestamp for a dirty stamp.
+
+The companion half exists because the image bakes the companions too, and
+keying on ctxloom's version alone let an image holding an OLD companion read as
+fresh until ctxloom's own version happened to move. A companion present on PATH
+that cannot answer `<bin> version --format json` raises a `ClassConfig` finding
+— fatal by default, warn-and-continue under `--degraded` — rather than dropping
+out of the key unnoticed.
 
 Build orchestration: `Container.ensureImage` (single-flight per `(runtime, tag)`)
 → `runEnsureImage` → `buildFromSource` → `buildBaseImage` → `buildImage`. **No

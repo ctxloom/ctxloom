@@ -360,9 +360,11 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	// answer for identity, provenance and signature facts regardless of which
 	// form the bundle was authored in. Non-tree forms return nil and fall
 	// through unchanged; see readLocalTreeForm for how the three are told apart.
-	if treeBundle, terr := r.readLocalTreeForm(ctx, path, bundle); terr != nil {
+	tree, treeBundle, terr := r.readLocalTreeForm(ctx, path, bundle)
+	if terr != nil {
 		return BundleRead{}, terr
-	} else if treeBundle != nil {
+	}
+	if treeBundle != nil {
 		bundle = treeBundle
 	}
 	bundle.Path = path
@@ -423,6 +425,13 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	}
 
 	facts := r.signatureFactsFor(path, data)
+	// A TREE's envelope sibling covers a document that declares no items, so on
+	// its own it says nothing about the payload. The manifest is what covers the
+	// item files, and it can only downgrade the answer above — see
+	// treeIntegrityFacts.
+	if tree != nil {
+		facts = r.treeIntegrityFacts(ctx, tree, facts)
+	}
 	facts.stamp(bundle)
 	// The RESOLUTION ref is the bare path-relative name for EVERY class this
 	// reader serves, builtins included. A builtin once minted

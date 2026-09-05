@@ -132,8 +132,10 @@ type FetcherOpener func(repoURL string) (remote.Fetcher, error)
 // changes the gate's verdict with no edit here, which is the whole point.
 type BundleParser func(data []byte) error
 
-// corpusBundlesDir is the repo-relative directory a published corpus lives in.
-var corpusBundlesDir = path.Join(paths.RepoContentPrefix, paths.BundlesDir)
+// corpusBundlesDir is the repo-relative directory a published corpus lives in:
+// the root that CONTAINS every layout, walked recursively, so a corpus is
+// checked whole no matter which layout its bundles were published in.
+var corpusBundlesDir = remote.RepoItemRoot(remote.ItemTypeBundle)
 
 // CheckCorpus reads every bundle published by each remote and parses it,
 // returning what would not parse and what could not be read.

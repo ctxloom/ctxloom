@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 // BundleLayout names one of the two on-disk shapes a bundle is stored in.
@@ -120,17 +122,99 @@ func CacheBundlesPathFor(appPath string, l BundleLayout) string {
 	return BundlesLayoutRoot(CacheBundlesPath(appPath), l)
 }
 
+// ContentBundlesPrefixFor returns one layout's bundles prefix RELATIVE TO THE
+// CONTENT ROOT — the same subtree RepoBundlesPrefixFor names, minus the
+// leading RepoContentPrefix.
+//
+// It exists because a reference resolved against an already-open content root
+// must not re-state that root, and rebuilding such a path by trimming
+// RepoContentPrefix back off is a second expression of the layout that can
+// disagree with the first.
+//
+// It joins with path rather than filepath: these are REPO-relative paths that
+// travel to a git host and are compared against forward-slash refs, so they
+// must not pick up a separator from whatever OS happens to be publishing.
+func ContentBundlesPrefixFor(l BundleLayout) string {
+	if seg := l.mustSegment(); seg != "" {
+		return path.Join(BundlesDir, seg)
+	}
+	return BundlesDir
+}
+
 // RepoBundlesPrefixFor returns one layout's repo-relative bundles prefix — the
 // publishing half of the same layout LocalBundlesPathFor gives a project.
-//
-// It joins with path rather than filepath: this is a REPO-relative path that
-// travels to a git host and is compared against forward-slash refs, so it must
-// not pick up a separator from whatever OS happens to be publishing.
 func RepoBundlesPrefixFor(l BundleLayout) string {
-	if seg := l.mustSegment(); seg != "" {
-		return path.Join(RepoContentPrefix, BundlesDir, seg)
-	}
+	return path.Join(RepoContentPrefix, ContentBundlesPrefixFor(l))
+}
+
+// RepoBundlesRoot returns the repo-relative directory that CONTAINS every
+// layout's bundles subtree — the parent RepoBundlesPrefixFor composes a segment
+// underneath.
+//
+// This is the root a LISTING walks, and it is deliberately not any one layout's
+// prefix: a walk anchored at one layout cannot see the other, so a repo
+// publishing both forms would list half its bundles and report success. Names
+// harvested from such a walk are relative to THIS root and therefore still
+// carry a layout segment — reduce them with TrimBundlesLayoutSegment.
+func RepoBundlesRoot() string {
 	return path.Join(RepoContentPrefix, BundlesDir)
+}
+
+// ContentBundlesRoot returns the bundles root RELATIVE TO THE CONTENT ROOT —
+// what RepoBundlesRoot names, for a reader that has already resolved
+// .ctxloom/content/ itself.
+//
+// Like RepoBundlesRoot this is the parent of every layout, not one layout's
+// prefix, because it is what a LISTING walks.
+func ContentBundlesRoot() string {
+	return BundlesDir
+}
+
+// bundleLayouts is every layout that names a real on-disk shape, longest
+// segment first so TrimBundlesLayoutSegment cannot strip a shorter segment that
+// happens to prefix a longer one.
+//
+// LayoutUnknown is absent by construction: it names no layout and its segment
+// accessor refuses.
+func bundleLayouts() []BundleLayout {
+	ls := []BundleLayout{LayoutV1, LayoutV2}
+	sort.SliceStable(ls, func(i, j int) bool {
+		return len(ls[i].mustSegment()) > len(ls[j].mustSegment())
+	})
+	return ls
+}
+
+// TrimBundlesLayoutSegment reduces a path relative to RepoBundlesRoot to the
+// item's BARE name, stripping whatever layout segment it sits under.
+//
+// A listing walks RepoBundlesRoot and names each item by its path relative to
+// that root. The moment a layout has a segment, those names come back
+// layout-qualified ("v2/atelier"), and a layout-qualified name resolves to
+// NOTHING: it is not what the publisher published, not what a lockfile pins,
+// and not what a consumer asks for. This is the same defect class that once
+// made `sign --all` sign zero bytes while reporting success, so the reduction
+// is done HERE, once, rather than at each listing site.
+//
+// Only a segment followed by a separator is stripped. An item whose own name
+// equals a segment ("v2.yaml", listed as "v2") keeps it — trimming that would
+// reduce a real bundle to the empty name. A user directory colliding with a
+// segment name is indistinguishable from the layout root and is claimed by it;
+// that ambiguity is inherent to putting the layouts under the bundles root at
+// all, not something this function can resolve.
+//
+// With LayoutV1's segment empty this is the identity for every v1 path, which
+// is why it can be adopted before any layout moves.
+func TrimBundlesLayoutSegment(rel string) string {
+	for _, l := range bundleLayouts() {
+		seg := l.mustSegment()
+		if seg == "" {
+			continue
+		}
+		if trimmed, ok := strings.CutPrefix(rel, seg+"/"); ok {
+			return trimmed
+		}
+	}
+	return rel
 }
 
 // BundlesLayoutRoot returns the subdirectory of an ALREADY-RESOLVED bundles

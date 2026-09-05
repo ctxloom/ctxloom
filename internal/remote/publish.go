@@ -9,8 +9,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/spf13/afero"
-
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // Publisher handles publishing items to remote repositories.
@@ -574,12 +572,10 @@ func buildPRBody(msgBody, fullTitleIfOverflow string, itemType ItemType, itemNam
 // item went, so the reported path and the written path are the same string
 // rather than two expressions that happen to match.
 //
-// itemType is currently unused: ItemTypeBundle is the only distributed item
-// type (see types.go), so every publish target lives under "bundles"; the
-// parameter is kept so a future second ItemType doesn't require re-widening the
-// signature (the switch this replaced had an identical case and default arm).
-func PublishPath(_ ItemType, name string) string {
-	return path.Join(paths.RepoContentPrefix, paths.BundlesDir, name+".yaml")
+// The prefix comes from RepoItemPrefix — the one place the remote bundle layout
+// is decided — so publish, fetch and listing move together when it moves.
+func PublishPath(itemType ItemType, name string) string {
+	return path.Join(RepoItemPrefix(itemType), name+".yaml")
 }
 
 // NewPublisher creates a publisher for the given repository URL: the GitHub

@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // VCS abstracts reads from a single version-controlled source — one repository
@@ -138,7 +137,7 @@ func (v *gitForgeVCS) ReadFileAt(ctx context.Context, path, rev string) ([]byte,
 // relative to that base (suffix stripped). A repo with no such directory
 // lists empty.
 func (v *gitForgeVCS) ListItems(ctx context.Context, kind ItemType) ([]string, error) {
-	base := paths.RepoContentPrefix + "/" + kind.DirName()
+	base := RepoItemRoot(kind)
 	var items []string
 	var walk func(dir string) error
 	walk = func(dir string) error {
@@ -161,7 +160,7 @@ func (v *gitForgeVCS) ListItems(ctx context.Context, kind ItemType) ([]string, e
 			}
 			if strings.HasSuffix(e.Name, ".yaml") {
 				rel := strings.TrimSuffix(strings.TrimPrefix(full, base+"/"), ".yaml")
-				items = append(items, rel)
+				items = append(items, RepoItemName(kind, rel))
 			}
 		}
 		return nil
@@ -229,7 +228,7 @@ func (v *fsVCS) ReadFile(_ context.Context, path string) ([]byte, error) {
 // regardless — rather than surfacing that the listing could not actually
 // run. Only a genuine, cleanly-answered "not there" degrades to empty.
 func (v *fsVCS) ListItems(_ context.Context, kind ItemType) ([]string, error) {
-	base := filepath.Join(v.root, kind.DirName())
+	base := filepath.Join(v.root, ContentItemRoot(kind))
 	exists, err := afero.DirExists(v.fs, base)
 	if err != nil {
 		return nil, fmt.Errorf("check %s exists: %w", base, err)
@@ -249,7 +248,8 @@ func (v *fsVCS) ListItems(_ context.Context, kind ItemType) ([]string, error) {
 		if relErr != nil {
 			return fmt.Errorf("relativize %s under %s: %w", p, base, relErr)
 		}
-		items = append(items, strings.TrimSuffix(filepath.ToSlash(rel), ".yaml"))
+		name := strings.TrimSuffix(filepath.ToSlash(rel), ".yaml")
+		items = append(items, RepoItemName(kind, name))
 		return nil
 	})
 	if walkErr != nil {

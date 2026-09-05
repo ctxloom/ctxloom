@@ -114,7 +114,7 @@ func (f *GitCloneFetcher) ListDir(ctx context.Context, owner, repo, dirPath, ref
 // Versioned.ListDeletedItems; it reads the local clone only (zero network).
 // Repos with no history of the kind list nothing.
 func (f *GitCloneFetcher) ListDeletedItems(ctx context.Context, kind ItemType) ([]string, error) {
-	base := paths.RepoContentPrefix + "/" + kind.DirName()
+	base := RepoItemRoot(kind)
 
 	// Items present at HEAD — the baseline every historical path is subtracted
 	// from. It is not optional: an unread baseline is empty, and an empty
@@ -125,7 +125,7 @@ func (f *GitCloneFetcher) ListDeletedItems(ctx context.Context, kind ItemType) (
 		return nil, fmt.Errorf("read the default-branch tree: %w", err)
 	}
 	present := map[string]struct{}{}
-	collectItemPaths(head, base, present)
+	collectItemPaths(kind, head, base, present)
 
 	// Union of every item path ever seen under base across all commits.
 	everSeen := map[string]struct{}{}
@@ -139,7 +139,7 @@ func (f *GitCloneFetcher) ListDeletedItems(ctx context.Context, kind ItemType) (
 		if terr != nil {
 			return nil // skip a commit whose tree won't load
 		}
-		collectItemPaths(tree, base, everSeen)
+		collectItemPaths(kind, tree, base, everSeen)
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("walk history: %w", err)
@@ -156,9 +156,17 @@ func (f *GitCloneFetcher) ListDeletedItems(ctx context.Context, kind ItemType) (
 }
 
 // collectItemPaths adds every .yaml item path under base in tree to out, keyed
-// relative to base with the suffix stripped (e.g. "lang/go/testing"). A tree
-// without base contributes nothing.
-func collectItemPaths(tree *object.Tree, base string, out map[string]struct{}) {
+// by the item's BARE name — relative to base, suffix stripped, and reduced by
+// RepoItemName so a layout segment never becomes part of the key (e.g.
+// "lang/go/testing", never "v1/lang/go/testing"). A tree without base
+// contributes nothing.
+//
+// Keying both the HEAD baseline and the history union this way is what makes
+// the subtraction mean "removed upstream" rather than "moved between layouts": a
+// bundle that changed layout appears under one name in both sets and is
+// correctly NOT reported deleted. Keyed by segmented path it would look like a
+// deletion plus an addition, and the deletion half feeds a prune.
+func collectItemPaths(kind ItemType, tree *object.Tree, base string, out map[string]struct{}) {
 	sub, err := tree.Tree(base)
 	if err != nil {
 		return
@@ -167,7 +175,7 @@ func collectItemPaths(tree *object.Tree, base string, out map[string]struct{}) {
 	defer files.Close()
 	_ = files.ForEach(func(file *object.File) error {
 		if name, ok := strings.CutSuffix(file.Name, ".yaml"); ok {
-			out[name] = struct{}{}
+			out[RepoItemName(kind, name)] = struct{}{}
 		}
 		return nil
 	})

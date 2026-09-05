@@ -600,7 +600,7 @@ func resolveBrowseFetcher(cfg *config.Config, rem *remote.Remote, injected remot
 // top-level error, or any subdirectory that failed mid-recursion,
 // yields warning strings (also echoed to stderr).
 func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, repoURL string, itemType remote.ItemType, req BrowseRemoteRequest) ([]BrowseItemEntry, []string) {
-	basePath := path.Join(paths.RepoContentPrefix, itemType.DirName())
+	basePath := remote.RepoItemRoot(itemType)
 	if req.Path != "" {
 		basePath = path.Join(basePath, req.Path)
 	}
@@ -984,7 +984,7 @@ func searchManifestContent(rem *remote.Remote, content []byte, itemType remote.I
 
 // searchDirectoryContent searches by listing directory contents.
 func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
-	dirPath := path.Join(paths.RepoContentPrefix, itemType.DirName())
+	dirPath := remote.RepoItemRoot(itemType)
 
 	entries, err := fetcher.ListDir(ctx, owner, repo, dirPath, branch)
 	if err != nil {

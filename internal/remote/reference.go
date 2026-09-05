@@ -658,12 +658,15 @@ func (r *Reference) BuildFilePath(itemType ItemType) string {
 		// Read relative to the .ctxloom/content/ root, which is itself inside
 		// .ctxloom — so no redundant ctxloom/ segment:
 		// .ctxloom/content/bundles/go-tools.yaml.
-		return path.Join(r.ItemType.DirName(), r.Path+".yaml")
+		return path.Join(ContentItemPrefix(r.ItemType), r.Path+".yaml")
 	}
 	// Within a repo: .ctxloom/content/<kind>/<path>.yaml. These are logical,
 	// forward-slash repo paths (consumed by go-git / FromSlash on disk), so
 	// path.Join is correct here — not filepath.Join.
-	return path.Join(paths.RepoContentPrefix, itemType.DirName(), r.Path+".yaml")
+	//
+	// RepoItemPrefix is the SAME expression PublishPath uses; the two sides
+	// naming one value is what stops a fetch looking where no publish wrote.
+	return path.Join(RepoItemPrefix(itemType), r.Path+".yaml")
 }
 
 // LocalPath returns the local path where the item would be installed.

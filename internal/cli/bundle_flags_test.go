@@ -27,6 +27,7 @@ func TestBundleSubcommandFlags(t *testing.T) {
 	}{
 		{bundleCreateCmd, []flagSpec{
 			{"description", "d", "", "Bundle description"},
+			{"tree", "", "false", "author as a tree (bundle.yaml plus one file per item) in the v2 layout, instead of a single-file document"},
 		}},
 		{bundleRemoveCmd, []flagSpec{
 			{"yes", "y", "false", "Apply the removal this invocation would report (default: report only)"},

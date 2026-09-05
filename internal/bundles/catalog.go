@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/trust"
@@ -776,20 +777,52 @@ func (c Catalog) missing(ask string) error {
 	return fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
 }
 
+// Located is where a bundle resolved AND which on-disk layout answered.
+//
+// The layout is carried rather than derivable from Path because a caller that
+// gets a bare path cannot tell a migrated tree from the monolith it was
+// migrated from. That is not a cosmetic loss: a same-name migration whose
+// resolution still picks the old form appears to succeed and changes nothing,
+// which is the failure this project produces most often and detects least.
+type Located struct {
+	// Path is the file backing the bundle — the document for a single-file
+	// bundle, the envelope for a directory or tree bundle.
+	Path string
+	// Layout is the layout that answered, or paths.LayoutUnknown for a bundle
+	// that came from somewhere with no layout: an installed remote tree, a
+	// companion, a builtin compiled into the binary.
+	Layout paths.BundleLayout
+	// AlsoIn names every other layout holding a bundle of this same name.
+	// Non-empty means the name exists in more than one layout, which is the
+	// expected steady state of a non-destructive migration — not an error, but
+	// a fact the caller has to be able to see.
+	AlsoIn []paths.BundleLayout
+}
+
+// Locate resolves a bundle to its file AND the layout that answered. It refuses
+// a bundle that has no file, because a synthetic path is not one.
+func (c Catalog) Locate(name string) (Located, error) {
+	if err := ValidateBundleName(name); err != nil {
+		return Located{}, err
+	}
+	read, err := c.read(name)
+	if err != nil {
+		return Located{}, err
+	}
+	if read.Bundle.Path == "" || isSyntheticPath(read.Bundle.Path) {
+		return Located{}, fmt.Errorf("bundle %q has no file on this machine (it came from %s)", name, read.Provenance)
+	}
+	return Located{Path: read.Bundle.Path, Layout: read.layout, AlsoIn: read.alsoIn}, nil
+}
+
 // Find locates the FILE backing a bundle. It exists for the two callers that
 // need the path itself — deleting a bundle, and reporting whether a short name
 // resolves — and refuses a bundle that has no file, because a synthetic path is
 // not one.
+//
+// It delegates to Locate and DISCARDS the layout. Prefer Locate anywhere the
+// answer is acted on rather than merely reported.
 func (c Catalog) Find(name string) (string, error) {
-	if err := ValidateBundleName(name); err != nil {
-		return "", err
-	}
-	read, err := c.read(name)
-	if err != nil {
-		return "", err
-	}
-	if read.Bundle.Path == "" || isSyntheticPath(read.Bundle.Path) {
-		return "", fmt.Errorf("bundle %q has no file on this machine (it came from %s)", name, read.Provenance)
-	}
-	return read.Bundle.Path, nil
+	loc, err := c.Locate(name)
+	return loc.Path, err
 }

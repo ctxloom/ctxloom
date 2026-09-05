@@ -47,7 +47,7 @@ func TestBundleSubcommandFlags(t *testing.T) {
 			{"force", "f", "false", "Overwrite existing bundle"},
 		}},
 		{bundleExportCmd, []flagSpec{
-			{"output", "o", "", "Output file path"},
+			{"output", "o", "", "Destination path (a file, or a directory for a directory-form bundle)"},
 		}},
 		{bundleMoveCmd, []flagSpec{
 			{"to", "", "", "Destination: a configured remote name, or a local directory / ctxloom project checkout (a remote name wins)"},

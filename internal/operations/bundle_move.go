@@ -295,13 +295,9 @@ func destBundlesDir(fs afero.Fs, dir string, layout paths.BundleLayout) string {
 // wrong format root is a bundle the receiving project cannot load — at exit 0,
 // with the source already gone.
 func moveSourceLayout(fs afero.Fs, src string) (paths.BundleLayout, error) {
-	data, err := afero.ReadFile(fs, src)
+	_, env, err := bundles.EnvelopeAt(fs, src)
 	if err != nil {
-		return paths.LayoutUnknown, fmt.Errorf("read %s: %w", src, err)
-	}
-	env, err := bundles.ParseBundle(data)
-	if err != nil {
-		return paths.LayoutUnknown, fmt.Errorf("parse %s: %w", src, err)
+		return paths.LayoutUnknown, err
 	}
 	return bundles.BundleLayoutFor(src, env), nil
 }

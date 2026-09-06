@@ -1121,7 +1121,7 @@ fragments:
   no-distilled:
     content: Original only
 `
-	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "bundle.yaml"), []byte(bundleYAML), 0644)
+	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "kit.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -1235,7 +1235,7 @@ commands:
   no-distilled:
     content: Original only
 `
-	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "bundle.yaml"), []byte(bundleYAML), 0644)
+	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "kit.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -1841,7 +1841,7 @@ commands:
     distilled: Distilled command
     no_distill: true
 `
-	require.NoError(t, os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "bundle.yaml"), []byte(bundleYAML), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "kit.yaml"), []byte(bundleYAML), 0644))
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
 

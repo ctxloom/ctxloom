@@ -192,8 +192,15 @@ func checkOneRemote(ctx context.Context, rem CorpusRemote, open FetcherOpener, p
 }
 
 // listCorpusBundles walks the repo's published bundles directory and returns
-// every .yaml path in it, recursing so directory-form bundles' bundle.yaml is
-// included alongside single-file ones.
+// the path of every bundle in it, recursing through the format roots so
+// single-file and directory-form bundles are both found.
+//
+// The walk STOPS at a directory holding a bundle manifest, because that
+// directory IS one bundle and everything beneath it is that bundle's payload.
+// Descending past the boundary reaches the item files, whose `.meta.yaml`
+// sidecars are item metadata rather than bundle documents — the parser refuses
+// them, and the gate then reports a violation per item against a corpus that
+// has none. A gate that fires on healthy content is one its readers switch off.
 //
 // A repo with no bundles directory lists EMPTY rather than erroring: a remote
 // may legitimately publish no bundles, and calling that unreadable would fire
@@ -209,6 +216,10 @@ func listCorpusBundles(ctx context.Context, fetcher remote.Fetcher, owner, repo 
 				return nil
 			}
 			return fmt.Errorf("list %s: %w", dir, err)
+		}
+		if manifest, isBundle := bundleManifestIn(dir, entries); isBundle {
+			found = append(found, manifest)
+			return nil
 		}
 		for _, e := range entries {
 			full := path.Join(dir, e.Name)
@@ -228,6 +239,21 @@ func listCorpusBundles(ctx context.Context, fetcher remote.Fetcher, owner, repo 
 		return nil, err
 	}
 	return found, nil
+}
+
+// bundleManifestIn reports the manifest path when entries hold a directory-form
+// bundle manifest — the boundary a corpus walk stops descending at.
+//
+// The manifest name comes from bundles.DirectoryFormManifest, the same constant
+// the local reader decides this by, so a corpus walk and a load agree on what a
+// bundle directory is without either restating the other's spelling.
+func bundleManifestIn(dir string, entries []remote.DirEntry) (string, bool) {
+	for _, e := range entries {
+		if !e.IsDir && e.Name == bundles.DirectoryFormManifest {
+			return path.Join(dir, e.Name), true
+		}
+	}
+	return "", false
 }
 
 // sortCorpusFindings orders both finding lists by their printed subject, so a

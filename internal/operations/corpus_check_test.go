@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -280,4 +282,64 @@ func TestCorpusReadsAtTheCachedCloneWithoutFetching(t *testing.T) {
 	assert.NotEmpty(t, fetcher.ListDirCalls)
 	assert.NotEmpty(t, fetcher.FetchFileCalls)
 	assert.Empty(t, fetcher.SearchReposCalls, "the corpus check must not reach a forge API")
+}
+
+// treeSidecarYAML is a real tree-form metadata SIDECAR — the shape
+// content.MetaPath writes beside an item's content file. Its keys are ITEM
+// metadata (notes/installation/content_hash), none of which the Bundle schema
+// models, so ParseBundle refuses it under the strict decode. That refusal is
+// correct: the file is not a bundle. Handing it to the parser at all is the
+// defect.
+const treeSidecarYAML = `notes: Read-only connection to the app database.
+installation: brew install mcp-postgres
+content_hash: sha256:1111111111111111111111111111111111111111111111111111111111111111
+`
+
+// corpusTreeFixture publishes exactly ONE bundle: a tree-form directory at
+// <bundles-root>/v2/atelier holding its bundle.yaml envelope, its SHA256SUMS
+// manifest, and an mcp item directory carrying that item's metadata sidecar.
+//
+// It is the layout a format root actually publishes, which is the point — the
+// flat fixture above cannot exercise a walker's descent because it has nothing
+// to descend into.
+func corpusTreeFixture(t *testing.T) FetcherOpener {
+	t.Helper()
+	root := corpusBundlesDir
+	sidecar := ".postgres" + content.MetaSuffix
+	fetcher := remote.NewMockFetcher()
+	fetcher.WithDir(root, []remote.DirEntry{{Name: "v2", IsDir: true}})
+	fetcher.WithDir(root+"/v2", []remote.DirEntry{{Name: "atelier", IsDir: true}})
+	fetcher.WithDir(root+"/v2/atelier", []remote.DirEntry{
+		{Name: bundles.DirectoryFormManifest},
+		{Name: "SHA256SUMS"},
+		{Name: "mcp", IsDir: true},
+	})
+	fetcher.WithDir(root+"/v2/atelier/mcp", []remote.DirEntry{{Name: sidecar}})
+	fetcher.WithFile(root+"/v2/atelier/"+bundles.DirectoryFormManifest, []byte(cleanBundleYAML))
+	fetcher.WithFile(root+"/v2/atelier/mcp/"+sidecar, []byte(treeSidecarYAML))
+	return func(string) (remote.Fetcher, error) { return fetcher, nil }
+}
+
+// TestCorpusTreeBundleIsOneBundleNotItsSidecars pins the bundle BOUNDARY: a
+// directory holding a bundle manifest is one bundle, and the item files beneath
+// it are that bundle's payload, not more bundles to check.
+//
+// A walk that collects every `.yaml` beneath the bundles root cannot tell the
+// two apart, so it hands each item's `.meta.yaml` sidecar to ParseBundle, which
+// refuses it — and the gate reports a violation per item against a corpus that
+// has none. That is the expensive direction for a gate to fail in: it fires on
+// healthy content, and the remedy a reader reaches for is to stop running it.
+func TestCorpusTreeBundleIsOneBundleNotItsSidecars(t *testing.T) {
+	report := CheckCorpus(context.Background(), oneRemote(), corpusTreeFixture(t), parseBundleBytes)
+
+	for _, v := range report.Violations {
+		t.Errorf("healthy tree bundle reported a violation at %s: %v", v.Bundle.Path, v.Err)
+	}
+	// The envelope must still have been PARSED. Without this the assertion above
+	// is satisfied by a walk that skips tree directories entirely — no
+	// violations, because nothing was checked, which is the silent pass the
+	// Parsed counter exists to expose.
+	assert.Equal(t, 1, report.Parsed, "the tree's envelope is the one bundle this corpus publishes")
+	assert.Empty(t, report.Gaps)
+	assert.Equal(t, CorpusClean, report.Verdict())
 }

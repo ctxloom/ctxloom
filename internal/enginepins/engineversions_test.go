@@ -64,8 +64,11 @@ func parseEngineVersionsEnv(t *testing.T, path string) map[string]string {
 func TestEngineVersionsEnvIsWellFormed(t *testing.T) {
 	versions := parseEngineVersionsEnv(t, engineVersionsPath)
 
+	// One key, because one engine has a vendor reader. internal/transcript/
+	// vendorreader ships a claude adapter and nothing else, and this file locks
+	// the versions those readers are known to parse — so an entry here without
+	// a reader behind it would pin a claim nothing can check.
 	wantKeys := []string{
-		"CODEX_CLI_VERSION",
 		"CLAUDE_CODE_CLI_VERSION",
 	}
 	for _, k := range wantKeys {

@@ -64,8 +64,15 @@ func TestAssembleManagedConfig_UnloadableConfigIsAFinding(t *testing.T) {
 // finding unconditionally — which would refuse every launch on every machine.
 func TestAssembleManagedConfig_LoadableConfigRaisesNothing(t *testing.T) {
 	mark := resetStrictness(t)
-	swapConfigLoader(t, func(opts ...config.LoadOption) (*config.Config, error) {
-		return config.Load(opts...)
+	// The loader returns a config this test CONSTRUCTS. It previously swapped
+	// the seam for a function that called the real config.Load, which is the
+	// same thing as not swapping it: the assertion then read whatever .ctxloom
+	// the checkout happened to hold, so the result was a property of the
+	// machine and not of AssembleManagedConfig. It could go green on a tidy
+	// machine while the code was broken, and red on an untidy one while the
+	// code was fine.
+	swapConfigLoader(t, func(...config.LoadOption) (*config.Config, error) {
+		return &config.Config{}, nil
 	})
 
 	_ = AssembleManagedConfig("claude-code", t.TempDir(), nil, nil)

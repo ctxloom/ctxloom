@@ -47,8 +47,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - engine: codex
-            lock_key: CODEX_CLI_VERSION
           - engine: claude-code
             lock_key: CLAUDE_CODE_CLI_VERSION
 

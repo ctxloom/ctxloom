@@ -15,12 +15,9 @@
 #   claude-code  -> npm view @anthropic-ai/claude-code version
 set -euo pipefail
 
-engine="${1:?usage: detect-engine-version.sh <codex|claude-code>}"
+engine="${1:?usage: detect-engine-version.sh <claude-code>}"
 
 case "$engine" in
-codex)
-  npm view @openai/codex version
-  ;;
 claude-code)
   npm view @anthropic-ai/claude-code version
   ;;

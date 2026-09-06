@@ -290,12 +290,14 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 // just read — which is why the two forms need no second signature convention
 // and no second cache key.
 //
-// The tree root is derived from the single-file path (BundleTreeRoot), the same
-// derivation the PULL takes, so a reader can never look somewhere the installer
-// did not write.
+// The candidate roots come from ProbeBundleTreeRoots, the same probe the PULL
+// takes, so a reader can never look somewhere the installer did not write —
+// including during a format migration, when the tree the installer found under
+// one format root has moved to the next.
 func (r *BundleReader) readFromTree(ctx context.Context, fetcher Fetcher, owner, repo, repoURL, bundleName, filePath, sha, suffix string) ([]byte, error) {
-	root := BundleTreeRoot(filePath)
-	tree, err := r.treeFetch(ctx, fetcher, owner, repo, root, sha, repoURL)
+	tree, root, err := ProbeBundleTreeRoots(filePath, func(root string) (map[string]TreeFile, error) {
+		return r.treeFetch(ctx, fetcher, owner, repo, root, sha, repoURL)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("fetch tree %s@%s: %w", root, sha, err)
 	}

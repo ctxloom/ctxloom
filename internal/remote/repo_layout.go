@@ -1,6 +1,12 @@
 package remote
 
 import (
+	"errors"
+	"fmt"
+	"path"
+	"slices"
+	"strings"
+
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
@@ -64,4 +70,87 @@ func ContentItemRoot(_ ItemType) string {
 // every item in the repo.
 func RepoItemName(_ ItemType, rel string) string {
 	return paths.TrimBundlesLayoutSegment(rel)
+}
+
+// BundleTreeRoots names every repository root at which a bundle's DIRECTORY
+// form may live, in the order a probe should try them.
+//
+// A bundles root's `v` segment is the FORMAT VERSION: the single-file document
+// form is format v1, the tree form is format v2, and each format migration adds
+// the next root, migrates, then deletes the old one. An overlap is therefore
+// normal and its length varies per migration, so more than one root can hold a
+// real tree at the same time and resolution must consider all of them.
+//
+// The list is ordered NEWEST FORMAT FIRST: during an overlap a bundle that has
+// been migrated is the one the publisher means, and a probe that answered from
+// the older root would keep serving the copy the migration is retiring.
+//
+// It stays a PROBE rather than a search: the candidates are enumerated from the
+// layout accessors, not discovered by walking, so a bundle of a given name has
+// exactly one possible location per format and no other.
+//
+// filePath is the bundle's single-file path in either of the two prefix
+// families a reference is built in — repo-relative or content-root-relative
+// (see Reference.BuildFilePath) — and the candidates are composed in the same
+// family the path arrived in. A path under neither yields the extension-trimmed
+// path alone, which is all that can honestly be said about a location this
+// layout does not describe.
+func BundleTreeRoots(filePath string) []string {
+	trimmed := strings.TrimSuffix(filePath, ".yaml")
+	for _, fam := range []struct {
+		root      string
+		prefixFor func(paths.BundleLayout) string
+	}{
+		{paths.RepoBundlesRoot(), paths.RepoBundlesPrefixFor},
+		{paths.ContentBundlesRoot(), paths.ContentBundlesPrefixFor},
+	} {
+		rel, ok := strings.CutPrefix(trimmed, fam.root+"/")
+		if !ok {
+			continue
+		}
+		// The name is taken RELATIVE TO THE ROOT that contains every format's
+		// subtree and then reduced, so a path that already carries a format
+		// segment yields the same bare name as one that does not — otherwise a
+		// probe would compose a root with the segment in it twice.
+		name := paths.TrimBundlesLayoutSegment(rel)
+		roots := make([]string, 0, 2)
+		for _, l := range []paths.BundleLayout{paths.LayoutV2, paths.LayoutV1} {
+			root := path.Join(fam.prefixFor(l), name)
+			if !slices.Contains(roots, root) {
+				roots = append(roots, root)
+			}
+		}
+		return roots
+	}
+	return []string{trimmed}
+}
+
+// ProbeBundleTreeRoots runs probe against each root BundleTreeRoots names, in
+// order, and reports the first one that ANSWERS, together with the root it
+// answered from.
+//
+// A candidate is adopted only on POSITIVE evidence that it holds the tree: any
+// failure moves to the next root. That rule is forced rather than chosen —
+// classifying a tree fetch's failure as "absent" versus "broken" means reading
+// internal/content's sentinel, and the content layer sits above this package —
+// so an unclassifiable error cannot be allowed to stop a probe that has another
+// root left to try.
+//
+// When no root answers, the failure quotes EVERY root tried, and the root
+// returned is the LAST candidate. Reporting only one root is how a publisher
+// mid-migration is told their bundle is missing from a place they have already
+// left, and reporting only the last failure would hide a tree that exists but
+// cannot be read.
+func ProbeBundleTreeRoots[T any](filePath string, probe func(root string) (T, error)) (result T, root string, err error) {
+	roots := BundleTreeRoots(filePath)
+	failures := make([]error, 0, len(roots))
+	for _, root := range roots {
+		got, perr := probe(root)
+		if perr == nil {
+			return got, root, nil
+		}
+		failures = append(failures, fmt.Errorf("%s: %w", root, perr))
+	}
+	var zero T
+	return zero, roots[len(roots)-1], errors.Join(failures...)
 }

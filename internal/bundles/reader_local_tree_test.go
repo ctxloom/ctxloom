@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -265,17 +266,25 @@ func TestLocalTreeForm_ItemFilesInsideATreeAreNotThemselvesBundles(t *testing.T)
 	})
 
 	// A .yaml item file inside the tree, the shape a converted bundle's
-	// profiles/ directory has. Deliberately NOT parseable as a bundle, so a
-	// walk that reads it cannot quietly succeed.
+	// profiles/ directory has. Deliberately NOT parseable as a bundle.
 	require.NoError(t, fsys.MkdirAll(localV2("vault/profiles"), 0o755))
 	require.NoError(t, afero.WriteFile(fsys,
 		filepath.Join(localV2("vault/profiles"), "coordinator.yaml"),
 		[]byte("bundles:\n  - something\n"), 0o644))
 
-	b := readOneLocal(t, fsys)
+	// ASSERT ON THE FINDING, NOT THE COUNT. A spurious item-file read FAILS to
+	// parse, so it raises a finding and is never appended to the results --
+	// which means require.Len(reads, 1) passes whether the walk descends or
+	// not. That version of this test was written first and a mutation removing
+	// the skip survived it.
+	mark := strictness.Checkpoint()
+	reads, err := NewProjectReader(fsys, []string{"/bundles"}).Read(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, strictness.Since(mark),
+		"a tree's own item files must not be read back as malformed bundles")
 
-	// The tree still reads correctly — the skip must not cost the bundle its
-	// own items.
+	require.Len(t, reads, 1, "exactly one bundle under /bundles")
+	b := reads[0].Bundle
 	require.Equal(t, "vault", b.Name)
 	frag, ok := b.Fragments["house-style"]
 	require.True(t, ok, "skipping the subtree must not skip the bundle's own items")

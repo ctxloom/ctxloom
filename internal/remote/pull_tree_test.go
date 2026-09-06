@@ -92,18 +92,19 @@ func TestFetchItemBytes_FallsBackToTheTreeAndTakesItsManifestAsTheBundleBytes(t 
 		BundleManifestName:               {Data: []byte("version: \"2.0.0\"\n")},
 		"skills/reviewer/scripts/run.sh": {Data: []byte("#!/bin/sh\n"), DeclaredExecutable: true},
 	}
-	var gotRoot string
-	p := treePuller(t, afero.NewMemMapFs(), ".ctxloom", func(_ context.Context, _ Fetcher, _, _, root, _, _ string) (map[string]TreeFile, error) {
-		gotRoot = root
-		return want, nil
-	})
+	// The tree answers from ONE root, so which root the pull asked for is the
+	// only thing that can make this fetch succeed. A stub answering whatever it
+	// was handed would report the right root no matter where the pull looked.
+	var seen []string
+	p := treePuller(t, afero.NewMemMapFs(), ".ctxloom",
+		treeAt(map[string]map[string]TreeFile{".ctxloom/content/bundles/atelier": want}, &seen))
 
 	content, tree, treeRoot, err := p.fetchItemBytes(t.Context(), NewMockFetcher(), "trent", "atelier", "https://github.com/trent/atelier",
 		treeRef(t), ".ctxloom/content/bundles/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
 
 	require.NoError(t, err)
-	assert.Equal(t, ".ctxloom/content/bundles/atelier", gotRoot, "the directory form is the file path minus its extension")
-	assert.Equal(t, ".ctxloom/content/bundles/atelier", treeRoot)
+	assert.Contains(t, seen, ".ctxloom/content/bundles/atelier", "the directory form beside the single file must be among the roots probed")
+	assert.Equal(t, ".ctxloom/content/bundles/atelier", treeRoot, "the root reported is the one that answered")
 	assert.Equal(t, "version: \"2.0.0\"\n", string(content), "a tree's bundle.yaml is what stands in for the single file's bytes")
 	assert.Len(t, tree, 2)
 }
@@ -112,9 +113,9 @@ func TestFetchItemBytes_FallsBackToTheTreeAndTakesItsManifestAsTheBundleBytes(t 
 // would install as a pile of files under a bundle's identity that nothing could
 // ever load — the silent no-op this codebase is prone to.
 func TestFetchItemBytes_RefusesATreeWithNoManifest(t *testing.T) {
-	p := treePuller(t, afero.NewMemMapFs(), ".ctxloom", func(context.Context, Fetcher, string, string, string, string, string) (map[string]TreeFile, error) {
-		return map[string]TreeFile{"fragments/x.md": {Data: []byte("hi")}}, nil
-	})
+	p := treePuller(t, afero.NewMemMapFs(), ".ctxloom", treeAt(map[string]map[string]TreeFile{
+		".ctxloom/content/bundles/atelier": {"fragments/x.md": {Data: []byte("hi")}},
+	}, nil))
 
 	_, _, _, err := p.fetchItemBytes(t.Context(), NewMockFetcher(), "trent", "atelier", "https://github.com/trent/atelier",
 		treeRef(t), ".ctxloom/content/bundles/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})

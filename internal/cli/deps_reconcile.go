@@ -303,7 +303,9 @@ func upstreamProbes(cfg *config.Config) (reachProbe, contentProbe) {
 		// The single file is absent; the directory form is the other shape a
 		// bundle legitimately takes, and a publisher who migrated between them
 		// has withdrawn nothing.
-		if _, derr := f.ListDir(ctx, owner, repo, remote.BundleTreeRoot(filePath), ""); derr != nil {
+		if _, _, derr := remote.ProbeBundleTreeRoots(filePath, func(root string) ([]remote.DirEntry, error) {
+			return f.ListDir(ctx, owner, repo, root, "")
+		}); derr != nil {
 			return derr
 		}
 		return nil

@@ -353,11 +353,12 @@ func (p *Puller) fetchItemBytes(ctx context.Context, fetcher Fetcher, owner, rep
 		// the directory form is the diagnostic that cost this capability its
 		// first attempt.
 		return nil, nil, "", fmt.Errorf("failed to fetch: %w (and this puller has no tree fetcher wired in, so %s could not be checked for a directory-form bundle)",
-			fileErr, BundleTreeRoot(filePath))
+			fileErr, strings.Join(BundleTreeRoots(filePath), " or "))
 	}
 
-	treeRoot = BundleTreeRoot(filePath)
-	tree, terr := p.treeFetch(ctx, fetcher, owner, repo, treeRoot, sha, repoURL)
+	tree, treeRoot, terr := ProbeBundleTreeRoots(filePath, func(root string) (map[string]TreeFile, error) {
+		return p.treeFetch(ctx, fetcher, owner, repo, root, sha, repoURL)
+	})
 	if terr != nil {
 		// Quote BOTH failures. Either one alone is misleading: the file error
 		// alone hides that a directory form was looked for, and the tree error

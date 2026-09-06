@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,8 +12,8 @@ import (
 )
 
 // The canonical lockfile key these tests read, and the tree root it must
-// resolve to. The two are stated separately ON PURPOSE: the whole point of
-// BundleTreeRoot is that a reader looks exactly where the installer wrote, and
+// resolve to. The two are stated separately ON PURPOSE: the whole point of the
+// tree-root probe is that a reader looks exactly where the installer wrote, and
 // a test that derived the expected root with the production helper would agree
 // with any derivation, including a wrong one.
 const (
@@ -21,15 +22,24 @@ const (
 )
 
 // treeCapture records what the reader asked its tree fetcher for, and serves a
-// canned tree back.
+// canned tree back FROM ONE ROOT ONLY.
+//
+// Serving every root is what makes such a double blind to the thing these tests
+// exist to pin: the reader probes each format's root in turn, so a stub that
+// answers whatever it is handed reports that the reader looked in the right
+// place no matter where it looked.
 type treeCapture struct {
 	owner, repo, root, sha, repoURL string
 	calls                           int
+	at                              string
 	tree                            map[string]TreeFile
 }
 
 func (c *treeCapture) fetch(_ context.Context, _ Fetcher, owner, repo, root, sha, repoURL string) (map[string]TreeFile, error) {
 	c.calls++
+	if root != c.at {
+		return nil, fmt.Errorf("no tree at %s", root)
+	}
 	c.owner, c.repo, c.root, c.sha, c.repoURL = owner, repo, root, sha, repoURL
 	return c.tree, nil
 }
@@ -56,7 +66,7 @@ func treeReaderOver(t *testing.T, tcap *treeCapture, sha string) *BundleReader {
 // left every skill hand-copied into each project.
 func TestBundleReader_TreeBundleServesItsManifestAsTheBundleBytes(t *testing.T) {
 	manifest := []byte("version: 1.2.3\ndescription: atelier\n")
-	tcap := &treeCapture{tree: map[string]TreeFile{
+	tcap := &treeCapture{at: treeReadRoot, tree: map[string]TreeFile{
 		BundleManifestName:           {Data: manifest},
 		"skills/good-night/SKILL.md": {Data: []byte("---\nname: good-night\n---\n")},
 		"skills/good-night/run.sh":   {Data: []byte("#!/bin/sh\n"), DeclaredExecutable: true},
@@ -84,7 +94,7 @@ func TestBundleReader_TreeBundleServesItsManifestAsTheBundleBytes(t *testing.T) 
 // read.
 func TestBundleReader_TreeBundleSignatureIsTheManifestSibling(t *testing.T) {
 	sig := []byte("-----BEGIN SSH SIGNATURE-----\natelier\n")
-	tcap := &treeCapture{tree: map[string]TreeFile{
+	tcap := &treeCapture{at: treeReadRoot, tree: map[string]TreeFile{
 		BundleManifestName:                   {Data: []byte("version: 1.2.3\n")},
 		BundleManifestName + SignatureSuffix: {Data: sig},
 		"skills/good-night/SKILL.md":         {Data: []byte("x")},
@@ -101,7 +111,7 @@ func TestBundleReader_TreeBundleSignatureIsTheManifestSibling(t *testing.T) {
 // both bundle forms: a tree bundle reported as broken where a single-file one
 // is reported as unsigned would withhold content for a reason that is not true.
 func TestBundleReader_TreeBundleWithNoSignatureReadsAsUnsigned(t *testing.T) {
-	tcap := &treeCapture{tree: map[string]TreeFile{
+	tcap := &treeCapture{at: treeReadRoot, tree: map[string]TreeFile{
 		BundleManifestName: {Data: []byte("version: 1.2.3\n")},
 	}}
 	r := treeReaderOver(t, tcap, treeTestSHA)
@@ -119,7 +129,7 @@ func TestBundleReader_TreeBundleWithNoSignatureReadsAsUnsigned(t *testing.T) {
 // file — is the difference between a diagnosable publisher mistake and a bundle
 // that silently resolves to nothing.
 func TestBundleReader_TreeWithNoManifestIsNotABundle(t *testing.T) {
-	tcap := &treeCapture{tree: map[string]TreeFile{
+	tcap := &treeCapture{at: treeReadRoot, tree: map[string]TreeFile{
 		"skills/good-night/SKILL.md": {Data: []byte("x")},
 	}}
 	r := treeReaderOver(t, tcap, treeTestSHA)
@@ -136,11 +146,31 @@ func TestBundleReader_TreeWithNoManifestIsNotABundle(t *testing.T) {
 // be refused BEFORE any tree is walked, or a blank ref resolves to the default
 // branch tip and a pinned read silently becomes a latest read.
 func TestBundleReader_TreeBundleWithNoPinIsRefusedBeforeAnyWalk(t *testing.T) {
-	tcap := &treeCapture{tree: map[string]TreeFile{BundleManifestName: {Data: []byte("version: 1.2.3\n")}}}
+	tcap := &treeCapture{at: treeReadRoot, tree: map[string]TreeFile{BundleManifestName: {Data: []byte("version: 1.2.3\n")}}}
 	r := treeReaderOver(t, tcap, "")
 
 	_, err := r.ReadBundleBytes(t.Context(), treeReadCanonical)
 
 	require.Error(t, err)
 	assert.Zero(t, tcap.calls, "an unpinned entry must never reach the tree walker at all")
+}
+
+// TestBundleReader_ReadsATreePublishedUnderTheFormatV2Root. A bundles root's
+// `v` is the FORMAT VERSION, so a migrated tree sits under the next format's
+// root while the reader's lockfile key still names the single-file path. A
+// reader that probed only the path-derived root would report a bundle it had
+// already pulled as unreadable.
+func TestBundleReader_ReadsATreePublishedUnderTheFormatV2Root(t *testing.T) {
+	manifest := []byte("version: 1.2.3\ndescription: migrated\n")
+	tcap := &treeCapture{at: formatV2TreeRoot(), tree: map[string]TreeFile{
+		BundleManifestName: {Data: manifest},
+	}}
+	r := treeReaderOver(t, tcap, treeTestSHA)
+
+	data, err := r.ReadBundleBytes(t.Context(), treeReadCanonical)
+
+	require.NoError(t, err)
+	assert.Equal(t, manifest, data)
+	assert.Equal(t, formatV2TreeRoot(), tcap.root, "the reader must have read from the root that answered")
+	assert.Equal(t, treeTestSHA, tcap.sha, "a probe across roots must not lose the pin")
 }

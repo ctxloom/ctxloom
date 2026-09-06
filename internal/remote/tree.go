@@ -3,7 +3,6 @@ package remote
 import (
 	"context"
 	"path"
-	"strings"
 )
 
 // TreeFile is one file of a fetched bundle tree: its exact bytes, what the
@@ -56,18 +55,6 @@ type TreeFile struct {
 // before this seam existed: a directory-form bundle stays unfetchable rather
 // than half-fetched.
 type TreeFetchFunc func(ctx context.Context, f Fetcher, owner, repo, root, sha, repoURL string) (map[string]TreeFile, error)
-
-// BundleTreeRoot maps the single-file repo path of a bundle to the repository
-// path of its DIRECTORY form: ".ctxloom/content/bundles/<name>.yaml" becomes
-// ".ctxloom/content/bundles/<name>".
-//
-// The two forms are deliberately the same path modulo the extension. That is
-// what makes the fallback in fetchForPull a probe rather than a search: there
-// is exactly one other place a bundle of this name could be, and a publisher
-// who wrote a directory wrote it there.
-func BundleTreeRoot(filePath string) string {
-	return strings.TrimSuffix(filePath, ".yaml")
-}
 
 // BundleManifestName is the file that carries a directory-form bundle's own
 // manifest — the tree's counterpart to the whole of a single-file bundle.

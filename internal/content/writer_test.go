@@ -24,6 +24,7 @@ func TestWriter_FragmentRoundTrip(t *testing.T) {
 	want := Fragment{
 		Name:         "written",
 		Tags:         []string{"alpha", "beta"},
+		Description:  "you are about to edit a bundle's item files",
 		Notes:        "note",
 		Installation: "install me",
 		ContentHash:  "sha256:abc",

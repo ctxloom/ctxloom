@@ -203,6 +203,7 @@ func (p *planner) fragments(b *bundles.Bundle) {
 		p.addForms(trust.KindFragment, name, f.Distilled, content.Fragment{
 			Name:         name,
 			Tags:         f.Tags,
+			Description:  f.Premise,
 			Notes:        f.Notes,
 			Installation: f.Installation,
 			ContentHash:  f.ContentHash,

@@ -176,6 +176,13 @@ func encodeMarkdownItem(dir, stem string, raw mdMeta, rawBody string, distilled 
 type Fragment struct {
 	Name string
 	Tags []string
+	// Description is the fragment's own applicability condition, addressed to
+	// the acting agent: the test that decides whether this fragment is loaded
+	// at all. It is authored as `premise` in the single-file format and lands
+	// here under the name the tree format already uses for the same idea on
+	// commands and skills. An EMPTY description means ALWAYS LOADED, so losing
+	// one does not withhold a fragment — it makes it unconditional.
+	Description string
 	// Notes and Installation are human-facing and never sent to a model.
 	Notes        string
 	Installation string
@@ -230,6 +237,7 @@ func (t fragmentType) Decode(src Source) (Surface, error) {
 	return Fragment{
 		Name:         parts.stem,
 		Tags:         parts.raw.Tags,
+		Description:  parts.raw.Description,
 		Notes:        parts.raw.Notes,
 		Installation: parts.raw.Installation,
 		ContentHash:  parts.raw.ContentHash,
@@ -247,6 +255,7 @@ func (t fragmentType) Encode(s Surface) ([]Component, error) {
 	}
 	raw := mdMeta{
 		Tags:         f.Tags,
+		Description:  f.Description,
 		Notes:        f.Notes,
 		Installation: f.Installation,
 		ContentHash:  f.ContentHash,

@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -164,6 +165,45 @@ func BundleLayoutFor(docPath string, env *Bundle) paths.BundleLayout {
 	return paths.LayoutV1
 }
 
+// ErrEnvelopeRead and ErrEnvelopeParse classify the two ways EnvelopeAt fails.
+//
+// They exist so a caller can keep its own diagnosis of an unreadable versus an
+// unparsable document without re-deriving where the bytes came from: `import`
+// tells the user their source file is missing, `push` that the bundle it was
+// pointed at cannot be read. Branching on those needs the STAGE, and a caller
+// that cannot ask for the stage ends up reading the file itself to find out —
+// which is the duplication this seam removes.
+var (
+	ErrEnvelopeRead  = errors.New("bundles: reading the envelope")
+	ErrEnvelopeParse = errors.New("bundles: parsing the envelope")
+)
+
+// EnvelopeAt reads the bundle DOCUMENT at path and parses it, returning the
+// document's exact bytes alongside the parsed-but-NOT-read envelope.
+//
+// This is the one place a bundle document is turned into a *Bundle from a PATH.
+// Every caller needs the same two things together and for the same reason: the
+// envelope to judge the bundle by, and the bytes it was judged from. A
+// publisher signature covers those exact bytes (spec §3.1) and BundleLayoutFor
+// answers only from an envelope that has not been read, so a caller handed just
+// one of the two goes back to the filesystem for the other — and then the file
+// on disk has been read twice, with nothing making the two reads agree.
+//
+// It is deliberately NOT a Reader. A Reader enumerates everything one SOURCE
+// holds; this answers for a single document at a path the user named, which may
+// sit outside any store at all (an import source, a move destination).
+func EnvelopeAt(fsys afero.Fs, path string) ([]byte, *Bundle, error) {
+	data, err := afero.ReadFile(fsys, path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w at %s: %w", ErrEnvelopeRead, path, err)
+	}
+	env, err := ParseBundle(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w at %s: %w", ErrEnvelopeParse, path, err)
+	}
+	return data, env, nil
+}
+
 // IsTreeFormBundle reports whether the bundle whose envelope sits at
 // manifestPath is TREE form, reading the envelope and the tree from fsys.
 //
@@ -178,13 +218,9 @@ func BundleLayoutFor(docPath string, env *Bundle) paths.BundleLayout {
 // bundle, not a tree — nothing was migrated — and calling it a tree would make
 // every brand-new directory bundle claim a form it has no content in.
 func IsTreeFormBundle(ctx context.Context, fsys afero.Fs, manifestPath string) (bool, error) {
-	data, err := afero.ReadFile(fsys, manifestPath)
+	_, env, err := EnvelopeAt(fsys, manifestPath)
 	if err != nil {
-		return false, fmt.Errorf("bundles: reading the envelope at %s: %w", manifestPath, err)
-	}
-	env, err := ParseBundle(data)
-	if err != nil {
-		return false, fmt.Errorf("bundles: parsing the envelope at %s: %w", manifestPath, err)
+		return false, err
 	}
 	if !treeFormEnvelope(manifestPath, env) {
 		return false, nil

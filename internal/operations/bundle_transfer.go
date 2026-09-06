@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -362,12 +363,11 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 	if err := requireLoadableName(req.SourcePath, "bundle", ".yaml"); err != nil {
 		return nil, err
 	}
-	srcData, err := afero.ReadFile(fs, req.SourcePath)
+	srcData, bundle, err := bundles.EnvelopeAt(fs, req.SourcePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read source file: %w", err)
-	}
-	bundle, err := bundles.ParseBundle(srcData)
-	if err != nil {
+		if errors.Is(err, bundles.ErrEnvelopeRead) {
+			return nil, fmt.Errorf("failed to read source file: %w", err)
+		}
 		return nil, fmt.Errorf("invalid bundle file: %w", err)
 	}
 
@@ -444,13 +444,12 @@ func bundleTreeSource(fs afero.Fs, sourcePath string) (string, bool, error) {
 // top of the last.
 func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, srcDir string) (*ImportBundleResult, error) {
 	srcManifest := filepath.Join(srcDir, bundles.DirectoryFormManifest)
-	srcData, err := afero.ReadFile(fs, srcManifest)
+	_, bundle, err := bundles.EnvelopeAt(fs, srcManifest)
 	if err != nil {
-		return nil, fmt.Errorf("import %s: a directory-form bundle must carry its %s manifest: %w",
-			srcDir, bundles.DirectoryFormManifest, err)
-	}
-	bundle, err := bundles.ParseBundle(srcData)
-	if err != nil {
+		if errors.Is(err, bundles.ErrEnvelopeRead) {
+			return nil, fmt.Errorf("import %s: a directory-form bundle must carry its %s manifest: %w",
+				srcDir, bundles.DirectoryFormManifest, err)
+		}
 		return nil, fmt.Errorf("invalid bundle file: %w", err)
 	}
 	name := bundles.ExtractBundleName(srcManifest)

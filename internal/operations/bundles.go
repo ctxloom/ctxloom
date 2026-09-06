@@ -797,10 +797,15 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 		return nil, fmt.Errorf("resolve path: %w", err)
 	}
 
-	// Read + parse the bundle to validate it before any inference.
-	data, err := os.ReadFile(absPath)
+	// Read + parse the bundle to validate it before any inference. Push has no
+	// FS seam by design (a remote move publishes through here and reads the real
+	// filesystem), so the OS filesystem is stated rather than injected.
+	data, parsed, err := bundles.EnvelopeAt(afero.NewOsFs(), absPath)
 	if err != nil {
-		return nil, fmt.Errorf("read bundle: %w", err)
+		if errors.Is(err, bundles.ErrEnvelopeRead) {
+			return nil, fmt.Errorf("read bundle: %w", err)
+		}
+		return nil, fmt.Errorf("invalid bundle: %w", err)
 	}
 	// ParseBundle cannot catch this: gopkg.in/yaml.v3 returns a nil error for
 	// empty, whitespace-only and comment-only input, so all three unmarshal
@@ -812,10 +817,6 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	// signing nothing.
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, fmt.Errorf("refusing to publish empty bundle %s: the file has no content", absPath)
-	}
-	parsed, err := bundles.ParseBundle(data)
-	if err != nil {
-		return nil, fmt.Errorf("invalid bundle: %w", err)
 	}
 	if bundleDeclaresNothing(parsed) {
 		return nil, fmt.Errorf("refusing to publish empty bundle %s: it declares no version and no content", absPath)

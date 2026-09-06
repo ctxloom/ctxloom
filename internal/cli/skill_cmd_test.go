@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 func skillListCmdWithOutput() (*cobra.Command, *bytes.Buffer) {
@@ -149,7 +148,7 @@ func TestSkillSyncTarget_RefusesAnotherKindsSelector(t *testing.T) {
 // require (a single-file bundle cannot hold a skill package).
 func dirFormBundle(t *testing.T, appDir, name string) {
 	t.Helper()
-	dir := filepath.Join(paths.LocalBundlesPath(appDir), name)
+	dir := filepath.Join(authoredV1(appDir), name)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "bundle.yaml"), []byte("version: \"1.0\"\n"), 0o644))
 }

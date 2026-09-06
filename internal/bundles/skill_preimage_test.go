@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -183,7 +185,7 @@ func TestSkillsFromBundleRef_ManifestLessTamperIsWithheld(t *testing.T) {
 	fsys := afero.NewOsFs()
 	root := t.TempDir()
 	bundlesDir := filepath.Join(root, "bundles")
-	bundleDir := filepath.Join(bundlesDir, "skill-bundle")
+	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1), "skill-bundle")
 	skillDir := filepath.Join(bundleDir, "skills", "humanize")
 	require.NoError(t, fsys.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755))
 

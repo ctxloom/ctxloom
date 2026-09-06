@@ -49,7 +49,7 @@ func treeRef(t *testing.T) *Reference {
 // the world, and would let a stray directory beside a real bundle.yaml decide
 // which of the two shapes got installed.
 func TestFetchItemBytes_PrefersTheSingleFileAndNeverProbesTheTree(t *testing.T) {
-	fetcher := NewMockFetcher().WithFile(".ctxloom/content/bundles/atelier.yaml", []byte("version: \"1.0.0\"\n"))
+	fetcher := NewMockFetcher().WithFile(".ctxloom/content/bundles/v1/atelier.yaml", []byte("version: \"1.0.0\"\n"))
 	probed := false
 	p := treePuller(t, afero.NewMemMapFs(), ".ctxloom", func(context.Context, Fetcher, string, string, string, string, string) (map[string]TreeFile, error) {
 		probed = true
@@ -57,7 +57,7 @@ func TestFetchItemBytes_PrefersTheSingleFileAndNeverProbesTheTree(t *testing.T) 
 	})
 
 	content, tree, _, err := p.fetchItemBytes(t.Context(), fetcher, "trent", "atelier", "https://github.com/trent/atelier",
-		treeRef(t), ".ctxloom/content/bundles/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
+		treeRef(t), ".ctxloom/content/bundles/v1/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
 
 	require.NoError(t, err)
 	assert.Equal(t, "version: \"1.0.0\"\n", string(content))
@@ -79,7 +79,7 @@ func TestFetchItemBytes_DoesNotProbeTheTreeOnANonNotFoundError(t *testing.T) {
 	})
 
 	_, _, _, err := p.fetchItemBytes(t.Context(), fetcher, "trent", "atelier", "https://github.com/trent/atelier",
-		treeRef(t), ".ctxloom/content/bundles/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
+		treeRef(t), ".ctxloom/content/bundles/v1/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, boom, "the transport error must reach the caller unchanged")
@@ -97,14 +97,14 @@ func TestFetchItemBytes_FallsBackToTheTreeAndTakesItsManifestAsTheBundleBytes(t 
 	// was handed would report the right root no matter where the pull looked.
 	var seen []string
 	p := treePuller(t, afero.NewMemMapFs(), ".ctxloom",
-		treeAt(map[string]map[string]TreeFile{".ctxloom/content/bundles/atelier": want}, &seen))
+		treeAt(map[string]map[string]TreeFile{".ctxloom/content/bundles/v2/atelier": want}, &seen))
 
 	content, tree, treeRoot, err := p.fetchItemBytes(t.Context(), NewMockFetcher(), "trent", "atelier", "https://github.com/trent/atelier",
-		treeRef(t), ".ctxloom/content/bundles/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
+		treeRef(t), ".ctxloom/content/bundles/v1/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
 
 	require.NoError(t, err)
-	assert.Contains(t, seen, ".ctxloom/content/bundles/atelier", "the directory form beside the single file must be among the roots probed")
-	assert.Equal(t, ".ctxloom/content/bundles/atelier", treeRoot, "the root reported is the one that answered")
+	assert.Contains(t, seen, ".ctxloom/content/bundles/v2/atelier", "the directory form beside the single file must be among the roots probed")
+	assert.Equal(t, ".ctxloom/content/bundles/v2/atelier", treeRoot, "the root reported is the one that answered")
 	assert.Equal(t, "version: \"2.0.0\"\n", string(content), "a tree's bundle.yaml is what stands in for the single file's bytes")
 	assert.Len(t, tree, 2)
 }
@@ -114,11 +114,11 @@ func TestFetchItemBytes_FallsBackToTheTreeAndTakesItsManifestAsTheBundleBytes(t 
 // ever load — the silent no-op this codebase is prone to.
 func TestFetchItemBytes_RefusesATreeWithNoManifest(t *testing.T) {
 	p := treePuller(t, afero.NewMemMapFs(), ".ctxloom", treeAt(map[string]map[string]TreeFile{
-		".ctxloom/content/bundles/atelier": {"fragments/x.md": {Data: []byte("hi")}},
+		".ctxloom/content/bundles/v2/atelier": {"fragments/x.md": {Data: []byte("hi")}},
 	}, nil))
 
 	_, _, _, err := p.fetchItemBytes(t.Context(), NewMockFetcher(), "trent", "atelier", "https://github.com/trent/atelier",
-		treeRef(t), ".ctxloom/content/bundles/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
+		treeRef(t), ".ctxloom/content/bundles/v1/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), BundleManifestName)
@@ -151,11 +151,11 @@ func TestFetchItemBytes_WithoutAWalkerSaysSoRatherThanReportingOnlyTheMissingFil
 	p := treePuller(t, afero.NewMemMapFs(), ".ctxloom", nil)
 
 	_, _, _, err := p.fetchItemBytes(t.Context(), NewMockFetcher(), "trent", "atelier", "https://github.com/trent/atelier",
-		treeRef(t), ".ctxloom/content/bundles/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
+		treeRef(t), ".ctxloom/content/bundles/v1/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errs.ErrRemoteContentNotFound)
-	assert.Contains(t, err.Error(), ".ctxloom/content/bundles/atelier",
+	assert.Contains(t, err.Error(), ".ctxloom/content/bundles/v2/atelier",
 		"the error must name the directory form that could not be checked")
 }
 
@@ -248,7 +248,7 @@ func TestInstallTree_SaysWhenACommittedExecutableIsUndeclared(t *testing.T) {
 
 	_, err := p.installTree(ref, PullOptions{}, &fetchedItem{
 		localName: ref.CanonicalString(),
-		treeRoot:  ".ctxloom/content/bundles/atelier",
+		treeRoot:  ".ctxloom/content/bundles/v2/atelier",
 		tree: map[string]TreeFile{
 			BundleManifestName:                    {Data: []byte("version: \"1.0.0\"\n")},
 			"skills/reviewer/scripts/declared.sh": {Data: []byte("#!/bin/sh\n"), DeclaredExecutable: true, CommittedExecutable: true},
@@ -258,7 +258,7 @@ func TestInstallTree_SaysWhenACommittedExecutableIsUndeclared(t *testing.T) {
 	require.NoError(t, err)
 
 	got := warnings.String()
-	assert.Contains(t, got, ".ctxloom/content/bundles/atelier/skills/reviewer/scripts/orphan.sh",
+	assert.Contains(t, got, ".ctxloom/content/bundles/v2/atelier/skills/reviewer/scripts/orphan.sh",
 		"the warning must name the file as the PUBLISHER sees it, not as a cache path they have never heard of")
 	assert.Contains(t, got, "DECLARED NON-EXECUTABLE")
 	assert.Contains(t, got, "executable:", "and the declaration to add")

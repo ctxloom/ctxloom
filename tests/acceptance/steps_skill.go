@@ -54,7 +54,7 @@ func dirFormBundleYAML(name string) string {
 // skillBundleDir returns the absolute on-disk directory a bundle's
 // directory-form content lives in.
 func skillBundleDir(w *World, bundle string) string {
-	return filepath.Join(w.env.ProjectDir, filepath.FromSlash(bundleDirPath(bundle)))
+	return filepath.Join(w.env.ProjectDir, filepath.FromSlash(treeBundlePath(bundle)))
 }
 
 // skillPackageDir returns the absolute on-disk directory for one skill
@@ -107,12 +107,12 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 				return err
 			}
 		}
-		return w.env.WriteFile(bundleDirManifestPath(name), dirFormBundleYAML(name))
+		return w.env.WriteFile(treeBundleManifestPath(name), dirFormBundleYAML(name))
 	})
 
 	ctx.Step(`^a directory-form bundle "([^"]*)" exists$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		return w.env.WriteFile(bundleDirManifestPath(name), dirFormBundleYAML(name))
+		return w.env.WriteFile(treeBundleManifestPath(name), dirFormBundleYAML(name))
 	})
 
 	// Writes a scripts/run.sh file directly (ctxloom skill create only
@@ -198,7 +198,7 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return err
 			}
-			body, err := w.env.ReadFile(bundleDirManifestPath(bundle))
+			body, err := w.env.ReadFile(treeBundleManifestPath(bundle))
 			if err != nil {
 				return fmt.Errorf("read bundle.yaml: %w", err)
 			}
@@ -233,7 +233,7 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 				evidence = append(evidence, fmt.Sprintf("%s: sha256=%s mode=%s", p, f.SHA256, f.Mode))
 			}
 			w.docStepMaterialized = fmt.Sprintf("%s -> skills.%s.files\n%s",
-				bundleDirManifestPath(bundle), name, strings.Join(evidence, "\n"))
+				treeBundleManifestPath(bundle), name, strings.Join(evidence, "\n"))
 			// scripts/ entries are executables — the mode's exec bit is
 			// load-bearing and must be recorded, not merely present.
 			if skill.Files[scriptPath].Mode != "0755" {

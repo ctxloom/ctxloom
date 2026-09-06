@@ -371,7 +371,7 @@ func TestImportBundle_DoesNotDestroyOnRejection(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-	bdir := paths.LocalBundlesPath(appDir)
+	bdir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bdir, 0755))
 	good := []byte("version: 1.0.0\nfragments:\n  keep:\n    content: precious\n")
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "seed.yaml"), good, 0644))

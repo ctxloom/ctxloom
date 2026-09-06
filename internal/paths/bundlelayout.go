@@ -59,9 +59,17 @@ const (
 // message.
 var ErrUnknownBundleLayout = errors.New("not a known bundle layout")
 
-// layoutV2Segment is the directory name that separates the two layouts beneath
-// a bundles root.
-const layoutV2Segment = "v2"
+// The directory name each FORMAT occupies beneath a bundles root.
+//
+// The `v` here is the FORMAT VERSION, not a file shape: v1 holds single-file
+// documents AND directories that still carry inline item keys, v2 holds only
+// TRUE TREES (no inline item keys, items as files), and the next format
+// migration adds the next root. A directory is therefore not by itself v2 —
+// treeFormEnvelope's rule, not the entry's type, decides.
+const (
+	layoutV1Segment = "v1"
+	layoutV2Segment = "v2"
+)
 
 // String names the layout for a diagnostic.
 func (l BundleLayout) String() string {
@@ -77,16 +85,14 @@ func (l BundleLayout) String() string {
 
 // Segment is the path segment this layout adds beneath a bundles root.
 //
-// LayoutV1 adds NOTHING today: the single-file bundles have not moved, so
-// LayoutV1 resolves to exactly the path LocalBundlesPath has always returned and
-// every accessor below is a no-op for it. When v1 is relocated into its own
-// directory this is the ONE line that changes, and the move and this segment
-// must land in the same commit — a window in which the bytes are in one place
-// and the resolver looks in another produces a bundle that resolves nowhere.
+// EVERY layout has one, so the bundles root itself holds no bundles: it is the
+// parent the format roots are siblings under. Nothing may resolve a bundle
+// against the bare root, because a bundle sitting there belongs to no format
+// and is invisible to the reader.
 func (l BundleLayout) Segment() (string, error) {
 	switch l {
 	case LayoutV1:
-		return "", nil
+		return layoutV1Segment, nil
 	case LayoutV2:
 		return layoutV2Segment, nil
 	default:
@@ -110,14 +116,13 @@ func (l BundleLayout) mustSegment() string {
 }
 
 // LocalBundlesPathFor returns one layout's subtree of the COMMITTED
-// authored-bundles directory. LayoutV1 is LocalBundlesPath unchanged.
+// authored-bundles directory.
 func LocalBundlesPathFor(appPath string, l BundleLayout) string {
 	return BundlesLayoutRoot(LocalBundlesPath(appPath), l)
 }
 
 // CacheBundlesPathFor returns one layout's subtree of the CACHE bundles
-// directory — the install root a pull writes into. LayoutV1 is
-// CacheBundlesPath unchanged.
+// directory — the install root a pull writes into.
 func CacheBundlesPathFor(appPath string, l BundleLayout) string {
 	return BundlesLayoutRoot(CacheBundlesPath(appPath), l)
 }
@@ -135,10 +140,7 @@ func CacheBundlesPathFor(appPath string, l BundleLayout) string {
 // travel to a git host and are compared against forward-slash refs, so they
 // must not pick up a separator from whatever OS happens to be publishing.
 func ContentBundlesPrefixFor(l BundleLayout) string {
-	if seg := l.mustSegment(); seg != "" {
-		return path.Join(BundlesDir, seg)
-	}
-	return BundlesDir
+	return path.Join(BundlesDir, l.mustSegment())
 }
 
 // RepoBundlesPrefixFor returns one layout's repo-relative bundles prefix — the
@@ -176,6 +178,17 @@ func ContentBundlesRoot() string {
 //
 // LayoutUnknown is absent by construction: it names no layout and its segment
 // accessor refuses.
+// BundleLayouts is every layout that names a real on-disk FORMAT root.
+//
+// It exists so a caller that must visit EVERY format root — a second
+// enumeration such as `sign --all`'s — derives the set from here instead of
+// listing the layouts itself. A hand-listed set is how one enumeration comes to
+// disagree with another, and the disagreement is silent: the listing reports
+// success having seen a subset.
+func BundleLayouts() []BundleLayout {
+	return bundleLayouts()
+}
+
 func bundleLayouts() []BundleLayout {
 	ls := []BundleLayout{LayoutV1, LayoutV2}
 	sort.SliceStable(ls, func(i, j int) bool {
@@ -207,9 +220,6 @@ func bundleLayouts() []BundleLayout {
 func TrimBundlesLayoutSegment(rel string) string {
 	for _, l := range bundleLayouts() {
 		seg := l.mustSegment()
-		if seg == "" {
-			continue
-		}
 		if trimmed, ok := strings.CutPrefix(rel, seg+"/"); ok {
 			return trimmed
 		}
@@ -222,8 +232,5 @@ func TrimBundlesLayoutSegment(rel string) string {
 // above, exported for the reader, which is handed its search directories and
 // never an appPath.
 func BundlesLayoutRoot(bundlesDir string, l BundleLayout) string {
-	if seg := l.mustSegment(); seg != "" {
-		return filepath.Join(bundlesDir, seg)
-	}
-	return bundlesDir
+	return filepath.Join(bundlesDir, l.mustSegment())
 }

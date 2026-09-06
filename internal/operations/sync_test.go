@@ -338,7 +338,7 @@ func TestSyncDependencies_WithRemotes(t *testing.T) {
 
 	// Create necessary directories
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 
 	// Create registry with test remote
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
@@ -390,7 +390,7 @@ func TestSyncDependencies_PullOutputAvoidsStdout(t *testing.T) {
 	}, config.Fixture{})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
@@ -757,7 +757,7 @@ func TestSyncDependencies_PullError(t *testing.T) {
 	}, config.Fixture{})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
@@ -810,7 +810,7 @@ func TestSyncDependencies_UpdatedStatus(t *testing.T) {
 	}, config.Fixture{})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
@@ -1117,7 +1117,7 @@ func TestSyncOnStartup_WithMissingDependencies(t *testing.T) {
 
 	// Create necessary directories
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
@@ -1474,7 +1474,7 @@ func TestSyncDependencies_PullsRefsRevealedByEarlierPulls(t *testing.T) {
 	)
 
 	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
-	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
 	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
@@ -1539,7 +1539,7 @@ func TestSyncDependencies_NoUnconvergedWarningWhenLastPassConverges(t *testing.T
 	fs := afero.NewMemMapFs()
 
 	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
-	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
 	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:

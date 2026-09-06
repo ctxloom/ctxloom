@@ -47,7 +47,7 @@ func setupSeededLockProject(t *testing.T) (baseDir, ref string, cfg *config.Conf
 	baseDir = filepath.Join(tmp, ".ctxloom")
 
 	src := filepath.Join(tmp, "src")
-	initLocalRepoWithFile(t, src, ".ctxloom/content/bundles/demo.yaml", "name: demo\n")
+	initLocalRepoWithFile(t, src, repoV1("demo.yaml"), "name: demo\n")
 	ref = "file://" + src + "@bundles/demo"
 
 	// baseDir stays AppPaths[0] — that is where the lockfile lives — and the
@@ -157,7 +157,7 @@ func TestUpgrade_RetractionSurvivesNonEmptyReresolve(t *testing.T) {
 	// Advance upstream so the re-resolve is non-empty and genuinely proposes a
 	// move — this is the case the empty-closure guard (Save's
 	// ErrLockfileWouldErase) does not cover at all.
-	c2 := addFileToLocalRepo(t, srcDirOf(ref), ".ctxloom/content/bundles/demo2.yaml", "name: demo2\n")
+	c2 := addFileToLocalRepo(t, srcDirOf(ref), repoV1("demo2.yaml"), "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
 	res, err := UpgradeDependencies(ctx, cfg)

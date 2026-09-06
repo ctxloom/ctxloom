@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // TestBundleStore_SaveIsVisibleToTheNextRead pins the obligation that came with
@@ -32,7 +31,7 @@ func TestBundleStore_SaveIsVisibleToTheNextRead(t *testing.T) {
 	// fixture would write somewhere the reader never looks. In production both
 	// are the OS filesystem, so this exercises the real path.
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(appDir), 0o755))
+	require.NoError(t, os.MkdirAll(authoredV1(appDir), 0o755))
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
@@ -48,7 +47,7 @@ func TestBundleStore_SaveIsVisibleToTheNextRead(t *testing.T) {
 		Name:        "late-arrival",
 		Version:     "1.0.0",
 		Description: "written after the loader was already resolved",
-		Path:        filepath.Join(paths.LocalBundlesPath(appDir), "late-arrival.yaml"),
+		Path:        filepath.Join(authoredV1(appDir), "late-arrival.yaml"),
 	}))
 
 	_, existsAfter := cfg.BundleLoader().Read("late-arrival")
@@ -84,12 +83,12 @@ func TestBundleStore_FirstBundleInAFreshProjectIsVisible(t *testing.T) {
 	_, existsBefore := cfg.BundleLoader().Read("first-ever")
 	require.Error(t, existsBefore, "sanity: nothing exists in a fresh project")
 
-	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(appDir), 0o755))
+	require.NoError(t, os.MkdirAll(authoredV1(appDir), 0o755))
 	store := bundleStore(cfg, nil)
 	require.NoError(t, store.Save(&bundles.Bundle{
 		Name:    "first-ever",
 		Version: "1.0.0",
-		Path:    filepath.Join(paths.LocalBundlesPath(appDir), "first-ever.yaml"),
+		Path:    filepath.Join(authoredV1(appDir), "first-ever.yaml"),
 	}))
 
 	_, existsAfter := cfg.BundleLoader().Read("first-ever")
@@ -109,7 +108,7 @@ func TestBundleStore_FirstBundleInAFreshProjectIsVisible(t *testing.T) {
 // stale-read failure this codebase is shaped by.
 func TestMoveBundle_SourceDisappearsFromTheSharedLoader(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	bundlesDir := paths.LocalBundlesPath(appDir)
+	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	destDir := t.TempDir()
 

@@ -18,7 +18,7 @@ func TestPrintMoveResult_BranchesOnDestKind(t *testing.T) {
 	t.Run("remote destination names the remote", func(t *testing.T) {
 		var buf bytes.Buffer
 		require.NoError(t, printMoveResult(&buf, &operations.MoveBundleResult{
-			Source:    ".ctxloom/content/bundles/go-tools.yaml",
+			Source:    ".ctxloom/content/bundles/v1/go-tools.yaml",
 			Dest:      "bundles/go-tools.yaml",
 			DestKind:  operations.MoveDestRemote,
 			Remote:    "ctxloom-default",
@@ -26,7 +26,7 @@ func TestPrintMoveResult_BranchesOnDestKind(t *testing.T) {
 			SigDest:   "bundles/go-tools.yaml.sig",
 		}))
 		got := buf.String()
-		assert.Contains(t, got, "Moved .ctxloom/content/bundles/go-tools.yaml -> bundles/go-tools.yaml (ctxloom-default)")
+		assert.Contains(t, got, "Moved .ctxloom/content/bundles/v1/go-tools.yaml -> bundles/go-tools.yaml (ctxloom-default)")
 		assert.Contains(t, got, "Commit: ")
 		assert.Contains(t, got, "Signature: bundles/go-tools.yaml.sig")
 	})
@@ -34,13 +34,13 @@ func TestPrintMoveResult_BranchesOnDestKind(t *testing.T) {
 	t.Run("local path destination does not", func(t *testing.T) {
 		var buf bytes.Buffer
 		require.NoError(t, printMoveResult(&buf, &operations.MoveBundleResult{
-			Source:   ".ctxloom/content/bundles/go-tools.yaml",
-			Dest:     "../other/.ctxloom/content/bundles/go-tools.yaml",
+			Source:   ".ctxloom/content/bundles/v1/go-tools.yaml",
+			Dest:     "../other/.ctxloom/content/bundles/v1/go-tools.yaml",
 			DestKind: operations.MoveDestPath,
 			Remote:   "",
 		}))
 		got := buf.String()
-		assert.Contains(t, got, "Moved .ctxloom/content/bundles/go-tools.yaml -> ../other/.ctxloom/content/bundles/go-tools.yaml\n")
+		assert.Contains(t, got, "Moved .ctxloom/content/bundles/v1/go-tools.yaml -> ../other/.ctxloom/content/bundles/v1/go-tools.yaml\n")
 		assert.NotContains(t, got, "(")
 		assert.NotContains(t, got, "Commit:")
 		assert.NotContains(t, got, "Signature:")

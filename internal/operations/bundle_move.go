@@ -119,7 +119,11 @@ func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) 
 	if err := requireWholeMovable(fs, name, src); err != nil {
 		return nil, err
 	}
-	dest, err := resolveMoveDest(cfg, fs, req.To)
+	layout, err := moveSourceLayout(fs, src)
+	if err != nil {
+		return nil, err
+	}
+	dest, err := resolveMoveDest(cfg, fs, req.To, layout)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +254,7 @@ func loadMoveSource(cfg *config.Config, fs afero.Fs, arg string) (name, path str
 // addressed by name, not by whatever directory happens to share its spelling);
 // otherwise the argument must be an existing directory. Anything else is an
 // error listing what was available, rather than a silent misfire.
-func resolveMoveDest(cfg *config.Config, fs afero.Fs, to string) (moveDest, error) {
+func resolveMoveDest(cfg *config.Config, fs afero.Fs, to string, layout paths.BundleLayout) (moveDest, error) {
 	registry, err := getRegistry(cfg, remote.WithRegistryFS(fs))
 	if err != nil {
 		return moveDest{}, fmt.Errorf("load registry: %w", err)
@@ -263,7 +267,7 @@ func resolveMoveDest(cfg *config.Config, fs afero.Fs, to string) (moveDest, erro
 		return moveDest{}, fmt.Errorf("inspect destination %q: %w", to, err)
 	}
 	if isDir {
-		return moveDest{Kind: moveDestPath, Dir: destBundlesDir(fs, to)}, nil
+		return moveDest{Kind: moveDestPath, Dir: destBundlesDir(fs, to, layout)}, nil
 	}
 	return moveDest{}, fmt.Errorf("destination %q is neither a configured remote nor an existing directory%s",
 		to, knownRemotesHint(registry))
@@ -271,16 +275,35 @@ func resolveMoveDest(cfg *config.Config, fs afero.Fs, to string) (moveDest, erro
 
 // destBundlesDir maps a destination directory to the directory the bundle
 // actually lands in: a ctxloom project checkout (or a .ctxloom directory itself)
-// takes the bundle into its committed content tree; any other directory takes it
-// as-is.
-func destBundlesDir(fs afero.Fs, dir string) string {
+// takes the bundle into the FORMAT root of its committed content tree; any
+// other directory takes it as-is, because a plain directory has no layout.
+func destBundlesDir(fs afero.Fs, dir string, layout paths.BundleLayout) string {
 	if filepath.Base(dir) == paths.AppDirName {
-		return paths.LocalBundlesPath(dir)
+		return paths.LocalBundlesPathFor(dir, layout)
 	}
 	if isDir, _ := afero.DirExists(fs, filepath.Join(dir, paths.AppDirName)); isDir {
-		return paths.LocalBundlesPath(filepath.Join(dir, paths.AppDirName))
+		return paths.LocalBundlesPathFor(filepath.Join(dir, paths.AppDirName), layout)
 	}
 	return dir
+}
+
+// moveSourceLayout reports which FORMAT root the moved bundle belongs in once
+// it lands in another project.
+//
+// The destination root follows the bundle's OWN format, not the root it was
+// sitting in here: a move is a copy plus a deletion, and a copy filed under the
+// wrong format root is a bundle the receiving project cannot load — at exit 0,
+// with the source already gone.
+func moveSourceLayout(fs afero.Fs, src string) (paths.BundleLayout, error) {
+	data, err := afero.ReadFile(fs, src)
+	if err != nil {
+		return paths.LayoutUnknown, fmt.Errorf("read %s: %w", src, err)
+	}
+	env, err := bundles.ParseBundle(data)
+	if err != nil {
+		return paths.LayoutUnknown, fmt.Errorf("parse %s: %w", src, err)
+	}
+	return bundles.BundleLayoutFor(src, env), nil
 }
 
 // knownRemotesHint lists the configured remote names for an error message.

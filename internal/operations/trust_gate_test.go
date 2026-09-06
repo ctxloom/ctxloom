@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/errs"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -207,7 +206,7 @@ func TestExposureGate_FullPath_LocalAllowsAndRejectionWithholds(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	bundlesDir := paths.LocalBundlesPath(appDir)
+	bundlesDir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bundlesDir, 0o755))
 	bundleYAML := `version: "1.0"
 description: local dev
@@ -272,7 +271,7 @@ func TestExposureGate_SessionStartRegen_Withholds(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 
 	bundleContent := `version: "1.0"

@@ -27,14 +27,14 @@ func createTestRepo(t *testing.T, dir string) string {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	// Create .ctxloom/content/bundles/test.yaml
-	bundleDir := filepath.Join(repoDir, ".ctxloom", "content", "bundles")
+	// Create .ctxloom/content/bundles/v1/test.yaml
+	bundleDir := filepath.Join(repoDir, ".ctxloom", "content", "bundles", "v1")
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
 
 	content := []byte("version: v1\ndescription: test bundle\n")
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "test.yaml"), content, 0644))
 
-	_, err = wt.Add(".ctxloom/content/bundles/test.yaml")
+	_, err = wt.Add(".ctxloom/content/bundles/v1/test.yaml")
 	require.NoError(t, err)
 
 	_, err = wt.Commit("initial commit", &git.CommitOptions{

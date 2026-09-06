@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // selProfileKey addresses the fixture bundle's profile the same way a user
@@ -24,7 +25,7 @@ const selProfileKey = "ctxloom:local@bundles/sel#profiles/p1"
 // nothing else.
 func writeSelectionFixture(t *testing.T, root string, premised bool) {
 	t.Helper()
-	bundleDir := filepath.Join(root, ".ctxloom", "content", "bundles")
+	bundleDir := authoredV1(filepath.Join(root, paths.AppDirName))
 	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
 
 	premise := ""
@@ -204,7 +205,7 @@ func TestRenderPremiseIndex_CarriesNameAndPremiseOnly(t *testing.T) {
 func spikeFixtureRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	bundleDir := filepath.Join(root, ".ctxloom", "content", "bundles")
+	bundleDir := authoredV1(filepath.Join(root, paths.AppDirName))
 	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
 	// thisDir(), not a relative path: this package's tests do not all run from
 	// the package directory, which is why every other fixture here resolves

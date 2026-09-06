@@ -151,7 +151,7 @@ const j001400Bundle = "atelier"
 // resolves through the same seam an authored project writes through, which is
 // what makes "publish" a copy rather than a transformation.
 func j001400BundleRel(rel string) string {
-	return bundleDirItemPath(j001400Bundle, rel)
+	return treeBundleItemPath(j001400Bundle, rel)
 }
 
 // j001400ConfigYAML is Alice's project config. It declares TWO engines rather than
@@ -395,7 +395,7 @@ func j001400SignTree(work string, st *j001400State) error {
 	if st.signer == nil {
 		return fmt.Errorf("there is no publishing key for Trent, so the tree cannot be signed")
 	}
-	root := filepath.Join(work, filepath.FromSlash(dirFormBundlesRoot()))
+	root := filepath.Join(work, filepath.FromSlash(treeBundlesRoot()))
 	store, err := content.NewTreeStore(afero.NewOsFs(), root, content.Provenance{RepoURL: "https://example.test/trent/company"})
 	if err != nil {
 		return fmt.Errorf("open the authored tree at %s: %w", root, err)

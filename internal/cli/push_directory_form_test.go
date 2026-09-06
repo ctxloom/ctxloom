@@ -12,7 +12,6 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -39,7 +38,7 @@ import (
 // and returns its manifest path.
 func writeDirFormBundle(t *testing.T, cfg *config.Config, name string) string {
 	t.Helper()
-	dir := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), name)
+	dir := filepath.Join(authoredV1(cfg.GetAppPaths()[0]), name)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "greet"), 0o755))
 	manifest := filepath.Join(dir, "bundle.yaml")
 	require.NoError(t, os.WriteFile(manifest, []byte(
@@ -123,10 +122,10 @@ func TestPushBundleCfg_DirectoryFormBundle_PublishesUnderItsOwnNameManifestOnly(
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "dir-form", "", false, "", false, false))
 
-	_, named := pub.files[".ctxloom/content/bundles/dir-form.yaml"]
+	_, named := pub.files[".ctxloom/content/bundles/v1/dir-form.yaml"]
 	assert.True(t, named,
 		"the bundle publishes under its own name")
-	_, collides := pub.files[".ctxloom/content/bundles/bundle.yaml"]
+	_, collides := pub.files[".ctxloom/content/bundles/v1/bundle.yaml"]
 	assert.False(t, collides,
 		"and no longer at the shared bundles/bundle.yaml every directory-form bundle collided on")
 

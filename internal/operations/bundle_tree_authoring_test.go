@@ -39,6 +39,7 @@ func treeAuthoringFixture(t *testing.T) (afero.Fs, *config.Config, string) {
 // production local read path — so a tree the reader refuses fails here.
 func readBackTree(t *testing.T, fsys afero.Fs, appPath, name string) bundles.BundleRead {
 	t.Helper()
+	// The reader takes the bundles ROOT and expands the format roots itself.
 	dirs := []string{paths.LocalBundlesPath(appPath)}
 	cat := bundles.NewLoader(bundles.NewProjectReader(fsys, dirs)).Catalog()
 	read, err := cat.Lookup(name)
@@ -135,7 +136,7 @@ func TestCreateBundle_WithoutTree_IsUnchanged(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(paths.LocalBundlesPath(appPath), "classic.yaml"), res.Path)
+	assert.Equal(t, filepath.Join(authoredV1(appPath), "classic.yaml"), res.Path)
 }
 
 // TestCreateSkill_InATree_WritesNoInlineSkillsKey is the second half of the

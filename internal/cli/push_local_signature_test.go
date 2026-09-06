@@ -12,7 +12,6 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -33,14 +32,14 @@ import (
 // localSigPath returns the on-disk path of the "for-push" bundle's detached
 // signature sibling in a pushSignTestSetup project.
 func localSigPath(cfg *config.Config) string {
-	return filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml.sig")
+	return filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push.yaml.sig")
 }
 
 // signLocalBundleOnDisk signs the "for-push" bundle's exact current bytes and
 // writes the sibling `.sig`, exactly as `ctxloom bundle sign for-push` does.
 func signLocalBundleOnDisk(t *testing.T, cfg *config.Config) []byte {
 	t.Helper()
-	path := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml")
+	path := filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push.yaml")
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -72,9 +71,9 @@ func TestPushBundleCfg_LocallySignedBundle_PlainPushCarriesTheSignature(t *testi
 	cmd, out := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false))
 
-	main, published := pub.files[".ctxloom/content/bundles/for-push.yaml"]
+	main, published := pub.files[".ctxloom/content/bundles/v1/for-push.yaml"]
 	require.True(t, published, "the bundle itself is published")
-	sig, sigPublished := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
+	sig, sigPublished := pub.files[".ctxloom/content/bundles/v1/for-push.yaml.sig"]
 	require.True(t, sigPublished, "the author's signature travels with the bundle")
 	assert.Equal(t, armored, sig, "carried byte-for-byte, never re-signed")
 	assert.NoError(t, signing.CoversBytes(main, sig, signing.NamespacePublish),
@@ -105,7 +104,7 @@ func TestPushBundleCfg_StaleLocalSignature_PlainPushRefusesAndNamesTheRemedy(t *
 	signLocalBundleOnDisk(t, cfg)
 
 	// The edit that strands the signature.
-	bundlePath := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml")
+	bundlePath := filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push.yaml")
 	edited := []byte("version: 2.0.0\nfragments:\n  intro:\n    content: rewritten\n")
 	require.NoError(t, os.WriteFile(bundlePath, edited, 0o644))
 	sig, err := os.ReadFile(localSigPath(cfg))
@@ -134,15 +133,15 @@ func TestPushBundleCfg_StaleLocalSignature_SignFlagResignsAndProceeds(t *testing
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
 	stale := signLocalBundleOnDisk(t, cfg)
 
-	bundlePath := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml")
+	bundlePath := filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push.yaml")
 	edited := []byte("version: 2.0.0\nfragments:\n  intro:\n    content: rewritten\n")
 	require.NoError(t, os.WriteFile(bundlePath, edited, 0o644))
 
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", true, false))
 
-	main := pub.files[".ctxloom/content/bundles/for-push.yaml"]
-	sig, ok := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
+	main := pub.files[".ctxloom/content/bundles/v1/for-push.yaml"]
+	sig, ok := pub.files[".ctxloom/content/bundles/v1/for-push.yaml.sig"]
 	require.True(t, ok)
 	assert.Equal(t, edited, main)
 	assert.NoError(t, signing.CoversBytes(main, sig, signing.NamespacePublish))
@@ -173,8 +172,8 @@ func TestPushBundleCfg_UnsignedBundle_PromotesSuccessfully(t *testing.T) {
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false))
 
-	_, published := pub.files[".ctxloom/content/bundles/for-push.yaml"]
+	_, published := pub.files[".ctxloom/content/bundles/v1/for-push.yaml"]
 	assert.True(t, published, "promoting unsigned content is supported by design — the consumer reviews it")
-	_, sigPublished := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
+	_, sigPublished := pub.files[".ctxloom/content/bundles/v1/for-push.yaml.sig"]
 	assert.False(t, sigPublished)
 }

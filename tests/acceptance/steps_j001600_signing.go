@@ -46,6 +46,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -210,7 +211,7 @@ func j001600DeclarePublisher(w *World, principal string, key *testenv.TestSigner
 // earlier signing of the same bundle — which is precisely what `bundle sign`
 // used to leave behind — cannot satisfy it.
 func j001600VerifyDirectorySignature(w *World, name string) error {
-	rel := bundleDirManifestPath(name)
+	rel := inlineDirBundleManifestPath(name)
 	body, err := w.env.ReadFile(rel)
 	if err != nil {
 		return fmt.Errorf("read signed manifest %s: %w", rel, err)
@@ -243,7 +244,7 @@ func j001600VerifyDirectorySignature(w *World, name string) error {
 // The sibling's own signature verifies perfectly in that world, so nothing but
 // this assertion can tell the two orderings apart.
 func j001600VerifyTreeAttestation(w *World, name string) error {
-	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(bundleDirPath(name)))
+	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(inlineDirBundlePath(name)))
 	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(dir), content.Provenance{IsLocal: true})
 	if err != nil {
 		return fmt.Errorf("open the bundle tree at %s: %w", dir, err)
@@ -275,43 +276,60 @@ func j001600VerifyTreeAttestation(w *World, name string) error {
 	return nil
 }
 
-// j001600ListSignatures returns every `.sig` file under the authored bundle tree,
-// project-relative and sorted, so a scenario can assert a COUNT.
-func j001600ListSignatures(w *World) ([]string, error) {
-	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(singleFileBundlesRoot()))
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read %s: %w", singleFileBundlesRoot(), err)
+// j001600AuthoredRoots is every FORMAT root an authored bundle can sit in,
+// project-relative.
+//
+// The two listings below scan ALL of them rather than one. A listing anchored
+// at a single format root cannot see the others, and the failure is silent: the
+// scenario counts half the bundles and passes. The set is derived from
+// paths.BundleLayouts, so a future format migration adds its root here without
+// anyone remembering to.
+func j001600AuthoredRoots() []string {
+	var roots []string
+	for _, l := range paths.BundleLayouts() {
+		roots = append(roots, paths.RepoBundlesPrefixFor(l))
 	}
+	return roots
+}
+
+// j001600ListTopLevel returns the entries directly inside every authored format
+// root whose name matches want, mapped through name. Directories are skipped:
+// both callers are asking about SINGLE-FILE artefacts (a bundle document and
+// its detached sibling), and a directory bundle's internals are not what they
+// count.
+func j001600ListTopLevel(w *World, want func(string) bool, name func(string) string) ([]string, error) {
 	var out []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sig") {
-			out = append(out, e.Name())
+	for _, root := range j001600AuthoredRoots() {
+		entries, err := os.ReadDir(filepath.Join(w.env.ProjectDir, filepath.FromSlash(root)))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read %s: %w", root, err)
+		}
+		for _, e := range entries {
+			if !e.IsDir() && want(e.Name()) {
+				out = append(out, name(e.Name()))
+			}
 		}
 	}
+	sort.Strings(out)
 	return out, nil
+}
+
+// j001600ListSignatures returns every `.sig` file under the authored bundle
+// tree, so a scenario can assert a COUNT.
+func j001600ListSignatures(w *World) ([]string, error) {
+	return j001600ListTopLevel(w,
+		func(n string) bool { return strings.HasSuffix(n, ".sig") },
+		func(n string) string { return n })
 }
 
 // j001600ListBundles returns every authored bundle file name (without the .yaml).
 func j001600ListBundles(w *World) ([]string, error) {
-	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(singleFileBundlesRoot()))
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read %s: %w", singleFileBundlesRoot(), err)
-	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".yaml") {
-			out = append(out, strings.TrimSuffix(e.Name(), ".yaml"))
-		}
-	}
-	return out, nil
+	return j001600ListTopLevel(w,
+		func(n string) bool { return strings.HasSuffix(n, ".yaml") },
+		func(n string) string { return strings.TrimSuffix(n, ".yaml") })
 }
 
 // j001600Setup is the Background: a hermetic publisher's machine. Deliberately
@@ -730,7 +748,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	// refreshed.
 	ctx.Step(`^Trent's project publishes the directory bundle "([^"]*)" carrying the fragment "([^"]*)"$`, func(c context.Context, name, frag string) error {
 		w := worldFrom(c)
-		return w.env.WriteFile(bundleDirManifestPath(name), j001600BundleYAML(j001600Fragment{name: frag, content: j001600TDDMarker}))
+		return w.env.WriteFile(inlineDirBundleManifestPath(name), j001600BundleYAML(j001600Fragment{name: frag, content: j001600TDDMarker}))
 	})
 
 	// Edited IN PLACE, not through `ctxloom bundle modify`: this is the
@@ -738,7 +756,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	// it is what leaves a signature covering bytes that are no longer there.
 	ctx.Step(`^Trent revises the directory bundle "([^"]*)"$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		rel := bundleDirManifestPath(name)
+		rel := inlineDirBundleManifestPath(name)
 		body, err := w.env.ReadFile(rel)
 		if err != nil {
 			return err

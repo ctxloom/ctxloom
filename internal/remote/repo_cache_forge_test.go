@@ -26,7 +26,7 @@ func TestRepoCache_EnsureFullRepo(t *testing.T) {
 	assert.True(t, isGitRepo(repoDir), "EnsureFullRepo must leave a usable clone with a .git dir")
 
 	// The cloned content is readable: the fixture's bundle file is present.
-	_, statErr := os.Stat(filepath.Join(repoDir, ".ctxloom", "content", "bundles", "test.yaml"))
+	_, statErr := os.Stat(filepath.Join(repoDir, ".ctxloom", "content", "bundles", "v1", "test.yaml"))
 	assert.NoError(t, statErr, "full clone must carry the repo's working tree")
 }
 

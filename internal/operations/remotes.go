@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 
@@ -600,27 +601,44 @@ func resolveBrowseFetcher(cfg *config.Config, rem *remote.Remote, injected remot
 // top-level error, or any subdirectory that failed mid-recursion,
 // yields warning strings (also echoed to stderr).
 func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, repoURL string, itemType remote.ItemType, req BrowseRemoteRequest) ([]BrowseItemEntry, []string) {
-	basePath := remote.RepoItemRoot(itemType)
-	if req.Path != "" {
-		basePath = path.Join(basePath, req.Path)
-	}
-
-	entries, subWarnings, err := browseDir(ctx, fetcher, owner, repo, basePath, "", req.Recursive)
-	if err != nil {
-		// Sentinel, not error text: a missing directory is not a warning.
-		if errors.Is(err, errs.ErrRemoteContentNotFound) {
-			return nil, nil
+	// Every FORMAT ROOT, never their shared parent. The parent holds no items;
+	// browsing it would list one directory per format and call that the repo's
+	// bundles.
+	items := make([]BrowseItemEntry, 0)
+	var warnings []string
+	for _, root := range remote.RepoItemRoots(itemType) {
+		basePath := root
+		if req.Path != "" {
+			basePath = path.Join(basePath, req.Path)
 		}
-		warning := fmt.Sprintf("failed to browse %s: %v", itemType.DirName(), err)
-		clidiag.Warn("ctxloom", "%s", warning)
-		return nil, []string{warning}
-	}
 
-	items := make([]BrowseItemEntry, 0, len(entries))
-	for _, e := range entries {
-		items = append(items, browseEntry(e, itemType, repoURL, req))
+		entries, subWarnings, err := browseDir(ctx, fetcher, owner, repo, basePath, "", req.Recursive)
+		if err != nil {
+			// Sentinel, not error text: a format this repo does not use is
+			// absent, not a warning.
+			if errors.Is(err, errs.ErrRemoteContentNotFound) {
+				continue
+			}
+			// One warning per DISTINCT message. A failure that is not
+			// format-specific — an unreachable host, a bad token — fails every
+			// root identically, and repeating it once per format tells the
+			// user nothing except how many formats exist.
+			warning := fmt.Sprintf("failed to browse %s: %v", itemType.DirName(), err)
+			if !slices.Contains(warnings, warning) {
+				clidiag.Warn("ctxloom", "%s", warning)
+				warnings = append(warnings, warning)
+			}
+			continue
+		}
+		warnings = append(warnings, subWarnings...)
+		for _, e := range entries {
+			items = append(items, browseEntry(e, itemType, repoURL, req))
+		}
 	}
-	return items, subWarnings
+	if len(items) == 0 && len(warnings) == 0 {
+		return nil, nil
+	}
+	return items, warnings
 }
 
 // browseEntry builds a BrowseItemEntry from a directory entry, stripping the
@@ -984,13 +1002,32 @@ func searchManifestContent(rem *remote.Remote, content []byte, itemType remote.I
 
 // searchDirectoryContent searches by listing directory contents.
 func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
-	dirPath := remote.RepoItemRoot(itemType)
-
-	entries, err := fetcher.ListDir(ctx, owner, repo, dirPath, branch)
-	if err != nil {
-		return nil, err
+	// Every FORMAT ROOT, not their shared parent: this listing is flat and
+	// skips directory entries, so anchoring it at the parent would see one
+	// directory per format, skip them all, and report no matches at all.
+	var results []remote.SearchResult
+	var listErr error
+	found := false
+	for _, dirPath := range remote.RepoItemRoots(itemType) {
+		entries, err := fetcher.ListDir(ctx, owner, repo, dirPath, branch)
+		if err != nil {
+			// A format this repo does not use is absent, not broken. Remember
+			// the failure in case NO root can be listed, so a genuinely
+			// unreadable repo still reports rather than reading as empty.
+			listErr = err
+			continue
+		}
+		found = true
+		results = append(results, searchDirEntries(ctx, fetcher, rem, owner, repo, branch, itemType, query, dirPath, entries)...)
 	}
+	if !found && listErr != nil {
+		return nil, listErr
+	}
+	return results, nil
+}
 
+// searchDirEntries matches one already-listed format root's entries.
+func searchDirEntries(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery, dirPath string, entries []remote.DirEntry) []remote.SearchResult {
 	var results []remote.SearchResult
 	for _, entry := range entries {
 		if entry.IsDir || !strings.HasSuffix(entry.Name, ".yaml") {
@@ -1030,5 +1067,5 @@ func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *re
 		}
 	}
 
-	return results, nil
+	return results
 }

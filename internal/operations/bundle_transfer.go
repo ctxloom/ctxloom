@@ -371,7 +371,8 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		return nil, fmt.Errorf("invalid bundle file: %w", err)
 	}
 
-	destPath, _, err := prepareImportDest(fs, cfg, filepath.Base(req.SourcePath), req.Force)
+	destPath, _, err := prepareImportDest(fs, cfg, filepath.Base(req.SourcePath), req.Force,
+		bundles.BundleLayoutFor(req.SourcePath, bundle))
 	if err != nil {
 		return nil, err
 	}
@@ -457,7 +458,8 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 		return nil, fmt.Errorf("import %s: %w", srcDir, err)
 	}
 
-	destPath, exists, err := prepareImportDest(fs, cfg, name, req.Force)
+	destPath, exists, err := prepareImportDest(fs, cfg, name, req.Force,
+		bundles.BundleLayoutFor(srcManifest, bundle))
 	if err != nil {
 		return nil, err
 	}
@@ -499,7 +501,12 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 }
 
 // prepareImportDest resolves and guards the path an import writes to: the given
-// leaf name under this project's committed bundles directory, refusing a
+// leaf name under the FORMAT root of this project's committed bundles
+// directory. The layout is the CALLER's to state, because only the caller has
+// the incoming document's own bytes to judge it by (bundles.BundleLayoutFor) —
+// and an import that guessed would land the bundle under a root the reader
+// does not search for that form, which is the silent shape of this failure:
+// exit 0, "imported", and nothing loadable afterwards. It refuses a
 // symlinked component, creating the parent, and refusing an existing
 // destination unless force was given. It reports the path and whether something
 // is already there.
@@ -509,8 +516,8 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 // them is a guard the other silently does without — and the guards here are the
 // symlink-traversal refusal and the no-clobber-without-force refusal, neither
 // of which has a harmless absence.
-func prepareImportDest(fs afero.Fs, cfg *config.Config, leaf string, force bool) (string, bool, error) {
-	bundleDir := paths.LocalBundlesPath(cfg.GetAppPaths()[0])
+func prepareImportDest(fs afero.Fs, cfg *config.Config, leaf string, force bool, layout paths.BundleLayout) (string, bool, error) {
+	bundleDir := paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], layout)
 	destPath := filepath.Join(bundleDir, leaf)
 	if err := requireSafeBundlePath([]string{bundleDir}, destPath); err != nil {
 		return "", false, err

@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -56,7 +55,7 @@ func TestFSStore_Save_DropsStaleSignatureAndWarns(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(nil, []string{dir}, &warnings)
 
-	path := filepath.Join(dir, "my-tools.yaml")
+	path := v1In(dir, "my-tools.yaml")
 	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "before"}}}
 	require.NoError(t, store.Save(b))
 	signBundleFile(t, path)
@@ -80,7 +79,7 @@ func TestFSStore_Save_KeepsSignatureWhenBytesUnchanged(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(nil, []string{dir}, &warnings)
 
-	path := filepath.Join(dir, "steady.yaml")
+	path := v1In(dir, "steady.yaml")
 	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "same"}}}
 	require.NoError(t, store.Save(b))
 	signBundleFile(t, path)
@@ -102,7 +101,7 @@ func TestFSStore_Save_UnsignedBundleSavesQuietly(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(nil, []string{dir}, &warnings)
 
-	path := filepath.Join(dir, "plain.yaml")
+	path := v1In(dir, "plain.yaml")
 	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "one"}}}
 	require.NoError(t, store.Save(b))
 	b.Fragments["a"] = BundleFragment{Content: "two"}
@@ -130,7 +129,7 @@ func TestFSStore_Save_UnsignedBundleSavesQuietly(t *testing.T) {
 func TestFSStore_Save_UnreadableSignatureIsLoudNotAssumedAbsent(t *testing.T) {
 	mem := afero.NewMemMapFs()
 	dir := "/bundles"
-	path := filepath.Join(dir, "opaque.yaml")
+	path := v1In(dir, "opaque.yaml")
 	sigPath := path + SigSuffix
 
 	// A signature exists on disk — it just cannot be read.
@@ -163,7 +162,7 @@ func TestFSStore_Save_MissingSignatureStaysSilent(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(mem, []string{dir}, &warnings)
 
-	b := &Bundle{Path: filepath.Join(dir, "plain.yaml"), Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "one"}}}
+	b := &Bundle{Path: v1In(dir, "plain.yaml"), Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "one"}}}
 	require.NoError(t, store.Save(b), "no signature at all is the common case and must not be an error")
 	assert.Empty(t, warnings.String())
 }

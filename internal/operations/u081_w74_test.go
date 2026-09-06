@@ -39,13 +39,16 @@ func w74ShortNameFS(t *testing.T, withLocalFile bool) (afero.Fs, *config.Config,
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "remotes.yaml"),
 		[]byte("default: personal\nremotes:\n  personal:\n    url: "+w74RemoteURL+"\n    version: v1\n"), 0644))
 
-	bdir := paths.LocalBundlesPath(appDir)
+	// The document goes in the FORMAT ROOT; the search dirs returned are the
+	// bundles ROOT, which the reader expands itself.
+	bdir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(filepath.Join(bdir, "personal"), 0755))
 	if withLocalFile {
 		require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "personal", "tool.yaml"),
 			[]byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
 	}
-	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), []string{bdir}
+	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}),
+		[]string{paths.LocalBundlesPath(appDir)}
 }
 
 // TestCanonicalizeBundleArg_ResolvesAgainstTheInjectedFS proves the filesystem

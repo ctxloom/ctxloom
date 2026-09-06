@@ -2,6 +2,7 @@ package operations
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/content/remotetree"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -19,12 +21,16 @@ import (
 const (
 	treeProbeCanonical = "https://github.com/trent/atelier@bundles/atelier"
 	treeProbeRepoURL   = "https://github.com/trent/atelier"
-	treeProbeRoot      = ".ctxloom/content/bundles/atelier"
 )
 
 // treeProbeSHA is a FULL 40-hex commit sha because remotetree refuses anything
 // else outright — a short or symbolic ref is not a pin.
 var treeProbeSHA = strings.Repeat("a", 40)
+
+// treeProbeRoot is where the publisher committed the tree: the v2 FORMAT ROOT,
+// because a tree is format v2. Derived rather than spelled, so the probe and
+// the fixture cannot disagree about where a tree lives.
+var treeProbeRoot = path.Join(paths.RepoBundlesPrefixFor(paths.LayoutV2), "atelier")
 
 // stagedTreeFetcher returns a factory over a mock clone holding one
 // directory-form bundle: a manifest and one skill package, the shape that

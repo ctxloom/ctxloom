@@ -13,7 +13,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
@@ -44,7 +43,7 @@ func (p *stubPublisher) GetFileSHA(_ context.Context, _, _, _, _ string) (string
 func pushSignTestSetup(t *testing.T) (cfg *config.Config, pub *stubPublisher, mgr *remote.PublishManager) {
 	t.Helper()
 	appDir := t.TempDir()
-	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(appDir), 0o755))
+	require.NoError(t, os.MkdirAll(authoredV1(appDir), 0o755))
 	cfg = config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "remotes.yaml"), []byte(`default: personal
@@ -83,9 +82,9 @@ func TestPushBundleCfg_SignFlagPublishesVerifiableSig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "Signed: yes")
 
-	main, ok := pub.files[".ctxloom/content/bundles/for-push.yaml"]
+	main, ok := pub.files[".ctxloom/content/bundles/v1/for-push.yaml"]
 	require.True(t, ok)
-	sig, ok := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
+	sig, ok := pub.files[".ctxloom/content/bundles/v1/for-push.yaml.sig"]
 	require.True(t, ok, "--sign must publish a .sig sibling")
 
 	root := allowedsigners.NewStore(allowedsigners.Entry{
@@ -106,7 +105,7 @@ func TestPushBundleCfg_NoFlagsMeansUnsignedByDefault(t *testing.T) {
 	err := pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false)
 	require.NoError(t, err)
 
-	_, ok := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
+	_, ok := pub.files[".ctxloom/content/bundles/v1/for-push.yaml.sig"]
 	assert.False(t, ok, "no --sign and sign.default unset must never sign")
 }
 
@@ -121,7 +120,7 @@ func TestPushBundleCfg_SignDefaultConfigSignsUnlessNoSign(t *testing.T) {
 
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false))
-	_, ok := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
+	_, ok := pub.files[".ctxloom/content/bundles/v1/for-push.yaml.sig"]
 	assert.True(t, ok, "sign.default: true must sign by default")
 }
 
@@ -136,7 +135,7 @@ func TestPushBundleCfg_NoSignOverridesSignDefault(t *testing.T) {
 
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, true))
-	_, ok := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
+	_, ok := pub.files[".ctxloom/content/bundles/v1/for-push.yaml.sig"]
 	assert.False(t, ok, "--no-sign must suppress sign.default")
 }
 

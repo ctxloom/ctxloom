@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -60,7 +59,7 @@ func TestAddItem_ToSignedBundle_InvalidatesTheSignature(t *testing.T) {
 // that is precisely the broken pair every consumer raises a tamper alarm on.
 func TestExportBundle_StaleSignature_Refuses(t *testing.T) {
 	fs, cfg := memBundleFS(t)
-	src := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "seed.yaml")
+	src := filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "seed.yaml")
 	signOnDisk(t, fs, src)
 	// The bundle changes after signing (a hand edit, or any writer that skipped
 	// the store).

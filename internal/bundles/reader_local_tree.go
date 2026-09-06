@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // readLocalTreeForm returns the bundle a LOCALLY AUTHORED tree-form directory
@@ -140,6 +141,27 @@ func invalidTreeFacts(format string, args ...any) signatureFacts {
 // directory-form authoring verb produce the shape its own reader refuses.
 func treeFormEnvelope(manifestPath string, env *Bundle) bool {
 	return filepath.Base(manifestPath) == DirectoryFormManifest && len(inlineKeys(env)) == 0
+}
+
+// BundleLayoutFor reports which FORMAT root a bundle document belongs in, given
+// the path of that document and its PARSED-BUT-NOT-READ envelope.
+//
+// Placement follows FORMAT, not file shape. A directory is not by itself v2: a
+// directory whose bundle.yaml still declares inline item keys is a format-v1
+// bundle in a directory wrapper, and filing it under v2 says a migration
+// happened that did not. So this defers to treeFormEnvelope — the same
+// predicate the READ path uses to decide whether to open a tree — rather than
+// asking whether the entry is a directory.
+//
+// It takes the envelope rather than a loaded *Bundle for the reason
+// IsTreeFormBundle spells out: a tree that has already been read carries its
+// items in the same maps an inline bundle does, so a loaded value cannot answer
+// this. Only the document's own bytes can.
+func BundleLayoutFor(docPath string, env *Bundle) paths.BundleLayout {
+	if treeFormEnvelope(docPath, env) {
+		return paths.LayoutV2
+	}
+	return paths.LayoutV1
 }
 
 // IsTreeFormBundle reports whether the bundle whose envelope sits at

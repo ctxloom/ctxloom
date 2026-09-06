@@ -272,9 +272,19 @@ func (r *localFSReader) readDir(ctx context.Context, root bundleSearchRoot, out 
 		if !ok {
 			return nil
 		}
+		// A DIRECTORY-form bundle owns everything beneath it: those files are its
+		// ITEMS, not further bundles. Descending would read a tree's own
+		// profiles/*.yaml or mcp/*.yaml back as malformed bundles — one spurious
+		// failure per item file, on every command, which is how a warning channel
+		// stops being read. Skip the subtree however this entry turns out, so the
+		// early returns below cannot leak the walk back into it.
+		done := error(nil)
+		if info.IsDir() {
+			done = filepath.SkipDir
+		}
 		sightings[name] = append(sightings[name], root.layout)
 		if seen.Has(name) {
-			return nil
+			return done
 		}
 		read, rerr := r.readBundle(ctx, manifest, name)
 		if rerr != nil {
@@ -284,12 +294,12 @@ func (r *localFSReader) readDir(ctx context.Context, root bundleSearchRoot, out 
 			// bundle never silently vanishes from a listing.
 			strictness.FailOnce(strictness.ClassBundle, "fix or remove the bundle file",
 				"skipping bundle %s: %v", manifest, rerr)
-			return nil
+			return done
 		}
 		seen.Add(name)
 		read.layout = root.layout
 		out = append(out, read)
-		return nil
+		return done
 	})
 	if walkErr != nil {
 		// Walk itself gave up: the root could not be opened at all, and the

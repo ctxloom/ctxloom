@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/spf13/afero"
@@ -268,20 +267,18 @@ func (r *localFSReader) readDir(ctx context.Context, root bundleSearchRoot, out 
 				"skipping unreadable bundle path %s: %v", path, err)
 			return nil
 		}
-		manifest, name, ok := r.bundleAt(dir, path, info)
-		if !ok {
+		manifest, step := r.bundleAt(dir, path, info)
+		if !step.IsBundle {
 			return nil
 		}
 		// A DIRECTORY-form bundle owns everything beneath it: those files are its
 		// ITEMS, not further bundles. Descending would read a tree's own
 		// profiles/*.yaml or mcp/*.yaml back as malformed bundles — one spurious
 		// failure per item file, on every command, which is how a warning channel
-		// stops being read. Skip the subtree however this entry turns out, so the
-		// early returns below cannot leak the walk back into it.
-		done := error(nil)
-		if info.IsDir() {
-			done = filepath.SkipDir
-		}
+		// stops being read. Take the skip ONCE, up front, so the early returns
+		// below cannot leak the walk back into the subtree.
+		done := step.WalkSkip()
+		name := step.Name
 		sightings[name] = append(sightings[name], root.layout)
 		if seen.Has(name) {
 			return done
@@ -337,24 +334,30 @@ func (r *localFSReader) ReadFailures() map[string]error {
 	return out
 }
 
-// bundleAt reports the manifest path and resolution name of the bundle at one
-// walked entry: a directory holding bundle.yaml, or a *.yaml file that is not
-// itself a directory-form manifest.
-func (r *localFSReader) bundleAt(dir, path string, info os.FileInfo) (manifest, name string, ok bool) {
+// bundleAt reports the manifest to read for the bundle at one walked entry,
+// together with paths.ClassifyBundleWalkEntry's decision about it — which
+// carries both the entry's resolution name and whether the walk may descend
+// below it. The classification is shared with every other bundles-root walk;
+// see paths.BundleWalkStep for why the two answers travel together.
+func (r *localFSReader) bundleAt(dir, path string, info os.FileInfo) (manifest string, step paths.BundleWalkStep) {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return "", paths.BundleWalkStep{}
+	}
+	hasManifest := false
 	if info.IsDir() {
-		manifest = filepath.Join(path, DirectoryFormManifest)
-		if _, err := r.fsys.Stat(manifest); err != nil {
-			return "", "", false
+		if _, serr := r.fsys.Stat(paths.BundleManifestPath(path)); serr == nil {
+			hasManifest = true
 		}
-		rel, _ := filepath.Rel(dir, path)
-		return manifest, filepath.ToSlash(rel), true
 	}
-	base := info.Name()
-	if !strings.HasSuffix(base, ".yaml") || base == DirectoryFormManifest {
-		return "", "", false
+	step = paths.ClassifyBundleWalkEntry(rel, info.IsDir(), hasManifest)
+	if !step.IsBundle {
+		return "", step
 	}
-	rel, _ := filepath.Rel(dir, path)
-	return path, strings.TrimSuffix(filepath.ToSlash(rel), ".yaml"), true
+	if step.IsTree {
+		return paths.BundleManifestPath(path), step
+	}
+	return path, step
 }
 
 // readBundle parses one bundle document and establishes its signature facts.

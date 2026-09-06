@@ -367,31 +367,36 @@ func ListLocalBundleNames(cfg *config.Config, fs afero.Fs) ([]string, error) {
 			}
 			return nil, fmt.Errorf("list local bundles: read %s: %w", dir, err)
 		}
-		walkErr := afero.Walk(fs, dir, func(path string, info os.FileInfo, err error) error {
+		walkErr := afero.Walk(fs, dir, func(p string, info os.FileInfo, err error) error {
 			if err != nil {
-				return fmt.Errorf("read %s: %w", path, err)
+				return fmt.Errorf("read %s: %w", p, err)
 			}
-			rel, relErr := filepath.Rel(dir, path)
+			rel, relErr := filepath.Rel(dir, p)
 			if relErr != nil {
-				return fmt.Errorf("resolve %s under %s: %w", path, dir, relErr)
+				return fmt.Errorf("resolve %s under %s: %w", p, dir, relErr)
 			}
-			rel = filepath.ToSlash(rel)
+			hasManifest := false
 			if info.IsDir() {
-				// Directory form: <name>/bundle.yaml, at any depth.
-				if rel == "." {
-					return nil
+				// An unreadable candidate is a failure to FIND OUT, and this
+				// set decides what gets signed: swallowing it would sign a
+				// subset and report success, the failure the surrounding
+				// function's doc describes.
+				ok, existsErr := afero.Exists(fs, paths.BundleManifestPath(p))
+				if existsErr != nil {
+					return fmt.Errorf("check %s: %w", paths.BundleManifestPath(p), existsErr)
 				}
-				if ok, _ := afero.Exists(fs, filepath.Join(path, "bundle.yaml")); ok {
-					add(rel)
-				}
-				return nil
+				hasManifest = ok
 			}
-			// File form: <name>.yaml, at any depth; bundle.yaml is the
-			// directory form's manifest, already counted above.
-			if strings.HasSuffix(info.Name(), ".yaml") && info.Name() != "bundle.yaml" {
-				add(strings.TrimSuffix(rel, ".yaml"))
+			// paths.ClassifyBundleWalkEntry owns both halves: which entries are
+			// bundles, and — via WalkSkip — that a tree's item files are its
+			// CONTENTS and not further bundles. Enumerating them here named
+			// "<bundle>/profiles/<x>" as a bundle, and `sign --all` then died
+			// resolving a name that cannot exist.
+			step := paths.ClassifyBundleWalkEntry(rel, info.IsDir(), hasManifest)
+			if step.IsBundle {
+				add(step.Name)
 			}
-			return nil
+			return step.WalkSkip()
 		})
 		if walkErr != nil {
 			return nil, fmt.Errorf("list local bundles: %w", walkErr)

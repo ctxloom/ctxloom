@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // Authored bundles belong in the COMMITTED content tree, never the gitignored
@@ -80,4 +81,97 @@ func authoredV1(appPath string) string {
 // different paths.
 func repoV1(rel ...string) string {
 	return path.Join(append([]string{paths.RepoBundlesPrefixFor(paths.LayoutV1)}, rel...)...)
+}
+
+// authoredV2 is where a fixture must write a FORMAT-V2 (tree) authored bundle,
+// the counterpart of authoredV1 and for the same reason.
+func authoredV2(appPath string) string {
+	return paths.LocalBundlesPathFor(appPath, paths.LayoutV2)
+}
+
+// A TREE bundle is ONE bundle, whatever it holds.
+//
+// Its items are .yaml documents indistinguishable by name from a single-file
+// bundle, so a walk that descends into the tree offers each of them as a
+// bundle of its own. That is not cosmetic: `ctxloom bundle sign --all` fed the
+// enumeration straight into resolution and died with
+//
+//	Error: bundle "agent-ensemble/profiles/coordinator" not found
+//
+// which is a repo of converted bundles being unsignable. The assertion is an
+// exact SET, not a length or a Contains: the failure ADDS names, so anything
+// weaker passes with the boundary deleted.
+func TestListLocalBundleNames_TreeBundleIsOneName(t *testing.T) {
+	fs := afero.NewOsFs()
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	testsupport.SeedTree(t, fs, authoredV2(appDir), map[string]string{
+		"agent-ensemble/bundle.yaml":               "version: 1.0.0\n",
+		"agent-ensemble/profiles/coordinator.yaml": "name: coordinator\n",
+		"agent-ensemble/profiles/finder.yaml":      "name: finder\n",
+		"agent-ensemble/fragments/delegation.md":   "# delegation\n",
+	})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	names, err := ListLocalBundleNames(cfg, fs)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"agent-ensemble"}, names,
+		"a tree bundle's profiles/*.yaml are its ITEMS; naming them as bundles is what makes `sign --all` die on a name that cannot resolve")
+}
+
+// Depth changes nothing: a skill package nests a directory INSIDE the tree, and
+// a walk that survives one level of descent still fails at two.
+func TestListLocalBundleNames_TreeBundleWithNestedItemsIsOneName(t *testing.T) {
+	fs := afero.NewOsFs()
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	testsupport.SeedTree(t, fs, authoredV2(appDir), map[string]string{
+		"humanizer/bundle.yaml":               "version: 1.0.0\n",
+		"humanizer/skills/humanize/SKILL.md":  "# humanize\n",
+		"humanizer/skills/humanize/meta.yaml": "kind: skill\n",
+		"humanizer/mcp/taskloom.yaml":         "command: taskloom\n",
+	})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	names, err := ListLocalBundleNames(cfg, fs)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"humanizer"}, names,
+		"nothing beneath a tree bundle is a bundle, at any depth")
+}
+
+// The boundary must stop the walk WITHOUT costing legitimate depth: a
+// single-file bundle authored in a subdirectory is named by its path relative
+// to the format root, and "personal/foo" is a name that resolves. A fix that
+// simply refused to descend anywhere would delete that, silently.
+func TestListLocalBundleNames_NestedSingleFileNamesSurvive(t *testing.T) {
+	fs := afero.NewOsFs()
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	testsupport.SeedTree(t, fs, authoredV1(appDir), map[string]string{
+		"top.yaml":              "version: 1.0.0\n",
+		"personal/foo.yaml":     "version: 1.0.0\n",
+		"personal/lang/go.yaml": "version: 1.0.0\n",
+	})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	names, err := ListLocalBundleNames(cfg, fs)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"personal/foo", "personal/lang/go", "top"}, names,
+		"a single-file bundle at depth keeps its path-relative name")
+}
+
+// Both forms in one project, which is the state a conversion actually leaves
+// behind: the v1 root still holds documents while the v2 root holds trees.
+func TestListLocalBundleNames_MixedFormsEnumerateTogether(t *testing.T) {
+	fs := afero.NewOsFs()
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	testsupport.SeedTree(t, fs, authoredV1(appDir), map[string]string{
+		"legacy.yaml": "version: 1.0.0\n",
+	})
+	testsupport.SeedTree(t, fs, authoredV2(appDir), map[string]string{
+		"converted/bundle.yaml":         "version: 1.0.0\n",
+		"converted/profiles/coder.yaml": "name: coder\n",
+	})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	names, err := ListLocalBundleNames(cfg, fs)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"converted", "legacy"}, names)
 }

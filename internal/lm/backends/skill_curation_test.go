@@ -31,7 +31,7 @@ import (
 // level, so a curation test can prove force-enable overrides it.
 func skillCurationFixture(t *testing.T, appDir string) {
 	t.Helper()
-	bundlesDir := paths.LocalBundlesPath(appDir)
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	bundleDir := filepath.Join(bundlesDir, "skill-bundle")
 
 	for _, name := range []string{"shown", "hidden"} {

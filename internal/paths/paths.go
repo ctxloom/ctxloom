@@ -851,10 +851,21 @@ func LocalPath(appPath string) string {
 }
 
 // LocalBundlesPath returns the COMMITTED authored-bundles directory
-// (.ctxloom/content/bundles) — the one on-disk home for a project's own
-// bundles, and the tree a publishing repo ships. It is the local half of the
-// same layout a remote repo exposes under RepoContentPrefix, so a bundle repo
-// and a consuming project lay their bundles out identically.
+// (.ctxloom/content/bundles). It is the PARENT of the per-format roots, not a
+// directory any bundle lives directly in: each format occupies a sibling
+// subtree beneath it (LocalBundlesPathFor), and localFSReader.searchRoots
+// expands this parent into exactly those siblings — so nothing ever reads the
+// parent itself.
+//
+// That makes it a SEARCH ROOT and nothing else. Pass it to a layered reader,
+// which resolves the formats below it. A caller that WRITES a bundle must name
+// the format root instead — LocalBundlesPathFor(appPath, layout) — because a
+// file written directly here lands where no reader looks: it does not fail, it
+// is silently never found.
+//
+// It is the local half of the same layout a remote repo exposes under
+// RepoContentPrefix, so a bundle repo and a consuming project lay their
+// bundles out identically; RepoBundlesPrefixFor is the publishing half.
 func LocalBundlesPath(appPath string) string {
 	return filepath.Join(LocalPath(appPath), BundlesDir)
 }

@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -42,17 +43,18 @@ func signedSeedRepo(t *testing.T, signFn func(bundleBytes []byte, signer ssh.Sig
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	bundleDir := filepath.Join(repoDir, ".ctxloom", "content", "bundles")
+	bundleRel := paths.RepoBundlesPrefixFor(paths.LayoutV1)
+	bundleDir := filepath.Join(repoDir, filepath.FromSlash(bundleRel))
 	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
 	bundleBytes := []byte("version: v1\ndescription: a signed bundle\n")
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "secure.yaml"), bundleBytes, 0o644))
 
-	files := []string{".ctxloom/content/bundles/secure.yaml"}
+	files := []string{bundleRel + "/secure.yaml"}
 	if signFn != nil {
 		sig := signFn(bundleBytes, sshSigner)
 		if sig != nil {
 			require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "secure.yaml.sig"), sig, 0o644))
-			files = append(files, ".ctxloom/content/bundles/secure.yaml.sig")
+			files = append(files, bundleRel+"/secure.yaml.sig")
 		}
 	}
 	for _, f := range files {

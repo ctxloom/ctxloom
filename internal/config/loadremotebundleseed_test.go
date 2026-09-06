@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -54,7 +55,10 @@ func seedSourceRepo(t *testing.T) (repoDir, sha string) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	bundleDir := filepath.Join(repoDir, ".ctxloom", "content", "bundles")
+	// The format root, not its parent: a bundle written to the parent lands
+	// where no reader looks (see paths.LocalBundlesPath).
+	bundleRel := paths.RepoBundlesPrefixFor(paths.LayoutV1)
+	bundleDir := filepath.Join(repoDir, filepath.FromSlash(bundleRel))
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "good.yaml"),
 		[]byte("version: v1\ndescription: a good bundle\n"), 0644))
@@ -62,7 +66,7 @@ func seedSourceRepo(t *testing.T) (repoDir, sha string) {
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "bad.yaml"),
 		[]byte("\tnot: valid yaml\n"), 0644))
 
-	for _, f := range []string{".ctxloom/content/bundles/good.yaml", ".ctxloom/content/bundles/bad.yaml"} {
+	for _, f := range []string{bundleRel + "/good.yaml", bundleRel + "/bad.yaml"} {
 		_, err = wt.Add(f)
 		require.NoError(t, err)
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -38,7 +39,7 @@ func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	rel := filepath.Join(".ctxloom", "content", "bundles", "go-tools.yaml")
+	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV1)), "go-tools.yaml")
 	commit := func(body, msg string) string {
 		full := filepath.Join(repoDir, rel)
 		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
@@ -68,9 +69,12 @@ func localResolverLoader(t *testing.T, appDir string) *bundles.Pipeline {
 	// The working-tree default is read as what it is: a project bundle on a
 	// filesystem, through the project reader.
 	fsys := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fsys, "/bundles/go-tools.yaml",
+	// "/bundles" is the SEARCH root the reader layers; the bundle itself must
+	// be written into the format root beneath it, or it is never found.
+	const searchRoot = "/bundles"
+	testsupport.WriteFileString(t, fsys, filepath.Join(paths.BundlesLayoutRoot(searchRoot, paths.LayoutV1), "go-tools.yaml"),
 		"version: \"1.0\"\nfragments:\n  fmt:\n    content: WORKTREE-BODY\ncommands:\n  review:\n    content: WORKTREE-PROMPT\n", 0o644)
-	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{"/bundles"})).WithVersionResolver(resolver)
+	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{searchRoot})).WithVersionResolver(resolver)
 	// AdmitAll: this test resolves versions, not trust, and states so.
 	return bundles.NewPipeline(loader, bundles.AdmitAll(), false)
 }

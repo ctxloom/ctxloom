@@ -917,7 +917,7 @@ func TestConfig_ItemScopedBundleRefIsNotAFailure(t *testing.T) {
 	resetConfigStrictness(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPath(appDir)
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "local.yaml"),
@@ -974,7 +974,7 @@ func resetConfigStrictness(t *testing.T) {
 func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPath(appDir) // committed content tree
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
@@ -1002,7 +1002,7 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPath(appDir) // committed content tree
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
@@ -1031,7 +1031,7 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPath(appDir) // committed content tree
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
@@ -1110,7 +1110,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		t.Helper()
 		appDir = filepath.Join(t.TempDir(), ".ctxloom")
 		profilesDir = filepath.Join(appDir, "profiles")
-		bundlesDir = paths.LocalBundlesPath(appDir) // committed content tree
+		bundlesDir = paths.LocalBundlesPathFor(appDir, paths.LayoutV1) // committed content tree
 		require.NoError(t, os.MkdirAll(profilesDir, 0755))
 		require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 		return appDir, profilesDir, bundlesDir
@@ -1205,7 +1205,11 @@ mcp:
     command: test-cmd
     args: ["--arg"]
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test-bundle.yaml"), []byte(bundleContent), 0644))
+	// bundlesDir is the SEARCH root the reader layers into its format roots;
+	// the bundle goes in the v1 root beneath it, or nothing reads it.
+	v1Dir := paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1)
+	require.NoError(t, os.MkdirAll(v1Dir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(v1Dir, "test-bundle.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 	result := loadMCPFromBundleRef("test-bundle", loader.Catalog(), bundles.AdmitAll())
@@ -1265,7 +1269,9 @@ hooks:
       command: ctxloom hook stamp-plan
       type: command
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "with-hooks.yaml"), []byte(bundleContent), 0644))
+	v1Dir := paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1)
+	require.NoError(t, os.MkdirAll(v1Dir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(v1Dir, "with-hooks.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 	result := loadHooksFromBundleRef("with-hooks", loader.Catalog(), bundles.AdmitAll())

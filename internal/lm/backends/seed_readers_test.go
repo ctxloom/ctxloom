@@ -1,6 +1,7 @@
 package backends
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -23,10 +25,16 @@ import (
 func seedOption(t *testing.T, seed map[string]*bundles.Bundle) config.BundleLoaderOption {
 	t.Helper()
 	fsys := afero.NewMemMapFs()
+	// seedRoot is the SEARCH root the reader is given; it expands that into the
+	// per-format roots beneath it and never reads the root itself. So the bytes
+	// go in the v1 root -- a marshalled Bundle with inline item keys is format
+	// v1 -- while the reader still gets the parent.
+	const seedRoot = "/seed"
+	v1Root := paths.BundlesLayoutRoot(seedRoot, paths.LayoutV1)
 	for name, b := range seed {
 		data, err := yaml.Marshal(b)
 		require.NoError(t, err)
-		testsupport.WriteFile(t, fsys, "/seed/"+name+".yaml", data, 0o644)
+		testsupport.WriteFile(t, fsys, filepath.Join(v1Root, name+".yaml"), data, 0o644)
 	}
-	return config.WithExtraBundleReaders(bundles.NewProjectReader(fsys, []string{"/seed"}))
+	return config.WithExtraBundleReaders(bundles.NewProjectReader(fsys, []string{seedRoot}))
 }

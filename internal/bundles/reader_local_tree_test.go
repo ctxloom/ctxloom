@@ -245,3 +245,39 @@ func TestLocalTreeForm_MetadataOnlyDirectoryBundleStillLoads(t *testing.T) {
 	require.Empty(t, b.Fragments)
 	require.Equal(t, "1.2.3", b.Version)
 }
+
+// TestLocalTreeForm_ItemFilesInsideATreeAreNotThemselvesBundles pins the walk
+// boundary. A tree bundle owns everything beneath it: those files are its ITEMS.
+//
+// The regression this exists for is not hypothetical — it appeared the moment
+// real bundles were converted to tree form. A converted bundle carries its
+// profiles as profiles/<name>.yaml, the walk descended into the tree, and every
+// one of those item files was read back as a malformed BUNDLE: fifteen spurious
+// "skipping bundle" failures on every single command. Nothing was lost, which is
+// exactly what made it corrosive — a warning channel that cries on every
+// invocation is one nobody reads by the time it matters.
+//
+// readOneLocal's require.Len(reads, 1) IS the assertion: a walk that descends
+// finds two, so this cannot pass vacuously.
+func TestLocalTreeForm_ItemFilesInsideATreeAreNotThemselvesBundles(t *testing.T) {
+	fsys := stageLocalTree(t, treeEnvelope, func(w content.Writer) {
+		putFragment(w, "house-style", "FRAG-BODY-MARKER")
+	})
+
+	// A .yaml item file inside the tree, the shape a converted bundle's
+	// profiles/ directory has. Deliberately NOT parseable as a bundle, so a
+	// walk that reads it cannot quietly succeed.
+	require.NoError(t, fsys.MkdirAll(localV2("vault/profiles"), 0o755))
+	require.NoError(t, afero.WriteFile(fsys,
+		filepath.Join(localV2("vault/profiles"), "coordinator.yaml"),
+		[]byte("bundles:\n  - something\n"), 0o644))
+
+	b := readOneLocal(t, fsys)
+
+	// The tree still reads correctly — the skip must not cost the bundle its
+	// own items.
+	require.Equal(t, "vault", b.Name)
+	frag, ok := b.Fragments["house-style"]
+	require.True(t, ok, "skipping the subtree must not skip the bundle's own items")
+	require.Equal(t, "FRAG-BODY-MARKER", frag.Content)
+}

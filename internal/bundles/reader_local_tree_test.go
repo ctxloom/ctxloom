@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -268,9 +269,9 @@ func TestLocalTreeForm_ItemFilesInsideATreeAreNotThemselvesBundles(t *testing.T)
 	// A .yaml item file inside the tree, the shape a converted bundle's
 	// profiles/ directory has. Deliberately NOT parseable as a bundle.
 	require.NoError(t, fsys.MkdirAll(localV2("vault/profiles"), 0o755))
-	require.NoError(t, afero.WriteFile(fsys,
+	testsupport.WriteFileString(t, fsys,
 		filepath.Join(localV2("vault/profiles"), "coordinator.yaml"),
-		[]byte("bundles:\n  - something\n"), 0o644))
+		"bundles:\n  - something\n", 0o644)
 
 	// ASSERT ON THE FINDING, NOT THE COUNT. A spurious item-file read FAILS to
 	// parse, so it raises a finding and is never appended to the results --

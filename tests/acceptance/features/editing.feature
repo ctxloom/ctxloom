@@ -15,7 +15,7 @@ Feature: Editing content
     And a fragment "testing" in bundle "demo" exists
     When I run "ctxloom fragment edit demo#fragments/testing"
     Then the command succeeds
-    And the file ".ctxloom/content/bundles/demo.yaml" contains "EDITED-BY-TEST"
+    And the file ".ctxloom/content/bundles/v1/demo.yaml" contains "EDITED-BY-TEST"
     When the agent reads resource "ctxloom://fragments/testing"
     Then the resource contains "EDITED-BY-TEST"
 
@@ -25,5 +25,5 @@ Feature: Editing content
     And a command "review" in bundle "demo" exists
     When I run "ctxloom command edit demo#commands/review"
     Then the command succeeds
-    And the file ".ctxloom/content/bundles/demo.yaml" contains "EDITED-BY-TEST"
+    And the file ".ctxloom/content/bundles/v1/demo.yaml" contains "EDITED-BY-TEST"
 

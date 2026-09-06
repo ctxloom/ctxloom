@@ -64,7 +64,7 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       Then the command succeeds
       And the output reports "name" as "reviewer"
       And the output reports "bundle" as "vault"
-      And the file ".ctxloom/content/bundles/vault/skills/reviewer" does not exist
+      And the file ".ctxloom/content/bundles/v2/vault/skills/reviewer" does not exist
       When I run "ctxloom skill list"
       Then the output does not contain "reviewer"
 

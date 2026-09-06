@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -340,7 +341,20 @@ func ListLocalBundleNames(cfg *config.Config, fs afero.Fs) ([]string, error) {
 			names = append(names, name)
 		}
 	}
+	// Every FORMAT root of every authored dir, because the bundles directory
+	// itself holds no bundles — it is the parent the format roots are siblings
+	// under. Walking it directly instead would name each bundle by a path
+	// carrying its format segment ("v1/atelier"), and a format-qualified name
+	// resolves to nothing: `sign --all` would sign zero bytes and report
+	// success. Deriving the roots from paths.BundleLayouts is what keeps this
+	// enumeration equal to the loader's rather than merely similar to it.
+	var roots []string
 	for _, dir := range cfg.GetBundleDirs() {
+		for _, l := range paths.BundleLayouts() {
+			roots = append(roots, paths.BundlesLayoutRoot(dir, l))
+		}
+	}
+	for _, dir := range roots {
 		// An ABSENT dir is legitimately nothing to list; an unreadable one
 		// (wrong permissions, a file where a directory should be, an I/O
 		// error) is a failure to find out, and swallowing it made a

@@ -47,7 +47,7 @@ func writeFragment(t *testing.T, env *testenv.TestEnvironment, name string, tags
 	t.Helper()
 
 	// Read existing bundle if present
-	bundlePath := ".ctxloom/content/bundles/local.yaml"
+	bundlePath := ".ctxloom/content/bundles/v1/local.yaml"
 	existing, _ := env.ReadFile(bundlePath)
 
 	// Build new bundle content
@@ -390,7 +390,7 @@ fragments:
     content: |
       Go coding guidelines from subdirectory.
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/lang.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/lang.yaml", bundleContent))
 
 	_ = env.Run("run", "-f", "lang#fragments/golang", "--one-shot", "test")
 
@@ -654,7 +654,7 @@ fragments:
     content: |
       Test content
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/test-bundle.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/test-bundle.yaml", bundleContent))
 
 	_ = env.Run("bundle", "list")
 
@@ -678,7 +678,7 @@ fragments:
     content: |
       Content 2
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/show-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/show-test.yaml", bundleContent))
 
 	_ = env.Run("bundle", "show", "show-test")
 
@@ -704,7 +704,7 @@ func TestBundle_Create(t *testing.T) {
 	assert.Equal(t, 0, env.LastExitCode())
 
 	// Verify bundle file was created
-	content, err := env.ReadFile(".ctxloom/content/bundles/my-bundle.yaml")
+	content, err := env.ReadFile(".ctxloom/content/bundles/v1/my-bundle.yaml")
 	require.NoError(t, err)
 	assert.Contains(t, content, "version:")
 	assert.Contains(t, content, "fragments:")
@@ -717,7 +717,7 @@ func TestBundle_Create_WithDescription(t *testing.T) {
 
 	assert.Equal(t, 0, env.LastExitCode())
 
-	content, err := env.ReadFile(".ctxloom/content/bundles/desc-bundle.yaml")
+	content, err := env.ReadFile(".ctxloom/content/bundles/v1/desc-bundle.yaml")
 	require.NoError(t, err)
 	assert.Contains(t, content, "description: A test bundle")
 }
@@ -734,7 +734,7 @@ commands:
     content: |
       Prompt content 2
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/prompt-bundle.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/prompt-bundle.yaml", bundleContent))
 
 	// `bundle show` renders the bundle's Prompts section; the former
 	// `bundle prompt list` subtree was removed (see cmd/bundle.go).
@@ -755,7 +755,7 @@ fragments:
     content: |
       This is the content to display
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/view-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/view-test.yaml", bundleContent))
 
 	_ = env.Run("bundle", "view", "view-test#fragments/display-frag")
 
@@ -774,7 +774,7 @@ fragments:
     content: |
       Export content
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/export-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/export-test.yaml", bundleContent))
 
 	_ = env.Run("bundle", "export", "export-test", "-o", "exported.tar.gz")
 
@@ -900,7 +900,7 @@ commands:
     content: |
       Summarize the following:
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/prompts.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/prompts.yaml", bundleContent))
 
 	_ = env.Run("command", "list")
 
@@ -919,7 +919,7 @@ commands:
     content: |
       This is a test prompt with detailed instructions.
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/prompt-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/prompt-test.yaml", bundleContent))
 
 	_ = env.Run("command", "show", "prompt-test#commands/test-prompt")
 
@@ -957,7 +957,7 @@ commands:
     content: |
       Generate documentation for this code
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/search-prompts.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/search-prompts.yaml", bundleContent))
 
 	_ = env.Run("search", "code")
 

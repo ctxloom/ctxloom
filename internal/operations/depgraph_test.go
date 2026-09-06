@@ -79,7 +79,7 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 	)
 	bundleA := "version: \"1.0.0\"\nprofiles:\n  a:\n    bundles:\n      - " + urlX + "@bundles/x@h2222222\n"
 	fetcher := remote.NewMockFetcher().
-		WithFile(".ctxloom/content/bundles/akit.yaml", []byte(bundleA))
+		WithFile(repoV1("akit.yaml"), []byte(bundleA))
 
 	w := newTestWalker(fetcher)
 	root := &profiles.Profile{

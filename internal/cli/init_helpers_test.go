@@ -76,7 +76,7 @@ func TestWriteInitialConfig(t *testing.T) {
 	}
 
 	// Directory tree exists.
-	for _, dir := range []string{appDir, filepath.Join(appDir, paths.ProfilesDir), paths.LocalBundlesPath(appDir)} {
+	for _, dir := range []string{appDir, filepath.Join(appDir, paths.ProfilesDir), authoredV1(appDir)} {
 		info, err := os.Stat(dir)
 		if err != nil || !info.IsDir() {
 			t.Errorf("expected directory %s to exist (err=%v)", dir, err)
@@ -205,4 +205,15 @@ func TestApplyInitHooks_ReportsTheBackendsItWrote(t *testing.T) {
 
 	assert.Contains(t, out, "Applied hooks for: [claude-code mock]")
 	assert.Empty(t, warnings.String())
+}
+
+// authoredV1 is where a fixture must write a FORMAT-V1 authored bundle for the
+// project's reader to find it.
+//
+// paths.LocalBundlesPath is the bundles ROOT — the parent every format root is
+// a sibling under — and the reader searches the format roots, never the root
+// itself. A fixture that writes straight to the root writes somewhere nothing
+// looks: the bundle resolves to nothing, and the command reports success.
+func authoredV1(appPath string) string {
+	return paths.LocalBundlesPathFor(appPath, paths.LayoutV1)
 }

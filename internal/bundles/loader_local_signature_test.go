@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -102,8 +104,9 @@ func signBytesFor(t *testing.T, data []byte) []byte {
 func localSigFixture(t *testing.T, name string) (afero.Fs, string, []byte) {
 	t.Helper()
 	mem := afero.NewMemMapFs()
-	require.NoError(t, mem.MkdirAll("/bundles", 0o755))
-	path := filepath.Join("/bundles", name+".yaml")
+	v1 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV1)
+	require.NoError(t, mem.MkdirAll(v1, 0o755))
+	path := filepath.Join(v1, name+".yaml")
 	body := []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n")
 	require.NoError(t, afero.WriteFile(mem, path, body, 0o644))
 	return mem, path, body

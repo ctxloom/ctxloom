@@ -28,8 +28,8 @@ func createTestRepoWithFiles(t *testing.T, dir string) (string, string) {
 
 	// Create directory structure
 	files := map[string]string{
-		".ctxloom/content/bundles/core.yaml":     "version: v1\ndescription: core bundle\n",
-		".ctxloom/content/bundles/dev.yaml":      "version: v1\ndescription: dev bundle\n",
+		".ctxloom/content/bundles/v1/core.yaml":  "version: v1\ndescription: core bundle\n",
+		".ctxloom/content/bundles/v1/dev.yaml":   "version: v1\ndescription: dev bundle\n",
 		".ctxloom/content/profiles/default.yaml": "bundles:\n  - core\n  - dev\n",
 		".ctxloom/content/manifest.yaml":         "version: 1\nbundles:\n  - name: core\n  - name: dev\n",
 	}
@@ -62,13 +62,13 @@ func TestGitCloneFetcher_FetchFile(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("fetch existing file", func(t *testing.T) {
-		content, err := fetcher.FetchFile(context.Background(), "owner", "repo", ".ctxloom/content/bundles/core.yaml", sha)
+		content, err := fetcher.FetchFile(context.Background(), "owner", "repo", ".ctxloom/content/bundles/v1/core.yaml", sha)
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "core bundle")
 	})
 
 	t.Run("fetch with empty ref uses HEAD", func(t *testing.T) {
-		content, err := fetcher.FetchFile(context.Background(), "owner", "repo", ".ctxloom/content/bundles/core.yaml", "")
+		content, err := fetcher.FetchFile(context.Background(), "owner", "repo", ".ctxloom/content/bundles/v1/core.yaml", "")
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "core bundle")
 	})
@@ -88,7 +88,9 @@ func TestGitCloneFetcher_ListDir(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("list bundles directory", func(t *testing.T) {
-		entries, err := fetcher.ListDir(context.Background(), "owner", "repo", ".ctxloom/content/bundles", sha)
+		// The FORMAT root: the bundles directory itself holds only the format
+		// roots, so a flat listing there yields directories, not bundles.
+		entries, err := fetcher.ListDir(context.Background(), "owner", "repo", ".ctxloom/content/bundles/v1", sha)
 		require.NoError(t, err)
 		assert.Len(t, entries, 2)
 
@@ -245,7 +247,7 @@ func TestGitCloneFetcher_GetDefaultBranch_UnresolvableIsAnError(t *testing.T) {
 
 	// treeAtRef's empty-ref path owns this failure and must still resolve
 	// through the local HEAD, so an unknown default branch never costs a read.
-	data, err := fetcher.FetchFile(context.Background(), "owner", "repo", ".ctxloom/content/bundles/core.yaml", "")
+	data, err := fetcher.FetchFile(context.Background(), "owner", "repo", ".ctxloom/content/bundles/v1/core.yaml", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 }

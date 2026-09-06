@@ -211,7 +211,7 @@ func setupContextTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 
 	// Create test bundle with fragments
 	bundleContent := `version: "1.0"
@@ -241,7 +241,7 @@ fragments:
       Project: {{project_name}}
       Version: {{version}}
 `
-	_ = afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, authoredV1(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 	return fs, loader
@@ -523,7 +523,7 @@ func TestAssembleContext_DefinedVariablesDoNotWarn(t *testing.T) {
 func TestAssembleContext_TemplateParseFailureWarnsAndReturnsContentUnchanged(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
 
 	bundleContent := `version: "1.0"
 description: Test bundle with a broken template
@@ -532,7 +532,7 @@ fragments:
     content: |
       {{/unopened}}
 `
-	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, authoredV1(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
@@ -569,7 +569,7 @@ fragments:
 func TestAssembleContext_UndefinedVariableWarningDedupesAcrossRepeatedCalls(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
 
 	bundleContent := `version: "1.0"
 description: Test bundle for the dedup case
@@ -578,7 +578,7 @@ fragments:
     content: |
       Repeat check: {{dedup_check_variable}}
 `
-	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, authoredV1(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
@@ -613,7 +613,7 @@ fragments:
 func TestAssembleContext_UndefinedVariableWarningNamesFragment(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
 
 	bundleContent := `version: "1.0"
 description: Test bundle for warning attribution
@@ -625,7 +625,7 @@ fragments:
     content: |
       Leaky: {{attribution_check_variable}}
 `
-	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, authoredV1(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{

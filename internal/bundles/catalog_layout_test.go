@@ -48,7 +48,8 @@ func stageBothLayouts(t *testing.T, root, name, v1Body, v2Body string) afero.Fs 
 func writeV1(t *testing.T, fsys afero.Fs, root, name, body string) {
 	t.Helper()
 	doc := "name: " + name + "\nversion: 1.0.0\nfragments:\n  marker:\n    content: " + body + "\n"
-	testsupport.WriteFileString(t, fsys, filepath.Join(root, name+".yaml"), doc, 0o644)
+	testsupport.WriteFileString(t, fsys,
+		filepath.Join(paths.BundlesLayoutRoot(root, paths.LayoutV1), name+".yaml"), doc, 0o644)
 }
 
 // putFragmentIn writes one fragment into a NAMED bundle, so a fixture can
@@ -93,9 +94,10 @@ func TestLocate_V2WinsOverV1AndReportsTheOther(t *testing.T) {
 	assert.Equal(t, "2.0.0", b.Version)
 }
 
-// TestLocate_V1AloneStillResolvesAndSaysSo: nothing has been migrated yet for
-// the overwhelming majority of bundles, so an un-migrated name must keep
-// resolving — and must report v1 rather than an empty layout.
+// TestLocate_V1AloneStillResolvesAndSaysSo: a name that exists only in the v1
+// format root must resolve by its BARE name — the format segment is where the
+// bytes live, never part of what a caller asks for — and must report v1 rather
+// than an empty layout.
 func TestLocate_V1AloneStillResolvesAndSaysSo(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	require.NoError(t, fsys.MkdirAll("/bundles", 0o755))
@@ -104,7 +106,7 @@ func TestLocate_V1AloneStillResolvesAndSaysSo(t *testing.T) {
 	loc, b := locate(t, fsys, "/bundles", "solo")
 	assert.Equal(t, paths.LayoutV1, loc.Layout)
 	assert.Empty(t, loc.AlsoIn, "a name in one layout has no other layout to report")
-	assert.Equal(t, filepath.Join("/bundles", "solo.yaml"), loc.Path)
+	assert.Equal(t, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), "solo.yaml"), loc.Path)
 	assert.Equal(t, "ONLY-V1-MARKER", b.Fragments["marker"].Content)
 }
 
@@ -164,7 +166,7 @@ func TestSearchDirPrecedenceStillDominatesLayout(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, paths.LayoutV1, loc.Layout,
 		"the first search directory wins even though the second holds a v2 tree")
-	assert.Equal(t, filepath.Join("/first", "vault.yaml"), loc.Path)
+	assert.Equal(t, filepath.Join(paths.BundlesLayoutRoot("/first", paths.LayoutV1), "vault.yaml"), loc.Path)
 }
 
 // TestFind_DelegatesToLocate keeps the two answers from drifting: Find is

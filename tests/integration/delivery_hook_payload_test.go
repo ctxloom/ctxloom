@@ -52,7 +52,7 @@ func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := filepath.Join(appDir, "content", "bundles") // paths.LocalBundlesPath layout
+	bundlesDir := filepath.Join(appDir, "content", "bundles", "v1") // paths.LocalBundlesPathFor(_, LayoutV1)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hookdemo.yaml"), []byte(hookBundleYAML), 0o644))

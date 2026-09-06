@@ -306,7 +306,7 @@ func TestSignBundleFile_RefusesAZeroByteBundle(t *testing.T) {
 	require.NoError(t, err)
 
 	fs := afero.NewOsFs()
-	path := cfg.GetBundleDirs()[0] + "/truncated.yaml"
+	path := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV1) + "/truncated.yaml"
 	require.NoError(t, afero.WriteFile(fs, path, nil, 0o644))
 
 	_, err = SignBundleFile(cfg, SignBundleRequest{
@@ -375,14 +375,17 @@ func TestListLocalBundleNames_MatchesTheLoadersEnumeration(t *testing.T) {
 	// File-form bundle.
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "alpha"})
 	require.NoError(t, err)
-	// Directory-form bundle — the shape that can carry skills.
-	require.NoError(t, fs.MkdirAll(filepath.Join(dir, "gamma"), 0o755))
-	require.NoError(t, fs.MkdirAll(filepath.Join(dir, "nested", "delta"), 0o755))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "gamma", "bundle.yaml"),
+	// Directory-form bundles — the shape that can carry skills. Their
+	// envelopes declare no inline items, so they are format v2 and go in the
+	// v2 root; the bundles root itself holds no bundles.
+	v2 := paths.BundlesLayoutRoot(dir, paths.LayoutV2)
+	require.NoError(t, fs.MkdirAll(filepath.Join(v2, "gamma"), 0o755))
+	require.NoError(t, fs.MkdirAll(filepath.Join(v2, "nested", "delta"), 0o755))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(v2, "gamma", "bundle.yaml"),
 		[]byte("version: 0.1.0\n"), 0o644))
 	// Nested directory-form bundle — the loader walks recursively, so --all
 	// must reach this too.
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "nested", "delta", "bundle.yaml"),
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(v2, "nested", "delta", "bundle.yaml"),
 		[]byte("version: 0.1.0\n"), 0o644))
 
 	names, err := ListLocalBundleNames(cfg, fs)
@@ -424,7 +427,7 @@ func TestListLocalBundleNames_MatchesTheLoadersEnumeration(t *testing.T) {
 func signDirBundle(t *testing.T) (cfg *config.Config, dir string) {
 	t.Helper()
 	_, cfg = setupBundleTestDir(t)
-	dir = filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "atelier")
+	dir = filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "atelier")
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest),
 		[]byte("version: 1.0.0\ndescription: atelier\n"), 0o644))
@@ -524,7 +527,7 @@ func signSkillBundle(t *testing.T, bundleName string, skillNames ...string) (cfg
 	}
 	_, err := SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: bundleName})
 	require.NoError(t, err)
-	return cfg, filepath.Join(paths.LocalBundlesPath(appDir), bundleName)
+	return cfg, filepath.Join(authoredV1(appDir), bundleName)
 }
 
 // editSkillWithoutSyncing edits a skill's SKILL.md on disk WITHOUT re-running

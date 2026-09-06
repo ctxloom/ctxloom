@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 
@@ -24,7 +25,7 @@ func TestCreateBundle_WritesToCommittedContentTree(t *testing.T) {
 	res, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "authored"})
 	require.NoError(t, err)
 
-	want := filepath.Join(paths.LocalBundlesPath(appDir), "authored.yaml")
+	want := filepath.Join(authoredV1(appDir), "authored.yaml")
 	assert.Equal(t, want, res.Path)
 	assert.FileExists(t, want)
 
@@ -38,7 +39,7 @@ func TestListLocalBundleNames_FindsContentTreeBundles(t *testing.T) {
 	// Real tempdir: GetBundleDirs os.Stat-gates on the real filesystem.
 	fs := afero.NewOsFs()
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	content := paths.LocalBundlesPath(appDir)
+	content := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(content, 0o755))
 	for _, n := range []string{"alpha", "beta", "gamma"} {
 		require.NoError(t, afero.WriteFile(fs, filepath.Join(content, n+".yaml"),
@@ -56,4 +57,27 @@ func TestListLocalBundleNames_FindsContentTreeBundles(t *testing.T) {
 	names, err := ListLocalBundleNames(cfg, fs)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alpha", "beta", "gamma"}, names)
+}
+
+// authoredV1 is where a fixture must write a FORMAT-V1 authored bundle for this
+// project's reader to find it.
+//
+// paths.LocalBundlesPath is the bundles ROOT — the parent every format root is
+// a sibling under — and the reader searches the format roots, never the root
+// itself. A fixture that writes straight to the root writes somewhere nothing
+// looks, and the symptom is a bundle that resolves to nothing rather than an
+// error anyone can read. The reader's own search DIRS still take the bare root:
+// it does that expansion itself.
+func authoredV1(appPath string) string {
+	return paths.LocalBundlesPathFor(appPath, paths.LayoutV1)
+}
+
+// repoV1 is the repo-relative FORMAT ROOT a publishing repo commits format-v1
+// bundles into — exactly what remote.RepoItemPrefix resolves for a fetch and
+// what a publish writes. A fixture that serves or commits a bundle at the bare
+// .ctxloom/content/bundles root serves it where no fetch looks; the bare root
+// is only the parent a LISTING walks, which is why RepoItemRoot and these are
+// different paths.
+func repoV1(rel ...string) string {
+	return path.Join(append([]string{paths.RepoBundlesPrefixFor(paths.LayoutV1)}, rel...)...)
 }

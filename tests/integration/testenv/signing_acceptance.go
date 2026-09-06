@@ -68,7 +68,7 @@ func (s *TestSigner) Fingerprint() string { return ssh.FingerprintSHA256(s.Publi
 
 // SeedSignedRemote is SeedRemote plus a detached publisher signature: every
 // path in signPaths (bundle YAML files already present in files, e.g.
-// ".ctxloom/content/bundles/onboarding.yaml") gets a "<path>.sig" sibling
+// ".ctxloom/content/bundles/v1/onboarding.yaml") gets a "<path>.sig" sibling
 // carrying an armored PROTOCOL.sshsig blob over its EXACT bytes, produced by
 // signer under the publish namespace — the same detached-sibling contract
 // verifyBundlePublisher reads (internal/remote.SignatureSuffix). A caller that

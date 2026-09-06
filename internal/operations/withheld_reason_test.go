@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -126,7 +125,7 @@ func TestAssembleContext_WarnWithheld_NamesReason_FullPath(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "") // no ssh-agent: SetBlacklist below degrades to the unsigned path
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	bundlesDir := paths.LocalBundlesPath(appDir)
+	bundlesDir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bundlesDir, 0o755))
 	bundleYAML := `version: "1.0"
 description: local dev

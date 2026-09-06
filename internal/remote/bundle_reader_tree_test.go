@@ -18,7 +18,7 @@ import (
 // with any derivation, including a wrong one.
 const (
 	treeReadCanonical = "https://github.com/trent/atelier@bundles/atelier"
-	treeReadRoot      = ".ctxloom/content/bundles/atelier"
+	treeReadRoot      = ".ctxloom/content/bundles/v2/atelier"
 )
 
 // treeCapture records what the reader asked its tree fetcher for, and serves a

@@ -156,7 +156,7 @@ func TestLockDependencies_SyncFirstByDefault(t *testing.T) {
 
 	// Create directory structure
 	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
-	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
 	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create a profile that references a remote bundle (no slash = local, with slash = remote)

@@ -101,9 +101,9 @@ func TestLoader_WarnWriterReceivesTheWarnerDiagnostics(t *testing.T) {
 
 		fsys := afero.NewMemMapFs()
 		dir := "/bundles"
-		require.NoError(t, afero.WriteFile(fsys, dir+"/alpha.yaml",
+		require.NoError(t, afero.WriteFile(fsys, v1In(dir, "alpha.yaml"),
 			[]byte("version: \"1.0\"\nfragments:\n  u031f14shared:\n    content: a\n"), 0o644))
-		require.NoError(t, afero.WriteFile(fsys, dir+"/beta.yaml",
+		require.NoError(t, afero.WriteFile(fsys, v1In(dir, "beta.yaml"),
 			[]byte("version: \"1.0\"\nfragments:\n  u031f14shared:\n    content: b\n"), 0o644))
 
 		var warnings strings.Builder

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -30,12 +31,12 @@ func seedRemoteSetupCommand(t *testing.T, marker string) *config.Config {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, ".ctxloom", "content", "bundles"), 0o755))
+	require.NoError(t, os.MkdirAll(authoredV1(filepath.Join(repoDir, paths.AppDirName)), 0o755))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(repoDir, ".ctxloom", "content", "bundles", "tools.yaml"),
+		filepath.Join(authoredV1(filepath.Join(repoDir, paths.AppDirName)), "tools.yaml"),
 		[]byte("version: 1.0.0\ndescription: remote tools bundle\ncommands:\n  agent-setup:\n    content: \""+marker+"\"\n"),
 		0o644))
-	_, err = wt.Add(".ctxloom/content/bundles/tools.yaml")
+	_, err = wt.Add(repoV1("tools.yaml"))
 	require.NoError(t, err)
 	commit, err := wt.Commit("seed", &git.CommitOptions{
 		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},

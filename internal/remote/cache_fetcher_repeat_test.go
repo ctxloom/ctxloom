@@ -31,7 +31,7 @@ func TestCacheFetcher_RepeatedCallsAgree(t *testing.T) {
 	fetcher, err := NewCachedFetcherFactory(cache)(repoURL, AuthConfig{})
 	require.NoError(t, err)
 
-	const bundlePath = ".ctxloom/content/bundles/core.yaml"
+	const bundlePath = ".ctxloom/content/bundles/v1/core.yaml"
 
 	t.Run("FetchFile", func(t *testing.T) {
 		first, err := fetcher.FetchFile(ctx, "o", "r", bundlePath, "")

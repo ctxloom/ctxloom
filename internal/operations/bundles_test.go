@@ -18,7 +18,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
@@ -31,7 +30,7 @@ func setupBundleTestDir(t *testing.T) (appDir string, cfg *config.Config) {
 	t.Helper()
 	tmp := t.TempDir()
 	appDir = filepath.Join(tmp, ".ctxloom")
-	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(appDir), 0755))
+	require.NoError(t, os.MkdirAll(authoredV1(appDir), 0755))
 	cfg = config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	return appDir, cfg
 }
@@ -71,7 +70,7 @@ func TestCreateBundle_SkeletonOnly(t *testing.T) {
 	assert.Equal(t, "created", result.Status)
 	assert.Equal(t, "test-bundle", result.Name)
 
-	expectedPath := filepath.Join(paths.LocalBundlesPath(appDir), "test-bundle.yaml")
+	expectedPath := filepath.Join(authoredV1(appDir), "test-bundle.yaml")
 	assert.Equal(t, expectedPath, result.Path)
 
 	data, err := os.ReadFile(expectedPath)
@@ -556,7 +555,7 @@ func TestResolveBundleRemote_FromCachedPath(t *testing.T) {
 `)
 
 	// A bundle under content/bundles/<remote>/<name>.yaml resolves to <remote>.
-	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "personal", "rust-tdd.yaml")
+	bundlePath := filepath.Join(authoredV1(appDir), "personal", "rust-tdd.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(bundlePath), 0755))
 	require.NoError(t, os.WriteFile(bundlePath, []byte("version: \"1.0.0\"\n"), 0644))
 
@@ -579,7 +578,7 @@ remotes:
 
 	createSeedBundle(t, cfg, "local-only") // lands at content/bundles/local-only.yaml
 
-	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "local-only.yaml")
+	bundlePath := filepath.Join(authoredV1(appDir), "local-only.yaml")
 	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.NoError(t, err)
 	assert.Equal(t, "personal", remoteName, "default remote used when path lacks remote prefix")
@@ -594,7 +593,7 @@ func TestResolveBundleRemote_SingleRemoteFallback(t *testing.T) {
 `)
 	createSeedBundle(t, cfg, "x")
 
-	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "x.yaml")
+	bundlePath := filepath.Join(authoredV1(appDir), "x.yaml")
 	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.NoError(t, err)
 	assert.Equal(t, "only", remoteName,
@@ -613,7 +612,7 @@ func TestResolveBundleRemote_AmbiguousRemote_Errors(t *testing.T) {
 `)
 	createSeedBundle(t, cfg, "x")
 
-	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "x.yaml")
+	bundlePath := filepath.Join(authoredV1(appDir), "x.yaml")
 	_, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ambiguous", "error must surface that we can't pick")
@@ -633,7 +632,7 @@ remotes:
     version: v1
 `)
 	createSeedBundle(t, cfg, "x")
-	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "x.yaml")
+	bundlePath := filepath.Join(authoredV1(appDir), "x.yaml")
 
 	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "other")
 	require.NoError(t, err)
@@ -664,7 +663,7 @@ remotes:
     version: v1
 `)
 
-	bogus := filepath.Join(paths.LocalBundlesPath(appDir), "bogus.yaml")
+	bogus := filepath.Join(authoredV1(appDir), "bogus.yaml")
 	require.NoError(t, os.WriteFile(bogus, []byte(":\n  -not yaml:\n"), 0644))
 
 	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
@@ -697,7 +696,7 @@ remotes:
 		"comment only": "# nothing here\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(paths.LocalBundlesPath(appDir), "empty.yaml")
+			path := filepath.Join(authoredV1(appDir), "empty.yaml")
 			require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
 			_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
@@ -758,7 +757,7 @@ remotes:
     version: v1
 `)
 	createSeedBundle(t, cfg, "shape-test")
-	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "shape-test.yaml")
+	bundlePath := filepath.Join(authoredV1(appDir), "shape-test.yaml")
 
 	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 		Path:     bundlePath,
@@ -839,7 +838,7 @@ remotes:
     version: v1
 `)
 	createSeedBundle(t, cfg, "for-push")
-	bundlePath = filepath.Join(paths.LocalBundlesPath(appDir), "for-push.yaml")
+	bundlePath = filepath.Join(authoredV1(appDir), "for-push.yaml")
 
 	registry, err := remote.NewRegistry(filepath.Join(appDir, "remotes.yaml"))
 	require.NoError(t, err)
@@ -881,7 +880,7 @@ func TestPushBundle_DirectPush_CallsPublisher(t *testing.T) {
 	require.Len(t, mock.createOrUpdateCalls, 1, "publisher should be invoked exactly once")
 	assert.Equal(t, 0, len(mock.createPRCalls))
 	assert.Equal(t, "Add for-push", mock.createOrUpdateCalls[0].Message)
-	assert.Equal(t, ".ctxloom/content/bundles/for-push.yaml", mock.createOrUpdateCalls[0].Path)
+	assert.Equal(t, repoV1("for-push.yaml"), mock.createOrUpdateCalls[0].Path)
 }
 
 func TestPushBundle_CreatePR_CallsPublisherWithPR(t *testing.T) {
@@ -979,7 +978,7 @@ func TestCreateBundle_RejectsSymlinkInParent(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 
 	// Plant: content/bundles/personal -> evil/ (outside the bundles root).
-	bundlesRoot := paths.LocalBundlesPath(appDir)
+	bundlesRoot := authoredV1(appDir)
 	evilDir := filepath.Join(t.TempDir(), "evil")
 	require.NoError(t, os.MkdirAll(evilDir, 0755))
 	require.NoError(t, os.Symlink(evilDir, filepath.Join(bundlesRoot, "personal")))
@@ -997,7 +996,7 @@ func TestCreateBundle_RejectsSymlinkInParent(t *testing.T) {
 // is a symlink to some other YAML, Save would clobber the target. Refuse.
 func TestUpdateBundle_RejectsSymlinkedBundleFile(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
-	bundlesRoot := paths.LocalBundlesPath(appDir)
+	bundlesRoot := authoredV1(appDir)
 
 	// Plant a victim YAML elsewhere, then symlink a "bundle" at it.
 	victimDir := t.TempDir()
@@ -1026,7 +1025,7 @@ func TestCreateBundle_NestedName_CreatesParentDir(t *testing.T) {
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "personal/foo"})
 	require.NoError(t, err)
 
-	_, err = os.Stat(filepath.Join(paths.LocalBundlesPath(appDir), "personal", "foo.yaml"))
+	_, err = os.Stat(filepath.Join(authoredV1(appDir), "personal", "foo.yaml"))
 	require.NoError(t, err, "nested bundle file should exist on disk")
 }
 
@@ -1158,8 +1157,8 @@ func TestPushBundle_Signer_PublishesSignedSiblingOverExactPublishedBytes(t *test
 	require.Len(t, mock.createOrUpdateCalls, 2, "main file + .sig sibling")
 	main := mock.createOrUpdateCalls[0]
 	sig := mock.createOrUpdateCalls[1]
-	assert.Equal(t, ".ctxloom/content/bundles/for-push.yaml", main.Path)
-	assert.Equal(t, ".ctxloom/content/bundles/for-push.yaml.sig", sig.Path)
+	assert.Equal(t, repoV1("for-push.yaml"), main.Path)
+	assert.Equal(t, repoV1("for-push.yaml.sig"), sig.Path)
 
 	root := allowedsigners.NewStore(allowedsigners.Entry{
 		Principals: []string{"me@example.com"},

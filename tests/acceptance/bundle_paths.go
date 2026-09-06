@@ -29,22 +29,35 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// The layout each on-disk FORM of an authored bundle is written into.
+// The FORMAT root each fixture family is authored into.
 //
-// Both are paths.LayoutV1 today, and the pair is not redundant. paths.LayoutV1
-// names the single-file document form and paths.LayoutV2 the directory tree
-// form, but LayoutV2's segment ALREADY resolves to a "v2" subdirectory while
-// the corpus's directory-form fixtures have not moved there — they still sit at
-// the bare root the reader still searches. Writing paths.LayoutV2 here today
-// would relocate every directory-form fixture out from under the resolver.
+// A bundles root's `v` segment is the FORMAT VERSION, and PLACEMENT FOLLOWS
+// FORMAT, NOT FILE SHAPE. Format v1 holds single-file documents AND directories
+// that still carry INLINE item keys; format v2 holds TRUE TREES only — no
+// inline item keys, every item a file. A DIRECTORY IS NOT A TREE, and getting
+// that backwards is not hypothetical: a previous attempt at this relocation
+// filed an inline-key directory under v2 purely because it was a directory,
+// which asserts a migration that never happened.
 //
-// Flipping dirFormBundleLayout to paths.LayoutV2 IS the relocation, and it must
-// land in the same commit as the production move: a window where the bytes are
-// in one place and the resolver looks in another produces a bundle that
-// resolves nowhere.
+// The predicate is bundles.BundleLayoutFor — the same one the READ path uses to
+// decide whether to open a tree — so a fixture's root is decided by exactly what
+// decides a real bundle's.
+//
+// The three families here are therefore three DIFFERENT formats, not three
+// spellings of one:
 const (
+	// singleFileBundleLayout: <name>.yaml. A single file is a document, so it
+	// is format v1 by construction and no envelope inspection is needed.
 	singleFileBundleLayout = paths.LayoutV1
-	dirFormBundleLayout    = paths.LayoutV1
+
+	// treeBundleLayout: <name>/bundle.yaml declaring NO inline item keys, with
+	// the items in files beside it. This is what format v2 means.
+	treeBundleLayout = paths.LayoutV2
+
+	// inlineDirBundleLayout: <name>/bundle.yaml that still declares its items
+	// INLINE. It is a directory, and it is format v1 — the wrapper is not the
+	// format.
+	inlineDirBundleLayout = paths.LayoutV1
 )
 
 // singleFileBundlesRoot is the repo-relative directory holding SINGLE-FILE
@@ -53,10 +66,10 @@ func singleFileBundlesRoot() string {
 	return paths.RepoBundlesPrefixFor(singleFileBundleLayout)
 }
 
-// dirFormBundlesRoot is the repo-relative directory holding DIRECTORY-form
-// (<name>/bundle.yaml) authored bundles.
-func dirFormBundlesRoot() string {
-	return paths.RepoBundlesPrefixFor(dirFormBundleLayout)
+// treeBundlesRoot is the repo-relative directory holding TRUE-TREE authored
+// bundles.
+func treeBundlesRoot() string {
+	return paths.RepoBundlesPrefixFor(treeBundleLayout)
 }
 
 // bundleFilePath is the repo-relative path of a SINGLE-FILE authored bundle.
@@ -64,21 +77,33 @@ func bundleFilePath(name string) string {
 	return path.Join(singleFileBundlesRoot(), name+".yaml")
 }
 
-// bundleDirPath is the repo-relative directory of a DIRECTORY-form authored
-// bundle — the tree that carries the manifest and the item files.
-func bundleDirPath(name string) string {
-	return path.Join(dirFormBundlesRoot(), name)
+// treeBundlePath is the repo-relative directory of a TRUE-TREE authored bundle
+// — the tree that carries the manifest and the item files.
+func treeBundlePath(name string) string {
+	return path.Join(treeBundlesRoot(), name)
 }
 
-// bundleDirManifestPath is the repo-relative path of a directory-form bundle's
-// own manifest.
-func bundleDirManifestPath(name string) string {
-	return path.Join(bundleDirPath(name), bundles.DirectoryFormManifest)
+// treeBundleManifestPath is the repo-relative path of a tree bundle's own
+// envelope.
+func treeBundleManifestPath(name string) string {
+	return path.Join(treeBundlePath(name), bundles.DirectoryFormManifest)
 }
 
-// bundleDirItemPath is the repo-relative path of one file INSIDE a
-// directory-form bundle, given that file's path relative to the bundle's own
-// root (e.g. "fragments/guidance.md").
-func bundleDirItemPath(name, rel string) string {
-	return path.Join(bundleDirPath(name), rel)
+// treeBundleItemPath is the repo-relative path of one file INSIDE a tree
+// bundle, given that file's path relative to the bundle's own root (e.g.
+// "fragments/guidance.md").
+func treeBundleItemPath(name, rel string) string {
+	return path.Join(treeBundlePath(name), rel)
+}
+
+// inlineDirBundlePath is the repo-relative directory of a DIRECTORY-WRAPPED
+// FORMAT-V1 bundle: one whose bundle.yaml still declares its items inline.
+func inlineDirBundlePath(name string) string {
+	return path.Join(paths.RepoBundlesPrefixFor(inlineDirBundleLayout), name)
+}
+
+// inlineDirBundleManifestPath is the repo-relative path of such a bundle's
+// envelope.
+func inlineDirBundleManifestPath(name string) string {
+	return path.Join(inlineDirBundlePath(name), bundles.DirectoryFormManifest)
 }

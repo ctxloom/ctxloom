@@ -28,7 +28,7 @@ func TestGitCloneFetcher_OwnerAndRepoAreInert_Characterization(t *testing.T) {
 	fetcher, err := NewGitCloneFetcher(repoDir, "file://"+repoDir, ForgeGitHub, nil)
 	require.NoError(t, err)
 
-	const path = ".ctxloom/content/bundles/core.yaml"
+	const path = ".ctxloom/content/bundles/v1/core.yaml"
 
 	t.Run("a read names one repository and gets another", func(t *testing.T) {
 		fromRightRepo, err := fetcher.FetchFile(ctx, "alice", "ctxloom", path, sha)

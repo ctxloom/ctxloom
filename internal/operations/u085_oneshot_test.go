@@ -74,7 +74,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 	t.Setenv("SSH_AUTH_SOCK", "")
 
 	appDir := filepath.Join(projectDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	bundlesDir := authoredV1(appDir)
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))

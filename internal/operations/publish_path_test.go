@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -38,7 +37,7 @@ import (
 // bundle), so it is the shape whose publish path matters most.
 func writeDirFormBundleFixture(t *testing.T, cfg *config.Config, name string) string {
 	t.Helper()
-	dir := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), name)
+	dir := filepath.Join(authoredV1(cfg.GetAppPaths()[0]), name)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "greet"), 0o755))
 	manifest := filepath.Join(dir, "bundle.yaml")
 	require.NoError(t, os.WriteFile(manifest, []byte(
@@ -86,11 +85,11 @@ func newPushManagerFixture(t *testing.T) (*config.Config, pushManagerFixture) {
 // ordinary shape: what push says it published is the path it published to.
 func TestPushBundle_ReportedPathIsTheWrittenPath_SingleFile(t *testing.T) {
 	cfg, fix := newPushManagerFixture(t)
-	bundlePath := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml")
+	bundlePath := filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push.yaml")
 
 	reported, written := pushOneBundle(t, cfg, fix, bundlePath)
 
-	require.Equal(t, []string{".ctxloom/content/bundles/for-push.yaml"}, written)
+	require.Equal(t, []string{repoV1("for-push.yaml")}, written)
 	assert.Equal(t, written[0], reported,
 		"the reported target path IS the path published to — one computation, not two that agree")
 }
@@ -149,8 +148,8 @@ func TestPushBundle_DirectoryFormBundles_PublishUnderTheirOwnNames(t *testing.T)
 	_, firstWritten := pushOneBundle(t, cfg, fix, first)
 	_, secondWritten := pushOneBundle(t, cfg, fix, second)
 
-	assert.Equal(t, []string{".ctxloom/content/bundles/alpha-form.yaml"}, firstWritten,
+	assert.Equal(t, []string{repoV1("alpha-form.yaml")}, firstWritten,
 		"named after the bundle, not after its bundle.yaml manifest")
-	assert.Equal(t, []string{".ctxloom/content/bundles/beta-form.yaml"}, secondWritten,
+	assert.Equal(t, []string{repoV1("beta-form.yaml")}, secondWritten,
 		"a second directory-form bundle gets its own remote path instead of overwriting the first")
 }

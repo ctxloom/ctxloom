@@ -35,6 +35,14 @@ type localFSReader struct {
 	provenance ProvenanceClass
 	cfg        readerConfig
 
+	// layouts is the set of FORMAT roots to search beneath each dir, most
+	// preferred first. EMPTY means the dirs are searched as given — the
+	// UNLAYERED case, which is the embedded builtin FS: its bundles sit at the
+	// root of the embed, there is no format tree there to migrate, and
+	// expanding it into per-format roots would search two directories that do
+	// not exist and find no builtin bundle at all.
+	layouts []paths.BundleLayout
+
 	// failed records, per resolution name, WHY a bundle this reader should
 	// have had is missing. Without it an unparseable bundle reaches the person
 	// who asked for it by name as a bare "not found", which points them at
@@ -64,6 +72,7 @@ func NewProjectReader(fsys afero.Fs, dirs []string, opts ...ReaderOption) Reader
 		dirs:       dirs,
 		provenance: ProvenanceProject,
 		cfg:        newReaderConfig(opts),
+		layouts:    bundleLayoutPrecedence,
 	}
 }
 
@@ -182,12 +191,6 @@ func (r *localFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 type bundleSearchRoot struct {
 	dir    string
 	layout paths.BundleLayout
-	// exclude is a subdirectory of dir this walk must not descend into. It is
-	// non-empty only for the layout whose root CONTAINS the other's — today
-	// that is v1, whose root is the bundles directory itself and therefore has
-	// v2 sitting inside it. It goes away when v1 is relocated into its own
-	// directory and the two roots become siblings.
-	exclude string
 }
 
 // bundleLayoutPrecedence is the order layouts are searched WITHIN one search
@@ -210,22 +213,25 @@ var bundleLayoutPrecedence = []paths.BundleLayout{paths.LayoutV2, paths.LayoutV1
 // makes the layout preference a tiebreak within one directory rather than a
 // second axis competing with it.
 func (r *localFSReader) searchRoots() []bundleSearchRoot {
-	roots := make([]bundleSearchRoot, 0, len(r.dirs)*len(bundleLayoutPrecedence))
+	// No layouts: the dirs ARE the roots, and the reads they yield claim no
+	// format. LayoutUnknown is the honest answer for content that sits outside
+	// the format tree entirely, which is exactly what its own doc reserves it
+	// for.
+	if len(r.layouts) == 0 {
+		roots := make([]bundleSearchRoot, 0, len(r.dirs))
+		for _, dir := range r.dirs {
+			roots = append(roots, bundleSearchRoot{dir: dir, layout: paths.LayoutUnknown})
+		}
+		return roots
+	}
+	roots := make([]bundleSearchRoot, 0, len(r.dirs)*len(r.layouts))
 	for _, dir := range r.dirs {
-		for _, l := range bundleLayoutPrecedence {
-			root := bundleSearchRoot{dir: paths.BundlesLayoutRoot(dir, l), layout: l}
-			// Any OTHER layout whose root is nested inside this one must be
-			// excluded, or its bundles are also found by this walk under a
-			// path-derived name carrying the layout segment ("v2/unattended").
-			for _, other := range bundleLayoutPrecedence {
-				if other == l {
-					continue
-				}
-				if o := paths.BundlesLayoutRoot(dir, other); o != root.dir && strings.HasPrefix(o, root.dir+string(filepath.Separator)) {
-					root.exclude = o
-				}
-			}
-			roots = append(roots, root)
+		for _, l := range r.layouts {
+			// Every format root is a SIBLING under the bundles directory, so
+			// no walk can reach another format's tree and name its bundles
+			// with a layout segment ("v2/unattended"). That is why the bundles
+			// root itself is searched by nobody: it is the parent, not a root.
+			roots = append(roots, bundleSearchRoot{dir: paths.BundlesLayoutRoot(dir, l), layout: l})
 		}
 	}
 	return roots
@@ -261,9 +267,6 @@ func (r *localFSReader) readDir(ctx context.Context, root bundleSearchRoot, out 
 			strictness.FailOnce(strictness.ClassBundle, "check the permissions on your bundles directory",
 				"skipping unreadable bundle path %s: %v", path, err)
 			return nil
-		}
-		if root.exclude != "" && info.IsDir() && path == root.exclude {
-			return filepath.SkipDir
 		}
 		manifest, name, ok := r.bundleAt(dir, path, info)
 		if !ok {

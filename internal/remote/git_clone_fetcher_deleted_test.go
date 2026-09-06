@@ -51,13 +51,13 @@ func newTestRepo(t *testing.T) string {
 func TestGitCloneFetcher_ListDeletedItems(t *testing.T) {
 	dir := newTestRepo(t)
 	writeCommit(t, dir, "add foo+bar+nested", map[string]string{
-		".ctxloom/content/bundles/foo.yaml":         "x",
-		".ctxloom/content/bundles/bar.yaml":         "x",
-		".ctxloom/content/bundles/nested/keep.yaml": "x",
+		".ctxloom/content/bundles/v1/foo.yaml":         "x",
+		".ctxloom/content/bundles/v1/bar.yaml":         "x",
+		".ctxloom/content/bundles/v1/nested/keep.yaml": "x",
 	}, nil)
 	writeCommit(t, dir, "remove bar + nested/keep", nil, []string{
-		".ctxloom/content/bundles/bar.yaml",
-		".ctxloom/content/bundles/nested/keep.yaml",
+		".ctxloom/content/bundles/v1/bar.yaml",
+		".ctxloom/content/bundles/v1/nested/keep.yaml",
 	})
 
 	f, err := NewGitCloneFetcher(dir, "https://github.com/o/r", ForgeGitHub, nil)
@@ -75,9 +75,9 @@ func TestGitCloneFetcher_ListDeletedItems(t *testing.T) {
 
 func TestGitCloneFetcher_ListDeletedItems_ReAddedIsPresent(t *testing.T) {
 	dir := newTestRepo(t)
-	writeCommit(t, dir, "add", map[string]string{".ctxloom/content/bundles/foo.yaml": "x"}, nil)
-	writeCommit(t, dir, "remove", nil, []string{".ctxloom/content/bundles/foo.yaml"})
-	writeCommit(t, dir, "re-add", map[string]string{".ctxloom/content/bundles/foo.yaml": "y"}, nil)
+	writeCommit(t, dir, "add", map[string]string{".ctxloom/content/bundles/v1/foo.yaml": "x"}, nil)
+	writeCommit(t, dir, "remove", nil, []string{".ctxloom/content/bundles/v1/foo.yaml"})
+	writeCommit(t, dir, "re-add", map[string]string{".ctxloom/content/bundles/v1/foo.yaml": "y"}, nil)
 
 	f, err := NewGitCloneFetcher(dir, "https://github.com/o/r", ForgeGitHub, nil)
 	require.NoError(t, err)
@@ -100,7 +100,7 @@ func TestGitCloneFetcher_ListDeletedItems_ReAddedIsPresent(t *testing.T) {
 // deletion report instead of an error.
 func TestGitCloneFetcher_ListDeletedItems_HeadUnreadable(t *testing.T) {
 	dir := newTestRepo(t)
-	writeCommit(t, dir, "add alpha", map[string]string{".ctxloom/content/bundles/alpha.yaml": "x"}, nil)
+	writeCommit(t, dir, "add alpha", map[string]string{".ctxloom/content/bundles/v1/alpha.yaml": "x"}, nil)
 	repo, err := git.PlainOpen(dir)
 	require.NoError(t, err)
 	head, err := repo.Head()
@@ -108,7 +108,7 @@ func TestGitCloneFetcher_ListDeletedItems_HeadUnreadable(t *testing.T) {
 	firstCommit, err := repo.CommitObject(head.Hash())
 	require.NoError(t, err)
 
-	writeCommit(t, dir, "add beta", map[string]string{".ctxloom/content/bundles/beta.yaml": "x"}, nil)
+	writeCommit(t, dir, "add beta", map[string]string{".ctxloom/content/bundles/v1/beta.yaml": "x"}, nil)
 
 	// Point the remote-tracking ref at the FIRST commit, then remove that
 	// commit's root tree object. HEAD and its own tree stay intact.

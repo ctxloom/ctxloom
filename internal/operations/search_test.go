@@ -189,7 +189,7 @@ func setupSearchTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 
 	// Create a test bundle with fragments and prompts
 	bundleContent := `version: "1.0"
@@ -217,7 +217,7 @@ commands:
     content: |
       Refactor this code
 `
-	_ = afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev-tools.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, authoredV1(testBaseDir)+"/dev-tools.yaml", []byte(bundleContent), 0644)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 	return fs, loader
@@ -385,7 +385,9 @@ func TestSearchContent_SearchPrompts(t *testing.T) {
 func TestSearchContent_SearchSkills(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := paths.LocalBundlesPath(testBaseDir)
-	bundleDir := bundlesDir + "/skill-bundle"
+	// Inline `skills:` in the envelope makes this format v1; the reader takes
+	// the bundles ROOT and expands the format roots itself.
+	bundleDir := authoredV1(testBaseDir) + "/skill-bundle"
 	require.NoError(t, fsys.MkdirAll(bundleDir+"/skills/humanize", 0755))
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml",
 		[]byte("version: \"1.0\"\nskills:\n  humanize:\n"), 0644))

@@ -23,11 +23,11 @@ func TestReportCorpusNamesEveryOffenderWithItsError(t *testing.T) {
 		Parsed:            5,
 		Violations: []operations.CorpusViolation{
 			{
-				Bundle: operations.CorpusBundle{Remote: "ctxloom-default", URL: "https://github.com/ctxloom/ctxloom-default", Path: ".ctxloom/content/bundles/go.yaml"},
+				Bundle: operations.CorpusBundle{Remote: "ctxloom-default", URL: "https://github.com/ctxloom/ctxloom-default", Path: ".ctxloom/content/bundles/v1/go.yaml"},
 				Err:    errors.New("invalid bundle YAML: unknown key `hoooks` on line 12"),
 			},
 			{
-				Bundle: operations.CorpusBundle{Remote: "personal", URL: "https://github.com/me/ctxloom-personal", Path: ".ctxloom/content/bundles/rust.yaml"},
+				Bundle: operations.CorpusBundle{Remote: "personal", URL: "https://github.com/me/ctxloom-personal", Path: ".ctxloom/content/bundles/v1/rust.yaml"},
 				Err:    errors.New("invalid bundle YAML: unknown key `promts` on line 3"),
 			},
 		},
@@ -39,9 +39,9 @@ func TestReportCorpusNamesEveryOffenderWithItsError(t *testing.T) {
 	assert.Equal(t, 1, code)
 	text := out.String()
 	for _, want := range []string{
-		".ctxloom/content/bundles/go.yaml",
+		".ctxloom/content/bundles/v1/go.yaml",
 		"unknown key `hoooks` on line 12",
-		".ctxloom/content/bundles/rust.yaml",
+		".ctxloom/content/bundles/v1/rust.yaml",
 		"unknown key `promts` on line 3",
 	} {
 		assert.Contains(t, text, want, "every offender and its reason must reach the reader")
@@ -117,11 +117,11 @@ func TestCorpusResultJSONNamesEveryOffenderWithItsError(t *testing.T) {
 		RemotesConfigured: 1, RemotesRead: 1, Parsed: 5,
 		Violations: []operations.CorpusViolation{
 			{
-				Bundle: operations.CorpusBundle{Remote: "ctxloom-default", URL: "https://github.com/ctxloom/ctxloom-default", Path: ".ctxloom/content/bundles/go.yaml"},
+				Bundle: operations.CorpusBundle{Remote: "ctxloom-default", URL: "https://github.com/ctxloom/ctxloom-default", Path: ".ctxloom/content/bundles/v1/go.yaml"},
 				Err:    errors.New("unknown key `hoooks` on line 12"),
 			},
 			{
-				Bundle: operations.CorpusBundle{Remote: "personal", URL: "https://github.com/me/ctxloom-personal", Path: ".ctxloom/content/bundles/rust.yaml"},
+				Bundle: operations.CorpusBundle{Remote: "personal", URL: "https://github.com/me/ctxloom-personal", Path: ".ctxloom/content/bundles/v1/rust.yaml"},
 				Err:    errors.New("unknown key `promts` on line 3"),
 			},
 		},
@@ -141,8 +141,8 @@ func TestCorpusResultJSONNamesEveryOffenderWithItsError(t *testing.T) {
 		byBundle[entry["bundle"].(string)] = entry["error"].(string)
 	}
 	assert.Equal(t, map[string]string{
-		"ctxloom-default:.ctxloom/content/bundles/go.yaml": "unknown key `hoooks` on line 12",
-		"personal:.ctxloom/content/bundles/rust.yaml":      "unknown key `promts` on line 3",
+		"ctxloom-default:.ctxloom/content/bundles/v1/go.yaml": "unknown key `hoooks` on line 12",
+		"personal:.ctxloom/content/bundles/v1/rust.yaml":      "unknown key `promts` on line 3",
 	}, byBundle, "every offender must reach a JSON consumer WITH its parse error")
 }
 

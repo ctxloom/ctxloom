@@ -61,7 +61,7 @@ func seedBundleRemote(t *testing.T) string {
 		initPullGit(t, work, "config", kv[0], kv[1])
 	}
 
-	rel := filepath.Join(".ctxloom", "content", "bundles", "demo.yaml")
+	rel := filepath.Join(".ctxloom", "content", "bundles", "v1", "demo.yaml")
 	full := filepath.Join(work, rel)
 	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
 	body := "version: \"1.0.0\"\n" +

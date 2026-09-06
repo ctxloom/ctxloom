@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
@@ -63,7 +65,11 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 
 		if !remote.IsSelfContainedRef(ref) && !strings.Contains(ref, "@") {
 			// A bare name is a bundle in this project's own tree.
-			testsupport.WriteFile(t, projectFS, "/bundles/"+ref+".yaml", data, 0o644)
+			// The reader is handed the bundles ROOT below and expands the
+			// format roots itself, so the document goes in the v1 root — the
+			// bare root is searched by nobody.
+			testsupport.WriteFile(t, projectFS,
+				filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), ref+".yaml"), data, 0o644)
 			local = true
 			continue
 		}

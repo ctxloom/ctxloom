@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -32,7 +35,11 @@ import (
 // assets tree via writeSkillFixture. Returns the fixture's exact file bytes.
 func writeSkillBundle(t *testing.T, fsys afero.Fs, bundlesDir, bundleName, skillName string, llmEnabled bool) map[string][]byte {
 	t.Helper()
-	bundleDir := bundlesDir + "/" + bundleName
+	// The envelope declares its skills INLINE, so this is a format-v1 bundle in
+	// a directory wrapper — not a tree. The reader searches a bundles root's
+	// FORMAT ROOTS, never the root itself, so writing to bundlesDir directly
+	// would put the fixture where nothing looks.
+	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1), bundleName)
 	enabledYAML := "true"
 	if !llmEnabled {
 		enabledYAML = "false"
@@ -101,7 +108,7 @@ func TestSkillsFromBundleRef_PerEngineDisabledStillResolves(t *testing.T) {
 func TestSkillsFromBundleRef_TamperedManifestWithheld(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := bundlesDir + "/skill-bundle"
+	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1), "skill-bundle")
 	writeSkillFixture(t, fsys, bundleDir+"/skills/humanize", "humanize")
 
 	// Author a bundle.yaml whose recorded manifest hash for SKILL.md does NOT
@@ -188,7 +195,7 @@ func TestListAllSkills_NoBundlesReturnsEmpty(t *testing.T) {
 func TestListAllSkills_WithheldSkillOmittedNotErrored(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := bundlesDir + "/bundle-a"
+	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1), "bundle-a")
 	bundleYAML := `
 version: "1.0"
 skills:
@@ -359,7 +366,7 @@ func TestSearchSkill_AllWithheldReturnsErrSkillWithheld(t *testing.T) {
 func TestSkillContent_MalformedAuthoredModeIsWithheldNotDowngraded(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := bundlesDir + "/skill-bundle"
+	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1), "skill-bundle")
 	writeSkillFixture(t, fsys, bundleDir+"/skills/humanize", "humanize")
 
 	// An authored manifest whose scripts/run.sh mode is not octal at all.
@@ -413,7 +420,7 @@ func TestSkillContent_ExecBitSurvivesLoad(t *testing.T) {
 func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := bundlesDir + "/skill-bundle"
+	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1), "skill-bundle")
 	// A skill entry with NO authored manifest and NO source tree: the preimage
 	// must be derived from a tree that is not there.
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml",
@@ -447,7 +454,7 @@ func TestLoadFile_ConcurrencyContract(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
 	for _, n := range []string{"a", "b", "c"} {
-		require.NoError(t, afero.WriteFile(fsys, bundlesDir+"/"+n+".yaml",
+		require.NoError(t, afero.WriteFile(fsys, v1In(bundlesDir, n+".yaml"),
 			[]byte("version: \"1.0\"\nfragments:\n  f:\n    content: "+n+"\n"), 0644))
 	}
 	l := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
@@ -489,7 +496,7 @@ func TestLoadFile_ConcurrencyContract(t *testing.T) {
 func TestSkillContent_UmaskCheckoutIsDeliveredNotWithheld(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := bundlesDir + "/skill-bundle"
+	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1), "skill-bundle")
 	skillDir := bundleDir + "/skills/humanize"
 	writeSkillFixture(t, fsys, skillDir, "humanize")
 

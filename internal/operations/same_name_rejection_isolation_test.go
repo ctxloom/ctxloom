@@ -2,6 +2,7 @@ package operations
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -12,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/trust"
@@ -46,7 +48,7 @@ func sameNameLoader(t *testing.T, projectBody string) *bundles.Loader {
 	})
 	require.NoError(t, err)
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFile(t, fs, "/bundles/"+sharedBundleName+".yaml", data, 0o644)
+	testsupport.WriteFile(t, fs, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), sharedBundleName+".yaml"), data, 0o644)
 	return bundles.NewLoader(
 		bundles.NewProjectReader(fs, []string{"/bundles"}),
 		bundles.NewBuiltinReader(),

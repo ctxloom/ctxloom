@@ -6,10 +6,13 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -105,9 +108,16 @@ func TestLoader_WithholdsAnUnclaimedRead(t *testing.T) {
 // Each constructor hard-codes its own provenance and trust context.
 // ---------------------------------------------------------------------------
 
+// readerV1 is where a single-file document must be written for the reader to
+// find it: the v1 FORMAT ROOT of the /bundles root these tests hand the reader,
+// never the root itself.
+func readerV1(leaf string) string {
+	return filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), leaf)
+}
+
 func TestNewProjectReader_ReportsProjectProvenanceAndLocalContext(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/kit.yaml", readerBundleYAML, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, readerV1("kit.yaml"), readerBundleYAML, 0o644))
 
 	reads, err := NewProjectReader(fsys, []string{"/bundles"}).Read(context.Background())
 
@@ -243,9 +253,9 @@ func TestNewRepoFSReader_SignatureFactsAreEstablishedNotAssumed(t *testing.T) {
 // told to the author.
 func TestNewProjectReader_ReportsSignatureFactsAsDiagnostics(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/kit.yaml", readerBundleYAML, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, readerV1("kit.yaml"), readerBundleYAML, 0o644))
 	sig, root, _ := signFor(t, readerBundleYAML, "author@example.test")
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/kit.yaml.sig", sig, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, readerV1("kit.yaml.sig"), sig, 0o644))
 
 	reads, err := NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root)).Read(context.Background())
 
@@ -353,11 +363,11 @@ func TestLoader_RemoteInvalidSignatureIsWithheldNotDegradedToUnsigned(t *testing
 // moment it stopped being publishable rather than at publish time.
 func TestLoader_LocalInvalidSignatureIsAdmittedAndTheAuthorIsTold(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/wave6-stale.yaml", readerBundleYAML, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, readerV1("wave6-stale.yaml"), readerBundleYAML, 0o644))
 	sig, root, _ := signFor(t, readerBundleYAML, "author@example.test")
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/wave6-stale.yaml.sig", sig, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, readerV1("wave6-stale.yaml.sig"), sig, 0o644))
 	edited := append(append([]byte{}, readerBundleYAML...), []byte("# edited, never re-signed\n")...)
-	require.NoError(t, afero.WriteFile(fsys, "/bundles/wave6-stale.yaml", edited, 0o644))
+	require.NoError(t, afero.WriteFile(fsys, readerV1("wave6-stale.yaml"), edited, 0o644))
 
 	var warnings bytes.Buffer
 	restore := clidiag.SetSink(&warnings)

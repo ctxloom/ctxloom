@@ -39,8 +39,8 @@ Feature: fragment — reusable context units, and the engine surface each one re
         ctxloom fragment create demo testing
         """
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/demo.yaml" contains "testing"
-      And the file ".ctxloom/content/bundles/demo.yaml" contains "Add content here."
+      And the file ".ctxloom/content/bundles/v1/demo.yaml" contains "testing"
+      And the file ".ctxloom/content/bundles/v1/demo.yaml" contains "Add content here."
       When I run "ctxloom fragment list"
       Then the output contains "testing"
       When the agent reads resource "ctxloom://fragments"
@@ -81,7 +81,7 @@ Feature: fragment — reusable context units, and the engine surface each one re
       Then the command succeeds
       And the output reports "applied" as "<reports nothing removed>"
       And the output reports "apply" as "<names the apply command>"
-      And the file ".ctxloom/content/bundles/demo.yaml" contains "FRAGMENT-BODY-testing"
+      And the file ".ctxloom/content/bundles/v1/demo.yaml" contains "FRAGMENT-BODY-testing"
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | reports nothing removed | names the apply command |
@@ -103,7 +103,7 @@ Feature: fragment — reusable context units, and the engine surface each one re
         ctxloom fragment remove demo#fragments/testing --yes
         """
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/demo.yaml" does not contain "FRAGMENT-BODY-testing"
+      And the file ".ctxloom/content/bundles/v1/demo.yaml" does not contain "FRAGMENT-BODY-testing"
       When I run "ctxloom fragment list"
       Then the output does not contain "testing"
       When the agent reads resource "ctxloom://fragments"

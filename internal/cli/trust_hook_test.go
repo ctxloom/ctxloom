@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -23,7 +22,7 @@ import (
 // tests); the body matches BundleHook's authoring fields.
 func seedLocalHookBundle(t *testing.T, appDir, bundle string, hook bundles.BundleHook) {
 	t.Helper()
-	dir := paths.LocalBundlesPath(appDir)
+	dir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	yaml := "version: \"1.0\"\nhooks:\n  pre_tool:\n" +
 		"    - matcher: " + hook.Matcher + "\n" +

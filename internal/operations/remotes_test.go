@@ -753,7 +753,7 @@ func TestBrowseRemote_Bundles(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	fetcher := remote.NewMockFetcher().WithDir(".ctxloom/content/bundles", []remote.DirEntry{
+	fetcher := remote.NewMockFetcher().WithDir(repoV1(), []remote.DirEntry{
 		{Name: "security.yaml", IsDir: false},
 		{Name: "testing.yaml", IsDir: false},
 	})
@@ -782,7 +782,7 @@ func TestBrowseRemote_EmptyTypeListsBundlesOnly(t *testing.T) {
 	// A profiles dir is present but ignored — top-level profile distribution was
 	// retired, so only bundles are browsable.
 	fetcher := remote.NewMockFetcher().
-		WithDir(".ctxloom/content/bundles", []remote.DirEntry{{Name: "bundle1.yaml", IsDir: false}}).
+		WithDir(repoV1(), []remote.DirEntry{{Name: "bundle1.yaml", IsDir: false}}).
 		WithDir(".ctxloom/content/profiles", []remote.DirEntry{{Name: "profile1.yaml", IsDir: false}})
 
 	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
@@ -813,7 +813,7 @@ func TestBrowseRemote_PullRef(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	fetcher := remote.NewMockFetcher().WithDir(".ctxloom/content/bundles", []remote.DirEntry{
+	fetcher := remote.NewMockFetcher().WithDir(repoV1(), []remote.DirEntry{
 		{Name: "security.yaml", IsDir: false},
 	})
 
@@ -835,11 +835,11 @@ func TestBrowseRemote_Recursive(t *testing.T) {
 
 	// Setup directory structure with subdirectory
 	fetcher := remote.NewMockFetcher().
-		WithDir(".ctxloom/content/bundles", []remote.DirEntry{
+		WithDir(repoV1(), []remote.DirEntry{
 			{Name: "top-level.yaml", IsDir: false},
 			{Name: "golang", IsDir: true}, // Subdirectory
 		}).
-		WithDir(".ctxloom/content/bundles/golang", []remote.DirEntry{
+		WithDir(repoV1("golang"), []remote.DirEntry{
 			{Name: "testing.yaml", IsDir: false},
 			{Name: "best-practices.yaml", IsDir: false},
 		})
@@ -863,7 +863,7 @@ func TestBrowseRemote_WithPath(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	fetcher := remote.NewMockFetcher().
-		WithDir(".ctxloom/content/bundles/subdir", []remote.DirEntry{
+		WithDir(repoV1("subdir"), []remote.DirEntry{
 			{Name: "nested.yaml", IsDir: false},
 		})
 
@@ -962,7 +962,7 @@ func TestBrowseRemote_RecursiveSubdirErrorIsWarned(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	fetcher := &pathErrFetcher{
-		MockFetcher: remote.NewMockFetcher().WithDir(".ctxloom/content/bundles", []remote.DirEntry{
+		MockFetcher: remote.NewMockFetcher().WithDir(repoV1(), []remote.DirEntry{
 			{Name: "good.yaml", IsDir: false},
 			{Name: "broken", IsDir: true},
 		}),
@@ -1034,7 +1034,7 @@ func TestSearchRemotes_WithValidRegistry(t *testing.T) {
 	require.NoError(t, os.MkdirAll(baseDir, 0755))
 
 	src := filepath.Join(tmpDir, "source")
-	initLocalRepoWithFile(t, src, ".ctxloom/content/bundles/widget.yaml",
+	initLocalRepoWithFile(t, src, repoV1("widget.yaml"),
 		"version: 1.0.0\ndescription: a handy widget bundle\n")
 
 	url := "file://" + src
@@ -1108,7 +1108,7 @@ bundles:
 
 func TestSearchDirectoryContent_FindsYAMLFiles(t *testing.T) {
 	fetcher := remote.NewMockFetcher().
-		WithDir(".ctxloom/content/bundles", []remote.DirEntry{
+		WithDir(repoV1(), []remote.DirEntry{
 			{Name: "golang-tools.yaml", IsDir: false},
 			{Name: "rust-tooling.yaml", IsDir: false},
 			{Name: "README.md", IsDir: false}, // Should skip non-yaml
@@ -1128,7 +1128,7 @@ func TestSearchDirectoryContent_FindsYAMLFiles(t *testing.T) {
 
 func TestSearchDirectoryContent_NoMatches(t *testing.T) {
 	fetcher := remote.NewMockFetcher().
-		WithDir(".ctxloom/content/bundles", []remote.DirEntry{
+		WithDir(repoV1(), []remote.DirEntry{
 			{Name: "golang-tools.yaml", IsDir: false},
 		})
 
@@ -1191,10 +1191,10 @@ func TestSearchSingleRemote_FallbackToDirectory(t *testing.T) {
 	// Since searchSingleRemote creates its own fetcher, we test the helper functions
 	// that it calls rather than the full integration
 	mockFetcher := remote.NewMockFetcher().
-		WithDir(".ctxloom/content/bundles", []remote.DirEntry{
+		WithDir(repoV1(), []remote.DirEntry{
 			{Name: "test-bundle.yaml", IsDir: false},
 		}).
-		WithFile(".ctxloom/content/bundles/test-bundle.yaml", []byte("name: test-bundle\ndescription: Test bundle"))
+		WithFile(repoV1("test-bundle.yaml"), []byte("name: test-bundle\ndescription: Test bundle"))
 
 	rem := &remote.Remote{
 		Name: "test-remote",

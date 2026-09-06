@@ -20,7 +20,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
 
@@ -38,7 +37,7 @@ import (
 // (skills are unsupported in a single-file bundle).
 func writeDirFormBundle(t *testing.T, appDir, name string) {
 	t.Helper()
-	dir := filepath.Join(paths.LocalBundlesPath(appDir), name)
+	dir := filepath.Join(authoredV1(appDir), name)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "bundle.yaml"),
 		[]byte("version: \"1.0\"\n"), 0o644))

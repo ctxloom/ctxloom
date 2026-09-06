@@ -61,6 +61,27 @@ func ContentItemRoot(_ ItemType) string {
 	return paths.ContentBundlesRoot()
 }
 
+// RepoItemRoots names every FORMAT ROOT an item can actually sit in, in the
+// order a listing should visit them.
+//
+// It is what a NON-RECURSIVE listing must walk. RepoItemRoot is only the
+// PARENT those roots are siblings under, and it holds no items itself — so a
+// flat listing anchored there sees one directory entry per format, skips them
+// as directories, and reports success having found nothing. That is the silent
+// shape of this failure: a search across every configured remote returns zero
+// results and no error.
+//
+// A listing that RECURSES from RepoItemRoot is already correct and should keep
+// doing that, reducing each name with RepoItemName; this exists for the ones
+// that cannot recurse.
+func RepoItemRoots(_ ItemType) []string {
+	roots := make([]string, 0, len(paths.BundleLayouts()))
+	for _, l := range paths.BundleLayouts() {
+		roots = append(roots, paths.RepoBundlesPrefixFor(l))
+	}
+	return roots
+}
+
 // RepoItemName reduces a RepoItemRoot-relative path to the item's BARE name.
 //
 // A listing names each item by its path relative to the root it walked, so the

@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -156,8 +155,8 @@ type carryCase struct {
 }
 
 const (
-	remoteBundlePath = ".ctxloom/content/bundles/for-push.yaml"
-	remoteSigPath    = ".ctxloom/content/bundles/for-push.yaml.sig"
+	remoteBundlePath = ".ctxloom/content/bundles/v1/for-push.yaml"
+	remoteSigPath    = ".ctxloom/content/bundles/v1/for-push.yaml.sig"
 )
 
 // editedBundleBytes is the rewrite that strands a signature: the same bundle,
@@ -167,7 +166,7 @@ var editedBundleBytes = []byte("version: 2.0.0\nfragments:\n  intro:\n    conten
 // localBundlePath is the on-disk path of the "for-push" bundle in a
 // pushSignTestSetup project.
 func localBundlePath(cfg *config.Config) string {
-	return filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml")
+	return filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push.yaml")
 }
 
 // applySidecarState puts the bundle into the requested (bytes, sidecar) state

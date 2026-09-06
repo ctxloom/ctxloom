@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -141,9 +142,9 @@ func TestProdSpawner_ChildMCPServers_ScopedPerAgent(t *testing.T) {
 		"workerB": headlessAgent("p-b"),
 	})
 	app := filepath.Join(root, ".ctxloom")
-	writeDelegationFile(t, filepath.Join(app, "content", "bundles", "kit-a.yaml"),
+	writeDelegationFile(t, filepath.Join(paths.LocalBundlesPathFor(app, paths.LayoutV1), "kit-a.yaml"),
 		"version: \"1.0.0\"\nmcp:\n  server-a:\n    command: echo\n    args: [\"a\"]\n")
-	writeDelegationFile(t, filepath.Join(app, "content", "bundles", "kit-b.yaml"),
+	writeDelegationFile(t, filepath.Join(paths.LocalBundlesPathFor(app, paths.LayoutV1), "kit-b.yaml"),
 		"version: \"1.0.0\"\nmcp:\n  server-b:\n    command: echo\n    args: [\"b\"]\n")
 	writeDelegationFile(t, filepath.Join(app, "profiles", "p-a.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-a\n")
 	writeDelegationFile(t, filepath.Join(app, "profiles", "p-b.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-b\n")
@@ -212,9 +213,9 @@ func TestProdSpawner_ChildMCPServers_JournaledDisjointPerAgent(t *testing.T) {
 		"workerB": headlessAgent("p-b"),
 	})
 	app := filepath.Join(root, ".ctxloom")
-	writeDelegationFile(t, filepath.Join(app, "content", "bundles", "kit-a.yaml"),
+	writeDelegationFile(t, filepath.Join(paths.LocalBundlesPathFor(app, paths.LayoutV1), "kit-a.yaml"),
 		"version: \"1.0.0\"\nmcp:\n  server-a:\n    command: echo\n    args: [\"a\"]\n")
-	writeDelegationFile(t, filepath.Join(app, "content", "bundles", "kit-b.yaml"),
+	writeDelegationFile(t, filepath.Join(paths.LocalBundlesPathFor(app, paths.LayoutV1), "kit-b.yaml"),
 		"version: \"1.0.0\"\nmcp:\n  server-b:\n    command: echo\n    args: [\"b\"]\n")
 	writeDelegationFile(t, filepath.Join(app, "profiles", "p-a.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-a\n")
 	writeDelegationFile(t, filepath.Join(app, "profiles", "p-b.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-b\n")

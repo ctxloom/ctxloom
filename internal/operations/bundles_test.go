@@ -674,13 +674,17 @@ remotes:
 	require.Error(t, err)
 }
 
-// gopkg.in/yaml.v3 returns a nil error for empty, whitespace-only and
-// comment-only input, so ParseBundle accepts all three as a VALID empty
-// bundle. PushBundle would then report status "pushed" for zero bytes,
-// overwriting whatever is at the remote path — and, with a signer configured,
-// sign nothing. Nothing downstream gates on length either
-// (PublishManager.preparePublish never inspects it; PushBundleResult.SizeBytes
-// records the 0 without acting on it), so the guard belongs here.
+// A document with nothing in it must never publish: push would report status
+// "pushed" for zero bytes, overwrite whatever is at the remote path and, with a
+// signer configured, sign nothing.
+//
+// TWO refusals cover these three inputs, and each case names WHICH, because
+// asserting only that the word "empty" appears is satisfied by either one — so
+// the zero-byte guard could be deleted outright with every case still green.
+// ParseBundle refuses any document declaring nothing (Bundle.declaresNothing),
+// which catches the comment-only file; the guard in PushBundle runs ahead of
+// that verdict purely so a file with no bytes in it is told it has no content
+// rather than handed a YAML error.
 func TestPushBundle_EmptyBundleIsRefused(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `default: r
@@ -690,14 +694,18 @@ remotes:
     version: v1
 `)
 
-	for name, content := range map[string]string{
-		"zero bytes":   "",
-		"whitespace":   "   \n   \n",
-		"comment only": "# nothing here\n",
+	for name, tc := range map[string]struct {
+		content string
+		// wantRefusal is the phrase unique to the refusal that must fire.
+		wantRefusal string
+	}{
+		"zero bytes":   {"", "the file has no content"},
+		"whitespace":   {"   \n   \n", "the file has no content"},
+		"comment only": {"# nothing here\n", "bundle is empty"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(authoredV1(appDir), "empty.yaml")
-			require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+			require.NoError(t, os.WriteFile(path, []byte(tc.content), 0644))
 
 			_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 				Path:   path,
@@ -705,7 +713,7 @@ remotes:
 				DryRun: true,
 			})
 			require.Error(t, err, "publishing a bundle with no content must not report success")
-			assert.Contains(t, err.Error(), "empty")
+			assert.Contains(t, err.Error(), tc.wantRefusal)
 		})
 	}
 }

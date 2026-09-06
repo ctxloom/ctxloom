@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // VCS abstracts reads from a single version-controlled source — one repository
@@ -139,6 +140,12 @@ func (v *gitForgeVCS) ReadFileAt(ctx context.Context, path, rev string) ([]byte,
 func (v *gitForgeVCS) ListItems(ctx context.Context, kind ItemType) ([]string, error) {
 	base := RepoItemRoot(kind)
 	var items []string
+	relTo := func(dir string) string {
+		if dir == base {
+			return "."
+		}
+		return strings.TrimPrefix(dir, base+"/")
+	}
 	var walk func(dir string) error
 	walk = func(dir string) error {
 		entries, err := v.fetcher.ListDir(ctx, v.owner, v.repo, dir, "")
@@ -150,6 +157,22 @@ func (v *gitForgeVCS) ListItems(ctx context.Context, kind ItemType) ([]string, e
 			}
 			return err
 		}
+		// This walk has no stat, so the manifest's presence comes from the
+		// listing it already holds — the same fact, reached the other way. The
+		// directory is classified BEFORE its entries: a tree bundle answers as
+		// itself, and recursion stops there because everything below it is that
+		// bundle's ITEMS, not further bundles.
+		hasManifest := false
+		for _, e := range entries {
+			if !e.IsDir && e.Name == paths.BundleManifestName {
+				hasManifest = true
+				break
+			}
+		}
+		if step := paths.ClassifyBundleWalkEntry(relTo(dir), true, hasManifest); step.IsBundle {
+			items = append(items, RepoItemName(kind, step.Name))
+			return nil
+		}
 		for _, e := range entries {
 			full := dir + "/" + e.Name
 			if e.IsDir {
@@ -158,9 +181,8 @@ func (v *gitForgeVCS) ListItems(ctx context.Context, kind ItemType) ([]string, e
 				}
 				continue
 			}
-			if strings.HasSuffix(e.Name, ".yaml") {
-				rel := strings.TrimSuffix(strings.TrimPrefix(full, base+"/"), ".yaml")
-				items = append(items, RepoItemName(kind, rel))
+			if step := paths.ClassifyBundleWalkEntry(relTo(full), false, false); step.IsBundle {
+				items = append(items, RepoItemName(kind, step.Name))
 			}
 		}
 		return nil
@@ -241,16 +263,27 @@ func (v *fsVCS) ListItems(_ context.Context, kind ItemType) ([]string, error) {
 		if err != nil {
 			return fmt.Errorf("walk %s: %w", p, err)
 		}
-		if info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") {
-			return nil
-		}
 		rel, relErr := filepath.Rel(base, p)
 		if relErr != nil {
 			return fmt.Errorf("relativize %s under %s: %w", p, base, relErr)
 		}
-		name := strings.TrimSuffix(filepath.ToSlash(rel), ".yaml")
-		items = append(items, RepoItemName(kind, name))
-		return nil
+		hasManifest := false
+		if info.IsDir() {
+			ok, existsErr := afero.Exists(v.fs, paths.BundleManifestPath(p))
+			if existsErr != nil {
+				return fmt.Errorf("check %s exists: %w", paths.BundleManifestPath(p), existsErr)
+			}
+			hasManifest = ok
+		}
+		// paths.ClassifyBundleWalkEntry is the shared bundles-root boundary: it
+		// names the entry AND stops the walk at a tree bundle, whose item
+		// documents are .yaml like any single-file bundle and would otherwise be
+		// offered as installable names of their own.
+		step := paths.ClassifyBundleWalkEntry(rel, info.IsDir(), hasManifest)
+		if step.IsBundle {
+			items = append(items, RepoItemName(kind, step.Name))
+		}
+		return step.WalkSkip()
 	})
 	if walkErr != nil {
 		return nil, walkErr

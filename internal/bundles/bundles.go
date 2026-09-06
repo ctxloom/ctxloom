@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -1265,11 +1266,11 @@ func ValidateBundleName(name string) error {
 // other files. It was a literal at each of those, which is one spelling per site
 // of a fact that has to agree at all of them.
 //
-// internal/remote states it a SECOND time (remote.BundleManifestName) and must:
-// bundles imports remote, so remote cannot import this back. That duplication is
-// structural rather than careless, and the two are pinned to each other by the
-// fetch/read tests rather than by a shared symbol.
-const DirectoryFormManifest = "bundle.yaml"
+// The name itself belongs to internal/paths, the declarative source of truth
+// for on-disk layout, and remote.BundleManifestName names the same constant.
+// bundles imports remote, so remote could never import this back; a package
+// BELOW both is the only place one spelling can serve both sides.
+const DirectoryFormManifest = paths.BundleManifestName
 
 // ExtractBundleName derives a bundle's name from its file path: the parent
 // directory name for a "bundle.yaml" leaf, else the filename without

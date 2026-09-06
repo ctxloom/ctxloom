@@ -70,7 +70,7 @@ func sourcesByCommand(m *ManagedHooks, event string) map[string]HookSource {
 func TestAssembleManagedHooks_ProvenanceNamesDirectoryProfileAndItsBundles(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
-	bundlesDir := paths.LocalBundlesPath(appDir)
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "kit.yaml"), []byte(
 		"version: \"1.0\"\nhooks:\n  pre_tool:\n    - command: from-bundle\n      type: command\n"), 0o644))

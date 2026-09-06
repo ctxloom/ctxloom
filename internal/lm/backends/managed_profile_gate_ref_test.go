@@ -120,7 +120,7 @@ func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 // gate lets it through exactly like any other locally-authored content.
 func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
-	bundlesDir := paths.LocalBundlesPath(appDir)
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "kit.yaml"), []byte(""+
 		"version: \"1.0\"\n"+
@@ -163,7 +163,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 // "an error occurred" — the silent-no-op trap this whole fix exists to close.
 func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
-	bundlesDir := paths.LocalBundlesPath(appDir)
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "kit.yaml"), []byte(""+
 		"version: \"1.0\"\n"+

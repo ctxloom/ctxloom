@@ -729,7 +729,9 @@ func (e *TestEnvironment) gitEnv() []string {
 // CreateProjectConfig creates the .ctxloom directory structure in the project.
 func (e *TestEnvironment) CreateProjectConfig() error {
 	dirs := []string{
-		filepath.Join(e.ProjectDir, ".ctxloom", "content", "bundles"),
+		// The FORMAT root authored bundles go in; MkdirAll creates the
+		// bundles root above it, which is what GetBundleDirs stats.
+		filepath.Join(e.ProjectDir, ".ctxloom", "content", "bundles", "v1"),
 		filepath.Join(e.ProjectDir, ".ctxloom", "profiles"),
 	}
 	for _, dir := range dirs {

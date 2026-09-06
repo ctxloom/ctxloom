@@ -32,7 +32,7 @@ const localSigFragmentBody = "LOCAL-SIG-CHARACTERIZATION-PAYLOAD"
 
 // localSigBundlePath is the authored (committed content) bundle the harness's
 // writeFragment helper writes to.
-const localSigBundlePath = ".ctxloom/content/bundles/local.yaml"
+const localSigBundlePath = ".ctxloom/content/bundles/v1/local.yaml"
 
 // deliverLocalFragment runs the fragment through a real assembly and returns
 // what the language model was actually handed.

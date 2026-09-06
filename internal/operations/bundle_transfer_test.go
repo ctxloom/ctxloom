@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // memBundleFS seeds an in-memory bundles dir with one bundle ("seed").
@@ -65,6 +66,30 @@ func TestImportBundle_RoundTrip(t *testing.T) {
 
 	_, err = ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: src, Force: true, FS: fs})
 	require.NoError(t, err)
+}
+
+// What lands is the SOURCE's bytes, not a re-emission of the parsed envelope.
+// A publisher signature covers the document's exact bytes (spec §3.1), so an
+// import that round-tripped through the parser would drop comments and reorder
+// keys and arrive unverifiable — while still reporting "imported".
+//
+// The fixture leads with a comment and a trailing key precisely because those
+// are what a re-emission destroys; asserting on a body the parser would
+// reproduce byte-for-byte would prove nothing.
+func TestImportBundle_WritesTheSourceBytesVerbatim(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+	src := "/incoming/verbatim.yaml"
+	body := "# a comment no re-emission keeps\nversion: 1.0.0\nfragments:\n  a:\n    content: hi\ndescription: last\n"
+	testsupport.WriteFileString(t, fs, src, body, 0644)
+
+	res, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: src, FS: fs})
+	require.NoError(t, err)
+
+	got, err := afero.ReadFile(fs, res.Dest)
+	require.NoError(t, err)
+	require.NotEmpty(t, got, "comparing two empty reads is trivially identical")
+	assert.Equal(t, body, string(got))
 }
 
 func TestImportBundle_InvalidFile(t *testing.T) {

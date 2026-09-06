@@ -192,6 +192,13 @@ var (
 // It is deliberately NOT a Reader. A Reader enumerates everything one SOURCE
 // holds; this answers for a single document at a path the user named, which may
 // sit outside any store at all (an import source, a move destination).
+//
+// On a PARSE failure the bytes are still returned: the read succeeded, and a
+// caller that has its own verdict on the raw document must be able to reach it
+// without going back to the filesystem. `push` is the live case — it refuses a
+// zero-byte file by name before it will call the same file unparsable — and
+// withholding the bytes there would silently retire that refusal in favour of a
+// parse error, which is a worse sentence about a file the user can fix.
 func EnvelopeAt(fsys afero.Fs, path string) ([]byte, *Bundle, error) {
 	data, err := afero.ReadFile(fsys, path)
 	if err != nil {
@@ -199,7 +206,7 @@ func EnvelopeAt(fsys afero.Fs, path string) ([]byte, *Bundle, error) {
 	}
 	env, err := ParseBundle(data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w at %s: %w", ErrEnvelopeParse, path, err)
+		return data, nil, fmt.Errorf("%w at %s: %w", ErrEnvelopeParse, path, err)
 	}
 	return data, env, nil
 }

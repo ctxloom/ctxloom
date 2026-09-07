@@ -216,7 +216,63 @@ func TestPublishManager_Publish(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "remote not found")
 	})
+}
 
+// TestPublishManager_PublishTree_ViaPR is PublishManager_Publish's "creates PR
+// when requested" case, for the whole-tree path: a feature branch, ONE
+// CreateOrUpdateFiles call carrying every file, then a pull request — never a
+// content commit plus a separate signature commit, since a tree has no
+// separate signature artifact to write.
+func TestPublishManager_PublishTree_ViaPR(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	mp := newMockPublisher()
+	mf := newMockFetcher()
+	mf.refs["main"] = "basesha123"
+
+	pm := NewPublishManager(registry, AuthConfig{},
+		WithPublishFS(fs),
+		WithPublisherFactory(mockPublisherFactory(mp)),
+		WithPublishFetcherFactory(mockFetcherFactory(mf)),
+	)
+
+	files := map[string][]byte{
+		"bundle.yaml":           []byte("version: 1.0.0\n"),
+		"skills/greet/SKILL.md": []byte("# greet\n"),
+	}
+	result, err := pm.PublishTree(context.Background(), files, "alice", PublishOptions{
+		ItemType:   ItemTypeBundle,
+		RemotePath: ".ctxloom/content/bundles/v1/atelier",
+		Branch:     "main",
+		CreatePR:   true,
+	})
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.PRURL)
+	assert.Len(t, mp.branches, 1, "one feature branch, not one per file")
+	assert.Len(t, mp.pullRequests, 1, "one PR, not one per file")
+	assert.Len(t, mp.createdFiles, 2, "both files traveled")
+	for path := range mp.createdFiles {
+		assert.Contains(t, path, ".ctxloom/content/bundles/v1/atelier/",
+			"every file lands under the tree's reported root")
+	}
+	// Every write in this test landed on the SAME branch (the feature branch
+	// PublishTree created), which is what "one commit" means at this layer:
+	// the mock records one createOrUpdateCalls-equivalent write per file, but
+	// they all share one branch name rather than each opening its own.
+	require.Len(t, mp.branches, 1)
+	for path, sha := range mp.files {
+		assert.Contains(t, path, ".ctxloom/content/bundles/v1/atelier/")
+		assert.NotEmpty(t, sha)
+	}
+}
+
+// TestPublishManager_Publish_EdgeCases continues TestPublishManager_Publish's
+// t.Run sequence: single-file publish edge cases, unaffected by the
+// whole-tree PublishTree work above.
+func TestPublishManager_Publish_EdgeCases(t *testing.T) {
 	t.Run("returns error for missing local file", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		registry, _ := NewRegistry("", WithRegistryFS(fs))

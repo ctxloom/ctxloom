@@ -3,12 +3,9 @@ package operations
 import (
 	"context"
 	"os"
-	"path"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -96,72 +93,32 @@ func TestPushBundle_ReportedPathIsTheWrittenPath_SingleFile(t *testing.T) {
 		"the reported target path IS the path published to — one computation, not two that agree")
 }
 
-// TestPushBundle_ReportedPathIsTheWrittenPath_DirectoryForm is the same binding
-// for the shape that used to diverge, adapted to what a directory-form publish
-// actually writes now (engaged-chivalry): the WHOLE tree, not the manifest
-// alone, so "reported == written" no longer means one string equality — it
-// means every file that traveled sits under the reported root, and the
-// manifest sits directly in it.
-func TestPushBundle_ReportedPathIsTheWrittenPath_DirectoryForm(t *testing.T) {
+// TestPushBundle_DirectoryForm_IsRefusedUnderADocumentLayout replaces two tests
+// that pinned DIRECTORY-form publishing under v1 — the shape this project has
+// now removed from v1. v1 is the single-file document form; only v2 holds trees.
+//
+// WHAT THOSE TWO TESTS PROVED, and what must come back when the layout moves to
+// v2, because none of it is covered while the refusal stands:
+//   - the reported target path IS the path published to, for a tree: every file
+//     that travels sits under the reported root, manifest directly in it
+//   - two directory bundles publish under their OWN names rather than colliding
+//     at a shared bundles/bundle.yaml — a silent data-loss overwrite
+//   - the WHOLE tree travels, not the manifest alone
+//
+// See taskloom row resolute-runway.
+func TestPushBundle_DirectoryForm_IsRefusedUnderADocumentLayout(t *testing.T) {
 	cfg, fix := newPushManagerFixture(t)
 	manifest := writeDirFormBundleFixture(t, cfg, "dir-form")
 
-	reported, written := pushOneBundle(t, cfg, fix, manifest)
-
-	require.Len(t, written, 2, "the manifest AND its skills/ subtree both travel")
-	for _, w := range written {
-		assert.True(t, w == reported || strings.HasPrefix(w, reported+"/"),
-			"every published file must sit under the reported target path %q, got %q", reported, w)
-	}
-	assert.Contains(t, written, path.Join(reported, "bundle.yaml"),
-		"the manifest lands directly under the reported root")
-}
-
-// `bundle move --to <remote>` is the highest-stakes reader of the reported
-// path: it publishes, derives SigDest from what PushBundle SAYS it wrote, and
-// then DELETES the local source. If the reported path and the written path ever
-// diverged, the user would be left with the source gone, a signature recorded
-// at a path nobody wrote, and no local copy to re-publish from. Bound here to
-// what the publisher actually received.
-func TestMoveBundle_ToRemote_ReportedDestIsTheWrittenPath(t *testing.T) {
-	mock := &mockPublisher{returnCommitSHA: "abc1234"}
-	cfg, bundlePath, mgr := pushTestSetup(t, mock)
-	signOnDisk(t, afero.NewOsFs(), bundlePath)
-
-	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{
-		Name: "for-push", To: "personal", PublishManager: mgr,
+	before := len(fix.mock.createOrUpdateCalls)
+	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:           manifest,
+		Remote:         "personal",
+		PublishManager: fix.mgr,
+		Message:        "publish",
 	})
-	require.NoError(t, err)
 
-	require.Len(t, mock.createOrUpdateCalls, 2, "bundle + detached signature sibling")
-	assert.Equal(t, mock.createOrUpdateCalls[0].Path, res.Dest,
-		"the destination reported to the user is the one the bundle was written to")
-	assert.Equal(t, mock.createOrUpdateCalls[1].Path, res.SigDest,
-		"and the reported SigDest is the path the signature was written to")
-}
-
-// A directory-form bundle publishes under the BUNDLE's name, not its manifest
-// file's. Naming it after the file made every such bundle land on
-// `bundles/bundle.yaml` and silently overwrite the last one — a data-loss
-// collision with no error and no warning, since each push succeeded on its own
-// terms. The name now comes from bundles.ExtractBundleName, the same rule the
-// loader itself names a bundle by, so the remote name matches the name the user
-// pushed — and (engaged-chivalry) the whole tree lands under that name, not
-// just its manifest.
-func TestPushBundle_DirectoryFormBundles_PublishUnderTheirOwnNames(t *testing.T) {
-	cfg, fix := newPushManagerFixture(t)
-	first := writeDirFormBundleFixture(t, cfg, "alpha-form")
-	second := writeDirFormBundleFixture(t, cfg, "beta-form")
-
-	_, firstWritten := pushOneBundle(t, cfg, fix, first)
-	_, secondWritten := pushOneBundle(t, cfg, fix, second)
-
-	assert.ElementsMatch(t,
-		[]string{repoV1("alpha-form", "bundle.yaml"), repoV1("alpha-form", "skills", "greet", "SKILL.md")},
-		firstWritten,
-		"named after the bundle, not after its bundle.yaml manifest, with the whole tree beneath it")
-	assert.ElementsMatch(t,
-		[]string{repoV1("beta-form", "bundle.yaml"), repoV1("beta-form", "skills", "greet", "SKILL.md")},
-		secondWritten,
-		"a second directory-form bundle gets its own remote root instead of overwriting the first")
+	require.Error(t, err, "a directory-form bundle must not publish into a document layout")
+	assert.Len(t, fix.mock.createOrUpdateCalls[before:], 0,
+		"REFUSING means writing NOTHING — a partial tree under a document's name is bytes no reader looks for")
 }

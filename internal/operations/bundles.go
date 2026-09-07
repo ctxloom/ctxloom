@@ -848,8 +848,14 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	// which answers a different question (which FORMAT root a bundle's local
 	// storage belongs under) than the one asked here (does this directory
 	// hold more than its manifest, and if so must all of it travel).
+	// treeForm answers a question about the SOURCE — does this directory hold
+	// more than its manifest, so must all of it travel — and it decides that
+	// alone (see runTreePush below). It does NOT decide the target's shape:
+	// where a bundle lands is the LAYOUT's business, resolved once in
+	// remote.RepoItemPath. Letting the source's shape pick the target path is
+	// how publish and fetch came to disagree.
 	treeForm := filepath.Base(absPath) == bundles.DirectoryFormManifest
-	targetPath := remote.PublishPath(remote.ItemTypeBundle, bundleName, treeForm)
+	targetPath := remote.PublishPath(remote.ItemTypeBundle, bundleName)
 
 	// Resolve title/body the same way publish.go does, so the result accurately
 	// reflects what the PR will look like (title may be lifted from message).
@@ -872,6 +878,13 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	}
 
 	if treeForm {
+		// A tree cannot travel into a layout that does not hold trees: its leaf
+		// would be a document name, and nothing reads a directory from there.
+		// REFUSING beats writing bytes no consumer can find — this project's
+		// characteristic failure is exit 0 over a payload that went nowhere.
+		if !remote.ItemLayoutHoldsTrees() {
+			return nil, fmt.Errorf("cannot publish %q: it is a directory-form bundle, and the current bundle layout holds single-file documents only; migrate it to the tree layout before publishing", bundleName)
+		}
 		return runTreePush(ctx, cfg, registry, req.Remote, absPath, req, result)
 	}
 	return runPush(ctx, cfg, registry, req.Remote, absPath, req, result)

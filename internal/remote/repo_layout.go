@@ -28,6 +28,42 @@ import (
 // as PublishPath keeps it, so a second ItemType does not require re-widening
 // every signature at once.
 
+// itemLayout is THE layout every publish and every fetch resolves against, and
+// the single point at which this project moves between bundle formats.
+//
+// It is one constant rather than a value threaded through call sites because
+// publish and fetch must never resolve different layouts: a bundle written
+// under one and read under another is written where no consumer looks. Moving
+// this is the format migration; nothing else should need to change with it.
+const itemLayout = paths.LayoutV1
+
+// ItemLayoutHoldsTrees reports whether the layout publish and fetch resolve can
+// hold a DIRECTORY-form bundle.
+//
+// v1 is the single-file document form; only v2 holds true trees. A caller with
+// a directory to publish must ask this rather than assume, because publishing a
+// tree into a layout whose leaf carries ".yaml" writes a directory's worth of
+// files under a document's name — a shape no reader looks for.
+func ItemLayoutHoldsTrees() bool {
+	return itemLayout == paths.LayoutV2
+}
+
+// RepoItemPath is the repo-relative path of ONE item — RepoItemPrefix and the
+// layout's own leaf composed together.
+//
+// PREFER THIS OVER RepoItemPrefix + a hand-built filename. The prefix alone
+// leaves the caller to decide the leaf, and a caller that appends ".yaml" under
+// a tree layout names a file that cannot exist. That is not hypothetical: it
+// shipped, and every remote bundle silently failed to load.
+func RepoItemPath(_ ItemType, name string) string {
+	return paths.RepoBundlePathFor(itemLayout, name)
+}
+
+// ContentItemPath is RepoItemPath relative to an already-open content root.
+func ContentItemPath(_ ItemType, name string) string {
+	return paths.ContentBundlePathFor(itemLayout, name)
+}
+
 // RepoItemPrefix is the repo-relative directory an item PUBLISHES into and a
 // fetch READS from, in the single-file document layout.
 //
@@ -35,14 +71,14 @@ import (
 // consumer looks, so both sides resolve it here rather than each composing a
 // prefix of its own.
 func RepoItemPrefix(_ ItemType) string {
-	return paths.RepoBundlesPrefixFor(paths.LayoutV1)
+	return paths.RepoBundlesPrefixFor(itemLayout)
 }
 
 // ContentItemPrefix is RepoItemPrefix relative to an already-open content root,
 // for a reader that has resolved .ctxloom/content/ itself and must not re-state
 // it.
 func ContentItemPrefix(_ ItemType) string {
-	return paths.ContentBundlesPrefixFor(paths.LayoutV1)
+	return paths.ContentBundlesPrefixFor(itemLayout)
 }
 
 // RepoItemRoot is the repo-relative directory a LISTING walks: the parent that

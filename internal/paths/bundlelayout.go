@@ -115,6 +115,48 @@ func (l BundleLayout) mustSegment() string {
 	return seg
 }
 
+// ItemFileName is the LEAF a bundle occupies beneath its layout's prefix.
+//
+// SHAPE IS A PROPERTY OF THE LAYOUT, and this is the only place that says so.
+// v1 is the single-file document form, so its leaf carries .yaml; v2 holds only
+// true trees, so its leaf is the directory name itself.
+//
+// It exists because the prefix and the leaf were previously decided in
+// DIFFERENT places — the prefix from the layout, the leaf from a `tree bool`
+// threaded through callers — and two sources of one fact can disagree. They
+// did: pointing the prefix at v2 while the read path still appended ".yaml"
+// asked for bundles/v2/<name>.yaml, which cannot exist under a layout that
+// holds only directories, and every remote bundle silently failed to load.
+// Deriving the leaf here makes "a v2 file" and "a v1 tree" unrepresentable
+// rather than merely unlikely.
+//
+// It panics on an unknown layout, exactly as mustSegment does: an item path
+// built from no layout is a programming error, not a runtime condition.
+func (l BundleLayout) ItemFileName(name string) string {
+	switch l {
+	case LayoutV1:
+		return name + ".yaml"
+	case LayoutV2:
+		return name
+	default:
+		panic(fmt.Sprintf("paths: %s: %d", ErrUnknownBundleLayout, int(l)))
+	}
+}
+
+// ContentBundlePathFor is one layout's full content-relative path for a bundle:
+// its prefix and its leaf composed HERE, so a caller cannot pair one layout's
+// prefix with another's leaf.
+func ContentBundlePathFor(l BundleLayout, name string) string {
+	return path.Join(ContentBundlesPrefixFor(l), l.ItemFileName(name))
+}
+
+// RepoBundlePathFor is ContentBundlePathFor anchored at the repo root — the
+// path a publish WRITES and a fetch READS, which must be the same expression or
+// a bundle lands where no consumer looks.
+func RepoBundlePathFor(l BundleLayout, name string) string {
+	return path.Join(RepoBundlesPrefixFor(l), l.ItemFileName(name))
+}
+
 // LocalBundlesPathFor returns one layout's subtree of the COMMITTED
 // authored-bundles directory.
 func LocalBundlesPathFor(appPath string, l BundleLayout) string {

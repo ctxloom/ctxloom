@@ -37,18 +37,10 @@ func TestRepoLayout_LiteralPaths(t *testing.T) {
 // part of the contract as the directory.
 func TestPublishPath_LiteralPath(t *testing.T) {
 	assert.Equal(t, ".ctxloom/content/bundles/v1/go-tools.yaml",
-		PublishPath(ItemTypeBundle, "go-tools", false))
+		PublishPath(ItemTypeBundle, "go-tools"))
 	assert.Equal(t, ".ctxloom/content/bundles/v1/lang/go/testing.yaml",
-		PublishPath(ItemTypeBundle, "lang/go/testing", false),
+		PublishPath(ItemTypeBundle, "lang/go/testing"),
 		"a path-addressed bundle keeps its subdirectories under the prefix")
-}
-
-// TestPublishPath_Tree_LiteralPath pins the DIRECTORY-form publish path: a
-// tree's root has no ".yaml" suffix, because what lands there is a directory
-// of files rather than one document.
-func TestPublishPath_Tree_LiteralPath(t *testing.T) {
-	assert.Equal(t, ".ctxloom/content/bundles/v1/atelier",
-		PublishPath(ItemTypeBundle, "atelier", true))
 }
 
 // TestBuildFilePath_LiteralPath pins the fetch side's literal, both arms.
@@ -119,7 +111,7 @@ func TestRepoItemName_KeepsANameThatMerelyLooksLikeASegment(t *testing.T) {
 func TestRepoLayout_PublishFetchAndListingAgree(t *testing.T) {
 	const name = "lang/go/testing"
 
-	published := PublishPath(ItemTypeBundle, name, false)
+	published := PublishPath(ItemTypeBundle, name)
 	ref := &Reference{URL: "https://github.com/o/r", ItemType: ItemTypeBundle, Path: name}
 	assert.Equal(t, published, ref.BuildFilePath(ItemTypeBundle),
 		"a fetch must look exactly where the publish wrote")

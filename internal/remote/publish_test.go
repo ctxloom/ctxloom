@@ -431,7 +431,7 @@ func TestPublishPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
-			result := PublishPath(tt.itemType, tt.name, false)
+			result := PublishPath(tt.itemType, tt.name)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -445,7 +445,7 @@ func TestPublishPath(t *testing.T) {
 // reachable only under that name, if at all.
 //
 // This asserts the agreement for the MANIFEST'S single-file address —
-// PublishPath(..., false) — which is what a fetch's BuildFilePath always
+// PublishPath(...) — which is what a fetch's BuildFilePath always
 // resolves to (a Reference names a bundle, not a shape). A directory-form
 // bundle's tree root (PublishPath(..., true)) is a DIFFERENT, wider write —
 // see PublishPath's own doc — and BundleTreeRoots is fetch's answer to
@@ -454,7 +454,7 @@ func TestPublishPath_MatchesFetchSideRefResolution(t *testing.T) {
 	for _, name := range []string{"security", "dir-form", "lang/go/testing"} {
 		t.Run(name, func(t *testing.T) {
 			ref := &Reference{Path: name, ItemType: ItemTypeBundle}
-			assert.Equal(t, ref.BuildFilePath(ItemTypeBundle), PublishPath(ItemTypeBundle, name, false),
+			assert.Equal(t, ref.BuildFilePath(ItemTypeBundle), PublishPath(ItemTypeBundle, name),
 				"a bundle published under a name must be the file a ref to that name resolves to")
 		})
 	}

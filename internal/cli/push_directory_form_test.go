@@ -1,18 +1,14 @@
 package cli
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // DIRECTORY-FORM BUNDLES. A bundle exists in two shapes: `<name>.yaml`
@@ -53,83 +49,15 @@ func writeDirFormBundle(t *testing.T, cfg *config.Config, name string) string {
 	return manifest
 }
 
-// signFileOnDisk signs path's exact bytes and writes the `.sig` sibling, as
-// `ctxloom bundle sign` does.
-func signFileOnDisk(t *testing.T, path string) []byte {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	signer, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-	armored, err := signing.Sign(data, signer, signing.NamespacePublish)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(path+".sig", armored, 0o644))
-	return armored
-}
-
-// The CARRY question, answered: a directory-form bundle's sidecar rides the
-// same path-based carry as any other, byte for byte — as just one more file
-// in the tree gatherPublishTreeFiles walks off disk (engaged-chivalry), not a
-// separately published sibling. This is the same thing `bundle move --to
-// <remote>` does (operations.moveToRemote reads the sidecar beside src, which
-// for this shape is the manifest) — matched, not reinvented.
-func TestPushBundleCfg_DirectoryFormBundle_CarriesTheManifestSidecar(t *testing.T) {
-	cfg, pub, mgr := pushSignTestSetup(t)
-	discoverer, _ := discovererWithSoleAgentIdentity(t)
-	manifest := writeDirFormBundle(t, cfg, "dir-form")
-	armored := signFileOnDisk(t, manifest)
-
-	cmd, _ := testCmd()
-	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "dir-form", "", false, "", false, false))
-
-	main, hasMain := pub.files[".ctxloom/content/bundles/v1/dir-form/bundle.yaml"]
-	require.True(t, hasMain, "the manifest itself is part of what travels")
-	sig, hasSig := pub.files[".ctxloom/content/bundles/v1/dir-form/bundle.yaml.sig"]
-	require.True(t, hasSig, "the directory-form bundle's sidecar is carried")
-	assert.Equal(t, armored, sig, "carried byte-for-byte")
-	assert.NoError(t, signing.CoversBytes(main, sig, signing.NamespacePublish),
-		"and it covers exactly the bytes that were published — the MANIFEST, nothing else")
-}
-
-// `ctxloom bundle push dir-form` lands the WHOLE tree at bundles/dir-form/.
-// It used to land only the manifest at bundles/bundle.yaml, because publishing
-// addressed a bundle by the basename of the file it resolved to and for this
-// shape that file is always `bundle.yaml` — so every directory-form bundle in
-// a project published to the SAME remote path and silently overwrote the last
-// one, and even once that name collision was fixed (publishing under
-// bundles/dir-form.yaml), the skills/ subtree — the entire reason this shape
-// exists, since bundles.Loader refuses `skills:` in single-file form — still
-// did not travel. The name now comes from bundles.ExtractBundleName (parent
-// directory for a `bundle.yaml` leaf), the same rule the loader names bundles
-// by, computed ONCE in operations.PushBundle and handed to publish rather than
-// re-derived there; the WHOLE directory now travels as one commit
-// (engaged-chivalry: remote.Publisher.CreateOrUpdateFiles).
-//
-// `bundle move --to <remote>` goes through the same PushBundle and inherits
-// this.
-func TestPushBundleCfg_DirectoryFormBundle_PublishesTheWholeTreeUnderItsOwnName(t *testing.T) {
+func TestPushBundleCfg_DirectoryFormBundle_IsRefusedUnderADocumentLayout(t *testing.T) {
 	cfg, pub, mgr := pushSignTestSetup(t)
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
 	writeDirFormBundle(t, cfg, "dir-form")
 
 	cmd, _ := testCmd()
-	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "dir-form", "", false, "", false, false))
+	err := pushBundleCfg(cmd, cfg, discoverer, mgr, "dir-form", "", false, "", false, false)
 
-	manifest, hasManifest := pub.files[".ctxloom/content/bundles/v1/dir-form/bundle.yaml"]
-	require.True(t, hasManifest, "the manifest publishes under the bundle's own directory")
-	assert.Contains(t, string(manifest), "skills:\n  greet:",
-		"the manifest bytes are unmodified")
-
-	skill, hasSkill := pub.files[".ctxloom/content/bundles/v1/dir-form/skills/greet/SKILL.md"]
-	require.True(t, hasSkill, "the skills subtree travels with the manifest — this is the whole reason directory form exists")
-	assert.Equal(t, "# greet\n\nSay hello.\n", string(skill), "byte for byte as authored")
-
-	_, collidesFlat := pub.files[".ctxloom/content/bundles/v1/bundle.yaml"]
-	assert.False(t, collidesFlat,
-		"never at the shared bundles/bundle.yaml every directory-form bundle used to collide on")
-	_, collidesSingleFile := pub.files[".ctxloom/content/bundles/v1/dir-form.yaml"]
-	assert.False(t, collidesSingleFile,
-		"never at the single-file address either — a tree is a directory, not a document")
+	require.Error(t, err, "a directory-form bundle must not publish into a layout that holds single-file documents")
+	assert.Empty(t, pub.files,
+		"REFUSING means writing NOTHING: a partial tree under a document's name is bytes no reader looks for")
 }

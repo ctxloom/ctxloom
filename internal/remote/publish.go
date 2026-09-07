@@ -735,11 +735,8 @@ func buildPRBody(msgBody, fullTitleIfOverflow string, itemType ItemType, itemNam
 // RepoItemPrefix hard-codes paths.LayoutV1 today, tree or not — flipping that
 // to LayoutV2 is a separate, deliberately deferred change, not this
 // function's.
-func PublishPath(itemType ItemType, name string, tree bool) string {
-	if tree {
-		return path.Join(RepoItemPrefix(itemType), name)
-	}
-	return path.Join(RepoItemPrefix(itemType), name+".yaml")
+func PublishPath(itemType ItemType, name string) string {
+	return RepoItemPath(itemType, name)
 }
 
 // NewPublisher creates a publisher for the given repository URL: the GitHub

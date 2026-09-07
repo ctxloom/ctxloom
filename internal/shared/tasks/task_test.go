@@ -277,8 +277,14 @@ func TestNormalizeTags(t *testing.T) {
 			t.Fatalf("normalizeTags = %v, want %v", got, want)
 		}
 	}
-	if normalizeTags(nil) != nil {
-		t.Fatalf("normalizeTags(nil) should stay nil, got %v", normalizeTags(nil))
+	// The empty result is an EMPTY SLICE, not nil: this is the single place
+	// every derived tag set passes through, so it is where "tags is always a
+	// list in the output" is made true. A nil here would reach JSON as `null`
+	// and break `.tags | join(",")` for every untagged task.
+	if empty := normalizeTags(nil); empty == nil {
+		t.Fatal("normalizeTags(nil) must be an empty slice, not nil — a nil marshals as null")
+	} else if len(empty) != 0 {
+		t.Fatalf("normalizeTags(nil) = %v, want an empty slice", empty)
 	}
 }
 
@@ -360,22 +366,6 @@ func TestTaskMarshalsSnakeCase(t *testing.T) {
 	}
 }
 
-func TestTaskMarshalOmitsEmptyOptionalFields(t *testing.T) {
-	b, err := json.Marshal(Task{HarpID: "old-dill", Text: "x", Status: StatusToDo})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal(b, &got); err != nil {
-		t.Fatal(err)
-	}
-	for _, key := range []string{"trigger", "origin_session", "tags"} {
-		if _, ok := got[key]; ok {
-			t.Errorf("empty %q should be omitted; keys: %v", key, got)
-		}
-	}
-}
-
 func TestSummaryMarshalsSnakeCase(t *testing.T) {
 	b, err := json.Marshal(Summary{Counts: map[string]int{StatusToDo: 1}, InProgress: []string{"old-dill"}})
 	if err != nil {
@@ -427,5 +417,152 @@ func TestFilterTasksUnparseableStoredTagIsUnmatchableAndUnannounced(t *testing.T
 	}
 	if !slices.Contains(ids, "legacy") {
 		t.Fatalf("the task must stay visible via its parseable tags; ids = %v", ids)
+	}
+}
+
+// Every key of the Task output contract is present on every marshalled task,
+// including the ones whose values are empty. Output is well-formed and
+// complete; only INPUT may omit a field. A key that appears only when it
+// happens to be populated pushes a conditional onto every consumer — and it
+// hides a real distinction, because a scripted reader cannot tell "this task
+// has no tags" from "this surface does not report tags".
+func TestMarshalTask_CarriesEveryKeyWhenOptionalFieldsAreEmpty(t *testing.T) {
+	task, err := newLog(t, "swift-amber-falcon").AddWithTrigger("a task", "", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	b, err := json.Marshal(task)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, key := range []string{
+		"harp_id", "text", "status", "checked", "text_hash",
+		"trigger", "origin_session", "tags", "created_at", "derived_priority",
+	} {
+		if _, ok := got[key]; !ok {
+			t.Errorf("the task JSON drops %q when empty; output must carry every key: %s", key, b)
+		}
+	}
+}
+
+// Tags is the one LIST on Task, so its empty spelling is load-bearing in a way
+// an empty string's is not: `null` and absence both break `.tags | join(",")`
+// and `.tags | length`, which an empty array satisfies. The fold yields a nil
+// slice for an untagged task, so this is normalized at the marshal boundary
+// rather than at every construction site.
+func TestMarshalTask_EmitsEmptyTagsAsAList(t *testing.T) {
+	task, err := newLog(t, "swift-amber-falcon").AddWithTrigger("a task", "", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	b, err := json.Marshal(task)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got struct {
+		Tags *[]string `json:"tags"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Tags == nil {
+		t.Fatalf("tags must be present and non-null on an untagged task: %s", b)
+	}
+	if len(*got.Tags) != 0 {
+		t.Errorf("an untagged task must marshal an empty tag list, got %v", *got.Tags)
+	}
+}
+
+// The normalization must not disturb a task that DOES carry tags.
+func TestMarshalTask_PreservesTagsWhenPresent(t *testing.T) {
+	task, err := newLog(t, "swift-amber-falcon").AddWithTags("a task", "", "", "urgent", "release")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	b, err := json.Marshal(task)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !slices.Equal(got.Tags, []string{"release", "urgent"}) {
+		t.Errorf("tags = %v, want [release urgent]", got.Tags)
+	}
+}
+
+// Summary's two collections are output too, and carry the same guarantee: an
+// empty summary answers `.in_progress | length` with 0 rather than erroring on
+// null. Both keys were already unconditional; only their empty SPELLING was
+// wrong.
+func TestMarshalSummary_EmitsEmptyCollectionsAsEmptyNotNull(t *testing.T) {
+	summary, err := newLog(t, "swift-amber-falcon").Summarize()
+	if err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+	b, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got struct {
+		Counts     *map[string]int `json:"counts"`
+		InProgress *[]string       `json:"in_progress"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Counts == nil {
+		t.Errorf("counts must be an object, not null: %s", b)
+	}
+	if got.InProgress == nil {
+		t.Errorf("in_progress must be a list, not null: %s", b)
+	}
+}
+
+// Removing a task's LAST tag must leave an empty list, not nil. This is the
+// path that produced the only `"tags": null` left in a real store after the
+// add path was fixed: a task tagged and then untagged folds through
+// subtractTags, which is a second empty-set exit and needs the same guarantee
+// normalizeTags makes. Pinned end-to-end through the store, because the
+// defect was in the FOLD, not in any one helper.
+func TestUntagLastTag_LeavesAnEmptyListNotNull(t *testing.T) {
+	s := newLog(t, "swift-amber-falcon")
+	added, err := s.AddWithTags("a task", "", "", "human")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := s.RemoveTags(added.HarpID, "human"); err != nil {
+		t.Fatalf("untag: %v", err)
+	}
+	// Re-read through a fresh fold, which is what every output surface does.
+	all, err := s.Snapshot()
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("expected exactly one task, got %d", len(all))
+	}
+	b, err := json.Marshal(all[0])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got struct {
+		Tags *[]string `json:"tags"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Tags == nil {
+		t.Fatalf("a fully-untagged task must report [], not null: %s", b)
+	}
+	if len(*got.Tags) != 0 {
+		t.Errorf("tags = %v, want empty", *got.Tags)
 	}
 }

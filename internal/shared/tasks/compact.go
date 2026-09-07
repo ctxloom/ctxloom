@@ -53,7 +53,7 @@ type CompactTask struct {
 	HarpID   string   `json:"harp_id"`
 	Status   string   `json:"status"`
 	Checked  bool     `json:"checked"`
-	Tags     []string `json:"tags,omitempty"`
+	Tags     []string `json:"tags"`
 	Headline string   `json:"headline"`
 }
 

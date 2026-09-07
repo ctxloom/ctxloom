@@ -34,7 +34,7 @@ const noProjectNoticeFmt = "no project detected in %s (not a git repository, no 
 type taskRow struct {
 	tasks.Task
 	ProjectID  string `json:"project_id"`
-	ProjectDir string `json:"project_dir,omitempty"`
+	ProjectDir string `json:"project_dir"`
 }
 
 // compactTaskRow is taskRow's `compact` counterpart: a task's CompactTask
@@ -45,7 +45,7 @@ type taskRow struct {
 type compactTaskRow struct {
 	tasks.CompactTask
 	ProjectID  string `json:"project_id"`
-	ProjectDir string `json:"project_dir,omitempty"`
+	ProjectDir string `json:"project_dir"`
 }
 
 // compactRows projects a --global/global=true listing's taskRows to their

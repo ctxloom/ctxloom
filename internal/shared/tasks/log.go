@@ -818,7 +818,10 @@ func (l *eventLog) summarize() (Summary, error) {
 	if err != nil {
 		return Summary{}, err
 	}
-	out := Summary{Counts: map[string]int{}}
+	// Both collections start empty rather than nil so an all-quiet summary
+	// still marshals as `{}` and `[]` — a caller counts and iterates it
+	// without first testing for null.
+	out := Summary{Counts: map[string]int{}, InProgress: []string{}}
 	for _, t := range all {
 		out.Counts[t.Status]++
 		if t.Status == StatusInProgress {

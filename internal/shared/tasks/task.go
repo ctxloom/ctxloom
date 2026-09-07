@@ -99,26 +99,26 @@ type Task struct {
 	// trigger. Required when Status is Deferred; preserved across status
 	// changes so a task re-deferred later keeps its condition unless a new one
 	// is supplied. Empty for non-Deferred tasks that never carried one.
-	Trigger string `json:"trigger,omitempty"`
+	Trigger string `json:"trigger"`
 
 	// OriginSession is the harp of the session that created the task, from the
 	// `add` event; empty for tasks added outside a session.
-	OriginSession string `json:"origin_session,omitempty"`
+	OriginSession string `json:"origin_session"`
 
 	// Tags is the task's current flat tag set, derived by folding add/tag/untag
 	// events (never persisted as a snapshot). Always kept sorted for
 	// deterministic output across `taskloom list --json` and MCP. Not part of
 	// TextHash — tagging a task never changes its text identity.
-	Tags []string `json:"tags,omitempty"`
+	// A nil slice is normalized to `[]` by MarshalJSON, never left as `null`.
+	Tags []string `json:"tags"`
 
 	// CreatedAt is the task's creation timestamp — the `add` event's Ts, set
 	// once at fold-time and never overwritten by a later event (a status/tag/
 	// text change never touches it). internal/shared/tasks/priority reads it
 	// to derive a task's age (now - CreatedAt) for decay_fn/priority_fn
-	// evaluation. omitzero (not omitempty — time.Time isn't one of the types
-	// omitempty recognizes) drops it from JSON only for the zero value, which
-	// in practice means never once a task actually exists.
-	CreatedAt time.Time `json:"created_at,omitzero"`
+	// evaluation. Emitted unconditionally: a real task always carries one, so
+	// omitzero only ever varied the shape of a synthetic zero-value row.
+	CreatedAt time.Time `json:"created_at"`
 
 	// DerivedPriority is a task's rank-normalized [0,5] display priority (see
 	// internal/shared/tasks/priority.Compute) — computed at READ time, never
@@ -126,9 +126,19 @@ type Task struct {
 	// (`taskloom list --sort priority`, task_list's sort="priority"). nil
 	// otherwise, so every other read path is byte-for-byte unaffected. A
 	// pointer (not a bare float64) so a genuinely computed 0 is distinguishable
-	// from "not computed".
-	DerivedPriority *float64 `json:"derived_priority,omitempty"`
+	// from "not computed". The key is always present; "not computed" is spelled
+	// `null`, which is a value the consumer can read, rather than an absence it
+	// has to infer.
+	DerivedPriority *float64 `json:"derived_priority"`
 }
+
+// Task deliberately has NO MarshalJSON. Go promotes an embedded type's
+// methods, so a marshaller here would be inherited by every struct that
+// embeds Task — cmd/taskloom's taskRow and compactTaskRow both do — and
+// would serialize only Task's own fields, silently dropping the embedder's
+// project_id. The empty-slice guarantee is therefore made where Tags is
+// DERIVED (normalizeTags), so the value is well-formed before it ever
+// reaches a marshaller.
 
 // Summary holds counts per status and the harp IDs currently in-progress.
 type Summary struct {
@@ -184,9 +194,15 @@ func uniqueHarpIDFromSet(used map[string]struct{}) (string, error) {
 // normalizeTags trims, drops empties, dedupes, and sorts tags for
 // deterministic storage and output. Applied on every write path (add/tag)
 // and never trusted from raw event input.
+//
+// The empty result is an EMPTY SLICE, never nil: this is the one place every
+// derived tag set passes through, so it is where the output contract's
+// "tags is always a list" is made true. A nil slice marshals as `null`,
+// which fails `.tags | join(",")` and `.tags | length` exactly as an absent
+// key does. Callers that only ever ask len() are unaffected either way.
 func normalizeTags(tags []string) []string {
 	if len(tags) == 0 {
-		return nil
+		return []string{}
 	}
 	seen := make(map[string]struct{}, len(tags))
 	out := make([]string, 0, len(tags))
@@ -202,8 +218,10 @@ func normalizeTags(tags []string) []string {
 		out = append(out, t)
 	}
 	sort.Strings(out)
+	// Empty, never nil — see the doc comment. This is the second exit: input
+	// that was non-empty but held nothing but blanks.
 	if len(out) == 0 {
-		return nil
+		return []string{}
 	}
 	return out
 }
@@ -235,8 +253,12 @@ func subtractTags(base, remove []string) []string {
 		}
 		out = append(out, t)
 	}
+	// Empty, never nil — removing a task's LAST tag is the other way a tag
+	// set empties, and it owes the output contract the same `[]`
+	// normalizeTags guarantees. This was the only `"tags": null` left in a
+	// real store once the add path was fixed.
 	if len(out) == 0 {
-		return nil
+		return []string{}
 	}
 	return out
 }

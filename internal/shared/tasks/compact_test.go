@@ -108,16 +108,31 @@ func TestTaskCompact(t *testing.T) {
 	}
 }
 
-// TestTaskCompact_OmitsEmptyTags pins the omitempty behavior on Tags: a task
-// with no tags produces no "tags" key at all, matching Task's own tags
-// contract.
-func TestTaskCompact_OmitsEmptyTags(t *testing.T) {
-	full := Task{HarpID: "x", Text: "a task", Status: StatusToDo}
+// An untagged task's compact form still carries "tags", as an EMPTY LIST.
+// Output is well-formed and complete: every key of the contract is present on
+// every row, whatever the values happen to be. A key that appears only
+// sometimes makes a consumer's field access conditional on data it cannot see
+// in advance, and `null` is no better than absence — `.tags | join(",")`
+// fails on both and succeeds on [].
+func TestTaskCompact_EmitsEmptyTagsAsAList(t *testing.T) {
+	full, err := newLog(t, "swift-amber-falcon").AddWithTrigger("a task", "", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
 	b, err := json.Marshal(full.Compact())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if strings.Contains(string(b), `"tags"`) {
-		t.Errorf("compact JSON %s should omit tags when empty", string(b))
+	var got struct {
+		Tags *[]string `json:"tags"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Tags == nil {
+		t.Fatalf("compact JSON must carry a tags key, present and non-null: %s", b)
+	}
+	if len(*got.Tags) != 0 {
+		t.Errorf("an untagged task must compact to an empty tag list, got %v", *got.Tags)
 	}
 }

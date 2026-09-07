@@ -75,7 +75,7 @@ func TestReference_Local_BuildFilePath(t *testing.T) {
 	// No redundant ctxloom/ segment — local content sits under .ctxloom/content/.
 	bundle, err := ParseReference("ctxloom:local@bundles/foo")
 	require.NoError(t, err)
-	assert.Equal(t, "bundles/v2/foo.yaml", bundle.BuildFilePath(ItemTypeBundle))
+	assert.Equal(t, "bundles/v1/foo.yaml", bundle.BuildFilePath(ItemTypeBundle))
 }
 
 func TestParseReference_NonLocalUnaffected(t *testing.T) {
@@ -93,7 +93,7 @@ func TestLocalRefFetcher_FetchItem_FilesystemBackend(t *testing.T) {
 	ctx := context.Background()
 	root := "/proj/.ctxloom/content"
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, root+"/bundles/v2/foo.yaml", []byte("name: foo"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, root+"/bundles/v1/foo.yaml", []byte("name: foo"), 0o644))
 
 	f := NewLocalRefFetcher(FSVCSFactory(fs), root)
 	ref, err := ParseReference("ctxloom:local@bundles/foo")
@@ -123,7 +123,7 @@ func TestLocalRefFetcher_PinnedAgainstFilesystemErrors(t *testing.T) {
 	ctx := context.Background()
 	root := "/proj/.ctxloom/content"
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, root+"/bundles/v2/foo.yaml", []byte("name: foo"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, root+"/bundles/v1/foo.yaml", []byte("name: foo"), 0o644))
 
 	f := NewLocalRefFetcher(FSVCSFactory(fs), root)
 	ref, err := ParseReference("ctxloom:local@bundles/foo@somerev")
@@ -138,9 +138,9 @@ func TestResolver_DispatchesLocalAndRemote(t *testing.T) {
 	ctx := context.Background()
 	root := "/proj/.ctxloom/content"
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, root+"/bundles/v2/foo.yaml", []byte("local-bytes"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, root+"/bundles/v1/foo.yaml", []byte("local-bytes"), 0o644))
 
-	mf := NewMockFetcher().WithFile(".ctxloom/content/bundles/v2/core.yaml", []byte("remote-bytes"))
+	mf := NewMockFetcher().WithFile(".ctxloom/content/bundles/v1/core.yaml", []byte("remote-bytes"))
 	resolver := NewResolver(
 		NewLocalRefFetcher(FSVCSFactory(fs), root),
 		NewRemoteRefFetcher(GitForgeVCSFactory(mockFetcherFactory(mf), AuthConfig{})),

@@ -16,17 +16,17 @@ import (
 //
 // So these tests pin the LITERAL bytes. An edit that changes where publishing
 // writes has to change these lines, in a commit that says so — rather than
-// silently relocating a corpus that no longer resolves. The v2 segment below IS
-// such an edit: RepoItemPrefix/ContentItemPrefix now resolve LayoutV2, the tree
-// format, leaving v1 reachable only through the multi-root probes.
+// silently relocating a corpus that no longer resolves. The v1 segment below IS
+// such an edit: format v1 was moved out of the bundles root and into its own,
+// leaving that root as the parent the format roots are siblings under.
 
 // TestRepoLayout_LiteralPaths pins each accessor's exact repo-relative value.
 func TestRepoLayout_LiteralPaths(t *testing.T) {
-	assert.Equal(t, ".ctxloom/content/bundles/v2", RepoItemPrefix(ItemTypeBundle),
+	assert.Equal(t, ".ctxloom/content/bundles/v1", RepoItemPrefix(ItemTypeBundle),
 		"the single-file publish/fetch prefix")
 	assert.Equal(t, ".ctxloom/content/bundles", RepoItemRoot(ItemTypeBundle),
 		"the listing walk root — the PARENT of every format root, which holds no bundles itself")
-	assert.Equal(t, "bundles/v2", ContentItemPrefix(ItemTypeBundle),
+	assert.Equal(t, "bundles/v1", ContentItemPrefix(ItemTypeBundle),
 		"the content-root-relative prefix a local ref resolves against")
 	assert.NotContains(t, RepoItemRoots(ItemTypeBundle), RepoItemRoot(ItemTypeBundle),
 		"no FORMAT root may be the listing root itself: a flat listing there finds directories, not bundles")
@@ -36,9 +36,9 @@ func TestRepoLayout_LiteralPaths(t *testing.T) {
 // prefix — a bundle lands at <prefix>/<name>.yaml and the suffix is as much a
 // part of the contract as the directory.
 func TestPublishPath_LiteralPath(t *testing.T) {
-	assert.Equal(t, ".ctxloom/content/bundles/v2/go-tools.yaml",
+	assert.Equal(t, ".ctxloom/content/bundles/v1/go-tools.yaml",
 		PublishPath(ItemTypeBundle, "go-tools", false))
-	assert.Equal(t, ".ctxloom/content/bundles/v2/lang/go/testing.yaml",
+	assert.Equal(t, ".ctxloom/content/bundles/v1/lang/go/testing.yaml",
 		PublishPath(ItemTypeBundle, "lang/go/testing", false),
 		"a path-addressed bundle keeps its subdirectories under the prefix")
 }
@@ -47,7 +47,7 @@ func TestPublishPath_LiteralPath(t *testing.T) {
 // tree's root has no ".yaml" suffix, because what lands there is a directory
 // of files rather than one document.
 func TestPublishPath_Tree_LiteralPath(t *testing.T) {
-	assert.Equal(t, ".ctxloom/content/bundles/v2/atelier",
+	assert.Equal(t, ".ctxloom/content/bundles/v1/atelier",
 		PublishPath(ItemTypeBundle, "atelier", true))
 }
 
@@ -57,11 +57,11 @@ func TestBuildFilePath_LiteralPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse canonical ref: %v", err)
 	}
-	assert.Equal(t, ".ctxloom/content/bundles/v2/lang/go/testing.yaml",
+	assert.Equal(t, ".ctxloom/content/bundles/v1/lang/go/testing.yaml",
 		canonical.BuildFilePath(ItemTypeBundle))
 
 	local := &Reference{IsLocal: true, ItemType: ItemTypeBundle, Path: "go-tools"}
-	assert.Equal(t, "bundles/v2/go-tools.yaml", local.BuildFilePath(ItemTypeBundle),
+	assert.Equal(t, "bundles/v1/go-tools.yaml", local.BuildFilePath(ItemTypeBundle),
 		"a local ref resolves against an already-open content root, so it must NOT re-state it")
 }
 

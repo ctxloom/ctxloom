@@ -74,20 +74,13 @@ func authoredV1(appPath string) string {
 }
 
 // repoV1 is the repo-relative FORMAT ROOT a publishing repo commits format-v1
-// bundles into. A fixture that serves or commits a bundle at the bare
+// bundles into — exactly what remote.RepoItemPrefix resolves for a fetch and
+// what a publish writes. A fixture that serves or commits a bundle at the bare
 // .ctxloom/content/bundles root serves it where no fetch looks; the bare root
 // is only the parent a LISTING walks, which is why RepoItemRoot and these are
 // different paths.
 func repoV1(rel ...string) string {
 	return path.Join(append([]string{paths.RepoBundlesPrefixFor(paths.LayoutV1)}, rel...)...)
-}
-
-// repoV2 is repoV1's counterpart for format v2 — exactly what
-// remote.RepoItemPrefix resolves for a fetch and what a publish writes, now
-// that the prefix has flipped. A fixture a real fetch or publish must reach
-// belongs here, not under repoV1.
-func repoV2(rel ...string) string {
-	return path.Join(append([]string{paths.RepoBundlesPrefixFor(paths.LayoutV2)}, rel...)...)
 }
 
 // authoredV2 is where a fixture must write a FORMAT-V2 (tree) authored bundle,

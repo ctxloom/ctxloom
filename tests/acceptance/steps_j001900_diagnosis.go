@@ -224,17 +224,11 @@ func j001900PublishFromDisk(w *World) error {
 	if err != nil {
 		return fmt.Errorf("read authored runbook to publish: %w", err)
 	}
-	// The REMOTE path is remoteSingleFilePublishPath's, not rel: rel is where
-	// the authoring copy sits locally (format v1, a single file, by
-	// construction — see bundle_paths.go), but a publish always lands under
-	// whatever format is CURRENT, which the two prefixes name identically only
-	// while RepoItemPrefix itself equals LayoutV1.
-	remotePath := remoteSingleFilePublishPath(j001900Bundle)
-	files := map[string]string{remotePath: body}
+	files := map[string]string{rel: body}
 	// The signature is published only if one exists — "published without a
 	// signature" is a cause this journey deliberately plants.
 	if sig, serr := w.env.ReadFile(rel + ".sig"); serr == nil {
-		files[remotePath+".sig"] = sig
+		files[rel+".sig"] = sig
 	}
 
 	for _, p := range []string{rel, rel + ".sig"} {

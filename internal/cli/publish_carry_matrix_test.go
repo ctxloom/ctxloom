@@ -155,8 +155,8 @@ type carryCase struct {
 }
 
 const (
-	remoteBundlePath = ".ctxloom/content/bundles/v2/for-push.yaml"
-	remoteSigPath    = ".ctxloom/content/bundles/v2/for-push.yaml.sig"
+	remoteBundlePath = ".ctxloom/content/bundles/v1/for-push.yaml"
+	remoteSigPath    = ".ctxloom/content/bundles/v1/for-push.yaml.sig"
 )
 
 // editedBundleBytes is the rewrite that strands a signature: the same bundle,

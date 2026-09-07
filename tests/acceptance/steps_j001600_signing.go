@@ -426,16 +426,7 @@ func j001600SeedFromDisk(w *World, name string) error {
 	if err != nil {
 		return fmt.Errorf("read CLI-produced signature to publish: %w", err)
 	}
-	// The REMOTE path is remote.PublishPath's — the current format root a real
-	// `ctxloom bundle push` writes to — not rel, the LOCAL authoring path.
-	// singleFileBundlesRoot() names format v1 (the single-file bundle's own
-	// content shape), but a publish always lands under RepoItemPrefix's
-	// CURRENT format regardless of the content's shape, so the two prefixes
-	// diverge once RepoItemPrefix no longer equals LayoutV1. This seed writes
-	// where a real push writes, or the consumption scenarios fetch from a
-	// path production never used.
-	remotePath := remoteSingleFilePublishPath(name)
-	files := map[string]string{remotePath: body, remotePath + ".sig": sig}
+	files := map[string]string{rel: body, rel + ".sig": sig}
 
 	if st.publishedDir == "" {
 		st.publishedDir = filepath.Join(w.env.Root, "published")

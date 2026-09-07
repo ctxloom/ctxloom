@@ -366,7 +366,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a git remote "([^"]*)" serving a ctxloom bundle$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		url, err := w.env.SeedRemote(map[string]string{
-			remoteSingleFilePublishPath("demo"): "version: 1.0.0\n" +
+			bundleFilePath("demo"): "version: 1.0.0\n" +
 				"author: test\n" +
 				"description: Demo bundle\n" +
 				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content.\n" +
@@ -396,7 +396,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		if bare == "" {
 			return fmt.Errorf("remote %q was not seeded", name)
 		}
-		return w.env.UnpublishFromRemote(bare, remoteSingleFilePublishPath(bundle))
+		return w.env.UnpublishFromRemote(bare, bundleFilePath(bundle))
 	})
 
 	// Takes a seeded remote off the air. The bare repo IS the remote at this
@@ -427,7 +427,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("remote %q was not seeded", name)
 		}
 		return w.env.AdvanceRemote(bare, map[string]string{
-			remoteSingleFilePublishPath("demo"): "version: 2.0.0\n" +
+			bundleFilePath("demo"): "version: 2.0.0\n" +
 				"author: test\n" +
 				"description: Demo bundle v2\n" +
 				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content, version two.\n",
@@ -448,7 +448,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("remote %q was not seeded", name)
 		}
 		return w.env.AdvanceRemote(bare, map[string]string{
-			remoteSingleFilePublishPath("demo"): "version: 1.1.0\n" +
+			bundleFilePath("demo"): "version: 1.1.0\n" +
 				"author: test\n" +
 				"description: Demo bundle\n" +
 				"fragments:\n  " + frag + ":\n    tags: [demo]\n    content: |\n      " + content + "\n" +

@@ -40,7 +40,7 @@ func newRefusal(t *testing.T) refusal {
 	_, err := LockDependencies(ctx, r.cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
 	require.NoError(t, err)
 
-	r.proposed = addFileToLocalRepo(t, r.src, repoV2("demo.yaml"), "version: \"2.0.0\"\n")
+	r.proposed = addFileToLocalRepo(t, r.src, repoV1("demo.yaml"), "version: \"2.0.0\"\n")
 	require.NotEqual(t, r.kept, r.proposed)
 
 	res, err := UpgradeDependencies(ctx, r.cfg)
@@ -86,7 +86,7 @@ func TestRefusals_ASuccessfulAdvanceClearsTheRecord(t *testing.T) {
 	require.FileExists(t, paths.RefusedAdvancesPath(r.baseDir))
 
 	// Carol finally re-signs and republishes.
-	bundlePath := repoV2("demo.yaml")
+	bundlePath := repoV1("demo.yaml")
 	body := "version: \"3.0.0\"\n"
 	addFileToLocalRepo(t, r.src, bundlePath, body)
 	sig, err := signing.Sign([]byte(body), r.signer, signing.NamespacePublish)

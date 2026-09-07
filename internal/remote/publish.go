@@ -731,8 +731,10 @@ func buildPRBody(msgBody, fullTitleIfOverflow string, itemType ItemType, itemNam
 // exactly as ExportBundle already does for export.
 //
 // The prefix comes from RepoItemPrefix — the one place the remote bundle layout
-// is decided — so publish, fetch and listing move together when it moves, tree
-// or not this function's concern.
+// is decided — so publish, fetch and listing move together when it moves.
+// RepoItemPrefix hard-codes paths.LayoutV1 today, tree or not — flipping that
+// to LayoutV2 is a separate, deliberately deferred change, not this
+// function's.
 func PublishPath(itemType ItemType, name string, tree bool) string {
 	if tree {
 		return path.Join(RepoItemPrefix(itemType), name)

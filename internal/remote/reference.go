@@ -682,12 +682,10 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 	// which left forward slashes on Windows).
 	remoteName := r.LocalRemoteName()
 	file := r.Path + ".yaml"
-	// Built from paths.CacheBundlesPathFor(LayoutV2) rather than re-assembling
-	// cache/ + bundles/ from their parts, so a layout change in internal/paths
-	// cannot silently miss this call site. This is the same format-current
-	// accessor RepoItemPrefix resolves to: install and fetch must agree on
-	// where a pulled bundle sits, the same way publish and fetch must.
-	return filepath.Join(paths.CacheBundlesPathFor(baseDir, paths.LayoutV2), remoteName, file)
+	// Built from paths.CacheBundlesPath rather than re-assembling cache/ +
+	// bundles/ from their parts, so a layout change in internal/paths cannot
+	// silently miss this call site.
+	return filepath.Join(paths.CacheBundlesPath(baseDir), remoteName, file)
 }
 
 // LocalTreePath returns the local directory a DIRECTORY-form bundle installs

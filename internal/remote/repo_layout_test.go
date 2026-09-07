@@ -71,7 +71,7 @@ func TestBuildFilePath_LiteralPath(t *testing.T) {
 // RepoItemName. What that reduction must guarantee is that the name a listing
 // yields is the name a consumer can ASK FOR — never a layout-qualified one. The
 // guarantee is asserted against the live layout segments rather than against
-// today's empty v1 segment, so it keeps holding when a segment appears.
+// literal strings, so it keeps holding as layouts are added or renamed.
 func TestRepoItemName_ReturnsBareNames(t *testing.T) {
 	t.Run("an unsegmented name is returned unchanged", func(t *testing.T) {
 		assert.Equal(t, "lang/go/testing", RepoItemName(ItemTypeBundle, "lang/go/testing"))

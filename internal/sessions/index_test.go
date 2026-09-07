@@ -48,9 +48,14 @@ func requireIsolatedSessionRoot(t *testing.T) {
 	testsupport.Isolate(t)
 	root, err := paths.HomeSessionsDir()
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(root, os.TempDir()),
-		"session root %q is not under %q — HOME was not isolated, so every BindSession in this test would mkdir a harp dir in the real session store",
-		root, os.TempDir())
+	// Ask the SAME predicate Isolate allocates against. This compared against
+	// os.TempDir() alone, but Isolate mints HOME with t.TempDir(), which lands
+	// under GOTMPDIR whenever it is set — and this project's justfile sets it
+	// deliberately, because a tmpfs /tmp ENOSPCs the linker under parallel
+	// builds. The guard could therefore never pass under the gate it guards.
+	require.True(t, testsupport.UnderTestTempRoot(root),
+		"session root %q is not under any test temp root — HOME was not isolated, so every BindSession in this test would mkdir a harp dir in the real session store",
+		root)
 }
 
 func TestOpen_CreatesParentDir(t *testing.T) {

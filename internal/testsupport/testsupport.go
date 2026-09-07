@@ -50,6 +50,12 @@ func Isolate(t *testing.T) string {
 	return taskstest.Isolate(t)
 }
 
+// UnderTestTempRoot reports whether path is under a root a test may write to.
+// Delegated for the reason given on Isolate.
+func UnderTestTempRoot(path string) bool {
+	return taskstest.UnderTestTempRoot(path)
+}
+
 // ProjectDir isolates the environment (see Isolate) and switches the working
 // directory to a fresh temp dir, restoring the original cwd on cleanup. It
 // returns the project directory. Delegated for the reason given on Isolate.

@@ -75,9 +75,17 @@ func TestLoadedContent_ExportName(t *testing.T) {
 func TestLoader_LoadedContentCarriesBundleAndItem(t *testing.T) {
 	const canonical = "https://github.com/ctxloom/ctxloom-default@bundles/aspects"
 	b := &Bundle{
-		Version:   "1.0.0",
-		Fragments: map[string]BundleFragment{"security": {Content: "SEC"}},
-		Commands:  map[string]BundleCommand{"review": {Content: "REVIEW"}},
+		Version: "1.0.0",
+		Fragments: map[string]BundleFragment{"security": {
+			ItemBody: ItemBody{
+				Content: "SEC",
+			},
+		}},
+		Commands: map[string]BundleCommand{"review": {
+			ItemBody: ItemBody{
+				Content: "REVIEW",
+			},
+		}},
 	}
 	loader := NewLoader(seedLocal(map[string]*Bundle{canonical: b}))
 

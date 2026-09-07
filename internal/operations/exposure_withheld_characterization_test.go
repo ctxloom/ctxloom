@@ -70,13 +70,33 @@ func charGateSeed(signer string) map[string]*bundles.Bundle {
 	b := &bundles.Bundle{
 		Name: charGateBundle,
 		Fragments: map[string]bundles.BundleFragment{
-			"approved": {Content: charGateApprovedBody},
-			"rejected": {Content: charGateRejectedBody},
-			"pending":  {Content: charGatePendingBody},
+			"approved": {
+				ItemBody: bundles.ItemBody{
+					Content: charGateApprovedBody,
+				},
+			},
+			"rejected": {
+				ItemBody: bundles.ItemBody{
+					Content: charGateRejectedBody,
+				},
+			},
+			"pending": {
+				ItemBody: bundles.ItemBody{
+					Content: charGatePendingBody,
+				},
+			},
 		},
 		Commands: map[string]bundles.BundleCommand{
-			"tooling":  {Content: charGateToolingBody},
-			"rejected": {Content: charGateRejCmdBody},
+			"tooling": {
+				ItemBody: bundles.ItemBody{
+					Content: charGateToolingBody,
+				},
+			},
+			"rejected": {
+				ItemBody: bundles.ItemBody{
+					Content: charGateRejCmdBody,
+				},
+			},
 		},
 	}
 	b.StampSigner(signer)
@@ -262,9 +282,17 @@ func TestExposureWithheld_Characterization_UnmintableSourceRefuses(t *testing.T)
 	const unaddressable = "https://github.com/acme/repo"
 	seed := map[string]*bundles.Bundle{
 		unaddressable: {
-			Name:      unaddressable,
-			Fragments: map[string]bundles.BundleFragment{"frag": {Content: "unaddressable body"}},
-			Commands:  map[string]bundles.BundleCommand{"tooling": {Content: "unaddressable tooling"}},
+			Name: unaddressable,
+			Fragments: map[string]bundles.BundleFragment{"frag": {
+				ItemBody: bundles.ItemBody{
+					Content: "unaddressable body",
+				},
+			}},
+			Commands: map[string]bundles.BundleCommand{"tooling": {
+				ItemBody: bundles.ItemBody{
+					Content: "unaddressable tooling",
+				},
+			}},
 		},
 	}
 	p := newExposureProbe(t, nil, newTrustFixture(t).records(), seed)
@@ -298,12 +326,20 @@ func TestExposureWithheld_UnmintableSourceCostsOnlyItsOwnItems(t *testing.T) {
 	const goodBody = "addressable neighbour body"
 	seed := map[string]*bundles.Bundle{
 		unaddressable: {
-			Name:      unaddressable,
-			Fragments: map[string]bundles.BundleFragment{"frag": {Content: "unaddressable body"}},
+			Name: unaddressable,
+			Fragments: map[string]bundles.BundleFragment{"frag": {
+				ItemBody: bundles.ItemBody{
+					Content: "unaddressable body",
+				},
+			}},
 		},
 		"neighbour": {
-			Name:      "neighbour",
-			Fragments: map[string]bundles.BundleFragment{"keeper": {Content: goodBody}},
+			Name: "neighbour",
+			Fragments: map[string]bundles.BundleFragment{"keeper": {
+				ItemBody: bundles.ItemBody{
+					Content: goodBody,
+				},
+			}},
 		},
 	}
 	p := newExposureProbe(t, nil, newTrustFixture(t).records(), seed)
@@ -348,8 +384,12 @@ func TestExposureWithheld_Characterization_StoreErrorWithholdsEverything(t *test
 	// A genuinely LOCAL bundle: a bare name, no scheme marker. Trusted by
 	// locality on every healthy path.
 	seed["localdev"] = &bundles.Bundle{
-		Name:      "localdev",
-		Fragments: map[string]bundles.BundleFragment{"keep": {Content: "localdev keep body"}},
+		Name: "localdev",
+		Fragments: map[string]bundles.BundleFragment{"keep": {
+			ItemBody: bundles.ItemBody{
+				Content: "localdev keep body",
+			},
+		}},
 	}
 	p := newExposureProbe(t, cfg, newCountersignRecords(cfg, unreadable), seed)
 

@@ -98,17 +98,47 @@ var charCommands = map[bool]map[string]charExpectation{
 
 func charFragmentItems() map[string]BundleFragment {
 	return map[string]BundleFragment{
-		"distillable": {Content: charFragRaw, Distilled: charFragDistilled},
-		"plain":       {Content: charFragPlain},
-		"nodistill":   {Content: charFragNoDistill, Distilled: "nodistill fragment distilled (never served)", NoDistill: true},
+		"distillable": {
+			ItemBody: ItemBody{
+				Content:   charFragRaw,
+				Distilled: charFragDistilled,
+			},
+		},
+		"plain": {
+			ItemBody: ItemBody{
+				Content: charFragPlain,
+			},
+		},
+		"nodistill": {
+			ItemBody: ItemBody{
+				Content:   charFragNoDistill,
+				Distilled: "nodistill fragment distilled (never served)",
+				NoDistill: true,
+			},
+		},
 	}
 }
 
 func charCommandItems() map[string]BundleCommand {
 	return map[string]BundleCommand{
-		"distillable": {Content: charCmdRaw, Distilled: charCmdDistilled},
-		"plain":       {Content: charCmdPlain},
-		"nodistill":   {Content: charCmdNoDistill, Distilled: "nodistill command distilled (never served)", NoDistill: true},
+		"distillable": {
+			ItemBody: ItemBody{
+				Content:   charCmdRaw,
+				Distilled: charCmdDistilled,
+			},
+		},
+		"plain": {
+			ItemBody: ItemBody{
+				Content: charCmdPlain,
+			},
+		},
+		"nodistill": {
+			ItemBody: ItemBody{
+				Content:   charCmdNoDistill,
+				Distilled: "nodistill command distilled (never served)",
+				NoDistill: true,
+			},
+		},
 	}
 }
 

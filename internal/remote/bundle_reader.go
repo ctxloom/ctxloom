@@ -219,7 +219,7 @@ func (r *BundleReader) readableEntry(bundleName string) (LockEntry, error) {
 	// that already succeeded, and at a file that does not exist upstream. Say
 	// what is actually true instead: the bytes are there, and this reader was
 	// built without the surface that reads them.
-	if entry.Tree && r.treeFetch == nil {
+	if r.treeFetch == nil {
 		return LockEntry{}, fmt.Errorf("%w: bundle %q was published in directory form and its tree is installed at the pinned SHA %s, "+
 			"but this reader was constructed without a tree fetcher (see WithReaderTreeFetcher), so its content cannot be read here (do NOT re-pull; the pull worked)",
 			ErrTreeBundleUnreadable, bundleName, entry.SHA)
@@ -267,17 +267,7 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 		return nil, fmt.Errorf("parse repo URL %s: %w", repoURL, perr)
 	}
 
-	if entry.Tree {
-		return r.readFromTree(ctx, fetcher, owner, repo, repoURL, bundleName, ref.BuildFilePath(ref.ItemType), entry.SHA, suffix)
-	}
-
-	filePath := ref.BuildFilePath(ref.ItemType) + suffix
-
-	data, err := fetcher.FetchFile(ctx, owner, repo, filePath, entry.SHA)
-	if err != nil {
-		return nil, fmt.Errorf("fetch %s@%s: %w", filePath, entry.SHA, err)
-	}
-	return data, nil
+	return r.readFromTree(ctx, fetcher, owner, repo, repoURL, bundleName, ref.BuildFilePath(ref.ItemType), entry.SHA, suffix)
 }
 
 // readFromTree serves a DIRECTORY-form bundle's manifest — or the manifest's

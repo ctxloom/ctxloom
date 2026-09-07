@@ -35,18 +35,7 @@ import (
 // publish and fetch must never resolve different layouts: a bundle written
 // under one and read under another is written where no consumer looks. Moving
 // this is the format migration; nothing else should need to change with it.
-const itemLayout = paths.LayoutV1
-
-// ItemLayoutHoldsTrees reports whether the layout publish and fetch resolve can
-// hold a DIRECTORY-form bundle.
-//
-// v1 is the single-file document form; only v2 holds true trees. A caller with
-// a directory to publish must ask this rather than assume, because publishing a
-// tree into a layout whose leaf carries ".yaml" writes a directory's worth of
-// files under a document's name — a shape no reader looks for.
-func ItemLayoutHoldsTrees() bool {
-	return itemLayout == paths.LayoutV2
-}
+const itemLayout = paths.LayoutV2
 
 // RepoItemPath is the repo-relative path of ONE item — RepoItemPrefix and the
 // layout's own leaf composed together.
@@ -171,7 +160,7 @@ func BundleTreeRoots(filePath string) []string {
 		// probe would compose a root with the segment in it twice.
 		name := paths.TrimBundlesLayoutSegment(rel)
 		roots := make([]string, 0, 2)
-		for _, l := range []paths.BundleLayout{paths.LayoutV2, paths.LayoutV1} {
+		for _, l := range []paths.BundleLayout{paths.LayoutV2} {
 			root := path.Join(fam.prefixFor(l), name)
 			if !slices.Contains(roots, root) {
 				roots = append(roots, root)

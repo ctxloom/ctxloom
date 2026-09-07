@@ -139,11 +139,31 @@ func TestBuildSiblingContext_IsDeterministic(t *testing.T) {
 		Version:     "1.2.3",
 		Tags:        []string{"alpha", "beta"},
 		Fragments: map[string]bundles.BundleFragment{
-			"delta":   {Content: "delta body"},
-			"alpha":   {Content: "alpha body"},
-			"charlie": {Content: "charlie body"},
-			"bravo":   {Content: "bravo body"},
-			"echo":    {Content: "echo body"},
+			"delta": {
+				ItemBody: bundles.ItemBody{
+					Content: "delta body",
+				},
+			},
+			"alpha": {
+				ItemBody: bundles.ItemBody{
+					Content: "alpha body",
+				},
+			},
+			"charlie": {
+				ItemBody: bundles.ItemBody{
+					Content: "charlie body",
+				},
+			},
+			"bravo": {
+				ItemBody: bundles.ItemBody{
+					Content: "bravo body",
+				},
+			},
+			"echo": {
+				ItemBody: bundles.ItemBody{
+					Content: "echo body",
+				},
+			},
 		},
 		Commands: map[string]bundles.BundleCommand{
 			"zulu":    {Description: "zulu desc"},
@@ -179,8 +199,16 @@ func TestSiblingContext_ExcludesTheDistillingItemByRefPrefix(t *testing.T) {
 	b := &bundles.Bundle{
 		Description: "two of each",
 		Fragments: map[string]bundles.BundleFragment{
-			"keep-frag": {Content: "keep"},
-			"drop-frag": {Content: "drop"},
+			"keep-frag": {
+				ItemBody: bundles.ItemBody{
+					Content: "keep",
+				},
+			},
+			"drop-frag": {
+				ItemBody: bundles.ItemBody{
+					Content: "drop",
+				},
+			},
 		},
 		Commands: map[string]bundles.BundleCommand{
 			"keep-cmd": {Description: "keep"},

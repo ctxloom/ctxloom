@@ -335,8 +335,12 @@ func TestPendingReview_SupersededApprovalReadsAsUpdateNotNew(t *testing.T) {
 func TestSetItemTrust_AnItemWithNoContentIsRefusedRatherThanSilentlyNotRecorded(t *testing.T) {
 	fx := newTrustFixture(t)
 	empty := &bundles.Bundle{
-		Version:   "1.0",
-		Fragments: map[string]bundles.BundleFragment{"hollow": {Content: ""}},
+		Version: "1.0",
+		Fragments: map[string]bundles.BundleFragment{"hollow": {
+			ItemBody: bundles.ItemBody{
+				Content: "",
+			},
+		}},
 	}
 	_, err := SetItemTrust(nil, SetItemTrustRequest{
 		Ref: seedItemRef(t, reviewSeedKey, "fragments/hollow"), UserStore: fx.user, Signer: fx.signer, Root: fx.root,

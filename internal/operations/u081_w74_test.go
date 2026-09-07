@@ -187,7 +187,7 @@ func TestNewBundleReaderForConfig_WarnsWhenLockfileUnreadable(t *testing.T) {
 
 	// The consequence itself, pinned so the warning's claim stays true: a nil
 	// source reports every reference as not installed.
-	assert.False(t, isInstalled(context.Background(), "https://github.com/example/personal@bundles/tool", nil))
+	assert.False(t, isInstalled(context.Background(), "https://github.com/example/personal@bundles/tool", "", nil))
 }
 
 // TestNewBundleReaderForConfig_SilentOnGoodLockfile keeps the diagnostic

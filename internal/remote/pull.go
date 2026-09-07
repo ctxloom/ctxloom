@@ -737,9 +737,6 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 		Retracted:           retracted,
 		RetractedReason:     retractedReason,
 		RetractionCheckedAt: retractionCheckedAt,
-		// Which SHAPE was installed, so the reader does not have to guess (see
-		// LockEntry.Tree).
-		Tree: tree,
 	}
 
 	// A hold ("do not upgrade this") is a deliberate decision; a content re-pull

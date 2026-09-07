@@ -20,7 +20,11 @@ import (
 // below is about whether that one body reaches the caller.
 func sentinelSeed() map[string]*Bundle {
 	return map[string]*Bundle{
-		"demo": {Name: "demo", Fragments: map[string]BundleFragment{"secret": {Content: "secret body"}}},
+		"demo": {Name: "demo", Fragments: map[string]BundleFragment{"secret": {
+			ItemBody: ItemBody{
+				Content: "secret body",
+			},
+		}}},
 	}
 }
 

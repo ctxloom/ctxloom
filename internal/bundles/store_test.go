@@ -16,9 +16,13 @@ func TestFSStore_RoundTrip(t *testing.T) {
 	store := NewFSStore(nil, []string{dir})
 
 	b := &Bundle{
-		Path:      v1In(dir, "rt.yaml"),
-		Version:   "1.0",
-		Fragments: map[string]BundleFragment{"a": {Content: "hello"}},
+		Path:    v1In(dir, "rt.yaml"),
+		Version: "1.0",
+		Fragments: map[string]BundleFragment{"a": {
+			ItemBody: ItemBody{
+				Content: "hello",
+			},
+		}},
 	}
 	if err := store.Save(b); err != nil {
 		t.Fatalf("save: %v", err)

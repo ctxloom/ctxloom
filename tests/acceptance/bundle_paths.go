@@ -27,6 +27,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // The FORMAT root each fixture family is authored into.
@@ -72,9 +73,29 @@ func treeBundlesRoot() string {
 	return paths.RepoBundlesPrefixFor(treeBundleLayout)
 }
 
-// bundleFilePath is the repo-relative path of a SINGLE-FILE authored bundle.
+// bundleFilePath is the repo-relative path of a SINGLE-FILE authored bundle —
+// where Trent's own project keeps it, in the committed local content tree.
 func bundleFilePath(name string) string {
 	return path.Join(singleFileBundlesRoot(), name+".yaml")
+}
+
+// remoteSingleFilePublishPath is where a real `ctxloom bundle push` lands a
+// SINGLE-FILE bundle on a remote repo — remote.PublishPath's answer, which is
+// remote.RepoItemPrefix's CURRENT format root regardless of the bundle's own
+// content shape.
+//
+// This is NOT bundleFilePath. bundleFilePath names singleFileBundlesRoot —
+// format v1, because a single file IS that format by construction (see this
+// file's package doc) — but a publish always writes under whichever format is
+// CURRENT, not under the format the content happens to already be in. The two
+// prefixes coincided only while RepoItemPrefix itself equalled LayoutV1; once
+// it names a later format, a fixture that hand-seeds a bare remote
+// (SeedRemote/AdvanceRemote/SeedSignedRemote/AdvanceSignedRemote/
+// UnpublishFromRemote) and reuses bundleFilePath for the REMOTE side writes
+// where a real push never would, and any consumer fetch — which goes through
+// the same RepoItemPrefix — finds nothing there.
+func remoteSingleFilePublishPath(name string) string {
+	return remote.PublishPath(remote.ItemTypeBundle, name)
 }
 
 // treeBundlePath is the repo-relative directory of a TRUE-TREE authored bundle

@@ -187,7 +187,11 @@ func TestNonBuiltinLocalBundle_TrustRefUnchanged(t *testing.T) {
 		"dev": {
 			Name: "dev",
 			Fragments: map[string]bundles.BundleFragment{
-				"keep": {Content: "KEEP-MARKER"},
+				"keep": {
+					ItemBody: bundles.ItemBody{
+						Content: "KEEP-MARKER",
+					},
+				},
 			},
 		},
 	}

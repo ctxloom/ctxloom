@@ -196,7 +196,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("generate company signer: %w", err)
 		}
 		j001500.signer = signer
-		rel := bundleFilePath(bundleName)
+		rel := remoteSingleFilePublishPath(bundleName)
 		url, err := w.env.SeedSignedRemote(map[string]string{rel: j001500BundleYAML(j001500CompanyMarker)}, []string{rel}, signer)
 		if err != nil {
 			return fmt.Errorf("seed signed company remote: %w", err)
@@ -251,7 +251,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Mallory alters the company's secure-coding bundle after it was signed$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001500 := j001500Of(w)
-		rel := bundleFilePath(j001500.bundleName)
+		rel := remoteSingleFilePublishPath(j001500.bundleName)
 		// AdvanceRemote (not AdvanceSignedRemote): the bytes change but the OLD
 		// ".sig" sibling — signed over the ORIGINAL content — survives
 		// untouched, so it no longer verifies over these new bytes. That
@@ -312,7 +312,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the company's bundle ships an MCP server and a hook$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001500 := j001500Of(w)
-		rel := bundleFilePath(j001500.bundleName)
+		rel := remoteSingleFilePublishPath(j001500.bundleName)
 		if err := w.env.AdvanceSignedRemote(j001500.bare, map[string]string{rel: j001500BundleYAMLWithExec(j001500CompanyMarker)}, []string{rel}, j001500.signer); err != nil {
 			return fmt.Errorf("advance remote with mcp+hook: %w", err)
 		}
@@ -412,7 +412,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 			{"extra-a", j001500ExtraMarkerA},
 			{"extra-b", j001500ExtraMarkerB},
 		} {
-			rel := bundleFilePath(extra.name)
+			rel := remoteSingleFilePublishPath(extra.name)
 			url, err := w.env.SeedSignedRemote(map[string]string{rel: j001500BundleYAML(extra.marker)}, []string{rel}, j001500.signer)
 			if err != nil {
 				return fmt.Errorf("seed signed extra bundle %q: %w", extra.name, err)
@@ -488,7 +488,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		// One unsigned, untrusted pending item so `review --project` has
 		// something to act on: an empty pending set short-circuits ("Nothing is
 		// pending review.") before ever resolving a signer.
-		rel := bundleFilePath("bystander")
+		rel := remoteSingleFilePublishPath("bystander")
 		url, err := w.env.SeedRemote(map[string]string{rel: j001500BundleYAML(j001500ForgeryMarker)})
 		if err != nil {
 			return fmt.Errorf("seed unsigned bystander remote: %w", err)

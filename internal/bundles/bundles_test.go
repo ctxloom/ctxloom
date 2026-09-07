@@ -69,7 +69,11 @@ func TestBundleFragment_ComputeContentHash(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := &BundleFragment{Content: tt.content}
+			f := &BundleFragment{
+				ItemBody: ItemBody{
+					Content: tt.content,
+				},
+			}
 			got := f.ComputeContentHash()
 			assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, got)
 			assert.Equal(t, tt.want, got)
@@ -84,35 +88,53 @@ func TestBundleFragment_NeedsDistill(t *testing.T) {
 		want     bool
 	}{
 		{
-			name:     "no_distill set",
-			fragment: BundleFragment{NoDistill: true, Content: "test"},
-			want:     false,
+			name: "no_distill set",
+			fragment: BundleFragment{
+				ItemBody: ItemBody{
+					NoDistill: true,
+					Content:   "test",
+				},
+			},
+			want: false,
 		},
 		{
-			name:     "no distilled content",
-			fragment: BundleFragment{Content: "test"},
-			want:     true,
+			name: "no distilled content",
+			fragment: BundleFragment{
+				ItemBody: ItemBody{
+					Content: "test",
+				},
+			},
+			want: true,
 		},
 		{
-			name:     "distilled but no hash",
-			fragment: BundleFragment{Content: "test", Distilled: "distilled"},
-			want:     true,
+			name: "distilled but no hash",
+			fragment: BundleFragment{
+				ItemBody: ItemBody{
+					Content:   "test",
+					Distilled: "distilled",
+				},
+			},
+			want: true,
 		},
 		{
 			name: "hash mismatch",
 			fragment: BundleFragment{
-				Content:     "new content",
-				Distilled:   "distilled",
-				ContentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				ItemBody: ItemBody{
+					Content:     "new content",
+					Distilled:   "distilled",
+					ContentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				},
 			},
 			want: true,
 		},
 		{
 			name: "hash matches",
 			fragment: BundleFragment{
-				Content:     "test",
-				Distilled:   "distilled",
-				ContentHash: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+				ItemBody: ItemBody{
+					Content:     "test",
+					Distilled:   "distilled",
+					ContentHash: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+				},
 			},
 			want: false,
 		},
@@ -134,26 +156,46 @@ func TestBundleFragment_EffectiveContent(t *testing.T) {
 		want            string
 	}{
 		{
-			name:            "prefer distilled but none available",
-			fragment:        BundleFragment{Content: "original"},
+			name: "prefer distilled but none available",
+			fragment: BundleFragment{
+				ItemBody: ItemBody{
+					Content: "original",
+				},
+			},
 			preferDistilled: true,
 			want:            "original",
 		},
 		{
-			name:            "prefer distilled and available",
-			fragment:        BundleFragment{Content: "original", Distilled: "distilled"},
+			name: "prefer distilled and available",
+			fragment: BundleFragment{
+				ItemBody: ItemBody{
+					Content:   "original",
+					Distilled: "distilled",
+				},
+			},
 			preferDistilled: true,
 			want:            "distilled",
 		},
 		{
-			name:            "prefer original",
-			fragment:        BundleFragment{Content: "original", Distilled: "distilled"},
+			name: "prefer original",
+			fragment: BundleFragment{
+				ItemBody: ItemBody{
+					Content:   "original",
+					Distilled: "distilled",
+				},
+			},
 			preferDistilled: false,
 			want:            "original",
 		},
 		{
-			name:            "no_distill true falls back to content",
-			fragment:        BundleFragment{Content: "original", Distilled: "distilled", NoDistill: true},
+			name: "no_distill true falls back to content",
+			fragment: BundleFragment{
+				ItemBody: ItemBody{
+					Content:   "original",
+					Distilled: "distilled",
+					NoDistill: true,
+				},
+			},
 			preferDistilled: true,
 			want:            "original",
 		},
@@ -172,7 +214,11 @@ func TestBundleFragment_EffectiveContent(t *testing.T) {
 // =============================================================================
 
 func TestBundleCommand_ComputeContentHash(t *testing.T) {
-	p := &BundleCommand{Content: "test prompt"}
+	p := &BundleCommand{
+		ItemBody: ItemBody{
+			Content: "test prompt",
+		},
+	}
 	got := p.ComputeContentHash()
 	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, got)
 }
@@ -184,35 +230,53 @@ func TestBundleCommand_NeedsDistill(t *testing.T) {
 		want   bool
 	}{
 		{
-			name:   "no_distill set",
-			prompt: BundleCommand{NoDistill: true, Content: "test"},
-			want:   false,
+			name: "no_distill set",
+			prompt: BundleCommand{
+				ItemBody: ItemBody{
+					NoDistill: true,
+					Content:   "test",
+				},
+			},
+			want: false,
 		},
 		{
-			name:   "no distilled content",
-			prompt: BundleCommand{Content: "test"},
-			want:   true,
+			name: "no distilled content",
+			prompt: BundleCommand{
+				ItemBody: ItemBody{
+					Content: "test",
+				},
+			},
+			want: true,
 		},
 		{
-			name:   "distilled but no hash",
-			prompt: BundleCommand{Content: "test", Distilled: "distilled"},
-			want:   true,
+			name: "distilled but no hash",
+			prompt: BundleCommand{
+				ItemBody: ItemBody{
+					Content:   "test",
+					Distilled: "distilled",
+				},
+			},
+			want: true,
 		},
 		{
 			name: "hash mismatch",
 			prompt: BundleCommand{
-				Content:     "new content",
-				Distilled:   "distilled",
-				ContentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				ItemBody: ItemBody{
+					Content:     "new content",
+					Distilled:   "distilled",
+					ContentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				},
 			},
 			want: true,
 		},
 		{
 			name: "hash matches",
 			prompt: BundleCommand{
-				Content:     "test",
-				Distilled:   "distilled",
-				ContentHash: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+				ItemBody: ItemBody{
+					Content:     "test",
+					Distilled:   "distilled",
+					ContentHash: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+				},
 			},
 			want: false,
 		},
@@ -234,26 +298,46 @@ func TestBundleCommand_EffectiveContent(t *testing.T) {
 		want            string
 	}{
 		{
-			name:            "prefer distilled but none available",
-			prompt:          BundleCommand{Content: "original"},
+			name: "prefer distilled but none available",
+			prompt: BundleCommand{
+				ItemBody: ItemBody{
+					Content: "original",
+				},
+			},
 			preferDistilled: true,
 			want:            "original",
 		},
 		{
-			name:            "prefer distilled and available",
-			prompt:          BundleCommand{Content: "original", Distilled: "distilled"},
+			name: "prefer distilled and available",
+			prompt: BundleCommand{
+				ItemBody: ItemBody{
+					Content:   "original",
+					Distilled: "distilled",
+				},
+			},
 			preferDistilled: true,
 			want:            "distilled",
 		},
 		{
-			name:            "prefer original",
-			prompt:          BundleCommand{Content: "original", Distilled: "distilled"},
+			name: "prefer original",
+			prompt: BundleCommand{
+				ItemBody: ItemBody{
+					Content:   "original",
+					Distilled: "distilled",
+				},
+			},
 			preferDistilled: false,
 			want:            "original",
 		},
 		{
-			name:            "no_distill true falls back to content",
-			prompt:          BundleCommand{Content: "original", Distilled: "distilled", NoDistill: true},
+			name: "no_distill true falls back to content",
+			prompt: BundleCommand{
+				ItemBody: ItemBody{
+					Content:   "original",
+					Distilled: "distilled",
+					NoDistill: true,
+				},
+			},
 			preferDistilled: true,
 			want:            "original",
 		},
@@ -276,7 +360,12 @@ func TestBundleCommand_EffectiveContent(t *testing.T) {
 // grant must NOT validate a distilled exposure (different hash AND different form).
 
 func TestBundleFragment_EffectiveContentHash(t *testing.T) {
-	frag := BundleFragment{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES"}
+	frag := BundleFragment{
+		ItemBody: ItemBody{
+			Content:   "RAW-BYTES",
+			Distilled: "DISTILLED-BYTES",
+		},
+	}
 
 	rawHash, rawForm := frag.EffectiveContentHash(false)
 	distHash, distForm := frag.EffectiveContentHash(true)
@@ -294,20 +383,36 @@ func TestBundleFragment_EffectiveContentHash(t *testing.T) {
 
 	// NoDistill pins the form to raw even when distilled is preferred — no
 	// raw fallback ambiguity: the served bytes are raw and the hash says raw.
-	noDistill := BundleFragment{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES", NoDistill: true}
+	noDistill := BundleFragment{
+		ItemBody: ItemBody{
+			Content:   "RAW-BYTES",
+			Distilled: "DISTILLED-BYTES",
+			NoDistill: true,
+		},
+	}
 	h, form := noDistill.EffectiveContentHash(true)
 	assert.Equal(t, hashContent([]byte("RAW-BYTES")), h)
 	assert.Equal(t, FormRaw, form)
 
 	// The recorded ContentHash field is irrelevant to the effective hash — a
 	// forged recorded value cannot move it.
-	forged := BundleFragment{Content: "RAW-BYTES", ContentHash: "sha256:deadbeef"}
+	forged := BundleFragment{
+		ItemBody: ItemBody{
+			Content:     "RAW-BYTES",
+			ContentHash: "sha256:deadbeef",
+		},
+	}
 	fh, _ := forged.EffectiveContentHash(false)
 	assert.Equal(t, hashContent([]byte("RAW-BYTES")), fh)
 }
 
 func TestBundleCommand_EffectiveContentHash(t *testing.T) {
-	prompt := BundleCommand{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES"}
+	prompt := BundleCommand{
+		ItemBody: ItemBody{
+			Content:   "RAW-BYTES",
+			Distilled: "DISTILLED-BYTES",
+		},
+	}
 
 	rawHash, rawForm := prompt.EffectiveContentHash(false)
 	distHash, distForm := prompt.EffectiveContentHash(true)
@@ -382,7 +487,12 @@ func TestBundleMCP_ComputeContentHash(t *testing.T) {
 // =============================================================================
 
 func TestBundleFragment_ContentPayload_IsHashPreimage(t *testing.T) {
-	frag := BundleFragment{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES"}
+	frag := BundleFragment{
+		ItemBody: ItemBody{
+			Content:   "RAW-BYTES",
+			Distilled: "DISTILLED-BYTES",
+		},
+	}
 
 	rawPayload, rawForm := frag.ContentPayload(false)
 	distPayload, distForm := frag.ContentPayload(true)
@@ -403,7 +513,12 @@ func TestBundleFragment_ContentPayload_IsHashPreimage(t *testing.T) {
 }
 
 func TestBundleCommand_ContentPayload_IsHashPreimage(t *testing.T) {
-	cmd := BundleCommand{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES"}
+	cmd := BundleCommand{
+		ItemBody: ItemBody{
+			Content:   "RAW-BYTES",
+			Distilled: "DISTILLED-BYTES",
+		},
+	}
 
 	rawPayload, rawForm := cmd.ContentPayload(false)
 	distPayload, distForm := cmd.ContentPayload(true)
@@ -596,8 +711,16 @@ func TestBundle_MCPNames(t *testing.T) {
 func TestBundle_FragmentCount(t *testing.T) {
 	bundle := Bundle{
 		Fragments: map[string]BundleFragment{
-			"frag1": {Content: "c1"},
-			"frag2": {Content: "c2"},
+			"frag1": {
+				ItemBody: ItemBody{
+					Content: "c1",
+				},
+			},
+			"frag2": {
+				ItemBody: ItemBody{
+					Content: "c2",
+				},
+			},
 		},
 	}
 	assert.Equal(t, 2, bundle.FragmentCount())
@@ -606,7 +729,11 @@ func TestBundle_FragmentCount(t *testing.T) {
 func TestBundle_CommandCount(t *testing.T) {
 	bundle := Bundle{
 		Commands: map[string]BundleCommand{
-			"prompt1": {Content: "c1"},
+			"prompt1": {
+				ItemBody: ItemBody{
+					Content: "c1",
+				},
+			},
 		},
 	}
 	assert.Equal(t, 1, bundle.CommandCount())
@@ -615,8 +742,16 @@ func TestBundle_CommandCount(t *testing.T) {
 func TestBundle_FragmentNames(t *testing.T) {
 	bundle := Bundle{
 		Fragments: map[string]BundleFragment{
-			"zebra": {Content: "c1"},
-			"alpha": {Content: "c2"},
+			"zebra": {
+				ItemBody: ItemBody{
+					Content: "c1",
+				},
+			},
+			"alpha": {
+				ItemBody: ItemBody{
+					Content: "c2",
+				},
+			},
 		},
 	}
 	names := bundle.FragmentNames()
@@ -626,8 +761,16 @@ func TestBundle_FragmentNames(t *testing.T) {
 func TestBundle_PromptNames(t *testing.T) {
 	bundle := Bundle{
 		Commands: map[string]BundleCommand{
-			"zebra": {Content: "c1"},
-			"alpha": {Content: "c2"},
+			"zebra": {
+				ItemBody: ItemBody{
+					Content: "c1",
+				},
+			},
+			"alpha": {
+				ItemBody: ItemBody{
+					Content: "c2",
+				},
+			},
 		},
 	}
 	names := bundle.PromptNames()
@@ -642,7 +785,11 @@ func TestFSStore_Save(t *testing.T) {
 		Path:    bundlePath,
 		Version: "1.0",
 		Fragments: map[string]BundleFragment{
-			"test": {Content: "test content"},
+			"test": {
+				ItemBody: ItemBody{
+					Content: "test content",
+				},
+			},
 		},
 	}
 
@@ -1640,9 +1787,21 @@ func TestLoader_ExpandBundleRefs_CherryPickVersionPreserved(t *testing.T) {
 // A whole-bundle "@<commit>" enumerates the PINNED version's fragment set (which
 // may differ from the lockfile default) and stamps every item with the commit.
 func TestLoader_ExpandBundleRefs_WholeBundleVersionEnumeratesPinned(t *testing.T) {
-	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {
+		ItemBody: ItemBody{
+			Content: "default body",
+		},
+	}}}
 	versions := map[string]*Bundle{
-		"c1": {Fragments: map[string]BundleFragment{"alpha": {Content: "a"}, "beta": {Content: "b"}}},
+		"c1": {Fragments: map[string]BundleFragment{"alpha": {
+			ItemBody: ItemBody{
+				Content: "a",
+			},
+		}, "beta": {
+			ItemBody: ItemBody{
+				Content: "b",
+			},
+		}}},
 	}
 	l := versionedLoader(t, cqRef, def, versions, nil)
 
@@ -1658,9 +1817,17 @@ func TestLoader_ExpandBundleRefs_WholeBundleVersionEnumeratesPinned(t *testing.T
 // same item at an explicit commit collapse to ONE ref, and the explicit
 // "@<commit>" wins over the default version.
 func TestLoader_ExpandBundleRefs_ExplicitVersionWinsOverDefault(t *testing.T) {
-	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {
+		ItemBody: ItemBody{
+			Content: "default body",
+		},
+	}}}
 	versions := map[string]*Bundle{
-		"c1": {Fragments: map[string]BundleFragment{"solid": {Content: "v1 body"}}},
+		"c1": {Fragments: map[string]BundleFragment{"solid": {
+			ItemBody: ItemBody{
+				Content: "v1 body",
+			},
+		}}},
 	}
 	l := versionedLoader(t, cqRef, def, versions, nil)
 
@@ -1672,7 +1839,11 @@ func TestLoader_ExpandBundleRefs_ExplicitVersionWinsOverDefault(t *testing.T) {
 // A whole-bundle "@<commit>" whose version fails to fetch is dropped (fault
 // tolerance) rather than aborting the expansion — the safe withhold direction.
 func TestLoader_ExpandBundleRefs_WholeBundleVersionFetchFailureSkipped(t *testing.T) {
-	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {
+		ItemBody: ItemBody{
+			Content: "default body",
+		},
+	}}}
 	l := versionedLoader(t, cqRef, def, map[string]*Bundle{}, nil) // resolver errors on every commit
 
 	assert.Empty(t, l.Loader().ExpandBundleRefs([]string{cqRef + "@missing"}))
@@ -1919,8 +2090,18 @@ commands:
 func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
 	const secretish = "run: curl example.invalid/install.sh | sh"
 
-	frag := BundleFragment{Content: "fragment body", Installation: secretish}
-	cmd := BundleCommand{Content: "command body", Installation: secretish}
+	frag := BundleFragment{
+		ItemBody: ItemBody{
+			Content:      "fragment body",
+			Installation: secretish,
+		},
+	}
+	cmd := BundleCommand{
+		ItemBody: ItemBody{
+			Content:      "command body",
+			Installation: secretish,
+		},
+	}
 
 	for _, preferDistilled := range []bool{false, true} {
 		fragPayload, _ := frag.ContentPayload(preferDistilled)

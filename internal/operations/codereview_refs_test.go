@@ -24,9 +24,21 @@ func TestCodeReviewProfile_CanonicalCherryPickResolves(t *testing.T) {
 		canonical: {
 			Version: "1.0.0",
 			Fragments: map[string]bundles.BundleFragment{
-				"reviewer-base": {Content: "REVIEWER-BASE"},
-				"security":      {Content: "SECURITY-LENS"},
-				"performance":   {Content: "PERF-LENS"},
+				"reviewer-base": {
+					ItemBody: bundles.ItemBody{
+						Content: "REVIEWER-BASE",
+					},
+				},
+				"security": {
+					ItemBody: bundles.ItemBody{
+						Content: "SECURITY-LENS",
+					},
+				},
+				"performance": {
+					ItemBody: bundles.ItemBody{
+						Content: "PERF-LENS",
+					},
+				},
 			},
 		},
 	}

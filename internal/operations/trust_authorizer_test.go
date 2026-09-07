@@ -39,7 +39,11 @@ var authorizerItemRef = mustGitItemRef("example.test", "/repo", "kit", trust.Kin
 // authorizerBundle is the fixture content every test below decides about: one
 // fragment, so the exposure carries real bytes.
 func authorizerBundle() *bundles.Bundle {
-	return &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"keeper": {Content: "KEEPER-PAYLOAD"}}}
+	return &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"keeper": {
+		ItemBody: bundles.ItemBody{
+			Content: "KEEPER-PAYLOAD",
+		},
+	}}}
 }
 
 // admitFragment runs one fragment through the authorizer with the given read and

@@ -72,10 +72,26 @@ func bundlePromptItems(prompts []*bundles.LoadedContent) []string {
 func devToolsSeed() map[string]*bundles.Bundle {
 	return map[string]*bundles.Bundle{
 		"dev-tools": {Commands: map[string]bundles.BundleCommand{
-			"review":  {Content: "REVIEW"},
-			"explain": {Content: "EXPLAIN"},
-			"commit":  {Content: "COMMIT"},
-			"hidden":  {Content: "HIDDEN"},
+			"review": {
+				ItemBody: bundles.ItemBody{
+					Content: "REVIEW",
+				},
+			},
+			"explain": {
+				ItemBody: bundles.ItemBody{
+					Content: "EXPLAIN",
+				},
+			},
+			"commit": {
+				ItemBody: bundles.ItemBody{
+					Content: "COMMIT",
+				},
+			},
+			"hidden": {
+				ItemBody: bundles.ItemBody{
+					Content: "HIDDEN",
+				},
+			},
 		}},
 	}
 }
@@ -132,7 +148,12 @@ func TestLoadCommandExports_CurationUnionsParentsAndDefaults(t *testing.T) {
 func TestLoadCommandExports_CuratedForceEnablesOptOut(t *testing.T) {
 	seed := map[string]*bundles.Bundle{
 		"dev-tools": {Commands: map[string]bundles.BundleCommand{
-			"optout": {Content: "OPTOUT", LLM: optOut()},
+			"optout": {
+				ItemBody: bundles.ItemBody{
+					Content: "OPTOUT",
+				},
+				LLM: optOut(),
+			},
 		}},
 	}
 	cfg := curationCfg(t, []string{"p"}, map[string]config.Profile{
@@ -158,7 +179,11 @@ func TestLoadCommandExports_CuratedForceEnablesOptOut(t *testing.T) {
 // promptRawHash is the effective-content hash of a no-distill prompt body
 // (preferDistilled true ⇒ raw bytes), the value the gate keys on.
 func promptRawHash(body string) string {
-	p := bundles.BundleCommand{Content: body}
+	p := bundles.BundleCommand{
+		ItemBody: bundles.ItemBody{
+			Content: body,
+		},
+	}
 	h, _ := p.EffectiveContentHash(true)
 	return h
 }
@@ -171,7 +196,11 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 		if commit != "c1" {
 			t.Fatalf("unexpected commit %q", commit)
 		}
-		return &bundles.Bundle{Commands: map[string]bundles.BundleCommand{"review": {Content: "V1-PINNED"}}}, nil
+		return &bundles.Bundle{Commands: map[string]bundles.BundleCommand{"review": {
+			ItemBody: bundles.ItemBody{
+				Content: "V1-PINNED",
+			},
+		}}}, nil
 	}
 	cfg := curationCfg(t, []string{"p"}, map[string]config.Profile{
 		"p": {Commands: []string{"dev-tools#commands/review@c1"}},

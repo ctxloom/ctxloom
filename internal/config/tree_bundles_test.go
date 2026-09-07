@@ -59,7 +59,11 @@ func stageInstalledTree(t *testing.T) (*Config, *content.TreeStore, content.Bund
 	require.NoError(t, err)
 
 	src := &bundles.Bundle{
-		Fragments: map[string]bundles.BundleFragment{"house-style": {Content: "FRAG-BODY"}},
+		Fragments: map[string]bundles.BundleFragment{"house-style": {
+			ItemBody: bundles.ItemBody{
+				Content: "FRAG-BODY",
+			},
+		}},
 		Hooks: bundles.BundleHooks{
 			PostFileEdit: []bundles.BundleHook{
 				{Type: "command", Command: "echo stamp"},

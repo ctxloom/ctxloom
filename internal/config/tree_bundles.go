@@ -34,10 +34,8 @@ import (
 // function's: it is a fact about bytes, established where the bytes are read.
 func (c *Config) treeBundleReaders(lock *remote.Lockfile, root signing.TrustRoot, failures map[string]error) []bundles.Reader {
 	var trees []string
-	for canonical, entry := range lock.Bundles {
-		if entry.Tree {
-			trees = append(trees, canonical)
-		}
+	for canonical := range lock.Bundles {
+		trees = append(trees, canonical)
 	}
 	sort.Strings(trees) // deterministic reader order across runs
 

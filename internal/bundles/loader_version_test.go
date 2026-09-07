@@ -13,7 +13,11 @@ import (
 // gate receives for an undistilled fragment/prompt (preferDistilled true, no
 // distilled form ⇒ raw bytes).
 func effHash(body string) string {
-	h, _ := (&BundleFragment{Content: body}).EffectiveContentHash(true)
+	h, _ := (&BundleFragment{
+		ItemBody: ItemBody{
+			Content: body,
+		},
+	}).EffectiveContentHash(true)
 	return h
 }
 
@@ -62,10 +66,22 @@ const cqFrag = cqRef + "#fragments/solid"
 // trusted (its hash granted) and v2 is withheld (blacklisted/un-granted), so only
 // v1 survives — the headline multi-version contract.
 func TestMultiVersion_CoexistGatedIndependently(t *testing.T) {
-	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {
+		ItemBody: ItemBody{
+			Content: "default body",
+		},
+	}}}
 	versions := map[string]*Bundle{
-		"c1": {Fragments: map[string]BundleFragment{"solid": {Content: "v1 body"}}},
-		"c2": {Fragments: map[string]BundleFragment{"solid": {Content: "v2 body"}}},
+		"c1": {Fragments: map[string]BundleFragment{"solid": {
+			ItemBody: ItemBody{
+				Content: "v1 body",
+			},
+		}}},
+		"c2": {Fragments: map[string]BundleFragment{"solid": {
+			ItemBody: ItemBody{
+				Content: "v2 body",
+			},
+		}}},
 	}
 	// Trust v1's content only; v2's hash is absent ⇒ withheld.
 	gate := hashGate(map[string]bool{effHash("v1 body"): true})
@@ -98,10 +114,22 @@ func TestMultiVersion_CoexistGatedIndependently(t *testing.T) {
 // TestMultiVersion_IdenticalContentDedups proves two commits whose fragment never
 // changed collapse to a single item (same effective hash ⇒ one).
 func TestMultiVersion_IdenticalContentDedups(t *testing.T) {
-	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {
+		ItemBody: ItemBody{
+			Content: "default body",
+		},
+	}}}
 	versions := map[string]*Bundle{
-		"c1": {Fragments: map[string]BundleFragment{"solid": {Content: "same body"}}},
-		"c2": {Fragments: map[string]BundleFragment{"solid": {Content: "same body"}}},
+		"c1": {Fragments: map[string]BundleFragment{"solid": {
+			ItemBody: ItemBody{
+				Content: "same body",
+			},
+		}}},
+		"c2": {Fragments: map[string]BundleFragment{"solid": {
+			ItemBody: ItemBody{
+				Content: "same body",
+			},
+		}}},
 	}
 	gate := hashGate(map[string]bool{effHash("same body"): true})
 	l := versionedLoader(t, cqRef, def, versions, gate)
@@ -118,9 +146,17 @@ func TestMultiVersion_IdenticalContentDedups(t *testing.T) {
 // TestMultiVersion_FetchFailureWithholdsOnlyThatVersion proves a per-version
 // resolve failure drops ONLY that version (fail-closed) while the others resolve.
 func TestMultiVersion_FetchFailureWithholdsOnlyThatVersion(t *testing.T) {
-	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {
+		ItemBody: ItemBody{
+			Content: "default body",
+		},
+	}}}
 	versions := map[string]*Bundle{
-		"c1": {Fragments: map[string]BundleFragment{"solid": {Content: "v1 body"}}},
+		"c1": {Fragments: map[string]BundleFragment{"solid": {
+			ItemBody: ItemBody{
+				Content: "v1 body",
+			},
+		}}},
 		// "broken" is intentionally absent ⇒ the fake resolver errors.
 	}
 	gate := hashGate(map[string]bool{effHash("v1 body"): true})
@@ -144,9 +180,17 @@ func TestMultiVersion_FetchFailureWithholdsOnlyThatVersion(t *testing.T) {
 // to the lockfile-pinned default: GetFragment and an empty-commit resolution both
 // return the seeded default, never a historical version.
 func TestMultiVersion_DefaultPathUnchanged(t *testing.T) {
-	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {
+		ItemBody: ItemBody{
+			Content: "default body",
+		},
+	}}}
 	versions := map[string]*Bundle{
-		"c1": {Fragments: map[string]BundleFragment{"solid": {Content: "v1 body"}}},
+		"c1": {Fragments: map[string]BundleFragment{"solid": {
+			ItemBody: ItemBody{
+				Content: "v1 body",
+			},
+		}}},
 	}
 	gate := hashGate(map[string]bool{
 		effHash("default body"): true,
@@ -182,9 +226,17 @@ func TestMultiVersion_DefaultPathUnchanged(t *testing.T) {
 // TestMultiVersion_EmbeddedCommitAddressing proves the <ref>@<commit> string form
 // resolves the historical version (commit carried on the bundle part of the ref).
 func TestMultiVersion_EmbeddedCommitAddressing(t *testing.T) {
-	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {
+		ItemBody: ItemBody{
+			Content: "default body",
+		},
+	}}}
 	versions := map[string]*Bundle{
-		"c1": {Fragments: map[string]BundleFragment{"solid": {Content: "v1 body"}}},
+		"c1": {Fragments: map[string]BundleFragment{"solid": {
+			ItemBody: ItemBody{
+				Content: "v1 body",
+			},
+		}}},
 	}
 	gate := hashGate(map[string]bool{effHash("v1 body"): true})
 	l := versionedLoader(t, cqRef, def, versions, gate)
@@ -203,7 +255,11 @@ func TestMultiVersion_EmbeddedCommitAddressing(t *testing.T) {
 // pinned-commit request fails closed (ErrNoVersionResolver) while the default
 // (lockfile) path keeps working.
 func TestMultiVersion_NoResolverFailsClosed(t *testing.T) {
-	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {
+		ItemBody: ItemBody{
+			Content: "default body",
+		},
+	}}}
 	l := ungated(NewLoader(seedLocal(map[string]*Bundle{cqRef: def})), true)
 
 	if _, err := l.GetFragmentAtVersion(cqFrag, "c1"); !errors.Is(err, errs.ErrNoVersionResolver) {
@@ -228,9 +284,17 @@ func TestMultiVersion_NoResolverFailsClosed(t *testing.T) {
 // shape, so a historical version keys under the SAME trust identity as its
 // unpinned twin.
 func TestMultiVersion_TypedSourceRefIsStamped(t *testing.T) {
-	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {
+		ItemBody: ItemBody{
+			Content: "default body",
+		},
+	}}}
 	versions := map[string]*Bundle{
-		"c1": {Fragments: map[string]BundleFragment{"solid": {Content: "v1 body"}}},
+		"c1": {Fragments: map[string]BundleFragment{"solid": {
+			ItemBody: ItemBody{
+				Content: "v1 body",
+			},
+		}}},
 	}
 	gate := hashGate(map[string]bool{effHash("v1 body"): true})
 	l := versionedLoader(t, cqRef, def, versions, gate)
@@ -252,10 +316,22 @@ func TestMultiVersion_TypedSourceRefIsStamped(t *testing.T) {
 // version is gated by its own effective hash under the version-less ref.
 func TestMultiVersion_Prompt(t *testing.T) {
 	promptRef := cqRef + "#commands/review"
-	def := &Bundle{Commands: map[string]BundleCommand{"review": {Content: "default review"}}}
+	def := &Bundle{Commands: map[string]BundleCommand{"review": {
+		ItemBody: ItemBody{
+			Content: "default review",
+		},
+	}}}
 	versions := map[string]*Bundle{
-		"c1": {Commands: map[string]BundleCommand{"review": {Content: "v1 review"}}},
-		"c2": {Commands: map[string]BundleCommand{"review": {Content: "v2 review"}}},
+		"c1": {Commands: map[string]BundleCommand{"review": {
+			ItemBody: ItemBody{
+				Content: "v1 review",
+			},
+		}}},
+		"c2": {Commands: map[string]BundleCommand{"review": {
+			ItemBody: ItemBody{
+				Content: "v2 review",
+			},
+		}}},
 	}
 	gate := hashGate(map[string]bool{effHash("v1 review"): true})
 	l := versionedLoader(t, cqRef, def, versions, gate)

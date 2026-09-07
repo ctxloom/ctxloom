@@ -2229,12 +2229,3 @@ lsp-restart:
     @./scripts/lsp-refresh --force || true
     @echo "gopls will respawn on the next language-server request."
 
-# ONE-OFF: decompose a bundle repo's format-v1 bundles into format-v2 tree form.
-# Pairs with cmd/migratev2, which is behind the `migratev2` build tag so it never
-# enters a normal build. DELETE BOTH once the two bundle repos are migrated --
-# each format migration is its own transformation, so this does not generalise to
-# whatever v3 turns out to be.
-#   just migrate-v2 /path/to/repo          # dry run
-#   just migrate-v2 /path/to/repo --apply
-migrate-v2 REPO *ARGS:
-    go run -tags migratev2 ./cmd/migratev2 -repo {{REPO}} {{ARGS}}

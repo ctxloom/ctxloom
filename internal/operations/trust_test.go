@@ -492,8 +492,17 @@ func seededLoader(t *testing.T) (*bundles.Loader, string) {
 		Name:    seedKey,
 		Version: "1.0",
 		Fragments: map[string]bundles.BundleFragment{
-			"solid": {Content: "always raw fragment body"},
-			"dual":  {Content: "raw body", Distilled: "distilled body"},
+			"solid": {
+				ItemBody: bundles.ItemBody{
+					Content: "always raw fragment body",
+				},
+			},
+			"dual": {
+				ItemBody: bundles.ItemBody{
+					Content:   "raw body",
+					Distilled: "distilled body",
+				},
+			},
 		},
 		MCP: map[string]bundles.BundleMCP{
 			"postgres": {Command: "pg-mcp", Args: []string{"--port", "5432"}},
@@ -631,7 +640,12 @@ func TestSetItemTrust_ApprovesBothForms(t *testing.T) {
 	assert.Equal(t, "approved", res.Status)
 
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "dual"}
-	frag := bundles.BundleFragment{Content: "raw body", Distilled: "distilled body"}
+	frag := bundles.BundleFragment{
+		ItemBody: bundles.ItemBody{
+			Content:   "raw body",
+			Distilled: "distilled body",
+		},
+	}
 	rawPayload, _ := frag.ContentPayload(false)
 	distilledPayload, _ := frag.ContentPayload(true)
 	for form, payload := range map[string][]byte{rawForm: rawPayload, distilledForm: distilledPayload} {

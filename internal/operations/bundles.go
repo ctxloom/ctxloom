@@ -171,7 +171,7 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 
 	// The layout and the on-disk form are one choice: v1 holds documents, v2
 	// holds trees. See CreateBundleRequest.Tree.
-	layout := paths.LayoutV1
+	layout := paths.LayoutV2
 	if req.Tree {
 		layout = paths.LayoutV2
 	}
@@ -878,13 +878,6 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	}
 
 	if treeForm {
-		// A tree cannot travel into a layout that does not hold trees: its leaf
-		// would be a document name, and nothing reads a directory from there.
-		// REFUSING beats writing bytes no consumer can find — this project's
-		// characteristic failure is exit 0 over a payload that went nowhere.
-		if !remote.ItemLayoutHoldsTrees() {
-			return nil, fmt.Errorf("cannot publish %q: it is a directory-form bundle, and the current bundle layout holds single-file documents only; migrate it to the tree layout before publishing", bundleName)
-		}
 		return runTreePush(ctx, cfg, registry, req.Remote, absPath, req, result)
 	}
 	return runPush(ctx, cfg, registry, req.Remote, absPath, req, result)
@@ -1141,7 +1134,7 @@ func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath
 // remote — the match would fail for every bundle the current code installs.
 func remoteFromCachePath(cfg *config.Config, registry *remote.Registry, absPath string) (string, bool) {
 	app := cfg.GetAppPaths()[0]
-	for _, l := range []paths.BundleLayout{paths.LayoutV2, paths.LayoutV1} {
+	for _, l := range []paths.BundleLayout{paths.LayoutV2} {
 		rel, err := filepath.Rel(paths.CacheBundlesPathFor(app, l), absPath)
 		if err != nil || isOutsideRel(rel) {
 			continue
@@ -1306,11 +1299,13 @@ func applyInputs[I, E any](dst *map[string]E, in map[string]I, conv func(I) E) {
 func applyFragmentInputs(b *bundles.Bundle, in map[string]BundleFragmentInput) {
 	applyInputs(&b.Fragments, in, func(frag BundleFragmentInput) bundles.BundleFragment {
 		return bundles.BundleFragment{
-			Tags:         frag.Tags,
-			Notes:        frag.Notes,
-			Installation: frag.Installation,
-			Content:      frag.Content,
-			NoDistill:    frag.NoDistill,
+			ItemBody: bundles.ItemBody{
+				Tags:         frag.Tags,
+				Notes:        frag.Notes,
+				Installation: frag.Installation,
+				Content:      frag.Content,
+				NoDistill:    frag.NoDistill,
+			},
 		}
 	})
 }
@@ -1318,12 +1313,14 @@ func applyFragmentInputs(b *bundles.Bundle, in map[string]BundleFragmentInput) {
 func applyPromptInputs(b *bundles.Bundle, in map[string]BundleCommandInput) {
 	applyInputs(&b.Commands, in, func(p BundleCommandInput) bundles.BundleCommand {
 		return bundles.BundleCommand{
-			Description:  p.Description,
-			Tags:         p.Tags,
-			Notes:        p.Notes,
-			Installation: p.Installation,
-			Content:      p.Content,
-			NoDistill:    p.NoDistill,
+			ItemBody: bundles.ItemBody{
+				Tags:         p.Tags,
+				Notes:        p.Notes,
+				Installation: p.Installation,
+				Content:      p.Content,
+				NoDistill:    p.NoDistill,
+			},
+			Description: p.Description,
 		}
 	})
 }

@@ -128,7 +128,6 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 			entry.Held = prevEntry.Held
 			entry.Retracted = prevEntry.Retracted
 			entry.RetractedReason = prevEntry.RetractedReason
-			entry.Tree = prevEntry.Tree
 		}
 		lockfile.AddEntry(p.Type, p.Identity, entry)
 	}

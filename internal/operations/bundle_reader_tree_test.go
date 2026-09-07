@@ -68,11 +68,11 @@ func TestIsInstalled_APulledTreeBundleIsInstalled(t *testing.T) {
 
 	wired := remote.NewBundleReader(nil, factory, remote.AuthConfig{}, treeProbeLock(),
 		remote.WithReaderTreeFetcher(remotetree.PullTreeFetcher))
-	assert.True(t, isInstalled(t.Context(), treeProbeCanonical, wired),
+	assert.True(t, isInstalled(t.Context(), treeProbeCanonical, "", wired),
 		"a directory-form bundle present at its pinned sha is installed")
 
 	unwired := remote.NewBundleReader(nil, factory, remote.AuthConfig{}, treeProbeLock())
-	assert.False(t, isInstalled(t.Context(), treeProbeCanonical, unwired),
+	assert.False(t, isInstalled(t.Context(), treeProbeCanonical, "", unwired),
 		"without the tree surface the same bundle cannot be read, so it cannot be called installed")
 }
 

@@ -281,7 +281,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		rel := bundleFilePath(ts.bundleName)
+		rel := remoteSingleFilePublishPath(ts.bundleName)
 		// Deliberately UNSIGNED: every item is born pending (denied by
 		// default), so approving one is the only thing that can expose it —
 		// the meaningful state for the APPROVE outline (see file doc).
@@ -298,7 +298,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		rel := bundleFilePath(ts.bundleName)
+		rel := remoteSingleFilePublishPath(ts.bundleName)
 		signer, err := testenv.GenerateTestSigner()
 		if err != nil {
 			return fmt.Errorf("generate trust-surface signer: %w", err)
@@ -377,7 +377,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("trust-surface: rename-and-resign requires the signed fixture (no signer recorded)")
 		}
 		bareDir := strings.TrimPrefix(ts.url, "file://")
-		rel := bundleFilePath(ts.bundleName)
+		rel := remoteSingleFilePublishPath(ts.bundleName)
 		if err := w.env.AdvanceSignedRemote(bareDir, map[string]string{rel: tsBundleYAMLFragmentRenamed()}, []string{rel}, ts.signer); err != nil {
 			return fmt.Errorf("advance signed trust-surface remote (rename fragment): %w", err)
 		}
@@ -392,7 +392,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		rel := bundleFilePath(ts.bundleName)
+		rel := remoteSingleFilePublishPath(ts.bundleName)
 		url, err := w.env.SeedRemote(map[string]string{rel: tsDualFormBundleYAML()})
 		if err != nil {
 			return fmt.Errorf("seed dual-form trust-surface remote: %w", err)
@@ -442,7 +442,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		ts := tsOf(w)
 		bareDir := strings.TrimPrefix(ts.url, "file://")
-		rel := bundleFilePath(ts.bundleName)
+		rel := remoteSingleFilePublishPath(ts.bundleName)
 		if err := w.env.AdvanceRemote(bareDir, map[string]string{rel: tsBundleYAMLFragmentDistilledAdded()}); err != nil {
 			return fmt.Errorf("advance unsigned trust-surface remote (add distilled form): %w", err)
 		}
@@ -751,9 +751,18 @@ func tsApprovalsStore(w *World) *countersign.Store {
 // exactly the shape a write path that fell back from distilled to raw would
 // leave behind.
 func tsAssertRecordedContentRejects(w *World, dualForm bool) error {
-	frag := bundles.BundleFragment{Content: tsFragmentMarker}
+	frag := bundles.BundleFragment{
+		ItemBody: bundles.ItemBody{
+			Content: tsFragmentMarker,
+		},
+	}
 	if dualForm {
-		frag = bundles.BundleFragment{Content: tsDualRawMarker, Distilled: tsDualDistilledMarker}
+		frag = bundles.BundleFragment{
+			ItemBody: bundles.ItemBody{
+				Content:   tsDualRawMarker,
+				Distilled: tsDualDistilledMarker,
+			},
+		}
 	}
 	rawPayload, _ := frag.ContentPayload(false)
 	distilledPayload, _ := frag.ContentPayload(true)
@@ -1203,13 +1212,17 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		// The collision, verified through the two PRODUCTION preimage builders:
 		// the fragment the reviewer will be shown as text and the executable the
 		// gate will ask about resolve to identical bytes.
-		frag := bundles.BundleFragment{Content: string(execPayload)}
+		frag := bundles.BundleFragment{
+			ItemBody: bundles.ItemBody{
+				Content: string(execPayload),
+			},
+		}
 		fragPayload, _ := frag.ContentPayload(false)
 		if !bytes.Equal(fragPayload, execPayload) {
 			return fmt.Errorf("fixture does not actually collide: fragment payload %q != mcp preimage %q", fragPayload, execPayload)
 		}
 		ts := tsOf(w)
-		rel := bundleFilePath(ts.bundleName)
+		rel := remoteSingleFilePublishPath(ts.bundleName)
 		url, err := w.env.SeedRemote(map[string]string{rel: tsCollisionBundleYAML(execPayload)})
 		if err != nil {
 			return fmt.Errorf("seed collision trust-surface remote: %w", err)

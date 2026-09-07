@@ -201,7 +201,7 @@ type bundleSearchRoot struct {
 // same-name migration keeps serving the monolith, so the migration "would
 // appear to succeed and change nothing". Pinned by
 // TestLocate_V2WinsOverV1AndReportsTheOther.
-var bundleLayoutPrecedence = []paths.BundleLayout{paths.LayoutV2, paths.LayoutV1}
+var bundleLayoutPrecedence = []paths.BundleLayout{paths.LayoutV2}
 
 // searchRoots expands each configured search directory into its per-layout
 // roots, most preferred first.

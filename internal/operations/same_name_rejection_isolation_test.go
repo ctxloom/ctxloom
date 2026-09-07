@@ -43,7 +43,11 @@ func sameNameLoader(t *testing.T, projectBody string) *bundles.Loader {
 	data, err := yaml.Marshal(&bundles.Bundle{
 		Name: sharedBundleName,
 		Fragments: map[string]bundles.BundleFragment{
-			sharedFragmentName: {Content: projectBody},
+			sharedFragmentName: {
+				ItemBody: bundles.ItemBody{
+					Content: projectBody,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)

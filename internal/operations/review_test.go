@@ -26,11 +26,24 @@ func reviewBundle() *bundles.Bundle {
 	return &bundles.Bundle{
 		Version: "1.0",
 		Fragments: map[string]bundles.BundleFragment{
-			"solid": {Content: "solid raw body"},
-			"dual":  {Content: "dual raw body", Distilled: "dual distilled body"},
+			"solid": {
+				ItemBody: bundles.ItemBody{
+					Content: "solid raw body",
+				},
+			},
+			"dual": {
+				ItemBody: bundles.ItemBody{
+					Content:   "dual raw body",
+					Distilled: "dual distilled body",
+				},
+			},
 		},
 		Commands: map[string]bundles.BundleCommand{
-			"greet": {Content: "greet body"},
+			"greet": {
+				ItemBody: bundles.ItemBody{
+					Content: "greet body",
+				},
+			},
 		},
 		MCP: map[string]bundles.BundleMCP{
 			"pg": {Command: "pg-mcp", Args: []string{"--port", "5432"}, Env: map[string]string{"PGHOST": "localhost", "APP": "x"}},
@@ -208,8 +221,12 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 
 	t.Run("local bundle is exempt — nothing pending", func(t *testing.T) {
 		local := &bundles.Bundle{
-			Version:   "1.0",
-			Fragments: map[string]bundles.BundleFragment{"x": {Content: "project-authored"}},
+			Version: "1.0",
+			Fragments: map[string]bundles.BundleFragment{"x": {
+				ItemBody: bundles.ItemBody{
+					Content: "project-authored",
+				},
+			}},
 		}
 		loader := seedLoader(t, map[string]*bundles.Bundle{"localb": local})
 		fx := newTrustFixture(t)
@@ -551,7 +568,11 @@ func TestRenderHookSurface_NoCommandOrPromptShowsMarker(t *testing.T) {
 const reviewPubRef = "https://example.test/repo@bundles/pub"
 
 func TestReviewPublisherOf_FourStates(t *testing.T) {
-	b := &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {Content: "x"}}}
+	b := &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
+		ItemBody: bundles.ItemBody{
+			Content: "x",
+		},
+	}}}
 
 	unsignedLoader := seedLoader(t, map[string]*bundles.Bundle{reviewPubRef: b})
 	state, principal, fingerprint := reviewPublisherOf(readOf(t, unsignedLoader, reviewPubRef))

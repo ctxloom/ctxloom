@@ -2547,7 +2547,7 @@ func (c *Config) remoteBundleReaders() []bundles.Reader {
 		// (a skill needs a real directory) and check a signature over the
 		// manifest alone rather than over the tree. Skipping it is what keeps
 		// exactly one reader per canonical ref.
-		if !ok || entry.Tree {
+		if !ok {
 			continue
 		}
 		tree, terr := documentTree(canonical, rawBytes[canonical], signatureFor(ctx, reader, canonical))

@@ -29,10 +29,21 @@ func everyKindBundle() *bundles.Bundle {
 		Version:     "1.2.3",
 		Description: "the vault bundle",
 		Fragments: map[string]bundles.BundleFragment{
-			"house-style": {Content: "FRAG-BODY", Notes: "N", Tags: []string{"style"}},
+			"house-style": {
+				ItemBody: bundles.ItemBody{
+					Content: "FRAG-BODY",
+					Notes:   "N",
+					Tags:    []string{"style"},
+				},
+			},
 		},
 		Commands: map[string]bundles.BundleCommand{
-			"ship-it": {Content: "CMD-BODY", Description: "ship it"},
+			"ship-it": {
+				ItemBody: bundles.ItemBody{
+					Content: "CMD-BODY",
+				},
+				Description: "ship it",
+			},
 		},
 		MCP: map[string]bundles.BundleMCP{
 			"ledger": {Command: "/bin/ledger", Args: []string{"--serve"}, Env: map[string]string{"MODE": "ro"}},

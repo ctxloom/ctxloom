@@ -11,8 +11,12 @@ import (
 // identity. Load resolves that key, and List enumerates it under that name.
 func TestLoader_SeededCanonical_ResolvesAndLists(t *testing.T) {
 	b := &Bundle{
-		Version:   "1.0.0",
-		Fragments: map[string]BundleFragment{"security": {Content: "SEC"}},
+		Version: "1.0.0",
+		Fragments: map[string]BundleFragment{"security": {
+			ItemBody: ItemBody{
+				Content: "SEC",
+			},
+		}},
 	}
 	const canonical = "https://github.com/ctxloom/ctxloom-default@bundles/aspects"
 	loader := NewLoader(seedLocal(map[string]*Bundle{canonical: b}))
@@ -36,8 +40,12 @@ func TestLoader_SeededCanonical_ResolvesAndLists(t *testing.T) {
 // and dropped from the assembled context.
 func TestLoader_SeededCanonical_VersionCarryingRefResolves(t *testing.T) {
 	b := &Bundle{
-		Version:   "1.0.0",
-		Fragments: map[string]BundleFragment{"security": {Content: "SEC"}},
+		Version: "1.0.0",
+		Fragments: map[string]BundleFragment{"security": {
+			ItemBody: ItemBody{
+				Content: "SEC",
+			},
+		}},
 	}
 	const canonical = "https://github.com/ctxloom/ctxloom-default@bundles/aspects"
 	loader := NewLoader(seedLocal(map[string]*Bundle{canonical: b}))

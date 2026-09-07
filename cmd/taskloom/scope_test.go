@@ -29,7 +29,7 @@ func TestResolveListScope_ExplicitGlobal_AlwaysAggregatesNoNotice(t *testing.T) 
 	taskstest.Isolate(t)
 	dir := t.TempDir()
 
-	scope, err := resolveListScope(true, "pinned-project", dir, false)
+	scope, err := resolveListScope(true, "pinned-project", dir, false, false)
 	require.NoError(t, err)
 	assert.True(t, scope.Global)
 	assert.Empty(t, scope.Notice, "an explicit --global is a silent opt-in")
@@ -39,7 +39,7 @@ func TestResolveListScope_PinnedProjectID_StaysProjectScoped(t *testing.T) {
 	taskstest.Isolate(t)
 	dir := t.TempDir() // not a git repo, not established — the pin alone must be enough
 
-	scope, err := resolveListScope(false, "pinned-project", dir, false)
+	scope, err := resolveListScope(false, "pinned-project", dir, false, false)
 	require.NoError(t, err)
 	assert.False(t, scope.Global)
 	assert.Empty(t, scope.Notice)
@@ -53,7 +53,7 @@ func TestResolveListScope_GitBoundary_StaysProjectScopedEvenUnestablished(t *tes
 
 	// A git repo's first-ever taskloom call is still a real project: no prior
 	// task history, no marker, but a real boundary.
-	scope, err := resolveListScope(false, "", dir, true)
+	scope, err := resolveListScope(false, "", dir, true, false)
 	require.NoError(t, err)
 	assert.False(t, scope.Global)
 	assert.Empty(t, scope.Notice)
@@ -64,7 +64,7 @@ func TestResolveListScope_NoGitNoHistory_FallsBackToGlobalWithNotice(t *testing.
 	dir := t.TempDir() // no git, no marker, no registry entry
 	taskstest.ChangeDir(t, dir)
 
-	scope, err := resolveListScope(false, "", dir, false)
+	scope, err := resolveListScope(false, "", dir, false, false)
 	require.NoError(t, err)
 	assert.True(t, scope.Global, "no boundary and no established identity must default to global")
 	require.NotEmpty(t, scope.Notice, "the fallback must be explained, not silent")
@@ -78,9 +78,26 @@ func TestResolveListScope_EstablishedMarkerWithoutGit_StaysProjectScoped(t *test
 	taskstest.ChangeDir(t, dir)
 	require.NoError(t, projectid.WriteMarker(dir, "adopted-project"))
 
-	scope, err := resolveListScope(false, "", dir, false)
+	scope, err := resolveListScope(false, "", dir, false, false)
 	require.NoError(t, err)
 	assert.False(t, scope.Global, "an in-tree marker is an established identity even without git")
+	assert.Empty(t, scope.Notice)
+}
+
+// TestResolveListScope_RepoHomed_StaysProjectScopedEvenUnestablished is the
+// unit-level pin behind womanless-starfish: a repo-homed project (homing:
+// repo) mints no project-id and registers nowhere, so isEstablishedProject
+// can never see it and workDirIsBoundary is false for a bare (non-git)
+// directory — every OTHER signal says "no project here". Only repoHomed
+// keeps this project-scoped instead of falling back to --global, which is
+// what silently stranded a repo-homed write where no read could reach it.
+func TestResolveListScope_RepoHomed_StaysProjectScopedEvenUnestablished(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir() // no git, no marker, no registry entry
+
+	scope, err := resolveListScope(false, "", dir, false, true)
+	require.NoError(t, err)
+	assert.False(t, scope.Global, "a repo-homed store needs no identity: the directory IS the store")
 	assert.Empty(t, scope.Notice)
 }
 
@@ -285,7 +302,7 @@ func TestResolveListScope_HonorsTheCallersBoundaryRatherThanReResolving(t *testi
 
 	elsewhere := t.TempDir() // no git, no marker, no registry entry
 
-	scope, err := resolveListScope(false, "", elsewhere, false)
+	scope, err := resolveListScope(false, "", elsewhere, false, false)
 	require.NoError(t, err)
 	assert.True(t, scope.Global,
 		"the caller reported no boundary; re-resolving cwd (a git repo) must not override it")

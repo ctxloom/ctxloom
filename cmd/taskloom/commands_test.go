@@ -170,6 +170,36 @@ func TestRunListCmd_GlobalNamesCurrentProjectWhenRepoHomed(t *testing.T) {
 	assert.Contains(t, stderr.String(), "repo-homed")
 }
 
+// TestRunListCmd_RepoHomedProjectDefaultListingFindsItsOwnWrite is the
+// end-to-end pin behind womanless-starfish ("homing:repo outside a project
+// boundary: the write lands somewhere no read can reach"): a task added to a
+// repo-homed store (homing: repo, no git repo, no registry entry, no
+// in-tree marker minted by the write) must be visible to a plain `taskloom
+// list` run from the SAME directory, with no --global and no --homing
+// override needed. Before the fix, resolveListScope had no way to see the
+// project's own homing declaration and fell back to the --global aggregate
+// (empty here, since nothing else was ever added), silently excluding the
+// very task that was just written.
+func TestRunListCmd_RepoHomedProjectDefaultListingFindsItsOwnWrite(t *testing.T) {
+	proj := taskstest.ProjectDir(t) // NOT git-inited: no boundary, no identity
+	writeConfigForTest(t, proj, "homing: repo\n")
+
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+	added, err := operations.AddTask(tc, "probe: repo-homed write", tasks.StatusToDo, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, added.Task.HarpID)
+
+	var stdout, stderr strings.Builder
+	err = runListCmd(&stdout, &stderr, mustTaskContext(t), listOptions{Format: clifmt.FormatText})
+	require.NoError(t, err)
+
+	assert.NotContains(t, stderr.String(), "no project detected",
+		"a repo-homed project must resolve project-scoped, not fall back to the no-project global default")
+	assert.Contains(t, stdout.String(), "probe: repo-homed write",
+		"the read must find the write that landed in this directory's own .taskloom/tasks.jsonl")
+}
+
 // TestRunListCmd_NoProjectContextDefaultsGlobalWithNotice is the CLI-side
 // mirror of TestHandleTaskList_NoProjectContextDefaultsGlobalWithNotice: run
 // from a directory that is neither a git repo nor an already-established

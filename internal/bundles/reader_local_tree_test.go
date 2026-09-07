@@ -71,14 +71,14 @@ func putFragment(w content.Writer, name, body string) {
 	_ = w.Put(context.Background(),
 		trust.Ref{Bundle: "vault", Kind: trust.KindFragment, Name: name},
 		signing.FormRaw,
-		content.Fragment{Name: name, Body: body, Tags: []string{"style"}})
+		content.Fragment{Name: name, ItemMeta: content.ItemMeta{Body: body, Tags: []string{"style"}}})
 }
 
 func putCommand(w content.Writer, name, body string) {
 	_ = w.Put(context.Background(),
 		trust.Ref{Bundle: "vault", Kind: trust.KindPrompt, Name: name},
 		signing.FormRaw,
-		content.Command{Name: name, Body: body, Description: "ship it"})
+		content.Command{Name: name, ItemMeta: content.ItemMeta{Body: body, Description: "ship it"}})
 }
 
 func putSkill(w content.Writer, name, body string) {

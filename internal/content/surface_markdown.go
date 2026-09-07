@@ -173,32 +173,67 @@ func encodeMarkdownItem(dir, stem string, raw mdMeta, rawBody string, distilled 
 
 // Fragment is a context fragment: prose injected into a session, optionally with
 // a published distilled rewrite stored as a sibling file.
-type Fragment struct {
-	Name string
+// ItemMeta is the front matter every markdown item carries. Fragment and
+// Command differed only in Exports; embedding this makes that the ONLY
+// difference, so the two Encode/Decode paths stop being near-copies that drift.
+type ItemMeta struct {
 	Tags []string
-	// Description is the fragment's own applicability condition, addressed to
-	// the acting agent: the test that decides whether this fragment is loaded
-	// at all. It is authored as `premise` in the single-file format and lands
-	// here under the name the tree format already uses for the same idea on
-	// commands and skills. An EMPTY description means ALWAYS LOADED, so losing
-	// one does not withhold a fragment — it makes it unconditional.
+	// Description is the item's applicability condition, addressed to the
+	// acting agent: the test that decides whether it is selected at all. An
+	// EMPTY description means ALWAYS LOADED, so losing one does not withhold an
+	// item — it makes it unconditional. Fragments author this as `premise` in
+	// the single-file format.
 	Description string
-	// Notes and Installation are human-facing and never sent to a model.
+	// Notes is human-facing and never sent to a model.
+	//
+	// Installation DIFFERS BY KIND and that is deliberate, not an oversight: it
+	// is human-facing for a fragment (surfaced in review/pull/list output only)
+	// and is sent to the model for a command, which needs its setup steps.
 	Notes        string
 	Installation string
-	// ContentHash is the authored distillation change-detection field. It is
-	// carried verbatim so the format is lossless; it is an INDEX and never a
-	// trust input, and nothing in this package reads it.
+	// ContentHash is distillation change-detection bookkeeping, carried
+	// verbatim and never read as a trust input.
 	ContentHash string
 	// Body is the raw authored prose, front-matter excluded.
 	Body string
-	// NoDistill suppresses distillation of this fragment.
+	// NoDistill suppresses distillation of this item.
 	NoDistill bool
 	// Distilled is the published distilled rewrite (empty when there is none),
 	// stored in the FormDistilled sibling file.
-	Distilled string
-	// DistilledBy names the model that produced Distilled.
+	Distilled   string
 	DistilledBy string
+}
+
+// frontMatter is the Encode half both kinds share.
+func (m ItemMeta) frontMatter() mdMeta {
+	return mdMeta{
+		Tags:         m.Tags,
+		Description:  m.Description,
+		Notes:        m.Notes,
+		Installation: m.Installation,
+		ContentHash:  m.ContentHash,
+		NoDistill:    m.NoDistill,
+	}
+}
+
+// itemMetaFrom is the Decode half both kinds share.
+func itemMetaFrom(parts markdownParts) ItemMeta {
+	return ItemMeta{
+		Tags:         parts.raw.Tags,
+		Description:  parts.raw.Description,
+		Notes:        parts.raw.Notes,
+		Installation: parts.raw.Installation,
+		ContentHash:  parts.raw.ContentHash,
+		Body:         parts.rawBody,
+		NoDistill:    parts.raw.NoDistill,
+		Distilled:    parts.distBody,
+		DistilledBy:  parts.distilled.DistilledBy,
+	}
+}
+
+type Fragment struct {
+	Name string
+	ItemMeta
 }
 
 func (Fragment) Kind() trust.ItemKind      { return trust.KindFragment }
@@ -234,18 +269,7 @@ func (t fragmentType) Decode(src Source) (Surface, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Fragment{
-		Name:         parts.stem,
-		Tags:         parts.raw.Tags,
-		Description:  parts.raw.Description,
-		Notes:        parts.raw.Notes,
-		Installation: parts.raw.Installation,
-		ContentHash:  parts.raw.ContentHash,
-		Body:         parts.rawBody,
-		NoDistill:    parts.raw.NoDistill,
-		Distilled:    parts.distBody,
-		DistilledBy:  parts.distilled.DistilledBy,
-	}, nil
+	return Fragment{Name: parts.stem, ItemMeta: itemMetaFrom(parts)}, nil
 }
 
 func (t fragmentType) Encode(s Surface) ([]Component, error) {
@@ -253,14 +277,7 @@ func (t fragmentType) Encode(s Surface) ([]Component, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %T is not a Fragment", ErrSurfaceType, s)
 	}
-	raw := mdMeta{
-		Tags:         f.Tags,
-		Description:  f.Description,
-		Notes:        f.Notes,
-		Installation: f.Installation,
-		ContentHash:  f.ContentHash,
-		NoDistill:    f.NoDistill,
-	}
+	raw := f.frontMatter()
 	hasDist := f.Distilled != ""
 	return encodeMarkdownItem(t.Dir(), f.Name, raw, f.Body, mdMeta{DistilledBy: f.DistilledBy}, f.Distilled, hasDist)
 }
@@ -271,19 +288,8 @@ func (t fragmentType) Encode(s Surface) ([]Component, error) {
 // (trust.KindPrompt.Dir()); the kind is deliberately NOT the legacy "skills"
 // value, which now means an Agent Skill package.
 type Command struct {
-	Name        string
-	Description string
-	Tags        []string
-	// Notes is human-facing; Installation is sent to the model for commands.
-	Notes        string
-	Installation string
-	// ContentHash is distillation change-detection bookkeeping, carried
-	// verbatim and never read as a trust input.
-	ContentHash string
-	Body        string
-	NoDistill   bool
-	Distilled   string
-	DistilledBy string
+	Name string
+	ItemMeta
 	// Exports is per-engine export settings, TYPED and readable — consumers need
 	// these keys, so they are not an opaque passthrough.
 	//
@@ -326,19 +332,7 @@ func (t commandType) Decode(src Source) (Surface, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Command{
-		Name:         parts.stem,
-		Description:  parts.raw.Description,
-		Tags:         parts.raw.Tags,
-		Notes:        parts.raw.Notes,
-		Installation: parts.raw.Installation,
-		ContentHash:  parts.raw.ContentHash,
-		Body:         parts.rawBody,
-		NoDistill:    parts.raw.NoDistill,
-		Distilled:    parts.distBody,
-		DistilledBy:  parts.distilled.DistilledBy,
-		Exports:      parts.raw.Exports,
-	}, nil
+	return Command{Name: parts.stem, ItemMeta: itemMetaFrom(parts), Exports: parts.raw.Exports}, nil
 }
 
 func (t commandType) Encode(s Surface) ([]Component, error) {
@@ -346,15 +340,8 @@ func (t commandType) Encode(s Surface) ([]Component, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %T is not a Command", ErrSurfaceType, s)
 	}
-	raw := mdMeta{
-		Description:  c.Description,
-		Tags:         c.Tags,
-		Notes:        c.Notes,
-		Installation: c.Installation,
-		ContentHash:  c.ContentHash,
-		NoDistill:    c.NoDistill,
-		Exports:      c.Exports,
-	}
+	raw := c.frontMatter()
+	raw.Exports = c.Exports
 	hasDist := c.Distilled != ""
 	return encodeMarkdownItem(t.Dir(), c.Name, raw, c.Body, mdMeta{DistilledBy: c.DistilledBy}, c.Distilled, hasDist)
 }

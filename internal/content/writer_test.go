@@ -22,15 +22,17 @@ func TestWriter_FragmentRoundTrip(t *testing.T) {
 	store := emptyStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "written", IsLocal: true}
 	want := Fragment{
-		Name:         "written",
-		Tags:         []string{"alpha", "beta"},
-		Description:  "you are about to edit a bundle's item files",
-		Notes:        "note",
-		Installation: "install me",
-		ContentHash:  "sha256:abc",
-		Body:         "Body with a rule\n\n---\n\nand {{ mustaches }}.\n",
-		Distilled:    "Short version.\n",
-		DistilledBy:  "test-model-2",
+		Name: "written",
+		ItemMeta: ItemMeta{
+			Tags:         []string{"alpha", "beta"},
+			Description:  "you are about to edit a bundle's item files",
+			Notes:        "note",
+			Installation: "install me",
+			ContentHash:  "sha256:abc",
+			Body:         "Body with a rule\n\n---\n\nand {{ mustaches }}.\n",
+			Distilled:    "Short version.\n",
+			DistilledBy:  "test-model-2",
+		},
 	}
 	if err := store.Put(ctx, ref, signing.FormRaw, want); err != nil {
 		t.Fatalf("Put(raw): %v", err)
@@ -104,7 +106,7 @@ func TestWriter_PutOneFormLeavesTheOtherAlone(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solo"}
-	original := Fragment{Name: "solo", Body: "raw body\n", Distilled: "distilled body\n"}
+	original := Fragment{Name: "solo", ItemMeta: ItemMeta{Body: "raw body\n", Distilled: "distilled body\n"}}
 	if err := store.Put(ctx, ref, signing.FormRaw, original); err != nil {
 		t.Fatalf("Put(raw): %v", err)
 	}
@@ -336,7 +338,7 @@ func TestWriter_PutRefusesMismatchedIdentity(t *testing.T) {
 	}{
 		"name disagrees with ref": {
 			trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "expected"},
-			Fragment{Name: "actual", Body: "x\n"},
+			Fragment{Name: "actual", ItemMeta: ItemMeta{Body: "x\n"}},
 		},
 		"kind disagrees with ref": {
 			trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "thing"},
@@ -353,7 +355,7 @@ func TestWriter_PutRefusesAFormTheSurfaceDoesNotCarry(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "plain"}
-	err := store.Put(ctx, ref, signing.FormDistilled, Fragment{Name: "plain", Body: "only raw\n"})
+	err := store.Put(ctx, ref, signing.FormDistilled, Fragment{Name: "plain", ItemMeta: ItemMeta{Body: "only raw\n"}})
 	if !errors.Is(err, ErrNoSuchForm) {
 		t.Fatalf("err = %v, want ErrNoSuchForm", err)
 	}

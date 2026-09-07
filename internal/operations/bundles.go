@@ -841,7 +841,15 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	// spelled out a second time inside remote.preparePublish, with nothing
 	// binding the two together.
 	bundleName := bundles.ExtractBundleName(absPath)
-	targetPath := remote.PublishPath(remote.ItemTypeBundle, bundleName)
+	// A directory-form bundle publishes its WHOLE directory, not just the
+	// manifest — the same predicate ExportBundle already uses for the sending
+	// half of this same copy (bundle_transfer.go): the basename check, not
+	// bundles.IsTreeFormBundle's stricter "declares nothing inline" rule,
+	// which answers a different question (which FORMAT root a bundle's local
+	// storage belongs under) than the one asked here (does this directory
+	// hold more than its manifest, and if so must all of it travel).
+	treeForm := filepath.Base(absPath) == bundles.DirectoryFormManifest
+	targetPath := remote.PublishPath(remote.ItemTypeBundle, bundleName, treeForm)
 
 	// Resolve title/body the same way publish.go does, so the result accurately
 	// reflects what the PR will look like (title may be lifted from message).
@@ -863,6 +871,9 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 		return result, nil
 	}
 
+	if treeForm {
+		return runTreePush(ctx, cfg, registry, req.Remote, absPath, req, result)
+	}
 	return runPush(ctx, cfg, registry, req.Remote, absPath, req, result)
 }
 
@@ -948,6 +959,102 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 		result.Status = "pr-created"
 	}
 	return result, nil
+}
+
+// runTreePush is runPush's directory-form counterpart: every file under the
+// bundle's directory travels in ONE commit (engaged-chivalry), via
+// remote.PublishManager.PublishTree rather than the single-file Publish.
+//
+// It does not go through remote.PublishOptions.SignPayload. A tree's own
+// signature — today a "<manifest>.sig" sidecar, written to disk before
+// PushBundle runs by `ctxloom bundle sign` (or hand-signed, as
+// TestPushBundleCfg_DirectoryFormBundle_CarriesTheManifestSidecar does) — is
+// just another file gatherPublishTreeFiles walks off disk, so it travels in
+// the SAME commit as everything else rather than the sibling-commit dance the
+// single-file path uses to avoid a half-signed publish. req.Signer (an
+// in-flight, mint-and-publish signature) has no production caller — see
+// PushBundleRequest.Signer's doc — and is refused here rather than silently
+// ignored, since silently dropping a requested signature is exactly the
+// confident-wrong-work this project's startup posture exists to prevent.
+func runTreePush(ctx context.Context, cfg *config.Config, registry *remote.Registry, remoteName, absPath string, req PushBundleRequest, result *PushBundleResult) (*PushBundleResult, error) {
+	if req.Signer != nil {
+		return nil, fmt.Errorf("publishing a directory-form bundle with an in-flight Signer is not supported: sign the manifest on disk first (ctxloom bundle sign), so the sidecar travels with the rest of the tree")
+	}
+
+	pm := req.PublishManager
+	if pm == nil {
+		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.GetAppPaths()[0]))
+	}
+
+	files, err := gatherPublishTreeFiles(afero.NewOsFs(), filepath.Dir(absPath))
+	if err != nil {
+		return nil, fmt.Errorf("gather bundle tree: %w", err)
+	}
+
+	opts := remote.PublishOptions{
+		CreatePR: req.CreatePR,
+		Title:    result.Title,
+		Message:  result.Message,
+		ItemType: remote.ItemTypeBundle,
+		// The reported destination IS the published destination, exactly as
+		// runPush's RemotePath is.
+		RemotePath: result.TargetPath,
+	}
+
+	pubResult, err := pm.PublishTree(ctx, files, remoteName, opts)
+	if err != nil {
+		return nil, fmt.Errorf("publish: %w", err)
+	}
+
+	result.CommitSHA = pubResult.SHA
+	result.PRURL = pubResult.PRURL
+	// A carried sidecar (req.Signature) travels as part of the walked file
+	// set rather than a separate write, so there is no PublishResult.Signed
+	// to read back — report whether one was carried at all, the same fact
+	// runPush's PublisherSignature check upstream already established.
+	result.Signed = len(req.Signature) > 0
+	result.Status = "pushed"
+	if req.CreatePR {
+		result.Status = "pr-created"
+	}
+	return result, nil
+}
+
+// gatherPublishTreeFiles walks the directory holding a bundle's manifest and
+// returns every file's bytes keyed by its path relative to that directory,
+// forward-slash normalized — the shape remote.PublishManager.PublishTree
+// wants for its per-file remote paths.
+//
+// Every file travels, with no filter — the same rule bundle_transfer.go's
+// copyBundleTree states for export: a bundle proves its own integrity with a
+// SHA256SUMS covering the whole tree (or, for the simpler manifest-only
+// sidecar this format still uses, the manifest bytes alone), so silently
+// dropping one file here would make a consumer see tampering rather than an
+// interrupted publish.
+func gatherPublishTreeFiles(afs afero.Fs, dir string) (map[string][]byte, error) {
+	files := make(map[string][]byte)
+	err := afero.Walk(afs, dir, func(p string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			return fmt.Errorf("relativize %s: %w", p, err)
+		}
+		data, err := afero.ReadFile(afs, p)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", p, err)
+		}
+		files[filepath.ToSlash(rel)] = data
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 // ResolveBundleRemote decides which configured remote a bundle file publishes

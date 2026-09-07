@@ -819,6 +819,18 @@ func (m *mockPublisher) CreateOrUpdateFile(_ context.Context, owner, repo, path,
 	return m.returnCommitSHA, nil
 }
 
+func (m *mockPublisher) CreateOrUpdateFiles(_ context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error) {
+	for path, content := range files {
+		m.createOrUpdateCalls = append(m.createOrUpdateCalls, createOrUpdateCall{
+			Owner: owner, Repo: repo, Path: path, Branch: branch, Message: message, Content: content,
+		})
+	}
+	if m.returnErr != nil {
+		return "", m.returnErr
+	}
+	return m.returnCommitSHA, nil
+}
+
 func (m *mockPublisher) CreatePullRequest(_ context.Context, owner, repo, title, body, head, base string) (string, error) {
 	m.createPRCalls = append(m.createPRCalls, createPRCall{
 		Owner: owner, Repo: repo, Title: title, Body: body, Head: head, Base: base,

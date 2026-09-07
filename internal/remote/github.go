@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -549,6 +550,81 @@ func (p *GitHubPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, p
 	}
 
 	return result.GetSHA(), nil
+}
+
+// CreateOrUpdateFiles creates or updates every file in files (keyed by
+// repo-relative path) as ONE commit on branch, via the Git Data API rather
+// than the Contents API CreateOrUpdateFile uses: a blob per file, one tree
+// built from those blobs on top of branch's current tree, one commit, and
+// one ref update. That is what makes it ONE commit for N files instead of N —
+// the Contents API's CreateFile has no multi-file form at all.
+//
+// Blobs are base64-encoded explicitly rather than handed to the tree's
+// inline Content field: GitHub's create-tree endpoint requires inline
+// content to be valid UTF-8 and silently mangles anything that is not,
+// where a blob's Content+Encoding pair carries arbitrary bytes exactly —
+// the same byte-exactness CreateOrUpdateFile gets from the Contents API's
+// own base64 encoding of its []byte Content field.
+func (p *GitHubPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error) {
+	if len(files) == 0 {
+		return "", fmt.Errorf("refusing to publish an empty file set to %s/%s on %s: nothing would be written", owner, repo, branch)
+	}
+	for filePath, content := range files {
+		if len(content) == 0 {
+			return "", fmt.Errorf("refusing to publish empty content to %s/%s/%s: a 0-byte write would replace the remote file with nothing", owner, repo, filePath)
+		}
+	}
+
+	ref, _, err := p.client.Git().GetRef(ctx, owner, repo, "refs/heads/"+branch)
+	if err != nil {
+		return "", fmt.Errorf("resolve branch %s: %w", branch, err)
+	}
+	baseCommitSHA := ref.GetObject().GetSHA()
+	baseCommit, _, err := p.client.Git().GetCommit(ctx, owner, repo, baseCommitSHA)
+	if err != nil {
+		return "", fmt.Errorf("read base commit %s: %w", baseCommitSHA, err)
+	}
+
+	entries := make([]*github.TreeEntry, 0, len(files))
+	for filePath, content := range files {
+		encoded := base64.StdEncoding.EncodeToString(content)
+		blob, _, err := p.client.Git().CreateBlob(ctx, owner, repo, &github.Blob{
+			Content:  github.String(encoded),
+			Encoding: github.String("base64"),
+		})
+		if err != nil {
+			return "", fmt.Errorf("create blob for %s: %w", filePath, err)
+		}
+		entries = append(entries, &github.TreeEntry{
+			Path: github.String(filePath),
+			Mode: github.String("100644"),
+			Type: github.String("blob"),
+			SHA:  blob.SHA,
+		})
+	}
+
+	tree, _, err := p.client.Git().CreateTree(ctx, owner, repo, baseCommit.GetTree().GetSHA(), entries)
+	if err != nil {
+		return "", fmt.Errorf("create tree: %w", err)
+	}
+
+	commit, _, err := p.client.Git().CreateCommit(ctx, owner, repo, &github.Commit{
+		Message: github.String(message),
+		Tree:    tree,
+		Parents: []*github.Commit{{SHA: github.String(baseCommitSHA)}},
+	}, nil)
+	if err != nil {
+		return "", fmt.Errorf("create commit: %w", err)
+	}
+
+	if _, _, err := p.client.Git().UpdateRef(ctx, owner, repo, &github.Reference{
+		Ref:    github.String("refs/heads/" + branch),
+		Object: &github.GitObject{SHA: commit.SHA},
+	}, false); err != nil {
+		return "", fmt.Errorf("update ref refs/heads/%s to %s: %w", branch, commit.GetSHA(), err)
+	}
+
+	return commit.GetSHA(), nil
 }
 
 // CreatePullRequest creates a pull request.

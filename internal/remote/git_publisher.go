@@ -226,6 +226,88 @@ func (p *GitPublisher) CreateOrUpdateFile(ctx context.Context, _, _, filePath, b
 	return sha, nil
 }
 
+// CreateOrUpdateFiles writes every file in files at its path on branch and
+// pushes ONE commit carrying all of them, returning the commit SHA that
+// landed.
+//
+// It is CreateOrUpdateFile with the single write/dirty-check/commit/push
+// sequence run over the whole set instead of one path: the working clone is
+// still made (or reused) once, every file is written into it, and there is
+// still exactly one commit and one push — writing N files into one working
+// tree and committing once is what "one commit per bundle" already meant for
+// this publisher, so batching cost this implementation nothing new to build.
+func (p *GitPublisher) CreateOrUpdateFiles(ctx context.Context, _, _, branch, message string, files map[string][]byte) (string, error) {
+	if len(files) == 0 {
+		return "", fmt.Errorf("refusing to publish an empty file set to %s: nothing would be written", branch)
+	}
+	paths := make([]string, 0, len(files))
+	for filePath, content := range files {
+		if len(content) == 0 {
+			return "", fmt.Errorf("refusing to publish 0 bytes for %s: an empty write would replace the remote's content with nothing", filePath)
+		}
+		if err := checkRepoRelPath(filePath); err != nil {
+			return "", err
+		}
+		paths = append(paths, filePath)
+	}
+
+	dir, err := p.workTree(ctx, branch)
+	if err != nil {
+		return "", err
+	}
+	target := p.branch
+
+	for _, filePath := range paths {
+		full := filepath.Join(dir, filepath.FromSlash(filePath))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return "", fmt.Errorf("publish %s: create its directory in the working clone: %w", filePath, err)
+		}
+		// No AllowEmpty: every content's zero-length case is already refused
+		// above.
+		if err := iox.WriteFileAtomic(full, files[filePath], 0o644); err != nil {
+			return "", fmt.Errorf("publish %s: write it into the working clone: %w", filePath, err)
+		}
+	}
+
+	dirty, err := p.git.IsDirty(ctx, dir)
+	if err != nil {
+		return "", fmt.Errorf("publish %d files: check the working clone for changes: %w", len(paths), err)
+	}
+	if !dirty {
+		return p.unchangedMany(ctx, dir, paths, target)
+	}
+
+	sha, changed, err := p.git.CommitAll(ctx, dir, message)
+	if err != nil {
+		return "", fmt.Errorf("publish %d files: commit: %w", len(paths), err)
+	}
+	for _, filePath := range paths {
+		if !slices.Contains(changed, filePath) {
+			return "", fmt.Errorf("publish %s: commit %s landed but does not contain it (it changed %v); nothing was pushed", filePath, sha, changed)
+		}
+	}
+	if err := p.git.Push(ctx, dir, gitPublisherRemote, "HEAD:"+branchRef(target)); err != nil {
+		return "", fmt.Errorf("publish %d files: push to %s: %w", len(paths), p.repoURL, err)
+	}
+	if err := p.confirmLanded(ctx, dir, target, sha); err != nil {
+		return "", fmt.Errorf("publish %d files: %w", len(paths), err)
+	}
+	return sha, nil
+}
+
+// unchangedMany is unchanged's whole-tree counterpart: no commit, no push,
+// but still a confirmation that the remote holds what this clone holds.
+func (p *GitPublisher) unchangedMany(ctx context.Context, dir string, paths []string, branch string) (string, error) {
+	sha, err := p.git.HeadSHA(ctx, dir)
+	if err != nil {
+		return "", fmt.Errorf("publish %d files: they are already up to date, but the current commit could not be read: %w", len(paths), err)
+	}
+	if err := p.confirmLanded(ctx, dir, branch, sha); err != nil {
+		return "", fmt.Errorf("publish %d files: they are unchanged here, but %w", len(paths), err)
+	}
+	return sha, nil
+}
+
 // unchanged handles the republish-of-identical-bytes case: no commit, no push,
 // but still a confirmation that the remote holds what this clone holds. Without
 // that check a remote that moved under us since the clone would be reported as

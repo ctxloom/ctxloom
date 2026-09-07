@@ -214,9 +214,6 @@ func bundleLayouts() []BundleLayout {
 // segment name is indistinguishable from the layout root and is claimed by it;
 // that ambiguity is inherent to putting the layouts under the bundles root at
 // all, not something this function can resolve.
-//
-// With LayoutV1's segment empty this is the identity for every v1 path, which
-// is why it can be adopted before any layout moves.
 func TrimBundlesLayoutSegment(rel string) string {
 	for _, l := range bundleLayouts() {
 		seg := l.mustSegment()

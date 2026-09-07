@@ -50,7 +50,12 @@ func main() {
 	}
 
 	fsys := afero.NewOsFs()
-	bundlesDir := paths.LocalBundlesPath(filepath.Join(*repo, paths.AppDirName))
+	// SOURCE IS THE v1 LAYOUT ROOT, not the bundles root. The bundles root now
+	// contains v1/ and v2/ and holds no bundles itself, so reading it finds
+	// nothing and reports "wrong -repo" — which reads as operator error and is
+	// not. discover() already skips layout segments; it was the root that was
+	// never repointed when the bundles moved.
+	bundlesDir := paths.LocalBundlesPathFor(filepath.Join(*repo, paths.AppDirName), paths.LayoutV1)
 	dest := paths.LocalBundlesPathFor(filepath.Join(*repo, paths.AppDirName), paths.LayoutV2)
 
 	srcs, err := discover(fsys, bundlesDir)
@@ -58,7 +63,7 @@ func main() {
 		fail("discover: %v", err)
 	}
 	if len(srcs) == 0 {
-		fail("no bundles found under %s -- wrong -repo, or already migrated", bundlesDir)
+		fail("no format-v1 bundles found under %s -- wrong -repo, or already migrated", bundlesDir)
 	}
 
 	fmt.Printf("repo   %s\nfrom   %s\nto     %s\nmode   %s\n\n",

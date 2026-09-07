@@ -201,15 +201,21 @@ func (p *planner) fragments(b *bundles.Bundle) {
 	for _, name := range sortedKeys(b.Fragments) {
 		f := b.Fragments[name]
 		p.addForms(trust.KindFragment, name, f.Distilled, content.Fragment{
-			Name:         name,
-			Tags:         f.Tags,
-			Notes:        f.Notes,
-			Installation: f.Installation,
-			ContentHash:  f.ContentHash,
-			Body:         f.Content,
-			NoDistill:    f.NoDistill,
-			Distilled:    f.Distilled,
-			DistilledBy:  f.DistilledBy,
+			Name: name,
+			ItemMeta: content.ItemMeta{
+				Tags: f.Tags,
+				// A fragment authors its applicability condition as `premise`;
+				// the tree format calls the same idea `description`, as it
+				// already does for commands and skills.
+				Description:  f.Premise,
+				Notes:        f.Notes,
+				Installation: f.Installation,
+				ContentHash:  f.ContentHash,
+				Body:         f.Content,
+				NoDistill:    f.NoDistill,
+				Distilled:    f.Distilled,
+				DistilledBy:  f.DistilledBy,
+			},
 		})
 	}
 }
@@ -218,17 +224,19 @@ func (p *planner) commands(b *bundles.Bundle) {
 	for _, name := range sortedKeys(b.Commands) {
 		c := b.Commands[name]
 		p.addForms(trust.KindPrompt, name, c.Distilled, content.Command{
-			Name:         name,
-			Description:  c.Description,
-			Tags:         c.Tags,
-			Notes:        c.Notes,
-			Installation: c.Installation,
-			ContentHash:  c.ContentHash,
-			Body:         c.Content,
-			NoDistill:    c.NoDistill,
-			Distilled:    c.Distilled,
-			DistilledBy:  c.DistilledBy,
-			Exports:      commandExports(c.LLM),
+			Name: name,
+			ItemMeta: content.ItemMeta{
+				Tags:         c.Tags,
+				Description:  c.Description,
+				Notes:        c.Notes,
+				Installation: c.Installation,
+				ContentHash:  c.ContentHash,
+				Body:         c.Content,
+				NoDistill:    c.NoDistill,
+				Distilled:    c.Distilled,
+				DistilledBy:  c.DistilledBy,
+			},
+			Exports: commandExports(c.LLM),
 		})
 	}
 }

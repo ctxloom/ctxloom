@@ -84,9 +84,9 @@ func TestPushBundleCfg_DirectoryFormBundle_CarriesTheManifestSidecar(t *testing.
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "dir-form", "", false, "", false, false))
 
-	main, hasMain := pub.files[".ctxloom/content/bundles/v1/dir-form/bundle.yaml"]
+	main, hasMain := pub.files[".ctxloom/content/bundles/v2/dir-form/bundle.yaml"]
 	require.True(t, hasMain, "the manifest itself is part of what travels")
-	sig, hasSig := pub.files[".ctxloom/content/bundles/v1/dir-form/bundle.yaml.sig"]
+	sig, hasSig := pub.files[".ctxloom/content/bundles/v2/dir-form/bundle.yaml.sig"]
 	require.True(t, hasSig, "the directory-form bundle's sidecar is carried")
 	assert.Equal(t, armored, sig, "carried byte-for-byte")
 	assert.NoError(t, signing.CoversBytes(main, sig, signing.NamespacePublish),
@@ -117,19 +117,19 @@ func TestPushBundleCfg_DirectoryFormBundle_PublishesTheWholeTreeUnderItsOwnName(
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "dir-form", "", false, "", false, false))
 
-	manifest, hasManifest := pub.files[".ctxloom/content/bundles/v1/dir-form/bundle.yaml"]
+	manifest, hasManifest := pub.files[".ctxloom/content/bundles/v2/dir-form/bundle.yaml"]
 	require.True(t, hasManifest, "the manifest publishes under the bundle's own directory")
 	assert.Contains(t, string(manifest), "skills:\n  greet:",
 		"the manifest bytes are unmodified")
 
-	skill, hasSkill := pub.files[".ctxloom/content/bundles/v1/dir-form/skills/greet/SKILL.md"]
+	skill, hasSkill := pub.files[".ctxloom/content/bundles/v2/dir-form/skills/greet/SKILL.md"]
 	require.True(t, hasSkill, "the skills subtree travels with the manifest — this is the whole reason directory form exists")
 	assert.Equal(t, "# greet\n\nSay hello.\n", string(skill), "byte for byte as authored")
 
-	_, collidesFlat := pub.files[".ctxloom/content/bundles/v1/bundle.yaml"]
+	_, collidesFlat := pub.files[".ctxloom/content/bundles/v2/bundle.yaml"]
 	assert.False(t, collidesFlat,
 		"never at the shared bundles/bundle.yaml every directory-form bundle used to collide on")
-	_, collidesSingleFile := pub.files[".ctxloom/content/bundles/v1/dir-form.yaml"]
+	_, collidesSingleFile := pub.files[".ctxloom/content/bundles/v2/dir-form.yaml"]
 	assert.False(t, collidesSingleFile,
 		"never at the single-file address either — a tree is a directory, not a document")
 }

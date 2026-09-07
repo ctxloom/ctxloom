@@ -131,9 +131,9 @@ func (l *Terminals) host(ctx context.Context, spec hostSpec) (*tmuxTerminal, err
 	// reuse ctx for its own tmux calls — ExecRunner builds an
 	// exec.CommandContext, and a cancelled context kills the command before
 	// it can run. WithoutCancel keeps the values and drops the cancellation.
-	h.stop = context.AfterFunc(ctx, func() {
+	h.armStop(context.AfterFunc(ctx, func() {
 		l.releaseWindow(context.WithoutCancel(ctx), h)
-	})
+	}))
 	return h, nil
 }
 

@@ -136,7 +136,35 @@ type tmuxTerminal struct {
 
 	// stop disarms the session-end trigger registered in create. An explicit
 	// terminal/release should not leave a hook armed to redo the work later.
+	//
+	// GUARDED BY mu, and that is load-bearing rather than tidiness:
+	// context.AfterFunc runs its callback IMMEDIATELY when the context is
+	// already cancelled, so the callback can reach this field before the
+	// assignment of AfterFunc's own return value has finished. The race
+	// detector caught exactly that — a read in releaseWindow against the write
+	// in host. Go through armStop/disarmStop rather than touching it directly.
 	stop func() bool
+}
+
+// armStop records the disarm func for this terminal's session-end trigger.
+func (t *tmuxTerminal) armStop(stop func() bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.stop = stop
+}
+
+// disarmStop cancels the session-end trigger if one is armed.
+//
+// The func is copied out and called with the lock RELEASED: a disarm must never
+// run user code under this mutex, because the trigger it cancels is the same
+// path that takes the mutex to release the terminal.
+func (t *tmuxTerminal) disarmStop() {
+	t.mu.Lock()
+	stop := t.stop
+	t.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
 }
 
 // Terminals is a registry of open tmux-hosted terminals. One instance owns the
@@ -381,9 +409,9 @@ func (l *Terminals) Create(ctx context.Context, spec Spec) (TerminalID, error) {
 	// swallowed, so the window would leak SILENTLY while every file-based
 	// assertion stayed green — measured on the hosting path, where exactly
 	// that mutation survived a files-only test.
-	term.stop = context.AfterFunc(ctx, func() {
+	term.armStop(context.AfterFunc(ctx, func() {
 		_ = l.Release(context.WithoutCancel(ctx), id)
-	})
+	}))
 	return id, nil
 }
 
@@ -503,9 +531,7 @@ func (l *Terminals) killWindow(ctx context.Context, t *tmuxTerminal) {
 // The files are a transient MAILBOX, not a log: nothing reads them after
 // release, so anything left on disk then is a leak.
 func (l *Terminals) releaseWindow(ctx context.Context, t *tmuxTerminal) {
-	if t.stop != nil {
-		t.stop()
-	}
+	t.disarmStop()
 	_, _ = l.runner.Run(ctx, "kill-window", "-t", t.window)
 	_, _ = l.runner.Run(ctx, "wait-for", "-S", t.channel)
 	_ = os.Remove(t.outputPath)

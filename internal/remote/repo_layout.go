@@ -29,20 +29,24 @@ import (
 // every signature at once.
 
 // RepoItemPrefix is the repo-relative directory an item PUBLISHES into and a
-// fetch READS from, in the single-file document layout.
+// fetch READS from, in the CURRENT format — LayoutV2, the tree form.
 //
 // Publish and fetch must name the same file or a bundle is written where no
 // consumer looks, so both sides resolve it here rather than each composing a
-// prefix of its own.
+// prefix of its own. v1 is not deleted — RepoItemRoots/BundleTreeRoots still
+// probe it for content published before this flip — but nothing NEW is ever
+// written or looked up there: this is the one place that decides which format
+// is current, and moving it is what makes v2 the format publish and fetch
+// agree on.
 func RepoItemPrefix(_ ItemType) string {
-	return paths.RepoBundlesPrefixFor(paths.LayoutV1)
+	return paths.RepoBundlesPrefixFor(paths.LayoutV2)
 }
 
 // ContentItemPrefix is RepoItemPrefix relative to an already-open content root,
 // for a reader that has resolved .ctxloom/content/ itself and must not re-state
 // it.
 func ContentItemPrefix(_ ItemType) string {
-	return paths.ContentBundlesPrefixFor(paths.LayoutV1)
+	return paths.ContentBundlesPrefixFor(paths.LayoutV2)
 }
 
 // RepoItemRoot is the repo-relative directory a LISTING walks: the parent that

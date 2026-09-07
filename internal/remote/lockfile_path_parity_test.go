@@ -21,8 +21,8 @@ func TestLockfileManagerPath_MatchesPathsLockPath(t *testing.T) {
 	assert.Equal(t, paths.LockPath(paths.AppDirName), NewLockfileManager("").Path())
 }
 
-// Reference.LocalPath must root at paths.CacheBundlesPath rather than
-// re-assemble the cache bundles root from paths.CacheDir + paths.BundlesDir,
+// Reference.LocalPath must root at paths.CacheBundlesPathFor(LayoutV2) rather
+// than re-assemble the cache bundles root from paths.CacheDir + paths.BundlesDir,
 // so a layout change in internal/paths cannot silently miss it. Pins the two to
 // one answer.
 func TestReferenceLocalPath_RootedAtCacheBundlesPath(t *testing.T) {
@@ -30,6 +30,6 @@ func TestReferenceLocalPath_RootedAtCacheBundlesPath(t *testing.T) {
 	got := r.LocalPath("/proj/.ctxloom", ItemTypeBundle)
 	assert.True(t, len(got) > 0)
 	assert.Equal(t,
-		paths.CacheBundlesPath("/proj/.ctxloom")+"/"+r.LocalRemoteName()+"/lang/go.yaml",
+		paths.CacheBundlesPathFor("/proj/.ctxloom", paths.LayoutV2)+"/"+r.LocalRemoteName()+"/lang/go.yaml",
 		got)
 }

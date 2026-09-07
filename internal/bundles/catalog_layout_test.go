@@ -58,7 +58,7 @@ func putFragmentIn(w content.Writer, bundle, name, body string) {
 	_ = w.Put(context.Background(),
 		trust.Ref{Bundle: bundle, Kind: trust.KindFragment, Name: name},
 		signing.FormRaw,
-		content.Fragment{Name: name, Body: body})
+		content.Fragment{Name: name, ItemMeta: content.ItemMeta{Body: body}})
 }
 
 func locate(t *testing.T, fsys afero.Fs, root, name string) (Located, *Bundle) {

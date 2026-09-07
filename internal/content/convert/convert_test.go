@@ -109,6 +109,34 @@ func TestPlan_FragmentBecomesAMarkdownItemCarryingItsBodyAndMetadata(t *testing.
 // A distilled fragment is TWO forms of ONE item, and converting it must produce
 // both — losing the distilled form would silently downgrade every consumer on
 // distilled context back to the verbose original.
+// A fragment's PREMISE is its applicability condition — the test that decides
+// whether it is loaded at all. Dropping it in conversion does not withhold the
+// fragment, it makes it UNCONDITIONAL, so the loss is silent and grows every
+// consumer's context instead of failing. The tree format carries it under the
+// name it already uses for the same idea on commands and skills.
+func TestPlan_FragmentPremiseSurvivesAsDescription(t *testing.T) {
+	b := &bundles.Bundle{
+		Name: "vault",
+		Fragments: map[string]bundles.BundleFragment{
+			"house-style": {
+				Content: "PROSE-BODY",
+				Premise: "you are about to write prose describing code elsewhere",
+			},
+		},
+	}
+	items, err := Plan("vault", b, Options{})
+	require.NoError(t, err)
+
+	var frag content.Fragment
+	for _, it := range items {
+		if f, ok := it.Surface.(content.Fragment); ok {
+			frag = f
+		}
+	}
+	assert.Equal(t, "you are about to write prose describing code elsewhere", frag.Description,
+		"the premise must survive conversion; without it the fragment silently becomes always-loaded")
+}
+
 func TestPlan_DistilledFragmentProducesBothForms(t *testing.T) {
 	b := &bundles.Bundle{
 		Name: "vault",

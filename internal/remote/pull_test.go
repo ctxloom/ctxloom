@@ -157,7 +157,7 @@ func TestPuller_Pull(t *testing.T) {
 
 	// Create mock fetcher with content
 	mf := newMockFetcher()
-	mf.files[".ctxloom/content/bundles/v1/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
+	mf.files[".ctxloom/content/bundles/v2/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
 	mf.refs["main"] = "abc123def456"
 
 	lm := NewLockfileManager("/test", WithLockfileFS(fs))
@@ -208,7 +208,7 @@ func TestPuller_Pull_LockfileWriteFailureIsNotSwallowed(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	mf := newMockFetcher()
-	mf.files[".ctxloom/content/bundles/v1/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
+	mf.files[".ctxloom/content/bundles/v2/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
 	mf.refs["main"] = "abc123def456"
 
 	// A read-only fs makes the lockfile write fail deterministically.
@@ -240,7 +240,7 @@ func TestPuller_Pull_RejectsEmptyContent(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	mf := newMockFetcher()
-	mf.files[".ctxloom/content/bundles/v1/security.yaml"] = []byte{} // zero bytes
+	mf.files[".ctxloom/content/bundles/v2/security.yaml"] = []byte{} // zero bytes
 	mf.refs["main"] = "abc123"
 
 	lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
@@ -287,7 +287,7 @@ func TestPuller_Pull_RetractedVersion_Force(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	mf := newMockFetcher()
-	mf.files[".ctxloom/content/bundles/v1/security.yaml"] = []byte("description: Security\n")
+	mf.files[".ctxloom/content/bundles/v2/security.yaml"] = []byte("description: Security\n")
 	mf.files[".ctxloom/content/manifest.yaml"] = []byte(`retracted:
   - type: bundle
     name: security
@@ -321,7 +321,7 @@ func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 
 	// Mock fetcher
 	mf := newMockFetcher()
-	mf.files[".ctxloom/content/bundles/v1/security.yaml"] = []byte("description: Security\n")
+	mf.files[".ctxloom/content/bundles/v2/security.yaml"] = []byte("description: Security\n")
 	mf.refs["main"] = "abc123"
 
 	puller := NewPuller(registry, AuthConfig{},

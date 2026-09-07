@@ -39,7 +39,7 @@ func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV1)), "go-tools.yaml")
+	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools.yaml")
 	commit := func(body, msg string) string {
 		full := filepath.Join(repoDir, rel)
 		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))

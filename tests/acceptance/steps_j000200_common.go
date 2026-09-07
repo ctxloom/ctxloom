@@ -88,7 +88,7 @@ func seedSource(w *World, name, kind, item, marker, bundleYAML string, sign, tru
 	src.marker = marker
 	src.itemKind = kind
 	src.itemName = item
-	rel := bundleFilePath(src.bundleName)
+	rel := remoteSingleFilePublishPath(src.bundleName)
 	files := map[string]string{rel: bundleYAML}
 
 	var url string

@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // mockPublisher is a test double for Publisher.
@@ -299,7 +301,7 @@ func TestPublishManager_Publish_EdgeCases(t *testing.T) {
 	t.Run("refuses to publish an empty local file", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll("/local", 0755))
-		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte(""), 0644))
+		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "", 0o644)
 
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
 		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
@@ -329,7 +331,7 @@ func TestPublishManager_Publish_EdgeCases(t *testing.T) {
 	t.Run("a GetFileSHA failure aborts the publish instead of being read as absent", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll("/local", 0755))
-		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0o644)
 
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
 		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
@@ -357,7 +359,7 @@ func TestPublishManager_Publish_EdgeCases(t *testing.T) {
 	t.Run("detects update vs create", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll("/local", 0755))
-		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0o644)
 
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
 		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
@@ -390,7 +392,7 @@ func TestPublishManager_Publish_EdgeCases(t *testing.T) {
 	t.Run("refuses to publish with no remote path", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll("/local", 0755))
-		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0o644)
 
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
 		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))

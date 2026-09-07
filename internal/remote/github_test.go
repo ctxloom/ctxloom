@@ -60,9 +60,14 @@ func (m *mockGitHubRepositoriesService) CreateFile(ctx context.Context, owner, r
 
 // mockGitHubGitService mocks GitHubGitService.
 type mockGitHubGitService struct {
-	GetRefFunc    func(ctx context.Context, owner, repo, ref string) (*github.Reference, *github.Response, error)
-	GetTagFunc    func(ctx context.Context, owner, repo, sha string) (*github.Tag, *github.Response, error)
-	CreateRefFunc func(ctx context.Context, owner, repo string, ref *github.Reference) (*github.Reference, *github.Response, error)
+	GetRefFunc       func(ctx context.Context, owner, repo, ref string) (*github.Reference, *github.Response, error)
+	GetTagFunc       func(ctx context.Context, owner, repo, sha string) (*github.Tag, *github.Response, error)
+	CreateRefFunc    func(ctx context.Context, owner, repo string, ref *github.Reference) (*github.Reference, *github.Response, error)
+	GetCommitFunc    func(ctx context.Context, owner, repo, sha string) (*github.Commit, *github.Response, error)
+	CreateBlobFunc   func(ctx context.Context, owner, repo string, blob *github.Blob) (*github.Blob, *github.Response, error)
+	CreateTreeFunc   func(ctx context.Context, owner, repo, baseTree string, entries []*github.TreeEntry) (*github.Tree, *github.Response, error)
+	CreateCommitFunc func(ctx context.Context, owner, repo string, commit *github.Commit, opts *github.CreateCommitOptions) (*github.Commit, *github.Response, error)
+	UpdateRefFunc    func(ctx context.Context, owner, repo string, ref *github.Reference, force bool) (*github.Reference, *github.Response, error)
 }
 
 func (m *mockGitHubGitService) GetRef(ctx context.Context, owner, repo, ref string) (*github.Reference, *github.Response, error) {
@@ -82,6 +87,41 @@ func (m *mockGitHubGitService) GetTag(ctx context.Context, owner, repo, sha stri
 func (m *mockGitHubGitService) CreateRef(ctx context.Context, owner, repo string, ref *github.Reference) (*github.Reference, *github.Response, error) {
 	if m.CreateRefFunc != nil {
 		return m.CreateRefFunc(ctx, owner, repo, ref)
+	}
+	return nil, nil, errors.New("not implemented")
+}
+
+func (m *mockGitHubGitService) GetCommit(ctx context.Context, owner, repo, sha string) (*github.Commit, *github.Response, error) {
+	if m.GetCommitFunc != nil {
+		return m.GetCommitFunc(ctx, owner, repo, sha)
+	}
+	return nil, nil, errors.New("not implemented")
+}
+
+func (m *mockGitHubGitService) CreateBlob(ctx context.Context, owner, repo string, blob *github.Blob) (*github.Blob, *github.Response, error) {
+	if m.CreateBlobFunc != nil {
+		return m.CreateBlobFunc(ctx, owner, repo, blob)
+	}
+	return nil, nil, errors.New("not implemented")
+}
+
+func (m *mockGitHubGitService) CreateTree(ctx context.Context, owner, repo, baseTree string, entries []*github.TreeEntry) (*github.Tree, *github.Response, error) {
+	if m.CreateTreeFunc != nil {
+		return m.CreateTreeFunc(ctx, owner, repo, baseTree, entries)
+	}
+	return nil, nil, errors.New("not implemented")
+}
+
+func (m *mockGitHubGitService) CreateCommit(ctx context.Context, owner, repo string, commit *github.Commit, opts *github.CreateCommitOptions) (*github.Commit, *github.Response, error) {
+	if m.CreateCommitFunc != nil {
+		return m.CreateCommitFunc(ctx, owner, repo, commit, opts)
+	}
+	return nil, nil, errors.New("not implemented")
+}
+
+func (m *mockGitHubGitService) UpdateRef(ctx context.Context, owner, repo string, ref *github.Reference, force bool) (*github.Reference, *github.Response, error) {
+	if m.UpdateRefFunc != nil {
+		return m.UpdateRefFunc(ctx, owner, repo, ref, force)
 	}
 	return nil, nil, errors.New("not implemented")
 }
@@ -615,6 +655,98 @@ func TestGitHubPublisher_CreateOrUpdateFile(t *testing.T) {
 			assert.False(t, called, "no write may reach the forge")
 		})
 	}
+}
+
+// TestGitHubPublisher_CreateOrUpdateFiles is engaged-chivalry's proof for the
+// GitHub forge path: every file in the batch lands via the Git Data API
+// (blob per file, one tree, one commit, one ref update) rather than the
+// Contents API's CreateFile, and CreateCommit is called EXACTLY ONCE no
+// matter how many files travel — that single call is what makes a partial
+// publish impossible rather than merely unlikely.
+func TestGitHubPublisher_CreateOrUpdateFiles(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("one commit carries every file", func(t *testing.T) {
+		mock := newMockGitHubClient()
+		commitCalls := 0
+		blobContents := map[string]string{}
+
+		mock.git.GetRefFunc = func(ctx context.Context, owner, repo, ref string) (*github.Reference, *github.Response, error) {
+			assert.Equal(t, "refs/heads/main", ref)
+			return &github.Reference{Object: &github.GitObject{SHA: github.String("base-commit-sha")}}, nil, nil
+		}
+		mock.git.GetCommitFunc = func(ctx context.Context, owner, repo, sha string) (*github.Commit, *github.Response, error) {
+			assert.Equal(t, "base-commit-sha", sha)
+			return &github.Commit{Tree: &github.Tree{SHA: github.String("base-tree-sha")}}, nil, nil
+		}
+		mock.git.CreateBlobFunc = func(ctx context.Context, owner, repo string, blob *github.Blob) (*github.Blob, *github.Response, error) {
+			require.Equal(t, "base64", blob.GetEncoding())
+			decoded, err := base64.StdEncoding.DecodeString(blob.GetContent())
+			require.NoError(t, err)
+			blobContents[string(decoded)] = "blob-" + string(decoded)
+			return &github.Blob{SHA: github.String("blob-" + string(decoded))}, nil, nil
+		}
+		mock.git.CreateTreeFunc = func(ctx context.Context, owner, repo, baseTree string, entries []*github.TreeEntry) (*github.Tree, *github.Response, error) {
+			assert.Equal(t, "base-tree-sha", baseTree)
+			require.Len(t, entries, 2)
+			seen := map[string]string{}
+			for _, e := range entries {
+				assert.Equal(t, "100644", e.GetMode())
+				assert.Equal(t, "blob", e.GetType())
+				seen[e.GetPath()] = e.GetSHA()
+			}
+			assert.Equal(t, "blob-manifest bytes", seen["bundle.yaml"])
+			assert.Equal(t, "blob-skill bytes", seen["skills/greet/SKILL.md"])
+			return &github.Tree{SHA: github.String("new-tree-sha")}, nil, nil
+		}
+		mock.git.CreateCommitFunc = func(ctx context.Context, owner, repo string, commit *github.Commit, opts *github.CreateCommitOptions) (*github.Commit, *github.Response, error) {
+			commitCalls++
+			assert.Equal(t, "publish atelier", commit.GetMessage())
+			assert.Equal(t, "new-tree-sha", commit.GetTree().GetSHA())
+			require.Len(t, commit.Parents, 1)
+			assert.Equal(t, "base-commit-sha", commit.Parents[0].GetSHA())
+			return &github.Commit{SHA: github.String("new-commit-sha")}, nil, nil
+		}
+		mock.git.UpdateRefFunc = func(ctx context.Context, owner, repo string, ref *github.Reference, force bool) (*github.Reference, *github.Response, error) {
+			assert.Equal(t, "refs/heads/main", ref.GetRef())
+			assert.Equal(t, "new-commit-sha", ref.GetObject().GetSHA())
+			assert.False(t, force)
+			return ref, nil, nil
+		}
+
+		publisher := NewGitHubPublisherWithClient(mock)
+		sha, err := publisher.CreateOrUpdateFiles(ctx, "owner", "repo", "main", "publish atelier", map[string][]byte{
+			"bundle.yaml":           []byte("manifest bytes"),
+			"skills/greet/SKILL.md": []byte("skill bytes"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "new-commit-sha", sha)
+		assert.Equal(t, 1, commitCalls, "the whole batch must land in exactly ONE commit")
+	})
+
+	t.Run("refuses an empty file set", func(t *testing.T) {
+		publisher := NewGitHubPublisherWithClient(newMockGitHubClient())
+		sha, err := publisher.CreateOrUpdateFiles(ctx, "owner", "repo", "main", "publish", map[string][]byte{})
+		require.Error(t, err)
+		assert.Empty(t, sha)
+	})
+
+	t.Run("refuses a 0-byte file in the set before any network write", func(t *testing.T) {
+		mock := newMockGitHubClient()
+		called := false
+		mock.git.GetRefFunc = func(ctx context.Context, owner, repo, ref string) (*github.Reference, *github.Response, error) {
+			called = true
+			return &github.Reference{Object: &github.GitObject{SHA: github.String("x")}}, nil, nil
+		}
+
+		publisher := NewGitHubPublisherWithClient(mock)
+		sha, err := publisher.CreateOrUpdateFiles(ctx, "owner", "repo", "main", "publish", map[string][]byte{
+			"bundle.yaml": {},
+		})
+		require.Error(t, err)
+		assert.Empty(t, sha)
+		assert.False(t, called, "no write may reach the forge once one entry is empty")
+	})
 }
 
 func TestGitHubPublisher_CreateBranch(t *testing.T) {

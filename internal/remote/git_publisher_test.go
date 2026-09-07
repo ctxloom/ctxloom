@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -144,6 +145,51 @@ func TestGitPublisher_PublishLandsInTheBareRepository(t *testing.T) {
 
 	// The commit carries the caller's subject.
 	assert.Contains(t, gitRun(t, f.bare, "log", "-1", "--pretty=%s", "main"), "Add bundle mybundle")
+}
+
+// TestGitPublisher_PublishTreeLandsAsOneCommit is
+// PublishLandsInTheBareRepository's whole-tree counterpart, and the real-git
+// proof for engaged-chivalry: every file in the batch lands in the bare
+// repo, byte for byte, and the whole batch is EXACTLY ONE new commit on the
+// branch — not one per file. That is the entire reason
+// Publisher.CreateOrUpdateFiles exists: a tree published file by file can
+// fail part way, leaving a bundle whose SHA256SUMS covers files that never
+// arrived, and one commit makes that impossible rather than merely unlikely.
+func TestGitPublisher_PublishTreeLandsAsOneCommit(t *testing.T) {
+	f := newPublishFixture(t, "main", "unused by a tree publish")
+	beforeCount := gitRun(t, f.bare, "rev-list", "--count", "main")
+
+	const root = ".ctxloom/content/bundles/v1/atelier"
+	files := map[string][]byte{
+		"bundle.yaml":           []byte("version: 1.0.0\nskills:\n  greet: {}\n"),
+		"skills/greet/SKILL.md": []byte("# greet\n\nSay hello.\n"),
+	}
+	result, err := f.pm.PublishTree(context.Background(), files, "shared", PublishOptions{
+		ItemType:   ItemTypeBundle,
+		RemotePath: root,
+		Branch:     "main",
+		Title:      "Add bundle atelier",
+	})
+	require.NoError(t, err)
+
+	// The BARE REPO holds every file's exact bytes — not "PublishTree
+	// returned nil".
+	assert.Equal(t, "version: 1.0.0\nskills:\n  greet: {}",
+		f.remoteFile(t, "main", root+"/bundle.yaml"))
+	assert.Equal(t, "# greet\n\nSay hello.",
+		f.remoteFile(t, "main", root+"/skills/greet/SKILL.md"))
+
+	afterCount := gitRun(t, f.bare, "rev-list", "--count", "main")
+	before, err1 := strconv.Atoi(beforeCount)
+	after, err2 := strconv.Atoi(afterCount)
+	require.NoError(t, err1)
+	require.NoError(t, err2)
+	assert.Equal(t, before+1, after,
+		"the whole tree must land as exactly ONE new commit, not one per file")
+
+	assert.Equal(t, gitRun(t, f.bare, "rev-parse", "main"), result.SHA,
+		"the reported commit is the one the remote branch now points at")
+	assert.Equal(t, root, result.Path)
 }
 
 func TestGitPublisher_PublishesTheSignatureSibling(t *testing.T) {

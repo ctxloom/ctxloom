@@ -21,6 +21,16 @@ type GitHubGitService interface {
 	GetRef(ctx context.Context, owner, repo, ref string) (*github.Reference, *github.Response, error)
 	GetTag(ctx context.Context, owner, repo, sha string) (*github.Tag, *github.Response, error)
 	CreateRef(ctx context.Context, owner, repo string, ref *github.Reference) (*github.Reference, *github.Response, error)
+
+	// The four calls below are the Git Data API's tree-write path: they let
+	// CreateOrUpdateFiles land a whole file set as ONE commit (one CreateTree
+	// covering every file, one CreateCommit, one UpdateRef) instead of the
+	// Contents API's one-commit-per-file CreateFile.
+	GetCommit(ctx context.Context, owner, repo, sha string) (*github.Commit, *github.Response, error)
+	CreateBlob(ctx context.Context, owner, repo string, blob *github.Blob) (*github.Blob, *github.Response, error)
+	CreateTree(ctx context.Context, owner, repo, baseTree string, entries []*github.TreeEntry) (*github.Tree, *github.Response, error)
+	CreateCommit(ctx context.Context, owner, repo string, commit *github.Commit, opts *github.CreateCommitOptions) (*github.Commit, *github.Response, error)
+	UpdateRef(ctx context.Context, owner, repo string, ref *github.Reference, force bool) (*github.Reference, *github.Response, error)
 }
 
 // GitHubSearchService defines the GitHub Search API methods we use.

@@ -32,6 +32,12 @@ func (p *stubPublisher) CreateOrUpdateFile(_ context.Context, _, _, path, _, _ s
 	p.files[path] = content
 	return "deadbeef", nil
 }
+func (p *stubPublisher) CreateOrUpdateFiles(_ context.Context, _, _, _, _ string, files map[string][]byte) (string, error) {
+	for path, content := range files {
+		p.files[path] = content
+	}
+	return "deadbeef", nil
+}
 func (p *stubPublisher) CreatePullRequest(_ context.Context, _, _, _, _, _, _ string) (string, error) {
 	return "https://example.com/pr/1", nil
 }

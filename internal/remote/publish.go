@@ -17,6 +17,15 @@ type Publisher interface {
 	// Returns the commit SHA of the change.
 	CreateOrUpdateFile(ctx context.Context, owner, repo, path, branch, message string, content []byte) (string, error)
 
+	// CreateOrUpdateFiles creates or updates every file in files (keyed by
+	// repo-relative path) as ONE commit. It exists because a tree published
+	// file by file can fail part way, leaving a bundle whose SHA256SUMS
+	// covers files that never arrived — a consumer then rejects it as
+	// TAMPERED rather than incomplete, the most expensive possible way to
+	// report a partial upload. One commit makes a partial publish
+	// impossible rather than merely unlikely. Returns the commit SHA.
+	CreateOrUpdateFiles(ctx context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error)
+
 	// CreatePullRequest creates a pull request from a branch.
 	// Returns the PR URL.
 	CreatePullRequest(ctx context.Context, owner, repo, title, body, head, base string) (string, error)
@@ -287,15 +296,22 @@ func (pm *PublishManager) resolvePublishBranch(ctx context.Context, publisher Pu
 	return branch, nil
 }
 
-// preparePublish resolves the publisher, repo coordinates, target branch,
-// content (the local file's bytes, verbatim), and commit subject/body shared by
-// both push strategies.
-func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteName string, opts PublishOptions) (prep *publishPrep, err error) {
-	content, err := pm.loadPublishContent(localPath)
-	if err != nil {
-		return nil, err
-	}
+// resolvedTarget is the repo/publisher coordinates shared by every publish
+// strategy — single-file and tree alike — resolved once so a second entry
+// point does not re-derive them (and cannot drift from how the first one
+// does).
+type resolvedTarget struct {
+	publisher   Publisher
+	repoURL     string
+	owner, repo string
+}
 
+// resolveTarget resolves the remote, the publisher for it, and (for a forge
+// API) the owner/repo path segments. It does NOT resolve a branch — the two
+// callers need that at different points relative to their own validation
+// (preparePublish checks RemotePath first; PublishTree does the same), so
+// branch resolution stays a separate call via resolvePublishBranch.
+func (pm *PublishManager) resolveTarget(remoteName string) (rt *resolvedTarget, err error) {
 	rem, err := pm.registry.Get(remoteName)
 	if err != nil {
 		return nil, fmt.Errorf("remote not found: %w", err)
@@ -311,10 +327,10 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 	if err != nil {
 		return nil, fmt.Errorf("failed to create publisher: %w", err)
 	}
-	// Everything below can still fail — branch resolution, signing, the
-	// existing-file probe — and a publisher that has already made a working
-	// clone would leak it. Publish closes the one that reaches it; this closes
-	// the one that never does.
+	// Everything a caller does after this can still fail — branch resolution,
+	// signing, the existing-file probe, the write itself — and a publisher
+	// that has already made a working clone would leak it. The caller closes
+	// the one that reaches a write; this closes the one that never does.
 	defer func() {
 		if err != nil {
 			closePublisher(publisher)
@@ -332,6 +348,29 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 		return nil, fmt.Errorf("invalid remote URL: %w", err)
 	}
 
+	return &resolvedTarget{publisher: publisher, repoURL: rem.URL, owner: owner, repo: repo}, nil
+}
+
+// preparePublish resolves the publisher, repo coordinates, target branch,
+// content (the local file's bytes, verbatim), and commit subject/body shared by
+// both push strategies.
+func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteName string, opts PublishOptions) (prep *publishPrep, err error) {
+	content, err := pm.loadPublishContent(localPath)
+	if err != nil {
+		return nil, err
+	}
+
+	rt, err := pm.resolveTarget(remoteName)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			closePublisher(rt.publisher)
+		}
+	}()
+	publisher := rt.publisher
+
 	// The path to write is the caller's single computed value (see
 	// PublishOptions.RemotePath), never re-derived from localPath. Empty is a
 	// hard error: publishing to "" would write a repo-root file — or, with a
@@ -345,7 +384,7 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 	// item than the one being published.
 	itemName := strings.TrimSuffix(path.Base(remotePath), ".yaml")
 
-	branch, err := pm.resolvePublishBranch(ctx, publisher, rem.URL, owner, repo, opts.Branch)
+	branch, err := pm.resolvePublishBranch(ctx, publisher, rt.repoURL, rt.owner, rt.repo, opts.Branch)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +416,7 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 	// not be asked". A transient failure here must not be silently read as
 	// "absent": that flips a genuine update into an "Add …" commit
 	// subject / PR title, misrepresenting the change.
-	existingSHA, err := publisher.GetFileSHA(ctx, owner, repo, remotePath, branch)
+	existingSHA, err := publisher.GetFileSHA(ctx, rt.owner, rt.repo, remotePath, branch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check for an existing file at %s: %w", remotePath, err)
 	}
@@ -386,9 +425,9 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 	title, body := resolvePublishTitleAndBody(opts, itemName, created)
 	return &publishPrep{
 		publisher:     publisher,
-		repoURL:       rem.URL,
-		owner:         owner,
-		repo:          repo,
+		repoURL:       rt.repoURL,
+		owner:         rt.owner,
+		repo:          rt.repo,
 		itemName:      itemName,
 		remotePath:    remotePath,
 		branch:        branch,
@@ -495,6 +534,118 @@ func (pm *PublishManager) publishViaPR(ctx context.Context, prep *publishPrep, o
 	return &PublishResult{Path: prep.remotePath, SHA: sha, PRURL: prURL, Created: prep.created, Signed: signed}, nil
 }
 
+// PublishTree publishes a whole DIRECTORY-form bundle: every file in files —
+// keyed by its path relative to the bundle's own directory ("bundle.yaml",
+// "skills/greet/SKILL.md") — lands as ONE commit under opts.RemotePath, the
+// tree's root directory (computed by the caller with
+// PublishPath(itemType, name, true)).
+//
+// There is no separate signature-sibling write here, unlike Publish.
+// opts.SignPayload is ignored: a tree's own signature (a "<manifest>.sig"
+// sidecar today, and whatever a tree-signature format lands as later) is
+// something the caller already gathered off disk as one more entry in files,
+// so it travels in the SAME commit rather than the sibling-commit dance the
+// single-file path uses to avoid a half-signed publish.
+//
+// Package remote does not walk the bundle's directory itself: it has no
+// notion of what belongs to a bundle (that is package bundles' rule, and
+// bundles already imports remote, so the dependency cannot run the other
+// way) — the caller hands over the bytes it already read.
+func (pm *PublishManager) PublishTree(ctx context.Context, files map[string][]byte, remoteName string, opts PublishOptions) (result *PublishResult, err error) {
+	if len(files) == 0 {
+		return nil, fmt.Errorf("refusing to publish an empty tree: there is nothing to write")
+	}
+	if opts.RemotePath == "" {
+		return nil, fmt.Errorf("refusing to publish a tree: PublishOptions.RemotePath is empty (compute it with remote.PublishPath(itemType, name, true) so the path reported and the path written are the same value)")
+	}
+
+	rt, err := pm.resolveTarget(remoteName)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			closePublisher(rt.publisher)
+		}
+	}()
+
+	full := make(map[string][]byte, len(files))
+	for rel, content := range files {
+		// Same floor as the single-file path (loadPublishContent): a 0-byte
+		// entry would overwrite whatever the remote already holds at that
+		// path with nothing, reported as a successful publish.
+		if len(content) == 0 {
+			return nil, fmt.Errorf("refusing to publish empty file %q: a 0-byte file would overwrite the remote with nothing", rel)
+		}
+		full[path.Join(opts.RemotePath, rel)] = content
+	}
+
+	branch, err := pm.resolvePublishBranch(ctx, rt.publisher, rt.repoURL, rt.owner, rt.repo, opts.Branch)
+	if err != nil {
+		return nil, err
+	}
+
+	// The display name is READ BACK from the path being written, exactly as
+	// preparePublish does for the single-file case.
+	itemName := path.Base(opts.RemotePath)
+	// created is always reported true: unlike the single-file path there is
+	// no single existing-file probe that answers "does this tree already
+	// exist" (a directory has no blob SHA to check), and nothing downstream
+	// reads PublishResult.Created for a tree publish.
+	title, body := resolvePublishTitleAndBody(opts, itemName, true)
+	message := buildCommitMessage(title, body)
+
+	if opts.CreatePR {
+		return pm.publishTreeViaPR(ctx, rt, branch, full, title, body, message, opts, itemName)
+	}
+
+	sha, err := rt.publisher.CreateOrUpdateFiles(ctx, rt.owner, rt.repo, branch, message, full)
+	if err != nil {
+		return nil, fmt.Errorf("failed to publish tree: %w", err)
+	}
+	return &PublishResult{Path: opts.RemotePath, SHA: sha}, nil
+}
+
+// publishTreeViaPR is PublishTree's PR strategy: a feature branch, one commit
+// with every file, then a pull request — mirroring publishViaPR, but writing
+// the whole file set in the ONE CreateOrUpdateFiles call rather than a
+// content commit plus a sibling signature commit.
+func (pm *PublishManager) publishTreeViaPR(ctx context.Context, rt *resolvedTarget, baseBranch string, files map[string][]byte, title, body, message string, opts PublishOptions, itemName string) (*PublishResult, error) {
+	if r, ok := rt.publisher.(pullRequestRefuser); ok {
+		if err := r.pullRequestSupport(); err != nil {
+			return nil, err
+		}
+	}
+
+	branchName := fmt.Sprintf("ctxloom/%s/%s-%d", opts.ItemType, itemName, time.Now().Unix())
+
+	fetcher, err := pm.fetcherFactory(rt.repoURL, pm.auth)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create fetcher: %w", err)
+	}
+	baseSHA, err := fetcher.ResolveRef(ctx, rt.owner, rt.repo, baseBranch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve base branch: %w", err)
+	}
+	if err := rt.publisher.CreateBranch(ctx, rt.owner, rt.repo, branchName, baseSHA); err != nil {
+		return nil, fmt.Errorf("failed to create branch: %w", err)
+	}
+
+	sha, err := rt.publisher.CreateOrUpdateFiles(ctx, rt.owner, rt.repo, branchName, message, files)
+	if err != nil {
+		return nil, fmt.Errorf("failed to publish tree: %w", err)
+	}
+
+	prTitle, titleOverflow := fitPRTitle(title)
+	prBody := buildPRBody(body, titleOverflow, opts.ItemType, itemName, opts.RemotePath)
+	prURL, err := rt.publisher.CreatePullRequest(ctx, rt.owner, rt.repo, prTitle, prBody, branchName, baseBranch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pull request: %w", err)
+	}
+
+	return &PublishResult{Path: opts.RemotePath, SHA: sha, PRURL: prURL}, nil
+}
+
 // maxPRTitleRunes is the readable cap for PR titles. Conventional git
 // subjects target ~72; GitHub's hard limit is 256 bytes, but anything past
 // ~72 is unscannable in PR lists. When a caller-supplied title exceeds this,
@@ -566,15 +717,28 @@ func buildPRBody(msgBody, fullTitleIfOverflow string, itemType ItemType, itemNam
 	return strings.Join(sections, "\n\n---\n\n")
 }
 
-// PublishPath constructs the remote file path an item of the given name
-// publishes to. It is the ONE definition of the remote layout for publishing:
-// callers use it to fill PublishOptions.RemotePath and to report where the
-// item went, so the reported path and the written path are the same string
-// rather than two expressions that happen to match.
+// PublishPath constructs the remote path an item of the given name publishes
+// to. It is the ONE definition of the remote layout for publishing: callers
+// use it to fill PublishOptions.RemotePath and to report where the item went,
+// so the reported path and the written path are the same string rather than
+// two expressions that happen to match.
+//
+// tree selects the SHAPE, not the format root: false is the single-file
+// document "<prefix>/<name>.yaml"; true is a directory's OWN root,
+// "<prefix>/<name>" — no ".yaml", because what lands there is a tree of
+// files (the manifest plus its item files), not one document. The caller
+// (operations.PushBundle) decides which shape a given local bundle is,
+// exactly as ExportBundle already does for export.
 //
 // The prefix comes from RepoItemPrefix — the one place the remote bundle layout
 // is decided — so publish, fetch and listing move together when it moves.
-func PublishPath(itemType ItemType, name string) string {
+// RepoItemPrefix hard-codes paths.LayoutV1 today, tree or not — flipping that
+// to LayoutV2 is a separate, deliberately deferred change, not this
+// function's.
+func PublishPath(itemType ItemType, name string, tree bool) string {
+	if tree {
+		return path.Join(RepoItemPrefix(itemType), name)
+	}
 	return path.Join(RepoItemPrefix(itemType), name+".yaml")
 }
 

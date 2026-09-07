@@ -51,6 +51,18 @@ func (m *mockPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, pat
 	return sha, nil
 }
 
+func (m *mockPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error) {
+	if m.createFileErr != nil {
+		return "", m.createFileErr
+	}
+	sha := "newsha123"
+	for path, content := range files {
+		m.createdFiles[path] = content
+		m.files[path] = sha
+	}
+	return sha, nil
+}
+
 func (m *mockPublisher) CreatePullRequest(ctx context.Context, owner, repo, title, body, head, base string) (string, error) {
 	if m.createPRErr != nil {
 		return "", m.createPRErr
@@ -361,7 +373,7 @@ func TestPublishPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
-			result := PublishPath(tt.itemType, tt.name)
+			result := PublishPath(tt.itemType, tt.name, false)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -374,14 +386,17 @@ func TestPublishPath(t *testing.T) {
 // after their `bundle.yaml` manifest: they published as "bundle" and so were
 // reachable only under that name, if at all.
 //
-// This asserts the agreement for the MANIFEST, which is all that publishing
-// writes. A directory-form bundle's skills/ subtree is still neither published
-// nor resolvable by ref — that gap is real and remains open.
+// This asserts the agreement for the MANIFEST'S single-file address —
+// PublishPath(..., false) — which is what a fetch's BuildFilePath always
+// resolves to (a Reference names a bundle, not a shape). A directory-form
+// bundle's tree root (PublishPath(..., true)) is a DIFFERENT, wider write —
+// see PublishPath's own doc — and BundleTreeRoots is fetch's answer to
+// finding it, not BuildFilePath.
 func TestPublishPath_MatchesFetchSideRefResolution(t *testing.T) {
 	for _, name := range []string{"security", "dir-form", "lang/go/testing"} {
 		t.Run(name, func(t *testing.T) {
 			ref := &Reference{Path: name, ItemType: ItemTypeBundle}
-			assert.Equal(t, ref.BuildFilePath(ItemTypeBundle), PublishPath(ItemTypeBundle, name),
+			assert.Equal(t, ref.BuildFilePath(ItemTypeBundle), PublishPath(ItemTypeBundle, name, false),
 				"a bundle published under a name must be the file a ref to that name resolves to")
 		})
 	}

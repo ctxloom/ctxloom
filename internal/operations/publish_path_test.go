@@ -3,7 +3,9 @@ package operations
 import (
 	"context"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -95,19 +97,24 @@ func TestPushBundle_ReportedPathIsTheWrittenPath_SingleFile(t *testing.T) {
 }
 
 // TestPushBundle_ReportedPathIsTheWrittenPath_DirectoryForm is the same binding
-// for the shape that used to diverge. Both halves were wrong together before the
-// fix, so this assertion holds either way; it is here to make a FUTURE
-// divergence impossible rather than to catch the naming defect (the tests below
-// do that).
+// for the shape that used to diverge, adapted to what a directory-form publish
+// actually writes now (engaged-chivalry): the WHOLE tree, not the manifest
+// alone, so "reported == written" no longer means one string equality — it
+// means every file that traveled sits under the reported root, and the
+// manifest sits directly in it.
 func TestPushBundle_ReportedPathIsTheWrittenPath_DirectoryForm(t *testing.T) {
 	cfg, fix := newPushManagerFixture(t)
 	manifest := writeDirFormBundleFixture(t, cfg, "dir-form")
 
 	reported, written := pushOneBundle(t, cfg, fix, manifest)
 
-	require.Len(t, written, 1)
-	assert.Equal(t, written[0], reported,
-		"the reported target path IS the path published to, for directory form too")
+	require.Len(t, written, 2, "the manifest AND its skills/ subtree both travel")
+	for _, w := range written {
+		assert.True(t, w == reported || strings.HasPrefix(w, reported+"/"),
+			"every published file must sit under the reported target path %q, got %q", reported, w)
+	}
+	assert.Contains(t, written, path.Join(reported, "bundle.yaml"),
+		"the manifest lands directly under the reported root")
 }
 
 // `bundle move --to <remote>` is the highest-stakes reader of the reported
@@ -139,7 +146,8 @@ func TestMoveBundle_ToRemote_ReportedDestIsTheWrittenPath(t *testing.T) {
 // collision with no error and no warning, since each push succeeded on its own
 // terms. The name now comes from bundles.ExtractBundleName, the same rule the
 // loader itself names a bundle by, so the remote name matches the name the user
-// pushed.
+// pushed — and (engaged-chivalry) the whole tree lands under that name, not
+// just its manifest.
 func TestPushBundle_DirectoryFormBundles_PublishUnderTheirOwnNames(t *testing.T) {
 	cfg, fix := newPushManagerFixture(t)
 	first := writeDirFormBundleFixture(t, cfg, "alpha-form")
@@ -148,8 +156,12 @@ func TestPushBundle_DirectoryFormBundles_PublishUnderTheirOwnNames(t *testing.T)
 	_, firstWritten := pushOneBundle(t, cfg, fix, first)
 	_, secondWritten := pushOneBundle(t, cfg, fix, second)
 
-	assert.Equal(t, []string{repoV1("alpha-form.yaml")}, firstWritten,
-		"named after the bundle, not after its bundle.yaml manifest")
-	assert.Equal(t, []string{repoV1("beta-form.yaml")}, secondWritten,
-		"a second directory-form bundle gets its own remote path instead of overwriting the first")
+	assert.ElementsMatch(t,
+		[]string{repoV1("alpha-form", "bundle.yaml"), repoV1("alpha-form", "skills", "greet", "SKILL.md")},
+		firstWritten,
+		"named after the bundle, not after its bundle.yaml manifest, with the whole tree beneath it")
+	assert.ElementsMatch(t,
+		[]string{repoV1("beta-form", "bundle.yaml"), repoV1("beta-form", "skills", "greet", "SKILL.md")},
+		secondWritten,
+		"a second directory-form bundle gets its own remote root instead of overwriting the first")
 }

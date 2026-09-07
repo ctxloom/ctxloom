@@ -343,7 +343,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 		spawned++
 		return e
 	}
-	c := newTestCoordinator(t, sp, nil)
+	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: the second child's "queued" assertion below is a D4 QUEUEING invariant, not the (now-configurable) default cap value — see adf5f6985, which pinned this same class of test elsewhere in this file and missed this one; at the default cap (4) the second child gets a free slot immediately, so "queued" is only true for the brief window before its dispatch goroutine runs, a scheduler race rather than an invariant
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)

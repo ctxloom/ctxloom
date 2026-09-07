@@ -57,7 +57,7 @@ func seedSourceRepo(t *testing.T) (repoDir, sha string) {
 
 	// The format root, not its parent: a bundle written to the parent lands
 	// where no reader looks (see paths.LocalBundlesPath).
-	bundleRel := paths.RepoBundlesPrefixFor(paths.LayoutV1)
+	bundleRel := paths.RepoBundlesPrefixFor(paths.LayoutV2)
 	bundleDir := filepath.Join(repoDir, filepath.FromSlash(bundleRel))
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "good.yaml"),

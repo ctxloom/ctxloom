@@ -91,7 +91,7 @@ func TestPushBundle_ReportedPathIsTheWrittenPath_SingleFile(t *testing.T) {
 
 	reported, written := pushOneBundle(t, cfg, fix, bundlePath)
 
-	require.Equal(t, []string{repoV1("for-push.yaml")}, written)
+	require.Equal(t, []string{repoV2("for-push.yaml")}, written)
 	assert.Equal(t, written[0], reported,
 		"the reported target path IS the path published to — one computation, not two that agree")
 }
@@ -157,11 +157,11 @@ func TestPushBundle_DirectoryFormBundles_PublishUnderTheirOwnNames(t *testing.T)
 	_, secondWritten := pushOneBundle(t, cfg, fix, second)
 
 	assert.ElementsMatch(t,
-		[]string{repoV1("alpha-form", "bundle.yaml"), repoV1("alpha-form", "skills", "greet", "SKILL.md")},
+		[]string{repoV2("alpha-form", "bundle.yaml"), repoV2("alpha-form", "skills", "greet", "SKILL.md")},
 		firstWritten,
 		"named after the bundle, not after its bundle.yaml manifest, with the whole tree beneath it")
 	assert.ElementsMatch(t,
-		[]string{repoV1("beta-form", "bundle.yaml"), repoV1("beta-form", "skills", "greet", "SKILL.md")},
+		[]string{repoV2("beta-form", "bundle.yaml"), repoV2("beta-form", "skills", "greet", "SKILL.md")},
 		secondWritten,
 		"a second directory-form bundle gets its own remote root instead of overwriting the first")
 }

@@ -43,7 +43,7 @@ func signedSeedRepo(t *testing.T, signFn func(bundleBytes []byte, signer ssh.Sig
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	bundleRel := paths.RepoBundlesPrefixFor(paths.LayoutV1)
+	bundleRel := paths.RepoBundlesPrefixFor(paths.LayoutV2)
 	bundleDir := filepath.Join(repoDir, filepath.FromSlash(bundleRel))
 	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
 	bundleBytes := []byte("version: v1\ndescription: a signed bundle\n")

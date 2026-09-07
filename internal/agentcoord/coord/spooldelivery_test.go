@@ -555,7 +555,15 @@ func TestSpoolDelivery_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "first task")
+	// awaitCutoverChildIdle, not awaitCutoverChild: this test writes straight
+	// into out.Harp's own in/ and out/ spools and then races its own manual
+	// consume against them. Both spools are live — the runner's reactor sweeps
+	// in/ on a turn boundary, and the coordinator's sweeps out/ the same way —
+	// so without waiting for that boundary to pass first, the live pipeline
+	// can reach the fixture file before the test's own "other path wins"
+	// consume does, and this call fails with the very race the test exists to
+	// pin, instead of the arranged one.
+	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 
 	mapper := spool.NewHomeMapper()
 
@@ -686,10 +694,13 @@ func TestSpoolDelivery_PendingCountReadsTheSpool(t *testing.T) {
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, _ := awaitCutoverChild(t, c, sp, "first task")
+	// awaitCutoverChildIdle, not awaitCutoverChild: the runner's in/ reactor
+	// sweeps on the first turn boundary, and without waiting for that boundary
+	// to pass first, that sweep can deliver-and-consume these fixture files
+	// before pendingCount reads the directory — this asserts the READER, not
+	// a race, so the race has to be retired first.
+	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 
-	// Write straight into in/ so nothing can deliver (and therefore consume)
-	// it before the count is taken: this asserts the READER, not a race.
 	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	for i := 0; i < 2; i++ {

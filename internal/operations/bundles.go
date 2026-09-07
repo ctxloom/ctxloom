@@ -1118,18 +1118,25 @@ func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath
 	return "", fmt.Errorf("no remote configured: add one with `ctxloom remote add`")
 }
 
-// remoteFromCachePath resolves the remote from a path under
-// cache/bundles/<remote>/<rest>.yaml, requiring the first segment to be a known
-// remote.
+// remoteFromCachePath resolves the remote from a path under one layout's cache
+// subtree, cache/bundles/<layout>/<remote>/<rest>, requiring the first segment
+// BELOW that subtree to be a known remote.
+//
+// It probes each layout rather than the bare cache/bundles root, and that is
+// load-bearing: an install lands under CacheBundlesPathFor, so relative to the
+// bare root the first segment is the LAYOUT ("v2"), which is never a registered
+// remote — the match would fail for every bundle the current code installs.
 func remoteFromCachePath(cfg *config.Config, registry *remote.Registry, absPath string) (string, bool) {
-	cacheRoot := paths.CacheBundlesPath(cfg.GetAppPaths()[0])
-	rel, err := filepath.Rel(cacheRoot, absPath)
-	if err != nil || isOutsideRel(rel) {
-		return "", false
-	}
-	parts := strings.Split(filepath.ToSlash(rel), "/")
-	if len(parts) >= 2 && registry.Has(parts[0]) {
-		return parts[0], true
+	app := cfg.GetAppPaths()[0]
+	for _, l := range []paths.BundleLayout{paths.LayoutV2, paths.LayoutV1} {
+		rel, err := filepath.Rel(paths.CacheBundlesPathFor(app, l), absPath)
+		if err != nil || isOutsideRel(rel) {
+			continue
+		}
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) >= 2 && registry.Has(parts[0]) {
+			return parts[0], true
+		}
 	}
 	return "", false
 }

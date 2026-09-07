@@ -242,20 +242,33 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build) (Result, er
 				return fmt.Errorf("confpatch: the reversal computed for %s does not apply to the document it was derived from, so ctxloom could not take its own entries back out later; refusing to write: %w", target, rtErr)
 			}
 			if !bytes.Equal(roundTripped, restored) {
-				// BYTE-EXACT ON PURPOSE. The likeliest way to reach this is not
-				// corruption but REORDERING: hew's emitters write a map's keys
-				// sorted, so a Set on a container the document spelled in another
-				// order permutes it, and the reversal brings the content back
-				// without the position. That failure is LEGITIMATE and must
-				// refuse — the file is the user's, and returning their keys in
-				// an order they did not write is not restoring it.
+				// BYTE-EXACT ON PURPOSE, and there are TWO distinct ways to
+				// reach it. Both are LEGITIMATE refusals — the file is the
+				// user's, and handing it back other than as they wrote it is
+				// not restoring it.
+				//
+				//  1. ORDER. hew's emitters write a map's keys sorted, so a Set
+				//     on a container the document spelled in another order
+				//     permutes it, and the reversal brings the content back
+				//     without the position.
+				//  2. STYLE. hew's applier re-renders a container it edited in
+				//     its own layout rather than the document's. Observed
+				//     against claude.ClaudeCodeHookWriter.applyMCP: a member
+				//     patch under /mcpServers/<name> comes back with identical
+				//     keys in identical order, collapsed from the document's
+				//     indented form onto ONE line.
+				//
+				// Do not assume (1). It is the intuitive cause and it was the
+				// only one named here, which is why (2) went undiagnosed: the
+				// error text sent readers looking for a permutation that was
+				// not there. Diff the two images before theorising.
 				//
 				// Do NOT relax this to a parsed or semantic comparison to make
-				// reordering pass. A parsed comparison cannot see order at all,
-				// so it would accept exactly the case this exists to catch, and
-				// the permutation would then be inherited by every later
+				// either case pass. A parsed comparison cannot see order OR
+				// layout, so it would accept exactly what this exists to catch,
+				// and the deviation would then be inherited by every later
 				// reversal rendered from this document.
-				return fmt.Errorf("confpatch: the reversal computed for %s applies but does not restore the document it was derived from byte for byte, so ctxloom's entries could not be taken back out cleanly; refusing to write rather than store an undo that does not undo (a likely cause is member ORDER changing rather than content)", target)
+				return fmt.Errorf("confpatch: the reversal computed for %s applies but does not restore the document it was derived from byte for byte, so ctxloom's entries could not be taken back out cleanly; refusing to write rather than store an undo that does not undo (the content is usually correct: compare the two images for a change of member ORDER or of LAYOUT, such as an edited container re-rendered onto one line)", target)
 			}
 		}
 

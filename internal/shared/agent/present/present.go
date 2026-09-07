@@ -138,12 +138,19 @@ func (c Containerize) ApplyPaths(p Paths) (Paths, []Mount) {
 		mounts = append(mounts, Mount{HostDir: r.Host, TargetDir: target})
 		return Root{Host: r.Host, Engine: target}
 	}
-	return Paths{
+	// remap APPENDS to mounts, and mounts is also a result operand. Go
+	// specifies left-to-right order only among the CALLS in a statement's
+	// operands; when a plain variable operand is read relative to those calls
+	// is unspecified, so `return Paths{remap(...), ...}, mounts` may return
+	// the pre-append mounts. Settling the composite literal in its own
+	// statement first makes the appends complete before mounts is read.
+	out := Paths{
 		ProjectRoot: remap(p.ProjectRoot, c.ProjectRoot),
 		EngineHome:  remap(p.EngineHome, c.EngineHome),
 		CtxloomHome: remap(p.CtxloomHome, c.CtxloomHome),
 		Scratch:     remap(p.Scratch, c.Scratch),
-	}, mounts
+	}
+	return out, mounts
 }
 
 // Apply runs the advice and bundles the result with the mounts it recorded.

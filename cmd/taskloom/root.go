@@ -138,10 +138,14 @@ func taskContext() (operations.TaskContext, error) {
 // IS set but invalid (anything other than "home"/"repo").
 //
 // Every command that is about to touch ONE project's store calls this right
-// after taskContext() (taskContextSingle does both in one call); `taskloom
-// list`/task_list's --global aggregation, and the no-project fallback it
-// shares, never do — homing mode is meaningless for a read that spans every
-// project's store at once.
+// after taskContext() (taskContextSingle does both in one call). `taskloom
+// list`/task_list also calls it — before deciding scope, not after: a
+// repo-homed project (homing: repo) mints no project-id and registers
+// nowhere, so the scope decision (resolveListScope) needs the resolved mode
+// to recognize such a project at all, see cmd/taskloom/scope.go's
+// listTasksScoped. Only an EXPLICIT --global/all_projects request skips
+// this — that read spans every project's store at once, so which mode this
+// one directory resolves to is moot.
 func resolveHoming(tc operations.TaskContext) (operations.TaskContext, error) {
 	mode, err := taskloomconfig.ResolveMode(tc.WorkDir, rootCmd.PersistentFlags(), tasksHoming)
 	if err != nil {

@@ -99,9 +99,11 @@ func runPlanShow(cmd *cobra.Command, args []string) error {
 // Scope resolution goes through the SAME resolveListScope the task listings
 // use — a second, parallel scoping mechanism beside it would be the defect,
 // not the fix — and the project directory it scopes to is resolved by
-// planScopeDir.
+// planScopeDir. repoHomed is always false here: a plan's location comes from
+// the session index, never from a project's task-store homing mode, so that
+// signal does not apply to this listing.
 func runPlanListCmd(out, errw io.Writer, tc operations.TaskContext, opts planListOptions) error {
-	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir, tc.WorkDirIsBoundary)
+	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir, tc.WorkDirIsBoundary, false)
 	if err != nil {
 		return err
 	}

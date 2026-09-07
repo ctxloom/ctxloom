@@ -128,7 +128,21 @@ func listTasksScoped(tc operations.TaskContext, opts listOptions) (*scopedListRe
 		return nil, err
 	}
 	opts.Statuses = statuses
-	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir, tc.WorkDirIsBoundary)
+	// Homing is resolved BEFORE the scope decision, not after: a repo-homed
+	// project (homing: repo) mints no project-id and registers nowhere, so
+	// isEstablishedProject's registry/marker check can never see it, and the
+	// read fell back to --global even for the project it was standing inside
+	// (see resolveListScope's repoHomed parameter). An explicit --global
+	// still skips this — the read spans every project's store at once, so
+	// which mode THIS directory resolves to is moot, and resolving it would
+	// be a wasted config read on the one path that never uses it.
+	if !opts.Global {
+		tc, err = resolveHoming(tc)
+		if err != nil {
+			return nil, err
+		}
+	}
+	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir, tc.WorkDirIsBoundary, tc.HomingMode == paths.ModeRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -161,12 +175,12 @@ func listEveryProjectScoped(tc operations.TaskContext, opts listOptions, scope l
 	}, nil
 }
 
-// listOneProjectScoped reads the single store tc resolves to, after homing.
+// listOneProjectScoped reads the single store tc resolves to. tc.HomingMode
+// is already resolved by the time this is called — listTasksScoped resolves
+// it before the scope decision now, since resolveListScope itself needs to
+// know it (see that function's repoHomed parameter) — so this does not
+// resolve it again.
 func listOneProjectScoped(tc operations.TaskContext, opts listOptions) (*scopedListResult, error) {
-	tc, err := resolveHoming(tc)
-	if err != nil {
-		return nil, err
-	}
 	res, err := operations.ListTasks(tc, operations.ListOptions{
 		Statuses:       opts.Statuses,
 		Term:           opts.Term,
@@ -240,7 +254,24 @@ type listScope struct {
 // it here would resolve the working directory a second time per listing and
 // let the scope decision be made against a different answer than the store
 // was opened with.
-func resolveListScope(explicit bool, pinnedProjectID, workDir string, workDirIsBoundary bool) (listScope, error) {
+//
+// repoHomed is a FOURTH, independent way to stay project-scoped: it reports
+// whether workDir resolves (via the same taskloomconfig.ResolveMode chain the
+// write path uses — see cmd/taskloom's resolveHoming) to a repo-homed task
+// store (homing: repo). A repo-homed project mints no project-id and
+// registers in no registry, so isEstablishedProject's registry/marker check
+// can never see it — a read landed on the global fallback even while
+// standing inside the very project that was written to, because the store's
+// location is self-declared by <workDir>/.taskloom/config.yaml, not by any
+// identity the registry would recognize. This does not mint anything: the
+// declaration is already there, on disk, exactly where the write path reads
+// it from, so trusting it here does not violate isEstablishedProject's "a
+// read must never conjure identity" rule — it is answering a different
+// question ("where does this directory's store live") than isEstablishedProject
+// asks ("has this directory been assigned a home-mode identity"). Callers
+// with no notion of task-store homing (plan.go's session-plan listing) pass
+// false.
+func resolveListScope(explicit bool, pinnedProjectID, workDir string, workDirIsBoundary, repoHomed bool) (listScope, error) {
 	if explicit {
 		return listScope{Global: true}, nil
 	}
@@ -248,6 +279,9 @@ func resolveListScope(explicit bool, pinnedProjectID, workDir string, workDirIsB
 		return listScope{}, nil
 	}
 	if workDirIsBoundary {
+		return listScope{}, nil
+	}
+	if repoHomed {
 		return listScope{}, nil
 	}
 	established, err := isEstablishedProject(workDir)

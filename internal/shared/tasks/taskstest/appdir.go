@@ -137,6 +137,24 @@ const appDirName = ".ctxloom"
 // t.TempDir() actually allocates under whenever it is set, which this
 // project's justfile does on purpose. Both are live sandbox roots; neither
 // alone is sufficient.
+// UnderTestTempRoot reports whether path lives under a root a test may
+// legitimately write to: os.TempDir(), or GOTMPDIR when it is set.
+//
+// Exported because the same question is asked outside this package. A test that
+// isolates HOME and then PROVES the isolation took must compare against the
+// same roots Isolate actually allocates under, and t.TempDir() lands under
+// GOTMPDIR whenever it is set — so a guard that checks only os.TempDir() can
+// never pass under this project's own gate, which sets GOTMPDIR deliberately.
+// Answering it here keeps ONE predicate; a second copy is what drifted.
+func UnderTestTempRoot(path string) bool {
+	for _, r := range testTempRoots() {
+		if underRoot(path, r) {
+			return true
+		}
+	}
+	return false
+}
+
 func testTempRoots() []string {
 	roots := []string{os.TempDir()}
 	if v := os.Getenv("GOTMPDIR"); v != "" {

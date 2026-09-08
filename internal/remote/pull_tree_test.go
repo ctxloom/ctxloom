@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
@@ -168,7 +169,7 @@ func TestInstallTree_RefusesWithoutAnInstallerRatherThanPinningUnreachableConten
 		localName: ref.CanonicalString(),
 		treeRoot:  ref.TreeRepoPath(),
 		tree:      map[string]TreeFile{BundleManifestName: {Data: []byte("version: \"1.0.0\"\n")}},
-	})
+	}, treeTestSHA)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no tree installer")
@@ -192,7 +193,7 @@ func TestInstallTree_CheckoutsTheWorktreeAtThePinnedCommit(t *testing.T) {
 		rem:       &Remote{URL: "https://github.com/trent/atelier"},
 		sha:       treeTestSHA,
 		treeRoot:  ref.TreeRepoPath(),
-	})
+	}, treeTestSHA)
 
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/trent/atelier", gotURL)
@@ -220,7 +221,7 @@ func TestInstallTree_RefusesWhenTheFoundRootIsNotTheRootReadersResolve(t *testin
 		rem:       &Remote{URL: "https://github.com/trent/atelier"},
 		sha:       treeTestSHA,
 		treeRoot:  "bundles/v1/atelier",
-	})
+	}, treeTestSHA)
 
 	require.Error(t, err)
 	assert.False(t, called, "nothing may be checked out at a root readers do not resolve")
@@ -252,4 +253,54 @@ func stubTreeInstaller() TreeInstallFunc {
 	return func(_ context.Context, _, _, subpath, worktreeDir string) (string, error) {
 		return filepath.Join(worktreeDir, filepath.FromSlash(subpath)), nil
 	}
+}
+
+// TestInstallPulledItem_AHoldFreezesTheCHECKOUT_NotJustTheLockfile.
+//
+// A hold defended the recorded SHA while the checkout moved to the freshly
+// resolved one, so the lockfile said one commit and the bytes on disk were
+// another — the hold protecting the pin and not the content the pin names,
+// which is the only thing a hold is for. The commit installed and the commit
+// recorded have to be one commit.
+func TestInstallPulledItem_AHoldFreezesTheCHECKOUT_NotJustTheLockfile(t *testing.T) {
+	const localName = "https://github.com/trent/atelier@bundles/atelier"
+	const heldSHA = "1111111111111111111111111111111111111111"
+	const advancedSHA = "2222222222222222222222222222222222222222"
+
+	fs := afero.NewMemMapFs()
+	lm := NewLockfileManager("/test", WithLockfileFS(fs))
+	lock, err := lm.Load()
+	require.NoError(t, err)
+	lock.AddEntry(ItemTypeBundle, localName, LockEntry{SHA: heldSHA, URL: "https://github.com/trent/atelier", Held: true})
+	require.NoError(t, lm.Save(lock))
+
+	var checkedOut string
+	p := NewPuller(nil, AuthConfig{},
+		WithLockfileManager(lm),
+		WithTreeInstaller(func(_ context.Context, _, sha, subpath, worktreeDir string) (string, error) {
+			checkedOut = sha
+			return filepath.Join(worktreeDir, filepath.FromSlash(subpath)), nil
+		}))
+	ref := treeRef(t)
+
+	res, err := p.installPulledItem(t.Context(), ref, PullOptions{ItemType: ItemTypeBundle, LocalDir: "/test", Stdout: &bytes.Buffer{}},
+		&fetchedItem{
+			rem:       &Remote{URL: "https://github.com/trent/atelier"},
+			localName: localName,
+			sha:       advancedSHA, // what a forced re-resolve just produced
+			treeRoot:  ref.TreeRepoPath(),
+			tree:      map[string]TreeFile{BundleManifestName: {Data: []byte("version: \"2.0.0\"\n")}},
+		})
+	require.NoError(t, err)
+
+	assert.Equal(t, heldSHA, checkedOut,
+		"a forced pull advanced the CHECKOUT past a held pin: the lockfile defends the commit and the bytes ignore it")
+	assert.Equal(t, heldSHA, res.SHA, "the pull must report the commit it actually installed")
+
+	after, err := lm.Load()
+	require.NoError(t, err)
+	entry, ok := after.GetEntry(ItemTypeBundle, localName)
+	require.True(t, ok)
+	assert.Equal(t, heldSHA, entry.SHA)
+	assert.True(t, entry.Held, "the hold must survive the pull that tried to advance past it")
 }

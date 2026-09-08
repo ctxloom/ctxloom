@@ -558,7 +558,22 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	if item.tree == nil {
 		return nil, fmt.Errorf("refusing to install %q: it is a single-file bundle, and bundles are distributed as trees — nothing materializes a document, so its pin would resolve to content no reader can reach; the publisher must republish it in tree form", item.localName)
 	}
-	localPath, werr := p.installTree(ctx, ref, opts, item)
+	// The commit that is CHECKED OUT and the commit that is RECORDED must be
+	// one commit. Resolving the hold here rather than only at the lockfile write
+	// is what stops a forced pull from advancing the bytes past a pin the hold
+	// is successfully defending.
+	requestedVersion := item.requestedVersion
+	if opts.RequestedVersion != nil {
+		// Caller pins the content SHA but wants the manifest constraint preserved
+		// (see PullOptions.RequestedVersion).
+		requestedVersion = *opts.RequestedVersion
+	}
+	installSHA := item.sha
+	if frozen, ok := p.heldPin(opts.ItemType, item.localName, requestedVersion); ok {
+		installSHA = frozen.SHA
+	}
+
+	localPath, werr := p.installTree(ctx, ref, opts, item, installSHA)
 	if werr != nil {
 		return nil, werr
 	}
@@ -573,25 +588,19 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// item silently dropped the Retracted verdict, leaving
 	// operations.EffectiveTrust with nothing to withhold against. The lockfile
 	// is the only record; its write failing means the pull failed.
-	requestedVersion := item.requestedVersion
-	if opts.RequestedVersion != nil {
-		// Caller pins the content SHA but wants the manifest constraint preserved
-		// (see PullOptions.RequestedVersion).
-		requestedVersion = *opts.RequestedVersion
-	}
 	// hadExisting reports whether localName already had a lockfile entry
 	// BEFORE this write — i.e. this pull replaced an existing pin rather than
 	// creating a new one. It is the real signal for "updated" vs "installed"
 	// (PullResult.Overwritten used to be hard-coded false, making
 	// operations/sync.go's "updated" status unreachable).
-	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt, item.tree != nil)
+	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, installSHA, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt, item.tree != nil)
 	if err != nil {
 		return nil, fmt.Errorf("pulled %s but failed to record its lockfile pin (the only on-disk record of this pull): %w", item.localName, err)
 	}
 
 	return &PullResult{
 		LocalPath:       localPath,
-		SHA:             item.sha,
+		SHA:             installSHA,
 		Overwritten:     hadExisting,
 		Content:         content,
 		Retracted:       item.retracted,
@@ -607,7 +616,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 // interleaving can pull apart. The fetched tree is still what DECIDES the pull
 // — its manifest is what was verified above — it is simply not what gets
 // written.
-func (p *Puller) installTree(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem) (string, error) {
+func (p *Puller) installTree(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem, sha string) (string, error) {
 	if p.treeInstall == nil {
 		return "", fmt.Errorf("refusing to install %q: this puller has no tree installer wired in, so the bundle would be pinned in the lockfile with no tree any reader could reach", item.localName)
 	}
@@ -625,9 +634,9 @@ func (p *Puller) installTree(ctx context.Context, ref *Reference, opts PullOptio
 			"so a checkout of the found path would land where nothing looks; the publisher must republish it at %s",
 			item.localName, item.treeRoot, want, want)
 	}
-	dir, err := p.treeInstall(ctx, item.rem.URL, item.sha, item.treeRoot, ref.LocalWorktreePath(baseDir))
+	dir, err := p.treeInstall(ctx, item.rem.URL, sha, item.treeRoot, ref.LocalWorktreePath(baseDir))
 	if err != nil {
-		return "", fmt.Errorf("install %s at %s: %w", item.localName, item.sha, err)
+		return "", fmt.Errorf("install %s at %s: %w", item.localName, sha, err)
 	}
 	return dir, nil
 }
@@ -647,6 +656,32 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 
 	response := strings.TrimSpace(strings.ToLower(scanner.Text()))
 	return response == "y" || response == "yes", nil
+}
+
+// heldPin reports the entry a HELD dependency freezes this pull to.
+//
+// A hold says "do not advance this", and it has to be answered BEFORE the tree
+// is checked out — not only when the lockfile is written. The checkout is what
+// a consumer actually reads, so a hold that defends the recorded SHA while the
+// worktree moves to the freshly resolved one leaves the lockfile and the bytes
+// disagreeing: the hold protects the pin and not the content the pin names,
+// which is the one thing a hold exists to do.
+//
+// A hold is only frozen on a BLANKET pull. An explicitly requested version is
+// the user naming a target for this invocation, which a hold does not override.
+func (p *Puller) heldPin(itemType ItemType, localName, requestedVersion string) (LockEntry, bool) {
+	if requestedVersion != "" {
+		return LockEntry{}, false
+	}
+	lockfile, err := p.lockfileManager.Load()
+	if err != nil {
+		return LockEntry{}, false
+	}
+	existing, ok := lockfile.GetEntry(itemType, localName)
+	if !ok || !existing.Held {
+		return LockEntry{}, false
+	}
+	return existing, true
 }
 
 // updateLockfile records provenance in the (active) lockfile. Every pull writes
@@ -694,11 +729,11 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 	// not advance past a hold (see LockEntry.Pinned).
 	if hadExisting && existing.Held {
 		entry.Held = true
-		if requestedVersion == "" {
-			entry.SHA = existing.SHA
-			entry.Version = existing.Version
-			entry.RequestedVersion = existing.RequestedVersion
-			entry.Kind = existing.Kind
+		if frozen, ok := p.heldPin(itemType, localName, requestedVersion); ok {
+			entry.SHA = frozen.SHA
+			entry.Version = frozen.Version
+			entry.RequestedVersion = frozen.RequestedVersion
+			entry.Kind = frozen.Kind
 		}
 	}
 

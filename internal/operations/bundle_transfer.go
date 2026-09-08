@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/afero"
 
@@ -211,7 +210,13 @@ const sigSuffix = bundles.SigSuffix
 // makes every consumer see tampering.
 func staleSignatureError(bundlePath string, err error) error {
 	base := filepath.Base(bundlePath)
-	name := strings.TrimSuffix(base, ".yaml")
+	// The manifest file for every tree-form bundle is literally named
+	// "bundle.yaml" — trimming its extension would name every one of them
+	// "bundle" regardless of its actual name. ExtractBundleName is the
+	// loader's own rule for this (Bundle.Name is set from it), so the remedy
+	// this error prints is a command that resolves to the SAME bundle it is
+	// about.
+	name := bundles.ExtractBundleName(bundlePath)
 	return fmt.Errorf("%s no longer covers %s — the bundle changed after it was signed; "+
 		"re-sign with `ctxloom bundle sign %s`, or delete %s to publish it unsigned "+
 		"(publishing this pair would make every consumer see tampering): %w",

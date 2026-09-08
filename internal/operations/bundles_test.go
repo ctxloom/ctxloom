@@ -865,13 +865,11 @@ remotes:
     version: v1
 `)
 	// Hand-written rather than createSeedBundle (which authors a v1 document):
-	// bundle_move_test.go moves this bundle, and a move of a directory-form
-	// bundle carries only the manifest (and its signature) — see
-	// requireWholeMovable — so it must hold no items at all. CreateBundle's
-	// own tree path refuses to author a zero-item tree (convert.Convert is a
-	// no-op for one), even though a version-only envelope is a perfectly
-	// valid bundle to READ (Bundle.declaresNothing requires no version AND no
-	// items), so this writes the manifest directly.
+	// bundle_move_test.go moves this bundle, and CreateBundle's own tree path
+	// refuses to author a zero-item tree (convert.Convert is a no-op for
+	// one), even though a version-only envelope is a perfectly valid bundle
+	// to READ (Bundle.declaresNothing requires no version AND no items), so
+	// this writes the manifest directly.
 	treeDir := filepath.Join(authoredV1(appDir), "for-push")
 	require.NoError(t, os.MkdirAll(treeDir, 0o755))
 	bundlePath = filepath.Join(treeDir, bundles.DirectoryFormManifest)

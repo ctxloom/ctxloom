@@ -309,12 +309,12 @@ func TestMoveBundle_RemotePublishFails_SourceIntact(t *testing.T) {
 	assert.FileExists(t, sigPath)
 }
 
-// --- directory-form bundles: the move that cannot be whole ---------------------
+// --- directory-form bundles: the move that carries the whole tree --------------
 
 // memMoveDirFS seeds a project with a DIRECTORY-form bundle: "<name>/bundle.yaml"
 // plus a skill package beside it. That shape exists for exactly one reason —
-// bundles.Loader refuses `skills:` in single-file form — so a move that carries
-// only the manifest carries the one thing the shape was created NOT to be.
+// bundles.Loader refuses `skills:` in single-file form — so a move that dropped
+// it would strand the one thing the shape was created to carry.
 func memMoveDirFS(t *testing.T) (afero.Fs, *config.Config) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
@@ -328,43 +328,39 @@ func memMoveDirFS(t *testing.T) (afero.Fs, *config.Config) {
 	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
-// THE DATA-LOSS PATH (taskloom hurried-showplace). Move publishes the manifest,
-// then deletes the source. For a directory-form bundle only bundle.yaml travels,
-// so the user is left with an orphaned local skills/ whose manifest is gone and a
-// destination copy with no skills — neither half whole, exit 0, no warning.
-//
-// Refusing is the only honest answer until publish can carry a whole tree: a move
-// that cannot be whole must not begin.
-func TestMoveBundle_DirectoryFormWithSkills_RefusesRatherThanMovingHalfOfIt(t *testing.T) {
+// THE FORMER DATA-LOSS PATH (taskloom hurried-showplace), now fixed rather than
+// refused: moveToPath routes a directory-form bundle through ExportBundle's
+// exportBundleTree, which walks every file beneath the manifest — so the skill
+// package travels with it instead of being stranded.
+func TestMoveBundle_DirectoryFormWithSkills_MovesTheWholeTree(t *testing.T) {
 	fs, cfg := memMoveDirFS(t)
 	require.NoError(t, fs.MkdirAll("/out", 0755))
 
-	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "skills/reviewer/SKILL.md",
-		"the refusal must name a file that would have been left behind, not just the shape")
+	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
+	require.NoError(t, err)
+
+	for _, rel := range []string{"bundle.yaml", filepath.Join("skills", "reviewer", "SKILL.md")} {
+		exists, err := afero.Exists(fs, filepath.Join(res.Dest, rel))
+		require.NoError(t, err)
+		assert.True(t, exists, "%s must land at the destination — the skill package must travel with the manifest, not be stranded", rel)
+	}
 }
 
-// The refusal has to happen BEFORE anything is written or removed. A guard that
-// fired after the destination write would have already produced the split state
-// it exists to prevent.
-func TestMoveBundle_DirectoryFormRefusal_LeavesBothSidesUntouched(t *testing.T) {
+// The source directory must be removed WHOLE after a whole-tree move — not
+// just its manifest — or the skill package is orphaned locally beside a
+// deleted envelope, the exact split state the former refusal existed to
+// prevent.
+func TestMoveBundle_DirectoryFormWithSkills_RemovesTheWholeSourceDirectory(t *testing.T) {
 	fs, cfg := memMoveDirFS(t)
 	require.NoError(t, fs.MkdirAll("/out", 0755))
 
 	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
-	require.Error(t, err)
+	require.NoError(t, err)
 
 	dir := filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "seed")
-	for _, p := range []string{
-		filepath.Join(dir, "bundle.yaml"),
-		filepath.Join(dir, "skills", "reviewer", "SKILL.md"),
-	} {
-		exists, _ := afero.Exists(fs, p)
-		assert.True(t, exists, "%s must survive a refused move", p)
-	}
-	wrote, _ := afero.Exists(fs, "/out/bundle.yaml")
-	assert.False(t, wrote, "nothing may be written at the destination when the move is refused")
+	exists, err := afero.Exists(fs, dir)
+	require.NoError(t, err)
+	assert.False(t, exists, "the whole source directory must be gone, not just its manifest")
 }
 
 // A directory-form bundle carrying NOTHING but its manifest loses nothing by
@@ -394,8 +390,7 @@ func TestMoveBundle_DirectoryFormWithNoPayloadBesideTheManifest_StillMoves(t *te
 func TestMoveBundle_TreeEnvelope_LandsUnderTheDestinationsV2Root(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	// No inline item keys: a tree envelope. Manifest-only, so requireWholeMovable
-	// has nothing to refuse.
+	// No inline item keys: a tree envelope, manifest-only.
 	testsupport.WriteFileString(t, fs,
 		filepath.Join(authoredV1(appDir), "seed", "bundle.yaml"),
 		"version: 1.0.0\ndescription: a tree envelope\n", 0644)

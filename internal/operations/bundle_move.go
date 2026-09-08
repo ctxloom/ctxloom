@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -115,10 +114,6 @@ func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) 
 	if err != nil {
 		return nil, err
 	}
-	// Before anything is written or removed: refuse a move that cannot be whole.
-	if err := requireWholeMovable(fs, name, src); err != nil {
-		return nil, err
-	}
 	layout, err := moveSourceLayout(fs, src)
 	if err != nil {
 		return nil, err
@@ -164,66 +159,6 @@ func moveByDest(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBu
 	default:
 		return nil, fmt.Errorf("unsupported move destination kind %q", dest.Kind)
 	}
-}
-
-// requireWholeMovable refuses a move whose source carries files the move cannot
-// take with it (taskloom hurried-showplace).
-//
-// A move is a publish-or-copy followed by a DELETION of the source, and both
-// writers carry exactly two files: the bundle manifest and its detached .sig.
-// For a single-file bundle that is the whole bundle. For a DIRECTORY-form
-// bundle it is not — everything else in the directory stays behind and is then
-// orphaned when the manifest is deleted, leaving neither copy whole, at exit 0,
-// with no warning. Skills are the only reason directory form exists at all
-// (bundles.Loader refuses `skills:` in single-file form), so the failure lands
-// squarely on the thing the shape was created to carry.
-//
-// The check is by PAYLOAD, not by shape: a directory-form deps holding nothing
-// but its manifest loses nothing and still moves. And it is stated as "anything
-// that is not the manifest or its signature" rather than as "skills/", so it
-// covers a tree-form bundle's fragments/ and prompts/ too — publish cannot carry
-// those either, and a skills-only guard would have let them vanish the same way.
-//
-// It runs BEFORE the destination is even resolved. A guard that fired after the
-// write would have already produced the split state it exists to prevent.
-//
-// This is a REFUSAL, not the fix. The fix is a publish that writes a whole tree
-// (taskloom excusable-flatness); until that exists, not starting is the only
-// outcome that leaves the user's bundle intact.
-func requireWholeMovable(fs afero.Fs, name, src string) error {
-	if filepath.Base(src) != bundles.DirectoryFormManifest {
-		return nil
-	}
-	dir := filepath.Dir(src)
-	var stranded []string
-	err := afero.Walk(fs, dir, func(p string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if p == src || p == src+sigSuffix {
-			return nil
-		}
-		rel, relErr := filepath.Rel(dir, p)
-		if relErr != nil {
-			return relErr
-		}
-		stranded = append(stranded, filepath.ToSlash(rel))
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("inspect the %q bundle directory %s before moving it: %w", name, dir, err)
-	}
-	if len(stranded) == 0 {
-		return nil
-	}
-	sort.Strings(stranded)
-	return fmt.Errorf("refusing to move %q: it is a directory-form bundle and moving carries only %s (and its signature), "+
-		"so %d file(s) would be left behind and orphaned when the source manifest is deleted — %s. "+
-		"Publishing a whole bundle tree is not built yet; copy the directory by hand, or keep the bundle here until it is",
-		name, bundles.DirectoryFormManifest, len(stranded), strings.Join(stranded, ", "))
 }
 
 // loadMoveSource resolves the authored bundle to move, returning its canonical
@@ -408,23 +343,34 @@ func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req Move
 	}, nil
 }
 
-// removeMoveSource deletes the source bundle and its signature — the last step
-// of a move, reached only once the destination holds both.
+// removeMoveSource deletes the source bundle — the last step of a move,
+// reached only once the destination holds the whole thing.
 //
-// The YAML goes first: if that removal fails we abort with the signed pair still
-// intact and internally consistent, rather than a bundle stripped of its
-// signature.
+// A DIRECTORY-form bundle's source is its WHOLE directory, not just the
+// manifest and its sidecar: moveToRemote (runTreePush) and moveToPath
+// (exportBundleTree) both already carry every file beneath it, so leaving
+// fragments/, skills/ etc. behind here would strand exactly what the publish
+// side just proved it could carry — orphaned at the source, at exit 0, with
+// no warning. For a single-file bundle the manifest and its detached .sig
+// sibling ARE the whole source.
 //
 // Both failures name the DESTINATION, because the two states they leave behind
 // need opposite responses and the user cannot tell them apart otherwise:
-//   - the YAML is still here — the bundle now exists in two places, and the move
-//     can be re-run or the duplicate deleted;
-//   - the YAML is gone and only the orphan .sig remains — the move HAPPENED.
-//     Re-running it cannot work (there is no source left to move) and the only
-//     remaining action is deleting the stray signature by hand. Saying so is the
-//     difference between a user cleaning up and a user retrying a command that
-//     will now tell them the bundle does not exist.
+//   - the source is still here — the bundle now exists in two places, and the
+//     move can be re-run or the duplicate deleted;
+//   - the source is gone (directory form) or only an orphan .sig remains
+//     (single-file) — the move HAPPENED. Re-running it cannot work (there is
+//     no source left to move) and the only remaining action is cleaning up by
+//     hand. Saying so is the difference between a user cleaning up and a user
+//     retrying a command that will now tell them the bundle does not exist.
 func removeMoveSource(fs afero.Fs, src, dest string) error {
+	if filepath.Base(src) == bundles.DirectoryFormManifest {
+		dir := filepath.Dir(src)
+		if err := fs.RemoveAll(dir); err != nil {
+			return fmt.Errorf("the bundle was written to %s but the source directory %s could not be removed — it now exists in both places: %w", dest, dir, err)
+		}
+		return nil
+	}
 	if err := fs.Remove(src); err != nil {
 		return fmt.Errorf("the bundle was written to %s but the source %s could not be removed — it now exists in both places: %w", dest, src, err)
 	}

@@ -535,23 +535,14 @@ func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string,
 func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem) (*PullResult, error) {
 	content := item.content
 
-	// Remote bundles AND profiles are pure references: the git clone cache +
-	// lockfile pair is the storage, and reads at the locked SHA go through
-	// remote.BundleReader / remote.ProfileReader. Nothing is materialized to
-	// disk, so LocalPath is a synthetic informational string and a pull never
-	// overwrites a local file (this used to be a separate
-	// writePulledContent method whose only real parameters were localName and
-	// sha).
-	localPath := fmt.Sprintf("<remote>:%s@%s", item.localName, item.sha)
-
-	// A DIRECTORY-form bundle is the one exception to "nothing is
-	// materialized". A single-file bundle is one blob a reader can pull out of
-	// the clone's object store on demand; a tree is a package — multi-file,
-	// mode-bearing, and read by machinery (skill materialization, hook
-	// enumeration) that takes a real directory, not bytes. Serving that from an
-	// object store would mean re-deriving a filesystem on every read. The
-	// install root is the CACHE (gitignored, regenerable): the pin in the
-	// lockfile stays the authority, and this tree is derived from it.
+	// A bundle is always a DIRECTORY-form tree now: a single-file bundle is one
+	// blob a reader could once pull out of the clone's object store on demand,
+	// but a tree is a package — multi-file, mode-bearing, and read by machinery
+	// (skill materialization, hook enumeration) that takes a real directory, not
+	// bytes. So installTree's materialized directory is the only LocalPath a
+	// bundle ever gets; nothing here is a synthetic informational string
+	// anymore. The install root is the CACHE (gitignored, regenerable): the pin
+	// in the lockfile stays the authority, and this tree is derived from it.
 	// A DOCUMENT CANNOT BE PULLED. Only a tree materializes, and every read
 	// path resolves what installTree writes — so accepting a single-file item
 	// here records a pin whose content nothing can ever read, and reports
@@ -559,11 +550,10 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	if item.tree == nil {
 		return nil, fmt.Errorf("refusing to install %q: it is a single-file bundle, and bundles are distributed as trees — nothing materializes a document, so its pin would resolve to content no reader can reach; the publisher must republish it in tree form", item.localName)
 	}
-	dir, werr := p.installTree(ref, opts, item)
+	localPath, werr := p.installTree(ref, opts, item)
 	if werr != nil {
 		return nil, werr
 	}
-	localPath = dir
 
 	// Update lockfile with provenance (local name as key). For bundles, the
 	// lockfile is the *only* on-disk record — read sites resolve content via

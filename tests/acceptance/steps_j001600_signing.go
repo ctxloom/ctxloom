@@ -55,6 +55,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
@@ -1492,7 +1493,11 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the relocated "([^"]*)" is byte-identical to what was signed, and its signature still verifies$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		st := j001600Of(w)
-		destBundle := filepath.Join(st.sharedDir, name+".yaml")
+		// bundleFilePath (the fixture's own writer) is tree form
+		// ("<name>/bundle.yaml", per bundle_paths.go), so a whole-tree move
+		// lands the manifest at "<sharedDir>/<name>/bundle.yaml" — not a flat
+		// "<name>.yaml" sibling, which nothing here ever wrote.
+		destBundle := filepath.Join(st.sharedDir, name, bundles.DirectoryFormManifest)
 		destSig := destBundle + ".sig"
 		body, err := os.ReadFile(destBundle)
 		if err != nil {

@@ -160,7 +160,7 @@ func fixtureDemoTreeFiles(version, description, fragName, fragContent string, in
 	root := remoteSingleFilePublishPath("demo")
 	files := map[string]string{
 		root + "/" + bundles.DirectoryFormManifest: fmt.Sprintf("version: %q\ndescription: %q\n", version, description),
-		root + "/fragments/" + fragName + ".md":     fmt.Sprintf("---\ntags: [demo]\n---\n\n%s\n", fragContent),
+		root + "/fragments/" + fragName + ".md":    fmt.Sprintf("---\ntags: [demo]\n---\n\n%s\n", fragContent),
 	}
 	if includeCommand {
 		files[root+"/prompts/demo-skill.md"] = "---\ndescription: demo prompt\n---\n\nDemo prompt content.\n"

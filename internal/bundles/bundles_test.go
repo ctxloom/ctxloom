@@ -970,12 +970,15 @@ func TestClaudeCodeConfig_IsEnabled(t *testing.T) {
 // symptom is a bundle that resolves to nothing rather than an error anyone can
 // read. Derived from paths so a further format migration moves these fixtures
 // with production instead of stranding them.
-// v1In is where a fixture must write a FORMAT-V1 bundle, given the bundles ROOT
-// a reader is handed. The reader searches that root's format roots, never the
+// bundlesRootIn is where a fixture must write a bundle, given the bundles ROOT
+// a reader is handed. The reader searches that root's format root, never the
 // root itself, so a fixture that joins rel onto the root directly writes
-// somewhere nothing looks.
-func v1In(root, rel string) string {
-	return filepath.Join(paths.BundlesLayoutRoot(root, paths.LayoutV1), rel)
+// somewhere nothing looks. rel may name a bare "<name>.yaml" document or a
+// path inside a directory-form bundle ("<name>/bundle.yaml", "<name>/fragments/
+// x.md") — both shapes live under the same (only) format root; which one a
+// fixture gets depends on the shape of what it writes, not on this helper.
+func bundlesRootIn(root, rel string) string {
+	return filepath.Join(paths.BundlesLayoutRoot(root, paths.LayoutV2), rel)
 }
 
 func seedBundleRoot(t *testing.T, dir string, l paths.BundleLayout) string {
@@ -988,7 +991,7 @@ func seedBundleRoot(t *testing.T, dir string, l paths.BundleLayout) string {
 func TestNewLoader_ReadsWhatItsReadersReport(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, afero.WriteFile(fs,
-		filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), "kit.yaml"),
+		filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), "kit.yaml"),
 		[]byte("version: \"1.0\"\n"), 0o644))
 	loader := NewLoader(NewProjectReader(fs, []string{"/bundles"}))
 
@@ -1018,7 +1021,7 @@ func TestLoader_Find(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create test bundle file
-	bundlePath := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "test-bundle.yaml")
+	bundlePath := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "test-bundle.yaml")
 	err := os.WriteFile(bundlePath, []byte("version: 1.0"), 0644)
 	require.NoError(t, err)
 
@@ -1069,7 +1072,7 @@ fragments:
     content: |
       Fragment content
 `
-	bundlePath := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "test.yaml")
+	bundlePath := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "test.yaml")
 	err := os.WriteFile(bundlePath, []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
@@ -1088,7 +1091,7 @@ func TestLoader_Load(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	bundleYAML := `version: "1.0"`
-	bundlePath := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "my-bundle.yaml")
+	bundlePath := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "my-bundle.yaml")
 	err := os.WriteFile(bundlePath, []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
@@ -1104,7 +1107,7 @@ func TestLoader_List(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create multiple bundles
-	v1 := seedBundleRoot(t, tmpDir, paths.LayoutV1)
+	v1 := seedBundleRoot(t, tmpDir, paths.LayoutV2)
 	bundle1 := filepath.Join(v1, "bundle1.yaml")
 	bundle2 := filepath.Join(v1, "bundle2.yaml")
 
@@ -1144,7 +1147,7 @@ fragments:
   frag2:
     content: content 2
 `
-	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "test.yaml"), []byte(bundleYAML), 0644)
+	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "test.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
@@ -1176,7 +1179,7 @@ commands:
   prompt1:
     content: prompt content
 `
-	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "test.yaml"), []byte(bundleYAML), 0644)
+	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "test.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
@@ -1210,7 +1213,7 @@ fragments:
       Fragment content here
     distilled: Distilled version
 `
-	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "test-bundle.yaml"), []byte(bundleYAML), 0644)
+	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "test-bundle.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	t.Run("simple name lookup", func(t *testing.T) {
@@ -1268,7 +1271,7 @@ fragments:
   no-distilled:
     content: Original only
 `
-	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "kit.yaml"), []byte(bundleYAML), 0644)
+	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "kit.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -1332,7 +1335,7 @@ commands:
   no-distilled:
     content: Original only
 `
-	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "test-bundle.yaml"), []byte(bundleYAML), 0644)
+	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "test-bundle.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	t.Run("simple name lookup", func(t *testing.T) {
@@ -1382,7 +1385,7 @@ commands:
   no-distilled:
     content: Original only
 `
-	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "kit.yaml"), []byte(bundleYAML), 0644)
+	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "kit.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -1461,7 +1464,7 @@ fragments:
       - documentation
     content: Docs content
 `
-	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "test.yaml"), []byte(bundleYAML), 0644)
+	err := os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "test.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
@@ -1533,7 +1536,7 @@ func TestLoader_Load_NotFound(t *testing.T) {
 // WHY rather than "not found", which would point the user at their spelling.
 func TestLoader_LoadFile_InvalidYAML(t *testing.T) {
 	tmpDir := t.TempDir()
-	bundlePath := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "invalid.yaml")
+	bundlePath := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "invalid.yaml")
 	err := os.WriteFile(bundlePath, []byte("invalid: ["), 0644)
 	require.NoError(t, err)
 
@@ -1555,7 +1558,7 @@ func TestLoader_Load_Caching(t *testing.T) {
 fragments:
   test-frag:
     content: Test content`
-	bundlePath := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "test.yaml")
+	bundlePath := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "test.yaml")
 	err := os.WriteFile(bundlePath, []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
@@ -1591,7 +1594,7 @@ func TestLoader_NestedBundles(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create nested directory structure
-	nestedDir := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "vendor", "github.com", "user")
+	nestedDir := filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "vendor", "github.com", "user")
 	require.NoError(t, os.MkdirAll(nestedDir, 0755))
 
 	bundleYAML := `version: "1.0"
@@ -1654,7 +1657,7 @@ fragments:
   two:
     content: "BETA-TWO"
 `)
-	v1 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV1)
+	v1 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(v1, "test/alpha.yaml"), alpha, 0644))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(v1, "test/beta.yaml"), beta, 0644))
 
@@ -2012,7 +2015,7 @@ commands:
     distilled: Distilled command
     no_distill: true
 `
-	require.NoError(t, os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "kit.yaml"), []byte(bundleYAML), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "kit.yaml"), []byte(bundleYAML), 0644))
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
 
@@ -2049,7 +2052,7 @@ commands:
   c1:
     content: two
 `
-	require.NoError(t, os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "b.yaml"), []byte(bundleYAML), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "b.yaml"), []byte(bundleYAML), 0644))
 	l := NewLoader(NewProjectReader(nil, []string{tmpDir}))
 
 	// Recognised, fragment-targeted: expands to exactly that item.
@@ -2116,7 +2119,7 @@ func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
 	// And the loader carries it as sidecar metadata, never spliced into Content.
 	tmpDir := t.TempDir()
 	bundleYAML := "version: \"1.0\"\ncommands:\n  c1:\n    content: command body\n    installation: '" + secretish + "'\n"
-	require.NoError(t, os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV1), "b.yaml"), []byte(bundleYAML), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "b.yaml"), []byte(bundleYAML), 0644))
 	lc, err := ungated(NewLoader(NewProjectReader(nil, []string{tmpDir})), false).GetCommand("c1")
 	require.NoError(t, err)
 	assert.Equal(t, "command body", lc.Content)

@@ -142,6 +142,18 @@ func collectKeySites(t reflect.Type, path string, out map[string]keySite) {
 		if f.PkgPath != "" {
 			continue // unexported: not decodable, so never a valid key
 		}
+		if f.Anonymous && hasInlineYAMLTag(f) {
+			// yaml:",inline" (e.g. BundleFragment/BundleCommand's embedded
+			// ItemBody) promotes the embedded struct's OWN fields directly
+			// into this mapping — a document declares "content:", never
+			// "itembody:" or "itembody.content:". Flatten its field names
+			// straight into keys at THIS path, rather than adding a key named
+			// after the field, which no document could ever match, and
+			// rather than recursing at a child path, which would claim a
+			// separate site nothing resolves a key against.
+			keys = append(keys, collectInlineKeys(f.Type, path, out)...)
+			continue
+		}
 		name := yamlFieldName(f)
 		if name == "" {
 			continue // yaml:"-": deliberately not settable from a document
@@ -155,6 +167,59 @@ func collectKeySites(t reflect.Type, path string, out map[string]keySite) {
 	}
 	sort.Strings(keys)
 	out[t.String()] = keySite{where: describePath(path), keys: keys}
+}
+
+// collectInlineKeys is collectKeySites' body for an EMBEDDED, `yaml:",inline"`
+// struct field: it returns the embedded struct's own field names (its keys
+// belong to the ENCLOSING site, not a site of their own) while still
+// recursing into each field's own type at the enclosing path, so a struct
+// nested inside the inlined one still gets a normal site.
+func collectInlineKeys(t reflect.Type, path string, out map[string]keySite) []string {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+	var keys []string
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if f.PkgPath != "" {
+			continue // unexported: not decodable, so never a valid key
+		}
+		if f.Anonymous && hasInlineYAMLTag(f) {
+			keys = append(keys, collectInlineKeys(f.Type, path, out)...)
+			continue
+		}
+		name := yamlFieldName(f)
+		if name == "" {
+			continue // yaml:"-": deliberately not settable from a document
+		}
+		keys = append(keys, name)
+		child := name
+		if path != "" {
+			child = path + "." + name
+		}
+		collectKeySites(f.Type, child, out)
+	}
+	return keys
+}
+
+// hasInlineYAMLTag reports whether f's yaml tag carries the "inline" option —
+// yaml.v3's directive to promote an embedded struct's fields into its
+// enclosing mapping rather than nesting them under the field's own name.
+func hasInlineYAMLTag(f reflect.StructField) bool {
+	tag, ok := f.Tag.Lookup("yaml")
+	if !ok {
+		return false
+	}
+	_, opts, _ := strings.Cut(tag, ",")
+	for _, opt := range strings.Split(opts, ",") {
+		if opt == "inline" {
+			return true
+		}
+	}
+	return false
 }
 
 // yamlFieldName is the key a struct field decodes from: its yaml tag name, or

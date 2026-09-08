@@ -104,7 +104,7 @@ func signBytesFor(t *testing.T, data []byte) []byte {
 func localSigFixture(t *testing.T, name string) (afero.Fs, string, []byte) {
 	t.Helper()
 	mem := afero.NewMemMapFs()
-	v1 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV1)
+	v1 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
 	require.NoError(t, mem.MkdirAll(v1, 0o755))
 	path := filepath.Join(v1, name+".yaml")
 	body := []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n")

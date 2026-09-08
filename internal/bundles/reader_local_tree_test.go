@@ -45,13 +45,16 @@ func stageLocalTree(t *testing.T, envelope string, put func(w content.Writer)) a
 	return fsys
 }
 
-// localV1 / localV2 are where a fixture must write for readOneLocal to find it:
-// the FORMAT ROOTS beneath the /bundles root these tests hand the reader. The
-// bare root is only their parent and is searched by nobody, so the root a
-// fixture writes into is part of what it is asserting — an inline-key directory
-// is format v1, a true tree is format v2.
-func localV1(rel string) string {
-	return filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), rel)
+// localDoc / localV2 are where a fixture must write for readOneLocal to find
+// it: the FORMAT ROOT beneath the /bundles root these tests hand the reader.
+// The bare root is only its parent and is searched by nobody. Both names
+// resolve to the SAME (only) format root now — an inline-key directory and a
+// single-file document are shapes, not layouts, and treeFormEnvelope decides
+// between them by CONTENT (whether the envelope still declares items inline),
+// never by which of these two helpers wrote the fixture. The two names stay
+// separate here only to keep each test's intent legible at the call site.
+func localDoc(rel string) string {
+	return filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), rel)
 }
 
 func localV2(rel string) string {
@@ -136,7 +139,7 @@ func TestLocalTreeForm_CommandsAndSkillsResolve(t *testing.T) {
 // It is also the guard against "fix tree form by making everything tree form".
 func TestLocalTreeForm_InlineDirectoryFormStillReadsAsADocument(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, localV1("vault/bundle.yaml"), []byte(
+	require.NoError(t, afero.WriteFile(fsys, localDoc("vault/bundle.yaml"), []byte(
 		"name: vault\nversion: 1.2.3\nfragments:\n  inline-frag:\n    content: INLINE-BODY-MARKER\n"), 0o644))
 	b := readOneLocal(t, fsys)
 
@@ -147,7 +150,7 @@ func TestLocalTreeForm_InlineDirectoryFormStillReadsAsADocument(t *testing.T) {
 // TestLocalTreeForm_SingleFileDocumentStillReads pins the other unchanged form.
 func TestLocalTreeForm_SingleFileDocumentStillReads(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, localV1("vault.yaml"), []byte(
+	require.NoError(t, afero.WriteFile(fsys, localDoc("vault.yaml"), []byte(
 		"name: vault\nversion: 1.2.3\nfragments:\n  solo-frag:\n    content: SOLO-BODY-MARKER\n"), 0o644))
 	b := readOneLocal(t, fsys)
 
@@ -175,10 +178,10 @@ func TestLocalTreeForm_SingleFileDocumentStillReads(t *testing.T) {
 // bundle disappears from the listing entirely.
 func TestLocalTreeForm_EmptySingleFileDocumentBesideItemDirsStillReads(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, localV1("vault.yaml"), []byte(treeEnvelope), 0o644))
+	require.NoError(t, afero.WriteFile(fsys, localDoc("vault.yaml"), []byte(treeEnvelope), 0o644))
 	// A stray item-kind directory in the SEARCH dir, not in any bundle: enough
 	// to make that directory enumerate as a tree if the guard stops holding.
-	require.NoError(t, afero.WriteFile(fsys, localV1("fragments/stray.md"), []byte("STRAY"), 0o644))
+	require.NoError(t, afero.WriteFile(fsys, localDoc("fragments/stray.md"), []byte("STRAY"), 0o644))
 
 	// The bundle must still be THERE, and it must be the document's own bytes:
 	// the version is carried by no other file in this fixture.

@@ -21,7 +21,7 @@ func projectReaderOver(t *testing.T, rel, doc string) Reader {
 	t.Helper()
 	fsys := afero.NewMemMapFs()
 	const dir = "/proj/content/bundles"
-	testsupport.WriteFileString(t, fsys, paths.BundlesLayoutRoot(dir, paths.LayoutV1)+"/"+rel, doc, 0o644)
+	testsupport.WriteFileString(t, fsys, paths.BundlesLayoutRoot(dir, paths.LayoutV2)+"/"+rel, doc, 0o644)
 	return NewProjectReader(fsys, []string{dir})
 }
 

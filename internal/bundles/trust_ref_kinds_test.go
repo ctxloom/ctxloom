@@ -42,7 +42,7 @@ import (
 func TestTrustRefKindDirs_MatchTheTrustAuthority(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1), "kit")
+	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "kit")
 
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(
 		"version: \"1.0\"\n"+

@@ -112,7 +112,7 @@ func TestLoader_WithholdsAnUnclaimedRead(t *testing.T) {
 // find it: the v1 FORMAT ROOT of the /bundles root these tests hand the reader,
 // never the root itself.
 func readerV1(leaf string) string {
-	return filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), leaf)
+	return filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), leaf)
 }
 
 func TestNewProjectReader_ReportsProjectProvenanceAndLocalContext(t *testing.T) {

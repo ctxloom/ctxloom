@@ -55,7 +55,7 @@ func TestFSStore_Save_DropsStaleSignatureAndWarns(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(nil, []string{dir}, &warnings)
 
-	path := v1In(dir, "my-tools.yaml")
+	path := bundlesRootIn(dir, "my-tools.yaml")
 	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {
 		ItemBody: ItemBody{
 			Content: "before",
@@ -87,7 +87,7 @@ func TestFSStore_Save_KeepsSignatureWhenBytesUnchanged(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(nil, []string{dir}, &warnings)
 
-	path := v1In(dir, "steady.yaml")
+	path := bundlesRootIn(dir, "steady.yaml")
 	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {
 		ItemBody: ItemBody{
 			Content: "same",
@@ -113,7 +113,7 @@ func TestFSStore_Save_UnsignedBundleSavesQuietly(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(nil, []string{dir}, &warnings)
 
-	path := v1In(dir, "plain.yaml")
+	path := bundlesRootIn(dir, "plain.yaml")
 	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {
 		ItemBody: ItemBody{
 			Content: "one",
@@ -149,7 +149,7 @@ func TestFSStore_Save_UnsignedBundleSavesQuietly(t *testing.T) {
 func TestFSStore_Save_UnreadableSignatureIsLoudNotAssumedAbsent(t *testing.T) {
 	mem := afero.NewMemMapFs()
 	dir := "/bundles"
-	path := v1In(dir, "opaque.yaml")
+	path := bundlesRootIn(dir, "opaque.yaml")
 	sigPath := path + SigSuffix
 
 	// A signature exists on disk — it just cannot be read.
@@ -186,7 +186,7 @@ func TestFSStore_Save_MissingSignatureStaysSilent(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(mem, []string{dir}, &warnings)
 
-	b := &Bundle{Path: v1In(dir, "plain.yaml"), Version: "1.0", Fragments: map[string]BundleFragment{"a": {
+	b := &Bundle{Path: bundlesRootIn(dir, "plain.yaml"), Version: "1.0", Fragments: map[string]BundleFragment{"a": {
 		ItemBody: ItemBody{
 			Content: "one",
 		},

@@ -25,7 +25,7 @@ import (
 // bundle.
 func TestLocalWalk_ManifestAtTheLayoutRootDoesNotHideRealBundles(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	root := paths.BundlesLayoutRoot("/bundles", paths.LayoutV1)
+	root := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
 	testsupport.WriteFileString(t, fsys,
 		filepath.Join(root, paths.BundleManifestName), "version: \"9.9.9\"\n", 0o644)
 	testsupport.WriteFileString(t, fsys,

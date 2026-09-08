@@ -47,15 +47,25 @@ func TestInstallPulledItem(t *testing.T) {
 			rem:       installItemRemote,
 			localName: bundleKey,
 			sha:       "sha-bundle",
-			content:   []byte("description: a bundle\n"),
+			// A TREE, not a document: item.tree == nil is exactly what
+			// installPulledItem now refuses ("bundles are distributed as
+			// trees"). A version-only manifest is a valid bundle to read
+			// (Bundle.declaresNothing requires no version AND no items).
+			tree: map[string]TreeFile{
+				"bundle.yaml": {Data: []byte("version: \"1.0.0\"\n")},
+			},
 		}
 		var out bytes.Buffer
 		opts := PullOptions{ItemType: ItemTypeBundle, LocalDir: "/test", Stdout: &out, Stdin: strings.NewReader("")}
 
 		res, err := puller.installPulledItem(context.Background(), ref, opts, item)
 		require.NoError(t, err)
-		assert.Equal(t, "<remote>:"+bundleKey+"@sha-bundle", res.LocalPath, "bundles get a synthetic path, not a disk write")
 		assert.False(t, res.Overwritten)
+		assert.Equal(t, ref.LocalTreePath("/test"), res.LocalPath,
+			"a tree bundle IS materialized to disk, at the cache path its Reference derives")
+		installed, readErr := afero.ReadFile(fs, res.LocalPath+"/bundle.yaml")
+		require.NoError(t, readErr, "the tree's manifest must actually be on disk at the reported path")
+		assert.Equal(t, "version: \"1.0.0\"\n", string(installed))
 
 		activeLock, _ := active.Load()
 		entry, inActive := activeLock.GetEntry(ItemTypeBundle, bundleKey)
@@ -63,18 +73,22 @@ func TestInstallPulledItem(t *testing.T) {
 		assert.Equal(t, "sha-bundle", entry.SHA)
 	})
 
-	// For a bundle the lockfile is the ONLY on-disk record — bundles
-	// are never written to disk (writePulledContent is a synthetic no-op). A
-	// failed lockfile write used to be demoted to a printed "Warning:" while
-	// the pull still reported success, so a caller was told a SHA and
-	// LocalPath for a pin that does not exist anywhere — and on a retracted
-	// item, the freshly-computed Retracted verdict was lost right along with
-	// it, leaving EffectiveTrust nothing to withhold against. The lockfile
-	// write failing must fail the pull.
+	// The lockfile is the AUTHORITY on a bundle's pin even though a tree
+	// bundle is also materialized to the (gitignored, regenerable) cache: the
+	// cache is derived from the pin, not the other way around. A failed
+	// lockfile write used to be demoted to a printed "Warning:" while the
+	// pull still reported success, so a caller was told a SHA and LocalPath
+	// for a pin that does not exist anywhere — and on a retracted item, the
+	// freshly-computed Retracted verdict was lost right along with it,
+	// leaving EffectiveTrust nothing to withhold against. The lockfile write
+	// failing must fail the pull.
 	t.Run("lockfile write failure fails the install, not just a warning", func(t *testing.T) {
 		fs, registry := installItemEnv(t)
-		// A read-only lockfile fs makes Save fail; the puller's own fs stays
-		// writable (unused for bundles, which are not written to disk).
+		// A read-only lockfile fs: installTree also writes through
+		// p.lockfileManager.FS() (the tree cache lives under the same base
+		// dir the lockfile does), so this fails BOTH the tree materialization
+		// and the lockfile Save — either is a persistent-write failure the
+		// pull must not report success over.
 		roLock := NewLockfileManager("/test", WithLockfileFS(afero.NewReadOnlyFs(afero.NewMemMapFs())))
 		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(roLock))
 
@@ -83,7 +97,9 @@ func TestInstallPulledItem(t *testing.T) {
 			rem:       installItemRemote,
 			localName: bundleKey,
 			sha:       "sha-bundle",
-			content:   []byte("description: a bundle\n"),
+			tree: map[string]TreeFile{
+				"bundle.yaml": {Data: []byte("version: \"1.0.0\"\n")},
+			},
 		}
 		var out bytes.Buffer
 		opts := PullOptions{ItemType: ItemTypeBundle, LocalDir: "/test", Stdout: &out, Stdin: strings.NewReader("")}

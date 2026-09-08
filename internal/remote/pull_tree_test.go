@@ -49,7 +49,7 @@ func treeRef(t *testing.T) *Reference {
 // the world, and would let a stray directory beside a real bundle.yaml decide
 // which of the two shapes got installed.
 func TestFetchItemBytes_PrefersTheSingleFileAndNeverProbesTheTree(t *testing.T) {
-	fetcher := NewMockFetcher().WithFile(".ctxloom/content/bundles/v1/atelier.yaml", []byte("version: \"1.0.0\"\n"))
+	fetcher := NewMockFetcher().WithFile(".ctxloom/content/bundles/v2/atelier", []byte("version: \"1.0.0\"\n"))
 	probed := false
 	p := treePuller(t, afero.NewMemMapFs(), ".ctxloom", func(context.Context, Fetcher, string, string, string, string, string) (map[string]TreeFile, error) {
 		probed = true
@@ -57,7 +57,7 @@ func TestFetchItemBytes_PrefersTheSingleFileAndNeverProbesTheTree(t *testing.T) 
 	})
 
 	content, tree, _, err := p.fetchItemBytes(t.Context(), fetcher, "trent", "atelier", "https://github.com/trent/atelier",
-		treeRef(t), ".ctxloom/content/bundles/v1/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
+		treeRef(t), ".ctxloom/content/bundles/v2/atelier", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
 
 	require.NoError(t, err)
 	assert.Equal(t, "version: \"1.0.0\"\n", string(content))
@@ -79,7 +79,7 @@ func TestFetchItemBytes_DoesNotProbeTheTreeOnANonNotFoundError(t *testing.T) {
 	})
 
 	_, _, _, err := p.fetchItemBytes(t.Context(), fetcher, "trent", "atelier", "https://github.com/trent/atelier",
-		treeRef(t), ".ctxloom/content/bundles/v1/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
+		treeRef(t), ".ctxloom/content/bundles/v2/atelier", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, boom, "the transport error must reach the caller unchanged")
@@ -100,7 +100,7 @@ func TestFetchItemBytes_FallsBackToTheTreeAndTakesItsManifestAsTheBundleBytes(t 
 		treeAt(map[string]map[string]TreeFile{".ctxloom/content/bundles/v2/atelier": want}, &seen))
 
 	content, tree, treeRoot, err := p.fetchItemBytes(t.Context(), NewMockFetcher(), "trent", "atelier", "https://github.com/trent/atelier",
-		treeRef(t), ".ctxloom/content/bundles/v1/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
+		treeRef(t), ".ctxloom/content/bundles/v2/atelier", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
 
 	require.NoError(t, err)
 	assert.Contains(t, seen, ".ctxloom/content/bundles/v2/atelier", "the directory form beside the single file must be among the roots probed")
@@ -118,7 +118,7 @@ func TestFetchItemBytes_RefusesATreeWithNoManifest(t *testing.T) {
 	}, nil))
 
 	_, _, _, err := p.fetchItemBytes(t.Context(), NewMockFetcher(), "trent", "atelier", "https://github.com/trent/atelier",
-		treeRef(t), ".ctxloom/content/bundles/v1/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
+		treeRef(t), ".ctxloom/content/bundles/v2/atelier", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), BundleManifestName)
@@ -151,7 +151,7 @@ func TestFetchItemBytes_WithoutAWalkerSaysSoRatherThanReportingOnlyTheMissingFil
 	p := treePuller(t, afero.NewMemMapFs(), ".ctxloom", nil)
 
 	_, _, _, err := p.fetchItemBytes(t.Context(), NewMockFetcher(), "trent", "atelier", "https://github.com/trent/atelier",
-		treeRef(t), ".ctxloom/content/bundles/v1/atelier.yaml", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
+		treeRef(t), ".ctxloom/content/bundles/v2/atelier", treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errs.ErrRemoteContentNotFound)
@@ -300,7 +300,7 @@ func TestInstallTree_ReplacesRatherThanMerges(t *testing.T) {
 func TestReadableEntry_RefusesATreeBundleWithAnActionableSentinel(t *testing.T) {
 	name := "https://github.com/trent/atelier@bundles/atelier"
 	r := NewBundleReader(nil, nil, AuthConfig{}, &Lockfile{
-		Bundles: map[string]LockEntry{name: {SHA: treeTestSHA, Tree: true}},
+		Bundles: map[string]LockEntry{name: {SHA: treeTestSHA}},
 	})
 
 	_, err := r.ReadBundleBytes(t.Context(), name)

@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -12,11 +13,63 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
-// readerFixture builds a bare BundleReader wired to a MockFetcher so we
-// can assert exactly which calls the reader makes. Returns the reader,
-// the underlying fetcher (for call assertions), and the lockfile (for
+// Canonical lockfile keys used across the bundle-reader tests, and the
+// format-v2 tree root each resolves to. Format v2 holds only TREES, so a
+// bundle's bytes are its manifest INSIDE that tree — every ReadBundleBytes
+// call in this file goes through a treeReaderSpy, never a raw single-file
+// fetch, because remote.BundleReader has no other read surface left.
+const (
+	secKey      = "https://github.com/alice/ctxloom@bundles/security"
+	subKey      = "https://github.com/alice/ctxloom@bundles/nested/sub"
+	secTreeRoot = ".ctxloom/content/bundles/v2/security"
+	subTreeRoot = ".ctxloom/content/bundles/v2/nested/sub"
+)
+
+// treeReaderSpyCall records one call the reader made to its tree fetcher.
+type treeReaderSpyCall struct {
+	owner, repo, root, sha, repoURL string
+}
+
+// treeReaderSpy is a TreeFetchFunc that serves canned trees by ROOT and
+// records every call, so a test can assert exactly where and at what SHA the
+// reader looked — the same property MockFetcher.FetchFileCalls used to give
+// the single-file path, which format v2 no longer has.
+type treeReaderSpy struct {
+	trees map[string]map[string]TreeFile
+	err   error
+	calls []treeReaderSpyCall
+}
+
+func newTreeReaderSpy(trees map[string]map[string]TreeFile) *treeReaderSpy {
+	return &treeReaderSpy{trees: trees}
+}
+
+// addFile adds one file to the tree already registered at root — used to add
+// a manifest's detached ".sig" sibling without re-declaring the whole tree.
+func (s *treeReaderSpy) addFile(root, name string, data []byte) {
+	if s.trees[root] == nil {
+		s.trees[root] = map[string]TreeFile{}
+	}
+	s.trees[root][name] = TreeFile{Data: data}
+}
+
+func (s *treeReaderSpy) fetch(_ context.Context, _ Fetcher, owner, repo, root, sha, repoURL string) (map[string]TreeFile, error) {
+	s.calls = append(s.calls, treeReaderSpyCall{owner, repo, root, sha, repoURL})
+	if s.err != nil {
+		return nil, s.err
+	}
+	tree, ok := s.trees[root]
+	if !ok {
+		return nil, fmt.Errorf("no tree at %s", root)
+	}
+	return tree, nil
+}
+
+// readerFixture builds a bare BundleReader wired to a treeReaderSpy so we
+// can assert exactly which calls the reader makes. Returns the reader, the
+// spy (for call assertions and error injection), and the lockfile (for
 // SHA-mutation tests).
-func readerFixture(t *testing.T) (*BundleReader, *MockFetcher, *Lockfile) {
+func readerFixture(t *testing.T) (*BundleReader, *treeReaderSpy, *Lockfile) {
 	t.Helper()
 
 	fs := afero.NewMemMapFs()
@@ -24,12 +77,8 @@ func readerFixture(t *testing.T) (*BundleReader, *MockFetcher, *Lockfile) {
 	require.NoError(t, err)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	fetcher := NewMockFetcher().
-		WithFile(".ctxloom/content/bundles/v2/security.yaml", []byte("description: Security bundle\n")).
-		WithFile(".ctxloom/content/bundles/v2/nested/sub.yaml", []byte("description: Sub\n"))
-
 	factory := func(_ string, _ AuthConfig) (Fetcher, error) {
-		return fetcher, nil
+		return NewMockFetcher(), nil
 	}
 
 	lock := &Lockfile{
@@ -45,45 +94,40 @@ func readerFixture(t *testing.T) (*BundleReader, *MockFetcher, *Lockfile) {
 		},
 	}
 
-	reader := NewBundleReader(registry, factory, AuthConfig{}, lock)
-	return reader, fetcher, lock
-}
+	spy := newTreeReaderSpy(map[string]map[string]TreeFile{
+		secTreeRoot: {BundleManifestName: {Data: []byte("description: Security bundle\n")}},
+		subTreeRoot: {BundleManifestName: {Data: []byte("description: Sub\n")}},
+	})
 
-// Canonical lockfile keys used across the bundle-reader tests.
-const (
-	secKey = "https://github.com/alice/ctxloom@bundles/security"
-	subKey = "https://github.com/alice/ctxloom@bundles/nested/sub"
-)
+	reader := NewBundleReader(registry, factory, AuthConfig{}, lock, WithReaderTreeFetcher(spy.fetch))
+	return reader, spy, lock
+}
 
 func TestBundleReader_ReadBundleBytes(t *testing.T) {
 	t.Run("fetches at locked SHA", func(t *testing.T) {
-		reader, fetcher, _ := readerFixture(t)
+		reader, spy, _ := readerFixture(t)
 
 		data, err := reader.ReadBundleBytes(context.Background(), secKey)
 		require.NoError(t, err)
 		assert.Equal(t, "description: Security bundle\n", string(data))
 
-		require.Len(t, fetcher.FetchFileCalls, 1)
-		call := fetcher.FetchFileCalls[0]
-		assert.Equal(t, "alice", call.Owner)
-		assert.Equal(t, "ctxloom", call.Repo)
-		assert.Equal(t, ".ctxloom/content/bundles/v2/security.yaml", call.Path)
-		assert.Equal(t, "abc123def", call.Ref, "must fetch at locked SHA, not default branch")
-
-		// The reader must NOT re-resolve — the SHA from the lockfile is
-		// the source of truth.
-		assert.Empty(t, fetcher.ResolveRefCalls)
+		require.Len(t, spy.calls, 1)
+		call := spy.calls[0]
+		assert.Equal(t, "alice", call.owner)
+		assert.Equal(t, "ctxloom", call.repo)
+		assert.Equal(t, secTreeRoot, call.root)
+		assert.Equal(t, "abc123def", call.sha, "must fetch at locked SHA, not default branch")
 	})
 
 	t.Run("nested bundle path", func(t *testing.T) {
-		reader, fetcher, _ := readerFixture(t)
+		reader, spy, _ := readerFixture(t)
 
 		data, err := reader.ReadBundleBytes(context.Background(), subKey)
 		require.NoError(t, err)
 		assert.Equal(t, "description: Sub\n", string(data))
 
-		require.Len(t, fetcher.FetchFileCalls, 1)
-		assert.Equal(t, ".ctxloom/content/bundles/v2/nested/sub.yaml", fetcher.FetchFileCalls[0].Path)
+		require.Len(t, spy.calls, 1)
+		assert.Equal(t, subTreeRoot, spy.calls[0].root)
 	})
 
 	t.Run("missing bundle returns ErrBundleNotInLockfile", func(t *testing.T) {
@@ -103,15 +147,15 @@ func TestBundleReader_ReadBundleBytes(t *testing.T) {
 	})
 
 	t.Run("propagates fetcher errors", func(t *testing.T) {
-		reader, fetcher, _ := readerFixture(t)
-		fetcher.FetchFileErr = errors.New("boom")
+		reader, spy, _ := readerFixture(t)
+		spy.err = errors.New("boom")
 
 		_, err := reader.ReadBundleBytes(context.Background(), secKey)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "boom")
 	})
 
-	// An empty entry.SHA must never reach the fetcher — the pin IS
+	// An empty entry.SHA must never reach the tree fetcher — the pin IS
 	// the security control (EffectiveTrust gates on content read at a
 	// specific commit), and a fetcher asked to read "" resolves the default
 	// branch TIP instead, silently converting a pinned read into a latest
@@ -120,14 +164,14 @@ func TestBundleReader_ReadBundleBytes(t *testing.T) {
 	// today, but a pinned reader must refuse to read unpinned regardless of
 	// how it got that way.
 	t.Run("empty locked SHA is refused, never resolved as latest", func(t *testing.T) {
-		reader, fetcher, lock := readerFixture(t)
+		reader, spy, lock := readerFixture(t)
 		entry := lock.Bundles[secKey]
 		entry.SHA = ""
 		lock.Bundles[secKey] = entry
 
 		_, err := reader.ReadBundleBytes(context.Background(), secKey)
 		require.Error(t, err, "an empty pin must be refused, not silently resolved to the default branch")
-		assert.Empty(t, fetcher.FetchFileCalls, "the fetcher must never be asked to read an empty ref")
+		assert.Empty(t, spy.calls, "the tree fetcher must never be asked to read an empty ref")
 	})
 }
 
@@ -211,9 +255,9 @@ func TestLoadAllBytes(t *testing.T) {
 	// never "something was named and skipped" — which is the shape the row was
 	// worried about.
 	t.Run("every listed name lands in exactly one map", func(t *testing.T) {
-		reader, fetcher, lock := readerFixture(t)
+		reader, spy, lock := readerFixture(t)
 		lock.Bundles["ghost/missing"] = LockEntry{SHA: "x"}
-		fetcher.FetchFileErr = errors.New("clone unreadable")
+		spy.err = errors.New("clone unreadable")
 
 		names := reader.ListBundleNames()
 		loaded, failures := LoadAllBytes(context.Background(), reader)
@@ -235,18 +279,18 @@ func TestLoadAllBytes(t *testing.T) {
 // transport, no network, no second SHA.
 func TestBundleReader_ReadBundleSignature(t *testing.T) {
 	t.Run("fetches the sibling .sig at the locked SHA", func(t *testing.T) {
-		reader, fetcher, _ := readerFixture(t)
-		fetcher.WithFile(".ctxloom/content/bundles/v2/security.yaml.sig", []byte("-----BEGIN SSH SIGNATURE-----\nblob\n"))
+		reader, spy, _ := readerFixture(t)
+		spy.addFile(secTreeRoot, BundleManifestName+SignatureSuffix, []byte("-----BEGIN SSH SIGNATURE-----\nblob\n"))
 
 		data, err := reader.ReadBundleSignature(context.Background(), secKey)
 		require.NoError(t, err)
 		assert.Equal(t, "-----BEGIN SSH SIGNATURE-----\nblob\n", string(data))
 
-		require.Len(t, fetcher.FetchFileCalls, 1)
-		call := fetcher.FetchFileCalls[0]
-		assert.Equal(t, ".ctxloom/content/bundles/v2/security.yaml.sig", call.Path,
-			"the signature is the bundle path + .sig, nothing else")
-		assert.Equal(t, "abc123def", call.Ref,
+		require.Len(t, spy.calls, 1)
+		call := spy.calls[0]
+		assert.Equal(t, secTreeRoot, call.root,
+			"the signature is the sibling of the manifest, in the SAME tree")
+		assert.Equal(t, "abc123def", call.sha,
 			"the signature must be read at the SAME pinned SHA as the bytes it covers")
 	})
 

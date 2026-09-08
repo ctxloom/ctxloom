@@ -54,7 +54,7 @@ func treeReaderOver(t *testing.T, tcap *treeCapture, sha string) *BundleReader {
 		func(string, AuthConfig) (Fetcher, error) { return NewMockFetcher(), nil },
 		AuthConfig{},
 		&Lockfile{Bundles: map[string]LockEntry{
-			treeReadCanonical: {SHA: sha, URL: "https://github.com/trent/atelier", Tree: true},
+			treeReadCanonical: {SHA: sha, URL: "https://github.com/trent/atelier"},
 		}},
 		WithReaderTreeFetcher(tcap.fetch),
 	)

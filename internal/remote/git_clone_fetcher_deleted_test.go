@@ -51,13 +51,13 @@ func newTestRepo(t *testing.T) string {
 func TestGitCloneFetcher_ListDeletedItems(t *testing.T) {
 	dir := newTestRepo(t)
 	writeCommit(t, dir, "add foo+bar+nested", map[string]string{
-		".ctxloom/content/bundles/v1/foo.yaml":         "x",
-		".ctxloom/content/bundles/v1/bar.yaml":         "x",
-		".ctxloom/content/bundles/v1/nested/keep.yaml": "x",
+		".ctxloom/content/bundles/v2/foo.yaml":         "x",
+		".ctxloom/content/bundles/v2/bar.yaml":         "x",
+		".ctxloom/content/bundles/v2/nested/keep.yaml": "x",
 	}, nil)
 	writeCommit(t, dir, "remove bar + nested/keep", nil, []string{
-		".ctxloom/content/bundles/v1/bar.yaml",
-		".ctxloom/content/bundles/v1/nested/keep.yaml",
+		".ctxloom/content/bundles/v2/bar.yaml",
+		".ctxloom/content/bundles/v2/nested/keep.yaml",
 	})
 
 	f, err := NewGitCloneFetcher(dir, "https://github.com/o/r", ForgeGitHub, nil)

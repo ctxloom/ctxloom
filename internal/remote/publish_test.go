@@ -424,9 +424,9 @@ func TestPublishPath(t *testing.T) {
 		name     string
 		expected string
 	}{
-		{ItemTypeBundle, "security", ".ctxloom/content/bundles/v2/security.yaml"},
-		{ItemTypeBundle, "testing", ".ctxloom/content/bundles/v2/testing.yaml"},
-		{ItemType(""), "unknown", ".ctxloom/content/bundles/v2/unknown.yaml"}, // defaults to bundles
+		{ItemTypeBundle, "security", ".ctxloom/content/bundles/v2/security"},
+		{ItemTypeBundle, "testing", ".ctxloom/content/bundles/v2/testing"},
+		{ItemType(""), "unknown", ".ctxloom/content/bundles/v2/unknown"}, // defaults to bundles
 	}
 
 	for _, tt := range tests {

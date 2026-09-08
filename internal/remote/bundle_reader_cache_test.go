@@ -270,7 +270,7 @@ func TestCachingBundleReader_SourceWithoutLockEntries(t *testing.T) {
 // MockFetcher. Without this, the unit tests above could pass with a fake
 // inner while production wiring silently broke.
 func TestCachingBundleReader_WithRealReader(t *testing.T) {
-	inner, fetcher, _ := readerFixture(t)
+	inner, spy, _ := readerFixture(t)
 	cache := NewCachingBundleReader(inner)
 
 	for i := 0; i < 3; i++ {
@@ -278,5 +278,5 @@ func TestCachingBundleReader_WithRealReader(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "description: Security bundle\n", string(data))
 	}
-	assert.Len(t, fetcher.FetchFileCalls, 1, "underlying fetcher hit exactly once")
+	assert.Len(t, spy.calls, 1, "underlying tree fetcher hit exactly once")
 }

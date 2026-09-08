@@ -154,14 +154,26 @@ func (r *reader) addFragment(v content.Fragment) {
 		r.out.Fragments = map[string]BundleFragment{}
 	}
 	r.out.Fragments[v.Name] = BundleFragment{
-		Tags:         v.Tags,
-		Notes:        v.Notes,
-		Installation: v.Installation,
-		Content:      v.Body,
-		ContentHash:  v.ContentHash,
-		Distilled:    v.Distilled,
-		DistilledBy:  v.DistilledBy,
-		NoDistill:    v.NoDistill,
+		ItemBody: itemBody(v.ItemMeta),
+		Premise:  v.Description,
+	}
+}
+
+// itemBody carries across everything a fragment and a command hold alike. It
+// exists so neither reader restates the shared payload: this function dropping
+// a field is one bug, whereas the two literals it replaced could disagree
+// about one — which is exactly how a fragment's premise went missing while the
+// command beside it kept its description.
+func itemBody(m content.ItemMeta) ItemBody {
+	return ItemBody{
+		Tags:         m.Tags,
+		Notes:        m.Notes,
+		Installation: m.Installation,
+		Content:      m.Body,
+		ContentHash:  m.ContentHash,
+		Distilled:    m.Distilled,
+		DistilledBy:  m.DistilledBy,
+		NoDistill:    m.NoDistill,
 	}
 }
 
@@ -170,16 +182,9 @@ func (r *reader) addCommand(v content.Command) {
 		r.out.Commands = map[string]BundleCommand{}
 	}
 	r.out.Commands[v.Name] = BundleCommand{
-		Description:  v.Description,
-		Tags:         v.Tags,
-		Notes:        v.Notes,
-		Installation: v.Installation,
-		Content:      v.Body,
-		ContentHash:  v.ContentHash,
-		Distilled:    v.Distilled,
-		DistilledBy:  v.DistilledBy,
-		NoDistill:    v.NoDistill,
-		LLM:          commandLLM(v.Exports),
+		ItemBody:    itemBody(v.ItemMeta),
+		Description: v.Description,
+		LLM:         commandLLM(v.Exports),
 	}
 }
 

@@ -74,10 +74,18 @@ func TestDeclaredName_RemoteDecisionDoesNotTransferToProjectBundleClaimingItsRef
 	// "impostor" becomes /bundles/impostor.yaml under NewProjectReader.
 	loader := seedLoader(t, map[string]*bundles.Bundle{
 		impostorRemoteRef: {Version: "1.0", Fragments: map[string]bundles.BundleFragment{
-			"keeper": {Content: "REMOTE-BODY"},
+			"keeper": {
+				ItemBody: bundles.ItemBody{
+					Content: "REMOTE-BODY",
+				},
+			},
 		}},
 		"impostor": {Name: impostorRemoteRef, Fragments: map[string]bundles.BundleFragment{
-			"keeper": {Content: "PROJECT-BODY"},
+			"keeper": {
+				ItemBody: bundles.ItemBody{
+					Content: "PROJECT-BODY",
+				},
+			},
 		}},
 	})
 	pipe := bundles.NewPipeline(loader, gate, true)
@@ -134,10 +142,18 @@ func TestDeclaredName_RemoteDecisionDoesNotTransferToProjectBundleClaimingItsRef
 func TestDeclaredName_ProjectBundleKeysByLocationNotByDeclaredName(t *testing.T) {
 	loader := seedLoader(t, map[string]*bundles.Bundle{
 		impostorRemoteRef: {Version: "1.0", Fragments: map[string]bundles.BundleFragment{
-			"keeper": {Content: "REMOTE-BODY"},
+			"keeper": {
+				ItemBody: bundles.ItemBody{
+					Content: "REMOTE-BODY",
+				},
+			},
 		}},
 		"impostor": {Name: impostorRemoteRef, Fragments: map[string]bundles.BundleFragment{
-			"keeper": {Content: "PROJECT-BODY"},
+			"keeper": {
+				ItemBody: bundles.ItemBody{
+					Content: "PROJECT-BODY",
+				},
+			},
 		}},
 	})
 
@@ -191,7 +207,11 @@ func TestDeclaredName_ContentRejectionSurvivesADeclaredRename(t *testing.T) {
 	// mentioned, shipping those exact bytes.
 	loader := seedLoader(t, map[string]*bundles.Bundle{
 		"launderer": {Name: "a-completely-different-name", Fragments: map[string]bundles.BundleFragment{
-			"keeper": {Content: rejectedBody},
+			"keeper": {
+				ItemBody: bundles.ItemBody{
+					Content: rejectedBody,
+				},
+			},
 		}},
 	})
 	pipe := bundles.NewPipeline(loader, gate, true)
@@ -206,7 +226,11 @@ func TestDeclaredName_ContentRejectionSurvivesADeclaredRename(t *testing.T) {
 	// blocked.
 	cleanLoader := seedLoader(t, map[string]*bundles.Bundle{
 		"launderer": {Name: "a-completely-different-name", Fragments: map[string]bundles.BundleFragment{
-			"keeper": {Content: "DIFFERENT-BYTES"},
+			"keeper": {
+				ItemBody: bundles.ItemBody{
+					Content: "DIFFERENT-BYTES",
+				},
+			},
 		}},
 	})
 	clean, err := bundles.NewPipeline(cleanLoader, gate, true).GetFragment("launderer#fragments/keeper")
@@ -233,7 +257,11 @@ func TestDeclaredName_SelfRenameDoesNotEscapeAnExistingRejection(t *testing.T) {
 
 	// The bundle as first reviewed: at /bundles/mine.yaml, declaring nothing.
 	original := seedLoader(t, map[string]*bundles.Bundle{
-		"mine": {Fragments: map[string]bundles.BundleFragment{"keeper": {Content: body}}},
+		"mine": {Fragments: map[string]bundles.BundleFragment{"keeper": {
+			ItemBody: bundles.ItemBody{
+				Content: body,
+			},
+		}}},
 	})
 	originalPipe := bundles.NewPipeline(original, gate, true)
 
@@ -257,7 +285,11 @@ func TestDeclaredName_SelfRenameDoesNotEscapeAnExistingRejection(t *testing.T) {
 	// THE ATTACK: same file, same location, same bytes — the document now
 	// DECLARES a name. Nothing a human reviewed has changed.
 	renamed := seedLoader(t, map[string]*bundles.Bundle{
-		"mine": {Name: "freshly-renamed", Fragments: map[string]bundles.BundleFragment{"keeper": {Content: body}}},
+		"mine": {Name: "freshly-renamed", Fragments: map[string]bundles.BundleFragment{"keeper": {
+			ItemBody: bundles.ItemBody{
+				Content: body,
+			},
+		}}},
 	})
 	renamedRead := readOf(t, renamed, "mine")
 	require.Equal(t, "freshly-renamed", renamedRead.Bundle.Name,

@@ -31,8 +31,9 @@ import (
 const localSigFragmentBody = "LOCAL-SIG-CHARACTERIZATION-PAYLOAD"
 
 // localSigBundlePath is the authored (committed content) bundle the harness's
-// writeFragment helper writes to.
-const localSigBundlePath = ".ctxloom/content/bundles/v1/local.yaml"
+// writeFragment helper writes to — the same bundle, by name, so a fixture that
+// signs it cannot drift from the one that authored it.
+func localSigBundlePath() string { return testenv.SingleFileBundlePath(localBundleName) }
 
 // deliverLocalFragment runs the fragment through a real assembly and returns
 // what the language model was actually handed.
@@ -60,11 +61,11 @@ func setupLocalSigEnv(t *testing.T) (*testenv.TestEnvironment, *testenv.MockLM) 
 // detached sibling, exactly as `ctxloom bundle sign` does.
 func signLocalBundle(t *testing.T, env *testenv.TestEnvironment, signer *testenv.TestSigner) {
 	t.Helper()
-	body, err := env.ReadFile(localSigBundlePath)
+	body, err := env.ReadFile(localSigBundlePath())
 	require.NoError(t, err)
 	sig, err := signing.Sign([]byte(body), signer.Signer, signing.NamespacePublish)
 	require.NoError(t, err)
-	require.NoError(t, env.WriteFile(localSigBundlePath+".sig", string(sig)))
+	require.NoError(t, env.WriteFile(localSigBundlePath()+".sig", string(sig)))
 }
 
 // editAfterSigning rewrites the bundle's bytes WITHOUT touching the sibling
@@ -72,9 +73,9 @@ func signLocalBundle(t *testing.T, env *testenv.TestEnvironment, signer *testenv
 // disk: a signature over bytes that no longer exist.
 func editAfterSigning(t *testing.T, env *testenv.TestEnvironment) {
 	t.Helper()
-	body, err := env.ReadFile(localSigBundlePath)
+	body, err := env.ReadFile(localSigBundlePath())
 	require.NoError(t, err)
-	require.NoError(t, env.WriteFile(localSigBundlePath, body+"\n# edited after signing, never re-signed\n"))
+	require.NoError(t, env.WriteFile(localSigBundlePath(), body+"\n# edited after signing, never re-signed\n"))
 }
 
 // TestLocalBundle_NoSignature_Delivers is the baseline: unsigned local content
@@ -83,7 +84,7 @@ func editAfterSigning(t *testing.T, env *testenv.TestEnvironment) {
 // whole rule.
 func TestLocalBundle_NoSignature_Delivers(t *testing.T) {
 	env, mockLM := setupLocalSigEnv(t)
-	require.False(t, env.FileExists(localSigBundlePath+".sig"), "precondition: no signature on disk")
+	require.False(t, env.FileExists(localSigBundlePath()+".sig"), "precondition: no signature on disk")
 
 	delivered := deliverLocalFragment(t, env, mockLM, "signed-local")
 
@@ -150,9 +151,9 @@ func TestLocalBundle_StaleSignature_Delivers(t *testing.T) {
 
 			// The signature really is stale — assert the precondition rather
 			// than assume it, or this test could pass over a valid pair.
-			body, err := env.ReadFile(localSigBundlePath)
+			body, err := env.ReadFile(localSigBundlePath())
 			require.NoError(t, err)
-			sig, err := env.ReadFile(localSigBundlePath + ".sig")
+			sig, err := env.ReadFile(localSigBundlePath() + ".sig")
 			require.NoError(t, err)
 			require.Error(t, signing.CoversBytes([]byte(body), []byte(sig), signing.NamespacePublish),
 				"precondition: the signature must NOT cover the edited bytes")
@@ -181,7 +182,7 @@ func TestLocalBundle_StaleSignature_Delivers(t *testing.T) {
 // bundle fail to LOAD either, which would take every other item in it down too.
 func TestLocalBundle_CorruptSignature_Delivers(t *testing.T) {
 	env, mockLM := setupLocalSigEnv(t)
-	require.NoError(t, env.WriteFile(localSigBundlePath+".sig", "not a signature at all\n"))
+	require.NoError(t, env.WriteFile(localSigBundlePath()+".sig", "not a signature at all\n"))
 
 	delivered := deliverLocalFragment(t, env, mockLM, "signed-local")
 

@@ -24,7 +24,7 @@ import (
 func TestReadCommand_PromptsAliasReachesTheSameItem(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1), "kit")
+	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "kit")
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(
 		"version: \"1.0\"\ncommands:\n  deploy:\n    content: run the deploy script\n"), 0o644))
 
@@ -55,7 +55,7 @@ func TestReadCommand_PromptsAliasReachesTheSameItem(t *testing.T) {
 func TestReadFragment_CommandSelectorIsRefusedByKindNotByHash(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1), "kit")
+	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "kit")
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(
 		"version: \"1.0\"\ncommands:\n  deploy:\n    content: run the deploy script\n"), 0o644))
 

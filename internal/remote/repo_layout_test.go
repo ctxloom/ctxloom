@@ -16,29 +16,30 @@ import (
 //
 // So these tests pin the LITERAL bytes. An edit that changes where publishing
 // writes has to change these lines, in a commit that says so — rather than
-// silently relocating a corpus that no longer resolves. The v1 segment below IS
-// such an edit: format v1 was moved out of the bundles root and into its own,
-// leaving that root as the parent the format roots are siblings under.
+// silently relocating a corpus that no longer resolves. Format v2 holds only
+// TREES, so a published item's leaf is the bundle's own directory name — no
+// ".yaml" suffix — which is why these literals carry none.
 
 // TestRepoLayout_LiteralPaths pins each accessor's exact repo-relative value.
 func TestRepoLayout_LiteralPaths(t *testing.T) {
-	assert.Equal(t, ".ctxloom/content/bundles/v1", RepoItemPrefix(ItemTypeBundle),
-		"the single-file publish/fetch prefix")
+	assert.Equal(t, ".ctxloom/content/bundles/v2", RepoItemPrefix(ItemTypeBundle),
+		"the tree publish/fetch prefix")
 	assert.Equal(t, ".ctxloom/content/bundles", RepoItemRoot(ItemTypeBundle),
 		"the listing walk root — the PARENT of every format root, which holds no bundles itself")
-	assert.Equal(t, "bundles/v1", ContentItemPrefix(ItemTypeBundle),
+	assert.Equal(t, "bundles/v2", ContentItemPrefix(ItemTypeBundle),
 		"the content-root-relative prefix a local ref resolves against")
 	assert.NotContains(t, RepoItemRoots(ItemTypeBundle), RepoItemRoot(ItemTypeBundle),
 		"no FORMAT root may be the listing root itself: a flat listing there finds directories, not bundles")
 }
 
-// TestPublishPath_LiteralPath pins the published file path itself, not just its
-// prefix — a bundle lands at <prefix>/<name>.yaml and the suffix is as much a
-// part of the contract as the directory.
+// TestPublishPath_LiteralPath pins the published path itself, not just its
+// prefix — a bundle lands at <prefix>/<name>, its OWN tree root, with no
+// extension: what travels there is a manifest plus item files, not one
+// document.
 func TestPublishPath_LiteralPath(t *testing.T) {
-	assert.Equal(t, ".ctxloom/content/bundles/v1/go-tools.yaml",
+	assert.Equal(t, ".ctxloom/content/bundles/v2/go-tools",
 		PublishPath(ItemTypeBundle, "go-tools"))
-	assert.Equal(t, ".ctxloom/content/bundles/v1/lang/go/testing.yaml",
+	assert.Equal(t, ".ctxloom/content/bundles/v2/lang/go/testing",
 		PublishPath(ItemTypeBundle, "lang/go/testing"),
 		"a path-addressed bundle keeps its subdirectories under the prefix")
 }
@@ -49,11 +50,11 @@ func TestBuildFilePath_LiteralPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse canonical ref: %v", err)
 	}
-	assert.Equal(t, ".ctxloom/content/bundles/v1/lang/go/testing.yaml",
+	assert.Equal(t, ".ctxloom/content/bundles/v2/lang/go/testing",
 		canonical.BuildFilePath(ItemTypeBundle))
 
 	local := &Reference{IsLocal: true, ItemType: ItemTypeBundle, Path: "go-tools"}
-	assert.Equal(t, "bundles/v1/go-tools.yaml", local.BuildFilePath(ItemTypeBundle),
+	assert.Equal(t, "bundles/v2/go-tools", local.BuildFilePath(ItemTypeBundle),
 		"a local ref resolves against an already-open content root, so it must NOT re-state it")
 }
 
@@ -69,7 +70,7 @@ func TestRepoItemName_ReturnsBareNames(t *testing.T) {
 		assert.Equal(t, "lang/go/testing", RepoItemName(ItemTypeBundle, "lang/go/testing"))
 	})
 
-	for _, l := range []paths.BundleLayout{paths.LayoutV1, paths.LayoutV2} {
+	for _, l := range []paths.BundleLayout{paths.LayoutV2} {
 		t.Run("a name under "+l.String()+" loses its segment", func(t *testing.T) {
 			seg, err := l.Segment()
 			if err != nil {
@@ -91,7 +92,7 @@ func TestRepoItemName_ReturnsBareNames(t *testing.T) {
 // dangerous edge: an item whose whole name equals a layout segment. Trimming it
 // would reduce a real bundle to the empty name.
 func TestRepoItemName_KeepsANameThatMerelyLooksLikeASegment(t *testing.T) {
-	for _, l := range []paths.BundleLayout{paths.LayoutV1, paths.LayoutV2} {
+	for _, l := range []paths.BundleLayout{paths.LayoutV2} {
 		seg, err := l.Segment()
 		if err != nil || seg == "" {
 			continue
@@ -120,9 +121,10 @@ func TestRepoLayout_PublishFetchAndListingAgree(t *testing.T) {
 	assert.True(t, len(published) > len(root)+1 && published[:len(root)+1] == root+"/",
 		"the publish path %q must sit under the listing root %q, or nothing will ever list it", published, root)
 
-	// Now reduce the published path the way a listing does — strip the root and
-	// the .yaml — and confirm the bare name comes back.
-	rel := published[len(root)+1 : len(published)-len(".yaml")]
+	// Now reduce the published path the way a listing does — strip the root
+	// (format v2 carries no extension, since the leaf is the tree's own
+	// directory) — and confirm the bare name comes back.
+	rel := published[len(root)+1:]
 	assert.Equal(t, name, RepoItemName(ItemTypeBundle, rel),
 		"a listing of the just-published bundle must yield the name it was published under")
 }

@@ -2,25 +2,19 @@ package operations
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	gogitConfig "github.com/go-git/go-git/v5/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
 
 // setupBundleTestDir creates a real-filesystem .ctxloom layout for bundle tests.
@@ -764,8 +758,15 @@ remotes:
     url: https://github.com/example/personal
     version: v1
 `)
-	createSeedBundle(t, cfg, "shape-test")
-	bundlePath := filepath.Join(authoredV1(appDir), "shape-test.yaml")
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
+		Name: "shape-test",
+		Tree: true,
+		Fragments: map[string]BundleFragmentInput{
+			"intro": {Content: "intro content", NoDistill: true},
+		},
+	})
+	require.NoError(t, err)
+	bundlePath := filepath.Join(authoredV1(appDir), "shape-test", bundles.DirectoryFormManifest)
 
 	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 		Path:     bundlePath,
@@ -857,8 +858,16 @@ remotes:
     url: https://github.com/example/personal-bundles
     version: v1
 `)
-	createSeedBundle(t, cfg, "for-push")
-	bundlePath = filepath.Join(authoredV1(appDir), "for-push.yaml")
+	// Hand-written rather than createSeedBundle (which authors a v1 document):
+	// bundle_move_test.go moves this bundle, and CreateBundle's own tree path
+	// refuses to author a zero-item tree (convert.Convert is a no-op for
+	// one), even though a version-only envelope is a perfectly valid bundle
+	// to READ (Bundle.declaresNothing requires no version AND no items), so
+	// this writes the manifest directly.
+	treeDir := filepath.Join(authoredV1(appDir), "for-push")
+	require.NoError(t, os.MkdirAll(treeDir, 0o755))
+	bundlePath = filepath.Join(treeDir, bundles.DirectoryFormManifest)
+	require.NoError(t, os.WriteFile(bundlePath, []byte("version: \"1.0.0\"\n"), 0o644))
 
 	registry, err := remote.NewRegistry(filepath.Join(appDir, "remotes.yaml"))
 	require.NoError(t, err)
@@ -900,7 +909,7 @@ func TestPushBundle_DirectPush_CallsPublisher(t *testing.T) {
 	require.Len(t, mock.createOrUpdateCalls, 1, "publisher should be invoked exactly once")
 	assert.Equal(t, 0, len(mock.createPRCalls))
 	assert.Equal(t, "Add for-push", mock.createOrUpdateCalls[0].Message)
-	assert.Equal(t, repoV1("for-push.yaml"), mock.createOrUpdateCalls[0].Path)
+	assert.Equal(t, repoV2("for-push")+"/"+bundles.DirectoryFormManifest, mock.createOrUpdateCalls[0].Path)
 }
 
 func TestPushBundle_CreatePR_CallsPublisherWithPR(t *testing.T) {
@@ -1148,46 +1157,6 @@ func TestCreateBundle_NotesAndInstallationRoundTrip(t *testing.T) {
 	assert.Equal(t, "install y", got.Commands["p"].Installation)
 	assert.Equal(t, "m-notes", got.MCP["m"].Notes)
 	assert.Equal(t, "install m", got.MCP["m"].Installation)
-}
-
-// TestPushBundle_Signer_PublishesSignedSiblingOverExactPublishedBytes wires
-// PushBundleRequest.Signer end to end through PushBundle -> PublishManager
-// -> the mock Publisher, and confirms (a) a .sig sibling is published in
-// the same call sequence and (b) it verifies, via the REAL production
-// signing.VerifyPublisher path, over the EXACT bytes the mock recorded for
-// the main file — never a pre-metadata draft (spec §3.1).
-func TestPushBundle_Signer_PublishesSignedSiblingOverExactPublishedBytes(t *testing.T) {
-	mock := &mockPublisher{returnCommitSHA: "sig123"}
-	cfg, bundlePath, mgr := pushTestSetup(t, mock)
-
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	signer, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-
-	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
-		Path:           bundlePath,
-		Remote:         "personal",
-		PublishManager: mgr,
-		Signer:         signer,
-	})
-	require.NoError(t, err)
-	assert.True(t, result.Signed)
-
-	require.Len(t, mock.createOrUpdateCalls, 2, "main file + .sig sibling")
-	main := mock.createOrUpdateCalls[0]
-	sig := mock.createOrUpdateCalls[1]
-	assert.Equal(t, repoV1("for-push.yaml"), main.Path)
-	assert.Equal(t, repoV1("for-push.yaml.sig"), sig.Path)
-
-	root := allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{"me@example.com"},
-		KeyType:    signer.PublicKey().Type(),
-		PublicKey:  signer.PublicKey(),
-	})
-	principal, verr := signing.VerifyPublisher(main.Content, sig.Content, root, time.Now())
-	require.NoError(t, verr)
-	assert.Equal(t, "me@example.com", principal)
 }
 
 func TestPushBundle_NoSigner_NeverPublishesSig(t *testing.T) {

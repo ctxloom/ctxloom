@@ -464,10 +464,35 @@ type BundleMCP struct {
 	ContentHash  string            `yaml:"content_hash,omitempty"` // Hash of the executable surface (Command+Args+Env+Installation)
 }
 
+// ItemBody is the payload a fragment and a command carry IDENTICALLY: the
+// authored prose plus the metadata that travels with it. It is one type
+// because the two were one shape maintained twice — the pair drifted, and a
+// reader that copied every field but one dropped a fragment's premise on the
+// way in with nothing to show for it.
+//
+// It is EMBEDDED and `yaml:",inline"`, so the wire form is unchanged: a
+// fragment and a command serialize the same keys they always did. What differs
+// between the two kinds — a fragment's Premise, a command's Description and
+// LLM — stays on the kind that has it, which is now the only thing either
+// declares.
+//
+// BundleMCP deliberately does NOT embed this: it shares three field names but
+// carries no Content and no distillation, so folding it in would mean a type
+// whose fields are meaningless for a third of its users.
+type ItemBody struct {
+	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags)
+	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
+	Content      string   `yaml:"content"`
+	ContentHash  string   `yaml:"content_hash,omitempty"`
+	Distilled    string   `yaml:"distilled,omitempty"`
+	DistilledBy  string   `yaml:"distilled_by,omitempty"`
+	NoDistill    bool     `yaml:"no_distill,omitempty"`
+}
+
 // BundleFragment defines a fragment within a bundle.
 type BundleFragment struct {
-	Tags  []string `yaml:"tags,omitempty"`  // Additional tags (merged with bundle tags)
-	Notes string   `yaml:"notes,omitempty"` // Human-readable notes, not sent to AI
+	ItemBody `yaml:",inline"`
 	// Premise states, in prose, WHEN this fragment applies and who it is for.
 	// It is the fragment's own applicability condition, addressed to the acting
 	// agent, because the great majority of guidance conditions ("you are about
@@ -485,27 +510,14 @@ type BundleFragment struct {
 	// metadata about when to serve them, not part of them. Adding a premise
 	// therefore leaves an item's content hash, its distillation staleness and
 	// its trust grants untouched.
-	Premise      string `yaml:"premise,omitempty"`
-	Installation string `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
-	Content      string `yaml:"content"`
-	ContentHash  string `yaml:"content_hash,omitempty"`
-	Distilled    string `yaml:"distilled,omitempty"`
-	DistilledBy  string `yaml:"distilled_by,omitempty"`
-	NoDistill    bool   `yaml:"no_distill,omitempty"`
+	Premise string `yaml:"premise,omitempty"`
 }
 
 // BundleCommand defines a slash command within a bundle.
 type BundleCommand struct {
-	Description  string     `yaml:"description,omitempty"`
-	Tags         []string   `yaml:"tags,omitempty"`
-	Notes        string     `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string     `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
-	Content      string     `yaml:"content"`
-	ContentHash  string     `yaml:"content_hash,omitempty"`
-	Distilled    string     `yaml:"distilled,omitempty"`
-	DistilledBy  string     `yaml:"distilled_by,omitempty"`
-	NoDistill    bool       `yaml:"no_distill,omitempty"`
-	LLM          LLMExports `yaml:"llm,omitempty"` // Per-LLM export settings (e.g. claude-code slash-command config)
+	ItemBody    `yaml:",inline"`
+	Description string     `yaml:"description,omitempty"`
+	LLM         LLMExports `yaml:"llm,omitempty"` // Per-LLM export settings (e.g. claude-code slash-command config)
 }
 
 // BundleSkill defines an Agent Skill package within a bundle: a directory

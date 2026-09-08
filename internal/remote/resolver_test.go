@@ -89,7 +89,7 @@ func TestRemoteRefFetcher_FetchItem_Pinned(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte("name: core-practices"), data)
 	// The canonical item path and pinned (opaque) revision flow through to the VCS.
-	assert.Equal(t, ".ctxloom/content/bundles/v1/core-practices.yaml", vcs.lastPath)
+	assert.Equal(t, ".ctxloom/content/bundles/v2/core-practices", vcs.lastPath)
 	assert.Equal(t, "v2.0.0", vcs.lastRev)
 	assert.False(t, vcs.readFileCalled, "a pinned ref takes the Versioned path, not current")
 }
@@ -107,7 +107,7 @@ func TestRemoteRefFetcher_FetchItem_Versionless(t *testing.T) {
 
 func TestRemoteRefFetcher_FetchItem_ThroughGitBackend(t *testing.T) {
 	ctx := context.Background()
-	mf := NewMockFetcher().WithFile(".ctxloom/content/bundles/v1/core-practices.yaml", []byte("name: core-practices"))
+	mf := NewMockFetcher().WithFile(".ctxloom/content/bundles/v2/core-practices", []byte("name: core-practices"))
 	f := NewRemoteRefFetcher(GitForgeVCSFactory(mockFetcherFactory(mf), AuthConfig{}))
 
 	data, err := f.FetchItem(ctx, canonicalBundleRef(t), "")

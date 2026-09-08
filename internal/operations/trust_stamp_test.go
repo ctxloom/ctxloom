@@ -20,16 +20,40 @@ func stampSeed(t *testing.T) *bundles.Loader {
 	const acme = "https://github.com/acme/repo@bundles/"
 	const evil = "https://github.com/evil/repo@bundles/"
 	seed := map[string]*bundles.Bundle{
-		acme + "tooling": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "solid body"}}},
+		acme + "tooling": {Fragments: map[string]bundles.BundleFragment{"solid": {
+			ItemBody: bundles.ItemBody{
+				Content: "solid body",
+			},
+		}}},
 		acme + "plain": {Fragments: map[string]bundles.BundleFragment{
-			"pf":    {Content: "plain body"},
-			"clone": {Content: "danger body"}, // identical content to a rejected item
+			"pf": {
+				ItemBody: bundles.ItemBody{
+					Content: "plain body",
+				},
+			},
+			"clone": {
+				ItemBody: bundles.ItemBody{
+					Content: "danger body",
+				},
+			}, // identical content to a rejected item
 		}},
-		acme + "banned": {Fragments: map[string]bundles.BundleFragment{"bad": {Content: "banned body"}}},
-		evil + "bad2":   {Fragments: map[string]bundles.BundleFragment{"ef": {Content: "evil body"}}},
+		acme + "banned": {Fragments: map[string]bundles.BundleFragment{"bad": {
+			ItemBody: bundles.ItemBody{
+				Content: "banned body",
+			},
+		}}},
+		evil + "bad2": {Fragments: map[string]bundles.BundleFragment{"ef": {
+			ItemBody: bundles.ItemBody{
+				Content: "evil body",
+			},
+		}}},
 		"demo": {
-			Fragments: map[string]bundles.BundleFragment{"localfrag": {Content: "local body"}},
-			MCP:       map[string]bundles.BundleMCP{"localmcp": {Command: "local-cmd"}},
+			Fragments: map[string]bundles.BundleFragment{"localfrag": {
+				ItemBody: bundles.ItemBody{
+					Content: "local body",
+				},
+			}},
+			MCP: map[string]bundles.BundleMCP{"localmcp": {Command: "local-cmd"}},
 		},
 	}
 	for k, b := range seed {
@@ -92,7 +116,11 @@ func TestTrustStamper_ForRef_Cascade(t *testing.T) {
 // via step 4, with no per-item review state at all.
 func TestTrustStamper_ForRef_TrustedSigner(t *testing.T) {
 	const acme = "https://github.com/acme/repo@bundles/"
-	signed := &bundles.Bundle{Name: acme + "plain", Fragments: map[string]bundles.BundleFragment{"pf": {Content: "plain body"}}}
+	signed := &bundles.Bundle{Name: acme + "plain", Fragments: map[string]bundles.BundleFragment{"pf": {
+		ItemBody: bundles.ItemBody{
+			Content: "plain body",
+		},
+	}}}
 	signed.StampSigner(trustedPublisher)
 	loader := seedLoader(t, map[string]*bundles.Bundle{acme + "plain": signed})
 	fx := newTrustFixture(t)
@@ -133,7 +161,12 @@ func TestTrustStamper_ForRef_TrustedSigner(t *testing.T) {
 func TestTrustStamper_ForRef_DistilledFormSelection(t *testing.T) {
 	const acme = "https://github.com/acme/repo@bundles/"
 	dual := &bundles.Bundle{Name: acme + "dual", Fragments: map[string]bundles.BundleFragment{
-		"pf": {Content: "raw body", Distilled: "distilled body"},
+		"pf": {
+			ItemBody: bundles.ItemBody{
+				Content:   "raw body",
+				Distilled: "distilled body",
+			},
+		},
 	}}
 	loader := seedLoader(t, map[string]*bundles.Bundle{acme + "dual": dual})
 	ref := trust.Ref{RepoURL: trustRepo, Bundle: "dual", Kind: trust.KindFragment, Name: "pf"}
@@ -178,8 +211,16 @@ func TestTrustStamper_ForHook(t *testing.T) {
 	fx.rejectContent(trust.KindHook, signing.FormRaw, deniedPayload)
 
 	loader := seedLoader(t, map[string]*bundles.Bundle{
-		"hookb": {Name: "hookb", Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {Content: "x"}}},
-		"other": {Name: "other", Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {Content: "x"}}},
+		"hookb": {Name: "hookb", Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
+			ItemBody: bundles.ItemBody{
+				Content: "x",
+			},
+		}}},
+		"other": {Name: "other", Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
+			ItemBody: bundles.ItemBody{
+				Content: "x",
+			},
+		}}},
 	})
 	stamper := NewTrustStamper(nil, WithStampLoader(loader), WithStampRecords(fx.records()))
 

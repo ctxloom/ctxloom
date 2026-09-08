@@ -95,11 +95,23 @@ func TestLoadCommandExports_DirProfileUncuratedScopesToReferencedBundles(t *test
 
 	seed := map[string]*bundles.Bundle{
 		"dev-tools": {Commands: map[string]bundles.BundleCommand{
-			"review":  {Content: "REVIEW"},
-			"explain": {Content: "EXPLAIN"},
+			"review": {
+				ItemBody: bundles.ItemBody{
+					Content: "REVIEW",
+				},
+			},
+			"explain": {
+				ItemBody: bundles.ItemBody{
+					Content: "EXPLAIN",
+				},
+			},
 		}},
 		"other-tools": {Commands: map[string]bundles.BundleCommand{
-			"unrelated": {Content: "UNRELATED"},
+			"unrelated": {
+				ItemBody: bundles.ItemBody{
+					Content: "UNRELATED",
+				},
+			},
 		}},
 	}
 

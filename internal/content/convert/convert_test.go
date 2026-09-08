@@ -83,10 +83,12 @@ func TestPlan_FragmentBecomesAMarkdownItemCarryingItsBodyAndMetadata(t *testing.
 		Name: "vault",
 		Fragments: map[string]bundles.BundleFragment{
 			"house-style": {
-				Content:     "PROSE-BODY",
-				Tags:        []string{"style"},
-				Notes:       "NOTE-TEXT",
-				ContentHash: "abc123",
+				ItemBody: bundles.ItemBody{
+					Content:     "PROSE-BODY",
+					Tags:        []string{"style"},
+					Notes:       "NOTE-TEXT",
+					ContentHash: "abc123",
+				},
 			},
 		},
 	}
@@ -119,7 +121,9 @@ func TestPlan_FragmentPremiseSurvivesAsDescription(t *testing.T) {
 		Name: "vault",
 		Fragments: map[string]bundles.BundleFragment{
 			"house-style": {
-				Content: "PROSE-BODY",
+				ItemBody: bundles.ItemBody{
+					Content: "PROSE-BODY",
+				},
 				Premise: "you are about to write prose describing code elsewhere",
 			},
 		},
@@ -141,7 +145,13 @@ func TestPlan_DistilledFragmentProducesBothForms(t *testing.T) {
 	b := &bundles.Bundle{
 		Name: "vault",
 		Fragments: map[string]bundles.BundleFragment{
-			"solid": {Content: "LONG", Distilled: "SHORT", DistilledBy: "model-x"},
+			"solid": {
+				ItemBody: bundles.ItemBody{
+					Content:     "LONG",
+					Distilled:   "SHORT",
+					DistilledBy: "model-x",
+				},
+			},
 		},
 	}
 	items, err := Plan("vault", b, Options{})
@@ -159,8 +169,12 @@ func TestPlan_DistilledFragmentProducesBothForms(t *testing.T) {
 
 func TestPlan_UndistilledFragmentProducesOnlyTheRawForm(t *testing.T) {
 	b := &bundles.Bundle{
-		Name:      "vault",
-		Fragments: map[string]bundles.BundleFragment{"solid": {Content: "LONG"}},
+		Name: "vault",
+		Fragments: map[string]bundles.BundleFragment{"solid": {
+			ItemBody: bundles.ItemBody{
+				Content: "LONG",
+			},
+		}},
 	}
 	items, err := Plan("vault", b, Options{})
 	require.NoError(t, err)
@@ -180,7 +194,12 @@ func TestPlan_CommandBecomesItsOwnKindUnderPrompts(t *testing.T) {
 	b := &bundles.Bundle{
 		Name: "vault",
 		Commands: map[string]bundles.BundleCommand{
-			"ship-it": {Content: "CMD-BODY", Description: "DESC"},
+			"ship-it": {
+				ItemBody: bundles.ItemBody{
+					Content: "CMD-BODY",
+				},
+				Description: "DESC",
+			},
 		},
 	}
 	items, err := Plan("vault", b, Options{})
@@ -472,10 +491,19 @@ func TestConvert_RoundTripsEveryKindThroughTheL0Surface(t *testing.T) {
 	b := &bundles.Bundle{
 		Name: "vault",
 		Fragments: map[string]bundles.BundleFragment{
-			"house-style": {Content: "FRAG-BODY"},
+			"house-style": {
+				ItemBody: bundles.ItemBody{
+					Content: "FRAG-BODY",
+				},
+			},
 		},
 		Commands: map[string]bundles.BundleCommand{
-			"ship-it": {Content: "CMD-BODY", Description: "D"},
+			"ship-it": {
+				ItemBody: bundles.ItemBody{
+					Content: "CMD-BODY",
+				},
+				Description: "D",
+			},
 		},
 		MCP: map[string]bundles.BundleMCP{
 			"ledger": {Command: "/bin/ledger", Args: []string{"--serve"}},
@@ -541,8 +569,12 @@ func TestConvert_RoundTripsEveryKindThroughTheL0Surface(t *testing.T) {
 func TestConvert_WritesNothingTheSourceBundleDidNotDeclare(t *testing.T) {
 	st, _ := newStore(t)
 	b := &bundles.Bundle{
-		Name:      "vault",
-		Fragments: map[string]bundles.BundleFragment{"only": {Content: "X"}},
+		Name: "vault",
+		Fragments: map[string]bundles.BundleFragment{"only": {
+			ItemBody: bundles.ItemBody{
+				Content: "X",
+			},
+		}},
 	}
 	ctx := context.Background()
 	require.NoError(t, Convert(ctx, st, "vault", b, Options{}))

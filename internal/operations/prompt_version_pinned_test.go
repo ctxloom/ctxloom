@@ -18,10 +18,18 @@ import (
 // promptVersions builds a def bundle (lockfile default) and a per-commit version
 // map carrying prompts, for reuse across the pinning cases.
 func promptVersions(defBody string, commitBodies map[string]string) (*bundles.Bundle, map[string]*bundles.Bundle) {
-	def := &bundles.Bundle{Commands: map[string]bundles.BundleCommand{"review": {Content: defBody}}}
+	def := &bundles.Bundle{Commands: map[string]bundles.BundleCommand{"review": {
+		ItemBody: bundles.ItemBody{
+			Content: defBody,
+		},
+	}}}
 	versions := make(map[string]*bundles.Bundle, len(commitBodies))
 	for commit, body := range commitBodies {
-		versions[commit] = &bundles.Bundle{Commands: map[string]bundles.BundleCommand{"review": {Content: body}}}
+		versions[commit] = &bundles.Bundle{Commands: map[string]bundles.BundleCommand{"review": {
+			ItemBody: bundles.ItemBody{
+				Content: body,
+			},
+		}}}
 	}
 	return def, versions
 }

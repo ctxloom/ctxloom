@@ -173,7 +173,14 @@ func (d truncatingDistiller) Distill(context.Context, DistillRequest) (DistillRe
 func TestDistillFragments_TruncatedResultRejected(t *testing.T) {
 	longOriginal := strings.Repeat("word ", 400) // 2000 bytes: a real fragment-sized body
 	b := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{
-		"big": {Content: longOriginal, Distilled: "previous good summary", DistilledBy: "old-model", ContentHash: "prevhash"},
+		"big": {
+			ItemBody: bundles.ItemBody{
+				Content:     longOriginal,
+				Distilled:   "previous good summary",
+				DistilledBy: "old-model",
+				ContentHash: "prevhash",
+			},
+		},
 	}}
 	d := truncatingDistiller{result: "x"} // 1 byte: far under both floors
 
@@ -192,7 +199,11 @@ func TestDistillFragments_TruncatedResultRejected(t *testing.T) {
 // reject every short result outright.
 func TestDistillFragments_PlausibleShortDistillationAccepted(t *testing.T) {
 	b := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{
-		"small": {Content: "a short fragment"},
+		"small": {
+			ItemBody: bundles.ItemBody{
+				Content: "a short fragment",
+			},
+		},
 	}}
 	d := truncatingDistiller{result: "a short summary"} // comparable size, legitimate
 
@@ -207,7 +218,14 @@ func TestDistillFragments_PlausibleShortDistillationAccepted(t *testing.T) {
 func TestDistillPrompts_TruncatedResultRejected(t *testing.T) {
 	longOriginal := strings.Repeat("word ", 400)
 	b := &bundles.Bundle{Commands: map[string]bundles.BundleCommand{
-		"big": {Content: longOriginal, Distilled: "previous good summary", DistilledBy: "old-model", ContentHash: "prevhash"},
+		"big": {
+			ItemBody: bundles.ItemBody{
+				Content:     longOriginal,
+				Distilled:   "previous good summary",
+				DistilledBy: "old-model",
+				ContentHash: "prevhash",
+			},
+		},
 	}}
 	d := truncatingDistiller{result: "x"}
 

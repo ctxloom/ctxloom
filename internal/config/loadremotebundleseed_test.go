@@ -4,16 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -43,78 +38,32 @@ func remoteBundleSeed(t *testing.T, cfg *Config) map[string]*bundles.Bundle {
 	return out
 }
 
-// seedSourceRepo creates a real git repo shipping a valid bundle and a
-// malformed one, returning its path and HEAD SHA. The full-load path of
-// loadRemoteBundleSeed clones this over file:// and reads each locked bundle at
-// that SHA.
-func seedSourceRepo(t *testing.T) (repoDir, sha string) {
-	t.Helper()
-	repoDir = filepath.Join(t.TempDir(), "source")
-	repo, err := git.PlainInit(repoDir, false)
-	require.NoError(t, err)
-	wt, err := repo.Worktree()
-	require.NoError(t, err)
-
-	// The format root, not its parent: a bundle written to the parent lands
-	// where no reader looks (see paths.LocalBundlesPath).
-	bundleRel := paths.RepoBundlesPrefixFor(paths.LayoutV1)
-	bundleDir := filepath.Join(repoDir, filepath.FromSlash(bundleRel))
-	require.NoError(t, os.MkdirAll(bundleDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "good.yaml"),
-		[]byte("version: v1\ndescription: a good bundle\n"), 0644))
-	// A leading tab is invalid YAML, so ParseBundle rejects this one.
-	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "bad.yaml"),
-		[]byte("\tnot: valid yaml\n"), 0644))
-
-	for _, f := range []string{bundleRel + "/good.yaml", bundleRel + "/bad.yaml"} {
-		_, err = wt.Add(f)
-		require.NoError(t, err)
-	}
-	commit, err := wt.Commit("seed", &git.CommitOptions{
-		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},
-	})
-	require.NoError(t, err)
-	return repoDir, commit.String()
-}
-
-// TestLoadRemoteBundleSeed_FullLoad covers the materialization path past the
-// guard branches: a non-empty lockfile drives a real clone of the locked repo,
-// each bundle is read at its SHA and parsed, a malformed bundle is skipped, and
-// each loaded bundle carries its name and synthetic "<remote>:name@sha" path.
-func TestLoadRemoteBundleSeed_FullLoad(t *testing.T) {
-	testsupport.Isolate(t)
-	repoDir, sha := seedSourceRepo(t)
-	repoURL := "file://" + repoDir
-
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	require.NoError(t, os.MkdirAll(appDir, 0755))
-
-	lm := remote.NewLockfileManager(appDir)
-	lock, err := lm.Load()
-	require.NoError(t, err)
-	entry := remote.LockEntry{SHA: sha, URL: repoURL, FetchedAt: time.Now().UTC()}
-	lock.AddEntry(remote.ItemTypeBundle, repoURL+"@bundles/good", entry)
-	lock.AddEntry(remote.ItemTypeBundle, repoURL+"@bundles/bad", entry)
-	require.NoError(t, lm.Save(lock))
-
-	cfg := &Config{appPaths: []string{appDir}}
-	seed := remoteBundleSeed(t, cfg)
-
-	require.NotNil(t, seed, "a populated lockfile must materialize a seed")
-	// The seed is keyed by the canonical ref — the sole resolution identity.
-	canonical := repoURL + "@bundles/good"
-	good, ok := seed[canonical]
-	require.True(t, ok, "the valid bundle is loaded and keyed by its canonical ref")
-	assert.Equal(t, canonical, good.Name)
-	assert.Equal(t, "v1", good.Version, "bundle content is parsed at the locked SHA")
-	assert.Equal(t, "<remote>:"+canonical+"@"+sha, good.Path,
-		"the synthetic path names the ref AND the revision its bytes were pinned at")
-
-	_, badLoaded := seed[repoURL+"@bundles/bad"]
-	assert.False(t, badLoaded, "a malformed bundle is skipped, not fatal")
-	_, shortKeyed := seed["src/good"]
-	assert.False(t, shortKeyed, "the seed is canonical-keyed only — no short keys")
-}
+// TestLoadRemoteBundleSeed_FullLoad and its seedSourceRepo fixture were
+// REMOVED, not reshaped: they drove remoteBundleReaders' remote.LoadAllBytes
+// path (a bare "<name>.yaml" committed straight at the format-v2 prefix, then
+// cloned and read with no tree fetcher wired). Format v2 publishes ONLY
+// trees, and remote.BundleReader.ReadBundleBytes/ReadFromTree has no
+// single-file branch left at all — every entry it is handed refuses with "no
+// tree read surface wired" (see remote.ErrTreeBundleUnreadable), unconditionally.
+// The ONLY path that resolves a real v2 lockfile entry today is
+// treeBundleReaders, reading the tree `deps pull` already installed to cache —
+// there is no "read straight from the pinned clone, no prior pull" capability
+// left to test here.
+//
+// The invariants this test pinned split three ways:
+//   - "a bundle signed/unsigned/tampered loads correctly" — already covered,
+//     via the LIVE mechanism, by tree_bundles_test.go's TestLoadTreeBundle_*
+//     tests (stageInstalledTree + treeBundleReader).
+//   - "a malformed bundle among several is skipped, not fatal, and the good
+//     one still loads" — had no equivalent tree-path test, so it was ADDED as
+//     TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads in
+//     tree_bundles_test.go.
+//   - "the seed is canonical-keyed, never a short key" and "a document's
+//     synthetic <remote>:name@sha Path" are DOCUMENT-ONLY facts (see
+//     documentTree in config.go) that no longer apply to any bundle format v2
+//     can actually publish; dropped rather than asserted about a tree bundle,
+//     whose Path is its real installed directory (see
+//     TestLoadTreeBundle_PathResolvesToTheInstalledDirectorySoSkillsCanLoad).
 
 // TestLoadRemoteBundleSeed_RegistryErrorWarnsNotSilent proves a
 // genuine registry-open failure (as opposed to "no remotes.yaml yet", which

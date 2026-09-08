@@ -21,7 +21,7 @@ import (
 )
 
 // localProjectRepo creates a git repo whose committed .ctxloom/local/ tree holds
-// bundles/go-tools.yaml. It commits "v1", then rewrites + commits "v2", and
+// bundles/v2/go-tools. It commits "v1", then rewrites + commits "v2", and
 // returns the repo dir plus the two commit SHAs. The repo IS the project — its
 // own history is the version space for ctxloom:local refs.
 func localProjectRepo(t *testing.T) (repoDir, rev1, rev2 string) {
@@ -32,7 +32,7 @@ func localProjectRepo(t *testing.T) (repoDir, rev1, rev2 string) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	rel := filepath.Join(".ctxloom", "local", "bundles", "v1", "go-tools.yaml")
+	rel := filepath.Join(".ctxloom", "local", "bundles", "v2", "go-tools")
 	write := func(body string) {
 		full := filepath.Join(repoDir, rel)
 		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
@@ -84,7 +84,7 @@ func TestLocalGitVCS_FetchItem_VersionlessReadsWorkingCopy(t *testing.T) {
 
 	// Overwrite the working copy WITHOUT committing — a versionless read serves
 	// exactly the current bytes on disk, unaffected by history.
-	full := filepath.Join(repoDir, ".ctxloom", "local", "bundles", "v1", "go-tools.yaml")
+	full := filepath.Join(repoDir, ".ctxloom", "local", "bundles", "v2", "go-tools")
 	require.NoError(t, os.WriteFile(full, []byte("fragments:\n  fmt:\n    content: WORKTREE-ONLY\n"), 0o644))
 
 	data, err := f.FetchItem(context.Background(), ref, "")
@@ -114,8 +114,8 @@ func TestLocalGitVCS_FetchItem_PathAbsentAtRevFailsClosed(t *testing.T) {
 func TestLocalGitVCS_FetchItem_NonGitProjectFailsClosedOnPin(t *testing.T) {
 	// A local-content root NOT under any git repository.
 	root := filepath.Join(t.TempDir(), "loose", ".ctxloom", "local")
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "bundles", "v1"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "bundles", "v1", "go-tools.yaml"),
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "bundles", "v2"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "bundles", "v2", "go-tools"),
 		[]byte("fragments:\n  fmt:\n    content: LOOSE\n"), 0o644))
 
 	f := NewLocalRefFetcher(LocalGitVCSFactory(afero.NewOsFs()), root)
@@ -139,8 +139,8 @@ func TestLocalGitVCS_FetchItem_NonGitProjectFailsClosedOnPin(t *testing.T) {
 // repo). The degradation cause must be carried through and surfaced.
 func TestLocalGitVCS_FetchItem_NonGitProjectErrorNamesCause(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "loose", ".ctxloom", "local")
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "bundles", "v1"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "bundles", "v1", "go-tools.yaml"),
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "bundles", "v2"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "bundles", "v2", "go-tools"),
 		[]byte("fragments:\n  fmt:\n    content: LOOSE\n"), 0o644))
 
 	f := NewLocalRefFetcher(LocalGitVCSFactory(afero.NewOsFs()), root)

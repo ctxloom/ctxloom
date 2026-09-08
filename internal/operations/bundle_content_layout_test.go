@@ -60,31 +60,38 @@ func TestListLocalBundleNames_FindsContentTreeBundles(t *testing.T) {
 	assert.Equal(t, []string{"alpha", "beta", "gamma"}, names)
 }
 
-// authoredV1 is where a fixture must write a FORMAT-V1 authored bundle for this
-// project's reader to find it.
-//
-// paths.LocalBundlesPath is the bundles ROOT — the parent every format root is
-// a sibling under — and the reader searches the format roots, never the root
-// itself. A fixture that writes straight to the root writes somewhere nothing
+// authoredV1 and authoredV2 both resolve to the SAME (only) format root now.
+// paths.LocalBundlesPath is the bundles ROOT — the parent the format root is a
+// child of — and the reader searches the format root, never the root itself: a
+// fixture that writes straight to the bare root writes somewhere nothing
 // looks, and the symptom is a bundle that resolves to nothing rather than an
-// error anyone can read. The reader's own search DIRS still take the bare root:
-// it does that expansion itself.
+// error anyone can read.
+//
+// The two names are kept SEPARATE, not collapsed into one, because they still
+// name different SHAPES at the call site: authoredV1 is where a fixture writes
+// a bare "<name>.yaml" document or a directory whose bundle.yaml still
+// declares its items inline (treeFormEnvelope reads both as the old document
+// form, unchanged); authoredV2 is where a fixture writes a true tree —
+// "<name>/bundle.yaml" declaring nothing inline, with item files beside it.
+// Renaming every one of this package's ~40 call sites to a single neutral name
+// would erase that shape signal from the diff a reader actually needs.
 func authoredV1(appPath string) string {
-	return paths.LocalBundlesPathFor(appPath, paths.LayoutV1)
+	return paths.LocalBundlesPathFor(appPath, paths.LayoutV2)
 }
 
-// repoV1 is the repo-relative FORMAT ROOT a publishing repo commits format-v1
-// bundles into — exactly what remote.RepoItemPrefix resolves for a fetch and
-// what a publish writes. A fixture that serves or commits a bundle at the bare
-// .ctxloom/content/bundles root serves it where no fetch looks; the bare root
-// is only the parent a LISTING walks, which is why RepoItemRoot and these are
-// different paths.
+// repoV1 and repoV2 are authoredV1/authoredV2's REPO-relative counterparts —
+// where a publishing repo commits a document/inline-directory versus a true
+// tree. Both resolve to the same (only) format-v2 prefix now, for the same
+// reason authoredV1/authoredV2 do; kept separate to preserve the shape signal
+// at each call site.
 func repoV1(rel ...string) string {
-	return path.Join(append([]string{paths.RepoBundlesPrefixFor(paths.LayoutV1)}, rel...)...)
+	return path.Join(append([]string{paths.RepoBundlesPrefixFor(paths.LayoutV2)}, rel...)...)
 }
 
-// authoredV2 is where a fixture must write a FORMAT-V2 (tree) authored bundle,
-// the counterpart of authoredV1 and for the same reason.
+func repoV2(rel ...string) string {
+	return path.Join(append([]string{paths.RepoBundlesPrefixFor(paths.LayoutV2)}, rel...)...)
+}
+
 func authoredV2(appPath string) string {
 	return paths.LocalBundlesPathFor(appPath, paths.LayoutV2)
 }
@@ -157,8 +164,8 @@ func TestListLocalBundleNames_NestedSingleFileNamesSurvive(t *testing.T) {
 		"a single-file bundle at depth keeps its path-relative name")
 }
 
-// Both forms in one project, which is the state a conversion actually leaves
-// behind: the v1 root still holds documents while the v2 root holds trees.
+// Both SHAPES in one project, at the same (only) format root: a bare document
+// beside a true tree, which is the state a conversion actually leaves behind.
 func TestListLocalBundleNames_MixedFormsEnumerateTogether(t *testing.T) {
 	fs := afero.NewOsFs()
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")

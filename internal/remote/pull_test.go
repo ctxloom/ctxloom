@@ -133,7 +133,7 @@ func TestNewPuller_WithOptions(t *testing.T) {
 	registry, err := NewRegistry("", WithRegistryFS(fs))
 	require.NoError(t, err)
 
-	puller := NewPuller(registry, AuthConfig{},
+	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 		WithLockfileManager(lm),
 		WithFetcherFactory(ff),
 	)
@@ -155,16 +155,24 @@ func TestPuller_Pull(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	// Create mock fetcher with content
-	mf := newMockFetcher()
-	mf.files[".ctxloom/content/bundles/v1/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
-	mf.refs["main"] = "abc123def456"
+	// Mock fetcher with NO single file at the bundle's path — FetchFile
+	// 404s (wrapping errs.ErrRemoteContentNotFound, which MockFetcher does
+	// and the package's other, older mockFetcher does not), so fetchItemBytes
+	// falls back to probing the directory form via the wired TreeFetchFunc.
+	// A tree is the only shape a bundle can be pulled as now.
+	mf := NewMockFetcher()
+	mf.Refs["main"] = "abc123def456"
 
 	lm := NewLockfileManager("/test", WithLockfileFS(fs))
 
-	puller := NewPuller(registry, AuthConfig{},
+	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 		WithLockfileManager(lm),
 		WithFetcherFactory(mockFetcherFactory(mf)),
+		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
+			".ctxloom/content/bundles/v2/security": {
+				BundleManifestName: {Data: []byte("description: Security bundle\n")},
+			},
+		}, nil)),
 	)
 
 	var stdout bytes.Buffer
@@ -177,9 +185,12 @@ func TestPuller_Pull(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, result)
-	// Bundles no longer materialize on fs: LocalPath is a synthetic
-	// "<remote>:name@sha" string and the fetched bytes come back on Content.
-	assert.Equal(t, "<remote>:https://github.com/alice/ctxloom@bundles/security@abc123def456", result.LocalPath)
+	// A tree bundle IS materialized to disk (the cache), at the reference's
+	// own tree path — unlike the old single-file behaviour, where LocalPath
+	// was a synthetic "<remote>:name@sha" string.
+	ref, rerr := ParseReference("https://github.com/alice/ctxloom@bundles/security")
+	require.NoError(t, rerr)
+	assert.Equal(t, ref.LocalTreePath("/test"), result.LocalPath)
 	assert.Equal(t, "abc123def456", result.SHA)
 	assert.NotEmpty(t, result.Content)
 
@@ -208,14 +219,14 @@ func TestPuller_Pull_LockfileWriteFailureIsNotSwallowed(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	mf := newMockFetcher()
-	mf.files[".ctxloom/content/bundles/v1/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
+	mf.files[".ctxloom/content/bundles/v2/security"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
 	mf.refs["main"] = "abc123def456"
 
 	// A read-only fs makes the lockfile write fail deterministically.
 	roFS := afero.NewReadOnlyFs(base)
 	lm := NewLockfileManager("/test", WithLockfileFS(roFS))
 
-	puller := NewPuller(registry, AuthConfig{},
+	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 		WithLockfileManager(lm),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 	)
@@ -240,11 +251,11 @@ func TestPuller_Pull_RejectsEmptyContent(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	mf := newMockFetcher()
-	mf.files[".ctxloom/content/bundles/v1/security.yaml"] = []byte{} // zero bytes
+	mf.files[".ctxloom/content/bundles/v2/security"] = []byte{} // zero bytes
 	mf.refs["main"] = "abc123"
 
 	lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
-	puller := NewPuller(registry, AuthConfig{},
+	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithLockfileManager(lm),
 	)
@@ -269,7 +280,7 @@ func TestPuller_Pull_InvalidReference(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 
-	puller := NewPuller(registry, AuthConfig{})
+	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()), WithTreeInstaller(stubTreeInstaller()))
 
 	_, err := puller.Pull(context.Background(), "invalid", PullOptions{})
 
@@ -286,18 +297,26 @@ func TestPuller_Pull_RetractedVersion_Force(t *testing.T) {
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	mf := newMockFetcher()
-	mf.files[".ctxloom/content/bundles/v1/security.yaml"] = []byte("description: Security\n")
-	mf.files[".ctxloom/content/manifest.yaml"] = []byte(`retracted:
+	// No single file at the bundle's own path: FetchFile 404s there and
+	// fetchItemBytes falls back to the wired TreeFetchFunc. The retraction
+	// manifest is a real single file at its own, unrelated path and stays on
+	// the flat Files map.
+	mf := NewMockFetcher()
+	mf.Files[".ctxloom/content/manifest.yaml"] = []byte(`retracted:
   - type: bundle
     name: security
     reason: compromised release
 `)
-	mf.refs["main"] = "abc123"
+	mf.Refs["main"] = "abc123"
 
-	puller := NewPuller(registry, AuthConfig{},
+	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
+		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
+			".ctxloom/content/bundles/v2/security": {
+				BundleManifestName: {Data: []byte("description: Security\n")},
+			},
+		}, nil)),
 	)
 
 	var stdout bytes.Buffer
@@ -319,14 +338,19 @@ func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	// Mock fetcher
-	mf := newMockFetcher()
-	mf.files[".ctxloom/content/bundles/v1/security.yaml"] = []byte("description: Security\n")
-	mf.refs["main"] = "abc123"
+	// Mock fetcher: no single file at the bundle's path, so FetchFile 404s
+	// and fetchItemBytes falls back to the wired TreeFetchFunc.
+	mf := NewMockFetcher()
+	mf.Refs["main"] = "abc123"
 
-	puller := NewPuller(registry, AuthConfig{},
+	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
+		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
+			".ctxloom/content/bundles/v2/security": {
+				BundleManifestName: {Data: []byte("description: Security\n")},
+			},
+		}, nil)),
 	)
 
 	// Call with nil Stdout and Stdin - should use defaults
@@ -367,7 +391,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		// Initialize empty lockfile
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
 
-		puller := NewPuller(registry, AuthConfig{},
+		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 			WithLockfileManager(lm),
 		)
 
@@ -398,7 +422,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
 
-		puller := NewPuller(registry, AuthConfig{},
+		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 			WithLockfileManager(lm),
 		)
 
@@ -435,7 +459,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		})
 		require.NoError(t, lm.Save(seeded))
 
-		puller := NewPuller(registry, AuthConfig{}, WithLockfileManager(lm))
+		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()), WithLockfileManager(lm))
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
 		// Force pull resolves default-branch HEAD ("newhead") with no requested version.
@@ -465,7 +489,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		})
 		require.NoError(t, lm.Save(seeded))
 
-		puller := NewPuller(registry, AuthConfig{}, WithLockfileManager(lm))
+		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()), WithLockfileManager(lm))
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
 		requireUpdateLockfile(t, puller, ref, "v2sha", "v2.0.0", rem)

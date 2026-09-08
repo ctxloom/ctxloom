@@ -20,8 +20,18 @@ func TestListAllCommands_TagsDoNotAliasBundleTags(t *testing.T) {
 		Version: "1.0.0",
 		Tags:    bundleTags,
 		Commands: map[string]BundleCommand{
-			"alpha": {Content: "a", Tags: []string{"alpha-tag"}},
-			"beta":  {Content: "b", Tags: []string{"beta-tag"}},
+			"alpha": {
+				ItemBody: ItemBody{
+					Content: "a",
+					Tags:    []string{"alpha-tag"},
+				},
+			},
+			"beta": {
+				ItemBody: ItemBody{
+					Content: "b",
+					Tags:    []string{"beta-tag"},
+				},
+			},
 		},
 	}
 	loader := NewLoader(seedLocal(map[string]*Bundle{"seeded": b}))

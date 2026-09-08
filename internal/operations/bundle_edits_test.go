@@ -39,7 +39,14 @@ func TestApplyFragmentEdits(t *testing.T) {
 
 	t.Run("metadata-only edit preserves distilled state and does not re-queue", func(t *testing.T) {
 		b := &bundles.Bundle{Name: "b", Fragments: map[string]bundles.BundleFragment{
-			"f1": {Content: "same", Distilled: "D", DistilledBy: "model", ContentHash: "H"},
+			"f1": {
+				ItemBody: bundles.ItemBody{
+					Content:     "same",
+					Distilled:   "D",
+					DistilledBy: "model",
+					ContentHash: "H",
+				},
+			},
 		}}
 		_, distill := applyFragmentEdits(b, map[string]BundleFragmentInput{
 			"f1": {Content: "same", Tags: []string{"new-tag"}},
@@ -59,7 +66,14 @@ func TestApplyFragmentEdits(t *testing.T) {
 
 	t.Run("content change wipes distilled state and re-queues", func(t *testing.T) {
 		b := &bundles.Bundle{Name: "b", Fragments: map[string]bundles.BundleFragment{
-			"f1": {Content: "old", Distilled: "D", DistilledBy: "model", ContentHash: "H"},
+			"f1": {
+				ItemBody: bundles.ItemBody{
+					Content:     "old",
+					Distilled:   "D",
+					DistilledBy: "model",
+					ContentHash: "H",
+				},
+			},
 		}}
 		_, distill := applyFragmentEdits(b, map[string]BundleFragmentInput{
 			"f1": {Content: "new"},
@@ -76,7 +90,11 @@ func TestApplyFragmentEdits(t *testing.T) {
 
 	t.Run("remove present fragment, no-op on absent", func(t *testing.T) {
 		b := &bundles.Bundle{Name: "b", Fragments: map[string]bundles.BundleFragment{
-			"doomed": {Content: "x"},
+			"doomed": {
+				ItemBody: bundles.ItemBody{
+					Content: "x",
+				},
+			},
 		}}
 		changes, _ := applyFragmentEdits(b, nil, []string{"doomed", "ghost"}, nil)
 		if _, ok := b.Fragments["doomed"]; ok {

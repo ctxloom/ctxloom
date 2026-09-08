@@ -129,7 +129,7 @@ func TestNewPublishManager(t *testing.T) {
 // publishes to. Publish no longer derives the remote path from the local
 // filename — the caller computes it once, with PublishPath, and hands the same
 // string to publish and to whatever reports the destination.
-const mybundleRemotePath = ".ctxloom/content/bundles/v1/mybundle.yaml"
+const mybundleRemotePath = ".ctxloom/content/bundles/v2/mybundle.yaml"
 
 func TestPublishManager_Publish(t *testing.T) {
 	t.Run("publishes bundle successfully", func(t *testing.T) {
@@ -163,12 +163,12 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.NotNil(t, result)
-		assert.Equal(t, ".ctxloom/content/bundles/v1/mybundle.yaml", result.Path)
+		assert.Equal(t, ".ctxloom/content/bundles/v2/mybundle.yaml", result.Path)
 		assert.Equal(t, "newsha123", result.SHA)
 		assert.True(t, result.Created)
 
 		// Verify file was created
-		assert.Contains(t, mp.createdFiles, ".ctxloom/content/bundles/v1/mybundle.yaml")
+		assert.Contains(t, mp.createdFiles, ".ctxloom/content/bundles/v2/mybundle.yaml")
 	})
 
 	t.Run("creates PR when requested", func(t *testing.T) {
@@ -246,7 +246,7 @@ func TestPublishManager_PublishTree_ViaPR(t *testing.T) {
 	}
 	result, err := pm.PublishTree(context.Background(), files, "alice", PublishOptions{
 		ItemType:   ItemTypeBundle,
-		RemotePath: ".ctxloom/content/bundles/v1/atelier",
+		RemotePath: ".ctxloom/content/bundles/v2/atelier",
 		Branch:     "main",
 		CreatePR:   true,
 	})
@@ -257,7 +257,7 @@ func TestPublishManager_PublishTree_ViaPR(t *testing.T) {
 	assert.Len(t, mp.pullRequests, 1, "one PR, not one per file")
 	assert.Len(t, mp.createdFiles, 2, "both files traveled")
 	for path := range mp.createdFiles {
-		assert.Contains(t, path, ".ctxloom/content/bundles/v1/atelier/",
+		assert.Contains(t, path, ".ctxloom/content/bundles/v2/atelier/",
 			"every file lands under the tree's reported root")
 	}
 	// Every write in this test landed on the SAME branch (the feature branch
@@ -266,7 +266,7 @@ func TestPublishManager_PublishTree_ViaPR(t *testing.T) {
 	// they all share one branch name rather than each opening its own.
 	require.Len(t, mp.branches, 1)
 	for path, sha := range mp.files {
-		assert.Contains(t, path, ".ctxloom/content/bundles/v1/atelier/")
+		assert.Contains(t, path, ".ctxloom/content/bundles/v2/atelier/")
 		assert.NotEmpty(t, sha)
 	}
 }
@@ -365,7 +365,7 @@ func TestPublishManager_Publish_EdgeCases(t *testing.T) {
 		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		mp := newMockPublisher()
-		mp.files[".ctxloom/content/bundles/v1/mybundle.yaml"] = "existingsha" // File already exists
+		mp.files[".ctxloom/content/bundles/v2/mybundle.yaml"] = "existingsha" // File already exists
 		mf := newMockFetcher()
 
 		pm := NewPublishManager(registry, AuthConfig{},
@@ -424,9 +424,9 @@ func TestPublishPath(t *testing.T) {
 		name     string
 		expected string
 	}{
-		{ItemTypeBundle, "security", ".ctxloom/content/bundles/v1/security.yaml"},
-		{ItemTypeBundle, "testing", ".ctxloom/content/bundles/v1/testing.yaml"},
-		{ItemType(""), "unknown", ".ctxloom/content/bundles/v1/unknown.yaml"}, // defaults to bundles
+		{ItemTypeBundle, "security", ".ctxloom/content/bundles/v2/security"},
+		{ItemTypeBundle, "testing", ".ctxloom/content/bundles/v2/testing"},
+		{ItemType(""), "unknown", ".ctxloom/content/bundles/v2/unknown"}, // defaults to bundles
 	}
 
 	for _, tt := range tests {
@@ -489,7 +489,7 @@ func publishOnce(t *testing.T, content string, opts ...func(*PublishOptions)) []
 	}
 	_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", po)
 	require.NoError(t, err)
-	return mp.createdFiles[".ctxloom/content/bundles/v1/mybundle.yaml"]
+	return mp.createdFiles[".ctxloom/content/bundles/v2/mybundle.yaml"]
 }
 
 func TestPublishManager_Publish_WritesLocalBytesVerbatim(t *testing.T) {
@@ -666,12 +666,12 @@ func TestPublishManager_Publish_SignPayloadWritesSiblingSig(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.True(t, result.Signed)
-	require.Contains(t, mp.createdFiles, ".ctxloom/content/bundles/v1/mybundle.yaml.sig")
-	assert.Equal(t, []byte("FAKE-SIGNATURE"), mp.createdFiles[".ctxloom/content/bundles/v1/mybundle.yaml.sig"])
+	require.Contains(t, mp.createdFiles, ".ctxloom/content/bundles/v2/mybundle.yaml.sig")
+	assert.Equal(t, []byte("FAKE-SIGNATURE"), mp.createdFiles[".ctxloom/content/bundles/v2/mybundle.yaml.sig"])
 	// The signed payload must be EXACTLY the bytes that landed at the main
 	// path, and those must be the local file's bytes — no injection, no
 	// re-serialization anywhere in the path (spec §3.0, §3.1).
-	assert.Equal(t, mp.createdFiles[".ctxloom/content/bundles/v1/mybundle.yaml"], signedPayload)
+	assert.Equal(t, mp.createdFiles[".ctxloom/content/bundles/v2/mybundle.yaml"], signedPayload)
 	assert.Equal(t, "description: Test\n", string(signedPayload))
 }
 
@@ -731,5 +731,5 @@ func TestPublishManager_Publish_NoSignPayloadMeansNoSigWritten(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, result.Signed)
-	assert.NotContains(t, mp.createdFiles, ".ctxloom/content/bundles/v1/mybundle.yaml.sig")
+	assert.NotContains(t, mp.createdFiles, ".ctxloom/content/bundles/v2/mybundle.yaml.sig")
 }

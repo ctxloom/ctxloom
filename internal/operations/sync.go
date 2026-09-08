@@ -295,6 +295,10 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 			// content layer that owns the pinned-tree walker, so composition
 			// happens here — the one place that already knows both.
 			remote.WithTreeFetcher(remotetree.PullTreeFetcher),
+			// The directory-form half of the INSTALL, composed here for the
+			// same reason: git owns the checkout (remote.RepoCache) and the
+			// content layer owns the tree format that decides its modes.
+			remote.WithTreeInstaller(remotetree.WorktreeInstaller(NewRepoCache(cfg))),
 		)
 	}
 	return puller, nil
@@ -570,7 +574,7 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	// re-fetch) check and persists its verdict onto the existing lockfile
 	// entry, so EffectiveTrust sees it on the very next exposure without any
 	// network call of its own.
-	if !force && isInstalled(ctx, ref, bundles) {
+	if !force && isInstalled(ctx, ref, baseDir, bundles) {
 		if retracted, reason := checkInstalledRetraction(ctx, puller, ref, itemType); retracted {
 			item.Status = "retracted"
 			item.Error = reason
@@ -718,8 +722,15 @@ type CheckMissingDependenciesResult struct {
 
 // CheckMissingDependencies checks which remote dependencies are not installed.
 func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req CheckMissingDependenciesRequest) (*CheckMissingDependenciesResult, error) {
-	// Remote items live in the git clone cache, not on disk, so installed
-	// state is probed through the read path rather than a file check.
+	// Installed-ness is probed through the read path, plus — once the layout
+	// MATERIALIZES a bundle — the presence of what it materialized. The base
+	// dir is what lets isInstalled ask that second question; empty means "clone
+	// readability is the whole answer", which is exactly right for a document
+	// layout that writes nothing to disk.
+	missingBaseDir := ""
+	if appPaths := cfg.GetAppPaths(); len(appPaths) > 0 {
+		missingBaseDir = appPaths[0]
+	}
 	bundleReader := req.BundleReader
 	if bundleReader == nil {
 		bundleReader = NewBundleReaderForConfig(cfg)
@@ -734,7 +745,7 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 		// were retired. Local parents are separate profiles, probed in their own
 		// iteration of resolveProfilesToCheck.
 		refs := append(append([]string(nil), bundles...), parentBundleRefs(parents)...)
-		missing = append(missing, collectMissingRefs(ctx, refs, "bundle", profileName, bundleReader, seen)...)
+		missing = append(missing, collectMissingRefs(ctx, refs, "bundle", profileName, missingBaseDir, bundleReader, seen)...)
 	}
 
 	// The default agent's composed profiles are dependency roots too — mirror
@@ -746,7 +757,7 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 	// auto-installed. Only probe defaults when no explicit profiles were
 	// requested; collectMissingRefs filters to remote refs and dedupes via seen.
 	if len(req.Profiles) == 0 {
-		missing = append(missing, collectMissingRefs(ctx, parentBundleRefs(cfg.DefaultAgentProfiles()), "bundle", "", bundleReader, seen)...)
+		missing = append(missing, collectMissingRefs(ctx, parentBundleRefs(cfg.DefaultAgentProfiles()), "bundle", "", missingBaseDir, bundleReader, seen)...)
 	}
 
 	if len(missing) == 0 {
@@ -814,14 +825,14 @@ func parentBundleRefs(refs []string) []string {
 
 // collectMissingRefs returns the not-yet-installed remote bundle refs among
 // refs, skipping local refs and any ref already in seen (marking the rest seen).
-func collectMissingRefs(ctx context.Context, refs []string, typeName, profileName string, bundles remote.BundleByteSource, seen collections.Set[string]) []MissingDependency {
+func collectMissingRefs(ctx context.Context, refs []string, typeName, profileName, baseDir string, bundles remote.BundleByteSource, seen collections.Set[string]) []MissingDependency {
 	var missing []MissingDependency
 	for _, ref := range refs {
 		if !isRemoteReference(ref) || seen.Has(ref) {
 			continue
 		}
 		seen.Add(ref)
-		if !isInstalled(ctx, ref, bundles) {
+		if !isInstalled(ctx, ref, baseDir, bundles) {
 			missing = append(missing, MissingDependency{
 				Reference: ref,
 				Type:      typeName,
@@ -842,7 +853,7 @@ func collectMissingRefs(ctx context.Context, refs []string, typeName, profileNam
 //
 // The probe key is the ref's canonical string (no version constraint, no
 // selector). A bundle-profile ref must be stripped to its bundle before probing.
-func isInstalled(ctx context.Context, ref string, bundles remote.BundleByteSource) bool {
+func isInstalled(ctx context.Context, ref, baseDir string, bundles remote.BundleByteSource) bool {
 	parsedRef, err := remote.ParseReference(ref)
 	if err != nil {
 		return false
@@ -850,8 +861,29 @@ func isInstalled(ctx context.Context, ref string, bundles remote.BundleByteSourc
 	if bundles == nil {
 		return false
 	}
-	_, rerr := bundles.ReadBundleBytes(ctx, parsedRef.LockKey())
-	return rerr == nil
+	if _, rerr := bundles.ReadBundleBytes(ctx, parsedRef.LockKey()); rerr != nil {
+		return false
+	}
+	// READABLE IS NOT INSTALLED once a layout MATERIALIZES.
+	//
+	// The byte read above proves the bytes are reachable in the CLONE. That was
+	// the whole of installed-ness in the reference-only model, where nothing
+	// lived on disk. A tree layout breaks that equivalence: consumers read a
+	// tree from the git worktree Reference.LocalTreePath names, and a skill
+	// needs a real directory there, so a bundle can be perfectly readable from
+	// the clone and still be unusable.
+	//
+	// Answering the clone question here is what made a format change
+	// un-installable: sync skipped every bundle whose pin had not moved, the
+	// tree was never written, and the resulting error told the user to run the
+	// very pull that was refusing. Measured at the flip: 16 materialized trees
+	// loaded, 25 unmaterialized ones failed, and pull called all 42 "skipped".
+	if baseDir != "" {
+		if _, serr := os.Stat(parsedRef.LocalTreePath(baseDir)); serr != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // startupCloneRefresh is the seam over the pre-probe clone refresh (test

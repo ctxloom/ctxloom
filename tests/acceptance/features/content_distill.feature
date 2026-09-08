@@ -57,7 +57,7 @@ Feature: Distilling authored content — does the compression happen, is it kept
   # fragment AND the command is the point — a loop that stopped after its first
   # item would still satisfy either assertion alone.
   Scenario: Distilling a bundle stores an answer for every item in it
-    When I run "ctxloom bundle distill .ctxloom/content/bundles/v1/lore.yaml -f"
+    When I run "ctxloom bundle distill .ctxloom/content/bundles/v2/lore/bundle.yaml -f"
     Then the command succeeds
     And the distilled fragment "rules" in bundle "lore" is the distiller's answer
     And the distilled command "guidance" in bundle "lore" is the distiller's answer

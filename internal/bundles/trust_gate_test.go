@@ -43,12 +43,28 @@ func demoSeed() map[string]*Bundle {
 	seed := map[string]*Bundle{
 		"demo": {
 			Fragments: map[string]BundleFragment{
-				"keep":    {Content: "keep body"},
-				"blocked": {Content: "blocked body"},
+				"keep": {
+					ItemBody: ItemBody{
+						Content: "keep body",
+					},
+				},
+				"blocked": {
+					ItemBody: ItemBody{
+						Content: "blocked body",
+					},
+				},
 			},
 			Commands: map[string]BundleCommand{
-				"okprompt":  {Content: "ok prompt body"},
-				"badprompt": {Content: "bad prompt body"},
+				"okprompt": {
+					ItemBody: ItemBody{
+						Content: "ok prompt body",
+					},
+				},
+				"badprompt": {
+					ItemBody: ItemBody{
+						Content: "bad prompt body",
+					},
+				},
 			},
 		},
 	}
@@ -104,7 +120,12 @@ func TestLoaderGate_WithholdsCommand(t *testing.T) {
 // hash of the EXACT bytes exposed: a distilled fragment (preferDistilled true)
 // must be gated on its distilled hash + form, never the raw content.
 func TestLoaderGate_PassesEffectiveHash(t *testing.T) {
-	frag := BundleFragment{Content: "raw body", Distilled: "distilled body"}
+	frag := BundleFragment{
+		ItemBody: ItemBody{
+			Content:   "raw body",
+			Distilled: "distilled body",
+		},
+	}
 	seed := map[string]*Bundle{"b": {Name: "b", Fragments: map[string]BundleFragment{"f": frag}}}
 	seen := map[string][2]string{}
 	l := gatedPipe(NewLoader(seedLocal(seed)), blockingGate(seen), true)
@@ -137,7 +158,11 @@ func TestLoaderGate_PassesEffectiveHash(t *testing.T) {
 // other gate tests, whose seed keys equal the short name, cover that path).
 func TestLoaderGate_SeededBundleGatesByCanonicalRef(t *testing.T) {
 	const canonical = "https://github.com/acme/repo@bundles/tooling"
-	seed := map[string]*Bundle{canonical: {Name: "tooling", Fragments: map[string]BundleFragment{"f": {Content: "body"}}}}
+	seed := map[string]*Bundle{canonical: {Name: "tooling", Fragments: map[string]BundleFragment{"f": {
+		ItemBody: ItemBody{
+			Content: "body",
+		},
+	}}}}
 	seen := map[string][2]string{}
 	var local []bool
 	authorizer := authorizerFunc(func(e Exposure) Verdict {
@@ -177,8 +202,16 @@ func TestLoaderGate_SeededBundleGatesByCanonicalRef(t *testing.T) {
 // match is withheld does it report ErrFragmentWithheld (not not-found).
 func TestLoaderGate_Search_PrefersTrustedSibling(t *testing.T) {
 	seed := map[string]*Bundle{
-		"a-bundle": {Name: "a-bundle", Fragments: map[string]BundleFragment{"shared": {Content: "from a"}}},
-		"z-bundle": {Name: "z-bundle", Fragments: map[string]BundleFragment{"shared": {Content: "from z"}}},
+		"a-bundle": {Name: "a-bundle", Fragments: map[string]BundleFragment{"shared": {
+			ItemBody: ItemBody{
+				Content: "from a",
+			},
+		}}},
+		"z-bundle": {Name: "z-bundle", Fragments: map[string]BundleFragment{"shared": {
+			ItemBody: ItemBody{
+				Content: "from z",
+			},
+		}}},
 	}
 	// Block only a-bundle; the z-bundle copy must win the bare-name search.
 	l := gatedPipe(NewLoader(seedLocal(seed)), blockingGate(nil, "a-bundle#"), true)

@@ -55,13 +55,21 @@ func TestFSStore_Save_DropsStaleSignatureAndWarns(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(nil, []string{dir}, &warnings)
 
-	path := v1In(dir, "my-tools.yaml")
-	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "before"}}}
+	path := bundlesRootIn(dir, "my-tools.yaml")
+	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {
+		ItemBody: ItemBody{
+			Content: "before",
+		},
+	}}}
 	require.NoError(t, store.Save(b))
 	signBundleFile(t, path)
 
 	// The edit.
-	b.Fragments["a"] = BundleFragment{Content: "after"}
+	b.Fragments["a"] = BundleFragment{
+		ItemBody: ItemBody{
+			Content: "after",
+		},
+	}
 	require.NoError(t, store.Save(b))
 
 	_, err := os.Stat(path + ".sig")
@@ -79,8 +87,12 @@ func TestFSStore_Save_KeepsSignatureWhenBytesUnchanged(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(nil, []string{dir}, &warnings)
 
-	path := v1In(dir, "steady.yaml")
-	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "same"}}}
+	path := bundlesRootIn(dir, "steady.yaml")
+	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {
+		ItemBody: ItemBody{
+			Content: "same",
+		},
+	}}}
 	require.NoError(t, store.Save(b))
 	signBundleFile(t, path)
 	sigBefore, err := os.ReadFile(path + ".sig")
@@ -101,10 +113,18 @@ func TestFSStore_Save_UnsignedBundleSavesQuietly(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(nil, []string{dir}, &warnings)
 
-	path := v1In(dir, "plain.yaml")
-	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "one"}}}
+	path := bundlesRootIn(dir, "plain.yaml")
+	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {
+		ItemBody: ItemBody{
+			Content: "one",
+		},
+	}}}
 	require.NoError(t, store.Save(b))
-	b.Fragments["a"] = BundleFragment{Content: "two"}
+	b.Fragments["a"] = BundleFragment{
+		ItemBody: ItemBody{
+			Content: "two",
+		},
+	}
 	require.NoError(t, store.Save(b))
 
 	assert.Empty(t, warnings.String())
@@ -129,7 +149,7 @@ func TestFSStore_Save_UnsignedBundleSavesQuietly(t *testing.T) {
 func TestFSStore_Save_UnreadableSignatureIsLoudNotAssumedAbsent(t *testing.T) {
 	mem := afero.NewMemMapFs()
 	dir := "/bundles"
-	path := v1In(dir, "opaque.yaml")
+	path := bundlesRootIn(dir, "opaque.yaml")
 	sigPath := path + SigSuffix
 
 	// A signature exists on disk — it just cannot be read.
@@ -139,7 +159,11 @@ func TestFSStore_Save_UnreadableSignatureIsLoudNotAssumedAbsent(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(&openFailFs{Fs: mem, failPath: sigPath}, []string{dir}, &warnings)
 
-	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "one"}}}
+	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {
+		ItemBody: ItemBody{
+			Content: "one",
+		},
+	}}}
 	err := store.Save(b)
 
 	require.Error(t, err, "an unreadable signature must not be silently assumed absent")
@@ -162,7 +186,11 @@ func TestFSStore_Save_MissingSignatureStaysSilent(t *testing.T) {
 	var warnings bytes.Buffer
 	store := newWarningStore(mem, []string{dir}, &warnings)
 
-	b := &Bundle{Path: v1In(dir, "plain.yaml"), Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "one"}}}
+	b := &Bundle{Path: bundlesRootIn(dir, "plain.yaml"), Version: "1.0", Fragments: map[string]BundleFragment{"a": {
+		ItemBody: ItemBody{
+			Content: "one",
+		},
+	}}}
 	require.NoError(t, store.Save(b), "no signature at all is the common case and must not be an error")
 	assert.Empty(t, warnings.String())
 }

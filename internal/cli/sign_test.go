@@ -58,7 +58,7 @@ func TestRunSign_WritesVerifiableSigForBareLocalBundle(t *testing.T) {
 	assert.Contains(t, out.String(), "my-tools")
 	assert.Contains(t, out.String(), ".sig")
 
-	bundlePath := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV1) + "/my-tools.yaml"
+	bundlePath := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2) + "/my-tools.yaml"
 	bundleBytes, err := afero.ReadFile(afero.NewOsFs(), bundlePath)
 	require.NoError(t, err)
 	sigBytes, err := afero.ReadFile(afero.NewOsFs(), bundlePath+".sig")
@@ -138,7 +138,7 @@ func TestRunSign_NoKeyAnywhereIsHardError(t *testing.T) {
 
 	// And nothing was written: failing to sign must never leave a silent
 	// unsigned publish artifact behind.
-	bundlePath := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV1) + "/my-tools.yaml"
+	bundlePath := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2) + "/my-tools.yaml"
 	_, statErr := afero.NewOsFs().Stat(bundlePath + ".sig")
 	assert.Error(t, statErr, ".sig must not exist when key discovery failed")
 }
@@ -155,7 +155,7 @@ func TestRunSign_AllSignsEveryLocalBundle(t *testing.T) {
 	require.NoError(t, runSign(cmd, cfg, discoverer, "", true, ""))
 
 	for _, name := range []string{"alpha", "beta"} {
-		p := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV1) + "/" + name + ".yaml.sig"
+		p := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2) + "/" + name + ".yaml.sig"
 		_, err := afero.NewOsFs().Stat(p)
 		assert.NoError(t, err, "%s should have been signed", name)
 	}

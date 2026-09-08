@@ -12,7 +12,6 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
@@ -59,13 +58,16 @@ remotes:
     version: v1
 `), 0o644))
 
-	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
-		Name: "for-push",
-		Fragments: map[string]operations.BundleFragmentInput{
-			"intro": {Content: "hello", NoDistill: true},
-		},
-	})
-	require.NoError(t, err)
+	// Hand-written rather than CreateBundle(Tree: true): CreateBundle's own
+	// tree path refuses to author a zero-item tree (convert.Convert is a
+	// no-op for one, so createTreeBundle treats it as a failed write), even
+	// though a version-only envelope is a perfectly valid bundle to READ
+	// (Bundle.declaresNothing requires no version AND no items) — so this
+	// writes the manifest directly, the same "version-only skeleton" shape
+	// CreateBundle itself writes for a single-file bundle.
+	treeDir := filepath.Join(authoredV1(appDir), "for-push")
+	require.NoError(t, os.MkdirAll(treeDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(treeDir, "bundle.yaml"), []byte("version: \"1.0.0\"\n"), 0o644))
 
 	registry, err := remote.NewRegistry(filepath.Join(appDir, "remotes.yaml"))
 	require.NoError(t, err)
@@ -88,9 +90,9 @@ func TestPushBundleCfg_SignFlagPublishesVerifiableSig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "Signed: yes")
 
-	main, ok := pub.files[".ctxloom/content/bundles/v1/for-push.yaml"]
+	main, ok := pub.files[".ctxloom/content/bundles/v2/for-push/bundle.yaml"]
 	require.True(t, ok)
-	sig, ok := pub.files[".ctxloom/content/bundles/v1/for-push.yaml.sig"]
+	sig, ok := pub.files[".ctxloom/content/bundles/v2/for-push/bundle.yaml.sig"]
 	require.True(t, ok, "--sign must publish a .sig sibling")
 
 	root := allowedsigners.NewStore(allowedsigners.Entry{
@@ -111,7 +113,7 @@ func TestPushBundleCfg_NoFlagsMeansUnsignedByDefault(t *testing.T) {
 	err := pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false)
 	require.NoError(t, err)
 
-	_, ok := pub.files[".ctxloom/content/bundles/v1/for-push.yaml.sig"]
+	_, ok := pub.files[".ctxloom/content/bundles/v2/for-push/bundle.yaml.sig"]
 	assert.False(t, ok, "no --sign and sign.default unset must never sign")
 }
 
@@ -126,7 +128,7 @@ func TestPushBundleCfg_SignDefaultConfigSignsUnlessNoSign(t *testing.T) {
 
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false))
-	_, ok := pub.files[".ctxloom/content/bundles/v1/for-push.yaml.sig"]
+	_, ok := pub.files[".ctxloom/content/bundles/v2/for-push/bundle.yaml.sig"]
 	assert.True(t, ok, "sign.default: true must sign by default")
 }
 
@@ -141,7 +143,7 @@ func TestPushBundleCfg_NoSignOverridesSignDefault(t *testing.T) {
 
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, true))
-	_, ok := pub.files[".ctxloom/content/bundles/v1/for-push.yaml.sig"]
+	_, ok := pub.files[".ctxloom/content/bundles/v2/for-push/bundle.yaml.sig"]
 	assert.False(t, ok, "--no-sign must suppress sign.default")
 }
 

@@ -171,7 +171,7 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 
 	// The layout and the on-disk form are one choice: v1 holds documents, v2
 	// holds trees. See CreateBundleRequest.Tree.
-	layout := paths.LayoutV1
+	layout := paths.LayoutV2
 	if req.Tree {
 		layout = paths.LayoutV2
 	}
@@ -855,6 +855,14 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	// remote.RepoItemPath. Letting the source's shape pick the target path is
 	// how publish and fetch came to disagree.
 	treeForm := filepath.Base(absPath) == bundles.DirectoryFormManifest
+	// A DOCUMENT CANNOT BE PUBLISHED. The tree form is the only format, so a
+	// single-file bundle has no readable destination: pull materializes nothing
+	// for it, and every read path resolves a tree. Publishing one used to
+	// SUCCEED and leave bytes nobody could ever read — exit 0 over a payload
+	// that is permanently unreachable, which is worse than any refusal.
+	if !treeForm {
+		return nil, fmt.Errorf("cannot publish %q: it is a single-file bundle, and bundles are distributed as trees — a document has no readable form on the consumer side; convert it to a directory with a %s before publishing", bundleName, bundles.DirectoryFormManifest)
+	}
 	targetPath := remote.PublishPath(remote.ItemTypeBundle, bundleName)
 
 	// Resolve title/body the same way publish.go does, so the result accurately
@@ -878,13 +886,6 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	}
 
 	if treeForm {
-		// A tree cannot travel into a layout that does not hold trees: its leaf
-		// would be a document name, and nothing reads a directory from there.
-		// REFUSING beats writing bytes no consumer can find — this project's
-		// characteristic failure is exit 0 over a payload that went nowhere.
-		if !remote.ItemLayoutHoldsTrees() {
-			return nil, fmt.Errorf("cannot publish %q: it is a directory-form bundle, and the current bundle layout holds single-file documents only; migrate it to the tree layout before publishing", bundleName)
-		}
 		return runTreePush(ctx, cfg, registry, req.Remote, absPath, req, result)
 	}
 	return runPush(ctx, cfg, registry, req.Remote, absPath, req, result)
@@ -1002,6 +1003,19 @@ func runTreePush(ctx context.Context, cfg *config.Config, registry *remote.Regis
 	files, err := gatherPublishTreeFiles(afero.NewOsFs(), filepath.Dir(absPath))
 	if err != nil {
 		return nil, fmt.Errorf("gather bundle tree: %w", err)
+	}
+	// The manifest's signature sidecar travels IFF req.Signature says so — the
+	// RESOLVED decision (resolvePushSignature's --sign/--no-sign/sign.default
+	// composition, or MoveBundle's PublisherSignature read), never whatever
+	// happens to be sitting in the directory. Without this, gatherPublishTreeFiles
+	// walking the whole tree would publish a sidecar the caller explicitly
+	// declined (--no-sign) purely because the file exists on disk — the
+	// single-file path never had this failure mode, because it always chose
+	// the sidecar explicitly rather than by directory listing.
+	sigRel := bundles.DirectoryFormManifest + bundles.SigSuffix
+	delete(files, sigRel)
+	if len(req.Signature) > 0 {
+		files[sigRel] = req.Signature
 	}
 
 	opts := remote.PublishOptions{
@@ -1141,7 +1155,7 @@ func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath
 // remote — the match would fail for every bundle the current code installs.
 func remoteFromCachePath(cfg *config.Config, registry *remote.Registry, absPath string) (string, bool) {
 	app := cfg.GetAppPaths()[0]
-	for _, l := range []paths.BundleLayout{paths.LayoutV2, paths.LayoutV1} {
+	for _, l := range []paths.BundleLayout{paths.LayoutV2} {
 		rel, err := filepath.Rel(paths.CacheBundlesPathFor(app, l), absPath)
 		if err != nil || isOutsideRel(rel) {
 			continue
@@ -1306,11 +1320,13 @@ func applyInputs[I, E any](dst *map[string]E, in map[string]I, conv func(I) E) {
 func applyFragmentInputs(b *bundles.Bundle, in map[string]BundleFragmentInput) {
 	applyInputs(&b.Fragments, in, func(frag BundleFragmentInput) bundles.BundleFragment {
 		return bundles.BundleFragment{
-			Tags:         frag.Tags,
-			Notes:        frag.Notes,
-			Installation: frag.Installation,
-			Content:      frag.Content,
-			NoDistill:    frag.NoDistill,
+			ItemBody: bundles.ItemBody{
+				Tags:         frag.Tags,
+				Notes:        frag.Notes,
+				Installation: frag.Installation,
+				Content:      frag.Content,
+				NoDistill:    frag.NoDistill,
+			},
 		}
 	})
 }
@@ -1318,12 +1334,14 @@ func applyFragmentInputs(b *bundles.Bundle, in map[string]BundleFragmentInput) {
 func applyPromptInputs(b *bundles.Bundle, in map[string]BundleCommandInput) {
 	applyInputs(&b.Commands, in, func(p BundleCommandInput) bundles.BundleCommand {
 		return bundles.BundleCommand{
-			Description:  p.Description,
-			Tags:         p.Tags,
-			Notes:        p.Notes,
-			Installation: p.Installation,
-			Content:      p.Content,
-			NoDistill:    p.NoDistill,
+			ItemBody: bundles.ItemBody{
+				Tags:         p.Tags,
+				Notes:        p.Notes,
+				Installation: p.Installation,
+				Content:      p.Content,
+				NoDistill:    p.NoDistill,
+			},
+			Description: p.Description,
 		}
 	})
 }

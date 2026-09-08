@@ -152,9 +152,21 @@ func TestBuildSiblingContext_ListsSiblingFragmentsExcludingTarget(t *testing.T) 
 	b := &bundles.Bundle{
 		Description: "X",
 		Fragments: map[string]bundles.BundleFragment{
-			"alpha": {Content: "Alpha first line\nsecond line"},
-			"beta":  {Content: "Beta first line"},
-			"self":  {Content: "Should be excluded"},
+			"alpha": {
+				ItemBody: bundles.ItemBody{
+					Content: "Alpha first line\nsecond line",
+				},
+			},
+			"beta": {
+				ItemBody: bundles.ItemBody{
+					Content: "Beta first line",
+				},
+			},
+			"self": {
+				ItemBody: bundles.ItemBody{
+					Content: "Should be excluded",
+				},
+			},
 		},
 	}
 	got := buildSiblingContext(b, "fragments/self")
@@ -171,8 +183,16 @@ func TestBuildSiblingContext_TruncatesLongFirstLine(t *testing.T) {
 	b := &bundles.Bundle{
 		Description: "X",
 		Fragments: map[string]bundles.BundleFragment{
-			"verbose": {Content: long},
-			"target":  {Content: "ignored"},
+			"verbose": {
+				ItemBody: bundles.ItemBody{
+					Content: long,
+				},
+			},
+			"target": {
+				ItemBody: bundles.ItemBody{
+					Content: "ignored",
+				},
+			},
 		},
 	}
 	got := buildSiblingContext(b, "fragments/target")
@@ -186,11 +206,21 @@ func TestBuildSiblingContext_PromptsPreferDescriptionOverFirstLine(t *testing.T)
 		Description: "X",
 		Commands: map[string]bundles.BundleCommand{
 			"with-desc": {
+				ItemBody: bundles.ItemBody{
+					Content: "Verbose body text the user shouldn't see in the sibling list.",
+				},
 				Description: "Short curated description",
-				Content:     "Verbose body text the user shouldn't see in the sibling list.",
 			},
-			"no-desc": {Content: "Falls back to first line"},
-			"target":  {Content: "ignored"},
+			"no-desc": {
+				ItemBody: bundles.ItemBody{
+					Content: "Falls back to first line",
+				},
+			},
+			"target": {
+				ItemBody: bundles.ItemBody{
+					Content: "ignored",
+				},
+			},
 		},
 	}
 	got := buildSiblingContext(b, "commands/target")
@@ -206,7 +236,11 @@ func TestBuildSiblingContext_SkipsSiblingSectionsWhenAlone(t *testing.T) {
 	b := &bundles.Bundle{
 		Description: "X",
 		Fragments: map[string]bundles.BundleFragment{
-			"only-one": {Content: "alone"},
+			"only-one": {
+				ItemBody: bundles.ItemBody{
+					Content: "alone",
+				},
+			},
 		},
 	}
 	got := buildSiblingContext(b, "fragments/only-one")

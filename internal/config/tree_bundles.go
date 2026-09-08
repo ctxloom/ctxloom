@@ -13,20 +13,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// treeBundleReaders builds one reader per DIRECTORY-form lockfile entry, over
-// the tree `deps pull` installed.
+// treeBundleReaders builds one reader per lockfile entry, over the tree
+// `deps pull` installed.
 //
-// The set comes from the lockfile's own Tree flag — the recorded FACT about how
-// each bundle was published — and deliberately NOT from which reads the byte
-// source refused. A refusal is a property of how that source happens to be
-// wired: remote.WithReaderTreeFetcher makes the same entry readable, and a
-// caller that wired one would silently empty this set and re-present every
-// skill bundle as a single document, losing its skills. Dispatching on the fact
-// cannot be turned off by wiring.
+// The set is every entry in the lockfile: format v2 publishes ONLY trees, so
+// there is no longer a per-pin fact to filter on (that was LockEntry.Tree,
+// removed with format v1 — every bundle is directory-form now). This makes
+// the sibling read path in remoteBundleReaders (remote.LoadAllBytes over a
+// BundleReader built with no tree fetcher) permanently refuse every entry it
+// is handed; treeBundleReaders is what actually resolves all of them, by
+// clearing each refusal below rather than by a positive selection.
 //
-// Any byte-source failure recorded against a tree entry is therefore CLEARED
-// once its reader is built: it described a road not taken. Failures for other
-// entries are left untouched for reportBundleLoadFailures.
+// Any byte-source failure recorded against an entry is therefore CLEARED once
+// its reader is built here: it described a road not taken. A failure left in
+// the map after this runs is a REAL failure — nothing else claims it.
 //
 // A tree whose directory cannot even be opened REPLACES that entry's failure
 // with its own, so the user is told what actually went wrong. A tree that opens
@@ -34,10 +34,8 @@ import (
 // function's: it is a fact about bytes, established where the bytes are read.
 func (c *Config) treeBundleReaders(lock *remote.Lockfile, root signing.TrustRoot, failures map[string]error) []bundles.Reader {
 	var trees []string
-	for canonical, entry := range lock.Bundles {
-		if entry.Tree {
-			trees = append(trees, canonical)
-		}
+	for canonical := range lock.Bundles {
+		trees = append(trees, canonical)
 	}
 	sort.Strings(trees) // deterministic reader order across runs
 
@@ -54,8 +52,8 @@ func (c *Config) treeBundleReaders(lock *remote.Lockfile, root signing.TrustRoot
 	return out
 }
 
-// treeBundleReader points a pinned-tree reader at the tree `deps pull`
-// installed for one lockfile entry.
+// treeBundleReader points a pinned-tree reader at the worktree `deps pull`
+// checked out for one lockfile entry.
 //
 // WHY THE INSTALLED TREE AND NOT THE CLONE AT THE PINNED SHA — the single-file
 // path reads its bytes back out of the git clone at entry.SHA, and the obvious
@@ -63,7 +61,7 @@ func (c *Config) treeBundleReaders(lock *remote.Lockfile, root signing.TrustRoot
 //
 //   - a bundle's SKILLS are files on disk. bundles.Bundle.FSDir has to return a
 //     real directory or a skill package is unloadable (it refuses the synthetic
-//     "<remote>:…" path outright), and the installed tree is the only real
+//     "<remote>:…" path outright), and the checked-out worktree is the only real
 //     directory a tree bundle has. That is what WithInstalledDir carries.
 //   - verifying the installed tree is STRICTLY STRONGER than trusting the pin.
 //     The reader checks the publisher's signature over the manifest AND the tree
@@ -74,9 +72,11 @@ func (c *Config) treeBundleReaders(lock *remote.Lockfile, root signing.TrustRoot
 // still decides WHICH bytes were installed. What changed is that integrity is
 // now checked where the bytes are actually read from.
 //
-// The tree is rooted at the installed directory's PARENT: a bundle id must be a
-// single path segment (content.validateBundleID), and a nested ref path
-// ("lang/go/testing") is absorbed by the root rather than smuggled into the id.
+// The tree is rooted at the bundle directory's PARENT: a bundle id must be a
+// single path segment (content.validateBundleID), and the rest of the bundle's
+// repository path is absorbed by the root rather than smuggled into the id.
+// That parent is inside the worktree, because a sparse checkout lays the bundle
+// out at its repository path — see Reference.LocalTreePath.
 func (c *Config) treeBundleReader(canonical string, entry remote.LockEntry, root signing.TrustRoot) (bundles.Reader, error) {
 	if len(c.appPaths) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
@@ -105,7 +105,7 @@ func (c *Config) treeBundleReader(canonical string, entry remote.LockEntry, root
 		bundles.WithRepoURL(entry.URL)), nil
 }
 
-// treeBundleDir resolves the directory `deps pull` installed a tree bundle
+// treeBundleDir resolves the directory `deps pull` checked a tree bundle out
 // into, from its canonical lockfile key. It goes through the same
 // Reference.LocalTreePath the installer used rather than re-assembling the path,
 // so a layout change cannot make the writer and the reader disagree.

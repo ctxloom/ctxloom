@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -1027,21 +1028,34 @@ func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *re
 }
 
 // searchDirEntries matches one already-listed format root's entries.
+//
+// A DIRECTORY entry is a directory-form (tree) bundle, named for the
+// directory itself rather than a ".yaml" leaf — browseEntry (BrowseRemote's
+// sibling listing, which this mirrors) already treats a directory entry as
+// a bundle by that same rule; searchDirEntries used to skip every directory
+// outright, which meant `search --remote` could never find a bundle
+// published as a tree at all, only the single-file form.
 func searchDirEntries(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery, dirPath string, entries []remote.DirEntry) []remote.SearchResult {
 	var results []remote.SearchResult
 	for _, entry := range entries {
-		if entry.IsDir || !strings.HasSuffix(entry.Name, ".yaml") {
+		if !entry.IsDir && !strings.HasSuffix(entry.Name, ".yaml") {
 			continue
 		}
 
-		name := strings.TrimSuffix(entry.Name, ".yaml")
+		var name, filePath string
+		if entry.IsDir {
+			name = entry.Name
+			filePath = path.Join(dirPath, entry.Name, bundles.DirectoryFormManifest)
+		} else {
+			name = strings.TrimSuffix(entry.Name, ".yaml")
+			filePath = path.Join(dirPath, entry.Name)
+		}
 
 		// Build the manifest entry from the file's own metadata so tag: and
 		// description searches work without a manifest.yaml. Reads come from
 		// the local clone, so this is cheap. If the file can't be read or
 		// parsed, fall back to a name-only entry (still text-matchable).
 		manifestEntry := remote.ManifestEntry{Name: name}
-		filePath := path.Join(dirPath, entry.Name)
 		if content, ferr := fetcher.FetchFile(ctx, owner, repo, filePath, branch); ferr == nil {
 			var meta struct {
 				Tags        []string `yaml:"tags"`

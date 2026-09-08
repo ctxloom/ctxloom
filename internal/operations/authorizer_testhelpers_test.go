@@ -113,7 +113,11 @@ func testAuthorizer(admit bool) bundles.Authorizer {
 func execRead(t *testing.T, principal string) bundles.BundleRead {
 	t.Helper()
 	const ref = acmeBundle + "tooling"
-	b := &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {Content: "x"}}}
+	b := &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
+		ItemBody: bundles.ItemBody{
+			Content: "x",
+		},
+	}}}
 	if principal == "" {
 		return readOf(t, seedLoader(t, map[string]*bundles.Bundle{ref: b}), ref)
 	}

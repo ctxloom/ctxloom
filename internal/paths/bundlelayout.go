@@ -44,10 +44,6 @@ const (
 	// Every accessor here REFUSES it.
 	LayoutUnknown BundleLayout = 0
 
-	// LayoutV1 is the single-file document form: <name>.yaml with a sibling
-	// <name>.yaml.sig.
-	LayoutV1 BundleLayout = 1
-
 	// LayoutV2 is the tree form: <name>/bundle.yaml plus item files, a
 	// SHA256SUMS manifest and a .sigs/ directory.
 	LayoutV2 BundleLayout = 2
@@ -67,15 +63,12 @@ var ErrUnknownBundleLayout = errors.New("not a known bundle layout")
 // migration adds the next root. A directory is therefore not by itself v2 —
 // treeFormEnvelope's rule, not the entry's type, decides.
 const (
-	layoutV1Segment = "v1"
 	layoutV2Segment = "v2"
 )
 
 // String names the layout for a diagnostic.
 func (l BundleLayout) String() string {
 	switch l {
-	case LayoutV1:
-		return "v1"
 	case LayoutV2:
 		return "v2"
 	default:
@@ -91,8 +84,6 @@ func (l BundleLayout) String() string {
 // and is invisible to the reader.
 func (l BundleLayout) Segment() (string, error) {
 	switch l {
-	case LayoutV1:
-		return layoutV1Segment, nil
 	case LayoutV2:
 		return layoutV2Segment, nil
 	default:
@@ -134,8 +125,6 @@ func (l BundleLayout) mustSegment() string {
 // built from no layout is a programming error, not a runtime condition.
 func (l BundleLayout) ItemFileName(name string) string {
 	switch l {
-	case LayoutV1:
-		return name + ".yaml"
 	case LayoutV2:
 		return name
 	default:
@@ -232,7 +221,7 @@ func BundleLayouts() []BundleLayout {
 }
 
 func bundleLayouts() []BundleLayout {
-	ls := []BundleLayout{LayoutV1, LayoutV2}
+	ls := []BundleLayout{LayoutV2}
 	sort.SliceStable(ls, func(i, j int) bool {
 		return len(ls[i].mustSegment()) > len(ls[j].mustSegment())
 	})

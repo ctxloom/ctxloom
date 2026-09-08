@@ -24,9 +24,17 @@ import (
 func TestBundleQualifiedRef_MissingItemWrapsItsNotFoundSentinel(t *testing.T) {
 	seed := map[string]*Bundle{
 		"demo": {
-			Fragments: map[string]BundleFragment{"present": {Content: "body"}},
-			Commands:  map[string]BundleCommand{"present": {Content: "body"}},
-			Skills:    map[string]BundleSkill{"present": {}},
+			Fragments: map[string]BundleFragment{"present": {
+				ItemBody: ItemBody{
+					Content: "body",
+				},
+			}},
+			Commands: map[string]BundleCommand{"present": {
+				ItemBody: ItemBody{
+					Content: "body",
+				},
+			}},
+			Skills: map[string]BundleSkill{"present": {}},
 		},
 	}
 	for k, b := range seed {
@@ -64,13 +72,29 @@ func TestBundleQualifiedRef_MissingItemWrapsItsNotFoundSentinel(t *testing.T) {
 // the lookup.
 func TestVersionedRef_MissingItemWrapsItsNotFoundSentinel(t *testing.T) {
 	def := &Bundle{
-		Fragments: map[string]BundleFragment{"solid": {Content: "default body"}},
-		Commands:  map[string]BundleCommand{"solid": {Content: "default body"}},
+		Fragments: map[string]BundleFragment{"solid": {
+			ItemBody: ItemBody{
+				Content: "default body",
+			},
+		}},
+		Commands: map[string]BundleCommand{"solid": {
+			ItemBody: ItemBody{
+				Content: "default body",
+			},
+		}},
 	}
 	versions := map[string]*Bundle{
 		"c1": {
-			Fragments: map[string]BundleFragment{"solid": {Content: "v1 body"}},
-			Commands:  map[string]BundleCommand{"solid": {Content: "v1 body"}},
+			Fragments: map[string]BundleFragment{"solid": {
+				ItemBody: ItemBody{
+					Content: "v1 body",
+				},
+			}},
+			Commands: map[string]BundleCommand{"solid": {
+				ItemBody: ItemBody{
+					Content: "v1 body",
+				},
+			}},
 		},
 	}
 	// AdmitAll: this test is about the not-found sentinel, so it states that it

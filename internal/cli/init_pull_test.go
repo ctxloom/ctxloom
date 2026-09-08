@@ -61,18 +61,21 @@ func seedBundleRemote(t *testing.T) string {
 		initPullGit(t, work, "config", kv[0], kv[1])
 	}
 
-	rel := filepath.Join(".ctxloom", "content", "bundles", "v1", "demo.yaml")
-	full := filepath.Join(work, rel)
-	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
-	body := "version: \"1.0.0\"\n" +
+	// A real TREE, not a v1 document: the bundle's own directory holding a
+	// bare envelope (no inline item keys) plus its one item as a sibling
+	// file. A single-file "demo" document here would be exactly what
+	// production now refuses to install (bundles are distributed as trees).
+	dir := filepath.Join(work, ".ctxloom", "content", "bundles", "v2", "demo")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
+	envelope := "version: \"1.0.0\"\n" +
 		"author: test\n" +
-		"description: Demo bundle for the init dependency pull\n" +
-		"fragments:\n" +
-		"  demo-frag:\n" +
-		"    tags: [demo]\n" +
-		"    content: |\n" +
-		"      " + pullFixtureMarker + "\n"
-	require.NoError(t, os.WriteFile(full, []byte(body), 0o644))
+		"description: Demo bundle for the init dependency pull\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bundle.yaml"), []byte(envelope), 0o644))
+	fragment := "---\n" +
+		"tags: [demo]\n" +
+		"---\n\n" +
+		pullFixtureMarker + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "fragments", "demo-frag.md"), []byte(fragment), 0o644))
 
 	initPullGit(t, work, "add", "-A")
 	initPullGit(t, work, "commit", "-m", "seed")

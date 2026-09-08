@@ -39,7 +39,11 @@ var authorizerItemRef = mustGitItemRef("example.test", "/repo", "kit", trust.Kin
 // authorizerBundle is the fixture content every test below decides about: one
 // fragment, so the exposure carries real bytes.
 func authorizerBundle() *bundles.Bundle {
-	return &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"keeper": {Content: "KEEPER-PAYLOAD"}}}
+	return &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"keeper": {
+		ItemBody: bundles.ItemBody{
+			Content: "KEEPER-PAYLOAD",
+		},
+	}}}
 }
 
 // admitFragment runs one fragment through the authorizer with the given read and
@@ -263,8 +267,8 @@ func staleLocalRead(t *testing.T, name string) bundles.BundleRead {
 	body := []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n")
 	sig, root := signAs(t, body, "author@example.test")
 	edited := append(append([]byte{}, body...), []byte("# edited, never re-signed\n")...)
-	testsupport.WriteFile(t, fsys, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), name+".yaml"), edited, 0o644)
-	testsupport.WriteFile(t, fsys, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), name+".yaml"+bundles.SigSuffix), sig, 0o644)
+	testsupport.WriteFile(t, fsys, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), name+".yaml"), edited, 0o644)
+	testsupport.WriteFile(t, fsys, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), name+".yaml"+bundles.SigSuffix), sig, 0o644)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{"/bundles"}, bundles.WithTrustRoot(root)))
 	read := readOf(t, loader, name)

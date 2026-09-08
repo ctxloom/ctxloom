@@ -306,7 +306,7 @@ func TestSignBundleFile_RefusesAZeroByteBundle(t *testing.T) {
 	require.NoError(t, err)
 
 	fs := afero.NewOsFs()
-	path := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV1) + "/truncated.yaml"
+	path := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2) + "/truncated.yaml"
 	require.NoError(t, afero.WriteFile(fs, path, nil, 0o644))
 
 	_, err = SignBundleFile(cfg, SignBundleRequest{

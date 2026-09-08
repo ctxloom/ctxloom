@@ -63,9 +63,17 @@ func profileCfg(t *testing.T, cfg *config.Config, name string, p config.Profile)
 // commit's content (granted), distinct from the lockfile default.
 func TestVersionPinned_BundleItem_ResolvesHistoricalVersion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {Content: "DEFAULT-BODY"}}}
+	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {
+		ItemBody: bundles.ItemBody{
+			Content: "DEFAULT-BODY",
+		},
+	}}}
 	versions := map[string]*bundles.Bundle{
-		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
+		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {
+			ItemBody: bundles.ItemBody{
+				Content: "V1-BODY",
+			},
+		}}},
 	}
 	fx := newTrustFixture(t)
 	// Trust the PINNED version's content (its own hash) — `ctxloom trust` on it.
@@ -86,9 +94,17 @@ func TestVersionPinned_BundleItem_ResolvesHistoricalVersion(t *testing.T) {
 // bundle part assembles that commit's content (granted), not the default.
 func TestVersionPinned_FragmentRef_ResolvesHistoricalVersion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {Content: "DEFAULT-BODY"}}}
+	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {
+		ItemBody: bundles.ItemBody{
+			Content: "DEFAULT-BODY",
+		},
+	}}}
 	versions := map[string]*bundles.Bundle{
-		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
+		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {
+			ItemBody: bundles.ItemBody{
+				Content: "V1-BODY",
+			},
+		}}},
 	}
 	fx := newTrustFixture(t)
 	fx.approveFragment("cq", "solid", "V1-BODY")
@@ -107,9 +123,17 @@ func TestVersionPinned_FragmentRef_ResolvesHistoricalVersion(t *testing.T) {
 // keeps resolving to the lockfile-pinned default (today's behavior, untouched).
 func TestVersionPinned_UnversionedRefUnchanged(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {Content: "DEFAULT-BODY"}}}
+	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {
+		ItemBody: bundles.ItemBody{
+			Content: "DEFAULT-BODY",
+		},
+	}}}
 	versions := map[string]*bundles.Bundle{
-		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
+		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {
+			ItemBody: bundles.ItemBody{
+				Content: "V1-BODY",
+			},
+		}}},
 	}
 	fx := newTrustFixture(t)
 	fx.approveFragment("cq", "solid", "DEFAULT-BODY")
@@ -129,11 +153,23 @@ func TestVersionPinned_UnversionedRefUnchanged(t *testing.T) {
 // fragment set, distinct from the default).
 func TestVersionPinned_WholeBundle_PinsAllItems(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {Content: "DEFAULT-BODY"}}}
+	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {
+		ItemBody: bundles.ItemBody{
+			Content: "DEFAULT-BODY",
+		},
+	}}}
 	versions := map[string]*bundles.Bundle{
 		"c1": {Fragments: map[string]bundles.BundleFragment{
-			"alpha": {Content: "ALPHA-V1"},
-			"beta":  {Content: "BETA-V1"},
+			"alpha": {
+				ItemBody: bundles.ItemBody{
+					Content: "ALPHA-V1",
+				},
+			},
+			"beta": {
+				ItemBody: bundles.ItemBody{
+					Content: "BETA-V1",
+				},
+			},
 		}},
 	}
 	fx := newTrustFixture(t)
@@ -157,9 +193,17 @@ func TestVersionPinned_WholeBundle_PinsAllItems(t *testing.T) {
 // of that version's hash then exposes it.
 func TestVersionPinned_GateEvaluatesPinnedHash(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {Content: "DEFAULT-BODY"}}}
+	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {
+		ItemBody: bundles.ItemBody{
+			Content: "DEFAULT-BODY",
+		},
+	}}}
 	versions := map[string]*bundles.Bundle{
-		"c2": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V2-BODY"}}},
+		"c2": {Fragments: map[string]bundles.BundleFragment{"solid": {
+			ItemBody: bundles.ItemBody{
+				Content: "V2-BODY",
+			},
+		}}},
 	}
 	fx := newTrustFixture(t) // no grant yet for V2-BODY
 	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
@@ -194,11 +238,23 @@ func TestVersionPinned_FetchFailureWithholdsOnlyThatItem(t *testing.T) {
 		return "", fmt.Errorf("not installed")
 	})()
 	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{
-		"good": {Content: "DEFAULT-GOOD"},
-		"bad":  {Content: "DEFAULT-BAD"},
+		"good": {
+			ItemBody: bundles.ItemBody{
+				Content: "DEFAULT-GOOD",
+			},
+		},
+		"bad": {
+			ItemBody: bundles.ItemBody{
+				Content: "DEFAULT-BAD",
+			},
+		},
 	}}
 	versions := map[string]*bundles.Bundle{
-		"c1": {Fragments: map[string]bundles.BundleFragment{"good": {Content: "GOOD-V1"}}},
+		"c1": {Fragments: map[string]bundles.BundleFragment{"good": {
+			ItemBody: bundles.ItemBody{
+				Content: "GOOD-V1",
+			},
+		}}},
 		// "broken" is intentionally absent ⇒ the fake resolver errors.
 	}
 	fx := newTrustFixture(t)

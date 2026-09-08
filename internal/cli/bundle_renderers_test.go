@@ -141,17 +141,21 @@ func TestRenderBundleShow_FullBundle(t *testing.T) {
 		Notes:       "Internal usage only.",
 		Fragments: map[string]bundles.BundleFragment{
 			"styles": {
-				Tags:      []string{"docs"},
-				Distilled: "compressed",
-				Content:   "First line\nrest of the content",
+				ItemBody: bundles.ItemBody{
+					Tags:      []string{"docs"},
+					Distilled: "compressed",
+					Content:   "First line\nrest of the content",
+				},
 			},
 		},
 		Commands: map[string]bundles.BundleCommand{
 			"review": {
-				Tags:        []string{"review"},
+				ItemBody: bundles.ItemBody{
+					Tags:      []string{"review"},
+					NoDistill: true,
+					Content:   "Body irrelevant for show",
+				},
 				Description: "Run a code review",
-				NoDistill:   true,
-				Content:     "Body irrelevant for show",
 			},
 		},
 		MCP: map[string]bundles.BundleMCP{
@@ -225,9 +229,11 @@ func TestRenderBundleFragmentEntry_DistilledWinsOverNoDistill(t *testing.T) {
 	// orders Distilled first. Pin that — otherwise it would be ambiguous
 	// which marker the user sees.
 	frag := bundles.BundleFragment{
-		Distilled: "X",
-		NoDistill: true,
-		Content:   "first",
+		ItemBody: bundles.ItemBody{
+			Distilled: "X",
+			NoDistill: true,
+			Content:   "first",
+		},
 	}
 	var buf bytes.Buffer
 	renderBundleFragmentEntry(iox.NewErrWriter(&buf), "f", frag)
@@ -237,7 +243,11 @@ func TestRenderBundleFragmentEntry_DistilledWinsOverNoDistill(t *testing.T) {
 }
 
 func TestRenderBundleFragmentEntry_NoMarkerWhenPlain(t *testing.T) {
-	frag := bundles.BundleFragment{Content: "first"}
+	frag := bundles.BundleFragment{
+		ItemBody: bundles.ItemBody{
+			Content: "first",
+		},
+	}
 	var buf bytes.Buffer
 	renderBundleFragmentEntry(iox.NewErrWriter(&buf), "f", frag)
 	out := buf.String()
@@ -248,7 +258,11 @@ func TestRenderBundleFragmentEntry_NoMarkerWhenPlain(t *testing.T) {
 func TestRenderBundleFragmentEntry_TruncatesLongFirstLine(t *testing.T) {
 	// 70-char preview cap: 67 chars + "..." = 70 total.
 	long := strings.Repeat("x", 200)
-	frag := bundles.BundleFragment{Content: long}
+	frag := bundles.BundleFragment{
+		ItemBody: bundles.ItemBody{
+			Content: long,
+		},
+	}
 	var buf bytes.Buffer
 	renderBundleFragmentEntry(iox.NewErrWriter(&buf), "verbose", frag)
 	out := buf.String()
@@ -258,7 +272,11 @@ func TestRenderBundleFragmentEntry_TruncatesLongFirstLine(t *testing.T) {
 
 func TestRenderBundleFragmentEntry_NoTagBracketsWhenEmpty(t *testing.T) {
 	// Empty tag list must not produce empty brackets `[]`.
-	frag := bundles.BundleFragment{Content: "x"}
+	frag := bundles.BundleFragment{
+		ItemBody: bundles.ItemBody{
+			Content: "x",
+		},
+	}
 	var buf bytes.Buffer
 	renderBundleFragmentEntry(iox.NewErrWriter(&buf), "f", frag)
 	assert.NotContains(t, buf.String(), "[]")
@@ -269,14 +287,23 @@ func TestRenderBundleFragmentEntry_NoTagBracketsWhenEmpty(t *testing.T) {
 // =============================================================================
 
 func TestRenderBundleCommandEntry_DistilledMarker(t *testing.T) {
-	prompt := bundles.BundleCommand{Distilled: "X", Description: "desc"}
+	prompt := bundles.BundleCommand{
+		ItemBody: bundles.ItemBody{
+			Distilled: "X",
+		},
+		Description: "desc",
+	}
 	var buf bytes.Buffer
 	renderBundleCommandEntry(iox.NewErrWriter(&buf), "p", prompt)
 	assert.Contains(t, buf.String(), "(distilled)")
 }
 
 func TestRenderBundleCommandEntry_NoDistillMarker(t *testing.T) {
-	prompt := bundles.BundleCommand{NoDistill: true}
+	prompt := bundles.BundleCommand{
+		ItemBody: bundles.ItemBody{
+			NoDistill: true,
+		},
+	}
 	var buf bytes.Buffer
 	renderBundleCommandEntry(iox.NewErrWriter(&buf), "p", prompt)
 	assert.Contains(t, buf.String(), "(no_distill)")
@@ -319,7 +346,11 @@ func TestRenderBundleMCPEntry_MinimalShowsCommandOnly(t *testing.T) {
 // this, `bundle view b#prompts/x` was the one surface that said "unknown item
 // type" for an alias the rest of the system accepts.
 func TestRenderBundleViewItem_CommandAliasResolvesLikeEveryOtherReader(t *testing.T) {
-	b := &bundles.Bundle{Commands: map[string]bundles.BundleCommand{"review": {Content: "REVIEW BODY"}}}
+	b := &bundles.Bundle{Commands: map[string]bundles.BundleCommand{"review": {
+		ItemBody: bundles.ItemBody{
+			Content: "REVIEW BODY",
+		},
+	}}}
 	for _, path := range []string{"commands/review", "prompts/review"} {
 		var buf bytes.Buffer
 		require.NoError(t, renderBundleViewItem(&buf, b, path, false), path)
@@ -356,13 +387,35 @@ func TestRenderBundleViewItem_UnknownSelectorRefused(t *testing.T) {
 func viewBundle() *bundles.Bundle {
 	return &bundles.Bundle{
 		Fragments: map[string]bundles.BundleFragment{
-			"intro":    {Content: "hello world"},
-			"distill":  {Content: "raw body", Distilled: "compressed body"},
-			"trailing": {Content: "already ends\n"},
+			"intro": {
+				ItemBody: bundles.ItemBody{
+					Content: "hello world",
+				},
+			},
+			"distill": {
+				ItemBody: bundles.ItemBody{
+					Content:   "raw body",
+					Distilled: "compressed body",
+				},
+			},
+			"trailing": {
+				ItemBody: bundles.ItemBody{
+					Content: "already ends\n",
+				},
+			},
 		},
 		Commands: map[string]bundles.BundleCommand{
-			"review":  {Content: "do a review"},
-			"distill": {Content: "raw prompt", Distilled: "compressed prompt"},
+			"review": {
+				ItemBody: bundles.ItemBody{
+					Content: "do a review",
+				},
+			},
+			"distill": {
+				ItemBody: bundles.ItemBody{
+					Content:   "raw prompt",
+					Distilled: "compressed prompt",
+				},
+			},
 		},
 		MCP: map[string]bundles.BundleMCP{
 			"fs": {Command: "mcp-fs"},

@@ -215,5 +215,5 @@ func TestApplyInitHooks_ReportsTheBackendsItWrote(t *testing.T) {
 // itself. A fixture that writes straight to the root writes somewhere nothing
 // looks: the bundle resolves to nothing, and the command reports success.
 func authoredV1(appPath string) string {
-	return paths.LocalBundlesPathFor(appPath, paths.LayoutV1)
+	return paths.LocalBundlesPathFor(appPath, paths.LayoutV2)
 }

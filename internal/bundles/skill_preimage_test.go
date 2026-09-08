@@ -185,7 +185,7 @@ func TestSkillsFromBundleRef_ManifestLessTamperIsWithheld(t *testing.T) {
 	fsys := afero.NewOsFs()
 	root := t.TempDir()
 	bundlesDir := filepath.Join(root, "bundles")
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV1), "skill-bundle")
+	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "skill-bundle")
 	skillDir := filepath.Join(bundleDir, "skills", "humanize")
 	require.NoError(t, fsys.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755))
 

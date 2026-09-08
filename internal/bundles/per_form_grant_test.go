@@ -44,7 +44,12 @@ func grantFor(hash string, form ContentForm) Authorizer {
 // twoFormFragment is one item with two bodies whose bytes differ, so a verdict
 // can never be ambiguous about which one it saw.
 func twoFormFragment() (BundleFragment, map[string]*Bundle) {
-	frag := BundleFragment{Content: "RAW-BODY-MARKER", Distilled: "DISTILLED-BODY-MARKER"}
+	frag := BundleFragment{
+		ItemBody: ItemBody{
+			Content:   "RAW-BODY-MARKER",
+			Distilled: "DISTILLED-BODY-MARKER",
+		},
+	}
 	return frag, map[string]*Bundle{"b": {Name: "b", Fragments: map[string]BundleFragment{"f": frag}}}
 }
 
@@ -123,8 +128,17 @@ func TestPerFormGrant_TheMatchingFormIsAdmitted(t *testing.T) {
 // exactly like one that was never authored.
 func TestEmptyPremise_IsInjectedNotWithheld(t *testing.T) {
 	seed := map[string]*Bundle{"b": {Name: "b", Fragments: map[string]BundleFragment{
-		"unconditional": {Content: "ALWAYS-INJECTED-MARKER"},
-		"conditional":   {Content: "CONDITIONAL-MARKER", Premise: "when working on Go code"},
+		"unconditional": {
+			ItemBody: ItemBody{
+				Content: "ALWAYS-INJECTED-MARKER",
+			},
+		},
+		"conditional": {
+			ItemBody: ItemBody{
+				Content: "CONDITIONAL-MARKER",
+			},
+			Premise: "when working on Go code",
+		},
 	}}}
 	l := gatedPipe(NewLoader(seedLocal(seed)), blockingGate(nil), false)
 
@@ -154,7 +168,12 @@ func TestEmptyPremise_IsInjectedNotWithheld(t *testing.T) {
 // bytes served as the author's own text, and only the form says which.
 func TestPerFormGrant_FormIsBoundIndependentlyOfTheBytes(t *testing.T) {
 	const shared = "IDENTICAL-BODY-MARKER"
-	frag := BundleFragment{Content: shared, Distilled: shared}
+	frag := BundleFragment{
+		ItemBody: ItemBody{
+			Content:   shared,
+			Distilled: shared,
+		},
+	}
 	seed := map[string]*Bundle{"b": {Name: "b", Fragments: map[string]BundleFragment{"f": frag}}}
 
 	rawHash, rawForm := frag.EffectiveContentHash(false)

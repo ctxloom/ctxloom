@@ -165,7 +165,7 @@ func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("name: dev\nbundles:\n  - mcp-bundle\n"), 0o644))
@@ -196,7 +196,7 @@ func TestResolveBundleHooks_GatedEndToEnd(t *testing.T) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV1)
+	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("name: dev\nbundles:\n  - hook-bundle\n"), 0o644))

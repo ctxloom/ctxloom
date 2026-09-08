@@ -9,10 +9,14 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/convert"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -21,13 +25,23 @@ import (
 // seedRemoteFixture builds a real git repo carrying one bundle that SHIPS a
 // bundle profile (`profiles:` item), locks the bundle in a fresh appDir's
 // lockfile, and returns the cfg, the bundle profile's canonical identity, and
-// the bundle's lockfile fetch address. This is the full reference-only remote path:
-// content lives only in the clone cache at the locked SHA, visible exclusively
-// through the lockfile-built bundle seed. (Top-level @profiles/ distribution was
-// retired — profiles arrive only inside bundles.)
+// the bundle's lockfile fetch address.
+//
+// The bytes a session actually reads come from the INSTALLED CACHE tree, not
+// the clone: format v2 publishes only trees, so remote.BundleReader's direct
+// clone-read path is unconditionally refused (no per-pin document/tree flag is
+// left to dispatch on — see the removal note on TestLoadRemoteBundleSeed_
+// FullLoad in internal/config), and config.treeBundleReaders reads whatever
+// `deps pull` already installed at Reference.LocalTreePath. The git repo is
+// still built and committed to so the fixture's lockfile SHA/URL are real —
+// callers that inspect provenance (SourceRef, a git-backed pin) see honest
+// values — but this test double INSTALLS the same bytes directly, standing in
+// for the pull a real session would have run first.
 func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef string) {
 	t.Helper()
 	testsupport.Isolate(t)
+
+	const bundleBody = "version: 1.0.0\ndescription: remote tools bundle\nprofiles:\n  dev:\n    description: remote dev profile\n    tags: [go]\n"
 
 	repoDir := filepath.Join(t.TempDir(), "source")
 	repo, err := git.PlainInit(repoDir, false)
@@ -35,10 +49,10 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	require.NoError(t, os.MkdirAll(authoredV1(filepath.Join(repoDir, paths.AppDirName)), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(authoredV1(filepath.Join(repoDir, paths.AppDirName)), "tools.yaml"),
-		[]byte("version: 1.0.0\ndescription: remote tools bundle\nprofiles:\n  dev:\n    description: remote dev profile\n    tags: [go]\n"), 0o644))
-	_, err = wt.Add(repoV1("tools.yaml"))
+	require.NoError(t, os.MkdirAll(authoredV2(filepath.Join(repoDir, paths.AppDirName)), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(authoredV2(filepath.Join(repoDir, paths.AppDirName)), "tools.yaml"),
+		[]byte(bundleBody), 0o644))
+	_, err = wt.Add(repoV2("tools.yaml"))
 	require.NoError(t, err)
 	commit, err := wt.Commit("seed", &git.CommitOptions{
 		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},
@@ -60,6 +74,27 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	profileRef = "ctxloom+file://" + repoDir + "//bundles/tools#profiles/dev"
 	lock.AddEntry(remote.ItemTypeBundle, bundleRef, entry)
 	require.NoError(t, lm.Save(lock))
+
+	// Stand in for `deps pull`: install a TRUE TREE at the path
+	// config.treeBundleReader actually reads from. A tree's own envelope may
+	// declare NOTHING inline (readEnvelope refuses one that still does,
+	// unconditionally — there is no document fallback on this path, unlike
+	// the local reader's treeFormEnvelope), so the profile item travels as a
+	// real file, written through the production content.Writer rather than
+	// hand-rolled, and bundle.yaml is written separately with only what a
+	// tree's envelope may legally carry.
+	ref, err := remote.ParseReference(bundleRef)
+	require.NoError(t, err)
+	installDir := ref.LocalTreePath(appDir)
+	require.NoError(t, os.MkdirAll(installDir, 0o755))
+
+	src, err := bundles.ParseBundle([]byte(bundleBody))
+	require.NoError(t, err)
+	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(installDir), content.Provenance{RepoURL: repoURL})
+	require.NoError(t, err)
+	require.NoError(t, convert.Convert(context.Background(), store, content.BundleID("tools"), src, convert.Options{}))
+	require.NoError(t, os.WriteFile(filepath.Join(installDir, "bundle.yaml"),
+		[]byte("version: 1.0.0\ndescription: remote tools bundle\n"), 0o644))
 
 	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), profileRef, bundleRef
 }

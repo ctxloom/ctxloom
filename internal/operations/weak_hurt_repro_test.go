@@ -50,7 +50,11 @@ func TestWeakHurt_TrustStamper_UnreadableStore_ListingPath(t *testing.T) {
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{projectDir}})
 	loader := seedLoader(t, map[string]*bundles.Bundle{
-		"demo": {Fragments: map[string]bundles.BundleFragment{"localfrag": {Content: "local body"}}},
+		"demo": {Fragments: map[string]bundles.BundleFragment{"localfrag": {
+			ItemBody: bundles.ItemBody{
+				Content: "local body",
+			},
+		}}},
 	})
 
 	// NO WithStampRecords injection: production shape, records built from cfg+fs
@@ -84,7 +88,11 @@ func TestWeakHurt_PendingReview_UnreadableStore_ListingPath(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{projectDir}})
 	loader := seedLoader(t, map[string]*bundles.Bundle{
 		"https://github.com/acme/repo@bundles/tooling": {
-			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "solid body"}},
+			Fragments: map[string]bundles.BundleFragment{"solid": {
+				ItemBody: bundles.ItemBody{
+					Content: "solid body",
+				},
+			}},
 		},
 	})
 

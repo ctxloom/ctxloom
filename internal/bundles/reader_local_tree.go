@@ -162,7 +162,7 @@ func BundleLayoutFor(docPath string, env *Bundle) paths.BundleLayout {
 	if treeFormEnvelope(docPath, env) {
 		return paths.LayoutV2
 	}
-	return paths.LayoutV1
+	return paths.LayoutV2
 }
 
 // ErrEnvelopeRead and ErrEnvelopeParse classify the two ways EnvelopeAt fails.

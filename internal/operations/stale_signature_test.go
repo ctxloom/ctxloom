@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -166,7 +167,17 @@ func TestPushBundle_ValidCarriedSignature_PublishedVerbatim(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.Signed)
 
+	// One commit carries every file in a tree-form publish
+	// (Publisher.CreateOrUpdateFiles), so the two calls the mock records land
+	// in Go's randomized map iteration order — find the .sig one by its path
+	// rather than assuming it is second.
 	require.Len(t, mock.createOrUpdateCalls, 2, "bundle + .sig sibling")
-	assert.Equal(t, armored, mock.createOrUpdateCalls[1].Content,
+	var sigContent []byte
+	for _, c := range mock.createOrUpdateCalls {
+		if strings.HasSuffix(c.Path, ".sig") {
+			sigContent = c.Content
+		}
+	}
+	assert.Equal(t, armored, sigContent,
 		"a verifying signature is carried byte-for-byte, never re-signed")
 }

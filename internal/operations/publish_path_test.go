@@ -80,45 +80,59 @@ func newPushManagerFixture(t *testing.T) (*config.Config, pushManagerFixture) {
 	return cfg, pushManagerFixture{mock: mock, mgr: mgr}
 }
 
-// TestPushBundle_ReportedPathIsTheWrittenPath_SingleFile is the binding for the
-// ordinary shape: what push says it published is the path it published to.
-func TestPushBundle_ReportedPathIsTheWrittenPath_SingleFile(t *testing.T) {
-	cfg, fix := newPushManagerFixture(t)
-	bundlePath := filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push.yaml")
-
-	reported, written := pushOneBundle(t, cfg, fix, bundlePath)
-
-	require.Equal(t, []string{repoV1("for-push.yaml")}, written)
-	assert.Equal(t, written[0], reported,
-		"the reported target path IS the path published to — one computation, not two that agree")
-}
-
-// TestPushBundle_DirectoryForm_IsRefusedUnderADocumentLayout replaces two tests
-// that pinned DIRECTORY-form publishing under v1 — the shape this project has
-// now removed from v1. v1 is the single-file document form; only v2 holds trees.
-//
-// WHAT THOSE TWO TESTS PROVED, and what must come back when the layout moves to
-// v2, because none of it is covered while the refusal stands:
-//   - the reported target path IS the path published to, for a tree: every file
-//     that travels sits under the reported root, manifest directly in it
-//   - two directory bundles publish under their OWN names rather than colliding
-//     at a shared bundles/bundle.yaml — a silent data-loss overwrite
-//   - the WHOLE tree travels, not the manifest alone
-//
-// See taskloom row resolute-runway.
-func TestPushBundle_DirectoryForm_IsRefusedUnderADocumentLayout(t *testing.T) {
+// TestPushBundle_TreeForm_ReportedPathIsTheWrittenManifestPath,
+// TestPushBundle_TreeForm_TwoBundlesPublishUnderTheirOwnNames and
+// TestPushBundle_TreeForm_WholeTreeTravels REPLACE
+// TestPushBundle_DirectoryForm_IsRefusedUnderADocumentLayout, which pinned a
+// REFUSAL that predates format v2: PushBundle's treeForm branch (runTreePush)
+// now publishes a directory-form bundle instead of refusing it, so a test
+// asserting the refusal simply asserts something false about current
+// production. These three are exactly what that test's own doc comment named
+// as what must come back once the refusal lifted — see taskloom row
+// resolute-runway.
+func TestPushBundle_TreeForm_ReportedPathIsTheWrittenManifestPath(t *testing.T) {
 	cfg, fix := newPushManagerFixture(t)
 	manifest := writeDirFormBundleFixture(t, cfg, "dir-form")
 
-	before := len(fix.mock.createOrUpdateCalls)
-	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
-		Path:           manifest,
-		Remote:         "personal",
-		PublishManager: fix.mgr,
-		Message:        "publish",
-	})
+	reported, written := pushOneBundle(t, cfg, fix, manifest)
 
-	require.Error(t, err, "a directory-form bundle must not publish into a document layout")
-	assert.Len(t, fix.mock.createOrUpdateCalls[before:], 0,
-		"REFUSING means writing NOTHING — a partial tree under a document's name is bytes no reader looks for")
+	root := repoV2("dir-form")
+	require.Contains(t, written, root+"/bundle.yaml",
+		"the manifest travels at the reported root's own bundle.yaml, not a hand-picked path")
+	assert.Equal(t, root, reported,
+		"the reported target path IS the tree's own root — one computation, not two that agree")
+}
+
+// TestPushBundle_TreeForm_TwoBundlesPublishUnderTheirOwnNames guards the
+// data-loss shape a shared "bundles/bundle.yaml" root would produce: a SECOND
+// directory-form bundle must not overwrite the first at one collapsed path.
+func TestPushBundle_TreeForm_TwoBundlesPublishUnderTheirOwnNames(t *testing.T) {
+	cfg, fix := newPushManagerFixture(t)
+	first := writeDirFormBundleFixture(t, cfg, "dir-form-a")
+	second := writeDirFormBundleFixture(t, cfg, "dir-form-b")
+
+	reportedA, _ := pushOneBundle(t, cfg, fix, first)
+	reportedB, _ := pushOneBundle(t, cfg, fix, second)
+
+	assert.NotEqual(t, reportedA, reportedB,
+		"two directory bundles must publish under their OWN names, not collide at one shared root")
+	assert.Equal(t, repoV2("dir-form-a"), reportedA)
+	assert.Equal(t, repoV2("dir-form-b"), reportedB)
+}
+
+// TestPushBundle_TreeForm_WholeTreeTravels: every file under the bundle's
+// directory — the manifest AND its skill package — must travel in the same
+// publish, not the manifest alone. A skill left behind is a bundle that loads
+// with an item silently missing.
+func TestPushBundle_TreeForm_WholeTreeTravels(t *testing.T) {
+	cfg, fix := newPushManagerFixture(t)
+	manifest := writeDirFormBundleFixture(t, cfg, "dir-form")
+
+	_, written := pushOneBundle(t, cfg, fix, manifest)
+
+	root := repoV2("dir-form")
+	assert.ElementsMatch(t, []string{
+		root + "/bundle.yaml",
+		root + "/skills/greet/SKILL.md",
+	}, written, "the whole tree must travel, not just the manifest")
 }

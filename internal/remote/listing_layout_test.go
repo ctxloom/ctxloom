@@ -39,12 +39,12 @@ func segmentedName(t *testing.T, l paths.BundleLayout, bare string) (listed, wan
 }
 
 // aSegmentedLayout is a layout whose segment is non-empty — the only kind that
-// can witness the reduction. LayoutV1's segment is empty today, so a test
-// driven by it would assert nothing at all; skipping loudly is better than a
-// green that proves nothing.
+// can witness the reduction. A layout with an empty segment would let a test
+// driven by it assert nothing at all; skipping loudly is better than a green
+// that proves nothing.
 func aSegmentedLayout(t *testing.T) paths.BundleLayout {
 	t.Helper()
-	for _, l := range []paths.BundleLayout{paths.LayoutV2, paths.LayoutV1} {
+	for _, l := range []paths.BundleLayout{paths.LayoutV2} {
 		if seg, err := l.Segment(); err == nil && seg != "" {
 			return l
 		}

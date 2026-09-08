@@ -43,12 +43,16 @@ func sameNameLoader(t *testing.T, projectBody string) *bundles.Loader {
 	data, err := yaml.Marshal(&bundles.Bundle{
 		Name: sharedBundleName,
 		Fragments: map[string]bundles.BundleFragment{
-			sharedFragmentName: {Content: projectBody},
+			sharedFragmentName: {
+				ItemBody: bundles.ItemBody{
+					Content: projectBody,
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFile(t, fs, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), sharedBundleName+".yaml"), data, 0o644)
+	testsupport.WriteFile(t, fs, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), sharedBundleName+".yaml"), data, 0o644)
 	return bundles.NewLoader(
 		bundles.NewProjectReader(fs, []string{"/bundles"}),
 		bundles.NewBuiltinReader(),

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -67,18 +69,44 @@ func verifyAdvance(ctx context.Context, cfg *config.Config, factory remote.Fetch
 		return "", false
 	}
 
-	sig, err := fetchRefSibling(ctx, factory, auth, ref, p.Hash, remote.SignatureSuffix)
+	// Read through a TREE-AWARE reader pinned to the PROPOSED sha, not by
+	// hand-fetching a ".sig" sibling of the ref's path.
+	//
+	// A bundle is a TREE: its envelope is <root>/bundle.yaml and its signature
+	// is <root>/bundle.yaml.sig INSIDE that tree. A sibling of the ref path
+	// ("<root>.sig") does not exist and never will, so the sibling fetch
+	// returned not-found for every bundle — which this function reads as
+	// "unsigned, let it through". The effect was that `deps upgrade` could not
+	// refuse a single stale or tampered signature advance: a trust check that
+	// silently stopped checking.
+	//
+	// The lockfile here is SYNTHETIC and one entry wide because the pin being
+	// verified is the PROPOSED one, which by definition is not what the real
+	// lockfile holds yet.
+	rdr := advanceReader(factory, auth, p.Identity, ref.URL, p.Hash)
+	sig, err := rdr.ReadBundleSignature(ctx, p.Identity)
 	if err != nil {
-		if errors.Is(err, errs.ErrRemoteContentNotFound) {
-			// No .sig at the proposed commit: unsigned content, which is legal
-			// and ordinary. Let the advance through — the trust gate decides
-			// exposure, and `ctxloom review` can act on it.
+		// ABSENT IS NOT BROKEN, and it arrives spelled TWO ways.
+		//
+		// errs.ErrRemoteContentNotFound is the transport's "no such blob".
+		// content.ErrNotFound is what the TREE probe returns when the bundle's
+		// directory is wholly absent at this sha — a different layer's sentinel
+		// for the same fact, by deliberate layering in remotetree.
+		//
+		// Matching only the first is what made this refuse every advance whose
+		// bundle simply had no tree at the proposed commit: the "unsigned is
+		// legal" branch could never be reached, so ordinary unsigned content
+		// was reported as a signature that could not be read.
+		if errors.Is(err, errs.ErrRemoteContentNotFound) || errors.Is(err, content.ErrNotFound) {
+			// No signature at the proposed commit: unsigned content, which is
+			// legal and ordinary. Let the advance through — the trust gate
+			// decides exposure, and `ctxloom review` can act on it.
 			return "", false
 		}
 		return fmt.Sprintf("its signature could not be read at %s: %v", p.Hash, err), true
 	}
 
-	body, err := remote.FetchRefBytes(ctx, factory, auth, ref, p.Hash)
+	body, err := rdr.ReadBundleBytes(ctx, p.Identity)
 	if err != nil {
 		// A signature exists but the bytes it claims to cover cannot be read.
 		// Nothing can be verified, so nothing may be advanced onto.
@@ -91,32 +119,22 @@ func verifyAdvance(ctx context.Context, cfg *config.Config, factory remote.Fetch
 	return "", false
 }
 
-// fetchRefSibling reads the file that sits beside ref's own file at the same
-// commit, under the given suffix — the detached-signature carrier
-// (remote.SignatureSuffix), whose whole point is that the signature and the
-// bytes it covers can never come from different commits.
+// advanceReader is a tree-aware byte source pinned to ONE proposed sha.
 //
-// It is remote.FetchRefBytes plus a suffix. The duplication is deliberate and
-// small: FetchRefBytes' contract is "the bytes of this ref", and a sibling is
-// not that ref.
-func fetchRefSibling(ctx context.Context, factory remote.FetcherFactory, auth remote.AuthConfig, ref *remote.Reference, sha, suffix string) ([]byte, error) {
-	if sha == "" {
-		// Same floor as FetchRefBytes: every Fetcher resolves "" to the default
-		// branch tip, which would check a signature at a commit nobody pinned.
-		return nil, fmt.Errorf("refusing to fetch %s%s: no SHA pinned", ref.String(), suffix)
-	}
-	fetcher, err := factory(ref.URL, auth)
-	if err != nil {
-		return nil, fmt.Errorf("create fetcher for %s: %w", ref.URL, err)
-	}
-	owner, repo, err := remote.ParseOwnerRepo(ref.URL)
-	if err != nil {
-		return nil, fmt.Errorf("parse repo URL %s: %w", ref.URL, err)
-	}
-	filePath := ref.BuildFilePath(ref.ItemType) + suffix
-	data, err := fetcher.FetchFile(ctx, owner, repo, filePath, sha)
-	if err != nil {
-		return nil, fmt.Errorf("fetch %s@%s: %w", filePath, sha, err)
-	}
-	return data, nil
+// It exists because verification happens BEFORE the advance: the sha being
+// checked is not in the lockfile yet, so the project's ordinary reader — which
+// resolves everything through the pinned lockfile — cannot reach it. A synthetic
+// one-entry lock is the smallest honest way to say "read this bundle, at this
+// commit, and nothing else".
+//
+// The tree fetcher is composed here for the same reason NewBundleReaderForConfig
+// composes it: the walker lives in the content layer, above remote.
+func advanceReader(factory remote.FetcherFactory, auth remote.AuthConfig, identity, url, sha string) *remote.BundleReader {
+	return remote.NewBundleReader(nil, factory, auth,
+		&remote.Lockfile{
+			Version: 1,
+			Bundles: map[string]remote.LockEntry{identity: {SHA: sha, URL: url}},
+		},
+		remote.WithReaderTreeFetcher(remotetree.PullTreeFetcher),
+	)
 }

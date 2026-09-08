@@ -27,13 +27,33 @@ func acmeToolingSeed() map[string]*bundles.Bundle {
 		acmeBundle + "tooling": {
 			Name: acmeBundle + "tooling",
 			Fragments: map[string]bundles.BundleFragment{
-				"solid":   {Content: "solid body"},
-				"evil":    {Content: "evil body"},
-				"swapped": {Content: "swapped body"},
+				"solid": {
+					ItemBody: bundles.ItemBody{
+						Content: "solid body",
+					},
+				},
+				"evil": {
+					ItemBody: bundles.ItemBody{
+						Content: "evil body",
+					},
+				},
+				"swapped": {
+					ItemBody: bundles.ItemBody{
+						Content: "swapped body",
+					},
+				},
 			},
 			Commands: map[string]bundles.BundleCommand{
-				"review":     {Content: "review body"},
-				"evilprompt": {Content: "evil prompt body"},
+				"review": {
+					ItemBody: bundles.ItemBody{
+						Content: "review body",
+					},
+				},
+				"evilprompt": {
+					ItemBody: bundles.ItemBody{
+						Content: "evil prompt body",
+					},
+				},
 			},
 		},
 	}
@@ -138,7 +158,11 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 
 	v1 := map[string]*bundles.Bundle{
 		acmeBundle + "tooling": {Name: acmeBundle + "tooling",
-			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "v1 body"}}},
+			Fragments: map[string]bundles.BundleFragment{"solid": {
+				ItemBody: bundles.ItemBody{
+					Content: "v1 body",
+				},
+			}}},
 	}
 	fx := newTrustFixture(t)
 	// A human approved the v1 content (countersigned its bytes).
@@ -155,7 +179,11 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 	// pending → withheld.
 	v2 := map[string]*bundles.Bundle{
 		acmeBundle + "tooling": {Name: acmeBundle + "tooling",
-			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "v2 body"}}},
+			Fragments: map[string]bundles.BundleFragment{"solid": {
+				ItemBody: bundles.ItemBody{
+					Content: "v2 body",
+				},
+			}}},
 	}
 	l2 := bundles.NewPipeline(seedLoader(t, v2), gate, true)
 	_, err = l2.GetFragment(acmeBundle + "tooling#fragments/solid")

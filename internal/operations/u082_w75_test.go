@@ -577,8 +577,16 @@ func TestDistillParity_InternalSeam(t *testing.T) {
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				b := &bundles.Bundle{
-					Fragments: map[string]bundles.BundleFragment{"item": {Content: body}},
-					Commands:  map[string]bundles.BundleCommand{"item": {Content: body}},
+					Fragments: map[string]bundles.BundleFragment{"item": {
+						ItemBody: bundles.ItemBody{
+							Content: body,
+						},
+					}},
+					Commands: map[string]bundles.BundleCommand{"item": {
+						ItemBody: bundles.ItemBody{
+							Content: body,
+						},
+					}},
 				}
 				fFailed := distillFragments(context.Background(), b, []string{"item"}, tc.d)
 				pFailed := distillPrompts(context.Background(), b, []string{"item"}, tc.d)

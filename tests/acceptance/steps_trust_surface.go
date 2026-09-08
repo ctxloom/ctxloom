@@ -88,107 +88,70 @@ func tsOf(w *World) *tsState {
 	return w.ts
 }
 
-// tsBundleYAML renders the one bundle both fixtures share: a fragment, a
-// command, an MCP server, a hook, and a profile — one of each trust-addressable
-// kind, plus the one kind that ISN'T (profiles) — each carrying its own
-// distinctive marker. Identical content either signed or not; only the
-// SEEDING (signed+trusted vs unsigned) differs between the two fixtures.
-func tsBundleYAML() string {
-	return fmt.Sprintf(`version: "1.0.0"
-fragments:
-  context:
-    content: %q
-commands:
-  guide:
-    description: trust-surface demo command
-    content: %q
-mcp:
-  toolserver:
-    command: "/bin/echo"
-    args: [%q]
-hooks:
-  session_start:
-    - command: %q
-      type: command
-profiles:
-  reviewme:
-    description: trust-surface demo profile — never trust-gated, see the last scenario
-`, tsFragmentMarker, tsCommandMarker, tsMCPMarker, tsHookMarker)
+// tsTreeEnvelope is every trust-surface fixture's tree envelope — no inline
+// item keys, because `deps pull` refuses a single-file bundle outright now
+// (nothing materializes a document — remote.Puller.installPulledItem) and a
+// remote tree bundle is read through internal/bundles/tree_read.go's
+// readEnvelope, which refuses one that still declares items inline.
+const tsTreeEnvelope = "version: \"1.0.0\"\n"
+
+// tsFullTreeItems builds the item-file map for the full trust-surface bundle:
+// one fragment (name/body given, front-matter-free so a caller can hand it
+// exact bytes — see tsCollisionTreeItems), one command, one MCP server, one
+// hook, and one profile — one of each trust-addressable kind, plus the one
+// that isn't. distilled == "" omits the fragment's distilled sibling file
+// (internal/content/paths.go: "fragments/<stem>.distilled.md").
+//
+// fragName/distilled let GAP A (a renamed fragment key) and GAP B (an added
+// distilled form) vary just the fragment while the other four items stay
+// fixed. The fragment file's body carries NO trailing newline beyond what the
+// caller hands in, deliberately: tsAssertRecordedContentRejects computes the
+// SAME content-payload hash a fixture's markers produce, over the marker
+// STRING verbatim (bundles.BundleFragment.ContentPayload), and a body read
+// off disk is never trimmed — internal/content/frontmatter.go's
+// splitFrontMatter returns a body-only file's bytes exactly as they sit,
+// trailing newline included. An appended "\n" here would make the tree's
+// stored payload and the assertion's computed one disagree on nothing but
+// that byte, and the reject-record lookup (a content-hash match) would find
+// no record at all — the phantom-negative shape tsAssertRecordedContentRejects'
+// own doc says the row exists to catch.
+func tsFullTreeItems(fragName, fragBody, distilled string) map[string]string {
+	items := map[string]string{
+		"fragments/" + fragName + ".md":  fragBody,
+		"prompts/guide.md":               fmt.Sprintf("trust-surface demo command\n\n%s\n", tsCommandMarker),
+		"mcp/toolserver.yaml":            fmt.Sprintf("command: \"/bin/echo\"\nargs: [%q]\n", tsMCPMarker),
+		"hooks/session_start/guard.yaml": fmt.Sprintf("type: command\ncommand: %q\n", tsHookMarker),
+		"profiles/reviewme.yaml":         "description: trust-surface demo profile — never trust-gated, see the last scenario\n",
+	}
+	if distilled != "" {
+		items["fragments/"+fragName+".distilled.md"] = distilled
+	}
+	return items
 }
 
-// tsBundleYAMLFragmentRenamed is GAP A's fixture: the SAME bundle
-// tsBundleYAML ships, except the fragment's key is "context2" instead of
-// "context" — a rename/move at the publisher, with the fragment's BYTES
-// (tsFragmentMarker) left byte-for-byte identical. Everything else
-// (command/mcp/hook/profile) is unchanged. Used with AdvanceSignedRemote so the
-// re-signed document is still validly signed by the same trusted principal —
-// if the content-level rejection were not enforced, step 5 (trusted signer)
-// would re-admit it under its new name.
-func tsBundleYAMLFragmentRenamed() string {
-	return fmt.Sprintf(`version: "1.0.0"
-fragments:
-  context2:
-    content: %q
-commands:
-  guide:
-    description: trust-surface demo command
-    content: %q
-mcp:
-  toolserver:
-    command: "/bin/echo"
-    args: [%q]
-hooks:
-  session_start:
-    - command: %q
-      type: command
-profiles:
-  reviewme:
-    description: trust-surface demo profile — never trust-gated, see the last scenario
-`, tsFragmentMarker, tsCommandMarker, tsMCPMarker, tsHookMarker)
+// tsDualFormTreeItems builds the item-file map for GAP B's "both forms
+// shipped at once" fixture: just the one fragment, raw and distilled forms as
+// sibling files — none of tsFullTreeItems' other four items, since this
+// fixture's whole point is exercising SetItemTrust's dual-form write path on
+// its own. No trailing newline on either body — see tsFullTreeItems' doc.
+func tsDualFormTreeItems() map[string]string {
+	return map[string]string{
+		"fragments/context.md":           tsDualRawMarker,
+		"fragments/context.distilled.md": tsDualDistilledMarker,
+	}
 }
 
-// tsBundleYAMLFragmentDistilledAdded is GAP B's "form flip" fixture: the same
-// bundle, except the fragment now ALSO carries a "distilled:" field
-// (tsFragmentDistilledAddedMarker) the publisher added after Alice already
-// approved the raw-only version. The raw bytes (tsFragmentMarker) are left
-// unchanged — only a new form is added.
-func tsBundleYAMLFragmentDistilledAdded() string {
-	return fmt.Sprintf(`version: "1.0.0"
-fragments:
-  context:
-    content: %q
-    distilled: %q
-commands:
-  guide:
-    description: trust-surface demo command
-    content: %q
-mcp:
-  toolserver:
-    command: "/bin/echo"
-    args: [%q]
-hooks:
-  session_start:
-    - command: %q
-      type: command
-profiles:
-  reviewme:
-    description: trust-surface demo profile — never trust-gated, see the last scenario
-`, tsFragmentMarker, tsFragmentDistilledAddedMarker, tsCommandMarker, tsMCPMarker, tsHookMarker)
-}
-
-// tsDualFormBundleYAML is GAP B's "both forms shipped at once" fixture: a
-// single fragment named "context" (the same selector tsSelector("fragment")
-// resolves) carrying DISTINCT raw and distilled content from the start, so
-// approving it exercises SetItemTrust's dual-form write path (both
-// writeApprove calls, not just the raw one every other fixture in this file
-// exercises).
-func tsDualFormBundleYAML() string {
-	return fmt.Sprintf(`version: "1.0.0"
-fragments:
-  context:
-    content: %q
-    distilled: %q
-`, tsDualRawMarker, tsDualDistilledMarker)
+// tsCollisionTreeItems builds the item-file map for the text->exec collision
+// fixture: a fragment whose body is byte-for-byte execPayload (the MCP server's
+// executable preimage) and the MCP server itself. execPayload rides through
+// as raw bytes — not %q, not wrapped in front-matter — because the whole
+// point of the fixture is that the fragment's stored payload equals the exec
+// preimage exactly.
+func tsCollisionTreeItems(execPayload []byte) map[string]string {
+	return map[string]string{
+		"fragments/context.md": string(execPayload),
+		"mcp/toolserver.yaml":  fmt.Sprintf("command: %q\nargs: [%q]\n", tsCollisionMCP().Command, tsMCPMarker),
+	}
 }
 
 // canonicalBundleRef mints the canonical URI addressing a bundle published at
@@ -281,11 +244,15 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		rel := bundleFilePath(ts.bundleName)
+		root := remoteSingleFilePublishPath(ts.bundleName)
 		// Deliberately UNSIGNED: every item is born pending (denied by
 		// default), so approving one is the only thing that can expose it —
 		// the meaningful state for the APPROVE outline (see file doc).
-		url, err := w.env.SeedRemote(map[string]string{rel: tsBundleYAML()})
+		files := map[string]string{root + "/" + bundles.DirectoryFormManifest: tsTreeEnvelope}
+		for rel, body := range tsFullTreeItems("context", tsFragmentMarker, "") {
+			files[root+"/"+rel] = body
+		}
+		url, err := w.env.SeedRemote(files)
 		if err != nil {
 			return fmt.Errorf("seed unsigned trust-surface remote: %w", err)
 		}
@@ -298,12 +265,12 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		rel := bundleFilePath(ts.bundleName)
+		root := remoteSingleFilePublishPath(ts.bundleName)
 		signer, err := testenv.GenerateTestSigner()
 		if err != nil {
 			return fmt.Errorf("generate trust-surface signer: %w", err)
 		}
-		url, err := w.env.SeedSignedRemote(map[string]string{rel: tsBundleYAML()}, []string{rel}, signer)
+		url, err := w.env.SeedSignedTreeRemote(root, ts.bundleName, tsTreeEnvelope, tsFullTreeItems("context", tsFragmentMarker, ""), signer)
 		if err != nil {
 			return fmt.Errorf("seed signed trust-surface remote: %w", err)
 		}
@@ -377,8 +344,8 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("trust-surface: rename-and-resign requires the signed fixture (no signer recorded)")
 		}
 		bareDir := strings.TrimPrefix(ts.url, "file://")
-		rel := bundleFilePath(ts.bundleName)
-		if err := w.env.AdvanceSignedRemote(bareDir, map[string]string{rel: tsBundleYAMLFragmentRenamed()}, []string{rel}, ts.signer); err != nil {
+		root := remoteSingleFilePublishPath(ts.bundleName)
+		if err := w.env.AdvanceSignedTreeRemote(bareDir, root, ts.bundleName, tsTreeEnvelope, tsFullTreeItems("context2", tsFragmentMarker, ""), ts.signer); err != nil {
 			return fmt.Errorf("advance signed trust-surface remote (rename fragment): %w", err)
 		}
 		return tsUpdateAndPull(w)
@@ -392,8 +359,12 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		rel := bundleFilePath(ts.bundleName)
-		url, err := w.env.SeedRemote(map[string]string{rel: tsDualFormBundleYAML()})
+		root := remoteSingleFilePublishPath(ts.bundleName)
+		files := map[string]string{root + "/" + bundles.DirectoryFormManifest: tsTreeEnvelope}
+		for rel, body := range tsDualFormTreeItems() {
+			files[root+"/"+rel] = body
+		}
+		url, err := w.env.SeedRemote(files)
 		if err != nil {
 			return fmt.Errorf("seed dual-form trust-surface remote: %w", err)
 		}
@@ -442,8 +413,12 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		ts := tsOf(w)
 		bareDir := strings.TrimPrefix(ts.url, "file://")
-		rel := bundleFilePath(ts.bundleName)
-		if err := w.env.AdvanceRemote(bareDir, map[string]string{rel: tsBundleYAMLFragmentDistilledAdded()}); err != nil {
+		root := remoteSingleFilePublishPath(ts.bundleName)
+		files := map[string]string{}
+		for rel, body := range tsFullTreeItems("context", tsFragmentMarker, tsFragmentDistilledAddedMarker) {
+			files[root+"/"+rel] = body
+		}
+		if err := w.env.AdvanceRemote(bareDir, files); err != nil {
 			return fmt.Errorf("advance unsigned trust-surface remote (add distilled form): %w", err)
 		}
 		return tsUpdateAndPull(w)
@@ -751,9 +726,18 @@ func tsApprovalsStore(w *World) *countersign.Store {
 // exactly the shape a write path that fell back from distilled to raw would
 // leave behind.
 func tsAssertRecordedContentRejects(w *World, dualForm bool) error {
-	frag := bundles.BundleFragment{Content: tsFragmentMarker}
+	frag := bundles.BundleFragment{
+		ItemBody: bundles.ItemBody{
+			Content: tsFragmentMarker,
+		},
+	}
 	if dualForm {
-		frag = bundles.BundleFragment{Content: tsDualRawMarker, Distilled: tsDualDistilledMarker}
+		frag = bundles.BundleFragment{
+			ItemBody: bundles.ItemBody{
+				Content:   tsDualRawMarker,
+				Distilled: tsDualDistilledMarker,
+			},
+		}
 	}
 	rawPayload, _ := frag.ContentPayload(false)
 	distilledPayload, _ := frag.ContentPayload(true)
@@ -1046,26 +1030,6 @@ func tsCollisionMCP() bundles.BundleMCP {
 	return bundles.BundleMCP{Command: "/bin/echo", Args: []string{tsMCPMarker}}
 }
 
-// tsCollisionBundleYAML ships a fragment whose body is byte-for-byte the MCP
-// server's executable preimage. No collision search is involved: exec preimages
-// are deterministic JSON with every field always emitted, and a fragment's
-// payload is its bare body, so a publisher simply pastes one into the other.
-//
-// The equality is VERIFIED in the step below through the production preimage
-// builders rather than asserted here — a fixture that failed to collide would
-// make the scenario prove nothing at all.
-func tsCollisionBundleYAML(execPayload []byte) string {
-	return fmt.Sprintf(`version: "1.0.0"
-fragments:
-  context:
-    content: %q
-mcp:
-  toolserver:
-    command: %q
-    args: [%q]
-`, string(execPayload), tsCollisionMCP().Command, tsMCPMarker)
-}
-
 // tsSupersedeStore rewrites Alice's approvals store into the state a countersign
 // contract bump leaves behind: every recorded signature is still on disk and
 // still parses, but none of them can be found any more, because the index hash a
@@ -1203,14 +1167,22 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		// The collision, verified through the two PRODUCTION preimage builders:
 		// the fragment the reviewer will be shown as text and the executable the
 		// gate will ask about resolve to identical bytes.
-		frag := bundles.BundleFragment{Content: string(execPayload)}
+		frag := bundles.BundleFragment{
+			ItemBody: bundles.ItemBody{
+				Content: string(execPayload),
+			},
+		}
 		fragPayload, _ := frag.ContentPayload(false)
 		if !bytes.Equal(fragPayload, execPayload) {
 			return fmt.Errorf("fixture does not actually collide: fragment payload %q != mcp preimage %q", fragPayload, execPayload)
 		}
 		ts := tsOf(w)
-		rel := bundleFilePath(ts.bundleName)
-		url, err := w.env.SeedRemote(map[string]string{rel: tsCollisionBundleYAML(execPayload)})
+		root := remoteSingleFilePublishPath(ts.bundleName)
+		files := map[string]string{root + "/" + bundles.DirectoryFormManifest: tsTreeEnvelope}
+		for rel, body := range tsCollisionTreeItems(execPayload) {
+			files[root+"/"+rel] = body
+		}
+		url, err := w.env.SeedRemote(files)
 		if err != nil {
 			return fmt.Errorf("seed collision trust-surface remote: %w", err)
 		}

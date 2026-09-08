@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config/layerscope"
-	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
@@ -26,7 +24,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -2531,69 +2528,26 @@ func (c *Config) remoteBundleReaders() []bundles.Reader {
 	reader := remote.NewCachingBundleReader(remote.NewBundleReader(registry, factory, auth, lock))
 
 	ctx := context.Background()
-	rawBytes, failures := remote.LoadAllBytes(ctx, reader)
+	_, failures := remote.LoadAllBytes(ctx, reader)
 
 	// The trust root (embedded + user + project allowed_signers) is resolved once
 	// for the whole set and handed to every reader, so no two pinned bundles are
 	// judged against different roots.
 	root := c.TrustRoot()
 
-	out := make([]bundles.Reader, 0, len(rawBytes))
-	for _, canonical := range collections.SortedKeys(rawBytes) {
-		entry, ok := lock.Bundles[canonical]
-		// A DIRECTORY-form entry belongs to treeBundleReaders below and to
-		// nothing here, even if the byte source served its manifest: presenting
-		// a tree's bundle.yaml as a lone document would drop every skill in it
-		// (a skill needs a real directory) and check a signature over the
-		// manifest alone rather than over the tree. Skipping it is what keeps
-		// exactly one reader per canonical ref.
-		if !ok || entry.Tree {
-			continue
-		}
-		tree, terr := documentTree(canonical, rawBytes[canonical], signatureFor(ctx, reader, canonical))
-		if terr != nil {
-			failures[canonical] = terr
-			continue
-		}
-		out = append(out, bundles.NewRepoFSReader(tree, canonical,
-			bundles.WithTrustRoot(root),
-			bundles.WithPinnedRevision(entry.SHA)))
-	}
-	out = append(out, c.treeBundleReaders(lock, root, failures)...)
+	// EVERY remote bundle is a TREE, so treeBundleReaders is the whole set.
+	//
+	// There used to be a document-reader loop here, skipped for tree entries.
+	// With the document form removed it would match everything, and presenting
+	// a tree's bundle.yaml as a lone document drops the items beside it — the
+	// fragments, skills and prompts that live as FILES in the tree — while
+	// checking a signature over the manifest alone rather than over the tree.
+	// That is not hypothetical: leaving the loop unguarded is exactly what made
+	// a published fragment stop reaching the consumer's assistant while every
+	// other surface kind still arrived.
+	out := c.treeBundleReaders(lock, root, failures)
 	reportBundleLoadFailures(failures)
 	return out
-}
-
-// signatureFor reads a bundle's detached `.sig` sibling. A MISSING signature
-// (the common case) is unsigned content, not an error, and any other read
-// failure is degraded the same way rather than blocking the bundle: the
-// fail-safe direction is "more review", and unsigned remote content is withheld
-// until a human reviews it anyway. What must NOT happen is a signature that
-// EXISTS being reported as absent — that is the reader's business, and it only
-// ever sees bytes that were actually there.
-func signatureFor(ctx context.Context, src remote.BundleSignatureSource, canonical string) []byte {
-	sig, err := src.ReadBundleSignature(ctx, canonical)
-	if err != nil {
-		return nil
-	}
-	return sig
-}
-
-// documentTree presents one single-file remote bundle as the pinned tree its
-// reader reads: the document under the ref's own leaf name, with its detached
-// signature beside it — which is exactly the shape those bytes have in the
-// publisher's repository.
-func documentTree(canonical string, data, sig []byte) (bundles.TreeFS, error) {
-	leaf := path.Base(strings.TrimSuffix(canonical, "/"))
-	files := map[string][]byte{leaf + ".yaml": data}
-	if len(sig) > 0 {
-		files[leaf+".yaml"+bundles.SigSuffix] = sig
-	}
-	tree, err := content.NewMapTreeFS(files)
-	if err != nil {
-		return nil, fmt.Errorf("present the pinned bytes of %q as a tree: %w", canonical, err)
-	}
-	return tree, nil
 }
 
 // GetConfigFilePath returns the path to the primary config file.

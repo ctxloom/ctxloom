@@ -87,7 +87,7 @@ func InitializeProject(_ context.Context, req InitializeProjectRequest) (*Initia
 	// directory is only the parent the format roots are siblings under, and a
 	// bundle sitting in it belongs to no format and is read by nobody. MkdirAll
 	// creates the parent too, so GetBundleDirs still sees it.
-	for _, dir := range []string{req.AppDir, filepath.Join(req.AppDir, paths.ProfilesDir), paths.LocalBundlesPathFor(req.AppDir, paths.LayoutV1)} {
+	for _, dir := range []string{req.AppDir, filepath.Join(req.AppDir, paths.ProfilesDir), paths.LocalBundlesPathFor(req.AppDir, paths.LayoutV2)} {
 		if err := fs.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}

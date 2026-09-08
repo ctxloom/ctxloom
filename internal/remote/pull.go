@@ -7,16 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // PullOptions configures pull behavior.
@@ -108,6 +103,10 @@ type Puller struct {
 	// TreeFetchFunc). Nil means this Puller can fetch only single-file bundles,
 	// which is what every Puller could do before the seam existed.
 	treeFetch TreeFetchFunc
+	// treeInstall materializes a pinned tree as a git worktree, wired in from
+	// above (see TreeInstallFunc). Nil means this Puller cannot materialize a
+	// bundle at all.
+	treeInstall TreeInstallFunc
 }
 
 // PullerOption is a functional option for configuring a Puller.
@@ -120,6 +119,15 @@ type PullerOption func(*Puller)
 func WithTreeFetcher(tf TreeFetchFunc) PullerOption {
 	return func(p *Puller) {
 		p.treeFetch = tf
+	}
+}
+
+// WithTreeInstaller supplies the pinned-tree materializer a directory-form
+// bundle needs (see TreeInstallFunc). Without it a Puller refuses to install a
+// tree rather than recording a pin nothing can read.
+func WithTreeInstaller(ti TreeInstallFunc) PullerOption {
+	return func(p *Puller) {
+		p.treeInstall = ti
 	}
 }
 
@@ -535,29 +543,39 @@ func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string,
 func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem) (*PullResult, error) {
 	content := item.content
 
-	// Remote bundles AND profiles are pure references: the git clone cache +
-	// lockfile pair is the storage, and reads at the locked SHA go through
-	// remote.BundleReader / remote.ProfileReader. Nothing is materialized to
-	// disk, so LocalPath is a synthetic informational string and a pull never
-	// overwrites a local file (this used to be a separate
-	// writePulledContent method whose only real parameters were localName and
-	// sha).
-	localPath := fmt.Sprintf("<remote>:%s@%s", item.localName, item.sha)
+	// A bundle is always a DIRECTORY-form tree now: a single-file bundle is one
+	// blob a reader could once pull out of the clone's object store on demand,
+	// but a tree is a package — multi-file, mode-bearing, and read by machinery
+	// (skill materialization, hook enumeration) that takes a real directory, not
+	// bytes. So the checked-out worktree is the only LocalPath a bundle ever
+	// gets; nothing here is a synthetic informational string anymore. The
+	// checkout lands in the CACHE (gitignored, regenerable): the pin in the
+	// lockfile stays the authority, and the worktree is checked out from it.
+	// A DOCUMENT CANNOT BE PULLED. Only a tree materializes, and every read
+	// path resolves the worktree — so accepting a single-file item
+	// here records a pin whose content nothing can ever read, and reports
+	// success doing it. Refuse where the shape is still visible.
+	if item.tree == nil {
+		return nil, fmt.Errorf("refusing to install %q: it is a single-file bundle, and bundles are distributed as trees — nothing materializes a document, so its pin would resolve to content no reader can reach; the publisher must republish it in tree form", item.localName)
+	}
+	// The commit that is CHECKED OUT and the commit that is RECORDED must be
+	// one commit. Resolving the hold here rather than only at the lockfile write
+	// is what stops a forced pull from advancing the bytes past a pin the hold
+	// is successfully defending.
+	requestedVersion := item.requestedVersion
+	if opts.RequestedVersion != nil {
+		// Caller pins the content SHA but wants the manifest constraint preserved
+		// (see PullOptions.RequestedVersion).
+		requestedVersion = *opts.RequestedVersion
+	}
+	installSHA := item.sha
+	if frozen, ok := p.heldPin(opts.ItemType, item.localName, requestedVersion); ok {
+		installSHA = frozen.SHA
+	}
 
-	// A DIRECTORY-form bundle is the one exception to "nothing is
-	// materialized". A single-file bundle is one blob a reader can pull out of
-	// the clone's object store on demand; a tree is a package — multi-file,
-	// mode-bearing, and read by machinery (skill materialization, hook
-	// enumeration) that takes a real directory, not bytes. Serving that from an
-	// object store would mean re-deriving a filesystem on every read. The
-	// install root is the CACHE (gitignored, regenerable): the pin in the
-	// lockfile stays the authority, and this tree is derived from it.
-	if item.tree != nil {
-		dir, werr := p.installTree(ref, opts, item)
-		if werr != nil {
-			return nil, werr
-		}
-		localPath = dir
+	localPath, werr := p.installTree(ctx, ref, opts, item, installSHA)
+	if werr != nil {
+		return nil, werr
 	}
 
 	// Update lockfile with provenance (local name as key). For bundles, the
@@ -570,25 +588,19 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// item silently dropped the Retracted verdict, leaving
 	// operations.EffectiveTrust with nothing to withhold against. The lockfile
 	// is the only record; its write failing means the pull failed.
-	requestedVersion := item.requestedVersion
-	if opts.RequestedVersion != nil {
-		// Caller pins the content SHA but wants the manifest constraint preserved
-		// (see PullOptions.RequestedVersion).
-		requestedVersion = *opts.RequestedVersion
-	}
 	// hadExisting reports whether localName already had a lockfile entry
 	// BEFORE this write — i.e. this pull replaced an existing pin rather than
 	// creating a new one. It is the real signal for "updated" vs "installed"
 	// (PullResult.Overwritten used to be hard-coded false, making
 	// operations/sync.go's "updated" status unreachable).
-	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt, item.tree != nil)
+	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, installSHA, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt, item.tree != nil)
 	if err != nil {
 		return nil, fmt.Errorf("pulled %s but failed to record its lockfile pin (the only on-disk record of this pull): %w", item.localName, err)
 	}
 
 	return &PullResult{
 		LocalPath:       localPath,
-		SHA:             item.sha,
+		SHA:             installSHA,
 		Overwritten:     hadExisting,
 		Content:         content,
 		Retracted:       item.retracted,
@@ -596,92 +608,37 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	}, nil
 }
 
-// installTree writes a fetched directory-form bundle into the cache and returns
-// the directory it landed in.
+// installTree materializes the pinned directory-form bundle as a git worktree
+// and returns the directory it landed in.
 //
-// The destination is REPLACED, not merged. A merge would leave a file the
-// publisher deleted upstream sitting in the consumer's tree forever, still
-// enumerated by every directory walk that reads the bundle — and, for hooks and
-// MCP servers, still applied. "What arrived is what is there" is the only
-// property that makes a re-pull mean anything.
-func (p *Puller) installTree(ref *Reference, opts PullOptions, item *fetchedItem) (string, error) {
+// NOTHING IS COPIED. The tree is checked out by git, detached at the pinned
+// commit, so the pin and the bytes are a single fact rather than two states an
+// interleaving can pull apart. The fetched tree is still what DECIDES the pull
+// — its manifest is what was verified above — it is simply not what gets
+// written.
+func (p *Puller) installTree(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem, sha string) (string, error) {
+	if p.treeInstall == nil {
+		return "", fmt.Errorf("refusing to install %q: this puller has no tree installer wired in, so the bundle would be pinned in the lockfile with no tree any reader could reach", item.localName)
+	}
 	baseDir := opts.LocalDir
 	if baseDir == "" {
 		baseDir = p.lockfileManager.BaseDir()
 	}
-	fs := p.lockfileManager.FS()
-	dir := ref.LocalTreePath(baseDir)
-
-	if err := fs.RemoveAll(dir); err != nil {
-		return "", fmt.Errorf("clear the previous %s tree at %s: %w", item.localName, dir, err)
+	// The root the fetch PROBE answered from and the one every reader COMPUTES
+	// must name one directory, or the tree is checked out where nothing looks —
+	// the silent half-install this refuses to create. They can only differ while
+	// two bundle formats are live at once (see BundleTreeRoots), and then it is
+	// the publisher, not the consumer, who can end it.
+	if want := ref.TreeRepoPath(); item.treeRoot != want {
+		return "", fmt.Errorf("refusing to install %q: its tree was found at %s in the repository but every reader resolves it at %s, "+
+			"so a checkout of the found path would land where nothing looks; the publisher must republish it at %s",
+			item.localName, item.treeRoot, want, want)
 	}
-	// Sorted, so a failure part-way through names a deterministic file and two
-	// runs over the same tree fail identically.
-	rels := make([]string, 0, len(item.tree))
-	for rel := range item.tree {
-		rels = append(rels, rel)
-	}
-	sort.Strings(rels)
-	for _, rel := range rels {
-		file := item.tree[rel]
-		warnUndeclaredExecutable(treeRepoPath(item.treeRoot, rel), file)
-		if err := writeTreeFile(fs, dir, rel, file); err != nil {
-			return "", fmt.Errorf("install %s into %s: %w", treeRepoPath(item.treeRoot, rel), dir, err)
-		}
+	dir, err := p.treeInstall(ctx, item.rem.URL, sha, item.treeRoot, ref.LocalWorktreePath(baseDir))
+	if err != nil {
+		return "", fmt.Errorf("install %s at %s: %w", item.localName, sha, err)
 	}
 	return dir, nil
-}
-
-// warnUndeclaredExecutable reports a file the publisher committed 100755 that
-// the package does not DECLARE executable.
-//
-// It is the only place the divergence is visible. Downstream everything is
-// consistent and quiet: the file lands 0644, the manifest the tree generates
-// says 0644, verification passes, and the model is handed a script it cannot
-// run — the silent no-op, arriving as delivered content rather than as an
-// error. Saying it here names the repository path, the declaration that is
-// missing, and the file that will not run.
-func warnUndeclaredExecutable(repoPath string, file TreeFile) {
-	if !file.CommittedExecutable || file.DeclaredExecutable {
-		return
-	}
-	clidiag.Warn("ctxloom", "%s is committed executable upstream but the package does not declare it executable, "+
-		"so it was installed DECLARED NON-EXECUTABLE (mode 0644) and will not run. "+
-		"A mode bit is not portable and is not covered by the signature, so the declaration is what travels: "+
-		"add it to the executable: list in the package's .meta.yaml sidecar and re-publish.", repoPath)
-}
-
-// writeTreeFile writes one file of a bundle tree at its DECLARED mode.
-//
-// Not at the mode git recorded. The two can disagree, and when they do the
-// declaration is the one that has to reach disk: the manifest this same tree
-// generates (bundles.ReadTree, via the sidecar) is built from the declaration,
-// and bundles.VerifyExtractedManifest compares that manifest against the files
-// on disk. Installing at git's mode is what made a published-0755-but-
-// undeclared script arrive as a whole package the consumer refused.
-//
-// iox.WriteFileAtomicFs applies perm EXACTLY via its own explicit Chmod on
-// the temp file (see its doc) — the same fix this function used to hand-roll
-// with the trailing fs.Chmod call afero.WriteFile's umask-masked create left
-// necessary. Migrating to it drops that now-redundant second Chmod for free.
-//
-// AllowEmpty: an intentionally empty file is a legitimate member of a bundle
-// tree (a placeholder, a deliberately-emptied config), so the default
-// empty-over-existing refusal would wrongly block a legitimate re-pull —
-// unlike this package's OTHER writers (git_publisher, the lockfile/registry
-// stores), nothing here can distinguish "the tree really has a 0-byte file"
-// from "something upstream went wrong", so the guard is opted out rather than
-// guessed at.
-func writeTreeFile(fs afero.Fs, dir, rel string, file TreeFile) error {
-	mode := os.FileMode(0o644)
-	if file.DeclaredExecutable {
-		mode = 0o755
-	}
-	full := filepath.Join(dir, filepath.FromSlash(rel))
-	if err := fs.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return err
-	}
-	return iox.WriteFileAtomicFs(fs, full, file.Data, mode, iox.AllowEmpty())
 }
 
 // promptConfirmation asks the user for yes/no confirmation.
@@ -699,6 +656,32 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 
 	response := strings.TrimSpace(strings.ToLower(scanner.Text()))
 	return response == "y" || response == "yes", nil
+}
+
+// heldPin reports the entry a HELD dependency freezes this pull to.
+//
+// A hold says "do not advance this", and it has to be answered BEFORE the tree
+// is checked out — not only when the lockfile is written. The checkout is what
+// a consumer actually reads, so a hold that defends the recorded SHA while the
+// worktree moves to the freshly resolved one leaves the lockfile and the bytes
+// disagreeing: the hold protects the pin and not the content the pin names,
+// which is the one thing a hold exists to do.
+//
+// A hold is only frozen on a BLANKET pull. An explicitly requested version is
+// the user naming a target for this invocation, which a hold does not override.
+func (p *Puller) heldPin(itemType ItemType, localName, requestedVersion string) (LockEntry, bool) {
+	if requestedVersion != "" {
+		return LockEntry{}, false
+	}
+	lockfile, err := p.lockfileManager.Load()
+	if err != nil {
+		return LockEntry{}, false
+	}
+	existing, ok := lockfile.GetEntry(itemType, localName)
+	if !ok || !existing.Held {
+		return LockEntry{}, false
+	}
+	return existing, true
 }
 
 // updateLockfile records provenance in the (active) lockfile. Every pull writes
@@ -737,9 +720,6 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 		Retracted:           retracted,
 		RetractedReason:     retractedReason,
 		RetractionCheckedAt: retractionCheckedAt,
-		// Which SHAPE was installed, so the reader does not have to guess (see
-		// LockEntry.Tree).
-		Tree: tree,
 	}
 
 	// A hold ("do not upgrade this") is a deliberate decision; a content re-pull
@@ -749,11 +729,11 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 	// not advance past a hold (see LockEntry.Pinned).
 	if hadExisting && existing.Held {
 		entry.Held = true
-		if requestedVersion == "" {
-			entry.SHA = existing.SHA
-			entry.Version = existing.Version
-			entry.RequestedVersion = existing.RequestedVersion
-			entry.Kind = existing.Kind
+		if frozen, ok := p.heldPin(itemType, localName, requestedVersion); ok {
+			entry.SHA = frozen.SHA
+			entry.Version = frozen.Version
+			entry.RequestedVersion = frozen.RequestedVersion
+			entry.Kind = frozen.Kind
 		}
 	}
 

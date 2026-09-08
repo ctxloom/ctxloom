@@ -41,9 +41,17 @@ func writeDirProfile(t *testing.T, name, body string) string {
 // closes the gap where a directory profile's own fragments: were dropped.
 func TestDirProfile_FragmentRef_VersionPinned_MatchesInline(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {Content: "DEFAULT-BODY"}}}
+	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {
+		ItemBody: bundles.ItemBody{
+			Content: "DEFAULT-BODY",
+		},
+	}}}
 	versions := map[string]*bundles.Bundle{
-		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
+		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {
+			ItemBody: bundles.ItemBody{
+				Content: "V1-BODY",
+			},
+		}}},
 	}
 	fx := newTrustFixture(t)
 	fx.approveFragment("cq", "solid", "V1-BODY")
@@ -78,9 +86,17 @@ func TestDirProfile_FragmentRef_VersionPinned_MatchesInline(t *testing.T) {
 // version, identical to the inline equivalent.
 func TestDirProfile_BundleItem_VersionPinned_MatchesInline(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {Content: "DEFAULT-BODY"}}}
+	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {
+		ItemBody: bundles.ItemBody{
+			Content: "DEFAULT-BODY",
+		},
+	}}}
 	versions := map[string]*bundles.Bundle{
-		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
+		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {
+			ItemBody: bundles.ItemBody{
+				Content: "V1-BODY",
+			},
+		}}},
 	}
 	fx := newTrustFixture(t)
 	fx.approveFragment("cq", "solid", "V1-BODY")

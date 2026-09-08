@@ -37,7 +37,11 @@ func TestPendingReview_MaliciousItemNameCannotReachDisplay(t *testing.T) {
 	b := &bundles.Bundle{
 		Version: "1.0",
 		Fragments: map[string]bundles.BundleFragment{
-			evilName: {Content: "body"},
+			evilName: {
+				ItemBody: bundles.ItemBody{
+					Content: "body",
+				},
+			},
 		},
 	}
 	fx := newTrustFixture(t)

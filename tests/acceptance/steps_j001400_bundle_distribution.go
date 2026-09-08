@@ -220,7 +220,15 @@ func j001400AuthoredTree() map[string]j001400File {
 		// only be "this body appears VERBATIM inside that file". A one-line
 		// body would reduce that to a marker search, which a delivery path that
 		// reflowed, truncated or re-wrapped the fragment would still pass.
-		"fragments/house-style.md": f("---\ndescription: ATELIER-FRAGMENT-DESC\n---\n\nATELIER-FRAGMENT-4a91c2\n\nHouse style, first rule: name the thing.\nHouse style, second rule: say why, not what.\nHouse style, third rule: delete the third rule.\n"),
+		"fragments/house-style.md": f("ATELIER-FRAGMENT-4a91c2\n\nHouse style, first rule: name the thing.\nHouse style, second rule: say why, not what.\nHouse style, third rule: delete the third rule.\n"),
+
+		// fragment — carries a DESCRIPTION, which is a fragment's PREMISE: it
+		// states when the fragment applies, so the loader SELECTS it rather
+		// than always loading it. That is why the delivery row above uses a
+		// description-free fragment and this one only has its metadata probed:
+		// asserting both unconditional delivery AND a premise on one file
+		// asserts two things that cannot both be true.
+		"fragments/when-shipping.md": f("---\ndescription: ATELIER-FRAGMENT-DESC\n---\n\nATELIER-FRAGMENT-PREMISED\n\nWhen shipping, re-read the runbook before the deploy, not after.\n"),
 
 		// fragment — the one STUDIO selects, and the only carrier of the
 		// profile marker. It exists so a profile's delivery can be asserted by
@@ -228,7 +236,9 @@ func j001400AuthoredTree() map[string]j001400File {
 		// SELECTS what an assistant reads, so the only way to observe that a
 		// published profile arrived AND resolves AND is honored is to
 		// materialize it and look for content only IT selects.
-		"fragments/studio-brief.md": f("---\ndescription: ATELIER-STUDIO-BRIEF-DESC\n---\n\nATELIER-PROFILE-6b41fc\n\nThe studio brief: ship the smallest true thing.\n"),
+		// NO description: this fragment's DELIVERY is the assertion, and a
+		// description is a PREMISE that makes the loader select conditionally.
+		"fragments/studio-brief.md": f("ATELIER-PROFILE-6b41fc\n\nThe studio brief: ship the smallest true thing.\n"),
 
 		// command — the OTHER content kind, also .md/front-matter, but a
 		// user-invoked slash template rather than model-read context. Same
@@ -541,7 +551,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		// create a profile" rather than "the published tree never arrived".
 		// ensureProjectWithEngine may already have seeded this bundle; creating
 		// it again is a hard error, so create only when absent.
-		if !w.env.FileExists(bundleFilePath("seed")) {
+		if !w.env.FileExists(singleFileBundlePath("seed")) {
 			if err := runOK(w, "bundle", "create", "seed", "-d", "J001400 consumer seed bundle"); err != nil {
 				return err
 			}

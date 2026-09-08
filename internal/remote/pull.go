@@ -108,6 +108,10 @@ type Puller struct {
 	// TreeFetchFunc). Nil means this Puller can fetch only single-file bundles,
 	// which is what every Puller could do before the seam existed.
 	treeFetch TreeFetchFunc
+	// treeInstall materializes a pinned tree as a git worktree, wired in from
+	// above (see TreeInstallFunc). Nil means this Puller cannot materialize a
+	// bundle at all.
+	treeInstall TreeInstallFunc
 }
 
 // PullerOption is a functional option for configuring a Puller.
@@ -120,6 +124,15 @@ type PullerOption func(*Puller)
 func WithTreeFetcher(tf TreeFetchFunc) PullerOption {
 	return func(p *Puller) {
 		p.treeFetch = tf
+	}
+}
+
+// WithTreeInstaller supplies the pinned-tree materializer a directory-form
+// bundle needs (see TreeInstallFunc). Without it a Puller refuses to install a
+// tree rather than recording a pin nothing can read.
+func WithTreeInstaller(ti TreeInstallFunc) PullerOption {
+	return func(p *Puller) {
+		p.treeInstall = ti
 	}
 }
 

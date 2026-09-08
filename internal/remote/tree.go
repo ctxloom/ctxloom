@@ -89,3 +89,25 @@ func treeRepoPath(root, rel string) string {
 	}
 	return path.Join(root, rel)
 }
+
+// TreeInstallFunc materializes the pinned tree at subpath, at commit sha, into
+// worktreeDir, and returns the directory the bundle landed in.
+//
+// It is the WRITE half of the pinned-tree seam TreeFetchFunc reads through, and
+// it exists for the same layering reason: the implementation has to resolve
+// each file's DECLARED executability from the tree's own sidecars, which means
+// knowing the tree format, which lives in internal/content — a package that
+// imports this one. Wiring the implementation in at composition time is what
+// lets git own the checkout and the content layer own the format, with neither
+// package reaching into the other.
+//
+// It takes NO fetched tree, and that is the point rather than an omission.
+// Everything it needs — the bytes, and the sidecars declaring their modes — is
+// in the commit it checks out, so advancing a pin is a call to exactly this
+// function with a different sha. An installer that required a fetched tree
+// would force every pin move to be accompanied by a fetch, which is what made
+// "the pin moved but the tree did not" a reachable state.
+//
+// A Puller with no TreeInstallFunc cannot materialize a bundle at all and says
+// so, rather than recording a pin whose content nothing can read.
+type TreeInstallFunc func(ctx context.Context, repoURL, sha, subpath, worktreeDir string) (bundleDir string, err error)

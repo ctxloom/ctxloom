@@ -688,16 +688,55 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 	return filepath.Join(paths.CacheBundlesPath(baseDir), remoteName, file)
 }
 
-// LocalTreePath returns the local directory a DIRECTORY-form bundle installs
-// into: exactly LocalPath minus the ".yaml", so the two shapes of one bundle
-// occupy the same name in the cache and cannot both exist under it.
+// WorktreeDirSuffix marks a cache entry as the git WORKTREE for a pinned
+// bundle rather than the bundle directory itself.
 //
-// That collision is deliberate. A bundle that changes shape upstream must
-// REPLACE its predecessor, not sit beside it — two installs of the same
-// reference resolving to two different trees is precisely the ambiguity a
-// pinned reference exists to remove.
+// It is load-bearing, not decoration: a sparse checkout lays the bundle out at
+// its REPOSITORY path inside the worktree, so the worktree root and the bundle
+// directory nested in it would otherwise both be named for the bundle. Anything
+// searching the cache for a directory bearing the bundle's name would then find
+// the root first and read an empty one.
+const WorktreeDirSuffix = ".worktree"
+
+// LocalWorktreePath returns the git worktree a pinned DIRECTORY-form bundle is
+// checked out into.
+//
+// One worktree per pinned bundle, off the single clone of its repository, each
+// detached at its OWN commit. Per-bundle worktrees rather than one shared
+// checkout because two bundles published by one repository can be pinned at
+// different commits, and a single checkout cannot represent that.
+//
+// Git owns what is inside it. There is no second, hand-copied materialization
+// to keep in step with the pin, which is what made a moved pin and an
+// unmaterialized tree describable as separate states at all.
+func (r *Reference) LocalWorktreePath(baseDir string) string {
+	return strings.TrimSuffix(r.LocalPath(baseDir, ItemTypeBundle), ".yaml") + WorktreeDirSuffix
+}
+
+// TreeRepoPath is the repository-relative directory this bundle's tree occupies
+// — the path a sparse checkout is narrowed to, and the path the bundle
+// therefore lands at inside its worktree.
+//
+// It resolves through BundleTreeRoots, the same enumeration the fetch probe
+// walks, so the directory checked out and the directory read back are one
+// expression rather than two that must be kept to agree. BundleTreeRoots is
+// ordered newest-format-first and holds exactly one root while a single bundle
+// format is live; TestTreeRepoPath_SingleLayoutInvariant pins that, so a format
+// overlap that reintroduces a second root goes red here rather than silently
+// checking out one root and reading the other.
+func (r *Reference) TreeRepoPath() string {
+	return BundleTreeRoots(r.BuildFilePath(ItemTypeBundle))[0]
+}
+
+// LocalTreePath returns the bundle directory itself: the tree nested inside
+// LocalWorktreePath at the bundle's repository path.
+//
+// This is the directory a reader roots at, and its LAST SEGMENT is the bundle
+// id — content.validateBundleID requires a single segment, and a nested
+// reference path ("lang/go/testing") is absorbed by the parent rather than
+// smuggled into the id.
 func (r *Reference) LocalTreePath(baseDir string) string {
-	return strings.TrimSuffix(r.LocalPath(baseDir, ItemTypeBundle), ".yaml")
+	return filepath.Join(r.LocalWorktreePath(baseDir), filepath.FromSlash(r.TreeRepoPath()))
 }
 
 // LocalRemoteName returns a filesystem-safe name for the remote.

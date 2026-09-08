@@ -26,7 +26,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -2531,35 +2530,24 @@ func (c *Config) remoteBundleReaders() []bundles.Reader {
 	reader := remote.NewCachingBundleReader(remote.NewBundleReader(registry, factory, auth, lock))
 
 	ctx := context.Background()
-	rawBytes, failures := remote.LoadAllBytes(ctx, reader)
+	_, failures := remote.LoadAllBytes(ctx, reader)
 
 	// The trust root (embedded + user + project allowed_signers) is resolved once
 	// for the whole set and handed to every reader, so no two pinned bundles are
 	// judged against different roots.
 	root := c.TrustRoot()
 
-	out := make([]bundles.Reader, 0, len(rawBytes))
-	for _, canonical := range collections.SortedKeys(rawBytes) {
-		entry, ok := lock.Bundles[canonical]
-		// A DIRECTORY-form entry belongs to treeBundleReaders below and to
-		// nothing here, even if the byte source served its manifest: presenting
-		// a tree's bundle.yaml as a lone document would drop every skill in it
-		// (a skill needs a real directory) and check a signature over the
-		// manifest alone rather than over the tree. Skipping it is what keeps
-		// exactly one reader per canonical ref.
-		if !ok {
-			continue
-		}
-		tree, terr := documentTree(canonical, rawBytes[canonical], signatureFor(ctx, reader, canonical))
-		if terr != nil {
-			failures[canonical] = terr
-			continue
-		}
-		out = append(out, bundles.NewRepoFSReader(tree, canonical,
-			bundles.WithTrustRoot(root),
-			bundles.WithPinnedRevision(entry.SHA)))
-	}
-	out = append(out, c.treeBundleReaders(lock, root, failures)...)
+	// EVERY remote bundle is a TREE, so treeBundleReaders is the whole set.
+	//
+	// There used to be a document-reader loop here, skipped for tree entries.
+	// With the document form removed it would match everything, and presenting
+	// a tree's bundle.yaml as a lone document drops the items beside it — the
+	// fragments, skills and prompts that live as FILES in the tree — while
+	// checking a signature over the manifest alone rather than over the tree.
+	// That is not hypothetical: leaving the loop unguarded is exactly what made
+	// a published fragment stop reaching the consumer's assistant while every
+	// other surface kind still arrived.
+	out := c.treeBundleReaders(lock, root, failures)
 	reportBundleLoadFailures(failures)
 	return out
 }

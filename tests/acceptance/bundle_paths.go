@@ -79,10 +79,16 @@ func treeBundlesRoot() string {
 	return paths.RepoBundlesPrefixFor(treeBundleLayout)
 }
 
-// bundleFilePath is the repo-relative path of a SINGLE-FILE authored bundle —
-// where Trent's own project keeps it, in the committed local content tree.
+// bundleFilePath is the repo-relative path a fixture WRITES a bundle's envelope
+// to — which is now the tree's manifest, because the single-file form is gone.
+//
+// The name is kept while the ~40 call sites that use it still read as "the
+// bundle file": what changed is where a bundle's envelope LIVES, not what these
+// fixtures are saying. A fixture that also authors ITEMS must write them as
+// files beside this manifest; inline item keys under a tree root are not v2 and
+// treeFormEnvelope will not read them as one.
 func bundleFilePath(name string) string {
-	return path.Join(singleFileBundlesRoot(), name+".yaml")
+	return treeBundleManifestPath(name)
 }
 
 // remoteSingleFilePublishPath is where a real `ctxloom bundle push` lands a

@@ -155,11 +155,6 @@ func (r *reader) addFragment(v content.Fragment) {
 	}
 	r.out.Fragments[v.Name] = BundleFragment{
 		ItemBody: itemBody(v.ItemMeta),
-		// A fragment's premise is authored as the item's `description`
-		// front-matter key (see ItemMeta.Description). Dropping it here does
-		// not fail loudly — an empty premise means ALWAYS LOADED — so the
-		// author's "only when X" silently becomes "every time".
-		Premise: v.Description,
 	}
 }
 

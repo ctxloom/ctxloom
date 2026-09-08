@@ -552,13 +552,18 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// object store would mean re-deriving a filesystem on every read. The
 	// install root is the CACHE (gitignored, regenerable): the pin in the
 	// lockfile stays the authority, and this tree is derived from it.
-	if item.tree != nil {
-		dir, werr := p.installTree(ref, opts, item)
-		if werr != nil {
-			return nil, werr
-		}
-		localPath = dir
+	// A DOCUMENT CANNOT BE PULLED. Only a tree materializes, and every read
+	// path resolves what installTree writes — so accepting a single-file item
+	// here records a pin whose content nothing can ever read, and reports
+	// success doing it. Refuse where the shape is still visible.
+	if item.tree == nil {
+		return nil, fmt.Errorf("refusing to install %q: it is a single-file bundle, and bundles are distributed as trees — nothing materializes a document, so its pin would resolve to content no reader can reach; the publisher must republish it in tree form", item.localName)
 	}
+	dir, werr := p.installTree(ref, opts, item)
+	if werr != nil {
+		return nil, werr
+	}
+	localPath = dir
 
 	// Update lockfile with provenance (local name as key). For bundles, the
 	// lockfile is the *only* on-disk record — read sites resolve content via

@@ -855,6 +855,14 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	// remote.RepoItemPath. Letting the source's shape pick the target path is
 	// how publish and fetch came to disagree.
 	treeForm := filepath.Base(absPath) == bundles.DirectoryFormManifest
+	// A DOCUMENT CANNOT BE PUBLISHED. The tree form is the only format, so a
+	// single-file bundle has no readable destination: pull materializes nothing
+	// for it, and every read path resolves a tree. Publishing one used to
+	// SUCCEED and leave bytes nobody could ever read — exit 0 over a payload
+	// that is permanently unreachable, which is worse than any refusal.
+	if !treeForm {
+		return nil, fmt.Errorf("cannot publish %q: it is a single-file bundle, and bundles are distributed as trees — a document has no readable form on the consumer side; convert it to a directory with a %s before publishing", bundleName, bundles.DirectoryFormManifest)
+	}
 	targetPath := remote.PublishPath(remote.ItemTypeBundle, bundleName)
 
 	// Resolve title/body the same way publish.go does, so the result accurately

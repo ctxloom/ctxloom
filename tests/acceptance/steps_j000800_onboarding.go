@@ -100,6 +100,26 @@ func j000800LockedSHA(raw string) (string, error) {
 	return "", fmt.Errorf("lockfile has no entry for the upstream bundle %q:\n%s", j000800UpstreamBundle, raw)
 }
 
+// j000800GuidanceEnvelope is the tree envelope every signed j000800 remote
+// bundle carries — no inline item keys (internal/bundles/tree_read.go's
+// readEnvelope refuses one that still declares items inline), the single
+// "guidance" fragment living in its own file instead (j000800GuidanceTreeItems).
+const j000800GuidanceEnvelope = "version: \"1.0.0\"\n"
+
+// j000800GuidanceTreeItems is j000700FragmentBundleYAML's tree-shaped
+// replacement for j000800's signed-remote fixtures: a single fragment named
+// "guidance" (matching j000700FragmentBundleYAML's own single-fragment shape),
+// as a tree item file rather than an inline manifest key. `deps pull` refuses
+// a single-file bundle outright now (nothing materializes a document —
+// remote.Puller.installPulledItem), so these fixtures publish trees, signed
+// through SeedSignedTreeRemote (the product's own attest.SignBundle, not a
+// hand-rolled manifest).
+func j000800GuidanceTreeItems(content string) map[string]string {
+	return map[string]string{
+		"fragments/guidance.md": fmt.Sprintf("---\ndescription: J000800 guidance\n---\n\n%s\n", content),
+	}
+}
+
 // j000800 returns (lazily allocating) this scenario's J000800 fixture state.
 func (w *World) j000800() *j000800State {
 	if w.j000800s == nil {
@@ -234,8 +254,8 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("generate upstream signer: %w", err)
 		}
 		j000800.upstreamSigner = signer
-		rel := remoteSingleFilePublishPath(j000800UpstreamBundle)
-		url, err := w.env.SeedSignedRemote(map[string]string{rel: j000700FragmentBundleYAML(j000800PinnedMarker)}, []string{rel}, signer)
+		root := remoteSingleFilePublishPath(j000800UpstreamBundle)
+		url, err := w.env.SeedSignedTreeRemote(root, j000800UpstreamBundle, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800PinnedMarker), signer)
 		if err != nil {
 			return fmt.Errorf("seed signed upstream remote: %w", err)
 		}
@@ -283,8 +303,8 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^an upstream has since published a newer version$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j000800 := w.j000800()
-		rel := remoteSingleFilePublishPath(j000800UpstreamBundle)
-		return w.env.AdvanceSignedRemote(j000800.upstreamBare, map[string]string{rel: j000700FragmentBundleYAML(j000800NewerMarker)}, []string{rel}, j000800.upstreamSigner)
+		root := remoteSingleFilePublishPath(j000800UpstreamBundle)
+		return w.env.AdvanceSignedTreeRemote(j000800.upstreamBare, root, j000800UpstreamBundle, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800NewerMarker), j000800.upstreamSigner)
 	})
 
 	// THE PULL IS FORCED, and that is the entire point of this step existing
@@ -342,8 +362,8 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("generate company signer: %w", err)
 		}
 		j000800.companySigner = signer
-		rel := remoteSingleFilePublishPath(j000800CompanyBundle)
-		url, err := w.env.SeedSignedRemote(map[string]string{rel: j000700FragmentBundleYAML(j000800CompanyMarker)}, []string{rel}, signer)
+		root := remoteSingleFilePublishPath(j000800CompanyBundle)
+		url, err := w.env.SeedSignedTreeRemote(root, j000800CompanyBundle, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800CompanyMarker), signer)
 		if err != nil {
 			return fmt.Errorf("seed signed company remote: %w", err)
 		}

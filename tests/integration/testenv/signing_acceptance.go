@@ -3,15 +3,21 @@
 package testenv
 
 import (
+	"context"
 	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 
+	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
@@ -118,6 +124,108 @@ func (e *TestEnvironment) AdvanceSignedRemote(bareDir string, files map[string]s
 		seeded[path+".sig"] = string(sig)
 	}
 	return e.AdvanceRemote(bareDir, seeded)
+}
+
+// SeedSignedTreeRemote signs a directory-form bundle as the given signer would
+// and publishes the resulting TREE — envelope, item files, and the
+// SHA256SUMS/.sigs attestation attest.SignBundle produces — into a seeded git
+// remote. root is the remote-relative directory the tree lands in (e.g.
+// remoteSingleFilePublishPath(name) in the acceptance package); envelope is
+// the bundle.yaml body (no inline item keys — see
+// internal/bundles/tree_read.go's readEnvelope); items maps each item's path
+// relative to the tree root (e.g. "fragments/marker.md") to its content.
+//
+// It goes through the PRODUCT's own signing path — content.NewTreeStore plus
+// attest.SignBundle, on a real temp directory — rather than hand-building a
+// manifest and a .sigs/ entry: steps_j001400_bundle_distribution.go's
+// j001400SignTree took the same approach for the identical reason (a
+// hand-rolled manifest is a second implementation of the signed-tree format,
+// and the first thing it stops catching is the format drifting out from
+// under it).
+func (e *TestEnvironment) SeedSignedTreeRemote(root, bundleID, envelope string, items map[string]string, signer *TestSigner) (string, error) {
+	files, err := signTreeFiles(e.Root, root, bundleID, envelope, items, signer)
+	if err != nil {
+		return "", err
+	}
+	return e.SeedRemote(files)
+}
+
+// AdvanceSignedTreeRemote is SeedSignedTreeRemote's AdvanceRemote counterpart:
+// a fresh signature over a REVISED tree, pushed as a second commit. Every
+// file the tree ever held has to be named in items each round — unlike a
+// single document, a tree write does not implicitly retire a file simply by
+// omitting it; leaving one out publishes exactly that: an item this round's
+// signed manifest does not cover.
+func (e *TestEnvironment) AdvanceSignedTreeRemote(bareDir, root, bundleID, envelope string, items map[string]string, signer *TestSigner) error {
+	files, err := signTreeFiles(e.Root, root, bundleID, envelope, items, signer)
+	if err != nil {
+		return err
+	}
+	return e.AdvanceRemote(bareDir, files)
+}
+
+// signTreeFiles is SeedSignedTreeRemote/AdvanceSignedTreeRemote's shared
+// build step: write the tree to a real temp directory, sign it with the
+// product's own attest.SignBundle, and read every resulting file back into a
+// remote-relative files map.
+func signTreeFiles(workRoot, root, bundleID, envelope string, items map[string]string, signer *TestSigner) (map[string]string, error) {
+	work, err := os.MkdirTemp(workRoot, "sign-tree-*")
+	if err != nil {
+		return nil, err
+	}
+	bundleDir := filepath.Join(work, bundleID)
+	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(bundleDir, "bundle.yaml"), []byte(envelope), 0o644); err != nil {
+		return nil, fmt.Errorf("write bundle.yaml: %w", err)
+	}
+	for rel, body := range items {
+		full := filepath.Join(bundleDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return nil, fmt.Errorf("mkdir for %s: %w", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			return nil, fmt.Errorf("write %s: %w", rel, err)
+		}
+	}
+
+	ctx := context.Background()
+	store, err := content.NewTreeStore(afero.NewOsFs(), work, content.Provenance{IsLocal: true})
+	if err != nil {
+		return nil, fmt.Errorf("open the tree at %s: %w", work, err)
+	}
+	bundle, err := store.Open(ctx, content.BundleID(bundleID))
+	if err != nil {
+		return nil, fmt.Errorf("open bundle %q for signing: %w", bundleID, err)
+	}
+	if err := attest.SignBundle(ctx, store, bundle, signer.Signer); err != nil {
+		return nil, fmt.Errorf("sign bundle %q: %w", bundleID, err)
+	}
+
+	files := map[string]string{}
+	walkErr := filepath.WalkDir(bundleDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, rerr := filepath.Rel(bundleDir, p)
+		if rerr != nil {
+			return rerr
+		}
+		data, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return rerr
+		}
+		files[root+"/"+filepath.ToSlash(rel)] = string(data)
+		return nil
+	})
+	if walkErr != nil {
+		return nil, fmt.Errorf("collect signed tree %s: %w", bundleDir, walkErr)
+	}
+	return files, nil
 }
 
 // TrustSigner writes an allowed_signers entry trusting signer's public key for

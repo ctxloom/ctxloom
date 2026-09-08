@@ -31,13 +31,13 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^her company's repository ships an "agent-setup" command with the company's onboarding steps$`, func(c context.Context) error {
 		w := worldFrom(c)
-		_, err := seedSource(w, "company", "commands", "agent-setup", j000300CompanyOnboarding, commandSourceYAML(j000300CompanyOnboarding), true, false)
+		_, err := seedSource(w, "company", "commands", "agent-setup", j000300CompanyOnboarding, j000300CompanyOnboarding, true, false)
 		return err
 	})
 
 	ctx.Step(`^her personal repository ships an "agent-setup" command with her own setup preferences$`, func(c context.Context) error {
 		w := worldFrom(c)
-		_, err := seedSource(w, "personal", "commands", "agent-setup", j000300PersonalPreference, commandSourceYAML(j000300PersonalPreference), true, false)
+		_, err := seedSource(w, "personal", "commands", "agent-setup", j000300PersonalPreference, j000300PersonalPreference, true, false)
 		return err
 	})
 
@@ -185,7 +185,7 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv); err != nil {
 			return err
 		}
-		command := commandSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j000300CompanyCodeword))
+		command := fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j000300CompanyCodeword)
 		_, err := seedSource(w, "company", "commands", "agent-setup", j000300CompanyCodeword, command, true, true)
 		return err
 	})

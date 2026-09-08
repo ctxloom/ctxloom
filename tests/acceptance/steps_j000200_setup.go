@@ -38,13 +38,13 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		// halves (seedSource signs; TrustSigner trusts), exactly as the Then
 		// step's "because it is signed with her own key" requires for the
 		// content to actually reach the assembled context.
-		_, err := seedSource(w, "personal", "fragments", "marker", j000200PersonalMarker, fragmentSourceYAML(j000200PersonalMarker), true, true)
+		_, err := seedSource(w, "personal", "fragments", "marker", j000200PersonalMarker, j000200PersonalMarker, true, true)
 		return err
 	})
 
 	ctx.Step(`^her company's ctxloom repository is signed with the company key, which Alice trusts$`, func(c context.Context) error {
 		w := worldFrom(c)
-		_, err := seedSource(w, "company", "fragments", "marker", j000200CompanyMarker, fragmentSourceYAML(j000200CompanyMarker), true, true)
+		_, err := seedSource(w, "company", "fragments", "marker", j000200CompanyMarker, j000200CompanyMarker, true, true)
 		return err
 	})
 
@@ -179,10 +179,10 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv); err != nil {
 			return err
 		}
-		if _, err := seedSource(w, "personal", "fragments", "marker", j000200LivePersonalMark, fragmentSourceYAML(j000200LivePersonalMark), true, true); err != nil {
+		if _, err := seedSource(w, "personal", "fragments", "marker", j000200LivePersonalMark, j000200LivePersonalMark, true, true); err != nil {
 			return err
 		}
-		_, err := seedSource(w, "company", "fragments", "marker", j000200LiveCompanyMark, fragmentSourceYAML(j000200LiveCompanyMark), true, true)
+		_, err := seedSource(w, "company", "fragments", "marker", j000200LiveCompanyMark, j000200LiveCompanyMark, true, true)
 		return err
 	})
 
@@ -255,10 +255,10 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		}
 		switch trustState {
 		case "unsigned":
-			_, err := seedSource(w, "thirdparty", "fragments", "marker", j000200ThirdPartyMarker, fragmentSourceYAML(j000200ThirdPartyMarker), false, false)
+			_, err := seedSource(w, "thirdparty", "fragments", "marker", j000200ThirdPartyMarker, j000200ThirdPartyMarker, false, false)
 			return err
 		case "signed with a key Alice does not trust":
-			_, err := seedSource(w, "thirdparty", "fragments", "marker", j000200ThirdPartyMarker, fragmentSourceYAML(j000200ThirdPartyMarker), true, false)
+			_, err := seedSource(w, "thirdparty", "fragments", "marker", j000200ThirdPartyMarker, j000200ThirdPartyMarker, true, false)
 			return err
 		default:
 			return fmt.Errorf("unknown trust_state %q", trustState)
@@ -308,13 +308,13 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
 			return err
 		}
-		if _, err := seedSource(w, "first", "fragments", "marker", j000200HeldFirstMarker, fragmentSourceYAML(j000200HeldFirstMarker), false, false); err != nil {
+		if _, err := seedSource(w, "first", "fragments", "marker", j000200HeldFirstMarker, j000200HeldFirstMarker, false, false); err != nil {
 			return err
 		}
 		if err := addSourceAsRemote(w, "first", "default"); err != nil {
 			return err
 		}
-		if _, err := seedSource(w, "second", "fragments", "marker", j000200HeldSecondMarker, fragmentSourceYAML(j000200HeldSecondMarker), false, false); err != nil {
+		if _, err := seedSource(w, "second", "fragments", "marker", j000200HeldSecondMarker, j000200HeldSecondMarker, false, false); err != nil {
 			return err
 		}
 		return addSourceAsRemote(w, "second", "default")

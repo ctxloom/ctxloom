@@ -18,6 +18,7 @@ package acceptance
 import (
 	"fmt"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"os"
 	"path/filepath"
@@ -79,28 +80,64 @@ func commandSourceYAML(marker string) string {
 	return fmt.Sprintf("version: \"1.0.0\"\ncommands:\n  agent-setup:\n    content: %q\n", marker)
 }
 
-// seedSource seeds a remote for a named J000200 source carrying bundleYAML, whose
-// single item is (kind, item) with the given marker content, optionally
-// signed and/or trusted. Records the source in World for later "adds ... as a
-// source" wiring and assertions.
-func seedSource(w *World, name, kind, item, marker, bundleYAML string, sign, trustAsProject bool) (*j000200Source, error) {
+// j000200ItemTreePath is the path, relative to a tree bundle's own root, one
+// (kind, item) source's file lands at — "fragments/" for a fragment,
+// "prompts/" for a command (trust.KindPrompt; a residue of the
+// skill->command rename — see steps_fixture.go's fixtureDemoTreeFiles for
+// the same split spelled out).
+func j000200ItemTreePath(kind, item string) (string, error) {
+	switch kind {
+	case "fragments":
+		return "fragments/" + item + ".md", nil
+	case "commands":
+		return "prompts/" + item + ".md", nil
+	default:
+		return "", fmt.Errorf("j000200ItemTreePath: unknown item kind %q", kind)
+	}
+}
+
+// seedSource seeds a remote for a named J000200 source: a TRUE TREE (envelope
+// with no inline item keys, one item file) whose single item is (kind, item),
+// optionally signed and/or trusted. Records the source in World for later
+// "adds ... as a source" wiring and assertions.
+//
+// marker and content are separate because they usually are but not always the
+// same string: most callers search for exactly what they wrote (marker ==
+// content), but j000300's codeword scenario writes a whole instruction
+// SENTENCE containing the codeword as content while marker stays the bare
+// codeword an assertion later searches for.
+//
+// It publishes a tree because `deps pull` refuses a single-file bundle
+// outright now (nothing materializes a document —
+// remote.Puller.installPulledItem) — see bundle_paths.go's identical
+// reasoning for the acceptance-tagged fixtures this untagged file's callers
+// sit beside.
+func seedSource(w *World, name, kind, item, marker, content string, sign, trustAsProject bool) (*j000200Source, error) {
 	src := w.source(name)
 	src.marker = marker
 	src.itemKind = kind
 	src.itemName = item
-	rel := remoteSingleFilePublishPath(src.bundleName)
-	files := map[string]string{rel: bundleYAML}
+	root := remoteSingleFilePublishPath(src.bundleName)
+	envelope := "version: \"1.0.0\"\n"
+	itemPath, err := j000200ItemTreePath(kind, item)
+	if err != nil {
+		return nil, err
+	}
+	itemBody := fmt.Sprintf("---\ndescription: J000200 %s\n---\n\n%s\n", item, content)
 
 	var url string
-	var err error
 	if sign {
 		signer, serr := testenv.GenerateTestSigner()
 		if serr != nil {
 			return nil, fmt.Errorf("generate signer for %q: %w", name, serr)
 		}
 		src.signer = signer
-		url, err = w.env.SeedSignedRemote(files, []string{rel}, signer)
+		url, err = w.env.SeedSignedTreeRemote(root, src.bundleName, envelope, map[string]string{itemPath: itemBody}, signer)
 	} else {
+		files := map[string]string{
+			root + "/" + bundles.DirectoryFormManifest: envelope,
+			root + "/" + itemPath:                      itemBody,
+		}
 		url, err = w.env.SeedRemote(files)
 	}
 	if err != nil {

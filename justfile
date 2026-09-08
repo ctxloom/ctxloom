@@ -672,15 +672,10 @@ test-integration-run PATTERN: build _ensure-gotmpdir
 # infer anything from a run taken under load.
 test-acceptance: build _ensure-gotmpdir
     #!/usr/bin/env bash
-    # No `set -e`: the exit code is captured so a red run can skip the sweep and
-    # still propagate its own status.
+    # No `set -e`: the exit code is captured and propagated deliberately.
     set -uo pipefail
-    marker="{{go_tmp}}/.cache-sweep.$$"
-    : > "$marker"
     GOTMPDIR="{{go_tmp}}" go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
-    status=$?
-    if [ "$status" -eq 0 ]; then just _sweep-cache "$marker"; else rm -f "$marker"; fi
-    exit "$status"
+    exit $?
 
 # Run a NARROW slice of the acceptance suite: one or more feature files, and
 # optionally a tag expression. This is the iteration loop; `just test-acceptance`
@@ -1361,16 +1356,9 @@ test-mutation-pkg PKG *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{mutation_tmp}}"
-    trap 'rm -rf "{{mutation_tmp}}"/gremlins-* "{{mutation_tmp}}"/.cache-sweep.*' EXIT
-    marker="{{mutation_tmp}}/.cache-sweep.$$"
-    : > "$marker"
+    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
     pkg="$1"; shift
     TMPDIR="{{mutation_tmp}}" gremlins unleash "./$pkg" "$@"
-    # NO SWEEP HERE. The build cache is SHARED across every worktree, and a
-    # mutation campaign is long: sweeping when this one finishes deletes objects
-    # a run in another tree may be linking against right now. Only the full
-    # acceptance run sweeps.
-    rm -f "$marker"
 
 # Install gremlins
 test-mutation-install:
@@ -1447,9 +1435,7 @@ test-mutation-cucumber *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{mutation_tmp}}"
-    marker="{{mutation_tmp}}/.cache-sweep.$$"
-    : > "$marker"
-    trap 'rm -f "$marker" "{{mutation_tmp}}/.run.$$.log"' EXIT
+    trap 'rm -f "{{mutation_tmp}}/.run.$$.log"' EXIT
     set +e
     # -v is LOAD-BEARING, not a debugging convenience. ooze prints its per-mutant
     # diffs and its summary box to STDOUT, and `go test` swallows a PASSING test's
@@ -1506,9 +1492,6 @@ test-mutation-cucumber *ARGS:
         exit "$ratchet"
     fi
     # Past both guards, so a real score was produced and it did not regress.
-    # The per-mutant recompiles are NOT swept here: the cache is shared across
-    # worktrees, and deleting mid-campaign is what fails another tree's link.
-    rm -f "$marker"
 
 # Run ONE entry from the mutation target table (see `just test-mutation-entries`).
 # Per-entry is the recommended way to run this: the full table is ~111 minutes,
@@ -1597,65 +1580,12 @@ cache-report LIMIT_GB="40":
     echo "GOMODCACHE  $gmc: $(size_gb "$gmc") GB (never trimmed here)"
     echo "disk:       $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
     if [ ! -d "$gbc" ] || [ "${limit%%.*}" = "0" ]; then exit 0; fi
-    # 5d, 3d, 2d, 1d, 12h, 6h, 2h — stop as soon as we are under the limit.
-    for mins in 7200 4320 2880 1440 720 360 120; do
-        over=$(awk -v a="$(size_gb "$gbc")" -v b="$limit" 'BEGIN{print (a>b)?1:0}')
-        [ "$over" = "1" ] || break
-        echo "  over limit — evicting entries unused for >${mins} min"
-        find "$gbc" -type f \( -name '*-a' -o -name '*-d' \) -mmin +"$mins" -delete 2>/dev/null
-    done
-    echo "after:      $(size_gb "$gbc") GB"
-
-# Evict the build-cache entries a GREEN gate just created, given a MARKER file
-# stamped immediately before the run.
-#
-# ONLY the acceptance and mutation gates call this. They are what produce the
-# tens of GB: acceptance compiles the whole tree under `-tags "acceptance
-# integration"`, and the mutation lanes recompile it once per mutant. The fast
-# unit lanes (test-default, test-pkg) deliberately keep their cache warm —
-# sweeping those would just make iteration slower for no meaningful disk win.
-#
-# ONLY ON SUCCESS. A red run leaves every entry in place so the next attempt
-# recompiles nothing and the failure can be re-run immediately; the disk cost
-# of a failing gate is bounded by how long it stays failing.
-#
-# Attribution is by mtime window, the same age mechanism cache-report and Go's
-# own trim use, because a cache entry carries no record of which run produced
-# it. GOCACHE is shared (host, gopls, every worktree, every `just _run`
-# container), so this can also evict entries a CONCURRENT run in another tree
-# created.
-#
-# THAT IS NOT MERELY A CACHE MISS, and an earlier version of this comment said
-# it was — "a missing entry is never a wrong build". It reasons about a miss at
-# LOOKUP time. A delete that lands mid-LINK, after the linker has already
-# resolved the entry, is a FAILED build in a tree that did nothing wrong:
-#
-#     link: cannot reopen <gocache>/b8/b8421...-d(_x002.o): no such file
-#
-# Which is why only the FULL acceptance run sweeps now. The mutation targets
-# used to sweep when their campaign ended; a campaign is long, and finishing one
-# says nothing about what another worktree is linking at that moment. Narrowing
-# the callers does not make a shared-cache delete safe — it makes it rare. The
-# real fix is still open (see taskloom hefty-magnitude).
-#
-# This only COMPENSATES for the duplication. -trimpath on the test path is the
-# real fix and is already decided; it is blocked on 44 runtime.Caller(0) sites
-# across 25 test files that derive a path from their own source location, which
-# a trimmed path rewrites to a module path that does not exist on disk. Four
-# tests and `just cover` fail immediately without that prerequisite. Do not read
-# this sweep as closing that out — see taskloom obtuse-equinox.
-_sweep-cache MARKER:
-    #!/usr/bin/env bash
-    set -uo pipefail
-    gbc="$(go env GOCACHE 2>/dev/null || echo "$HOME/.cache/go-build")"
-    { [ -d "$gbc" ] && [ -f "{{MARKER}}" ]; } || exit 0
-    size_kb() { du -sk "$1" 2>/dev/null | awk '{print $1}'; }
-    before="$(size_kb "$gbc")"
-    find "$gbc" -type f \( -name '*-a' -o -name '*-d' \) -newer "{{MARKER}}" -delete 2>/dev/null
-    after="$(size_kb "$gbc")"
-    rm -f "{{MARKER}}"
-    awk -v b="${before:-0}" -v a="${after:-0}" \
-        'BEGIN{printf "swept %.1f GB of gate build cache (run was green)\n", (b-a)/1048576}'
+    over=$(awk -v a="$(size_gb "$gbc")" -v b="$limit" 'BEGIN{print (a>b)?1:0}')
+    if [ "$over" = "1" ]; then
+        echo "  OVER the ${limit} GB limit. Nothing is evicted here any more —"
+        echo "  Go's own build cache trim bounds this. To reclaim now, run"
+        echo "  \`go clean -cache\` when no build is in flight in ANY worktree."
+    fi
 
 # Prune ephemeral docker images this repo's tooling produces — per-agent-run
 # images (ctxloom-agent:<hash>), integration-test images (ctxloom-*-itest,

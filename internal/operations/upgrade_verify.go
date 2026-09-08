@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -85,10 +86,21 @@ func verifyAdvance(ctx context.Context, cfg *config.Config, factory remote.Fetch
 	rdr := advanceReader(factory, auth, p.Identity, ref.URL, p.Hash)
 	sig, err := rdr.ReadBundleSignature(ctx, p.Identity)
 	if err != nil {
-		if errors.Is(err, errs.ErrRemoteContentNotFound) {
-			// No .sig at the proposed commit: unsigned content, which is legal
-			// and ordinary. Let the advance through — the trust gate decides
-			// exposure, and `ctxloom review` can act on it.
+		// ABSENT IS NOT BROKEN, and it arrives spelled TWO ways.
+		//
+		// errs.ErrRemoteContentNotFound is the transport's "no such blob".
+		// content.ErrNotFound is what the TREE probe returns when the bundle's
+		// directory is wholly absent at this sha — a different layer's sentinel
+		// for the same fact, by deliberate layering in remotetree.
+		//
+		// Matching only the first is what made this refuse every advance whose
+		// bundle simply had no tree at the proposed commit: the "unsigned is
+		// legal" branch could never be reached, so ordinary unsigned content
+		// was reported as a signature that could not be read.
+		if errors.Is(err, errs.ErrRemoteContentNotFound) || errors.Is(err, content.ErrNotFound) {
+			// No signature at the proposed commit: unsigned content, which is
+			// legal and ordinary. Let the advance through — the trust gate
+			// decides exposure, and `ctxloom review` can act on it.
 			return "", false
 		}
 		return fmt.Sprintf("its signature could not be read at %s: %v", p.Hash, err), true

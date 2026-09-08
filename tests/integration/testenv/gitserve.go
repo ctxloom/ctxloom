@@ -23,8 +23,8 @@ type GitRepo struct {
 
 // SeedGitRepo creates a bare git repo whose default branch (main) contains the
 // given files (path -> content), and returns it. Paths are repo-relative and may
-// contain slashes (e.g. ".ctxloom/content/bundles/v1/x.yaml"). The repo is created under
-// t.TempDir(), so it is cleaned up automatically.
+// contain slashes; SingleFileBundlePath composes one for an authored bundle.
+// The repo is created under t.TempDir(), so it is cleaned up automatically.
 //
 // This is the *testing.T-fatal wrapper around SeedRemote (gitserve_acceptance.go)
 // — the same init-bare/init-work/config/write/add/commit/push/symbolic-ref
@@ -75,12 +75,12 @@ func (r *GitRepo) CommitFile(t *testing.T, relPath, content string) string {
 	return r.SHA
 }
 
-// CtxloomV1Layout returns a minimal ctxloom repo layout (a single bundle)
+// CtxloomContentLayout returns a minimal ctxloom repo layout (a single bundle)
 // suitable for seeding a GitRepo. The bundle ships an mcp server and a hook so
 // resolution/apply can be asserted. (Top-level profile distribution was retired.)
-func CtxloomV1Layout() map[string]string {
+func CtxloomContentLayout() map[string]string {
 	return map[string]string{
-		".ctxloom/content/bundles/v1/demo.yaml": strings.TrimSpace(`
+		SingleFileBundlePath("demo"): strings.TrimSpace(`
 version: 1.0.0
 author: test
 description: Demo bundle with an MCP server and a hook

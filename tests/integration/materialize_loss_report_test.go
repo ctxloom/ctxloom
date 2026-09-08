@@ -57,7 +57,7 @@ func setupLossFixture(t *testing.T) *testenv.TestEnvironment {
 	t.Helper()
 	e := setupTestEnv(t)
 	require.NoError(t, e.WriteFile(".ctxloom/config.yaml", lossFixtureConfig))
-	require.NoError(t, e.WriteFile(".ctxloom/content/bundles/v1/teamrules.yaml", lossFixtureBundle))
+	require.NoError(t, e.WriteFile(testenv.SingleFileBundlePath("teamrules"), lossFixtureBundle))
 	writeProfile(t, e, "team", lossFixtureProfile)
 	return e
 }

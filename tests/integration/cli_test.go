@@ -41,13 +41,20 @@ func setupTestEnv(t *testing.T) *testenv.TestEnvironment {
 	return env
 }
 
-// writeFragment writes a fragment to the local.yaml bundle file.
-// This appends to the bundle, creating it if it doesn't exist.
+// localBundleName is the bundle writeFragment authors into. It is named
+// because a second file signs that same bundle (local_signature_trust_test.go)
+// and the two must address one bundle, not two spellings of one.
+const localBundleName = "local"
+
+// writeFragment appends a fragment to the project's single-file authored
+// bundle, creating it if it doesn't exist. The single-file document is one of
+// the three shapes the local reader still accepts, and is what `ctxloom bundle
+// create` writes.
 func writeFragment(t *testing.T, env *testenv.TestEnvironment, name string, tags []string, content string) {
 	t.Helper()
 
 	// Read existing bundle if present
-	bundlePath := ".ctxloom/content/bundles/v1/local.yaml"
+	bundlePath := testenv.SingleFileBundlePath(localBundleName)
 	existing, _ := env.ReadFile(bundlePath)
 
 	// Build new bundle content
@@ -390,7 +397,7 @@ fragments:
     content: |
       Go coding guidelines from subdirectory.
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/lang.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("lang"), bundleContent))
 
 	_ = env.Run("run", "-f", "lang#fragments/golang", "--one-shot", "test")
 
@@ -654,7 +661,7 @@ fragments:
     content: |
       Test content
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/test-bundle.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("test-bundle"), bundleContent))
 
 	_ = env.Run("bundle", "list")
 
@@ -678,7 +685,7 @@ fragments:
     content: |
       Content 2
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/show-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("show-test"), bundleContent))
 
 	_ = env.Run("bundle", "show", "show-test")
 
@@ -704,7 +711,7 @@ func TestBundle_Create(t *testing.T) {
 	assert.Equal(t, 0, env.LastExitCode())
 
 	// Verify bundle file was created
-	content, err := env.ReadFile(".ctxloom/content/bundles/v1/my-bundle.yaml")
+	content, err := env.ReadFile(testenv.SingleFileBundlePath("my-bundle"))
 	require.NoError(t, err)
 	assert.Contains(t, content, "version:")
 	assert.Contains(t, content, "fragments:")
@@ -717,7 +724,7 @@ func TestBundle_Create_WithDescription(t *testing.T) {
 
 	assert.Equal(t, 0, env.LastExitCode())
 
-	content, err := env.ReadFile(".ctxloom/content/bundles/v1/desc-bundle.yaml")
+	content, err := env.ReadFile(testenv.SingleFileBundlePath("desc-bundle"))
 	require.NoError(t, err)
 	assert.Contains(t, content, "description: A test bundle")
 }
@@ -734,7 +741,7 @@ commands:
     content: |
       Prompt content 2
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/prompt-bundle.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("prompt-bundle"), bundleContent))
 
 	// `bundle show` renders the bundle's Prompts section; the former
 	// `bundle prompt list` subtree was removed (see cmd/bundle.go).
@@ -755,7 +762,7 @@ fragments:
     content: |
       This is the content to display
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/view-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("view-test"), bundleContent))
 
 	_ = env.Run("bundle", "view", "view-test#fragments/display-frag")
 
@@ -774,7 +781,7 @@ fragments:
     content: |
       Export content
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/export-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("export-test"), bundleContent))
 
 	_ = env.Run("bundle", "export", "export-test", "-o", "exported.tar.gz")
 
@@ -900,7 +907,7 @@ commands:
     content: |
       Summarize the following:
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/prompts.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("prompts"), bundleContent))
 
 	_ = env.Run("command", "list")
 
@@ -919,7 +926,7 @@ commands:
     content: |
       This is a test prompt with detailed instructions.
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/prompt-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("prompt-test"), bundleContent))
 
 	_ = env.Run("command", "show", "prompt-test#commands/test-prompt")
 
@@ -957,7 +964,7 @@ commands:
     content: |
       Generate documentation for this code
 `
-	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/v1/search-prompts.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("search-prompts"), bundleContent))
 
 	_ = env.Run("search", "code")
 

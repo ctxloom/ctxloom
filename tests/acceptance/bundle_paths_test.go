@@ -64,7 +64,7 @@ func TestBundlePathSeam_EveryFamilyDerivesFromTheSameProductionRoot(t *testing.T
 	want := paths.RepoBundlesPrefixFor(paths.LayoutV2)
 	assert.Equal(t, want, singleFileBundlesRoot())
 	assert.Equal(t, want, treeBundlesRoot())
-	assert.Equal(t, want, paths.RepoBundlesPrefixFor(inlineDirBundleLayout))
-	assert.Equal(t, want, paths.RepoBundlesPrefixFor(singleFileBundleLayout))
-	assert.Equal(t, want, paths.RepoBundlesPrefixFor(treeBundleLayout))
+	assert.Equal(t, want+"/demo.yaml", singleFileBundlePath("demo"))
+	assert.Equal(t, want+"/demo", treeBundlePath("demo"))
+	assert.Equal(t, want+"/demo", inlineDirBundlePath("demo"))
 }

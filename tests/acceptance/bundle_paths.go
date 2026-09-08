@@ -12,71 +12,47 @@
 // acceptance steps: the instant the bare content/bundles root stopped being
 // searched, every hand-built writer wrote somewhere nothing looked. Those
 // literals were a distributed copy of a production decision with nothing
-// binding the copies to the original.
+// binding the copies to the original. The integration suite proved the same
+// point a second time from the other side: its fixtures kept their literals,
+// and when the format root moved they wrote where nothing looked and failed 44
+// tests at once.
 //
-// So the helpers below DERIVE from production rather than restating it. The root
-// comes from paths.RepoBundlesPrefixFor and the manifest leaf from
-// bundles.DirectoryFormManifest; nothing here spells ".ctxloom", "content",
-// "bundles" or "bundle.yaml". That is the whole point: when the layout moves,
-// production moves and the corpus follows in the same edit, because there is
-// only one edit to make.
+// So the names below DERIVE from production rather than restating it, and they
+// do it through the ONE seam both suites share — testenv's, which composes the
+// root from paths.RepoBundlesPrefixFor and the manifest leaf from
+// bundles.DirectoryFormManifest. Nothing here or there spells ".ctxloom",
+// "content", "bundles", a layout segment, or "bundle.yaml". That is the whole
+// point: when the layout moves, production moves and BOTH suites follow in the
+// same edit, because there is only one edit to make.
+//
+// What survives here rather than moving is the SHAPE vocabulary. Three shapes
+// share the one root — a bare "<name>.yaml" document, a directory whose
+// bundle.yaml still declares items inline, and a true tree with item files —
+// and bundles.treeFormEnvelope tells the last two apart by the envelope's own
+// content, never by path. A previous attempt at the v1 removal filed an
+// inline-key directory as though shape and root were the same fact, which is
+// exactly the bug treeFormEnvelope exists to prevent. The names below therefore
+// stay distinct even where they resolve to identical bytes: a call site is
+// asserting a SHAPE, and a reader must be able to see which one without
+// chasing two names back to one expression.
 package acceptance
 
 import (
-	"path"
-
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
-)
-
-// The FORMAT root every fixture family is authored into.
-//
-// Format v1 is gone: there is now exactly ONE format root, and placement no
-// longer distinguishes shapes by root. What used to be three DIFFERENT format
-// roots (a single-file document under v1, a true tree under v2, an
-// inline-declaring directory also under v1) are now three SHAPES sharing the
-// same one — bundles.BundleLayoutFor, the predicate the read path itself uses,
-// resolves every one of them to paths.LayoutV2, because that is the only
-// layout left to resolve to. treeFormEnvelope (not the root) is still what
-// decides whether a directory is read as a tree or as the retired inline
-// document form, so getting a fixture's SHAPE right (a bare "<name>.yaml"
-// file, vs a directory whose bundle.yaml still declares items inline, vs a
-// true tree with item files) still matters exactly as much as it always did —
-// only the ROOT question is gone. A previous attempt at the v1 removal filed
-// an inline-key directory as though shape and root were the same fact, which
-// is exactly the bug treeFormEnvelope exists to prevent; the shape helpers
-// below stay separate, spelling separate constructions, even though their
-// roots have collapsed into one.
-const (
-	// singleFileBundleLayout: <name>.yaml, a bare document. The only format
-	// root left.
-	singleFileBundleLayout = paths.LayoutV2
-
-	// treeBundleLayout: <name>/bundle.yaml declaring NO inline item keys, with
-	// the items in files beside it. This is what "true tree" means.
-	treeBundleLayout = paths.LayoutV2
-
-	// inlineDirBundleLayout: <name>/bundle.yaml that still declares its items
-	// INLINE — the retired document form in a directory wrapper. Still read
-	// (readLocalTreeForm's "unchanged" half), still a live shape a fixture may
-	// need, just no longer filed under a second root.
-	inlineDirBundleLayout = paths.LayoutV2
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // singleFileBundlesRoot is the repo-relative directory holding SINGLE-FILE
 // (<name>.yaml) authored bundles.
 func singleFileBundlesRoot() string {
-	return paths.RepoBundlesPrefixFor(singleFileBundleLayout)
+	return testenv.BundlesRoot()
 }
 
 // treeBundlesRoot is the repo-relative directory holding TRUE-TREE authored
-// bundles. Identical to singleFileBundlesRoot's value now (see the const
-// block's doc) — kept as its own name because callers are asserting a SHAPE,
-// and a reader must be able to tell which shape a call site means without
-// chasing both names back to one constant.
+// bundles. Identical to singleFileBundlesRoot's value (see the package doc) —
+// kept as its own name because callers are asserting a SHAPE.
 func treeBundlesRoot() string {
-	return paths.RepoBundlesPrefixFor(treeBundleLayout)
+	return testenv.BundlesRoot()
 }
 
 // bundleFilePath is the repo-relative path a fixture WRITES a bundle's envelope
@@ -92,8 +68,8 @@ func treeBundlesRoot() string {
 // on-disk shapes, not two names for the same fact. Call sites that write
 // their OWN content here (and so decide the shape by where they write) are
 // unaffected; a fixture that also authors ITEMS this way must write them as
-// files beside this manifest — inline item keys under a tree root are not v2
-// and treeFormEnvelope will not read them as one.
+// files beside this manifest — inline item keys under a tree root are not a
+// tree and bundles.readEnvelope refuses a bundle that declares both.
 func bundleFilePath(name string) string {
 	return treeBundleManifestPath(name)
 }
@@ -105,7 +81,7 @@ func bundleFilePath(name string) string {
 // outright); the ordinary, entirely-local authoring path never stopped
 // writing one, it only moved under the single remaining format root.
 func singleFileBundlePath(name string) string {
-	return path.Join(singleFileBundlesRoot(), name+".yaml")
+	return testenv.SingleFileBundlePath(name)
 }
 
 // remoteSingleFilePublishPath is where a real `ctxloom bundle push` lands a
@@ -137,34 +113,33 @@ func remoteSingleFilePublishPath(name string) string {
 // treeBundlePath is the repo-relative directory of a TRUE-TREE authored bundle
 // — the tree that carries the manifest and the item files.
 func treeBundlePath(name string) string {
-	return path.Join(treeBundlesRoot(), name)
+	return testenv.TreeBundlePath(name)
 }
 
 // treeBundleManifestPath is the repo-relative path of a tree bundle's own
 // envelope.
 func treeBundleManifestPath(name string) string {
-	return path.Join(treeBundlePath(name), bundles.DirectoryFormManifest)
+	return testenv.TreeBundleManifestPath(name)
 }
 
 // treeBundleItemPath is the repo-relative path of one file INSIDE a tree
 // bundle, given that file's path relative to the bundle's own root (e.g.
 // "fragments/guidance.md").
 func treeBundleItemPath(name, rel string) string {
-	return path.Join(treeBundlePath(name), rel)
+	return testenv.TreeBundleItemPath(name, rel)
 }
 
 // inlineDirBundlePath is the repo-relative directory of a DIRECTORY-WRAPPED,
 // still-inline-declaring bundle: one whose bundle.yaml still declares its
-// items inline. Identical to treeBundlePath's value now (see the const
-// block's doc) — kept separate because a call site naming this one is
-// asserting the RETIRED shape, not a true tree, even though both sit under
-// the same root today.
+// items inline. Identical to treeBundlePath's value (see the package doc) —
+// kept separate because a call site naming this one is asserting the RETIRED
+// shape, not a true tree.
 func inlineDirBundlePath(name string) string {
-	return path.Join(paths.RepoBundlesPrefixFor(inlineDirBundleLayout), name)
+	return testenv.TreeBundlePath(name)
 }
 
 // inlineDirBundleManifestPath is the repo-relative path of such a bundle's
 // envelope.
 func inlineDirBundleManifestPath(name string) string {
-	return path.Join(inlineDirBundlePath(name), bundles.DirectoryFormManifest)
+	return testenv.TreeBundleManifestPath(name)
 }

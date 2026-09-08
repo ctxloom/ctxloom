@@ -212,7 +212,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
 
     Examples:
       | kind     | probe                    | placement                                  |
-      | fragment | ATELIER-FRAGMENT-DESC    | front-matter in "fragments/house-style.md" |
+      | fragment | ATELIER-FRAGMENT-DESC    | front-matter in "fragments/when-shipping.md" |
       | command  | ATELIER-COMMAND-DESC     | front-matter in "prompts/ship-it.md"       |
       | mcp      | ATELIER-MCP-DESC         | the sidecar "mcp/.ledger.meta.yaml"        |
       | skill    | ATELIER-SKILL-DESC       | the sidecar "skills/.reviewer.meta.yaml"   |

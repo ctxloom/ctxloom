@@ -292,12 +292,14 @@ func j001600AuthoredRoots() []string {
 	return roots
 }
 
-// j001600ListTopLevel returns the entries directly inside every authored format
-// root whose name matches want, mapped through name. Directories are skipped:
-// both callers are asking about SINGLE-FILE artefacts (a bundle document and
-// its detached sibling), and a directory bundle's internals are not what they
-// count.
-func j001600ListTopLevel(w *World, want func(string) bool, name func(string) string) ([]string, error) {
+// j001600ListBundles returns every authored bundle's NAME — the directories
+// directly inside every authored format root that hold a bundle.yaml manifest.
+//
+// Every bundle is directory-form now (format v1's flat "<name>.yaml" is gone),
+// so a bundle IS a directory holding a manifest; a bare top-level entry can
+// only be something else (a stray file, an in-progress write) and is skipped
+// rather than counted.
+func j001600ListBundles(w *World) ([]string, error) {
 	var out []string
 	for _, root := range j001600AuthoredRoots() {
 		entries, err := os.ReadDir(filepath.Join(w.env.ProjectDir, filepath.FromSlash(root)))
@@ -308,8 +310,12 @@ func j001600ListTopLevel(w *World, want func(string) bool, name func(string) str
 			return nil, fmt.Errorf("read %s: %w", root, err)
 		}
 		for _, e := range entries {
-			if !e.IsDir() && want(e.Name()) {
-				out = append(out, name(e.Name()))
+			if !e.IsDir() {
+				continue
+			}
+			manifest := filepath.Join(w.env.ProjectDir, filepath.FromSlash(bundleFilePath(e.Name())))
+			if _, statErr := os.Stat(manifest); statErr == nil {
+				out = append(out, e.Name())
 			}
 		}
 	}
@@ -317,19 +323,25 @@ func j001600ListTopLevel(w *World, want func(string) bool, name func(string) str
 	return out, nil
 }
 
-// j001600ListSignatures returns every `.sig` file under the authored bundle
-// tree, so a scenario can assert a COUNT.
+// j001600ListSignatures returns the names of the bundles (see j001600ListBundles)
+// carrying a detached bundle.yaml.sig sibling — the document-level signature
+// signBundleTree always refreshes alongside a tree's own SHA256SUMS/.sigs
+// attestation (internal/operations/sign.go's signBundleTree doc: "the sibling
+// is written FIRST"). Exactly one per signed bundle, which is what keeps this
+// COUNT comparable against j001600ListBundles's.
 func j001600ListSignatures(w *World) ([]string, error) {
-	return j001600ListTopLevel(w,
-		func(n string) bool { return strings.HasSuffix(n, ".sig") },
-		func(n string) string { return n })
-}
-
-// j001600ListBundles returns every authored bundle file name (without the .yaml).
-func j001600ListBundles(w *World) ([]string, error) {
-	return j001600ListTopLevel(w,
-		func(n string) bool { return strings.HasSuffix(n, ".yaml") },
-		func(n string) string { return strings.TrimSuffix(n, ".yaml") })
+	names, err := j001600ListBundles(w)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, name := range names {
+		sigPath := filepath.Join(w.env.ProjectDir, filepath.FromSlash(bundleFilePath(name)+".sig"))
+		if _, statErr := os.Stat(sigPath); statErr == nil {
+			out = append(out, name)
+		}
+	}
+	return out, nil
 }
 
 // j001600Setup is the Background: a hermetic publisher's machine. Deliberately
@@ -389,69 +401,127 @@ func j001600Setup(w *World) error {
 	return nil
 }
 
-// j001600PublishedBundle writes Trent's flagship bundle: two fragments, each
-// carrying its own marker, so the accept scenario and the reject scenario can
-// act on DIFFERENT items of the same signed bundle.
-func j001600PublishedBundle(tddContent string) string {
-	return j001600BundleYAML(
-		j001600Fragment{name: "tdd", content: tddContent},
-		j001600Fragment{name: "curl-pipe-sh", content: j001600CurlMarker},
-	)
+// j001600PublishedFragmentPath is one fragment's path inside the flagship
+// (j001600PublishedName) bundle's own tree.
+func j001600PublishedFragmentPath(fragment string) string {
+	return treeBundleItemPath(j001600PublishedName, "fragments/"+fragment+".md")
 }
 
-// j001600SeedFromDisk publishes what is ON DISK — the authored bundle bytes and
-// the `.sig` `ctxloom bundle sign` itself just wrote — into a seeded git
-// remote. This is what makes the consumption scenarios test the real thing:
-// the signature a consumer verifies was produced by the CLI, not by
-// signing.Sign in Go.
+// j001600FragmentFileBody renders one fragment FILE — front-matter plus body,
+// the same shape steps_j001400_bundle_distribution.go's j001400AuthoredTree
+// uses, since both are read by the same tree reader.
+func j001600FragmentFileBody(content string) string {
+	return fmt.Sprintf("---\ndescription: J001600 fragment\n---\n\n%s\n", content)
+}
+
+// j001600WritePublishedBundle writes Trent's flagship bundle as a TRUE TREE:
+// an envelope with no inline item keys, and each of its two fragments
+// (tdd, curl-pipe-sh) in its own file — so the accept scenario and the reject
+// scenario can act on DIFFERENT items of the same signed bundle.
 //
-// It then HANDS THE BUNDLE OFF: the authoring copy is archived outside the
-// project and removed from the authored tree. That is not tidiness — this one
-// hermetic project plays both Trent's publishing checkout and Alice's
-// consuming one, and a LOCAL authored bundle of the same name shadows the
-// remote one (canonicalizeBundleArg's documented rule: "a local file of the
-// same spelling still wins"). With both present, the item ref a consumer
-// accepts or rejects and the item the exposure path actually delivers are two
+// This is a TREE and not the document j001600BundleYAML renders (the shape
+// every OTHER bundle in this file still uses, which is fine: those are never
+// published — see j001600SeedFromDisk's callers) because this one is. A
+// remote bundle is read through internal/bundles/tree_read.go's readEnvelope,
+// which REFUSES an envelope that still declares items inline — and `deps
+// pull` refuses a single-file bundle outright before that (nothing
+// materializes a document; remote.Puller.installPulledItem). Both refusals
+// fire only once bytes actually leave this project, which is exactly what
+// j001600SeedFromDisk does with the tree this writes.
+//
+// version is a parameter for the same reason j001900's identical helper takes
+// one: an UNCONSTRAINED reference (no version suffix on "company/secure-coding")
+// still resolves against the repo's declared version space
+// (operations.newConstraintResolver's doc: "a branch, semver range, or empty
+// (default-branch) constraint is resolved against the repo's version space"),
+// so republishing new bytes under an UNCHANGED version is a commit `deps
+// upgrade` never advances onto — the revise scenario needs a real bump to
+// reach the attestation boundary at all, exactly as j001900's does.
+func j001600WritePublishedBundle(w *World, version, tddContent string) error {
+	if err := w.env.WriteFile(bundleFilePath(j001600PublishedName), fmt.Sprintf("version: %q\n", version)); err != nil {
+		return err
+	}
+	if err := w.env.WriteFile(j001600PublishedFragmentPath("tdd"), j001600FragmentFileBody(tddContent)); err != nil {
+		return err
+	}
+	return w.env.WriteFile(j001600PublishedFragmentPath("curl-pipe-sh"), j001600FragmentFileBody(j001600CurlMarker))
+}
+
+// j001600SeedFromDisk publishes the WHOLE authored tree at name — the
+// envelope, its fragment files, and whatever `ctxloom bundle sign` produced
+// (bundle.yaml.sig, SHA256SUMS, .sigs/) — into a seeded git remote. This is
+// what makes the consumption scenarios test the real thing: the signature a
+// consumer verifies was produced by the CLI, not by signing.Sign in Go.
+//
+// It publishes a TREE, not a document: `deps pull` refuses a single-file
+// bundle outright now (nothing materializes a document —
+// remote.Puller.installPulledItem), so a real remote layout has to be a
+// directory at remoteSingleFilePublishPath(name) holding bundle.yaml, not a
+// blob AT that path (remoteSingleFilePublishPath and treeBundlePath are the
+// SAME expression by value — bundle_paths.go's doc).
+//
+// It then HANDS THE BUNDLE OFF: the authoring tree is archived outside the
+// project (with the SAME relative layout it published under) and removed from
+// the authored tree. That is not tidiness — this one hermetic project plays
+// both Trent's publishing checkout and Alice's consuming one, and a LOCAL
+// authored bundle of the same name shadows the remote one
+// (canonicalizeBundleArg's documented rule: "a local file of the same
+// spelling still wins"). With both present, the item ref a consumer accepts
+// or rejects and the item the exposure path actually delivers are two
 // different things, and every per-item trust assertion silently measures
 // nothing. Measured: with the authoring copy left in place, `bundle trust`
 // released nothing and `bundle reject` withheld nothing, both while exiting 0.
 func j001600SeedFromDisk(w *World, name string) error {
 	st := j001600Of(w)
-	rel := bundleFilePath(name)
-	body, err := w.env.ReadFile(rel)
-	if err != nil {
-		return fmt.Errorf("read authored bundle to publish: %w", err)
-	}
-	sig, err := w.env.ReadFile(rel + ".sig")
-	if err != nil {
-		return fmt.Errorf("read CLI-produced signature to publish: %w", err)
-	}
-	// The REMOTE path is remote.PublishPath's — the current format root a real
-	// `ctxloom bundle push` writes to — not rel, the LOCAL authoring path.
-	// singleFileBundlesRoot() names format v1 (the single-file bundle's own
-	// content shape), but a publish always lands under RepoItemPrefix's
-	// CURRENT format regardless of the content's shape, so the two prefixes
-	// diverge once RepoItemPrefix no longer equals LayoutV1. This seed writes
-	// where a real push writes, or the consumption scenarios fetch from a
-	// path production never used.
-	remotePath := remoteSingleFilePublishPath(name)
-	files := map[string]string{remotePath: body, remotePath + ".sig": sig}
+	localDir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(treeBundlePath(name)))
+	remoteRoot := remoteSingleFilePublishPath(name)
 
-	if st.publishedDir == "" {
-		st.publishedDir = filepath.Join(w.env.Root, "published")
-		if err := os.MkdirAll(st.publishedDir, 0o755); err != nil {
-			return fmt.Errorf("create published archive dir: %w", err)
+	files := map[string]string{}
+	walkErr := filepath.WalkDir(localDir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, rerr := filepath.Rel(localDir, p)
+		if rerr != nil {
+			return rerr
+		}
+		data, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return rerr
+		}
+		files[remoteRoot+"/"+filepath.ToSlash(rel)] = string(data)
+		return nil
+	})
+	if walkErr != nil {
+		return fmt.Errorf("collect the authored %q tree to publish: %w", name, walkErr)
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("the authored %q tree at %s holds no files to publish", name, localDir)
+	}
+
+	// st.publishedDir is name-rooted (.../published/<name>), so
+	// j001600VerifyPublished can open it as a content store the same way any
+	// tree bundle is opened — rooted at the PARENT, bundle ID the base name.
+	st.publishedDir = filepath.Join(w.env.Root, "published", name)
+	if err := os.RemoveAll(st.publishedDir); err != nil {
+		return fmt.Errorf("clear the published archive dir: %w", err)
+	}
+	for remotePath, data := range files {
+		archRel := strings.TrimPrefix(remotePath, remoteRoot+"/")
+		dest := filepath.Join(st.publishedDir, filepath.FromSlash(archRel))
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return fmt.Errorf("archive published %s: %w", archRel, err)
+		}
+		if err := os.WriteFile(dest, []byte(data), 0o644); err != nil {
+			return fmt.Errorf("archive published %s: %w", archRel, err)
 		}
 	}
-	for suffix, content := range map[string]string{".yaml": body, ".yaml.sig": sig} {
-		if err := os.WriteFile(filepath.Join(st.publishedDir, name+suffix), []byte(content), 0o644); err != nil {
-			return fmt.Errorf("archive published %s%s: %w", name, suffix, err)
-		}
-	}
-	for _, p := range []string{rel, rel + ".sig"} {
-		if err := os.Remove(filepath.Join(w.env.ProjectDir, filepath.FromSlash(p))); err != nil {
-			return fmt.Errorf("hand off authored %s: %w", p, err)
-		}
+
+	if err := os.RemoveAll(localDir); err != nil {
+		return fmt.Errorf("hand off the authored %q tree: %w", name, err)
 	}
 
 	if st.bare == "" {
@@ -466,30 +536,37 @@ func j001600SeedFromDisk(w *World, name string) error {
 	return w.env.AdvanceRemote(st.bare, files)
 }
 
-// j001600VerifyPublished verifies the archived PUBLISHED pair — the exact bytes
-// and the exact CLI-produced signature that went to the remote — read fresh
-// off disk, under Trent's key.
+// j001600VerifyPublished runs the CONSUMER's verifier — attest.VerifyBundle,
+// the same call config.loadTreeBundle makes for every pulled tree — over the
+// archived PUBLISHED tree, against a trust root holding Trent's key. Mirrors
+// j001600VerifyTreeAttestation, which does the identical check for a locally
+// signed directory bundle; this one reads what actually went to the remote.
 func j001600VerifyPublished(w *World, name string) error {
 	st := j001600Of(w)
 	if st.publishedDir == "" {
 		return fmt.Errorf("nothing has been published yet")
 	}
-	bundlePath := filepath.Join(st.publishedDir, name+".yaml")
-	sigPath := bundlePath + ".sig"
-	body, err := os.ReadFile(bundlePath)
+	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(st.publishedDir), content.Provenance{IsLocal: true})
 	if err != nil {
-		return fmt.Errorf("read published bundle: %w", err)
+		return fmt.Errorf("open the published tree at %s: %w", st.publishedDir, err)
 	}
-	sig, err := os.ReadFile(sigPath)
+	ctx := context.Background()
+	tree, err := store.Open(ctx, content.BundleID(name))
 	if err != nil {
-		return fmt.Errorf("read published signature: %w", err)
+		return fmt.Errorf("open the published bundle %q: %w", name, err)
 	}
-	if len(strings.TrimSpace(string(sig))) == 0 {
-		return fmt.Errorf("%s is EMPTY — the bundle was published with a signature file carrying nothing", sigPath)
+	root := allowedsigners.NewStore(allowedsigners.Entry{
+		Principals: []string{j001600Principal},
+		Namespaces: []string{signing.NamespacePublish},
+		PublicKey:  st.signer.Public,
+		KeyType:    st.signer.Public.Type(),
+	})
+	verdict, err := attest.VerifyBundle(ctx, tree, root, time.Now())
+	if err != nil {
+		return fmt.Errorf("verify the published bundle %q: %w", name, err)
 	}
-	if err := signing.Verify(body, sig, st.signer.Public, signing.NamespacePublish); err != nil {
-		return fmt.Errorf("the published signature does not verify against the %d published bytes under Trent's key %s: %w",
-			len(body), st.signer.Fingerprint(), err)
+	if !verdict.OK() {
+		return fmt.Errorf("the published bundle %q verifies as %q (%s), not as Trent signed it", name, verdict.Status, verdict.Detail)
 	}
 	return nil
 }
@@ -733,7 +810,10 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Trent's project publishes the "([^"]*)" bundle his team depends on$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		return w.env.WriteFile(bundleFilePath(name), j001600PublishedBundle(j001600TDDMarker))
+		if name != j001600PublishedName {
+			return fmt.Errorf("this fixture's tree-shaped writer only knows %q, not %q", j001600PublishedName, name)
+		}
+		return j001600WritePublishedBundle(w, "1.0.0", j001600TDDMarker)
 	})
 
 	ctx.Step(`^Trent's project publishes (\d+) bundles$`, func(c context.Context, n int) error {
@@ -1259,7 +1339,12 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		if frag != "tdd" {
 			return fmt.Errorf("this fixture only revises the tdd fragment, not %q", frag)
 		}
-		if err := w.env.WriteFile(bundleFilePath(j001600PublishedName), j001600PublishedBundle(j001600TDDRevised)); err != nil {
+		// The first j001600SeedFromDisk already handed the authoring tree off
+		// (removed it from the project — see that function's doc), so this
+		// re-authors the WHOLE tree rather than editing one file in place;
+		// j001600WritePublishedBundle is deterministic, so curl-pipe-sh's file
+		// comes back byte-identical and only tdd's content actually changes.
+		if err := j001600WritePublishedBundle(w, "1.1.0", j001600TDDRevised); err != nil {
 			return err
 		}
 		if err := runOK(w, "bundle", "sign", j001600PublishedName); err != nil {

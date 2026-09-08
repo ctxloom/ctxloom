@@ -223,28 +223,6 @@ func TestEnsureSparseWorktree_RequiresAClone(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNoCloneForWorktree)
 }
 
-// TestRemoveWorktree_UnregistersSoThePathCanBeReused. A worktree is TWO pieces
-// of state; deleting only the directory leaves the registration behind and the
-// next add at that path is refused — the cache then cannot be rebuilt by the
-// command that exists to rebuild it.
-func TestRemoveWorktree_UnregistersSoThePathCanBeReused(t *testing.T) {
-	f := newWorktreeFixture(t)
-	f.write("bundles/v2/atelier/bundle.yaml", "version: \"1.0.0\"\n")
-	sha := f.commit("one")
-
-	wt := filepath.Join(t.TempDir(), "atelier.worktree")
-	_, err := f.cache.EnsureSparseWorktree(t.Context(), f.url, sha, "bundles/v2/atelier", wt)
-	require.NoError(t, err)
-
-	require.NoError(t, f.cache.RemoveWorktree(t.Context(), f.url, wt))
-	_, serr := os.Stat(wt)
-	assert.True(t, os.IsNotExist(serr), "the worktree directory must be gone")
-
-	dir, err := f.cache.EnsureSparseWorktree(t.Context(), f.url, sha, "bundles/v2/atelier", wt)
-	require.NoError(t, err, "the path must be reusable after a removal")
-	assert.FileExists(t, filepath.Join(dir, "bundle.yaml"))
-}
-
 // TestEnsureSparseWorktree_RecoversFromADirectoryDeletedBehindGitsBack. A wiped
 // cache or an interrupted run leaves a registration with no directory, and
 // `worktree add` then refuses the path as already registered — so the pull that

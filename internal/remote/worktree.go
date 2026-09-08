@@ -128,43 +128,6 @@ func (c *RepoCache) ensureWorktreeAt(ctx context.Context, repoDir, worktreeDir, 
 	return nil
 }
 
-// RemoveWorktree unregisters and deletes a bundle's worktree.
-//
-// It goes through git rather than os.RemoveAll because a worktree is TWO pieces
-// of state: the directory, and its registration inside the clone's .git.
-// Deleting only the directory leaves the registration behind, and the next
-// `worktree add` at that path is refused — the cache then cannot be rebuilt by
-// the very command that is supposed to rebuild it.
-//
-// Best-effort on a repository with no clone: with nothing to unregister from,
-// removing the directory is the whole of the job.
-func (c *RepoCache) RemoveWorktree(ctx context.Context, repoURL, worktreeDir string) error {
-	repoDir, err := c.RepoDirForURL(repoURL)
-	if err != nil {
-		return fmt.Errorf("refusing to remove the worktree of %q: %w", repoURL, err)
-	}
-	if !isGitRepo(repoDir) {
-		return os.RemoveAll(worktreeDir)
-	}
-	unlock := lockCloneDir(repoDir)
-	defer unlock()
-
-	if isGitWorktree(worktreeDir) {
-		// --force because the tree is derived: a local edit inside the cache is
-		// not work to protect, and refusing to remove a dirty cache directory
-		// would strand it forever.
-		if err := runGit(ctx, repoDir, "worktree remove", nil,
-			"worktree", "remove", "--force", "--", worktreeDir); err != nil {
-			return fmt.Errorf("remove the worktree at %s: %w", worktreeDir, err)
-		}
-		return nil
-	}
-	if err := os.RemoveAll(worktreeDir); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove %s: %w", worktreeDir, err)
-	}
-	return runGit(ctx, repoDir, "worktree prune", nil, "worktree", "prune")
-}
-
 // isGitWorktree reports whether dir is a LINKED git worktree.
 //
 // The test is that .git is a FILE: a worktree's .git is a pointer file naming

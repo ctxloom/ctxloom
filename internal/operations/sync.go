@@ -295,6 +295,10 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 			// content layer that owns the pinned-tree walker, so composition
 			// happens here — the one place that already knows both.
 			remote.WithTreeFetcher(remotetree.PullTreeFetcher),
+			// The directory-form half of the INSTALL, composed here for the
+			// same reason: git owns the checkout (remote.RepoCache) and the
+			// content layer owns the tree format that decides its modes.
+			remote.WithTreeInstaller(remotetree.WorktreeInstaller(NewRepoCache(cfg))),
 		)
 	}
 	return puller, nil

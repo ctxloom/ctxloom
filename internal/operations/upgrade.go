@@ -2,9 +2,9 @@ package operations
 
 import (
 	"context"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -159,23 +159,12 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (UpgradeResult
 		newActive.AddEntry(p.Type, p.Identity, entry)
 		if !has || cur.SHA != p.Hash {
 			result.Advanced++
-			// A MOVED PIN INVALIDATES WHAT IS ON DISK. Drop the materialized
-			// tree so the next pull writes the new one.
-			//
-			// "The installed tree matches the pinned sha" is an invariant only
-			// the PULL maintains, because it writes both together. Nothing
-			// records which commit a tree came from — not in the tree, not
-			// beside it — so advancing the pin here without dropping the tree
-			// leaves the two disagreeing, and the next pull cannot tell: it
-			// sees a lockfile entry and a directory that exists, calls the
-			// bundle installed, and skips. The consumer then materializes
-			// PRE-ADVANCE bytes while every command reports success.
-			//
-			// Removing it is the cheapest restoration of the invariant: it adds
-			// no on-disk state to track, and the tree is a local
-			// materialization from a clone that is already present, so the next
-			// pull's cost is a copy rather than a fetch.
-			dropStaleTree(cfg, p)
+			// A MOVED PIN MOVES THE TREE WITH IT. The worktree is a git
+			// checkout detached at a commit, so "which commit is this tree?"
+			// is a question the tree itself answers — and advancing the pin
+			// without advancing the checkout would leave the two disagreeing
+			// while both look well-formed.
+			movePinnedWorktree(ctx, cfg, p)
 		}
 	}
 
@@ -285,15 +274,22 @@ func unionLockedRepoURLs(urls []string, lock *remote.Lockfile) []string {
 	return urls
 }
 
-// dropStaleTree removes the materialized tree for a bundle whose pin just
-// moved, so the next pull re-materializes it at the new commit.
+// movePinnedWorktree re-checks a bundle's worktree out at the commit its pin
+// just moved to.
 //
-// Best-effort by design: a tree that is not there is the state we want, and a
-// removal that fails must not abort an upgrade whose lockfile work is already
-// correct — the pull that follows re-materializes either way, and a stale tree
-// left behind is a bug we can see, whereas a refused upgrade is one the user
-// has to work around.
-func dropStaleTree(cfg *config.Config, p PinnedRef) {
+// IT MOVES THE TREE RATHER THAN DELETING IT. Deleting was only ever correct if
+// a pull always followed, and nothing enforced that: a read taken between the
+// upgrade and the pull found the lockfile naming a bundle whose tree was gone,
+// and every such read failed telling the user to run the pull they were in the
+// middle of. Because git owns the checkout and the sidecars travel with the
+// commit, moving the pin needs no fetch — the same call that installs a bundle
+// re-installs it at the new commit.
+//
+// Best-effort by design: an upgrade whose lockfile work is already correct must
+// not be aborted by the cache. A worktree left at the old commit is a
+// divergence the next pull repairs, and a refused upgrade is one the user has
+// to work around.
+func movePinnedWorktree(ctx context.Context, cfg *config.Config, p PinnedRef) {
 	if p.Type != remote.ItemTypeBundle {
 		return // only a bundle materializes a tree
 	}
@@ -305,5 +301,12 @@ func dropStaleTree(cfg *config.Config, p PinnedRef) {
 	if baseDir == "" {
 		return
 	}
-	_ = os.RemoveAll(ref.LocalTreePath(baseDir))
+	if p.Hash == "" {
+		return
+	}
+	install := remotetree.WorktreeInstaller(NewRepoCache(cfg))
+	if _, err := install(ctx, ref.URL, p.Hash, ref.TreeRepoPath(), ref.LocalWorktreePath(baseDir)); err != nil {
+		clidiag.Warn("ctxloom", "%s was upgraded to %s but its cached tree could not be moved to that commit (%v); "+
+			"run `ctxloom deps pull` to re-install it", p.Identity, p.Hash, err)
+	}
 }

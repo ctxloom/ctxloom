@@ -30,21 +30,21 @@ func TestInstallPulledItem_OverwrittenReflectsExistingEntry(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(baseDir, 0755))
 	lm := NewLockfileManager(baseDir, WithLockfileFS(fs))
-	p := &Puller{lockfileManager: lm, now: func() time.Time { return time.Now().UTC() }}
+	p := &Puller{lockfileManager: lm, now: func() time.Time { return time.Now().UTC() }, treeInstall: stubTreeInstaller()}
 	opts := PullOptions{ItemType: ItemTypeBundle, Stdout: &bytes.Buffer{}}
 
 	// Tree-shaped: item.tree == nil is what installPulledItem now refuses
 	// ("bundles are distributed as trees"), so a content-only fetchedItem
 	// (the old single-file shape) can no longer drive this path at all.
 	first, err := p.installPulledItem(context.Background(), ref, opts, &fetchedItem{
-		rem: rem, localName: "alice/mybundle", sha: "abc123",
+		rem: rem, localName: "alice/mybundle", sha: "abc123", treeRoot: ref.TreeRepoPath(),
 		tree: map[string]TreeFile{"bundle.yaml": {Data: []byte("version: \"1.0.0\"\n")}},
 	})
 	require.NoError(t, err)
 	assert.False(t, first.Overwritten, "the first pull of a new item is not an overwrite")
 
 	second, err := p.installPulledItem(context.Background(), ref, opts, &fetchedItem{
-		rem: rem, localName: "alice/mybundle", sha: "def456",
+		rem: rem, localName: "alice/mybundle", sha: "def456", treeRoot: ref.TreeRepoPath(),
 		tree: map[string]TreeFile{"bundle.yaml": {Data: []byte("version: \"2.0.0\"\n")}},
 	})
 	require.NoError(t, err)

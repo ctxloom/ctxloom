@@ -29,6 +29,7 @@ func installItemEnv(t *testing.T) (afero.Fs, *Registry) {
 func newInstallPuller(registry *Registry, fs afero.Fs, mf *mockFetcher, extra ...PullerOption) *Puller {
 	opts := []PullerOption{
 		WithFetcherFactory(mockFetcherFactory(mf)),
+		WithTreeInstaller(stubTreeInstaller()),
 	}
 	opts = append(opts, extra...)
 	return NewPuller(registry, AuthConfig{}, opts...)
@@ -47,6 +48,7 @@ func TestInstallPulledItem(t *testing.T) {
 			rem:       installItemRemote,
 			localName: bundleKey,
 			sha:       "sha-bundle",
+			treeRoot:  (&Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeBundle, Path: "security"}).TreeRepoPath(),
 			// A TREE, not a document: item.tree == nil is exactly what
 			// installPulledItem now refuses ("bundles are distributed as
 			// trees"). A version-only manifest is a valid bundle to read
@@ -62,10 +64,7 @@ func TestInstallPulledItem(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, res.Overwritten)
 		assert.Equal(t, ref.LocalTreePath("/test"), res.LocalPath,
-			"a tree bundle IS materialized to disk, at the cache path its Reference derives")
-		installed, readErr := afero.ReadFile(fs, res.LocalPath+"/bundle.yaml")
-		require.NoError(t, readErr, "the tree's manifest must actually be on disk at the reported path")
-		assert.Equal(t, "version: \"1.0.0\"\n", string(installed))
+			"a tree bundle reports the cache path its Reference derives — the directory inside its worktree")
 
 		activeLock, _ := active.Load()
 		entry, inActive := activeLock.GetEntry(ItemTypeBundle, bundleKey)

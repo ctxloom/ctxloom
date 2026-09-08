@@ -7,16 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // PullOptions configures pull behavior.
@@ -563,7 +558,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	if item.tree == nil {
 		return nil, fmt.Errorf("refusing to install %q: it is a single-file bundle, and bundles are distributed as trees — nothing materializes a document, so its pin would resolve to content no reader can reach; the publisher must republish it in tree form", item.localName)
 	}
-	localPath, werr := p.installTree(ref, opts, item)
+	localPath, werr := p.installTree(ctx, ref, opts, item)
 	if werr != nil {
 		return nil, werr
 	}
@@ -604,92 +599,37 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	}, nil
 }
 
-// installTree writes a fetched directory-form bundle into the cache and returns
-// the directory it landed in.
+// installTree materializes the pinned directory-form bundle as a git worktree
+// and returns the directory it landed in.
 //
-// The destination is REPLACED, not merged. A merge would leave a file the
-// publisher deleted upstream sitting in the consumer's tree forever, still
-// enumerated by every directory walk that reads the bundle — and, for hooks and
-// MCP servers, still applied. "What arrived is what is there" is the only
-// property that makes a re-pull mean anything.
-func (p *Puller) installTree(ref *Reference, opts PullOptions, item *fetchedItem) (string, error) {
+// NOTHING IS COPIED. The tree is checked out by git, detached at the pinned
+// commit, so the pin and the bytes are a single fact rather than two states an
+// interleaving can pull apart. The fetched tree is still what DECIDES the pull
+// — its manifest is what was verified above — it is simply not what gets
+// written.
+func (p *Puller) installTree(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem) (string, error) {
+	if p.treeInstall == nil {
+		return "", fmt.Errorf("refusing to install %q: this puller has no tree installer wired in, so the bundle would be pinned in the lockfile with no tree any reader could reach", item.localName)
+	}
 	baseDir := opts.LocalDir
 	if baseDir == "" {
 		baseDir = p.lockfileManager.BaseDir()
 	}
-	fs := p.lockfileManager.FS()
-	dir := ref.LocalTreePath(baseDir)
-
-	if err := fs.RemoveAll(dir); err != nil {
-		return "", fmt.Errorf("clear the previous %s tree at %s: %w", item.localName, dir, err)
+	// The root the fetch PROBE answered from and the one every reader COMPUTES
+	// must name one directory, or the tree is checked out where nothing looks —
+	// the silent half-install this refuses to create. They can only differ while
+	// two bundle formats are live at once (see BundleTreeRoots), and then it is
+	// the publisher, not the consumer, who can end it.
+	if want := ref.TreeRepoPath(); item.treeRoot != want {
+		return "", fmt.Errorf("refusing to install %q: its tree was found at %s in the repository but every reader resolves it at %s, "+
+			"so a checkout of the found path would land where nothing looks; the publisher must republish it at %s",
+			item.localName, item.treeRoot, want, want)
 	}
-	// Sorted, so a failure part-way through names a deterministic file and two
-	// runs over the same tree fail identically.
-	rels := make([]string, 0, len(item.tree))
-	for rel := range item.tree {
-		rels = append(rels, rel)
-	}
-	sort.Strings(rels)
-	for _, rel := range rels {
-		file := item.tree[rel]
-		warnUndeclaredExecutable(treeRepoPath(item.treeRoot, rel), file)
-		if err := writeTreeFile(fs, dir, rel, file); err != nil {
-			return "", fmt.Errorf("install %s into %s: %w", treeRepoPath(item.treeRoot, rel), dir, err)
-		}
+	dir, err := p.treeInstall(ctx, item.rem.URL, item.sha, item.treeRoot, ref.LocalWorktreePath(baseDir))
+	if err != nil {
+		return "", fmt.Errorf("install %s at %s: %w", item.localName, item.sha, err)
 	}
 	return dir, nil
-}
-
-// warnUndeclaredExecutable reports a file the publisher committed 100755 that
-// the package does not DECLARE executable.
-//
-// It is the only place the divergence is visible. Downstream everything is
-// consistent and quiet: the file lands 0644, the manifest the tree generates
-// says 0644, verification passes, and the model is handed a script it cannot
-// run — the silent no-op, arriving as delivered content rather than as an
-// error. Saying it here names the repository path, the declaration that is
-// missing, and the file that will not run.
-func warnUndeclaredExecutable(repoPath string, file TreeFile) {
-	if !file.CommittedExecutable || file.DeclaredExecutable {
-		return
-	}
-	clidiag.Warn("ctxloom", "%s is committed executable upstream but the package does not declare it executable, "+
-		"so it was installed DECLARED NON-EXECUTABLE (mode 0644) and will not run. "+
-		"A mode bit is not portable and is not covered by the signature, so the declaration is what travels: "+
-		"add it to the executable: list in the package's .meta.yaml sidecar and re-publish.", repoPath)
-}
-
-// writeTreeFile writes one file of a bundle tree at its DECLARED mode.
-//
-// Not at the mode git recorded. The two can disagree, and when they do the
-// declaration is the one that has to reach disk: the manifest this same tree
-// generates (bundles.ReadTree, via the sidecar) is built from the declaration,
-// and bundles.VerifyExtractedManifest compares that manifest against the files
-// on disk. Installing at git's mode is what made a published-0755-but-
-// undeclared script arrive as a whole package the consumer refused.
-//
-// iox.WriteFileAtomicFs applies perm EXACTLY via its own explicit Chmod on
-// the temp file (see its doc) — the same fix this function used to hand-roll
-// with the trailing fs.Chmod call afero.WriteFile's umask-masked create left
-// necessary. Migrating to it drops that now-redundant second Chmod for free.
-//
-// AllowEmpty: an intentionally empty file is a legitimate member of a bundle
-// tree (a placeholder, a deliberately-emptied config), so the default
-// empty-over-existing refusal would wrongly block a legitimate re-pull —
-// unlike this package's OTHER writers (git_publisher, the lockfile/registry
-// stores), nothing here can distinguish "the tree really has a 0-byte file"
-// from "something upstream went wrong", so the guard is opted out rather than
-// guessed at.
-func writeTreeFile(fs afero.Fs, dir, rel string, file TreeFile) error {
-	mode := os.FileMode(0o644)
-	if file.DeclaredExecutable {
-		mode = 0o755
-	}
-	full := filepath.Join(dir, filepath.FromSlash(rel))
-	if err := fs.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return err
-	}
-	return iox.WriteFileAtomicFs(fs, full, file.Data, mode, iox.AllowEmpty())
 }
 
 // promptConfirmation asks the user for yes/no confirmation.

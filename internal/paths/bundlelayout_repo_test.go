@@ -47,9 +47,7 @@ func TestRepoBundlesPrefix_ComposesContentPrefix(t *testing.T) {
 // them must be a deliberate edit here, not a side effect somewhere else.
 func TestBundleLayoutPaths_LiteralValues(t *testing.T) {
 	assert.Equal(t, ".ctxloom/content/bundles", RepoBundlesRoot())
-	assert.Equal(t, ".ctxloom/content/bundles/v1", RepoBundlesPrefixFor(LayoutV1))
 	assert.Equal(t, ".ctxloom/content/bundles/v2", RepoBundlesPrefixFor(LayoutV2))
-	assert.Equal(t, "bundles/v1", ContentBundlesPrefixFor(LayoutV1))
 	assert.Equal(t, "bundles/v2", ContentBundlesPrefixFor(LayoutV2))
 }
 

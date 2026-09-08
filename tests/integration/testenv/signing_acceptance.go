@@ -151,17 +151,62 @@ func (e *TestEnvironment) SeedSignedTreeRemote(root, bundleID, envelope string, 
 }
 
 // AdvanceSignedTreeRemote is SeedSignedTreeRemote's AdvanceRemote counterpart:
-// a fresh signature over a REVISED tree, pushed as a second commit. Every
-// file the tree ever held has to be named in items each round — unlike a
-// single document, a tree write does not implicitly retire a file simply by
-// omitting it; leaving one out publishes exactly that: an item this round's
-// signed manifest does not cover.
+// a fresh signature over a REVISED tree, pushed as a second commit.
+//
+// Unlike AdvanceRemote (which only ever overlays the files it is given, so a
+// path omitted from one round simply survives untouched from a previous one),
+// this REPLACES the bundle's entire directory — the same "destination
+// REPLACED, not merged" contract remote.Puller.installTree gives a real
+// pulled tree. It has to: a caller renaming an item (e.g. GAP A's
+// fragment-rename fixture) hands items a NEW path and expects the OLD one
+// gone, and the signed manifest attest.SignBundle just produced only ever
+// covers what is IN items — leaving the old file behind would publish it
+// unsigned and UNCLAIMED, which attest.VerifyBundle reports as tampering on
+// the very next pull.
 func (e *TestEnvironment) AdvanceSignedTreeRemote(bareDir, root, bundleID, envelope string, items map[string]string, signer *TestSigner) error {
 	files, err := signTreeFiles(e.Root, root, bundleID, envelope, items, signer)
 	if err != nil {
 		return err
 	}
-	return e.AdvanceRemote(bareDir, files)
+
+	work, err := os.MkdirTemp(e.Root, "advance-tree-*")
+	if err != nil {
+		return err
+	}
+	if err := runGitE("", "clone", bareDir, work); err != nil {
+		return err
+	}
+	for _, s := range [][]string{
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test User"},
+		{"config", "commit.gpgsign", "false"},
+	} {
+		if err := runGitE(work, s...); err != nil {
+			return err
+		}
+	}
+	if err := os.RemoveAll(filepath.Join(work, filepath.FromSlash(root))); err != nil {
+		return fmt.Errorf("clear the previous %s tree: %w", root, err)
+	}
+	for rel, content := range files {
+		full := filepath.Join(work, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	for _, s := range [][]string{
+		{"add", "-A"},
+		{"commit", "-m", "advance"},
+		{"push", "origin", "main"},
+	} {
+		if err := runGitE(work, s...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // signTreeFiles is SeedSignedTreeRemote/AdvanceSignedTreeRemote's shared

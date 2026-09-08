@@ -156,7 +156,7 @@ func (e *TestEnvironment) SeedSignedTreeRemote(root, bundleID, envelope string, 
 // Unlike AdvanceRemote (which only ever overlays the files it is given, so a
 // path omitted from one round simply survives untouched from a previous one),
 // this REPLACES the bundle's entire directory — the same "destination
-// REPLACED, not merged" contract remote.Puller.installTree gives a real
+// REPLACED, not merged" contract a pinned git worktree gives a real
 // pulled tree. It has to: a caller renaming an item (e.g. GAP A's
 // fragment-rename fixture) hands items a NEW path and expects the OLD one
 // gone, and the signed manifest attest.SignBundle just produced only ever

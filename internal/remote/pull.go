@@ -547,12 +547,12 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// blob a reader could once pull out of the clone's object store on demand,
 	// but a tree is a package — multi-file, mode-bearing, and read by machinery
 	// (skill materialization, hook enumeration) that takes a real directory, not
-	// bytes. So installTree's materialized directory is the only LocalPath a
-	// bundle ever gets; nothing here is a synthetic informational string
-	// anymore. The install root is the CACHE (gitignored, regenerable): the pin
-	// in the lockfile stays the authority, and this tree is derived from it.
+	// bytes. So the checked-out worktree is the only LocalPath a bundle ever
+	// gets; nothing here is a synthetic informational string anymore. The
+	// checkout lands in the CACHE (gitignored, regenerable): the pin in the
+	// lockfile stays the authority, and the worktree is checked out from it.
 	// A DOCUMENT CANNOT BE PULLED. Only a tree materializes, and every read
-	// path resolves what installTree writes — so accepting a single-file item
+	// path resolves the worktree — so accepting a single-file item
 	// here records a pin whose content nothing can ever read, and reports
 	// success doing it. Refuse where the shape is still visible.
 	if item.tree == nil {

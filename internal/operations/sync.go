@@ -869,9 +869,9 @@ func isInstalled(ctx context.Context, ref, baseDir string, bundles remote.Bundle
 	// The byte read above proves the bytes are reachable in the CLONE. That was
 	// the whole of installed-ness in the reference-only model, where nothing
 	// lived on disk. A tree layout breaks that equivalence: consumers read a
-	// tree from the cache directory Puller.installTree writes, and a skill needs
-	// a real directory there, so a bundle can be perfectly readable from the
-	// clone and still be unusable.
+	// tree from the git worktree Reference.LocalTreePath names, and a skill
+	// needs a real directory there, so a bundle can be perfectly readable from
+	// the clone and still be unusable.
 	//
 	// Answering the clone question here is what made a format change
 	// un-installable: sync skipped every bundle whose pin had not moved, the

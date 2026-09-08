@@ -71,9 +71,9 @@ func TestPushBundleCfg_LocallySignedBundle_PlainPushCarriesTheSignature(t *testi
 	cmd, out := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false))
 
-	main, published := pub.files[".ctxloom/content/bundles/v2/for-push.yaml"]
+	main, published := pub.files[".ctxloom/content/bundles/v2/for-push"]
 	require.True(t, published, "the bundle itself is published")
-	sig, sigPublished := pub.files[".ctxloom/content/bundles/v2/for-push.yaml.sig"]
+	sig, sigPublished := pub.files[".ctxloom/content/bundles/v2/for-push.sig"]
 	require.True(t, sigPublished, "the author's signature travels with the bundle")
 	assert.Equal(t, armored, sig, "carried byte-for-byte, never re-signed")
 	assert.NoError(t, signing.CoversBytes(main, sig, signing.NamespacePublish),
@@ -140,8 +140,8 @@ func TestPushBundleCfg_StaleLocalSignature_SignFlagResignsAndProceeds(t *testing
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", true, false))
 
-	main := pub.files[".ctxloom/content/bundles/v2/for-push.yaml"]
-	sig, ok := pub.files[".ctxloom/content/bundles/v2/for-push.yaml.sig"]
+	main := pub.files[".ctxloom/content/bundles/v2/for-push"]
+	sig, ok := pub.files[".ctxloom/content/bundles/v2/for-push.sig"]
 	require.True(t, ok)
 	assert.Equal(t, edited, main)
 	assert.NoError(t, signing.CoversBytes(main, sig, signing.NamespacePublish))
@@ -172,8 +172,8 @@ func TestPushBundleCfg_UnsignedBundle_PromotesSuccessfully(t *testing.T) {
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false))
 
-	_, published := pub.files[".ctxloom/content/bundles/v2/for-push.yaml"]
+	_, published := pub.files[".ctxloom/content/bundles/v2/for-push"]
 	assert.True(t, published, "promoting unsigned content is supported by design — the consumer reviews it")
-	_, sigPublished := pub.files[".ctxloom/content/bundles/v2/for-push.yaml.sig"]
+	_, sigPublished := pub.files[".ctxloom/content/bundles/v2/for-push.sig"]
 	assert.False(t, sigPublished)
 }

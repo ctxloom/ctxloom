@@ -1,14 +1,18 @@
 package cli
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // DIRECTORY-FORM BUNDLES. A bundle exists in two shapes: `<name>.yaml`
@@ -49,15 +53,38 @@ func writeDirFormBundle(t *testing.T, cfg *config.Config, name string) string {
 	return manifest
 }
 
-func TestPushBundleCfg_DirectoryFormBundle_IsRefusedUnderADocumentLayout(t *testing.T) {
+// TestPushBundleCfg_DirectoryFormBundle_PublishesTheWholeTreeAndCarriesTheSidecar
+// REPLACES the refusal this shape used to get: PushBundle's treeForm branch
+// (runTreePush) now publishes a directory-form bundle instead of refusing it
+// (format v2 holds only trees), so a refusal here would assert something false
+// about current production. What survives from this file's own stated
+// purpose — "what does the sidecar cover for a directory-form bundle, and
+// does carry handle it?" — is proven directly: sign the manifest on disk
+// (exactly what `ctxloom bundle sign` leaves behind), push, and check that the
+// signature travels alongside the WHOLE tree, not just the manifest.
+func TestPushBundleCfg_DirectoryFormBundle_PublishesTheWholeTreeAndCarriesTheSidecar(t *testing.T) {
 	cfg, pub, mgr := pushSignTestSetup(t)
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
-	writeDirFormBundle(t, cfg, "dir-form")
+	manifest := writeDirFormBundle(t, cfg, "dir-form")
+
+	manifestBytes, err := os.ReadFile(manifest)
+	require.NoError(t, err)
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromSigner(priv)
+	require.NoError(t, err)
+	sidecar, err := signing.Sign(manifestBytes, signer, signing.NamespacePublish)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(manifest+".sig", sidecar, 0o644))
 
 	cmd, _ := testCmd()
-	err := pushBundleCfg(cmd, cfg, discoverer, mgr, "dir-form", "", false, "", false, false)
+	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "dir-form", "", false, "", false, false))
 
-	require.Error(t, err, "a directory-form bundle must not publish into a layout that holds single-file documents")
-	assert.Empty(t, pub.files,
-		"REFUSING means writing NOTHING: a partial tree under a document's name is bytes no reader looks for")
+	const root = ".ctxloom/content/bundles/v2/dir-form"
+	assert.Equal(t, manifestBytes, pub.files[root+"/bundle.yaml"],
+		"the manifest travels at the tree's own root, verbatim")
+	assert.Equal(t, sidecar, pub.files[root+"/bundle.yaml.sig"],
+		"the sidecar signed over the manifest is carried, not dropped")
+	assert.Contains(t, pub.files, root+"/skills/greet/SKILL.md",
+		"the whole tree travels — a skill left behind is a bundle that loads with an item silently missing")
 }

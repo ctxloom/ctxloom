@@ -29,9 +29,11 @@ func TestBundlePathSeam_PinsTheFormatRootAndEachShape(t *testing.T) {
 	assert.Equal(t, root, treeBundlesRoot(),
 		"the same root — format v2 is the only layout left")
 
-	// Single-file form: <root>/<name>.yaml
-	assert.Equal(t, root+"/demo.yaml", bundleFilePath("demo"))
-	assert.Equal(t, root+"/bundle-hookprobe.yaml", bundleFilePath("bundle-hookprobe"))
+	// bundleFilePath is now the tree's manifest — the single-file form is
+	// gone, and this name is kept only because the ~40 call sites still read
+	// as "the bundle file" (see bundleFilePath's own doc).
+	assert.Equal(t, root+"/demo/bundle.yaml", bundleFilePath("demo"))
+	assert.Equal(t, root+"/bundle-hookprobe/bundle.yaml", bundleFilePath("bundle-hookprobe"))
 
 	// True-tree form: <root>/<name>, its envelope, and a file inside the tree.
 	assert.Equal(t, root+"/demo", treeBundlePath("demo"))

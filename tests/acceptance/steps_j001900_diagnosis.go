@@ -135,9 +135,15 @@ func j001900Of(w *World) *j001900State {
 	return w.j001900
 }
 
-// j001900BundleYAML renders the runbook bundle at a given version carrying content
-// as the deploy process. Ordered, literal YAML for the same reason J001600 does it:
-// these exact bytes are what gets signed.
+// j001900EnvelopeYAML renders the runbook's TREE envelope at a given version —
+// no inline item keys: the deploy process lives in a file beside it
+// (j001900FragmentBody), because a remote bundle is read through ReadTree
+// (internal/bundles/tree_read.go's readEnvelope), which REFUSES an envelope
+// that still declares items inline. An inline-declaring bundle.yaml signs
+// cleanly (operations.signBundleTree does not care) and PULLS cleanly (nothing
+// probes the envelope's content before installing the tree), but every
+// materialize afterwards fails — so this has to be a true tree from the start,
+// not something discovered by running the scenario.
 //
 // The VERSION is a parameter because it is what makes a republish an actual
 // PIN ADVANCE. Measured while writing this journey: editing a bundle's content
@@ -145,11 +151,25 @@ func j001900Of(w *World) *j001900State {
 // advances to, so the consumer keeps receiving the previous copy and the whole
 // attestation boundary is never reached. B2's silent-loss mode is explicitly
 // "withheld silently ON PIN ADVANCE", so the fixture has to produce one.
-func j001900BundleYAML(version, content string) string {
-	return fmt.Sprintf("version: %q\nfragments:\n  %s:\n    content: %q\n", version, j001900Fragment, content)
+func j001900EnvelopeYAML(version string) string {
+	return fmt.Sprintf("version: %q\n", version)
+}
+
+// j001900FragmentBody renders the deploy-process fragment FILE, front-matter
+// plus body — the same shape steps_j001400_bundle_distribution.go's
+// j001400AuthoredTree uses for its fragments, since both are read by the same
+// tree reader.
+func j001900FragmentBody(content string) string {
+	return fmt.Sprintf("---\ndescription: J001900 deploy process\n---\n\n%s\n", content)
 }
 
 func j001900BundlePath() string { return bundleFilePath(j001900Bundle) }
+
+// j001900FragmentPath is the deploy-process fragment's path inside the
+// runbook's own tree.
+func j001900FragmentPath() string {
+	return treeBundleItemPath(j001900Bundle, "fragments/"+j001900Fragment+".md")
+}
 
 // j001900Setup is the Background: a hermetic project with one engine, a seed
 // bundle and a "default" profile, plus Carol's signing key live in an
@@ -190,16 +210,28 @@ func j001900Setup(w *World) error {
 }
 
 // j001900WriteAuthored writes the runbook into the authored tree at version
-// 1.0.0 — Friday's copy, and the one every locally-authored scenario uses.
+// 1.0.0 — Friday's copy, and the one every locally-authored scenario uses. The
+// envelope carries no items; the deploy process lives in the fragment file
+// beside it (see j001900EnvelopeYAML).
 func j001900WriteAuthored(w *World, content string) error {
-	return w.env.WriteFile(j001900BundlePath(), j001900BundleYAML("1.0.0", content))
+	if err := w.env.WriteFile(j001900BundlePath(), j001900EnvelopeYAML("1.0.0")); err != nil {
+		return err
+	}
+	return w.env.WriteFile(j001900FragmentPath(), j001900FragmentBody(content))
 }
 
 // j001900WriteRevised writes Carol's revision at a HIGHER version, so republishing
 // it is a genuine pin advance rather than a byte change the consumer's lock
-// never moves to. See j001900BundleYAML.
+// never moves to. See j001900EnvelopeYAML. It touches the SAME two files
+// j001900WriteAuthored wrote — this is what makes "never re-signs it" a real
+// planted cause: the tree's SHA256SUMS/.sigs (or single-document .sig sibling)
+// a prior `bundle sign` produced are left on disk, now stale against the
+// revised fragment.
 func j001900WriteRevised(w *World, content string) error {
-	return w.env.WriteFile(j001900BundlePath(), j001900BundleYAML("1.1.0", content))
+	if err := w.env.WriteFile(j001900BundlePath(), j001900EnvelopeYAML("1.1.0")); err != nil {
+		return err
+	}
+	return w.env.WriteFile(j001900FragmentPath(), j001900FragmentBody(content))
 }
 
 // j001900LockedName is the name the runbook carries in the active lockfile once it
@@ -207,9 +239,18 @@ func j001900WriteRevised(w *World, content string) error {
 // `deps hold` resolves against.
 func j001900LockedName() string { return "team/" + j001900Bundle }
 
-// j001900PublishFromDisk publishes exactly what is on disk — bundle bytes plus
-// whatever `.sig` sibling is (or is not) beside them — into the team remote,
+// j001900PublishFromDisk publishes the WHOLE authored tree — the envelope, the
+// fragment file, and whatever attestation `bundle sign` produced (the tree's
+// SHA256SUMS/.sigs, and its bundle.yaml.sig sibling) — into the team remote,
 // then hands the authoring copy off out of the project.
+//
+// It publishes a TREE, not a document: `deps pull` refuses a single-file
+// bundle outright now (nothing materializes a document — see
+// remote.Puller.installPulledItem), so a real remote layout has to be a
+// directory at remoteSingleFilePublishPath(name) holding bundle.yaml, not a
+// blob AT that path. remoteSingleFilePublishPath and treeBundlePath are the
+// SAME expression by value (bundle_paths.go's doc), so the two names below
+// are one root.
 //
 // The hand-off is load-bearing, for the reason steps_j001600_signing.go's
 // j001600SeedFromDisk documents: one hermetic project plays both the publishing
@@ -219,29 +260,37 @@ func j001900LockedName() string { return "team/" + j001900Bundle }
 // nothing.
 func j001900PublishFromDisk(w *World) error {
 	st := j001900Of(w)
-	rel := j001900BundlePath()
-	body, err := w.env.ReadFile(rel)
-	if err != nil {
-		return fmt.Errorf("read authored runbook to publish: %w", err)
+	localDir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(treeBundlePath(j001900Bundle)))
+	remoteRoot := remoteSingleFilePublishPath(j001900Bundle)
+
+	files := map[string]string{}
+	walkErr := filepath.WalkDir(localDir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, rerr := filepath.Rel(localDir, p)
+		if rerr != nil {
+			return rerr
+		}
+		data, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return rerr
+		}
+		files[remoteRoot+"/"+filepath.ToSlash(rel)] = string(data)
+		return nil
+	})
+	if walkErr != nil {
+		return fmt.Errorf("collect the authored %q tree to publish: %w", j001900Bundle, walkErr)
 	}
-	// The REMOTE path is remoteSingleFilePublishPath's, not rel: rel is where
-	// the authoring copy sits locally (format v1, a single file, by
-	// construction — see bundle_paths.go), but a publish always lands under
-	// whatever format is CURRENT, which the two prefixes name identically only
-	// while RepoItemPrefix itself equals LayoutV1.
-	remotePath := remoteSingleFilePublishPath(j001900Bundle)
-	files := map[string]string{remotePath: body}
-	// The signature is published only if one exists — "published without a
-	// signature" is a cause this journey deliberately plants.
-	if sig, serr := w.env.ReadFile(rel + ".sig"); serr == nil {
-		files[remotePath+".sig"] = sig
+	if len(files) == 0 {
+		return fmt.Errorf("the authored %q tree at %s holds no files to publish", j001900Bundle, localDir)
 	}
 
-	for _, p := range []string{rel, rel + ".sig"} {
-		full := filepath.Join(w.env.ProjectDir, filepath.FromSlash(p))
-		if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("hand off authored %s: %w", p, err)
-		}
+	if err := os.RemoveAll(localDir); err != nil {
+		return fmt.Errorf("hand off the authored %q tree: %w", j001900Bundle, err)
 	}
 
 	if st.bare == "" {

@@ -30,35 +30,38 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
-// The FORMAT root each fixture family is authored into.
+// The FORMAT root every fixture family is authored into.
 //
-// A bundles root's `v` segment is the FORMAT VERSION, and PLACEMENT FOLLOWS
-// FORMAT, NOT FILE SHAPE. Format v1 holds single-file documents AND directories
-// that still carry INLINE item keys; format v2 holds TRUE TREES only — no
-// inline item keys, every item a file. A DIRECTORY IS NOT A TREE, and getting
-// that backwards is not hypothetical: a previous attempt at this relocation
-// filed an inline-key directory under v2 purely because it was a directory,
-// which asserts a migration that never happened.
-//
-// The predicate is bundles.BundleLayoutFor — the same one the READ path uses to
-// decide whether to open a tree — so a fixture's root is decided by exactly what
-// decides a real bundle's.
-//
-// The three families here are therefore three DIFFERENT formats, not three
-// spellings of one:
+// Format v1 is gone: there is now exactly ONE format root, and placement no
+// longer distinguishes shapes by root. What used to be three DIFFERENT format
+// roots (a single-file document under v1, a true tree under v2, an
+// inline-declaring directory also under v1) are now three SHAPES sharing the
+// same one — bundles.BundleLayoutFor, the predicate the read path itself uses,
+// resolves every one of them to paths.LayoutV2, because that is the only
+// layout left to resolve to. treeFormEnvelope (not the root) is still what
+// decides whether a directory is read as a tree or as the retired inline
+// document form, so getting a fixture's SHAPE right (a bare "<name>.yaml"
+// file, vs a directory whose bundle.yaml still declares items inline, vs a
+// true tree with item files) still matters exactly as much as it always did —
+// only the ROOT question is gone. A previous attempt at the v1 removal filed
+// an inline-key directory as though shape and root were the same fact, which
+// is exactly the bug treeFormEnvelope exists to prevent; the shape helpers
+// below stay separate, spelling separate constructions, even though their
+// roots have collapsed into one.
 const (
-	// singleFileBundleLayout: <name>.yaml. A single file is a document, so it
-	// is format v1 by construction and no envelope inspection is needed.
-	singleFileBundleLayout = paths.LayoutV1
+	// singleFileBundleLayout: <name>.yaml, a bare document. The only format
+	// root left.
+	singleFileBundleLayout = paths.LayoutV2
 
 	// treeBundleLayout: <name>/bundle.yaml declaring NO inline item keys, with
-	// the items in files beside it. This is what format v2 means.
+	// the items in files beside it. This is what "true tree" means.
 	treeBundleLayout = paths.LayoutV2
 
 	// inlineDirBundleLayout: <name>/bundle.yaml that still declares its items
-	// INLINE. It is a directory, and it is format v1 — the wrapper is not the
-	// format.
-	inlineDirBundleLayout = paths.LayoutV1
+	// INLINE — the retired document form in a directory wrapper. Still read
+	// (readLocalTreeForm's "unchanged" half), still a live shape a fixture may
+	// need, just no longer filed under a second root.
+	inlineDirBundleLayout = paths.LayoutV2
 )
 
 // singleFileBundlesRoot is the repo-relative directory holding SINGLE-FILE
@@ -68,7 +71,10 @@ func singleFileBundlesRoot() string {
 }
 
 // treeBundlesRoot is the repo-relative directory holding TRUE-TREE authored
-// bundles.
+// bundles. Identical to singleFileBundlesRoot's value now (see the const
+// block's doc) — kept as its own name because callers are asserting a SHAPE,
+// and a reader must be able to tell which shape a call site means without
+// chasing both names back to one constant.
 func treeBundlesRoot() string {
 	return paths.RepoBundlesPrefixFor(treeBundleLayout)
 }
@@ -80,20 +86,27 @@ func bundleFilePath(name string) string {
 }
 
 // remoteSingleFilePublishPath is where a real `ctxloom bundle push` lands a
-// SINGLE-FILE bundle on a remote repo — remote.PublishPath's answer, which is
-// remote.RepoItemPrefix's CURRENT format root regardless of the bundle's own
-// content shape.
+// bundle on a remote repo — remote.PublishPath's answer.
 //
-// This is NOT bundleFilePath. bundleFilePath names singleFileBundlesRoot —
-// format v1, because a single file IS that format by construction (see this
-// file's package doc) — but a publish always writes under whichever format is
-// CURRENT, not under the format the content happens to already be in. The two
-// prefixes coincided only while RepoItemPrefix itself equalled LayoutV1; once
-// it names a later format, a fixture that hand-seeds a bare remote
-// (SeedRemote/AdvanceRemote/SeedSignedRemote/AdvanceSignedRemote/
-// UnpublishFromRemote) and reuses bundleFilePath for the REMOTE side writes
-// where a real push never would, and any consumer fetch — which goes through
-// the same RepoItemPrefix — finds nothing there.
+// The name is a holdover from when this differed from the tree path; it no
+// longer does. remote.PublishPath composes ONE path per bundle name
+// regardless of shape — RepoItemPath's leaf carries no extension for any
+// bundle now (paths.BundleLayout.ItemFileName(LayoutV2) returns the bare
+// name) — so this is BY VALUE the same expression as treeBundlePath(name).
+// The two names are kept separate for the same reason singleFileBundlesRoot
+// and treeBundlesRoot are: a call site naming this one is asserting "this is
+// where a PUBLISH lands", not "this is a tree's own root", even though today
+// they resolve to the same bytes.
+//
+// A body written raw at this path (no "/bundle.yaml" suffix, no manifest) is
+// exactly what a real single-file `bundle push` produces, and it remains
+// FETCHABLE: internal/remote's Puller.fetchItemBytes tries a single file at
+// exactly this composed path first, before ever probing for a tree, which is
+// the mechanism `ctxloom deps pull`/`remote sync` exercise. It is NOT
+// reachable through remote.BundleReader.ReadBundleBytes, which internal/config
+// uses for a different, now-dead read path (see that package's v1-removal
+// commit) — a fixture seeded here is honest input for a PULL-shaped journey,
+// not for anything that reads through BundleReader directly.
 func remoteSingleFilePublishPath(name string) string {
 	return remote.PublishPath(remote.ItemTypeBundle, name)
 }
@@ -117,8 +130,12 @@ func treeBundleItemPath(name, rel string) string {
 	return path.Join(treeBundlePath(name), rel)
 }
 
-// inlineDirBundlePath is the repo-relative directory of a DIRECTORY-WRAPPED
-// FORMAT-V1 bundle: one whose bundle.yaml still declares its items inline.
+// inlineDirBundlePath is the repo-relative directory of a DIRECTORY-WRAPPED,
+// still-inline-declaring bundle: one whose bundle.yaml still declares its
+// items inline. Identical to treeBundlePath's value now (see the const
+// block's doc) — kept separate because a call site naming this one is
+// asserting the RETIRED shape, not a true tree, even though both sit under
+// the same root today.
 func inlineDirBundlePath(name string) string {
 	return path.Join(paths.RepoBundlesPrefixFor(inlineDirBundleLayout), name)
 }

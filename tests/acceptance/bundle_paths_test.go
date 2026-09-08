@@ -11,60 +11,56 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// TestBundlePathSeam_PinsEachFamilysFormatRoot pins the literal path each
-// fixture family is written to, per FORMAT.
+// TestBundlePathSeam_PinsTheFormatRootAndEachShape pins the literal path each
+// fixture family is written to.
 //
 // The corpus previously built these paths as hand-written string literals at
 // ~60 sites, and routing them through the seam was only safe because the seam
-// emitted byte-identical paths. The relocation has now landed, so the literals
-// pinned here are the NEW ones — and they are pinned for the same reason as
-// before: a seam that silently starts pointing somewhere else must redden the
-// fast gate rather than 200-odd acceptance steps an hour later.
-//
-// PLACEMENT FOLLOWS FORMAT, NOT FILE SHAPE. The v1 root holds single-file
-// documents and directories that still carry inline item keys; the v2 root
-// holds true trees only.
-func TestBundlePathSeam_PinsEachFamilysFormatRoot(t *testing.T) {
+// emitted byte-identical paths. Format v1 is gone, so there is exactly ONE
+// format root left — the pin below is what would redden if the seam silently
+// grew a second one, or silently stopped deriving from internal/paths.
+func TestBundlePathSeam_PinsTheFormatRootAndEachShape(t *testing.T) {
 	t.Parallel()
 
-	const v1Root = ".ctxloom/content/bundles/v1"
-	const v2Root = ".ctxloom/content/bundles/v2"
+	const root = ".ctxloom/content/bundles/v2"
 
-	assert.Equal(t, v1Root, singleFileBundlesRoot(),
-		"a single-file document is format v1")
-	assert.Equal(t, v2Root, treeBundlesRoot(),
-		"a true tree is format v2")
+	assert.Equal(t, root, singleFileBundlesRoot(),
+		"the single (only) format root")
+	assert.Equal(t, root, treeBundlesRoot(),
+		"the same root — format v2 is the only layout left")
 
-	// Single-file form: <v1>/<name>.yaml
-	assert.Equal(t, v1Root+"/demo.yaml", bundleFilePath("demo"))
-	assert.Equal(t, v1Root+"/bundle-hookprobe.yaml", bundleFilePath("bundle-hookprobe"))
+	// Single-file form: <root>/<name>.yaml
+	assert.Equal(t, root+"/demo.yaml", bundleFilePath("demo"))
+	assert.Equal(t, root+"/bundle-hookprobe.yaml", bundleFilePath("bundle-hookprobe"))
 
-	// True-tree form: <v2>/<name>, its envelope, and a file inside the tree.
-	assert.Equal(t, v2Root+"/demo", treeBundlePath("demo"))
-	assert.Equal(t, v2Root+"/demo/bundle.yaml", treeBundleManifestPath("demo"))
-	assert.Equal(t, v2Root+"/demo/fragments/guidance.md",
+	// True-tree form: <root>/<name>, its envelope, and a file inside the tree.
+	assert.Equal(t, root+"/demo", treeBundlePath("demo"))
+	assert.Equal(t, root+"/demo/bundle.yaml", treeBundleManifestPath("demo"))
+	assert.Equal(t, root+"/demo/fragments/guidance.md",
 		treeBundleItemPath("demo", "fragments/guidance.md"))
 
-	// A DIRECTORY IS NOT A TREE: a bundle.yaml that still declares its items
-	// inline is format v1, and it goes under the v1 root WITH the single files.
-	assert.Equal(t, v1Root+"/demo", inlineDirBundlePath("demo"))
-	assert.Equal(t, v1Root+"/demo/bundle.yaml", inlineDirBundleManifestPath("demo"))
+	// Inline-declaring directory form: same root, same shape as a true tree at
+	// the PATH level — treeFormEnvelope tells the two apart by the envelope's
+	// own content (whether it still declares items inline), never by path.
+	assert.Equal(t, root+"/demo", inlineDirBundlePath("demo"))
+	assert.Equal(t, root+"/demo/bundle.yaml", inlineDirBundleManifestPath("demo"))
 }
 
-// TestBundlePathSeam_FormatDecidesTheRootNotTheShape is the assertion the
-// previous attempts at this relocation would have failed.
-//
-// The two DIRECTORY families must not share a root: one is a true tree and one
-// is an inline-key directory, and filing the second under v2 because it happens
-// to be a directory asserts a migration that never happened. The inline-key
-// directory belongs with the single-file documents, because both are format v1.
-func TestBundlePathSeam_FormatDecidesTheRootNotTheShape(t *testing.T) {
+// TestBundlePathSeam_EveryFamilyDerivesFromTheSameProductionRoot is the
+// assertion that replaces what the previous (v1-holding) attempts at this
+// relocation got wrong in two different ways: routing content into a SECOND
+// root that does not exist, or filing a directory under the tree root purely
+// because it is a directory (asserting a migration — inline items becoming
+// real item files — that never happened for that fixture). With one format
+// left, both failure modes collapse to the same check: every family's root
+// must be the SAME expression, derived from internal/paths, never restated.
+func TestBundlePathSeam_EveryFamilyDerivesFromTheSameProductionRoot(t *testing.T) {
 	t.Parallel()
 
-	assert.NotEqual(t, treeBundlesRoot(), singleFileBundlesRoot(),
-		"the tree format and the document format are different roots")
-	assert.Equal(t, singleFileBundlesRoot(), paths.RepoBundlesPrefixFor(inlineDirBundleLayout),
-		"an inline-key directory is format v1, so it shares the v1 root with single-file documents")
-	assert.Equal(t, paths.RepoBundlesPrefixFor(paths.LayoutV1), singleFileBundlesRoot(),
-		"the seam must derive its root from internal/paths, not restate it")
+	want := paths.RepoBundlesPrefixFor(paths.LayoutV2)
+	assert.Equal(t, want, singleFileBundlesRoot())
+	assert.Equal(t, want, treeBundlesRoot())
+	assert.Equal(t, want, paths.RepoBundlesPrefixFor(inlineDirBundleLayout))
+	assert.Equal(t, want, paths.RepoBundlesPrefixFor(singleFileBundleLayout))
+	assert.Equal(t, want, paths.RepoBundlesPrefixFor(treeBundleLayout))
 }

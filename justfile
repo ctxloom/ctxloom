@@ -1366,8 +1366,11 @@ test-mutation-pkg PKG *ARGS:
     : > "$marker"
     pkg="$1"; shift
     TMPDIR="{{mutation_tmp}}" gremlins unleash "./$pkg" "$@"
-    # `set -e` above means this line is reached only on a green run.
-    just _sweep-cache "$marker"
+    # NO SWEEP HERE. The build cache is SHARED across every worktree, and a
+    # mutation campaign is long: sweeping when this one finishes deletes objects
+    # a run in another tree may be linking against right now. Only the full
+    # acceptance run sweeps.
+    rm -f "$marker"
 
 # Install gremlins
 test-mutation-install:
@@ -1502,9 +1505,10 @@ test-mutation-cucumber *ARGS:
     if [ "$ratchet" -ne 0 ]; then
         exit "$ratchet"
     fi
-    # Past both guards, so a real score was produced and it did not regress:
-    # sweep what the per-mutant recompiles just added.
-    just _sweep-cache "$marker"
+    # Past both guards, so a real score was produced and it did not regress.
+    # The per-mutant recompiles are NOT swept here: the cache is shared across
+    # worktrees, and deleting mid-campaign is what fails another tree's link.
+    rm -f "$marker"
 
 # Run ONE entry from the mutation target table (see `just test-mutation-entries`).
 # Per-entry is the recommended way to run this: the full table is ~111 minutes,
@@ -1619,8 +1623,20 @@ cache-report LIMIT_GB="40":
 # own trim use, because a cache entry carries no record of which run produced
 # it. GOCACHE is shared (host, gopls, every worktree, every `just _run`
 # container), so this can also evict entries a CONCURRENT run in another tree
-# created. That is a cache miss for that run and nothing worse — a missing
-# entry is never a wrong build.
+# created.
+#
+# THAT IS NOT MERELY A CACHE MISS, and an earlier version of this comment said
+# it was — "a missing entry is never a wrong build". It reasons about a miss at
+# LOOKUP time. A delete that lands mid-LINK, after the linker has already
+# resolved the entry, is a FAILED build in a tree that did nothing wrong:
+#
+#     link: cannot reopen <gocache>/b8/b8421...-d(_x002.o): no such file
+#
+# Which is why only the FULL acceptance run sweeps now. The mutation targets
+# used to sweep when their campaign ended; a campaign is long, and finishing one
+# says nothing about what another worktree is linking at that moment. Narrowing
+# the callers does not make a shared-cache delete safe — it makes it rare. The
+# real fix is still open (see taskloom hefty-magnitude).
 #
 # This only COMPENSATES for the duplication. -trimpath on the test path is the
 # real fix and is already decided; it is blocked on 44 runtime.Caller(0) sites

@@ -115,7 +115,17 @@ func seedSource(w *World, name, kind, item, marker, content string, sign, trustA
 	if err != nil {
 		return nil, err
 	}
-	itemBody := fmt.Sprintf("---\ndescription: J000200 %s\n---\n\n%s\n", item, content)
+	// A COMMAND's front-matter description is its human-facing summary and is
+	// carried through untouched. A FRAGMENT's is not: `description` IS the
+	// fragment's PREMISE (content.ItemMeta.Description — "the item's
+	// applicability condition ... Fragments author this as `premise` in the
+	// single-file format"), so describing one makes it conditionally selected
+	// and withheld from an ordinary assembly. Every fragment seeded here has
+	// its DELIVERY asserted, so it must carry no premise at all.
+	itemBody := content + "\n"
+	if kind != "fragments" {
+		itemBody = fmt.Sprintf("---\ndescription: J000200 %s\n---\n\n%s\n", item, content)
+	}
 
 	var url string
 	if sign {

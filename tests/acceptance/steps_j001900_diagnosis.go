@@ -155,12 +155,15 @@ func j001900EnvelopeYAML(version string) string {
 	return fmt.Sprintf("version: %q\n", version)
 }
 
-// j001900FragmentBody renders the deploy-process fragment FILE, front-matter
-// plus body — the same shape steps_j001400_bundle_distribution.go's
-// j001400AuthoredTree uses for its fragments, since both are read by the same
-// tree reader.
+// j001900FragmentBody renders the deploy-process fragment FILE, read by the
+// same tree reader as steps_j001400_bundle_distribution.go's j001400AuthoredTree.
+//
+// NO front-matter description: a fragment's `description` IS its PREMISE
+// (content.ItemMeta.Description), and a premised fragment is withheld from an
+// ordinary assembly rather than delivered. This journey asserts the deploy
+// guidance ARRIVES, so it must be unconditional.
 func j001900FragmentBody(content string) string {
-	return fmt.Sprintf("---\ndescription: J001900 deploy process\n---\n\n%s\n", content)
+	return content + "\n"
 }
 
 func j001900BundlePath() string { return bundleFilePath(j001900Bundle) }

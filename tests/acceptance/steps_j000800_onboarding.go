@@ -115,8 +115,12 @@ const j000800GuidanceEnvelope = "version: \"1.0.0\"\n"
 // through SeedSignedTreeRemote (the product's own attest.SignBundle, not a
 // hand-rolled manifest).
 func j000800GuidanceTreeItems(content string) map[string]string {
+	// NO front-matter description: a fragment's `description` IS its PREMISE
+	// (content.ItemMeta.Description), which makes the loader select it
+	// conditionally and withhold it from an ordinary assembly. Bob's scenarios
+	// assert this guidance is DELIVERED.
 	return map[string]string{
-		"fragments/guidance.md": fmt.Sprintf("---\ndescription: J000800 guidance\n---\n\n%s\n", content),
+		"fragments/guidance.md": content + "\n",
 	}
 }
 

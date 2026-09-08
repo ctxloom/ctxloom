@@ -408,11 +408,17 @@ func j001600PublishedFragmentPath(fragment string) string {
 	return treeBundleItemPath(j001600PublishedName, "fragments/"+fragment+".md")
 }
 
-// j001600FragmentFileBody renders one fragment FILE — front-matter plus body,
-// the same shape steps_j001400_bundle_distribution.go's j001400AuthoredTree
-// uses, since both are read by the same tree reader.
+// j001600FragmentFileBody renders one fragment FILE, read by the same tree
+// reader as steps_j001400_bundle_distribution.go's j001400AuthoredTree.
+//
+// NO front-matter description. A fragment's `description` IS its PREMISE
+// (content.ItemMeta.Description: "the item's applicability condition ...
+// Fragments author this as `premise` in the single-file format"), so a
+// described fragment is selected CONDITIONALLY — bundles.Pipeline withholds it
+// from an ordinary assembly and indexes it instead. Every scenario here asserts
+// this fragment's unconditional DELIVERY, which a premise makes unreachable.
 func j001600FragmentFileBody(content string) string {
-	return fmt.Sprintf("---\ndescription: J001600 fragment\n---\n\n%s\n", content)
+	return content + "\n"
 }
 
 // j001600WritePublishedBundle writes Trent's flagship bundle as a TRUE TREE:

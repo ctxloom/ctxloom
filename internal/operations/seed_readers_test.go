@@ -69,7 +69,7 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 			// format roots itself, so the document goes in the v1 root — the
 			// bare root is searched by nobody.
 			testsupport.WriteFile(t, projectFS,
-				filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV1), ref+".yaml"), data, 0o644)
+				filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), ref+".yaml"), data, 0o644)
 			local = true
 			continue
 		}

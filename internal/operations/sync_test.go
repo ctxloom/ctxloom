@@ -417,30 +417,51 @@ remotes:
 		"sync pulls must route informational output to stderr, never process stdout")
 }
 
+// markInstalled materializes a bundle's cache tree ON REAL DISK at appDir, so
+// isInstalled's materialization check (os.Stat, hard-coded to the OS
+// filesystem rather than an injectable afero.Fs — see sync.go) can see it.
+// appDir must therefore be a REAL directory (t.TempDir()), never the package's
+// symbolic testBaseDir constant, which os.Stat can never resolve regardless of
+// what content a test wrote through an injected fs.
+//
+// This exists because isInstalled ALSO requires materialization now:
+// "readable in the clone" (the old reference-only model, where nothing lived
+// on disk) stopped being sufficient once the layout writes a real tree. A
+// fakeBundleSource answering readable=true is no longer enough on its own for
+// a test to claim a ref is installed — the directory must actually be there.
+func markInstalled(t *testing.T, appDir, ref string) {
+	t.Helper()
+	parsed, err := remote.ParseReference(ref)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(parsed.LocalTreePath(appDir), 0o755))
+}
+
 // TestSyncDependencies_SkipsExisting verifies incremental sync behavior.
 //
-// By default, sync does NOT re-pull items that are already installed. In the
-// reference-only model nothing lives on disk, so "installed" means the active
-// lockfile holds the canonical ref AND its content is retrievable from the
-// clone cache — the same probe CheckMissingDependencies uses.
+// By default, sync does NOT re-pull items that are already installed:
+// "installed" means the active lockfile holds the canonical ref, its content
+// is retrievable from the clone cache, AND (since a tree layout materializes)
+// its cache directory actually exists on disk — see markInstalled.
 func TestSyncDependencies_SkipsExisting(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	appDir := t.TempDir()
 
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
 		"test": {
 			Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
+	markInstalled(t, appDir, "https://github.com/test/ctxloom@bundles/go-tools")
 
 	puller := &syncMockPuller{}
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
@@ -476,22 +497,24 @@ remotes:
 // scenario, which exercises the same gap end to end through the real CLI.
 func TestSyncDependencies_RetractedInstalledRef(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	appDir := t.TempDir()
 
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
 		"test": {
 			Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
+	markInstalled(t, appDir, "https://github.com/test/ctxloom@bundles/go-tools")
 
 	puller := &syncMockRetractionPuller{retracted: true, reason: "compromised release"}
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
@@ -524,22 +547,24 @@ remotes:
 // nothing would change, see Puller.RecordRetraction).
 func TestSyncDependencies_NotRetractedInstalledRef(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	appDir := t.TempDir()
 
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
 		"test": {
 			Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
+	markInstalled(t, appDir, "https://github.com/test/ctxloom@bundles/go-tools")
 
 	puller := &syncMockRetractionPuller{retracted: false}
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
@@ -570,22 +595,24 @@ remotes:
 // silently defeat the 14-day staleness warning on every subsequent sync.
 func TestSyncDependencies_UnreachableRemoteHonorsFallbackVerdict(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	appDir := t.TempDir()
 
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
 		"test": {
 			Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
+	markInstalled(t, appDir, "https://github.com/test/ctxloom@bundles/go-tools")
 
 	fallbackCheckedAt := time.Now().UTC().Add(-20 * 24 * time.Hour) // stale, but still the truth
 	puller := &syncMockRetractionPuller{
@@ -622,20 +649,22 @@ remotes:
 // but the failure must be visible.
 func TestSyncDependencies_RecordRetractionSaveFailureIsWarnedNotSwallowed(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	appDir := t.TempDir()
 
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
 		"test": {Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"}},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
+	markInstalled(t, appDir, "https://github.com/test/ctxloom@bundles/go-tools")
 
 	puller := &syncMockRetractionPuller{retracted: false, recordErr: fmt.Errorf("lockfile save: disk full")}
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
@@ -665,22 +694,24 @@ remotes:
 // re-pulled on every sync.
 func TestSyncDependencies_SkipCanonicalizesRef(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	appDir := t.TempDir()
 
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
 		"test": {
 			Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools@^1.0"},
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
+	markInstalled(t, appDir, "https://github.com/test/ctxloom@bundles/go-tools")
 
 	puller := &syncMockPuller{}
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
@@ -873,8 +904,9 @@ func (f fakeBundleSource) HasBundle(name string) bool { return f.readable[name] 
 // TestCheckMissingDependencies verifies detection of missing vs installed bundles.
 func TestCheckMissingDependencies(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	appDir := t.TempDir()
 
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
 		"test": {
 			Bundles: []string{
 				"https://github.com/test/forge@bundles/go-tools", // Missing
@@ -883,10 +915,11 @@ func TestCheckMissingDependencies(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
 
-	// One bundle's content is retrievable at its locked address, the other's
-	// is not.
+	// One bundle's content is retrievable at its locked address AND its cache
+	// tree is materialized on disk; the other's is neither.
+	markInstalled(t, appDir, "https://github.com/test/forge@bundles/security")
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/forge@bundles/security": true}}
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
@@ -938,15 +971,17 @@ func TestCheckMissingDependencies_RetiredProfileRefNotOffered(t *testing.T) {
 
 func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	appDir := t.TempDir()
 
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
 		"test": {
 			Bundles: []string{"https://github.com/test/forge@bundles/go-tools"},
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
 
+	markInstalled(t, appDir, "https://github.com/test/forge@bundles/go-tools")
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/forge@bundles/go-tools": true}}
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
@@ -973,14 +1008,17 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 func TestCheckMissingDependencies_BundleProfileParentProbedAsBundle(t *testing.T) {
 	parent := "https://github.com/test/forge@bundles/kit#profiles/dev"
 	bundleKey := "https://github.com/test/forge@bundles/kit"
-	cfgFor := func() *config.Config {
-		return cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
+	cfgFor := func() (*config.Config, string) {
+		appDir := t.TempDir()
+		return cfgWithDirProfiles(t, afero.NewMemMapFs(), appDir, map[string]config.Profile{
 			"test": {Parents: []string{parent}},
-		}, config.Fixture{})
+		}, config.Fixture{}), appDir
 	}
 
 	t.Run("retrievable parent bundle is installed", func(t *testing.T) {
-		result, err := CheckMissingDependencies(context.Background(), cfgFor(), CheckMissingDependenciesRequest{
+		cfg, appDir := cfgFor()
+		markInstalled(t, appDir, bundleKey)
+		result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
 			BundleReader: fakeBundleSource{readable: map[string]bool{bundleKey: true}},
 		})
 		if err != nil {
@@ -992,7 +1030,8 @@ func TestCheckMissingDependencies_BundleProfileParentProbedAsBundle(t *testing.T
 	})
 
 	t.Run("unretrievable parent bundle is missing", func(t *testing.T) {
-		result, err := CheckMissingDependencies(context.Background(), cfgFor(), CheckMissingDependenciesRequest{
+		cfg, _ := cfgFor()
+		result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
 			BundleReader: fakeBundleSource{},
 		})
 		if err != nil {
@@ -1009,8 +1048,9 @@ func TestCheckMissingDependencies_BundleProfileParentProbedAsBundle(t *testing.T
 // no fragment selector), so refs carrying either must still match their entry.
 func TestCheckMissingDependencies_CanonicalizesRefs(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	appDir := t.TempDir()
 
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
 		"test": {
 			Bundles: []string{
 				"https://github.com/test/forge@bundles/go-tools@^1.0",
@@ -1019,8 +1059,10 @@ func TestCheckMissingDependencies_CanonicalizesRefs(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
 
+	markInstalled(t, appDir, "https://github.com/test/forge@bundles/go-tools")
+	markInstalled(t, appDir, "https://github.com/test/forge@bundles/security")
 	reader := fakeBundleSource{readable: map[string]bool{
 		"https://github.com/test/forge@bundles/go-tools": true,
 		"https://github.com/test/forge@bundles/security": true,

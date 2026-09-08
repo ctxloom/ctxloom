@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -281,8 +282,8 @@ func TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads(t *testing.T
 	require.NoError(t, err)
 	require.NoError(t, fsys.MkdirAll(brokenDir, 0o755))
 	// A leading tab is invalid YAML, so ParseBundle rejects this one.
-	require.NoError(t, afero.WriteFile(fsys, filepath.Join(brokenDir, bundles.DirectoryFormManifest),
-		[]byte("\tnot: valid yaml\n"), 0o644))
+	testsupport.WriteFileString(t, fsys, filepath.Join(brokenDir, bundles.DirectoryFormManifest),
+		"\tnot: valid yaml\n", 0o644)
 
 	lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{
 		treeCanonical:   treeEntry(),

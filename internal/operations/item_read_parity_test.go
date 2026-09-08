@@ -9,10 +9,14 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/convert"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -32,9 +36,10 @@ func seedRemoteFragmentFixture(t *testing.T) (cfg *config.Config, canonicalRef, 
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
+	const bundleBody = "version: 1.0.0\ndescription: remote tools bundle\nfragments:\n  helper:\n    content: the remote body\n    no_distill: true\n"
 	require.NoError(t, os.MkdirAll(authoredV2(filepath.Join(repoDir, paths.AppDirName)), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(authoredV2(filepath.Join(repoDir, paths.AppDirName)), "tools.yaml"),
-		[]byte("version: 1.0.0\ndescription: remote tools bundle\nfragments:\n  helper:\n    content: the remote body\n    no_distill: true\n"), 0o644))
+		[]byte(bundleBody), 0o644))
 	_, err = wt.Add(repoV2("tools.yaml"))
 	require.NoError(t, err)
 	commit, err := wt.Commit("seed", &git.CommitOptions{
@@ -53,6 +58,22 @@ func seedRemoteFragmentFixture(t *testing.T) (cfg *config.Config, canonicalRef, 
 		SHA: commit.String(), URL: repoURL, FetchedAt: time.Now().UTC(),
 	})
 	require.NoError(t, lm.Save(lock))
+
+	// Stand in for `deps pull`: install a TRUE TREE at the path
+	// config.treeBundleReader actually reads from — see seedRemoteFixture's
+	// doc in remote_seed_visibility_test.go for why the clone itself is never
+	// read.
+	ref, err := remote.ParseReference(canonicalRef)
+	require.NoError(t, err)
+	installDir := ref.LocalTreePath(appDir)
+	require.NoError(t, os.MkdirAll(installDir, 0o755))
+	src, err := bundles.ParseBundle([]byte(bundleBody))
+	require.NoError(t, err)
+	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(installDir), content.Provenance{RepoURL: repoURL})
+	require.NoError(t, err)
+	require.NoError(t, convert.Convert(context.Background(), store, content.BundleID("tools"), src, convert.Options{}))
+	require.NoError(t, os.WriteFile(filepath.Join(installDir, "bundle.yaml"),
+		[]byte("version: 1.0.0\ndescription: remote tools bundle\n"), 0o644))
 
 	reg, err := remote.NewRegistry(paths.RemotesPath(appDir))
 	require.NoError(t, err)

@@ -51,7 +51,7 @@ func stagedTreeFetcher() remote.FetcherFactory {
 
 func treeProbeLock() *remote.Lockfile {
 	return &remote.Lockfile{Bundles: map[string]remote.LockEntry{
-		treeProbeCanonical: {SHA: treeProbeSHA, URL: treeProbeRepoURL, Tree: true},
+		treeProbeCanonical: {SHA: treeProbeSHA, URL: treeProbeRepoURL},
 	}}
 }
 
@@ -107,12 +107,14 @@ func TestNewBundleReaderForConfig_CarriesTheTreeReadSurface(t *testing.T) {
 
 	lm := remote.NewLockfileManager(appDir)
 	require.NoError(t, lm.Save(treeProbeLock()))
-	// Prove the fixture really records a DIRECTORY-form entry through the
-	// code's own loader; a lockfile that lost the flag would make the
-	// assertion below pass for the wrong reason.
+	// Prove the fixture really round-trips through the code's own loader
+	// before trusting the assertion below. Format v2 publishes only trees —
+	// LockEntry no longer carries a per-pin flag to distinguish document from
+	// directory form, so every lockfile entry IS directory-form, and the only
+	// thing left to prove here is that the entry itself survives a save/load.
 	reloaded, err := lm.Load()
 	require.NoError(t, err)
-	require.True(t, reloaded.Bundles[treeProbeCanonical].Tree, "fixture is not directory-form")
+	require.Contains(t, reloaded.Bundles, treeProbeCanonical, "fixture did not round-trip through the lockfile")
 
 	reader := NewBundleReaderForConfig(config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	require.NotNil(t, reader)

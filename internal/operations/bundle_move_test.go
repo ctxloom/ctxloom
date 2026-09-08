@@ -235,7 +235,7 @@ func TestResolveMoveDest_RemoteNameWinsOverSamePath(t *testing.T) {
 		"default: personal\nremotes:\n  personal:\n    url: https://github.com/example/personal\n    version: v1\n"), 0644))
 	require.NoError(t, fs.MkdirAll("personal", 0755)) // a directory of the same spelling
 
-	dest, err := resolveMoveDest(cfg, fs, "personal", paths.LayoutV1)
+	dest, err := resolveMoveDest(cfg, fs, "personal", paths.LayoutV2)
 	require.NoError(t, err)
 	assert.Equal(t, moveDestRemote, dest.Kind)
 	assert.Equal(t, "personal", dest.Remote)
@@ -245,7 +245,7 @@ func TestResolveMoveDest_PlainDirectory(t *testing.T) {
 	fs, cfg := memMoveFS(t, false)
 	require.NoError(t, fs.MkdirAll("/somewhere/bundles", 0755))
 
-	dest, err := resolveMoveDest(cfg, fs, "/somewhere/bundles", paths.LayoutV1)
+	dest, err := resolveMoveDest(cfg, fs, "/somewhere/bundles", paths.LayoutV2)
 	require.NoError(t, err)
 	assert.Equal(t, moveDestPath, dest.Kind)
 	assert.Equal(t, "/somewhere/bundles", dest.Dir)
@@ -374,10 +374,8 @@ func TestMoveBundle_DirectoryFormWithNoPayloadBesideTheManifest_StillMoves(t *te
 	assert.Equal(t, "moved", res.Status)
 }
 
-// Placement at the DESTINATION follows the moved bundle's own format, read from
-// its envelope — not the format root it happened to be sitting in here. This
-// bundle is authored under the v1 root and is a tree envelope, so the two
-// disagree, which is the only arrangement that can tell the two rules apart.
+// Placement at the DESTINATION follows the moved bundle's own format, read
+// from its envelope, not from anything about where it was found locally.
 //
 // Getting it wrong is silent and unrecoverable: the copy lands under a root the
 // receiving project's reader never searches for that form, at exit 0, with the
@@ -401,9 +399,4 @@ func TestMoveBundle_TreeEnvelope_LandsUnderTheDestinationsV2Root(t *testing.T) {
 	exists, err := afero.Exists(fs, res.Dest)
 	require.NoError(t, err)
 	assert.True(t, exists, "the reported destination must actually hold the bundle")
-
-	v1Root := paths.LocalBundlesPathFor("/other/.ctxloom", paths.LayoutV1)
-	strayed, err := afero.Exists(fs, filepath.Join(v1Root, "bundle.yaml"))
-	require.NoError(t, err)
-	assert.False(t, strayed, "nothing may land under the v1 root")
 }

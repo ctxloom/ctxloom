@@ -22,7 +22,7 @@ func setupUpgrade(t *testing.T) (cfgBase string, ref, identity, c1 string) {
 	baseDir := filepath.Join(tmp, ".ctxloom")
 
 	src := filepath.Join(tmp, "src")
-	c1 = initLocalRepoWithFile(t, src, repoV2("demo.yaml"), "name: demo\n")
+	c1 = initLocalRepoWithFile(t, src, repoV2("demo"), "name: demo\n")
 	ref = "file://" + src + "@bundles/demo" // version-less → track default branch
 	identity = ref
 
@@ -48,7 +48,7 @@ func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	require.Equal(t, c1, e0.SHA)
 
 	// Advance the branch upstream, then upgrade.
-	c2 := addFileToLocalRepo(t, srcDirOf(ref), repoV2("demo2.yaml"), "name: demo2\n")
+	c2 := addFileToLocalRepo(t, srcDirOf(ref), repoV2("demo2"), "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
 	res, err := UpgradeDependencies(ctx, cfg)
@@ -79,7 +79,7 @@ func TestUpgrade_HeldEntryDoesNotAdvance(t *testing.T) {
 	require.True(t, held)
 
 	// Advance upstream, then upgrade — the held entry must not move.
-	c2 := addFileToLocalRepo(t, srcDirOf(ref), repoV2("demo2.yaml"), "name: demo2\n")
+	c2 := addFileToLocalRepo(t, srcDirOf(ref), repoV2("demo2"), "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
 	res, err := UpgradeDependencies(ctx, cfg)
@@ -101,13 +101,13 @@ func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 
 	// Bundle in repo A, referenced by a directory profile.
 	srcA := filepath.Join(tmp, "srcA")
-	a1 := initLocalRepoWithFile(t, srcA, repoV2("demoA.yaml"), "name: demoA\n")
+	a1 := initLocalRepoWithFile(t, srcA, repoV2("demoA"), "name: demoA\n")
 	refA := "file://" + srcA + "@bundles/demoA"
 	writeLocalProfile(t, baseDir, "dirprof", "bundles:\n  - "+refA+"\n")
 
 	// Bundle in repo B, referenced ONLY by an inline config.yaml definition.
 	srcB := filepath.Join(tmp, "srcB")
-	b1 := initLocalRepoWithFile(t, srcB, repoV2("demoB.yaml"), "name: demoB\n")
+	b1 := initLocalRepoWithFile(t, srcB, repoV2("demoB"), "name: demoB\n")
 	refB := "file://" + srcB + "@bundles/demoB"
 
 	cfg := withProfileDefs(t, testConfigWithSCMPath(baseDir), map[string]config.Profile{
@@ -126,7 +126,7 @@ func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 	require.Equal(t, b1, eB0.SHA)
 
 	// Advance repo A and upgrade: the active lock is rewritten from the closure.
-	a2 := addFileToLocalRepo(t, srcA, repoV2("demoA2.yaml"), "name: demoA2\n")
+	a2 := addFileToLocalRepo(t, srcA, repoV2("demoA2"), "name: demoA2\n")
 	require.NotEqual(t, a1, a2)
 
 	res, err := UpgradeDependencies(ctx, cfg)

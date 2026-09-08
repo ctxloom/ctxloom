@@ -22,7 +22,9 @@ import (
 // The v2 case is the regression pin: an install lands under the layout subtree,
 // so relative to the BARE cache/bundles root the first segment is "v2", which is
 // never a registered remote. Rooting at the bare path therefore failed to
-// resolve a remote for every bundle the current code installs.
+// resolve a remote for every bundle the current code installs. With format v1
+// removed there is only one layout left to pin — "every layout" in the name is
+// now "the one layout", not a plural this test iterates.
 func TestRemoteFromCachePath_ResolvesUnderEveryLayout(t *testing.T) {
 	root := t.TempDir()
 	app := filepath.Join(root, ".ctxloom")
@@ -34,7 +36,7 @@ func TestRemoteFromCachePath_ResolvesUnderEveryLayout(t *testing.T) {
 
 	cacheBundles := filepath.Join(app, "cache", "bundles")
 
-	for _, layout := range []string{"v2", "v1"} {
+	for _, layout := range []string{"v2"} {
 		t.Run("a bundle under "+layout+" resolves its remote", func(t *testing.T) {
 			p := filepath.Join(cacheBundles, layout, "personal", "mybundle", "bundle.yaml")
 			name, ok := remoteFromCachePath(cfg, reg, p)

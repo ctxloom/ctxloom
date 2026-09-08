@@ -90,13 +90,18 @@ func j001700Of(w *World) *j001700State {
 	return w.j001700s
 }
 
-// j001700BundleYAML renders the company's bundle manifest carrying one fragment
-// named "guidance" whose content is marker — mirrors j001500BundleYAML exactly
-// (same shape, new marker) rather than reusing J001500's constant, since J001700's
-// content is thematically distinct (an incident runbook, not secure-coding
-// guidance) even though the underlying mechanism is identical.
-func j001700BundleYAML(marker string) string {
-	return fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  guidance:\n    content: %q\n", marker)
+// j001700TreeEnvelope/j001700TreeItems render the company's bundle as a true
+// tree — one fragment named "guidance" whose content is marker — mirroring
+// j001500TreeEnvelope/j001500TreeItems exactly (same shape, new marker)
+// rather than reusing J001500's constant, since J001700's content is
+// thematically distinct (an incident runbook, not secure-coding guidance)
+// even though the underlying mechanism is identical. A tree because `deps
+// pull` refuses a single-file bundle outright now (nothing materializes a
+// document — remote.Puller.installPulledItem).
+const j001700TreeEnvelope = "version: \"1.0.0\"\n"
+
+func j001700TreeItems(marker string) map[string]string {
+	return map[string]string{"fragments/guidance.md": marker}
 }
 
 func registerJ001700Steps(ctx *godog.ScenarioContext) {
@@ -132,8 +137,8 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("generate company signer: %w", err)
 		}
-		rel := remoteSingleFilePublishPath(bundleName)
-		url, err := w.env.SeedSignedRemote(map[string]string{rel: j001700BundleYAML(j001700Marker)}, []string{rel}, signer)
+		root := remoteSingleFilePublishPath(bundleName)
+		url, err := w.env.SeedSignedTreeRemote(root, bundleName, j001700TreeEnvelope, j001700TreeItems(j001700Marker), signer)
 		if err != nil {
 			return fmt.Errorf("seed signed company remote: %w", err)
 		}

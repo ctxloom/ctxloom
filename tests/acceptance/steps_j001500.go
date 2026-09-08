@@ -23,6 +23,8 @@ import (
 	"github.com/cucumber/godog"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
+
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -67,24 +69,32 @@ func j001500Of(w *World) *j001500State {
 	return w.j001500
 }
 
-// j001500BundleYAML renders a bundle manifest carrying one fragment named
-// "guidance" whose content IS marker — the payload this journey's content
-// scenarios assert reached (or was withheld from) the assembled context.
-func j001500BundleYAML(marker string) string {
-	return fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  guidance:\n    content: %q\n", marker)
-}
+// j001500TreeEnvelope is every j001500 fixture's tree envelope — no inline
+// item keys, because `deps pull` refuses a single-file bundle outright now
+// (nothing materializes a document — remote.Puller.installPulledItem) and a
+// remote tree bundle is read through internal/bundles/tree_read.go's
+// readEnvelope, which refuses one that still declares items inline.
+const j001500TreeEnvelope = "version: \"1.0.0\"\n"
 
-// j001500BundleYAMLWithExec is j001500BundleYAML plus an MCP server and a session-start
-// hook, each carrying its own distinctive marker in its command — the payload
-// the executable-trust-gate scenarios (3, 4) assert reached (or was withheld
-// from) the GENERATED settings files (.mcp.json / .claude/settings.json),
-// distinct from the content-delivery path.
-func j001500BundleYAMLWithExec(marker string) string {
-	return fmt.Sprintf(
-		"version: \"1.0.0\"\nfragments:\n  guidance:\n    content: %q\n"+
-			"mcp:\n  demo-server:\n    command: %q\n    args: [%q]\n"+
-			"hooks:\n  session_start:\n    - command: %q\n      type: command\n",
-		marker, "/bin/echo", j001500MCPMarker, j001500HookMarker)
+// j001500TreeItems builds the item-file map for a j001500 bundle: one
+// fragment named "guidance" whose content IS marker — the payload this
+// journey's content scenarios assert reached (or was withheld from) the
+// assembled context — and, when withExec is true, an MCP server and a
+// session-start hook, each carrying its own distinctive marker in its
+// command, for scenarios 3/4's executable-trust-gate assertions against the
+// GENERATED settings files (.mcp.json / .claude/settings.json).
+//
+// The fragment body carries no trailing newline: j001500's content
+// assertions are substring checks (tolerant either way), but staying
+// consistent with steps_trust_surface.go's tsFullTreeItems — which learned
+// the hard way that an exact content-hash lookup is not — costs nothing here.
+func j001500TreeItems(marker string, withExec bool) map[string]string {
+	items := map[string]string{"fragments/guidance.md": marker}
+	if withExec {
+		items["mcp/demo-server.yaml"] = fmt.Sprintf("command: %q\nargs: [%q]\n", "/bin/echo", j001500MCPMarker)
+		items["hooks/session_start/guard.yaml"] = fmt.Sprintf("type: command\ncommand: %q\n", j001500HookMarker)
+	}
+	return items
 }
 
 // j001500WireReference adds the company's remote and references its bundle from
@@ -196,8 +206,8 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("generate company signer: %w", err)
 		}
 		j001500.signer = signer
-		rel := remoteSingleFilePublishPath(bundleName)
-		url, err := w.env.SeedSignedRemote(map[string]string{rel: j001500BundleYAML(j001500CompanyMarker)}, []string{rel}, signer)
+		root := remoteSingleFilePublishPath(bundleName)
+		url, err := w.env.SeedSignedTreeRemote(root, bundleName, j001500TreeEnvelope, j001500TreeItems(j001500CompanyMarker, false), signer)
 		if err != nil {
 			return fmt.Errorf("seed signed company remote: %w", err)
 		}
@@ -251,12 +261,14 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Mallory alters the company's secure-coding bundle after it was signed$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001500 := j001500Of(w)
-		rel := remoteSingleFilePublishPath(j001500.bundleName)
-		// AdvanceRemote (not AdvanceSignedRemote): the bytes change but the OLD
-		// ".sig" sibling — signed over the ORIGINAL content — survives
-		// untouched, so it no longer verifies over these new bytes. That
-		// mismatch IS signing.ErrSignatureTampered.
-		if err := w.env.AdvanceRemote(j001500.bare, map[string]string{rel: j001500BundleYAML(j001500TamperedMarker)}); err != nil {
+		root := remoteSingleFilePublishPath(j001500.bundleName)
+		// AdvanceRemote (not AdvanceSignedTreeRemote): the fragment file's
+		// bytes change but the OLD SHA256SUMS/.sigs — signed over the
+		// ORIGINAL content — survive untouched, so they no longer cover these
+		// new bytes. That mismatch is what attest.VerifyBundle's Contents
+		// check (and, for a local read, treeIntegrityFacts) reports as
+		// tampering — the tree-form analogue of a stale detached `.sig`.
+		if err := w.env.AdvanceRemote(j001500.bare, map[string]string{root + "/fragments/guidance.md": j001500TamperedMarker}); err != nil {
 			return fmt.Errorf("advance remote with tampered content: %w", err)
 		}
 		// Wire (but do not pull) the reference: scenario 2 has no antecedent
@@ -293,16 +305,21 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		// actually ran the materialize whose output this checks, so it — not
 		// this Then — got the automatic CLIOutput attribution.
 		w.docStepMaterialized = strings.TrimSpace(out)
-		// The warning has to say the SIGNATURE is the problem, and it has to
-		// name the item — "something was withheld" is not a diagnosis. The
-		// wording is the trust filter's single rendering of the tampered
-		// verdict (bundles.Reason.Explain), so this is the one place the
-		// user-facing sentence for the §10.2 downgrade is asserted end to end.
-		if !strings.Contains(out, "signature does not cover these bytes") {
-			return fmt.Errorf("materialize output does not warn that the signature does not cover the content's bytes; output:\n%s", out)
+		// The warning has to say the ATTESTATION is the problem, and it has to
+		// name the item — "something was withheld" is not a diagnosis. For a
+		// TREE bundle (this fixture) the wording is ErrTreeBundleWithheld's
+		// (internal/bundles/reader_repofs.go's verifyTree, wrapping
+		// attest.VerifyBundle's Contents mismatch), not bundles.Reason.Explain's
+		// per-item ReasonTampered rendering: a tree-form tamper is caught at
+		// BUNDLE LOAD, before any item is individually classified, so the
+		// whole bundle fails to load rather than one item being withheld —
+		// a genuine architectural difference from the single-document form,
+		// not a wording preference.
+		if !strings.Contains(out, "does not match what was signed") {
+			return fmt.Errorf("materialize output does not warn that the tree's content does not match what was signed; output:\n%s", out)
 		}
-		if !strings.Contains(out, "#fragments/guidance") {
-			return fmt.Errorf("materialize output does not name the withheld item; output:\n%s", out)
+		if !strings.Contains(out, "fragments/guidance.md") {
+			return fmt.Errorf("materialize output does not name the altered file; output:\n%s", out)
 		}
 		return nil
 	})
@@ -312,8 +329,8 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the company's bundle ships an MCP server and a hook$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001500 := j001500Of(w)
-		rel := remoteSingleFilePublishPath(j001500.bundleName)
-		if err := w.env.AdvanceSignedRemote(j001500.bare, map[string]string{rel: j001500BundleYAMLWithExec(j001500CompanyMarker)}, []string{rel}, j001500.signer); err != nil {
+		root := remoteSingleFilePublishPath(j001500.bundleName)
+		if err := w.env.AdvanceSignedTreeRemote(j001500.bare, root, j001500.bundleName, j001500TreeEnvelope, j001500TreeItems(j001500CompanyMarker, true), j001500.signer); err != nil {
 			return fmt.Errorf("advance remote with mcp+hook: %w", err)
 		}
 		return j001500EnsureReferenced(w)
@@ -412,8 +429,8 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 			{"extra-a", j001500ExtraMarkerA},
 			{"extra-b", j001500ExtraMarkerB},
 		} {
-			rel := remoteSingleFilePublishPath(extra.name)
-			url, err := w.env.SeedSignedRemote(map[string]string{rel: j001500BundleYAML(extra.marker)}, []string{rel}, j001500.signer)
+			root := remoteSingleFilePublishPath(extra.name)
+			url, err := w.env.SeedSignedTreeRemote(root, extra.name, j001500TreeEnvelope, j001500TreeItems(extra.marker, false), j001500.signer)
 			if err != nil {
 				return fmt.Errorf("seed signed extra bundle %q: %w", extra.name, err)
 			}
@@ -488,8 +505,12 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		// One unsigned, untrusted pending item so `review --project` has
 		// something to act on: an empty pending set short-circuits ("Nothing is
 		// pending review.") before ever resolving a signer.
-		rel := remoteSingleFilePublishPath("bystander")
-		url, err := w.env.SeedRemote(map[string]string{rel: j001500BundleYAML(j001500ForgeryMarker)})
+		root := remoteSingleFilePublishPath("bystander")
+		files := map[string]string{root + "/" + bundles.DirectoryFormManifest: j001500TreeEnvelope}
+		for rel, body := range j001500TreeItems(j001500ForgeryMarker, false) {
+			files[root+"/"+rel] = body
+		}
+		url, err := w.env.SeedRemote(files)
 		if err != nil {
 			return fmt.Errorf("seed unsigned bystander remote: %w", err)
 		}

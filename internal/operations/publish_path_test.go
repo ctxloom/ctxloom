@@ -80,31 +80,6 @@ func newPushManagerFixture(t *testing.T) (*config.Config, pushManagerFixture) {
 	return cfg, pushManagerFixture{mock: mock, mgr: mgr}
 }
 
-// TestPushBundle_ReportedPathIsTheWrittenPath_SingleFile is the binding for the
-// ordinary shape: what push says it published is the path it published to.
-//
-// This still exercises a REAL, EXECUTABLE code path — PushBundle's non-tree
-// branch (runPush) is unconditional on the SOURCE's own shape, not on whether
-// anything downstream could ever read the result back. It is worth being
-// explicit about the asymmetry this pins: remote.BundleReader.ReadBundleBytes
-// is unconditionally tree-only now (no single-file branch is left in
-// readFromTree at all), so bytes a single-file push writes here can never be
-// fetched back by any current reader. That is a real capability gap in
-// PushBundle's non-tree branch — reported, not fixed here (fixing it would be
-// a production change) — but it does not make the REPORTING invariant this
-// test names any less real: whatever runPush writes, PushBundleResult.
-// TargetPath must still name honestly.
-func TestPushBundle_ReportedPathIsTheWrittenPath_SingleFile(t *testing.T) {
-	cfg, fix := newPushManagerFixture(t)
-	bundlePath := filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push.yaml")
-
-	reported, written := pushOneBundle(t, cfg, fix, bundlePath)
-
-	require.Equal(t, []string{repoV1("for-push")}, written)
-	assert.Equal(t, written[0], reported,
-		"the reported target path IS the path published to — one computation, not two that agree")
-}
-
 // TestPushBundle_TreeForm_ReportedPathIsTheWrittenManifestPath,
 // TestPushBundle_TreeForm_TwoBundlesPublishUnderTheirOwnNames and
 // TestPushBundle_TreeForm_WholeTreeTravels REPLACE

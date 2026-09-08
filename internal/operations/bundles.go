@@ -1004,6 +1004,19 @@ func runTreePush(ctx context.Context, cfg *config.Config, registry *remote.Regis
 	if err != nil {
 		return nil, fmt.Errorf("gather bundle tree: %w", err)
 	}
+	// The manifest's signature sidecar travels IFF req.Signature says so — the
+	// RESOLVED decision (resolvePushSignature's --sign/--no-sign/sign.default
+	// composition, or MoveBundle's PublisherSignature read), never whatever
+	// happens to be sitting in the directory. Without this, gatherPublishTreeFiles
+	// walking the whole tree would publish a sidecar the caller explicitly
+	// declined (--no-sign) purely because the file exists on disk — the
+	// single-file path never had this failure mode, because it always chose
+	// the sidecar explicitly rather than by directory listing.
+	sigRel := bundles.DirectoryFormManifest + bundles.SigSuffix
+	delete(files, sigRel)
+	if len(req.Signature) > 0 {
+		files[sigRel] = req.Signature
+	}
 
 	opts := remote.PublishOptions{
 		CreatePR: req.CreatePR,

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -155,18 +156,21 @@ type carryCase struct {
 }
 
 const (
-	remoteBundlePath = ".ctxloom/content/bundles/v2/for-push"
-	remoteSigPath    = ".ctxloom/content/bundles/v2/for-push.sig"
+	remoteBundlePath = ".ctxloom/content/bundles/v2/for-push/bundle.yaml"
+	remoteSigPath    = ".ctxloom/content/bundles/v2/for-push/bundle.yaml.sig"
 )
 
 // editedBundleBytes is the rewrite that strands a signature: the same bundle,
-// different bytes.
-var editedBundleBytes = []byte("version: 2.0.0\nfragments:\n  intro:\n    content: rewritten\n")
+// different bytes. Deliberately NOT an inline `fragments:` key — this file
+// edits a TREE's own bundle.yaml, and an inline item key there would assert a
+// migration that never happened (see reader_local_tree_test.go's package doc:
+// tree-ness is decided by the ABSENCE of inline keys, not by directory-ness).
+var editedBundleBytes = []byte("version: 2.0.0\ndescription: rewritten\n")
 
-// localBundlePath is the on-disk path of the "for-push" bundle in a
+// localBundlePath is the on-disk path of the "for-push" bundle's manifest in a
 // pushSignTestSetup project.
 func localBundlePath(cfg *config.Config) string {
-	return filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push.yaml")
+	return filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push", bundles.DirectoryFormManifest)
 }
 
 // applySidecarState puts the bundle into the requested (bytes, sidecar) state

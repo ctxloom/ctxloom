@@ -12,7 +12,6 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
@@ -59,14 +58,19 @@ remotes:
     version: v1
 `), 0o644))
 
-	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
-		Name: "for-push",
-		Tree: true,
-		Fragments: map[string]operations.BundleFragmentInput{
-			"intro": {Content: "hello", NoDistill: true},
-		},
-	})
-	require.NoError(t, err)
+	// Hand-written rather than CreateBundle(Tree: true): publish_carry_matrix_test.go
+	// also moves this bundle, and a move of a directory-form bundle carries
+	// only the manifest (and its signature) — see requireWholeMovable in
+	// internal/operations/bundle_move.go — so it must hold no items at all.
+	// CreateBundle's own tree path refuses to author a zero-item tree
+	// (convert.Convert is a no-op for one, so createTreeBundle treats it as a
+	// failed write), even though a version-only envelope is a perfectly valid
+	// bundle to READ (Bundle.declaresNothing requires no version AND no
+	// items) — so this writes the manifest directly, the same "version-only
+	// skeleton" shape CreateBundle itself writes for a single-file bundle.
+	treeDir := filepath.Join(authoredV1(appDir), "for-push")
+	require.NoError(t, os.MkdirAll(treeDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(treeDir, "bundle.yaml"), []byte("version: \"1.0.0\"\n"), 0o644))
 
 	registry, err := remote.NewRegistry(filepath.Join(appDir, "remotes.yaml"))
 	require.NoError(t, err)

@@ -87,6 +87,12 @@ func setupRemoteParent(t *testing.T) (baseDir, src, parentBundleID, bundleID str
 	bundleID = "file://" + src + "@bundles/demo"
 	parentBundleID = "file://" + src + "@bundles/kit"
 
+	// Document form, deliberately: remote bundle-profile PARENT expansion
+	// (depWalker.recurseBundleProfile) reads "kit" through remote.FetchRefBytes,
+	// which has no tree fallback (unlike verifyAdvance's advanceReader) — a
+	// real production gap, not a fixture choice; see the task filed for it.
+	// "demo"'s own SHA never advances in these tests, so it is never read
+	// through the tree-aware BundleReader either — document form is fine here.
 	initLocalRepoWithFile(t, src, repoV2("demo"), "name: demo\n")
 	// The parent bundle ships a bundle profile `parent` that composes demo.
 	addFileToLocalRepo(t, src, repoV2("kit"), "version: 1.0.0\nprofiles:\n  parent:\n    bundles:\n      - "+bundleID+"\n")
@@ -147,9 +153,11 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 	baseDir, src, _, bundleID := setupRemoteParent(t)
 	tmp := filepath.Dir(baseDir)
 
-	// A second repo whose advance drives the wholesale rewrite.
+	// A second repo whose advance drives the wholesale rewrite. Tree form: its
+	// pin advances below, and verifyAdvance reads through the tree at the
+	// proposed SHA.
 	srcA := filepath.Join(tmp, "srcA")
-	a1 := initLocalRepoWithFile(t, srcA, repoV2("demoA"), "name: demoA\n")
+	a1 := initLocalRepoWithFile(t, srcA, repoV2("demoA")+"/bundle.yaml", "name: demoA\n")
 	refA := "file://" + srcA + "@bundles/demoA"
 	writeLocalProfile(t, baseDir, "otherprof", "bundles:\n  - "+refA+"\n")
 

@@ -106,9 +106,13 @@ func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 	tmp := t.TempDir()
 	baseDir := filepath.Join(tmp, ".ctxloom")
 
-	// Bundle in repo A, referenced by a directory profile.
+	// Bundle in repo A, referenced by a directory profile. Real tree form: its
+	// pin ADVANCES below, and verifyAdvance reads through the tree at the
+	// proposed SHA — a bare file at the repo path resolves to no tree at all
+	// (content.ErrNotFound) rather than "unsigned", so the advance would be
+	// refused instead of exercised.
 	srcA := filepath.Join(tmp, "srcA")
-	a1 := initLocalRepoWithFile(t, srcA, repoV2("demoA"), "name: demoA\n")
+	a1 := initLocalRepoWithFile(t, srcA, repoV2("demoA")+"/bundle.yaml", "name: demoA\n")
 	refA := "file://" + srcA + "@bundles/demoA"
 	writeLocalProfile(t, baseDir, "dirprof", "bundles:\n  - "+refA+"\n")
 

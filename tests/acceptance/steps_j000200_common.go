@@ -66,14 +66,6 @@ func runOK(w *World, args ...string) error {
 	return nil
 }
 
-// fragmentSourceYAML builds a bundle manifest carrying one fragment named
-// "marker" whose content IS the marker string — the payload J000200's trust-posture
-// and delivery scenarios assert reached (or was withheld from) the assembled
-// context / mock engine.
-func fragmentSourceYAML(marker string) string {
-	return fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  marker:\n    content: %q\n", marker)
-}
-
 // commandSourceYAML builds a bundle manifest carrying an "agent-setup" command
 // whose content is the marker string — j000300's augmentation payload.
 func commandSourceYAML(marker string) string {

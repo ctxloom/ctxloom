@@ -19,10 +19,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// remoteContentRepo creates a git repo that PUBLISHES bundles/go-tools.yaml the
-// way a publisher does — under the repo-relative bundles prefix, in the format
-// root, which is the only place a canonical fetch looks. It commits a v1 then a
-// v2 and returns the repo directory plus both commit SHAs.
+// remoteContentRepo creates a git repo that PUBLISHES bundles/v2/go-tools (no
+// extension: format v2 holds only trees, so its leaf is the bundle's own name)
+// the way a publisher does — under the repo-relative bundles prefix, in the
+// format root, which is the only place a canonical fetch looks. It commits a
+// v1 then a v2 and returns the repo directory plus both commit SHAs.
 //
 // The document declares its command under the LEGACY `prompts:` key on purpose:
 // nothing but bundles.ParseBundle's schema upgrade turns that into a command, so
@@ -37,7 +38,7 @@ func remoteContentRepo(t *testing.T) (repoDir, rev1, rev2 string) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools.yaml")
+	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools")
 	commit := func(body, msg string) string {
 		full := filepath.Join(repoDir, rel)
 		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))

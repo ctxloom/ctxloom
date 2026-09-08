@@ -13,20 +13,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// treeBundleReaders builds one reader per DIRECTORY-form lockfile entry, over
-// the tree `deps pull` installed.
+// treeBundleReaders builds one reader per lockfile entry, over the tree
+// `deps pull` installed.
 //
-// The set comes from the lockfile's own Tree flag — the recorded FACT about how
-// each bundle was published — and deliberately NOT from which reads the byte
-// source refused. A refusal is a property of how that source happens to be
-// wired: remote.WithReaderTreeFetcher makes the same entry readable, and a
-// caller that wired one would silently empty this set and re-present every
-// skill bundle as a single document, losing its skills. Dispatching on the fact
-// cannot be turned off by wiring.
+// The set is every entry in the lockfile: format v2 publishes ONLY trees, so
+// there is no longer a per-pin fact to filter on (that was LockEntry.Tree,
+// removed with format v1 — every bundle is directory-form now). This makes
+// the sibling read path in remoteBundleReaders (remote.LoadAllBytes over a
+// BundleReader built with no tree fetcher) permanently refuse every entry it
+// is handed; treeBundleReaders is what actually resolves all of them, by
+// clearing each refusal below rather than by a positive selection.
 //
-// Any byte-source failure recorded against a tree entry is therefore CLEARED
-// once its reader is built: it described a road not taken. Failures for other
-// entries are left untouched for reportBundleLoadFailures.
+// Any byte-source failure recorded against an entry is therefore CLEARED once
+// its reader is built here: it described a road not taken. A failure left in
+// the map after this runs is a REAL failure — nothing else claims it.
 //
 // A tree whose directory cannot even be opened REPLACES that entry's failure
 // with its own, so the user is told what actually went wrong. A tree that opens

@@ -29,8 +29,9 @@ import (
 const localGoTools = "ctxloom:local@bundles/go-tools"
 
 // localContentRepo creates a git repo whose committed .ctxloom/content/ tree
-// holds bundles/go-tools.yaml. It commits a v1 (fmt=V1-BODY, review=PV1-BODY),
-// then a v2, and returns the appDir (<repo>/.ctxloom) plus the two commit SHAs.
+// holds bundles/v2/go-tools (no extension: format v2's leaf is the bundle's
+// own name). It commits a v1 (fmt=V1-BODY, review=PV1-BODY), then a v2, and
+// returns the appDir (<repo>/.ctxloom) plus the two commit SHAs.
 func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 	t.Helper()
 	repoDir := filepath.Join(t.TempDir(), "project")
@@ -39,7 +40,7 @@ func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools.yaml")
+	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools")
 	commit := func(body, msg string) string {
 		full := filepath.Join(repoDir, rel)
 		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
@@ -72,7 +73,7 @@ func localResolverLoader(t *testing.T, appDir string) *bundles.Pipeline {
 	// "/bundles" is the SEARCH root the reader layers; the bundle itself must
 	// be written into the format root beneath it, or it is never found.
 	const searchRoot = "/bundles"
-	testsupport.WriteFileString(t, fsys, filepath.Join(paths.BundlesLayoutRoot(searchRoot, paths.LayoutV1), "go-tools.yaml"),
+	testsupport.WriteFileString(t, fsys, filepath.Join(paths.BundlesLayoutRoot(searchRoot, paths.LayoutV2), "go-tools.yaml"),
 		"version: \"1.0\"\nfragments:\n  fmt:\n    content: WORKTREE-BODY\ncommands:\n  review:\n    content: WORKTREE-PROMPT\n", 0o644)
 	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{searchRoot})).WithVersionResolver(resolver)
 	// AdmitAll: this test resolves versions, not trust, and states so.

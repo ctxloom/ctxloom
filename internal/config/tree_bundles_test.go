@@ -101,7 +101,7 @@ func readTreeBundle(t *testing.T, c *Config, ctx context.Context, canonical stri
 }
 
 func treeEntry() remote.LockEntry {
-	return remote.LockEntry{SHA: "0123456789abcdef", URL: "https://github.com/acme/ctx", Tree: true}
+	return remote.LockEntry{SHA: "0123456789abcdef", URL: "https://github.com/acme/ctx"}
 }
 
 // The point of the whole change: a pulled tree becomes a bundle document, with
@@ -262,6 +262,48 @@ func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *test
 	assert.NotContains(t, failures, treeCanonical, "a claimed tree is no longer a failure")
 	assert.Equal(t, other, failures["https://github.com/acme/ctx@bundles/other"],
 		"a failure that is not a tree refusal must be left untouched")
+}
+
+// TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads is the
+// aggregate-level counterpart of TestLoadTreeBundle_MissingTreeNamesThePathAndTheFix:
+// with format v2 publishing only trees, this is the ONLY read path a real
+// lockfile entry resolves through (see the removal note on
+// TestLoadRemoteBundleSeed_FullLoad in loadremotebundleseed_test.go), so it
+// must tolerate one entry's manifest failing to parse without losing every
+// other entry — the same fault-tolerance the retired single-file seed path
+// pinned.
+func TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads(t *testing.T) {
+	const brokenCanonical = "https://github.com/acme/ctx@bundles/broken"
+	c, _, _, fsys := stageInstalledTree(t)
+	_, pub := treeTestSigner(t)
+
+	brokenDir, err := treeBundleDir(treeBase, brokenCanonical)
+	require.NoError(t, err)
+	require.NoError(t, fsys.MkdirAll(brokenDir, 0o755))
+	// A leading tab is invalid YAML, so ParseBundle rejects this one.
+	require.NoError(t, afero.WriteFile(fsys, filepath.Join(brokenDir, bundles.DirectoryFormManifest),
+		[]byte("\tnot: valid yaml\n"), 0o644))
+
+	lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{
+		treeCanonical:   treeEntry(),
+		brokenCanonical: {SHA: "0123456789abcdef", URL: "https://github.com/acme/ctx"},
+	}}
+	failures := map[string]error{}
+	root := treeTrustRoot("trent@acme.test", pub)
+
+	readers := c.treeBundleReaders(lock, root, failures)
+	require.Len(t, readers, 2, "both entries have an installed directory, so both get a reader — "+
+		"the manifest is only parsed on Read")
+	assert.Empty(t, failures, "treeBundleReaders itself does not parse manifests, so neither entry fails yet")
+
+	reads := bundles.NewLoader(readers...).Reads()
+
+	names := make([]string, 0, len(reads))
+	for _, r := range reads {
+		names = append(names, r.DisplayName())
+	}
+	assert.Equal(t, []string{treeCanonical}, names,
+		"the malformed tree contributes nothing to the aggregate; the well-formed one still loads")
 }
 
 // stageLoaderFormTree writes the RETIRED loader directory form: bundle.yaml

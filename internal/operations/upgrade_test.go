@@ -22,7 +22,14 @@ func setupUpgrade(t *testing.T) (cfgBase string, ref, identity, c1 string) {
 	baseDir := filepath.Join(tmp, ".ctxloom")
 
 	src := filepath.Join(tmp, "src")
-	c1 = initLocalRepoWithFile(t, src, repoV2("demo"), "name: demo\n")
+	// A real TREE, not a v1 document: bundles are distributed as trees now,
+	// so a single-file "demo" commit here is unreadable by anything that
+	// installs it (SyncDependencies), even though ref resolution alone
+	// (LockDependencies/UpgradeDependencies never read the content, only the
+	// git SHA it resolves to) never noticed the difference. A version-only
+	// envelope is a valid bundle to read (Bundle.declaresNothing requires no
+	// version AND no items) so no item file is needed.
+	c1 = initLocalRepoWithFile(t, src, repoV2("demo")+"/bundle.yaml", "version: \"1.0.0\"\n")
 	ref = "file://" + src + "@bundles/demo" // version-less → track default branch
 	identity = ref
 

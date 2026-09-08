@@ -274,10 +274,21 @@ func TestMoveBundle_ToRemote_PublishesAndRemovesSource(t *testing.T) {
 	assert.Equal(t, "abc1234", res.CommitSHA)
 	assert.True(t, res.Signed, "the carried signature must be published alongside")
 
+	// A tree-form bundle publishes as ONE commit over every file it holds
+	// (remote.PublishManager.PublishTree -> Publisher.CreateOrUpdateFiles), so
+	// the two calls the mock records land in Go's randomized map iteration
+	// order, not call order — find each by its path rather than its index.
 	require.Len(t, mock.createOrUpdateCalls, 2, "bundle + detached signature sibling")
-	assert.Equal(t, srcBytes, mock.createOrUpdateCalls[0].Content, "published bytes must be the local bytes, verbatim")
-	assert.True(t, strings.HasSuffix(mock.createOrUpdateCalls[1].Path, ".sig"))
-	assert.Equal(t, sigBody, string(mock.createOrUpdateCalls[1].Content), "the existing signature is carried, not regenerated")
+	var bundleCall, sigCall createOrUpdateCall
+	for _, c := range mock.createOrUpdateCalls {
+		if strings.HasSuffix(c.Path, ".sig") {
+			sigCall = c
+		} else {
+			bundleCall = c
+		}
+	}
+	assert.Equal(t, srcBytes, bundleCall.Content, "published bytes must be the local bytes, verbatim")
+	assert.Equal(t, sigBody, string(sigCall.Content), "the existing signature is carried, not regenerated")
 
 	assert.NoFileExists(t, bundlePath, "source must be removed after a successful publish")
 	assert.NoFileExists(t, sigPath)

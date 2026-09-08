@@ -155,7 +155,7 @@ func (r *reader) addFragment(v content.Fragment) {
 	}
 	r.out.Fragments[v.Name] = BundleFragment{
 		ItemBody: itemBody(v.ItemMeta),
-		Premise:  v.ItemMeta.Description,
+		Premise:  v.Description,
 	}
 }
 

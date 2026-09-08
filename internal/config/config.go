@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config/layerscope"
-	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
@@ -2550,38 +2548,6 @@ func (c *Config) remoteBundleReaders() []bundles.Reader {
 	out := c.treeBundleReaders(lock, root, failures)
 	reportBundleLoadFailures(failures)
 	return out
-}
-
-// signatureFor reads a bundle's detached `.sig` sibling. A MISSING signature
-// (the common case) is unsigned content, not an error, and any other read
-// failure is degraded the same way rather than blocking the bundle: the
-// fail-safe direction is "more review", and unsigned remote content is withheld
-// until a human reviews it anyway. What must NOT happen is a signature that
-// EXISTS being reported as absent — that is the reader's business, and it only
-// ever sees bytes that were actually there.
-func signatureFor(ctx context.Context, src remote.BundleSignatureSource, canonical string) []byte {
-	sig, err := src.ReadBundleSignature(ctx, canonical)
-	if err != nil {
-		return nil
-	}
-	return sig
-}
-
-// documentTree presents one single-file remote bundle as the pinned tree its
-// reader reads: the document under the ref's own leaf name, with its detached
-// signature beside it — which is exactly the shape those bytes have in the
-// publisher's repository.
-func documentTree(canonical string, data, sig []byte) (bundles.TreeFS, error) {
-	leaf := path.Base(strings.TrimSuffix(canonical, "/"))
-	files := map[string][]byte{leaf + ".yaml": data}
-	if len(sig) > 0 {
-		files[leaf+".yaml"+bundles.SigSuffix] = sig
-	}
-	tree, err := content.NewMapTreeFS(files)
-	if err != nil {
-		return nil, fmt.Errorf("present the pinned bytes of %q as a tree: %w", canonical, err)
-	}
-	return tree, nil
 }
 
 // GetConfigFilePath returns the path to the primary config file.

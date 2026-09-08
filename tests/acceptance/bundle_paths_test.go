@@ -29,11 +29,13 @@ func TestBundlePathSeam_PinsTheFormatRootAndEachShape(t *testing.T) {
 	assert.Equal(t, root, treeBundlesRoot(),
 		"the same root — format v2 is the only layout left")
 
-	// bundleFilePath is now the tree's manifest — the single-file form is
-	// gone, and this name is kept only because the ~40 call sites still read
-	// as "the bundle file" (see bundleFilePath's own doc).
+	// bundleFilePath is the tree manifest — for fixtures that author the tree
+	// shape themselves. singleFileBundlePath is the DIFFERENT, still-live shape
+	// `ctxloom bundle create` writes by default (see bundleFilePath's own doc).
 	assert.Equal(t, root+"/demo/bundle.yaml", bundleFilePath("demo"))
 	assert.Equal(t, root+"/bundle-hookprobe/bundle.yaml", bundleFilePath("bundle-hookprobe"))
+	assert.Equal(t, root+"/demo.yaml", singleFileBundlePath("demo"))
+	assert.Equal(t, root+"/bundle-hookprobe.yaml", singleFileBundlePath("bundle-hookprobe"))
 
 	// True-tree form: <root>/<name>, its envelope, and a file inside the tree.
 	assert.Equal(t, root+"/demo", treeBundlePath("demo"))

@@ -80,15 +80,32 @@ func treeBundlesRoot() string {
 }
 
 // bundleFilePath is the repo-relative path a fixture WRITES a bundle's envelope
-// to — which is now the tree's manifest, because the single-file form is gone.
+// to when the fixture is authoring the tree SHAPE itself (a directory it
+// constructs by writing to a nested path) — which is the tree's manifest.
 //
-// The name is kept while the ~40 call sites that use it still read as "the
-// bundle file": what changed is where a bundle's envelope LIVES, not what these
-// fixtures are saying. A fixture that also authors ITEMS must write them as
-// files beside this manifest; inline item keys under a tree root are not v2 and
-// treeFormEnvelope will not read them as one.
+// It is NOT where `ctxloom bundle create` puts a bundle it created for you:
+// that command still writes the bare single-file form by DEFAULT (no --tree —
+// see internal/cli/bundle_edit.go's bundleCreateTree, and singleFileBundlePath
+// below). A fixture that creates a bundle through the real CLI and then wants
+// to read or rewrite the file that command produced must use
+// singleFileBundlePath, not this one — the two name genuinely different
+// on-disk shapes, not two names for the same fact. Call sites that write
+// their OWN content here (and so decide the shape by where they write) are
+// unaffected; a fixture that also authors ITEMS this way must write them as
+// files beside this manifest — inline item keys under a tree root are not v2
+// and treeFormEnvelope will not read them as one.
 func bundleFilePath(name string) string {
 	return treeBundleManifestPath(name)
+}
+
+// singleFileBundlePath is the repo-relative path of a SINGLE-FILE (bare
+// "<name>.yaml") authored bundle — the shape `ctxloom bundle create` still
+// produces by default. "The single-file form is gone" is true only of what a
+// PUBLISH accepts (remote.Puller.installPulledItem refuses a document
+// outright); the ordinary, entirely-local authoring path never stopped
+// writing one, it only moved under the single remaining format root.
+func singleFileBundlePath(name string) string {
+	return path.Join(singleFileBundlesRoot(), name+".yaml")
 }
 
 // remoteSingleFilePublishPath is where a real `ctxloom bundle push` lands a

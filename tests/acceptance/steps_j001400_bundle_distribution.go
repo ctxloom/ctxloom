@@ -541,7 +541,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		// create a profile" rather than "the published tree never arrived".
 		// ensureProjectWithEngine may already have seeded this bundle; creating
 		// it again is a hard error, so create only when absent.
-		if !w.env.FileExists(bundleFilePath("seed")) {
+		if !w.env.FileExists(singleFileBundlePath("seed")) {
 			if err := runOK(w, "bundle", "create", "seed", "-d", "J001400 consumer seed bundle"); err != nil {
 				return err
 			}

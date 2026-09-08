@@ -243,7 +243,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # prints them the other way round and the regex catches it.
     Scenario Outline: Listing hooks shows the resolved order and where each came from
       Given an initialized ctxloom project
-      And the project already has the file ".ctxloom/content/bundles/v1/hooked.yaml":
+      And the project already has the file ".ctxloom/content/bundles/v2/hooked.yaml":
         """
         name: hooked
         description: ships two pre_tool hooks whose order contradicts their position

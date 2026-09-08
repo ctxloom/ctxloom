@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"strings"
 
@@ -138,6 +139,35 @@ func fixtureCommandBody(name string) string {
 	return fmt.Sprintf("# %s\n\nCOMMAND-BODY-%s: seeded by the acceptance fixture.\n", name, name)
 }
 
+// fixtureDemoTreeFiles builds the remote-relative file map for the "demo"
+// bundle every "a git remote ... serving a ctxloom bundle" family of steps
+// seeds or advances — a TRUE TREE (envelope with no inline item keys, each
+// item in its own file), because `deps pull` refuses a single-file bundle
+// outright now and internal/bundles/tree_read.go's readEnvelope refuses an
+// envelope that still declares items inline.
+//
+// fragName/fragContent parameterize the ONE fragment every caller varies
+// ("changes fragment" picks both; the others hold fragName at "demo-frag").
+// includeCommand controls whether the "demo-skill" command file is part of
+// THIS commit's write — see "the remote advances its bundle"'s own comment
+// for why omitting it does not delete a file a previous commit already
+// published.
+//
+// Commands live under "prompts/", not "commands/" — the same kind/directory
+// split steps_j001400_bundle_distribution.go's j001400AuthoredTree documents
+// (trust.KindPrompt, a residue of the skill->command rename).
+func fixtureDemoTreeFiles(version, description, fragName, fragContent string, includeCommand bool) map[string]string {
+	root := remoteSingleFilePublishPath("demo")
+	files := map[string]string{
+		root + "/" + bundles.DirectoryFormManifest: fmt.Sprintf("version: %q\ndescription: %q\n", version, description),
+		root + "/fragments/" + fragName + ".md":     fmt.Sprintf("---\ntags: [demo]\n---\n\n%s\n", fragContent),
+	}
+	if includeCommand {
+		files[root+"/prompts/demo-skill.md"] = "---\ndescription: demo prompt\n---\n\nDemo prompt content.\n"
+	}
+	return files
+}
+
 // seedItemContent replaces one item's `content:` inside a single-file bundle
 // YAML. The fixture still CREATES the item through the real CLI path, so
 // creation stays exercised end to end; this only overwrites the placeholder
@@ -145,7 +175,7 @@ func fixtureCommandBody(name string) string {
 // time (operations.AddItem's Content field has exactly one caller, and it
 // hard-codes the placeholder).
 func seedItemContent(w *World, bundle, section, name, content string) error {
-	rel := bundleFilePath(bundle)
+	rel := singleFileBundlePath(bundle)
 	body, err := w.env.ReadFile(rel)
 	if err != nil {
 		return fmt.Errorf("seed %s %q: read bundle %q: %w", section, name, bundle, err)
@@ -363,15 +393,17 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 
 	// A git remote serving a ctxloom layout over file://, registered with the
 	// generic git forge. Exercises the real clone/fetch path hermetically.
+	//
+	// Published as a TREE, not the single document this used to be: `deps
+	// pull` refuses a document outright now (nothing materializes one — see
+	// remote.Puller.installPulledItem), so a real remote layout has to be a
+	// directory at remoteSingleFilePublishPath("demo") holding bundle.yaml,
+	// not a blob AT that path. fixtureDemoTreeFiles below is this fixture's
+	// one answer to that tree's contents, reused by every step in this block
+	// that seeds or advances the same "demo" bundle.
 	ctx.Step(`^a git remote "([^"]*)" serving a ctxloom bundle$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		url, err := w.env.SeedRemote(map[string]string{
-			remoteSingleFilePublishPath("demo"): "version: 1.0.0\n" +
-				"author: test\n" +
-				"description: Demo bundle\n" +
-				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content.\n" +
-				"commands:\n  demo-skill:\n    description: demo prompt\n    content: |\n      Demo prompt content.\n",
-		})
+		url, err := w.env.SeedRemote(fixtureDemoTreeFiles("1.0.0", "Demo bundle", "demo-frag", "Demo fragment content.", true))
 		if err != nil {
 			return fmt.Errorf("seed remote: %w", err)
 		}
@@ -396,7 +428,16 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		if bare == "" {
 			return fmt.Errorf("remote %q was not seeded", name)
 		}
-		return w.env.UnpublishFromRemote(bare, remoteSingleFilePublishPath(bundle))
+		// UnpublishFromRemote os.Removes each given path, which cannot remove a
+		// DIRECTORY (the tree root) in one call — so every file this fixture's
+		// tree ever holds is named individually. Once all of them are gone, git
+		// drops the now-empty directory from the tree on its own.
+		root := remoteSingleFilePublishPath(bundle)
+		return w.env.UnpublishFromRemote(bare,
+			root+"/"+bundles.DirectoryFormManifest,
+			root+"/fragments/demo-frag.md",
+			root+"/prompts/demo-skill.md",
+		)
 	})
 
 	// Takes a seeded remote off the air. The bare repo IS the remote at this
@@ -426,12 +467,15 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		if bare == "" {
 			return fmt.Errorf("remote %q was not seeded", name)
 		}
-		return w.env.AdvanceRemote(bare, map[string]string{
-			remoteSingleFilePublishPath("demo"): "version: 2.0.0\n" +
-				"author: test\n" +
-				"description: Demo bundle v2\n" +
-				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content, version two.\n",
-		})
+		// Only the fragment file is republished this round — the prompts/
+		// demo-skill.md file from the first commit is simply left untouched by
+		// this write (AdvanceRemote clones the CURRENT bare state, so a file
+		// this round's map doesn't mention survives unchanged), unlike the old
+		// single-document form where a whole-document replacement dropped the
+		// commands section outright. No scenario driving this step asserts the
+		// command's absence, so the difference is not a behavior this fixture
+		// needs to reproduce.
+		return w.env.AdvanceRemote(bare, fixtureDemoTreeFiles("2.0.0", "Demo bundle v2", "demo-frag", "Demo fragment content, version two.", false))
 	})
 
 	// Publishes a new commit upstream with the named fragment's content replaced
@@ -447,13 +491,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		if bare == "" {
 			return fmt.Errorf("remote %q was not seeded", name)
 		}
-		return w.env.AdvanceRemote(bare, map[string]string{
-			remoteSingleFilePublishPath("demo"): "version: 1.1.0\n" +
-				"author: test\n" +
-				"description: Demo bundle\n" +
-				"fragments:\n  " + frag + ":\n    tags: [demo]\n    content: |\n      " + content + "\n" +
-				"commands:\n  demo-skill:\n    description: demo prompt\n    content: |\n      Demo prompt content.\n",
-		})
+		return w.env.AdvanceRemote(bare, fixtureDemoTreeFiles("1.1.0", "Demo bundle", frag, content, true))
 	})
 
 	// Forces the project's local cache clone for a seeded remote back to its

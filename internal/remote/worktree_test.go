@@ -4,8 +4,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	gogit "github.com/go-git/go-git/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,6 +54,18 @@ func (f *worktreeFixture) git(args ...string) string {
 	out, err := cmd.CombinedOutput()
 	require.NoErrorf(f.t, err, "git %v: %s", args, out)
 	return string(out)
+}
+
+// config reads one config value from the fixture clone, empty when unset.
+func (f *worktreeFixture) config(key string) string {
+	f.t.Helper()
+	cmd := exec.Command("git", "config", "--default", "", key)
+	cmd.Dir = f.repo
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // write puts a file in the repo working tree at a repo-relative path.
@@ -240,4 +254,77 @@ func TestEnsureSparseWorktree_RecoversFromADirectoryDeletedBehindGitsBack(t *tes
 	dir, err := f.cache.EnsureSparseWorktree(t.Context(), f.url, sha, "bundles/v2/atelier", wt)
 	require.NoError(t, err, "a stale registration must not make the cache unrepairable")
 	assert.FileExists(t, filepath.Join(dir, "bundle.yaml"))
+}
+
+// TestEnsureSparseWorktree_LeavesTheCloneReadableByGoGit is the CHECKED BINDING
+// behind narrowToSubpath's refusal to use the `git sparse-checkout` subcommand.
+//
+// That subcommand writes extensions.worktreeConfig=true while leaving
+// core.repositoryformatversion at 0. Real git tolerates the pairing; go-git
+// enforces the spec and refuses to open the repository at all — and
+// GitCloneFetcher opens the clone for EVERY read, so narrowing one worktree made
+// the whole clone unreadable and broke bundles that were never being installed.
+// Nothing caught that, because every unit test drove git and no unit test opened
+// the clone the way production does.
+func TestEnsureSparseWorktree_LeavesTheCloneReadableByGoGit(t *testing.T) {
+	f := newWorktreeFixture(t)
+	f.write("bundles/v2/atelier/bundle.yaml", "version: \"1.0.0\"\n")
+	sha := f.commit("one")
+
+	wt := filepath.Join(t.TempDir(), "atelier.worktree")
+	_, err := f.cache.EnsureSparseWorktree(t.Context(), f.url, sha, "bundles/v2/atelier", wt)
+	require.NoError(t, err)
+
+	_, err = gogit.PlainOpen(f.repo)
+	require.NoError(t, err,
+		"the clone is no longer openable by go-git, so every read through GitCloneFetcher now fails — "+
+			"narrowing a worktree must not write an extensions.* key at repository format version 0")
+
+	assert.Equal(t, "0", f.config("core.repositoryformatversion"))
+	assert.Empty(t, f.config("extensions.worktreeConfig"),
+		"extensions.worktreeConfig at format version 0 is the exact pairing go-git refuses")
+}
+
+// TestEnsureSparseWorktree_RepairsAPoisonedClone. The bad pairing does not make a
+// clone stale, it makes it UNREADABLE — permanently, with a message naming a
+// config extension rather than anything the user did. A clone poisoned by an
+// earlier run must heal on the next ensure rather than requiring the user to
+// find and delete a cache directory nothing tells them about.
+func TestEnsureSparseWorktree_RepairsAPoisonedClone(t *testing.T) {
+	f := newWorktreeFixture(t)
+	f.write("bundles/v2/atelier/bundle.yaml", "version: \"1.0.0\"\n")
+	sha := f.commit("one")
+	f.git("config", "extensions.worktreeConfig", "true")
+	_, err := gogit.PlainOpen(f.repo)
+	require.Error(t, err, "the fixture must actually be poisoned, or this test proves nothing")
+
+	wt := filepath.Join(t.TempDir(), "atelier.worktree")
+	_, err = f.cache.EnsureSparseWorktree(t.Context(), f.url, sha, "bundles/v2/atelier", wt)
+	require.NoError(t, err)
+
+	_, err = gogit.PlainOpen(f.repo)
+	assert.NoError(t, err, "an ensure over a poisoned clone must leave it readable")
+}
+
+// TestEnsureSparseWorktree_RewritesThePatternWhenTheSubpathChanges. An appended
+// pattern would leave the previous bundle still matching, so a worktree would
+// carry content its pin no longer names — extra files that every walk reads and,
+// for hooks, applies.
+func TestEnsureSparseWorktree_RewritesThePatternWhenTheSubpathChanges(t *testing.T) {
+	f := newWorktreeFixture(t)
+	f.write("bundles/v2/atelier/bundle.yaml", "version: \"1.0.0\"\n")
+	f.write("bundles/v2/other/bundle.yaml", "version: \"1.0.0\"\n")
+	sha := f.commit("one")
+
+	wt := filepath.Join(t.TempDir(), "shared.worktree")
+	_, err := f.cache.EnsureSparseWorktree(t.Context(), f.url, sha, "bundles/v2/atelier", wt)
+	require.NoError(t, err)
+	require.FileExists(t, filepath.Join(wt, "bundles", "v2", "atelier", "bundle.yaml"))
+
+	_, err = f.cache.EnsureSparseWorktree(t.Context(), f.url, sha, "bundles/v2/other", wt)
+	require.NoError(t, err)
+
+	_, serr := os.Stat(filepath.Join(wt, "bundles", "v2", "atelier"))
+	assert.True(t, os.IsNotExist(serr), "the previous subpath still matches, so the pattern was appended rather than rewritten")
+	assert.FileExists(t, filepath.Join(wt, "bundles", "v2", "other", "bundle.yaml"))
 }

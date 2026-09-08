@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 // ErrNoCloneForWorktree reports that the repository a worktree was asked for
@@ -73,17 +76,18 @@ func (c *RepoCache) EnsureSparseWorktree(ctx context.Context, repoURL, sha, subp
 	unlock := lockCloneDir(repoDir)
 	defer unlock()
 
+	if err := repairSparseExtension(ctx, repoDir); err != nil {
+		return "", err
+	}
 	if err := c.ensureWorktreeAt(ctx, repoDir, worktreeDir, sha); err != nil {
 		return "", err
 	}
-	if err := runGit(ctx, worktreeDir, "sparse-checkout set", nil,
-		"sparse-checkout", "set", "--no-cone", "--", subpath); err != nil {
-		return "", fmt.Errorf("narrow the worktree at %s to %s: %w", worktreeDir, subpath, err)
+	if err := narrowToSubpath(ctx, repoDir, worktreeDir, subpath); err != nil {
+		return "", err
 	}
-	// Re-run AFTER the sparse patterns are in place: `worktree add
-	// --no-checkout` leaves the worktree with no files at all, and a
-	// sparse-checkout set on an unpopulated worktree updates the patterns
-	// without materializing anything. This is the call that writes the bytes.
+	// Runs AFTER the sparse pattern is in place: `worktree add --no-checkout`
+	// leaves the worktree with no files at all, so this is the call that writes
+	// the bytes, and it writes only the ones the pattern admits.
 	if err := runGit(ctx, worktreeDir, "checkout", nil,
 		"checkout", "--detach", "--force", sha); err != nil {
 		return "", fmt.Errorf("check %s out at %s in %s: %w", subpath, sha, worktreeDir, err)
@@ -126,6 +130,108 @@ func (c *RepoCache) ensureWorktreeAt(ctx context.Context, repoDir, worktreeDir, 
 		return fmt.Errorf("add a worktree of %s at %s pinned to %s: %w", repoDir, worktreeDir, sha, err)
 	}
 	return nil
+}
+
+// narrowToSubpath restricts a worktree's checkout to one repository path.
+//
+// IT USES THE LEGACY core.sparseCheckout MECHANISM, NOT THE `git sparse-checkout`
+// SUBCOMMAND, and that is the whole point of this function existing rather than
+// being one runGit call.
+//
+// `git sparse-checkout set` writes extensions.worktreeConfig=true into the
+// clone's shared config while leaving core.repositoryformatversion at 0. Real
+// git tolerates the pairing; go-git enforces the spec strictly — an extensions.*
+// key is only valid at format version 1 — and REFUSES TO OPEN THE REPOSITORY AT
+// ALL. GitCloneFetcher opens that clone for every read, so one narrowed checkout
+// made the entire clone unreadable, and the failure surfaced far from its cause
+// as "core.repositoryformatversion does not support extension: worktreeconfig"
+// on bundles that were never being installed.
+//
+// The legacy mechanism produces an identically narrow checkout and writes no
+// extensions key. Do not "modernize" this to the subcommand.
+func narrowToSubpath(ctx context.Context, repoDir, worktreeDir, subpath string) error {
+	// The flag lives in the clone's SHARED config and is simply "honour the
+	// pattern files"; the patterns themselves are per-worktree, so one setting
+	// cannot make two worktrees narrow to the same path.
+	if err := runGit(ctx, repoDir, "config core.sparseCheckout", nil,
+		"config", "core.sparseCheckout", "true"); err != nil {
+		return fmt.Errorf("enable sparse checkouts on %s: %w", repoDir, err)
+	}
+	patternFile, err := gitOutput(ctx, worktreeDir, "rev-parse --git-path", "rev-parse", "--git-path", "info/sparse-checkout")
+	if err != nil {
+		return fmt.Errorf("locate the sparse pattern file for %s: %w", worktreeDir, err)
+	}
+	// rev-parse answers relative to the worktree when the path is inside it.
+	if !filepath.IsAbs(patternFile) {
+		patternFile = filepath.Join(worktreeDir, patternFile)
+	}
+	if err := os.MkdirAll(filepath.Dir(patternFile), 0o755); err != nil {
+		return fmt.Errorf("create the sparse pattern directory for %s: %w", worktreeDir, err)
+	}
+	// REWRITTEN, never appended: the pattern is the whole of what this worktree
+	// admits, so a subpath that changed between two ensures must not leave the
+	// previous one still matching.
+	//
+	// The trailing slash selects the directory and everything under it, and the
+	// embedded slash anchors the pattern to the repository root under gitignore
+	// matching rules — so a bundle cannot be shadowed by a same-named directory
+	// nested somewhere else in the repository.
+	if err := os.WriteFile(patternFile, []byte(subpath+"/\n"), 0o644); err != nil {
+		return fmt.Errorf("write the sparse pattern for %s: %w", worktreeDir, err)
+	}
+	return nil
+}
+
+// repairSparseExtension clears the invalid config pairing an earlier revision of
+// this code wrote into clones with `git sparse-checkout set`.
+//
+// It is REPAIR, not compatibility. The pairing does not make the clone
+// out-of-date, it makes it UNREADABLE — go-git refuses to open it, so every read
+// through GitCloneFetcher fails permanently, and the message names a config
+// extension rather than anything the user did or can act on. Without this the
+// only remedy is deleting a cache directory nothing tells them about.
+//
+// Scoped to exactly the invalid pairing: an extension declared at format version
+// 0, which no correct writer produces. A clone genuinely at format version 1 is
+// left alone, because there the extension is legal and clearing it would be the
+// corruption.
+func repairSparseExtension(ctx context.Context, repoDir string) error {
+	version, err := gitOutput(ctx, repoDir, "config core.repositoryformatversion", "config", "--default", "0", "core.repositoryformatversion")
+	if err != nil || version != "0" {
+		return nil
+	}
+	if _, err := gitOutput(ctx, repoDir, "config extensions.worktreeConfig", "config", "extensions.worktreeConfig"); err != nil {
+		return nil // unset: git exits non-zero for a missing key, which is the healthy case
+	}
+	if err := runGit(ctx, repoDir, "config --unset extensions.worktreeConfig", nil,
+		"config", "--unset-all", "extensions.worktreeConfig"); err != nil {
+		return fmt.Errorf("clear the invalid extensions.worktreeConfig on %s, which makes the clone unreadable: %w", repoDir, err)
+	}
+	return nil
+}
+
+// gitOutput is runGit for the invocations whose ANSWER is on stdout. It shares
+// runGit's environment sanitising and non-interactive guarantees; only the
+// captured stream differs.
+func gitOutput(ctx context.Context, dir, label string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Env = append(gitutil.SanitizedEnviron(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=")
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("git %s: %w", label, ctx.Err())
+		}
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return "", fmt.Errorf("git %s: %s: %w", label, msg, err)
+		}
+		return "", fmt.Errorf("git %s: %w", label, err)
+	}
+	return strings.TrimSpace(stdout.String()), nil
 }
 
 // isGitWorktree reports whether dir is a LINKED git worktree.

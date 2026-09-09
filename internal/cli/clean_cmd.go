@@ -38,9 +38,13 @@ deleting it would dirty your tree rather than free anything.
 Without --yes this only reports; nothing on disk changes.
 
 clean is not uninstall. What it takes comes back on your next run, because
-that is what regenerable means. To remove ctxloom's integration with this
+that is what regenerable means. To strip ctxloom's integration with this
 project — its hooks, statusline, MCP registration and generated command
-files — and have it stay removed, use 'ctxloom manage uninstall'.`,
+files — use 'ctxloom manage uninstall'.
+
+Neither command makes ctxloom stay gone: running ctxloom in this project
+again re-delivers every surface, because nothing records that you removed
+them.`,
 	Args: cobra.NoArgs,
 	RunE: runClean,
 }

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
 	"github.com/ctxloom/ctxloom/internal/version"
 )
@@ -117,6 +119,9 @@ func ServeRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool
 	// keeps it from reaccumulating on every launch after that.
 	if n := reapStaleDiscoveryMarkers(dir); n > 0 {
 		fmt.Fprintf(os.Stderr, "ctxloom: runner MCP: reaped %d stale discovery marker(s) in %s\n", n, dir)
+	}
+	if n := reapDeadRunnerSockets(dir); n > 0 {
+		fmt.Fprintf(os.Stderr, "ctxloom: runner MCP: reaped %d dead runner socket(s) in %s\n", n, dir)
 	}
 	cwd := resolveCellWorkDir(cellWorkDir)
 	cleanupMarker, merr := writeDiscoveryMarker(dir, kind, cwd, runnerDiscoveryMarker{
@@ -242,6 +247,66 @@ func runnerSocketPath() (path string, dir string, kind socketKind, cleanup func(
 		return "", "", socketKindPrivateTemp, nil, fmt.Errorf("runner MCP socket path %q exceeds the portable sun_path limit", p)
 	}
 	return p, tmpDir, socketKindPrivateTemp, func() { _ = os.RemoveAll(tmpDir) }, nil
+}
+
+// reapDeadRunnerSockets unlinks socket files in dir whose owning pid is
+// confirmed gone, returning how many it removed.
+//
+// It is the SOCKET sibling of reapStaleDiscoveryMarkers and deliberately the
+// same shape, including "never reap on uncertainty": pidalive.Probe errs toward
+// Alive under pid reuse, so an unsure verdict skips. Removing a LIVE runner's
+// socket would sever the only route to a working session, which is far worse
+// than the leak this fixes.
+//
+// It exists because graceful cleanup is not enough and cannot be made enough.
+// runnerSocketPath already returns a cleanup closure, RunnerMCP.cleanup composes
+// it with the marker cleanup, and Close invokes it — so an orderly exit already
+// unlinks. Every leaked socket is therefore a process that died WITHOUT one: a
+// SIGKILL, a crash, or the OOM kills this project takes when full gates run
+// concurrently. No change to the shutdown path can reach those, so the reap has
+// to happen on the next startup. Measured on a developer machine before this
+// existed: 297 dead sockets against 1 live, the oldest four days old.
+//
+// The pid is read from the FILENAME because that is where runnerSocketPath puts
+// it (mcp-<pid>.sock). The private-temp tier names its socket mcp.sock inside a
+// per-process directory instead, so it does not match this glob and is not
+// swept — correctly: that directory is removed wholesale by its own cleanup.
+func reapDeadRunnerSockets(dir string) int {
+	paths, err := filepath.Glob(filepath.Join(dir, "mcp-*.sock"))
+	if err != nil {
+		return 0
+	}
+	removed := 0
+	self := os.Getpid()
+	for _, path := range paths {
+		pid, ok := pidFromSocketName(filepath.Base(path))
+		if !ok || pid == self {
+			continue
+		}
+		if pidalive.Probe(pid).MaybeAlive() {
+			continue // alive, or unsure — never reap on uncertainty
+		}
+		if os.Remove(path) == nil {
+			removed++
+		}
+	}
+	return removed
+}
+
+// pidFromSocketName extracts the owner pid from a runner socket's base name,
+// reporting false for anything that is not exactly mcp-<digits>.sock. It is
+// strict on purpose: a name this cannot parse is a file some other writer owns,
+// and the sweep must leave it alone rather than guess.
+func pidFromSocketName(base string) (int, bool) {
+	const prefix, suffix = "mcp-", ".sock"
+	if !strings.HasPrefix(base, prefix) || !strings.HasSuffix(base, suffix) {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(base[len(prefix) : len(base)-len(suffix)])
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
 }
 
 // newRunnerMCPServer assembles the runner's tool surface per the routing

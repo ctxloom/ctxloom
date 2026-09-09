@@ -128,7 +128,21 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// context is the one HARD-error surface: an explicit profile set makes
 	// resolution failures fatal (the caller named these profiles), and the
 	// assembled context is the core payload every native surface is built from.
-	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: req.Profiles, Static: true})
+	// A materialized surface is ctxloom OUT OF THE LOOP, so a premised fragment
+	// withheld here cannot be pulled later — it is lost, not deferred. Where the
+	// engine has its own Agent Skills surface we hand it the fragments as skill
+	// packages instead, which is the same progressive disclosure the premise
+	// index gives a live session, done by the engine's own mechanism. Where it
+	// does not, we dump them into context (Static) so nothing is ever lost.
+	skillsCapable := backends.SupportsSkills(backend)
+	var withheld []backends.PremisedFragment
+	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{
+		Profiles: req.Profiles,
+		Static:   !skillsCapable,
+		OnWithheld: func(name, premise, content string) {
+			withheld = append(withheld, backends.PremisedFragment{Ref: name, Premise: premise, Content: content})
+		},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("assemble context for %v: %w", req.Profiles, err)
 	}
@@ -157,6 +171,13 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	bundleMCP := cfg.ResolveBundleMCPServers(req.Profiles)
 	commands := backends.CommandExportsFor(backend, backends.LoadCommandExports(cfg, req.Profiles))
 	skills := backends.SkillExportsFor(backend, backends.LoadSkillExports(cfg, req.Profiles))
+	// Withheld fragments join the authored skills. A collision between two of
+	// them is fatal rather than a silent overwrite — see PremisedFragmentSkills.
+	fragmentSkills, err := backends.PremisedFragmentSkills(withheld)
+	if err != nil {
+		return nil, fmt.Errorf("materialize premised fragments as skills for %v: %w", req.Profiles, err)
+	}
+	skills = append(skills, fragmentSkills...)
 	denyTools := backends.AssembleManagedDenyTools(cfg, req.Profiles)
 	settings := cfg.GetSettings()
 

@@ -310,13 +310,13 @@ func TestStaticPremiseFilterWithholdsNothingAndIndexesNothing(t *testing.T) {
 
 	// The control: the dynamic arm MUST withhold, or this test proves nothing
 	// about the static one.
-	require.True(t, dynamic.withhold(name, premise), "dynamic arm must still withhold a premised fragment")
-	require.False(t, static.withhold(name, premise), "a static output cannot pull later, so it must include")
+	require.True(t, dynamic.withhold(name, premise, nil), "dynamic arm must still withhold a premised fragment")
+	require.False(t, static.withhold(name, premise, nil), "a static output cannot pull later, so it must include")
 
 	require.Empty(t, static.entries(), "a static assembly hands its menu to nobody; it must not build one")
 	require.Len(t, dynamic.entries(), 1, "the dynamic arm still records what it withheld")
 
 	// An unpremised fragment is unaffected on both arms.
-	require.False(t, static.withhold("tool-intent", ""))
-	require.False(t, dynamic.withhold("tool-intent", ""))
+	require.False(t, static.withhold("tool-intent", "", nil))
+	require.False(t, dynamic.withhold("tool-intent", "", nil))
 }

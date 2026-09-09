@@ -668,7 +668,8 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []config.B
 		// Withheld is NOT a load failure and must not warn like one: it loaded
 		// fine and is conditional. Keyed on ref.Name, the canonical qualified
 		// ref, which is what AssembleContext withholds on too.
-		if premises.withhold(ref.Name, content.Premise) {
+		// nil body: this path never sets onWithheld, so no body is ever rendered.
+		if premises.withhold(ref.Name, content.Premise, nil) {
 			continue
 		}
 		// Ref is the canonical item ref (identity); Name is the reporting name

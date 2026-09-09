@@ -42,6 +42,11 @@ type PremiseIndexEntry struct {
 // Premise != "" itself: a second copy of the rule is a second policy, and the
 // two disagree the first time either one changes.
 type premiseFilter struct {
+	// onWithheld, when set, receives each withheld fragment's already-gated
+	// body. It hangs on the FILTER rather than being a second test at the call
+	// site for the same reason includeAll does: the decision and the emission
+	// must not be able to disagree about what was withheld.
+	onWithheld func(name, premise, content string)
 	// includeAll disables withholding entirely -- the STATIC-OUTPUT arm. It
 	// lives HERE, on the single decision object, rather than as a second test
 	// at the call site, for the reason stated above: a premise rule that is
@@ -107,13 +112,19 @@ func newStaticPremiseFilter() *premiseFilter {
 // applies unconditionally (BundleFragment.Premise). That is what makes the
 // mechanism additive: a corpus authoring no premises withholds nothing, builds
 // an empty index, and assembles the exact bytes it did before.
-func (f *premiseFilter) withhold(name, premise string) bool {
+func (f *premiseFilter) withhold(name, premise string, body func() string) bool {
 	if f.includeAll || premise == "" || f.explicit[name] {
 		return false
 	}
 	if !f.seen[name] {
 		f.seen[name] = true
 		f.index = append(f.index, PremiseIndexEntry{Name: name, Premise: premise})
+		// body is a THUNK so a caller with no onWithheld pays nothing for it.
+		// The dynamic path withholds without ever rendering the body, which is
+		// the whole point of withholding.
+		if f.onWithheld != nil && body != nil {
+			f.onWithheld(name, premise, body())
+		}
 	}
 	return true
 }

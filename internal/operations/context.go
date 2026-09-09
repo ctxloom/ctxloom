@@ -62,6 +62,16 @@ type AssembleContextRequest struct {
 	// comes back empty -- there is nobody to hand a menu to.
 	Static bool `json:"static,omitempty"`
 
+	// OnWithheld, when set, receives each premised fragment's already-gated
+	// body at the moment the filter withholds it.
+	//
+	// It is REQUEST-side and json:"-" because the only consumer is in-process:
+	// a STATIC assembly turning withheld fragments into native skill packages
+	// for an engine ctxloom will not be present to serve. Putting the bodies on
+	// the RESULT instead would ship them to every assemble_context caller —
+	// including the dynamic ones that withheld precisely to avoid carrying them.
+	OnWithheld func(name, premise, content string) `json:"-"`
+
 	// Loader is an optional pre-configured loader (for testing).
 	Pipeline *bundles.Pipeline `json:"-"`
 
@@ -178,6 +188,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	if req.Static {
 		filter = newStaticPremiseFilter()
 	}
+	filter.onWithheld = req.OnWithheld
 
 	loaderNames, err := ingestFragmentRefs(ingest, pipe, orderedRefs, profileVars, filter)
 	if err != nil {
@@ -453,7 +464,9 @@ func ingestFragmentRefs(ingest *contextIngest, pipe *bundles.Pipeline, ordered [
 		// one: it loaded fine and is being offered to the agent instead. It
 		// is also absent from loadedNames on purpose, so a caller reading
 		// FragmentsLoaded is never told it received content it did not.
-		if filter.withhold(ref.Name, lc.Premise) {
+		if filter.withhold(ref.Name, lc.Premise, func() string {
+			return substituteVariables(strings.TrimSpace(lc.Content), profileVars, warnSubstitutionFor(ref.Name))
+		}) {
 			continue
 		}
 		substituted := substituteVariables(strings.TrimSpace(lc.Content), profileVars, warnSubstitutionFor(ref.Name))

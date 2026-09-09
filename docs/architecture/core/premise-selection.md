@@ -94,6 +94,52 @@ never learned to exist, cannot be asked for, and the agent proceeds without guid
 was meant to have. Scoring therefore leads with **F2** (recall weighted twice), not F1 —
 F1 ranks a run that offered less above one that found more.
 
+## Skills and premised fragments are not the same thing
+
+Both put a short description in the model's context and load a body only when the model
+judges it applies. The MECHANISM is identical, which is why mapping one onto the other
+works at all. What they CARRY is not.
+
+An Agent Skill is a **capability**: a procedure the model performs, often with an
+executable payload (`SKILL.md` plus `scripts/`, `assets/`). `admit` reads "Admit work to
+the nightly queue — roll the live queue tag forward, triage every candidate…". There are
+steps, and doing them is the point.
+
+A premised fragment is **conditional guidance**: knowledge that shapes how the model works
+while it does something else. `config-hierarchy` reads "You are adding or changing a flag,
+an environment variable, or a config key…". There is nothing to perform.
+
+That difference is why the two are not interchangeable by default. A vendor's
+skill-selection heuristic is tuned for "should I invoke this capability", and a premise
+asks "does this guidance apply to what I am about to do". Those may or may not be the same
+judgement — see the ruling below for why we have not measured which.
+
+## Ruling: MCP resolution is preferred; skills are the fallback
+
+Where ctxloom is IN THE LOOP, conditional fragments resolve over MCP. Where it is OUT OF
+THE LOOP — a materialized surface, launched with ctxloom absent — premised fragments are
+emitted as skill packages instead, because that is the only progressive disclosure
+available there. `profile_materialize` is the only caller that emits them, and that is
+deliberate: a live session must not receive the same fragment as both a skill and an index
+entry, which would be double delivery under two different selection stories.
+
+Three reasons the in-loop default is MCP, none of them taste:
+
+- **The selection instruction we measured is ours.** The properties above were established
+  against ctxloom's own index prompt. A vendor's skill heuristic is opaque and has not been
+  measured here.
+- **Freshness.** A materialized skill package is a COPY, gated when it was written. MCP
+  reads live content through the pipeline, so an edited fragment — or a signature revoked
+  after materialization — takes effect at once.
+- **Observability.** ctxloom can see which fragments a session asked for. It cannot see
+  which skills an engine chose to load, which costs the distillation loop its input.
+
+The open question is whether skill-form descriptions preserve the recall the properties
+above bought. It is NOT cheap to answer: the fixture, runs and scorer were deliberately
+removed (see below), so settling it means recovering deleted files from history and
+re-running. Until someone pays that, preferring the measured mechanism is the conservative
+choice rather than a claim that skills select worse.
+
 ## Divergence — what the numbers do not cover
 
 - **Every selection run had the fragment bodies in its context.** ctxloom delivers

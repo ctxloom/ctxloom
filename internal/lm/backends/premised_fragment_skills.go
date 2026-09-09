@@ -33,6 +33,19 @@ type PremisedFragment struct {
 // progressive disclosure: the premise becomes the skill's description and sits
 // in context, the body loads only when the model judges it applies.
 //
+// THIS IS THE FALLBACK, NOT THE PREFERRED PATH, and the distinction is not
+// stylistic: a skill is a CAPABILITY the model performs, a premised fragment is
+// GUIDANCE that shapes work it is already doing. The mechanism is the same; what
+// they carry is not. Only profile_materialize calls this — where ctxloom is out
+// of the loop and no pull is possible. A live session resolves over MCP instead,
+// and must never receive the same fragment BOTH ways: that is double delivery
+// under two different selection stories.
+//
+// docs/architecture/core/premise-selection.md holds the ruling and the three
+// reasons behind it (the measured selection instruction is ctxloom's own, a
+// materialized package is a stale copy, and an engine's skill choices are
+// invisible to us). Read it before making this the primary path.
+//
 // It takes the whole BATCH rather than one fragment because uniqueness is a
 // property of the set. Two fragments landing on one package directory would
 // silently overwrite — the payload-loss shape this project keeps hitting — so a

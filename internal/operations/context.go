@@ -222,7 +222,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// the SAME content gate as loader-resolved fragments (pipe.Authorizer(), nil
 	// for an injected gate-free pipeline) so a rejected builtin fragment is
 	// withheld exactly like a rejected builtin MCP server/hook.
-	loadedNames := ingestBuiltinFragments(ingest, cfg, pipe.Authorizer(), loaderNames)
+	loadedNames := ingestBuiltinFragments(ingest, cfg.ResolveBuiltinBundleFragments(pipe.Authorizer()), loaderNames, filter)
 
 	// The assembled bytes, in ingest order, duplicates already collapsed. The
 	// index of what was withheld is reported as STRUCTURED data on the result
@@ -281,8 +281,24 @@ func missingFrom(requested, loaded []string) []string {
 // the assembled context, via the occurrence that survived, so reporting it as
 // missing would be a lie — and warnGuttedProfiles would then accuse a profile
 // of contributing nothing when its fragment is right there.
-func ingestBuiltinFragments(ingest *contextIngest, cfg *config.Config, gate bundles.Authorizer, loaded []string) []string {
-	for _, f := range cfg.ResolveBuiltinBundleFragments(gate) {
+// It takes the RESOLVED fragments rather than a *config.Config so the ingest
+// decision is testable on its own: resolution needs a config, a catalog and a
+// live companion probe, and requiring all three to assert "a premised builtin is
+// withheld" is what left this path with no unit coverage while it silently
+// ignored premises.
+func ingestBuiltinFragments(ingest *contextIngest, builtins []config.BuiltinFragment, loaded []string, filter *premiseFilter) []string {
+	for _, f := range builtins {
+		// A builtin or companion-loadout fragment reaches the SAME filter every
+		// other fragment does. "Always-on" describes not being profile-selected;
+		// it never meant immunity from a premise, and a fragment carrying none
+		// is still loaded unconditionally by the filter's own rule — so this is
+		// additive for every existing builtin.
+		//
+		// Without it an authored premise was inert in the worst way: the index
+		// offered the fragment while the context already carried it.
+		if filter.withhold(f.Name, f.Premise, func() string { return strings.TrimSpace(f.Content) }) {
+			continue
+		}
 		ingest.add(ingestedFragment{Ref: f.Name, Name: f.Name, Content: strings.TrimSpace(f.Content)})
 		loaded = append(loaded, f.Name)
 	}

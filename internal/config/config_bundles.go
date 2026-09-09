@@ -672,6 +672,16 @@ type BuiltinFragment struct {
 	Name         string // reporting identity, the canonical bundle-reference grammar's item ref (e.g. "ctxloom+builtin:<bundle>#fragments/<name>")
 	Content      string
 	Installation string
+	// Premise is the fragment's authored applicability condition, "" for an
+	// unconditional one — carried so a builtin or a COMPANION LOADOUT fragment
+	// reaches the same premise filter every other fragment does.
+	//
+	// Dropping it here is what made an authored premise inert: the schema
+	// accepted it, the catalog surfaced it in the index, and this projection
+	// discarded it before assembly could act. The result was worse than
+	// ignoring premises outright — the index ADVERTISED a fragment the context
+	// already carried.
+	Premise string
 }
 
 // ResolveBuiltinBundleFragments returns the fragments shipped by built-in
@@ -766,6 +776,7 @@ func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, src tru
 			Name:         ref,
 			Content:      content,
 			Installation: frag.Installation,
+			Premise:      frag.Premise,
 		})
 	}
 	return out

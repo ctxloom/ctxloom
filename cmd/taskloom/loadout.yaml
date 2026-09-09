@@ -93,6 +93,10 @@ mcp:
 
 fragments:
   taskloom:
+    premise: You are about to create, read, update or close a task, judge whether
+      something already tracked covers the work in front of you, or decide whether a
+      finding should become a row at all. For anyone reaching for the task log, however
+      the moment is worded.
     tags:
       - tasks
       - ctxloom

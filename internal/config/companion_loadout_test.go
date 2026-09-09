@@ -426,6 +426,7 @@ const companionLoadoutWithEverything = `
 version: "1.0.0"
 fragments:
   ltk:
+    premise: "You are about to run a shell command this project redirects."
     content: "ltk fragment body"
 hooks:
   pre_tool:
@@ -639,4 +640,41 @@ func TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers(t *testing
 		assert.Contains(t, result, "ltk-server",
 			"hoisting the exclusion set must not withhold servers nobody excluded")
 	})
+}
+
+// A companion loadout fragment's PREMISE must survive the projection into
+// BuiltinFragment. It did not: the field simply was not on the struct, so an
+// authored premise was accepted by the schema, surfaced in the premise INDEX
+// from the catalog, and then discarded here — leaving assembly to deliver the
+// body anyway. The agent was offered a menu item its context already carried,
+// which is worse than not supporting premises at all.
+//
+// Measured when this was fixed: the unconditional companion floor under every
+// profile fell from 14,323 bytes to 3,475.
+func TestResolveBuiltinBundleFragments_CarriesThePremise(t *testing.T) {
+	admitEveryDiscoveredCompanion(t)
+	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
+	defer restoreLook()
+	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
+	defer restoreProbe()
+
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	cfg := &Config{appPaths: []string{appDir}}
+
+	gate := bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict {
+		return bundles.Verdict{Allow: true, Reason: bundles.ReasonCompanion}
+	})
+
+	var found *BuiltinFragment
+	for _, f := range cfg.ResolveBuiltinBundleFragments(gate) {
+		if strings.Contains(f.Name, "fragments/ltk") {
+			frag := f
+			found = &frag
+		}
+	}
+	require.NotNil(t, found, "precondition: the companion fragment must resolve at all")
+	require.Equal(t, "You are about to run a shell command this project redirects.", found.Premise,
+		"the authored premise must reach BuiltinFragment, or assembly cannot honour it")
+	require.NotEmpty(t, found.Content, "the body still travels; the premise decides whether it is DELIVERED")
 }

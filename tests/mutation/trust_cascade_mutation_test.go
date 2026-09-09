@@ -1,13 +1,19 @@
 //go:build mutation
 
-// Package mutation runs a mechanical mutation-vs-CUCUMBER measurement: for
-// each entry in mutationTargets it mutates ONE source file and, for every
-// mutant, rebuilds the ctxloom BINARY from the mutated source and drives the
-// acceptance features that CLAIM to cover that file, via
-// github.com/gtramontina/ooze's WithTestCommand.
+// Package mutation mutates ONE source file per target and measures what
+// notices, via github.com/gtramontina/ooze's WithTestCommand.
 //
-// The (file -> covering features) pairing is DATA — the mutationTargets table
-// below — not code: adding a target is one table entry, and every scoping,
+// TWO JUDGES, and the split is the whole design — see the judge interface.
+// mutationTargets pairs a file with the acceptance features that CLAIM to cover
+// it, rebuilding the ctxloom BINARY per mutant; a survivor is a mechanism a
+// feature claims and does not verify. unitMutationTargets pairs a file with the
+// SINGLE test that claims to verify it; a run where nothing dies means that test
+// is vacuous. They differ in cost by roughly three orders of magnitude, so they
+// are separate tables with separate recipes and only the acceptance one is
+// ratcheted.
+//
+// The pairing is DATA — the tables below — not code: adding a target is one
+// table entry, and every scoping,
 // sanity-check and subtest mechanism below reads the entry it is running
 // rather than a package-level constant. That is deliberate. The single
 // hardcoded pair this file started as could measure exactly one file, and
@@ -95,10 +101,123 @@ type mutationTarget struct {
 	// discovered under repoRoot() is added to the ignore alternation by
 	// buildIgnorePattern.
 	SourceRelPath string
-	// Features are ACCEPTANCE_PATHS entries (relative to tests/acceptance,
-	// which is run_scoped_suite.sh's cwd for the suite) naming the feature
-	// files that claim to cover SourceRelPath.
+	// Judge decides killed-vs-survived for every mutant of SourceRelPath.
+	// It is a field rather than a hard-coded command because the two judges
+	// answer different questions at costs three orders of magnitude apart —
+	// see the judge interface.
+	Judge judge
+}
+
+// judge decides the verdict for one mutant: it names the command ooze runs and
+// prepares whatever that command reads.
+//
+// Two exist, and the split is the point. acceptanceJudge asks "does the suite
+// that CLAIMS to cover this file actually verify it", rebuilding the binary and
+// driving cucumber (~28s/mutant). unitJudge asks "does the test I just wrote
+// look at the code it names", running one `go test -run` (~6s/mutant).
+//
+// A judge scoped WIDER than one test cannot answer unitJudge's question at all:
+// it reports KILLED when ANY test catches the mutant, so a vacuous new test
+// beside an older one that already covered the line is indistinguishable from a
+// working one.
+type judge interface {
+	// testCommand is the ooze WithTestCommand string, relative to the
+	// laboratory root.
+	testCommand() string
+	// prepare sets the environment its runner script reads. It takes *testing.T
+	// and uses t.Setenv deliberately: entries run as sequential subtests, and a
+	// process-global left set by one entry would silently become the next
+	// entry's scope if that entry failed to set its own.
+	prepare(t *testing.T)
+	// label describes the judge for the run log.
+	label() string
+	// validate reports whatever would make this judge measure NOTHING while
+	// still reporting a score. Each judge owns its own checks because each
+	// fails differently, and both failures are silent.
+	validate(t *testing.T, root string)
+}
+
+// acceptanceJudge rebuilds ctxloom from the mutant and runs the acceptance
+// features that claim to cover the mutated file. Features are ACCEPTANCE_PATHS
+// entries relative to tests/acceptance, which is run_scoped_suite.sh's cwd.
+type acceptanceJudge struct {
 	Features []string
+}
+
+func (a acceptanceJudge) testCommand() string {
+	return "sh " + filepath.ToSlash(filepath.Join("tests", "mutation", "run_scoped_suite.sh"))
+}
+
+// prepare sets ACCEPTANCE_PATHS here rather than inside run_scoped_suite.sh so
+// the scope decision stays in this reviewable Go file; cmdtestrunner.Test
+// forwards os.Environ() to every mutant's subprocess.
+func (a acceptanceJudge) prepare(t *testing.T) {
+	t.Helper()
+	t.Setenv("ACCEPTANCE_PATHS", strings.Join(a.Features, ","))
+}
+
+// validate catches the acceptance judge's two silent failures: no features at
+// all means ACCEPTANCE_PATHS is empty, so the suite runs EVERYTHING and the run
+// never finishes; a feature path that does not exist means godog runs zero
+// scenarios, every mutant survives, and an hour of rebuilding reports 0.0 about
+// nothing.
+func (a acceptanceJudge) validate(t *testing.T, root string) {
+	t.Helper()
+
+	if len(a.Features) == 0 {
+		t.Errorf("names no features — ACCEPTANCE_PATHS would be empty, the suite would run EVERYTHING, and the run would never finish")
+	}
+	for _, feature := range a.Features {
+		// Relative to tests/acceptance — godog's cwd, per run_scoped_suite.sh.
+		path := filepath.Join(root, "tests", "acceptance", filepath.FromSlash(feature))
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("feature %q does not exist at %s: %v — the suite would run zero scenarios and every mutant would survive", feature, path, err)
+		}
+	}
+}
+
+func (a acceptanceJudge) label() string {
+	return "acceptance features: " + strings.Join(a.Features, ", ")
+}
+
+// unitJudge runs exactly one test. Run should address a single test, or the
+// verdict stops meaning "this test kills it".
+type unitJudge struct {
+	Pkg string
+	Run string
+}
+
+func (u unitJudge) testCommand() string {
+	return "sh " + filepath.ToSlash(filepath.Join("tests", "mutation", "run_unit_judge.sh"))
+}
+
+func (u unitJudge) prepare(t *testing.T) {
+	t.Helper()
+	t.Setenv("MUT_PKG", u.Pkg)
+	t.Setenv("MUT_RUN", u.Run)
+}
+
+// validate catches the unit judge's silent failure: an UNANCHORED Run matches
+// every test whose name contains it, so the verdict silently stops meaning
+// "this test kills the mutant" and starts meaning "some test does" — which is
+// the exact distinction this judge exists to draw. An empty Pkg or Run would
+// judge far more than intended.
+func (u unitJudge) validate(t *testing.T, root string) {
+	t.Helper()
+
+	if u.Pkg == "" {
+		t.Errorf("names no package — the judge would run the whole module")
+	}
+	if u.Run == "" {
+		t.Errorf("names no test — the judge would run every test in the package, and a kill would not be attributable to any one of them")
+	}
+	if u.Run != "" && (!strings.HasPrefix(u.Run, "^") || !strings.HasSuffix(u.Run, "$")) {
+		t.Errorf("Run %q is not anchored with ^...$ — it would match every test whose name contains it, so a kill would no longer mean THIS test caught the mutant", u.Run)
+	}
+}
+
+func (u unitJudge) label() string {
+	return "go test -run " + u.Run + " " + u.Pkg
 }
 
 // trustCascadeTarget is the entry with a MEASURED result: 132 mutants, 81
@@ -114,11 +233,11 @@ type mutationTarget struct {
 var trustCascadeTarget = mutationTarget{
 	Name:          "trust_cascade",
 	SourceRelPath: "internal/operations/trust.go",
-	Features: []string{
+	Judge: acceptanceJudge{Features: []string{
 		"features/trust_surface.feature",
 		"features/journeys/j001500_corporate_signed.feature",
 		"features/journeys/j001700_incident.feature",
-	},
+	}},
 }
 
 // mutationTargets is the table. ADDING A TARGET IS A DATA CHANGE — no
@@ -157,7 +276,7 @@ var mutationTargets = []mutationTarget{
 		// report success over zero bytes.
 		Name:          "bundle_sign",
 		SourceRelPath: "internal/operations/sign.go",
-		Features:      []string{"features/j001600_signing.feature"},
+		Judge:         acceptanceJudge{Features: []string{"features/j001600_signing.feature"}},
 	},
 	{
 		// `ctxloom signer trust|show|list|delete`: AddSigner,
@@ -180,7 +299,7 @@ var mutationTargets = []mutationTarget{
 		// means the two runs cost the same suite per mutant.
 		Name:          "signer_store",
 		SourceRelPath: "internal/operations/signer.go",
-		Features:      []string{"features/j001600_signing.feature"},
+		Judge:         acceptanceJudge{Features: []string{"features/j001600_signing.feature"}},
 	},
 	{
 		// Workspace/runtime AXIS RESOLUTION: Axes, WantsWorktree,
@@ -206,7 +325,7 @@ var mutationTargets = []mutationTarget{
 		// acceptance suite's reach, which is the measurement.
 		Name:          "isolation_axes",
 		SourceRelPath: "internal/lm/isolation/isolation.go",
-		Features:      []string{"features/j002200_isolation.feature"},
+		Judge:         acceptanceJudge{Features: []string{"features/j002200_isolation.feature"}},
 	},
 	{
 		// The remote REGISTRY: Add, Update, Remove, Get, List, SetDefault,
@@ -233,10 +352,10 @@ var mutationTargets = []mutationTarget{
 		// kill it. That is a true statement about the suite's reach.
 		Name:          "remote_registry",
 		SourceRelPath: "internal/remote/registry.go",
-		Features: []string{
+		Judge: acceptanceJudge{Features: []string{
 			"features/cli/remote.feature",
 			"features/cli/deps.feature",
-		},
+		}},
 	},
 }
 
@@ -344,23 +463,12 @@ func (m mutationTarget) release(t *testing.T, extra ...ooze.Option) {
 	}
 	t.Logf("mutation scope: %s only; %d other .go files explicitly ignored", m.SourceRelPath, ignoredCount)
 
-	testCmd := "sh " + filepath.ToSlash(filepath.Join("tests", "mutation", "run_scoped_suite.sh"))
+	testCmd := m.Judge.testCommand()
 
-	// ACCEPTANCE_PATHS is read by tests/acceptance/acceptance_test.go. Setting
-	// it here (rather than inside run_scoped_suite.sh) keeps the actual scope
-	// decision in this reviewable Go file; cmdtestrunner.Test forwards
-	// os.Environ() (including this) to every mutant's subprocess.
-	//
-	// t.Setenv, not os.Setenv: entries run as sequential SUBTESTS now, and a
-	// process-global left set by one entry would silently become the next
-	// entry's scope if that entry ever failed to set its own. t.Setenv
-	// restores the previous value when the subtest ends. (It also forbids
-	// t.Parallel, which this must never be: mutants are already run one at a
-	// time and each one rebuilds the binary.)
-	t.Setenv("ACCEPTANCE_PATHS", strings.Join(m.Features, ","))
+	m.Judge.prepare(t)
 
 	t.Logf("test command: %s", testCmd)
-	t.Logf("scoped features: %s", strings.Join(m.Features, ", "))
+	t.Logf("judge: %s", m.Judge.label())
 
 	// PER-TARGET ATTRIBUTION for the survivor ratchet. ooze's summary box says
 	// what it counted and never which target it counted for, so a run of the

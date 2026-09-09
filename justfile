@@ -725,7 +725,7 @@ test-acceptance: build _ensure-gotmpdir
 # because every scenario in a file can be excluded by the default tag filter
 # while the file itself is perfectly real. Same invariant as the
 # `[no tests to run]` guard on test-integration-run and the no-score guard on
-# test-mutation-cucumber. The two causes get different messages because they
+# the mutation driver. The two causes get different messages because they
 # need different fixes: a path that names no file is a typo, a filter that
 # excluded everything needs TAGS.
 #
@@ -1428,7 +1428,7 @@ test-mutation-container:
 # change. Each entry runs as its own subtest of TestAcceptanceMutation, so a
 # single one can be run alone:
 #
-#   just test-mutation-cucumber -run 'TestAcceptanceMutation/^trust_cascade$'
+#   just test-mutation-acceptance -run 'TestAcceptanceMutation/^trust_cascade$'
 #
 # Cost: every mutant is a full build + a ~15-20s scoped suite run (measured
 # ~28s/mutant on this machine); trust_cascade alone is 132 mutants ≈ 63
@@ -1452,9 +1452,16 @@ test-mutation-container:
 # run producing no score at all. Re-record after coverage work with
 # CTXLOOM_MUTATION_BASELINE=update; the baseline file states what each
 # provenance word licenses.
-test-mutation-cucumber *ARGS:
+_mutation-driver RATCHET *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
+    # just hands a shebang recipe its parameters as POSITIONAL ARGS, and the go
+    # test invocation below forwards "$@" (not {{ARGS}}, per the reasoning on
+    # test-mutation above). RATCHET is a parameter, so without this shift it
+    # rides along as an extra package pattern: `go test ./tests/mutation/...
+    # no-ratchet` reports `ok` for the real package and a bare FAIL for the
+    # pattern that matched nothing, failing the recipe over a passing run.
+    shift
     mkdir -p "{{mutation_tmp}}"
     trap 'rm -f "{{mutation_tmp}}/.run.$$.log"' EXIT
     set +e
@@ -1498,21 +1505,63 @@ test-mutation-cucumber *ARGS:
     echo
     echo "=== mutation summary ==="
     grep -E 'Total:|Killed:|Survived:|Score:' <<<"$output" || true
+    # ooze's box counts a mutant that DID NOT COMPILE as killed: its verdict is
+    # the runner's exit code and nothing else, so the compiler is scored as if it
+    # were the test suite. The runners mark those; subtract them here so the
+    # number reported is over mutants a test could actually have caught.
+    # Survivors are untouched by this — an invalid mutant never lands there — so
+    # the ratchet and its baselines are unaffected.
+    invalid=$(grep -c 'ooze-invalid-mutant:' <<<"$output" || true)
+    if [ "${invalid:-0}" -gt 0 ]; then
+        total=$(grep -oE '• Total:[[:space:]]+[0-9]+' <<<"$output" | head -1 | grep -oE '[0-9]+$')
+        killed=$(grep -oE '• Killed:[[:space:]]+[0-9]+' <<<"$output" | head -1 | grep -oE '[0-9]+$')
+        if [ -n "${total:-}" ] && [ -n "${killed:-}" ]; then
+            echo
+            echo "  ${invalid} mutant(s) DID NOT COMPILE and were scored as killed. Corrected:"
+            echo "    valid total:  $(( total - invalid ))"
+            echo "    real kills:   $(( killed - invalid ))"
+        fi
+    fi
     # THE SECOND HALF OF THE SAME INVARIANT: the guard above refuses a run that
     # measured nothing; this one refuses a run that measured something WORSE
     # than what is already recorded. A score alone cannot fail this gate, so
     # regression is what fails it — per target, because one number for the whole
     # table lets an improvement in one entry mask a regression in another.
-    runlog="{{mutation_tmp}}/.run.$$.log"
-    printf '%s\n' "$output" > "$runlog"
-    set +e
-    bash tests/mutation/survivor_ratchet.sh tests/mutation/survivor_baseline.txt "$runlog"
-    ratchet=$?
-    set -e
-    if [ "$ratchet" -ne 0 ]; then
-        exit "$ratchet"
+    # The ratchet follows the GATE, not the tool. An acceptance run is a
+    # scheduled measurement whose whole point is "did it get worse"; the unit
+    # judge is an authoring-time check you run once and read, for which a
+    # baseline is meaningless — there is no previous run to have regressed from.
+    if [ "{{RATCHET}}" = "ratchet" ]; then
+        runlog="{{mutation_tmp}}/.run.$$.log"
+        printf '%s\n' "$output" > "$runlog"
+        set +e
+        bash tests/mutation/survivor_ratchet.sh tests/mutation/survivor_baseline.txt "$runlog"
+        ratchet=$?
+        set -e
+        if [ "$ratchet" -ne 0 ]; then
+            exit "$ratchet"
+        fi
     fi
     # Past both guards, so a real score was produced and it did not regress.
+
+# Mutate one source file per target and drive the CUCUMBER acceptance suite
+# against a binary rebuilt from each mutant. Ratcheted against
+# tests/mutation/survivor_baseline.txt. Nightly/scoped — never a per-PR gate.
+test-mutation-acceptance *ARGS:
+    @just _mutation-driver ratchet {{ARGS}}
+
+# Mutate one source file per target and judge every mutant with the SINGLE test
+# that claims to verify it — the authoring-time check behind "a test does not
+# pass until a mutation dies".
+#
+# Not a CI gate and deliberately unratcheted: the suite covers regression. This
+# answers "does the test I just wrote look at the code it names", which a
+# package-wide judge cannot, because it reports KILLED when ANY test catches the
+# mutant. Measured ~6s/mutant, and it never writes the source tree.
+#
+#   just test-mutation-unit -run 'TestUnitMutation/^premise_instruction$'
+test-mutation-unit *ARGS:
+    @just _mutation-driver no-ratchet {{ARGS}}
 
 # Run ONE entry from the mutation target table (see `just test-mutation-entries`).
 # Per-entry is the recommended way to run this: the full table is ~111 minutes,
@@ -1520,7 +1569,7 @@ test-mutation-cucumber *ARGS:
 #
 #   just test-mutation-entry signer_store
 test-mutation-entry NAME *ARGS:
-    @just test-mutation-cucumber -run 'TestAcceptanceMutation/^{{NAME}}$' {{ARGS}}
+    @just test-mutation-acceptance -run 'TestAcceptanceMutation/^{{NAME}}$' {{ARGS}}
 
 # List the mutation target table's entry names, with the file each one mutates.
 # Reads the table itself, so it cannot drift from the code the way a hand-kept
@@ -1528,7 +1577,14 @@ test-mutation-entry NAME *ARGS:
 test-mutation-entries:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "mutation target table (tests/mutation/, run with: just test-mutation-entry NAME):"
+    # Both tables are listed because both live in tests/mutation/*_test.go. Only
+    # ACCEPTANCE entries are addressable by `just test-mutation-entry NAME`,
+    # which drives TestAcceptanceMutation; a unit entry is run with
+    # `just test-mutation-unit -run 'TestUnitMutation/^NAME$'`.
+    echo "mutation target tables (tests/mutation/):"
+    echo "  acceptance -> just test-mutation-entry NAME"
+    echo "  unit       -> just test-mutation-unit -run 'TestUnitMutation/^NAME\$'"
+    echo
     grep -A2 -E '^\s+Name:\s+"' tests/mutation/*_test.go \
       | grep -oE '"(([a-z_]+)|(internal/[^"]+\.go))"' \
       | tr -d '"' \

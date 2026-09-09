@@ -28,6 +28,13 @@ import (
 // disambiguate duplicates with a #01 suffix that -run cannot address), a
 // unique target file (two entries mutating the same file is a duplicated
 // multi-hour run, never intent), and at least one feature.
+// allTargets is every entry the guards below must cover, from BOTH tables.
+// It exists so adding a table cannot silently escape validation: the guards
+// iterate this, never a single table by name.
+func allTargets() []mutationTarget {
+	return append(append([]mutationTarget{}, mutationTargets...), unitMutationTargets...)
+}
+
 func TestMutationTargets_TableIsWellFormed(t *testing.T) {
 	if len(mutationTargets) == 0 {
 		t.Fatal("mutationTargets is empty — the harness would measure nothing and report success")
@@ -35,7 +42,7 @@ func TestMutationTargets_TableIsWellFormed(t *testing.T) {
 
 	seenName := map[string]bool{}
 	seenPath := map[string]bool{}
-	for _, target := range mutationTargets {
+	for _, target := range allTargets() {
 		if target.Name == "" {
 			t.Errorf("entry for %q has no Name — its subtest could not be addressed by -run", target.SourceRelPath)
 		}
@@ -52,8 +59,8 @@ func TestMutationTargets_TableIsWellFormed(t *testing.T) {
 		}
 		seenPath[target.SourceRelPath] = true
 
-		if len(target.Features) == 0 {
-			t.Errorf("entry %q names no features — ACCEPTANCE_PATHS would be empty, the suite would run EVERYTHING, and the run would never finish", target.Name)
+		if target.Judge == nil {
+			t.Errorf("entry %q has no Judge — release would nil-panic before mutating anything", target.Name)
 		}
 	}
 }
@@ -67,7 +74,7 @@ func TestMutationTargets_TableIsWellFormed(t *testing.T) {
 func TestMutationTargets_FilesExist(t *testing.T) {
 	root := repoRoot(t)
 
-	for _, target := range mutationTargets {
+	for _, target := range allTargets() {
 		t.Run(target.Name, func(t *testing.T) {
 			src := filepath.Join(root, filepath.FromSlash(target.SourceRelPath))
 			if info, err := os.Stat(src); err != nil {
@@ -76,14 +83,8 @@ func TestMutationTargets_FilesExist(t *testing.T) {
 				t.Errorf("SourceRelPath %q is a directory; ooze mutates one FILE", target.SourceRelPath)
 			}
 
-			for _, feature := range target.Features {
-				// Features are relative to tests/acceptance — that is the cwd
-				// godog reads Paths from (see run_scoped_suite.sh's
-				// `go test ./tests/acceptance/...`).
-				path := filepath.Join(root, "tests", "acceptance", filepath.FromSlash(feature))
-				if _, err := os.Stat(path); err != nil {
-					t.Errorf("feature %q does not exist at %s: %v — the suite would run zero scenarios and every mutant would survive", feature, path, err)
-				}
+			if target.Judge != nil {
+				target.Judge.validate(t, root)
 			}
 		})
 	}
@@ -106,7 +107,7 @@ func TestMutationTargets_IgnorePatternScopesToTheEntry(t *testing.T) {
 		t.Fatalf("walk found only %d non-test .go files under %s — repoRoot() is wrong, and every scoping assertion below would be vacuous", len(all), root)
 	}
 
-	for _, target := range mutationTargets {
+	for _, target := range allTargets() {
 		t.Run(target.Name, func(t *testing.T) {
 			pattern, ignoredCount := buildIgnorePattern(t, root, target.SourceRelPath)
 

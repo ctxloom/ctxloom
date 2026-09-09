@@ -43,5 +43,13 @@ done
 # concurrent acceptance suite fails in whatever code the current mutant
 # touched, attributing the mutation's damage to the branch under test.
 rm -f ./ctxloom
-CGO_ENABLED=1 go build -buildvcs=false -tags treesitter -o ./ctxloom ./cmd/ctxloom
+# A mutant that does not COMPILE is not a mutant the suite caught. `set -e` would
+# exit nonzero here, and ooze reads nonzero as KILLED — scoring the compiler as
+# if it were the acceptance suite. The marker lets the reporting layer subtract
+# these; the exit status stays nonzero because survivor counts (what the ratchet
+# gates on) must not move.
+if ! CGO_ENABLED=1 go build -buildvcs=false -tags treesitter -o ./ctxloom ./cmd/ctxloom; then
+  echo "ooze-invalid-mutant: ./cmd/ctxloom did not compile"
+  exit 1
+fi
 exec go test -tags "acceptance integration" -run TestAcceptance -count=1 ./tests/acceptance/...

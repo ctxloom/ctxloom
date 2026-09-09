@@ -451,10 +451,44 @@ func checkDaemonVersion(daemonVersion string) error {
 	if daemonVersion == version.Version {
 		return nil
 	}
-	return fmt.Errorf(
-		"llm serve: stale daemon — it reports ctxloom %q, this client is %q; a plugin process from an earlier install is still answering instead of the current binary. Refusing to run against compiled-in behavior that predates this install: stop the stale `ctxloom llm serve`/`llm host` process (or let it exit) and retry",
-		daemonVersion, version.Version,
-	)
+	return fmt.Errorf("llm serve: %s", versionMismatchDetail(daemonVersion, version.Version))
+}
+
+// versionMismatchDetail states a build mismatch WITHOUT asserting a direction
+// the comparison did not establish.
+//
+// The equality test above proves only that two builds differ. The message it
+// used to emit went much further: it named the daemon "a plugin process from an
+// earlier install" whose behavior "predates this install", and told the reader
+// to stop that process. Both halves were false when this actually fired — the
+// answering daemon was the NEWER build and the stale side was the caller's own
+// long-lived process — so the remedy pointed at a process that was hosting live
+// sessions. Following it would have killed working sessions and fixed nothing.
+//
+// Direction is computable, because a stamp carries a UTC build time, so this
+// states it when BOTH sides parse and stays silent about it when either does
+// not. The remedy names the OLDER side, which is the one that has to go, rather
+// than assuming which role it plays.
+func versionMismatchDetail(daemonVersion, clientVersion string) string {
+	const restart = "restart it so both sides run the same build, then retry"
+
+	daemonAt, daemonOK := version.BuildTime(daemonVersion)
+	clientAt, clientOK := version.BuildTime(clientVersion)
+
+	switch {
+	case daemonOK && clientOK && daemonAt.Before(clientAt):
+		return fmt.Sprintf(
+			"build mismatch — the daemon reports ctxloom %q, this client is %q. The DAEMON is the older build, so a process from an earlier install is still answering: %s",
+			daemonVersion, clientVersion, restart)
+	case daemonOK && clientOK && clientAt.Before(daemonAt):
+		return fmt.Sprintf(
+			"build mismatch — the daemon reports ctxloom %q, this client is %q. THIS CLIENT is the older build — a long-lived process keeps the binary image it started with while the file on disk is replaced — so the daemon is current and killing it would not help: %s",
+			daemonVersion, clientVersion, restart)
+	default:
+		return fmt.Sprintf(
+			"build mismatch — the daemon reports ctxloom %q, this client is %q. Which one is older cannot be determined from these stamps, so neither is named as the culprit: %s",
+			daemonVersion, clientVersion, restart)
+	}
 }
 
 // NewContainerClient creates a plugin client whose backend server runs INSIDE a

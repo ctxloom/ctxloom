@@ -386,7 +386,7 @@ func TestRunnerFromConn_VersionMismatchTriggersKill(t *testing.T) {
 	t.Cleanup(func() { version.Version = orig })
 
 	grpcClient := &GRPCClient{client: &fakeLLMClient{
-		infoResp: &LLMInfo{CtxloomVersion: "v1.0.0-stale00-20260101T000000"},
+		infoResp: &LLMInfo{CtxloomVersion: "v1.0.0-stale00-20250101T000000"},
 	}}
 	fake := &fakeLLMConnection{
 		clientResult: &fakeClientProtocol{dispenseResult: grpcClient},
@@ -394,7 +394,11 @@ func TestRunnerFromConn_VersionMismatchTriggersKill(t *testing.T) {
 
 	_, err := runnerFromConn(fake)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "stale daemon")
+	assert.Contains(t, err.Error(), "build mismatch")
+	// The fixture's daemon is genuinely the older BUILD (its stamp carries an
+	// earlier UTC time), so the message may name it — and must, since that is
+	// the direction the stamps actually establish.
+	assert.Contains(t, err.Error(), "The DAEMON is the older build")
 	assert.Equal(t, 1, fake.killCalls, "a version-mismatched daemon must be killed, never handed to a caller")
 }
 

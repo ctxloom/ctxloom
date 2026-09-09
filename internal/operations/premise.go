@@ -139,7 +139,7 @@ func (f *premiseFilter) entries() []PremiseIndexEntry {
 // agent because the agent is the only party that can evaluate these premises:
 // they turn on what is about to be done, which the host assembling the context
 // does not know.
-const premiseIndexHeading = "# Conditional guidance (not loaded)"
+const premiseIndexHeading = "# Conditional guidance"
 
 // PremiseSelectionInstruction is the guidance an agent selects by, exposed on
 // its own so every surface serves the SAME wording. The text listing embeds it;
@@ -150,8 +150,9 @@ const premiseIndexHeading = "# Conditional guidance (not loaded)"
 func PremiseSelectionInstruction() string {
 	var b strings.Builder
 	b.WriteString(premiseIndexHeading)
-	b.WriteString("\n\nThe guidance below is NOT in your context. Each line gives a fragment's\n")
-	b.WriteString("NAME and the PREMISE under which it applies.\n\n")
+	b.WriteString("\n\nSome of this project's guidance applies CONDITIONALLY. Each entry gives a\n")
+	b.WriteString("fragment's NAME and the PREMISE under which it applies. Load any your\n")
+	b.WriteString("context does not already carry.\n\n")
 	b.WriteString("Match against WHAT YOU ARE ABOUT TO DO -- the next action, not the whole\n")
 	b.WriteString("conversation behind you. Take each premise ON ITS OWN and ask whether it\n")
 	b.WriteString("describes that action; you are not picking the single best match, and\n")

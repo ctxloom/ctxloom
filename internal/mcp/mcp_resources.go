@@ -54,7 +54,7 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 	server.AddResource(&mcp.Resource{
 		URI:         resourceFragmentsURI,
 		Name:        "fragments",
-		Description: "All local context fragments with tags and source locations. Replaces the list_fragments tool.",
+		Description: "All local context fragments with tags and source locations. A fragment carrying a PREMISE applies conditionally: the premise names the situation it applies under, and the qualified ref is what an assemble_context call quotes back to load it.",
 		MIMEType:    "application/yaml",
 	}, listResource(s, operations.ListFragments))
 

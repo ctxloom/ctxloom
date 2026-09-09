@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,10 +66,37 @@ type ctxServer struct {
 // guidance injected at session start).
 var mcpServerInstructions = resources.MustGetPromptText("mcp-server-instructions")
 
+// premiseCatalogInstruction tells an MCP client that conditional guidance exists
+// and where to ask for it.
+//
+// The catalog itself is PULLED, never pushed — docs/architecture/core/premise-selection.md
+// holds that ruling. What is pushed here is the POINTER, which is the one part a
+// client cannot discover on its own: an agent that does not know the catalog
+// exists never asks, and the fragments it would have selected are never learned
+// to exist.
+//
+// The selection wording comes from operations.PremiseSelectionInstruction rather
+// than a copy. Its three properties were fixed by measurement, and the apparatus
+// that measured them was deliberately removed — so a copy that drifts cannot be
+// re-derived back to the original. One source, or the measured one loses.
+func premiseCatalogInstruction() string {
+	var b strings.Builder
+	b.WriteString("\n\n")
+	b.WriteString(operations.PremiseSelectionInstruction())
+	b.WriteString("\nThe catalog is the `")
+	b.WriteString(resourceFragmentsURI)
+	b.WriteString("` resource: every conditional fragment,\n")
+	b.WriteString("each with its premise and the qualified ref to quote back. Read it when you\n")
+	b.WriteString("are ABOUT TO ACT, not once at session start — a premise turns on what you\n")
+	b.WriteString("are about to do, so the answer only means something at the moment you have\n")
+	b.WriteString("something to match against.\n")
+	return b.String()
+}
+
 // sessionInstructions renders the server instructions for one caller
 // identity (the stdio server's env harp, or a coordinator credential's).
 func sessionInstructions(harp string) string {
-	instructions := mcpServerInstructions
+	instructions := mcpServerInstructions + premiseCatalogInstruction()
 	if harp == "" {
 		return instructions
 	}

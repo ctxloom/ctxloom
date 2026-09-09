@@ -41,6 +41,16 @@ tailored nor delivered to the children doing much of the work. A command any age
 run needs none of that, and it asks at the moment it has something to match — the only
 time the answer means anything.
 
+**The POINTER is pushed; the index is not.** An agent that never learns the catalog
+exists never asks for it, and every fragment it would have selected stays invisible —
+so the ctxloom MCP server's session instructions carry the selection guidance and name
+the `ctxloom://fragments` resource. That is not a pushed index and does not reintroduce
+what this section rules out: no premise, no name and no body travels with it, its size
+does not grow with the corpus, and the agent still has to ask at the moment it has
+something to match. `mcp.premiseCatalogInstruction` composes it from
+`operations.PremiseSelectionInstruction` rather than restating it, so the measured
+wording has exactly one source.
+
 ## The three properties in the prompt, and why they are there
 
 `RenderPremiseIndex`'s wording is load-bearing. Against 59 situations mined from 86 real

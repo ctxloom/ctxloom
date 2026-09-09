@@ -53,6 +53,10 @@ func TestSessionInstructions_PlanDirIsTheDurableOne(t *testing.T) {
 func TestSessionInstructions_NoHarpAddsNoPlanDir(t *testing.T) {
 	testsupport.Isolate(t)
 	got := sessionInstructions("")
-	assert.Equal(t, mcpServerInstructions, got)
+	// Still an EQUALITY, not a Contains: that is what catches a session-specific
+	// addition leaking into the identity-less arm. The premise catalog is named
+	// explicitly because it is session-INDEPENDENT — every caller gets it, harp
+	// or no harp — so admitting it here weakens nothing.
+	assert.Equal(t, mcpServerInstructions+premiseCatalogInstruction(), got)
 	assert.NotContains(t, got, paths.PlanFileExt)
 }

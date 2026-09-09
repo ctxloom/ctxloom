@@ -38,7 +38,10 @@ func TestFragmentPremises_EmptyIndexSaysSoRatherThanRenderingAnEmptyMenu(t *test
 		"an empty corpus must be reported, not rendered as an empty menu")
 	assert.Contains(t, got, "loaded unconditionally",
 		"and it must say WHY there is nothing to choose — absence of a premise is an assertion")
-	assert.NotContains(t, got, "NOT in your context",
+	// Asserted against the instruction FUNCTION, not a phrase lifted from it: a
+	// literal goes vacuous the moment the wording changes, passing forever while
+	// checking nothing. This cannot.
+	assert.NotContains(t, got, operations.PremiseSelectionInstruction(),
 		"the selection instruction must not appear when there is nothing to select")
 }
 

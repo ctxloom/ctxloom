@@ -16,6 +16,26 @@ type FragmentEntry struct {
 	Name   string   `json:"name"`
 	Tags   []string `json:"tags,omitempty"`
 	Source string   `json:"source"`
+	// Ref is the QUALIFIED reference (bundle#fragments/name) a selection quotes
+	// back, and it is separate from Name because Name is BARE and a bare ask is
+	// ambiguous: Catalog.ResolveFragmentAsk resolves one matching several
+	// bundles to the first in List order with only a warning, and `general` is
+	// defined in seventeen code-review bundles in the default corpus — so a bare
+	// ask for one lens silently delivers another.
+	Ref string `json:"ref"`
+	// Premise is the fragment's applicability condition, "" for an
+	// unconditional one.
+	//
+	// It is here because a listing is the EVALUATION phase — MCP separates
+	// descriptors (resources/list) from contents (resources/read), and a
+	// descriptor without the premise is missing the single field a consumer
+	// selects on. Its absence is why the menu had to be bolted onto a tool
+	// response instead, which is what put a domain struct on the wire.
+	//
+	// The BODY deliberately does not travel here. Descriptions are for
+	// choosing; bodies come from ctxloom://fragments/{name}, for the chosen
+	// ones only.
+	Premise string `json:"premise,omitempty"`
 }
 
 // ListFragmentsRequest contains parameters for listing fragments.
@@ -85,9 +105,11 @@ func ListFragments(ctx context.Context, cfg *config.Config, req ListFragmentsReq
 
 	for _, info := range infos {
 		result.Fragments = append(result.Fragments, FragmentEntry{
-			Name:   info.Name,
-			Tags:   info.Tags,
-			Source: info.Source,
+			Name:    info.Name,
+			Tags:    info.Tags,
+			Source:  info.Source,
+			Ref:     info.Bundle + "#fragments/" + info.Name,
+			Premise: info.Premise,
 		})
 	}
 

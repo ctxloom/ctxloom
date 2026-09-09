@@ -30,8 +30,10 @@ those fragments exist.
     ctxloom fragment premises
 
 lists every premised fragment, the condition it applies under, and the
-instruction for deciding between them. Over MCP, `assemble_context` returns the
-same menu as `premise_index`.
+instruction for deciding between them. Over MCP the same menu is the
+`ctxloom://fragments` resource: each entry carries its premise and the qualified
+ref to quote back. Descriptions live there; bodies come from
+`ctxloom://fragments/{name}`, for the ones you chose.
 
 Do not select from the names. The premise is the thing to judge, and the
 listing ships the guidance for judging it — read what comes back rather than

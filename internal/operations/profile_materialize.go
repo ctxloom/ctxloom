@@ -135,13 +135,9 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// index gives a live session, done by the engine's own mechanism. Where it
 	// does not, we dump them into context (Static) so nothing is ever lost.
 	skillsCapable := backends.SupportsSkills(backend)
-	var withheld []backends.PremisedFragment
 	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{
 		Profiles: req.Profiles,
 		Static:   !skillsCapable,
-		OnWithheld: func(name, premise, content string) {
-			withheld = append(withheld, backends.PremisedFragment{Ref: name, Premise: premise, Content: content})
-		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("assemble context for %v: %w", req.Profiles, err)
@@ -173,6 +169,10 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	skills := backends.SkillExportsFor(backend, backends.LoadSkillExports(cfg, req.Profiles))
 	// Withheld fragments join the authored skills. A collision between two of
 	// them is fatal rather than a silent overwrite — see PremisedFragmentSkills.
+	withheld := make([]backends.PremisedFragment, 0, len(asm.WithheldFragments))
+	for _, w := range asm.WithheldFragments {
+		withheld = append(withheld, backends.PremisedFragment{Ref: w.Name, Premise: w.Premise, Content: w.Content})
+	}
 	fragmentSkills, err := backends.PremisedFragmentSkills(withheld)
 	if err != nil {
 		return nil, fmt.Errorf("materialize premised fragments as skills for %v: %w", req.Profiles, err)

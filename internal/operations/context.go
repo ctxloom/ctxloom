@@ -62,29 +62,6 @@ type AssembleContextRequest struct {
 	// comes back empty -- there is nobody to hand a menu to.
 	Static bool `json:"static,omitempty"`
 
-	// OnWithheld, when set, receives each premised fragment's already-gated
-	// body at the moment the filter withholds it. The only consumer is
-	// in-process: a STATIC assembly turning withheld fragments into native
-	// skill packages for an engine ctxloom will not be present to serve.
-	//
-	// THE INVARIANT THIS UPHOLDS: no internal consumer's need may add anything
-	// to what assemble_context publishes. Withheld bodies on the RESULT would
-	// reach every caller of that tool — including the dynamic ones that
-	// withheld precisely to avoid carrying them — so the mechanism would defeat
-	// its own purpose.
-	//
-	// THIS IS A WORKAROUND, and it is deliberately shaped like one. The reason
-	// an in-process need can touch the wire at all is that
-	// AssembleContextResult IS the tool's output type: there is no port to
-	// translate at, so the domain struct and the wire contract are the same
-	// object. A callback on the REQUEST routes around that; it does not fix it.
-	// With a real adapter the bodies could travel on the result harmlessly and
-	// this field would not need to exist. Root cause is filed as
-	// irritable-hydration — read it before adding the next field here, because
-	// the next internal need meets the same fork and the workaround does not
-	// generalise.
-	OnWithheld func(name, premise, content string) `json:"-"`
-
 	// Loader is an optional pre-configured loader (for testing).
 	Pipeline *bundles.Pipeline `json:"-"`
 
@@ -93,6 +70,14 @@ type AssembleContextRequest struct {
 }
 
 // AssembleContextResult contains the assembled context.
+// WithheldFragment is one premised fragment an assembly held back, with the
+// body it did not deliver.
+type WithheldFragment struct {
+	Name    string
+	Premise string
+	Content string
+}
+
 type AssembleContextResult struct {
 	Profiles        []string `json:"profiles"`
 	FragmentsLoaded []string `json:"fragments_loaded"`
@@ -117,6 +102,18 @@ type AssembleContextResult struct {
 	// back to the configured primary role. Overridable by -l/--llm at the call
 	// site.
 	ProfileLLM string `json:"profile_llm,omitempty"`
+
+	// WithheldFragments carries each withheld fragment's already-gated BODY,
+	// for an in-process caller that must deliver it some other way — a STATIC
+	// assembly turning them into native skill packages for an engine ctxloom
+	// will not be present to serve.
+	//
+	// It is safe on the RESULT only because the MCP surface no longer returns
+	// this struct: internal/mcp projects a DTO that omits this field, so a body
+	// cannot reach the wire by anyone adding to the domain type. Before that
+	// port existed this had to travel as a request-side callback, which was a
+	// workaround for the missing boundary rather than a design.
+	WithheldFragments []WithheldFragment `json:"-"`
 
 	// PremiseIndex names the fragments this assembly WITHHELD because they
 	// carry a premise, together with that premise. It is the agent's menu: it
@@ -201,7 +198,10 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	if req.Static {
 		filter = newStaticPremiseFilter()
 	}
-	filter.onWithheld = req.OnWithheld
+	var withheld []WithheldFragment
+	filter.onWithheld = func(name, premise, content string) {
+		withheld = append(withheld, WithheldFragment{Name: name, Premise: premise, Content: content})
+	}
 
 	loaderNames, err := ingestFragmentRefs(ingest, pipe, orderedRefs, profileVars, filter)
 	if err != nil {
@@ -241,13 +241,14 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	warnGuttedProfiles(declaredByProfile, loadedNames, gate)
 
 	return &AssembleContextResult{
-		Profiles:         profileNames,
-		FragmentsLoaded:  loadedNames,
-		MissingFragments: missingRequested,
-		MissingTags:      missingTags,
-		Context:          contextContent,
-		ProfileLLM:       profileLLM,
-		PremiseIndex:     filter.entries(),
+		Profiles:          profileNames,
+		FragmentsLoaded:   loadedNames,
+		MissingFragments:  missingRequested,
+		MissingTags:       missingTags,
+		Context:           contextContent,
+		ProfileLLM:        profileLLM,
+		PremiseIndex:      filter.entries(),
+		WithheldFragments: withheld,
 	}, nil
 }
 

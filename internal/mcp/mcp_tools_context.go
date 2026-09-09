@@ -42,13 +42,16 @@ func (s *ctxServer) registerContextTools(server *mcp.Server) []string {
 			Description: "Assemble context from a profile, fragments, and/or tags. Returns the combined context that would be sent to an AI.",
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in assembleContextInput) (*mcp.CallToolResult, *operations.AssembleContextResult, error) {
+		func(ctx context.Context, _ *mcp.CallToolRequest, in assembleContextInput) (*mcp.CallToolResult, *assembleContextOutput, error) {
 			result, err := operations.AssembleContext(ctx, s.cfg, operations.AssembleContextRequest{
 				Profile:   in.Profile,
 				Fragments: in.Fragments,
 				Tags:      in.Tags,
 			})
-			return nil, result, err
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, assembleContextDTO(result), nil
 		})
 
 	mcp.AddTool(server,

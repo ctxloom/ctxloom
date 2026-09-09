@@ -35,7 +35,12 @@ LOCAL-ONLY — nothing rebuilds them, so clean never takes them, and neither
 does --yes. lock.yaml survives too: it is rebuildable but committed, so
 deleting it would dirty your tree rather than free anything.
 
-Without --yes this only reports; nothing on disk changes.`,
+Without --yes this only reports; nothing on disk changes.
+
+clean is not uninstall. What it takes comes back on your next run, because
+that is what regenerable means. To remove ctxloom's integration with this
+project — its hooks, statusline, MCP registration and generated command
+files — and have it stay removed, use 'ctxloom manage uninstall'.`,
 	Args: cobra.NoArgs,
 	RunE: runClean,
 }

@@ -18,16 +18,23 @@ to touch, and you are doing it in the few minutes before the human leaves.
 ## The queue is a tag, and exactly one date is ever live
 
 The queue lives in taskloom as a flat dated tag, `queue:<YYYYMMDD>`. Admission
-ROLLS IT FORWARD: unfinished items are re-tagged with tonight's date and the
-previous date is REMOVED.
+ROLLS IT FORWARD by ADDING tonight's date to each item admitted.
 
     taskloom list --tag-query queue:<tonight> --compact
 
-**The invariant is that exactly one `queue:<date>` is active at a time.** Hold
-it deliberately. A queue tag that is never cleared stops describing tonight and
-starts describing a night that has passed, and nothing about it looks wrong —
-the query still returns rows, the run still starts, and the rows are simply the
-wrong ones.
+**Do NOT remove earlier dates.** The tag is not single-valued and it is not a
+"current queue" field: a row accumulates the nights it was admitted to, and that
+is its admission history. Stripping the old date destroys the only record that a
+row was worked on, or waited through, a given night — and a row carrying
+`queue:20260903,queue:20260904` is telling you it survived two admissions, which
+is exactly the signal you want when deciding whether to admit it a third time.
+
+**The invariant is that exactly one `queue:<date>` is the CURRENT one — tonight's
+— not that a row carries only one.** Hold that deliberately, because the hazard
+it guards is real and is about the QUERY, not the tags: a run that reads a date
+which has passed still returns rows, still starts, and the rows are simply the
+wrong ones. Nothing about it looks wrong. Guard it by querying tonight's date,
+never by deleting yesterday's.
 
 This is not hypothetical. A queue admitted on 2026-08-31 was still live on
 2026-09-03 carrying fourteen items. Independent validation of all fourteen found

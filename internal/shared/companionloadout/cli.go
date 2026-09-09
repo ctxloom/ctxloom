@@ -4,6 +4,13 @@
 // raw bundle YAML or as the JSON envelope ctxloom's companion discovery
 // execs (`<bin> loadout --format json`).
 //
+// docs/companion-loadout-standard.md is the contract this implements, stated
+// once: what a companion emits, how ctxloom asks for it, how it is signed, what
+// happens when the probe fails, and how a loadout fragment declares a premise.
+// It exists because this contract used to be asserted in four places at once —
+// here, each loadout's own header, the signature-envelope spec, and ctxloom's
+// probe — with nothing reconciling them.
+//
 // Only the DISPATCH logic lives here. The loadout content itself stays
 // per-binary: go:embed can only embed a file that lives in the embedding
 // file's own package directory, so each companion embeds its own

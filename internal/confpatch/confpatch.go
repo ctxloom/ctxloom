@@ -76,6 +76,16 @@ type Result struct {
 	After []byte
 	// Reversed reports whether a prior record was found and reversed.
 	Reversed bool
+	// AdoptedPaths names entries of ctxloom's own that were taken back out
+	// WITHOUT a record accounting for them (see WithOwnedPaths) — ctxloom
+	// re-adopting its own leftovers, not a drift.
+	AdoptedPaths []string
+	// HealedPaths names the entries taken back out by ownership rather than by
+	// the recorded reversal, because a second ctxloom had overwritten them (see
+	// healOwnedDrift). Empty on every ordinary apply. A caller that can reach a
+	// user SHOULD surface it: the file did change under ctxloom, and the reason
+	// is worth one line even though it is not an error.
+	HealedPaths []string
 	// Changed reports whether After differs from Before.
 	Changed bool
 }
@@ -98,6 +108,30 @@ type Result struct {
 // empty and the reversal alone is the whole change.
 type Build func(doc *hew.Doc, cur hew.Document) (recorded int, err error)
 
+// ApplyOption configures one Apply.
+type ApplyOption func(*applyConfig)
+
+type applyConfig struct{ ownedPaths []string }
+
+// WithOwnedPaths names the pointers the caller manages in this target.
+//
+// It exists for the case a RECORD cannot cover: an entry ctxloom itself wrote
+// is sitting in the file with no record to reverse it — a cleared record store,
+// a machine where ctxloom ran before this store existed, or an entry a user
+// copied in by hand. Without this, ctxloom REPLACES that entry in place, and
+// hew re-renders the container it edited in its own layout; the reversal then
+// cannot reproduce the user's bytes and the write is refused, taking every
+// hook and MCP server down with it. Removing ctxloom's own entry first and
+// adding it back fresh sidesteps that entirely.
+//
+// It is not the file-enumeration this package's doc rejects. The caller states
+// which pointers it manages, from its own knowledge; ownership at those
+// pointers is then proved from the executable the entry runs, never its name,
+// so an entry that is not ctxloom's is left exactly where it is.
+func WithOwnedPaths(pointers ...string) ApplyOption {
+	return func(c *applyConfig) { c.ownedPaths = append(c.ownedPaths, pointers...) }
+}
+
 // Apply runs the loop against one target: reverse what ctxloom applied last
 // time, apply what build records, and write one record describing it.
 //
@@ -110,8 +144,12 @@ type Build func(doc *hew.Doc, cur hew.Document) (recorded int, err error)
 // that no longer fits means the user edited the region ctxloom manages, and
 // applying the new set on top of that would clobber their edit. Refusing is the
 // documented behaviour hew's own staleness guard exists to produce.
-func (s *Store) Apply(targetFS afero.Fs, target string, build Build) (Result, error) {
+func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...ApplyOption) (Result, error) {
 	var res Result
+	var cfg applyConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 
 	if targetFS == nil {
 		return res, errors.New("confpatch: nil target filesystem")
@@ -165,9 +203,35 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build) (Result, er
 		if existed && found && len(prev.Reversal) > 0 {
 			restored, err = applyPatchText(binding, before, []byte(prev.Reversal), target)
 			if err != nil {
-				return fmt.Errorf("confpatch: %s has drifted since ctxloom last wrote it, so the previous application could not be reversed; refusing to write rather than clobber the change: %w", target, err)
+				// The reversal not fitting means SOMEONE ELSE wrote the region
+				// ctxloom manages. Refusing is right when that someone is the
+				// user. It is wrong when it was another ctxloom, which happens
+				// routinely and is not an edit anyone made: see healOwnedDrift.
+				healed, healedPaths, ok := healOwnedDrift(binding, format, target, before, prev)
+				if !ok {
+					return fmt.Errorf("confpatch: %s has drifted since ctxloom last wrote it, so the previous application could not be reversed; refusing to write rather than clobber the change: %w", target, err)
+				}
+				restored, res.HealedPaths = healed, healedPaths
 			}
 			res.Reversed = true
+		}
+		// Take out any entry of ctxloom's OWN that the reversal did not
+		// account for — see WithOwnedPaths. Replacing such an entry in place is
+		// what makes the reversal unrenderable; removing it and adding it back
+		// fresh keeps the undo exact.
+		if len(cfg.ownedPaths) > 0 {
+			// No Recorded value: there is no record accounting for these, which
+			// is the whole reason this path exists. Executable identity is the
+			// only proof available for them.
+			candidates := make([]ownedCandidate, 0, len(cfg.ownedPaths))
+			for _, ptr := range cfg.ownedPaths {
+				candidates = append(candidates, ownedCandidate{Pointer: ptr})
+			}
+			cleaned, removed, _, cerr := ownedRemovals(binding, format, target, restored, candidates)
+			if cerr == nil && len(removed) > 0 {
+				restored = cleaned
+				res.AdoptedPaths = removed
+			}
 		}
 		res.Restored = restored
 
@@ -338,8 +402,28 @@ func renderReversal(format hew.FormatID, before, after []byte, target string) ([
 //
 // It also stops ctxloom copying the user's adjacent secrets into its own
 // home-rooted record store, which the radius did as a side effect.
+//
+// HINTS ARE ASKED FOR EXPLICITLY, and that is not redundant with the above.
+// hew splits the two channels: Context governs the value-carrying `test`
+// assertions, and HintContext governs non-asserting `~` neighbour lines that
+// carry a KEY (or a content digest) and never a value. A hint cannot fail a
+// match, so it buys the locator evidence to place a hunk without buying back
+// either problem this function exists to avoid — a wedged reversal, or a
+// neighbour's Authorization header copied into ctxloom's store.
+//
+// Left unset it would be silently OFF here: hew carries the ContextNone
+// SENTINEL across to the hint channel (hintRadius reads Context when
+// HintContext is zero), on the reading that "no context at all" is a body-wide
+// request. That reading is right for a caller who means it body-wide. ctxloom
+// does not: it narrows the ASSERTING channel because the file is the user's,
+// and wants every bit of non-asserting location it can get. Saying so is the
+// difference between that and inheriting the answer to a different question.
 func inversionOptions(target string) hew.DiffOptions {
-	return hew.DiffOptions{Target: target, Context: hew.ContextNone}
+	return hew.DiffOptions{
+		Target:      target,
+		Context:     hew.ContextNone,
+		HintContext: hew.HintContextDefault,
+	}
 }
 
 // applyPatchText parses stored .hew text and applies it. Parsing at APPLY time,

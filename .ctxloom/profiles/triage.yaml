@@ -1,0 +1,3 @@
+description: 'Triage role: judges whether a deferred task revive trigger has fired. Carries ctxloom domain vocabulary so a trigger written in this project''s terms is answerable — deliberately NO behavioural standards (no project-base parent), which bias a verdict.'
+bundles:
+    - ctxloom-project#fragments/config-hierarchy

@@ -193,8 +193,8 @@ cd ctxloom
 # Generate protobuf files
 buf generate
 
-# Build (light build: memory + vector search, no tree-sitter)
-go build -tags memory,vectors -ldflags "-s -w" -o ctxloom ./cmd/ctxloom
+# Build (light build: no tree-sitter)
+go build -ldflags "-s -w" -o ctxloom ./cmd/ctxloom
 
 # Install
 sudo mv ctxloom /usr/local/bin/
@@ -204,7 +204,7 @@ Omitting `-tags treesitter` (and `CGO_ENABLED=1`) means no AST-based code
 compression — the build above matches the light release. For the full build:
 
 ```bash
-CGO_ENABLED=1 go build -tags memory,vectors,treesitter -ldflags "-s -w" -o ctxloom ./cmd/ctxloom
+CGO_ENABLED=1 go build -tags treesitter -ldflags "-s -w" -o ctxloom ./cmd/ctxloom
 ```
 
 `just build` produces the full build (tree-sitter and friends) inside the
@@ -219,10 +219,10 @@ If you have Go 1.26+ and buf installed:
 git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
 buf generate
-go install -tags memory,vectors ./cmd/ctxloom
+go install ./cmd/ctxloom
 ```
 
-Or, from inside the repo, skip the manual buf/tags dance entirely:
+Or, from inside the repo, skip the manual buf/build dance entirely:
 
 ```bash
 just install
@@ -371,7 +371,7 @@ irm https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1 |
 cd ctxloom
 git pull
 buf generate
-go install -tags memory,vectors ./cmd/ctxloom
+go install ./cmd/ctxloom
 # or, from inside the repo: just install
 ```
 
@@ -442,7 +442,7 @@ Building from source avoids Gatekeeper entirely since the binary is created loca
 git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
 buf generate
-go install -tags memory,vectors ./cmd/ctxloom
+go install ./cmd/ctxloom
 ```
 
 **Why this happens:** ctxloom binaries are not code-signed or notarized with Apple. This is common for open-source CLI tools distributed via GitHub releases.

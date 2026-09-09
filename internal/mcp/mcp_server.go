@@ -129,7 +129,7 @@ func ServeStdio(ctx context.Context, cwd string, gate func() error, dryRun bool)
 	// process holds neither. (The B1 forward-to-coordinator HTTP mode is
 	// DELETED: CTXLOOM_COORD_URL/CRED are consumed only by the runner now.)
 	if sock := os.Getenv(coord.EnvMCPSocket); sock != "" {
-		trigger := forwardTrigger{Kind: "env var", Name: coord.EnvMCPSocket}
+		trigger := forwardTrigger{Kind: triggerEnvVar, Name: coord.EnvMCPSocket}
 		if outcome, ferr := runMCPForward(ctx, trigger, sock); outcome == forwardOutcomeServed {
 			return ferr
 		}
@@ -149,7 +149,7 @@ func ServeStdio(ctx context.Context, cwd string, gate func() error, dryRun bool)
 		// mine" (graceful-egomaniac unit 3).
 		return derr
 	} else if sock != "" {
-		trigger := forwardTrigger{Kind: "discovery marker", Name: markerPath}
+		trigger := forwardTrigger{Kind: triggerMarker, Name: markerPath}
 		if outcome, ferr := runMCPForward(ctx, trigger, sock); outcome == forwardOutcomeServed {
 			return ferr
 		}
@@ -223,7 +223,7 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// Log which companion binaries (taskloom, ltk) this session is wired
 	// with, version-probed via `<bin> version --format json`. The wiring itself
 	// happens in applyStartupHooks below via the built-in bundles.
-	operations.ReportCompanions(os.Stderr)
+	operations.ReportCompanions(os.Stderr, cfg.TrustRoot())
 
 	// EVERYTHING BELOW MUTATES, so it is gated as one block. Config
 	// resolution and the companion report above do not, which is the

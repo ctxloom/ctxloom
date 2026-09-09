@@ -23,6 +23,11 @@ import "build/gates.justfile"
 # JUST_JUSTFILE=justfile.container and then call these by bare name.
 import "build/ci.justfile"
 
+# Signing identity, namespace and sign/verify recipes. Imported here as well
+# as in the host justfile: the release pipeline runs against THIS root and
+# signs the artifacts it builds, so both paths must sign under one definition.
+import "build/signing.justfile"
+
 # Containers build in plain module mode: github.com/ctxloom/* come from the
 # go.mod pins (module cache/proxy), never from a host go.work or sibling
 # checkouts. Push sibling changes and bump the pin to pick them up here.
@@ -210,13 +215,22 @@ release-check:
 
 # Snapshot-build the release BINARIES for THIS platform only, into dist/.
 #
-# `build --single-target`, not `release`: the full matrix needs the
-# goreleaser-cross toolchains (o64-clang, llvm-mingw) that CI has and this
-# image does not, so a full local run would fail on the darwin/windows-arm64
-# legs. Archives/checksums are therefore NOT exercised here — `release-check`
-# plus CI cover those. What this DOES prove is the build IDs and real UPX
-# compression of the `-upx` twins (upx is installed here; it is NOT on the
-# host, which is exactly why goreleaser must never run there).
+# `build --single-target`, not `release`: archives and checksums are NOT
+# exercised here — `release-check` plus CI cover those. What this DOES prove
+# is the build IDs and real UPX compression of the `-upx` twins (upx is
+# installed here; it is NOT on the host, which is exactly why goreleaser must
+# never run there).
+#
+# SINGLE-TARGET IS A CONSTRAINT, NOT A SPEED CHOICE. The CGO builds link
+# windows with `-extldflags -static`, and this image's mingw-w64 carries no
+# libdl to satisfy it, so the windows/amd64 leg dies in x86_64-w64-mingw32-ld
+# with "cannot find -ldl". The darwin legs are NOT the problem — osxcross is
+# installed here and cross-compiles them to real Mach-O binaries. What this
+# image lacks is a mingw sysroot that can complete a static link, which is
+# what CI's goreleaser-cross image supplies.
+#
+# EVERY build's post hook signs through build/signing.justfile, so a signing
+# key has to be reachable at CTXLOOM_SIGN_PUBKEY wherever this runs.
 release-snapshot: validate proto gen-schemas
     goreleaser build --snapshot --clean --single-target
 

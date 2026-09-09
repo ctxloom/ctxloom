@@ -11,15 +11,36 @@ before:
     - go mod download
     - go run ./scripts/gendocs --man man/man1
 
+# EVERY BUILD BELOW carries `flags: [-trimpath]` and a `hooks.post` chain, and
+# both are rules rather than per-build choices:
+#
+#   -trimpath matches build/common.justfile's _go-build, which every local and
+#   CI build goes through. A release that omitted it would ship a binary that
+#   differs from the one everybody actually tests.
+#
+#   hooks.post signs the built binary through build/signing.justfile — the same
+#   recipes the host `install` path uses, so a released binary and a locally
+#   installed one are signed under one definition rather than two that can
+#   drift. ctxloom REFUSES to execute a companion whose detached `<binary>.sig`
+#   does not verify, so an unsigned artifact is an unusable one. The signature
+#   is staged under the BUILD ID rather than the binary name because several
+#   builds emit the same binary name for the same target, and each archive
+#   below picks up its own by that id.
+#
+#   The `-upx` builds compress in that same chain, BEFORE signing. goreleaser's
+#   own `upx:` pipe runs after all build hooks, so signing in a hook would cover
+#   the uncompressed bytes while the archive shipped the compressed ones — a
+#   signature that cannot verify against the binary the user runs.
 builds:
-  # Standard build - includes memory and vectors (no CGO required)
-  # Recommended for most users
+  # Standard build - no CGO required. Recommended for most users.
   - id: ctxloom
+    flags:
+      - -trimpath
+    hooks:
+      post:
+        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ctxloom
     main: ./cmd/ctxloom
     binary: ctxloom
-    tags:
-      - memory
-      - vectors
     env:
       - CGO_ENABLED=0
     goos:
@@ -32,16 +53,19 @@ builds:
     ldflags:
       - -s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{.Version}}
 
-  # Full build - includes memory, vectors, and tree-sitter (31MB)
+  # Full build - adds tree-sitter (31MB)
   # Requires CGO and cross-compilers. Statically linked on linux/windows (see
   # ldflags below); netgo/osusergo force the pure-Go resolver and user lookups
   # so static glibc linking doesn't break DNS or os/user.
   - id: ctxloom-full
+    flags:
+      - -trimpath
+    hooks:
+      post:
+        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ctxloom-full
     main: ./cmd/ctxloom
     binary: ctxloom
     tags:
-      - memory
-      - vectors
       - treesitter
       - netgo
       - osusergo
@@ -77,14 +101,20 @@ builds:
       # libraries, so leave darwin dynamic.
       - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
 
-  # UPX-compressed twin of `ctxloom` (see the upx: block below). Linux/windows
-  # only — UPX doesn't support macOS binaries well (breaks code signing).
+  # UPX-compressed twin of `ctxloom`. Compression is a post hook rather than
+  # goreleaser's `upx:` pipe, which runs AFTER build hooks and so would sign
+  # the uncompressed bytes while the archive shipped the compressed ones.
+  # Linux/windows only — UPX doesn't support macOS binaries well (breaks code
+  # signing), which is why darwin is absent from this build's goos.
   - id: ctxloom-upx
+    flags:
+      - -trimpath
+    hooks:
+      post:
+        - just release-compress-binary "{{ .Path }}"
+        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ctxloom-upx
     main: ./cmd/ctxloom
     binary: ctxloom
-    tags:
-      - memory
-      - vectors
     env:
       - CGO_ENABLED=0
     goos:
@@ -96,15 +126,22 @@ builds:
     ldflags:
       - -s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{.Version}}
 
-  # UPX-compressed twin of `ctxloom-full` (see the upx: block below).
-  # Linux/windows only — UPX doesn't support macOS binaries well (breaks code
-  # signing).
+  # UPX-compressed twin of `ctxloom-full`. Compression is a post hook rather
+  # than goreleaser's `upx:` pipe, which runs AFTER build hooks and so would
+  # sign the uncompressed bytes while the archive shipped the compressed
+  # ones. Linux/windows only — UPX doesn't support macOS binaries well
+  # (breaks code signing), which is why darwin is absent from this build's
+  # goos.
   - id: ctxloom-full-upx
+    flags:
+      - -trimpath
+    hooks:
+      post:
+        - just release-compress-binary "{{ .Path }}"
+        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ctxloom-full-upx
     main: ./cmd/ctxloom
     binary: ctxloom
     tags:
-      - memory
-      - vectors
       - treesitter
       - netgo
       - osusergo
@@ -143,6 +180,9 @@ builds:
   # Pure-Go (CGO off) → statically linked on every target. Folded into this
   # repo, so it now ships from the one ctxloom release/tag.
   - id: ltk
+    hooks:
+      post:
+        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ltk
     main: ./cmd/ltk
     binary: ltk
     env:
@@ -172,6 +212,9 @@ builds:
   # taskloom companion: per-project task store CLI + MCP server. Pure-Go,
   # statically linked. Folded into this repo; ships from the one ctxloom release.
   - id: taskloom
+    hooks:
+      post:
+        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" taskloom
     main: ./cmd/taskloom
     binary: taskloom
     env:
@@ -204,6 +247,9 @@ builds:
   # PATH by default; ships from the same ctxloom release/tag as an
   # independent archive.
   - id: harp
+    hooks:
+      post:
+        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" harp
     main: ./cmd/harp
     binary: harp
     env:
@@ -228,25 +274,6 @@ builds:
       - -s -w -extldflags=-static -X main.Version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}" # reproducible builds
 
-# UPX compression for smaller binaries. Applied only to the dedicated
-# `-upx` build IDs (see builds: above) — `ctxloom`/`ctxloom-full` ship
-# uncompressed for fast startup (UPX LZMA decompression adds ~1.5s/exec).
-# NOTE: UPX is disabled for darwin - it breaks code signing and causes
-# "zsh: Killed" on macOS (especially Apple Silicon)
-upx:
-  - ids: [ctxloom-upx]
-    enabled: true
-    goos: [linux, windows]
-    goarch: [amd64, arm64]
-    compress: best
-    lzma: true
-  - ids: [ctxloom-full-upx]
-    enabled: true
-    goos: [linux, windows]
-    goarch: [amd64, arm64]
-    compress: best
-    lzma: true
-
 archives:
   # Light build archives (default, recommended)
   - id: default
@@ -262,6 +289,15 @@ archives:
       {{- .Os }}_
       {{- .Arch }}
     files:
+      # The sig is named for the BINARY AS INSTALLED, not for the build id.
+      # ctxloom looks for `<resolved binary path>.sig` (config's
+      # resolveCompanionPath + companionSigSuffix), and on Windows that path
+      # carries .exe — so a flat `ctxloom.sig` there is a signature nothing ever
+      # opens, and the binary reads as unsigned and is refused. The install
+      # scripts cannot paper over this for someone who just unzips the archive
+      # by hand, which the release notes invite them to do.
+      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom.sig
+        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
       - LICENSE*
       - README.md
       - man/man1/*.1
@@ -280,6 +316,8 @@ archives:
       {{- .Os }}_
       {{- .Arch }}_full
     files:
+      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-full.sig
+        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
       - LICENSE*
       - README.md
       - man/man1/*.1
@@ -299,6 +337,8 @@ archives:
       {{- .Os }}_
       {{- .Arch }}_upx
     files:
+      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-upx.sig
+        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
       - LICENSE*
       - README.md
       - man/man1/*.1
@@ -318,6 +358,8 @@ archives:
       {{- .Os }}_
       {{- .Arch }}_full_upx
     files:
+      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-full-upx.sig
+        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
       - LICENSE*
       - README.md
       - man/man1/*.1
@@ -338,6 +380,8 @@ archives:
       {{- .Os }}_
       {{- .Arch }}
     files:
+      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ltk.sig
+        dst: ltk{{ if eq .Os "windows" }}.exe{{ end }}.sig
       - LICENSE*
       - README.md
 
@@ -355,6 +399,8 @@ archives:
       {{- .Os }}_
       {{- .Arch }}
     files:
+      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/taskloom.sig
+        dst: taskloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
       - LICENSE*
       - README.md
 
@@ -375,6 +421,8 @@ archives:
       {{- .Os }}_
       {{- .Arch }}
     files:
+      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/harp.sig
+        dst: harp{{ if eq .Os "windows" }}.exe{{ end }}.sig
       - LICENSE*
       - src: cmd/harp/README.md
         dst: README.md
@@ -387,9 +435,17 @@ archives:
 # tap repo) — the per-repo GITHUB_TOKEN cannot push to another repository.
 #
 # The post-install hook strips the macOS quarantine attribute so the unsigned
-# binary launches without a Gatekeeper prompt.
+# binary launches without a Gatekeeper prompt. That is Apple code signing, and
+# it is unrelated to the companion signatures below.
+#
+# No cask handles `<binary>.sig` explicitly, and none needs to: a cask stages
+# the WHOLE archive and links the binary into the prefix, so the signature the
+# archive already carries stays a sibling of the staged binary. Admission
+# resolves symlinks before appending the suffix (internal/config's
+# resolveCompanionPath and companionSigSuffix), so it looks beside the staged
+# copy rather than beside the link.
 homebrew_casks:
-  # Standard build (recommended): memory + simple vector search, no CGO deps.
+  # Standard build (recommended): no CGO deps.
   #   brew install ctxloom/tap/ctxloom
   - name: ctxloom
     ids:
@@ -587,11 +643,11 @@ release:
 
     | Build | Size | Features |
     |-------|------|----------|
-    | **Standard** (`ctxloom_*`) | ~10MB | Memory, vector search (simple embedder) |
+    | **Standard** (`ctxloom_*`) | ~10MB | Everything except tree-sitter |
     | **Full** (`ctxloom_*_full`) | ~12MB | + Tree-sitter AST code compression |
 
-    Both builds include memory logging and semantic search.
-    The full build adds AST-based code compression (requires CGO).
+    Tree-sitter is the only feature difference, and it is the reason the full
+    build requires CGO. Every other capability is present in both.
 
     Each build ships in two forms:
 

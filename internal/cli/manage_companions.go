@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 )
@@ -65,7 +66,8 @@ func printCompanionStatus(w io.Writer) {
 		fmt.Fprintln(w, "  (companion discovery disabled for this run — --no-companions/CTXLOOM_NO_COMPANIONS)")
 		return
 	}
-	for _, adm := range config.AdmitCompanions(config.DiscoverCompanions(), false) {
+	root := loadConfigOrFallback(GetConfig, os.Stderr).TrustRoot()
+	for _, adm := range config.AdmitCompanions(config.DiscoverCompanions(), root) {
 		hint := hintForCompanion(adm.Bin)
 		switch {
 		case adm.Path == "":

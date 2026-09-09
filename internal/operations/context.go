@@ -55,6 +55,13 @@ type AssembleContextRequest struct {
 	Fragments []string `json:"fragments"`
 	Tags      []string `json:"tags"`
 
+	// Static declares that these bytes are the WHOLE delivery: a surface
+	// written for a consumer with no ctxloom behind it (a materialized
+	// on-disk agent surface), which cannot pull anything later. Premised
+	// fragments are then INCLUDED rather than withheld, and PremiseIndex
+	// comes back empty -- there is nobody to hand a menu to.
+	Static bool `json:"static,omitempty"`
+
 	// Loader is an optional pre-configured loader (for testing).
 	Pipeline *bundles.Pipeline `json:"-"`
 
@@ -168,6 +175,9 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// the ones this request named: an explicit ask is the selection callback
 	// closing the loop, so it always loads.
 	filter := newPremiseFilter(requested)
+	if req.Static {
+		filter = newStaticPremiseFilter()
+	}
 
 	loaderNames, err := ingestFragmentRefs(ingest, pipe, orderedRefs, profileVars, filter)
 	if err != nil {

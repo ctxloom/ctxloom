@@ -226,6 +226,17 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command succeeds
       And the file ".claude/settings.json" registers no SessionStart hook whose command contains "hook inject-context"
 
+    # Asserted on a hook CTXLOOM ITSELF installs, not on one a companion
+    # contributes. `session-bind` ships in taskloom's loadout, so this counted
+    # a hook that was present only because the developer happened to have
+    # taskloom installed — the scenario passed or vanished depending on the
+    # machine, and its subject (append twice, appear once) never needed a
+    # companion at all.
+    #
+    # Matched WITHOUT a leading "ctxloom": its own hooks are written as
+    # `'<absolute path>' hook <name>`, so the binary name is quoted away from
+    # the verb. Only a companion-shipped hook spells a bare `ctxloom hook ...`,
+    # which is why the old literal matched one and not the other.
     Scenario: Re-applying hooks does not duplicate them
       Given an initialized ctxloom project
       When Alice installs the hooks twice:
@@ -234,7 +245,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage hooks install
         """
       Then the command succeeds
-      And the file ".claude/settings.json" contains "ctxloom hook session-bind" exactly 1 times
+      And the file ".claude/settings.json" contains "hook next-step" exactly 1 times
 
     # Hooks merge across sources by pure APPEND, and each bundle's `order:`
     # sequences only its own hooks within an event. The fixture makes
@@ -290,6 +301,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # profile is it" are different questions.
     Scenario Outline: The hook list names the specific place each hook was declared
       Given an initialized ctxloom project
+      And a signed companion "ctxloom-companion-hooky" shipping a "pre_tool" hook is on PATH
       And the project already has the file ".ctxloom/profiles/dir-prov.yaml":
         """
         hooks:
@@ -304,12 +316,11 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         """
       Then the command succeeds
       # Selected by source_kind: this fixture declares exactly one
-      # profile-directory hook, so the selection cannot be ambiguous. A
-      # companion-sourced hook is NOT addressed by path here — this machine
-      # ships multiple first-party companions (ltk, taskloom, reprise), any
-      # number of which may resolve exempt, so a [source_kind=companion]
-      # selector would be genuinely ambiguous rather than a safe pick; its
-      # presence is proven as a plain substring instead.
+      # profile-directory hook, so the selection cannot be ambiguous. The
+      # companion-sourced hook is the fixture's OWN, installed above — it used
+      # to be whatever first-party companions this machine happened to have,
+      # which made the assertion a fact about the developer's laptop and
+      # shifted every hook ordinal depending on what was installed.
       And the output reports "events[event=pre_tool].hooks[source_kind=profile-directory].command" as "<names the hook>"
       And the output reports "events[event=pre_tool].hooks[source_kind=profile-directory].source" as "<names the profile>"
       And the output contains "<a companion-sourced hook is present too>"

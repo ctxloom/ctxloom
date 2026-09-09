@@ -22,33 +22,48 @@ import (
 // missing — it was that nobody was TOLD. A structured field no CLI prints is
 // the same silence with extra steps.
 
-// lossFixtureConfig is a project whose config-level session_start hook is a
-// team guardrail: the shape where the hook silently fails to follow the
-// profile onto an engine with no hook mechanism.
+// lossFixtureConfig is the project this fixture materializes from.
+//
+// It carries NO hooks, and that is a correction rather than a simplification:
+// it used to declare `hooks.unified.session_start` at the top level, which
+// ctxloom does not know and IGNORES with a warning. The session_start these
+// tests assert on was therefore never the fixture's — it came from whatever
+// real ltk/taskloom/reprise happened to be installed on the developer's PATH
+// and admitted by the ambient consent the harness used to grant. The tests
+// passed by measuring the machine. On a box without those companions they had
+// nothing to find.
 const lossFixtureConfig = `version: 6
 config:
   use_distilled: true
-hooks:
-  unified:
-    session_start:
-      - type: command
-        command: echo team-guardrail
 `
 
 // lossFixtureBundle ships one fragment so the assembled context is non-empty —
 // materialize refuses an empty payload outright, which would hide the report
-// this test is about behind a different (correct) failure.
+// this test is about behind a different (correct) failure — AND the
+// session_start hook whose loss is this file's whole subject.
+//
+// The hook lives HERE because a bundle is where ctxloom reads hooks from. The
+// fixture owning it is what makes these tests independent of what is installed
+// on the machine running them.
 const lossFixtureBundle = `name: teamrules
 version: "1.0"
 fragments:
   rules:
     content: "TEAM RULES BODY"
+hooks:
+  session_start:
+    - type: command
+      command: echo team-guardrail
 `
 
-// lossFixtureProfile selects that fragment.
+// lossFixtureProfile selects the WHOLE bundle, not just its fragment.
+//
+// `teamrules#fragments/rules` pulls exactly that one item, so the bundle's
+// session_start hook does not come with it — and the loss this file is about
+// then has nothing to report. Selecting the bundle brings both.
 const lossFixtureProfile = `name: team
 bundles:
-  - teamrules#fragments/rules
+  - teamrules
 `
 
 // setupLossFixture lays out a project carrying the guardrail hook and a

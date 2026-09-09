@@ -25,6 +25,17 @@ const (
 	NamespaceApprove = "approve.v1.ctxloom.dev"
 	// NamespaceReject: "I refuse these exact bytes / this ref, permanently."
 	NamespaceReject = "reject.v1.ctxloom.dev"
+
+	// NamespaceCompanion is the domain of "these executable bytes may be RUN on
+	// your machine" — the question ctxloom asks before executing a companion
+	// binary it discovered on PATH.
+	//
+	// It is separate from NamespacePublish for the reason the namespaces exist
+	// at all: publishing a bundle and authorizing code execution are different
+	// authorizations, and a key may hold one and not the other. Sharing a
+	// namespace would make any publish signature replayable as permission to
+	// execute.
+	NamespaceCompanion = "companion.v1.ctxloom.dev"
 )
 
 // ErrSignatureTampered reports the one publisher-verification outcome that is
@@ -147,6 +158,21 @@ type TrustRoot interface {
 // It is pure Go, offline, and in-process: no network, no ssh-keygen binary
 // (spec §11A.2), so it runs inside a minimal agent container that has neither.
 func VerifyPublisher(bundleBytes, armoredSig []byte, root TrustRoot, now time.Time) (string, error) {
+	return VerifyInNamespace(bundleBytes, armoredSig, root, NamespacePublish, now)
+}
+
+// VerifyInNamespace is VerifyPublisher's body with the namespace as a
+// parameter, so the verification ORDER above is implemented once and every
+// namespace inherits it. A second copy of that order is the thing most worth
+// avoiding here: it is the part that must not drift, because checking trust
+// after the cryptography — or against the wrong namespace — verifies bytes
+// against a key nobody authorized for the question being asked.
+//
+// The three outcomes are VerifyPublisher's, unchanged. What each MEANS is the
+// caller's to decide: a bundle treats ("", nil) as "unsigned to you, go to
+// review", while companion admission treats the same answer as a refusal,
+// because executing unattributable code is not a reviewable state.
+func VerifyInNamespace(payload, armoredSig []byte, root TrustRoot, namespace string, now time.Time) (string, error) {
 	// No .sig at the pinned SHA. Unsigned content is legal and ordinary
 	// (spec §10.1) — the review path handles it.
 	if len(armoredSig) == 0 {
@@ -178,7 +204,7 @@ func VerifyPublisher(bundleBytes, armoredSig []byte, root TrustRoot, now time.Ti
 	// already authorized for THIS namespace. A key we do not trust for publish —
 	// whether unknown entirely, or known but scoped to approve/reject only — makes
 	// this unsigned content TO US (spec §10.2). Quiet, no error, review path.
-	decision := root.TrustedForNamespace(sig.PublicKey, NamespacePublish, now)
+	decision := root.TrustedForNamespace(sig.PublicKey, namespace, now)
 	if !decision.Trusted {
 		return "", nil
 	}
@@ -187,7 +213,7 @@ func VerifyPublisher(bundleBytes, armoredSig []byte, root TrustRoot, now time.Ti
 	// signed. A trusted key's signature that does not cover these bytes is never
 	// benign — it is withheld entirely, never degraded to "unsigned, please
 	// review".
-	if err := Verify(bundleBytes, armoredSig, sig.PublicKey, NamespacePublish); err != nil {
+	if err := Verify(payload, armoredSig, sig.PublicKey, namespace); err != nil {
 		return "", fmt.Errorf("%w: signed by %s: %w", ErrSignatureTampered, decision.Principal, err)
 	}
 	return decision.Principal, nil

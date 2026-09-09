@@ -16,6 +16,14 @@ bundles:
     # a comment, a doc — does not go red when it goes false. It keeps its
     # authority while lying. Prefer no binding; if you must, make it checked.
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/core-practices
+    # The pointer to everything NOT delivered here. Fragments carrying a
+    # premise are withheld from launch context by design (pulled, never
+    # pushed), so an agent that does not know to run `ctxloom fragment
+    # premises` never learns they exist. This fragment carries no premise
+    # precisely so it can say that. It states WHERE the catalog is; the
+    # guidance for CHOOSING among premises is measured and travels with the
+    # listing itself, so it is deliberately not repeated here.
+    - ctxloom-project#fragments/conditional-guidance
     # How ctxloom itself resolves configuration: home < project < ENV <
     # --config-set, the two override channels, and why a command's own flags
     # are deliberately NOT a config source.

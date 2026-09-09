@@ -8,6 +8,9 @@ import (
 	_ "github.com/benjaminabbitt/hew/go/ext/json"
 	_ "github.com/benjaminabbitt/hew/go/ext/toml"
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	yamlv3 "gopkg.in/yaml.v3"
@@ -463,11 +466,313 @@ func TestTheStoredReversalAssertsOnlyCtxloomsOwnEntry(t *testing.T) {
 
 	// It names what it undoes...
 	assert.Contains(t, rec.Reversal, "ctxloom", "the reversal must still name the entry it removes")
-	// ...and nothing of the user's.
-	assert.NotContains(t, rec.Reversal, "remote-thing",
-		"the reversal must not assert a server ctxloom never wrote")
+
+	// ...and asserts nothing of the user's. The line that matters is what a
+	// neighbour contributes: a `~` HINT carries the key alone and can never
+	// fail a match, so `remote-thing` may appear as one — that is what lets the
+	// reversal still place itself after the user edits around it. A `test`
+	// carrying the neighbour's VALUE is the thing this forbids, and the three
+	// assertions below are the values.
 	assert.NotContains(t, rec.Reversal, "Bearer abc123",
 		"ctxloom must not copy the user's adjacent secrets into its own record store")
 	assert.NotContains(t, rec.Reversal, "mcp.example.com",
 		"the reversal must not assert the user's own values")
+	assert.NotContains(t, rec.Reversal, "https://",
+		"no value of the user's may ride the reversal, by any spelling")
+	for _, line := range strings.Split(rec.Reversal, "\n") {
+		if strings.HasPrefix(line, "~") {
+			assert.NotContains(t, line, ":",
+				"a hint names a neighbour and carries no value: %q", line)
+		}
+	}
+}
+
+// TestASecondCtxloomsEntryIsHealedNotRefused pins the case Apply's refusal was
+// never meant to catch. ctxloom writes the RUNNING binary's absolute path into
+// its own entry, so the copy on PATH and one built in a working tree write
+// different values. Neither left a record the other can reverse, so the second
+// one read the first's entry as a hand edit and refused — and because one
+// wedged target fails the whole apply, that took down every hook and MCP server
+// ctxloom manages, in a file nobody had touched.
+func TestASecondCtxloomsEntryIsHealedNotRefused(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
+
+	// The copy on PATH applies, and records what it wrote.
+	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "/opt/bin/ctxloom"}))
+	require.NoError(t, err)
+
+	// A ctxloom built in a working tree writes its own path WITHOUT going
+	// through this store — a different binary, so a different record history.
+	other := strings.Replace(mustRead(t, fs, target), `"command": "/opt/bin/ctxloom"`, `"command": "/home/u/src/ctxloom"`, 1)
+	require.Contains(t, other, "/home/u/src/ctxloom", "the fixture must actually carry the other binary's path")
+	testsupport.WriteFileString(t, fs, target, other, 0o644)
+
+	res, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "/opt/bin/ctxloom"}))
+	require.NoError(t, err, "a second ctxloom's own entry is not a user edit and must not refuse")
+	assert.Equal(t, []string{"/mcpServers/ctxloom"}, res.HealedPaths,
+		"the heal must name what it took back out, so a caller can say so")
+
+	got := mustRead(t, fs, target)
+	assert.Contains(t, got, `"/opt/bin/ctxloom"`, "the applying binary's entry is what lands")
+	assert.NotContains(t, got, "/home/u/src/ctxloom", "the superseded entry is taken back out, not left beside the new one")
+	assert.Equal(t, 1, strings.Count(got, "ctxloom\":"), "exactly one ctxloom server entry survives")
+
+	// The user's own content is still untouched — the whole point of the
+	// refusal this narrows.
+	assert.Contains(t, got, `"$schema": "https://example.com/mcp.schema.json"`)
+	assert.Contains(t, got, `"url": "https://mcp.example.com/v1"`)
+	assert.Contains(t, got, `"headers": {"Authorization": "Bearer abc123"}`)
+}
+
+// TestAUserWrapperAtCtxloomsPathStillRefuses is the other arm, and it is the one
+// that must not regress: the heal keys on the EXECUTABLE the entry runs, never
+// on the entry's NAME. A user who points the "ctxloom" key at their own wrapper
+// owns those bytes, and taking them out is the clobber this package exists to
+// prevent.
+func TestAUserWrapperAtCtxloomsPathStillRefuses(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
+
+	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "/opt/bin/ctxloom"}))
+	require.NoError(t, err)
+
+	edited := strings.Replace(mustRead(t, fs, target), `"command": "/opt/bin/ctxloom"`, `"command": "/usr/local/bin/my-wrapper"`, 1)
+	require.Contains(t, edited, "my-wrapper", "the fixture must actually have been edited")
+	testsupport.WriteFileString(t, fs, target, edited, 0o644)
+
+	_, err = s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "/opt/bin/ctxloom"}))
+	require.Error(t, err, "an entry running something other than ctxloom is the user's, and must still refuse")
+	assert.Contains(t, err.Error(), "drifted")
+	assert.Equal(t, edited, mustRead(t, fs, target),
+		"a refused write must leave the user's file exactly as they left it")
+}
+
+// indentedWithCtxloom is a .mcp.json as a tool or a human writes one: INDENTED,
+// one member per line, already carrying a ctxloom entry — the shape `claude mcp
+// add` produces and the shape an older ctxloom left behind.
+const indentedWithCtxloom = `{
+  "mcpServers": {
+    "ctxloom": {
+      "command": "/old/path/ctxloom",
+      "_marker": "left-by-an-older-install"
+    },
+    "user-server": {
+      "command": "/usr/bin/user-mcp"
+    }
+  }
+}`
+
+// TestOwnedEntryWithNoRecordIsAdoptedNotReplaced pins the failure that stood
+// red on release/0.7 as TestClaudeCodeHookWriter_UpdatesSCMMCPServer.
+//
+// With no record to reverse, ctxloom REPLACED its own leftover entry in place.
+// hew re-renders a container it edits in its own layout, so the indented entry
+// above came back collapsed onto one line, the reversal could then no longer
+// reproduce the user's bytes, and Apply refused — which in production means
+// every hook and MCP server fails to configure, over an entry ctxloom itself
+// had written.
+func TestOwnedEntryWithNoRecordIsAdoptedNotReplaced(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	testsupport.WriteFileString(t, fs, target, indentedWithCtxloom, 0o644)
+
+	res, err := s.Apply(fs, target,
+		setServer("ctxloom", map[string]any{"command": "/opt/bin/ctxloom"}),
+		WithOwnedPaths("/mcpServers/ctxloom"))
+	require.NoError(t, err, "ctxloom's own leftover entry must not make its next write refuse")
+	assert.Equal(t, []string{"/mcpServers/ctxloom"}, res.AdoptedPaths,
+		"the leftover was re-adopted, which is what makes the reversal renderable")
+
+	got := mustRead(t, fs, target)
+	assert.Contains(t, got, "/opt/bin/ctxloom", "the new entry landed")
+	assert.NotContains(t, got, "/old/path/ctxloom", "the leftover is gone, not left beside it")
+	assert.NotContains(t, got, "left-by-an-older-install",
+		"the whole leftover entry goes, including keys the new one does not set")
+	assert.Contains(t, got, `"command": "/usr/bin/user-mcp"`, "the user's own server is untouched")
+	assert.NotEmpty(t, res.RecordPath, "the write is recorded, so the next one can reverse it")
+}
+
+// TestAnUnownedEntryAtAnOwnedPathIsNotAdopted is the guard on the above: the
+// caller naming a path does NOT make what sits there ctxloom's. Ownership is
+// proved from the executable the entry runs, so a user's own command parked at
+// a name ctxloom manages is never quietly removed as "ctxloom's leftover".
+func TestAnUnownedEntryAtAnOwnedPathIsNotAdopted(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	testsupport.WriteFileString(t, fs, target,
+		strings.Replace(indentedWithCtxloom, "/old/path/ctxloom", "/usr/local/bin/my-wrapper", 1), 0o644)
+
+	before := mustRead(t, fs, target)
+
+	_, err := s.Apply(fs, target,
+		setServer("ctxloom", map[string]any{"command": "/opt/bin/ctxloom"}),
+		WithOwnedPaths("/mcpServers/ctxloom"))
+
+	// NOT adopted, and the proof is that nothing changed: ctxloom fell back to
+	// replacing the entry in place, which is what it has always done to a name
+	// it manages, and the byte-exact reversal guard then refused rather than
+	// hand the user their file back in a layout they did not write. Refusing is
+	// the safe direction here — the alternative is ctxloom silently absorbing a
+	// command somebody else put there.
+	require.Error(t, err, "a foreign entry at a managed name must not be quietly taken over")
+	assert.Equal(t, before, mustRead(t, fs, target),
+		"a refused write leaves the user's file exactly as they left it")
+}
+
+// TestRepeatedAppliesLeaveOneRecordPerTarget pins the retention rule. Every
+// apply used to leave a file behind — one per apply per target, forever, in a
+// home-rooted directory nothing swept. A real project accumulated 1522 of them.
+//
+// Only the newest is live, and that is a property of Apply rather than a policy
+// chosen for convenience: each apply reverses the previous application before
+// computing the next, so the reversal it stores already runs all the way back
+// to the user's own content. The assertion below is that the survivor really
+// does undo everything — a prune that kept the wrong file, or that pruned the
+// live one, would show up here rather than as a mysterious wedged target later.
+func TestRepeatedAppliesLeaveOneRecordPerTarget(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
+
+	for i, cmd := range []string{"/opt/a/ctxloom", "/opt/b/ctxloom", "/opt/c/ctxloom", "/opt/d/ctxloom"} {
+		_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": cmd}))
+		require.NoError(t, err, "apply %d", i)
+	}
+
+	records, err := afero.ReadDir(fs, "/home/u/.ctxloom/records")
+	require.NoError(t, err)
+	assert.Len(t, records, 1, "four applies against one target must leave ONE record, not four")
+
+	// The survivor is the live one: it undoes the LAST write, not an earlier.
+	rec, found, err := s.Last(target)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Contains(t, rec.Reversal, "/opt/d/ctxloom",
+		"the surviving record must reverse the most recent application")
+
+	// And it is a complete undo, back to the user's own file.
+	res, err := s.Apply(fs, target, recordNothing())
+	require.NoError(t, err)
+	assert.True(t, res.Reversed)
+	assert.Equal(t, foreign, mustRead(t, fs, target),
+		"the retained record must still restore exactly the file the user wrote")
+}
+
+// TestPruningIsPerTarget pins the scope: a second target's record is not
+// collateral. Pruning by directory rather than by target would delete the undo
+// for every OTHER file ctxloom manages on this machine.
+func TestPruningIsPerTarget(t *testing.T) {
+	s, fs := newStore(t)
+	const a, b = "/proj-a/mcp.json", "/proj-b/mcp.json"
+	testsupport.WriteFileString(t, fs, a, foreign, 0o644)
+	testsupport.WriteFileString(t, fs, b, foreign, 0o644)
+
+	for _, target := range []string{a, b, a, b} {
+		_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "/opt/bin/ctxloom"}))
+		require.NoError(t, err)
+	}
+
+	records, err := afero.ReadDir(fs, "/home/u/.ctxloom/records")
+	require.NoError(t, err)
+	assert.Len(t, records, 2, "one record per target survives, not one in total")
+
+	for _, target := range []string{a, b} {
+		_, found, lerr := s.Last(target)
+		require.NoError(t, lerr)
+		assert.True(t, found, "%s must keep its own live record", target)
+	}
+}
+
+// setServers writes SEVERAL servers under /mcpServers in one apply — the real
+// shape: ctxloom manages its own entry alongside the ones a bundle ships, which
+// run npx, a companion binary, anything.
+func setServers(entries map[string]any) Build {
+	return func(doc *hew.Doc, cur hew.Document) (int, error) {
+		if _, ok := cur.Root().Member("mcpServers"); !ok {
+			p, err := hew.ParsePathIn(doc.Format(), "/mcpServers")
+			if err != nil {
+				return 0, err
+			}
+			doc.AtPath(p).Set(entries)
+			return 1, nil
+		}
+		recorded := 0
+		for _, name := range collections.SortedKeys(entries) {
+			p, err := hew.ParsePathIn(doc.Format(), "/mcpServers/"+name)
+			if err != nil {
+				return 0, err
+			}
+			doc.AtPath(p).Set(entries[name])
+			recorded++
+		}
+		return recorded, nil
+	}
+}
+
+// TestAManagedEntryRunningAnotherProgramDoesNotBlockTheHeal pins the flaw that
+// reached a live machine: ownership was proved ONLY by "does this entry run
+// ctxloom", but ctxloom also writes entries that run something else — a
+// bundle's MCP server invoking npx, a companion binary. One such entry made
+// every path unownable, so the heal bailed and the whole apply refused,
+// over an entry nobody had touched.
+//
+// The second proof is untouched-since-written: the record says what ctxloom put
+// there, and if the bytes still match, no user edit is at stake.
+func TestAManagedEntryRunningAnotherProgramDoesNotBlockTheHeal(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
+
+	managed := map[string]any{
+		"ctxloom":             map[string]any{"command": "/opt/bin/ctxloom", "args": []any{"mcp", "serve"}},
+		"sequential-thinking": map[string]any{"command": "npx", "args": []any{"-y", "server"}},
+	}
+	_, err := s.Apply(fs, target, setServers(managed))
+	require.NoError(t, err)
+
+	// A second ctxloom rewrites ONLY its own entry, out of band. The npx entry
+	// is untouched — exactly as the record left it.
+	other := strings.Replace(mustRead(t, fs, target), "/opt/bin/ctxloom", "/home/u/src/ctxloom", 1)
+	require.Contains(t, other, "/home/u/src/ctxloom")
+	testsupport.WriteFileString(t, fs, target, other, 0o644)
+
+	res, err := s.Apply(fs, target, setServers(managed))
+	require.NoError(t, err,
+		"an untouched entry running npx must not make ctxloom refuse to fix its own")
+	assert.Contains(t, res.HealedPaths, "/mcpServers/ctxloom")
+
+	got := mustRead(t, fs, target)
+	assert.Contains(t, got, "/opt/bin/ctxloom", "ctxloom's entry is corrected")
+	assert.NotContains(t, got, "/home/u/src/ctxloom", "the superseded entry is gone")
+	assert.Contains(t, got, `"npx"`, "the bundle's own server survives")
+	assert.Contains(t, got, `"headers": {"Authorization": "Bearer abc123"}`, "the user's server is untouched")
+}
+
+// TestAUserEditToAManagedNonCtxloomEntryStillRefuses is the guard on the proof
+// above: untouched-since-written is what makes an npx entry reclaimable, so an
+// entry that has CHANGED since ctxloom wrote it is not, whatever it runs.
+func TestAUserEditToAManagedNonCtxloomEntryStillRefuses(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
+
+	managed := map[string]any{
+		"ctxloom":             map[string]any{"command": "/opt/bin/ctxloom"},
+		"sequential-thinking": map[string]any{"command": "npx"},
+	}
+	_, err := s.Apply(fs, target, setServers(managed))
+	require.NoError(t, err)
+
+	// The user retargets the npx server at their own build.
+	edited := strings.Replace(mustRead(t, fs, target), `"command": "npx"`, `"command": "/home/u/my-npx"`, 1)
+	require.Contains(t, edited, "my-npx")
+	testsupport.WriteFileString(t, fs, target, edited, 0o644)
+
+	_, err = s.Apply(fs, target, setServers(managed))
+	require.Error(t, err, "an entry the user changed is theirs, whatever it runs")
+	assert.Equal(t, edited, mustRead(t, fs, target),
+		"a refused write leaves the user's file exactly as they left it")
 }

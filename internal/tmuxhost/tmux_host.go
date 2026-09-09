@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -92,18 +91,18 @@ func (l *Terminals) host(ctx context.Context, spec hostSpec) (*tmuxTerminal, err
 	if spec.Cwd != "" {
 		args = append(args, "-c", spec.Cwd)
 	}
-	// Sorted so the argv is deterministic — an unordered map would make the
-	// command line differ run to run for identical input, which turns any
-	// future argv assertion into a flake.
-	for _, k := range sortedKeys(spec.Env) {
-		args = append(args, "-e", k+"="+spec.Env[k])
+	// The environment and the command's own arguments travel in a launcher
+	// FILE, never on this command line: tmux caps it, and both of those grow
+	// without bound (see writeLauncher).
+	launcher, err := writeLauncher(l.tmpDir, "host-"+name, spec.Env, spec.Command, spec.Args)
+	if err != nil {
+		return nil, fmt.Errorf("host %q: %w", spec.Command, err)
 	}
 	// writerPipePane: the command's stdout is the window's real PTY, so an
 	// interactive program behaves as it would in any terminal, and pipe-pane
 	// (armed below, before the gate is released) copies the bytes out.
 	args = append(args, "sh", "-c", tmuxWindowWrapper,
-		l.socketName(), string(writerPipePane), h.outputPath, gate, h.statusPath, h.channel, spec.Command)
-	args = append(args, spec.Args...)
+		l.socketName(), string(writerPipePane), h.outputPath, gate, h.statusPath, h.channel, "sh", launcher)
 
 	if _, err := l.runner.Run(ctx, args...); err != nil {
 		return nil, fmt.Errorf("host %q: %w", spec.Command, err)
@@ -135,15 +134,6 @@ func (l *Terminals) host(ctx context.Context, spec hostSpec) (*tmuxTerminal, err
 		l.releaseWindow(context.WithoutCancel(ctx), h)
 	}))
 	return h, nil
-}
-
-func sortedKeys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // shellQuote makes a path safe inside pipe-pane's shell command string.

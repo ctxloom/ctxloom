@@ -354,23 +354,53 @@ const (
 // that holds the session index and per-harp session dirs. This is the
 // single source of truth for the sessions root; both the task store and the
 // memory compactor resolve harp paths through it so they cannot diverge.
-func HomeSessionsDir() (string, error) {
+// homeUnderErrFormat is the shape EVERY Home*/cache accessor's resolution
+// failure takes, and the store descriptions below are the only part that
+// varies. Both are constants for one reason: a test asserting this text must
+// name the SAME string the code emits. A hand-copied expectation is a second
+// copy of the message that goes on passing after the real one is reworded.
+const homeUnderErrFormat = "resolve %s ~/%s/%s: %w"
+
+// What each accessor calls the store it failed to resolve. The remedy for one
+// of these errors is stated in terms of the store the caller wanted, never in
+// terms of os.UserHomeDir.
+const (
+	whatHomeSessions      = "the home sessions root"
+	whatHomeLogs          = "the home logs root"
+	whatTriggerCache      = "the trigger verdict cache"
+	whatHomeCoord         = "the coordinator state root"
+	whatHomeLocks         = "the home lock directory"
+	whatHomeApprovals     = "the user countersignature store"
+	whatCompanionConsent  = "the companion consent record"
+	whatAllowedSigners    = "the user trust root"
+	whatDistrustedSigners = "the user distrust record"
+	whatHomeRecords       = "the home records directory"
+)
+
+// homeUnder resolves ~/<AppDirName>/<segments...>, naming what failed in the
+// caller's own terms.
+//
+// Every Home*/cache accessor below shares this body exactly; it is one function
+// so the nine of them cannot drift apart. The `what` string is the caller's,
+// because the remedy for a failure here is stated in terms of the store the
+// caller wanted, not of os.UserHomeDir.
+func homeUnder(what string, segments ...string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("resolve the home sessions root ~/%s/%s: %w", AppDirName, SessionsDir, err)
+		return "", fmt.Errorf(homeUnderErrFormat, what, AppDirName, filepath.Join(segments...), err)
 	}
-	return filepath.Join(home, AppDirName, SessionsDir), nil
+	return filepath.Join(append([]string{home, AppDirName}, segments...)...), nil
+}
+
+func HomeSessionsDir() (string, error) {
+	return homeUnder(whatHomeSessions, SessionsDir)
 }
 
 // HomeLogsDir returns ~/.ctxloom/logs — where every ctxloom process writes its
 // structured log. A pure path join like its neighbours here: the caller decides
 // whether to create the directory (cmd/ctxloom does, at logger construction).
 func HomeLogsDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the home logs root ~/%s/%s: %w", AppDirName, LogsDir, err)
-	}
-	return filepath.Join(home, AppDirName, LogsDir), nil
+	return homeUnder(whatHomeLogs, LogsDir)
 }
 
 // HomeLogFilePath returns ~/.ctxloom/logs/ctxloom.log — the STRUCTURED
@@ -663,11 +693,7 @@ func ResolveHarpCanonicalTranscriptPath(harp string) (string, error) {
 // keeping it off both the repo and the task log means neither a git clone nor
 // a `taskloom` operation can ever touch it.
 func TriggerCacheDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the trigger verdict cache ~/%s/%s/%s: %w", AppDirName, CacheDir, TriggersDir, err)
-	}
-	return filepath.Join(home, AppDirName, CacheDir, TriggersDir), nil
+	return homeUnder(whatTriggerCache, CacheDir, TriggersDir)
 }
 
 // HomeCoordDir returns ~/.ctxloom/coord — the per-user root holding one
@@ -675,11 +701,7 @@ func TriggerCacheDir() (string, error) {
 // CoordProjectStateDir). internal/agentcoord/discover.List globs one level
 // below this root for every project's endpoint.json.
 func HomeCoordDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the coordinator state root ~/%s/%s: %w", AppDirName, CoordDirName, err)
-	}
-	return filepath.Join(home, AppDirName, CoordDirName), nil
+	return homeUnder(whatHomeCoord, CoordDirName)
 }
 
 // CoordProjectStateDir returns ~/.ctxloom/coord/<projectKey> — one project's
@@ -700,22 +722,33 @@ func CoordProjectStateDir(projectKey string) (string, error) {
 // advisory-lock sidecars for FOREIGN files a ctxloom-family binary does not
 // own (see HomePathFor, lockpath.go, and HomeLocksDirName's doc).
 func HomeLocksDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the home lock directory ~/%s/%s: %w", AppDirName, HomeLocksDirName, err)
-	}
-	return filepath.Join(home, AppDirName, HomeLocksDirName), nil
+	return homeUnder(whatHomeLocks, HomeLocksDirName)
 }
 
 // HomeRecordsDir returns ~/.ctxloom/records — the home-rooted directory
 // holding hew §9.7 application records for FOREIGN files `util
 // config-write` merges into (see HomeRecordsDirName's doc).
 func HomeRecordsDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the home records directory ~/%s/%s: %w", AppDirName, HomeRecordsDirName, err)
+	homeRecordsMu.RLock()
+	override := homeRecordsOverride
+	homeRecordsMu.RUnlock()
+	if override != "" {
+		return override, nil
 	}
-	return filepath.Join(home, AppDirName, HomeRecordsDirName), nil
+	dir, err := homeUnder(whatHomeRecords, HomeRecordsDirName)
+	if err != nil {
+		return "", err
+	}
+	// Guarded for the same reason the approvals store is, and because this
+	// store is where the omission was actually paid: a record names a FOREIGN
+	// file by absolute path and outlives the run that wrote it, so a test
+	// applying to its own temp dir still deposits a durable record in the
+	// developer's real home. Found there: 1046 of them.
+	if err := UnsandboxedHomeError("application-record store", dir,
+		"testsupport.SandboxedMain / testsupport.Isolate, so HOME points at a temp root"); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // CachePath returns the cache subdirectory path for the given app path.
@@ -749,11 +782,7 @@ func ApprovalsPath(appPath string) string {
 // countersignature store. "My approvals follow me": the default write target
 // of `ctxloom review`, never committed, never shared (spec §9.2).
 func HomeApprovalsPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the user countersignature store ~/%s/%s: %w", AppDirName, ApprovalsDirName, err)
-	}
-	return filepath.Join(home, AppDirName, ApprovalsDirName), nil
+	return homeUnder(whatHomeApprovals, ApprovalsDirName)
 }
 
 // HomeCompanionConsentPath returns ~/.ctxloom/companion_consent.yaml — the
@@ -761,11 +790,7 @@ func HomeApprovalsPath() (string, error) {
 // EXECUTE (config.CompanionConsentStore). There is deliberately no project
 // counterpart: see CompanionConsentFileName.
 func HomeCompanionConsentPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the companion consent record ~/%s/%s.yaml: %w", AppDirName, CompanionConsentFileName, err)
-	}
-	return filepath.Join(home, AppDirName, CompanionConsentFileName+".yaml"), nil
+	return homeUnder(whatCompanionConsent, CompanionConsentFileName+".yaml")
 }
 
 // AllowedSignersPath returns the path to the trust-root file (at appPath root,
@@ -781,11 +806,7 @@ func AllowedSignersPath(appPath string) string {
 // trust root, which follows the developer across every project and is where an
 // enterprise MDM channel drops the org's keys (spec §7.3, path B).
 func HomeAllowedSignersPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the user trust root ~/%s/%s: %w", AppDirName, AllowedSignersFileName, err)
-	}
-	return filepath.Join(home, AppDirName, AllowedSignersFileName), nil
+	return homeUnder(whatAllowedSigners, AllowedSignersFileName)
 }
 
 // DistrustedSignersPath returns the path to the LOCAL embedded-key suppression
@@ -806,11 +827,7 @@ func DistrustedSignersPath(appPath string) string {
 // user-scoped counterpart to DistrustedSignersPath, mirroring
 // HomeAllowedSignersPath (follows the developer across every project).
 func HomeDistrustedSignersPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the user distrust record ~/%s/%s: %w", AppDirName, DistrustedSignersFileName, err)
-	}
-	return filepath.Join(home, AppDirName, DistrustedSignersFileName), nil
+	return homeUnder(whatDistrustedSigners, DistrustedSignersFileName)
 }
 
 // LockPath returns the path to the lock file (at appPath root).

@@ -2,19 +2,17 @@ package cli
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
-	"sort"
 	"strings"
 	"time"
 
 	"path/filepath"
 
 	hew "github.com/benjaminabbitt/hew/go"
+	"github.com/benjaminabbitt/hew/go/hewfs"
 
 	"github.com/ctxloom/ctxloom/internal/confpatch"
 	// hew moved its format bindings to ext/<format> (O48), and registration is
@@ -31,6 +29,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -247,7 +246,7 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 		if err := writeConfigFile(fs, file, out); err != nil {
 			return err
 		}
-		result.Merged = sortedKeys(patch)
+		result.Merged = collections.SortedKeys(patch)
 
 		if err := verifyConfigWrite(fs, file, ft, patch); err != nil {
 			return err
@@ -342,14 +341,6 @@ func verifyConfigWrite(fs afero.Fs, file, ft string, patch map[string]any) error
 // same way on every run. Generic in the value type because the two callers
 // carry different ones — a merged config patch, and a reconcile's
 // refs-by-repository — and want the identical ordering guarantee.
-func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
 
 // validateRealFilePath enforces rule 1: never trust an env-overridden $HOME,
 // never guess a location. --file must already be the caller's fully-resolved
@@ -480,7 +471,7 @@ func decodeConfigFile(data []byte, ft string) (map[string]any, error) {
 // quotes, brackets). Building the Path segment-wise cannot misread one.
 func recordConfigPatch(doc *hew.Doc, prefix hew.Path, base, patch map[string]any) int {
 	recorded := 0
-	for _, k := range sortedKeys(patch) { // stable order: a deterministic transform list and record
+	for _, k := range collections.SortedKeys(patch) { // stable order: a deterministic transform list and record
 		pv := patch[k]
 		path := prefix.Append(hew.Segment{Kind: hew.SegKey, Name: k})
 		if pv == nil {
@@ -614,12 +605,12 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, format hew.Forma
 	rec := applicationRecord{
 		Record:    1,
 		AppliedAt: at.Format(time.RFC3339),
-		Patch:     recordPatch{Source: "-", Digest: sha256Digest(patchBytes)},
+		Patch:     recordPatch{Source: "-", Digest: hewfs.Digest(patchBytes)},
 		Targets: []recordTarget{{
 			Target:     target,
 			Format:     string(format),
-			Before:     sha256Digest(before),
-			After:      sha256Digest(after),
+			Before:     hewfs.Digest(before),
+			After:      hewfs.Digest(after),
 			Committed:  true,
 			Transforms: confpatch.ResolvedOpsToRecord(ops),
 			Inverse:    confpatch.ResolvedOpsToRecord(inverse),
@@ -729,11 +720,6 @@ func applicationRecordFilename(target string, at time.Time) string {
 // recordFileSuffix is the record's extension, named once because
 // freeRecordPath has to split a filename on it to insert its counter.
 const recordFileSuffix = ".hew-record.yaml"
-
-func sha256Digest(b []byte) string {
-	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
 
 // containsConfigPatch implements rule 5's payload verification: it confirms
 // every key/value in patch is present in data, recursing into nested objects.

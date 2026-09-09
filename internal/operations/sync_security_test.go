@@ -87,18 +87,46 @@ func setupRemoteParent(t *testing.T) (baseDir, src, parentBundleID, bundleID str
 	bundleID = "file://" + src + "@bundles/demo"
 	parentBundleID = "file://" + src + "@bundles/kit"
 
-	// Document form, deliberately: remote bundle-profile PARENT expansion
-	// (depWalker.recurseBundleProfile) reads "kit" through remote.FetchRefBytes,
-	// which has no tree fallback (unlike verifyAdvance's advanceReader) — a
-	// real production gap, not a fixture choice; see the task filed for it.
-	// "demo"'s own SHA never advances in these tests, so it is never read
-	// through the tree-aware BundleReader either — document form is fine here.
-	initLocalRepoWithFile(t, src, repoV2("demo"), "name: demo\n")
+	// TREE form, which is the only form published since the v1 removal: a
+	// bundle is a DIRECTORY whose bundle.yaml is its manifest. Expanding a
+	// remote bundle-profile parent (depWalker.recurseBundleProfile) therefore
+	// exercises FetchRefBytes's tree fallback — authoring these as documents
+	// tested a shape no repository can publish any more.
+	initLocalRepoWithFile(t, src, repoV2("demo")+"/bundle.yaml", "name: demo\n")
 	// The parent bundle ships a bundle profile `parent` that composes demo.
-	addFileToLocalRepo(t, src, repoV2("kit"), "version: 1.0.0\nprofiles:\n  parent:\n    bundles:\n      - "+bundleID+"\n")
+	addFileToLocalRepo(t, src, repoV2("kit")+"/bundle.yaml", "version: 1.0.0\nprofiles:\n  parent:\n    bundles:\n      - "+bundleID+"\n")
 
 	writeLocalProfile(t, baseDir, "default", "parents:\n  - "+parentBundleID+"#profiles/parent\n")
 	return baseDir, src, parentBundleID, bundleID
+}
+
+// TestLockDependencies_TreeFormParentExpandsTheClosure pins the capability
+// childlike-failing named as dead: expanding a remote BUNDLE-PROFILE PARENT
+// that is published as a DIRECTORY. `demo` is reachable ONLY through the
+// `parent` profile shipped inside the `kit` bundle, so its presence in the
+// lockfile is proof the walk read kit's manifest out of the tree and followed
+// what it composes. Without a tree fallback in remote.FetchRefBytes the walk
+// degrades to markUnexpanded plus a warning and the command still reports
+// success — a silently INCOMPLETE closure, which is the failure this asserts
+// against.
+func TestLockDependencies_TreeFormParentExpandsTheClosure(t *testing.T) {
+	baseDir, _, parentBundleID, bundleID := setupRemoteParent(t)
+	cfg := testConfigWithSCMPath(baseDir)
+
+	stderr := captureStderr(t, func() {
+		result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+		require.NoError(t, err)
+		assert.Equal(t, "generated", result.Status)
+	})
+	assert.NotContains(t, stderr, "could not expand remote parent profile",
+		"a tree-form parent must EXPAND, not degrade to an unexpanded subtree")
+
+	active := mustLoadActive(t, baseDir)
+	_, okP := active.GetEntry(remote.ItemTypeBundle, parentBundleID)
+	require.True(t, okP, "the tree-form parent bundle itself is pinned")
+	_, okB := active.GetEntry(remote.ItemTypeBundle, bundleID)
+	require.True(t, okB,
+		"the bundle composed by the parent's profile is discoverable ONLY by reading that profile out of the tree")
 }
 
 // TestLockDependencies_UnreachableParentPreservesEntries pins the data-loss

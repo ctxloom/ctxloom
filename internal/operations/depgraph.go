@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -195,6 +196,7 @@ func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remo
 		loader:      loader,
 		factory:     factory,
 		auth:        auth,
+		treeFetch:   remotetree.PullTreeFetcher,
 		resolveHash: resolve,
 		pins:        map[string]PinnedRef{},
 		hashes:      map[string]map[string]struct{}{},
@@ -213,6 +215,12 @@ type depWalker struct {
 	loader  *profiles.Loader
 	factory remote.FetcherFactory
 	auth    remote.AuthConfig
+
+	// treeFetch is the pinned-remote tree walker a DIRECTORY-form bundle
+	// profile parent needs, wired in for the same layering reason Puller and
+	// BundleReader take theirs (see remote.TreeFetchFunc). Nil reads only the
+	// single-file shape, which since the v1 removal is no bundle at all.
+	treeFetch remote.TreeFetchFunc
 
 	// resolveHash resolves a remote ref's version constraint to a concrete
 	// commit (and the tag it chose, if any). ok=false means unresolvable — the
@@ -366,7 +374,7 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 	}
 	w.visited[guard] = struct{}{}
 
-	data, ferr := remote.FetchRefBytes(w.ctx, w.factory, w.auth, rec, hash)
+	data, ferr := remote.FetchRefBytes(w.ctx, w.factory, w.auth, rec, hash, w.treeFetch)
 	if ferr != nil {
 		// Fault tolerant: a parent we can't read just isn't expanded — but the
 		// closure is now INCOMPLETE, so warn and record it; a silent skip here

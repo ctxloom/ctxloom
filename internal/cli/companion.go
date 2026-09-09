@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -22,104 +23,95 @@ import (
 // surface: handing the agent the ability to approve the binaries that run
 // alongside it defeats the property the consent exists to provide.
 
-const companionLong = `Inspect and change which companion binaries ctxloom may execute.
+const companionLong = `Inspect which companion binaries ctxloom may execute.
 
 ctxloom discovers companions on your PATH (the shipped ltk / taskloom / reprise,
 plus anything named ctxloom-companion-*) and EXECUTES each one to read the
 context it contributes. Because any program on your PATH can claim one of those
 names — including a transitive dependency in ./node_modules/.bin — a companion
-ctxloom has not run before is put to you once and the answer recorded, keyed to
-the binary's absolute path AND its SHA-256. Replace the file and you are asked
-again.
+runs only when its bytes carry a SIGNATURE from a publisher you trust.
 
-A non-interactive session (an agent, CI) is never prompted: an unconfirmed
-companion is skipped with a warning. 'companion trust' is how you record the
-decision for one anyway, and 'companion untrust' drops it so the next run asks
-again.
+That is the whole gate. A companion is executed when a detached '<binary>.sig'
+beside it verifies, in the companion namespace, against a key in your
+allowed_signers. Anything else is skipped with a warning: no signature, a
+signature that does not cover those bytes, or a signer you have not authorized
+to say "this may run here".
 
-The shipped companions are exempt from the prompt only when they resolve from
-the directory ctxloom itself is installed in. An 'ltk' found anywhere else is a
-third-party binary that picked a familiar name, and is asked about like any other.
+There is no command to approve or refuse one, and none is needed. To stop
+ctxloom running a companion, take away what admits it: delete its '.sig', or
+rename the binary so discovery no longer finds it. Both are ordinary file
+operations, they need no record to be kept in step with them, and they are
+visible in the place the decision actually lives.
 
-Decisions live in ~/.ctxloom/companion_consent.yaml. There is deliberately no
-committable project counterpart — a repo you cloned must not be able to arrive
-carrying pre-approved binaries.`
+Sign a companion where it is BUILT — 'just sign-binary <path>' in its own
+repository — so the signature covers the bytes that were produced there.`
 
-// Bare `ctxloom companion` lists the recorded execution decisions: the record
-// is the one thing the noun is about, and reading it executes nothing.
+// Bare `ctxloom companion` shows the gate's answer for one binary. There is no
+// record to list any more — admission is decided from the signature beside each
+// binary, so the answer lives with the file rather than in a store this could
+// print.
 var companionCmd = groupNodeDefault(&cobra.Command{
 	Use:   "companion",
-	Short: "Manage which companion binaries ctxloom may execute",
+	Short: "Inspect which companion binaries ctxloom may execute",
 	Long:  companionLong,
 }, "list")
 
+// companionListCmd reports the gate's answer for every companion on PATH.
+//
+// It replaced a listing of RECORDED decisions, which no longer exist. The
+// answer is now derived live from each binary's signature, which makes this
+// strictly more useful: it reports what would happen on the next run rather
+// than what someone once agreed to.
 var companionListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List recorded companion execution decisions",
+	Short: "Show which discovered companions ctxloom would execute, and why",
 	Long:  companionLong,
 	Args:  cobra.NoArgs,
 	RunE:  runCompanionListCmd,
 }
 
-var companionTrustCmd = &cobra.Command{
-	Use:   "trust <path-or-name>",
-	Short: "Record that ctxloom may execute a companion binary",
-	Long:  companionLong,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runCompanionTrustCmd,
+// companionListing is the emitted shape of `companion list`.
+type companionListing struct {
+	Bin     string `json:"bin" yaml:"bin" toml:"bin"`
+	Path    string `json:"path" yaml:"path" toml:"path"`
+	Allowed bool   `json:"allowed" yaml:"allowed" toml:"allowed"`
+	Reason  string `json:"reason" yaml:"reason" toml:"reason"`
 }
 
-var companionUntrustCmd = &cobra.Command{
-	Use:   "untrust <path-or-name>",
-	Short: "Drop the recorded decision for a companion binary (it is asked about again)",
-	Long:  companionLong,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runCompanionUntrustCmd,
+func runCompanionListCmd(cmd *cobra.Command, _ []string) error {
+	root := loadConfigOrFallback(GetConfig, os.Stderr).TrustRoot()
+	// prompt=false: merely LOOKING at companion state must never itself run a
+	// foreign binary. AdmitCompanions decides without executing anything.
+	admissions := config.AdmitCompanions(config.DiscoverCompanions(), root)
+	out := make([]companionListing, 0, len(admissions))
+	for _, a := range admissions {
+		out = append(out, companionListing{Bin: a.Bin, Path: a.Path, Allowed: a.Allow, Reason: string(a.Reason)})
+	}
+	return emit(cmd, out, func() error {
+		w := cmd.OutOrStdout()
+		if len(out) == 0 {
+			_, err := fmt.Fprintln(w, "no companions found on PATH")
+			return err
+		}
+		for _, l := range out {
+			verdict := "DENIED "
+			if l.Allowed {
+				verdict = "allowed"
+			}
+			if _, err := fmt.Fprintf(w, "%s %-10s %s (%s)\n", verdict, l.Bin, l.Path, l.Reason); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 var companionShowCmd = &cobra.Command{
 	Use:   "show <path-or-name>",
-	Short: "Show ctxloom's exec-consent decision for one companion binary",
+	Short: "Show whether ctxloom would execute one companion binary, and why",
 	Long:  companionLong,
 	Args:  cobra.ExactArgs(1),
 	RunE:  runCompanionShowCmd,
-}
-
-// companionListing is the emitted shape of `companion list`.
-type companionListing struct {
-	Path       string `json:"path" yaml:"path" toml:"path"`
-	Bin        string `json:"bin" yaml:"bin" toml:"bin"`
-	SHA256     string `json:"sha256" yaml:"sha256" toml:"sha256"`
-	Allowed    bool   `json:"allowed" yaml:"allowed" toml:"allowed"`
-	RecordedAt string `json:"recorded_at" yaml:"recorded_at" toml:"recorded_at"`
-}
-
-func runCompanionListCmd(cmd *cobra.Command, _ []string) error {
-	records, err := config.ListCompanionConsent()
-	if err != nil {
-		return err
-	}
-	out := make([]companionListing, 0, len(records))
-	for _, r := range records {
-		out = append(out, companionListing{
-			Path:       r.Key.Path,
-			Bin:        r.Key.Bin,
-			SHA256:     r.Key.SHA256,
-			Allowed:    r.Approved,
-			RecordedAt: r.RecordedAt.Format("2006-01-02T15:04:05Z"),
-		})
-	}
-	return emit(cmd, out, func() error { return printCompanionListings(cmd.OutOrStdout(), out) })
-}
-
-// printCompanionListings renders the text form: the binary, where it resolved
-// from, and the digest the decision is bound to.
-func printCompanionListings(w io.Writer, listings []companionListing) error {
-	return printAdmissionListings(w, listings, "no companion decisions recorded",
-		func(l companionListing) bool { return l.Allowed },
-		func(l companionListing) string {
-			return fmt.Sprintf("%-8s %s (sha256 %s)", l.Bin, l.Path, shortSHA(l.SHA256))
-		})
 }
 
 // companionShow is the emitted shape of `companion show` — the read-one
@@ -140,7 +132,10 @@ type companionShow struct {
 // start. prompt=false: merely LOOKING at companion state must never itself
 // conjure a security question (the same posture `status`/`doctor` take).
 func runCompanionShowCmd(cmd *cobra.Command, args []string) error {
-	admissions := config.AdmitCompanions([]string{args[0]}, false)
+	// The trust root is CONFIG-provided, so this shows the decision the real
+	// probes would make on this machine rather than a second answer.
+	root := loadConfigOrFallback(GetConfig, os.Stderr).TrustRoot()
+	admissions := config.AdmitCompanions([]string{args[0]}, root)
 	a := admissions[0]
 	payload := companionShow{Bin: a.Bin, Path: a.Path, SHA256: a.SHA256, Allowed: a.Allow, Reason: string(a.Reason)}
 	return emit(cmd, payload, func() error {
@@ -171,39 +166,6 @@ func printCompanionShow(w io.Writer, s companionShow) error {
 	return err
 }
 
-// companionDecision is the emitted shape of `allow` / `forget`.
-type companionDecision struct {
-	Path    string `json:"path" yaml:"path" toml:"path"`
-	Bin     string `json:"bin" yaml:"bin" toml:"bin"`
-	SHA256  string `json:"sha256" yaml:"sha256" toml:"sha256"`
-	Allowed bool   `json:"allowed" yaml:"allowed" toml:"allowed"`
-	Forgot  int    `json:"forgot" yaml:"forgot" toml:"forgot"`
-}
-
-func runCompanionTrustCmd(cmd *cobra.Command, args []string) error {
-	rec, err := config.SetCompanionConsent(args[0], true)
-	if err != nil {
-		return err
-	}
-	payload := companionDecision{Path: rec.Key.Path, Bin: rec.Key.Bin, SHA256: rec.Key.SHA256, Allowed: true}
-	return emit(cmd, payload, func() error {
-		_, werr := fmt.Fprintf(cmd.OutOrStdout(),
-			"allowed %s at %s (sha256 %s) — ctxloom will run it\n", rec.Key.Bin, rec.Key.Path, shortSHA(rec.Key.SHA256))
-		return werr
-	})
-}
-
-func runCompanionUntrustCmd(cmd *cobra.Command, args []string) error {
-	removed, err := config.ForgetCompanionConsent(args[0])
-	if err != nil {
-		return err
-	}
-	payload := companionDecision{Path: args[0], Forgot: removed}
-	return emit(cmd, payload, func() error {
-		return printForgetResult(cmd.OutOrStdout(), removed, args[0])
-	})
-}
-
 // shortSHA abbreviates a hex digest for human display. Full digests are in the
 // record and in --format json; a 64-char hex string in a status line is noise a
 // human cannot check by eye anyway.
@@ -218,6 +180,4 @@ func init() {
 	rootCmd.AddCommand(companionCmd)
 	companionCmd.AddCommand(companionListCmd)
 	companionCmd.AddCommand(companionShowCmd)
-	companionCmd.AddCommand(companionTrustCmd)
-	companionCmd.AddCommand(companionUntrustCmd)
 }

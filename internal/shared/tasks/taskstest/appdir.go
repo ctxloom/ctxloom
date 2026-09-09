@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/realpath"
 )
 
 // AppDirIsolationError reports why ctxloom's app-directory resolution could
@@ -58,7 +60,7 @@ func AppDirIsolationError() error {
 func appDirIsolationError(home, cwd string, tempRoots []string) error {
 	roots := make([]string, len(tempRoots))
 	for i, r := range tempRoots {
-		roots[i] = resolveRealPath(r)
+		roots[i] = realpath.Resolve(r)
 	}
 
 	if !underAnyRoot(home, roots) {
@@ -77,7 +79,7 @@ func appDirIsolationError(home, cwd string, tempRoots []string) error {
 // generalized to a set of boundaries — and returns the first app dir it finds
 // that is NOT inside any of tempRoots.
 func escapingAppDirAncestor(cwd string, tempRoots []string) (string, error) {
-	dir := resolveRealPath(cwd)
+	dir := realpath.Resolve(cwd)
 	if dir == "" {
 		return "", errors.New("the working directory does not exist")
 	}
@@ -112,7 +114,7 @@ func containsResolvedRoot(dir string, tempRoots []string) bool {
 // underAnyRoot reports whether path is at or beneath any of roots.
 func underAnyRoot(path string, roots []string) bool {
 	for _, root := range roots {
-		if underRoot(path, root) {
+		if realpath.Under(path, root) {
 			return true
 		}
 	}
@@ -127,7 +129,7 @@ const appDirName = ".ctxloom"
 
 // testTempRoots duplicates operations.testTempRoots (see its doc for the
 // mechanism) rather than importing it: this package must stay self-contained
-// (see the resolveRealPath / appDirName notes above for why), and
+// (see the realpath.Resolve / appDirName notes above for why), and
 // internal/operations already imports this package's Isolate/ChangeDir for
 // its own tests, so the reverse edge would cycle.
 //
@@ -148,7 +150,7 @@ const appDirName = ".ctxloom"
 // Answering it here keeps ONE predicate; a second copy is what drifted.
 func UnderTestTempRoot(path string) bool {
 	for _, r := range testTempRoots() {
-		if underRoot(path, r) {
+		if realpath.Under(path, r) {
 			return true
 		}
 	}
@@ -161,37 +163,6 @@ func testTempRoots() []string {
 		roots = append(roots, v)
 	}
 	return roots
-}
-
-// underRoot reports whether path is root itself or lives beneath it, comparing
-// symlink-resolved paths (the OS temp root is a symlink on macOS, and t.TempDir
-// hands back the unresolved form).
-func underRoot(path, root string) bool {
-	path, root = resolveRealPath(path), resolveRealPath(root)
-	if path == "" || root == "" {
-		return false
-	}
-	if path == root {
-		return true
-	}
-	return strings.HasPrefix(path, root+string(filepath.Separator))
-}
-
-// resolveRealPath returns p symlink-resolved and cleaned, falling back to the
-// cleaned absolute form when the path does not exist (a nonexistent path still
-// has to compare sensibly against a root).
-func resolveRealPath(p string) string {
-	if p == "" {
-		return ""
-	}
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		return filepath.Clean(p)
-	}
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		return real
-	}
-	return filepath.Clean(abs)
 }
 
 // appDirReporter is the part of *testing.T that requireIsolatedAppDir needs.

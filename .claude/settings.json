@@ -4,7 +4,7 @@
       {
         "hooks": [
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook tool-reflect --min-output-bytes 2048",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook tool-reflect --min-output-bytes 2048",
             "timeout": 5,
             "type": "command"
           }
@@ -39,62 +39,52 @@
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 10 122ed67bc67517ec",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 10 122ed67bc67517ec",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 10 122ed67bc67517ec",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 4 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 4 --of 10 122ed67bc67517ec",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 5 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 5 --of 10 122ed67bc67517ec",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 6 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 6 --of 10 122ed67bc67517ec",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 7 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 7 --of 10 122ed67bc67517ec",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 8 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 8 --of 10 122ed67bc67517ec",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 9 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 9 --of 10 122ed67bc67517ec",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 10 --of 12 2c3f8bf2fa802c5b",
-            "timeout": 60,
-            "type": "command"
-          },
-          {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 11 --of 12 2c3f8bf2fa802c5b",
-            "timeout": 60,
-            "type": "command"
-          },
-          {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 12 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 10 --of 10 122ed67bc67517ec",
             "timeout": 60,
             "type": "command"
           }
@@ -105,7 +95,7 @@
       {
         "hooks": [
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook next-step",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook next-step",
             "timeout": 15,
             "type": "command"
           }
@@ -114,7 +104,7 @@
     ]
   },
   "statusLine": {
-    "command": "/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom hook hud",
+    "command": "/home/babbitt/go/bin/ctxloom hook hud",
     "type": "command"
   },
   "worktree": {

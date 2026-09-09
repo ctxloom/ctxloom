@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"golang.org/x/crypto/ssh"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,8 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // mcpStdinGrace is the CEILING RunWithStdin will keep stdin open after
@@ -44,6 +44,9 @@ type TestEnvironment struct {
 
 	// ProjectDir is the fake project directory (a git repo)
 	ProjectDir string
+	// companionKey is this environment's fixture publisher, minted lazily by
+	// companionSigner and trusted only in this scenario's allowed_signers.
+	companionKey ssh.Signer
 
 	// AppBinary is the path to the ctxloom binary to test
 	AppBinary string
@@ -480,36 +483,55 @@ func (e *TestEnvironment) Setup() error {
 	// Clear any existing MLCM config paths
 	e.storeAndSetEnv("XDG_CONFIG_HOME", filepath.Join(e.HomeDir, ".config"))
 
-	e.grantAmbientCompanionConsent()
+	e.storeAndSetEnv("PATH", scrubCompanionDirs(os.Getenv("PATH")))
 
 	return nil
 }
 
-// grantAmbientCompanionConsent records exec consent, in this scenario's fresh
-// HOME, for every companion binary that is ALREADY on the developer's PATH
-// when the environment is built.
+// scrubCompanionDirs removes from path every directory holding a first-party
+// companion binary.
 //
-// It exists to remove a machine dependency, not to add one. Before exec
-// consent landed, a locally-installed `ltk` or `taskloom` was simply executed
-// by every ctxloom the suite spawned; several tests quietly rely on that (the
-// `session-bind` hook the bundle apply tests assert on ships in
-// TASKLOOM's loadout, not in an embedded bundle). Without this, the same
-// binaries would instead be skipped as unconfirmed — and on a real pty, where
-// the session IS interactive, ctxloom would correctly stop and ASK, hanging
-// the run on a question no test answers. Granting here reproduces the previous
-// behavior exactly: what is installed still decides, and CI — which installs
-// none of them — is unaffected either way.
+// A scenario must not depend on what is installed on the machine running it.
+// companionsOnPathByConvention walks every $PATH entry and filters nothing, so
+// a developer's own ltk / taskloom / reprise were DISCOVERED inside every
+// scenario. That was always host-dependent — it shifted hook ordinals, and one
+// integration fixture's whole subject turned out to be a hook contributed by
+// the developer's companions rather than by the fixture.
 //
-// It deliberately does NOT cover companions installed LATER by
-// InstallFakeCompanion (that helper records its own consent) or by a scenario
-// that wants to observe the refusal (steps_companion_consent.go), because it
-// runs once, here, before either exists.
-func (e *TestEnvironment) grantAmbientCompanionConsent() {
-	for _, bin := range config.DiscoverCompanions() {
-		if _, err := config.SetCompanionConsent(bin, true); err != nil {
-			continue // not installed, or unhashable — nothing to grant
+// Signature-based admission made it visible rather than causing it: those
+// binaries are signed by a key a scenario's own trust root does not carry, so
+// each one now emits a refusal warning on EVERY ctxloom invocation. Three
+// warnings after a JSON payload is a `--format json` consumer's parse error,
+// which is how this surfaced.
+//
+// Scrubbing the DIRECTORY rather than unsetting PATH entirely is deliberate:
+// scenarios still need sh, git and the toolchain. Only the entries that would
+// hand a scenario a companion it did not install are removed.
+func scrubCompanionDirs(path string) string {
+	if path == "" {
+		return path
+	}
+	sep := string(os.PathListSeparator)
+	kept := make([]string, 0, len(strings.Split(path, sep)))
+	for _, dir := range strings.Split(path, sep) {
+		if dir == "" || holdsCompanion(dir) {
+			continue
+		}
+		kept = append(kept, dir)
+	}
+	return strings.Join(kept, sep)
+}
+
+// holdsCompanion reports whether dir contains any first-party companion binary.
+// The names are asked of config rather than spelled here, so a companion added
+// there is scrubbed without anyone remembering to update this list.
+func holdsCompanion(dir string) bool {
+	for _, bin := range config.FirstPartyCompanionNames() {
+		if _, err := os.Stat(filepath.Join(dir, bin)); err == nil {
+			return true
 		}
 	}
+	return false
 }
 
 // storeAndSetEnv stores the original value and sets a new one. The original

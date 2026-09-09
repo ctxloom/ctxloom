@@ -20,6 +20,10 @@ import "build/gates.justfile"
 # Imported by justfile.container too. See build/ci.justfile.
 import "build/ci.justfile"
 
+# Signing identity, namespace and sign/verify recipes, shared with
+# justfile.container so host installs and released artifacts sign alike.
+import "build/signing.justfile"
+
 # Default recipe
 default: build
 
@@ -44,6 +48,22 @@ export GOWORK := "off"
 # on demand — with the directory missing, every go invocation dies with
 # "creating work dir: ... no such file or directory" (see clean-caches, which
 # learned that the hard way).
+# TOP is the repository root, detected from git.
+#
+# Every recipe that has to name this checkout from OUTSIDE it — the host side of
+# a container mount, a path handed to a tool that will run somewhere else —
+# references {{TOP}} rather than $(pwd). A recipe's working directory is a fact
+# about how just was INVOKED; the repo root is a fact about the repo, and the
+# two only coincide until someone runs a recipe from a subdirectory or with
+# --justfile. Naming the root once also means a reader can see what a mount
+# actually mounts without reconstructing just's cwd rules.
+#
+# git is the detector because it already answers this exactly, for worktrees and
+# submodules alike. No fallback: git is a hard prerequisite of this project (the
+# remote fetchers, the worktree isolation and the version stamp all need it), so
+# a missing git is a broken environment to fix, not a case to degrade into.
+TOP := `git rev-parse --show-toplevel`
+
 go_tmp := env_var_or_default("CTXLOOM_GOTMPDIR", "/var/tmp/ctxloom-gotmp")
 
 # Create the GOTMPDIR above. Cheap, idempotent, and a dependency rather than a
@@ -123,6 +143,7 @@ release-snapshot: dev-image
 # Build the main binary with all features (delegates to devcontainer)
 build: dev-image
     just _run build
+    just sign-binary ctxloom
 
 # Compress binary with UPX (delegates to devcontainer)
 compress: dev-image
@@ -134,21 +155,26 @@ build-compressed: dev-image
     just _run build-compressed
 
 # Build all four binaries UNCOMPRESSED in the devcontainer (fast-starting
-# local install; UPX is release-only — see install/.goreleaser.yml).
+# local install; UPX is release-only).
 build-all-bins: dev-image
     just _run build-all-bins
+    just sign-binary ctxloom
+    just sign-binary bin/ltk
+    just sign-binary bin/taskloom
 
 # Build the ltk companion binary in the devcontainer into bin/ltk, via the ltk
 # module. ltk ships from the unified ctxloom release; main.Version matches
 # `ltk version`.
 build-ltk: dev-image
     just _run ltk::build
+    just sign-binary bin/ltk
 
 # Build the taskloom companion binary in the devcontainer into bin/taskloom, via
 # the taskloom module. taskloom stamps the lowercase main.version
 # (`taskloom version`).
 build-taskloom: dev-image
     just _run taskloom::build
+    just sign-binary bin/taskloom
 
 # Build the standalone harp ID-generator binary in the devcontainer into
 # bin/harp, via the harp module. harp is independently distributable (plan
@@ -813,7 +839,7 @@ test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
     #!/usr/bin/env bash
     set -euo pipefail
     covdir="{{go_tmp}}/acceptance-cover"
-    coverbin="$(pwd)/.coverbin"
+    coverbin="{{TOP}}/.coverbin"
     rm -rf "$covdir"; mkdir -p "$covdir"
     # -count=1 so nothing is served from the test cache: a cached PASS runs no
     # binary and would produce an empty, silently wrong coverage set.
@@ -1328,16 +1354,11 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
 # else under .ctxloom/content/bundles/ is pulled from a remote and is not ours
 # to sign. `ctxloom sign --all` signs exactly the ones we author.
 #
-# THE KEY IS BAKED IN, and which one is a RULE rather than a preference: ctxloom
-# and ctxloom-default are signed with the CTXLOOM publishing identity, personal
-# content with the personal one.
-#
-# Leaving it to `git config user.signingkey` is what let this drift — that
-# lookup answers from whichever repository you happen to be in, so the same
-# command signs as a different identity depending on where it runs, and nobody
-# finds out until a consumer's trust check fails. Signing is also required after
-# ANY edit to bundle content: publishing an unsigned edit is refused as tampered.
-SIGN_KEY := "ben+ctxloom@abbitt.me"
+# Signing is required after ANY edit to bundle content: publishing an unsigned
+# edit is refused as tampered. The identity these sign under (SIGN_KEY), and the
+# companion-binary signing vocabulary, live in build/signing.justfile — one
+# definition shared with the release pipeline, which signs inside a container
+# that never sees this file.
 
 # Sign every local bundle this project authors.
 sign-bundles KEY=SIGN_KEY:
@@ -1380,7 +1401,7 @@ test-mutation-container:
     mkdir -p "{{mutation_tmp}}"
     trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
     docker run --rm "${user_flag[@]}" \
-        -v "$(pwd):/app" \
+        -v "{{TOP}}:/app" \
         -v "{{mutation_tmp}}:/mutation-tmp" \
         -e TMPDIR=/mutation-tmp \
         -w /app gogremlins/gremlins:v0.6.0 gremlins unleash
@@ -1732,13 +1753,23 @@ run *ARGS:
 # entry leaves the busy inode mapped for any running binary (avoids ETXTBSY and
 # never dumps a live ctxloom-managed session); new launches pick up the new one.
 install: build-all-bins
+    #!/usr/bin/env bash
+    set -euo pipefail
     mkdir -p ~/go/bin
-    cp ctxloom ~/go/bin/ctxloom.new
-    mv -f ~/go/bin/ctxloom.new ~/go/bin/ctxloom
-    cp bin/ltk ~/go/bin/ltk.new
-    mv -f ~/go/bin/ltk.new ~/go/bin/ltk
-    cp bin/taskloom ~/go/bin/taskloom.new
-    mv -f ~/go/bin/taskloom.new ~/go/bin/taskloom
+    # Stage, SIGN THE STAGED BYTES, then move both into place. Signing after the
+    # move would leave a window where an installed companion carries no
+    # signature, and an unsigned companion is REFUSED — so a concurrent ctxloom
+    # would skip a tool that was merely mid-install.
+    install_signed() {
+        local src="$1" name="$2" dest=~/go/bin/"$2"
+        cp "$src" "$dest.new"
+        just sign-binary "$dest.new"
+        mv -f "$dest.new.sig" "$dest.sig"
+        mv -f "$dest.new" "$dest"
+    }
+    install_signed ctxloom ctxloom
+    install_signed bin/ltk ltk
+    install_signed bin/taskloom taskloom
 
 # Uninstall all three binaries from ~/go/bin
 uninstall:
@@ -1849,7 +1880,7 @@ gen-living-docs: build
     # relative CTXLOOM_DOC_CAPTURE_DIR would silently land one level down and
     # every scenario would render as "not captured" — the generator, run
     # separately via `go run` from the repo root, would never find it.
-    capture_dir="$(pwd)/.cache/doc-capture"
+    capture_dir="{{TOP}}/.cache/doc-capture"
     rm -rf "$capture_dir"
     CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
     go run ./scripts/gendocs/livingdocs --capture-dir "$capture_dir"
@@ -2106,18 +2137,40 @@ _run +ARGS:
         # per-build agent-image key, so recomputing here would mark every local
         # build dirty and rebuild every image, which is the churn this key exists
         # to remove.
+        # SIGNING REACHES IN, THE KEY DOES NOT. A release build signs each
+        # binary (see build/signing.justfile), and `ssh-keygen -Y sign` needs
+        # two things: the PUBLIC key file to name the identity, and an agent to
+        # do the signing. Only the public half is mounted; the private key never
+        # enters the container, which is the point of signing through an agent.
+        #
+        # Without this the container resolved SIGN_PUBKEY under its own
+        # HOME=/tmp, found no key, and every release recipe died in its first
+        # sign hook — a build that worked until signing was added to it.
+        #
+        # Absent on this machine (CI, or a checkout with no key), the mounts are
+        # simply omitted and the failure comes from the sign step naming what it
+        # could not find, rather than from a broken -v flag.
+        sign_mount=()
+        if [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "${SSH_AUTH_SOCK}" ]; then
+            sign_mount+=(-v "${SSH_AUTH_SOCK}:/tmp/ssh-agent.sock" -e SSH_AUTH_SOCK=/tmp/ssh-agent.sock)
+        fi
+        host_pubkey="$(just --evaluate SIGN_PUBKEY 2>/dev/null || true)"
+        if [ -n "$host_pubkey" ] && [ -f "$host_pubkey" ]; then
+            sign_mount+=(-v "$host_pubkey:/tmp/sign_key.pub:ro" -e CTXLOOM_SIGN_PUBKEY=/tmp/sign_key.pub)
+        fi
         {{container_cmd}} run --rm \
             "${user_flag[@]}" \
             "${cache_mount[@]}" \
             "${gobuild_mount[@]}" \
             "${git_mount[@]}" \
+            "${sign_mount[@]}" \
             -e HOME=/tmp \
             -e GOMODCACHE=/tmp/gomodcache \
             -e GOCACHE=/tmp/.gocache \
             -e GOWORK=off \
             -e CTXLOOM_VERSION_STAMP="{{version}}" \
-            -v "$(pwd):/workspace" \
-            -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
+            -v "{{TOP}}:/workspace" \
+            -v "{{TOP}}/justfile.container:/workspace/justfile:ro" \
             -w /workspace \
             {{devcontainer_image}}:{{devcontainer_tag}} \
             just {{ARGS}}
@@ -2151,8 +2204,8 @@ dev +ARGS: dev-image
 dev-shell: dev-image
     {{container_cmd}} run --rm -it \
         --user "$(id -u):$(id -g)" \
-        -v "$(pwd):/workspace" \
-        -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
+        -v "{{TOP}}:/workspace" \
+        -v "{{TOP}}/justfile.container:/workspace/justfile:ro" \
         -w /workspace \
         {{devcontainer_image}}:{{devcontainer_tag}} \
         bash

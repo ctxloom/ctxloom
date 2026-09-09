@@ -207,6 +207,38 @@ verify_checksum() {
     return 0
 }
 
+# install_signed <src-dir> <name> <sudo>
+# Place a binary and its detached "<name>.sig" from <src-dir> into INSTALL_DIR.
+#
+# THE SIGNATURE GOES FIRST, and that ordering is the point of this helper.
+# ctxloom refuses to execute a companion that has no signature beside it, so a
+# binary that lands ahead of its own signature is, for that window, one a
+# concurrent ctxloom silently skips. The repo's own `just install` recipe
+# stages, signs, and moves the signature before the binary for this same
+# reason.
+#
+# Nothing here concerns macOS Gatekeeper — see clear_macos_quarantine for that,
+# which is a separate mechanism with a separate remedy.
+#
+# Returns non-zero when the binary could not be placed. A MISSING signature
+# only warns: the result is a companion ctxloom declines to run, not a broken
+# ctxloom. Any stale signature at the destination is removed in that case, so
+# the binary reads as unsigned rather than as failing verification.
+install_signed() {
+    local src_dir="$1" name="$2" sudo_cmd="$3"
+
+    if [[ -f "${src_dir}/${name}.sig" ]]; then
+        ${sudo_cmd} mv "${src_dir}/${name}.sig" "${INSTALL_DIR}/${name}.sig" || return 1
+    else
+        log_warn "${name}: no ${name}.sig in the archive; ctxloom will decline to run it"
+        log_warn "  (a companion must carry a signature from a publisher you trust)"
+        ${sudo_cmd} rm -f "${INSTALL_DIR}/${name}.sig"
+    fi
+
+    ${sudo_cmd} mv "${src_dir}/${name}" "${INSTALL_DIR}/${name}" || return 1
+    ${sudo_cmd} chmod +x "${INSTALL_DIR}/${name}" || return 1
+}
+
 # ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║ Download function - the actual work (finally!)                            ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
@@ -266,9 +298,8 @@ download_and_install() {
         ${use_sudo} mkdir -p "${INSTALL_DIR}"
     fi
 
-    # Install the binary (the grand finale)
-    ${use_sudo} mv "${temp_dir}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
-    ${use_sudo} chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+    # Install the binary and its signature (the grand finale)
+    install_signed "${temp_dir}" "${BINARY_NAME}" "${use_sudo}"
 
     clear_macos_quarantine "${os}" "${INSTALL_DIR}/${BINARY_NAME}" "${use_sudo}"
 
@@ -339,7 +370,7 @@ install_companion() {
     if [[ ! -w "${INSTALL_DIR}" ]]; then
         use_sudo="sudo"
     fi
-    if ! ${use_sudo} mv "${temp_dir}/${binary}" "${INSTALL_DIR}/${binary}" || ! ${use_sudo} chmod +x "${INSTALL_DIR}/${binary}"; then
+    if ! install_signed "${temp_dir}" "${binary}" "${use_sudo}"; then
         log_warn "${binary}: could not install to ${INSTALL_DIR}; skipping"
         rm_temp; return 0
     fi

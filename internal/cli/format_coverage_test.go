@@ -147,6 +147,15 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// Read-only, no args: the premise index an agent asks for before selecting.
 	"fragment premises": {extraArgs: noExtraArgs},
 
+	// Read-only WITHOUT --yes, which is the whole contract: absence of --yes
+	// reports and removes nothing, so every format can be exercised against a
+	// project that has no cache without destroying anything.
+	"clean": {extraArgs: noExtraArgs},
+
+	// Mutating and path-taking: it records a refusal for a real binary, which
+	// this fixture has no business minting five times over.
+	"companion deny": {skip: "wired to emit(), but mutating and needs a real binary to refuse; not exercised here"},
+
 	"bundle list": {extraArgs: noExtraArgs},
 	"bundle create": {extraArgs: func(f string) []string {
 		return []string{"coverage-create-" + f}

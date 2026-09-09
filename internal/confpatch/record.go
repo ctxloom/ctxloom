@@ -1,8 +1,7 @@
 package confpatch
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	hew "github.com/benjaminabbitt/hew/go"
+	"github.com/benjaminabbitt/hew/go/hewfs"
 	"github.com/spf13/afero"
 	yamlv3 "gopkg.in/yaml.v3"
 
@@ -179,12 +179,12 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 	rec := Record{
 		Record:    1,
 		AppliedAt: at.Format(time.RFC3339Nano),
-		Patch:     RecordPatch{Source: "-", Digest: sha256Digest(reversal)},
+		Patch:     RecordPatch{Source: "-", Digest: hewfs.Digest(reversal)},
 		Targets: []RecordTarget{{
 			Target:     target,
 			Format:     string(format),
-			Before:     sha256Digest(before),
-			After:      sha256Digest(after),
+			Before:     hewfs.Digest(before),
+			After:      hewfs.Digest(after),
 			Committed:  true,
 			Transforms: ResolvedOpsToRecord(ops),
 			Inverse:    ResolvedOpsToRecord(inverse),
@@ -206,7 +206,59 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 	if err := agent.AtomicWriteFile(s.fs, recordPath, out, filepath.Base(recordPath)); err != nil {
 		return "", fmt.Errorf("confpatch: write %s: %w", recordPath, err)
 	}
+	// The record just written SUPERSEDES every earlier one for this target, so
+	// the earlier ones go. Deliberately after the write, never before: the
+	// window where a target has no record at all is the one state this store
+	// must never be in.
+	//
+	// A prune failure does not fail the apply. The file is written and the undo
+	// is durable at this point; leaving a stale sibling behind costs a few
+	// kilobytes, while returning an error here would report a completed,
+	// recorded application as failed and invite the caller to retry it.
+	_ = s.pruneSuperseded(target, recordPath)
 	return recordPath, nil
+}
+
+// pruneSuperseded removes every record for target except keep.
+//
+// ONLY THE NEWEST RECORD IS LIVE, and that is a property of how Apply works
+// rather than a retention policy chosen here. Each apply REVERSES the previous
+// application before computing the next, so the reversal it stores runs from
+// the file as just written back to the user's own content — with every ctxloom
+// entry already out of it. That single reversal is a complete undo; the ones
+// before it describe a document that no longer exists on disk and undo nothing
+// reachable.
+//
+// Left unpruned they simply accumulated: one file per apply per target,
+// forever, in a home-rooted directory nothing ever swept. `Last` reads the
+// whole directory on EVERY apply to find the newest, so the pile also made the
+// operation it served steadily slower.
+//
+// The §9.7 AUDIT TRAIL is the cost, and it is stated rather than hidden: this
+// keeps what can still be applied, not a history of what once was. A store that
+// must retain the history needs a retention policy and somewhere to put it,
+// which is a different piece of work from not leaking files.
+func (s *Store) pruneSuperseded(target, keep string) error {
+	prefix := flattenTarget(target) + "__"
+	entries, err := afero.ReadDir(s.fs, s.dir)
+	if err != nil {
+		return err
+	}
+	keepBase := filepath.Base(keep)
+	var errs []error
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || name == keepBase {
+			continue
+		}
+		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, recordFileSuffix) {
+			continue
+		}
+		if err := s.fs.Remove(filepath.Join(s.dir, name)); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // inverseOps is the resolved op list that turns after back into before — the
@@ -299,9 +351,4 @@ func ResolvedOpsToRecord(ops []hew.ResolvedOp) []RecordOp {
 		}
 	}
 	return out
-}
-
-func sha256Digest(b []byte) string {
-	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:])
 }

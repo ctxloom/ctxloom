@@ -132,7 +132,7 @@ func TestHomeApprovalsDir_AllowsASandboxedHome(t *testing.T) {
 
 	dir, err := homeApprovalsDir()
 	require.NoError(t, err)
-	assert.Equal(t, resolveRealPath(filepath.Join(home, paths.AppDirName, paths.ApprovalsDirName)), resolveRealPath(dir))
+	assert.Equal(t, realPath(t, filepath.Join(home, paths.AppDirName, paths.ApprovalsDirName)), realPath(t, dir))
 }
 
 // TestHomeApprovalsDir_HonoursGOTMPDIREvenWhenOSTempDirDisagrees pins the
@@ -154,7 +154,7 @@ func TestHomeApprovalsDir_HonoursGOTMPDIREvenWhenOSTempDirDisagrees(t *testing.T
 	require.NoError(t, os.MkdirAll(altRoot, 0o700))
 
 	t.Setenv("TMPDIR", osRoot)
-	require.Equal(t, resolveRealPath(osRoot), resolveRealPath(os.TempDir()),
+	require.Equal(t, realPath(t, osRoot), realPath(t, os.TempDir()),
 		"precondition: TMPDIR must steer os.TempDir(), so this test controls both roots explicitly")
 
 	t.Setenv("GOTMPDIR", altRoot)
@@ -167,22 +167,7 @@ func TestHomeApprovalsDir_HonoursGOTMPDIREvenWhenOSTempDirDisagrees(t *testing.T
 	require.NoError(t, err,
 		"a HOME under the configured GOTMPDIR must be accepted even though it is outside os.TempDir() — "+
 			"the exact live disagreement this project's justfile creates")
-	assert.Equal(t, resolveRealPath(filepath.Join(home, paths.AppDirName, paths.ApprovalsDirName)), resolveRealPath(dir))
-}
-
-// TestUnsandboxedHomeError_IsInertOutsideATestBinary pins the half a test
-// binary cannot observe about itself: in the shipped ctxloom the real
-// ~/.ctxloom/approvals is exactly where a decision belongs, and the guard must
-// never refuse it. Driven through the pure predicate with the test-binary
-// answer forced, since runningUnderGoTest is true by construction here.
-func TestUnsandboxedHomeError_IsInertOutsideATestBinary(t *testing.T) {
-	const realHome = "/home/someone/.ctxloom/approvals"
-	require.Error(t, unsandboxedHomeError("user countersignature store", realHome, "isolate it"),
-		"precondition: this path is refused UNDER test")
-
-	assert.True(t, runningUnderGoTest(), "the guard's trigger must be true in a test binary, or it never fires at all")
-	assert.False(t, underTempRoot(realHome, resolveRealPath(os.TempDir())),
-		"a real home approvals store is outside the temp root — the fact the guard turns on")
+	assert.Equal(t, realPath(t, filepath.Join(home, paths.AppDirName, paths.ApprovalsDirName)), realPath(t, dir))
 }
 
 // TestHomeAllowedSignersPath_RefusesAnUnsandboxedHomeUnderTest covers the
@@ -232,4 +217,15 @@ func TestSignerStorePath_ProjectIsUnaffected(t *testing.T) {
 	path, _, _, err := signerStorePath(config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), true)
 	require.NoError(t, err)
 	assert.Equal(t, paths.AllowedSignersPath(appDir), path)
+}
+
+// realPath normalizes a path for comparison the way the guard does: symlinks
+// resolved, so a macOS/Linux temp root that IS a symlink does not read as a
+// different directory from the path built under it.
+func realPath(t *testing.T, p string) string {
+	t.Helper()
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return filepath.Clean(p)
 }

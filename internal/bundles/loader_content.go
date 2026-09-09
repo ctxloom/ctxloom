@@ -165,8 +165,8 @@ type ContentInfo struct {
 	Bundle   string // Bundle name this came from
 	ItemType string // "fragment" or "command"
 	// Description is the item's own authored description (BundleCommand's
-	// `description:` key) — "" when the item has none (fragments never carry
-	// one). Populated by ListAllCommands so a listing surface (the ACP agent
+	// `description:` key) — "" when the item has none. Populated by
+	// ListAllCommands so a listing surface (the ACP agent
 	// role's available_commands_update, B4) can advertise a real
 	// human-readable description instead of fabricating one.
 	Description string

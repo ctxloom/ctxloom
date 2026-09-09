@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -353,6 +354,7 @@ func TestDeliveryApproach_DefaultIsFirstDeclared(t *testing.T) {
 // "nothing to write" convention), so an error-only assertion cannot tell
 // delivered from silently-skipped.
 func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
+	isolatedRecords(t)
 	for _, name := range matrixBackends(t) {
 		probe := backends.BuildSurfaces(name, matrixSentinelInputs(), afero.NewMemMapFs())
 		for _, k := range matrixKinds {
@@ -417,25 +419,16 @@ func assertSentinelAt(t *testing.T, key string, tree map[string]string, want, se
 			}
 		}
 		assert.NotEmpty(t, matched,
-			"%s: no file under %s/ carries %s (tree: %v)", key, dir, sentinel, sortedTreePaths(tree))
+			"%s: no file under %s/ carries %s (tree: %v)", key, dir, sentinel, collections.SortedKeys(tree))
 		return
 	}
 	content, ok := tree[want]
 	require.True(t, ok, "%s: the approach promises %s but it was not written (tree: %v)",
-		key, want, sortedTreePaths(tree))
+		key, want, collections.SortedKeys(tree))
 	assert.Contains(t, content, sentinel,
 		"%s: %s exists but does not carry %s — the file was created without the payload", key, want, sentinel)
 	assert.Equal(t, []string{want}, findSentinel(tree, sentinel),
 		"%s: %s must reach exactly the promised destination and no other file", key, sentinel)
-}
-
-func sortedTreePaths(tree map[string]string) []string {
-	out := make([]string, 0, len(tree))
-	for p := range tree {
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // TestDeliveryApproach_UndeclaredPairsAreRefusedLoudly covers the NEGATIVE
@@ -662,7 +655,7 @@ func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 	hits := findSentinel(scratchTree, slotContext)
 	require.Len(t, hits, 1,
 		"the system-prompt scratch file must carry the context sentinel (scratch tree: %v)",
-		sortedTreePaths(scratchTree))
+		collections.SortedKeys(scratchTree))
 	assert.True(t, strings.HasSuffix(hits[0], agent.SCMFramedContextSuffix),
 		"the framed file must be named <hash>%s, got %s", agent.SCMFramedContextSuffix, hits[0])
 	assert.Contains(t, scratchTree[hits[0]], agent.FrameProjectContext(slotContext),
@@ -697,6 +690,7 @@ func (p scratchPlacement) Dir() string { return p.dir }
 // nothing landed", and both declarations make that claim about this seam.
 // Reading only the first would fail a backend for honouring the second.
 func TestDeliveryApproach_HookCarriageMatchesDeclaration(t *testing.T) {
+	isolatedRecords(t)
 	for _, name := range matrixBackends(t) {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()

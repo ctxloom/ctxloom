@@ -63,11 +63,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -576,7 +576,7 @@ func (r Runtime) Run(ctx context.Context, spec Spec) (Result, error) {
 		argv = append(argv, "-v", m+":"+m)
 	}
 	argv = append(argv, "-w", spec.WorkDir)
-	for _, k := range sortedKeys(spec.Env) {
+	for _, k := range collections.SortedKeys(spec.Env) {
 		argv = append(argv, "-e", k+"="+spec.Env[k])
 	}
 	argv = append(argv, ImageTag, InContainerBinary)
@@ -624,15 +624,6 @@ func underAny(path string, roots []string) bool {
 		}
 	}
 	return false
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 // --- observing --------------------------------------------------------------

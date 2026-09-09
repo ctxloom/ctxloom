@@ -22,7 +22,7 @@ export PATH=$PATH:$(go env GOPATH)/bin
 git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
 buf generate
-go install -tags memory,vectors ./cmd/ctxloom
+go install ./cmd/ctxloom
 ```
 The module root has no Go files — the main package is `./cmd/ctxloom`. See
 [Build from Source](/getting-started/installation/#build-from-source) for
@@ -43,7 +43,7 @@ ctxloom --version
 go clean -modcache
 go mod download
 buf generate
-go install -tags memory,vectors ./cmd/ctxloom
+go install ./cmd/ctxloom
 ```
 
 ## macOS Issues
@@ -72,7 +72,7 @@ xattr -d com.apple.quarantine /usr/local/bin/ctxloom
 git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
 buf generate
-go install -tags memory,vectors ./cmd/ctxloom
+go install ./cmd/ctxloom
 ```
 
 ### Shell completion not loading on macOS
@@ -503,7 +503,7 @@ ctxloom --version
 cd ctxloom
 git pull
 buf generate
-go install -tags memory,vectors ./cmd/ctxloom
+go install ./cmd/ctxloom
 ```
 
 ### Report Issues

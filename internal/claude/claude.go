@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	hew "github.com/benjaminabbitt/hew/go"
@@ -18,6 +17,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/confpatch"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -607,7 +608,14 @@ func (w *ClaudeCodeHookWriter) applyMCP(mcpPath string, desired map[string]any) 
 	if err != nil {
 		return err
 	}
-	_, err = store.Apply(w.getFS(), mcpPath, func(doc *hew.Doc, cur hew.Document) (int, error) {
+	// Name the servers ctxloom manages, so an entry ctxloom itself wrote that
+	// no record covers is taken back out rather than replaced in place — see
+	// confpatch.WithOwnedPaths.
+	owned := make([]string, 0, len(desired))
+	for _, name := range collections.SortedKeys(desired) {
+		owned = append(owned, "/"+mcpServersKey+"/"+name)
+	}
+	res, err := store.Apply(w.getFS(), mcpPath, func(doc *hew.Doc, cur hew.Document) (int, error) {
 		if len(desired) == 0 {
 			return 0, nil
 		}
@@ -622,7 +630,7 @@ func (w *ClaudeCodeHookWriter) applyMCP(mcpPath string, desired map[string]any) 
 			return 1, nil
 		}
 		recorded := 0
-		for _, name := range sortedNames(desired) { // stable order: a deterministic record
+		for _, name := range collections.SortedKeys(desired) { // stable order: a deterministic record
 			p, perr := hew.ParsePathIn(doc.Format(), "/"+mcpServersKey+"/"+name)
 			if perr != nil {
 				return 0, perr
@@ -631,7 +639,18 @@ func (w *ClaudeCodeHookWriter) applyMCP(mcpPath string, desired map[string]any) 
 			recorded++
 		}
 		return recorded, nil
-	})
+	}, confpatch.WithOwnedPaths(owned...))
+	if len(res.HealedPaths) > 0 {
+		// Say it. The entry was rewritten by a DIFFERENT ctxloom (the copy on
+		// PATH versus one built in a working tree, which write different
+		// absolute paths), and ctxloom has just taken the other one's entry
+		// out. That is not an error and must not read as one, but a file
+		// changing under the user for a reason nothing else names is worth a
+		// line — it is also the signal that two ctxlooms are managing one
+		// project.
+		clidiag.Warn("ctxloom", "%s: took over %s, which a different ctxloom binary had written; if that is unexpected, check which ctxloom you are running",
+			mcpPath, strings.Join(res.HealedPaths, ", "))
+	}
 	if err != nil {
 		// An unparseable .mcp.json reaches here as a hew open failure, and the
 		// user is owed more than a refusal: the file is BACKED UP before
@@ -661,15 +680,6 @@ func (w *ClaudeCodeHookWriter) recordStore() (*confpatch.Store, error) {
 
 // mcpServersKey is the one container ctxloom writes into in .mcp.json.
 const mcpServersKey = "mcpServers"
-
-func sortedNames(m map[string]any) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
 
 // ensureStatusLine configures the ctxloom HUD statusline if not already set by the user.
 // If the user has configured their own statusLine (not ctxloom-managed), it is preserved.

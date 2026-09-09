@@ -187,6 +187,55 @@ function Get-LatestVersion {
 # ║ Download and extract - the main event                                     ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
+function Install-SignedBinary {
+    <#
+    .SYNOPSIS
+        Place a binary and its detached signature into the install directory.
+
+    .DESCRIPTION
+        THE SIGNATURE GOES FIRST, and that ordering is the point. ctxloom
+        refuses to execute a companion that has no signature beside it, so a
+        binary landing ahead of its own signature is one a concurrent ctxloom
+        silently skips for that window.
+
+        The signature is named for the INSTALLED file rather than the archived
+        one. Admission reads the resolved binary path with ".sig" appended
+        (internal/config resolveCompanionPath + companionSigSuffix), and on
+        Windows that resolved path carries the .exe suffix, so an archived
+        "<name>.sig" has to land as "<name>.exe.sig".
+
+        Nothing here concerns SmartScreen or Apple notarization; those are a
+        separate mechanism with a separate remedy.
+    #>
+    param(
+        [string]$SourceDir,
+        [string]$Name,
+        [string]$Destination
+    )
+
+    $binaryDest = Join-Path $Destination "$Name.exe"
+    $sigSource = Join-Path $SourceDir "$Name.sig"
+    $sigDest = "$binaryDest.sig"
+
+    if (Test-Path $sigDest) {
+        Remove-Item $sigDest -Force
+    }
+    if (Test-Path $sigSource) {
+        Move-Item $sigSource $sigDest -Force
+    }
+    else {
+        # No stale signature is left behind: an absent one reads truthfully as
+        # unsigned, where a mismatched one reads as failed verification.
+        Write-Warn "${Name}: no $Name.sig in the archive; ctxloom will decline to run it"
+        Write-Warn "  (a companion must carry a signature from a publisher you trust)"
+    }
+
+    if (Test-Path $binaryDest) {
+        Remove-Item $binaryDest -Force
+    }
+    Move-Item (Join-Path $SourceDir "$Name.exe") $binaryDest -Force
+}
+
 function Install-Ctxloom {
     param(
         [string]$TargetVersion,
@@ -220,16 +269,9 @@ function Install-Ctxloom {
             New-Item -ItemType Directory -Path $Destination -Force | Out-Null
         }
 
-        # Move binary (the moment you've been waiting for)
-        $binarySource = Join-Path $tempDir "ctxloom.exe"
+        # Move binary and signature (the moment you've been waiting for)
+        Install-SignedBinary -SourceDir $tempDir -Name "ctxloom" -Destination $Destination
         $binaryDest = Join-Path $Destination "ctxloom.exe"
-
-        if (Test-Path $binaryDest) {
-            # Out with the old, in with the new
-            Remove-Item $binaryDest -Force
-        }
-
-        Move-Item $binarySource $binaryDest -Force
         Write-Success "Installed to $binaryDest"
     }
     catch {
@@ -390,9 +432,8 @@ function Install-Companion {
         }
 
         Expand-Archive -Path $archivePath -DestinationPath $tempDir -Force
+        Install-SignedBinary -SourceDir $tempDir -Name $Binary -Destination $Destination
         $dest = Join-Path $Destination "$Binary.exe"
-        if (Test-Path $dest) { Remove-Item $dest -Force }
-        Move-Item (Join-Path $tempDir "$Binary.exe") $dest -Force
         Write-Success "Installed companion: $dest"
     }
     catch {

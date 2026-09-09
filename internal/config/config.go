@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config/layerscope"
+	"github.com/ctxloom/ctxloom/internal/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
@@ -2320,7 +2321,15 @@ func (c *Config) companionProber() bundles.CompanionProber {
 	// Otherwise a Config's own override (the test seam) wins over the real probe,
 	// so a parallel test can pin its own fixture without touching the global.
 	if probe == nil {
-		probe = ProbeCompanionLoadouts
+		// Adapter, so bundles.CompanionProber stays a plain func(ctx): the
+		// trust root is CONFIG-provided, and this closure is the point where a
+		// Config is in scope. TrustRoot() reads allowed-signers files and never
+		// probes companions, so consulting it here cannot recurse back into
+		// this probe.
+		root := c.TrustRoot()
+		probe = func(ctx context.Context) (bundles.CompanionProbe, error) {
+			return ProbeCompanionLoadouts(ctx, root)
+		}
 	}
 	return func(ctx context.Context) (bundles.CompanionProbe, error) {
 		// The process-wide switch (--no-companions / CTXLOOM_NO_COMPANIONS) wins
@@ -2427,7 +2436,7 @@ func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
 			cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
 			factory = remote.NewCachedFetcherFactory(cache)
 		})
-		data, err := remote.FetchRefBytes(context.Background(), factory, auth, ref, commit)
+		data, err := remote.FetchRefBytes(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher)
 		if err != nil {
 			return nil, err
 		}

@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // SweepOrphanedWorktrees runs the startup per-agent-worktree reaper: a
@@ -77,11 +78,11 @@ func SweepOrphanedContainers(ctx context.Context, w io.Writer) {
 //
 // Both `ctxloom mcp` startup and `ctxloom run` call this so the surface is
 // the same regardless of how the session was started.
-func ReportCompanions(w io.Writer) {
+func ReportCompanions(w io.Writer, root signing.TrustRoot) {
 	// Best-effort reporting on fault-tolerant startup paths; failed writes
 	// are intentionally dropped (captured-but-unchecked via iox.ErrWriter).
 	ew := iox.NewErrWriter(w)
-	for _, st := range config.ProbeCompanions() {
+	for _, st := range config.ProbeCompanions(root) {
 		switch {
 		case st.Path == "":
 		case !st.Executed():

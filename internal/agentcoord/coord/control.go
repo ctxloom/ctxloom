@@ -14,6 +14,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // Plane 2, the DOWN direction: coordinator→agent control requests (steer,
@@ -324,13 +325,13 @@ func (c *Coordinator) redrainDownRequests(ch *runChan) {
 		c.audit("control_reject", ch.role, map[string]string{
 			"request_id": p.key.reqID,
 			"missing":    strings.Join(missing, ","),
-			"advertised": strings.Join(sortedKeys(advertised), ","),
+			"advertised": strings.Join(collections.SortedKeys(advertised), ","),
 			"at":         "drain_seam",
 		})
 		p.dr.settle(downResult{err: capUnavailable(
 			"run %q no longer offers %s, so a control request queued for an earlier run is refused rather than delivered to this one "+
 				"(it advertised: %s; capabilities ride each run's Hello, so a relaunched or resumed run may advertise differently)",
-			ch.role, strings.Join(missing, ", "), strings.Join(sortedKeys(advertised), ", "))})
+			ch.role, strings.Join(missing, ", "), strings.Join(collections.SortedKeys(advertised), ", "))})
 	}
 }
 
@@ -346,15 +347,6 @@ func missingCapabilities(declared []string, advertised map[string]bool) []string
 	}
 	sort.Strings(missing)
 	return missing
-}
-
-func sortedKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // controlTarget runs guards 1–4 shared by every control verb and returns the

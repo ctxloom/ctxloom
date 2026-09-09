@@ -37,7 +37,7 @@ func TestFetchRefBytes_AsksTheFetcherForTheSHAItWasGiven(t *testing.T) {
 	// error path.
 	mock.Files[ref.BuildFilePath(ref.ItemType)] = []byte("bundle: security\n")
 
-	_, err := FetchRefBytes(context.Background(), factory, AuthConfig{}, ref, pinned)
+	_, err := FetchRefBytes(context.Background(), factory, AuthConfig{}, ref, pinned, nil)
 	require.NoError(t, err)
 
 	require.Len(t, mock.FetchFileCalls, 1, "exactly one fetch should have been issued")

@@ -19,29 +19,81 @@ package acceptance
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // companionWitnessName is the file the fake companion appends to when it runs.
 const companionWitnessName = "companion-exec-witness.txt"
 
 func registerCompanionConsentSteps(ctx *godog.ScenarioContext) {
-	ctx.Step(`^a discovered companion "([^"]*)" is on PATH, never confirmed$`, func(c context.Context, bin string) error {
+	ctx.Step(`^a discovered companion "([^"]*)" is on PATH, unsigned$`, func(c context.Context, bin string) error {
 		w := worldFrom(c)
-		return installUnconfirmedCompanion(w, bin)
+		return installUnsignedCompanion(w, bin)
 	})
 
-	// The first-party PROVENANCE fixture. See installFirstPartyBesideCtxloom
-	// for why co-location is the only way to reproduce the exemption.
-	ctx.Step(`^ctxloom is installed beside a first-party companion "([^"]*)"$`, func(c context.Context, bin string) error {
+	// Signed by a publisher the SCENARIO trusts: the fixture form of a
+	// publisher vouching for the bytes, which is the only thing that admits a
+	// companion.
+	ctx.Step(`^the companion "([^"]*)" is signed by a publisher this project trusts$`, func(c context.Context, bin string) error {
 		w := worldFrom(c)
-		return installFirstPartyBesideCtxloom(w, bin)
+		return w.env.SignCompanion(companionPath(w, bin))
+	})
+
+	// Signed by a well-formed key the trust root does not carry. Distinct from
+	// unsigned on purpose: the two are different refusals and a reader who
+	// cannot tell them apart cannot tell "nobody vouched" from "someone I do
+	// not know vouched".
+	ctx.Step(`^the companion "([^"]*)" is signed by a key this project does not trust$`, func(c context.Context, bin string) error {
+		w := worldFrom(c)
+		return signCompanionWithUntrustedKey(w, companionPath(w, bin))
+	})
+
+	// Signed, then EDITED. The signature is intact and its signer is trusted;
+	// it simply no longer covers these bytes. Never degraded to "unsigned" — a
+	// broken signature is a signal, not an absence.
+	ctx.Step(`^the companion "([^"]*)" is edited after it was signed$`, func(c context.Context, bin string) error {
+		w := worldFrom(c)
+		path := companionPath(w, bin)
+		if err := w.env.SignCompanion(path); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o755) //nolint:gosec // a fixture binary this step just wrote
+		if err != nil {
+			return fmt.Errorf("open %q to edit it: %w", path, err)
+		}
+		defer func() { _ = f.Close() }()
+		_, err = f.WriteString("\n# edited after signing\n")
+		return err
+	})
+
+	// A companion that SHIPS A HOOK, for scenarios about where a hook came
+	// from. It exists because those scenarios used to read the developer's own
+	// ltk/taskloom/reprise off $PATH: the assertion "a companion-sourced hook
+	// is present" was satisfied by the machine, not by the fixture, so it said
+	// nothing on a box without them and shifted hook ordinals on a box with
+	// them. The scenario now installs the companion whose hook it asserts on.
+	ctx.Step(`^a signed companion "([^"]*)" shipping a "([^"]*)" hook is on PATH$`, func(c context.Context, bin, event string) error {
+		w := worldFrom(c)
+		bundle := fmt.Sprintf(`name: %s
+version: "1.0"
+hooks:
+  %s:
+    - type: command
+      command: echo HOOK-FROM-COMPANION-%s
+`, bin, event, bin)
+		version := fmt.Sprintf(`{"name":%q,"version":"0.0.0-fixture"}`, bin)
+		return j001800InstallFakeCompanion(w, bin, "fixture-companion@testenv.invalid", bundle, version)
 	})
 
 	ctx.Step(`^the companion "([^"]*)" was never executed$`, func(c context.Context, bin string) error {
@@ -80,17 +132,26 @@ func registerCompanionConsentSteps(ctx *godog.ScenarioContext) {
 // `version` and `loadout` with the empty-but-valid shapes so a companion that
 // IS allowed through contributes without erroring — the difference between the
 // two scenarios is then consent alone, not a broken fixture.
-func installUnconfirmedCompanion(w *World, bin string) error {
-	dir, err := os.MkdirTemp(w.env.Root, "unconfirmed-companion-*")
+func installUnsignedCompanion(w *World, bin string) error {
+	dir, err := os.MkdirTemp(w.env.Root, "unsigned-companion-*")
 	if err != nil {
-		return fmt.Errorf("create unconfirmed companion dir: %w", err)
+		return fmt.Errorf("create companion dir: %w", err)
 	}
 	if err := writeFakeCompanion(w, dir, bin); err != nil {
 		return err
 	}
 	prependPATH(w, dir)
+	// Remembered so a LATER step can vouch for this exact file. A step that
+	// re-derived the path would have to agree with this one about the temp
+	// directory, and the two would drift the first time either changed.
+	companionDirs[bin] = dir
 	return nil
 }
+
+// companionDirs records where each fixture companion was installed, keyed by
+// binary name, so the signing steps can name the file this suite actually
+// wrote rather than searching $PATH for it.
+var companionDirs = map[string]string{}
 
 // writeFakeCompanion writes the witnessing fake named bin into dir. Split out
 // of installUnconfirmedCompanion so the first-party fixture below installs the
@@ -118,69 +179,6 @@ func prependPATH(w *World, dir string) {
 	w.env.SetEnv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// installFirstPartyBesideCtxloom reproduces the ONE place in the trust model
-// where a missing record does not deny: a shipped companion (ltk, taskloom,
-// reprise) resolving from the directory the running ctxloom binary itself
-// lives in is executed with no consent record at all (docs/trust-model.md,
-// "First-party companions are exempt, but pinned by location").
-//
-// It copies the ctxloom under test into a fresh directory, writes the fake
-// companion BESIDE it, prepends that directory to $PATH, and repoints the
-// environment at the copy — so config.companionInstallDir (which is
-// os.Executable's own directory, by construction) and the companion's
-// resolved path are the same directory.
-//
-// The co-location is unavoidable, and that is the point of the step existing
-// at all: the exemption is pinned to where the RUNNING binary lives precisely
-// so that nothing an env var, a config key or a recorded install path can say
-// will move it. Reproducing it therefore means moving the binary, which is
-// what this does. No consent is granted anywhere here: if the exemption
-// stopped working, the fake would be refused as unconfirmed and the scenario
-// would go red rather than quietly proving nothing.
-func installFirstPartyBesideCtxloom(w *World, bin string) error {
-	dir, err := os.MkdirTemp(w.env.Root, "install-dir-*")
-	if err != nil {
-		return fmt.Errorf("create fake install dir: %w", err)
-	}
-	copied := filepath.Join(dir, "ctxloom")
-	if err := copyExecutable(w.env.AppBinary, copied); err != nil {
-		return err
-	}
-	if err := writeFakeCompanion(w, dir, bin); err != nil {
-		return err
-	}
-	prependPATH(w, dir)
-	// Every later `I run "ctxloom ..."` in this scenario runs the COPY, which
-	// is what makes its own directory the install directory.
-	w.env.AppBinary = copied
-	return nil
-}
-
-// copyExecutable copies src to dst with the executable bit set. A copy rather
-// than a symlink: config.companionInstallDir resolves symlinks before taking
-// the directory, so a symlinked ctxloom would report the directory it points
-// AT — the real build output — and the companion beside the link would not
-// match it.
-func copyExecutable(src, dst string) error {
-	in, err := os.Open(src) //nolint:gosec // the ctxloom binary under test
-	if err != nil {
-		return fmt.Errorf("open ctxloom binary %q: %w", src, err)
-	}
-	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755) //nolint:gosec // it must be executable
-	if err != nil {
-		return fmt.Errorf("create %q: %w", dst, err)
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return fmt.Errorf("copy ctxloom binary to %q: %w", dst, err)
-	}
-	if err := out.Close(); err != nil {
-		return fmt.Errorf("close %q: %w", dst, err)
-	}
-	return nil
-}
-
 // companionExecCount reports how many times bin recorded an invocation. An
 // absent witness file means zero runs — the file is only ever created by the
 // fake itself.
@@ -199,4 +197,35 @@ func companionExecCount(w *World, bin string) (int, error) {
 		}
 	}
 	return count, nil
+}
+
+// companionPath is where a fixture companion named bin was installed.
+func companionPath(_ *World, bin string) string {
+	return filepath.Join(companionDirs[bin], bin)
+}
+
+// signCompanionWithUntrustedKey signs path with a key minted here and trusted
+// NOWHERE — deliberately not added to any allowed_signers.
+//
+// It exists so "untrusted signer" can be witnessed as its own outcome. Without
+// it a scenario could only show unsigned-vs-signed, and the arm that refuses a
+// real signature from a stranger would have no test at all.
+func signCompanionWithUntrustedKey(w *World, path string) error {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return fmt.Errorf("mint an untrusted key: %w", err)
+	}
+	signer, err := ssh.NewSignerFromSigner(priv)
+	if err != nil {
+		return fmt.Errorf("wrap the untrusted key: %w", err)
+	}
+	payload, err := os.ReadFile(path) //nolint:gosec // a fixture path this suite wrote
+	if err != nil {
+		return fmt.Errorf("read %q to sign it: %w", path, err)
+	}
+	sig, err := signing.Sign(payload, signer, signing.NamespaceCompanion)
+	if err != nil {
+		return fmt.Errorf("sign %q: %w", path, err)
+	}
+	return os.WriteFile(path+".sig", sig, 0o600)
 }

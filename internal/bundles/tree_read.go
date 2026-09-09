@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -238,7 +238,7 @@ func (r *reader) addProfile(v content.Profile) {
 // are byte-identical to a correct one and fire in the wrong order, which nothing
 // downstream can detect.
 func (r *reader) finishHooks() {
-	for _, event := range sortedTreeKeys(r.hooks) {
+	for _, event := range collections.SortedKeys(r.hooks) {
 		hooks := r.hooks[event]
 		content.SortHooks(hooks)
 		for _, h := range hooks {
@@ -355,11 +355,3 @@ func skillLLM(e content.EngineExports) SkillLLMExports {
 // sortedTreeKeys keeps map iteration deterministic. It is a local copy rather
 // than a shared helper because internal/content/convert owns the other
 // direction and this package must not import it — convert imports this one.
-func sortedTreeKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}

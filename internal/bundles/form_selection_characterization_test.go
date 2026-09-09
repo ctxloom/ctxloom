@@ -1,7 +1,7 @@
 package bundles
 
 import (
-	"sort"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"testing"
 )
 
@@ -224,7 +224,7 @@ func assertExposure(t *testing.T, path string, e *charExposure, want charExpecta
 	}
 	hf, ok := e.seen[want.gateRef]
 	if !ok {
-		t.Fatalf("%s: trust gate never keyed on %q; saw %v", path, want.gateRef, sortedRefs(e.seen))
+		t.Fatalf("%s: trust gate never keyed on %q; saw %v", path, want.gateRef, collections.SortedKeys(e.seen))
 	}
 	if hf[0] != want.hash {
 		t.Errorf("%s: gate hashed %s, want %s — THE TRUST PREIMAGE MOVED; every existing grant for this item just staled", path, hf[0], want.hash)
@@ -232,15 +232,6 @@ func assertExposure(t *testing.T, path string, e *charExposure, want charExpecta
 	if hf[1] != want.form {
 		t.Errorf("%s: gate saw form %q, want %q — a grant binds (bytes, form); the form half moved", path, hf[1], want.form)
 	}
-}
-
-func sortedRefs(seen map[string][2]string) []string {
-	out := make([]string, 0, len(seen))
-	for k := range seen {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // TestFormSelection_Characterization_QualifiedFragment pins the primary

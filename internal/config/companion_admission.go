@@ -1,16 +1,12 @@
 package config
 
 import (
-	"context"
-	"fmt"
-	"io"
 	"os"
-	"strings"
-
-	"golang.org/x/term"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // CompanionAdmissionReason names WHY a companion was or was not admitted to
@@ -24,19 +20,25 @@ const (
 	// CompanionAdmissionNotInstalled: the name resolves to nothing on $PATH.
 	// Ordinary and silent — most machines have no reprise.
 	CompanionAdmissionNotInstalled CompanionAdmissionReason = "not-installed"
-	// CompanionAdmissionFirstParty: a shipped companion (ltk, taskloom,
-	// reprise) resolving from the expected install location — the directory the
-	// running ctxloom binary itself lives in. Automatic, never prompted.
-	CompanionAdmissionFirstParty CompanionAdmissionReason = "first-party"
-	// CompanionAdmissionConsented: a recorded approval covers this exact
-	// (path, sha256).
-	CompanionAdmissionConsented CompanionAdmissionReason = "consented"
+
+	// CompanionAdmissionSigned: the bytes carry a signature from a key the
+	// trust root authorizes for the companion namespace.
+	CompanionAdmissionSigned CompanionAdmissionReason = "signed"
+
+	// CompanionAdmissionUnsigned: no detached signature beside the binary.
+	CompanionAdmissionUnsigned CompanionAdmissionReason = "unsigned"
+
+	// CompanionAdmissionUntrusted: signed, by a key not authorized to say
+	// "these bytes may execute here".
+	CompanionAdmissionUntrusted CompanionAdmissionReason = "untrusted-signer"
+
+	// CompanionAdmissionTampered: a signature that does not cover these bytes,
+	// or will not parse. Never degraded to "unsigned" — a broken signature is a
+	// signal, not an absence.
+	CompanionAdmissionTampered CompanionAdmissionReason = "signature-tampered"
 	// CompanionAdmissionDeclined: a recorded DENIAL covers this path. Beats
 	// the first-party exemption.
 	CompanionAdmissionDeclined CompanionAdmissionReason = "declined"
-	// CompanionAdmissionUnconfirmed: no record, and nothing could ask — a
-	// non-interactive session, or a caller that does not prompt. Fail-closed.
-	CompanionAdmissionUnconfirmed CompanionAdmissionReason = "unconfirmed"
 	// CompanionAdmissionUnreadable: the binary is present but could not be
 	// resolved or hashed, so it cannot be identified. Fail-closed.
 	CompanionAdmissionUnreadable CompanionAdmissionReason = "unreadable"
@@ -75,79 +77,17 @@ func newCompanionAdmission(k CompanionKey, allow bool, reason CompanionAdmission
 	}
 }
 
-// companionPromptOut is where the consent question is asked. STDERR, not
-// stdout: stdout may be carrying a JSON payload a caller is parsing, and a
-// question written into it would corrupt the answer the user actually wanted.
-var companionPromptOut io.Writer = os.Stderr
-
-// companionPromptIn is where the answer is read from.
-var companionPromptIn io.Reader = os.Stdin
-
-// companionSessionInteractive reports whether there is a human who can be
-// asked. BOTH ends are required: stdin must be a terminal for an answer to
-// arrive, and stderr must be a terminal or the question is written somewhere
-// nobody is reading while the session appears to hang. Agents, CI, `ctxloom
-// mcp` over stdio and every piped invocation fail this and are never prompted.
-var companionSessionInteractive = func() bool {
-	inFile, ok := companionPromptIn.(*os.File)
-	if !ok {
-		return false
-	}
-	errFile, ok := companionPromptOut.(*os.File)
-	if !ok {
-		return false
-	}
-	return term.IsTerminal(int(inFile.Fd())) && term.IsTerminal(int(errFile.Fd()))
-}
-
-// SetCompanionPromptIOForTesting redirects both ends of the consent question
-// and returns a restore function.
-//
-// BOTH ends, never one: the question is written to out and the answer read from
-// in, so redirecting only the writer leaves a forced-interactive test reading
-// the real stdin, which blocks forever when that stdin is a terminal.
-func SetCompanionPromptIOForTesting(in io.Reader, out io.Writer) func() {
-	prevIn, prevOut := companionPromptIn, companionPromptOut
-	companionPromptIn, companionPromptOut = in, out
-	return func() { companionPromptIn, companionPromptOut = prevIn, prevOut }
-}
-
-// SetCompanionSessionInteractiveForTesting pins whether the admission cascade
-// believes there is a human it can put the consent question to, and returns a
-// restore function.
-//
-// It exists so a caller in ANOTHER package can prove its own path never raises
-// that question. Under `go test` neither end is a terminal, so the real answer
-// is always false and nothing would ask whatever the caller passed — which
-// makes "no prompt appeared" true for a reason that has nothing to do with the
-// code under test. Forcing it true is what turns that assertion into evidence.
-func SetCompanionSessionInteractiveForTesting(v bool) func() {
-	prev := companionSessionInteractive
-	companionSessionInteractive = func() bool { return v }
-	return func() { companionSessionInteractive = prev }
-}
-
 // AdmitCompanions decides, for each discovered companion name, whether ctxloom
-// may execute it — trust-on-first-use, keyed on the resolved absolute path AND
-// the binary's SHA-256.
+// may execute it: a signature over the binary's bytes, from a key root
+// authorizes for the companion namespace, and nothing else.
 //
-// prompt selects whether an UNCONFIRMED companion may be put to the human.
-// The two probes pass true; a reporting caller (status, doctor) passes false so
-// merely LOOKING at companion state can never conjure a security question.
-// Even with prompt true, a non-interactive session never asks: it refuses.
-//
-// Decisions are made SEQUENTIALLY and before any exec, which is what keeps two
-// prompts from interleaving on one terminal — the probes' concurrency starts
-// after admission, over the admitted set only.
-func AdmitCompanions(bins []string, prompt bool) []CompanionAdmission {
-	store := companionConsentStore()
-	// ONE read for the whole pass: the pre-hash refusal arm needs the records
-	// before any candidate has been hashed, and a per-candidate read there
-	// would make the pass see the file change underneath it.
-	snap, fault := store.Load()
+// Decisions are made BEFORE any exec, which is what keeps a refused companion
+// from running: the probes' concurrency starts after admission, over the
+// admitted set only.
+func AdmitCompanions(bins []string, root signing.TrustRoot) []CompanionAdmission {
 	out := make([]CompanionAdmission, 0, len(bins))
 	for _, bin := range bins {
-		out = append(out, admitCompanion(bin, store, snap, fault, prompt))
+		out = append(out, admitCompanion(bin, root))
 	}
 	return out
 }
@@ -161,7 +101,7 @@ var companionAdmission = AdmitCompanions
 // consult and returns a restore function. Companion of
 // SetCompanionLoadoutOutputForTesting: those seams fake the probe's OUTPUT,
 // this one fakes the decision to run it at all.
-func SetCompanionAdmissionForTesting(fn func(bins []string, prompt bool) []CompanionAdmission) func() {
+func SetCompanionAdmissionForTesting(fn func(bins []string, root signing.TrustRoot) []CompanionAdmission) func() {
 	prev := companionAdmission
 	companionAdmission = fn
 	return func() { companionAdmission = prev }
@@ -178,7 +118,7 @@ func SetCompanionAdmissionForTesting(fn func(bins []string, prompt bool) []Compa
 // consent gate as a side effect would let a future regression in that gate go
 // unnoticed by every test in the repo.
 func AdmitEveryDiscoveredCompanionForTesting() func() {
-	return SetCompanionAdmissionForTesting(func(bins []string, _ bool) []CompanionAdmission {
+	return SetCompanionAdmissionForTesting(func(bins []string, _ signing.TrustRoot) []CompanionAdmission {
 		out := make([]CompanionAdmission, 0, len(bins))
 		for _, bin := range bins {
 			path, err := lookPath(bin)
@@ -188,7 +128,7 @@ func AdmitEveryDiscoveredCompanionForTesting() func() {
 				continue
 			}
 			out = append(out, newCompanionAdmission(
-				CompanionKey{Bin: bin, Path: path}, true, CompanionAdmissionConsented))
+				CompanionKey{Bin: bin, Path: path}, true, CompanionAdmissionSigned))
 		}
 		return out
 	})
@@ -205,13 +145,7 @@ func AdmitEveryDiscoveredCompanionForTesting() func() {
 // and are delegated to the store's Decide, which is where "recorded yes",
 // "recorded no", "nobody could be asked" and "the store is unreadable" are one
 // implementation for every consumer.
-func admitCompanion(
-	bin string,
-	store *admission.Store[CompanionKey, CompanionAdmissionReason],
-	consent *admission.Snapshot[CompanionKey],
-	fault error,
-	prompt bool,
-) CompanionAdmission {
+func admitCompanion(bin string, root signing.TrustRoot) CompanionAdmission {
 	raw, err := lookPath(bin)
 	if err != nil {
 		// not installed — ordinary, not a warning
@@ -224,159 +158,57 @@ func admitCompanion(
 	}
 	key := CompanionKey{Bin: bin, Path: resolved}
 
-	// 0. CONSENT RECORD UNREADABLE. Above every exemption, for the same reason
-	//    EffectiveTrust's approvals gate is: a record we cannot read may hold a
-	//    DENIAL, and treating that silence as permission re-opens a door a
-	//    human closed. Denies first-party companions too.
-	if fault != nil {
+	// A SIGNATURE FROM A TRUSTED PUBLISHER IS THE WHOLE GATE. There is no
+	// second input: no recorded consent, no location exemption, no prompt.
+	//
+	// Each of those was a proxy for the question a signature answers directly —
+	// who vouches for these bytes. The location pin meant "it sits where our
+	// installer puts things", which stops being true the moment ctxloom runs
+	// from a working tree while its companions live in $GOBIN. Trust-on-first-
+	// use meant "you said yes to this hash once", which every rebuild
+	// invalidates, so it asked again on each `just install` and trained the
+	// reflex approval it existed to prevent.
+	//
+	// There is deliberately no way to refuse a companion that IS validly
+	// signed. Nothing needs one: a user who does not want ctxloom running a
+	// binary renames it, and discovery stops finding it. A recorded veto would
+	// be a second policy to keep in step with the first, for a case the
+	// filesystem already settles.
+	//
+	// UNSIGNED IS REFUSED, and it is not degradable: executing code nothing can
+	// attest to IS the harm.
+	sig, sigErr := os.ReadFile(resolved + companionSigSuffix)
+	if sigErr != nil {
 		clidiag.WarnOnce("ctxloom",
-			"companion consent record unreadable, refusing to execute any companion: %v "+
-				"(fix or remove it, then re-decide with 'ctxloom companion trust <path>')", fault)
-		return newCompanionAdmission(key, false, CompanionAdmissionStoreFault)
+			"companion %q at %s: no signature beside it, skipping — a companion must be signed by a publisher you "+
+				"trust (sign it where it is built: `just sign-binary %s`)", bin, resolved, resolved)
+		return newCompanionAdmission(key, false, CompanionAdmissionUnsigned)
 	}
-
-	// 1. DECLINED. Path-wide and hash-blind, checked ahead of the first-party
-	//    exemption: a human's "no" is supreme, and must survive the binary
-	//    being rebuilt or it only ever meant "no, until one byte changes". This
-	//    is the arm the store's scope/key split exists for, and the arm that
-	//    must answer before the hash is computed.
-	if consent.Declined(key) {
-		clidiag.WarnOnce("ctxloom",
-			"companion %q at %s: execution declined by a recorded decision, skipping "+
-				"(undo with 'ctxloom companion untrust %s')", bin, resolved, resolved)
-		return newCompanionAdmission(key, false, CompanionAdmissionDeclined)
-	}
-
-	// 2. FIRST-PARTY, PINNED BY LOCATION. The name alone exempts nothing —
-	//    firstPartyCompanions is a list of three guessable names discovered
-	//    unconditionally, so a bare-name exemption would hand automatic
-	//    execution to anything that shadows one from earlier in $PATH.
-	//    Deliberately BEFORE the hash lookup: this arm never hashes, which is
-	//    what keeps `just install` silent at no startup cost.
-	if firstPartyPinned(bin, resolved) {
-		return newCompanionAdmission(key, true, CompanionAdmissionFirstParty)
-	}
-
-	// 3+4. The shared flow, bound to the exact bytes: a recorded approval
-	//      admits, a recorded refusal denies, and anything else is put to a
-	//      human — or, with nobody to ask, refused. Any change at an approved
-	//      path fails the key match and reaches the question again.
-	sum, herr := companionBinarySHA256(resolved)
-	if herr != nil {
-		clidiag.Warn("ctxloom", "companion %q: %v, withholding", bin, herr)
+	payload, readErr := os.ReadFile(resolved)
+	if readErr != nil {
+		clidiag.Warn("ctxloom", "companion %q: cannot read %s to verify it, withholding: %v", bin, resolved, readErr)
 		return newCompanionAdmission(key, false, CompanionAdmissionUnreadable)
 	}
-	key.SHA256 = sum
-
-	// A nil Ask is the non-interactive case: never a prompt written into a
-	// pipe, never an assumed yes. A REPORTING caller (status, doctor) passes
-	// prompt false so merely LOOKING at companion state cannot conjure a
-	// security question.
-	var ask admission.Ask[CompanionKey]
-	if prompt && companionSessionInteractive() {
-		ask = askCompanionConsent
-	}
-	// context.Background(): the prompt reads one line from a shared stdin and
-	// has no cancellation to honor. The ctx is on Ask for the publish gate,
-	// which is driven from a cobra command that has one.
-	d, derr := store.Decide(context.Background(), key, ask)
-	if derr != nil && d.Allow {
-		// The human said yes and the record could not be written. The decision
-		// still holds for THIS session — refusing to honor a "yes" just typed
-		// would be its own silent no-op — but say so, or the next session asks
-		// again with no explanation.
-		clidiag.Warn("ctxloom", "companion %q: could not record your decision, it will be asked again: %v", bin, derr)
-	}
-	if d.Reason == CompanionAdmissionConsented || d.Reason == CompanionAdmissionDeclined {
-		// Whatever was just decided is visible to the rest of THIS pass without
-		// a re-read — two names can resolve to one file, and a human must not
-		// be asked about the same file twice in one session.
-		consent.Note(CompanionConsentRecord{Key: key, Approved: d.Allow})
-	}
-	switch d.Reason {
-	case CompanionAdmissionUnconfirmed:
-		// Only the "nobody could be asked" arm is announced. A question that
-		// WAS put and came back empty already printed its own line, and a
-		// second warning about it would say the same thing twice.
-		if ask == nil {
-			clidiag.WarnOnce("ctxloom",
-				"companion %q at %s: never confirmed for execution, skipping "+
-					"(no terminal to ask on — run ctxloom interactively once, or 'ctxloom companion trust %s')",
-				bin, resolved, resolved)
-		}
-	case CompanionAdmissionStoreFault:
+	principal, verifyErr := signing.VerifyInNamespace(payload, sig, root, signing.NamespaceCompanion, time.Now())
+	switch {
+	case verifyErr != nil:
 		clidiag.WarnOnce("ctxloom",
-			"companion consent record unreadable, refusing to execute any companion: %v "+
-				"(fix or remove it, then re-decide with 'ctxloom companion trust <path>')", d.Detail)
+			"companion %q at %s: its signature does not cover these bytes, refusing to execute it: %v",
+			bin, resolved, verifyErr)
+		return newCompanionAdmission(key, false, CompanionAdmissionTampered)
+	case principal == "":
+		// VerifyInNamespace's "unsigned to you": a well-formed signature by a
+		// key the trust root does not authorize for THIS namespace. A bundle
+		// treats that as reviewable; execution cannot.
+		clidiag.WarnOnce("ctxloom",
+			"companion %q at %s: signed by a key you do not trust to authorize execution, skipping "+
+				"(add its publisher to allowed_signers with namespaces=%q)",
+			bin, resolved, signing.NamespaceCompanion)
+		return newCompanionAdmission(key, false, CompanionAdmissionUntrusted)
 	}
-	return CompanionAdmission{CompanionKey: key, Decision: d}
+	return newCompanionAdmission(key, true, CompanionAdmissionSigned)
 }
 
-// companionConsentPrompt is the question put to the human, verbatim. It names
-// the three things a decision needs and nothing else: WHICH file (absolute
-// path, because the name is the part an attacker chooses), WHAT ctxloom is
-// about to do with it (execute, not read), and WHY the name proves nothing.
-const companionConsentPrompt = `ctxloom found a companion it has not run before:
-
-  binary: %s
-  path:   %s
-  sha256: %s
-
-ctxloom EXECUTES this file to read the context it contributes, so allowing it
-grants it everything you can do. Any program on your PATH can claim this name,
-including a dependency you never chose to install.
-
-Allow ctxloom to run it? [y/N]: `
-
-// askCompanionConsent puts the question and reads one line. Anything that is
-// not an explicit yes is a NO — including EOF, a read error, and an empty line
-// — because the default of a security question must never be the permissive
-// answer. answered distinguishes "the human said no" (record it) from "nothing
-// came back" (do not).
-//
-// It never returns an error: a read failure is a non-answer, which is already
-// one of the two outcomes it reports, and the store treats them identically.
-// The ctx is unused because the prompt reads one line from a stdin it shares
-// with whatever runs next and has no cancellation to honor.
-func askCompanionConsent(_ context.Context, k CompanionKey) (allowed, answered bool, err error) {
-	fmt.Fprintf(companionPromptOut, companionConsentPrompt, k.Bin, k.Path, k.SHA256)
-	line, rerr := readCompanionAnswerLine(companionPromptIn)
-	if rerr != nil && line == "" {
-		fmt.Fprintln(companionPromptOut, "no answer read — not running it")
-		return false, false, nil
-	}
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "y", "yes":
-		return true, true, nil
-	default:
-		fmt.Fprintf(companionPromptOut, "not running %s (undo with 'ctxloom companion untrust %s')\n", k.Bin, k.Path)
-		return false, true, nil
-	}
-}
-
-// readCompanionAnswerLine reads ONE line, one byte at a time, deliberately
-// unbuffered.
-//
-// A bufio.Reader would be the obvious choice and would be wrong here: it reads
-// ahead by up to its buffer size, and this prompt shares stdin with whatever
-// runs next — a second consent question, and then the engine ctxloom is about
-// to launch. Bytes swallowed into a buffer that is then discarded are input
-// the user typed and nobody ever sees. Reading exactly to the newline leaves
-// the rest of stdin untouched for its real owner.
-func readCompanionAnswerLine(r io.Reader) (string, error) {
-	var line []byte
-	buf := make([]byte, 1)
-	for len(line) < 64 { // an answer is "y" or "n"; anything longer is not one
-		n, err := r.Read(buf)
-		if n > 0 {
-			if buf[0] == '\n' {
-				return string(line), nil
-			}
-			line = append(line, buf[0])
-		}
-		if err != nil {
-			return string(line), err
-		}
-	}
-	return string(line), nil
-}
+// companionSigSuffix is the detached signature's extension — the one
+// `ssh-keygen -Y sign` writes and the justfiles produce.
+const companionSigSuffix = ".sig"

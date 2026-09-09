@@ -296,3 +296,27 @@ func TestRenderPremiseIndex_KeepsTheThreeMeasuredProperties(t *testing.T) {
 			"'fragments' here would read correctly and silently break the loop")
 	assert.Contains(t, got, "alpha: You are about to do a thing.", "entries still render")
 }
+
+// A STATIC output is the whole delivery: nothing downstream can pull a
+// withheld fragment, so withholding there loses it rather than deferring it.
+// The static filter must therefore include premised fragments AND report an
+// empty index — a menu handed to nobody is worse than no menu, because the
+// caller cannot tell the difference from a corpus that authored no premises.
+func TestStaticPremiseFilterWithholdsNothingAndIndexesNothing(t *testing.T) {
+	dynamic := newPremiseFilter(nil)
+	static := newStaticPremiseFilter()
+
+	const name, premise = "turn-gates", "You are choosing which gate to run."
+
+	// The control: the dynamic arm MUST withhold, or this test proves nothing
+	// about the static one.
+	require.True(t, dynamic.withhold(name, premise), "dynamic arm must still withhold a premised fragment")
+	require.False(t, static.withhold(name, premise), "a static output cannot pull later, so it must include")
+
+	require.Empty(t, static.entries(), "a static assembly hands its menu to nobody; it must not build one")
+	require.Len(t, dynamic.entries(), 1, "the dynamic arm still records what it withheld")
+
+	// An unpremised fragment is unaffected on both arms.
+	require.False(t, static.withhold("tool-intent", ""))
+	require.False(t, dynamic.withhold("tool-intent", ""))
+}

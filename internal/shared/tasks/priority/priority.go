@@ -31,6 +31,7 @@ import (
 	"time"
 
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
@@ -356,7 +357,7 @@ func checkKnownBuiltins(f *tagschema.Formula, facet, target string) error {
 		}
 		if !known[name] {
 			return fmt.Errorf("priority: %s on %s: unknown builtin {{%s}} (known: %s)",
-				facet, target, name, strings.Join(sortedBuiltinNames(known), ", "))
+				facet, target, name, strings.Join(collections.SortedKeys(known), ", "))
 		}
 	}
 	return nil
@@ -364,14 +365,6 @@ func checkKnownBuiltins(f *tagschema.Formula, facet, target string) error {
 
 // sortedBuiltinNames returns known's keys sorted, for a deterministic error
 // message.
-func sortedBuiltinNames(known map[string]bool) []string {
-	names := make([]string, 0, len(known))
-	for name := range known {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
 
 // compileFacet compiles EVERY target schema declares under facet (via
 // schema.Get(facet, target)), syntax-checking each one regardless of how

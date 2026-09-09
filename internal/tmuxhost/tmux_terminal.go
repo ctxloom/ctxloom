@@ -362,9 +362,7 @@ func (l *Terminals) Create(ctx context.Context, spec Spec) (TerminalID, error) {
 	if spec.Cwd != "" {
 		args = append(args, "-c", spec.Cwd)
 	}
-	for _, e := range spec.Env {
-		args = append(args, "-e", e.Name+"="+e.Value)
-	}
+
 	// The socket is passed as $0 rather than baked into the script. Baking it
 	// in meant the spawned command always signalled the SHARED server, so this
 	// path could not be driven against a private test server at all — the only
@@ -373,9 +371,18 @@ func (l *Terminals) Create(ctx context.Context, spec Spec) (TerminalID, error) {
 	// writerRedirect: terminal/* consumers expect a command's clean output, so
 	// stdout goes straight to the file and the pane stays blank. That is this
 	// surface's contract, not a limitation to work around.
+	// Environment and argv travel in a launcher FILE, off this command line,
+	// which tmux caps (see writeLauncher).
+	env := make(map[string]string, len(spec.Env))
+	for _, e := range spec.Env {
+		env[e.Name] = e.Value
+	}
+	launcher, err := writeLauncher(l.tmpDir, "term-"+name, env, spec.Command, spec.Args)
+	if err != nil {
+		return "", err
+	}
 	args = append(args, "sh", "-c", tmuxWindowWrapper,
-		l.socketName(), string(writerRedirect), outputPath, channel+"-gate", statusPath, channel, spec.Command)
-	args = append(args, spec.Args...)
+		l.socketName(), string(writerRedirect), outputPath, channel+"-gate", statusPath, channel, "sh", launcher)
 
 	if _, err := l.runner.Run(ctx, args...); err != nil {
 		return "", err

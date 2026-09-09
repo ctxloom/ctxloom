@@ -74,6 +74,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -198,7 +199,7 @@ func (p *planner) addForms(kind trust.ItemKind, name, distilled string, s conten
 }
 
 func (p *planner) fragments(b *bundles.Bundle) {
-	for _, name := range sortedKeys(b.Fragments) {
+	for _, name := range collections.SortedKeys(b.Fragments) {
 		f := b.Fragments[name]
 		p.addForms(trust.KindFragment, name, f.Distilled, content.Fragment{
 			Name: name,
@@ -221,7 +222,7 @@ func (p *planner) fragments(b *bundles.Bundle) {
 }
 
 func (p *planner) commands(b *bundles.Bundle) {
-	for _, name := range sortedKeys(b.Commands) {
+	for _, name := range collections.SortedKeys(b.Commands) {
 		c := b.Commands[name]
 		p.addForms(trust.KindPrompt, name, c.Distilled, content.Command{
 			Name: name,
@@ -242,7 +243,7 @@ func (p *planner) commands(b *bundles.Bundle) {
 }
 
 func (p *planner) mcp(b *bundles.Bundle) {
-	for _, name := range sortedKeys(b.MCP) {
+	for _, name := range collections.SortedKeys(b.MCP) {
 		m := b.MCP[name]
 		p.add(trust.KindMCP, name, signing.FormRaw, content.MCP{
 			Name:         name,
@@ -298,7 +299,7 @@ func hookOrder(i int, h bundles.BundleHook) *int {
 }
 
 func (p *planner) skills(b *bundles.Bundle, opts Options) error {
-	for _, name := range sortedKeys(b.Skills) {
+	for _, name := range collections.SortedKeys(b.Skills) {
 		s := b.Skills[name]
 		files, err := readSkillFiles(p.bundle, name, opts)
 		if err != nil {
@@ -337,7 +338,7 @@ func readSkillFiles(bundle, name string, opts Options) ([]content.SkillFile, err
 }
 
 func (p *planner) profiles(b *bundles.Bundle) {
-	for _, name := range sortedKeys(b.Profiles) {
+	for _, name := range collections.SortedKeys(b.Profiles) {
 		p.add(content.KindProfile, name, signing.FormRaw, content.Profile{Name: name, Def: b.Profiles[name]})
 	}
 }
@@ -503,14 +504,5 @@ func skillExports(l bundles.SkillLLMExports) content.EngineExports {
 	if len(out) == 0 {
 		return nil
 	}
-	return out
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
 	return out
 }

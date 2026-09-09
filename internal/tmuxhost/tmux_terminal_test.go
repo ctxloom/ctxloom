@@ -3,7 +3,9 @@ package tmuxhost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -143,7 +145,8 @@ func nameAfterFlag(args []string, flag string) string {
 // call.
 func TestTerminals_Create_MapsToNewWindow(t *testing.T) {
 	f := newFakeTmuxRunner()
-	l := New(f, t.TempDir())
+	tmp := t.TempDir()
+	l := New(f, tmp)
 	cwd := "/work"
 
 	id1, err := l.Create(context.Background(), Spec{
@@ -160,10 +163,29 @@ func TestTerminals_Create_MapsToNewWindow(t *testing.T) {
 	require.NotEmpty(t, newWindowArgs, "Create must map onto tmux new-window")
 	assert.Contains(t, newWindowArgs, "-c")
 	assert.Contains(t, newWindowArgs, cwd)
-	assert.Contains(t, newWindowArgs, "-e")
-	assert.Contains(t, newWindowArgs, "FOO=bar")
-	assert.Contains(t, newWindowArgs, "echo")
-	assert.Contains(t, newWindowArgs, "hi")
+
+	// The environment and argv reach the pane through a launcher FILE, not
+	// through this command line, because tmux caps it and both grow without
+	// bound (see writeLauncher). So they are asserted where they now live —
+	// and the command line is asserted to be FREE of them, which is the
+	// property that stops "command too long" coming back.
+	assert.NotContains(t, newWindowArgs, "-e", "no environment may ride the tmux command line")
+	assert.NotContains(t, newWindowArgs, "FOO=bar")
+
+	launchers, err := filepath.Glob(filepath.Join(tmp, "ctxloom-launch-term-*.sh"))
+	require.NoError(t, err)
+	require.Len(t, launchers, 2, "one launcher per Create")
+	var carried string
+	for _, path := range launchers {
+		body, rerr := os.ReadFile(path)
+		require.NoError(t, rerr)
+		if strings.Contains(string(body), "echo") {
+			carried = string(body)
+		}
+	}
+	require.NotEmpty(t, carried, "the launcher for the echo terminal must exist")
+	assert.Contains(t, carried, "export FOO='bar'", "the environment is carried, exported")
+	assert.Contains(t, carried, "exec 'echo' 'hi'", "the command and its args are carried, quoted")
 }
 
 // TestTerminals_Output_ReadsCapturedFileNotPane: Output reads the wrapper's
@@ -477,4 +499,46 @@ func TestHostIdentifiers_ReachTmuxWithoutAnAcpSegment(t *testing.T) {
 				"no tmux identifier on the hosting path may carry an acp segment: %v", c)
 		}
 	}
+}
+
+// TestTerminals_Create_KeepsTheTmuxCommandLineBounded pins the defect that
+// killed whole sessions: `tmux new-window`'s command line goes into a
+// fixed-size client buffer, and spelling the launch inline grew it with two
+// unbounded inputs — one `-e` per environment variable, and the command's own
+// arguments, which for an engine carry a multi-kilobyte prompt. Over the limit
+// tmux answers "command too long", no window is created, and the launch fails
+// naming neither the variable nor the argument responsible.
+//
+// The assertion is on SIZE, not on any particular flag: the property is that
+// the command line does not grow with the input, so the payload below is made
+// far larger than any real launch and the argv still has to stay small.
+func TestTerminals_Create_KeepsTheTmuxCommandLineBounded(t *testing.T) {
+	f := newFakeTmuxRunner()
+	tmp := t.TempDir()
+	l := New(f, tmp)
+
+	env := make([]EnvVar, 0, 200)
+	for i := range 200 {
+		env = append(env, EnvVar{Name: fmt.Sprintf("CTXLOOM_VAR_%03d", i), Value: strings.Repeat("v", 200)})
+	}
+	prompt := strings.Repeat("PROMPT-BODY ", 8000) // ~96KB, the shape of a setup interview
+
+	_, err := l.Create(context.Background(), Spec{
+		Command: "claude", Args: []string{"--name", "some-harp", "--", prompt}, Env: env,
+	})
+	require.NoError(t, err)
+
+	argv := strings.Join(f.argsFor("new-window"), " ")
+	assert.Less(t, len(argv), 4096,
+		"the tmux command line must not grow with the environment or the prompt: it is %d bytes", len(argv))
+	assert.NotContains(t, argv, "PROMPT-BODY", "the prompt must never ride the tmux command line")
+	assert.NotContains(t, argv, "CTXLOOM_VAR_000", "no environment may ride the tmux command line")
+
+	launchers, gerr := filepath.Glob(filepath.Join(tmp, "ctxloom-launch-term-*.sh"))
+	require.NoError(t, gerr)
+	require.Len(t, launchers, 1)
+	body, rerr := os.ReadFile(launchers[0])
+	require.NoError(t, rerr)
+	assert.Contains(t, string(body), "PROMPT-BODY", "the prompt is carried in the launcher instead")
+	assert.Contains(t, string(body), "CTXLOOM_VAR_199", "every variable is carried in the launcher")
 }

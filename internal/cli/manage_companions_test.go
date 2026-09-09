@@ -29,39 +29,43 @@ import (
 // installed into config's exec seam would only witness an exec that still
 // travels through the seam, so a report that grew its own way to run the binary
 // would leave such a recorder empty and the assertion green.
-func plantRealCompanion(t *testing.T, bin string) string {
+// Returns the sentinel the script touches when executed, AND the binary's own
+// path — admission now reads the binary's bytes to verify them, so a caller has
+// to be able to name the file it is vouching for.
+func plantRealCompanion(t *testing.T, bin string) (sentinel, binPath string) {
 	t.Helper()
 	dir := t.TempDir()
-	sentinel := filepath.Join(t.TempDir(), "executed")
+	sentinel = filepath.Join(t.TempDir(), "executed")
 	script := "#!/bin/sh\necho \"$1\" >> " + sentinel + "\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755))
+	binPath = filepath.Join(dir, bin)
+	require.NoError(t, os.WriteFile(binPath, []byte(script), 0o755))
 	t.Setenv("PATH", dir)
-	return sentinel
+	return sentinel, binPath
 }
 
-// TestPrintCompanionStatus_ExecutesNothingEvenWhenApproved pins the property a
-// status command owes its reader: asking what the state of things is must never
-// run a foreign binary, and must never raise the trust-on-first-use question
-// that would change that state.
+// TestPrintCompanionStatus_ExecutesNothingEvenWhenAdmissible pins the property
+// a status command owes its reader: asking what the state of things is must
+// never run a foreign binary.
 //
-// Consent is RECORDED first, on purpose. An unapproved companion is refused by
-// the admission gate, so a report that wrongly reached for the resolved bundle
-// set would still exec nothing and this test would pass while the property was
-// broken. With the approval in place, admission says yes and the ONLY thing
-// standing between this report and an execution is the report's own refusal to
-// ask for content it has no use for.
-func TestPrintCompanionStatus_ExecutesNothingEvenWhenApproved(t *testing.T) {
+// The companion is SIGNED first, on purpose. An unsigned companion is refused
+// by the admission gate, so a report that wrongly reached for the resolved
+// bundle set would still exec nothing and this test would pass while the
+// property was broken. With a valid signature in place, admission says yes and
+// the ONLY thing standing between this report and an execution is the report's
+// own refusal to ask for content it has no use for.
+func TestPrintCompanionStatus_ExecutesNothingEvenWhenAdmissible(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the sentinel companion is an sh script")
 	}
 	const bin = "ctxloom-companion-acme"
 	root, _ := setupProject(t, "claude-code")
 	testsupport.ChangeDir(t, root)
-	sentinel := plantRealCompanion(t, bin)
+	sentinel, binPath := plantRealCompanion(t, bin)
 
-	rec, err := config.SetCompanionConsent(bin, true)
-	require.NoError(t, err, "the fixture must be able to approve the companion")
-	require.True(t, rec.Approved)
+	// Signed and trusted in this project's own root: the only thing that
+	// admits a companion now.
+	testsupport.SignCompanionForTesting(t, binPath,
+		filepath.Join(root, ".ctxloom", "allowed_signers"))
 
 	var out bytes.Buffer
 	printCompanionStatus(&out)
@@ -90,7 +94,7 @@ func TestPrintCompanionStatus_ReportsTheRefusedPathNotAnAbsence(t *testing.T) {
 	const bin = "ctxloom-companion-acme"
 	root, _ := setupProject(t, "claude-code")
 	testsupport.ChangeDir(t, root)
-	sentinel := plantRealCompanion(t, bin)
+	sentinel, _ := plantRealCompanion(t, bin)
 
 	var out bytes.Buffer
 	printCompanionStatus(&out)
@@ -100,44 +104,6 @@ func TestPrintCompanionStatus_ReportsTheRefusedPathNotAnAbsence(t *testing.T) {
 	assert.NotContains(t, line, "NOT FOUND", "the binary is on PATH; reporting it missing is a false errand")
 	assert.Contains(t, line, "ctxloom companion trust", "a refusal a user cannot act on is a dead end")
 	assert.NoFileExists(t, sentinel, "reporting a refusal must not run the file it refused")
-}
-
-// TestPrintCompanionStatus_NeverAsksTheConsentQuestionWithAHumanPresent is the
-// prompt half, and the forced interactivity is the whole reason it is evidence.
-//
-// Under `go test` neither end of the terminal check is a terminal, so the
-// admission cascade would decline to ask no matter what this report requested —
-// "no question appeared" would be true for a reason that has nothing to do with
-// the code under test. With a human declared present and a companion sitting in
-// the one arm that WOULD ask (present on PATH, no recorded decision), the only
-// thing left keeping the question off the screen is the report asking the gate
-// not to raise it.
-func TestPrintCompanionStatus_NeverAsksTheConsentQuestionWithAHumanPresent(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the sentinel companion is an sh script")
-	}
-	const bin = "ctxloom-companion-acme"
-	root, _ := setupProject(t, "claude-code")
-	testsupport.ChangeDir(t, root)
-	sentinel := plantRealCompanion(t, bin)
-
-	var asked bytes.Buffer
-	// An empty answer stream, so a question that IS raised comes straight back
-	// with no answer instead of blocking on a terminal nobody is typing at.
-	defer config.SetCompanionPromptIOForTesting(strings.NewReader(""), &asked)()
-	defer config.SetCompanionSessionInteractiveForTesting(true)()
-
-	var out bytes.Buffer
-	printCompanionStatus(&out)
-
-	// Guard: the companion must land in the arm that would put the question,
-	// or there was never a question to suppress.
-	require.Contains(t, companionLineFor(t, out.String(), bin), "NOT RUN",
-		"the fixture must reach the unconfirmed arm — the only arm that asks")
-
-	assert.Empty(t, asked.String(),
-		"a status report must never put the trust-on-first-use question to a reader who asked what the state of things is")
-	assert.NoFileExists(t, sentinel, "and it must not run the binary either")
 }
 
 // TestPrintCompanionStatus_DisabledSaysSoAndStillRunsNothing covers the
@@ -152,9 +118,12 @@ func TestPrintCompanionStatus_DisabledSaysSoAndStillRunsNothing(t *testing.T) {
 	const bin = "ctxloom-companion-acme"
 	root, _ := setupProject(t, "claude-code")
 	testsupport.ChangeDir(t, root)
-	sentinel := plantRealCompanion(t, bin)
-	_, err := config.SetCompanionConsent(bin, true)
-	require.NoError(t, err, "approve it, so the switch is the only thing withholding the exec")
+	sentinel, binPath := plantRealCompanion(t, bin)
+	// Admissible on its own merits, so the DISABLE SWITCH below is the only
+	// thing withholding the exec — otherwise this would pass for the wrong
+	// reason, with the companion refused for want of a signature.
+	testsupport.SignCompanionForTesting(t, binPath,
+		filepath.Join(root, ".ctxloom", "allowed_signers"))
 
 	config.SetCompanionsDisabled(true)
 	t.Cleanup(func() { config.SetCompanionsDisabled(false) })

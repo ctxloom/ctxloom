@@ -104,7 +104,7 @@ func lookPathOnly(bins map[string]string) func(string) (string, error) {
 // executable at the fake path lookPath hands back.
 func admitEveryDiscoveredCompanion(t *testing.T) {
 	t.Helper()
-	restore := SetCompanionAdmissionForTesting(func(bins []string, _ bool) []CompanionAdmission {
+	restore := SetCompanionAdmissionForTesting(func(bins []string, _ signing.TrustRoot) []CompanionAdmission {
 		out := make([]CompanionAdmission, 0, len(bins))
 		for _, bin := range bins {
 			path, err := lookPath(bin)
@@ -113,7 +113,7 @@ func admitEveryDiscoveredCompanion(t *testing.T) {
 				continue
 			}
 			out = append(out, newCompanionAdmission(
-				CompanionKey{Bin: bin, Path: path}, true, CompanionAdmissionConsented))
+				CompanionKey{Bin: bin, Path: path}, true, CompanionAdmissionSigned))
 		}
 		return out
 	})
@@ -127,7 +127,7 @@ func admitEveryDiscoveredCompanion(t *testing.T) {
 // user gets rather than about either half's internals.
 func companionBundles(t *testing.T, root signing.TrustRoot) map[string]*bundles.Bundle {
 	t.Helper()
-	probe, err := ProbeCompanionLoadouts(context.Background())
+	probe, err := ProbeCompanionLoadouts(context.Background(), nil)
 	require.NoError(t, err)
 	reads, err := bundles.NewCompanionReader(
 		func(context.Context) (bundles.CompanionProbe, error) { return probe, nil },

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
@@ -122,7 +122,7 @@ func TestWatch_StreamsTheDocumentedJSONLContract(t *testing.T) {
 	// assertion cannot see them: a renamed json tag round-trips fine.
 	var keys map[string]any
 	require.NoError(t, json.Unmarshal([]byte(lines()[0]), &keys))
-	assert.Equal(t, []string{"event", "kind", "project"}, sortedKeys(keys))
+	assert.Equal(t, []string{"event", "kind", "project"}, collections.SortedKeys(keys))
 
 	// A change to the project's own log produces another line.
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o755))
@@ -138,15 +138,6 @@ func TestWatch_StreamsTheDocumentedJSONLContract(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("watch did not return after its context was cancelled")
 	}
-}
-
-func sortedKeys(m map[string]any) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // The debounce exists to collapse the write+chmod+lock churn one append

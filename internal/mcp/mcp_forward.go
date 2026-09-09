@@ -50,6 +50,16 @@ func dialReachBackSocket(ctx context.Context, socketPath string) (net.Conn, erro
 	return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
 }
 
+// forwardTriggerKind enumerates the two independent channels that can name a
+// forward target. They are not interchangeable when the target turns out to be
+// unreachable: see staleForwardRemedy.
+type forwardTriggerKind string
+
+const (
+	triggerEnvVar forwardTriggerKind = "env var"
+	triggerMarker forwardTriggerKind = "discovery marker"
+)
+
 // forwardTrigger names what caused ServeStdio to attempt a forward, so the
 // mandatory pre-forward diagnostic (graceful-egomaniac unit 1: "forwarding
 // is never silent") can say precisely which of the two independent trigger
@@ -57,8 +67,10 @@ func dialReachBackSocket(ctx context.Context, socketPath string) (net.Conn, erro
 // silent hijacks in one day, one via the env var and two via the cwd-keyed
 // marker, with no diagnostic distinguishing them at all.
 type forwardTrigger struct {
-	// Kind is "env var" or "discovery marker" — human-readable, never parsed.
-	Kind string
+	// Kind says which of the two channels named the target. It is typed
+	// because staleForwardRemedy BRANCHES on it to pick a remedy, so a bare
+	// string here would be a magic value two packages could drift on.
+	Kind forwardTriggerKind
 	// Name is the env var's name (coord.EnvMCPSocket) or the marker file's
 	// absolute path, whichever Kind names.
 	Name string
@@ -66,6 +78,28 @@ type forwardTrigger struct {
 
 func (t forwardTrigger) String() string {
 	return fmt.Sprintf("%s %s", t.Kind, t.Name)
+}
+
+// staleForwardRemedy names the action that ENDS a "cannot reach the runner"
+// failure. The refusal message is the entire user interface for this failure,
+// so it states what to DO, not just what broke — and the two trigger channels
+// do not share a remedy.
+//
+// The env-var case is the one that must not say "unset it". A runner exports
+// its address into a terminal that OUTLIVES it, so by the time this fires the
+// caller is a process that INHERITED a dead address and cannot clear it from
+// the environment it was launched with. Advising that would be advising
+// something the caller cannot do.
+const (
+	staleForwardMarkerRemedy = "remedy: that runner has exited; delete the stale marker file and retry"
+	staleForwardEnvRemedy    = "remedy: that runner has exited, and a process cannot clear a variable from the environment it inherited — start a fresh `ctxloom run` session so the stale address is not passed down"
+)
+
+func staleForwardRemedy(trigger forwardTrigger) string {
+	if trigger.Kind == triggerMarker {
+		return fmt.Sprintf("%s (%s)", staleForwardMarkerRemedy, trigger.Name)
+	}
+	return fmt.Sprintf("%s (%s)", staleForwardEnvRemedy, trigger.Name)
 }
 
 // forwardOutcome is runMCPForward's verdict on what happened after a
@@ -134,7 +168,7 @@ func prepareForward(ctx context.Context, trigger forwardTrigger, socketPath stri
 	}
 	cs, err = client.Connect(ctx, transport, nil)
 	if err != nil {
-		return nil, forwardOutcomeServed, fmt.Errorf("ctxloom mcp (forward mode): connect runner at %s: %w", socketPath, err)
+		return nil, forwardOutcomeServed, fmt.Errorf("ctxloom mcp (forward mode): connect runner at %s: %w\n%s", socketPath, err, staleForwardRemedy(trigger))
 	}
 
 	runnerHarp, runnerStamp := forwardTargetIdentity(cs)

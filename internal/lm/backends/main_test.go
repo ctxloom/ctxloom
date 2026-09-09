@@ -15,10 +15,24 @@ import (
 // ".../backends.test"), which would make every managed-detection/removal
 // test in this package see an unrecognized command. See
 // selfexec.SetPathForTesting.
+//
+// It also redirects HOME. Writing .mcp.json goes through the §9.7 record
+// store, which paths.HomeRecordsDir roots at the REAL ~/.ctxloom/records — so
+// every test here that applies hooks against an on-disk temp dir deposited a
+// durable record in the developer's own home, naming that temp path. This
+// package was the largest single source of them.
 func TestMain(m *testing.M) {
 	os.Exit(func() int {
 		restore := selfexec.SetPathForTesting("ctxloom")
 		defer restore()
+
+		home, err := os.MkdirTemp("", "backends-test-home")
+		if err != nil {
+			panic(err)
+		}
+		defer func() { _ = os.RemoveAll(home) }()
+		os.Setenv("HOME", home) //nolint:forbidigo // no *testing.T in TestMain
+
 		return m.Run()
 	}())
 }

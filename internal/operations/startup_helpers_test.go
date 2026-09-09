@@ -149,7 +149,7 @@ func TestReportCompanions_PresentBinariesLogVersions(t *testing.T) {
 	defer restoreProbe()
 	var buf bytes.Buffer
 
-	ReportCompanions(&buf)
+	ReportCompanions(&buf, nil)
 
 	assert.Contains(t, buf.String(), "ctxloom: companion taskloom v9.9.9")
 	assert.Contains(t, buf.String(), "ctxloom: companion ltk v9.9.9")
@@ -162,7 +162,7 @@ func TestReportCompanions_MissingBinariesStaySilent(t *testing.T) {
 	defer restoreLook()
 	var buf bytes.Buffer
 
-	ReportCompanions(&buf)
+	ReportCompanions(&buf, nil)
 
 	assert.Empty(t, buf.String(), "install hints belong to the bundle resolvers, not the boot report")
 }
@@ -179,7 +179,7 @@ func TestReportCompanions_ProbeFailureWarnsButContinues(t *testing.T) {
 	defer restoreProbe()
 	var buf bytes.Buffer
 
-	ReportCompanions(&buf)
+	ReportCompanions(&buf, nil)
 
 	assert.Contains(t, buf.String(), "ctxloom: warning: companion taskloom")
 	assert.Contains(t, buf.String(), "ctxloom: warning: companion ltk")

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -203,7 +204,7 @@ func TestPrepareForward_EmitsPreForwardDiagnostic(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(endpoint.Close)
 
-	trigger := forwardTrigger{Kind: "env var", Name: "CTXLOOM_MCP_SOCKET"}
+	trigger := forwardTrigger{Kind: triggerEnvVar, Name: "CTXLOOM_MCP_SOCKET"}
 	var cs *mcp.ClientSession
 	var outcome forwardOutcome
 	captured := captureStderr(t, func() {
@@ -238,7 +239,7 @@ func TestPrepareForward_RefusesOnSessionIdentityMismatch(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(endpoint.Close)
 
-	trigger := forwardTrigger{Kind: "discovery marker", Name: "/fake/marker/path.json"}
+	trigger := forwardTrigger{Kind: triggerMarker, Name: "/fake/marker/path.json"}
 	var cs *mcp.ClientSession
 	var outcome forwardOutcome
 	captureStderr(t, func() {
@@ -278,7 +279,7 @@ func TestPrepareForward_RefusesOnBuildStampMismatch(t *testing.T) {
 	// version.Version changes now.
 	version.Version = "stamp-B"
 
-	trigger := forwardTrigger{Kind: "env var", Name: "CTXLOOM_MCP_SOCKET"}
+	trigger := forwardTrigger{Kind: triggerEnvVar, Name: "CTXLOOM_MCP_SOCKET"}
 	var cs *mcp.ClientSession
 	var outcome forwardOutcome
 	captureStderr(t, func() {
@@ -342,3 +343,49 @@ func TestVerifyForwardTarget(t *testing.T) {
 // the remaining glue in ServeStdio itself is a short, directly readable
 // diff. A real integration test here needs loadStartupConfig to accept an
 // injected loader first.
+
+// A forward target that cannot be reached at all is fatal by design — a
+// silently-empty toolset would be a wrong-context session. But the refusal is
+// the whole user interface for that failure, so it must carry a remedy the
+// caller can actually act on, and the two trigger channels do not share one.
+// Before this, the error was a bare dial failure naming no action whatsoever.
+func TestPrepareForwardUnreachableTargetStatesAFollowableRemedy(t *testing.T) {
+	// A path inside a fresh temp dir: nothing is listening, and nothing ever
+	// created it — the stale-address shape, not a mid-flight drop.
+	dead := filepath.Join(t.TempDir(), "mcp-dead.sock")
+
+	for _, tc := range []struct {
+		name    string
+		trigger forwardTrigger
+		want    string
+		absent  string
+	}{
+		{
+			name:    "env var names a runner that has exited",
+			trigger: forwardTrigger{Kind: triggerEnvVar, Name: "CTXLOOM_MCP_SOCKET"},
+			want:    staleForwardEnvRemedy,
+			absent:  staleForwardMarkerRemedy,
+		},
+		{
+			name:    "discovery marker names a runner that has exited",
+			trigger: forwardTrigger{Kind: triggerMarker, Name: "/run/user/1000/ctxloom/marker.json"},
+			want:    staleForwardMarkerRemedy,
+			absent:  staleForwardEnvRemedy,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cs, outcome, err := prepareForward(context.Background(), tc.trigger, dead)
+			require.Error(t, err, "an unreachable target must stay fatal")
+			require.Nil(t, cs)
+			// Fatal, NOT the graceful fall-through an identity refusal takes.
+			require.Equal(t, forwardOutcomeServed, outcome)
+
+			require.Contains(t, err.Error(), tc.want,
+				"the refusal must name the remedy for the channel that actually fired")
+			require.NotContains(t, err.Error(), tc.absent,
+				"naming the other channel's remedy advises an action this caller cannot take")
+			// The remedy is worthless without saying WHICH address is stale.
+			require.Contains(t, err.Error(), tc.trigger.Name)
+		})
+	}
+}

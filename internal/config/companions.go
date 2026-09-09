@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
@@ -60,19 +60,13 @@ type CompanionStatus struct {
 // Executed reports whether this companion was actually run. Reason-aware so
 // callers stop inferring it from an empty Version.
 func (s CompanionStatus) Executed() bool {
-	return s.Admission == CompanionAdmissionFirstParty || s.Admission == CompanionAdmissionConsented
+	// One reason admits now. It was two — a location exemption and a recorded
+	// consent — and both were replaced by the signature this names.
+	return s.Admission == CompanionAdmissionSigned
 }
 
 // sortedBins renders a companion-name set as the sorted slice every discovery
 // function here returns.
-func sortedBins(seen map[string]bool) []string {
-	out := make([]string, 0, len(seen))
-	for bin := range seen {
-		out = append(out, bin)
-	}
-	sort.Strings(out)
-	return out
-}
 
 // ProbeCompanions resolves each discovered companion on PATH and asks it for
 // its version. Missing binaries yield Path == "" (their bundle entries are
@@ -93,7 +87,7 @@ func sortedBins(seen map[string]bool) []string {
 // never block startup). Admission runs SEQUENTIALLY before the fan-out, so two
 // consent prompts can never interleave on one terminal. Output order is
 // preserved (sorted by bin) since each goroutine writes its own slot.
-func ProbeCompanions() []CompanionStatus {
+func ProbeCompanions(root signing.TrustRoot) []CompanionStatus {
 	// Enforce the invariant at the exec boundary, not just at each caller —
 	// companionBundleSeed and doctor already check CompanionsDisabled
 	// themselves, but reportCompanions (cli/startup_helpers.go, called
@@ -103,7 +97,7 @@ func ProbeCompanions() []CompanionStatus {
 	if CompanionsDisabled() {
 		return nil
 	}
-	admissions := companionAdmission(DiscoverCompanions(), true)
+	admissions := companionAdmission(DiscoverCompanions(), root)
 	out := make([]CompanionStatus, len(admissions))
 	var wg sync.WaitGroup
 	for i, adm := range admissions {
@@ -162,6 +156,14 @@ func ProbeCompanions() []CompanionStatus {
 // (silently skipped, never an error).
 var firstPartyCompanions = []string{"ltk", "taskloom", "reprise"}
 
+// FirstPartyCompanionNames returns the shipped companion names. Exported so a
+// test harness can scrub them from a scenario's PATH by asking the list rather
+// than keeping a second copy of it — a copy would silently stop matching the
+// day a companion is added here.
+func FirstPartyCompanionNames() []string {
+	return append([]string(nil), firstPartyCompanions...)
+}
+
 // companionPathPrefix is the PATH-naming convention a THIRD-PARTY companion
 // opts into so ctxloom discovers it without a hardcoded name: any executable
 // on PATH named ctxloom-companion-<name> is a discovery candidate.
@@ -189,7 +191,7 @@ func DiscoverCompanions() []string {
 	for _, bin := range companionsOnPathByConvention() {
 		seen[bin] = true
 	}
-	return sortedBins(seen)
+	return collections.SortedKeys(seen)
 }
 
 // companionsOnPathByConvention scans every $PATH directory for entries named
@@ -295,7 +297,7 @@ func CompanionsDisabled() bool {
 // Probes run concurrently (mirrors ProbeCompanions), each bounded by
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
 // regardless of how many companions are admitted.
-func ProbeCompanionLoadouts(ctx context.Context) (bundles.CompanionProbe, error) {
+func ProbeCompanionLoadouts(ctx context.Context, root signing.TrustRoot) (bundles.CompanionProbe, error) {
 	// See ProbeCompanions' identical guard.
 	if CompanionsDisabled() {
 		return bundles.CompanionProbe{}, nil
@@ -311,7 +313,7 @@ func ProbeCompanionLoadouts(ctx context.Context) (bundles.CompanionProbe, error)
 	// a "found on PATH, never allowed to run" companion exists at all — it
 	// produces no loadout by definition — and reporting it costs nothing here
 	// while reconstructing it later would cost a second discovery pass.
-	decided := companionAdmission(DiscoverCompanions(), true)
+	decided := companionAdmission(DiscoverCompanions(), root)
 	admitted := make([]CompanionAdmission, 0, len(decided))
 	var candidates []bundles.CompanionCandidate
 	for _, a := range decided {

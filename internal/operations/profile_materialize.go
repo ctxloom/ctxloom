@@ -128,7 +128,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// context is the one HARD-error surface: an explicit profile set makes
 	// resolution failures fatal (the caller named these profiles), and the
 	// assembled context is the core payload every native surface is built from.
-	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: req.Profiles})
+	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: req.Profiles, Static: true})
 	if err != nil {
 		return nil, fmt.Errorf("assemble context for %v: %w", req.Profiles, err)
 	}

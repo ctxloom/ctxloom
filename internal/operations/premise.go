@@ -42,6 +42,11 @@ type PremiseIndexEntry struct {
 // Premise != "" itself: a second copy of the rule is a second policy, and the
 // two disagree the first time either one changes.
 type premiseFilter struct {
+	// includeAll disables withholding entirely -- the STATIC-OUTPUT arm. It
+	// lives HERE, on the single decision object, rather than as a second test
+	// at the call site, for the reason stated above: a premise rule that is
+	// re-implemented anywhere else is a second policy.
+	includeAll bool
 	// explicit is the set of fragment names the caller asked for BY NAME. An
 	// explicit ask always loads: it is the selection callback itself, and a
 	// premise that could veto it would make the loop unable to close.
@@ -82,6 +87,19 @@ func newPremiseFilter(explicit []string) *premiseFilter {
 	return &premiseFilter{explicit: set, seen: make(map[string]bool)}
 }
 
+// newStaticPremiseFilter builds the filter for a STATIC output: a surface
+// written for a consumer that has no ctxloom behind it and therefore cannot
+// pull anything afterwards. It withholds nothing and builds an empty index.
+//
+// The premise mechanism is a DYNAMIC-only policy. Its whole premise (the pun is
+// unavoidable) is that a withheld fragment can still be asked for, through a
+// live `assemble_context` or `ctxloom fragment premises`. Withhold into a
+// channel that does not exist and the fragment is not deferred, it is LOST --
+// and lost silently, because the index naming it goes to the same dead end.
+func newStaticPremiseFilter() *premiseFilter {
+	return &premiseFilter{includeAll: true, explicit: map[string]bool{}, seen: map[string]bool{}}
+}
+
 // withhold reports whether this fragment is held back from unconditional
 // assembly, recording an index row when it is.
 //
@@ -90,7 +108,7 @@ func newPremiseFilter(explicit []string) *premiseFilter {
 // mechanism additive: a corpus authoring no premises withholds nothing, builds
 // an empty index, and assembles the exact bytes it did before.
 func (f *premiseFilter) withhold(name, premise string) bool {
-	if premise == "" || f.explicit[name] {
+	if f.includeAll || premise == "" || f.explicit[name] {
 		return false
 	}
 	if !f.seen[name] {

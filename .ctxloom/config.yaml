@@ -24,12 +24,22 @@ agents:
             - default
             - developer-escalation
         runtime: host
+    distiller:
+        llm: claude-fast
+        profiles:
+            - distiller
+        runtime: container-rootless
     finder:
         llm: claude-fast
         permissions: plan
         profiles:
             - finder
         runtime: host
+    triage:
+        llm: claude-fast
+        profiles:
+            - triage
+        runtime: container-rootless
 config:
     use_distilled: true
 default_agent: coordinator

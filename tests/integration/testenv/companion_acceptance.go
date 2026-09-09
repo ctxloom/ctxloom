@@ -3,12 +3,17 @@
 package testenv
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"golang.org/x/crypto/ssh"
+
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // InstallFakeCompanion writes an executable shell script named bin (e.g.
@@ -63,34 +68,26 @@ esac
 	current := os.Getenv("PATH")
 	e.storeAndSetEnv("PATH", dir+pathSep+current)
 
-	// EXEC CONSENT. Since the trust-on-first-use gate landed, a companion
-	// ctxloom has never run is SKIPPED in a non-interactive session — which
-	// every acceptance/integration invocation is — so installing the binary is
-	// no longer enough to make it contribute anything. Record the consent the
-	// same way the shipping CLI does, through the real writer against the
-	// scenario's overridden HOME, so what these scenarios exercise is the
-	// production consent path rather than a bypass. A fixture that granted
-	// itself an exemption would prove the probe works while proving nothing
-	// about the gate in front of it.
+	// EXEC ADMISSION. A companion is executed only when its bytes carry a
+	// signature from a key the scenario's trust root authorizes, so installing
+	// the binary is not enough to make it contribute anything — it has to be
+	// vouched for. Sign it the way a publisher does, with a key trusted only in
+	// THIS scenario, so what these scenarios exercise is the production
+	// admission path rather than a bypass. A fixture that granted itself an
+	// exemption would prove the probe works while proving nothing about the
+	// gate in front of it.
 	//
 	// Deliberately NOT applied to companions this environment did not install:
-	// a real ltk on the developer's own PATH stays unconfirmed and skipped,
-	// which is what keeps a scenario's result from depending on what the
-	// machine happens to have.
-	return e.GrantCompanionConsent(path)
+	// a real ltk on the developer's own PATH is signed by a key this scenario
+	// does not trust, so it stays refused — which is what keeps a scenario's
+	// result from depending on what the machine happens to have.
+	return e.signCompanion(path)
 }
 
-// GrantCompanionConsent records, in the scenario's HOME, that ctxloom may
-// execute the binary at path — the fixture form of `ctxloom trust companion
-// allow <path>`. Exported so a scenario can grant consent for a binary it
-// installed by some other means, and so a scenario that wants to observe the
-// REFUSAL can deliberately not call it.
-func (e *TestEnvironment) GrantCompanionConsent(path string) error {
-	if _, err := config.SetCompanionConsent(path, true); err != nil {
-		return fmt.Errorf("grant companion exec consent for %q: %w", path, err)
-	}
-	return nil
-}
+// SignCompanion signs a binary a scenario installed by some other means, so
+// ctxloom will execute it. Exported for the same reason GrantCompanionConsent
+// was: a scenario that wants to observe the REFUSAL simply does not call it.
+func (e *TestEnvironment) SignCompanion(path string) error { return e.signCompanion(path) }
 
 // companionEnvVar builds the per-bin env var name InstallFakeCompanion's fake
 // script reads: prefix, an underscore, and bin uppercased with every
@@ -109,3 +106,85 @@ func companionEnvVar(prefix, bin string) string {
 	}
 	return b.String()
 }
+
+// --- companion signing, the fixture form of a publisher vouching for bytes ---
+//
+// Admission is answered by a SIGNATURE from a key the scenario's trust root
+// authorizes for the companion namespace. So a fixture that wants its fake
+// companion to run has to do what a real publisher does: sign the bytes, and be
+// trusted for that namespace. Recording consent is no longer a thing that can
+// be done — the approve path is gone, because a signature is the approval.
+//
+// The key is generated PER ENVIRONMENT and trusted only in that scenario's own
+// allowed_signers, so nothing here depends on the developer's keys and two
+// scenarios cannot vouch for each other's binaries.
+
+// signCompanion signs the binary at path with this environment's fixture key,
+// leaving the detached `<path>.sig` admission reads, and ensures the scenario's
+// trust root authorizes that key for the companion namespace.
+func (e *TestEnvironment) signCompanion(path string) error {
+	signer, err := e.companionSigner()
+	if err != nil {
+		return err
+	}
+	payload, err := os.ReadFile(path) //nolint:gosec // fixture path built by this package
+	if err != nil {
+		return fmt.Errorf("read %q to sign it: %w", path, err)
+	}
+	sig, err := signing.Sign(payload, signer, signing.NamespaceCompanion)
+	if err != nil {
+		return fmt.Errorf("sign companion %q: %w", path, err)
+	}
+	if err := os.WriteFile(path+".sig", sig, 0o600); err != nil {
+		return fmt.Errorf("write signature for %q: %w", path, err)
+	}
+	return nil
+}
+
+// companionSigner mints this environment's fixture signing key once and trusts
+// it in the scenario's own allowed_signers.
+func (e *TestEnvironment) companionSigner() (ssh.Signer, error) {
+	if e.companionKey != nil {
+		return e.companionKey, nil
+	}
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generate the fixture companion key: %w", err)
+	}
+	signer, err := ssh.NewSignerFromSigner(priv)
+	if err != nil {
+		return nil, fmt.Errorf("wrap the fixture companion key: %w", err)
+	}
+	line := fmt.Sprintf("%s namespaces=%q %s %s\n",
+		fixtureCompanionPrincipal, signing.NamespaceCompanion,
+		signer.PublicKey().Type(),
+		base64.StdEncoding.EncodeToString(signer.PublicKey().Marshal()))
+
+	// The HOME trust root, not a project one. A scenario can hold SEVERAL
+	// checkouts — the onboarding journey gives Alice and Bob one each — and a
+	// companion installed once on the machine has to be admissible in all of
+	// them. Writing into one project dir vouched for the binary in exactly one
+	// checkout, so the other saw a signature by an unknown key and refused it.
+	//
+	// This is still scenario-scoped: HOME is the fake home this environment
+	// created and cleans up, so nothing leaks to the developer's own.
+	allowed := filepath.Join(e.HomeDir, ".ctxloom", "allowed_signers")
+	if err := os.MkdirAll(filepath.Dir(allowed), 0o755); err != nil {
+		return nil, fmt.Errorf("create the scenario trust root: %w", err)
+	}
+	f, err := os.OpenFile(allowed, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open the scenario trust root: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.WriteString(line); err != nil {
+		return nil, fmt.Errorf("trust the fixture companion key: %w", err)
+	}
+	e.companionKey = signer
+	return signer, nil
+}
+
+// fixtureCompanionPrincipal names the fixture publisher in a scenario's trust
+// root. It is deliberately not a real address: a principal that looked real
+// would be one a reader could mistake for a key this project actually trusts.
+const fixtureCompanionPrincipal = "fixture-companion@testenv.invalid"

@@ -1,11 +1,6 @@
 package operations
 
 import (
-	"flag"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -81,7 +76,7 @@ func homeApprovalsDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := unsandboxedHomeError("user countersignature store", dir,
+	if err := paths.UnsandboxedHomeError("user countersignature store", dir,
 		"operations.SetHomeApprovalsDirForTesting(t.TempDir()), or an explicit UserStore on the request"); err != nil {
 		return "", err
 	}
@@ -109,7 +104,7 @@ func homeAllowedSignersPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := unsandboxedHomeError("user trust root", path,
+	if err := paths.UnsandboxedHomeError("user trust root", path,
 		"testsupport.SandboxedMain / testsupport.Isolate, or --project against a temp checkout"); err != nil {
 		return "", err
 	}
@@ -129,117 +124,9 @@ func homeDistrustedSignersPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := unsandboxedHomeError("user distrusted-signers store", path,
+	if err := paths.UnsandboxedHomeError("user distrusted-signers store", path,
 		"testsupport.SandboxedMain / testsupport.Isolate, or --project against a temp checkout"); err != nil {
 		return "", err
 	}
 	return path, nil
-}
-
-// unsandboxedHomeError is the belt to the override's braces: under a TEST
-// BINARY, a home approvals store outside every recognized temp root is
-// refused rather than returned. In a production binary it is always nil — the
-// real ~/.ctxloom/approvals is exactly where a real decision belongs.
-//
-// Why refuse instead of silently redirecting: a redirect would make the test
-// pass while leaving the mistake in place, and the next home-rooted store
-// added to this package would repeat it. Refusing names the fix at the moment
-// the fix is cheap.
-//
-// The containment test mirrors testsupport.appDirIsolationError's HOME arm —
-// "is this inside a recognized temp root" — deliberately as the same weak,
-// stable fact rather than a prediction of which directory a harness will
-// mint. See testTempRoots for why there are two roots rather than one.
-func unsandboxedHomeError(what, dir, remedy string) error {
-	if !runningUnderGoTest() {
-		return nil
-	}
-	roots := testTempRoots()
-	for _, root := range roots {
-		if underTempRoot(dir, resolveRealPath(root)) {
-			return nil
-		}
-	}
-	return fmt.Errorf(
-		"REFUSING to use the %s at %q from a test binary: it is outside every recognized temp root %v, so anything recorded there "+
-			"would land in the developer's real home and outlive this run. Isolate the test — %s",
-		what, dir, roots, remedy)
-}
-
-// testTempRoots returns every root a test binary may legitimately place a
-// sandboxed HOME or store under. There are two, independently, in live use
-// across this repo, and a check pinned to only one of them silently
-// misjudges paths built by the other:
-//
-//   - os.TempDir() itself — what a TestMain-style sandbox mkdirs into
-//     directly via os.MkdirTemp("", ...) (testsupport.enterSandbox,
-//     internal/operations' own acquireSandbox), independent of the go tool
-//     and unaffected by GOTMPDIR.
-//   - GOTMPDIR, when set — what testing.T.TempDir() actually allocates
-//     under. go1.26.8's testing.(*common).makeTempDir builds a test's temp
-//     directory via os.MkdirTemp(os.Getenv("GOTMPDIR"), pattern): it reads
-//     GOTMPDIR directly and bypasses os.TempDir() (and the TMPDIR it
-//     honours) entirely whenever GOTMPDIR is set. This project's justfile
-//     sets GOTMPDIR=/var/tmp/ctxloom-gotmp on purpose — a tmpfs /tmp
-//     ENOSPCs the linker under this suite's parallel builds — so a check
-//     pinned to os.TempDir() alone silently checks a t.TempDir()-derived
-//     path against the wrong root the moment that export takes effect.
-//
-// This is not a guess at where t.TempDir() lands: os.MkdirTemp's own
-// documented behavior for an empty dir argument is to fall back to
-// os.TempDir(), so reading GOTMPDIR-or-os.TempDir() here is the exact same
-// two-step resolution makeTempDir performs.
-func testTempRoots() []string {
-	roots := []string{os.TempDir()}
-	if v := os.Getenv("GOTMPDIR"); v != "" {
-		roots = append(roots, v)
-	}
-	return roots
-}
-
-// runningUnderGoTest reports whether this process is a `go test` binary.
-//
-// It asks the flag set rather than importing "testing": testing.Init registers
-// the test.* flags on flag.CommandLine before any test runs, and nothing else
-// does, so the lookup is exact. Importing "testing" from shipped code would
-// link the whole test harness — its regexp matcher, its profiler hooks — into
-// the ctxloom binary, which is the cost internal/archlint's TestSupportAnalyzer
-// exists to keep out.
-func runningUnderGoTest() bool { return flag.Lookup("test.v") != nil }
-
-// underTempRoot reports whether path is the temp root or lives beneath it.
-func underTempRoot(path, tempRoot string) bool {
-	path = resolveRealPath(path)
-	if path == "" || tempRoot == "" {
-		return false
-	}
-	if path == tempRoot {
-		return true
-	}
-	return strings.HasPrefix(path, tempRoot+string(filepath.Separator))
-}
-
-// resolveRealPath returns p symlink-resolved and cleaned, falling back to the
-// cleaned absolute form when it does not exist yet — an approvals directory is
-// created lazily, so the path being asked about usually does not. The temp
-// root is a symlink on macOS, so comparing unresolved paths would report a
-// properly isolated store as unsandboxed.
-func resolveRealPath(p string) string {
-	if p == "" {
-		return ""
-	}
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		return filepath.Clean(p)
-	}
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		return real
-	}
-	// The leaf may not exist; resolve the deepest ancestor that does, so a
-	// /tmp symlink still compares correctly against the resolved temp root.
-	dir, leaf := filepath.Split(filepath.Clean(abs))
-	if dir == "" || filepath.Clean(dir) == filepath.Clean(abs) {
-		return filepath.Clean(abs)
-	}
-	return filepath.Join(resolveRealPath(filepath.Clean(dir)), leaf)
 }

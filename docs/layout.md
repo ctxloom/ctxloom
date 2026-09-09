@@ -39,6 +39,11 @@ they are gitignored, which two of the three are (`paths.Tier`).
 ctxloom's own writers produce, each classified once. `ctxloom doctor` walks it
 and reports any local-tier path that is missing (`doctorCheckLocalTierState`).
 
+`ctxloom clean` walks the same table to empty `cache/`, and names each path's
+rebuild command as it goes. It reports without `--yes`, and it takes only the
+cache: `state/` is the tier nothing rebuilds, and `lock.yaml` is rebuildable
+but committed, so deleting it would dirty your tree rather than free anything.
+
 ### `content/` — authored, committed
 
 `.ctxloom/content/bundles` holds the bundles this project authors

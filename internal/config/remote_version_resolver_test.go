@@ -85,3 +85,64 @@ func TestRemoteRev_ResolvesHistoricalVersionThroughParse(t *testing.T) {
 	assert.Equal(t, "R2-BODY", b2.Fragments["fmt"].Content, "a different rev is its own version")
 	assert.Equal(t, "RP2-BODY", b2.Commands["review"].Content)
 }
+
+// remoteTreeContentRepo is remoteContentRepo's DIRECTORY-form twin: it publishes
+// bundles/v2/go-tools as a TREE whose bundle.yaml carries the manifest, which is
+// the only shape a publisher can produce since the v1 single-file format was
+// removed. It commits a v1 then a v2 and returns the repo directory plus both
+// commit SHAs.
+func remoteTreeContentRepo(t *testing.T) (repoDir, rev1, rev2 string) {
+	t.Helper()
+	repoDir = filepath.Join(t.TempDir(), "tree-publisher")
+	repo, err := git.PlainInit(repoDir, false)
+	require.NoError(t, err)
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools", paths.BundleManifestName)
+	commit := func(body, msg string) string {
+		full := filepath.Join(repoDir, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+		require.NoError(t, os.WriteFile(full, []byte(body), 0o644))
+		_, err := wt.Add(filepath.ToSlash(rel))
+		require.NoError(t, err)
+		h, err := wt.Commit(msg, &git.CommitOptions{
+			Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()},
+		})
+		require.NoError(t, err)
+		return h.String()
+	}
+
+	rev1 = commit("description: v1\nfragments:\n  fmt:\n    content: T1-BODY\n", "v1")
+	rev2 = commit("description: v2\nfragments:\n  fmt:\n    content: T2-BODY\n", "v2")
+	return repoDir, rev1, rev2
+}
+
+// TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle pins the capability
+// childlike-failing named as dead: resolving a version constraint against a
+// DIRECTORY-form bundle at an arbitrary historical commit. remote.FetchRefBytes
+// builds a single file path from the ref, and since the v1 removal that file
+// does not exist for any published bundle — without a tree fallback this fails
+// closed and the caller withholds the item, so no tree bundle can carry a
+// version constraint at all.
+func TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle(t *testing.T) {
+	testsupport.Isolate(t)
+	repoDir, rev1, rev2 := remoteTreeContentRepo(t)
+	appDir := filepath.Join(t.TempDir(), "consumer", ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+
+	cfg := &Config{appPaths: []string{appDir}}
+	resolve := cfg.bundleVersionResolver()
+	require.NotNil(t, resolve, "an app dir must yield a version resolver")
+
+	canonical := "file://" + filepath.ToSlash(repoDir) + "@bundles/go-tools"
+
+	b1, err := resolve(canonical, rev1)
+	require.NoError(t, err, "a directory-form bundle must resolve at a historical commit")
+	assert.Equal(t, "T1-BODY", b1.Fragments["fmt"].Content,
+		"the pinned rev serves the bytes committed at that rev, read out of the tree's bundle.yaml")
+
+	b2, err := resolve(canonical, rev2)
+	require.NoError(t, err)
+	assert.Equal(t, "T2-BODY", b2.Fragments["fmt"].Content, "a different rev is its own version")
+}

@@ -42,6 +42,7 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 	// The trust gate is consulted for every bundle item this apply resolves,
 	// and it reads the USER countersignature store out of the real home.
 	isolatedApprovals(t)
+	isolatedRecords(t)
 
 	// This helper runs IN-PROCESS against the developer's real PATH and real
 	// home, and the `session-bind` hook these tests assert on ships in

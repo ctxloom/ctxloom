@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // writeFakeCompanionBinary drops a real, executable file the exec-consent
@@ -25,7 +26,7 @@ func writeFakeCompanionBinary(t *testing.T, name string) string {
 	return p
 }
 
-func TestRunCompanionShow_NeverConfirmedReportsUnconfirmed(t *testing.T) {
+func TestRunCompanionShow_UnsignedIsReportedAsUnsigned(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	bin := writeFakeCompanionBinary(t, "acme-tool")
 	restore := config.SetLookPathForTesting(func(name string) (string, error) {
@@ -41,7 +42,7 @@ func TestRunCompanionShow_NeverConfirmedReportsUnconfirmed(t *testing.T) {
 	output := out.String()
 	assert.Contains(t, output, "acme-tool")
 	assert.Contains(t, output, bin)
-	assert.Contains(t, output, "unconfirmed")
+	assert.Contains(t, output, "unsigned")
 }
 
 // TestRunCompanionShow_TrustedThenShown proves show's answer agrees with
@@ -59,14 +60,17 @@ func TestRunCompanionShow_TrustedThenShown(t *testing.T) {
 	})
 	t.Cleanup(restore)
 
-	_, err := config.SetCompanionConsent("acme-tool", true)
-	require.NoError(t, err)
+	// Signed, and its key trusted for the companion namespace in this test's
+	// own HOME trust root — the fixture form of a publisher vouching for the
+	// bytes, which is the only thing that admits a companion now.
+	testsupport.SignCompanionForTesting(t, bin,
+		filepath.Join(os.Getenv("HOME"), ".ctxloom", "allowed_signers"))
 
 	cmd, out := textCmd()
 	require.NoError(t, runCompanionShowCmd(cmd, []string{"acme-tool"}))
 	output := out.String()
 	assert.Contains(t, output, "allowed")
-	assert.Contains(t, output, "consented")
+	assert.Contains(t, output, "signed")
 }
 
 // TestRunCompanionShow_NotOnPathReportsNotInstalled: show never conjures a

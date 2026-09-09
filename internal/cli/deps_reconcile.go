@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // Reconciliation: making the installed closure match upstream, in both
@@ -108,7 +109,7 @@ func planReconcile(ctx context.Context, installed []string, reach reachProbe, co
 		})
 	}
 
-	for _, repoURL := range sortedKeys(byRepo) {
+	for _, repoURL := range collections.SortedKeys(byRepo) {
 		refs := byRepo[repoURL]
 		if err := reach(ctx, repoURL); err != nil {
 			plan.Unreachable = append(plan.Unreachable, uncheckedRemote{

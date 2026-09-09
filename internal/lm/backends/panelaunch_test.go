@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -133,16 +134,32 @@ func TestInteractiveLaunch_WithTmuxHostsTheEngineInAPane(t *testing.T) {
 
 	require.Eventually(t, func() bool { return r.argvFor("new-window") != nil },
 		5*time.Second, 5*time.Millisecond, "the engine must be hosted in a tmux window")
+
+	joined := strings.Join(r.argvFor("new-window"), " ")
+
+	// The engine, its args and the merged environment reach the pane through a
+	// LAUNCHER FILE rather than this command line, which tmux caps and which
+	// would otherwise grow with both the environment and the engine's prompt
+	// (see tmuxhost.writeLauncher). Read it BEFORE cancelling: the pane's temp
+	// directory is reclaimed when the run's context ends, so a read after the
+	// teardown below finds nothing and reports it as a missing launcher.
+	body, err := os.ReadFile(launcherPathFrom(t, joined))
+	require.NoError(t, err, "the pane's launcher must exist")
+	script := string(body)
+
 	cancel()
 	<-done
 
-	joined := strings.Join(r.argvFor("new-window"), " ")
-	assert.Contains(t, joined, "/opt/engine/claude", "the pane must host the ENGINE binary")
-	assert.Contains(t, joined, "--resume", "the engine's own args must reach the pane")
 	assert.Contains(t, joined, "-c /w", "the run's working directory must reach the pane")
-	assert.Contains(t, joined, "-e CTXLOOM_MARKER=pane-arm",
+	// Assert the command line is FREE of the environment — that absence is the
+	// property that stops tmux's "command too long" coming back.
+	assert.NotContains(t, joined, "-e CTXLOOM_MARKER", "no environment may ride the tmux command line")
+
+	assert.Contains(t, script, "/opt/engine/claude", "the pane must host the ENGINE binary")
+	assert.Contains(t, script, "--resume", "the engine's own args must reach the pane")
+	assert.Contains(t, script, "CTXLOOM_MARKER='pane-arm'",
 		"the merged environment must be passed explicitly: a tmux window otherwise inherits the shared server's env, not this run's")
-	assert.NotContains(t, joined, "ambient-stale",
+	assert.NotContains(t, script, "ambient-stale",
 		"a later duplicate must win, or every override BuildEnv layered on is reverted by the conversion")
 
 	// Capture must be armed, or the pane would host the engine with nothing
@@ -173,4 +190,16 @@ func TestInteractiveLaunch_UnnamedRunIsRefusedBeforeAnythingStarts(t *testing.T)
 	assert.Contains(t, err.Error(), "harp", "the error must name the cause, not just the symptom")
 	assert.NotEqual(t, int32(0), code)
 	assert.Zero(t, r.count(), "an unnamed run must be refused before any tmux command is issued")
+}
+
+// launcherPathFrom pulls the pane launcher's path out of a new-window command
+// line. The launcher is the last word: the wrapper is handed `sh <path>` as the
+// command it execs.
+func launcherPathFrom(t *testing.T, joined string) string {
+	t.Helper()
+	fields := strings.Fields(joined)
+	require.NotEmpty(t, fields)
+	last := fields[len(fields)-1]
+	require.True(t, strings.HasSuffix(last, ".sh"), "the pane must be launched through a launcher script, got %q", last)
+	return last
 }

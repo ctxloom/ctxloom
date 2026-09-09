@@ -55,7 +55,7 @@ func TestBuiltinFragmentsHonourTheirPremise(t *testing.T) {
 		require.Empty(t, f.entries())
 	})
 
-	t.Run("the withheld body reaches OnWithheld for skill emission", func(t *testing.T) {
+	t.Run("the withheld body is captured for skill emission", func(t *testing.T) {
 		var got []string
 		f := newPremiseFilter(nil)
 		f.onWithheld = func(name, p, content string) { got = append(got, name+"|"+p+"|"+content) }

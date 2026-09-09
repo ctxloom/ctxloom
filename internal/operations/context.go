@@ -115,6 +115,14 @@ type AssembleContextResult struct {
 	// workaround for the missing boundary rather than a design.
 	WithheldFragments []WithheldFragment `json:"-"`
 
+	// PremiseIndex is IN-PROCESS ONLY. internal/mcp's DTO does not project it,
+	// and the json tag below is vestigial rather than a wire contract: the menu
+	// an MCP consumer reads is the ctxloom://fragments resource, which carries
+	// each fragment's premise and qualified ref. Do not restore it to the tool
+	// response — that is where it lived only because the listing used to drop
+	// the premise, and putting a menu on an assembly is what dragged this whole
+	// struct onto the wire.
+	//
 	// PremiseIndex names the fragments this assembly WITHHELD because they
 	// carry a premise, together with that premise. It is the agent's menu: it
 	// evaluates each premise against what it is about to do and asks for the

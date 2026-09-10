@@ -1511,17 +1511,7 @@ _mutation-driver RATCHET *ARGS:
     # number reported is over mutants a test could actually have caught.
     # Survivors are untouched by this — an invalid mutant never lands there — so
     # the ratchet and its baselines are unaffected.
-    invalid=$(grep -c 'ooze-invalid-mutant:' <<<"$output" || true)
-    if [ "${invalid:-0}" -gt 0 ]; then
-        total=$(grep -oE '• Total:[[:space:]]+[0-9]+' <<<"$output" | head -1 | grep -oE '[0-9]+$')
-        killed=$(grep -oE '• Killed:[[:space:]]+[0-9]+' <<<"$output" | head -1 | grep -oE '[0-9]+$')
-        if [ -n "${total:-}" ] && [ -n "${killed:-}" ]; then
-            echo
-            echo "  ${invalid} mutant(s) DID NOT COMPILE and were scored as killed. Corrected:"
-            echo "    valid total:  $(( total - invalid ))"
-            echo "    real kills:   $(( killed - invalid ))"
-        fi
-    fi
+    printf '%s\n' "$output" | sh tests/mutation/score_correction.sh
     # THE SECOND HALF OF THE SAME INVARIANT: the guard above refuses a run that
     # measured nothing; this one refuses a run that measured something WORSE
     # than what is already recorded. A score alone cannot fail this gate, so

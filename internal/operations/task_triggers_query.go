@@ -30,12 +30,6 @@ const (
 	maxQueryOutputBytes = 2000
 	// maxGrepMatches caps how many matching lines a grep query returns.
 	maxGrepMatches = 20
-	// maxGrepFilesScanned caps how many files a grep query walks before
-	// giving up — a bound on WORK, independent of match count, so a
-	// zero-match pattern over a huge tree still terminates promptly. Hitting
-	// it is reported as a TRUNCATED (inconclusive) search, never as a clean
-	// "no matches" — see queryGrep.
-	maxGrepFilesScanned = 20000
 	// maxGrepFileReadBytes caps how much of any single file grep reads.
 	maxGrepFileReadBytes = 200 * 1024
 	// gitLogPathScanCap bounds how many commits git_log_path scans (via the
@@ -151,17 +145,15 @@ func queryPathExists(repoDir string, q triggers.Query) triggers.QueryResult {
 }
 
 // grepBudget bounds one grep query's work. Injected rather than read from the
-// consts directly so a test can drive the truncation path without building a
-// 20k-file fixture (no package-level vars; DI).
+// consts directly so a test can drive the truncation path with a small
+// fixture (no package-level vars; DI).
 type grepBudget struct {
-	maxFilesScanned  int
 	maxMatches       int
 	maxFileReadBytes int
 }
 
 func defaultGrepBudget() grepBudget {
 	return grepBudget{
-		maxFilesScanned:  maxGrepFilesScanned,
 		maxMatches:       maxGrepMatches,
 		maxFileReadBytes: maxGrepFileReadBytes,
 	}
@@ -239,14 +231,9 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 	}
 
 	var matches []string
-	// visited counts every regular file the walk REACHES, scope match or
-	// not — the bound on WORK the budget promises (maxGrepFilesScanned's own
-	// doc: "a zero-match pattern over a huge tree still terminates
-	// promptly"). scanned counts only the subset that passed the scope
-	// filter and was actually read; a glob matching nothing let scanned sit
-	// at 0 forever, so bounding on scanned alone left the walk itself
-	// unbounded.
-	visited := 0
+	// scanned counts the files that passed the scope filter and were
+	// actually read. It distinguishes "searched and found nothing" from
+	// "the glob selected nothing", which are different answers.
 	scanned := 0
 	truncated := false
 	stop := fmt.Errorf("grep: bound reached")
@@ -272,11 +259,10 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 		if !d.Type().IsRegular() {
 			return nil
 		}
-		if visited >= budget.maxFilesScanned || len(matches) >= budget.maxMatches {
+		if len(matches) >= budget.maxMatches {
 			truncated = true
 			return stop
 		}
-		visited++
 		rel, relErr := filepath.Rel(absRepo, path)
 		if relErr != nil {
 			return nil
@@ -307,18 +293,15 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 		return triggers.QueryResult{Query: q, Err: walkErr.Error()}
 	}
 
-	// THE safety rule. A scan that hit its bound did not finish, so it cannot
-	// speak to what it never looked at. Reporting "(no matches)" here would
-	// hand the model positive evidence of absence it has not got — and a
-	// confident false not-fired parks a live task forever. Zero matches from a
-	// truncated scan is INCONCLUSIVE, and says so. Checked BEFORE the
-	// scope-matched-nothing case below: a truncated walk cannot prove the
-	// glob matched nothing either — it may never have reached a matching
-	// file.
-	if truncated && len(matches) == 0 {
-		return triggers.QueryResult{Query: q, Err: fmt.Sprintf(
-			"search was TRUNCATED after %d files without completing — this is INCONCLUSIVE, not evidence of absence. Narrow it with path_glob and try a more specific scope.", visited)}
-	}
+	// The walk is EXHAUSTIVE over in-scope files: nothing stops it early
+	// except reaching the match cap, and that requires matches to exist. So
+	// zero matches here means the tree really was searched and really held
+	// none — the "truncated with zero matches is INCONCLUSIVE" guard that
+	// used to stand here is unreachable and was removed with the file-scan
+	// budget it guarded. Restore BOTH together or neither: a work bound
+	// without that guard reports a half-finished search as a clean "(no
+	// matches)", which is positive evidence of absence the scan has not got,
+	// and a confident false not-fired parks a live task forever.
 
 	// A glob that selected no file at all, or an explicit (non-glob) scope
 	// the walk never actually entered, did not search anything, so it must

@@ -134,28 +134,6 @@ func TestExecuteQuery_Grep_NonexistentScopeIsAnErrorNotAnEmptyResult(t *testing.
 	assert.Empty(t, got.Output)
 }
 
-// THE load-bearing one. Live regression: the repo held 208k files (159k of
-// them gitignored worktree junk), the scan blew its file cap after 2k, aborted
-// the walk, found nothing — and reported a bare "(no matches)". The model read
-// that as positive evidence of absence and returned a CONFIDENT not-fired on a
-// trigger whose sentinel was sitting right there on disk. A search that did not
-// finish must never be able to say "no matches"; a truncated zero-match scan is
-// INCONCLUSIVE, full stop.
-func TestQueryGrep_TruncatedScanIsInconclusiveNotAnEmptyResult(t *testing.T) {
-	repo := t.TempDir()
-	for i := 0; i < 12; i++ {
-		writeRepoFile(t, repo, filepath.Join("pad", fmt.Sprintf("f%02d.go", i)), "package pad\n")
-	}
-	writeRepoFile(t, repo, "zzz_last/needle.go", "SENTINEL_VALUE\n")
-
-	// A budget far too small to reach the needle: the walk must bail out.
-	got := queryGrep(repo, triggers.Query{Type: triggers.QueryGrep, Pattern: "SENTINEL_VALUE"}, grepBudget{maxFilesScanned: 3, maxMatches: 20, maxFileReadBytes: 1 << 20})
-	assert.Empty(t, got.Output, "a truncated scan must not present itself as a completed search")
-	assert.NotEmpty(t, got.Err, "a truncated, zero-match scan is inconclusive — it must NOT read as 'no matches'")
-	assert.Contains(t, strings.ToLower(got.Err), "truncated")
-	assert.Contains(t, strings.ToLower(got.Err), "inconclusive")
-}
-
 // The counterpart: a scan that COMPLETES and genuinely finds nothing is a real
 // "no matches" — that is legitimate positive evidence and must stay available.
 func TestQueryGrep_CompletedScanWithNoHitsIsARealNoMatch(t *testing.T) {
@@ -181,26 +159,6 @@ func TestQueryGrep_LiteralScopeNamingAHiddenDirectoryIsSearched(t *testing.T) {
 	got := queryGrep(repo, triggers.Query{Type: triggers.QueryGrep, Pattern: "SENTINEL_SETTING", PathGlob: ".github"}, defaultGrepBudget())
 	assert.Empty(t, got.Err)
 	assert.Contains(t, got.Output, "ci.yml", "a literal path_glob naming a hidden directory must actually be searched, not silently voided")
-}
-
-// maxGrepFilesScanned is documented as a bound on WORK ("a
-// zero-match pattern over a huge tree still terminates promptly"), but the
-// old scanned counter only incremented AFTER the scope filter — so a glob
-// matching nothing walked every file in the tree before the budget check
-// ever fired. A tiny budget over a tree bigger than it proves the walk
-// itself now stops early (reported as truncated/inconclusive) instead of
-// silently completing a full unbounded walk.
-func TestQueryGrep_BudgetBoundsTheWalkNotJustMatchedFiles(t *testing.T) {
-	repo := t.TempDir()
-	for i := 0; i < 20; i++ {
-		writeRepoFile(t, repo, filepath.Join("pkg", fmt.Sprintf("f%02d.go", i)), "package pkg\n")
-	}
-
-	got := queryGrep(repo, triggers.Query{Type: triggers.QueryGrep, Pattern: "anything", PathGlob: "**/*.rs"},
-		grepBudget{maxFilesScanned: 5, maxMatches: 20, maxFileReadBytes: 1 << 20})
-	assert.Empty(t, got.Output)
-	assert.NotEmpty(t, got.Err, "a walk that hit its file-visited bound before finishing must be inconclusive")
-	assert.Contains(t, strings.ToLower(got.Err), "truncated", "the budget must bound files WALKED, not just files that passed the scope filter")
 }
 
 // Tool/vendor state is not "the codebase": .git, .claude (worktrees!), and

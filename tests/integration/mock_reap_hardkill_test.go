@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -13,13 +14,19 @@ import (
 )
 
 // hardKillPollTimeout bounds how long the test waits for the mock plugin
-// subprocess to appear as a child of the ctxloom-under-test process, and
-// separately how long it waits for the process table to reflect the reap.
-// Generous for CI: the plugin spawn is a real self-exec + go-plugin
-// handshake, "observed to take over a second under load" per
-// viewer_pty_test.go's ptyRunTimeout comment.
+// subprocess to echo the sentinel line back through the pty, and separately
+// how long it waits for the process table to reflect the reap. Generous for
+// CI: the plugin spawn is a real self-exec + go-plugin handshake, "observed
+// to take over a second under load" per viewer_pty_test.go's ptyRunTimeout
+// comment.
 const hardKillPollTimeout = 20 * time.Second
 const hardKillPollInterval = 25 * time.Millisecond
+
+// hardKillSentinel is the line typed into the pty whose echo proves the
+// plugin child is parked in the mock's echo loop. Any non-empty line works;
+// this one is distinctive enough that its echo cannot be confused with
+// anything else the run prints.
+const hardKillSentinel = "hardkill-sentinel"
 
 // TestMockPluginReapedOnHardKilledParent proves, against the REAL product
 // binary and a real `ctxloom llm serve mock` subprocess, that a hard-killed
@@ -59,6 +66,19 @@ const hardKillPollInterval = 25 * time.Millisecond
 // established) is what makes the CLI take the interactive path at all
 // (internal/cli/run_terminal.go's interactiveTerminal requires stdin to be an
 // actual tty, which a plain io.Pipe is not).
+//
+// The echo mode is only load-bearing if the test PROVES the child is parked
+// in it before capturing PIDs. go-plugin spawns the child regardless of what
+// the mock does with stdin, so a child in the process table proves nothing
+// about what holds the session open: merely polling for one stays green with
+// the echo path disabled outright (a coordinator-side mutation confirmed it),
+// because on a quiet box the poll finds the child during the handshake — it
+// wins a race, which on a loaded box is an intermittent shaped exactly like
+// the leak it guards. So the test types a sentinel line and waits for the
+// mock to echo it back through the pty: that echo can only come from a live
+// plugin child blocked in executeInteractiveEcho, and that loop is what
+// keeps the child alive until the SIGKILL below. Disabling the echo path
+// turns this test red.
 func TestMockPluginReapedOnHardKilledParent(t *testing.T) {
 	env := setupTestEnv(t)
 	_, err := env.SetupMockLM()
@@ -81,19 +101,20 @@ func TestMockPluginReapedOnHardKilledParent(t *testing.T) {
 
 	parentPID := sess.PID()
 
-	// Wait for the mock plugin subprocess ("ctxloom llm serve mock",
-	// internal/lm/grpc's self-invoking plugin path) to actually come up as
-	// this process's child.
-	var childPIDs []int
-	deadline := time.Now().Add(hardKillPollTimeout)
-	for time.Now().Before(deadline) {
-		childPIDs = testenv.PluginChildrenOf(parentPID)
-		if len(childPIDs) > 0 {
-			break
-		}
-		time.Sleep(hardKillPollInterval)
-	}
-	require.NotEmpty(t, childPIDs, "mock plugin subprocess never appeared as a child of pid %d", parentPID)
+	// Type the sentinel now; the pty buffers it until the interactive path
+	// reads stdin, so there is nothing to wait for first. Its echo is the
+	// readiness signal: the mock plugin subprocess ("ctxloom llm serve mock",
+	// internal/lm/grpc's self-invoking plugin path) is up, is this process's
+	// child, and is parked in the echo loop that holds the session open.
+	_, err = sess.Write([]byte(hardKillSentinel + "\n"))
+	require.NoError(t, err, "type sentinel into pty")
+	echoed := "mock echo: " + hardKillSentinel
+	require.True(t, sess.WaitForOutput(hardKillPollTimeout, func(out string) bool {
+		return strings.Contains(out, echoed)
+	}), "mock never echoed %q back through the pty — the plugin child is not parked in the echo loop, so nothing holds it alive for the kill; output:\n%s", hardKillSentinel, sess.Output())
+
+	childPIDs := testenv.PluginChildrenOf(parentPID)
+	require.NotEmpty(t, childPIDs, "mock echoed the sentinel but no plugin subprocess is a child of pid %d", parentPID)
 	childPID := childPIDs[0]
 	require.True(t, processAlive(childPID), "sanity: captured plugin pid %d isn't actually alive", childPID)
 

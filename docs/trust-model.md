@@ -343,6 +343,25 @@ Inspect and change it with `ctxloom companion list | allow <path> |
 forget <path>`. `allow` is also the scriptable escape hatch for CI, and it
 requires a human to type it rather than inferring consent from an environment.
 
+**Admitting a loadout is not the same as delivering it unconditionally.** Exec
+consent decides whether a companion's bytes are *admitted*; it says nothing about
+how much of the agent's context they then occupy. Those are separate controls and
+conflating them overstates what this section governs.
+
+A loadout fragment may declare a **premise** — an applicability condition — and
+ctxloom honours it exactly as it honours a premise on any other fragment: the
+fragment is withheld from unconditional context and offered on demand instead. A
+fragment that declares none stays unconditional, which is what makes the
+mechanism additive rather than a breaking change. The consequence worth knowing
+here is that a trusted, admitted companion can still be *absent* from a given
+session's context by design, and that is not a trust failure.
+
+See `docs/companion-loadout-standard.md` for the premise's authoring rules and the
+measured effect on the unconditional floor. It is the authority; this paragraph
+exists only so a reader of the trust model does not conclude that admission and
+delivery are the same decision.
+
+
 ### Trusted publishers
 
 Trust is a property of a **signing key**, not of a remote. The trust root is a

@@ -62,6 +62,33 @@ Reaching "already done", "already ruled", "duplicate" or "moot" is a
 **SUCCESSFUL** outcome of this skill, not a wasted pass. Close, defer or absorb
 the row, record what you verified and how, and move on without asking.
 
+### Validity is not the same as "is anything still open"
+
+Do not turn this step into "does the row contain an unanswered question". That
+test is wrong in a way that quietly DESTROYS the queue, and it was run at scale
+once before anyone noticed.
+
+The `human` tag does not mean "needs a decision". It means the row lands in the
+queue a PERSON WORKS FROM — work that trips an unattended stop condition. Those
+are two different sets, and the second is much larger. A row can have every
+question settled and still be human-only: prompt, skill, fragment and profile
+text are the human's voice; signing keys, dependency changes, schema and on-disk
+format changes, cross-repo moves, anything needing credentials or a live
+multi-process run, and anything whose only evidence is a person looking at it
+all qualify with no open question anywhere in the text.
+
+So when this step finds a row's decision already taken, that settles whether to
+ASK about it. It does not settle whether the row belongs in the human queue.
+Judge that against the stop conditions themselves — they live in the `unattended`
+skill — and leave the tag alone unless the remaining WORK could genuinely run
+with nobody watching.
+
+Measured: applying the wrong test to this project's backlog stripped the tag
+from 28 rows in one pass, on rows whose remaining work included editing signed
+bundle text and rebuilding a container image. It was caught by the human, not by
+the sweep. When in doubt the answer is to leave the tag on: a needless row costs
+one glance, and a dropped one costs the work.
+
 ### Why this is a numbered step and not advice
 
 Measured in one session working this backlog: of the rows examined, FOUR were

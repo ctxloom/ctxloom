@@ -13,6 +13,12 @@ silent defaults, every agent report's DEFERRALS section, the task log, the
 plans and design docs' open-decisions sections, and any comment or feature row
 that poses a question it never answers.
 
+First VALIDATE each row against the tree: do the symbols it cites still
+exist, has the fix already landed, was it already ruled, is there a further-along
+duplicate. A stale row does not look stale, and a ruling taken on a dead premise
+gets recorded as authoritative. Reaching "already done" is a success — close it
+and move on.
+
 Then filter hard. Most of what you find is not theirs: anything a convention or
 an existing helper already answers, and anything you can settle by reading the
 code, you settle yourself and mention. Go and read BEFORE you ask — a fork whose

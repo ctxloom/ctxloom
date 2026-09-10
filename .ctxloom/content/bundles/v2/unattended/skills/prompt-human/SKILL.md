@@ -41,7 +41,46 @@ So: **explain the situation, never the project.**
 
 ---
 
-## 2. Filter — most things are NOT the human's call
+## 2. Validate the row before you treat it as a question
+
+**The row is not the truth. The tree is.** A task outlives the code it
+describes, and a stale one does not look stale — it looks exactly like live
+work, because it was live when it was written.
+
+So before a row becomes a question, establish that it still describes reality:
+
+- **Do the symbols it cites still exist?** `grep` them. A row whose subject was
+  deleted is not a decision, it is an archaeology find.
+- **Has the fix already landed?** Read the call site it names. `git log -S
+  '<symbol>'` says when something appeared or vanished.
+- **Was it already ruled?** The ruling is often in the row's own later
+  paragraphs, under a heading the first line does not hint at.
+- **Is there a more advanced duplicate?** Two rows on one question drift, and
+  whichever you read first looks complete.
+
+Reaching "already done", "already ruled", "duplicate" or "moot" is a
+**SUCCESSFUL** outcome of this skill, not a wasted pass. Close, defer or absorb
+the row, record what you verified and how, and move on without asking.
+
+### Why this is a numbered step and not advice
+
+Measured in one session working this backlog: of the rows examined, FOUR were
+invalid, each in a different way — one duplicated a further-along row; one
+turned on a package that had been deleted wholesale, so none of its forks could
+be answered at all; one had already been ruled and carried a stale tag; and one
+had ALREADY BEEN FIXED in the tree, with the commit sitting in the log. A full
+question had been drafted around that last one before anybody checked.
+
+The cost of skipping this is not merely wasted attention, which would be
+recoverable. It is that **a ruling taken on a false premise gets written down as
+a decision** — and then it is authoritative, it outlives the confusion that
+produced it, and the next reader has no way to tell it apart from a sound one.
+An answer to a question that should never have been asked is worse than no
+answer.
+
+---
+
+## 3. Filter — most things are NOT the human's call
 
 Ask only where **different answers produce materially different work**. Decide
 the rest yourself and say what you decided.
@@ -80,7 +119,7 @@ Not theirs — do it, and mention it:
 
 ---
 
-## 3. Load their context INTO the question
+## 4. Load their context INTO the question
 
 Assume zero recall of anything you have not restated. Each question stands
 alone, even if you asked a related one twenty minutes ago.
@@ -115,7 +154,7 @@ number quietly points at unrelated code and gets believed.
 
 ---
 
-## 4. Ask with the question tool, not with prose
+## 5. Ask with the question tool, not with prose
 
 Prose questions get skimmed and answered vaguely. Use the interactive question
 tool (`AskUserQuestion` or the harness equivalent), even for a single decision.
@@ -144,7 +183,7 @@ in one breath will get one answered well and one answered carelessly.
 
 ---
 
-## 5. After they answer
+## 6. After they answer
 
 - **Record the decision where the work lives** — the task, the design doc, the
   commit message body. A ruling that exists only in a chat log gets
@@ -171,6 +210,9 @@ in one breath will get one answered well and one answered carelessly.
 - **The context-free question.** "Should we use A or B?" about something they
   last saw four hours and three subsystems ago.
 - **The question the code answered.** Their attention spent on your homework.
+- **The stale question.** The row described work already done, already
+  ruled, or turning on code since deleted — and the ruling it produced was
+  then recorded as authoritative, indistinguishable from a sound one.
 - **The invented fork.** A new config key offered as an option, when an existing
   assembler already carries the answer.
 - **The false fork.** Two options where one is obviously right.

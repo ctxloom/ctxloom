@@ -105,10 +105,23 @@ func TestRunTurn_MockDeliversContextSurfaceDuringTheTurn(t *testing.T) {
 	assert.Contains(t, string(midTurn), agent.ManagedContextBegin,
 		"the content must sit inside the ctxloom-managed markers")
 
-	// And the shared teardown reversed it: no debris left in the workspace.
-	_, statErr := os.Stat(contextPath)
-	assert.True(t, os.IsNotExist(statErr),
-		"the turn's Cleanup must reverse the delivery, got stat err %v", statErr)
+	// And the surface SURVIVES the turn that delivered it. Exit cleanup never
+	// runs on SIGKILL, a crash, or a container stop, so a leftover surface has
+	// to be tolerated regardless; removing it here as well bought no safety and
+	// made the end state depend on how the process died. Startup reconciles the
+	// surface, and `ctxloom clean` / `ctxloom manage uninstall` remove it.
+	// See agent.SurfacePersistsAfterExit, which is the handle that encodes this.
+	//
+	// Asserting the CONTENT, not just existence: a delivery that persisted an
+	// empty or stripped file would satisfy os.Stat and pass for the wrong
+	// reason, which is exactly the shape the retired teardown wrote.
+	afterTurn, statErr := os.ReadFile(contextPath)
+	require.NoError(t, statErr,
+		"the delivered project surface must outlive the turn, got read err %v", statErr)
+	assert.Contains(t, string(afterTurn), "TURN-MARKER-2f7c",
+		"the surface must still carry the turn's bytes after the turn ends")
+	assert.Contains(t, string(afterTurn), agent.ManagedContextBegin,
+		"the surviving surface must still sit inside the ctxloom-managed markers")
 }
 
 // TestRunTurn_MockSkipSetup_DeliversNothing is the negative control. A

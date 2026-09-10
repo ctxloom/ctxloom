@@ -113,6 +113,56 @@ func (d Presentations) Or(name string, p Presenter) Presentations {
 // Sorted, and not in declaration order, on purpose: order carries NO meaning
 // here. The default is a named field, so leaving declaration order visible
 // would invite a reader to infer a ranking from it that nothing honours.
+// ApproachesFor renders a Presentations' declared names back into the Approach
+// vocabulary that SurfaceSet's cross-backend interface still keys on, with the
+// DEFAULT FIRST.
+//
+// THE DEFAULT-FIRST ORDERING IS THE WHOLE POINT, and it exists because the two
+// mechanisms disagree about whether order means anything. Names() sorts, on
+// purpose — see its doc: order carries no meaning, because the default is a
+// named field. The OLDER contract, stated in cells.go and enforced across every
+// registered backend by TestApproachDispatch_DefaultIsFirstSupported, is the
+// opposite: a backend's default IS the first approach it advertises. This
+// function is the bridge, and rebuilding the order from the NAMED default is
+// what reconciles them: the declaration stays order-free, the advertised list
+// still leads with the default.
+//
+// IT IS SHARED BECAUSE THE NAIVE VERSION IS WRONG IN A WAY NOTHING LOCAL
+// CATCHES. Both the mock and claude grew a private copy; the mock's simply
+// mapped Names() through, preserving sorted order and ignoring the default. That
+// satisfied the contract BY ACCIDENT — every mock surface has exactly one
+// approach per kind, so "first sorted" and "the default" are the same element
+// and the disagreement cannot surface. claude's context surface has three, and
+// sorted order puts "hook" ahead of the default "unsafe-file". A future engine
+// copying the mock's shape would advertise the wrong order silently, and the
+// failure would present as "the new engine broke a shared test" rather than as
+// the helper being wrong.
+//
+// Hoisting it is a deliberate SHARED-FILE edit, ruled by the human 2026-09-10
+// alongside a relaxation of the one-new-file criterion: a new engine is a new
+// PACKAGE, shared test matrices are fine, and only MEANINGFUL shared edits are
+// forbidden.
+//
+// A name Presentations produced always parses, so an unparseable one is dropped
+// rather than reported: there is no caller that could act on the error.
+func ApproachesFor(d Presentations) []Approach {
+	names := d.Names()
+	out := make([]Approach, 0, len(names))
+	def := d.Default()
+	if a, err := ParseApproach(def); err == nil {
+		out = append(out, a)
+	}
+	for _, n := range names {
+		if n == def {
+			continue
+		}
+		if a, err := ParseApproach(n); err == nil {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 func (d Presentations) Names() []string {
 	names := make([]string, 0, len(d.byName))
 	for name := range d.byName {

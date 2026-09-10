@@ -238,22 +238,6 @@ var mockPresentations = map[agent.SurfaceKind]agent.Presentations{
 	agent.SurfaceCommands: agent.Presents("mock", agent.SurfaceCommands, agent.ApproachUnsafeFile.String(), mockCommandsPresenter),
 }
 
-// approachesFor renders a Presentations' declared names back into the shared
-// Approach vocabulary SurfaceSet's cross-backend interface still keys on —
-// every name a Presentations declares is one of Approach's own String() labels
-// (Presents/Or are never handed anything else here), so the reverse parse
-// cannot fail for a name mockPresentations actually produced.
-func approachesFor(d agent.Presentations) []agent.Approach {
-	names := d.Names()
-	out := make([]agent.Approach, 0, len(names))
-	for _, n := range names {
-		if a, err := agent.ParseApproach(n); err == nil {
-			out = append(out, a)
-		}
-	}
-	return out
-}
-
 // mockMCPSurface is mock's MCP surface: .mock/mcp.json, composed by the SHARED
 // agent.ComposeChatMCPServers and marshalled by the SHARED
 // agent.MarshalChatMCPConfig.
@@ -525,7 +509,7 @@ func (s MockSurfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approa
 	if !ok {
 		return nil
 	}
-	return approachesFor(d)
+	return agent.ApproachesFor(d)
 }
 
 // DefaultApproach implements SurfaceSet.DefaultApproach: the Presentations'

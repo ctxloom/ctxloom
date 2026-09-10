@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -79,12 +80,7 @@ func capabilityForRequest(req *agentcoordpb.CoordinatorRequest) string {
 // It reads helloCapabilities — the exact list that went out on the wire — so
 // the refusal can never disagree with the advertisement the coordinator holds.
 func (h *Home) advertises(capability string) bool {
-	for _, adv := range h.helloCapabilities() {
-		if adv == capability {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(h.helloCapabilities(), capability)
 }
 
 // serveCoordinatorRequest answers one plane-2 control request.

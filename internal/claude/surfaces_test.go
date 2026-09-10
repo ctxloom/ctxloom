@@ -719,3 +719,38 @@ func TestSurfaces_PresentationsAndFieldsEnumerateTheSameSurfaces(t *testing.T) {
 		assert.Same(t, field, d, "%s must resolve to the SAME instance the struct field holds", kind)
 	}
 }
+
+// Every surface's DECLARED presentation must name the path that surface
+// actually writes. Without this, a presenter for a surface with no out-of-cwd
+// flag (commands, skills) is read by nothing: the isolated --mcp-config and
+// --settings paths and flagArgs cover the other three, so a wrong rel path in
+// the commands or skills declaration would leave the suite green — a
+// declaration that documents nothing and gates nothing.
+//
+// It walks the DECLARED table rather than a list repeated here, so a surface
+// added to claudePresentations is covered the moment it is declared.
+func TestClaudePresentations_DeclaredPathIsWhereTheSurfaceWrites(t *testing.T) {
+	for kind, delivery := range map[agent.SurfaceKind]func(Surfaces) agent.Delivery{
+		agent.SurfaceContext:  func(s Surfaces) agent.Delivery { return s.Context },
+		agent.SurfaceMCP:      func(s Surfaces) agent.Delivery { return s.MCP },
+		agent.SurfaceSettings: func(s Surfaces) agent.Delivery { return s.Settings },
+		agent.SurfaceCommands: func(s Surfaces) agent.Delivery { return s.Commands },
+		agent.SurfaceSkills:   func(s Surfaces) agent.Delivery { return s.Skills },
+	} {
+		t.Run(kind.String(), func(t *testing.T) {
+			dir := t.TempDir()
+			s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+
+			def, ok := s.DefaultApproach(kind)
+			require.True(t, ok, "%s is declared, so it must have a default", kind)
+
+			_, err := delivery(s).Deliver(dir)
+			require.NoError(t, err)
+
+			declared := claudePresentation(kind, def, dir).HostPath
+			_, statErr := os.Stat(declared)
+			require.NoError(t, statErr,
+				"%s declares %q but delivered nothing there", kind, declared)
+		})
+	}
+}

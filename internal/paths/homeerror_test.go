@@ -59,6 +59,7 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 		"HarpEssencePath":                    HarpEssencePath,
 		"HarpEphemeralDir":                   HarpEphemeralDir,
 		"HarpPersistDir":                     HarpPersistDir,
+		"HarpLockPath":                       HarpLockPath,
 		"HarpTranscriptStoreDir":             HarpTranscriptStoreDir,
 		"HarpCanonicalTranscriptPath":        HarpCanonicalTranscriptPath,
 		"ResolveHarpCanonicalTranscriptPath": ResolveHarpCanonicalTranscriptPath,

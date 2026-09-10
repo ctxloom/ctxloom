@@ -495,6 +495,25 @@ func HarpPersistDir(harp string) (string, error) {
 	return filepath.Join(dir, PersistDirName), nil
 }
 
+// HarpLockPath returns ~/.ctxloom/sessions/<harp>.lock — the session
+// LIVENESS lock: the process that owns the session holds an exclusive lock
+// on this file for as long as it runs, and a sweeper that can acquire it
+// knows the owner is gone (see internal/shared/sessionlock).
+//
+// It is PathFor applied to the harp dir, so it sits BESIDE
+// ~/.ctxloom/sessions/<harp>/ and never inside it. That placement is
+// load-bearing, not tidiness: on Windows an open handle blocks deletion, so
+// a lock file INSIDE the harp dir would stop the very sweep holding it from
+// removing that dir. Beside it, the sweeper holds the lock while it reclaims
+// and the harp dir remains removable.
+func HarpLockPath(harp string) (string, error) {
+	dir, err := HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return PathFor(dir), nil
+}
+
 // HarpPlansDir returns the directory a session's *.plan.md documents are
 // WRITTEN to: ~/.ctxloom/sessions/<harp>/persist.
 //

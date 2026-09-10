@@ -53,7 +53,50 @@ type MaterializeProfileResult struct {
 	// declared that this engine has no structural place for. Wrote alone is
 	// true and incomplete — see agent.SurfaceLoss.
 	NotCarried []agent.SurfaceLoss `json:"not_carried,omitempty"`
-	Warnings   []string            `json:"warnings,omitempty"`
+	// WithheldByPremise names every fragment this materialization kept OUT of
+	// the context because its premise did not match, and where it went instead.
+	//
+	// It is reported because the alternative is this project's signature
+	// failure: a premise-withheld fragment was skipped silently, materialize
+	// exited 0 reporting every surface written, and the content was simply
+	// absent. Four acceptance fixtures gave fragments a description — which IS
+	// the premise — and 22 scenarios across four features failed on a missing
+	// marker with clean exits. Two agent runs were spent on it; the first could
+	// not see the cause at all, because there was no signal to follow.
+	//
+	// SEPARATE FROM NotCarried, deliberately. NotCarried is a property of the
+	// ENGINE ("this engine has no structural place for hooks"). A premise
+	// withhold is a property of the CONTEXT ("this guidance did not apply
+	// here"), and folding them together would make a reader unable to tell an
+	// engine limitation from a premise that simply did not match.
+	//
+	// A withhold is NOT a loss on its own: where the engine has a skills
+	// surface the fragment is re-delivered as a skill package, which Delivered
+	// records. An empty Delivered is the case that actually costs content.
+	WithheldByPremise []PremiseWithhold `json:"withheld_by_premise,omitempty"`
+	Warnings          []string          `json:"warnings,omitempty"`
+}
+
+// PremiseWithhold is one fragment kept out of the assembled context by its
+// premise, and the surface that carried it instead.
+//
+// Reported as STRUCTURED DATA and not as a warning, ruled by the human
+// 2026-09-09. The accepted cost, recorded so it reads later as a choice: a
+// person running materialize in a terminal sees nothing. Note the asymmetry
+// this leaves and do not "fix" it by adding a warning — a TRUST-withheld
+// fragment does warn, so the two withhold reasons report through different
+// surfaces by decision.
+type PremiseWithhold struct {
+	// Name is the fragment's qualified ref, the same one the premise index
+	// hands out, so a reader can ask for it by name.
+	Name string `json:"name"`
+	// Premise is the condition that did not match. Carried so the report says
+	// WHY it was withheld rather than only that it was.
+	Premise string `json:"premise"`
+	// Delivered names the surface that carried it instead ("skills"), or is
+	// EMPTY when nothing carried it. Empty is the case worth looking at: it
+	// means the content reached the agent by no route at all.
+	Delivered string `json:"delivered,omitempty"`
 }
 
 // resolveMaterializeTarget validates the request and resolves the backend whose
@@ -178,6 +221,11 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 		return nil, fmt.Errorf("materialize premised fragments as skills for %v: %w", req.Profiles, err)
 	}
 	skills = append(skills, fragmentSkills...)
+	// Report the withholds. Built from what ACTUALLY happened rather than from
+	// the capability flag: fragmentSkills is what was really produced, so a
+	// fragment that failed to become a skill is reported as delivered nowhere
+	// instead of being described by the branch we hoped we took.
+	res.WithheldByPremise = describePremiseWithholds(asm.PremiseIndex, len(fragmentSkills) > 0)
 	denyTools := backends.AssembleManagedDenyTools(cfg, req.Profiles)
 	settings := cfg.GetSettings()
 
@@ -258,4 +306,27 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// Surface (content-free) any executable the trust gate withheld.
 	execGate.WarnWithheld()
 	return res, nil
+}
+
+// describePremiseWithholds turns the assembly's premise index into the result's
+// withhold report. asSkills says whether the withheld bodies were actually
+// re-delivered as skill packages.
+//
+// Returns nil for an empty index, and every caller relies on that: a
+// materialization over a corpus authoring no premises must report no withholds
+// rather than an empty list, so the JSON omitempty tag can keep the payload
+// byte-identical to what it was before this field existed.
+func describePremiseWithholds(index []PremiseIndexEntry, asSkills bool) []PremiseWithhold {
+	if len(index) == 0 {
+		return nil
+	}
+	delivered := ""
+	if asSkills {
+		delivered = "skills"
+	}
+	out := make([]PremiseWithhold, 0, len(index))
+	for _, e := range index {
+		out = append(out, PremiseWithhold{Name: e.Name, Premise: e.Premise, Delivered: delivered})
+	}
+	return out
 }

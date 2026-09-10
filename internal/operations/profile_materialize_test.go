@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -480,4 +481,70 @@ func TestResolveMaterializeTarget_ResolvesEveryDeclaredSpellingToTheCanonicalNam
 	assert.Equal(t, DefaultMaterializeBackend, got, "an unspecified backend means the default")
 	assert.Equal(t, agent.CanonicalEngineName(DefaultMaterializeBackend), got,
 		"the default backend constant must itself be canonical")
+}
+
+// A premise-withheld fragment must be REPORTED, not silently dropped.
+//
+// The assertion is deliberately on the RESULT and not on the context file's
+// contents. "The marker is absent from the context" is the vacuous form: it
+// passes when the fragment was withheld, and it passes just as happily when
+// the fragment never existed, when the bundle failed to load, or when the
+// whole assembly produced nothing. That vacuity is exactly what let this defect
+// live — 22 scenarios across four features failed on an absent marker with
+// clean exits, and two agent runs were spent before anyone could see why.
+//
+// It also pins the SECOND fact, which is the one that makes the report honest
+// rather than alarming: where the withheld fragment actually went. On a
+// skills-capable engine it is re-delivered as a skill package, so a withhold is
+// not a loss. Reporting the withhold without the destination would turn every
+// correct materialization into a false alarm.
+func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
+	testsupport.Isolate(t)
+	appDir, _ := regenTestApp(t)
+	profilesDir := filepath.Join(appDir, "profiles")
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	bundlesDir := authoredV1(appDir)
+	require.NoError(t, os.MkdirAll(filepath.Join(bundlesDir, "premise-bundle"), 0755))
+
+	// THE KEY DIFFERS BY BUNDLE FORMAT, and getting it wrong makes this test
+	// pass vacuously rather than fail: a flat v1 bundle.yaml carries the
+	// condition as `premise:` (bundles.BundleFragment's yaml tag), while the v2
+	// TREE format carries it as `description:` and maps it across in
+	// tree_read's `Premise: v.Description`. This is an authored v1 bundle, so
+	// `description:` here would be read as a description and withhold nothing.
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "premise-bundle", "bundle.yaml"),
+		[]byte("version: \"1.0\"\nfragments:\n"+
+			"  always-applies:\n    content: \"UNCONDITIONAL-MARKER\"\n"+
+			"  only-sometimes:\n    premise: \"You are about to cut a release.\"\n    content: \"PREMISED-MARKER\"\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "premised.yaml"),
+		[]byte("name: premised\nbundles:\n  - premise-bundle\n"), 0644))
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	target := t.TempDir()
+
+	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+		Profiles: []string{"premised"}, Target: target,
+	})
+	require.NoError(t, err)
+
+	// THE ASSERTION THIS TEST EXISTS FOR: the withhold is named in the result.
+	var found *PremiseWithhold
+	for i := range res.WithheldByPremise {
+		if strings.Contains(res.WithheldByPremise[i].Name, "only-sometimes") {
+			found = &res.WithheldByPremise[i]
+		}
+	}
+	require.NotNil(t, found,
+		"the premise-withheld fragment is not named in the result; materialize would exit 0 reporting every surface written while that content reached the agent by no route it announced. got: %+v", res.WithheldByPremise)
+	assert.Equal(t, "You are about to cut a release.", found.Premise,
+		"the report must carry WHY it was withheld, not merely that it was — a name alone sends the reader back to the bundle to find out")
+	assert.Equal(t, "skills", found.Delivered,
+		"claude has a skills surface, so the withheld fragment was re-delivered as a skill package; omitting that turns a correct materialization into a false alarm")
+
+	// The unpremised fragment is unaffected: absence of a premise asserts that
+	// it always applies, so it must NOT appear in the withhold report.
+	for _, w := range res.WithheldByPremise {
+		assert.NotContains(t, w.Name, "always-applies",
+			"a fragment with no premise is unconditional and must never be reported as withheld")
+	}
 }

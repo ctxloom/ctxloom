@@ -196,7 +196,7 @@ func forceExport(c *bundles.LoadedContent) *bundles.LoadedContent {
 }
 
 // getBuiltinCommandFn is the seam onto resources.GetBuiltinCommand — a package
-// var (mirrors internal/codex/backend.go's seedCodexHomeFn) so a test can force
+// var so a test can force
 // the per-name read to fail without needing a broken embed.FS, which is
 // otherwise immutable at runtime and never fails for a name ListBuiltinCommands
 // itself just enumerated.

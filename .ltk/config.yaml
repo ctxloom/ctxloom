@@ -157,3 +157,21 @@ rules:
       unless: [list, show]
     message: "The stash stack is shared across all linked worktrees (it lives in the repo's common .git dir) — `git stash`/`pop`/`drop` here can capture or destroy another agent's WIP."
     suggest: "Commit your WIP instead (even a throwaway commit you amend/reword later) rather than reaching for the shared stash."
+
+  # A recursive grep does not respect git's exclusions, so it reads trees git
+  # deliberately hides — above all an agent worktree at .claude/worktrees/,
+  # which is excluded via .git/info/exclude and therefore invisible to
+  # `git status` while being fully visible to `grep -r`. Every file such an
+  # agent touches then appears TWICE: once real, once shadow, mid-edit by
+  # another agent. That has already misled a review here, and the failure is
+  # silent — duplicate hits look like duplicate code, not like a second tree.
+  # `git grep` cannot see any of it: it searches tracked content, so vendored
+  # caches and build output drop out for the same reason and at no extra cost.
+  # This is a REDIRECT, not a prohibition: grepping a path outside the repo is
+  # legitimate and this rule names the in-repo case it is wrong for.
+  - id: search-via-git-grep
+    match:
+      command: [grep]
+      args_any: ["-r", "-R", "--recursive", "-rn", "-rl", "-ri", "-rL", "-rw", "-rI", "-rin", "-rni", "-rnI", "-rh", "-rhn"]
+    message: "A recursive grep also searches trees git excludes — including agent worktrees under .claude/worktrees/, which are hidden from `git status` but not from grep, so every file another agent is editing shows up twice."
+    suggest: "git grep -n <pattern> -- '<pathspec>'   # respects .gitignore and .git/info/exclude; use grep -r only for paths outside this repo"

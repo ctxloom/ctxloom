@@ -293,6 +293,32 @@ var matrixSpecs = map[string]deliverySpec{
 	// rather than written anywhere a static caller could find them. If rows for
 	// them ever appear here, the double has stopped being launch-delivered.
 	"mock-launch/context/unsafe-file": {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
+
+	// ---- mock-noskills -------------------------------------------------
+	// Byte-for-byte mock's surfaces, because it shares NewMockSurfaces and
+	// differs ONLY in declaring no skillExports mapper on its descriptor.
+	//
+	// THE SKILLS ROW IS IDENTICAL TO MOCK'S, and that is not an oversight — it
+	// is where this double's semantics become precise.
+	//
+	// "No skills" here means NO EXPORT MAPPER on the descriptor, not a missing
+	// surface. The skills SURFACE exists (every mock-family double gets the
+	// complete set), and this test builds SurfaceInputs directly, so the surface
+	// is handed a sentinel skill and correctly writes it. The mapper only
+	// governs the MATERIALIZE path, where bundle-loaded skills are turned into
+	// exports — which is exactly what backends.SupportsSkills reads and what
+	// callers branch on.
+	//
+	// So the arm this double exists for is not visible at THIS seam at all.
+	// It is pinned by backends.TestSupportsSkills_HasATrueArmAndAFalseArm and by
+	// operations.TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext.
+	// A reader who expects a missing surface here will look for one and not find
+	// it.
+	"mock-noskills/context/unsafe-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
+	"mock-noskills/mcp/unsafe-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
+	"mock-noskills/settings/unsafe-file": {wantFile: ".mock/settings.json", wantSlot: slotHook},
+	"mock-noskills/commands/unsafe-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+	"mock-noskills/skills/unsafe-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 }
 
 // TestDeliveryApproach_DeclaredPairsAreExhaustive holds the DERIVED matrix equal

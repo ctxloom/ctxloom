@@ -436,10 +436,26 @@ func claudePresentation(kind agent.SurfaceKind, a agent.Approach, dir string) pr
 // shared Approach vocabulary SurfaceSet's cross-backend interface still keys
 // on. Every name claude declares is one of Approach's own String() labels, so
 // the reverse parse cannot fail for a name claudePresentations produced.
+//
+// The DEFAULT is emitted FIRST, and that is load-bearing rather than
+// cosmetic: cells.go's stated contract is that a backend's default is the
+// first approach it advertises, and TestApproachDispatch_DefaultIsFirstSupported
+// holds every registered backend to it. Presentations.Names() is SORTED and
+// its default is a NAMED key, deliberately so that no literal's order means
+// anything — so for a surface with more than one delivery (claude's context)
+// sorted order and the default disagree. Rebuilding the order from the named
+// default is what reconciles the two: the declaration stays order-free, and
+// the derived list still leads with the default.
 func claudeApproachesFor(d agent.Presentations) []agent.Approach {
 	names := d.Names()
 	out := make([]agent.Approach, 0, len(names))
+	if def, err := agent.ParseApproach(d.Default()); err == nil {
+		out = append(out, def)
+	}
 	for _, n := range names {
+		if n == d.Default() {
+			continue
+		}
 		if a, err := agent.ParseApproach(n); err == nil {
 			out = append(out, a)
 		}

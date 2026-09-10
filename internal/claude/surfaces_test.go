@@ -98,8 +98,10 @@ var (
 // ---- context surface -------------------------------------------------------
 
 // context Delivery writes CLAUDE.md (the ContextWriter core) into the target
-// dir, in the ctxloom-managed section, and its Cleanup removes the file when
-// nothing user-authored remains outside the markers.
+// dir, in the ctxloom-managed section, and the file SURVIVES Cleanup: a
+// project surface outlives the run that delivered it
+// (agent.SurfacePersistsAfterExit), so the handle reverses nothing. Teardown
+// belongs to per-session scratch, which this is not.
 func TestContextSurface_DeliverWritesCLAUDEmd(t *testing.T) {
 	dir := t.TempDir()
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
@@ -112,12 +114,15 @@ func TestContextSurface_DeliverWritesCLAUDEmd(t *testing.T) {
 	assert.Contains(t, string(got), sampleInputs().Context, "CLAUDE.md holds the assembled context in the managed section")
 
 	require.NoError(t, handle.Cleanup())
-	assert.NoFileExists(t, filepath.Join(dir, "CLAUDE.md"), "cleanup strips the managed section; wholly-managed file is removed")
+	after, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	require.NoError(t, err, "a project surface survives the run that delivered it")
+	assert.Contains(t, string(after), sampleInputs().Context, "Cleanup reverses nothing for a project surface")
 }
 
-// Hand-authored content in CLAUDE.md outside the managed markers survives both
-// Deliver and Cleanup byte-for-byte (a regression pin, at the surface layer
-// materialize/run actually drive).
+// Hand-authored content in CLAUDE.md outside the managed markers survives
+// Deliver byte-for-byte (a regression pin, at the surface layer
+// materialize/run actually drive), and Cleanup leaves the whole file — both
+// halves — in place, per agent.SurfacePersistsAfterExit.
 func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Team conventions\nalways use tabs\n"), 0644))
@@ -135,7 +140,7 @@ func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
 	got, err = os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
 	require.NoError(t, err)
 	assert.Contains(t, string(got), "always use tabs", "hand-written content survives Cleanup too")
-	assert.NotContains(t, string(got), sampleInputs().Context, "the managed section is gone after cleanup")
+	assert.Contains(t, string(got), sampleInputs().Context, "the managed section survives Cleanup: a project surface persists")
 }
 
 // context DeliverIsolated writes the framed <hash>.sysprompt.md into the
@@ -321,8 +326,7 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 		"a skill with Enabled == false must not be written")
 
 	require.NoError(t, handle.Cleanup())
-	assert.NoFileExists(t, skillMD, "cleanup reverts the skill export")
-	assert.NoDirExists(t, filepath.Join(dir, ".claude", "skills", "humanize"), "cleanup prunes the now-empty skill directory")
+	assert.FileExists(t, skillMD, "a delivered skill package persists after the run (SurfacePersistsAfterExit)")
 }
 
 // skills has no out-of-cwd flag and no SharedRealization (mirrors commands),
@@ -688,11 +692,11 @@ func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
 // claude enumerates its five surfaces in three places that must agree: the
 // typed struct fields (which flagArgs and SharedRealization read by name), the
 // kind-keyed dispatch map SurfaceFor resolves against, and the declared
-// claudeApproaches table Build() validates against. None can be derived from
-// the others without losing the typed accessors, so the agreement is pinned
-// instead: a surface added to one and missed in another fails here rather than
-// silently resolving to nothing at launch.
-func TestSurfaces_TableDispatchAndFieldsEnumerateTheSameSurfaces(t *testing.T) {
+// claudePresentations table Build() validates against. None can be derived
+// from the others without losing the typed accessors, so the agreement is
+// pinned instead: a surface added to one and missed in another fails here
+// rather than silently resolving to nothing at launch.
+func TestSurfaces_PresentationsAndFieldsEnumerateTheSameSurfaces(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
 
 	byKind := map[agent.SurfaceKind]agent.Delivery{
@@ -702,13 +706,13 @@ func TestSurfaces_TableDispatchAndFieldsEnumerateTheSameSurfaces(t *testing.T) {
 		agent.SurfaceCommands: s.Commands,
 		agent.SurfaceSkills:   s.Skills,
 	}
-	assert.Len(t, byKind, len(claudeApproaches),
-		"every kind in the declared approach table needs a typed field here (and vice versa)")
+	assert.Len(t, byKind, len(claudePresentations),
+		"every kind in the declared presentation table needs a typed field here (and vice versa)")
 
 	for kind, field := range byKind {
-		approaches, ok := claudeApproaches[kind]
-		require.True(t, ok, "%s is a struct field with no entry in the approach table", kind)
-		require.NotEmpty(t, approaches)
+		_, ok := claudePresentations[kind]
+		require.True(t, ok, "%s is a struct field with no entry in the presentation table", kind)
+		require.NotEmpty(t, s.SupportedApproaches(kind))
 
 		d, err := s.SurfaceFor(kind, agent.ApproachUnsafeFile)
 		require.NoError(t, err, "%s must resolve at its native approach", kind)

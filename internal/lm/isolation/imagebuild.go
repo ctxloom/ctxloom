@@ -409,6 +409,22 @@ func overlayContainerfile(baseImage, validate string) []byte {
 // arbitrary base may be non-Debian) — a base that genuinely lacks these tools
 // surfaces as a later, specific failure (an engine fragment's own install
 // step, or a missing `git`/`rg` at RUN time), not a mysterious one here.
+// WHERE A SYMBOL SERVER GOES, and it is a division rather than a preference.
+// serena is a DRIVER over ~65 language-server adapters and carries no analysis
+// of its own, so the thing that varies per image is not serena — it is the
+// SERVER underneath it. The driver therefore belongs HERE, in the floor every
+// base gets; the language server belongs to the image that serves that
+// language (a Go image carries go + gopls, a Node image its own, and so on).
+// Ruled 2026-09-10; the driver half is not installed at this layer yet —
+// taskloom deceased-pretext tracks it.
+//
+// DO NOT ADD A LANGUAGE TOOLCHAIN HERE to stop serena refusing. Without Go,
+// serena's Go support fails LOUDLY ("go: Go is not installed") rather than
+// answering from a degraded index, and on an image that does not serve Go that
+// refusal is the CORRECT answer — that image was never meant for Go work.
+// Silencing it costs ~1.05 GB on every base to suppress an honest error, which
+// is the exact trade that got serena reverted from the shipped base once
+// already (f3cfee19).
 const baseContractLayer = `RUN (command -v apt-get >/dev/null 2>&1 \
     && apt-get update \
     && apt-get install -y --no-install-recommends git ripgrep curl ca-certificates unzip jq strace \

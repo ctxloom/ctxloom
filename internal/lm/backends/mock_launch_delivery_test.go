@@ -72,11 +72,19 @@ func TestMock_Setup_DeliversContextBytesOnTheLaunchPath(t *testing.T) {
 
 // TestMock_Cleanup_ReversesTheLaunchDelivery: the turn's teardown
 // (grpc.runTurn calls Cleanup immediately after Execute) must strip what Setup
-// wrote, exactly as it does for claude's CLAUDE.md — mock rides the shared
-// LIFO reversal rather than leaving debris in the user's project. This is also
-// why a CLI-level assertion AFTER a run finds nothing: the file lives for the
-// duration of the turn.
-func TestMock_Cleanup_ReversesTheLaunchDelivery(t *testing.T) {
+// wrote — mock rides the shared reversal exactly as claude's CLAUDE.md does.
+//
+// THE CONTRACT INVERTED, ruled by the human 2026-09-10: a PROJECT SURFACE now
+// SURVIVES the run that delivered it. Exit cleanup never ran on SIGKILL, a
+// crash, or a container stop, so leftover surfaces had to be tolerated anyway
+// and startup reconciliation is load-bearing regardless; keeping the teardown
+// as well only made the end state depend on how the process died. `ctxloom
+// clean` and `ctxloom manage uninstall` are the removal commands now.
+//
+// So this test asserts the opposite of what it once did, and is kept rather
+// than deleted because the CLAIM is still worth pinning — a future change that
+// quietly restores exit-time removal must redden something.
+func TestMock_Cleanup_LeavesTheLaunchDeliveryInPlace(t *testing.T) {
 	dir := t.TempDir()
 	m := NewMock()
 	require.NoError(t, m.Setup(context.Background(),
@@ -85,9 +93,8 @@ func TestMock_Cleanup_ReversesTheLaunchDelivery(t *testing.T) {
 
 	require.NoError(t, m.Cleanup(context.Background()))
 
-	_, err := os.Stat(filepath.Join(dir, mockContextFilename))
-	assert.True(t, os.IsNotExist(err),
-		"Cleanup must reverse the delivery (nothing user-authored remained), got stat err %v", err)
+	require.FileExists(t, filepath.Join(dir, mockContextFilename),
+		"Cleanup must NOT remove a project surface: startup reconciles it, and clean/uninstall are what remove it. Exit-time removal made the end state depend on how the process died")
 }
 
 // TestMock_Setup_NilManaged_DeliversNothing pins the ONE condition under which
@@ -185,10 +192,14 @@ func TestMock_Setup_PreservesUserContentOutsideTheMarkers(t *testing.T) {
 	assert.Contains(t, string(got), "USER-PROSE-6e44", "hand-written content outside the markers must survive")
 	assert.Contains(t, string(got), "MERGED-MARKER-8b03", "the managed section must still be delivered")
 
-	// And the reversal keeps the user's half.
+	// Cleanup changes NOTHING now: both halves survive it. The user's prose was
+	// always preserved; the managed half now persists too, because a project
+	// surface outlives the run that delivered it.
 	require.NoError(t, m.Cleanup(context.Background()))
 	after, err := os.ReadFile(path)
 	require.NoError(t, err)
-	assert.Contains(t, string(after), "USER-PROSE-6e44")
-	assert.NotContains(t, string(after), "MERGED-MARKER-8b03")
+	assert.Contains(t, string(after), "USER-PROSE-6e44",
+		"hand-written content outside the markers must survive, as it always did")
+	assert.Contains(t, string(after), "MERGED-MARKER-8b03",
+		"the managed section must survive exit too: stripping it here is what made a session's leftovers depend on how the process ended")
 }

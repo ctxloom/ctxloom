@@ -49,7 +49,7 @@ func (s *ManagedCommandsDelivery) Deliver(dir string) (Delivered, error) {
 	if err := s.write(dir, s.commands); err != nil {
 		return nil, err
 	}
-	return DeliveredFunc(func() error { return s.write(dir, nil) }), nil
+	return SurfacePersistsAfterExit, nil
 }
 
 // Compile-time contract.

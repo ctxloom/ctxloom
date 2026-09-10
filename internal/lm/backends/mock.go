@@ -89,6 +89,18 @@ type MockLossyConfig struct {
 	Env   map[string]string `mapstructure:"env"`
 }
 
+// MockNoSkillsConfig is the no-skills double's config body.
+type MockNoSkillsConfig struct {
+	Model string            `mapstructure:"model"`
+	Env   map[string]string `mapstructure:"env"`
+}
+
+// BackendType identifies the backend this config drives.
+func (MockNoSkillsConfig) BackendType() string { return config.BackendMockNoSkills }
+
+// GetEnv returns the labeled entry's env map, the same way MockConfig does.
+func (c MockNoSkillsConfig) GetEnv() map[string]string { return c.Env }
+
 // BackendType identifies the backend this config drives.
 func (MockLossyConfig) BackendType() string { return config.BackendMockLossy }
 
@@ -140,10 +152,14 @@ func NewMockLossy() *Mock { return newMockBackend(config.BackendMockLossy) }
 // NewMockLaunch builds the launch-delivered double. See config.BackendMockLaunch.
 func NewMockLaunch() *Mock { return newMockBackend(config.BackendMockLaunch) }
 
+// NewMockNoSkills builds the double with no skills surface. See
+// config.BackendMockNoSkills.
+func NewMockNoSkills() *Mock { return newMockBackend(config.BackendMockNoSkills) }
+
 // newMockBackend builds a mock-family backend under the given registry name.
-// The three doubles differ ONLY in that name and in what their descriptors
-// declare, so they share one constructor rather than three bodies that could
-// drift into behaving differently.
+// The doubles differ ONLY in that name and in what their descriptors declare,
+// so they share one constructor rather than a body each that could drift into
+// behaving differently.
 //
 // Every one of them gets the COMPLETE surface set here, mock-launch included,
 // and that is not an oversight. This is the CELLS/LAUNCH path: a

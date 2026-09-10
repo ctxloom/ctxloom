@@ -307,11 +307,11 @@ func NewSurfaces(in agent.SurfaceInputs, isolated agent.Placement, fs afero.Fs) 
 	commands := &commandsSurface{commands: in.Commands, fs: fs, selfContainedCommands: in.SelfContainedCommands}
 	skills := newSkillsSurface(in.Skills, fs)
 	return Surfaces{
-		Context:       context,
-		MCP:           mcp,
-		Settings:      settings,
-		Commands:      commands,
-		Skills:        skills,
+		Context:  context,
+		MCP:      mcp,
+		Settings: settings,
+		Commands: commands,
+		Skills:   skills,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  context,
 			agent.SurfaceMCP:      mcp,

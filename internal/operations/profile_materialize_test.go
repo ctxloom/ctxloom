@@ -548,3 +548,47 @@ func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
 			"a fragment with no premise is unconditional and must never be reported as withheld")
 	}
 }
+
+// THE DUMP ARM, which had no subject in the registry until mock-noskills
+// existed and was therefore correct by inspection and asserted by nothing.
+//
+// A materialized surface is ctxloom OUT OF THE LOOP: a premise-withheld
+// fragment cannot be pulled later, so it is LOST rather than deferred. Where the
+// engine has a skills surface it is handed over as a skill package; where it has
+// none, the assembly must run STATIC and put the fragment in the context
+// instead. This asserts the second case.
+//
+// The pairing with the skills-capable test above is the point. Asserting only
+// the skills arm proves the half that already worked, and this project's rule is
+// that the untested arm is the entire defect.
+func TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *testing.T) {
+	testsupport.Isolate(t)
+	appDir, _ := regenTestApp(t)
+	profilesDir := filepath.Join(appDir, "profiles")
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	bundlesDir := authoredV1(appDir)
+	require.NoError(t, os.MkdirAll(filepath.Join(bundlesDir, "premise-bundle-2"), 0755))
+
+	// `premise:` is the flat v1 key; the v2 tree format uses `description:`.
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "premise-bundle-2", "bundle.yaml"),
+		[]byte("version: \"1.0\"\nfragments:\n"+
+			"  only-sometimes:\n    premise: \"You are about to cut a release.\"\n    content: \"PREMISED-MARKER-DUMPED\"\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "premised2.yaml"),
+		[]byte("name: premised2\nbundles:\n  - premise-bundle-2\n"), 0644))
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	target := t.TempDir()
+
+	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+		Profiles: []string{"premised2"}, Target: target, Backend: "mock-noskills",
+	})
+	require.NoError(t, err)
+
+	body, err := os.ReadFile(filepath.Join(target, "MOCK_CONTEXT.md"))
+	require.NoError(t, err, "the no-skills engine's context file must exist")
+	assert.Contains(t, string(body), "PREMISED-MARKER-DUMPED",
+		"an engine with NO skills surface must receive the premised fragment IN THE CONTEXT; withholding it here loses the content outright, because a materialized surface has no way to pull it later")
+
+	assert.Empty(t, res.WithheldByPremise,
+		"nothing was withheld — the assembly ran static — so the withhold report must be empty. Reporting a withhold here would be a false alarm about content that WAS delivered")
+}

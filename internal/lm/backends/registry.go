@@ -596,4 +596,31 @@ func init() {
 		launchOnlySettingsReason: config.BackendMockLaunch +
 			" keeps settings, MCP servers, commands and skills in a per-session engine home: they are delivered per-session at launch, which a static materialize has no home to write into",
 	})
+
+	// The NO-SKILLS double: identical to mock except that it declares NO
+	// skillExports, so backends.SupportsSkills reports false for it.
+	//
+	// THE ABSENCE IS THE ENTIRE POINT, so do not "complete" this descriptor by
+	// adding the mapper. Every other registered backend has one, which left the
+	// missing-skills-surface arm of every caller with nothing to point at:
+	// correct by inspection, asserted by nothing. Adding skillExports here
+	// would silently retire that arm's only subject and every test using it
+	// would keep passing while proving the opposite of what it claims.
+	//
+	// It is a fourth double rather than a flag on mock for the reason the
+	// others are separate: mock proves the surface seam is COMPLETE, and a
+	// double that is sometimes complete and sometimes not cannot prove either.
+	registerDescriptor(agentDescriptor{
+		name:       config.BackendMockNoSkills,
+		newBackend: func() agent.Backend { return NewMockNoSkills() },
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &MockNoSkillsConfig{})
+		},
+		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
+			return NewMockSurfaces(config.BackendMockNoSkills, in, fs)
+		},
+		newWriter: NewMockSettingsWriter,
+		exports:   mockExports,
+		testOnly:  true,
+	})
 }

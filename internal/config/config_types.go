@@ -94,6 +94,27 @@ const BackendMockLossy = "mock-lossy"
 // as not-carried while its file sits in the tree.
 const BackendMockLaunch = "mock-launch"
 
+// BackendMockNoSkills is the NO-SKILLS-SURFACE test double's registry name: an
+// engine with no Agent Skills mechanism at all.
+//
+// It exists because EVERY other registered backend has one. claude-code does,
+// and so does every mock above — so any behaviour conditioned on a MISSING
+// skills surface has nothing in the registry to point at, and its failing arm
+// is asserted by nothing while its passing arm looks well covered.
+//
+// That is not hypothetical. backends.SupportsSkills reads the descriptor's
+// skillExports field, and callers branch on it to decide whether a premised
+// fragment is handed over as a skill package or dumped into the context
+// instead. The dump arm is correct by inspection and exercised by no test.
+//
+// A DOUBLE RATHER THAN AN INJECTED CAPABILITY, ruled by the human 2026-09-09:
+// SupportsSkills reads the descriptor table, and that IS the production
+// decision. A double lacking the field exercises the real predicate against
+// real registry data; injecting the capability would test the seam around the
+// predicate while leaving the predicate itself unexercised — the shape that
+// lets a gate pass while proving nothing.
+const BackendMockNoSkills = "mock-noskills"
+
 // DefaultLLM is the backend type used when no config resolves a label. It is
 // claude-code today; DefaultLLM and BackendClaudeCode name distinct concepts
 // (the default fallback vs. the claude-code engine) that happen to coincide.

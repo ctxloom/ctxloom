@@ -62,24 +62,38 @@ func TestMockContextSurface_Deliver_EmptyContext_WritesNothing(t *testing.T) {
 	assert.False(t, exists, "empty context must write NOTHING — no stray MOCK_CONTEXT.md")
 }
 
-// TestMockContextSurface_Cleanup_RemovesFileWhenNothingElseRemains proves the
-// reversal is real: Cleanup must strip the bytes it wrote, not merely
-// succeed. A no-op Cleanup that returns nil without touching the file would
-// pass an error check and fail this one.
-func TestMockContextSurface_Cleanup_RemovesFileWhenNothingElseRemains(t *testing.T) {
+// TestMockContextSurface_Cleanup_LeavesTheFileInPlace pins the INVERTED
+// contract, ruled by the human 2026-09-10: a delivered project surface outlives
+// the run.
+//
+// This test previously proved the reversal was real — that Cleanup stripped the
+// bytes rather than merely returning nil. It is kept, inverted, rather than
+// deleted, because the underlying worry is unchanged: a Cleanup nobody asserts
+// can drift either way, and exit-time removal returning by some other route
+// must redden something.
+//
+// The reason for the inversion, so it is not read as a weakened test: exit
+// cleanup never ran on SIGKILL, a crash, or a container stop, so leftover
+// surfaces had to be tolerated regardless. Removing on a clean exit only made
+// what a session left behind depend on how it ended.
+func TestMockContextSurface_Cleanup_LeavesTheFileInPlace(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := &mockContextSurface{context: "TEMPORARY-CONTENT", fs: fs}
+	s := &mockContextSurface{context: "DELIVERED-CONTENT", fs: fs}
 	handle, err := s.Deliver(dir)
 	require.NoError(t, err)
 
+	before, err := afero.ReadFile(fs, mockContextPath(dir))
+	require.NoError(t, err, "precondition: Deliver wrote the surface")
+
 	require.NoError(t, handle.Cleanup())
 
-	exists, err := afero.Exists(fs, mockContextPath(dir))
-	require.NoError(t, err)
-	assert.False(t, exists, "cleanup must remove the file once nothing user-authored remains")
+	after, err := afero.ReadFile(fs, mockContextPath(dir))
+	require.NoError(t, err, "cleanup must NOT remove a project surface: startup reconciles it, and clean/uninstall are the commands that remove it")
+	assert.Equal(t, string(before), string(after),
+		"cleanup must leave the surface byte-identical — a partial strip is the same defect as a removal")
 }
 
 // TestMockContextSurface_Deliver_PreservesUserContentOutsideMarkers is the
@@ -427,10 +441,18 @@ func TestMockSkillsSurface_Deliver_DisabledSkillWritesNothing(t *testing.T) {
 	assert.False(t, exists, "a disabled skill must write NOTHING — not even an empty skills directory")
 }
 
-// TestMockSkillsSurface_Cleanup_RemovesExactlyWhatItWrote proves the reversal
-// is real, file by file: Cleanup must remove the tracked tree, not merely
-// return nil.
-func TestMockSkillsSurface_Cleanup_RemovesExactlyWhatItWrote(t *testing.T) {
+// TestMockSkillsSurface_Cleanup_LeavesWhatItWroteInPlace pins the INVERTED
+// contract (human, 2026-09-10): a materialized skill package outlives the run
+// that delivered it, like every other project surface.
+//
+// HONEST NOTE ON ITS SIBLING BELOW: with cleanup a no-op,
+// TestMockSkillsSurface_Cleanup_LeavesUserAuthoredFilesAlone is now trivially
+// satisfied — nothing is removed, so of course a user's files survive. It is
+// left in place rather than deleted because it still guards the manifest's
+// existence, but it should NOT be read as evidence that selective removal
+// works. Nothing exercises selective removal any more, because nothing
+// performs it.
+func TestMockSkillsSurface_Cleanup_LeavesWhatItWroteInPlace(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
@@ -447,7 +469,8 @@ func TestMockSkillsSurface_Cleanup_RemovesExactlyWhatItWrote(t *testing.T) {
 	for _, rel := range []string{"reviewer/SKILL.md", "reviewer/scripts/run.sh"} {
 		exists, err := afero.Exists(fs, filepath.Join(mockSkillsPath(dir), filepath.FromSlash(rel)))
 		require.NoError(t, err)
-		assert.False(t, exists, "cleanup must remove %s, the manifest tracked it", rel)
+		assert.True(t, exists,
+			"cleanup must LEAVE %s: a delivered skill package is a project surface, and startup reconciles it rather than exit removing it", rel)
 	}
 }
 

@@ -109,3 +109,37 @@ func TestScoreCorrection_SubtractsInvalidMutantsFromTheKillCount(t *testing.T) {
 		t.Errorf("printed something when there was nothing to correct: %q", clean)
 	}
 }
+
+// THE FAILURE PATH: markers present, but NO summary box to correct.
+//
+// This arm was written during this change and covered by nothing, which is the
+// shape the whole exercise exists to catch — a correction for a truthfulness
+// defect carrying its own untested branch.
+//
+// It happens when a run produced invalid mutants and then died, or was filtered
+// down to nothing, before ooze summarised. The honest output SAYS SO rather than
+// printing a half-corrected number: subtracting from a total that was never
+// found would invent one. The upstream no-score guard is what actually fails
+// such a run; this only has to avoid lying about it.
+func TestScoreCorrection_SaysSoWhenThereIsNoSummaryToCorrect(t *testing.T) {
+	root := repoRootFromTest(t)
+	script := filepath.Join(root, "tests", "mutation", "score_correction.sh")
+
+	cmd := exec.Command("sh", script)
+	cmd.Stdin = strings.NewReader("ooze-invalid-mutant: a\nooze-invalid-mutant: b\nsome output with no box at all\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("script failed: %v\n%s", err, out)
+	}
+
+	got := string(out)
+	if !strings.Contains(got, "no summary box was found") {
+		t.Errorf("with markers but no box, the script must SAY there was nothing to correct.\ngot: %q", got)
+	}
+	if strings.Contains(got, "valid total:") || strings.Contains(got, "real kills:") {
+		t.Errorf("it must NOT print corrected figures with no total to correct — subtracting from a number that was never found invents one.\ngot: %q", got)
+	}
+	if !strings.Contains(got, "2 mutant(s)") {
+		t.Errorf("it must still report HOW MANY did not compile; that count is real even when the box is missing.\ngot: %q", got)
+	}
+}

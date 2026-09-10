@@ -9,7 +9,7 @@ agents:
         llm: claude-code
         profiles:
             - default
-        runtime: host
+        runtime: container-rootless
     developer:
         llm: claude-code
         permissions: bypass
@@ -31,10 +31,10 @@ agents:
         runtime: container-rootless
     finder:
         llm: claude-fast
-        permissions: plan
+        permissions: bypass
         profiles:
             - finder
-        runtime: host
+        runtime: container-rootless
     triage:
         llm: claude-fast
         profiles:

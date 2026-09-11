@@ -24,8 +24,9 @@ import (
 // to deliver; observed more than six times in one session, every one caused
 // by the verdict itself. These tests pin the contract that stops that loop:
 // the superseded call completes successfully with no messages and a
-// disposition saying so, the survivor still gets the mail exactly once, and a
-// coordinator that merely times out is not told to finish.
+// disposition saying so, and the survivor still gets the mail exactly once.
+// The timeout verdicts — a coordinator's is a success, a leaf's an error —
+// are pinned beside these in agent_recv_timeout_test.go.
 
 // stdioPreemption stages two overlapping receives on the stdio surface against
 // a quiet coordinator mailbox, then sends one message once the yield has been
@@ -72,8 +73,8 @@ func stageStdioPreemption(t *testing.T) stdioPreemption {
 	// Drain until a receive times out, so the only message that can complete
 	// the staged receives is the one this test sends.
 	require.Eventually(t, func() bool {
-		_, _, rerr := s.handleAgentRecv(context.Background(), nil, agentRecvInput{Wait: 1})
-		return errors.Is(rerr, coord.ErrRecvTimeout)
+		_, out, rerr := s.handleAgentRecv(context.Background(), nil, agentRecvInput{Wait: 1})
+		return rerr == nil && out != nil && out.Disposition == mcpschema.RecvDispositionTimedOut
 	}, 30*time.Second, time.Millisecond, "the coordinator mailbox never went quiet")
 
 	outcomes := make(chan stdioRecvOutcome, 2)
@@ -143,41 +144,41 @@ func TestHandleAgentRecv_SurvivingReceiveDeliversThePendingMessageExactlyOnce(t 
 
 	// The next receive cursor-acks the batch; the message must not come back.
 	_, again, err := st.s.handleAgentRecv(context.Background(), nil, agentRecvInput{Wait: 1})
-	require.ErrorIs(t, err, coord.ErrRecvTimeout, "nothing else is pending; got %+v", again)
+	require.NoError(t, err)
+	assert.Empty(t, again.Messages, "nothing else is pending; got %+v", again.Messages)
+	assert.Equal(t, mcpschema.RecvDispositionTimedOut, again.Disposition)
 }
 
-func TestHandleAgentRecv_CoordinatorTimeoutCarriesNoInstructionToFinish(t *testing.T) {
-	cfg, c, _ := buildHostCoordinator(t, nil)
-	self := coord.Identity{Harp: "coordinator-harp", Depth: 0}
-	s := &ctxServer{cfg: cfg, self: self, agents: &agentDelegation{self: self, c: c}}
-
-	_, _, err := s.handleAgentRecv(context.Background(), nil, agentRecvInput{Wait: 1})
-	require.ErrorIs(t, err, coord.ErrRecvTimeout)
-	assert.NotContains(t, err.Error(), instructionToFinish,
-		"a coordinator on a quiet wait re-arms; telling it to finish is the child's instruction")
-	assert.Contains(t, err.Error(), recvTimeoutCoordinatorGuidance)
-}
-
-// TestRecvFailure_TimeoutGuidanceFollowsTheAudience: one sentinel, two
-// audiences. The coord sentinel cannot know who is parked, so the guidance is
-// attached where the audience is known, and the sentinel identity survives
-// the wrapping for every errors.Is caller.
-func TestRecvFailure_TimeoutGuidanceFollowsTheAudience(t *testing.T) {
-	leaf := recvFailure(coord.ErrRecvTimeout, 5*time.Second, true)
+// TestRecvOutcome_TimeoutVerdictFollowsTheAudience: one sentinel, two
+// audiences, two verdict SHAPES. The coord sentinel cannot know who is
+// parked, so the classification happens where the audience is known: a
+// leaf's timeout is an error carrying the child's instruction, with the
+// sentinel identity intact for every errors.Is caller; a coordinator's is a
+// successful empty receive that never sees that instruction.
+func TestRecvOutcome_TimeoutVerdictFollowsTheAudience(t *testing.T) {
+	disposition, leaf := recvOutcome(coord.ErrRecvTimeout, 5*time.Second, true)
 	require.ErrorIs(t, leaf, coord.ErrRecvTimeout)
+	assert.Empty(t, disposition, "a leaf's timeout is a failure, not a disposition")
 	assert.Contains(t, leaf.Error(), recvTimeoutLeafGuidance)
-	assert.NotContains(t, leaf.Error(), recvTimeoutCoordinatorGuidance)
 
-	coordinator := recvFailure(coord.ErrRecvTimeout, 5*time.Second, false)
-	require.ErrorIs(t, coordinator, coord.ErrRecvTimeout)
-	assert.Contains(t, coordinator.Error(), recvTimeoutCoordinatorGuidance)
-	assert.NotContains(t, coordinator.Error(), instructionToFinish)
+	disposition, coordinator := recvOutcome(coord.ErrRecvTimeout, 5*time.Second, false)
+	require.NoError(t, coordinator, "a coordinator's timeout is not a failure")
+	assert.Equal(t, mcpschema.RecvDispositionTimedOut, disposition)
+	assert.NotContains(t, disposition, instructionToFinish)
 
 	assert.NotContains(t, coord.ErrRecvTimeout.Error(), instructionToFinish,
 		"the shared sentinel must stay audience-neutral; the child's instruction belongs only where a child reads it")
 
+	for _, leaf := range []bool{true, false} {
+		disposition, failure := recvOutcome(coord.ErrRecvPreempted, time.Second, leaf)
+		require.NoError(t, failure, "a yield is a success for every audience")
+		assert.Equal(t, mcpschema.RecvDispositionYielded, disposition)
+	}
+
 	other := errors.New("something else")
-	assert.Equal(t, other, recvFailure(other, time.Second, true), "only the timeout gains guidance")
+	disposition, failure := recvOutcome(other, time.Second, true)
+	assert.Equal(t, other, failure, "only the timeout gains guidance")
+	assert.Empty(t, disposition)
 }
 
 // The runner surface parks locally in the Home, so the supersession is
@@ -217,21 +218,16 @@ func TestRecvHandler_SupersededReceiveYieldsAsSuccess(t *testing.T) {
 	assert.Empty(t, shape["messages"])
 	assert.Equal(t, mcpschema.RecvDispositionYielded, shape["disposition"])
 
-	// The survivor then times out on the quiet Home — as a coordinator, with
-	// no instruction to finish.
+	// The survivor then times out on the quiet Home — as a coordinator, so
+	// successfully, with no instruction to finish.
 	var survivor runnerRecvOutcome
 	select {
 	case survivor = <-outcomes:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the surviving receive never completed")
 	}
-	require.ErrorIs(t, survivor.err, coord.ErrRecvTimeout)
-	assert.NotContains(t, survivor.err.Error(), instructionToFinish)
-}
-
-func TestRecvHandler_LeafTimeoutTellsTheChildToFinish(t *testing.T) {
-	h := recvHandler(testHome(t), true)
-	_, err := runnerRecv(t, h, 1)
-	require.ErrorIs(t, err, coord.ErrRecvTimeout)
-	assert.Contains(t, err.Error(), recvTimeoutLeafGuidance)
+	require.NoError(t, survivor.err)
+	shape, ok = survivor.res.StructuredContent.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, mcpschema.RecvDispositionTimedOut, shape["disposition"])
 }

@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // countingAgent is a fakeAgent that also owns a connection, exactly as the
@@ -112,7 +114,7 @@ func TestDiscover_AgentConnectionLifetime(t *testing.T) {
 // agent does not implement io.Closer, everything above passes while the actual
 // socket still leaks.
 func TestDialEnvAgent_ReturnsAClosableAgent(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "agent.sock")
+	sock := filepath.Join(testsupport.SocketDir(t, "agent.sock"), "agent.sock")
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()

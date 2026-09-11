@@ -30,22 +30,17 @@ import (
 // running test that also depends on process cwd.
 
 // shortRuntimeDir returns a fresh directory suitable for XDG_RUNTIME_DIR in
-// these tests. NOT t.TempDir(): that embeds the FULL test name (which these
-// discovery tests deliberately make long and descriptive) into the path, and
-// runnerSocketPath's candidate() rejects any socket dir whose resulting
-// mcp-<pid>.sock path exceeds the unix sun_path headroom (100 chars,
-// mcp_runner.go). Under a short-but-nonempty TMPDIR this test name alone can
-// push the path over that limit, silently landing runnerSocketPath on the
-// private-temp tier instead of socketKindHostRuntime — no marker gets
-// published at all, and the test fails for a reason that has nothing to do
-// with discovery correctness. A short, test-name-independent prefix keeps
-// these tests' pass/fail tied to the behaviour under test.
+// these tests. It must be short enough that runnerSocketPath's host tier —
+// <dir>/ctxloom/mcp-<pid>.sock — fits the sun_path headroom, or candidate()
+// rejects it and runnerSocketPath silently lands on the private-temp tier
+// instead of socketKindHostRuntime: no marker gets published at all, and the
+// test fails for a reason that has nothing to do with discovery correctness.
+// Neither t.TempDir() (it embeds these tests' long names) nor a temp root
+// (inside an agent cell, ~100 bytes on its own) can promise that; SocketDir
+// measures.
 func shortRuntimeDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "hd")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	return dir
+	return testsupport.SocketDir(t, filepath.Join("ctxloom", "mcp-0000000000.sock"))
 }
 
 // deadProcessPID returns a pid that is guaranteed NOT to name a live

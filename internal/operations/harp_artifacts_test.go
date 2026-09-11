@@ -194,17 +194,11 @@ func TestMigrateHarpArtifacts_NeverOverwrites(t *testing.T) {
 // number and doctor does not warn about a file nothing can move.
 func TestMigrateHarpArtifacts_LeavesIrregularEntriesAlone(t *testing.T) {
 	testsupport.Isolate(t)
-	// A unix socket path is capped at 108 bytes (sun_path). t.TempDir() embeds
-	// the TEST NAME in the path, and this name is 52 characters; with TMPDIR,
-	// the harp directory and "agent-bus.sock" on top, the bind below overflows
-	// the cap and fails with "bind: invalid argument" -- so the subject is never
-	// reached and the test reports a failure that is entirely about its own
-	// fixture. Nothing here needs the test name in the path. The lock resolves
-	// from the isolated home regardless of where the harp directory sits.
-	root, err := os.MkdirTemp("", "harpartifacts")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	// The harp root hosts a bound unix socket, so it comes from SocketDir
+	// rather than a temp root. The lock resolves from the isolated home
+	// regardless of where the harp directory sits.
 	const harp = "brisk-teal-otter"
+	root := testsupport.SocketDir(t, filepath.Join(harp, "agent-bus.sock"))
 	target := writeHarpFile(t, root, harp, "real.md", "body")
 	link := filepath.Join(root, harp, "pointer"+paths.PlanFileExt)
 	require.NoError(t, os.Symlink(filepath.Base(target), link))

@@ -34,7 +34,7 @@ func (nilHistoryBackend) History() agent.SessionHistory { return nilSessionHisto
 // — so a caller that cannot tell the two apart renders a live-but-silent
 // session and a missing one identically.
 func TestGetSession_AbsentSessionSurvivesTheWire(t *testing.T) {
-	client, _ := plugin.TestPluginGRPCConn(t, false, map[string]plugin.Plugin{
+	client := inProcessPluginConn(t, map[string]plugin.Plugin{
 		LLMPluginKey: &LLMGRPCPlugin{Impl: nilHistoryBackend{}},
 	})
 	t.Cleanup(func() { _ = client.Close() })

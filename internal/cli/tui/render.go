@@ -6,6 +6,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 )
 
 // Role tags per the plan's §4a mockup: fixed-width prefixes so the feed
@@ -36,10 +38,12 @@ func roleTag(it feedItem) string {
 // ◐ waiting (queued/parked/idle), ✓ done.
 func stateGlyph(state string) string {
 	switch state {
-	case "executing", "live":
+	case coord.StateExecuting, StateLive:
 		return "●"
-	case "ended":
+	case StateEnded:
 		return "✓"
+	case StateUnknown:
+		return "?"
 	default:
 		return "◐"
 	}

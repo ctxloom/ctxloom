@@ -3,6 +3,16 @@ package tui
 import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
+)
+
+// The three labels an index session can carry when the coordinator has no
+// state for it. They are the session lock's three verdicts, one each: there
+// is no fourth, and none is a guess.
+const (
+	StateLive    = "live"
+	StateEnded   = coord.StateEnded
+	StateUnknown = "unknown"
 )
 
 // BuildRoster merges the session index (every session of this project) with
@@ -55,12 +65,9 @@ func rosterRows(index []sessions.Entry, bus []coord.RosterEntry, selfHarp string
 // indexRow renders one index entry, enriched by the coordinator's held row for
 // the same harp when there is one.
 func indexRow(e sessions.Entry, held coord.RosterEntry, isHeld bool) RosterRow {
-	state := "live"
-	if e.EndedAt != nil {
-		state = "ended"
-	}
-	row := RosterRow{Harp: e.HarpName, Engine: e.Backend, State: state}
+	row := RosterRow{Harp: e.HarpName, Engine: e.Backend}
 	if !isHeld {
+		row.State = lockState(e.HarpName)
 		return row
 	}
 	// The held row is richer, not authoritative: an absent field is something
@@ -69,13 +76,36 @@ func indexRow(e sessions.Entry, held coord.RosterEntry, isHeld bool) RosterRow {
 	if held.Agent != "" {
 		row.Agent = held.Agent
 	}
-	if held.State != "" {
-		row.State = held.State
-	}
 	if held.Parent != "" {
 		row.Parent = held.Parent
 	}
+	// The coordinator's state wins when it has one: it runs that child and
+	// knows. Without one it has nothing to say, and the lock is asked instead.
+	row.State = held.State
+	if row.State == "" {
+		row.State = lockState(e.HarpName)
+	}
 	return row
+}
+
+// lockState is the state label for a session the coordinator has no state
+// for. It comes from the session lock and from nothing else — never from the
+// index's ended_at, which is a fact about the past that lies about now in
+// both directions: a crashed session never wrote one and reads as live
+// forever, and a session resumed under its harp still carries the old one
+// and reads as ended while it runs. The lock's three verdicts are the three
+// labels; Indeterminate is reported as such rather than rounded to a guess.
+//
+// Inspect, never Acquire: this is a read-only view and must hold nothing.
+func lockState(harp string) string {
+	switch sessionlock.Inspect(harp).Verdict {
+	case sessionlock.Alive:
+		return StateLive
+	case sessionlock.Dead:
+		return StateEnded
+	default:
+		return StateUnknown
+	}
 }
 
 // placeLineage moves children under their parent, depth-indented, preserving

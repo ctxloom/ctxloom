@@ -4,20 +4,12 @@ How ctxloom turns "run this agent" into a running vendor engine process. This
 directory documents `internal/lm` (the backend registry, the gRPC plugin wire, the
 isolation seam, and the conformance suite) and the per-engine adapters.
 
-The antigravity engine (Google's `agy` CLI) was removed in 0.7.0 — its page
-and every antigravity-specific fact below have been retired along with it,
-not archived; see git history before this removal for the prior content.
-
-ACP (the Agent Client Protocol) and the kiro engine were removed the same way:
-`internal/acp`, `internal/acpagent`, `internal/kiro`, the generic `acp` backend
-and the `ctxloom acp` command tree are gone, along with their pages. Engines are
-now driven only by spawning the vendor's own CLI.
-
 **The one architectural fact to carry into everything else**: ctxloom holds no
 provider SDK and makes no direct model-API call. Every backend reaches its model by
 spawning the **vendor's own binary**. This is a
 licensing invariant, not a style preference, and it lives in the *shape* of the
-registry table (`internal/lm/backends/registry.go:239-260`).
+registry table — the doc comment above `init()` in
+`internal/lm/backends/registry.go` states it.
 
 ## Start here
 
@@ -32,12 +24,12 @@ registry table (`internal/lm/backends/registry.go:239-260`).
 
 | Page | Backend id | Drive | `plan` enforced? | Notable |
 |---|---|---|---|---|
-| [claude](claude.md) | `claude-code` | vendor CLI | **yes** | The exercised default; the **only** engine with a native per-tool deny list and the only one whose approaches carry an out-of-cwd form (`agent.OutOfCwd`) |
-| [codex](codex.md) | `codex` | vendor CLI | **yes** | Owns `CODEX_HOME`; prompts and skills are **global-only**; experimental, never run against a real account |
-| [opencode](opencode.md) | `opencode` | vendor CLI | **yes** | Transient-overlay config; the **only** engine with a live `History()`; support status undeclared |
+| [claude](claude.md) | `claude-code` | vendor CLI | **yes** | The exercised default. Carries a native per-tool deny list, and its approaches declare an out-of-cwd form (`agent.OutOfCwd`) so a shared cwd is never written into |
 | [mockengine](mockengine.md) | *(not a backend)* | it *is* the engine | n/a | A fake vendor CLI that proves context delivery — and what a mock-only pass does not prove |
 
-
+The in-process test doubles (`config.BackendMock` and its siblings) are
+registered backends too; they have no page of their own and are described
+alongside the registry in [Backend abstraction & registry](backend-abstraction.md).
 
 ## The shape of the launch path
 
@@ -69,17 +61,16 @@ These are documented in full on the pages above; they are collected here because
 each one contradicts what the surrounding code looks like it does.
 
 1. **The launch wire is hand-written and nothing but a test binds it to the Go struct.** `internal/shared/agent.ManagedConfig` and proto `ManagedConfig` agree on 7 fields today; they disagreed on 2 until `40b49a7f`, and `Skills` + `DenyTools` reached **no** launched engine for as long as that lasted. The guard is now `internal/lm/grpc/arch_test.go` — a reflective sweep that names no field, so it covers fields added after it. → [wire](grpc-wire.md), [matrix §3](capability-matrix.md)
-2. ~~**`wire.Hook.PreToolFallback` is always `false` on the engine side**~~ — **RESOLVED `40b49a7f`.** It is persisted, bundled, trust-hashed and now carried; the field's one consumer (antigravity) was removed in 0.7.0, and the field stays wired for whichever future engine needs it next. → [wire](grpc-wire.md)
+2. ~~**`wire.Hook.PreToolFallback` is always `false` on the engine side**~~ — **RESOLVED `40b49a7f`.** It is persisted, bundled, trust-hashed and now carried; no registered engine reads it at launch today, and it stays wired for whichever engine needs it next. → [wire](grpc-wire.md)
 3. ~~**`ChatRequest.Runtime` does not cross the wire**~~ — **RESOLVED `40b49a7f`.** It used to mean a container-bound structured session ran the engine on the host while the session summary reported container isolation. Repairing it *activated* a path-confinement hole it had been masking, which is why confinement landed first (`73ea8d7f`). → [wire](grpc-wire.md)
-4. ~~**An unprofiled backend's container inherits claude's credentials.**~~ — **RESOLVED `a6d9bd95`.** The `default:` arm of `engineContainerSpecFor` (renamed from `containerProfileFor`) returned `resolveClaudeContainerAuth` for any unrecognized engine — and a generic `acp` backend was registered at the time. It now fails closed, and `runtime: container-*` for an engine with no auth mapping is refused when the binding is *written*, not when it is launched. → [isolation](isolation.md)
-5. **Only `claude-code` can isolate a shared cwd without a container.** No other engine declares an approach implementing `agent.OutOfCwd`, so a shared-cwd delivery falls back to the loudly-warned well-known write and concurrent per-agent isolation needs a worktree or a container cell. → [matrix §4](capability-matrix.md)
-6. **Three of four engines deleted their transcript scrapers outright** rather than demoting them; only opencode has a live `History()`, via `opencode session list` / `opencode export`. → [matrix §6](capability-matrix.md)
+4. ~~**An unprofiled backend's container inherits claude's credentials.**~~ — **RESOLVED `a6d9bd95`.** The `default:` arm of `engineContainerSpecFor` returned `resolveClaudeContainerAuth` for any unrecognized engine. It now fails closed, and `runtime: container-*` for an engine with no auth mapping is refused when the binding is *written*, not when it is launched. → [isolation](isolation.md)
+5. **Isolating a shared cwd without a container requires `agent.OutOfCwd`.** claude-code's approaches declare it; a backend whose approaches lack it falls back to the loudly-warned well-known write, and concurrent per-agent isolation for it needs a worktree or a container cell. → [matrix §4](capability-matrix.md)
+6. **No registered backend has a live transcript scraper.** claude-code's was deleted outright rather than demoted (`IsRetiredScraperBackend` names it), and a `nil` `History()` fails loudly at both consumers; canonical capture is written runner-side into `internal/transcript`. → [matrix §6](capability-matrix.md)
 
 ## Scope
 
 Covered here: `internal/lm/backends`, `internal/lm/conformance`, `internal/lm/grpc`,
-`internal/lm/isolation`, `internal/claude`, `internal/codex`,
-`internal/opencode`, `internal/mockengine`.
+`internal/lm/isolation`, `internal/claude`, `internal/mockengine`.
 
 Types shared with the rest of the system — `agent.Backend`, `agent.ManagedConfig`,
 `agent.PermissionMode`, `agent.SurfaceInputs`, `agent.CellKind` — live in

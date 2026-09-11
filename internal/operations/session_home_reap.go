@@ -107,7 +107,7 @@ func ReapOrphanedSessionHomes(appPath string) (SessionHomeReapResult, error) {
 		return result, fmt.Errorf("scan %q: %w", stateDir, err)
 	}
 
-	_, known, err := sessionLiveness()
+	known, err := knownSessions()
 	if err != nil {
 		return SessionHomeReapResult{}, err
 	}
@@ -164,31 +164,27 @@ func reclaimInstance(stateDir, harp string) reclaimOutcome {
 	return reclaimReaped
 }
 
-// sessionLiveness reads the session index once and returns two harp sets: the
-// LIVE ones (an entry exists and its EndedAt is nil) and the KNOWN ones (an
-// entry exists at all, ended or not). Known is what lets an index-recorded
-// harp be a candidate without carrying the structural instance marker.
+// knownSessions reads the session index once and returns the set of harps it
+// carries an entry for, ended or not. Known is what lets an index-recorded
+// harp be a candidate without carrying the structural instance marker; it
+// says nothing about liveness, which is the lock's to decide.
 //
-// An index that cannot be read is an error, never an empty pair — see
+// An index that cannot be read is an error, never an empty set — see
 // ReapOrphanedSessionHomes' "no index, no sweep".
-func sessionLiveness() (live, known map[string]bool, err error) {
+func knownSessions() (map[string]bool, error) {
 	mgr, err := openSessions()
 	if err != nil {
-		return nil, nil, fmt.Errorf("open session index: %w", err)
+		return nil, fmt.Errorf("open session index: %w", err)
 	}
 	idx, err := mgr.Load()
 	if err != nil {
-		return nil, nil, fmt.Errorf("read session index: %w", err)
+		return nil, fmt.Errorf("read session index: %w", err)
 	}
-	live = make(map[string]bool, len(idx.Sessions))
-	known = make(map[string]bool, len(idx.Sessions))
+	known := make(map[string]bool, len(idx.Sessions))
 	for _, e := range idx.Sessions {
 		known[e.HarpName] = true
-		if e.EndedAt == nil {
-			live[e.HarpName] = true
-		}
 	}
-	return live, known, nil
+	return known, nil
 }
 
 // isSessionInstanceCandidate applies the allow-shape documented on

@@ -21,7 +21,7 @@ reuses its `internal/ltk/engine` install machinery.
 
 ```mermaid
 flowchart TD
-    HOST["LLM harness<br/>(Claude Code / Antigravity)"] -->|"PreToolUse payload on stdin"| RE
+    HOST["LLM harness<br/>(Claude Code)"] -->|"PreToolUse payload on stdin"| RE
 
     subgraph edge["cmd/ltk — process edge"]
       RE["runEvaluate<br/>evaluate.go:68"]
@@ -32,7 +32,7 @@ flowchart TD
     end
 
     RE --> EV
-    EV -->|"engine.Get(name)"| ADPT["engine.Adapter.Decode<br/>engine/claudecode.go:35<br/>engine/antigravity.go:30"]
+    EV -->|"engine.Get(name)"| ADPT["engine.Adapter.Decode<br/>engine/claudecode.go:35"]
     ADPT -->|"engine.Request<br/>{ToolName, Command, Shell, FilePath, ToolUngated}"| EV
     EV --> LC
     EV -->|"guard failed"| FC
@@ -96,7 +96,7 @@ flowchart TD
 
 **Read the diagram this way:** every path terminates in an `engine.Response`, and the only
 things that reach the host are `Output.Stdout` bytes and exit code 0. An *allow* is encoded
-as **zero bytes** (`claudecode.go:78-80`, `antigravity.go:59-61`), so allow-because-clean and
+as **zero bytes** (`claudecode.go:78-80`), so allow-because-clean and
 allow-because-unanalyzed are byte-identical on the wire.
 
 ---
@@ -295,9 +295,7 @@ classDiagram
     Adapter ..> Response
     Adapter ..> Output
     class ClaudeCode { «struct{}» }
-    class Antigravity { «struct{}» }
     ClaudeCode ..|> Engine
-    Antigravity ..|> Engine
 ```
 
 | Symbol | file:line | Notes |
@@ -306,14 +304,13 @@ classDiagram
 | `Response` | `engine/engine.go:42` | `{Allow, Reason, Suggest}` is the wire decision; `{Confirmable, ConfirmWindowSeconds, ConfirmDelaySeconds}` is a policy triple that **no `Encode` reads** — it is consumed by `cmd/ltk/evaluate.go:158-167` before encoding |
 | `Response.Message()` | `engine/engine.go:56` | Three-way join of `Reason`+`Suggest`; returns `""` when both are empty, and `EncodeDeny("")` still emits a well-formed deny |
 | `Output` | `engine/engine.go:75` | Protocol is "deny → JSON on Stdout, ExitCode 0; allow → empty". `Stderr` is read but never written; `ExitCode` is only ever literal 0 |
-| `Get` / `Detect` | `engine/engine.go:136`, `:151` | `Get` resolves aliases (`engineAliases`, `:126`) and refuses prefix matching — a typo must error. `Detect` scores each engine and takes the highest with strict `>`, so a tie goes to whoever is first in `engines()` (`:121`), which is `ClaudeCode` |
+| `Get` / `Detect` | `engine/engine.go` | `Get` canonicalises the spelling through the shared `agent.CanonicalEngineName` and refuses prefix matching — a typo must error. `Detect` scores each engine and takes the highest with strict `>`, so a tie goes to whoever is first in `engines()` |
 | `ClaudeCode` | `engine/claudecode.go:26` | `.claude/` dir → score 2. `Decode` falls back `file_path`→`notebook_path` (`:40-46`). `HookCommand` = `bin + " evaluate"` (+`--config <quoted>`), `:157` |
-| `Antigravity` | `engine/antigravity.go:24` | `.agents/hooks.json` file → 2, bare `.agents/` dir → 1. `SettingsPath(global)` **refuses** (`errAntigravityNoGlobal`, `:114`). `HookCommand` rebases a relative config to `../` because agy runs hooks with cwd `.agents` (`:125`) |
 
 The shared hooks.json machinery (`mergePreToolUseHook` `claudecode.go:218`,
 `removePreToolUseHook` `:258`, `decodeSettings` `:331`, `childMap` `:341`, `childSlice` `:354`,
-`quotePathIfNeeded` `:173`) lives in `claudecode.go` but is called from `antigravity.go` and from
-`cmd/taskloom/manage.go`.
+`quotePathIfNeeded` `:173`) lives in `claudecode.go`; it is the hooks.json contract any further
+hooks.json-shaped engine would share.
 
 ---
 
@@ -450,16 +447,15 @@ flowchart LR
 **Hold, and are load-bearing:**
 
 1. **The hook path never exits non-zero.** Every decision `evaluate` produces routes through
-   `failClosed` or a normal encode, all with `ExitCode: 0`. Antigravity fails *open* on a
-   crashing hook (`antigravity.go:22-23`), so a denial must be a well-formed document, never an
-   exit code. Residual: `evaluate.go:74-76` and `:170-173` return plain errors on a write/encode
+   `failClosed` or a normal encode, all with `ExitCode: 0`. A harness that fails *open* on a
+   crashing hook would turn a non-zero exit into an allow, so a denial must be a well-formed
+   document, never an exit code. Residual: `evaluate.go:74-76` and `:170-173` return plain errors on a write/encode
    failure, which reach `main.go:61-64` and exit 1.
 2. **Depth truncation fails closed** (`app.go:194-195`), independent of `on_parse_error`.
 3. **An ungated tool fails closed.** A tool the adapter matched but whose payload it cannot read
    is denied with an explanatory reason (`evaluate.go:146`, `ungatedToolDenyReason` `:207`).
-4. **Allow is encoded as silence**, not as approval — `claudecode.go:76-77` and
-   `antigravity.go:21` are explicit that an empty `Output` means "let the normal permission flow
-   proceed".
+4. **Allow is encoded as silence**, not as approval — `claudecode.go:76-77` is explicit that an
+   empty `Output` means "let the normal permission flow proceed".
 5. **`deny` is the default action** for a rule with no `action:` (`Rule.action`, `rules.go:104`);
    `enable` is the default mode (`rules.go:112`).
 6. **An entirely empty `Match` matches nothing** (`hasConstraint`, `rules.go:307`), to avoid an
@@ -507,8 +503,7 @@ flowchart LR
 
 1. `App.ForceShell` — `--shell` flag; set externally at `cmd/ltk/evaluate.go:151`, `check.go:89`
 2. the per-request `hint` — `Request.Shell`, set by the adapter's `Decode`
-   (`ccShellForTool` `claudecode.go:65` substring-matches "powershell"/"pwsh";
-   `agShellForTool` `antigravity.go:48` maps run/execute_command → bash)
+   (`ccShellForTool` `claudecode.go:65` substring-matches "powershell"/"pwsh")
 3. `Config.Defaults.Shell`
 4. `App.HostShell` — `shellenv.FromEnv(os.Getenv("SHELL"))`, set at `evaluate.go:152`, `check.go:90`
 5. `App.DefaultShell` — `ir.ShellBash`, set by `New` (`app.go:64`)

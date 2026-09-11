@@ -18,7 +18,7 @@ import "github.com/ctxloom/ctxloom/internal/shared/agent/present"
 // command exports are managed files: on Deliver it writes the enabled
 // exports, and its cleanup reverts exactly the manifest-tracked set by
 // re-writing with no exports. Managed command files are cwd-rooted with no
-// SharedRealization, so a SHARED-cwd delivery of it falls back to the loud
+// out-of-cwd form, so a SHARED-cwd delivery of it falls back to the loud
 // well-known write; it carries an engine/surface name (e.g. "codex/commands")
 // and self-describes for that fallback's warning via UnsafeInfo.
 type ManagedCommandsDelivery struct {

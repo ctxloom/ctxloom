@@ -544,7 +544,7 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 // The NATIVE-file backend (kiro) reads context from
 // .kiro/steering and DIVERTS the injection hook, so for it apply names
 // WithContext(UnsafeFile), materializing the context surface with the assembled
-// context. contextViaHook (descriptor-keyed via SupportedApproaches) picks the
+// context. contextViaHook (read from the engine's Declaration) picks the
 // right approach per backend — the enum-driven replacement for the retired
 // contextViaNativeFile bool. Commands are delivered only when there are prompts,
 // preserving the prior guard (no prompts ⇒ command files left untouched).

@@ -54,7 +54,7 @@ type LMConfig struct {
 const BackendClaudeCode = "claude-code"
 
 // BackendMock is the test/development double's registry name. It is a real
-// registered backend (internal/lm/backends builds a SurfaceSet for it), and
+// registered backend (internal/lm/backends holds a Declaration for it), and
 // it is the SECOND implementation that keeps engine-facing ports honest —
 // see internal/transcript/vendorreader/mock. Named here so the identity is
 // one constant rather than a literal re-typed at each site; a hand-written

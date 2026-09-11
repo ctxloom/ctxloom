@@ -496,7 +496,7 @@ func (b *LaunchBackend) deliverSet(in SurfaceInputs, req *SetupRequest, start pr
 // It is the one mechanism that actually gets hook-carried context to a
 // flag-context backend (claude): both recoverContextViaHook's failure
 // fallback and a deliberately-selected ApproachHook context surface (a
-// documented no-op WRITE — see noopContextDelivery — that otherwise installs
+// documented no-op WRITE — the Rider, HookCarriedContext — that otherwise installs
 // nothing at all) route through here. It appends ONLY the injection hook
 // (never re-runs MergeManaged, which would clobber the statusline state).
 // Reports whether the install took hold.

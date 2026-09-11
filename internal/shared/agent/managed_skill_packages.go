@@ -26,7 +26,7 @@ import (
 // skill exports are managed package trees: on Deliver it writes every enabled
 // package, and its cleanup reverts exactly the manifest-tracked file set by
 // re-writing with no packages. Managed skill files are cwd-rooted with no
-// SharedRealization (no engine has an out-of-cwd flag for a skill package), so
+// out-of-cwd form (no engine has an out-of-cwd flag for a skill package), so
 // a SHARED-cwd delivery of it falls back to the loud well-known write; it
 // carries an engine/surface name (e.g. "claude/skills") and self-describes for
 // that fallback's warning via UnsafeInfo.

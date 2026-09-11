@@ -40,11 +40,19 @@ import (
 // own name, declared here and nowhere shared: no other engine has it.
 const ApproachSystemPrompt = "system-prompt"
 
-// dirPlacement is a trivial agent.Placement whose Dir() returns a fixed
-// directory. It adapts a root read from the advised Start into the Placement
-// the reused writers (fileTemplateDelivery, appendFlagDelivery) construct
-// against — the project root for the well-known Delivery, the Scratch root
-// for the out-of-cwd forms; both arrive at call time, never at construction.
+// placement is where a file-writing strategy writes: the reused writers
+// (fileTemplateDelivery, appendFlagDelivery) hold one, injected at
+// construction, never passed as a method parameter.
+type placement interface {
+	// Dir returns the directory the strategy writes into.
+	Dir() string
+}
+
+// dirPlacement is a trivial placement whose Dir() returns a fixed directory.
+// It adapts a root read from the advised Start into the placement the reused
+// writers construct against — the project root for the well-known Delivery,
+// the Scratch root for the out-of-cwd forms; both arrive at call time, never
+// at construction.
 type dirPlacement struct{ dir string }
 
 // Dir returns the fixed directory this placement wraps.
@@ -183,8 +191,7 @@ type settingsSurface struct {
 	// per-tool identifiers (e.g. "Task") this run's settings.json denies via
 	// permissions.deny. Threaded to fileTemplateDelivery as a RECEIVER field
 	// (below), mirroring mcpSurface.commandOverride, so DeliverSettings's
-	// signature stays exactly agent.SettingsDelivery — no cross-module
-	// interface change for an engine-specific extra.
+	// signature stays unchanged for an engine-specific extra.
 	denyTools []string
 	fs        afero.Fs
 	path      string // set by DeliverIsolated: the out-of-cwd settings.json
@@ -330,7 +337,7 @@ var (
 	_ agent.Approach   = (*settingsSurface)(nil)
 	_ agent.OutOfCwd   = (*settingsSurface)(nil)
 	_ agent.Approach   = (*commandsSurface)(nil)
-	_ agent.Placement  = dirPlacement{}
+	_ placement        = dirPlacement{}
 )
 
 // pathed is the shape flagArgs reads off a delivered out-of-cwd form: the

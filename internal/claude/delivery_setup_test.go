@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// dirPlace is a minimal agent.Placement writing into a fixed directory, used by
+// dirPlace is a minimal placement writing into a fixed directory, used by
 // the focused delivery tests to target an explicit dir without the agent
 // package's unexported placement types.
 type dirPlace struct{ dir string }

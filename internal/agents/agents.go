@@ -70,7 +70,7 @@ type Agent struct {
 	// caller that can safely prefer system-prompt — the approach that has no
 	// argv sink at rest and so cannot be any table's default.
 	//
-	// Validated against the engine's SupportedApproaches when it is WRITTEN
+	// Validated against the engine's Declaration when it is WRITTEN
 	// (Validate below), not at launch: system-prompt is claude-only, and a kiro
 	// agent asking for it should learn so from the command that set it rather
 	// than from a session that behaves unexpectedly later.

@@ -20,7 +20,7 @@ import (
 // docs/design/engine-delivery-seam.design.md, "The mock engine implements
 // both halves").
 //
-// Before this file, BuildSurfaces("mock", …) returned agent.EmptySurfaceSet:
+// Before this file, mock declared nothing:
 // the mock materialized nothing, so no hermetic test could prove a fragment
 // actually reached a delivered FILE — every delivery assertion either ran
 // against a live engine or was vacuous. This is not a test convenience; it is
@@ -44,10 +44,8 @@ import (
 // second skill-materializing path in the mock would prove the mock, not the
 // seam.
 //
-// MCP, settings and commands stay on EmptySurfaceSet's refusal path for mock —
-// deliberately. mock's hook loss stays DECLARED via noHooksReason
-// (registry.go): it has no settings surface for a session_start hook to land
-// on, and gaining a skills surface does not change that.
+// mock's hook loss stays DECLARED via noHooksReason (registry.go) where a
+// double declares one; the complete mock carries a settings surface.
 
 // mockContextFilename is the mock engine's well-known context file — its
 // analogue of CLAUDE.md / AGENTS.md. It lives at the target dir's ROOT (not

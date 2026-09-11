@@ -72,7 +72,7 @@ import (
 // codex's DEFAULT context route — ctxloom really does deliver a codex agent's
 // composed context by writing a SessionStart hook and letting codex ingest what
 // it prints. claude declares ApproachHook too, but claude's SurfaceFor resolves
-// that pair to noopContextDelivery — the documented no-op that never carries —
+// that pair to the shared HookCarriedContext — a Rider whose own Deliver is a documented no-op —
 // so ctxloom does not deliver claude's context that way and this probe must not
 // pretend it can observe it. opencode has no hook mechanism.
 //

@@ -416,8 +416,8 @@ func manageWorkDir(workDir string) string {
 // `manage hooks uninstall --backend <typo>` report Status "removed" listing the
 // typo while removing nothing: every layer below reads an unregistered backend
 // as a permitted no-op (RemoveSettings returns nil with no settings writer;
-// BuildSurfaces returns an EmptySurfaceSet whose nil SupportedApproaches makes
-// Select skip the kind), so no error ever surfaced and the name was appended to
+// Declared returns an empty Declaration, so Select skips every kind), so no
+// error ever surfaced and the name was appended to
 // `removed`. The user's harness was still installed and they had been told it
 // was gone. MaterializeProfile in this same package already guards with
 // backends.Exists — this is that guard, at the other door.

@@ -195,7 +195,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 			req.Profiles, backend, req.Target)
 	}
 
-	// Build the backend's OWN SurfaceSet from the assembled pieces and deliver
+	// Select over the backend's OWN Declaration with the assembled pieces and deliver
 	// every native surface into the target as an isolated cell — the single,
 	// per-provider-correct delivery path (claude → CLAUDE.md + .mcp.json +
 	// .claude/settings.json + .claude/commands; kiro →

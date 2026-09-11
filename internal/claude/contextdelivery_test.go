@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// fakePlacement is a local agent.Placement test-double: Dir() returns a fixed
+// fakePlacement is a local placement test-double: Dir() returns a fixed
 // directory (a test temp dir). It stands in for the package-agent placements
 // (ephemeralPlacement / cwdPlacement) which are unexported and not constructible
 // from here.

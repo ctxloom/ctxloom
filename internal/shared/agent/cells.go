@@ -159,10 +159,9 @@ type KindedDelivery interface {
 // engines, and the raw fragments for codex's file writer), the merged MCP config
 // + profile/builtin bundle servers, the merged hook set + statusline policy, and
 // the command exports. Setup fills it once (from req + the merged lifecycle state)
-// and hands it to a backend's CellDelivery.Build closure, which picks the fields
-// IT needs and calls its own NewSurfaces. It is the cross-backend contract that
-// lets the generic Setup build any backend's SurfaceSet without importing the
-// concrete backend.
+// and hands it to every selected approach's Construct, which picks the fields
+// IT needs. It is the cross-backend contract that lets the generic Setup build
+// any engine's approaches without importing the concrete engine.
 type SurfaceInputs struct {
 	Context          string
 	Fragments        []*Fragment

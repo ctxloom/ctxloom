@@ -21,8 +21,8 @@ Feature: The close-out — the end of a workstream
 
   # NOTE ON SCOPE. `session worktrees`, `session purge` and doctor's checks
   # ship. The `cleanup` routine does not, and its scenario is its acceptance
-  # definition. Ten of the eleven scenarios pass; the one tagged @wip is red,
-  # and that is the deliverable rather than a defect in the file.
+  # definition. Every scenario here passes EXCEPT the one tagged @wip, which is
+  # red, and that is the deliverable rather than a defect in the file.
   #
   # COMMAND SURFACES THIS FILE COVERS: `ctxloom doctor`, `session worktrees`
   # and its `purge` leaf, `session purge` and `session transcript purge`, and
@@ -36,7 +36,7 @@ Feature: The close-out — the end of a workstream
   # entirely by what it REFUSES to do, and a refusal cannot be tested against a
   # fixture with nothing to refuse. So these scenarios build the real debris:
   # genuine `git worktree add` checkouts inside a harp's own ephemeral
-  # directory with real sibling owner-pid markers, foreign long-lived worktrees
+  # directory beside real session liveness locks, foreign long-lived worktrees
   # outside the sessions root, uncommitted work, and harp directories carrying
   # machine-written bulk beside human-authored plan files. Every "spared",
   # "skipped" and "preserved" assertion reads a real file that a wrong
@@ -50,10 +50,11 @@ Feature: The close-out — the end of a workstream
   # force-remove, no dirty or unmerged or unowned trees, no live session, no
   # sweeping an undistilled session, no touching vendor stores.
   #
-  # NOTE ON TAGS. One of the eleven scenarios is @wip, with its own untag
-  # condition. The other ten pass today; each says what closed it rather than
-  # being left silent. Keep this count honest — it is the first thing a reader
-  # uses to decide how much of this file is still a wish.
+  # NOTE ON TAGS. Exactly one scenario carries @wip, and it states its own
+  # untag condition. Every other scenario passes today and says what closed it
+  # rather than being left silent. Keep that property true — whether anything
+  # here is still a wish is the first thing a reader needs, and a @wip tag is
+  # the only honest way to say so.
 
   Background:
     Given the feature shipped on Friday and Alice is closing the workstream out
@@ -125,36 +126,64 @@ Feature: The close-out — the end of a workstream
   # anything is removed.
   Scenario: The scratch worktrees are listed before anything is removed
     Given a finished session "amber-quiet-heron" whose work is already distilled
-    And session "amber-quiet-heron" left a clean scratch worktree whose owning process is dead
+    And session "amber-quiet-heron" left a clean scratch worktree
     And session "amber-quiet-heron" left a scratch worktree holding uncommitted work
     When I run "ctxloom session worktrees"
     Then the report names each scratch worktree with its harp, its owner and its verdict
 
-  # THE SAFETY SCENARIO, and the one that must never be weakened. Four trees,
-  # four different verdicts, one invocation. Only the clean tree with a
-  # provably-dead owner may go. Uncommitted work is spared IN PLACE — not
-  # stashed, not branched, not "recoverable from reflog": still sitting where
-  # its author left it. A tree whose owner cannot be proven dead is treated
-  # exactly like one whose owner is alive, because "I cannot tell" and "yes,
-  # someone is using this" have the same correct answer.
+  # THE SAFETY SCENARIO, and the one that must never be weakened. Only the
+  # clean tree of a session that can be PROVEN ended may go. Uncommitted work
+  # is spared IN PLACE — not stashed, not branched, not "recoverable from
+  # reflog": still sitting where its author left it.
   #
   # This project has lost work to a force-removed worktree before. That is why
   # the assertion reads the WIP file's own bytes off disk rather than checking
   # that a directory still exists.
+  #
+  # ONE SESSION PER OWNER-STATE, and the split is forced by the product rather
+  # than chosen: liveness is the SESSION's (an exclusive lock held for its
+  # lifetime — internal/shared/sessionlock), so one harp can no longer hold a
+  # dead-owned and a live-owned worktree at once. Clean-vs-dirty still varies
+  # WITHIN the ended session, because that is a property of the checkout. The
+  # running and unprovable populations keep their own sessions, and this
+  # scenario proves a harp-scoped purge does not stray outside its harp; the
+  # two scenarios below pin what happens when they are the TARGET.
   #
   # `session worktrees purge <harp> --yes` drives isolation.ReapWorktrees over
   # exactly what isolation.ClassifyOrphanedWorktrees just classified, and
   # reports its outcome taxonomy (reaped/spared/skipped).
   Scenario: Purging removes only what it can prove is safe, and says why it left the rest
     Given a finished session "amber-quiet-heron" whose work is already distilled
-    And session "amber-quiet-heron" left a clean scratch worktree whose owning process is dead
+    And session "amber-quiet-heron" left a clean scratch worktree
     And session "amber-quiet-heron" left a scratch worktree holding uncommitted work
-    And session "amber-quiet-heron" left a scratch worktree nothing can prove the owner of
-    And session "amber-quiet-heron" left a scratch worktree whose owning process is still alive
+    And a session "teal-running-wren" that is still running
+    And session "teal-running-wren" left a scratch worktree of its own
+    And a session "slate-unproven-vole" nothing can prove the liveness of
+    And session "slate-unproven-vole" left a scratch worktree of its own
     When I run "ctxloom session worktrees purge amber-quiet-heron --yes"
     Then only the clean, provably-orphaned worktree is gone from disk
     And the uncommitted work is still there, spared in place
     And the report says why each spared worktree was left alone
+
+  # THE LIVE-SESSION ARM, and the incident this whole design guards against:
+  # reaping out from under a session that is still running. The tree here is
+  # genuinely CLEAN — every other signal would call it reapable — and it
+  # survives purely because its owning session still holds its lock.
+  Scenario: Purging a session that is still running removes nothing
+    Given a session "teal-running-wren" that is still running
+    And session "teal-running-wren" left a clean scratch worktree
+    When I run "ctxloom session worktrees purge teal-running-wren --yes"
+    Then no worktree of "teal-running-wren" is removed, and ctxloom says it could prove nothing safe
+
+  # THE UNPROVABLE ARM. A session with no lock file at all cannot be proven
+  # ended, and "I cannot tell" and "yes, someone is using this" have the same
+  # correct answer. A MISSING lock must never read as a free one — that is the
+  # single inversion that would turn this sweep into data loss.
+  Scenario: Purging a session nothing can prove the liveness of removes nothing
+    Given a session "slate-unproven-vole" nothing can prove the liveness of
+    And session "slate-unproven-vole" left a clean scratch worktree
+    When I run "ctxloom session worktrees purge slate-unproven-vole --yes"
+    Then no worktree of "slate-unproven-vole" is removed, and ctxloom says it could prove nothing safe
 
   # The population split, pinned so it cannot erode. Foreign worktrees are
   # invisible to the candidate finder by construction — they live outside the
@@ -167,7 +196,7 @@ Feature: The close-out — the end of a workstream
   # ~/.ctxloom/sessions/, so this population is never even candidate-listed.
   Scenario: Her own long-lived worktrees are not this verb's business
     Given a finished session "amber-quiet-heron" whose work is already distilled
-    And session "amber-quiet-heron" left a clean scratch worktree whose owning process is dead
+    And session "amber-quiet-heron" left a clean scratch worktree
     And a long-lived worktree "stale-feature" of her own, outside the sessions root, with unmerged work
     When I run "ctxloom session worktrees purge amber-quiet-heron --yes"
     Then her own long-lived worktree is untouched and was never listed

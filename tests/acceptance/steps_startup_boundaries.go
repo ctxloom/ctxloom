@@ -64,9 +64,10 @@ func registerStartupBoundarySteps(ctx *godog.ScenarioContext) {
 	// load-bearing, because the reaper spares anything it cannot prove safe:
 	// a live/unprovable owner is SKIPPED and a dirty tree is SPARED, and
 	// either would leave the directory standing for reasons that have nothing
-	// to do with --dry-run. seedScratchWorktree refuses to plant this outside
-	// the scenario's own isolated root — see its doc for why a reaper fixture
-	// gets a guard no other fixture needs.
+	// to do with --dry-run. The owner is the SESSION, proven ended by a free
+	// lock. seedScratchWorktree refuses to plant this outside the scenario's
+	// own isolated root — see its doc for why a reaper fixture gets a guard no
+	// other fixture needs.
 	ctx.Step(`^a crashed run left a clean orphaned per-agent worktree$`, func(c context.Context) error {
 		w := worldFrom(c)
 		// `git worktree add -b` needs a valid HEAD to branch from, and the
@@ -78,7 +79,11 @@ func registerStartupBoundarySteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		wtDir := scratchWorktreeDir(w, orphanHarp, orphanName)
-		if err := seedScratchWorktree(w, wtDir, "wt-"+orphanName, deadOwnerPid); err != nil {
+		if err := seedScratchWorktree(w, wtDir, "wt-"+orphanName); err != nil {
+			return err
+		}
+		// The owning session has ENDED: its lock file is there and free.
+		if err := seedDeadSession(w, orphanHarp); err != nil {
 			return err
 		}
 		// Prove the fixture is what the reaper is looking for before any
@@ -87,8 +92,8 @@ func registerStartupBoundarySteps(ctx *godog.ScenarioContext) {
 		if _, err := os.Stat(wtDir); err != nil {
 			return fmt.Errorf("the seeded orphan checkout is not on disk: %w", err)
 		}
-		if _, err := os.Stat(wtDir + scratchWorktreeOwnerSuffix); err != nil {
-			return fmt.Errorf("the seeded orphan has no owner marker, so the reaper would SKIP it for want of proof rather than because of any flag: %w", err)
+		if _, err := os.Stat(harpLockPathIn(w, orphanHarp)); err != nil {
+			return fmt.Errorf("the seeded orphan's session has no liveness lock, so the reaper would SKIP it for want of proof rather than because of any flag: %w", err)
 		}
 		w.orphanWorktree = wtDir
 		return nil

@@ -20,10 +20,11 @@ import (
 // transcript path (paths.HarpCanonicalTranscriptPath), creating the persist/
 // dir as NewRecorder's real writer would. Returns the destination path.
 // installFixture copies testdata/fixtures/<name>.transcript.acp.jsonl into
-// harp's canonical transcript path. NOTE: name is the FIXTURE BASENAME, not a
-// backend registry name — the claude fixture is "claude", not "claude-code".
-// Passing a registry name here fails as a missing FILE, which reads like a
-// broken test rather than a wrong argument.
+// harp's canonical transcript path. name is the FIXTURE BASENAME, which for a
+// live engine is its backend registry name (fixtures_test.go's
+// TestFixtures_EngineEnumMatchesManifest pins basename == engine field).
+// A name with no file fails as a missing FILE, which reads like a broken
+// test rather than a wrong argument.
 func installFixture(t *testing.T, name, harp string) string {
 	t.Helper()
 	src := filepath.Join("testdata", "fixtures", name+".transcript.acp.jsonl")
@@ -96,9 +97,9 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 		assert.False(t, byType["tool_result"][0].IsError)
 	})
 
-	t.Run("claude", func(t *testing.T) {
+	t.Run("claude-code", func(t *testing.T) {
 		harp := "claude-fixture-harp"
-		installFixture(t, "claude", harp)
+		installFixture(t, "claude-code", harp)
 		h := NewCanonicalHistory("/proj/claude", sessions.NewMemStore())
 
 		sess, err := h.GetSession(ctx, harp)

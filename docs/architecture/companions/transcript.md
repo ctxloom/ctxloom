@@ -270,11 +270,6 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
 
 - **"The payloads mirror `agent.ChatEvent` field-for-field"** (`record.go:9-12`) —
   `SessionPayload` drops `Resumable`, `PermissionPayload` drops `ToolCallID`.
-- **`Record.Engine` is written unvalidated from the registered backend name**, which for claude is
-  `"claude-code"` — a value `docs/transcript.schema.json`'s `engine` enum does not admit. Every real claude
-  transcript on disk violates the shipped schema. Nothing validates at runtime, and the one schema
-  test constructs its recorder with `"claude"` (`claude_test.go:127`), a string production never
-  emits. `internal/lm/backends/mock.go:43` additionally registers `"mock"`.
 - **`GetSession` "returns an error, not an empty Session"** (`history.go:66-70`) — true for an
   absent file, not for a zero-byte or all-corrupt one.
 - **`Tee` "never blocks"** (`recorder.go:231`) — the goroutine blocks unboundedly on `out <- ev`

@@ -7,7 +7,7 @@
       "synthetic": "thinking entry (codex's reasoning.summary was empty in every rollout on this box \u2014 no visible reasoning text to capture at the configured effort level) and the tool_use/tool_result pair (no rollout on this box contains a function_call)",
       "why_not_fully_real": "S1 has no capture wiring yet (that lands in S2); this fixture's real fields are hand-extracted from the engine's own native rollout file, not tee'd through a live ACP stream."
     },
-    "claude.transcript.acp.jsonl": {
+    "claude-code.transcript.acp.jsonl": {
       "real_source": "~/.claude/projects/-tmp-TestACPLive-ClaudeBackendDelegation1132179987-001/eeacb0c6-c962-40f8-8322-c8615ea00631.jsonl \u2014 an ACTUAL claude-code-acp structured session (internal/acp live-acceptance test fixture) recorded on this box",
       "real_fields": "session_id, model (claude-opus-4-6), the user prompt 'Reply with exactly the single word: ping', and the assistant reply 'ping' \u2014 genuinely driven over the same ACP seam this schema targets",
       "synthetic": "thinking entry, tool_use/tool_result pair, and the complete/token accounting (the real fixture was a minimal ping/pong with no tool call and no token footer recorded in the jsonl line captured)",

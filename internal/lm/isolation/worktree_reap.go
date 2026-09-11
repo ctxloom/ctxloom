@@ -7,67 +7,20 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 )
-
-// worktreeOwnerSuffix names the sibling pid-marker file recordWorktreeOwner
-// writes NEXT TO each ephemeral worktree checkout — deliberately outside the
-// checkout itself (a sibling of the "ctxloom-wt-*" dir, not a file inside it),
-// so it can never appear in the worktree's own `git status` and can never
-// interact with the config-exclusion machinery (skipTrackedConfig,
-// excludeConfigFromMerge). ReapOrphanedWorktrees is the only reader.
-const worktreeOwnerSuffix = ".owner.pid"
 
 // worktreeReapTimeout bounds each candidate's git probing/removal during a
 // startup sweep, mirroring worktreeTeardownTimeout — but per-candidate, so one
 // wedged git call can't hang the whole sweep; the loop still moves on to the
 // next candidate once a candidate's own context expires.
 const worktreeReapTimeout = 30 * time.Second
-
-// recordWorktreeOwner stamps wtDir's sibling owner marker with this process's
-// pid (see worktreeOwnerSuffix). Best-effort: a failed write only means a
-// future startup sweep can never prove this worktree's owner is dead, so it
-// will be conservatively SKIPPED forever rather than force-reaped — it never
-// blocks or fails PrepareWorkspace itself.
-func recordWorktreeOwner(wtDir string) {
-	marker := wtDir + worktreeOwnerSuffix
-	if err := os.WriteFile(marker, fmt.Appendf(nil, "%d\n", os.Getpid()), 0o600); err != nil {
-		clidiag.Warn("ctxloom", "worktree: cannot record owner pid for %q (a crashed run would leave this un-reapable at startup): %v", wtDir, err)
-	}
-}
-
-// removeWorktreeOwnerMarker best-effort removes wtDir's sibling owner marker.
-// Called from both the graceful Cleanup path and ReapWorktrees (only once a
-// candidate is actually confirmed removed — see ReapWorktrees' doc) so a
-// marker never outlives the checkout it describes; a missing file is a
-// silent no-op (os.Remove's ErrNotExist is expected and uninteresting here).
-func removeWorktreeOwnerMarker(wtDir string) {
-	_ = os.Remove(wtDir + worktreeOwnerSuffix)
-}
-
-// readWorktreeOwner reads and parses wtDir's sibling owner marker, reporting
-// ok=false on ANY doubt (missing file, unreadable, unparsable, non-positive) —
-// the reaper treats "can't prove who owned this" identically to "still owned
-// by someone alive": never touch it.
-func readWorktreeOwner(wtDir string) (pid int, ok bool) {
-	raw, err := os.ReadFile(wtDir + worktreeOwnerSuffix)
-	if err != nil {
-		return 0, false
-	}
-	pid, err = strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil || pid <= 0 {
-		return 0, false
-	}
-	return pid, true
-}
 
 // WorktreeVerdict is one candidate's outcome, in the reaper's established
 // vocabulary (see WorktreeReapResult). It is a string type — not the old
@@ -87,9 +40,9 @@ const (
 	// became unsafe, between classification and removal — the TOCTOU case
 	// teardownWorktree's own re-check catches).
 	VerdictSpared WorktreeVerdict = "spared"
-	// VerdictSkipped: owner alive, owner indeterminate (no/unreadable
-	// marker), or the candidate's owning repo could not be resolved. Never
-	// touched.
+	// VerdictSkipped: the owning SESSION is alive or indeterminate (no lock
+	// file, an untrusted filesystem), or the candidate's owning repo could
+	// not be resolved. Never touched.
 	VerdictSkipped WorktreeVerdict = "skipped"
 )
 
@@ -107,12 +60,13 @@ type WorktreeCandidate struct {
 	// RepoDir is the owning repository, resolved via git.CommonDir; empty
 	// when it could not be resolved (Verdict is then always Skipped).
 	RepoDir string
-	// OwnerPID is the pid recorded in the candidate's sibling owner marker,
-	// or 0 when no marker was found (or it was unreadable/unparsable).
+	// OwnerPID is the pid read out of the owning SESSION's lock file, for a
+	// human reading a listing, or 0 when there was none to read. It plays no
+	// part in Owner and must not: see internal/shared/sessionlock.
 	OwnerPID int
-	// OwnerState is what pidalive.Probe said about OwnerPID. Meaningless
-	// (zero value, Dead) when OwnerPID is 0 — check OwnerPID first.
-	OwnerState pidalive.State
+	// Owner is what the owning session's liveness lock said. Only
+	// sessionlock.Dead permits removal; Alive and Indeterminate both refuse.
+	Owner sessionlock.Verdict
 	// Dirty reports whether unsafeToRemove judged the tree unsafe to remove
 	// at classification time. Only ever computed for a confirmed-dead owner
 	// (unsafeToRemove is never run against a live/indeterminate owner,
@@ -172,18 +126,22 @@ var worktreeCandidatePrefix = worktreeScratchPrefix + "-"
 // Every candidate gets exactly one of three outcomes, and the sweep is
 // conservative on every one it cannot prove safe:
 //
-//   - No owner marker, or an unreadable/unparsable one: SKIPPED. This is
-//     EITHER a worktree from before ctxloom could record an owner at all, OR
-//     one that crashed between WorktreeAdd and the marker write — either way
-//     there is no way to prove the owner is dead, and reaping a worktree a
-//     LIVE agent still owns would repeat a known incident (a startup reaper
-//     must be certain the owner is dead before it touches anything). Left for
-//     a human, or a later explicitly-scoped sweep, to judge.
-//   - The marker's pid is alive: SKIPPED — a live process still owns it.
-//   - The marker's pid is dead: the owner is CONFIRMED gone. teardown() then
-//     makes the exact same WIP call it makes on the graceful path: real (or
-//     unknowable) uncommitted work anywhere in the tree → SPARED, left in
+//   - The owning session's lock is HELD: SKIPPED — that session is running.
+//   - No lock file, or a filesystem whose locks cannot be trusted: SKIPPED.
+//     There is no way to prove the owner dead, and reaping a worktree a LIVE
+//     agent still owns would repeat a known incident. Left for a human, or a
+//     later explicitly-scoped sweep, to judge.
+//   - The lock is FREE: the owning session is CONFIRMED gone, whether it
+//     ended or crashed — the kernel drops the lock either way. teardown()
+//     then makes the exact same WIP call it makes on the graceful path: real
+//     (or unknowable) uncommitted work anywhere in the tree → SPARED, left in
 //     place; genuinely clean → REAPED.
+//
+// LIVENESS IS PER-SESSION, which is what fixes the bug the per-worktree pid
+// marker had: a FINISHED delegated agent's worktree recorded the pid of a
+// still-running COORDINATOR, so it read as alive forever and nothing ever
+// reclaimed it. The session lock answers about the session, so a finished
+// session's leftovers are reclaimable however many agents ran under it.
 func ReapOrphanedWorktrees(ctx context.Context, g git.Git) WorktreeReapResult {
 	if g == nil {
 		g = git.NewExec()
@@ -234,11 +192,55 @@ func ClassifyOrphanedWorktrees(ctx context.Context, g git.Git, harp string) ([]W
 		return nil, err
 	}
 
+	// One probe per HARP, not per checkout: liveness is a property of the
+	// session that owns the ephemeral dir, so every worktree under one harp
+	// shares a single verdict and probing per-checkout would only ask the
+	// same question repeatedly.
+	probes := make(map[string]sessionlock.Probe)
 	candidates := make([]WorktreeCandidate, 0, len(wtDirs))
 	for _, wtDir := range wtDirs {
-		candidates = append(candidates, classifyOneWorktree(ctx, g, wtDir))
+		owner := harpOfWorktree(wtDir)
+		probe, seen := probes[owner]
+		if !seen {
+			probe = sessionlock.Inspect(owner)
+			probes[owner] = probe
+		}
+		candidates = append(candidates, classifyOneWorktree(ctx, g, wtDir, probe))
 	}
 	return candidates, nil
+}
+
+// ClassifyHarpWorktrees classifies one harp's scratch worktrees against an
+// ALREADY-TAKEN liveness verdict, for a caller that is itself HOLDING that
+// harp's session lock while it reclaims (operations.ReclaimAgedSessions).
+//
+// It exists because probing again from underneath our own hold would answer
+// the wrong question: flock refuses a second descriptor on a file this
+// process already locked, so sessionlock.Inspect would report the sweep's own
+// lock as a LIVE owner and the sweep would skip every worktree it had just
+// proven reclaimable. The caller passes the probe it already has.
+func ClassifyHarpWorktrees(ctx context.Context, g git.Git, harp string, owner sessionlock.Probe) ([]WorktreeCandidate, error) {
+	if g == nil {
+		g = git.NewExec()
+	}
+	if harp == "" {
+		return nil, fmt.Errorf("classify worktrees: a harp is required")
+	}
+	wtDirs, err := findOrphanCandidateDirs(harp)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]WorktreeCandidate, 0, len(wtDirs))
+	for _, wtDir := range wtDirs {
+		candidates = append(candidates, classifyOneWorktree(ctx, g, wtDir, owner))
+	}
+	return candidates, nil
+}
+
+// harpOfWorktree reads the owning session's harp off a candidate's own path:
+// <sessionsRoot>/<harp>/ephemeral/ctxloom-wt-*.
+func harpOfWorktree(wtDir string) string {
+	return filepath.Base(filepath.Dir(filepath.Dir(wtDir)))
 }
 
 // findOrphanCandidateDirs resolves the set of "ctxloom-wt-*" directories to
@@ -324,37 +326,28 @@ func readEphemeralWorktreeDirs(ephemeral string) ([]string, error) {
 }
 
 // classifyOneWorktree decides a single candidate's verdict without touching
-// disk, applying exactly the rules reapOneWorktree used to apply only AFTER
-// acting: no/unreadable owner marker or a live-or-unconfirmable owner is
-// SKIPPED without ever probing git; only a CONFIRMED dead owner goes on to
-// resolve the owning repo and run unsafeToRemove — the same gate
-// teardownWorktree itself re-runs at removal time (see ReapWorktrees), so
-// nothing here weakens the TOCTOU guard, it only PREVIEWS its outcome.
-func classifyOneWorktree(parent context.Context, g git.Git, wtDir string) WorktreeCandidate {
+// disk, against the verdict its owning SESSION's liveness lock already
+// returned: a live-or-unprovable owner is SKIPPED without ever probing git;
+// only a CONFIRMED dead owner goes on to resolve the owning repo and run
+// unsafeToRemove — the same gate teardownWorktree itself re-runs at removal
+// time (see ReapWorktrees), so nothing here weakens the TOCTOU guard, it only
+// PREVIEWS its outcome.
+//
+// THE LOCK ONLY EVER REFUSES, and Verdict.MayReclaim is the whole of the
+// permission: Dead alone passes, so Alive, Indeterminate and any value that
+// does not exist yet all fall out here rather than falling THROUGH toward a
+// removal by omission. "Cannot determine" is never permission.
+func classifyOneWorktree(parent context.Context, g git.Git, wtDir string, owner sessionlock.Probe) WorktreeCandidate {
 	c := WorktreeCandidate{
-		Path: wtDir,
-		Harp: filepath.Base(filepath.Dir(filepath.Dir(wtDir))),
+		Path:     wtDir,
+		Harp:     harpOfWorktree(wtDir),
+		OwnerPID: owner.PID,
+		Owner:    owner.Verdict,
 	}
 
-	pid, ok := readWorktreeOwner(wtDir)
-	if !ok {
+	if !owner.Verdict.MayReclaim() {
 		c.Verdict = VerdictSkipped
-		c.Reason = "no owner marker recorded — the owner cannot be proven dead, so it is treated exactly like a live one"
-		return c
-	}
-	c.OwnerPID = pid
-	c.OwnerState = pidalive.Probe(pid)
-	// MaybeAlive (not a bare == Alive check) treats an unconfirmable probe
-	// the same as a live owner — reaping is a DESTRUCTIVE, irreversible
-	// decision, so an unsure verdict must skip exactly like a confirmed-live
-	// owner does, never fall through toward removal.
-	if c.OwnerState.MaybeAlive() {
-		c.Verdict = VerdictSkipped
-		if c.OwnerState == pidalive.Alive {
-			c.Reason = fmt.Sprintf("owner process %d is alive", pid)
-		} else {
-			c.Reason = fmt.Sprintf("owner process %d's liveness could not be confirmed", pid)
-		}
+		c.Reason = owner.Reason
 		return c
 	}
 
@@ -380,7 +373,7 @@ func classifyOneWorktree(parent context.Context, g git.Git, wtDir string) Worktr
 	if unsafe, reason := unsafeToRemove(ctx, g, wtDir); unsafe {
 		c.Dirty = true
 		c.Verdict = VerdictSpared
-		c.Reason = fmt.Sprintf("owner process %d is confirmed dead, but the worktree %s", pid, reason)
+		c.Reason = fmt.Sprintf("session %s has ended, but the worktree %s", c.Harp, reason)
 		return c
 	}
 
@@ -397,19 +390,11 @@ func classifyOneWorktree(parent context.Context, g git.Git, wtDir string) Worktr
 // occurred; candidates it did not act on (already Spared or Skipped by
 // Classify) are returned unchanged.
 //
-// The owner marker is removed ONLY for a candidate that is actually confirmed
-// removed (VerdictReaped) — deliberately narrower than the pre-split
-// reapOneWorktree, which called removeWorktreeOwnerMarker unconditionally
-// right after teardownWorktree, before checking whether anything was even
-// removed. That was a real defect, not a design choice: a tree that survived
-// as SPARED (dirty at removal time) lost its own owner marker anyway, so the
-// NEXT classification of that same tree would read it as "no marker —
-// indeterminate" and silently downgrade it from Spared to Skipped, losing the
-// dead-owner reason it had already proven. Fixing it changes one thing an
-// external caller COULD observe (the marker file's survival on a spared
-// candidate) but not WorktreeReapResult's tallies — see
-// TestClassifyThenReap_MatchesReapOrphanedWorktrees, which proves the tallies
-// are unaffected on a fixture built to exercise all four verdicts at once.
+// THERE IS NO PER-WORKTREE OWNER MARKER TO CLEAN UP: liveness is the owning
+// SESSION's lock, which lives beside the harp directory and outlives any one
+// checkout. A spared tree therefore keeps its full dead-owner reason on the
+// next classification instead of decaying to "no marker — indeterminate",
+// which is what the per-worktree marker did whenever a tree survived.
 func ReapWorktrees(ctx context.Context, g git.Git, candidates []WorktreeCandidate) []WorktreeCandidate {
 	if g == nil {
 		g = git.NewExec()
@@ -435,7 +420,6 @@ func ReapWorktrees(ctx context.Context, g git.Git, candidates []WorktreeCandidat
 		if worktreeRemoved(c.Path) {
 			c.Verdict = VerdictReaped
 			c.Reason = ""
-			removeWorktreeOwnerMarker(c.Path)
 		} else {
 			c.Verdict = VerdictSpared
 			c.Reason = "went dirty, or otherwise became unsafe, between listing and removal; teardown left it in place"

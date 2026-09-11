@@ -33,11 +33,13 @@
 // established outcome taxonomy (reaped / spared / skipped) through a new
 // surface.
 //
-// THE PID CONVENTION mirrors internal/lm/isolation/worktree_reap_test.go's:
-// deadOwnerPid exceeds even a kernel.pid_max=4194304 configuration by a wide
-// margin, so "this owner is confirmed dead" is deterministic with no
-// fork/kill/race. A LIVE owner is this test process's own pid, which is
-// trivially alive for exactly as long as the scenario runs.
+// LIVENESS IS PER-SESSION, and the fixtures are shaped by that: a harp's
+// scratch worktrees all share their owning session's verdict, so each
+// owner-state gets its OWN session. A dead session has a lock file nothing
+// holds; a live one has a lock this very test process holds for the length of
+// the scenario; an unprovable one has no lock file at all. Clean-vs-dirty
+// still varies freely WITHIN a session, because that is a property of the
+// checkout.
 package acceptance
 
 import (
@@ -181,14 +183,14 @@ func j001300WriteIndex(w *World) error {
 // which owns the layout and the ownerPid convention) inside an already-seeded
 // harp, recording it against that harp and optionally planting the uncommitted
 // work a reaper must refuse to destroy.
-func j001300AddScratchWorktree(w *World, harp, name string, ownerPid int, dirty bool) (string, error) {
+func j001300AddScratchWorktree(w *World, harp, name string, dirty bool) (string, error) {
 	st := j001300Of(w)
 	h, ok := st.harps[harp]
 	if !ok {
 		return "", fmt.Errorf("harp %q has not been seeded", harp)
 	}
 	wtDir := scratchWorktreeDir(w, harp, name)
-	if err := seedScratchWorktree(w, wtDir, "wt-"+name, ownerPid); err != nil {
+	if err := seedScratchWorktree(w, wtDir, "wt-"+harp+"-"+name); err != nil {
 		return "", err
 	}
 	if dirty {
@@ -283,37 +285,61 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 
 	// --- Debris fixtures ----------------------------------------------------
 
+	// A FINISHED session: seeded, then proven ended by a FREE lock file. That
+	// is the only state that permits reclaiming anything of it.
 	ctx.Step(`^a finished session "([^"]*)" whose work is already distilled$`, func(c context.Context, harp string) error {
-		return j001300SeedHarp(worldFrom(c), harp, true, false)
+		w := worldFrom(c)
+		if err := j001300SeedHarp(w, harp, true, false); err != nil {
+			return err
+		}
+		return seedDeadSession(w, harp)
 	})
 
 	ctx.Step(`^a finished session "([^"]*)" that was never distilled$`, func(c context.Context, harp string) error {
-		return j001300SeedHarp(worldFrom(c), harp, false, false)
+		w := worldFrom(c)
+		if err := j001300SeedHarp(w, harp, false, false); err != nil {
+			return err
+		}
+		return seedDeadSession(w, harp)
 	})
 
 	ctx.Step(`^a finished session "([^"]*)" carrying design notes nobody filed$`, func(c context.Context, harp string) error {
-		return j001300SeedHarp(worldFrom(c), harp, true, true)
+		w := worldFrom(c)
+		if err := j001300SeedHarp(w, harp, true, true); err != nil {
+			return err
+		}
+		return seedDeadSession(w, harp)
 	})
 
-	ctx.Step(`^session "([^"]*)" left a clean scratch worktree whose owning process is dead$`, func(c context.Context, harp string) error {
-		_, err := j001300AddScratchWorktree(worldFrom(c), harp, "clean", deadOwnerPid, false)
+	// A session that is STILL RUNNING: this test process holds its lock, so
+	// every worktree under it must be left strictly alone.
+	ctx.Step(`^a session "([^"]*)" that is still running$`, func(c context.Context, harp string) error {
+		w := worldFrom(c)
+		if err := j001300SeedHarp(w, harp, false, false); err != nil {
+			return err
+		}
+		return seedLiveSession(w, harp)
+	})
+
+	// A session with NO lock file at all — from before the lock existed, or
+	// one whose Hold never succeeded. "Cannot prove dead" must be treated
+	// identically to "alive", never as permission.
+	ctx.Step(`^a session "([^"]*)" nothing can prove the liveness of$`, func(c context.Context, harp string) error {
+		return j001300SeedHarp(worldFrom(c), harp, false, false)
+	})
+
+	ctx.Step(`^session "([^"]*)" left a clean scratch worktree$`, func(c context.Context, harp string) error {
+		_, err := j001300AddScratchWorktree(worldFrom(c), harp, "clean", false)
 		return err
 	})
 
 	ctx.Step(`^session "([^"]*)" left a scratch worktree holding uncommitted work$`, func(c context.Context, harp string) error {
-		_, err := j001300AddScratchWorktree(worldFrom(c), harp, "wip", deadOwnerPid, true)
+		_, err := j001300AddScratchWorktree(worldFrom(c), harp, "wip", true)
 		return err
 	})
 
-	ctx.Step(`^session "([^"]*)" left a scratch worktree nothing can prove the owner of$`, func(c context.Context, harp string) error {
-		// No owner marker at all: "can't prove who owned this" must be treated
-		// identically to "still owned by someone alive".
-		_, err := j001300AddScratchWorktree(worldFrom(c), harp, "unknowable", 0, false)
-		return err
-	})
-
-	ctx.Step(`^session "([^"]*)" left a scratch worktree whose owning process is still alive$`, func(c context.Context, harp string) error {
-		_, err := j001300AddScratchWorktree(worldFrom(c), harp, "live", os.Getpid(), false)
+	ctx.Step(`^session "([^"]*)" left a scratch worktree of its own$`, func(c context.Context, harp string) error {
+		_, err := j001300AddScratchWorktree(worldFrom(c), harp, "own", false)
 		return err
 	})
 
@@ -413,8 +439,41 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		return fmt.Errorf("no worktree holding uncommitted work was seeded, so this assertion measured nothing")
 	})
 
+	// The REASON, not merely the tally word: a report that prints "spared: 1"
+	// and no why leaves the caller unable to act on it, and is exactly what a
+	// wrong implementation that spared for the wrong reason also prints.
 	ctx.Step(`^the report says why each spared worktree was left alone$`, func(c context.Context) error {
-		return j001300Answered(worldFrom(c), "the reap report", "spared", "skipped")
+		return j001300Answered(worldFrom(c), "the reap report", "spared", "uncommitted changes")
+	})
+
+	// The refusal arm: an invocation that could prove nothing safe must remove
+	// NOTHING and must not report a clean sweep. Asserted on the population's
+	// own bytes, because "the directory is still there" is what an invocation
+	// that never ran also produces — hence the real-surface guard first.
+	ctx.Step(`^no worktree of "([^"]*)" is removed, and ctxloom says it could prove nothing safe$`, func(c context.Context, harp string) error {
+		w := worldFrom(c)
+		if err := j001300RanRealSurface(w); err != nil {
+			return err
+		}
+		h, ok := j001300Of(w).harps[harp]
+		if !ok {
+			return fmt.Errorf("harp %q was never seeded", harp)
+		}
+		if len(h.worktrees) == 0 {
+			return fmt.Errorf("no worktree was seeded under %q, so this assertion measured nothing", harp)
+		}
+		for _, wt := range h.worktrees {
+			if !j001300DirExists(wt) {
+				return fmt.Errorf("%s was REMOVED. Its owning session could not be PROVEN ended, and "+
+					"\"cannot determine\" is never permission to reclaim. ctxloom reported (exit %d):\n%s",
+					wt, w.env.LastExitCode(), w.env.LastOutput())
+			}
+		}
+		if w.env.LastExitCode() == 0 {
+			return fmt.Errorf("the purge exited 0 having removed nothing. An action verb that changed nothing refuses, "+
+				"so an unattended run cannot mistake it for one that cleaned up. Output:\n%s", w.env.LastOutput())
+		}
+		return j001300Answered(w, "the refusal", "skipped")
 	})
 
 	ctx.Step(`^her own long-lived worktree is untouched and was never listed$`, func(c context.Context) error {

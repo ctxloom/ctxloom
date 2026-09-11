@@ -3,7 +3,6 @@ package isolation
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,12 +23,24 @@ import (
 // way to manufacture a "confirmed dead owner" in a test.
 const deadPid = 999999999
 
-// setWorktreeOwnerForTest overwrites wtDir's sibling owner marker (see
-// recordWorktreeOwner) directly, standing in for "this worktree's owning
-// process is now pid" without actually needing to spawn/kill one.
-func setWorktreeOwnerForTest(t *testing.T, wtDir string, pid int) {
+// seedDeadSession makes harp read sessionlock.Dead: its lock file exists and
+// is FREE, which is exactly the state the kernel leaves behind once the
+// owning process has ended — gracefully or by SIGKILL, the lock drops either
+// way. Hold-then-Release is used rather than hand-writing the file so the
+// fixture cannot drift from the real on-disk shape.
+func seedDeadSession(t *testing.T, harp string) {
 	t.Helper()
-	require.NoError(t, os.WriteFile(wtDir+worktreeOwnerSuffix, fmt.Appendf(nil, "%d\n", pid), 0o600))
+	require.NoError(t, sessionlock.Hold(harp))
+	sessionlock.Release(harp)
+}
+
+// seedLiveSession makes harp read sessionlock.Alive: this very test process
+// holds the lock for the rest of the test, so the sweep probing it finds a
+// genuinely held lock rather than a simulated one.
+func seedLiveSession(t *testing.T, harp string) {
+	t.Helper()
+	require.NoError(t, sessionlock.Hold(harp))
+	t.Cleanup(func() { sessionlock.Release(harp) })
 }
 
 // TestReapOrphanedWorktrees_ReapsCleanOrphan is the red-first proof for
@@ -52,16 +64,14 @@ func TestReapOrphanedWorktrees_ReapsCleanOrphan(t *testing.T) {
 	wtDir := ws.Dir()
 	t.Cleanup(func() { _ = os.RemoveAll(wtDir) }) // safety net if the assertion below fails first
 
-	require.FileExists(t, wtDir+worktreeOwnerSuffix, "PrepareWorkspace stamps an owner marker")
-	// Simulate the crash: the owning process is gone, WITHOUT ever calling
+	// Simulate the crash: the owning SESSION is gone, WITHOUT ever calling
 	// ws.Cleanup() — exactly what a killed/crashed run leaves behind today.
-	setWorktreeOwnerForTest(t, wtDir, deadPid)
+	seedDeadSession(t, "reap-clean-harp")
 
 	result := ReapOrphanedWorktrees(ctx, git.NewExec())
 	assert.Equal(t, WorktreeReapResult{Reaped: 1}, result, "one clean orphan, confirmed dead owner, reaped")
 
 	assert.NoDirExists(t, wtDir, "the orphaned checkout is removed")
-	assert.NoFileExists(t, wtDir+worktreeOwnerSuffix, "the owner marker is removed alongside it")
 
 	out := gitOut(t, repo, "worktree", "list", "--porcelain")
 	assert.NotContains(t, out, wtDir, "no leftover worktree registration after the sweep")
@@ -99,7 +109,7 @@ func TestReapOrphanedWorktrees_SparesUncommittedWIP(t *testing.T) {
 	// Real, uncommitted WIP a developer member would have left behind.
 	require.NoError(t, os.WriteFile(filepath.Join(wtDir, "wip.txt"), []byte("uncommitted work"), 0o644))
 
-	setWorktreeOwnerForTest(t, wtDir, deadPid)
+	seedDeadSession(t, "reap-wip-harp")
 
 	result := ReapOrphanedWorktrees(ctx, git.NewExec())
 	assert.Equal(t, WorktreeReapResult{Spared: 1}, result, "confirmed-dead owner, but dirty tree — spared, not reaped")
@@ -127,8 +137,8 @@ func TestReapOrphanedWorktrees_SkipsLiveOwner(t *testing.T) {
 	wtDir := ws.Dir()
 	t.Cleanup(func() { require.NoError(t, ws.Cleanup()) })
 
-	// PrepareWorkspace already stamped THIS test process's own (very much
-	// alive) pid as the owner — no override needed.
+	// The owning session is running: this test process holds its lock.
+	seedLiveSession(t, "reap-live-harp")
 
 	result := ReapOrphanedWorktrees(ctx, git.NewExec())
 	assert.Equal(t, WorktreeReapResult{Skipped: 1}, result, "owner alive — untouched")
@@ -136,11 +146,11 @@ func TestReapOrphanedWorktrees_SkipsLiveOwner(t *testing.T) {
 }
 
 // TestReapOrphanedWorktrees_SkipsIndeterminateOwner proves the conservative
-// default for the case a marker can't establish: a "ctxloom-wt-*" directory
-// with NO owner marker at all (a legacy orphan from before this fix, or a
-// crash between WorktreeAdd and the marker write) is left strictly alone
-// rather than assumed safe — "can't prove dead" is treated the same as
-// "alive", never as "reapable".
+// default for the case the lock cannot establish: a "ctxloom-wt-*" directory
+// whose owning session has NO lock file at all (a session from before the
+// lock existed, or one whose Hold failed) is left strictly alone rather than
+// assumed safe — "can't prove dead" is treated the same as "alive", never as
+// "reapable". A missing lock must never read as a free one.
 func TestReapOrphanedWorktrees_SkipsIndeterminateOwner(t *testing.T) {
 	home := testsupport.Isolate(t)
 	ctx := context.Background()
@@ -149,11 +159,11 @@ func TestReapOrphanedWorktrees_SkipsIndeterminateOwner(t *testing.T) {
 	require.NoError(t, os.MkdirAll(ephemeral, 0o755))
 	wtDir := filepath.Join(ephemeral, "ctxloom-wt-legacy-orphan-abc123")
 	require.NoError(t, os.MkdirAll(wtDir, 0o755))
-	// Deliberately NO owner marker written.
+	// Deliberately NO session lock file written.
 
 	result := ReapOrphanedWorktrees(ctx, git.NewExec())
-	assert.Equal(t, WorktreeReapResult{Skipped: 1}, result, "no owner marker — indeterminate, never touched")
-	assert.DirExists(t, wtDir, "a marker-less candidate is left exactly as found")
+	assert.Equal(t, WorktreeReapResult{Skipped: 1}, result, "no session lock — indeterminate, never touched")
+	assert.DirExists(t, wtDir, "a lock-less candidate is left exactly as found")
 }
 
 // gitRunNoFail runs a git command in dir, discarding any error — used only in
@@ -214,7 +224,7 @@ func TestReapOrphanedWorktrees_UnresolvableCandidateIsReportedNotSwallowed(t *te
 	// all, so CommonDir fails on it.
 	wtDir := filepath.Join(ephemeral, worktreeCandidatePrefix+"orphan-abc")
 	require.NoError(t, os.MkdirAll(wtDir, 0o755))
-	setWorktreeOwnerForTest(t, wtDir, deadPid)
+	seedDeadSession(t, "reap-warn-harp")
 
 	var sink bytes.Buffer
 	restore := clidiag.SetSink(&sink)
@@ -244,36 +254,45 @@ func TestReapOrphanedWorktrees_CleanSweepIsSilent(t *testing.T) {
 	assert.Empty(t, sink.String(), "a clean sweep is silent — that is what makes a warning a signal")
 }
 
-// buildFourVerdictFixture plants one real repo with four scratch worktrees —
-// clean+dead-owner, dirty+dead-owner, no-marker, and live-owner — the same
-// four populations J001300's own acceptance fixture builds (tests/acceptance/
-// steps_j001300_closeout.go), so this test's fixture is not a narrower stand-in.
-// Returns the four checkout dirs so the caller can register cleanup.
+// buildFourVerdictFixture plants one real repo with four scratch worktrees
+// covering all four verdicts — clean+dead, dirty+dead, no-lock, and live —
+// the same four populations J001300's own acceptance fixture builds
+// (tests/acceptance/steps_j001300_closeout.go), so this test's fixture is not
+// a narrower stand-in. Returns the four checkout dirs so the caller can
+// register cleanup.
+//
+// ONE SESSION PER OWNER-STATE, and that is forced rather than stylistic:
+// liveness is a property of the SESSION, so a single harp can no longer hold
+// a dead-owned and a live-owned worktree at once. The dead harp carries both
+// dead-owner trees, because clean-vs-dirty is a property of the CHECKOUT and
+// still varies freely within one session.
 func buildFourVerdictFixture(t *testing.T) (repo string, dirs []string) {
 	t.Helper()
 	testsupport.Isolate(t)
 	repo = initRealRepo(t)
 
-	pol := NewWorktree(git.NewExec(), "")
-	pol.state = SessionState{Harp: "equiv-harp"}
 	ctx := context.Background()
+	prepare := func(harp, member string) Workspace {
+		pol := NewWorktree(git.NewExec(), "")
+		pol.state = SessionState{Harp: harp}
+		ws, err := pol.PrepareWorkspace(ctx, repo, member)
+		require.NoError(t, err)
+		return ws
+	}
 
-	clean, err := pol.PrepareWorkspace(ctx, repo, "member-clean")
-	require.NoError(t, err)
-	setWorktreeOwnerForTest(t, clean.Dir(), deadPid)
-
-	wip, err := pol.PrepareWorkspace(ctx, repo, "member-wip")
-	require.NoError(t, err)
+	// An ended session, carrying one clean tree (reapable) and one holding
+	// uncommitted work (spared).
+	clean := prepare("equiv-dead-harp", "member-clean")
+	wip := prepare("equiv-dead-harp", "member-wip")
 	require.NoError(t, os.WriteFile(filepath.Join(wip.Dir(), "wip.txt"), []byte("uncommitted"), 0o644))
-	setWorktreeOwnerForTest(t, wip.Dir(), deadPid)
+	seedDeadSession(t, "equiv-dead-harp")
 
-	unknowable, err := pol.PrepareWorkspace(ctx, repo, "member-unknowable")
-	require.NoError(t, err)
-	require.NoError(t, os.Remove(unknowable.Dir()+worktreeOwnerSuffix))
+	// A session with no lock file at all: unprovable, never touched.
+	unknowable := prepare("equiv-unknowable-harp", "member-unknowable")
 
-	live, err := pol.PrepareWorkspace(ctx, repo, "member-live")
-	require.NoError(t, err)
-	// PrepareWorkspace already stamped this test process's own (alive) pid.
+	// A session this very process is holding the lock for: alive.
+	live := prepare("equiv-live-harp", "member-live")
+	seedLiveSession(t, "equiv-live-harp")
 
 	dirs = []string{clean.Dir(), wip.Dir(), unknowable.Dir(), live.Dir()}
 	t.Cleanup(func() {
@@ -329,7 +348,7 @@ func TestClassifyThenReap_MatchesReapOrphanedWorktrees(t *testing.T) {
 	// Sanity: the fixture must actually exercise all four verdicts, or a
 	// tally match below would prove nothing.
 	require.Equal(t, WorktreeReapResult{Reaped: 1, Spared: 1, Skipped: 2}, combined,
-		"fixture sanity: one reaped (clean/dead), one spared (dirty/dead), two skipped (no-marker, live)")
+		"fixture sanity: one reaped (clean/dead), one spared (dirty/dead), two skipped (no-lock, live)")
 
 	assert.Equal(t, combined, split,
 		"Classify->Reap must tally IDENTICALLY to the combined ReapOrphanedWorktrees on the same fixture")

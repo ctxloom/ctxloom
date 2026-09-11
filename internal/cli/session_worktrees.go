@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
-	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -48,29 +47,9 @@ func newSessionWorktreeRow(c isolation.WorktreeCandidate) sessionWorktreeRow {
 		Worktree:   filepath.Base(c.Path),
 		Path:       c.Path,
 		OwnerPID:   c.OwnerPID,
-		OwnerState: worktreeOwnerStateText(c),
+		OwnerState: c.Owner.String(),
 		Verdict:    string(c.Verdict),
 		Reason:     c.Reason,
-	}
-}
-
-// worktreeOwnerStateText renders a WorktreeCandidate's owner probe as a short
-// human word. OwnerPID == 0 means no sibling marker was found at all (never
-// probed) rather than "pid 0 was probed and found dead" — pidalive.Probe is
-// never even called in that case (see isolation.classifyOneWorktree), so
-// OwnerState there is a meaningless zero value that must not be rendered as
-// "dead".
-func worktreeOwnerStateText(c isolation.WorktreeCandidate) string {
-	if c.OwnerPID == 0 {
-		return "no marker"
-	}
-	switch c.OwnerState {
-	case pidalive.Dead:
-		return "dead"
-	case pidalive.Alive:
-		return "alive"
-	default:
-		return "unsure"
 	}
 }
 

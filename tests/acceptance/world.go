@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/cucumber/godog"
+	"github.com/gofrs/flock"
 
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -39,6 +40,11 @@ type World struct {
 	// satisfied by a fixture that was never built (an absent directory is
 	// exactly what "the reaper removed it" looks like).
 	orphanWorktree string
+
+	// heldSessionLocks are exclusive flocks THIS test process holds so a
+	// seeded harp reads as a LIVE session (see seedLiveSession). They are
+	// released before the scenario's temp root is removed.
+	heldSessionLocks []*flock.Flock
 
 	j000200Sources         map[string]*j000200Source // J000200: named source fixtures (personal/company/third-party/…)
 	j000200Live            bool                      // J000200 @live: whether this scenario's real agent is available (else every step no-ops toward a clean skip)
@@ -147,6 +153,14 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 		// Returning the first non-nil error lets godog attribute it to the
 		// scenario instead of it vanishing silently.
 		var firstErr error
+		// Release before env.Cleanup: an flock this process still holds on a
+		// file inside the temp root would outlive the scenario that made it.
+		for _, fl := range w.heldSessionLocks {
+			if cerr := fl.Close(); cerr != nil && firstErr == nil {
+				firstErr = fmt.Errorf("release seeded session lock: %w", cerr)
+			}
+		}
+		w.heldSessionLocks = nil
 		if cerr := w.mcp.Close(); cerr != nil && firstErr == nil {
 			firstErr = fmt.Errorf("mcp client close: %w", cerr)
 		}

@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -55,18 +56,63 @@ type AssembleContextRequest struct {
 	Fragments []string `json:"fragments"`
 	Tags      []string `json:"tags"`
 
-	// Static declares that these bytes are the WHOLE delivery: a surface
-	// written for a consumer with no ctxloom behind it (a materialized
-	// on-disk agent surface), which cannot pull anything later. Premised
-	// fragments are then INCLUDED rather than withheld, and PremiseIndex
-	// comes back empty -- there is nobody to hand a menu to.
-	Static bool `json:"static,omitempty"`
+	// Consumer states WHAT these bytes are for — a live session (the zero
+	// value) or a materialized surface for a named engine (MaterializedFor).
+	// It is a subject, never a mode: whether premised fragments are withheld
+	// and indexed or written into the context is resolved from it in ONE
+	// place (ContextConsumer.static), so no caller picks static-vs-dynamic
+	// for itself and two callers composing for the same surface cannot
+	// disagree about what it holds.
+	Consumer ContextConsumer `json:"-"`
 
 	// Loader is an optional pre-configured loader (for testing).
 	Pipeline *bundles.Pipeline `json:"-"`
 
 	// ProfileLoaderFunc is an optional function to get the profile loader (for testing).
 	ProfileLoaderFunc func() ProfileLoader `json:"-"`
+}
+
+// ContextConsumer is what an assembly's bytes are FOR: the subject that
+// decides static-vs-dynamic delivery. The zero value is a LIVE session, one
+// with ctxloom behind it (its MCP server, the CLI, a hook), which can pull a
+// withheld fragment later — so premised fragments are withheld and indexed,
+// and the index is the menu it pulls from. MaterializedFor names the other
+// kind.
+type ContextConsumer struct {
+	materialized bool
+	backend      string
+}
+
+// MaterializedFor names an OUT-OF-THE-LOOP surface: backend's native context
+// file, written — or, for a comparison, composed as it would be written — for
+// a launch with no ctxloom behind it. Nothing there can pull a withheld
+// fragment later, so it is either handed over as a skill package, where the
+// engine has a skills surface, or written into the context itself. The
+// comparison side must state this too: composing for a live session and
+// diffing against a materialized file reports a correct file stale forever.
+func MaterializedFor(backend string) ContextConsumer {
+	return ContextConsumer{materialized: true, backend: backend}
+}
+
+// static is THE resolution of static-vs-dynamic delivery, and the only one:
+// a static assembly INCLUDES premised fragments and hands back an empty
+// PremiseIndex, because nobody behind the surface can act on a menu. It is
+// decided from the consumer alone. A materialized surface goes static exactly
+// when its engine has no skills surface to re-deliver the withheld fragments
+// through — read via backends.SupportsSkills, the same predicate
+// SkillExportsFor gates on, so the mode and the skills delivery cannot
+// disagree either. An engine nobody registered is refused rather than treated
+// as skill-less: that would dump every premised fragment into a file for a
+// launch that does not exist.
+func (c ContextConsumer) static() (bool, error) {
+	if !c.materialized {
+		return false, nil
+	}
+	backend, err := registeredBackend(c.backend)
+	if err != nil {
+		return false, err
+	}
+	return !backends.SupportsSkills(backend), nil
 }
 
 // AssembleContextResult contains the assembled context.
@@ -136,6 +182,12 @@ type AssembleContextResult struct {
 // Fragments are sorted using bookend strategy based on priority:
 // highest priority at start, second-highest at end, rest in middle.
 func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContextRequest) (*AssembleContextResult, error) {
+	// Resolved first: a consumer that cannot be resolved is a bad request,
+	// and there is nothing to assemble for it.
+	static, err := req.Consumer.static()
+	if err != nil {
+		return nil, fmt.Errorf("resolve who consumes the assembled context: %w", err)
+	}
 	pipe := req.Pipeline
 	// gate is the underlying trust gate behind pipe, when this call built its
 	// own (nil for an injected test pipeline — see warnWithheld). Kept so the
@@ -203,7 +255,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// the ones this request named: an explicit ask is the selection callback
 	// closing the loop, so it always loads.
 	filter := newPremiseFilter(requested)
-	if req.Static {
+	if static {
 		filter = newStaticPremiseFilter()
 	}
 	var withheld []WithheldFragment

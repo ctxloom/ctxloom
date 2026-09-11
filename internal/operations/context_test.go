@@ -1641,3 +1641,28 @@ func TestDedupeFragmentRefs_KeepsHighestPriority(t *testing.T) {
 	assert.Equal(t, 3, priorities["b"], "should keep first (higher) priority for 'b'")
 	assert.Equal(t, 1, priorities["c"])
 }
+
+// TestContextConsumer_ResolvesDeliveryFromWhatIsWritten is the contract of the
+// ONE place static-vs-dynamic is decided. A caller states what it is writing —
+// a live session, or a materialized surface for a named engine — and never a
+// mode; the mode falls out here, from whether anything behind that surface can
+// pull a withheld fragment later.
+func TestContextConsumer_ResolvesDeliveryFromWhatIsWritten(t *testing.T) {
+	static, err := ContextConsumer{}.static()
+	require.NoError(t, err)
+	assert.False(t, static, "a live session can pull, so premised fragments are withheld and indexed")
+
+	static, err = MaterializedFor("mock").static()
+	require.NoError(t, err)
+	assert.False(t, static, "an engine with a skills surface re-delivers withheld fragments as skills, so the context itself stays dynamic")
+
+	static, err = MaterializedFor("mock-noskills").static()
+	require.NoError(t, err)
+	assert.True(t, static, "an engine with no skills surface has nothing behind a materialized file that can pull, so the fragments go into the context")
+
+	_, err = MaterializedFor("no-such-engine").static()
+	require.Error(t, err, "a surface for an engine that does not exist cannot be resolved; silently treating it as skill-less would dump every premised fragment into a file nobody asked for")
+
+	_, err = MaterializedFor("").static()
+	require.Error(t, err, "'materialized for nobody' is not a live session in disguise")
+}

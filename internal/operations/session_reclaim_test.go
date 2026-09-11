@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/git"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -254,15 +256,43 @@ func srInitRepo(t *testing.T) string {
 	return dir
 }
 
-// srAddWorktree plants a real linked worktree at the exact path the reaper's
-// candidate finder scans: <harp>/ephemeral/ctxloom-wt-<name>.
-func srAddWorktree(t *testing.T, repo, harp, name string) string {
+// srAddWorktree plants a real scratch worktree for harp THROUGH PRODUCTION
+// CODE — isolation.Prepare on the worktree workspace axis — rather than by
+// hand-rolling `git worktree add`.
+//
+// That is deliberate on two counts. The checkout has to land at exactly the
+// path isolation.findEphemeralWorktrees scans (<harp>/ephemeral/ctxloom-wt-*)
+// or this sweep never sees it and the test asserts nothing; and a fixture that
+// built that layout by hand would be a second definition of it, free to drift
+// from the one production writes. Asking production to build it means the two
+// cannot disagree. It is also why this file needs no entry in
+// taskstest.sanctionedWorktreeFixtureFiles: it constructs no worktree body of
+// its own.
+//
+// THE DEGRADE GUARD IS LOAD-BEARING. isolation.Prepare walks a degrade chain
+// and never fails: if the worktree policy cannot prepare, it silently falls
+// back to the project directory. The returned workspace would then be the repo
+// itself, nothing would exist under the harp's ephemeral dir, and every
+// assertion here would pass while measuring nothing. So the workspace's own
+// directory is checked to be under that ephemeral dir before any test uses it.
+func srAddWorktree(t *testing.T, repo, harp, agentID string) string {
 	t.Helper()
+	_, ws := isolation.Prepare(
+		context.Background(),
+		isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost},
+		"", isolation.ImageConfig{}, repo, agentID,
+		isolation.SessionState{Harp: harp},
+	)
+	require.NotNil(t, ws)
+	wtDir := ws.Dir()
+
 	ephemeral, err := paths.HarpEphemeralDir(harp)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(ephemeral, 0o755))
-	wtDir := filepath.Join(ephemeral, "ctxloom-wt-"+name)
-	srGit(t, repo, "worktree", "add", "-q", "-b", "wt-"+harp+"-"+name, wtDir)
+	require.True(t, strings.HasPrefix(wtDir, ephemeral+string(filepath.Separator)),
+		"isolation.Prepare degraded away from the worktree axis: the workspace is %q, which is not under %q. "+
+			"This fixture would then plant nothing the sweep can see, and every assertion built on it would "+
+			"pass while measuring nothing.", wtDir, ephemeral)
+
 	t.Cleanup(func() {
 		_ = os.RemoveAll(wtDir)
 		_ = exec.Command("git", "-C", repo, "worktree", "prune").Run()

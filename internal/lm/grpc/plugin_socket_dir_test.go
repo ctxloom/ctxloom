@@ -26,6 +26,17 @@ func longTempDir(t *testing.T) string {
 	return dir
 }
 
+// shortDir mints a directory whose worst-case socket path fits sun_path.
+// It cannot come from t.TempDir(): inside an agent cell that root is the
+// very TMPDIR under test, ~100 bytes before the test's own name is added.
+func shortDir(t *testing.T) string {
+	dir, err := os.MkdirTemp("/tmp", "sock")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	require.Less(t, len(dir)+pluginSocketNameMax, sunPathLimit, "fixture must be short")
+	return dir
+}
+
 // The defect: an agent cell's TMPDIR is so deep that go-plugin's default
 // socket location exceeds sun_path. The fix has to steer the plugin to a
 // directory whose worst-case socket path still fits.
@@ -42,7 +53,7 @@ func TestPluginSocketDir_LongTMPDIR_FitsSunPath(t *testing.T) {
 }
 
 func TestPluginSocketDir_PrefersRuntimeDirCtxloom(t *testing.T) {
-	xdg := t.TempDir()
+	xdg := shortDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", xdg)
 	t.Setenv("TMPDIR", longTempDir(t))
 
@@ -57,8 +68,7 @@ func TestPluginSocketDir_PrefersRuntimeDirCtxloom(t *testing.T) {
 }
 
 func TestPluginSocketDir_ShortTMPDIRWithoutRuntimeDir_KeepsTempDir(t *testing.T) {
-	short := t.TempDir()
-	require.Less(t, len(short)+pluginSocketNameMax, sunPathLimit, "fixture must be short")
+	short := shortDir(t)
 	t.Setenv("TMPDIR", short)
 	t.Setenv("XDG_RUNTIME_DIR", "")
 
@@ -68,7 +78,7 @@ func TestPluginSocketDir_ShortTMPDIRWithoutRuntimeDir_KeepsTempDir(t *testing.T)
 
 func TestPluginSocketDir_OverlongRuntimeDirIsSkipped(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", longTempDir(t))
-	short := t.TempDir()
+	short := shortDir(t)
 	t.Setenv("TMPDIR", short)
 
 	assert.Equal(t, short, pluginSocketDir(),
@@ -76,7 +86,7 @@ func TestPluginSocketDir_OverlongRuntimeDirIsSkipped(t *testing.T) {
 }
 
 func TestPluginSpawnEnv_StampsSocketDirOntoSpawnEnv(t *testing.T) {
-	xdg := t.TempDir()
+	xdg := shortDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", xdg)
 	t.Setenv("TMPDIR", longTempDir(t))
 	t.Setenv(plugin.EnvUnixSocketDir, "")
@@ -90,7 +100,7 @@ func TestPluginSpawnEnv_StampsSocketDirOntoSpawnEnv(t *testing.T) {
 
 func TestPluginSpawnEnv_AmbientSocketDirIsRespected(t *testing.T) {
 	t.Setenv(plugin.EnvUnixSocketDir, "/somewhere/operator/chose")
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", shortDir(t))
 
 	got := pluginSpawnEnv([]string{"CTXLOOM_X=1"})
 

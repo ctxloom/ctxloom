@@ -24,8 +24,9 @@ import (
 type SessionHomeReapResult struct {
 	// Reaped is the number of instances actually removed.
 	Reaped int `json:"reaped"`
-	// Skipped is the number of instances left in place: their session is
-	// LIVE, or removal was attempted and failed (warned, never fatal).
+	// Skipped is the number of instances left in place: the liveness lock did
+	// not prove their session dead (running, or unprovable), or removal was
+	// attempted and failed (warned, never fatal).
 	Skipped int `json:"skipped"`
 }
 
@@ -41,28 +42,32 @@ type SessionHomeReapResult struct {
 // because "teardown() only ever runs on a graceful Cleanup()". The same is true
 // here, so the same backstop is required.
 //
-// LIVENESS is decided by TWO signals in series, the second closing the hole
-// the first cannot. An instance is the config home an engine is RUNNING
-// AGAINST, so reaping a live session's instance yanks its engine's config (and
-// credential) out from under it mid-run — a concurrent session's sweep must
-// never do that.
+// LIVENESS COMES FROM THE LOCK, never from the session index's EndedAt. An
+// instance is the config home an engine is RUNNING AGAINST, so reaping a live
+// session's instance yanks its engine's config (and credential) out from
+// under it mid-run — a concurrent session's sweep must never do that. The
+// index's timestamp is wrong in BOTH directions: a session whose process died
+// before EndSession keeps a nil EndedAt forever (a crashed session reads as
+// live), and a session RESUMED under its harp is running again with EndedAt
+// still set (a live session reads as ended). The lock (internal/shared/
+// sessionlock, held by the owning process for its lifetime) is free once the
+// owner is gone however it went, and Verdict.MayReclaim is true for Dead
+// ALONE: held, missing, on an untrusted filesystem, or unreadable all REFUSE.
+// "Cannot determine" is never permission. Every candidate is probed — an
+// ended entry and a harp the index does not carry at all are probed exactly
+// like an unended one.
 //
-//   - The session INDEX rules first: an entry whose EndedAt is nil is
-//     index-live. An ended entry, or a harp the index does not carry at all,
-//     is non-live and reclaimed as before.
-//   - For an index-live harp the SESSION LIVENESS LOCK breaks the tie the
-//     index alone got wrong. A session whose process died without reaching
-//     EndSession keeps a nil EndedAt forever, so under the index alone its
-//     instance read as live and was NEVER reaped — the bug this closes. The
-//     lock (internal/shared/sessionlock, held by the owning process for its
-//     lifetime) is reclaimed ONLY when it is FREE, which the kernel guarantees
-//     it is once the owner has died however it died. A held lock, no lock file
-//     at all, or a filesystem whose locks cannot be trusted all REFUSE:
-//     live-looking is left alone, wrong only in the recoverable direction.
+// THE ACCEPTED COST is a session from before the lock existed: it has an
+// EndedAt and no lock file, so nothing can prove its owner dead and its
+// instance is left alone — its credential stays until the harp is resumed and
+// ended under the lock, or purged deliberately. That is the same price
+// `clean --older-than` states in its help, and it is the recoverable
+// direction: the other one destroys a running engine's credential.
 //
-// NO INDEX, NO SWEEP. An unreadable index is an error and removes nothing: a
-// sweep with no liveness signal would classify every live session as an orphan
-// and reap the whole project's engine state.
+// NO INDEX, NO SWEEP. An unreadable index is an error and removes nothing.
+// The index is what makes a marker-less instance recognisable as one at all
+// (see the candidate shape below), and a sweep that cannot read it is a
+// fault to surface, not a narrower sweep to run quietly.
 //
 // THE CANDIDATE SET IS AN ALLOW-SHAPE, and every exclusion is pinned by a test
 // in session_home_reap_test.go. A candidate is a directory DIRECTLY under
@@ -102,7 +107,7 @@ func ReapOrphanedSessionHomes(appPath string) (SessionHomeReapResult, error) {
 		return result, fmt.Errorf("scan %q: %w", stateDir, err)
 	}
 
-	live, known, err := sessionLiveness()
+	_, known, err := sessionLiveness()
 	if err != nil {
 		return SessionHomeReapResult{}, err
 	}
@@ -112,7 +117,7 @@ func ReapOrphanedSessionHomes(appPath string) (SessionHomeReapResult, error) {
 		if !isSessionInstanceCandidate(e, stateDir, known) {
 			continue
 		}
-		switch reclaimInstance(stateDir, name, live[name]) {
+		switch reclaimInstance(stateDir, name) {
 		case reclaimReaped:
 			result.Reaped++
 		default:
@@ -134,30 +139,22 @@ const (
 )
 
 // reclaimInstance removes harp's instance directory under stateDir when — and
-// only when — the session that owns it is not running. The lock is the
-// running-vs-crashed signal the session index cannot give:
+// only when — the liveness lock proves the session that owns it has ended.
+// THE LOCK ONLY EVER REFUSES: Dead (a lock file exists and nothing holds it)
+// alone passes; Alive, Indeterminate (no lock file, an untrusted filesystem,
+// an error) and any verdict that does not exist yet skip. The index's EndedAt
+// plays no part: it is a timestamp, not a liveness signal, and a session
+// resumed under its harp is running with it still set.
 //
-//   - indexLive == false: the index itself records the session as ended, or
-//     no longer carries the harp at all. Non-live by the index's own record;
-//     reclaim, exactly as before this signal existed.
-//   - indexLive == true, lock FREE (Dead): the process died before EndSession
-//     could mark it — a CRASHED session, the case this whole change exists
-//     for. The kernel dropped the lock, so the owner is provably gone.
-//   - indexLive == true, lock HELD (Alive) or INDETERMINATE (no lock file, an
-//     untrusted filesystem, an error): running, or unprovable. Skip. "Cannot
-//     determine" is never permission — the lock ONLY ever refuses.
-//
-// For a crashed session the Dead lock is HELD across the RemoveAll (Acquire's
-// release is deferred to after the delete), so a session resuming under the
-// same harp mid-sweep blocks in sessionlock.Hold rather than racing the
-// deletion of the very tree it is about to write to.
-func reclaimInstance(stateDir, harp string, indexLive bool) reclaimOutcome {
-	if indexLive {
-		probe, release := sessionlock.Acquire(harp)
-		defer release()
-		if !probe.Verdict.MayReclaim() {
-			return reclaimSkipped
-		}
+// The Dead lock is HELD across the RemoveAll (Acquire's release is deferred to
+// after the delete), so a session resuming under the same harp mid-sweep
+// blocks in sessionlock.Hold rather than racing the deletion of the very tree
+// it is about to write to.
+func reclaimInstance(stateDir, harp string) reclaimOutcome {
+	probe, release := sessionlock.Acquire(harp)
+	defer release()
+	if !probe.Verdict.MayReclaim() {
+		return reclaimSkipped
 	}
 	dir := filepath.Join(stateDir, harp)
 	if rerr := os.RemoveAll(dir); rerr != nil {

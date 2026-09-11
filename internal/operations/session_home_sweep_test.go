@@ -13,11 +13,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // seedSweepFixture points the project root at a fresh directory and plants one
-// ENDED session's engine-home instance in it, credential and all. It returns
+// ENDED session's engine-home instance in it, credential and all. The session
+// ran under its liveness lock and released it — the free lock is what proves
+// the owner gone; the end-mark alone proves nothing. It returns
 // the instance root and the credential path so the caller asserts on BYTES: a
 // sweep that reported a removal it never performed is this project's
 // characteristic bug, and only the payload catches it.
@@ -32,6 +35,8 @@ func seedSweepFixture(t *testing.T) (instanceRoot, credential string) {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
+	require.NoError(t, sessionlock.Hold(entry.HarpName))
+	sessionlock.Release(entry.HarpName)
 	require.NoError(t, mgr.MarkEnded(entry.HarpName, time.Now()))
 
 	instanceRoot, err = paths.SessionStatePath(filepath.Join(projectDir, paths.AppDirName), entry.HarpName)

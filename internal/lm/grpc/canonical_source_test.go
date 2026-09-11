@@ -223,6 +223,39 @@ func TestCanonicalFallbackSource_GetSession_HarpFirstDoesNotBreakSessionIDPath(t
 	assert.Equal(t, "STILL-WORKS-PAYLOAD", sess.Entries[0].Content)
 }
 
+// TestCanonicalFallbackSource_GetSession_RotatedAwayIDResolvesToHarp pins
+// that a backend-native id the harp was PREVIOUSLY bound to — displaced into
+// Entry.Rotations by a /clear rebind — still reaches that harp's canonical
+// transcript. This is the id recover_session targets after a context wipe
+// (the pre-clear thread is exactly what the caller lost), so if the reverse
+// lookup matched only the CURRENT binding the read fell through to a legacy
+// leg a retired-scraper backend does not have, and recovery reported "no
+// context" at the one moment it was needed. The caller-supplied id must come
+// back unchanged, matching the current-binding path.
+func TestCanonicalFallbackSource_GetSession_RotatedAwayIDResolvesToHarp(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-rotated", "/proj", "sess-preclear")
+	// Only a binder naming a transcript file may re-point (BindSession's
+	// rebind rule), so an id-only rebind would leave the pre-clear id CURRENT
+	// and this test would pass without ever exercising a rotation.
+	require.NoError(t, store.BindSession("harp-rotated", "sess-postclear", "/proj/postclear.jsonl"))
+	entry, err := store.Find("harp-rotated")
+	require.NoError(t, err)
+	require.Equal(t, "sess-postclear", entry.SessionID, "fixture must have rotated the pre-clear id away")
+	writeCanonicalFixture(t, "harp-rotated", "claude-code", "PRECLEAR-THREAD-MARKER")
+
+	src := NewCanonicalFallbackSource(nil, "/proj", store)
+
+	sess, err := src.GetSession(ctx, "sess-preclear")
+	require.NoError(t, err)
+	assert.Equal(t, "sess-preclear", sess.ID)
+	require.Len(t, sess.Entries, 1)
+	assert.Equal(t, "PRECLEAR-THREAD-MARKER", sess.Entries[0].Content)
+}
+
 // TestCanonicalFallbackSource_GetSession_UnboundIDFallsBack covers a session
 // id the index has no entry for at all (e.g. --session <uuid> pasted from a
 // legacy `memory list` row) — resolveHarp finds nothing, so this must still

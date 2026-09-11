@@ -111,20 +111,24 @@ func NewCanonicalFallbackSource(legacy SessionSource, workDir string, store sess
 // harp via the index, or "" when unbound/unknown. A best-effort, read-only
 // lookup: an index error degrades to "" (legacy fallback), never an error —
 // selection must never block a read the legacy path could still serve.
+//
+// Store.FindBySessionID is the ONE definition of "which harp owns this id",
+// and it is a LINEAGE lookup: it matches an id the harp is currently bound to
+// AND any id a /clear rebind has displaced into Entry.Rotations. Both count.
+// The id recover_session targets after a context wipe is precisely a
+// rotated-away one — the pre-clear thread — and a scan of the current binding
+// alone could not map it to its harp, so the read fell through to a legacy
+// leg a retired-scraper backend does not have and the caller was told there
+// was nothing to recover.
 func (f *CanonicalFallbackSource) harpForSessionID(sessionID string) string {
 	if sessionID == "" || f.store == nil {
 		return ""
 	}
-	idx, err := f.store.Load()
-	if err != nil {
+	entry, err := f.store.FindBySessionID(sessionID)
+	if err != nil || entry == nil {
 		return ""
 	}
-	for _, e := range idx.Sessions {
-		if e.SessionID == sessionID {
-			return e.HarpName
-		}
-	}
-	return ""
+	return entry.HarpName
 }
 
 // GetSession resolves id — which callers pass as EITHER a harp OR a

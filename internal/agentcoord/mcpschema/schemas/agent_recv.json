@@ -1,11 +1,11 @@
 {
   "name": "agent_recv",
-  "description": "Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish.",
+  "description": "Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. One receive is live per session: a newer call supersedes an older parked one, and the superseded call completes SUCCESSFULLY with no messages and a `disposition` saying it yielded — nothing was lost, do not retry it. On timeout the call fails with no message and its error says what to do next.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "wait": {
-        "description": "Seconds to wait for a message (default 60, max 600). On timeout the call fails: drop the coordination, write your report/deferral state, and finish",
+        "description": "Seconds to wait for a message (default 60, max 600); on timeout the call fails with no message and its error says what to do next",
         "type": "integer"
       }
     },
@@ -13,6 +13,10 @@
   },
   "outputSchema": {
     "properties": {
+      "disposition": {
+        "description": "Set only when this call yielded to a newer receive for the same session: a successful receive that delivered nothing and must not be retried. Absent on a delivering receive.",
+        "type": "string"
+      },
       "messages": {
         "items": {
           "description": "Inbound relayed message from a sibling (or the coordinator itself, from_agent_id == \"\"). Reply via PeerSendRequest.in_reply_to. Until delivered, a queued PeerMessage is durable, role-addressed mailbox state at the coordinator: it survives coordinator process restarts and is delivered when the target reattaches.",
@@ -27,7 +31,7 @@
               "type": "string"
             },
             "kind": {
-              "description": "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_APPROVAL_REQUEST is an escalation WAITING on your decision (see `structured`); MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices.",
+              "description": "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices.",
               "enum": [
                 "MESSAGE_KIND_UNSPECIFIED",
                 "MESSAGE_KIND_MESSAGE",
@@ -47,7 +51,7 @@
             },
             "structured": {
               "additionalProperties": true,
-              "description": "Structured companion the sender attached, when there is one. A message whose `kind` is MESSAGE_KIND_APPROVAL_REQUEST carries the escalation ladder's ApprovalRequest projection here and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first. This object no longer carries the message kind — read the `kind` field.",
+              "description": "Structured companion the sender attached, when there is one. This object no longer carries the message kind — read the `kind` field.",
               "type": "object"
             },
             "text": {

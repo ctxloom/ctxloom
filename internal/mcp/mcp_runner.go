@@ -481,7 +481,7 @@ func registerGeneratedTools(server *mcp.Server, home *coord.Home, harp, cwd stri
 			registered[spec.Name] = true
 			continue
 		}
-		h, herr := generatedToolHandler(home, harp, cwd, route, spec.Name)
+		h, herr := generatedToolHandler(home, harp, cwd, route, spec.Name, leaf)
 		if herr != nil {
 			return herr
 		}
@@ -501,10 +501,10 @@ func registerGeneratedTools(server *mcp.Server, home *coord.Home, harp, cwd stri
 
 // generatedToolHandler picks the handler builder one generated tool's route
 // names. An unclassified tool is a startup error, never a silent fallthrough.
-func generatedToolHandler(home *coord.Home, harp, cwd string, route mcpschema.Route, name string) (mcp.ToolHandler, error) {
+func generatedToolHandler(home *coord.Home, harp, cwd string, route mcpschema.Route, name string, leaf bool) (mcp.ToolHandler, error) {
 	switch route {
 	case mcpschema.RouteCoordination:
-		return coordinationHandler(home, harp, cwd, name)
+		return coordinationHandler(home, harp, cwd, name, leaf)
 	case mcpschema.RouteArtifactFetch:
 		return artifactFetchHandler(home, cwd, name)
 	default:
@@ -565,7 +565,7 @@ func relayTyped[In any](home *coord.Home, name string) mcp.ToolHandlerFor[In, ma
 // tool: protojson-decode the args into the bound contract message (both
 // snake_case and camelCase accepted), run the plane-2 exchange (or the
 // runner-local recv/report), and project the result back with proto names.
-func coordinationHandler(home *coord.Home, harp, cwd, name string) (mcp.ToolHandler, error) {
+func coordinationHandler(home *coord.Home, harp, cwd, name string, leaf bool) (mcp.ToolHandler, error) {
 	switch name {
 	case mcpschema.ToolAgentRun:
 		return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -616,7 +616,7 @@ func coordinationHandler(home *coord.Home, harp, cwd, name string) (mcp.ToolHand
 			return coordinationResult(resp, resp.GetListRuns())
 		}, nil
 	case mcpschema.ToolAgentRecv:
-		return recvHandler(home), nil
+		return recvHandler(home, leaf), nil
 	case mcpschema.ToolAgentReport:
 		return reportHandler(home, harp, cwd), nil
 	default:
@@ -675,7 +675,8 @@ func protoIsNil(m proto.Message) bool {
 // the go-sdk streamable server runs tool handlers on session-scoped
 // contexts and holds POST streams open, so there is no per-response write
 // hook to ack on; a crash before the ack re-delivers (at-least-once).
-func recvHandler(home *coord.Home) mcp.ToolHandler {
+// leaf selects the timeout guidance: a child finishes, a coordinator re-arms.
+func recvHandler(home *coord.Home, leaf bool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var in struct {
 			Wait int `json:"wait"`
@@ -688,10 +689,16 @@ func recvHandler(home *coord.Home) mcp.ToolHandler {
 		wait := mcpschema.ClampRecvWait(in.Wait)
 		msgs, err := home.Recv(ctx, wait)
 		if err != nil {
-			if errors.Is(err, coord.ErrRecvTimeout) {
-				return nil, fmt.Errorf("%w (waited %s)", coord.ErrRecvTimeout, wait)
+			if errors.Is(err, coord.ErrRecvPreempted) {
+				// A yield is a success with nothing to deliver, never an
+				// error: rendered as a failure it invites the retry that
+				// would supersede the receive about to deliver.
+				return &mcp.CallToolResult{StructuredContent: map[string]any{
+					"messages":    []any{},
+					"disposition": mcpschema.RecvDispositionYielded,
+				}}, nil
 			}
-			return nil, err
+			return nil, recvFailure(err, wait, leaf)
 		}
 		// home.Recv already committed msgs as RETURNED (the
 		// cursor-ack fires on the NEXT Recv) before this loop even starts —

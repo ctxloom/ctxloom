@@ -95,7 +95,7 @@ func CoordinationBindings() []Binding {
 		},
 		{
 			Tool:        ToolAgentRecv,
-			Description: "Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish.",
+			Description: "Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. One receive is live per session: a newer call supersedes an older parked one, and the superseded call completes SUCCESSFULLY with no messages and a `disposition` saying it yielded — nothing was lost, do not retry it. On timeout the call fails with no message and its error says what to do next.",
 			SyntheticInput: func(*Projector) (map[string]any, error) {
 				return map[string]any{
 					"type": "object",
@@ -119,6 +119,10 @@ func CoordinationBindings() []Binding {
 						"messages": map[string]any{
 							"type":  "array",
 							"items": msg,
+						},
+						"disposition": map[string]any{
+							"type":        "string",
+							"description": "Set only when this call yielded to a newer receive for the same session: a successful receive that delivered nothing and must not be retried. Absent on a delivering receive.",
 						},
 					},
 				}, nil

@@ -89,7 +89,7 @@ flowchart TD
 - **The seam's contract is a *host* path, and that is wrong for a `runtime:container` child.**
   `settings_io.go:47-58` documents the correction — `agent.ResolveMCPCommand(override)` substitutes
   the known in-container path — and every file-writing surface routes through it
-  (`mcpfile.go:87`, `codex/settings.go:444`, `claude/claude.go:697`). But
+  (`mcpfile.go:87`, `claude/claude.go:697`). But
   `agent.ComposeChatMCPServers` calls `CtxloomCommand()` **directly** (`chat_mcp.go:39`) and its
   signature has nowhere to pass an override, so the chat path hands a container child a host path
   it cannot exec.

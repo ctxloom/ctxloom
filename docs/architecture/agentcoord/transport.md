@@ -159,7 +159,7 @@ is after the child process and credential have already been spawned;
 | `adapt` | `enginehost.go:352` | native event stream → plane-1 `AgentEvent`s → `RunCompleted` → `RunExited` |
 | `frameCoordinatorMessage` | `enginehost.go:559` | `PeerMessage` → engine turn text |
 | `resolveApproval` | `enginehost.go:588` | see [approvals.md](approvals.md) |
-| `injectMCPSocketEnv` | `enginehost.go:665` | stamps `CTXLOOM_MCP_SOCKET` into the forwarder entry's own env (the codex-adapter fix) |
+| `injectMCPSocketEnv` | `enginehost.go:665` | stamps `CTXLOOM_MCP_SOCKET` into the forwarder entry's own env |
 | `usageFromMeta` / `usdToMicros` / `nonNegU64` | `enginehost.go:526,549,539` | `TurnMeta` → `Usage`, with round-half-even micro-USD and NaN/Inf/negative guards |
 
 `EngineHost` calls `eh.backend.Chat(ctx, dec.Chat, in, out)` **in-process**

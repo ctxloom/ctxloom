@@ -82,7 +82,7 @@ via `defer` (`llm_turn.go:79`), `llm serve` after `plugin.Serve` returns
 |---|---|---|
 | `decodeBackendConfig` | `:20` | Label → typed backend config. Warns and returns nil on failure (fault-tolerant). |
 | `decodeBackendConfigForType` | `:46` | Type → typed config, deterministic pick when several labels share a type. |
-| `llmEnvFor` | `:72` | The label's `env` map. Returns nil for opencode entries. |
+| `llmEnvFor` | `:72` | The label's `env` map. |
 | `serveBackendConfig` | `llm_serve.go:75` | Label first, then type fallback; warns on a label/type mismatch before falling back. |
 
 ## The RunStart handoff (`llm_turn.go`)

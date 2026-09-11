@@ -119,28 +119,25 @@ then validated against an embedded JSON Schema.
 **What it owns.** The list of agent MCP registrars `taskloom manage` can install into, and the
 server command line to register — **without depending on ctxloom**. 64 LOC; all engine-specific
 detail (config paths, on-disk format, merge semantics) lives in each agent module's own
-`MCPRegistrar` (`internal/claude`, `internal/codex`).
+`MCPRegistrar` (`internal/claude`).
 
 | Symbol | file:line | Notes |
 |---|---|---|
 | `Engine` | `engine.go:22` | `= agent.MCPRegistrar` — a type **alias**, not a definition |
 | `TaskloomName` | `engine.go:25` | `"taskloom"`, the registration key |
 | `TaskloomServer` | `engine.go:29` | `wire.MCPServer{Command: "taskloom", Args: ["mcp"]}` — the one place the command line is named |
-| `engines` / `All` | `engine.go:34`, `:39` | The registry: claude, codex |
-| `Get` | `engine.go:53` | Lowercase → `engineAliases` (`:44`) → linear scan on `Name()`. **No prefix matching** — a typo must error |
+| `All` | `engine.go` | The registry — one `MCPRegistrar` per backend that has one |
+| `Get` | `engine.go` | Linear scan of `All()` on `Name()` plus the shared `agent.EngineNameAliases` spellings. **No prefix matching** — a typo must error |
 
 **Invariants**
 
 - **`Command` is a bare PATH name**, resolved against *the agent's* environment at some future
   invocation, not verified at registration. `manage check` reports it
   (`cmd/taskloom/manage.go:150-153` runs `exec.LookPath`); `manage install` does not.
-- **opencode is absent** from the registry and cannot appear — `rg 'MCPRegistrar' internal/opencode/`
-  returns nothing. The user-visible error at `cmd/taskloom/manage.go:91` enumerates only the four.
-- **A second engine registry exists** at `internal/ltk/engine` with a near-identical `Get`, its own
-  `engineAliases`, and an overlapping name vocabulary. The two have already drifted:
-  `antigravity-cli` resolves under ltk and errors under taskloom. They hold genuinely different
-  interfaces (MCP registrars vs hook adapters), so the duplication is in the **vocabulary**, not
-  the registry shape.
+- **A second engine registry exists** at `internal/ltk/engine` with a near-identical `Get` and an
+  overlapping name vocabulary, and nothing asserts the two vocabularies agree. They hold genuinely
+  different interfaces (MCP registrars vs hook adapters), so the duplication is in the
+  **vocabulary**, not the registry shape.
 
 ---
 
@@ -298,8 +295,3 @@ its primary checkout's task store rather than one that dies with the worktree.
   reimplemented … per consumer". A closed events channel is treated as a clean shutdown
   (`watch.go:83-86` returns nil), although `internal/shared/watch`'s `pump` also closes it when the
   underlying fsnotify watcher dies.
-- **The loadout ships `pre_tool_fallback: true`** on `ctxloom hook session-bind` with a comment
-  promising the bind lands on PreToolUse for Antigravity, but `message Hook`
-  (`internal/lm/grpc/llm.proto:447-455`) has no such field and `hookFromProto`
-  (`internal/lm/grpc/managed.go:103-115`) reconstructs `wire.Hook` without it, so the flag is
-  dropped on every gRPC hop.

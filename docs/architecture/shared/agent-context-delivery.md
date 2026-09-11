@@ -53,7 +53,7 @@ flowchart TD
 | `shellSingleQuote` | `internal/shared/agent/context_hooks.go:82` | Single-quotes a value for `/bin/sh`; a path-injection security boundary. |
 | `MergeHooksConfig` | `internal/shared/agent/context_hooks.go:90` | Appends `src`'s hook lists into `dest`. |
 | `HookRoute` | `internal/shared/agent/hook_routes.go:12` | Maps one unified hook slice onto an engine-native event name, with a default matcher. |
-| `RouteUnifiedHooks` | `internal/shared/agent/hook_routes.go:25` | Walks routes, applies default matchers, and emits; used by claude, codex, antigravity. |
+| `RouteUnifiedHooks` | `internal/shared/agent/hook_routes.go:25` | Walks routes, applies default matchers, and emits; the hook writer of every backend that delivers hooks routes through it. |
 
 ## Chunk-ordering rendezvous
 

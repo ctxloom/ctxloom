@@ -26,14 +26,14 @@ bodies. Quoted text is *not* a command, so `echo "go test"` does not match a
 > run the agent in a sandbox/container.
 
 **One deliberate exception to fail-open: an unrecognized tool that matched the
-installed hook is denied, not allowed.** ltk's gated-tool lists
-(`claudeGatedTools`, `antigravityGatedTools`) are the single source of truth
+installed hook is denied, not allowed.** ltk's gated-tool list
+(`claudeGatedTools`) is the single source of truth
 for both the installed `PreToolUse` matcher and runtime tool-name recognition
 — but a vendor-renamed tool can still fire the installed matcher while ltk's
-exact-name recognition misses it (agy's matcher is a genuine unanchored regex
-today; Claude Code's takes the same unanchored path once its matcher contains
-a real regex metacharacter — see [ARCHITECTURE.md](ARCHITECTURE.md#gated-tools-an-unrecognized-tool-is-denied-not-allowed)
-for the verified specifics of each). When that happens, ltk cannot read the
+exact-name recognition misses it (Claude Code's matcher takes the unanchored
+regex path once it contains a real regex metacharacter — see
+[ARCHITECTURE.md](ARCHITECTURE.md#gated-tools-an-unrecognized-tool-is-denied-not-allowed)
+for the verified specifics). When that happens, ltk cannot read the
 payload's fields at all, so no rule can be evaluated against it — the
 difference between "this rule doesn't apply" and "nothing is even looking" is
 not one this guard is willing to gloss over. So where every other uncertainty

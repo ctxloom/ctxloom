@@ -10,7 +10,7 @@ owns the per-harp retry budget and stop flag; `owner_run.go` is the parent-less
 top-level container run.
 
 Two mutually exclusive launch drivers coexist: the **migrated** StartRun path
-(`plan.ViaStartRun` — claude-code, codex, opencode) and the **legacy** go-plugin chat
+(`plan.ViaStartRun` — the members of `viaStartRunBackends`) and the **legacy** go-plugin chat
 path, which now has no registered backend at all.
 
 ```mermaid
@@ -71,7 +71,7 @@ name.
 | `childEnv` / `runnerEnv` | `children.go:467,493` | the child ENGINE env (harp + project id, deliberately no credential) vs the RUNNER env (reach-back trio + delegation-depth stamp) |
 | `runChild` | `children.go:529` | slot acquire → launch context → migrated or legacy spawn; every failure routes to `failChild` |
 | `runChildViaStartRun` / `issueStartRun` | `children.go:616,661` | build the `HarnessSpec`, join context+prompt, await dial-home, send `StartRun`, audit, drain queued mail, mark attached |
-| `driveChild` / `handleChildEvent` / `onTurnBoundary` | `children.go:1010,1046,1086` | the legacy event loop and its turn boundary — **FROZEN** per the spool-cutover RETIRE-FIRST ruling: never ported to the spool substrate, closed to new backends (`spawner.go`'s `checkLegacyChatFreeze`; frozen residue `legacyChatBackends` = mock alone since S3b migrated opencode onto StartRun, plus the degraded no-reach-back spawn) |
+| `driveChild` / `handleChildEvent` / `onTurnBoundary` | `children.go:1010,1046,1086` | the legacy event loop and its turn boundary — **FROZEN** per the spool-cutover RETIRE-FIRST ruling: never ported to the spool substrate, closed to new backends (`spawner.go`'s `checkLegacyChatFreeze`; frozen residue `legacyChatBackends` = mock alone, plus the degraded no-reach-back spawn) |
 | `bridgeTurnResult` | `children.go:895` | swaps out the turn accumulator and queues the child's answer to the parent as kind `result` |
 | `oneShotReady` / `onTurnIdle` | `children.go:949,966` | the three-condition one-shot gate, then either a `CauseOneShotBoundary` teardown or idle + slot yield + mail push |
 | `terminateRun` | `children.go:1299` | the exactly-once terminal: claim the fact, then slot release, credential revocation, poll+channel sever, parent notice, session-ended stamp, relaunch check, reap |
@@ -163,8 +163,8 @@ Two consequences a reader must hold:
   says "stopped". Two bodies, one verb.
 - **`children.go:551-554` states the legacy chat path has no production backends**
   ("today: none in production, only test doubles"). `viaStartRunBackends` is
-  `{claude-code, codex, opencode}`, and since the ACP removal no registered backend
-  implements `Chat` at all, so the statement now holds.
+  the registered production backend, and no registered backend implements
+  `Chat` at all, so the statement now holds.
 - **`ResumeMode`'s doc contradicts the code.** `spawner.go:102-119` says one-shot is
   "not yet executed", persistent is "today's only behavior", and one-shot is
   "(v0.8, Slice 4)"; `Resolve` (`spawner.go:361-375`) returns `ResumeModeOneShot` for

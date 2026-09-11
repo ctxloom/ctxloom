@@ -157,7 +157,7 @@ classDiagram
 - **`BaseContextProvider` re-derives the context-file path** as `SCMContextSubdir + hash + ".md"` (`base_context.go:32`, `:49`) rather than asking `WriteContextFile` — the naming scheme lives in two places and must be changed in both.
 - **`Clear` always returns nil and always clears `contextHash`** even when the removal failed — the `error` return is decorative and the hash needed to retry is discarded. Diverges from the `ContextProvider.Clear(workDir) error` signature's implied contract.
 - **`ExecutionMode` values are pinned to the proto enum** (`= 0`, `= 1`); the pin is not documented at the constant site.
-- **Only `Fragment.Content` is ever read** anywhere in the system (`base.go:175`, `contextfile.go:92`, `codex/surfaces.go:313`). `Installation` is never populated — the grpc converter omits it entirely.
+- **Only `Fragment.Content` is ever read** anywhere in the system (`base.go:175`, `contextfile.go:92`). `Installation` is never populated — the grpc converter omits it entirely.
 - **`ThinkingLevel` is NOT monotonic in effort.** The iota order is `Medium = 0`, then `Off`, `Low`, `High`. Ordered comparisons (`level > ThinkingLow`) are meaningless; every consumer switches on the value.
 - **`PermissionMode.String()`'s `default:` arm returns `"default"`**, so an out-of-range or corrupted wire value renders as an intentional posture. `PermissionDefault` has no explicit case.
 - **Three hand-maintained parallel tables** describe `PermissionMode` (`String` at `:36`, `ParsePermissionMode` at `:61`, `PermissionModeNames` at `:78`) with no compile-time link; likewise `ThinkingLevel` (`:45`, `:63`, `:81`).

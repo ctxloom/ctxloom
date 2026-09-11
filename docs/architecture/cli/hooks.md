@@ -8,7 +8,7 @@ engine config file invokes, never a human. Four subcommands live under it —
 never fail the host tool call**: every failure warns and returns nil, so the
 engine's own operation proceeds. `hook inject-context` is the single most
 load-bearing command in the package — it is the **only** path by which a
-claude/codex session launched outside `ctxloom run` receives assembled project
+claude session launched outside `ctxloom run` receives assembled project
 context.
 
 ## Structure
@@ -40,11 +40,11 @@ flowchart TD
     ASN["agentSetupNudge :185"] --> CSM
     BICO --> OUT["json.Encoder → stdout (HookOutput)"]
 
-    SP --> PEP["parseEditPayload :64<br/>wrapped | bare | antigravity shapes"]
+    SP --> PEP["parseEditPayload :64<br/>wrapped | bare shapes"]
     PEP --> MEM["memory.IsPlanFile / StampPlanFile"]
 
     SB --> EHM["emitHarpMarker :268"]
-    SB --> BSFP["bindSessionFromPayload :291"] --> IAHP["isAntigravityHookPayload :334"]
+    SB --> BSFP["bindSessionFromPayload :291"]
 ```
 
 Registration is spread across four files' `init()` funcs — `hook_hud.go:34`,
@@ -88,7 +88,7 @@ fault-tolerant HUD.
 ## `hook stamp-plan` — plan frontmatter
 
 A PostToolUse callback. `parseEditPayload:64` extracts the edited file path from
-three payload shapes (wrapped, bare, antigravity), then
+the tool-input payload (wrapped or bare `file_path`), then
 `memory.IsPlanFile`/`StampPlanFile` stamp the harp into a `*.plan.md`'s
 frontmatter. Gated on a non-empty `CTXLOOM_SESSION_HARP`.
 
@@ -97,8 +97,8 @@ frontmatter. Gated on a non-empty `CTXLOOM_SESSION_HARP`.
 Runs at SessionStart. Two jobs: `emitHarpMarker:268` writes the
 index-independent harp self-id marker into the transcript via
 `additionalContext`, and `bindSessionFromPayload:291` decodes the engine's
-SessionStart payload (per-engine shapes, discriminated by
-`isAntigravityHookPayload:334`) and calls `BindSession` so the harp and the
+SessionStart payload (`claude.SessionStartPayload`) and calls `BindSession` so
+the harp and the
 engine's own session id are linked. Without that binding, `compactEntry` later
 fails with "harp %q has no session_id bound".
 

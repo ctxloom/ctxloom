@@ -122,6 +122,53 @@ Feature: MCP tools
     # than the caller named, silently.
     And the tool result field "session_id" equals "seeded-steady-vellum-crane"
 
+  # finite-parabola: both scenarios above pass an explicit session_id. The call
+  # a human actually makes after a /clear is the BARE one — they have just lost
+  # the context that held their own harp, so they cannot name the session to
+  # recover. handleRecoverSession's no-session_id branch then resolves the
+  # target from the harp's OWN lineage: the current (post-clear, near-empty)
+  # session is the one binding it must SKIP, and the predecessor transcript
+  # under the same harp is the one it must return.
+  #
+  # The fixture reproduces exactly that shape — a self harp whose index binds a
+  # post-clear session while a rotation records the pre-clear one, with an
+  # engine-transcript link per binding so the lineage scan finds both. The
+  # assertions pin the resolution, not merely a 0-exit: loaded=true (the
+  # /recover skill's false "nothing to recover" is the failure mode), the
+  # recovered content carries the pre-clear thread's marker (real bytes, not an
+  # empty essence), and session_id is the PRE-CLEAR id — not the post-clear one
+  # that resolution must skip, and not the harp itself, which is what the
+  # mtime-fallback leg would return if the lineage leg had failed. Break the
+  # lineage resolution (make it return nothing, or stop skipping the current
+  # binding) and one of those three goes red.
+  #
+  # @wip — CURRENTLY RED against a CONFIRMED product defect, not a fixture bug.
+  # The resolution half works: the bare call correctly targets the pre-clear
+  # session id. The LOAD half does not. The bare path resolves its target to a
+  # ROTATED-AWAY session id (the pre-clear one), but the canonical read's
+  # reverse lookup — grpc.CanonicalFallbackSource.harpForSessionID — matches
+  # only Entry.SessionID and NOT Entry.Rotations, so a rotation id never maps
+  # back to its harp. The read then falls through to the (retired/absent)
+  # legacy leg and fails: "session history not supported by this backend". The
+  # asymmetry is with sessions.Manager.FindBySessionID, which DOES scan
+  # Rotations (and is what mcp.sessionHarpForID resolves through, for essence
+  # filing only). Isolated and reproduced against a real `hook session-bind`
+  # rotation: addressing the SAME session by its harp loads fine; by its
+  # rotation id fails. Un-tag when harpForSessionID is made rotation-aware; the
+  # scenario is otherwise green-ready (proven by the M2 mutation still
+  # reddening the resolution). Kept in-tree, not deleted, so the reproduction
+  # and the load-bearing session_id assertion survive to guard the fix.
+  @wip
+  Scenario: recover_session with no session_id recovers the cleared session's own prior thread
+    Given an initialized ctxloom project
+    And the compaction LLM is a mock that never compresses
+    And a cleared session "dana-context-wipe" whose prior thread is in its lineage
+    When the agent calls tool "recover_session"
+    Then the tool call succeeds
+    And the tool result field "loaded" equals "true"
+    And the tool result contains "PRECLEAR-THREAD-MARKER"
+    And the tool result field "session_id" equals "sess-preclear"
+
   # list_sessions is the agent's index reader. The claim is not that it
   # returned a list — an empty list is a list — but that it returned BOTH
   # seeded sessions WITH the titles their index entries carry. A handler that

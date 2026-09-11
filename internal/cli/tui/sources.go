@@ -50,8 +50,9 @@ type RosterRow struct {
 	Harp   string
 	Agent  string
 	Engine string
-	// State is the roster vocabulary: executing | queued | parked | idle |
-	// ended for orchestrator-held children; live | ended for index sessions.
+	// State is the roster vocabulary: the coordinator's coord.State* values
+	// for the children it holds a state for; otherwise the session lock's
+	// verdict as StateLive | StateEnded | StateUnknown.
 	State  string
 	Parent string
 	Depth  int // lineage indent

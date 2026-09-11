@@ -46,7 +46,6 @@ var appDirEscapeRatchet = map[string]bool{
 	"internal/projectroot":                    true,
 	"internal/remote":                         true,
 	"internal/sessions":                       true,
-	"internal/shared/agent":                   true,
 	"internal/shared/tasks/operations":        true,
 	"internal/transcript":                     true,
 	"internal/transcript/vendorreader/claude": true,

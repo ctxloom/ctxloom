@@ -1,71 +1,132 @@
 # agent — LaunchBackend setup/execute/cleanup
 
-`LaunchBackend` is the shared core every local-CLI engine embeds (`internal/claude`, `codex`, `opencode`). It owns two things that happen to live on one struct: the **generic Setup/Cleanup** that turns a host-assembled `ManagedConfig` into written surfaces and reversible cleanup handles, and the **exec half** that assembles the child environment and routes an interactive or oneshot launch. Capabilities are injected once via `InitLaunch` and probed at use.
+`LaunchBackend` is the shared core a local-CLI engine embeds. It owns two
+things that happen to live on one struct: the **generic Setup/Cleanup** that
+turns a host-assembled `ManagedConfig` into delivered surfaces and reversible
+cleanup handles, and the **exec half** that assembles the child environment
+and routes an interactive or oneshot launch. Capabilities — including the
+engine's `Declaration` of the approaches it delivers at launch — are injected
+once via `InitLaunch` and probed at use.
+
+Authority: `internal/shared/agent/launch_backend.go`; the selection and cell
+machinery it drives is described in [surface delivery](agent-surface-delivery.md).
 
 ```mermaid
 flowchart TD
-  SR["SetupRequest{Managed, Fragments, CellKind, Env}"] --> SETUP["LaunchBackend.Setup<br/>launch_backend.go:188"]
-  SETUP -->|"delivery == nil → return nil"| NOOP["no surfaces written"]
-  SETUP --> SVC["setupViaCells :218"]
-  SVC -->|"RawContext"| PROV["context.Provide → WriteContextFile"]
+  SR["SetupRequest{Managed, Fragments, CellKind, Env}"] --> SETUP["LaunchBackend.Setup"]
+  SETUP -->|"surfaces == nil → error"| MISCONF["misconfigured backend: InitLaunch never ran"]
+  SETUP --> SVC["setupViaCells"]
+  SVC -->|"Managed == nil → return nil"| DEGRADED["config failed to load: touch nothing"]
   SVC --> MM["lifecycle.MergeManaged"]
-  SVC --> MS["mergedState :366<br/>(type-asserts GetHooks/GetMCP)"]
-  MS --> INPUTS["SurfaceInputs{Context, MCP, Hooks, ...}"]
-  INPUTS --> BUILD["CellDelivery.Build → SurfaceSet"]
-  BUILD --> SEL["Select().WithEverything().Build()"]
-  SEL --> DS["deliverSet :285"]
-  DS -->|"CellKind isolated"| CELL["isolatedCell.Deliver"]
-  DS -->|"CellKind shared"| SHARED["deliverOneShared"]
-  DS -->|"i == 0 and !RawContext and failed"| REC["recoverContextViaHook :343"]
-  DS --> HANDLES[("b.delivered []Delivered")]
-  HANDLES --> CLEAN["Cleanup :384 — LIFO"]
+  SVC --> MS["mergedState<br/>(GetHooks / GetBundleMCP; !ok → error)"]
+  MS --> INPUTS["SurfaceInputs{Context, BundleMCP, Hooks, ...}"]
+  SVC --> START["present.Start — roots advised ONCE<br/>ProjectRoot = WorkDir; Scratch = ephemeral dir (shared) or WorkDir (isolated)"]
+  INPUTS --> DS["deliverSet"]
+  START --> DS
+  DS --> SEL["Select(Declaration).WithEverything()"]
+  SEL -->|"CellKind shared, kind not named by caller"| PREF["preferOutOfCwd"]
+  SEL -->|"req.Managed.Surfaces"| WITH["With(kind, name) — caller's explicit preference"]
+  WITH --> BUILD["Build(inputs)"]
+  BUILD -->|"CellKind isolated"| CELL["NewIsolatedCell(start).Deliver"]
+  BUILD -->|"CellKind shared"| SHARED["deliverOneShared"]
+  SHARED -->|"context surface failed"| REC["recoverContextViaHook"]
+  BUILD -->|"context approach is a Rider"| HOOK["installContextInjectionHook"]
+  CELL --> HANDLES[("b.delivered []Delivered")]
+  SHARED --> HANDLES
+  HANDLES --> CLEAN["Cleanup — LIFO"]
 
-  EXEC["ExecuteCLI :131"] --> ENV["ExecuteEnv :155"]
-  ENV --> CFP["ContextFilePath :174"]
-  EXEC --> TRACE["TraceArgs :147"]
+  EXEC["ExecuteCLI"] --> ENV["ExecuteEnv"]
+  ENV --> CFP["ContextFilePath"]
+  EXEC --> TRACE["TraceArgs"]
   EXEC --> RUN["RunInteractive / RunNonInteractive"]
 ```
 
 ## Types
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `LaunchBackend` | `internal/shared/agent/launch_backend.go:61` | Embeds `BaseBackend`; holds `lifecycle`, `commands`, `context`, `history`, `delivery`, `extraEnv`, `delivered`. |
-| `ManagedLifecycle` | `internal/shared/agent/launch_backend.go:34` | The lifecycle capability `LaunchBackend` is wired with — declares `MergeManaged`. |
-| `HashedContext` | `internal/shared/agent/launch_backend.go:42` | `ContextProvider` plus `GetContextHash`/`GetContextFilePath`. |
-| `ContentCommands` | `internal/shared/agent/launch_backend.go:51` | Legacy `RegisterFromContent` capability. |
+| Symbol | Purpose |
+|---|---|
+| `LaunchBackend` | Embeds `BaseBackend`; holds the injected `lifecycle`, `context`, `history`, the engine's `surfaces Declaration`, the `resolved` selection of the current run, an optional `extraEnv` contributor, and the `delivered` handles. |
+| `ManagedLifecycle` | The lifecycle capability `LaunchBackend` is wired with — declares `MergeManaged`. `BaseLifecycle` implements it. |
+| `HashedContext` | `ContextProvider` plus the hash and on-disk path of the context it last provided; the hash seeds the injection hook, the path is handed to the child via the context-file env var. |
 
 ## Functions
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `LaunchBackend.InitLaunch` | `internal/shared/agent/launch_backend.go:90` | Wires lifecycle, commands, context, history, and delivery in one call. No validation performed. |
-| `LaunchBackend.SetExecuteEnv` | `internal/shared/agent/launch_backend.go:102` | Registers an extra env contributor (codex only). |
-| `LaunchBackend.History` | `internal/shared/agent/launch_backend.go:107` | Returns the injected `SessionHistory`, satisfying `Backend`. |
-| `LaunchBackend.ManagedChatMCPServers` | `internal/shared/agent/launch_backend.go:114` | Capability-probes the lifecycle for `ChatMCPServers()`. |
-| `LaunchBackend.ExecuteCLI` | `internal/shared/agent/launch_backend.go:131` | Dry-run stop, argv trace, env assembly, then interactive vs oneshot routing; propagates the runner error with its exit code. |
-| `LaunchBackend.TraceArgs` | `internal/shared/agent/launch_backend.go:147` | Verbosity-16 argv trace. |
-| `LaunchBackend.ExecuteEnv` | `internal/shared/agent/launch_backend.go:155` | Three-layer env merge with documented precedence. |
-| `LaunchBackend.ContextFilePath` | `internal/shared/agent/launch_backend.go:174` | Nil-guarded `GetContextFilePath`; sets `CTXLOOM_CONTEXT_FILE`. |
-| `LaunchBackend.Setup` | `internal/shared/agent/launch_backend.go:188` | Sets the work dir and routes to `setupViaCells`. |
-| `LaunchBackend.setupViaCells` | `internal/shared/agent/launch_backend.go:218` | RawContext pre-step → `MergeManaged` → build the `SurfaceSet` → select → deliver. |
-| `LaunchBackend.deliverSet` | `internal/shared/agent/launch_backend.go:285` | Delivers every resolved surface through the chosen cell and records the cleanup handles. |
-| `LaunchBackend.recoverContextViaHook` | `internal/shared/agent/launch_backend.go:343` | Fallback: re-provide the cache file and append an injection hook when context delivery failed. |
-| `LaunchBackend.mergedState` | `internal/shared/agent/launch_backend.go:366` | Capability-probes the lifecycle for hooks + MCP, returning `(hooks, mcp, ok)`. |
-| `LaunchBackend.Cleanup` | `internal/shared/agent/launch_backend.go:384` | LIFO teardown of every recorded handle. |
-| `AwaitTurn` | `internal/shared/agent/rendezvous.go:57` | flock rendezvous so N chunk-injection hooks emit in order (see the context-delivery page). |
+| Symbol | Purpose |
+|---|---|
+| `LaunchBackend.InitLaunch` | Wires lifecycle, context provider, history and the engine's `Declaration` in one call. No validation performed. |
+| `LaunchBackend.Resolved` | The selection `Setup` built and delivered for the current run, or nil before `Setup`. An engine reads it to learn what its own approaches recorded (claude's out-of-cwd file paths for argv) — never to deliver again. |
+| `LaunchBackend.SetExecuteEnv` | Registers an extra per-backend child-env contributor on top of the shared `ExecuteEnv`. |
+| `LaunchBackend.History` | Returns the injected `SessionHistory`, satisfying `Backend`. |
+| `LaunchBackend.ManagedChatMCPServers` | Capability-probes the lifecycle for `ChatMCPServers()`. |
+| `LaunchBackend.ExecuteCLI` | Dry-run stop, argv trace, env assembly, then interactive vs oneshot routing; propagates the runner error with its exit code. |
+| `LaunchBackend.TraceArgs` | Verbosity-gated argv trace. |
+| `LaunchBackend.ExecuteEnv` | Three-layer env merge with documented precedence. |
+| `LaunchBackend.ContextFilePath` | Nil-guarded `GetContextFilePath`; sets the context-file env var. |
+| `LaunchBackend.Setup` | Sets the work dir, refuses a nil `Declaration`, routes to `setupViaCells`. |
+| `LaunchBackend.setupViaCells` | `MergeManaged` → read the merged state → assemble the surface context → advise the run's roots ONCE → `deliverSet`. |
+| `LaunchBackend.deliverSet` | Selects from the `Declaration`, applies the shared-launch preference and the caller's explicit per-kind names, builds, delivers through the cell named by `req.CellKind`, installs the injection hook for a `Rider` context approach, and records every non-nil handle. |
+| `SurfaceSelection.preferOutOfCwd` | The shared-cell default derivation: with no explicit preference for a kind, prefer the declared approach that implements `OutOfCwd`; if several do and none is the default, error — the declaration must say which it prefers. Decided from the CAPABILITY, never from a name. |
+| `LaunchBackend.installContextInjectionHook` | Materializes the raw context cache file and appends the SessionStart injection hook onto the merged hooks the not-yet-delivered settings surface then writes. Both the failure fallback and a deliberately selected `ApproachHook` context route through here. |
+| `LaunchBackend.recoverContextViaHook` | Failure fallback on a shared launch: when the context surface's delivery fails, install the injection hook rather than launch a context-less session. |
+| `LaunchBackend.mergedState` | Capability-probes the lifecycle for the merged hooks + bundle MCP, returning `(hooks, mcp, ok)`. |
+| `LaunchBackend.Cleanup` | LIFO teardown of every recorded handle. |
+| `AwaitTurn` (`rendezvous.go`) | flock rendezvous so N chunk-injection hooks emit in order (see the context-delivery page). |
 
 ## Invariants and contracts
 
-- **`InitLaunch` must run before `Setup`.** It performs no validation: a nil `lifecycle` passes and panics later inside `setupViaCells` at `:241`.
-- **`Setup` returns `nil` — full success — when `b.delivery` is nil.** A backend that forgot `InitLaunch`'s delivery argument launches with zero surfaces written and exit 0. Every real backend passes a `CellDelivery`, so a nil delivery is a misconfiguration, not a mode.
-- **`setupViaCells` discards `mergedState`'s `ok`** (`hooks, mcp, _ := b.mergedState()` at `:245`). A lifecycle whose type assertions fail delivers the settings and MCP surfaces with `nil` hooks and `nil` MCP — a written settings file containing none of ctxloom's hooks, exit 0.
-- **`ManagedLifecycle` declares one method but four are required.** `setupViaCells` and `ManagedChatMCPServers` immediately type-assert past it for `GetHooks`, `GetMCP`, and `ChatMCPServers` (`:114-118`, `:366-377`). The capability is a runtime assertion, not a compile-time contract.
-- **`req.Managed == nil` makes `setupViaCells` return `nil`** without writing anything.
-- **`deliverSet` identifies the context surface by index**, not by kind: `if i == 0 && !b.delivery.RawContext { … recoverContextViaHook }` (`:301`). This couples `launch_backend.go` to `cells.go`'s `surfaceOrder` by position; for a backend with no context surface, `surfaces[0]` is MCP and the context-recovery fallback would fire on an MCP failure.
-- **`recoverContextViaHook` returns a `bool`, not an `error`.** The reason a recovery failed — `Provide`'s error, or a `mergedState` miss — is discarded, and its warning goes directly to `os.Stderr` rather than the run's stderr.
-- **`Cleanup` is LIFO and attempts every handle, but keeps only the first error**; every subsequent teardown failure is discarded rather than joined.
-- **`ContentCommands` and the `commands` field are dead.** `b.commands` is written by `InitLaunch` (`:92`) and read nowhere; six backends implement `RegisterFromContent` and the only call is in `claude/capabilities_test.go:32`. The commands surface now rides `ManagedCommandsDelivery`.
-- **The context is assembled twice per Setup for `RawContext` backends** (codex): once via `context.Provide` → `WriteContextFile` at `:224`, and again at `:249` for `SurfaceInputs.Context`. Both paths emit the >16KB warning to `os.Stderr`.
-- **`LaunchBackend` is two types on one struct.** Exec half: `{BaseBackend, extraEnv}` ← `ExecuteCLI`/`TraceArgs`/`ExecuteEnv`. Setup half: `{lifecycle, delivery, delivered}` ← `Setup`/`setupViaCells`/`deliverSet`/`recoverContextViaHook`/`mergedState`/`Cleanup`. Only `context` is shared, and the exec half uses it for a path string while the setup half uses it to write files; `history` and `commands` belong to neither.
-- **`ApplyLocalCLIConfig`** (`internal/shared/agent/localcli.go:9`) applies per-backend binary/args/env overrides and is called by all six backends; it assigns into `b.Env` without a nil check, so it is safe only because every production path constructs through `NewBaseBackend`.
+- **`InitLaunch` must run before `Setup`, and `Setup` checks the one thing it
+  can.** A nil `Declaration` is a misconfigured backend, never a legitimate
+  "nothing to do", so `Setup` errors rather than reporting success while
+  setting up nothing. A protocol-only engine that materializes no files passes
+  an EMPTY declaration, which is a different fact and flows through.
+- **`req.Managed == nil` means the config failed to load and the run degraded
+  through**: `setupViaCells` returns without touching any surface — deliver
+  nothing, retract nothing. An EMPTY payload deliberately does NOT stop there:
+  it flows on to the writers, which reconcile to it and retract what ctxloom
+  installed last round. This is why it is a nil check and not a `len()` check.
+- **`mergedState`'s `ok` is checked, and `!ok` is an error.** Falling through
+  would deliver a settings file containing none of the configured hooks or
+  servers with exit 0 — a misconfigured backend, not a legitimate "nothing
+  configured" (that is an EMPTY payload, which flows past and reconciles).
+- **Roots are resolved and advised ONCE per Setup**, before any surface runs,
+  as a `present.Start`: the project root is the working dir; Scratch is the
+  session's private ephemeral dir for a shared cell (out of the shared cwd)
+  and the working dir itself for an isolated cell (its private dir is its own
+  scratch). `present.OnHost`, not a containerize advice: Setup runs where the
+  engine runs — inside the container, for a container cell — so writer and
+  engine share one filesystem namespace and the identity advice is truthful.
+- **The shared-launch preference is derived, scoped, and overridable.**
+  `preferOutOfCwd` runs only for `CellKindShared` (an isolated cell's
+  well-known write is already race-free, so there is nothing to prefer) and
+  only for kinds the caller did NOT name in `req.Managed.Surfaces`. An
+  explicit preference is HONOURED, not silently converted back to the scratch
+  form. The binding's preference is applied here rather than in the engine's
+  declaration because a launch has the argv sink a flag-announced approach
+  needs and an at-rest `DeliverUnder` does not.
+- **Context recovery is matched by KIND, not by index.** A backend with no
+  distinct context surface has some other kind first in the resolved
+  selection, and the fallback must not fire on that kind's failure.
+- **Hook-carried context is installed on EVERY cell**, after the selection
+  resolves and against the same merged hooks the settings surface writes.
+  Installing it on the shared arm only would leave a worktree or container
+  launch pinned to the hook approach with the hook written nowhere and a
+  context-less session reported as success.
+- **A `Rider` context approach is a documented no-op WRITE.** `HookCarriedContext`
+  itself writes nothing; the launch installs the hook it rides on. Selecting
+  it without the settings surface is refused at `Build`.
+- **A nil `Delivered` holds no cleanup handle and is not recorded.**
+- **`recoverContextViaHook` returns a `bool`, not an `error`.** The cause is
+  warned through the shared `Warn` and then discarded; the caller learns only
+  whether the hook was installed.
+- **`Cleanup` is LIFO, attempts every handle, and joins every failure**
+  (`errors.Join`), so one bad handle does not hide the others.
+- **`LaunchBackend` is two types on one struct.** Exec half: `{BaseBackend,
+  extraEnv}` ← `ExecuteCLI`/`TraceArgs`/`ExecuteEnv`. Setup half:
+  `{lifecycle, surfaces, resolved, delivered}` ← `Setup`/`setupViaCells`/
+  `deliverSet`/`recoverContextViaHook`/`mergedState`/`Cleanup`. Only `context`
+  is shared, and the exec half uses it for a path string while the setup half
+  uses it to write the cache file; `history` belongs to neither.
+- **`ApplyLocalCLIConfig`** (`localcli.go`) applies the local-CLI overrides
+  every engine's typed config carries — binary path, args, env. Empty values
+  leave the backend's defaults in place; env entries merge into, never
+  replace, the backend's env map.

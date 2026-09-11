@@ -287,8 +287,6 @@ func runHarpFilePurge(cmd *cobra.Command, harp string, p harpFilePurge) error {
 // refusing is that the caller must not walk away believing it happened.
 func harpPurgeRefusal(harp string, err error, commandPath string) string {
 	switch {
-	case errors.Is(err, operations.ErrPurgeLiveSession):
-		return fmt.Sprintf("ctxloom refuses to purge %s: the session is still live (no ended_at yet); nothing was removed", harp)
 	case errors.Is(err, operations.ErrPurgeOwnerNotProvenDead):
 		return fmt.Sprintf("ctxloom refuses to purge %s: %v. Nothing was removed. "+
 			"To destroy it anyway, deliberately: `%s %s --yes --%s`",

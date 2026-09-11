@@ -121,17 +121,15 @@ type PurgeSessionResult struct {
 }
 
 var (
-	// ErrPurgeLiveSession is returned when the named harp has no EndedAt yet.
-	// Purging a session still in progress could destroy the only transcript a
-	// live agent is still writing to.
-	ErrPurgeLiveSession = errors.New("session is still live")
 	// ErrPurgeOwnerNotProvenDead is returned when the harp's liveness lock
 	// (internal/shared/sessionlock) does not prove the owning process dead
 	// and EvenIfLive was not set. Dead — a lock file that exists and nothing
 	// holds — is the ONLY verdict that permits destroying; a held lock, a
 	// missing one and an untrusted filesystem all refuse. The index's
-	// ended_at cannot stand in for it: a session resumed under its harp is
-	// running again with ended_at still set.
+	// ended_at plays no part in EITHER direction: a session resumed under its
+	// harp is running again with ended_at still set, and a session that died
+	// before EndSession has none while its free lock proves it gone. It is a
+	// timestamp, not a liveness signal.
 	ErrPurgeOwnerNotProvenDead = errors.New("the session lock does not prove its owner dead")
 	// ErrPurgeUndistilled is returned when the TRANSCRIPT population is asked
 	// for against a session with no essence.md and Undistilled was not also
@@ -188,10 +186,6 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	}
 
 	res := &PurgeSessionResult{Harp: harp, Populations: req.Populations}
-
-	if entry.EndedAt == nil {
-		return res, fmt.Errorf("%w: %q has no ended_at yet", ErrPurgeLiveSession, harp)
-	}
 
 	// THE LOCK ONLY EVER REFUSES, and it is held across the destruction: a
 	// session resuming under this harp meanwhile waits in sessionlock.Hold

@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
@@ -320,7 +321,25 @@ func AssignSessionHarp(projectDir, backend string) (sessions.Entry, error) {
 	if err != nil {
 		return sessions.Entry{}, err
 	}
-	return mgr.AssignHarp(projectDir, backend)
+	entry, err := mgr.AssignHarp(projectDir, backend)
+	if err != nil {
+		return sessions.Entry{}, err
+	}
+	// THIS PROCESS OWNS THE SESSION FROM HERE: hold its liveness lock until
+	// EndSession. Every sweep that reclaims per-session data (engine-home
+	// instances, agent worktrees, aged session data) reads the harp as alive
+	// while this is held and as dead once the kernel lets go — on a graceful
+	// end or on any crash. A child agent's harp is minted here too, by the
+	// coordinating process, which is exactly the process whose death should
+	// release it.
+	//
+	// A failed hold does not fail the session: it leaves NO lock file
+	// (sessionlock.Hold removes it), so the harp reads Indeterminate — the
+	// pre-lock bias, never reclaimed — rather than Dead.
+	if herr := sessionlock.Hold(entry.HarpName); herr != nil {
+		clidiag.Warn("ctxloom", "session %s: cannot hold its liveness lock, so its data will never be reaped as crashed: %v", entry.HarpName, herr)
+	}
+	return entry, nil
 }
 
 // RecordSessionEngineVersion probes backend's installed CLI and records what
@@ -397,6 +416,11 @@ func RecordSessionEngineVersion(ctx context.Context, harp, backend string) (stri
 // The removal is best-effort and never fails the session end: see
 // removeSessionInstance.
 func EndSession(harp string, at time.Time) error {
+	// The owner is done with the session however the rest of this goes: a
+	// lock held on past a failed end-mark — by a long-lived coordinator for a
+	// child, say — would read that session as alive for the holder's whole
+	// life. Deferred, so it runs AFTER the mark and the instance removal.
+	defer sessionlock.Release(harp)
 	mgr, err := openSessions()
 	if err != nil {
 		return err

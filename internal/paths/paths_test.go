@@ -179,6 +179,24 @@ func TestHarpStateDirs_Layout(t *testing.T) {
 		"the canonical transcript is a FILE under persist/, distinct from the transcripts/ bind-mount dir")
 }
 
+// TestHarpLockPath_IsBesideTheHarpDir pins the session liveness lock's home:
+// PathFor's beside-the-protected-path shape applied to the harp dir itself,
+// so it is named for the harp, lives OUTSIDE the directory a sweep may
+// delete, and rides HarpDir's traversal validation.
+func TestHarpLockPath_IsBesideTheHarpDir(t *testing.T) {
+	home := testsupport.Isolate(t)
+	sessions := filepath.Join(home, ".ctxloom", "sessions")
+
+	lock, err := HarpLockPath("swift-amber-falcon")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(sessions, "swift-amber-falcon.lock"), lock)
+	assert.Equal(t, sessions, filepath.Dir(lock),
+		"the lock must not sit INSIDE the harp dir: a handle held on it would block the dir's removal on Windows")
+
+	_, err = HarpLockPath("../escape")
+	assert.Error(t, err, "a traversing harp is refused exactly as HarpDir refuses it")
+}
+
 // =============================================================================
 // ResolveHarpCanonicalTranscriptPath: transcript.acp.jsonl -> transcript.jsonl
 // rename back-compat (readers must still find a pre-rename session's file).

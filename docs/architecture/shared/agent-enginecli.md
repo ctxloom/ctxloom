@@ -1,6 +1,6 @@
 # agent — engine CLI declaration (anti-drift grammar)
 
-`EngineCLI` is a backend's declaration of ONE vendor-CLI process surface: the binary, subcommand, how the prompt is delivered, every flag with its value shape, the env it sets and strips, and the context surfaces (`CLIProbe`) the vendor CLI reads at startup. It is the single grammar that both the real driver and the deterministic fake (`internal/mockengine`, `cmd/mockengine`) parse against — that shared reading is the entire anti-drift mechanism in the launch path. Consumers: `internal/claude`, `internal/codex`, `internal/mockengine`, `cmd/mockengine`, `internal/lm/backends`.
+`EngineCLI` is a backend's declaration of ONE vendor-CLI process surface: the binary, subcommand, how the prompt is delivered, every flag with its value shape, the env it sets and strips, and the context surfaces (`CLIProbe`) the vendor CLI reads at startup. It is the single grammar that both the real driver and the deterministic fake (`internal/mockengine`, `cmd/mockengine`) parse against — that shared reading is the entire anti-drift mechanism in the launch path. Consumers: `internal/claude`, `internal/mockengine`, `cmd/mockengine`, `internal/lm/backends`.
 
 ```mermaid
 classDiagram

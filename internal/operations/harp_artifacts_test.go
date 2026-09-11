@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func writeHarpFile(t *testing.T, root, harp, name, body string) string {
@@ -19,6 +21,26 @@ func writeHarpFile(t *testing.T, root, harp, name, body string) string {
 	p := filepath.Join(dir, name)
 	require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 	return p
+}
+
+// endedUnderLock leaves harp's liveness lock on disk and unheld: the state a
+// session leaves once it has ended (or died) under the lock, and the only
+// state the migration accepts as proof that nobody is writing the plan.
+func endedUnderLock(t *testing.T, harp string) {
+	t.Helper()
+	require.NoError(t, sessionlock.Hold(harp))
+	sessionlock.Release(harp)
+}
+
+// isolatedSessionsRoot isolates the environment and returns the sessions root
+// the lock resolves against, so a harp written under it and its lock beside
+// it describe the same session.
+func isolatedSessionsRoot(t *testing.T) string {
+	t.Helper()
+	testsupport.Isolate(t)
+	root, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	return root
 }
 
 // TestHarpTopLevelArtifacts_NamesAuthoredWorkOnly pins the shared predicate
@@ -56,13 +78,14 @@ func TestHarpTopLevelArtifacts_MissingDirIsNotAFault(t *testing.T) {
 // empty file under persist/ would be the same silent no-op the move exists to
 // prevent, so the content is what is checked.
 func TestMigrateHarpArtifacts_MovesTheBytes(t *testing.T) {
-	root := t.TempDir()
+	root := isolatedSessionsRoot(t)
 	const harp = "brisk-teal-otter"
 	const body = "# design\n\nthe decision and why\n"
 	src := writeHarpFile(t, root, harp, "design"+paths.PlanFileExt, body)
 	writeHarpFile(t, root, harp, paths.EssenceFileName, "ctxloom's own")
+	endedUnderLock(t, harp)
 
-	got, err := MigrateHarpArtifacts(root, nil)
+	got, err := MigrateHarpArtifacts(root)
 	require.NoError(t, err)
 	assert.Equal(t, HarpArtifactMigration{Moved: 1}, got)
 
@@ -78,41 +101,81 @@ func TestMigrateHarpArtifacts_MovesTheBytes(t *testing.T) {
 	assert.NoError(t, err, "ctxloom's own top-level bookkeeping stays where its readers look")
 }
 
-// TestMigrateHarpArtifacts_SkipsLiveSessions: a running agent holds the old
-// path and will write to it again. Moving the file mid-session does not
-// relocate the plan, it forks it — half under persist/, the rest recreated at
-// the top level by the next edit, and neither copy complete.
-func TestMigrateHarpArtifacts_SkipsLiveSessions(t *testing.T) {
-	root := t.TempDir()
-	live := writeHarpFile(t, root, "live-harp", "wip"+paths.PlanFileExt, "still being written")
-	ended := writeHarpFile(t, root, "ended-harp", "done"+paths.PlanFileExt, "finished")
+// TestMigrateHarpArtifacts_SkipsAResumedSession is the case the index's
+// ended_at gets exactly wrong: a session RESUMED under its harp has EndedAt
+// still set from the earlier end, and its lock is HELD by the process running
+// now. That agent holds the plan file's OLD path and will write to it again;
+// moving the file mid-session does not relocate the plan, it forks it — half
+// under persist/, the rest recreated at the top level by the next edit, and
+// neither copy complete. The index's timestamp is not permission; only a free
+// lock is.
+//
+// The ended sibling with a free lock is the vacuity guard: it proves the sweep
+// ran and could move an ended session's file — so the resumed one survived
+// because of the lock, not because nothing happened.
+//
+// MUTATION: decide liveness from ended_at (a set ended_at migrates) → red.
+func TestMigrateHarpArtifacts_SkipsAResumedSession(t *testing.T) {
+	root := isolatedSessionsRoot(t)
+	projectDir := t.TempDir()
 
-	got, err := MigrateHarpArtifacts(root, map[string]bool{"live-harp": true})
+	resumed := resumedSession(t, projectDir)
+	resumedPlan := writeHarpFile(t, root, resumed, "wip"+paths.PlanFileExt, "still being written")
+	ended := endedSession(t, projectDir)
+	endedPlan := writeHarpFile(t, root, ended, "done"+paths.PlanFileExt, "finished")
+
+	got, err := MigrateHarpArtifacts(root)
 	require.NoError(t, err)
-	assert.Equal(t, HarpArtifactMigration{Moved: 1, LiveHarps: 1}, got)
+	assert.Equal(t, HarpArtifactMigration{Moved: 1, RefusedHarps: 1}, got)
 
-	body, err := os.ReadFile(live)
-	require.NoError(t, err, "the live session's plan must still be at the path that session is writing to")
+	body, err := os.ReadFile(resumedPlan)
+	require.NoError(t, err, "the resumed session's plan must still be at the path that session is writing to")
 	assert.Equal(t, "still being written", string(body))
-	assert.NoFileExists(t, filepath.Join(root, "live-harp", paths.PersistDirName, "wip"+paths.PlanFileExt),
+	assert.NoFileExists(t, filepath.Join(root, resumed, paths.PersistDirName, "wip"+paths.PlanFileExt),
 		"and no half-copy under persist/ for the session to diverge from")
 
-	assert.NoFileExists(t, ended)
-	assert.FileExists(t, filepath.Join(root, "ended-harp", paths.PersistDirName, "done"+paths.PlanFileExt))
+	assert.NoFileExists(t, endedPlan)
+	assert.FileExists(t, filepath.Join(root, ended, paths.PersistDirName, "done"+paths.PlanFileExt))
+}
+
+// TestMigrateHarpArtifacts_LeavesALocklessHarpAlone pins the accepted cost of
+// asking the lock: a harp with NO lock file is Indeterminate, and
+// Indeterminate refuses even a rename. "No lock file" is not only a session
+// from before the lock existed — a session whose Hold FAILED keeps running
+// without one by design (AssignSessionHarp), so a lock-less harp can be
+// a plan somebody is writing right now, and the fork hazard is exactly as
+// real as for a held lock. Its file waits until the session is run and ended
+// under the lock; the index's ended_at does not stand in for the proof.
+//
+// MUTATION: treat a missing lock as permission to migrate → red.
+func TestMigrateHarpArtifacts_LeavesALocklessHarpAlone(t *testing.T) {
+	root := isolatedSessionsRoot(t)
+	projectDir := t.TempDir()
+
+	lockless := locklessEndedSession(t, projectDir)
+	plan := writeHarpFile(t, root, lockless, "design"+paths.PlanFileExt, "nobody can prove this is not being written")
+
+	got, err := MigrateHarpArtifacts(root)
+	require.NoError(t, err)
+	assert.Equal(t, HarpArtifactMigration{RefusedHarps: 1}, got)
+
+	assert.FileExists(t, plan, "an ended_at with no lock file proves nothing; the file stays put")
+	assert.NoFileExists(t, filepath.Join(root, lockless, paths.PersistDirName, "design"+paths.PlanFileExt))
 }
 
 // TestMigrateHarpArtifacts_NeverOverwrites: two different documents that share
 // a name. Clobbering one with the other would destroy authored work and report
 // a successful migration while doing it, so both must survive untouched.
 func TestMigrateHarpArtifacts_NeverOverwrites(t *testing.T) {
-	root := t.TempDir()
+	root := isolatedSessionsRoot(t)
 	const harp = "brisk-teal-otter"
 	src := writeHarpFile(t, root, harp, "design"+paths.PlanFileExt, "the top-level copy")
 	dst := filepath.Join(root, harp, paths.PersistDirName, "design"+paths.PlanFileExt)
 	require.NoError(t, os.MkdirAll(filepath.Dir(dst), 0o755))
 	require.NoError(t, os.WriteFile(dst, []byte("the persist copy"), 0o644))
+	endedUnderLock(t, harp)
 
-	got, err := MigrateHarpArtifacts(root, nil)
+	got, err := MigrateHarpArtifacts(root)
 	require.NoError(t, err)
 	assert.Equal(t, HarpArtifactMigration{Skipped: 1}, got)
 
@@ -130,12 +193,14 @@ func TestMigrateHarpArtifacts_NeverOverwrites(t *testing.T) {
 // are excluded outright rather than skipped, so the tally reports the honest
 // number and doctor does not warn about a file nothing can move.
 func TestMigrateHarpArtifacts_LeavesIrregularEntriesAlone(t *testing.T) {
+	testsupport.Isolate(t)
 	// A unix socket path is capped at 108 bytes (sun_path). t.TempDir() embeds
 	// the TEST NAME in the path, and this name is 52 characters; with TMPDIR,
 	// the harp directory and "agent-bus.sock" on top, the bind below overflows
 	// the cap and fails with "bind: invalid argument" -- so the subject is never
 	// reached and the test reports a failure that is entirely about its own
-	// fixture. Nothing here needs the test name in the path.
+	// fixture. Nothing here needs the test name in the path. The lock resolves
+	// from the isolated home regardless of where the harp directory sits.
 	root, err := os.MkdirTemp("", "harpartifacts")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
@@ -147,13 +212,14 @@ func TestMigrateHarpArtifacts_LeavesIrregularEntriesAlone(t *testing.T) {
 	l, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	defer func() { _ = l.Close() }()
+	endedUnderLock(t, harp)
 
 	names, err := HarpTopLevelArtifacts(filepath.Join(root, harp))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"real.md"}, names,
 		"neither the link nor the socket is reported as authored work at risk — a warning with no action behind it is one a user learns to ignore")
 
-	got, err := MigrateHarpArtifacts(root, nil)
+	got, err := MigrateHarpArtifacts(root)
 	require.NoError(t, err)
 	assert.Equal(t, HarpArtifactMigration{Moved: 1}, got, "real.md moves; nothing else is even a candidate")
 
@@ -174,7 +240,7 @@ func TestMigrateHarpArtifacts_LeavesIrregularEntriesAlone(t *testing.T) {
 // TestMigrateHarpArtifacts_MissingRootIsNotAFault: a machine that has never
 // run a session has nothing to migrate, and startup must not warn about it.
 func TestMigrateHarpArtifacts_MissingRootIsNotAFault(t *testing.T) {
-	got, err := MigrateHarpArtifacts(filepath.Join(t.TempDir(), "never-existed"), nil)
+	got, err := MigrateHarpArtifacts(filepath.Join(t.TempDir(), "never-existed"))
 	require.NoError(t, err)
 	assert.Equal(t, HarpArtifactMigration{}, got)
 }

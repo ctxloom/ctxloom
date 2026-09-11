@@ -3,7 +3,6 @@ package operations
 import (
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 )
 
 // HarpTopLevelArtifacts returns the base names — sorted — of the entries at a
@@ -97,18 +97,19 @@ func HarpTopLevelArtifacts(harpDir string) ([]string, error) {
 //
 // Moved and Skipped count only files the sweep actually CONSIDERED — entries
 // HarpTopLevelArtifacts named inside a harp the sweep was allowed to touch.
-// A live session's harp is not considered at all and contributes to neither,
-// because "skipped" would imply the sweep looked at its files and declined
-// them one by one.
+// A harp the lock refused is not considered at all and contributes to
+// neither, because "skipped" would imply the sweep looked at its files and
+// declined them one by one.
 type HarpArtifactMigration struct {
 	// Moved is the number of authored files relocated into persist/.
 	Moved int
 	// Skipped is the number left where they were: a name persist/ already
 	// holds, an entry that is not a regular file, or a rename that failed.
 	Skipped int
-	// LiveHarps is the number of harp directories passed over entirely
-	// because their session is still running.
-	LiveHarps int
+	// RefusedHarps is the number of harp directories passed over entirely
+	// because the liveness lock did not prove their session ended: it is
+	// running, or nothing can prove it is not.
+	RefusedHarps int
 }
 
 // MigrateHarpArtifacts moves every authored top-level file under
@@ -116,13 +117,30 @@ type HarpArtifactMigration struct {
 // location mcp.sessionInstructions now hands to every session and the only one
 // a containerized run can write through to the host.
 //
-// live is the set of harps whose session is still RUNNING; their directories
-// are passed over untouched. That exclusion is not politeness, it is
-// correctness: a running agent holds the plan file's OLD path and will write
-// to it again, so moving the file mid-session does not relocate the plan, it
-// FORKS it — half the design note under persist/, the rest recreated at the
-// top level by the next edit, and neither copy complete. Their files are
-// migrated by a later sweep, once the session has ended.
+// A harp is touched ONLY when its liveness lock (internal/shared/sessionlock)
+// proves the session dead: the lock file exists and nothing holds it. That
+// exclusion is not politeness, it is correctness: a running agent holds the
+// plan file's OLD path and will write to it again, so moving the file
+// mid-session does not relocate the plan, it FORKS it — half the design note
+// under persist/, the rest recreated at the top level by the next edit, and
+// neither copy complete. Their files are migrated by a later sweep, once the
+// session has ended under the lock.
+//
+// THE LOCK ONLY EVER REFUSES, and the session index's EndedAt plays no part:
+// a session RESUMED under its harp is running with EndedAt still set, so the
+// timestamp reads a live session as ended — the destructive direction. A held
+// lock refuses; so does Indeterminate (no lock file, an untrusted filesystem,
+// an error), and that includes a rename, because "no lock file" is not only a
+// harp from before the lock existed: a session whose Hold failed keeps running
+// without one by design (AssignSessionHarp), and its plan is being written
+// right now. The accepted cost is that a lock-less harp is never migrated
+// until its session is run and ended under the lock; that harp stays on
+// cli.doctorCheckHarpDurability's report, which is the recoverable direction.
+//
+// Inspect, not Acquire: this sweep deletes nothing, so it has no business
+// holding the lock across its renames; the verdict is all it needs. A session
+// that resumes between the probe and the rename is writing under persist/
+// already, and a name it has taken there is left alone by the rule below.
 //
 // NEVER OVERWRITES. A top-level name that persist/ already holds is left
 // exactly where it is and counted as skipped, with a warning naming both
@@ -140,7 +158,7 @@ type HarpArtifactMigration struct {
 // Best-effort per harp and per file: one failure warns and the sweep
 // continues, so a single unreadable directory cannot cost every other harp its
 // migration.
-func MigrateHarpArtifacts(sessionsRoot string, live map[string]bool) (HarpArtifactMigration, error) {
+func MigrateHarpArtifacts(sessionsRoot string) (HarpArtifactMigration, error) {
 	var result HarpArtifactMigration
 	entries, err := os.ReadDir(sessionsRoot)
 	if err != nil {
@@ -151,17 +169,12 @@ func MigrateHarpArtifacts(sessionsRoot string, live map[string]bool) (HarpArtifa
 		return result, fmt.Errorf("scan %q: %w", sessionsRoot, err)
 	}
 	for _, e := range entries {
-		// Only directories are harps; index.yaml sits beside them at the root.
-		// A symlink's DirEntry type comes from lstat, so this is already false
-		// for one — stated explicitly because "never descend through a symlink
-		// into somewhere outside the sessions root" is the exclusion whose
-		// absence would be the serious one.
-		if !e.IsDir() || e.Type()&fs.ModeSymlink != 0 {
+		harp := e.Name()
+		if !isHarpDirCandidate(e, harp) {
 			continue
 		}
-		harp := e.Name()
-		if live[harp] {
-			result.LiveHarps++
+		if !sessionlock.Inspect(harp).Verdict.MayReclaim() {
+			result.RefusedHarps++
 			continue
 		}
 		harpDir := filepath.Join(sessionsRoot, harp)
@@ -233,21 +246,15 @@ func migrateOneHarp(harpDir string, names []string, result *HarpArtifactMigratio
 //
 // Best-effort and silent on the all-clear path, mirroring the sibling sweeps'
 // reporting shape: it reports only when it actually moved something, and a
-// failure warns rather than blocking startup. NO INDEX, NO SWEEP — without the
-// liveness signal every running session would look migratable, which is the
-// one case that forks a live plan file in half.
+// failure warns rather than blocking startup. Liveness comes from each harp's
+// lock inside MigrateHarpArtifacts; the session index is not consulted.
 func SweepHarpArtifacts(w io.Writer) {
 	root, err := paths.HomeSessionsDir()
 	if err != nil {
 		clidiag.Warn("ctxloom", "harp artifact migration: %v", err)
 		return
 	}
-	live, _, err := sessionLiveness()
-	if err != nil {
-		clidiag.Warn("ctxloom", "harp artifact migration: %v", err)
-		return
-	}
-	result, err := MigrateHarpArtifacts(root, live)
+	result, err := MigrateHarpArtifacts(root)
 	if err != nil {
 		clidiag.Warn("ctxloom", "harp artifact migration: %v", err)
 		return

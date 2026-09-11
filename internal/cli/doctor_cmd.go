@@ -1431,7 +1431,7 @@ func doctorCheckHarpDurability() doctorCheck {
 		list += fmt.Sprintf(", … +%d more", more)
 	}
 	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: fmt.Sprintf(
-		"%d authored file(s) sit in a harp directory's unclassified top level, which is neither persist/ (durable, mounted into containers) nor ephemeral/: %s — the next `ctxloom run` or `ctxloom mcp serve` moves them under persist/ (a file whose session is still running waits for that session to end)",
+		"%d authored file(s) sit in a harp directory's unclassified top level, which is neither persist/ (durable, mounted into containers) nor ephemeral/: %s — the next `ctxloom run` or `ctxloom mcp serve` moves them under persist/ once that session's liveness lock is free (a file whose session is running, or has never run under the lock, waits for that session to end under it)",
 		len(flagged), list)}
 }
 

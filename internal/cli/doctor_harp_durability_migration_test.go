@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -24,6 +25,11 @@ import (
 // still lists it, and doctor now says OK. The plan-listing half matters on its
 // own — relocating a plan into a directory the plan lister cannot see would
 // trade a durability bug for an invisibility one.
+//
+// The harp's session has ended under its liveness lock (held, then released):
+// that is the one state the mover accepts, and the state every harp reaches
+// once its session ends. A harp without a lock file stays on the report until
+// its session is run and ended under the lock — see MigrateHarpArtifacts.
 func TestDoctorHarpDurability_MigrationClearsTheWarning(t *testing.T) {
 	testsupport.Isolate(t)
 	const harp = "amber-quiet-heron"
@@ -32,6 +38,8 @@ func TestDoctorHarpDurability_MigrationClearsTheWarning(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(harpDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "design"+paths.PlanFileExt), []byte(body), 0o644))
+	require.NoError(t, sessionlock.Hold(harp))
+	sessionlock.Release(harp)
 
 	before := doctorCheckHarpDurability()
 	require.Equal(t, doctorWarn, before.Status, "the undurable plan must be reported before anything moves it")
@@ -39,7 +47,7 @@ func TestDoctorHarpDurability_MigrationClearsTheWarning(t *testing.T) {
 
 	sessionsRoot, err := paths.HomeSessionsDir()
 	require.NoError(t, err)
-	result, err := operations.MigrateHarpArtifacts(sessionsRoot, nil)
+	result, err := operations.MigrateHarpArtifacts(sessionsRoot)
 	require.NoError(t, err)
 	require.Equal(t, 1, result.Moved)
 

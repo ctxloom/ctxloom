@@ -35,15 +35,15 @@ the assembled context files and the refused-advance record. Every one of them
 is rebuilt by a command this report names, so the only cost is the time to
 re-run it.
 
-Nothing else is touched. Your authored content and profiles are committed and
-a clone has them. Your session records, approvals and application records are
+Nothing else is touched by default. Your authored content and profiles are
+committed and a clone has them. Your approvals and application records are
 LOCAL-ONLY — nothing rebuilds them, so clean never takes them, and neither
 does --yes. lock.yaml survives too: it is rebuildable but committed, so
 deleting it would dirty your tree rather than free anything.
 
-Session data is LOCAL-ONLY and clean never takes it by default. Pass
---older-than to reclaim the sessions that are BOTH older than a bound you
-state and provably not running:
+Session data is LOCAL-ONLY too, and no invocation takes it unless you name an
+age. Pass --older-than to reclaim the sessions that are BOTH older than a
+bound you state and provably not running:
 
   ctxloom clean --older-than 30d          an offset: 30d, 12w, 720h
   ctxloom clean --older-than 2026-01-01   or a date

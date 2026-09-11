@@ -61,16 +61,14 @@ flowchart TD
 
 ## R6: exclusively-owned files inside a foreign engine's directory (ruled 2026-08-14)
 
-Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped, `$CODEX_HOME`, `opencode.json`'s directory) but ctxloom is the **sole** author of the whole file — claude's per-instance `.claude.json`, opencode's context file. Three call sites answered "does exclusive ownership excuse the lock and the ledger" three different ways before this ruling: one relied on the *caller's* project lock rather than its own (`claude.claudeInstanceConfig.WriteInstanceConfig`), the four locked `SettingsWriter` entry points said "not sufficient" for the very same opencode file a fifth entry point left unlocked, and a third set of whole-file writers said "sufficient" outright.
+Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped) but ctxloom is the **sole** author of the whole file — claude's per-instance `.claude.json`. Left to per-site judgment, "does exclusive ownership excuse the lock and the ledger" gets answered differently at every site — one writer relying on the *caller's* project lock rather than its own, another locked, a third skipping both outright — and the inconsistency is invisible until two of them race.
 
 **The rule, no per-site judgment:** a file ctxloom exclusively owns inside a foreign engine's directory is locked and ledgered like a shared file.
 
 - `claude.claudeInstanceConfig.WriteInstanceConfig` now takes its own `agent.WithFileLock` around the whole load-modify-write cycle, keyed to the generated file itself — not the caller's `isolation.lockInstanceHome`, which locks a *different* path in a *different* lock namespace (`paths.ProjectPathFor` on the instance-home directory vs. `paths.HomePathFor` on the generated file) and silently no-ops for the harpless worktree fallback.
-- `codex.MCPRegistrar.Install` now refuses a present-but-wrong-TOML-type `mcp_servers` value instead of silently replacing it, matching its JSON twin `InstallMCPServerJSON`.
-- codex's `config.toml` `[mcp_servers]` table gained a `ledger.SurfaceMCP` sidecar record (`codex.removeLedgeredMCPServers`, written by `codex.CodexHookWriter.writeSettingsIn`/`.removeSettingsIn`), closing a real orphan hole: ownership there used to be purely structural (the well-known `ctxloom` name plus "command resolves to ctxloom"), so a bundle- or unified-config server renamed in ctxloom's own config left its old TOML entry behind forever, because its command need not be ctxloom's at all.
 - `claude.appendFlagDelivery.DeliverContext` now writes its framed `<hash>.sysprompt.md` cache file through `AtomicWriteFile` instead of a raw `afero.WriteFile`.
 
-**The ratchet:** `tests/arch/lock_discipline_test.go` (`TestArch_LockDiscipline_EngineRMWIsLocked`) and `tests/arch/ledger_discipline_test.go` (`TestArch_LedgerDiscipline_ManagedWritersRecordOwnership`) are write-discipline-shaped gates — a name-based heuristic over every function in the four `SettingsWriter` packages plus this package, with a reasoned, symbol-keyed allowlist and an `AllowlistIsLive` staleness twin each. They are heuristics, not proofs (see their own doc comments for exactly what they can and cannot see), and each currently carries baseline entries for two more REAL gaps this batch did not fix: `codex.codexInstanceConfig.WriteInstanceConfig` has the identical seed-once TOCTOU shape the claude fix above closes, and opencode's `writeOpencodeConfig` (the live chat/interactive overlay) still tracks its managed keys only via a transient snapshot/restore closure, not a persisted record.
+**The ratchet:** `tests/arch/lock_discipline_test.go` (`TestArch_LockDiscipline_EngineRMWIsLocked`) and `tests/arch/ledger_discipline_test.go` (`TestArch_LedgerDiscipline_ManagedWritersRecordOwnership`) are write-discipline-shaped gates — a name-based heuristic over every function in the `SettingsWriter` packages plus this package, with a reasoned, symbol-keyed allowlist and an `AllowlistIsLive` staleness twin each. They are heuristics, not proofs (see their own doc comments for exactly what they can and cannot see), and each carries a reasoned baseline for the gaps it knows about.
 
 ## Write primitives — `settings_io.go`, `rmw_lock.go`
 
@@ -93,7 +91,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 |---|---|
 | `WriteManagedContext` | Merges content into the managed-marker section of a human-editable file (CLAUDE.md, AGENTS.md, …), preserving surrounding user content **in position** — a section that sat *below* the end marker used to be hoisted above it on every rewrite; it is now reinserted at the same offset the old section occupied. The whole read-splice-write(-or-remove) cycle runs inside its own `WithFileLock`. |
 | `StripManagedSection` | Removes the managed marker section, returning the surrounding user content. |
-| `DeliverManagedContext` | Writes the managed section and returns a strip-on-cleanup handle. Used by claude, opencode, and codex. |
+| `DeliverManagedContext` | Writes the managed section and returns a strip-on-cleanup handle. Every context-file writer routes through it. |
 
 ## Manifest-tracked trees — `packagefiles.go`
 
@@ -111,11 +109,11 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | `SafeCommandRelPath` | Validates a bundle-supplied name as a path confined to a directory — a security boundary, since bundle content is remote. |
 | `WriteManagedCommandFiles` | Adapts a command export ("a command is a one-file package") onto `WriteManagedPackageFiles`. |
 | `TransformMustacheToPositional` | Rewrites `{{var}}` → `$N` by first-occurrence order. |
-| `EscapeYAMLString` | Quotes and escapes for YAML frontmatter (claude, opencode). |
+| `EscapeYAMLString` | Quotes and escapes for YAML frontmatter (command files). |
 | `SkillExport` | Agent-agnostic Agent Skill package export spec — the `SurfaceSkills` sibling of `CommandExport`. |
 | `yamlDoubleQuoted` (`commandfiles.go`) | `json.Marshal` of a string as a YAML double-quoted scalar — the package's one escaping algorithm. |
 
-**One escaping algorithm, one quoting policy.** `yamlDoubleQuoted` always quotes and escapes control characters via `json.Marshal`. `EscapeYAMLString` (claude and opencode's command frontmatter) decides WHETHER to quote and then delegates the escaping itself to `yamlDoubleQuoted`, rather than keeping hand-written rules that escaped neither `\n` nor `\r`.
+**One escaping algorithm, one quoting policy.** `yamlDoubleQuoted` always quotes and escapes control characters via `json.Marshal`. `EscapeYAMLString` (command frontmatter) decides WHETHER to quote and then delegates the escaping itself to `yamlDoubleQuoted`, rather than keeping hand-written rules that escaped neither `\n` nor `\r`.
 
 ## MCP registries
 
@@ -129,7 +127,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | `MCPFileConfig.ledger` / `.readLedger` / `.writeLedger` | Wraps `internal/shared/ledger.Ledger`, scoped to `ledger.SurfaceMCP`. This package used to keep its own private `<Path>.ledger` read/write pair, duplicated per engine; `internal/shared/ledger` is now the one shared implementation (see that package's doc for the co-location invariant that made a single marker filename, with surface-typed entries, the right shape). A read error from the ledger is **propagated**, not flattened to "nothing managed" — a writer that mistook an unreadable ledger for an empty one would orphan every entry it wrote last time. |
 | `InstallMCPServerJSON` | Merges one server into `mcpServers`, preserving foreign top-level keys. A **present-but-wrong-type** `mcpServers` value (a string, an array) is **refused**, not silently replaced with a fresh empty map — the failure mode that used to destroy whatever the user had under that key. |
 | `UninstallMCPServerJSON` | Removes one server; absent is a no-op by contract. |
-| `MCPRegistrar` | The facet an external tool (`taskloom manage`) uses to register a server without learning per-agent paths: `{Name, Present, ConfigPath, Install, Uninstall, Installed}`. `claude` and codex's TOML-shaped `codex.MCPRegistrar` both implement it; codex's `Install` and the shared JSON `InstallMCPServerJSON` now agree on the wrong-type refusal (they used to be asymmetric — the JSON path refused, the TOML path silently replaced). |
+| `MCPRegistrar` | The facet an external tool (`taskloom manage`) uses to register a server without learning per-agent paths: `{Name, Present, ConfigPath, Install, Uninstall, Installed}`. `claude.MCPRegistrar` implements it over the shared JSON `InstallMCPServerJSON`, which refuses a present-but-wrong-type `mcpServers` value rather than silently replacing it. |
 
 ## internal/shared/ledger — the sidecar ownership record
 
@@ -137,7 +135,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 
 `ledger.Ledger.Read` returns `(nil, nil)` for a missing marker (the legitimate "nothing managed yet" case) but propagates any other read error — never flattens it to empty. `ledger.Ledger.Write` rewrites the marker atomically (`iox.WriteFileAtomicFs`), in a stable sorted order (so an unchanged managed set produces byte-identical output), and removes the marker file only when **every** surface is empty.
 
-Consumers: `MCPFileConfig` (`SurfaceMCP`), `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`), `claude.ClaudeCodeHookWriter.writeSettingsFile` (`SurfaceHooks`/`SurfacePermissions`/`SurfaceStatusLine`), `opencode.OpencodeWriter` (`SurfaceMCP`), and `codex.CodexHookWriter.writeSettingsIn`/`.removeSettingsIn` (`SurfaceMCP`, added under R6 above — closing the renamed-server-orphan hole a purely structural `[mcp_servers]` ownership model left).
+Consumers: `MCPFileConfig` (`SurfaceMCP`), `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`), and `claude.ClaudeCodeHookWriter.writeSettingsFile` (`SurfaceHooks`/`SurfacePermissions`/`SurfaceStatusLine`).
 
 ## Binary-path skew warning — `symlink.go`
 
@@ -151,7 +149,7 @@ Consumers: `MCPFileConfig` (`SurfaceMCP`), `WriteManagedPackageFiles` (`SurfaceC
 - **`AtomicWriteFile` is the single low-level write path** for settings/config surfaces, and it takes **no backup**. This is a deliberate change, not an omission: the old `<path>.ctxloom.bak` copy existed because a writer that could not tell its own content from the user's had to rewrite the file wholesale and keep a copy in case it was wrong. Every writer reaching `AtomicWriteFile` now knows what it owns — through the sidecar ledger or through in-file managed markers — so it edits its own content and leaves the rest untouched, and there is nothing to recover from. See `internal/shared/ledger`'s package doc for the fuller history (five independently-drifted per-engine ownership records, consolidated into one).
 - **The temp file name is unique per write** (`afero.TempFile` with a `.`+base+`.*.tmp` pattern), not a fixed suffix — two concurrent writers of the same settings file can never clobber each other's in-flight temp file the way a fixed name could.
 - **A rename failure is returned, never papered over**, and there is no cross-device fallback: the temp file lives in the destination directory by construction, so cross-device rename cannot occur, and every internal failure branch best-effort removes the orphaned temp file before returning the error.
-- **`AtomicWriteFile` refuses a zero-byte write over an existing file** unless the caller opts in via `AllowEmptyWrite()` (codex's `RemoveSettings`/`save`, whose TOML encoder renders an emptied managed set as literally zero bytes — the one legitimate exception).
+- **`AtomicWriteFile` refuses a zero-byte write over an existing file** unless the caller opts in via `AllowEmptyWrite()` — for an encoder that renders an emptied managed set as literally zero bytes. No writer in the tree opts in today; the option stays for the next one that must.
 - **`CtxloomCommand` is the binary-path policy for materialized surfaces**, and `ResolveMCPCommand` is the resolver every MCP-surface writer uses, with the container-override seam substituting an in-container path when the surface will be read from inside an isolated cell.
 - **`WriteManagedContext` preserves user content in position**, not merely byte-for-byte: content that sat below the end marker used to be hoisted above the re-appended managed section on every rewrite; it is now reinserted at the same offset the old section occupied.
 - **`WriteManagedContext` with empty content deletes the file** — the intended uninstall semantics and the terminus of the empty-context chain.
@@ -160,6 +158,5 @@ Consumers: `MCPFileConfig` (`SurfaceMCP`), `WriteManagedPackageFiles` (`SurfaceC
 - **The sidecar ledger (`internal/shared/ledger`, marker `.ctxloom-managed`) is the record of managed names** for every surface that uses it — not a per-engine `<Path>.ledger` file. Written sorted and atomically, removed only when every co-located surface is empty.
 - **A ledger read error is propagated, not flattened.** `ledger.Ledger.Read` and `MCPFileConfig.readLedger` both return a real error rather than degrading to "nothing managed" — the failure mode the old per-engine implementations had, which orphaned every managed entry a permissions or I/O failure hit.
 - **A registry that fails to parse at the top level is refused, not replaced.** `MCPFileConfig.load` returns an error (backed by the same `RefuseCorrupt` posture used elsewhere) rather than warning and returning an empty structure for the caller to write straight back over the user's file. A nested `mcpServers` sub-object that fails to parse within an otherwise-valid document is the one remaining warn-and-degrade case, scoped to that field.
-- **`InstallMCPServerJSON` and `codex.MCPRegistrar.Install` both refuse a present-but-wrong-type `mcpServers`/`mcp_servers` value** — they used to be asymmetric (the JSON path refused, the TOML path silently replaced); R6 closed the gap.
-- **`MCPRegistrar` has two facets with different natures**: `{Name, Present, ConfigPath}` vary per agent; `{Install, Uninstall, Installed}` are delegated verbatim to this package's shared JSON functions by the JSON-shaped implementors, while codex's TOML-shaped registrar reimplements the same contract against a different document model.
+- **`MCPRegistrar` has two facets with different natures**: `{Name, Present, ConfigPath}` vary per agent; `{Install, Uninstall, Installed}` are delegated verbatim to this package's shared JSON functions by the JSON-shaped implementors; a registrar over a different document model would have to reimplement the same contract.
 - **`WarnOnCtxloomPathSkew` exists only for surfaces materialized before the `CtxloomCommand` self-exec fix** — those still carry the bare name `ctxloom` until the next apply re-materializes them.

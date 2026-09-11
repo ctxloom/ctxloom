@@ -144,15 +144,6 @@ func (w Worktree) ResolveWorkspace(ctx context.Context, projectDir, agentID stri
 	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, worktreeBaseRef); err != nil {
 		return nil, fmt.Errorf("worktree add: %w", err)
 	}
-	// Stamp the owner pid IMMEDIATELY after the checkout exists — the fix
-	// for a bug (ReapOrphanedWorktrees, worktree_reap.go): a crashed/killed
-	// run's worktree is never reaped by anything else (teardown only ever runs
-	// on a graceful Cleanup), so a later startup sweep needs a way to prove
-	// THIS worktree's owner is gone before it dares remove it. Best-effort: a
-	// failed write only means a future sweep must conservatively skip this one
-	// (never force), not that ResolveWorkspace itself fails.
-	recordWorktreeOwner(wtPath)
-
 	ws := &worktreeWorkspace{
 		git:     w.git,
 		repoDir: projectDir,
@@ -163,7 +154,6 @@ func (w Worktree) ResolveWorkspace(ctx context.Context, projectDir, agentID stri
 	defer func() {
 		if r := recover(); r != nil {
 			_ = os.RemoveAll(ws.dir)
-			removeWorktreeOwnerMarker(ws.dir)
 			// Removing the directory does not retire the repo's
 			// administrative registration of it (.git/worktrees/<name>) —
 			// that is what prune is for, and the graceful teardown below
@@ -576,11 +566,6 @@ func (w *worktreeWorkspace) Cleanup() error {
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTeardownTimeout)
 	defer cancel()
 	teardownWorktree(ctx, w.git, w.repoDir, target)
-	// Unconditional: whether teardown actually removed target or (WIP-safely)
-	// left it in place, this process's ownership of it is ending either way —
-	// see removeWorktreeOwnerMarker's doc for why a left-in-place tree stays
-	// correctly protected regardless.
-	removeWorktreeOwnerMarker(target)
 
 	if w.configHome != "" {
 		home := w.configHome

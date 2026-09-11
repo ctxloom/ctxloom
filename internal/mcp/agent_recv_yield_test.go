@@ -42,6 +42,12 @@ type stdioPreemption struct {
 	sent     string
 }
 
+// instructionToFinish is the word the child's guidance turns on. The pins
+// below check for it directly, not only for the guidance constant: the defect
+// was a coordinator obeying "finish", and a pin on the constant alone would
+// let a rephrased copy of the same instruction back in.
+const instructionToFinish = "finish"
+
 type stdioRecvOutcome struct {
 	out *agentRecvResult
 	err error
@@ -147,7 +153,7 @@ func TestHandleAgentRecv_CoordinatorTimeoutCarriesNoInstructionToFinish(t *testi
 
 	_, _, err := s.handleAgentRecv(context.Background(), nil, agentRecvInput{Wait: 1})
 	require.ErrorIs(t, err, coord.ErrRecvTimeout)
-	assert.NotContains(t, err.Error(), recvTimeoutLeafGuidance,
+	assert.NotContains(t, err.Error(), instructionToFinish,
 		"a coordinator on a quiet wait re-arms; telling it to finish is the child's instruction")
 	assert.Contains(t, err.Error(), recvTimeoutCoordinatorGuidance)
 }
@@ -165,9 +171,9 @@ func TestRecvFailure_TimeoutGuidanceFollowsTheAudience(t *testing.T) {
 	coordinator := recvFailure(coord.ErrRecvTimeout, 5*time.Second, false)
 	require.ErrorIs(t, coordinator, coord.ErrRecvTimeout)
 	assert.Contains(t, coordinator.Error(), recvTimeoutCoordinatorGuidance)
-	assert.NotContains(t, coordinator.Error(), recvTimeoutLeafGuidance)
+	assert.NotContains(t, coordinator.Error(), instructionToFinish)
 
-	assert.NotContains(t, coord.ErrRecvTimeout.Error(), recvTimeoutLeafGuidance,
+	assert.NotContains(t, coord.ErrRecvTimeout.Error(), instructionToFinish,
 		"the shared sentinel must stay audience-neutral; the child's instruction belongs only where a child reads it")
 
 	other := errors.New("something else")
@@ -220,7 +226,7 @@ func TestRecvHandler_SupersededReceiveYieldsAsSuccess(t *testing.T) {
 		t.Fatal("the surviving receive never completed")
 	}
 	require.ErrorIs(t, survivor.err, coord.ErrRecvTimeout)
-	assert.NotContains(t, survivor.err.Error(), recvTimeoutLeafGuidance)
+	assert.NotContains(t, survivor.err.Error(), instructionToFinish)
 }
 
 func TestRecvHandler_LeafTimeoutTellsTheChildToFinish(t *testing.T) {

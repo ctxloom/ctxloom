@@ -15,13 +15,12 @@ import "github.com/ctxloom/ctxloom/internal/shared/agent"
 // turning any retry into a nil-pending no-op that returns success for zero
 // bytes written.
 //
-// This is the shared shape of codex's and claude's own flushPending methods
-// (each vendor's boundary-DETECTION logic — codex correlates two envelope
-// types with no shared id across an unbounded run of intermediate
-// token_count events before task_complete closes them; claude correlates by
-// watching message.id change across content-block lines of the SAME
-// response — stays in that vendor's own converter, since that part is
-// genuinely different per vendor). Only the flush mechanics — "a still-open
+// This is the shared shape of every adapter's own flushPending (each
+// vendor's boundary-DETECTION logic — claude correlates by watching
+// message.id change across content-block lines of the SAME response; another
+// vendor may have to correlate envelope types with no shared id at all —
+// stays in that vendor's own converter, since that part is genuinely
+// different per vendor). Only the flush mechanics — "a still-open
 // boundary at end of file is real, captured data, not something to silently
 // drop" — are identical enough to share. record is the vendor's own
 // error-wrapping Record call (see RecordFunc), not transcript.Recorder

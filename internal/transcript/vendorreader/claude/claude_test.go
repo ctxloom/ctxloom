@@ -169,9 +169,8 @@ func TestConvert_ConformsToJSONSchema(t *testing.T) {
 
 // TestConvert_RealFieldsSurvive asserts on the REAL captured content the
 // fixture carries (see testdata/MANIFEST.json), never merely "the file
-// parses" or "N records exist" — the same discipline codex's own
-// TestConvert_RealFieldsSurvive follows, tracing back to the deleted claude
-// reader's own failure mode (ADR 0035): a cwd→slug
+// parses" or "N records exist" — a discipline tracing back to the deleted
+// claude reader's own failure mode (ADR 0035): a cwd→slug
 // re-encoding bug meant it silently read the WRONG FILE for every real
 // session, and nothing caught it until someone actually looked at what came
 // out (or didn't).
@@ -216,7 +215,7 @@ func TestConvert_RealFieldsSurvive(t *testing.T) {
 				sawToolResultOK = true
 			case r.Entry.Type == "tool_result" && r.Entry.ToolCallID == "toolu_01ANdQ2y1fgCKwBKn9t6Zcy5":
 				assert.Contains(t, r.Entry.ToolOutput, "tool use was rejected")
-				assert.True(t, r.Entry.IsError, "claude's tool_result carries a real is_error field, unlike codex's function_call_output")
+				assert.True(t, r.Entry.IsError, "claude's tool_result carries a real is_error field; it must reach the entry")
 				sawToolResultErr = true
 			}
 		case transcript.KindComplete:

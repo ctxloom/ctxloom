@@ -84,14 +84,6 @@ type Record struct {
 	// `engine` enum published in docs/transcript.schema.json — never a short
 	// form of it. engine_name_test.go pins both halves: verbatim passthrough
 	// here, and the schema admitting what the registry hands us.
-	//
-	// antigravity's lines (before the engine was removed in 0.7.0) never
-	// arrived through the structured tee either: its StructuredChat was a
-	// bespoke prose driver over `agy -p` rather than the shared structured
-	// chat driver, so its canonical lines came from the oneshot/reader
-	// regimes (plan §2d),
-	// which stamp Engine the same way — a fact still worth knowing when
-	// reading one of its historical transcripts back.
 	Engine string `json:"engine"`
 	// Seq is monotonically increasing per transcript, starting at 0, with NO
 	// gaps — the ordering key. A reader can detect truncation/corruption by a

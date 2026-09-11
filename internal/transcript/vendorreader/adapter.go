@@ -1,13 +1,13 @@
 // Package vendorreader defines the shared contract every per-engine vendor
-// reader implements: parse ONE vendor-native transcript (codex's rollout
-// JSONL, kiro's session store, claude's project JSONL) into ctxloom's own
-// canonical agent.ChatEvent stream and append it
+// reader implements: parse ONE vendor-native transcript (claude's project
+// JSONL, for one) into ctxloom's own canonical agent.ChatEvent stream and
+// append it
 // through the SAME transcript.Recorder sink the live structured-chat tee
 // (internal/transcript/recorder.go's Tee/TeeAndClose) already writes
 // through. This is the point of the whole package: a session read from its
 // vendor's store and a tee'd session must land in byte-for-byte the same
-// on-disk schema (transcript.acp.jsonl), never a second format a downstream
-// consumer would need to special-case. See ADR 0035 for why a vendor reader
+// on-disk schema (paths.HarpCanonicalTranscriptPath), never a second format
+// a downstream consumer would need to special-case. See ADR 0035 for why a vendor reader
 // exists at all: the broken per-engine scrapers were deleted outright, and
 // the interactive-pty gap that left was later closed for pre-capture and
 // pty-driven sessions through the canonical Recorder instead of a bespoke
@@ -17,24 +17,21 @@
 // one-time imports into a ctxloom-owned archive: a vendor reader is consulted
 // whenever a conversation is needed and transforms the vendor's own store
 // into ctxloom's canonical form ON READ (task virtuous-evil). Do not
-// confuse this package with the per-engine
-// Backend.History() SCRAPERS deleted in S5 as PROVEN BROKEN (their defects
-// are named in internal/lm/grpc/canonical_source.go: codex's
-// envelope-vs-flat parse, claude's wrong-filename, kiro's v1-vs-v2-sqlite,
-// antigravity's global-store mis-key). Both were implementations of the same
-// interface; the scrapers were deleted for being WRONG, not for being the
-// wrong shape. Comments elsewhere that say "the deleted reader" or "the
-// deleted scraper" mean those scrapers, not this package.
+// confuse this package with the per-engine Backend.History() SCRAPERS it
+// replaced, deleted as PROVEN BROKEN (ADR 0035 names their defects). Both
+// were implementations of the same interface; the scrapers were deleted for
+// being WRONG, not for being the wrong shape. Comments elsewhere that say
+// "the deleted reader" or "the deleted scraper" mean those scrapers, not
+// this package.
 //
 // This package is deliberately NOT named "vendor": a directory literally
 // named vendor anywhere in a Go module is special-cased by the toolchain
 // (reserved for the vendoring mechanism) and silently excluded from `...`
 // wildcard package matching — go build/test/vet ./... would never see a
-// package living at .../vendor/codex at all, even though an EXPLICIT path
-// like ./internal/transcript/vendor/codex/... resolves fine (confirmed by
-// hitting exactly this while developing the codex adapter: it ran individually
-// but never appeared in a full `go test ./...`). "vendorreader" avoids the
-// landmine while keeping the same meaning.
+// package living at .../vendor/claude at all, even though an EXPLICIT path
+// like ./internal/transcript/vendor/claude/... resolves fine (this bit once:
+// an adapter ran individually but never appeared in a full `go test ./...`).
+// "vendorreader" avoids the landmine while keeping the same meaning.
 package vendorreader
 
 import (
@@ -47,11 +44,9 @@ import (
 // canonical schema by appending to rec.
 //
 // src is an engine-specific locator for the transcript to convert. For a
-// JSONL-per-session engine (codex today; claude is the same
-// shape) this is simply the transcript file's path. A database-backed store
-// (the sqlite conversation table ADR 0035 records for the removed kiro engine)
-// cannot be located by a bare path alone — that engine's adapter will need a
-// composite locator (e.g. "<db-path>#<conversation-id>") once it's built;
+// JSONL-per-session engine (claude) this is simply the transcript file's
+// path. A database-backed store cannot be located by a bare path alone — such
+// an adapter would carry a composite locator (e.g. "<db-path>#<conversation-id>");
 // this interface does not change shape to accommodate that, the string just
 // carries a richer convention for that one implementation.
 //

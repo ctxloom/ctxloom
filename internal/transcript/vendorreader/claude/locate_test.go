@@ -64,8 +64,8 @@ func TestDiscover_AbsentStoreIsEmptyNotAnError(t *testing.T) {
 }
 
 // TestDiscover_UnrecognizedStoreRefusesRatherThanReportingZero is the contract
-// the retired scrapers broke: kiro's store moved to a SQLite blob and its
-// scraper reported NO sessions rather than an error. A store present but not
+// the retired scrapers broke: one vendor's store moved to a SQLite blob and
+// its scraper reported NO sessions rather than an error. A store present but not
 // in the expected shape must REFUSE, because "you have none" and "I no longer
 // understand this" are different answers.
 func TestDiscover_UnrecognizedStoreRefusesRatherThanReportingZero(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
-// ConvertJSONLLines runs the "two-pass adapter" shape codex.go's package doc
-// names as the pattern every JSONL-per-session engine's Convert copies: emit
+// ConvertJSONLLines runs the "two-pass adapter" shape every JSONL-per-session
+// engine's Convert follows: emit
 // a single up-front Session event (if info is non-nil — a vendor transcript
 // with no session metadata anywhere emits none, per SessionInfoBuilder's
 // contract), then stream every line in order, checking ctx cancellation
@@ -19,12 +19,11 @@ import (
 //
 // dispatch and flush carry everything genuinely vendor-specific — the
 // envelope shape a line decodes into and which handler each discriminator
-// value routes to, and (for codex/claude) the pending-Complete
-// boundary-detection logic FlushComplete's caller owns. What's left here is
-// pure boilerplate: not something a reader benefits from seeing reimplemented
-// per vendor, and exactly what reprise's duplicate gate started flagging
-// once codex's and claude's copies converged on calling the same helpers for
-// everything else.
+// value routes to, and the pending-Complete boundary-detection logic
+// FlushComplete's caller owns. What's left here is pure boilerplate: not
+// something a reader benefits from seeing reimplemented per vendor, and
+// exactly what reprise's duplicate gate flags once two adapters converge on
+// calling the same helpers for everything else.
 func ConvertJSONLLines(ctx context.Context, rec transcript.Recorder, lines [][]byte, vendor string, info *agent.ChatSessionInfo, dispatch func(line []byte) error, flush func() error) error {
 	if info != nil {
 		if err := rec.Record(agent.ChatEvent{Session: info}); err != nil {

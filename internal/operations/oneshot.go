@@ -208,7 +208,7 @@ type resolvedRunRequest struct {
 	// a bare-profile oneshot has no agent binding to read one from (the same
 	// fact its Permissions comment already records). It decides ONE thing:
 	// whether an in-tree run gets a ctxloom-controlled engine config home
-	// instead of the human's own ~/.claude / ~/.kiro — see
+	// instead of the human's own (~/.claude and the like) — see
 	// InTreeAgentHomeEnv. RunOneshot leaves it "", since a bare-profile
 	// oneshot has no binding at all, which reads identically to an undeclared
 	// one — both keep the real host home.
@@ -504,7 +504,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// env below so the shared ~/.claude.json etc. don't clobber.
 		workspaceEnv = isolation.WorkspaceEnv(ws)
 		// The none axis has no isolation-provided config home, so an AGENT run
-		// there would otherwise use the human's own ~/.claude / ~/.kiro. Give
+		// there would otherwise use the human's own engine config home. Give
 		// it a project-scoped controlled one instead. Resolved INSIDE the
 		// checkpoint window below so its fail-loud finding (nothing to seed) is
 		// caught by this member's own isolation gate rather than escaping into
@@ -551,8 +551,8 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// P3 write-enable: an ISOLATED member gets per-member NATIVE config written
 		// into its isolated cwd (the point of the worktree, plan §2b). Assemble it
 		// exactly as the top-level run does (backends.AssembleManagedConfig with the
-		// SAME workDir/gate/profiles) so the plugin's Setup materializes
-		// .mcp.json/.claude/AGENTS.md/.kiro/ into ws.Dir() and delivers context ONCE
+		// SAME workDir/gate/profiles) so the plugin's Setup materializes the
+		// engine's config surfaces into ws.Dir() and delivers context ONCE
 		// from the lead fragment — mirroring run.go's SkipSetup:false delivery. A
 		// none member (Isolated == false, incl. a worktree that degraded to none)
 		// shares the project cwd, so it stays on the SkipSetup:true / lead-fragment

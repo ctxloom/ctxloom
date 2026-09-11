@@ -8,9 +8,9 @@ import (
 )
 
 // RecordFunc returns a closure that calls rec.Record and, on failure, wraps
-// the error with vendor's own prefix ("codex: record: ...", "claude:
-// record: ...", etc.) — every adapter's converter needs exactly this, and
-// every one of them built its own identically-shaped method to get it. The
+// the error with vendor's own prefix ("claude: record: ...") — every
+// adapter's converter needs exactly this, and left to itself each builds an
+// identically-shaped method to get it. The
 // returned func is what a converter stores and calls repeatedly instead of
 // holding the Recorder directly, so callers like FlushComplete never need to
 // know which vendor they're flushing for.

@@ -59,7 +59,7 @@ flowchart TD
 | Axes | Policy | `Name()` | Ownership demanded | Isolates | Does **not** isolate |
 |---|---|---|---|---|---|
 | `{none, host}` | `None` | `"none"` | — | nothing — the fault-tolerant floor | everything |
-| `{worktree, host}` | `Worktree` | `"worktree"` | — | cwd (detached git worktree at `HEAD`) + **one host lever per backend**: a scoped config-home env var (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) | engine *global* state where the engine ignores the var; the git common dir; credentials (they are **copied in**, not withheld) |
+| `{worktree, host}` | `Worktree` | `"worktree"` | — | cwd (detached git worktree at `HEAD`) + **one host lever per backend**: the scoped config-home env var its `credentialSeedSpecs` entry names (`HomeVars`) | engine *global* state where the engine ignores the var; the git common dir; credentials (they are **copied in**, not withheld) |
 | `{none, container-rootless}` | `Container{hostBase}` | `"container"` | rootless only | process, fs view, fresh `$HOME`; project mounted at its **identical absolute path** | the project dir (mounted RW) and the whole `.git` common dir (mounted RW) |
 | `{none, container-rootful}` | `Container{hostBase}` | `"container"` | rootful only | same as the rootless row | same as the rootless row |
 | `{worktree, container-rootless}` | `Container{worktreeBase}` | `"container-worktree"` | rootless only | as above + a per-agent checkout as cwd | the git common dir is still whole-dir RW |
@@ -145,10 +145,10 @@ stamp, which embeds a build timestamp.
 
 **THE ORDER ABOVE IS LOAD-BEARING.** The version `LABEL`s interpolate
 `ARG CTXLOOM_VERSION`, which changes on every build, and docker invalidates
-every layer after a changed one — so while they sat ABOVE the engine install
-(until 2026-08-25) every ctxloom rebuild re-ran the vendor's installer. That is
-how a claude-code cell came to die three times on opencode's installer
-exhausting GitHub's anonymous API quota. The engine install goes above
+every layer after a changed one — so with the labels ABOVE the engine install,
+every ctxloom rebuild re-runs the vendor's installer. That is how a cell came to
+die repeatedly on a vendor installer exhausting GitHub's anonymous API quota
+before the order was fixed. The engine install goes above
 everything that changes per build; the ctxloom binary goes last.
 Provenance (`HostProvenanceDigest`) is `versionProvenanceKey`, then a digest of
 the staged companions' self-reported versions (`companionVersionKey`), then the
@@ -229,22 +229,20 @@ definitive `*sharedFSMismatch` from a transient probe failure.
 `containerAuth{mode, envPassthrough, mounts}` is resolved per backend.
 `containerAuthMode` is `authNone` (**zero value — least privilege**), `authEnv`,
 `authCredentialMount`. `resolveEnvOrMountAuth` is trigger-then-mount-then-degrade,
-shared by claude / codex / opencode. `presentEnvKeys` filters an allowlist
+the shape a vendor-authenticated backend's resolver takes. `presentEnvKeys` filters an allowlist
 down to *set* variables only — **names only cross the boundary**.
 
 | Engine | Env trigger | Mount | Site |
 |---|---|---|---|
 | claude | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | bind-mounts the **real** `~/.claude/.credentials.json` **RW** — no copy — so claude's single-use token refresh lands in the one real file (see [Single-use refresh tokens](#single-use-refresh-tokens-why-the-three-axes-differ) below) | `resolveClaudeContainerAuth` / `claudeCredentialMounts`. `~/.claude.json` is deliberately never mounted |
-| codex | `OPENAI_API_KEY` (`CODEX_API_KEY` is **not** a confirmed trigger and is deliberately excluded) | **RO** mount of `~/.codex/auth.json` — safe because non-interactive codex never refreshes in place | `resolveCodexContainerAuth` / `codexCredentialMounts` |
-| opencode | `OPENROUTER_API_KEY` | **RO** mount of XDG `auth.json` | `resolveOpencodeContainerAuth` / `opencodeCredentialMounts` |
 | mock | none needed | none | `resolveMockContainerAuth` — the one resolver that never returns `ok=false`: mock authenticates against no vendor |
 | **unmapped/empty backend** | — | — | `noContainerAuth` — **fails closed**; the containerized run aborts at `PrepareWorkspace`'s auth gate rather than inheriting any other engine's credentials |
 
 Host/worktree seeding is `hostCredentialSeed` + `copyCredentialFile` (writes at
-0600). Two exported seams reuse it for callers whose home relocation is not
-driven by a `Policy` at all: `PrepareCodexHome` and `PrepareClaudeHome`, both
-used by `operations.InTreeAgentHomeEnv` (below) to populate a per-session
-instance home. They are named *Prepare* because the destination is created at
+0600). An exported seam reuses it for callers whose home relocation is not
+driven by a `Policy` at all: `PrepareClaudeHome`, used by
+`operations.InTreeAgentHomeEnv` (below) to populate a per-session instance
+home. It is named *Prepare* because the destination is created at
 instance time and thrown away at session end — the copy is one-way, from the
 real host home in, never back.
 
@@ -299,17 +297,17 @@ An engine's **home** is where it keeps what is not project-specific: config,
 global prompts / skills / steering / agents, session state, and credentials.
 Every engine names one env var that relocates it.
 
-**Your real `~/.claude` and `~/.codex` are the durable truth, and
-ctxloom never writes them.** Engines natively keep per-project durable facts
-there, path-keyed (codex's `[projects."<abs path>"]` trust entries, claude's
-per-project keys). That stays the single durable location.
+**Your real engine home (`~/.claude` for claude-code) is the durable truth,
+and ctxloom never writes it.** Engines natively keep per-project durable facts
+there, path-keyed (claude's per-project keys). That stays the single durable
+location.
 
 What an opted-in agent run gets instead is a **per-session INSTANCE**,
 `<WorkDir>/.ctxloom/state/<harp>/home/<engine-leaf>`, created at session start
 and disposable. Three content classes live in it: ctxloom-generated content
 (context, prompts, skills, config fragments) regenerated at each launch;
-engine-specific scaffolding (codex's `config.toml` tables and trust pre-seed)
-synthesized by the engine packages; and **ambient** content whose origin is your
+engine-specific scaffolding synthesized by the engine package; and **ambient**
+content whose origin is your
 real host home (credentials today), **copied in one way** at instance time. For
 claude that copy is **access-token-only** — the single-use refresh token is
 stripped so the instance can never rotate the host's token (see [Single-use
@@ -325,20 +323,22 @@ the real credential read-write and so *does* refresh in place, because a mount �
 unlike a copy — shares the host's one rotating token rather than forking it.
 
 An engine's **cwd-keyed** surfaces are a different thing entirely and are never
-relocated: `CLAUDE.md`, `.claude/`, `opencode.json`, `AGENTS.md` live
-at the project root, where the engine natively looks.
+relocated: `CLAUDE.md` and `.claude/` live at the project root, where the
+engine natively looks.
 
 | Engine | Var | Container | Worktree | In-tree, `config_home: project` | In-tree, undeclared / `host` / no binding |
 |---|---|---|---|---|---|
-| codex | `CODEX_HOME` | fresh `$HOME/.codex` | per-agent scratch | `<WorkDir>/.ctxloom/state/<harp>/home/.codex` | **real `~/.codex`** |
 | claude-code | `CLAUDE_CONFIG_DIR` | fresh `$HOME/.claude` | per-agent scratch | `<WorkDir>/.ctxloom/state/<harp>/home/claude` | **real `~/.claude`** |
-| opencode | `XDG_CONFIG_HOME` / `XDG_DATA_HOME` | fresh `$HOME` | per-agent scratch | **not controlled** | **not controlled** |
+
+An engine whose only relocation lever is a shared var (`XDG_CONFIG_HOME` /
+`XDG_DATA_HOME`) cannot be given an instance this way: relocating those moves
+git's, fish's and every other XDG-aware tool's config for the child too, so its
+in-tree home stays uncontrolled.
 
 The instance root resolves through one helper, `paths.SessionHomePath`, and each
-engine appends its OWN leaf through its own package — `codex.SessionHome`,
-`claude.SessionConfigDir`. The leaves are pairwise
-distinct by construction, so one session root hosts every engine that session
-runs. The **state** tier is deliberate: an instance holds copied credentials, so
+engine appends its OWN leaf through its own package (`claude.SessionConfigDir`).
+The leaves are distinct by construction, so one session root hosts every engine
+that session runs. The **state** tier is deliberate: an instance holds copied credentials, so
 it is gitignored *and* unrebuildable — see [the `.ctxloom` layout
 page](../../layout.md) for the three trees, the wipe costs and the gitignore
 contract that keeps that credential out of git.
@@ -365,8 +365,8 @@ agents:
 
 **Empty (undeclared) DEFAULTS TO `host`.** The controlled home is strictly
 opt-in — naming an agent, on its own, is *not* enough to relocate its config
-home. A binding that wants its runs kept off the human's real `~/.claude` or
-`~/.codex` has to say `config_home: project` explicitly.
+home. A binding that wants its runs kept off the human's real engine home has to
+say `config_home: project` explicitly.
 
 **A declared value WINS on every invocation path that binding resolves
 through** — a bare `ctxloom run` under `default_agent`, `run --agent`, a
@@ -382,39 +382,29 @@ lives; contributed by `cli/run.go`'s `prepareWorkspace`,
 `operations/oneshot.go`'s `runResolvedAgent`.
 
 A delegated child, a fan-out member, a `run --agent` — these ARE ctxloom's
-processes, and pointing one at `~/.claude` or `~/.codex` hands it the human's
+processes, and pointing one at the human's real engine home hands it their
 memory, plugins, personal MCP registrations, global agents and steering, and
 lets it write session state and settings edits back into them. That is the
 pollution `config_home: project` lets a binding opt out of — but nothing takes
 it on by default; a project asks for it by name, on the binding that wants it.
 
-**codex's asymmetry has ENDED.** codex used to relocate `CODEX_HOME` on every
-in-tree run regardless of `config_home`, and that was defensible while the
-relocation target was DURABLE: ctxloom had always pointed `CODEX_HOME` at a
-project-scoped directory that survived across sessions, so there was nothing of
-yours to take away and no opt-in was needed.
+**Why the instance is opt-in rather than automatic.** Relocating an engine's
+home without asking is defensible only while the relocation target is DURABLE —
+a project-scoped directory that survives across sessions takes nothing of yours
+away. A per-session instance is **disposable**, which changes the arithmetic:
+your own interactive `ctxloom run` — no agent binding at all — handed a
+throwaway home every session would lose its token refreshes, its accumulated
+workspace-trust answers and its session state each time. So no binding, an
+undeclared binding, and an explicit `host` all keep the real home, and only
+`config_home: project` earns an instance. One rule, every engine, decided in
+one place.
 
-A per-session instance is **disposable**, which changes the arithmetic. Under
-the old rule your own interactive `ctxloom run` — no agent binding at all —
-would have been handed a throwaway codex home every session, losing its token
-refreshes, its accumulated workspace-trust answers and its session state each
-time. So codex now reads `config_home` exactly like claude: no binding,
-an undeclared binding, or an explicit `host` all keep your real `~/.codex`, and
-only `config_home: project` earns an instance. One rule, three engines, decided
-in one place.
-
-**What that costs, stated plainly.** codex is the only engine whose hooks, MCP
-servers, prompts and skills live *only* in `$CODEX_HOME` — it has no cwd-keyed
-equivalent of claude's `.claude/settings.json`. So a
-codex run that keeps your real home gets **none of them**, because ctxloom will
-not write that home. It says so out loud and names the fix
-(`config_home: project`); codex's cwd-keyed `AGENTS.md` context still delivers,
-so the run is degraded rather than broken.
-
-**opencode is excluded**, pending its own decision: its only lever is
-`XDG_CONFIG_HOME` / `XDG_DATA_HOME`, which are not engine-private. Relocating
-them moves git's, fish's and every other XDG-aware tool's config for the child
-too.
+**What `host` costs, stated plainly.** ctxloom never writes the real home, so
+any surface an engine reads *only* from its home — hooks, MCP servers, prompts,
+skills — is undeliverable to a run that keeps it. claude-code reads those from
+cwd-keyed surfaces (`.claude/`, `.mcp.json`), so it pays nothing here; an
+engine with no cwd-keyed equivalent gets a degraded run, told so out loud with
+the fix (`config_home: project`) named.
 
 ### Three exclusions, and one fail-loud
 
@@ -430,12 +420,13 @@ The in-tree contribution declines, each condition independently sufficient:
 3. **the var is already set** — isolation's own `Env()`, or the user's `--env`,
    wins outright. This fills gaps; it never overrides.
 
-Credentials follow the home for claude and codex (`.credentials.json` and
-`auth.json` are copied from `~/.claude` / `~/.codex`, never moved, never written
-back). The removed kiro engine was the counter-example: its
-subscription auth lived in a global sqlite under `XDG_DATA_HOME` that `KIRO_HOME`
-did not relocate — which is exactly why a fresh `KIRO_HOME` stayed authenticated
-and why `XDG_DATA_HOME` is deliberately *not* relocated alongside it.
+Credentials follow the home (claude's `.credentials.json` is copied from
+`~/.claude`, never moved, never written back). That is a property of the
+engine, not a rule: an engine whose credential lives somewhere its home var does
+not relocate stays authenticated in a fresh home with no copy at all, and
+relocating the wider directory that does hold it would drag unrelated state
+along. `HonoursVarForCreds` on the seed spec is where that distinction is
+recorded per engine.
 
 When claude's credentials cannot be seeded (no `ANTHROPIC_API_KEY`, no host
 `~/.claude/.credentials.json`), ctxloom records a `ClassIsolation` finding and
@@ -451,16 +442,15 @@ because "profile" is ctxloom's *context-composition* concept and the collision i
 what let two call sites key this table on an agent label instead of an engine).
 The key is the REGISTERED BACKEND NAME, resolved **per call** from the backend
 the run carries — never fixed at construction time. `composableEngines()`
-returns exactly `["claude-code", "codex", "opencode"]` (the antigravity and kiro
-engines' container specs — and the engines themselves — were removed after 0.7.0). `isolation_engines` / `--engines` names WHICH per-engine images to build (an
+is the roster of engines an image can be composed for;
+`TestArch_EngineIdentityRosters_MembersAreRegisteredBackends` asserts every
+name it returns is a registered backend. `isolation_engines` / `--engines` names WHICH per-engine images to build (an
 image carries one engine, so there is no set to compose); `container build`
 loops over them.
 
 | Backend | Image | Install fragment | Build validate gate | `overlayDirs` | `transcriptStoreRel` |
 |---|---|---|---|---|---|
 | `claude-code` | `ctxloom-agent:latest` | npm — no official image resolves | `claude --version` + `adapterRunGate` | `.claude`, `.ctxloom/cache` | `.claude/projects` |
-| `codex` | default tag | npm `@openai/codex` | `codex --version` | `codexOverlayDirs` | `.codex/sessions` |
-| `opencode` | default tag | official script, relocated from `$HOME/.opencode/bin` | `opencode --version` | `opencodeOverlayDirs` | `.local/share/opencode` |
 | `mock` | `ctxloom-agent:latest` | `mockInstallFragment` — installs no vendor CLI at all | `cat --version` | `mockOverlayDirs` | `""` (mock keeps no transcripts) |
 | **default arm** (unmapped engine) | `ctxloom-agent:latest` | none | none | `defaultOverlayDirs` | `.claude/projects` |
 
@@ -510,7 +500,7 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 | `EngineStarter` / `RunnerHandle` | `isolation.go` | Launch closure; `{Name, Kill func(), Wait, StderrTail}` |
 | `ImageConfig` | `isolation.go` | `Image`, `BaseContainerfile`, `AppRoot`, `NoDevcontainerBase`, `DevcontainerService`, `Engines` |
 | `None` / `Container` / `Worktree` | `none.go` / `container.go` / `worktree.go` | The three policy types (four policy identities, six requestable postures) |
-| `PrepareCodexHome` / `PrepareClaudeHome` | `auth.go` | The exported one-way copy-in seams, for per-session instance homes outside a `Policy` |
+| `PrepareClaudeHome` | `auth.go` | The exported one-way copy-in seam, for per-session instance homes outside a `Policy` |
 | `Runtime` / `Docker` / `Podman` / `Host` | `runtime.go` | Pluggable launcher substrate |
 | `SelectRuntime` | `runtime.go` | Ownership-demanding selection; `Host{}` when no runtime serves the demanded ownership; never errors |
 | `ProbeRuntime` | `runtime.go` | The unconstrained "what's reachable?" question — diagnostics/build only, never a run |
@@ -552,8 +542,6 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 - ~~**The default (unprofiled) container profile authenticates with claude credentials**~~ — **RESOLVED.** The default arm used to return `resolveClaudeContainerAuth`, passing `ANTHROPIC_*` and copy-mounting `~/.claude` into *any* unrecognized engine's container (reachable at the time: a generic `acp` backend was registered, and the ACP container transport passed an unrecognized or empty engine name through unchanged). It now fails **closed** (`noContainerAuth`) and the launch aborts; `operations.validateContainerAuth` refuses such a binding at write time so the abort is not the first the user hears of it.
 - ~~**A backend in neither `credentialSeedSpecs` nor a curated-home registry gets a worktree with zero engine-global isolation and no finding at all**~~ — **PARTIALLY RESOLVED.** `Worktree.PrepareWorkspace` now records a `strictness.Fail(ClassIsolation)` for any backend that is neither in `credentialSeedSpecs` nor named in `backendsWithNoGlobalState` — closing the gap for every unmapped engine. `backendsWithNoGlobalState` carries exactly one, independently-verified exemption (`mock`, which provably touches no engine-global state), not a silent carve-out; an empty backend (no agent context at all) stays silent by design.
 - **The curated-HOME allowlist** that used to symlink `~/.gitconfig`/`~/.ssh` into a worktree's per-agent home **has been removed along with the whole curated-home mechanism** — `Worktree` now relies solely on `credentialSeedSpecs`' scoped env vars (`Worktree.prepareHomeVarDirs`), which is why `.gitconfig`/`.ssh` identity is left on the *shared* worktree checkout instead of being copied or symlinked per agent. Whether that removal fully retired the class of bug the old allowlist was tracking (over-broad `.ssh` exposure) was not re-verified here.
-- **On every plain host codex run the OpenAI credential is copied into the project working tree** (`ensureCodexCredentials`, `internal/codex/backend.go`) and no `Cleanup` path removes it; ctxloom's managed ignore set covers `.codex/config.toml` but not `.codex/auth.json`.
-- **`copyCredentialFile` follows a symlink at the destination** (`os.WriteFile` semantics), and `PrepareCodexHome`'s `destDir` is unvalidated.
 - **The worktree reaper's scope is `~/.ctxloom/sessions/*/ephemeral/` only** (`ReapOrphanedWorktrees`); worktrees on the `os.TempDir()` fallback are permanently unreapable, and nothing sweeps the sibling `ctxloom-cfg-*` / `ctxloom-home-*` / `ctxloom-tmp-*` dirs — so a crashed run leaves 0600 credential copies on disk indefinitely.
 - **`worktreeWorkspace.Cleanup`'s idempotence guard is `dir` alone**, short-circuiting removal of `configHome` / `scratchDir` if a caller ever reaches it with `dir == ""` but either of those still set.
 

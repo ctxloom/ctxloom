@@ -239,23 +239,24 @@ func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusReq
 // answer for — every verdict depends on it, missing included, because "does
 // this loadout carry anything for the file surface" cannot be answered without
 // composing it. Per backend rather than once, because what a materialized file
-// holds is a property of the engine it was written for (intendedContextFile).
+// holds is a property of the engine it was written for, and of which writer
+// wrote it (intendedContextFiles).
 // It reads via the existing AssembleContext, never regenerateContext: this is
 // the read half the design doc calls out — "a status command that rewrites the
 // surface it inspects is its own bug" — so it must never write.
 func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, workDir string) (surfaces []SurfaceCurrency, errs []string) {
-	intended := map[string]string{}
+	intended := map[string][]string{}
 	var composeFailed bool
-	compose := func(backend string) (string, bool) {
+	compose := func(backend string) ([]string, bool) {
 		if composeFailed {
-			return "", false
+			return nil, false
 		}
 		if _, ok := intended[backend]; !ok {
-			composed, err := intendedContextFile(ctx, cfg, backend)
+			composed, err := intendedContextFiles(ctx, cfg, backend)
 			if err != nil {
 				errs = append(errs, fmt.Sprintf("failed to compose the current context to compare materialized surfaces against: %v", err))
 				composeFailed = true
-				return "", false
+				return nil, false
 			}
 			intended[backend] = composed
 		}
@@ -297,26 +298,47 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 	return surfaces, errs
 }
 
-// intendedContextFile composes what MaterializeProfile writes as backend's
-// native context file, for the configured default profiles — the check's side
-// of the currency comparison. It states the SAME subject the writer states
-// (MaterializedFor), which is the whole reason the read half and the write half
-// agree on what the file should hold: an engine without a skills surface gets
-// its premised fragments written into the file, and a comparison composed for
-// a live session would withhold them and report that file stale forever.
-func intendedContextFile(ctx context.Context, cfg *config.Config, backend string) (string, error) {
-	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{
+// intendedContextFiles composes every context a ctxloom writer states for
+// backend's native context file, for the configured default profiles — the
+// check's side of the currency comparison.
+//
+// Two writers reach that file and they state DIFFERENT subjects. `profile
+// materialize` composes MaterializedFor(backend): a launch with no ctxloom
+// behind it, so an engine without a skills surface gets its premised fragments
+// written into the file. `manage hooks install` composes for a live session
+// (installedContextFile) and withholds them for every engine — it is included
+// only where ApplyHooks routes context through the file at all
+// (contextViaHook), since for an engine that injects it never writes this
+// file. The file records bytes, not its writer, and both writers leave the
+// same hooks and MCP server beside it, so the check cannot know which one it
+// is reading: it holds the file against each, and a file current under the
+// writer that produced it is delivered. Composing one subject alone reports
+// the other writer's correct file stale forever; the two are equal exactly
+// when the engine has a skills surface, which is why the divergence is
+// invisible until it is not.
+func intendedContextFiles(ctx context.Context, cfg *config.Config, backend string) ([]string, error) {
+	materialized, err := AssembleContext(ctx, cfg, AssembleContextRequest{
 		Profiles: cfg.DefaultAgentProfiles(),
 		Consumer: MaterializedFor(backend),
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return asm.Context, nil
+	intended := []string{materialized.Context}
+	if !contextViaHook(backends.Declared(backend)) {
+		installed, err := installedContextFile(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		intended = append(intended, installed)
+	}
+	return intended, nil
 }
 
 // reportableContextCurrency is the whole "report it or stay quiet" rule, in one
-// place so the two halves cannot drift apart.
+// place so the two halves cannot drift apart. intended is every composition a
+// ctxloom writer states for the file (intendedContextFiles): the file is
+// delivered when it matches any of them, and stale only when it matches none.
 //
 // A file that EXISTS is always reported — delivered or stale — for any engine
 // that can read it, expectation or not: content sitting on disk that nobody
@@ -330,12 +352,20 @@ func intendedContextFile(ctx context.Context, cfg *config.Config, backend string
 // states — "A capability gap nobody asked to use costs nothing and stays
 // quiet" — read against agent.SurfaceInputs.Context, the field the native-file
 // route is fed from. Either half false is silence.
-func reportableContextCurrency(state agent.DeliveryState, intended string, expected bool) (agent.Currency, bool) {
-	cur := state.Currency(intended)
+func reportableContextCurrency(state agent.DeliveryState, intended []string, expected bool) (agent.Currency, bool) {
+	var cur agent.Currency
+	carries := false
+	for _, want := range intended {
+		carries = carries || strings.TrimSpace(want) != ""
+		cur = state.Currency(want)
+		if cur.Status == agent.StatusDelivered {
+			return cur, true
+		}
+	}
 	if cur.Status != agent.StatusMissing {
 		return cur, true
 	}
-	if !expected || strings.TrimSpace(intended) == "" {
+	if !expected || !carries {
 		return agent.Currency{}, false
 	}
 	return cur, true

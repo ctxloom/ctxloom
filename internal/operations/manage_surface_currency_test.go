@@ -68,14 +68,20 @@ func deliverNativeContext(t *testing.T, backend, dir, contextText string) {
 }
 
 // composedContext is what the fixture's default agent currently composes for
-// backend's materialized file — the same string surfaceCurrencies compares
-// against, obtained the same way.
+// backend's native file — obtained the way surfaceCurrencies obtains it. It
+// requires every writer of that file to compose the same bytes, so a test
+// materializing "the current composition" through it is not silently picking
+// one writer's side of a divergence.
 func composedContext(t *testing.T, cfg *config.Config, backend string) string {
 	t.Helper()
-	composed, err := intendedContextFile(context.Background(), cfg, backend)
+	intended, err := intendedContextFiles(context.Background(), cfg, backend)
 	require.NoError(t, err)
-	require.NotEmpty(t, composed)
-	return composed
+	require.NotEmpty(t, intended)
+	for _, composed := range intended {
+		require.NotEmpty(t, composed)
+		require.Equal(t, intended[0], composed, "%s: its writers compose different files; name the writer instead of using this helper", backend)
+	}
+	return intended[0]
 }
 
 // --- ARM ONE: the alarm FIRES where materialization was expected -------------
@@ -127,13 +133,13 @@ func TestSurfaceCurrencies_LeavesTheHermeticMockEngineOutOfTheReport(t *testing.
 func TestReportableContextCurrency_StaysSilentWhenTheLoadoutCarriesNothing(t *testing.T) {
 	absent := agent.FileDeliveryState{Rel: "CLAUDE.md"}
 
-	_, report := reportableContextCurrency(absent, "", true)
+	_, report := reportableContextCurrency(absent, []string{""}, true)
 	assert.False(t, report, "an empty composition expects no file, so an absent one is not a finding")
 
-	_, report = reportableContextCurrency(absent, "   \n\t ", true)
+	_, report = reportableContextCurrency(absent, []string{"   \n\t "}, true)
 	assert.False(t, report, "whitespace is no context at all — same verdict as empty")
 
-	cur, report := reportableContextCurrency(absent, "REAL CONTEXT", true)
+	cur, report := reportableContextCurrency(absent, []string{"REAL CONTEXT"}, true)
 	require.True(t, report, "context to deliver plus an expected file plus nothing there IS the finding")
 	assert.Equal(t, agent.StatusMissing, cur.Status)
 }
@@ -147,11 +153,11 @@ func TestReportableContextCurrency_AlwaysReportsAFileThatExists(t *testing.T) {
 		Rel: "AGENTS.md", Found: true, HasSection: true, Managed: "OLD CONTEXT",
 	}
 
-	cur, report := reportableContextCurrency(present, "NEW CONTEXT", false)
+	cur, report := reportableContextCurrency(present, []string{"NEW CONTEXT"}, false)
 	require.True(t, report, "an unexpected-but-present file is still real drift")
 	assert.Equal(t, agent.StatusStale, cur.Status)
 
-	cur, report = reportableContextCurrency(present, "OLD CONTEXT", false)
+	cur, report = reportableContextCurrency(present, []string{"OLD CONTEXT"}, false)
 	require.True(t, report)
 	assert.Equal(t, agent.StatusDelivered, cur.Status)
 }
@@ -208,13 +214,13 @@ func TestSurfaceCurrencies_ReportsDeliveredForPortedBackends(t *testing.T) {
 	}
 }
 
-// --- THE CHECK COMPOSES WHAT MATERIALIZE WROTE ------------------------------
+// --- THE CHECK COMPOSES WHAT EACH WRITER WROTE --------------------------------
 
 // premisedDefaultAgentFixture builds a project whose DEFAULT agent composes a
 // bundle carrying one premised fragment (body mark) — the content whose
-// delivery differs by engine — plus an empty dir to materialize into. The
-// default agent matters for the same reason as in surfaceCurrencyFixture: it
-// is what the check composes, so materialize must be handed the same profiles.
+// delivery differs by engine — plus an empty dir to write into. The default
+// agent matters for the same reason as in surfaceCurrencyFixture: it is what
+// the check composes, so materialize must be handed the same profiles.
 func premisedDefaultAgentFixture(t *testing.T, mark string) (cfg *config.Config, target string) {
 	t.Helper()
 	testsupport.Isolate(t)
@@ -235,12 +241,57 @@ func premisedDefaultAgentFixture(t *testing.T, mark string) (cfg *config.Config,
 	return cfg, target
 }
 
+// nativeContextState reads backend's native context file under dir through
+// the same read half surfaceCurrencies walks, and returns the managed bytes
+// alongside it so a test can assert on CONTENT, not merely on agreement.
+func nativeContextState(t *testing.T, backend, dir string) (agent.DeliveryState, string) {
+	t.Helper()
+	reader, ok := contextFileReader(backends.Declared(backend), afero.NewOsFs())
+	require.True(t, ok, "%s must offer a native-file context route", backend)
+	state, err := reader.State(dir)
+	require.NoError(t, err)
+	file, ok := state.(agent.FileDeliveryState)
+	require.True(t, ok, "%s's file route must read back as a FileDeliveryState, got %T", backend, state)
+	require.True(t, file.HasSection, "%s: nothing was written into %s", backend, dir)
+	return state, file.Managed
+}
+
+// checkVerdict is what `manage check` would say about backend's native file
+// under dir, composed the way surfaceCurrencies composes it.
+func checkVerdict(t *testing.T, cfg *config.Config, backend, dir string) agent.Currency {
+	t.Helper()
+	intended, err := intendedContextFiles(context.Background(), cfg, backend)
+	require.NoError(t, err)
+	state, _ := nativeContextState(t, backend, dir)
+	cur, report := reportableContextCurrency(state, intended, contextFileExpected(backends.Declared(backend)))
+	require.True(t, report, "%s: a native file that exists is always reported", backend)
+	return cur
+}
+
+// hooksInstall runs `manage hooks install` for backend into dir, regenerating
+// context so the native file is written — the second writer of the file the
+// check reads.
+func hooksInstall(t *testing.T, cfg *config.Config, backend, dir string) {
+	t.Helper()
+	res, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+		Backend:           backend,
+		RegenerateContext: true,
+		FS:                afero.NewOsFs(),
+		ConfigLoader:      func() (*config.Config, error) { return cfg, nil },
+		WorkDir:           dir,
+	})
+	require.NoError(t, err)
+	require.Empty(t, res.Errors, "%s: hooks install must write cleanly", backend)
+	require.NotEmpty(t, res.ContextHash, "%s: context must have been regenerated, or the native file is never written", backend)
+}
+
 // TestIntendedContextFile_IsWhatMaterializeWrote pins static-vs-dynamic
 // delivery to WHAT IS WRITTEN rather than to whichever caller is composing:
-// `manage check` composes the file it compares against through
-// intendedContextFile, MaterializeProfile composes the file it writes, and for
-// the same engine the two must be the same bytes — otherwise a correct
-// materialization is reported stale for as long as it exists.
+// `manage check` composes the files it compares against through
+// intendedContextFiles, MaterializeProfile composes the file it writes, and for
+// the same engine the check must hold what materialize wrote as delivered —
+// otherwise a correct materialization is reported stale for as long as it
+// exists.
 //
 // Both arms are asserted because they resolve to DIFFERENT deliveries. An
 // engine with a skills surface gets the dynamic assembly (its premised
@@ -265,24 +316,84 @@ func TestIntendedContextFile_IsWhatMaterializeWrote(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			intended, err := intendedContextFile(context.Background(), cfg, tc.backend)
-			require.NoError(t, err)
-			// Not vacuous: the two arms must compose DIFFERENT bytes for the
-			// premised fragment, or "they agree" is satisfied by a resolution
-			// that ignores the engine and always picks one mode.
-			assert.Equal(t, tc.premisedInContext, strings.Contains(intended, "PREMISED-MARKER"),
-				"%s: the check's composition must carry the premised fragment exactly when the engine has no skills surface to re-deliver it through", tc.backend)
-			assert.Contains(t, intended, "UNCONDITIONAL-MARKER")
+			// Not vacuous: the file must carry the premised fragment exactly
+			// when the engine has no skills surface to re-deliver it through,
+			// or "delivered" is satisfied by a check that accepts anything.
+			_, written := nativeContextState(t, tc.backend, target)
+			assert.Equal(t, tc.premisedInContext, strings.Contains(written, "PREMISED-MARKER"),
+				"%s: materialize must write the premised fragment into the file exactly when the engine has no skills surface", tc.backend)
+			assert.Contains(t, written, "UNCONDITIONAL-MARKER")
 
-			decl := backends.Declared(tc.backend)
-			reader, ok := contextFileReader(decl, afero.NewOsFs())
-			require.True(t, ok, "%s must offer a native-file context route", tc.backend)
-			state, err := reader.State(target)
-			require.NoError(t, err)
-			cur, report := reportableContextCurrency(state, intended, contextFileExpected(decl))
-			require.True(t, report, "%s: a materialized file that exists is always reported", tc.backend)
+			cur := checkVerdict(t, cfg, tc.backend, target)
 			assert.Equal(t, agent.StatusDelivered, cur.Status,
-				"%s: the check composed something other than what materialize wrote for the same engine — %s", tc.backend, cur.Detail)
+				"%s: the check composed nothing matching what materialize wrote for the same engine — %s", tc.backend, cur.Detail)
 		})
 	}
+}
+
+// TestIntendedContextFile_IsWhatHooksInstallWrote is the other writer of the
+// same file. `manage hooks install` composes for a LIVE session — the hooks
+// and ctxloom's own MCP server it installs beside the file are ctxloom staying
+// in the loop, so a launch pulls a withheld fragment on demand — and it
+// therefore withholds the premised fragment for EVERY engine, skills surface
+// or not. The check must hold that file as delivered too.
+//
+// The no-skills engine is the arm that matters: it is the one where the two
+// writers legitimately compose different bytes for one file, and where a check
+// that states only materialize's subject reports a correct hooks-installed
+// file stale forever.
+func TestIntendedContextFile_IsWhatHooksInstallWrote(t *testing.T) {
+	for _, backend := range []string{"mock", "mock-noskills"} {
+		t.Run(backend, func(t *testing.T) {
+			cfg, workDir := premisedDefaultAgentFixture(t, "PREMISED-MARKER")
+			hooksInstall(t, cfg, backend, workDir)
+
+			_, written := nativeContextState(t, backend, workDir)
+			assert.NotContains(t, written, "PREMISED-MARKER",
+				"%s: hooks install writes for a live session, which pulls a premised fragment on demand — its body must be withheld from the file", backend)
+			assert.Contains(t, written, "UNCONDITIONAL-MARKER")
+
+			cur := checkVerdict(t, cfg, backend, workDir)
+			assert.Equal(t, agent.StatusDelivered, cur.Status,
+				"%s: the check composed nothing matching what hooks install wrote for the same engine — %s", backend, cur.Detail)
+		})
+	}
+}
+
+// TestIntendedContextFiles_HoldTheFileToItsWriterNotToOneMode pins the shape
+// of the resolution rather than either arm alone: for the engine without a
+// skills surface the two writers produce DIFFERENT files — materialize carries
+// the premised body, hooks install withholds it — and the check must call
+// each one delivered while still calling a file that matches neither stale. A
+// check composing one subject passes exactly one writer; a check accepting
+// anything passes the stale file. Only composing every subject a writer
+// states survives all three.
+func TestIntendedContextFiles_HoldTheFileToItsWriterNotToOneMode(t *testing.T) {
+	const backend = "mock-noskills"
+	cfg, materialized := premisedDefaultAgentFixture(t, "PREMISED-MARKER")
+	installed := filepath.Join(filepath.Dir(materialized), "installed")
+	require.NoError(t, os.MkdirAll(installed, 0o755))
+
+	_, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+		Profiles: cfg.DefaultAgentProfiles(), Target: materialized, Backend: backend,
+	})
+	require.NoError(t, err)
+	hooksInstall(t, cfg, backend, installed)
+
+	_, byMaterialize := nativeContextState(t, backend, materialized)
+	_, byInstall := nativeContextState(t, backend, installed)
+	require.NotEqual(t, byMaterialize, byInstall,
+		"the two writers must compose different files for an engine without a skills surface, or this test pins nothing")
+	assert.Contains(t, byMaterialize, "PREMISED-MARKER")
+	assert.NotContains(t, byInstall, "PREMISED-MARKER")
+
+	assert.Equal(t, agent.StatusDelivered, checkVerdict(t, cfg, backend, materialized).Status, "materialize's file is current under its writer")
+	assert.Equal(t, agent.StatusDelivered, checkVerdict(t, cfg, backend, installed).Status, "hooks install's file is current under its writer")
+
+	intended, err := intendedContextFiles(context.Background(), cfg, backend)
+	require.NoError(t, err)
+	neither := agent.FileDeliveryState{Rel: "MOCK_CONTEXT.md", Found: true, HasSection: true, Managed: "CONTEXT FROM A PREVIOUS COMPOSITION"}
+	cur, report := reportableContextCurrency(neither, intended, true)
+	require.True(t, report)
+	assert.Equal(t, agent.StatusStale, cur.Status, "a file matching no writer's composition is real drift")
 }

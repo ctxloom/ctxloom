@@ -170,15 +170,10 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// strip their managed native-context section, which skipContext now prevents
 	// whenever the emptiness is not a genuine, error-free current state.
 	//
-	// Composed for a LIVE session (the zero ContextConsumer), not
-	// MaterializedFor the backend, even though it lands in the same native file
-	// `profile materialize` writes: the hooks installed alongside it are ctxloom
-	// staying in the loop, so a session launched here can pull a premised
-	// fragment on demand and the file must carry the menu, not the bodies.
 	var assembledContext string
 	if contextHash != "" {
-		if asm, aerr := AssembleContext(ctx, freshCfg, AssembleContextRequest{Profiles: freshCfg.DefaultAgentProfiles()}); aerr == nil {
-			assembledContext = asm.Context
+		if composed, aerr := installedContextFile(ctx, freshCfg); aerr == nil {
+			assembledContext = composed
 		}
 	}
 
@@ -614,6 +609,26 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 // written alongside the hook.
 func contextViaHook(decl agent.Declaration) bool {
 	return slices.Contains(decl.Names(agent.SurfaceContext), agent.ApproachHook)
+}
+
+// installedContextFile composes what ApplyHooks writes into a native-file
+// context surface, for the configured default profiles — and what `manage
+// check` holds such a file against (intendedContextFiles). It states the zero
+// ContextConsumer, a LIVE session, and that is a statement about the launch
+// rather than a mode: the hooks and ctxloom's own MCP server installed beside
+// the file are ctxloom staying in the loop, so a session launched from this
+// project pulls a withheld premised fragment on demand, and the file carries
+// none of their bodies for ANY engine — the same withholding regenerateContext
+// applies for the engines that inject. It is deliberately NOT what `profile
+// materialize` composes for the same file (MaterializedFor): that surface is
+// written for a launch with no ctxloom behind it, and for an engine without a
+// skills surface the two writers legitimately produce different bytes.
+func installedContextFile(ctx context.Context, cfg *config.Config) (string, error) {
+	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: cfg.DefaultAgentProfiles()})
+	if err != nil {
+		return "", err
+	}
+	return asm.Context, nil
 }
 
 // regenerateContext loads fragments from default profiles and writes the context file.

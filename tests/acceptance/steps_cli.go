@@ -712,7 +712,11 @@ func runCLI(c context.Context, cmdline, stdin string) error {
 	//
 	// Not "{{...}}" (the fragment templater's syntax) and not "<...>" (Gherkin's
 	// Scenario Outline placeholder) — both would be claimed by something else.
+	// The same expansion applies to stdin: a hook payload names the file the
+	// engine just wrote to by absolute path, and a feature has no other way to
+	// spell one.
 	cmdline = strings.ReplaceAll(cmdline, "$PROJECT_DIR", w.env.ProjectDir)
+	stdin = strings.ReplaceAll(stdin, "$PROJECT_DIR", w.env.ProjectDir)
 	args, err := ctxloomArgs(cmdline)
 	if err != nil {
 		return err

@@ -73,20 +73,27 @@ func Get(name string) (Engine, error) {
 	return nil, fmt.Errorf("unknown engine %q; known engines: %s", name, knownEngineSpellings())
 }
 
-// knownEngineSpellings renders the accepted --engine vocabulary for a refusal:
-// every registered engine's canonical name, each followed by the alternate
-// spellings that also resolve to it. Derived from All() and the shared alias
-// table rather than written out as a literal, so an engine added to the
-// registry cannot be missing from the message that is supposed to enumerate
-// the registry.
-func knownEngineSpellings() string {
+// Names lists every registered engine's canonical name: the vocabulary
+// --engine accepts, for help text that advertises it. Derived from All()
+// rather than written out as a literal, so an engine added to the registry
+// cannot be missing from the text that is supposed to enumerate the registry.
+func Names() []string {
 	names := make([]string, 0, len(All()))
 	for _, e := range All() {
-		name := e.Name()
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+// knownEngineSpellings renders the accepted --engine vocabulary for a refusal:
+// every canonical name from Names(), each followed by the alternate spellings
+// the shared alias table also resolves to it.
+func knownEngineSpellings() string {
+	names := Names()
+	for i, name := range names {
 		if aliases := agent.EngineNameAliases(name); len(aliases) > 0 {
-			name += " (also: " + strings.Join(aliases, ", ") + ")"
+			names[i] += " (also: " + strings.Join(aliases, ", ") + ")"
 		}
-		names = append(names, name)
 	}
 	return strings.Join(names, ", ")
 }

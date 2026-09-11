@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -25,6 +26,19 @@ var primaryEngines = []string{config.BackendClaudeCode}
 
 // getAvailableEngines returns engines filtered by what's actually installed.
 // Primary engines come first, then secondary engines, all sorted.
+// initEngineChoices names the engines --engine accepts: every registered
+// backend a user may pick, test doubles excluded. Derived from the registry so
+// the help text cannot advertise an engine that no longer exists.
+func initEngineChoices() string {
+	var names []string
+	for _, name := range backends.List() {
+		if !isTestOnlyBackend(name) {
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 func getAvailableEngines() (primary, secondary []string) {
 	primarySet := make(map[string]bool)
 	for _, e := range primaryEngines {

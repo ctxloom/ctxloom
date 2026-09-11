@@ -90,9 +90,9 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	}
 
 	// Distillation runs on its own labeled config, independent of the primary
-	// role, so a project can pair (say) a cheap codex label for distill with a
-	// claude-opus label for coding. The --llm flag names a config label;
-	// otherwise the fast role's label is used.
+	// role, so a project can pair (say) a cheap label for distill with a
+	// stronger one for coding. The --llm flag names a config label; otherwise
+	// the fast role's label is used.
 	label := bundleDistillLLM
 	if label == "" {
 		label = cfg.FastLabel()
@@ -671,5 +671,5 @@ func stripCodeFence(content string) string {
 func registerBundleDistillFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVarP(&bundleDistillForce, "force", "f", false, "Re-distill even if unchanged")
 	cmd.Flags().BoolVarP(&bundleDistillDryRun, "dry-run", "n", false, "Preview what would be distilled")
-	cmd.Flags().StringVarP(&bundleDistillLLM, "llm", "l", "", "config label to use (e.g. claude-code, claude-fast, codex); overrides the configured default")
+	cmd.Flags().StringVarP(&bundleDistillLLM, "llm", "l", "", "llm.configs label to distill with (e.g. claude-fast); overrides the fast role's configured label")
 }

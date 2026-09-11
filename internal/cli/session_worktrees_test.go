@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -42,10 +43,12 @@ func resetSessionWorktreesFlags() {
 	clidiag.SetStructured(false)
 }
 
-// swtDeadPid mirrors isolation's own deadPid / tests/acceptance's j001300DeadPid:
-// a pid guaranteed not to name a live process on any real Linux
-// kernel.pid_max configuration, so "this owner is confirmed dead" is
-// deterministic with no fork/kill/race.
+// swtDeadPid is the pid these fixtures stamp into a session's lock file. It
+// names no live process on any real kernel.pid_max configuration — but note
+// that NOTHING decides liveness from it: the lock's held-ness is the signal,
+// and the pid is content for a human reading the file (see
+// internal/shared/sessionlock). It is asserted on only where a listing is
+// expected to RENDER it.
 const swtDeadPid = 999999999
 
 // swtGit runs a git command in dir with a stable, hermetic identity —
@@ -78,22 +81,42 @@ func swtInitRepo(t *testing.T) string {
 
 // swtAddScratchWorktree creates a REAL linked worktree under
 // <home>/.ctxloom/sessions/<harp>/ephemeral/ctxloom-wt-<name>, exactly the
-// layout isolation.findEphemeralWorktrees scans — with a sibling ".owner.pid"
-// marker (ownerPid == 0 means "write no marker at all") and, when dirty,
-// genuine uncommitted content no reap may ever destroy.
-func swtAddScratchWorktree(t *testing.T, home, repo, harp, name string, ownerPid int, dirty bool) string {
+// layout isolation.findEphemeralWorktrees scans — and, when dirty, genuine
+// uncommitted content no reap may ever destroy.
+//
+// It says NOTHING about liveness: that is the owning session's, seeded once
+// per harp by swtSeedDeadSession/swtSeedLiveSession, or left unseeded for the
+// unprovable case.
+func swtAddScratchWorktree(t *testing.T, home, repo, harp, name string, dirty bool) string {
 	t.Helper()
 	ephemeral := filepath.Join(home, ".ctxloom", "sessions", harp, "ephemeral")
 	require.NoError(t, os.MkdirAll(ephemeral, 0o755))
 	wtDir := filepath.Join(ephemeral, "ctxloom-wt-"+name)
 	swtGit(t, repo, "worktree", "add", "-q", "-b", "wt-"+harp+"-"+name, wtDir)
-	if ownerPid != 0 {
-		require.NoError(t, os.WriteFile(wtDir+".owner.pid", []byte(strconv.Itoa(ownerPid)+"\n"), 0o600))
-	}
 	if dirty {
 		require.NoError(t, os.WriteFile(filepath.Join(wtDir, "in-flight.go"), []byte("// uncommitted\n"), 0o644))
 	}
 	return wtDir
+}
+
+// swtSeedDeadSession makes harp read sessionlock.Dead: a lock file that
+// exists and is FREE, the state the kernel leaves once the owning process has
+// ended however it ended. The pid written in it is swtDeadPid, so a listing
+// has something to render.
+func swtSeedDeadSession(t *testing.T, home, harp string) {
+	t.Helper()
+	lock := filepath.Join(home, ".ctxloom", "sessions", harp+".lock")
+	require.NoError(t, os.MkdirAll(filepath.Dir(lock), 0o700))
+	require.NoError(t, os.WriteFile(lock, []byte(strconv.Itoa(swtDeadPid)+"\n"), 0o600))
+}
+
+// swtSeedLiveSession makes harp read sessionlock.Alive: this test process
+// holds the lock for the rest of the test, so the probe meets a genuinely
+// held lock rather than a simulated one.
+func swtSeedLiveSession(t *testing.T, harp string) {
+	t.Helper()
+	require.NoError(t, sessionlock.Hold(harp))
+	t.Cleanup(func() { sessionlock.Release(harp) })
 }
 
 // TestSessionWorktrees_BareListing_ShowsEveryVerdict pins row 4's shape
@@ -104,8 +127,9 @@ func TestSessionWorktrees_BareListing_ShowsEveryVerdict(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
-	clean := swtAddScratchWorktree(t, home, repo, "amber", "clean", swtDeadPid, false)
-	wip := swtAddScratchWorktree(t, home, repo, "amber", "wip", swtDeadPid, true)
+	clean := swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
+	wip := swtAddScratchWorktree(t, home, repo, "amber", "wip", true)
+	swtSeedDeadSession(t, home, "amber")
 
 	out, err := execRootCmd(t, "session", "worktrees", "--format", "json")
 	require.NoError(t, err)
@@ -132,18 +156,20 @@ func TestSessionWorktrees_BareListing_ShowsEveryVerdict(t *testing.T) {
 }
 
 // TestSessionWorktrees_ReapYes_RemovesOnlyProvenSafe is row 5's direct pin:
-// four populations, one invocation, and only the clean/dead-owner tree may
-// go. The uncommitted worktree's OWN BYTES must survive, not merely its
-// directory — the project's own standing lesson about force-removed
-// worktrees.
+// within one ENDED session, only the clean tree may go, and the uncommitted
+// worktree's OWN BYTES must survive, not merely its directory — the project's
+// own standing lesson about force-removed worktrees.
+//
+// Purge is harp-scoped and liveness is per-SESSION, so the live and
+// unprovable populations cannot share this harp; they are pinned in the two
+// tests below, against the same verb.
 func TestSessionWorktrees_ReapYes_RemovesOnlyProvenSafe(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
-	clean := swtAddScratchWorktree(t, home, repo, "amber", "clean", swtDeadPid, false)
-	wip := swtAddScratchWorktree(t, home, repo, "amber", "wip", swtDeadPid, true)
-	unknowable := swtAddScratchWorktree(t, home, repo, "amber", "unknowable", 0, false)
-	live := swtAddScratchWorktree(t, home, repo, "amber", "live", os.Getpid(), false)
+	clean := swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
+	wip := swtAddScratchWorktree(t, home, repo, "amber", "wip", true)
+	swtSeedDeadSession(t, home, "amber")
 
 	out, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--yes", "--format", "json")
 	require.NoError(t, err)
@@ -153,15 +179,56 @@ func TestSessionWorktrees_ReapYes_RemovesOnlyProvenSafe(t *testing.T) {
 	assert.True(t, rep.Applied)
 	assert.Equal(t, 1, rep.Reaped)
 	assert.Equal(t, 1, rep.Spared)
-	assert.Equal(t, 2, rep.Skipped)
+	assert.Equal(t, 0, rep.Skipped)
 
 	assert.NoDirExists(t, clean, "the clean, provably-orphaned worktree must be gone")
 	assert.DirExists(t, wip, "uncommitted work is spared IN PLACE")
 	body, rerr := os.ReadFile(filepath.Join(wip, "in-flight.go"))
 	require.NoError(t, rerr, "the uncommitted file itself must survive, not just its directory")
 	assert.Contains(t, string(body), "uncommitted")
-	assert.DirExists(t, unknowable, "an indeterminate owner is never touched")
-	assert.DirExists(t, live, "a live owner is never touched")
+}
+
+// TestSessionWorktrees_ReapYes_LiveSessionIsNeverTouched is the half of the
+// safety rule the lock exists to enforce: a genuinely CLEAN worktree, which
+// every other signal would call reapable, is left strictly alone because its
+// owning session still holds its lock. Reaping out from under a running
+// session is the incident this design guards against.
+func TestSessionWorktrees_ReapYes_LiveSessionIsNeverTouched(t *testing.T) {
+	t.Cleanup(resetSessionWorktreesFlags)
+	home := testsupport.Isolate(t)
+	repo := swtInitRepo(t)
+	live := swtAddScratchWorktree(t, home, repo, "amber", "live", false)
+	swtSeedLiveSession(t, "amber")
+
+	out, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--yes", "--format", "json")
+	require.Error(t, err, "a purge that could remove nothing refuses rather than reporting a clean sweep")
+
+	var rep sessionWorktreeReport
+	require.NoError(t, json.Unmarshal([]byte(out), &rep))
+	assert.Equal(t, 0, rep.Reaped)
+	assert.Equal(t, 1, rep.Skipped)
+	assert.DirExists(t, live, "a live session's worktree is never touched")
+}
+
+// TestSessionWorktrees_ReapYes_UnprovableSessionIsNeverTouched pins the
+// conservative default: a session with NO lock file at all cannot be PROVEN
+// dead, and "cannot determine" is never permission. A missing lock must never
+// read as a free one.
+func TestSessionWorktrees_ReapYes_UnprovableSessionIsNeverTouched(t *testing.T) {
+	t.Cleanup(resetSessionWorktreesFlags)
+	home := testsupport.Isolate(t)
+	repo := swtInitRepo(t)
+	unknowable := swtAddScratchWorktree(t, home, repo, "amber", "unknowable", false)
+	// Deliberately no lock file seeded for "amber".
+
+	out, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--yes", "--format", "json")
+	require.Error(t, err, "nothing was provably safe to remove, so the purge refuses")
+
+	var rep sessionWorktreeReport
+	require.NoError(t, json.Unmarshal([]byte(out), &rep))
+	assert.Equal(t, 0, rep.Reaped)
+	assert.Equal(t, 1, rep.Skipped)
+	assert.DirExists(t, unknowable, "an unprovable owner is never touched")
 }
 
 // TestSessionWorktrees_ReapWithoutYes_NeverActs is the human override this
@@ -171,7 +238,8 @@ func TestSessionWorktrees_ReapWithoutYes_NeverActs(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
-	clean := swtAddScratchWorktree(t, home, repo, "amber", "clean", swtDeadPid, false)
+	clean := swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
+	swtSeedDeadSession(t, home, "amber")
 
 	out, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--format", "json")
 	require.NoError(t, err)
@@ -190,7 +258,8 @@ func TestSessionWorktrees_ReapYes_ChangedNothing_Refuses(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
-	swtAddScratchWorktree(t, home, repo, "amber", "wip", swtDeadPid, true)
+	swtAddScratchWorktree(t, home, repo, "amber", "wip", true)
+	swtSeedDeadSession(t, home, "amber")
 
 	_, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--yes", "--format", "json")
 	require.Error(t, err, "a purge that removed nothing must refuse, not exit 0")
@@ -207,8 +276,9 @@ func TestSessionWorktrees_ReapYes_SomethingChanged_Succeeds(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
-	swtAddScratchWorktree(t, home, repo, "amber", "clean", swtDeadPid, false)
-	swtAddScratchWorktree(t, home, repo, "amber", "wip", swtDeadPid, true)
+	swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
+	swtAddScratchWorktree(t, home, repo, "amber", "wip", true)
+	swtSeedDeadSession(t, home, "amber")
 
 	_, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--yes", "--format", "json")
 	assert.NoError(t, err)
@@ -221,7 +291,8 @@ func TestSessionWorktrees_ForeignWorktreeNeverListed(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
-	swtAddScratchWorktree(t, home, repo, "amber", "clean", swtDeadPid, false)
+	swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
+	swtSeedDeadSession(t, home, "amber")
 
 	foreignDir := filepath.Join(home, "workspace", "worktrees", "proj--stale-feature")
 	require.NoError(t, os.MkdirAll(filepath.Dir(foreignDir), 0o755))
@@ -240,8 +311,10 @@ func TestSessionWorktrees_HarpFilter_ScopesToOneHarp(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
-	swtAddScratchWorktree(t, home, repo, "amber", "clean", swtDeadPid, false)
-	other := swtAddScratchWorktree(t, home, repo, "brisk", "clean", swtDeadPid, false)
+	swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
+	other := swtAddScratchWorktree(t, home, repo, "brisk", "clean", false)
+	swtSeedDeadSession(t, home, "amber")
+	swtSeedDeadSession(t, home, "brisk")
 
 	out, err := execRootCmd(t, "session", "worktrees", "list", "amber", "--format", "json")
 	require.NoError(t, err)

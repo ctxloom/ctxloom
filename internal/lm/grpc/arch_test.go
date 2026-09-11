@@ -141,7 +141,7 @@ func (f *parityFiller) fill(v reflect.Value, path string, depth int) {
 		v.SetBool(true)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		// An ENUM's distinguishable population is a valid MEMBER, not any int.
-		// The counter below would hand agent.Approach a 4 — a value the enum
+		// The counter below would hand agent.SurfaceKind a 9 — a value the enum
 		// does not define and the host side can never hold — and a converter
 		// that carries enums as their stable labels then legitimately refuses
 		// it, failing this test for a case that cannot occur. Filling from the
@@ -312,7 +312,7 @@ func TestArch_ProtoConverters_MirrorEveryStructField(t *testing.T) {
 	// enums as LABELS, so it is the one conversion in this package that can
 	// refuse its input, and a round trip over the valid domain is what says the
 	// refusal is scoped to values the host cannot hold.
-	checkParity(t, hits, "map[agent.SurfaceKind]agent.Approach", surfacesToProto, surfacesFromProto)
+	checkParity(t, hits, "map[agent.SurfaceKind]string", surfacesToProto, surfacesFromProto)
 	checkParity(t, hits, "[]agent.CommandExport", commandExportsToProto, commandExportsFromProto)
 	checkParity(t, hits, "[]agent.SkillExport", skillExportsToProto, skillExportsFromProto)
 	checkParity(t, hits, "[]agent.PackageFile", packageFilesToProto, packageFilesFromProto)
@@ -500,9 +500,9 @@ func TestArch_ProtoConverters_ExclusionsAreLive(t *testing.T) {
 
 // enumDomain reports the valid values of the enum types this package's
 // converters carry BY LABEL rather than by number. Carrying labels is what
-// makes an unknown value fail loudly instead of resolving to iota 0 — which for
-// both of these is the least safe member (SurfaceContext, ApproachUnsafeFile) —
-// and the price is that a synthetic out-of-domain int is not round-trippable.
+// makes an unknown value fail loudly instead of resolving to iota 0 — which is
+// the least safe member (SurfaceContext) — and the price is that a synthetic
+// out-of-domain int is not round-trippable.
 //
 // Listed from the packages' own exported enumerations, so a member added there
 // widens this automatically rather than silently narrowing what gets exercised.
@@ -514,15 +514,6 @@ func enumDomain(t reflect.Type) ([]int64, bool) {
 			k, err := agent.ParseSurfaceKind(name)
 			if err == nil {
 				out = append(out, int64(k))
-			}
-		}
-		return out, len(out) > 0
-	case reflect.TypeOf(agent.Approach(0)):
-		out := []int64{}
-		for _, name := range agent.ApproachNames() {
-			a, err := agent.ParseApproach(name)
-			if err == nil {
-				out = append(out, int64(a))
 			}
 		}
 		return out, len(out) > 0

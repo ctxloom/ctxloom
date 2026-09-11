@@ -508,8 +508,8 @@ type ResolvedAgent struct {
 	Context   string   `json:"context,omitempty"`
 	Fragments []string `json:"fragments,omitempty"`
 	// Surfaces is the agent's DELIVERY PREFERENCE, parsed and already checked
-	// against this engine's SupportedApproaches. Empty takes the engine default.
-	Surfaces map[agent.SurfaceKind]agent.Approach `json:"-"`
+	// against this engine's Declaration. Empty takes the engine default.
+	Surfaces map[agent.SurfaceKind]string `json:"-"`
 	// Runtime is the RESOLVED runtime axis for this agent (its own choice →
 	// project `runtime:` default → RuntimeHost), already PARSED by
 	// resolveAgentBinding via agent.ParseRuntimeAxis — a typo'd runtime string

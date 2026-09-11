@@ -12,7 +12,7 @@ import "github.com/ctxloom/ctxloom/internal/shared/agent"
 // engine probes), so a fake carrying its own copy cannot drift out of step with
 // the driver. Routing that through Get + a type assertion here keeps the mock
 // depending on the backend registry, not on internal/claude directly — the
-// mirror of BuildSurfaces (name→SurfaceSet) and GetSettingsWriter
+// mirror of Declared (name→Declaration) and GetSettingsWriter
 // (name→settings writer).
 
 // EngineCLIsFor returns the named backend's native CLI-surface declarations.

@@ -21,7 +21,7 @@ import (
 // is a second path, hand-maintained as a slice literal by four backends and
 // called by no production code, for a materialized tree measured to be
 // byte-identical to the one the launch path produces through
-// agent.Select(set).WithEverything().Build().Deliveries().
+// agent.Select(decl).WithEverything().Build(in, fs).Deliveries().
 //
 // What survives here is the half that still has a subject: every native-surface
 // backend must resolve WithEverything into one delivery per ADVERTISED kind,
@@ -35,18 +35,18 @@ func TestDeliveries_ResolvedSelectionMaterializesEverySurface(t *testing.T) {
 			root := "/cell"
 			require.NoError(t, fs.MkdirAll(root, 0o755))
 
-			set := BuildSurfaces(name, parityInputs(), fs)
+			decl := Declared(name)
 
-			// One delivery per kind the backend actually advertises.
+			// One delivery per kind the backend actually declares.
 			wantKinds := 0
 			for _, kind := range allSurfaceKinds {
-				if _, ok := set.DefaultApproach(kind); ok {
+				if _, ok := decl.Default(kind); ok {
 					wantKinds++
 				}
 			}
-			require.NotZero(t, wantKinds, "%s: a native-surface backend must advertise at least one kind", name)
+			require.NotZero(t, wantKinds, "%s: a native-surface backend must declare at least one kind", name)
 
-			resolved, err := agent.Select(set).WithEverything().Build()
+			resolved, err := agent.Select(decl).WithEverything().Build(parityInputs(), fs)
 			require.NoError(t, err, "%s: WithEverything must Build", name)
 
 			deliveries := resolved.Deliveries()

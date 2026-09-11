@@ -447,7 +447,7 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 		} else {
 			req.Surfaces = make(map[string]string, len(parsed))
 			for k, a := range parsed {
-				req.Surfaces[k.String()] = a.String()
+				req.Surfaces[k.String()] = a
 			}
 		}
 	}

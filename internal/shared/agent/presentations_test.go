@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -61,6 +63,37 @@ func fakeHookPresenter(s present.Start) present.Presentation {
 	return s.UnderProjectRoot(".fake/hook.json").Build()
 }
 
+// fakeApproach lifts a presenter into an Approach whose Deliver writes
+// nothing: only the PRESENTATION is under test here. constructed counts how
+// many times the Construct ran, so a test can prove enumeration built nothing.
+type fakeApproach struct {
+	present func(present.Start) present.Presentation
+}
+
+func (f fakeApproach) Present(s present.Start) present.Presentation { return f.present(s) }
+func (fakeApproach) Deliver(present.Start) (Delivered, error)       { return nil, nil }
+
+var constructed int
+
+func fakeConstruct(presenter func(present.Start) present.Presentation) Construct {
+	return func(SurfaceInputs, afero.Fs) Approach {
+		constructed++
+		return fakeApproach{present: presenter}
+	}
+}
+
+// resolve constructs the named approach and presents it against start —
+// the two halves of what a single Resolve used to do, now separable because
+// construction takes content and presentation takes roots.
+func resolve(t *testing.T, d Presentations, name string, start present.Start) present.Presentation {
+	t.Helper()
+	a, ok := d.Construct(name, SurfaceInputs{}, nil)
+	if !ok {
+		t.Fatalf("Construct(%q) reported the name undeclared", name)
+	}
+	return a.Present(start)
+}
+
 // fakeContextPresentations is the declaration under test: a default plus two
 // alternatives, exactly the shape a real engine will write in S4-S7.
 //
@@ -68,9 +101,9 @@ func fakeHookPresenter(s present.Start) present.Presentation {
 // takes no environment, which is what keeps Names and Default answerable
 // before anything is resolved.
 func fakeContextPresentations() Presentations {
-	return Presents(fakeEngine, SurfaceContext, fakeUnsafeFileName, fakeUnsafeFilePresenter).
-		Or(fakeSystemPromptName, fakeSystemPromptPresenter).
-		Or(fakeHookName, fakeHookPresenter)
+	return Presents(fakeEngine, SurfaceContext, fakeUnsafeFileName, fakeConstruct(fakeUnsafeFilePresenter)).
+		Or(fakeSystemPromptName, fakeConstruct(fakeSystemPromptPresenter)).
+		Or(fakeHookName, fakeConstruct(fakeHookPresenter))
 }
 
 // fakeStart is an advised composition, host-transported (uncontainerized).
@@ -111,15 +144,15 @@ func TestPresentations_DeclaredName_BuildsThatPresentationWithoutFinding(t *test
 		{fakeSystemPromptName, fakeSystemPromptPresenter(fakeStart())},
 		{fakeHookName, fakeHookPresenter(fakeStart())},
 	} {
-		got := d.Resolve(tc.name, fakeStart())
+		got := resolve(t, d, tc.name, fakeStart())
 		if got.HostPath != tc.want.HostPath {
-			t.Errorf("Resolve(%q) host path = %q, want %q", tc.name, got.HostPath, tc.want.HostPath)
+			t.Errorf("Construct(%q).Present host path = %q, want %q", tc.name, got.HostPath, tc.want.HostPath)
 		}
 		if got.EnginePath != tc.want.EnginePath {
-			t.Errorf("Resolve(%q) engine path = %q, want %q", tc.name, got.EnginePath, tc.want.EnginePath)
+			t.Errorf("Construct(%q).Present engine path = %q, want %q", tc.name, got.EnginePath, tc.want.EnginePath)
 		}
 		if strings.Join(got.Args, " ") != strings.Join(tc.want.Args, " ") {
-			t.Errorf("Resolve(%q) args = %v, want %v", tc.name, got.Args, tc.want.Args)
+			t.Errorf("Construct(%q).Present args = %v, want %v", tc.name, got.Args, tc.want.Args)
 		}
 	}
 
@@ -148,14 +181,14 @@ func TestPresentations_Resolve_DeliversEachRootToThePresenterThatBuildsFromIt(t 
 	d := fakeContextPresentations()
 
 	// The PROJECT ROOT reaches the presenter that roots on the project.
-	if got, want := d.Resolve(fakeUnsafeFileName, fakeStart()).HostPath,
+	if got, want := resolve(t, d, fakeUnsafeFileName, fakeStart()).HostPath,
 		filepath.Join(fakeProjectRoot, "FAKE.md"); got != want {
 		t.Errorf("project-rooted host path = %q, want %q", got, want)
 	}
 
 	// The ENGINE HOME reaches the presenter that roots on the relocated home —
 	// NOT the project root, which is the confusion two roots make possible.
-	got := d.Resolve(fakeSystemPromptName, fakeStart())
+	got := resolve(t, d, fakeSystemPromptName, fakeStart())
 	want := filepath.Join(fakeEngineHome, fakeSystemPromptRel)
 	if got.HostPath != want {
 		t.Errorf("relocated-home host path = %q, want %q (EngineHome)", got.HostPath, want)
@@ -180,87 +213,30 @@ func TestPresentations_Resolve_DeliversEachRootToThePresenterThatBuildsFromIt(t 
 	}
 }
 
-// The STRICT arm: an unknown name must REFUSE. Asserted on the gate's own
-// verdict, not on message text.
-func TestPresentations_UnknownName_Strict_RefusesAndFallsBackToDefault(t *testing.T) {
+// An unknown name is NOT constructible, and Construct says so with a plain
+// false rather than a finding or a fallback: the CALLER names the failure
+// (Build errors loudly; a config loader raises its own ClassConfig finding).
+// Nothing is constructed and nothing is recorded — a lookup that silently
+// substituted the default would deliver a presentation the caller did not ask
+// for, which is the substitution this seam exists to refuse.
+func TestPresentations_UnknownName_IsNotConstructible(t *testing.T) {
 	mark := arm(t, false)
 	d := fakeContextPresentations()
+	before := constructed
 
-	got := d.Resolve("no-such-delivery", fakeStart())
+	a, ok := d.Construct("no-such-delivery", SurfaceInputs{}, nil)
 
-	if err := strictness.FindingsError(mark); err == nil {
-		t.Fatal("unknown delivery did not refuse the launch in strict mode; want a fatal finding")
+	if ok {
+		t.Fatal("Construct reported an undeclared name as constructible")
 	}
-
-	found := strictness.Since(mark)
-	if len(found) != 1 {
-		t.Fatalf("recorded %d finding(s), want exactly 1: %+v", len(found), found)
+	if a != nil {
+		t.Errorf("Construct handed back an approach for an undeclared name: %#v", a)
 	}
-	f := found[0]
-
-	// The CLASS decides fatality and degradability. A different class would
-	// route this fault through a different gate.
-	if f.Class != strictness.ClassConfig {
-		t.Errorf("finding class = %q, want %q", f.Class, strictness.ClassConfig)
+	if constructed != before {
+		t.Errorf("an undeclared name ran a constructor (%d → %d): the default was substituted", before, constructed)
 	}
-	// Launching with a different presentation is not itself the harm, so this
-	// fault must stay degradable. FailAlways here would break the promise that
-	// --degraded always reaches a working LLM.
-	if f.NonDegradable {
-		t.Error("finding is NonDegradable; an unknown delivery name must yield to --degraded")
-	}
-	// The remedy is the whole user interface for this failure, and it is
-	// useless unless it names what the user may actually type. Derived from
-	// the declaration so it cannot be satisfied by a stale hardcoded list.
-	if strings.TrimSpace(f.FixIt) == "" {
-		t.Error("finding carries no remedy; the refusal must say how to fix it")
-	}
-	for _, name := range d.Names() {
-		if !strings.Contains(f.FixIt, name) {
-			t.Errorf("remedy %q does not name the known value %q", f.FixIt, name)
-		}
-	}
-
-	assertIsDefault(t, d, got)
-}
-
-// The DEGRADED arm: the same bad input must WARN and let the launch proceed,
-// landing on the engine's declared default.
-func TestPresentations_UnknownName_Degraded_ContinuesOnEngineDefault(t *testing.T) {
-	mark := arm(t, true)
-	d := fakeContextPresentations()
-
-	got := d.Resolve("no-such-delivery", fakeStart())
-
-	// The promise: degraded mode always reaches a working LLM. A refusal here
-	// would break it for every existing user.
-	if err := strictness.FindingsError(mark); err != nil {
-		t.Fatalf("degraded mode refused the launch over an unknown delivery: %v", err)
-	}
-	// Warned, not silent: the finding is still recorded, degraded only
-	// suppresses its fatality.
-	if found := strictness.Since(mark); len(found) != 1 {
-		t.Errorf("degraded mode recorded %d finding(s), want exactly 1: %+v", len(found), found)
-	}
-
-	assertIsDefault(t, d, got)
-}
-
-// assertIsDefault pins WHICH presentation the fallback produced — the default's
-// own bytes, not merely a non-empty result. Derived by invoking the declared
-// default, so it follows the declaration rather than a literal.
-func assertIsDefault(t *testing.T, d Presentations, got present.Presentation) {
-	t.Helper()
-	want := d.Resolve(d.Default(), fakeStart())
-	if got.HostPath != want.HostPath {
-		t.Errorf("fallback host path = %q, want the engine default %q (%q)",
-			got.HostPath, want.HostPath, d.Default())
-	}
-	if got.EnginePath != want.EnginePath {
-		t.Errorf("fallback engine path = %q, want the engine default %q", got.EnginePath, want.EnginePath)
-	}
-	if strings.Join(got.Args, " ") != strings.Join(want.Args, " ") {
-		t.Errorf("fallback args = %v, want the engine default %v", got.Args, want.Args)
+	if found := strictness.Since(mark); len(found) != 0 {
+		t.Errorf("Construct recorded %d finding(s), want 0 — the caller owns the failure: %+v", len(found), found)
 	}
 }
 
@@ -276,16 +252,12 @@ func TestPresentations_Names_AreDerivedFromDeclaredPresenters(t *testing.T) {
 		t.Errorf("Names() = %v, want %v", got, want)
 	}
 
-	// Every declared name must resolve without a finding: that is what makes
+	// Every declared name must construct and present: that is what makes
 	// Names() a promise rather than an advertisement.
-	mark := arm(t, false)
 	for _, name := range got {
-		if p := d.Resolve(name, fakeStart()); p.HostPath == "" {
+		if p := resolve(t, d, name, fakeStart()); p.HostPath == "" {
 			t.Errorf("Names() lists %q but resolving it built nothing", name)
 		}
-	}
-	if found := strictness.Since(mark); len(found) != 0 {
-		t.Errorf("a name from Names() was rejected by Resolve: %+v", found)
 	}
 
 	if d.Default() != fakeUnsafeFileName {
@@ -300,6 +272,7 @@ func TestPresentations_Names_AreDerivedFromDeclaredPresenters(t *testing.T) {
 func TestPresentations_NamesAndDefault_AreAnswerableWithoutAnyEnvironment(t *testing.T) {
 	mark := arm(t, false)
 	d := fakeContextPresentations()
+	before := constructed
 
 	if got := len(d.Names()); got != 3 {
 		t.Errorf("Names() returned %d entries without an environment, want 3", got)
@@ -308,8 +281,11 @@ func TestPresentations_NamesAndDefault_AreAnswerableWithoutAnyEnvironment(t *tes
 		t.Errorf("Default() = %q, want %q", d.Default(), fakeUnsafeFileName)
 	}
 
-	// Enumerating is not resolving: it must not construct anything, and so must
-	// not be able to record a fault.
+	// Enumerating is not constructing: it must not construct anything, and so
+	// must not be able to record a fault.
+	if constructed != before {
+		t.Errorf("enumerating ran %d constructor(s); Names/Default must read the declaration only", constructed-before)
+	}
 	if found := strictness.Since(mark); len(found) != 0 {
 		t.Errorf("enumerating recorded %d finding(s), want 0: %+v", len(found), found)
 	}
@@ -319,8 +295,8 @@ func TestPresentations_NamesAndDefault_AreAnswerableWithoutAnyEnvironment(t *tes
 // once and read by whatever launches; an alias that could gain deliveries
 // would let one engine's declaration alter another's.
 func TestPresentations_Or_DoesNotMutateTheReceiver(t *testing.T) {
-	base := Presents(fakeEngine, SurfaceContext, fakeUnsafeFileName, fakeUnsafeFilePresenter)
-	extended := base.Or(fakeHookName, fakeHookPresenter)
+	base := Presents(fakeEngine, SurfaceContext, fakeUnsafeFileName, fakeConstruct(fakeUnsafeFilePresenter))
+	extended := base.Or(fakeHookName, fakeConstruct(fakeHookPresenter))
 
 	if got := base.Names(); len(got) != 1 {
 		t.Errorf("Or mutated the receiver: base Names() = %v, want just %q", got, fakeUnsafeFileName)

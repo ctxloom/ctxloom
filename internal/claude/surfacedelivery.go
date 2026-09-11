@@ -16,12 +16,12 @@ import (
 // Cleanup reverts exactly what that call wrote — ctxloom-owned entries removed,
 // user-authored entries preserved on the marker-merged surfaces.
 //
-// It implements agent.MCPDelivery, agent.CommandsDelivery, and
-// agent.SettingsDelivery; per the delivery-seam design the Delivered handles it
+// It is the writer behind claude's MCP, commands and settings approaches;
+// per the delivery-seam design the Delivered handles it
 // returns stay Cleanup-only. Additive only: wiring into Setup/buildArgs is a
 // later slice.
 type fileTemplateDelivery struct {
-	place agent.Placement
+	place placement
 	fs    afero.Fs
 	// selfContainedCommands, when true, makes DeliverCommands skip the
 	// GlobalCommandsDir()/WithHomeCommandsDir dedup so every command lands in
@@ -42,7 +42,7 @@ type fileTemplateDelivery struct {
 	// settingsSurface.Deliver/DeliverIsolated set this (from
 	// SurfaceInputs.DenyTools) — irrelevant to DeliverMCP/DeliverCommands and
 	// left nil everywhere else. Kept as a receiver field (not a
-	// DeliverSettings parameter) so agent.SettingsDelivery's signature stays
+	// DeliverSettings parameter) so DeliverSettings's signature stays
 	// untouched — the same technique mcpCommandOverride uses for DeliverMCP.
 	denyTools []string
 }
@@ -50,7 +50,7 @@ type fileTemplateDelivery struct {
 // newFileTemplateDelivery constructs the file-template strategy writing into
 // place. A nil fs defaults to the OS filesystem (agent.GetFS), matching claude's
 // settings/context writers so delivery and cleanup share one fs mechanism.
-func newFileTemplateDelivery(place agent.Placement, fs afero.Fs) *fileTemplateDelivery {
+func newFileTemplateDelivery(place placement, fs afero.Fs) *fileTemplateDelivery {
 	return &fileTemplateDelivery{place: place, fs: agent.GetFS(fs)}
 }
 
@@ -133,9 +133,3 @@ func (d *fileTemplateDelivery) DeliverSettings(hooks *wire.HooksConfig, manageSt
 	}
 	return agent.DeliveredFunc(func() error { return w.removeSettingsFile(dir) }), nil
 }
-
-var (
-	_ agent.MCPDelivery      = (*fileTemplateDelivery)(nil)
-	_ agent.CommandsDelivery = (*fileTemplateDelivery)(nil)
-	_ agent.SettingsDelivery = (*fileTemplateDelivery)(nil)
-)

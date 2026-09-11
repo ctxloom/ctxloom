@@ -13,16 +13,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// TestBuildSurfaces_OptOutBackends pins the name→SurfaceSet seam's opt-out: a
-// name no descriptor claims returns an EmptySurfaceSet rather than failing, so
-// a caller (materialize) can iterate Deliveries() unconditionally and simply
-// deliver nothing. mock is NOT one of these — it registers a real (context +
-// skills) SurfaceSet so hermetic delivery tests have somewhere to look.
-func TestBuildSurfaces_OptOutBackends(t *testing.T) {
+// TestDeclared_OptOutBackends pins the name→Declaration seam's opt-out: a
+// name no descriptor claims returns an empty Declaration rather than failing,
+// so a caller (materialize) can iterate Deliveries() unconditionally and
+// simply deliver nothing. mock is NOT one of these — it registers a real
+// Declaration so hermetic delivery tests have somewhere to look.
+func TestDeclared_OptOutBackends(t *testing.T) {
 	for _, name := range []string{"does-not-exist"} {
 		t.Run(name, func(t *testing.T) {
-			set := BuildSurfaces(name, agent.SurfaceInputs{}, afero.NewMemMapFs())
-			resolved, err := agent.Select(set).WithEverything().Build()
+			resolved, err := agent.Select(Declared(name)).WithEverything().Build(agent.SurfaceInputs{}, afero.NewMemMapFs())
 			require.NoError(t, err)
 			assert.Empty(t, resolved.Deliveries(), "opt-out backend materializes no surfaces")
 		})
@@ -36,18 +35,17 @@ func TestBuildSurfaces_OptOutBackends(t *testing.T) {
 // gaps other fixtures quietly came to depend on). The payload assertions below
 // matter more than the count: a delivered file that exists empty is the silent
 // no-op this backend exists to catch in others.
-func TestBuildSurfaces_Mock(t *testing.T) {
+func TestDeclared_Mock(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	set := BuildSurfaces("mock", agent.SurfaceInputs{
+	resolved, err := agent.Select(Declared("mock")).WithEverything().Build(agent.SurfaceInputs{
 		Context: "MOCK-CONTEXT-PAYLOAD",
 		Skills: []agent.SkillExport{{Name: "reviewer", Enabled: true, Files: []agent.PackageFile{
 			{RelPath: "SKILL.md", Content: []byte("MOCK-SKILL-PAYLOAD")},
 		}}},
 	}, fs)
-	resolved, err := agent.Select(set).WithEverything().Build()
 	require.NoError(t, err)
 	assert.Len(t, resolved.Deliveries(), 5, "mock is a complete engine and carries every surface")
 
@@ -67,9 +65,8 @@ func TestBuildSurfaces_Mock(t *testing.T) {
 
 // TestBuildSurfaces_Claude proves the claude descriptor closure routes through
 // claude.NewSurfaces: a full set of native surfaces is returned.
-func TestBuildSurfaces_Claude(t *testing.T) {
-	set := BuildSurfaces("claude-code", agent.SurfaceInputs{Context: "hello"}, afero.NewMemMapFs())
-	resolved, err := agent.Select(set).WithEverything().Build()
+func TestDeclared_Claude(t *testing.T) {
+	resolved, err := agent.Select(Declared("claude-code")).WithEverything().Build(agent.SurfaceInputs{Context: "hello"}, afero.NewMemMapFs())
 	require.NoError(t, err)
 	assert.Len(t, resolved.Deliveries(), 5, "claude has context + MCP + settings + commands + skills surfaces")
 }
@@ -84,17 +81,16 @@ func TestBuildSurfaces_Claude(t *testing.T) {
 // that some other engine's file is absent is satisfied for free by a backend
 // that delivered nothing at all, so the absence half only means something once
 // the delivery is known to have happened.
-func TestBuildSurfaces_WritesOnlyItsOwnNativeContextFile(t *testing.T) {
+func TestDeclared_WritesOnlyItsOwnNativeContextFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	set := BuildSurfaces("mock", agent.SurfaceInputs{
+	_, _, errs := agent.Select(Declared("mock")).WithEverything().DeliverUnder(agent.SurfaceInputs{
 		Context:   "assembled context",
 		Hooks:     &wire.HooksConfig{},
 		BundleMCP: map[string]wire.MCPServer{},
-	}, fs)
-	_, _, errs := agent.Select(set).WithEverything().DeliverUnder(present.ProjectOnHost(dir))
+	}, fs, present.ProjectOnHost(dir))
 	require.Empty(t, errs, "mock surfaces deliver cleanly")
 
 	own, err := afero.ReadFile(fs, filepath.Join(dir, "MOCK_CONTEXT.md"))

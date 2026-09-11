@@ -91,8 +91,7 @@ func buildMockEngineImage(t *testing.T) string {
 // present:false rows are the point.
 func materializeClaudeContext(t *testing.T, workspace, context string) string {
 	t.Helper()
-	set := backends.BuildSurfaces("claude-code", agent.SurfaceInputs{Context: context}, nil)
-	resolved, err := agent.Select(set).WithEverything().Build()
+	resolved, err := agent.Select(backends.Declared("claude-code")).WithEverything().Build(agent.SurfaceInputs{Context: context}, nil)
 	if err != nil {
 		t.Fatalf("resolve surfaces: %v", err)
 	}

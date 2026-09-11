@@ -34,32 +34,32 @@ func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 	)
 	roots := runRoots(wellKnownDir, isolatedDir)
 
-	newSurfaces := func(t *testing.T, fs afero.Fs) Surfaces {
+	build := func(t *testing.T, fs afero.Fs) builtSurfaces {
 		t.Helper()
 		in := sampleInputs()
 		in.MCPCommandOverride = "/usr/local/bin/ctxloom"
-		return NewSurfaces(in, fs)
+		return newSurfaces(in, fs)
 	}
 
 	cases := []struct {
 		name     string
-		deliver  func(Surfaces) (agent.Delivered, error)
-		isolated func(Surfaces) (agent.Delivered, error)
-		path     func(Surfaces) string
+		deliver  func(builtSurfaces) (agent.Delivered, error)
+		isolated func(builtSurfaces) (agent.Delivered, error)
+		path     func(builtSurfaces) string
 		relPath  string
 	}{
 		{
 			name:     "mcp",
-			deliver:  func(s Surfaces) (agent.Delivered, error) { return s.MCP.Deliver(roots) },
-			isolated: func(s Surfaces) (agent.Delivered, error) { return s.MCP.DeliverIsolated(roots) },
-			path:     func(s Surfaces) string { return s.MCP.Path() },
+			deliver:  func(s builtSurfaces) (agent.Delivered, error) { return s.MCP.Deliver(roots) },
+			isolated: func(s builtSurfaces) (agent.Delivered, error) { return s.MCP.DeliverIsolated(roots) },
+			path:     func(s builtSurfaces) string { return s.MCP.Path() },
 			relPath:  ".mcp.json",
 		},
 		{
 			name:     "settings",
-			deliver:  func(s Surfaces) (agent.Delivered, error) { return s.Settings.Deliver(roots) },
-			isolated: func(s Surfaces) (agent.Delivered, error) { return s.Settings.DeliverIsolated(roots) },
-			path:     func(s Surfaces) string { return s.Settings.Path() },
+			deliver:  func(s builtSurfaces) (agent.Delivered, error) { return s.Settings.Deliver(roots) },
+			isolated: func(s builtSurfaces) (agent.Delivered, error) { return s.Settings.DeliverIsolated(roots) },
+			path:     func(s builtSurfaces) string { return s.Settings.Path() },
 			relPath:  filepath.Join(".claude", "settings.json"),
 		},
 	}
@@ -67,7 +67,7 @@ func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
-			s := newSurfaces(t, fs)
+			s := build(t, fs)
 
 			assert.Empty(t, tc.path(s), "Path() must be empty before any delivery")
 

@@ -58,10 +58,9 @@ func currencyFor(surfaces []SurfaceCurrency, backend string) (SurfaceCurrency, b
 // side, not against a hand-rolled imitation of it.
 func deliverNativeContext(t *testing.T, backend, dir, contextText string) {
 	t.Helper()
-	set := backends.BuildSurfaces(backend, agent.SurfaceInputs{Context: contextText}, afero.NewOsFs())
-	delivery, err := set.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
-	require.NoError(t, err, "%s must offer a native-file context route", backend)
-	_, err = delivery.Deliver(present.ProjectOnHost(dir))
+	delivery, ok := backends.Declared(backend).Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, agent.SurfaceInputs{Context: contextText}, afero.NewOsFs())
+	require.True(t, ok, "%s must offer a native-file context route", backend)
+	_, err := delivery.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 }
 

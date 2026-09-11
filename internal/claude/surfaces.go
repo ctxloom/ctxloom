@@ -1,8 +1,7 @@
 package claude
 
 import (
-	"fmt"
-	"slices"
+	"sort"
 
 	"github.com/spf13/afero"
 
@@ -11,24 +10,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// This file lands claude's package on the unified surface-delivery seam
-// (internal/shared/agent/cells.go): each of claude's surfaces as an object that
-// implements agent.Delivery (the engine's well-known write) and, for context/MCP/
-// settings, ALSO an isolated per-run DeliverIsolated an out-of-cwd launch flag
-// consumes. Every surface object WRAPS an existing claude writer verbatim —
-// appendFlagDelivery (contextdelivery.go), fileTemplateDelivery
-// (surfacedelivery.go), and the ContextWriter core WriteContext (claude.go). The
-// approach-dispatch methods below (SupportedApproaches / DefaultApproach /
-// SurfaceFor / SharedRealization) are the per-provider table the
-// SurfaceSelection builder resolves a caller's named approach through; buildArgs
-// (claudecode.go) reads each out-of-cwd file's Path() after a SHARED-cwd delivery
-// converted via SharedRealization.
+// This file is claude's DECLARATION on the unified surface-delivery seam
+// (internal/shared/agent/cells.go, declaration.go): each approach claude
+// supports as a value implementing agent.Approach, and Surfaces — the one
+// place claude's surface membership is stated. Every approach WRAPS an
+// existing claude writer verbatim — appendFlagDelivery (contextdelivery.go),
+// fileTemplateDelivery (surfacedelivery.go), and the ContextWriter core
+// WriteContext (claude.go). Context/MCP/settings ALSO carry an out-of-cwd
+// form (agent.OutOfCwd) an engine launch flag consumes; buildArgs
+// (claudecode.go) reads each such file's Path() after a SHARED-cwd delivery
+// ran that form.
 //
-// Capability recap (VERIFIED — delivery-factory-unification.plan.md, S1 spec):
+// Capability recap:
 //
-//	surface   | Delivery (well-known)     | also an out-of-cwd flag realization?
+//	surface   | Delivery (well-known)     | also an out-of-cwd flag form?
 //	----------|---------------------------|-----------------------------------------
-//	context   | CLAUDE.md                 | ✅ --append-system-prompt-file <file>
+//	context   | CLAUDE.md                 | ✅ --append-system-prompt-file <file> (the system-prompt approach)
 //	MCP       | .mcp.json                 | ✅ --mcp-config <file> (--strict-mcp-config = replace)
 //	settings  | .claude/settings.json     | ✅ --settings <file> (carries hooks)
 //	commands  | .claude/commands/         | ❌ no out-of-cwd flag → loud native write when shared
@@ -37,99 +34,107 @@ import (
 // claude folds "settings + hooks" into ONE surface because claude's hooks live
 // inside .claude/settings.json — there is no separate hooks file to deliver.
 
-// dirPlacement is a trivial agent.Placement whose Dir() returns a fixed
-// directory. It adapts a root read from the advised Start into the Placement
-// the reused writers (fileTemplateDelivery, appendFlagDelivery) construct
-// against — the project root for the well-known Delivery, the Scratch root
-// for the race-safe variants; both arrive at call time, never at construction.
+// ApproachSystemPrompt names claude's out-of-cwd framed context consumed via
+// --append-system-prompt-file — semantically distinct from the native file
+// (the content enters the system prompt, not project memory). It is claude's
+// own name, declared here and nowhere shared: no other engine has it.
+const ApproachSystemPrompt = "system-prompt"
+
+// placement is where a file-writing strategy writes: the reused writers
+// (fileTemplateDelivery, appendFlagDelivery) hold one, injected at
+// construction, never passed as a method parameter.
+type placement interface {
+	// Dir returns the directory the strategy writes into.
+	Dir() string
+}
+
+// dirPlacement is a trivial placement whose Dir() returns a fixed directory.
+// It adapts a root read from the advised Start into the placement the reused
+// writers construct against — the project root for the well-known Delivery,
+// the Scratch root for the out-of-cwd forms; both arrive at call time, never
+// at construction.
 type dirPlacement struct{ dir string }
 
 // Dir returns the fixed directory this placement wraps.
 func (p dirPlacement) Dir() string { return p.dir }
 
-// contextSurface is claude's context surface.
+// claudeContextWriter is the ContextWriter the native-file context approach
+// merges through — the same core WriteContext (claude.go) every CLAUDE.md
+// write uses.
+func claudeContextWriter(fs afero.Fs) agent.ContextWriter { return &ClaudeCodeHookWriter{FS: fs} }
+
+// systemPromptContext is claude's system-prompt context approach.
 //
-// Delivery (well-known) writes CLAUDE.md into the target dir via claude's
-// ContextWriter core (ClaudeCodeHookWriter.WriteContext) — the whole-file static
-// surface an externally-launched session reads directly. Its cleanup removes that
-// file, the honest reversal of a whole-file write.
+// Its out-of-cwd form (DeliverIsolated) writes the framed <hash>.sysprompt.md
+// beneath the advised Scratch root via the existing appendFlagDelivery and
+// exposes its path (Path) for --append-system-prompt-file; a SHARED-cwd
+// launch runs that form, race-free. It is LaunchOnly: at rest there is no
+// argv sink for the flag, so DeliverUnder refuses it.
 //
-// DeliverIsolated writes the framed <hash>.sysprompt.md beneath the advised
-// Scratch root via the existing appendFlagDelivery and exposes its path (Path)
-// for claude's --append-system-prompt-file. Because that file lands outside
-// the shared cwd, SharedRealization uses it for a race-free SHARED-cwd
-// delivery.
-type contextSurface struct {
-	context string
+// Its well-known Deliver writes CLAUDE.md — the SAME write the native-file
+// approach performs. That is what an ISOLATED launch cell runs for it, and it
+// is preserved exactly as it was: whether a system-prompt pin on a worktree or
+// container launch should instead land the scratch file there (the cell's
+// Scratch root is the private working dir itself) is an open question that
+// was deliberately NOT decided in the refactor that made this its own type.
+type systemPromptContext struct {
+	content string
 	fs      afero.Fs
 	path    string // set by DeliverIsolated: the out-of-cwd framed context file
 }
 
-// newContextSurface builds the context surface; fs must already be resolved.
-func newContextSurface(context string, fs afero.Fs) *contextSurface {
-	return &contextSurface{context: context, fs: fs}
+// LaunchOnly marks the approach as refused at rest.
+func (*systemPromptContext) LaunchOnly() {}
+
+// Present declares the out-of-cwd form's flag. It roots at the Scratch dir
+// ITSELF rather than at a filename, and that is a statement about what is
+// knowable: appendFlagDelivery names the file <hash>.sysprompt.md where <hash>
+// is a sha256 prefix over the FRAMED BYTES, so the leaf is paired from Path()
+// after the write. What this presentation contributes is the FLAG, which
+// flagArgs reads.
+func (s *systemPromptContext) Present(start present.Start) present.Presentation {
+	return start.UnderScratch("").AnnounceFlag(flagAppendSystemFile).Build()
 }
 
-// Deliver merges context into CLAUDE.md via the ContextWriter core and returns
-// a handle whose Cleanup strips the managed section (removing the file when
-// nothing user-authored remains) by writing empty context — the honest
-// reversal of a MARKER-MERGED write. (Before markers landed, this used
-// fs.Remove to reverse a whole-file write; a plain removal would now delete
-// hand-authored content that lived outside the markers.) This is the shared
-// agent.DeliverManagedContext shape, the same one
-// codex's AGENTS.md context surface uses.
-func (s *contextSurface) Deliver(start present.Start) (agent.Delivered, error) {
-	return agent.DeliverManagedContext(&ClaudeCodeHookWriter{FS: s.fs}, start.Paths().ProjectRoot.Host, s.context)
+// Deliver is the well-known CLAUDE.md write (see the type doc for why).
+func (s *systemPromptContext) Deliver(start present.Start) (agent.Delivered, error) {
+	return agent.DeliverManagedContext(claudeContextWriter(s.fs), start.Paths().ProjectRoot.Host, s.content)
 }
 
 // DeliverIsolated writes the framed context file through the reused
 // appendFlagDelivery beneath the advised Scratch root; Path then exposes it.
 // A FAILED write leaves Path "" (the writer's own contract), for the same
 // reason mcpSurface's does: no flag may name a file that was not written.
-func (s *contextSurface) DeliverIsolated(start present.Start) (agent.Delivered, error) {
+func (s *systemPromptContext) DeliverIsolated(start present.Start) (agent.Delivered, error) {
 	d := newAppendFlagDelivery(dirPlacement{dir: start.Paths().Scratch.Host}, s.fs)
-	handle, err := d.DeliverContext(s.context)
+	handle, err := d.DeliverContext(s.content)
 	s.path = d.Path()
 	return handle, err
-}
-
-// State implements agent.StateReader: it reports what CLAUDE.md currently
-// carries in its managed section, via the shared read-side helper
-// (agent.ReadManagedContext) — the same core WriteContext's write side
-// merges through (ClaudeCodeHookWriter.WriteContext), so the read and write
-// paths cannot disagree about where the managed section lives or how it is
-// framed. An absent file or an absent managed section reports
-// FileDeliveryState with Found/HasSection false; Currency then turns that
-// into the missing verdict. This is claude's half of the engine-delivery
-// seam's read side (docs/design/engine-delivery-seam.design.md step 3),
-// mirroring the mock backend's mockContextSurface.State.
-func (s *contextSurface) State(dir string) (agent.DeliveryState, error) {
-	fs := agent.GetFS(s.fs)
-	w := &ClaudeCodeHookWriter{FS: fs}
-	state, err := agent.ReadManagedContext(fs, w.ContextPath(dir), ContextFileName)
-	if err != nil {
-		return nil, err
-	}
-	return state, nil
 }
 
 // Path returns the framed <hash>.sysprompt.md written by DeliverIsolated (for
 // --append-system-prompt-file), or "" whenever no file stands behind it: before
 // delivery, for empty context, and after a FAILED delivery.
-func (s *contextSurface) Path() string { return s.path }
+func (s *systemPromptContext) Path() string { return s.path }
 
-// mcpSurface is claude's MCP surface.
+// mcpSurface is claude's MCP approach.
 //
-// Delivery (well-known) writes .mcp.json into the target dir via the reused
+// Deliver (well-known) writes .mcp.json into the project root via the reused
 // fileTemplateDelivery.DeliverMCP. DeliverIsolated writes the same merged
-// .mcp.json into the out-of-cwd placement and exposes its path (Path) for
-// --mcp-config <file> (paired with --strict-mcp-config, which replaces the
-// project .mcp.json rather than merging — a buildArgs concern).
+// .mcp.json beneath Scratch and exposes its path (Path) for --mcp-config
+// <file> (paired with --strict-mcp-config, which replaces the project
+// .mcp.json rather than merging — a buildArgs concern).
 type mcpSurface struct {
 	bundle          map[string]wire.MCPServer
 	fs              afero.Fs
 	path            string // set by DeliverIsolated: the out-of-cwd .mcp.json
 	commandOverride string // see SurfaceInputs.MCPCommandOverride
+}
+
+// Present declares .mcp.json plus the --mcp-config flag its out-of-cwd form
+// is announced with.
+func (s *mcpSurface) Present(start present.Start) present.Presentation {
+	return start.UnderProjectRoot(MCPFileName).AnnounceFlag(flagMCPConfig).Build()
 }
 
 // deliver is the ONE .mcp.json recipe both entry points run: build the reused
@@ -156,16 +161,15 @@ func (s *mcpSurface) Deliver(start present.Start) (agent.Delivered, error) {
 // Path() promises "" for a file that does not exist, and flagArgs must never
 // hand claude --mcp-config naming one.
 func (s *mcpSurface) DeliverIsolated(start present.Start) (agent.Delivered, error) {
-	scratch := start.Paths().Scratch.Host
-	handle, err := s.deliver(scratch)
+	handle, err := s.deliver(start.Paths().Scratch.Host)
 	if err != nil {
 		s.path = ""
 		return nil, err
 	}
-	// The recorded path comes from the DECLARED presentation, not from a second
-	// hand-written join: mcpSurface's declaration is what --mcp-config is
-	// pointed at, so a wrong rel path in it cannot pass unnoticed.
-	s.path = claudePresentation(agent.SurfaceMCP, agent.ApproachUnsafeFile, rootedAtScratch(start)).HostPath
+	// The recorded path comes from the DECLARED leaf, not from a second
+	// hand-written join: it is what --mcp-config is pointed at, so a wrong rel
+	// path cannot pass unnoticed.
+	s.path = start.UnderScratch(MCPFileName).Build().HostPath
 	return handle, nil
 }
 
@@ -173,13 +177,13 @@ func (s *mcpSurface) DeliverIsolated(start present.Start) (agent.Delivered, erro
 // --mcp-config <file>), or "" before delivery and after a FAILED one.
 func (s *mcpSurface) Path() string { return s.path }
 
-// settingsSurface is claude's settings surface (hooks + statusline; claude keeps
-// them in a single .claude/settings.json).
+// settingsSurface is claude's settings approach (hooks + statusline; claude
+// keeps them in a single .claude/settings.json).
 //
-// Delivery (well-known) writes .claude/settings.json into the target dir via the
-// reused fileTemplateDelivery.DeliverSettings. DeliverIsolated writes the same
-// settings JSON (including hooks) into the out-of-cwd placement and exposes its
-// path (Path) for --settings <file>.
+// Deliver (well-known) writes .claude/settings.json into the project root via
+// the reused fileTemplateDelivery.DeliverSettings. DeliverIsolated writes the
+// same settings JSON beneath Scratch and exposes its path (Path) for
+// --settings <file>.
 type settingsSurface struct {
 	hooks            *wire.HooksConfig
 	manageStatusline bool
@@ -187,11 +191,16 @@ type settingsSurface struct {
 	// per-tool identifiers (e.g. "Task") this run's settings.json denies via
 	// permissions.deny. Threaded to fileTemplateDelivery as a RECEIVER field
 	// (below), mirroring mcpSurface.commandOverride, so DeliverSettings's
-	// signature stays exactly agent.SettingsDelivery — no cross-module
-	// interface change for an engine-specific extra.
+	// signature stays unchanged for an engine-specific extra.
 	denyTools []string
 	fs        afero.Fs
 	path      string // set by DeliverIsolated: the out-of-cwd settings.json
+}
+
+// Present declares .claude/settings.json (hooks + statusline) plus the
+// --settings flag its out-of-cwd form is announced with.
+func (s *settingsSurface) Present(start present.Start) present.Presentation {
+	return start.UnderProjectRoot(relSettings).AnnounceFlag(flagSettings).Build()
 }
 
 // deliver is the ONE .claude/settings.json recipe both entry points run (see
@@ -221,7 +230,7 @@ func (s *settingsSurface) DeliverIsolated(start present.Start) (agent.Delivered,
 		return nil, err
 	}
 	// Declared, not re-joined — see mcpSurface.DeliverIsolated.
-	s.path = claudePresentation(agent.SurfaceSettings, agent.ApproachUnsafeFile, rootedAtScratch(start)).HostPath
+	s.path = start.UnderScratch(relSettings).Build().HostPath
 	return handle, nil
 }
 
@@ -229,18 +238,24 @@ func (s *settingsSurface) DeliverIsolated(start present.Start) (agent.Delivered,
 // --settings <file>), or "" before delivery and after a FAILED one.
 func (s *settingsSurface) Path() string { return s.path }
 
-// commandsSurface is claude's commands surface: the slash-command exports under
-// .claude/commands/. claude has no out-of-cwd flag for slash-commands and no
-// SharedRealization (see Surfaces.SharedRealization below), so a SHARED-cwd
-// delivery of it falls back to the loud well-known write; first preference is
-// always an isolated cell. It self-describes via UnsafeInfo for that fallback's
-// warning. (Unlike the other engines, claude's commands ride
-// fileTemplateDelivery.DeliverCommands, which owns its own cleanup, so they are
-// NOT the shared agent.ManagedCommandsDelivery.)
+// commandsSurface is claude's commands approach: the slash-command exports
+// under .claude/commands/. claude has no out-of-cwd flag for slash-commands
+// (no OutOfCwd form), so a SHARED-cwd delivery of it falls back to the loud
+// well-known write; first preference is always an isolated cell. It
+// self-describes via UnsafeInfo for that fallback's warning. (Unlike the
+// mock, claude's commands ride fileTemplateDelivery.DeliverCommands, which
+// owns its own cleanup, so they are NOT the shared
+// agent.ManagedCommandsDelivery.)
 type commandsSurface struct {
 	commands              []agent.CommandExport
 	fs                    afero.Fs
 	selfContainedCommands bool // mirrors SurfaceInputs.SelfContainedCommands; see DeliverCommands
+}
+
+// Present declares .claude/commands/. No flag: claude has no out-of-cwd
+// redirect for slash commands.
+func (s *commandsSurface) Present(start present.Start) present.Presentation {
+	return start.UnderProjectRoot(relCommands).Build()
 }
 
 // Deliver writes .claude/commands/ beneath the advised project root via the
@@ -259,324 +274,130 @@ func (s *commandsSurface) Deliver(start present.Start) (agent.Delivered, error) 
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *commandsSurface) UnsafeInfo() string { return "claude/commands" }
 
-// newSkillsSurface builds claude's skills surface: an
-// agent.ManagedSkillPackagesDelivery bound to WriteSkillFiles (skillfiles.go),
-// exactly as commandsSurface wraps WriteCommandFiles — the shared delivery
-// type is reusable here (unlike commands) because claude's skill writer needs
-// no home-dir dedup or DeliverIsolated variant: no engine has an out-of-cwd
-// flag for a skill package, matching commands' own "no SharedRealization"
-// (see Surfaces.SharedRealization below). SurfaceInputs no longer carries a
-// SelfContainedSkills knob (it was deleted): it was threaded in from
-// three call sites and read by nothing here — claude's WriteSkillFiles has no
-// dedup to opt out of, so there was nothing for it to control.
-func newSkillsSurface(skills []agent.SkillExport, fs afero.Fs) *agent.ManagedSkillPackagesDelivery {
-	return agent.NewManagedSkillPackagesDelivery("claude/skills", skills, func(dir string, skills []agent.SkillExport) error {
+// newSkillsSurface builds claude's skills approach: an
+// agent.ManagedSkillPackagesDelivery bound to WriteSkillFiles (skillfiles.go).
+// The shared delivery type is reusable here (unlike commands) because claude's
+// skill writer needs no home-dir dedup and no out-of-cwd form: no engine has
+// an out-of-cwd flag for a skill package.
+func newSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+	fs = agent.GetFS(fs)
+	return agent.NewManagedSkillPackagesDelivery("claude/skills", relSkills, in.Skills, func(dir string, skills []agent.SkillExport) error {
 		return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs))
 	})
 }
 
-// Surfaces is claude's set of delivery surfaces for one run, exposed so the
-// SurfaceSelection builder can resolve each selected (kind, approach) to a
-// surface and hand it to a cell. claude has five surface objects — context,
-// MCP, settings (which carries hooks), commands, and skills.
-type Surfaces struct {
-	Context  *contextSurface
-	MCP      *mcpSurface
-	Settings *settingsSurface
-	Commands *commandsSurface
-	Skills   *agent.ManagedSkillPackagesDelivery
-
-	// dispatch is the per-kind lookup SurfaceFor resolves against, built once
-	// here (not reallocated per SurfaceFor call) since it never changes after
-	// construction.
-	dispatch map[agent.SurfaceKind]agent.Delivery
-}
-
-// NewSurfaces builds claude's surfaces from a run's inputs; a nil fs defaults
-// to the OS filesystem. Construction is ROOT-FREE: every write, well-known and
-// race-safe alike, receives the run's advised roots when it runs, so nothing
-// here binds a directory.
+// Surfaces is claude's DECLARATION: per surface, every approach it can
+// construct and which is the default — the ONE place claude's surface
+// membership is stated. Construction is ROOT-FREE: every write, well-known
+// and out-of-cwd alike, receives the run's advised roots when it runs, so
+// nothing here binds a directory.
 //
-// It takes the SHARED agent.SurfaceInputs, exactly as kiro/opencode
-// do. A local copy of it (agent.SurfaceInputs minus Fragments) would force two
-// hand-maintained field-by-field mappers — claudecode.go's buildSurfaces and
-// lm/backends/registry.go's newSurfaces closure — and those drift: one copied
-// ten of the eleven fields and silently dropped MCPCommandOverride. Reading the
-// shared struct directly makes that class of drop impossible; claude simply
-// ignores the fields it has no use for (Fragments, AgentName).
-func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
-	fs = agent.GetFS(fs)
-	context := newContextSurface(in.Context, fs)
-	mcp := &mcpSurface{bundle: in.BundleMCP, fs: fs, commandOverride: in.MCPCommandOverride}
-	settings := &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: fs}
-	commands := &commandsSurface{commands: in.Commands, fs: fs, selfContainedCommands: in.SelfContainedCommands}
-	skills := newSkillsSurface(in.Skills, fs)
-	return Surfaces{
-		Context:  context,
-		MCP:      mcp,
-		Settings: settings,
-		Commands: commands,
-		Skills:   skills,
-		dispatch: map[agent.SurfaceKind]agent.Delivery{
-			agent.SurfaceContext:  context,
-			agent.SurfaceMCP:      mcp,
-			agent.SurfaceSettings: settings,
-			agent.SurfaceCommands: commands,
-			agent.SurfaceSkills:   skills,
-		},
-	}
-}
-
-// noopContextDelivery is claude's Hook-approach context delivery: a
-// documented no-op. claude's apply-context rides the settings-carried
-// SessionStart inject hook + the regenerated cache file, so there is nothing
-// extra to write — writing CLAUDE.md too would DOUBLE the context.
-type noopContextDelivery struct{}
-
-// Deliver writes nothing and returns a nil handle: the caller's nil-handle-skip
-// convention (see contextSurface.Kind's siblings) treats this exactly like any
-// other no-op delivery.
-func (noopContextDelivery) Deliver(present.Start) (agent.Delivered, error) { return nil, nil }
-
-// rootedAtScratch re-roots the advised Start so that its PROJECT root is the
-// run's Scratch root.
-//
-// Every claude presenter roots UnderProjectRoot, and that is what lets ONE
-// declaration serve both deliveries of a surface: the well-known write
-// resolves it against the run's Start as advised, while the out-of-cwd
-// realization resolves the SAME declaration against this re-rooted view. The
-// isolated case is therefore a different ROOT, not a second set of presenters
-// — which is why SharedRealization below needs no declarations of its own.
-//
-// It goes back through present.OnHost, which sets Engine equal to Host, and
-// that is faithful ONLY because Setup runs in the engine's own filesystem
-// namespace (a container cell runs it inside the container), so the advised
-// Scratch already has Engine equal to Host. The day a Scratch root is advised
-// with a different Engine side, this re-root would lose it — the presenters
-// then need an UnderScratch arm of their own, not this helper.
-func rootedAtScratch(start present.Start) present.Start {
-	return present.ProjectOnHost(start.Paths().Scratch.Host)
-}
-
-// claudeContextFilePresenter declares the native CLAUDE.md the engine reads
-// directly. No flag: an engine started in this dir finds it by name.
-func claudeContextFilePresenter(s present.Start) present.Presentation {
-	return s.UnderProjectRoot(ContextFileName).Build()
-}
-
-// claudeContextSystemPromptPresenter declares the out-of-cwd framed context
-// consumed via --append-system-prompt-file.
-//
-// It roots at the placement dir ITSELF rather than at a filename, and that is
-// a statement about what is knowable: appendFlagDelivery names the file
-// <hash>.sysprompt.md where <hash> is a sha256 prefix over the FRAMED BYTES,
-// so the leaf cannot be declared ahead of the content. What this presentation
-// contributes is therefore the FLAG, which flagArgs reads; the path it is
-// paired with comes from contextSurface.Path() after the write. Declaring a
-// fixed leaf here would be a lie that nothing would catch.
-func claudeContextSystemPromptPresenter(s present.Start) present.Presentation {
-	return s.UnderProjectRoot("").AnnounceFlag(flagAppendSystemFile).Build()
-}
-
-// claudeContextHookPresenter declares the hook-carried context arm: the bytes
-// ride the SessionStart inject hook inside .claude/settings.json, so this
-// presentation names that settings file and announces no flag of its own.
-// Its Delivery is a documented no-op (see SurfaceFor).
-func claudeContextHookPresenter(s present.Start) present.Presentation {
-	return s.UnderProjectRoot(relSettings).Build()
-}
-
-// claudeMCPPresenter declares .mcp.json plus the --mcp-config flag its
-// out-of-cwd realization is announced with.
-func claudeMCPPresenter(s present.Start) present.Presentation {
-	return s.UnderProjectRoot(MCPFileName).AnnounceFlag(flagMCPConfig).Build()
-}
-
-// claudeSettingsPresenter declares .claude/settings.json (hooks + statusline)
-// plus the --settings flag its out-of-cwd realization is announced with.
-func claudeSettingsPresenter(s present.Start) present.Presentation {
-	return s.UnderProjectRoot(relSettings).AnnounceFlag(flagSettings).Build()
-}
-
-// claudeCommandsPresenter declares .claude/commands/. No flag: claude has no
-// out-of-cwd redirect for slash commands.
-func claudeCommandsPresenter(s present.Start) present.Presentation {
-	return s.UnderProjectRoot(relCommands).Build()
-}
-
-// claudeSkillsPresenter declares .claude/skills/. No flag, for the same reason
-// commands has none.
-func claudeSkillsPresenter(s present.Start) present.Presentation {
-	return s.UnderProjectRoot(relSkills).Build()
-}
-
-// claudePresentations is claude's DECLARED per-surface presentation table, and
-// the ONE place claude's surface membership is stated: SupportedApproaches,
-// DefaultApproach and SurfaceFor all read it rather than repeating the list.
-//
-// context is the one multi-delivery surface — the native file (the DEFAULT,
+// context is the one multi-approach surface — the native file (the DEFAULT,
 // named explicitly rather than inferred from declaration order), the
-// out-of-cwd system-prompt scratch, and the settings-carried hook. Every other
-// surface has exactly one delivery.
+// out-of-cwd system prompt, and the settings-carried hook (the shared
+// implementation; claude registers it, it does not own it). Every other
+// surface has exactly one approach.
 //
-// A name here is known IF AND ONLY IF a Presenter is registered under it, so
+// A name here is known IF AND ONLY IF a constructor is registered under it, so
 // "supported" and "constructible" cannot disagree — which is the whole reason
-// this replaced a capability list beside a construction map.
-var claudePresentations = map[agent.SurfaceKind]agent.Presentations{
-	agent.SurfaceContext: agent.Presents("claude", agent.SurfaceContext, agent.ApproachUnsafeFile.String(), claudeContextFilePresenter).
-		Or(agent.ApproachSystemPrompt.String(), claudeContextSystemPromptPresenter).
-		Or(agent.ApproachHook.String(), claudeContextHookPresenter),
-	agent.SurfaceMCP:      agent.Presents("claude", agent.SurfaceMCP, agent.ApproachUnsafeFile.String(), claudeMCPPresenter),
-	agent.SurfaceSettings: agent.Presents("claude", agent.SurfaceSettings, agent.ApproachUnsafeFile.String(), claudeSettingsPresenter),
-	agent.SurfaceCommands: agent.Presents("claude", agent.SurfaceCommands, agent.ApproachUnsafeFile.String(), claudeCommandsPresenter),
-	agent.SurfaceSkills:   agent.Presents("claude", agent.SurfaceSkills, agent.ApproachUnsafeFile.String(), claudeSkillsPresenter),
+// this replaced a capability list beside a construction map. Every
+// constructor takes the SHARED agent.SurfaceInputs directly rather than a
+// local copy: two hand-maintained field-by-field mappers drift apart, as they
+// once did on MCPCommandOverride. claude simply ignores the fields it has no
+// use for (Fragments, AgentName).
+var Surfaces = agent.Declaration{
+	agent.SurfaceContext: agent.Presents("claude", agent.SurfaceContext, agent.ApproachUnsafeFile,
+		agent.NativeContextFile("claude/context", ContextFileName, claudeContextWriter)).
+		Or(ApproachSystemPrompt, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+			return &systemPromptContext{content: in.Context, fs: agent.GetFS(fs)}
+		}).
+		Or(agent.ApproachHook, agent.HookCarriedContext),
+	agent.SurfaceMCP: agent.Presents("claude", agent.SurfaceMCP, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		return &mcpSurface{bundle: in.BundleMCP, fs: agent.GetFS(fs), commandOverride: in.MCPCommandOverride}
+	}),
+	agent.SurfaceSettings: agent.Presents("claude", agent.SurfaceSettings, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		return &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: agent.GetFS(fs)}
+	}),
+	agent.SurfaceCommands: agent.Presents("claude", agent.SurfaceCommands, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		return &commandsSurface{commands: in.Commands, fs: agent.GetFS(fs), selfContainedCommands: in.SelfContainedCommands}
+	}),
+	agent.SurfaceSkills: agent.Presents("claude", agent.SurfaceSkills, agent.ApproachUnsafeFile, newSkillsSurface),
 }
 
-// claudePresentation resolves ONE surface's declared presentation for
-// (kind, a) against the advised roots. Callers must hold a kind
-// claudePresentations declares; an undeclared kind has no Presenter to run.
-func claudePresentation(kind agent.SurfaceKind, a agent.Approach, start present.Start) present.Presentation {
-	return claudePresentations[kind].Resolve(a.String(), start)
-}
-
-// SupportedApproaches implements SurfaceSet.SupportedApproaches, DERIVED from
-// claudePresentations rather than a second declared list — a kind absent from
-// the table reports nil (absent/folded), never an error.
-func (s Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
-	d, ok := claudePresentations[kind]
-	if !ok {
-		return nil
-	}
-	return agent.ApproachesFor(d)
-}
-
-// DefaultApproach implements SurfaceSet.DefaultApproach: the Presentations'
-// own NAMED default, translated back to the shared Approach vocabulary. It is
-// a named key rather than "the first entry declared", so no literal's order is
-// load-bearing here.
-func (s Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
-	d, ok := claudePresentations[kind]
-	if !ok {
-		return 0, false
-	}
-	a, err := agent.ParseApproach(d.Default())
-	if err != nil {
-		return 0, false
-	}
-	return a, true
-}
-
-// SurfaceFor resolves one (kind, approach) to claude's concrete surface.
-// context is multi-delivery, so its Hook arm is handled here: it resolves to
-// the documented no-op (apply's hook-carried context, never a native file),
-// while UnsafeFile and SystemPrompt both resolve to the SAME dual-capable
-// contextSurface (its Deliver writes CLAUDE.md; its DeliverIsolated — read via
-// SharedRealization — writes the out-of-cwd scratch). Everything else is
-// validated against the DECLARED presentations and then looked up.
-func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
-	if kind == agent.SurfaceContext && a == agent.ApproachHook {
-		return noopContextDelivery{}, nil
-	}
-	d, ok := claudePresentations[kind]
-	if !ok {
-		return nil, fmt.Errorf("claude: no %s surface", kind)
-	}
-	if !slices.Contains(agent.ApproachesFor(d), a) {
-		return nil, fmt.Errorf("claude: no %s surface via %s", kind, a)
-	}
-	del, ok := s.dispatch[kind]
-	if !ok {
-		return nil, fmt.Errorf("claude: no %s surface", kind)
-	}
-	return del, nil
-}
-
-// SharedRealization reports claude's out-of-cwd scratch conversion for the
-// (kind, approach) pair — the ONLY backend with one (commands/skills have no
-// out-of-cwd flag). It is PAIR-keyed, not kind-alone: context is the
-// one multi-approach kind claude realizes, and only ApproachSystemPrompt does —
-// ApproachUnsafeFile is the caller's explicit request for the native CLAUDE.md
-// write, so it reports no realization and deliverOneShared falls to the
-// well-known write (loudly warned; this is the honor-with-warning fork of
-// that decision). ApproachHook resolves to the documented no-op, which never carries
-// DeliverIsolated, so deliverOneShared's isolatedDelivery guard never even
-// reaches this switch for it. mcp/settings have exactly one approach each
-// (ApproachUnsafeFile), and it is the one that realizes — the pair-key changes
-// nothing for them, so their --mcp-config/--settings launch flags keep firing.
-// Each closure runs the SAME DeliverIsolated method already bound to the
-// concrete surface instances NewSurfaces built (the ones stashed at
-// ClaudeCode.surfaces), never a second Surfaces set — so buildArgs' later
-// Path() read sees the write.
-func (s Surfaces) SharedRealization(kind agent.SurfaceKind, a agent.Approach) (func(present.Start) (agent.Delivered, error), bool) {
-	switch {
-	case kind == agent.SurfaceContext && a == agent.ApproachSystemPrompt:
-		return s.Context.DeliverIsolated, true
-	case kind == agent.SurfaceMCP && a == agent.ApproachUnsafeFile:
-		return s.MCP.DeliverIsolated, true
-	case kind == agent.SurfaceSettings && a == agent.ApproachUnsafeFile:
-		return s.Settings.DeliverIsolated, true
-	default:
-		return nil, false
-	}
-}
-
-// Compile-time capability contracts. Every surface is a Delivery + KindedDelivery;
-// context/MCP/settings ADDITIONALLY offer DeliverIsolated (read as a method value
-// by SharedRealization above) — commands has none, so a SHARED-cwd delivery of it
-// always falls back to the loud well-known write (proved in surfaces_test.go).
+// Compile-time capability contracts. Every approach is an agent.Approach;
+// system-prompt/MCP/settings ADDITIONALLY offer the out-of-cwd form — commands
+// and skills have none, so a SHARED-cwd delivery of them always falls back to
+// the loud well-known write (proved in surfaces_test.go).
 var (
-	_ agent.Delivery    = (*contextSurface)(nil)
-	_ agent.StateReader = (*contextSurface)(nil)
-	_ agent.Delivery    = (*mcpSurface)(nil)
-	_ agent.Delivery    = (*settingsSurface)(nil)
-	_ agent.Delivery    = (*commandsSurface)(nil)
-	_ agent.Delivery    = (*agent.ManagedSkillPackagesDelivery)(nil)
-	_ agent.Delivery    = noopContextDelivery{}
-	_ agent.Placement   = dirPlacement{}
-	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
-	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
-	// SharedRealization), so it satisfies agent.SurfaceSet.
-	_ agent.SurfaceSet = Surfaces{}
+	_ agent.Approach   = (*systemPromptContext)(nil)
+	_ agent.OutOfCwd   = (*systemPromptContext)(nil)
+	_ agent.LaunchOnly = (*systemPromptContext)(nil)
+	_ agent.Approach   = (*mcpSurface)(nil)
+	_ agent.OutOfCwd   = (*mcpSurface)(nil)
+	_ agent.Approach   = (*settingsSurface)(nil)
+	_ agent.OutOfCwd   = (*settingsSurface)(nil)
+	_ agent.Approach   = (*commandsSurface)(nil)
+	_ placement        = dirPlacement{}
 )
+
+// pathed is the shape flagArgs reads off a delivered out-of-cwd form: the
+// path its file actually landed at, "" when it did not.
+type pathed interface{ Path() string }
 
 // flagArgs returns the out-of-cwd launch flags for the surfaces this run
 // actually delivered: --append-system-prompt-file, --mcp-config and --settings,
-// each paired with the path its surface recorded. A surface reports "" (or is
-// absent from a zero-value set, before Setup) when it delivered nothing, and
-// contributes no flag at all — claude must not be handed a flag naming a file
-// that was never written.
+// each paired with the path its approach recorded. An approach reports ""
+// when it delivered nothing (empty context/MCP/hooks, or context that fell
+// back to the injection hook) and contributes no flag at all — claude must
+// not be handed a flag naming a file that was never written. A nil resolved
+// selection (before Setup) contributes nothing.
 //
-// Order is fixed (context, MCP, settings) because argv order is observable: a
-// VARIADIC claude flag landing last before a positional swallows it (see
-// buildArgs' prompt terminator).
-func (s Surfaces) flagArgs() []string {
+// Order is the resolved selection's (context, MCP, settings) because argv
+// order is observable: a VARIADIC claude flag landing last before a
+// positional swallows it (see buildArgs' prompt terminator).
+func flagArgs(resolved *agent.ResolvedSelection) []string {
+	if resolved == nil {
+		return nil
+	}
 	var args []string
-	// announced pairs the flag the surface's presentation DECLARES with the
-	// path that surface actually wrote. The flag name is read from the
-	// declaration rather than from the constant directly, which is what makes
-	// the presenters load-bearing: change a declared flag and this argv
-	// changes with it. The path stays the runtime one because context's leaf
-	// is content-derived (see claudeContextSystemPromptPresenter).
-	announced := func(kind agent.SurfaceKind, a agent.Approach, path string) {
-		if path == "" {
-			return
+	// Resolved against NO roots: only the declared flag is read here, and the
+	// declaration's flag does not depend on where anything lands. The flag
+	// name is read from the approach's own presentation rather than from the
+	// constant directly, which is what makes Present load-bearing: change a
+	// declared flag and this argv changes with it.
+	noRoots := present.New(present.OnHost(present.Paths{}))
+	for _, ra := range resolved.Approaches() {
+		p, ok := ra.Approach.(pathed)
+		if !ok || p.Path() == "" {
+			continue
 		}
-		// Resolved against NO roots: only the declared flag is read here, and
-		// the declaration's flag does not depend on where anything lands.
-		p := claudePresentation(kind, a, present.New(present.OnHost(present.Paths{})))
-		if len(p.Args) == 0 {
-			return
+		announced := ra.Approach.Present(noRoots).Args
+		if len(announced) == 0 {
+			continue
 		}
-		args = append(args, p.Args[0], path)
-	}
-	if s.Context != nil {
-		announced(agent.SurfaceContext, agent.ApproachSystemPrompt, s.Context.Path())
-	}
-	if s.MCP != nil {
-		announced(agent.SurfaceMCP, agent.ApproachUnsafeFile, s.MCP.Path())
-	}
-	if s.Settings != nil {
-		announced(agent.SurfaceSettings, agent.ApproachUnsafeFile, s.Settings.Path())
+		args = append(args, announced[0], p.Path())
 	}
 	return args
+}
+
+// mcpServerNames lists, sorted, the bundle MCP servers the resolved MCP
+// approach carries — the servers a plan-mode agent is allowed to reach (see
+// permissionArgs). nil before Setup or when no MCP surface resolved.
+func mcpServerNames(resolved *agent.ResolvedSelection) []string {
+	if resolved == nil {
+		return nil
+	}
+	for _, ra := range resolved.Approaches() {
+		m, ok := ra.Approach.(*mcpSurface)
+		if !ok {
+			continue
+		}
+		out := make([]string, 0, len(m.bundle))
+		for name := range m.bundle {
+			out = append(out, name)
+		}
+		sort.Strings(out)
+		return out
+	}
+	return nil
 }

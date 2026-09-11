@@ -16,8 +16,8 @@ import (
 func TestResolveAgentSurfaces_AcceptsWhatTheEngineDeclares(t *testing.T) {
 	got, err := ResolveAgentSurfaces("claude-code", map[string]string{"context": "system-prompt"})
 	require.NoError(t, err)
-	assert.Equal(t, map[agent.SurfaceKind]agent.Approach{
-		agent.SurfaceContext: agent.ApproachSystemPrompt,
+	assert.Equal(t, map[agent.SurfaceKind]string{
+		agent.SurfaceContext: "system-prompt",
 	}, got)
 }
 

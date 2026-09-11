@@ -31,7 +31,7 @@ func TestMockContextSurface_Deliver_WritesActualBytes(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := &mockContextSurface{context: "MOCK-PAYLOAD-9f3a", fs: fs}
+	s := mockContext("MOCK-PAYLOAD-9f3a", fs)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NotNil(t, handle)
@@ -53,7 +53,7 @@ func TestMockContextSurface_Deliver_EmptyContext_WritesNothing(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := &mockContextSurface{context: "", fs: fs}
+	s := mockContext("", fs)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	_ = handle
@@ -82,7 +82,7 @@ func TestMockContextSurface_Cleanup_LeavesTheFileInPlace(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := &mockContextSurface{context: "DELIVERED-CONTENT", fs: fs}
+	s := mockContext("DELIVERED-CONTENT", fs)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -110,7 +110,7 @@ func TestMockContextSurface_Deliver_PreservesUserContentOutsideMarkers(t *testin
 	userLine := "MY OWN NOTES — do not touch"
 	require.NoError(t, afero.WriteFile(fs, path, []byte(userLine+"\n"), 0o644))
 
-	s := &mockContextSurface{context: "ctxloom-managed-body", fs: fs}
+	s := mockContext("ctxloom-managed-body", fs)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -127,7 +127,7 @@ func TestMockContextSurface_State_ReportsMissing_WhenFileAbsent(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := &mockContextSurface{fs: fs}
+	s := mockContext("", fs)
 	state, err := s.State(dir)
 	require.NoError(t, err)
 
@@ -146,7 +146,7 @@ func TestMockContextSurface_State_ReportsMissing_WhenFileExistsWithoutManagedSec
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 	require.NoError(t, afero.WriteFile(fs, mockContextPath(dir), []byte("just a user file, no markers\n"), 0o644))
 
-	s := &mockContextSurface{fs: fs}
+	s := mockContext("", fs)
 	state, err := s.State(dir)
 	require.NoError(t, err)
 
@@ -162,7 +162,7 @@ func TestMockContextSurface_State_ReportsDelivered_WhenManagedSectionMatches(t *
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := &mockContextSurface{context: "CURRENT-COMPOSITION", fs: fs}
+	s := mockContext("CURRENT-COMPOSITION", fs)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -180,7 +180,7 @@ func TestMockContextSurface_State_ReportsStale_WhenManagedSectionDiffersFromInte
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := &mockContextSurface{context: "OLD-COMPOSITION", fs: fs}
+	s := mockContext("OLD-COMPOSITION", fs)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -200,7 +200,7 @@ func TestMockContextSurface_State_IgnoresUserContentOutsideMarkersForCurrency(t 
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := &mockContextSurface{context: "STABLE-COMPOSITION", fs: fs}
+	s := mockContext("STABLE-COMPOSITION", fs)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -218,47 +218,56 @@ func TestMockContextSurface_State_IgnoresUserContentOutsideMarkersForCurrency(t 
 		"user content outside the markers must never make a current managed section read as drift")
 }
 
-// TestMockContextSurface_IsTheSameObjectThroughSurfaceFor proves the design's
-// "the object that applied answers for it" property directly: resolving the
-// context surface via MockSurfaces.SurfaceFor (the path a real caller takes)
-// yields the SAME *mockContextSurface State() reads through — not a second,
-// independently-constructed reporting path that could disagree with the one
-// that delivered.
-func TestMockContextSurface_IsTheSameObjectThroughSurfaceFor(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{Context: "X"}, fs)
-
-	resolved, err := set.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
-	require.NoError(t, err)
-
-	reader, ok := resolved.(agent.StateReader)
-	require.True(t, ok, "the resolved context Delivery must also implement agent.StateReader")
-	assert.Same(t, set.Context, reader, "SurfaceFor must resolve to the SAME instance NewMockSurfaces built, not a copy")
+// contextApproach is what the mock's context approach is to a test: it
+// delivers AND reads its own state back (agent.StateReader) — "the object that
+// applied answers for it".
+type contextApproach interface {
+	agent.Approach
+	agent.StateReader
 }
 
-// TestMockSurfaces_SupportedApproaches_EveryKind pins mock's declared scope:
-// EVERY SurfaceKind is supported, because mock is a complete engine with no
-// real model behind it rather than a partial one.
+// mockContext constructs the mock's native-file context approach for content.
+func mockContext(content string, fs afero.Fs) contextApproach {
+	return newMockContext(agent.SurfaceInputs{Context: content}, fs).(contextApproach)
+}
+
+// TestMockContext_ResolvedApproachReadsItsOwnState proves the design's "the
+// object that applied answers for it" property through the path a real caller
+// takes: the context approach Build constructs is the one that implements
+// agent.StateReader — not a second, independently-constructed reporting path
+// that could disagree with the one that delivered.
+func TestMockContext_ResolvedApproachReadsItsOwnState(t *testing.T) {
+	resolved, err := agent.Select(mockDeclaration(config.BackendMock)).With(agent.SurfaceContext, agent.ApproachUnsafeFile).Build(agent.SurfaceInputs{Context: "X"}, afero.NewMemMapFs())
+	require.NoError(t, err)
+	approaches := resolved.Approaches()
+	require.Len(t, approaches, 1)
+	_, ok := approaches[0].Approach.(agent.StateReader)
+	require.True(t, ok, "the resolved context approach must also implement agent.StateReader")
+}
+
+// TestMockDeclaration_DeclaresEveryKind pins mock's declared scope: EVERY
+// SurfaceKind is declared, because mock is a complete engine with no real
+// model behind it rather than a partial one.
 //
 // The completeness is load-bearing, not tidiness: a partial double makes its
 // gaps load-bearing somewhere else, where nothing states that they are.
 //
-// Each kind must also RESOLVE to a concrete surface: declaring an approach and
-// then failing to dispatch would be a surface that exists only in the roster.
-func TestMockSurfaces_SupportedApproaches_EveryKind(t *testing.T) {
-	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{Context: "X"}, afero.NewMemMapFs())
+// Each kind must also CONSTRUCT a concrete approach: declaring a name and
+// then failing to build would be a surface that exists only in the roster.
+func TestMockDeclaration_DeclaresEveryKind(t *testing.T) {
+	decl := mockDeclaration(config.BackendMock)
 
 	for _, kind := range []agent.SurfaceKind{
 		agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings,
 		agent.SurfaceCommands, agent.SurfaceSkills,
 	} {
-		require.NotEmpty(t, set.SupportedApproaches(kind), "mock must declare a %s surface", kind)
+		require.NotEmpty(t, decl.Names(kind), "mock must declare a %s surface", kind)
 
-		a, ok := set.DefaultApproach(kind)
+		def, ok := decl.Default(kind)
 		require.True(t, ok, "%s must have a default approach", kind)
-		del, err := set.SurfaceFor(kind, a)
-		require.NoError(t, err, "%s must resolve to a concrete surface", kind)
-		require.NotNil(t, del, "%s resolved to a nil delivery", kind)
+		a, ok := decl.Construct(kind, def, agent.SurfaceInputs{Context: "X"}, afero.NewMemMapFs())
+		require.True(t, ok, "%s must construct at its default", kind)
+		require.NotNil(t, a, "%s constructed a nil approach", kind)
 	}
 }
 
@@ -275,14 +284,13 @@ func TestMockSurfaces_WithEverything_MaterializesEverySurface(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{
+	delivered, kinds, errs := agent.Select(mockDeclaration(config.BackendMock)).WithEverything().DeliverUnder(agent.SurfaceInputs{
 		Context:   "END-TO-END-MARKER",
 		Skills:    []agent.SkillExport{reviewerSkillExport()},
 		BundleMCP: map[string]wire.MCPServer{"postgres": {Command: "mcp-postgres"}},
 		Hooks:     &wire.HooksConfig{},
 		Commands:  []agent.CommandExport{{Name: "review", Content: "REVIEW-COMMAND-BODY", Enabled: true}},
-	}, fs)
-	delivered, kinds, errs := agent.Select(set).WithEverything().DeliverUnder(present.ProjectOnHost(dir))
+	}, fs, present.ProjectOnHost(dir))
 	require.Empty(t, errs)
 	require.Len(t, delivered, 5, "every declared surface must actually deliver")
 	require.ElementsMatch(t, []agent.SurfaceKind{
@@ -354,7 +362,7 @@ func TestMockSkillsSurface_Deliver_WritesEveryFileWithItsBytes(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface([]agent.SkillExport{reviewerSkillExport()}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NotNil(t, handle)
@@ -383,7 +391,7 @@ func TestMockSkillsSurface_Deliver_MaterializesTheDeclaredMode(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface([]agent.SkillExport{reviewerSkillExport()}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -412,7 +420,7 @@ func TestMockSkillsSurface_Deliver_DeclaredModeBeatsAnExistingFilesMode(t *testi
 	require.NoError(t, fs.MkdirAll(filepath.Dir(scriptPath), 0o755))
 	require.NoError(t, afero.WriteFile(fs, scriptPath, []byte("stale\n"), 0o600))
 
-	s := newMockSkillsSurface([]agent.SkillExport{reviewerSkillExport()}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -433,7 +441,7 @@ func TestMockSkillsSurface_Deliver_DisabledSkillWritesNothing(t *testing.T) {
 
 	disabled := reviewerSkillExport()
 	disabled.Enabled = false
-	s := newMockSkillsSurface([]agent.SkillExport{disabled}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{disabled}}, fs)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -458,7 +466,7 @@ func TestMockSkillsSurface_Cleanup_LeavesWhatItWroteInPlace(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface([]agent.SkillExport{reviewerSkillExport()}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	before, err := afero.Exists(fs, filepath.Join(mockSkillsPath(dir), "reviewer", "SKILL.md"))
@@ -488,7 +496,7 @@ func TestMockSkillsSurface_Cleanup_LeavesUserAuthoredFilesAlone(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Dir(userFile), 0o755))
 	require.NoError(t, afero.WriteFile(fs, userFile, []byte("USER-AUTHORED-4f10"), 0o644))
 
-	s := newMockSkillsSurface([]agent.SkillExport{reviewerSkillExport()}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NoError(t, handle.Cleanup())
@@ -497,16 +505,4 @@ func TestMockSkillsSurface_Cleanup_LeavesUserAuthoredFilesAlone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "USER-AUTHORED-4f10", string(got),
 		"a user's own skill package must survive ctxloom's reversal byte-for-byte")
-}
-
-// TestMockSkillsSurface_IsTheSameObjectThroughSurfaceFor mirrors the context
-// half: resolving via MockSurfaces.SurfaceFor (the path a real caller takes)
-// must yield the SAME object NewMockSurfaces built, not a second
-// independently-constructed delivery that could disagree with it.
-func TestMockSkillsSurface_IsTheSameObjectThroughSurfaceFor(t *testing.T) {
-	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, afero.NewMemMapFs())
-
-	resolved, err := set.SurfaceFor(agent.SurfaceSkills, agent.ApproachUnsafeFile)
-	require.NoError(t, err)
-	assert.Same(t, set.Skills, resolved, "SurfaceFor must resolve to the SAME instance NewMockSurfaces built")
 }

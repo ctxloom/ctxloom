@@ -5,6 +5,7 @@ package integration
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -23,11 +24,11 @@ import (
 
 // This file covers ctxloom's declared CONTEXT DELIVERY MATRIX — every
 // (backend, agent.SurfaceKind, agent.Approach) triple a backend's
-// agent.ApproachTable advertises — by PAYLOAD, never by exit code or by a
+// agent.Declaration declares — by PAYLOAD, never by exit code or by a
 // "delivered" report.
 //
 // The matrix is DERIVED from the registered backends
-// (backends.List + agent.SurfaceSet.SupportedApproaches), so a sixth backend or
+// (backends.List + agent.Declaration.Names), so a sixth backend or
 // a newly declared approach is picked up automatically and fails the
 // exhaustiveness assertion in TestDeliveryApproach_DeclaredPairsAreExhaustive
 // until it is given an expected destination here.
@@ -48,13 +49,11 @@ var matrixKinds = []agent.SurfaceKind{
 	agent.SurfaceSkills,
 }
 
-// matrixApproaches is every declared agent.Approach value. Used for the NEGATIVE
-// direction: the cross product minus the declared pairs must be refused loudly.
-var matrixApproaches = []agent.Approach{
-	agent.ApproachUnsafeFile,
-	agent.ApproachSystemPrompt,
-	agent.ApproachHook,
-}
+// matrixApproaches is every approach name ANY registered engine declares —
+// derived, so an engine's new name joins the cross product on its own. Used
+// for the NEGATIVE direction: the cross product minus the declared pairs must
+// be refused loudly.
+func matrixApproaches() []string { return backends.KnownApproachNames() }
 
 // sentinel slots. Each names one SurfaceInputs field, so an assertion can say
 // WHICH input reached WHICH file rather than "the tree is non-empty".
@@ -145,9 +144,9 @@ func matrixBackends(t *testing.T) []string {
 	t.Helper()
 	var out []string
 	for _, name := range backends.List() {
-		set := backends.BuildSurfaces(name, matrixSentinelInputs(), afero.NewMemMapFs())
+		decl := backends.Declared(name)
 		for _, k := range matrixKinds {
-			if len(set.SupportedApproaches(k)) > 0 {
+			if len(decl.Names(k)) > 0 {
 				out = append(out, name)
 				break
 			}
@@ -159,8 +158,8 @@ func matrixBackends(t *testing.T) []string {
 }
 
 // pairKey is the matrix coordinate: backend/kind/approach.
-func pairKey(backend string, k agent.SurfaceKind, a agent.Approach) string {
-	return backend + "/" + k.String() + "/" + a.String()
+func pairKey(backend string, k agent.SurfaceKind, a string) string {
+	return backend + "/" + k.String() + "/" + a
 }
 
 // derivedPairs enumerates every (backend, kind, approach) triple the registered
@@ -169,9 +168,9 @@ func derivedPairs(t *testing.T) []string {
 	t.Helper()
 	var out []string
 	for _, name := range matrixBackends(t) {
-		set := backends.BuildSurfaces(name, matrixSentinelInputs(), afero.NewMemMapFs())
+		decl := backends.Declared(name)
 		for _, k := range matrixKinds {
-			for _, a := range set.SupportedApproaches(k) {
+			for _, a := range decl.Names(k) {
 				out = append(out, pairKey(name, k, a))
 			}
 		}
@@ -203,12 +202,12 @@ type deliverySpec struct {
 	// SKIPPED (never quietly reconciled) so the disagreement stays visible.
 	disagreement string
 	// elsewhere records that this pair's promised payload is REAL and covered
-	// — just not by this test's generic SurfaceFor(kind, approach).Deliver(present.ProjectOnHost(root))
-	// mechanism. claude's (context, system-prompt) is the one case: SurfaceFor
+	// — just not by this test's generic Construct(kind, approach).Deliver(present.ProjectOnHost(root))
+	// mechanism. claude's (context, system-prompt) is the one case: the declaration
 	// resolves the SAME dual-capable object unsafe-file does (its well-known
-	// Deliver always writes the native file — that is what SurfaceFor decides,
+	// Deliver always writes the native file — that is what the approach value decides,
 	// not what approach was named), so the out-of-cwd scratch this approach
-	// actually promises is reachable only through SharedRealization
+	// actually promises is reachable only through its OutOfCwd form
 	// (DeliverIsolated), which this generic loop never calls. Named test covers
 	// the real payload with the right mechanism; unlike disagreement, this is
 	// not an open mismatch to reconcile.
@@ -217,16 +216,16 @@ type deliverySpec struct {
 
 // matrixSpecs is the expected destination for every DECLARED pair.
 // TestDeliveryApproach_DeclaredPairsAreExhaustive holds these keys equal to the
-// derived matrix, so a new pair cannot be added to a backend's ApproachTable
+// derived matrix, so a new pair cannot be added to a backend's Declaration
 // without landing here first.
 var matrixSpecs = map[string]deliverySpec{
 	// ---- claude-code -------------------------------------------------------
 	"claude-code/context/unsafe-file": {wantFile: "CLAUDE.md", wantSlot: slotContext},
 	"claude-code/context/system-prompt": {
-		elsewhere: "TestDeliveryApproach_ClaudeSystemPromptScratchPlacement — SharedRealization " +
+		elsewhere: "TestDeliveryApproach_ClaudeSystemPromptScratchPlacement — the out-of-cwd form " +
 			"is now keyed on (kind, approach) (U100-F05), so this pair's out-of-cwd " +
 			"<hash>.sysprompt.md scratch is real; it is reached through SharedRealization " +
-			"(DeliverIsolated), never through the generic SurfaceFor+Deliver(root) this " +
+			"(DeliverIsolated), never through the generic Construct+Deliver(root) this " +
 			"loop uses for every other cell.",
 	},
 	"claude-code/context/hook": {
@@ -350,30 +349,30 @@ func TestDeliveryApproach_DeclaredPairsAreExhaustive(t *testing.T) {
 	}
 }
 
-// TestDeliveryApproach_DefaultIsFirstDeclared pins the other half of the
-// declaration: agent.ApproachTable.Default is documented as the FIRST declared
-// approach, and WithEverything (the materialize/launch selection) picks it. A
-// backend whose default is not its first entry would silently materialize a
-// different surface than its table advertises.
-func TestDeliveryApproach_DefaultIsFirstDeclared(t *testing.T) {
+// TestDeliveryApproach_DefaultIsDeclared pins the other half of the
+// declaration: an engine's default for a kind is one of the names it declares
+// for it — a NAMED default, not a position — and WithEverything (the
+// materialize/launch selection) picks it. A backend whose default named
+// something it cannot construct would silently materialize nothing.
+func TestDeliveryApproach_DefaultIsDeclared(t *testing.T) {
 	for _, name := range matrixBackends(t) {
-		set := backends.BuildSurfaces(name, matrixSentinelInputs(), afero.NewMemMapFs())
+		decl := backends.Declared(name)
 		for _, k := range matrixKinds {
-			supported := set.SupportedApproaches(k)
-			def, ok := set.DefaultApproach(k)
+			supported := decl.Names(k)
+			def, ok := decl.Default(k)
 			if len(supported) == 0 {
 				assert.False(t, ok, "%s/%s declares no approach, so it must report no default", name, k)
 				continue
 			}
 			require.True(t, ok, "%s/%s declares approaches but reports no default", name, k)
-			assert.Equal(t, supported[0], def, "%s/%s: default must be the first declared approach", name, k)
+			assert.Contains(t, supported, def, "%s/%s: default must be one of the declared approaches", name, k)
 		}
 	}
 }
 
 // TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload is the core matrix
 // test: for every declared (backend, kind, approach) it resolves the concrete
-// agent.Delivery via SurfaceSet.SurfaceFor, delivers it into a fresh root, and
+// agent.Approach via the Declaration, delivers it into a fresh root, and
 // asserts the pair's SENTINEL landed in the file that approach promises.
 //
 // It deliberately does NOT assert on a returned error alone: agent.Delivery
@@ -383,9 +382,9 @@ func TestDeliveryApproach_DefaultIsFirstDeclared(t *testing.T) {
 func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 	isolatedRecords(t)
 	for _, name := range matrixBackends(t) {
-		probe := backends.BuildSurfaces(name, matrixSentinelInputs(), afero.NewMemMapFs())
+		decl := backends.Declared(name)
 		for _, k := range matrixKinds {
-			for _, a := range probe.SupportedApproaches(k) {
+			for _, a := range decl.Names(k) {
 				key := pairKey(name, k, a)
 				t.Run(key, func(t *testing.T) {
 					spec, ok := matrixSpecs[key]
@@ -401,9 +400,8 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 					root := "/cell"
 					require.NoError(t, fs.MkdirAll(root, 0o755))
 
-					set := backends.BuildSurfaces(name, matrixSentinelInputs(), fs)
-					d, err := set.SurfaceFor(k, a)
-					require.NoError(t, err, "%s: declared but SurfaceFor refused it", key)
+					d, ok := decl.Construct(k, a, matrixSentinelInputs(), fs)
+					require.True(t, ok, "%s: declared but Construct refused it", key)
 
 					if spec.noOp != "" {
 						if d != nil {
@@ -470,27 +468,32 @@ func assertSentinelAt(t *testing.T, key string, tree map[string]string, want, se
 // rather than left to chance.
 func TestDeliveryApproach_UndeclaredPairsAreRefusedLoudly(t *testing.T) {
 	for _, name := range matrixBackends(t) {
-		set := backends.BuildSurfaces(name, matrixSentinelInputs(), afero.NewMemMapFs())
+		decl := backends.Declared(name)
 		for _, k := range matrixKinds {
-			supported := set.SupportedApproaches(k)
-			for _, a := range matrixApproaches {
-				if containsApproachValue(supported, a) {
+			supported := decl.Names(k)
+			if len(supported) == 0 {
+				// A kind the engine does not declare is a FOLD: selecting it is
+				// a permitted no-op, never a refusal (see cells.go's Build).
+				continue
+			}
+			for _, a := range matrixApproaches() {
+				if slices.Contains(supported, a) {
 					continue
 				}
 				t.Run("refuse/"+pairKey(name, k, a), func(t *testing.T) {
-					d, err := set.SurfaceFor(k, a)
-					require.Error(t, err,
-						"%s: undeclared pair resolved to a surface instead of being refused", pairKey(name, k, a))
-					assert.Nil(t, d, "a refused pair must not also hand back a Delivery")
+					d, ok := decl.Construct(k, a, matrixSentinelInputs(), afero.NewMemMapFs())
+					assert.False(t, ok, "%s: undeclared pair constructed a surface instead of being refused", pairKey(name, k, a))
+					assert.Nil(t, d, "a refused pair must not also hand back an Approach")
+
+					_, err := agent.Select(decl).With(k, a).Build(matrixSentinelInputs(), afero.NewMemMapFs())
+					require.Error(t, err, "%s: undeclared pair must be refused by Build", pairKey(name, k, a))
 					msg := err.Error()
 					assert.Contains(t, msg, refusalLabel(name), "the refusal must name the backend")
 					assert.Contains(t, msg, k.String(), "the refusal must name the surface kind")
-					if len(supported) > 0 {
-						// A kind the backend HAS, at an approach it does not: the
-						// refusal must name the rejected approach so the user can
-						// tell "wrong approach" from "no such surface".
-						assert.Contains(t, msg, a.String(), "the refusal must name the rejected approach")
-					}
+					// A kind the backend HAS, at an approach it does not: the
+					// refusal must name the rejected approach so the user can
+					// tell "wrong approach" from "no such surface".
+					assert.Contains(t, msg, a, "the refusal must name the rejected approach")
 				})
 			}
 		}
@@ -514,15 +517,6 @@ func refusalLabel(registered string) string {
 	return registered
 }
 
-func containsApproachValue(list []agent.Approach, a agent.Approach) bool {
-	for _, x := range list {
-		if x == a {
-			return true
-		}
-	}
-	return false
-}
-
 // TestDeliveryApproach_UndeclaredApproachFailsTheBuilder pins the same refusal
 // one level up, at the seam callers actually use: naming an approach a backend
 // does not support must fail agent.SurfaceSelection.Build with the SUPPORTED SET
@@ -533,18 +527,17 @@ func TestDeliveryApproach_UndeclaredApproachFailsTheBuilder(t *testing.T) {
 	for _, name := range []string{"mock"} {
 		for _, w := range []struct {
 			label string
-			write agent.ContextWrite
+			write string
 		}{
-			{"hook", agent.ContextWriteHook},
-			{"system-prompt", agent.ContextWriteSystemPrompt},
+			{"hook", agent.ApproachHook},
+			{"system-prompt", claude.ApproachSystemPrompt},
 		} {
 			t.Run(name+"/context/"+w.label, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
-				set := backends.BuildSurfaces(name, matrixSentinelInputs(), fs)
-				sel := agent.Select(set).
-					WithContext(w.write).
-					WithSettings(agent.SettingsWriteUnsafeFile)
-				resolved, err := sel.Build()
+				sel := agent.Select(backends.Declared(name)).
+					With(agent.SurfaceContext, w.write).
+					With(agent.SurfaceSettings, agent.ApproachUnsafeFile)
+				resolved, err := sel.Build(matrixSentinelInputs(), fs)
 				require.Error(t, err, "%s must refuse context via %s", name, w.label)
 				assert.Nil(t, resolved)
 				assert.Contains(t, err.Error(), "not supported")
@@ -552,7 +545,7 @@ func TestDeliveryApproach_UndeclaredApproachFailsTheBuilder(t *testing.T) {
 					"the refusal must name the SUPPORTED set so the caller can correct the selection")
 
 				// The refusal must be total: nothing at all is delivered.
-				_, kinds, errs := sel.DeliverUnder(present.ProjectOnHost("/cell"))
+				_, kinds, errs := sel.DeliverUnder(matrixSentinelInputs(), fs, present.ProjectOnHost("/cell"))
 				assert.Empty(t, kinds, "a refused selection must deliver no surface")
 				assert.NotEmpty(t, errs)
 				assert.Empty(t, matrixTree(t, fs, "/cell"), "a refused selection must write zero files")
@@ -587,9 +580,7 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 	t.Run("unsafe-file into a shared cwd honors CLAUDE.md, not the sysprompt scratch", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll(scratch, 0o755))
-		surfaces := claude.NewSurfaces(matrixSentinelInputs(), fs)
-
-		resolved, err := agent.Select(surfaces).WithContext(agent.ContextWriteUnsafeFile).Build()
+		resolved, err := agent.Select(claude.Surfaces).With(agent.SurfaceContext, agent.ApproachUnsafeFile).Build(matrixSentinelInputs(), fs)
 		require.NoError(t, err)
 		_, kinds, errs := resolved.DeliverShared(runRoots("/live-cwd", scratch))
 		require.Empty(t, errs)
@@ -604,18 +595,18 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 		// ...and the out-of-cwd scratch is never touched — no silent upgrade.
 		assert.Empty(t, matrixTree(t, fs, scratch),
 			"unsafe-file must not be silently upgraded to the system-prompt scratch")
-		assert.Empty(t, surfaces.Context.Path(),
-			"DeliverIsolated never ran, so Path() (the --append-system-prompt-file argument) stays empty")
+		for _, ra := range resolved.Approaches() {
+			_, converts := ra.Approach.(agent.OutOfCwd)
+			assert.False(t, converts, "the native-file context approach has no out-of-cwd form, so nothing could have run one")
+		}
 	})
 
 	t.Run("system-prompt at rest never produces a sysprompt file", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll(scratch, 0o755))
-		surfaces := claude.NewSurfaces(matrixSentinelInputs(), fs)
-
 		// (a) Through the sanctioned at-rest terminal: an honest, loud refusal —
-		// unaffected by this fix (DeliverUnder never consults SharedRealization).
-		resolved, err := agent.Select(surfaces).WithContext(agent.ContextWriteSystemPrompt).Build()
+		// the approach is LaunchOnly (DeliverUnder never runs an out-of-cwd form).
+		resolved, err := agent.Select(claude.Surfaces).With(agent.SurfaceContext, claude.ApproachSystemPrompt).Build(matrixSentinelInputs(), fs)
 		require.NoError(t, err, "the approach IS declared, so Build must accept it")
 		_, kinds, errs := resolved.DeliverUnder(present.ProjectOnHost("/cell"))
 		assert.Empty(t, kinds)
@@ -624,22 +615,21 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 			"at-rest system-prompt delivery must be refused, naming the missing argv sink")
 		assert.Empty(t, matrixTree(t, fs, "/cell"), "a refused delivery must write zero files")
 
-		// (b) Through the raw Delivery SurfaceFor hands back: it writes the
-		// NATIVE file — a structural fact about SurfaceFor resolving the SAME
-		// dual-capable object unsafe-file resolves to (SurfaceFor decides WHICH
-		// object answers a pair, not what its well-known Deliver does). This is
-		// not the SharedRealization approach-keying defect described above: the
-		// real out-of-cwd destination this pair promises is reached only through
-		// SharedRealization (DeliverIsolated), which this raw call never invokes.
-		d, err := surfaces.SurfaceFor(agent.SurfaceContext, agent.ApproachSystemPrompt)
-		require.NoError(t, err)
+		// (b) Through the approach's raw well-known Deliver: it writes the
+		// NATIVE file — the system-prompt approach's Deliver IS the CLAUDE.md
+		// write (the form an isolated cell runs for it, preserved as it was).
+		// The real out-of-cwd destination this pair promises is reached only
+		// through its OutOfCwd form (DeliverIsolated), which this raw call
+		// never invokes.
+		d, ok := claude.Surfaces.Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+		require.True(t, ok)
 		_, err = d.Deliver(present.ProjectOnHost("/raw"))
 		require.NoError(t, err)
 		rawTree := matrixTree(t, fs, "/raw")
 		assert.Equal(t, []string{"CLAUDE.md"}, findSentinel(rawTree, slotContext))
 		for p := range rawTree {
 			assert.False(t, strings.HasSuffix(p, agent.SCMFramedContextSuffix),
-				"no sysprompt file is produced by the raw Delivery — only SharedRealization writes it (%s)", p)
+				"no sysprompt file is produced by the raw Delivery — only the out-of-cwd form writes it (%s)", p)
 		}
 	})
 }
@@ -648,7 +638,7 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 // scratch-placement-aware variant matrixSpecs' "elsewhere" entry for
 // claude-code/context/system-prompt promises, now un-skipped. Unlike every
 // other matrix cell, this pair's payload is not reached through
-// SurfaceFor(kind, approach).Deliver(present.ProjectOnHost(root)) — that resolves to the SAME
+// Construct(kind, approach).Deliver(present.ProjectOnHost(root)) — that resolves to the SAME
 // dual-capable contextSurface every context approach shares, whose well-known
 // Deliver always writes CLAUDE.md regardless of which approach was named (see
 // TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05's second
@@ -664,13 +654,12 @@ func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(root, 0o755))
 	require.NoError(t, fs.MkdirAll(scratch, 0o755))
 
-	set := claude.NewSurfaces(matrixSentinelInputs(), fs)
+	a, ok := claude.Surfaces.Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+	require.True(t, ok)
+	outOfCwd, ok := a.(agent.OutOfCwd)
+	require.True(t, ok, "claude-code/context/system-prompt must have an out-of-cwd form")
 
-	realize, ok := set.SharedRealization(agent.SurfaceContext, agent.ApproachSystemPrompt)
-	require.True(t, ok, "claude-code/context/system-prompt must realize")
-	require.NotNil(t, realize)
-
-	handle, err := realize(runRoots(root, scratch))
+	handle, err := outOfCwd.DeliverIsolated(runRoots(root, scratch))
 	require.NoError(t, err)
 	require.NotNil(t, handle)
 
@@ -688,8 +677,8 @@ func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 	assert.Contains(t, scratchTree[hits[0]], agent.FrameProjectContext(slotContext),
 		"the scratch file must carry the FRAMED envelope, not the bare context")
 
-	assert.Equal(t, filepath.Join(scratch, hits[0]), set.Context.Path(),
-		"Context.Path() (the --append-system-prompt-file argument) must name the written file")
+	assert.Equal(t, filepath.Join(scratch, hits[0]), a.(interface{ Path() string }).Path(),
+		"Path() (the --append-system-prompt-file argument) must name the written file")
 }
 
 // runRoots advises a run rooted at project with its out-of-cwd scratch at
@@ -728,8 +717,7 @@ func TestDeliveryApproach_HookCarriageMatchesDeclaration(t *testing.T) {
 			require.NoError(t, fs.MkdirAll(root, 0o755))
 
 			inputs := matrixSentinelInputs()
-			set := backends.BuildSurfaces(name, inputs, fs)
-			_, _, errs := agent.Select(set).WithEverything().DeliverUnder(present.ProjectOnHost(root))
+			_, _, errs := agent.Select(backends.Declared(name)).WithEverything().DeliverUnder(inputs, fs, present.ProjectOnHost(root))
 			require.Empty(t, errs)
 
 			hookFiles := findSentinel(matrixTree(t, fs, root), slotHook)

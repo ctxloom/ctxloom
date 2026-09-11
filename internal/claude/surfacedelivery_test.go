@@ -15,7 +15,7 @@ import (
 )
 
 // fakePlacement is defined in contextdelivery_test.go (same package): a local
-// agent.Placement double whose Dir() returns a fixed temp dir.
+// placement double whose Dir() returns a fixed temp dir.
 
 // mcpServersOf reads .mcp.json under dir and returns its mcpServers map.
 func mcpServersOf(t *testing.T, dir string) map[string]any {

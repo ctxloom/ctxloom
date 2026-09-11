@@ -156,7 +156,7 @@ func ctxloomOwnMCPServer(src wire.MCPServer, override string) wire.MCPServer {
 // SettingsOptions configures a settings-writing operation. It carries the
 // filesystem seam and nothing else: per-engine POLICY (which surfaces are
 // managed, whether the HUD statusline is one of them) rides the surfaces ×
-// cells seam — see agent.SettingsDelivery.DeliverSettings — not this struct,
+// cells seam — each engine's settings approach — not this struct,
 // which is shared by every backend.
 type SettingsOptions struct {
 	FS afero.Fs // filesystem to use; nil means the real OS filesystem

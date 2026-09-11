@@ -13,7 +13,7 @@ import (
 // It reads the SAME descriptor field SkillExportsFor gates on, deliberately: a
 // caller that BRANCHES on skills support and then emits through SkillExportsFor
 // must not be able to disagree with it about what that support is. A second
-// source here — an ApproachTable lookup, say — would be a second policy, and
+// source here — a Declaration lookup, say — would be a second policy, and
 // the two would diverge the first time either changed.
 func SupportsSkills(backendName string) bool {
 	d, ok := lookup(backendName)

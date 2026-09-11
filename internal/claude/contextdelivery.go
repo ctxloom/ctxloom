@@ -17,10 +17,10 @@ import (
 // whole-file form claude loads natively), writes it into an injected Placement
 // as <hash>.sysprompt.md, and exposes the written path via Path() so claude's
 // buildArgs (a later slice) can point the flag at it. It implements
-// agent.ContextDelivery; the Delivered handle it returns stays Cleanup-only per
+// the context surface's out-of-cwd form; the Delivered handle it returns stays Cleanup-only per
 // the delivery-seam design.
 type appendFlagDelivery struct {
-	place agent.Placement
+	place placement
 	fs    afero.Fs
 	// path is the absolute path of the framed file DeliverContext wrote, or ""
 	// whenever no file stands behind it: before delivery, when the context was
@@ -31,7 +31,7 @@ type appendFlagDelivery struct {
 // newAppendFlagDelivery constructs the append-flag context strategy writing into
 // place. A nil fs defaults to the OS filesystem (agent.GetFS), matching claude's
 // settings/context writers so delivery and cleanup share one fs mechanism.
-func newAppendFlagDelivery(place agent.Placement, fs afero.Fs) *appendFlagDelivery {
+func newAppendFlagDelivery(place placement, fs afero.Fs) *appendFlagDelivery {
 	return &appendFlagDelivery{place: place, fs: agent.GetFS(fs)}
 }
 
@@ -88,7 +88,3 @@ func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, er
 	fs := d.fs
 	return agent.DeliveredFunc(func() error { return fs.Remove(path) }), nil
 }
-
-var (
-	_ agent.ContextDelivery = (*appendFlagDelivery)(nil)
-)

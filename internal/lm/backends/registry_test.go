@@ -210,7 +210,7 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 			// grew those capabilities; it has served that purpose, and keeping
 			// it would now assert an absence that is no longer true.
 			assert.NotNil(t, d.newWriter, "backend must have a settings writer")
-			assert.NotNil(t, d.newSurfaces, "backend must build a surface set")
+			assert.NotNil(t, d.surfaces, "backend must declare its surfaces")
 			assert.NotNil(t, d.exports, "backend must have a command-export mapper")
 		})
 	}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -51,14 +52,18 @@ type deliveryCall struct {
 // where a well-known write lands.
 func (c deliveryCall) projectDir() string { return c.start.Paths().ProjectRoot.Host }
 
-// recordingDelivery is a plain Delivery: it records the Start passed to Deliver.
-// It also self-describes via UnsafeInfo (info), so deliverOneShared's unsafeNamed
-// fallback can pick up its identity for the loud warning when no SharedRealization
-// exists for its kind.
+// recordingDelivery is a plain Approach: it records the Start passed to
+// Deliver and presents nothing in particular. It also self-describes via
+// UnsafeInfo (info), so deliverOneShared's unsafeNamed fallback can pick up
+// its identity for the loud warning when it has no OutOfCwd form.
 type recordingDelivery struct {
 	got    *deliveryCall
 	handle Delivered
 	info   string
+}
+
+func (s recordingDelivery) Present(start present.Start) present.Presentation {
+	return start.UnderProjectRoot("x").Build()
 }
 
 func (s recordingDelivery) Deliver(start present.Start) (Delivered, error) {
@@ -73,27 +78,44 @@ func (s recordingDelivery) Deliver(start present.Start) (Delivered, error) {
 // (deliverOneShared's unsafeNamed fallback).
 func (s recordingDelivery) UnsafeInfo() string { return s.info }
 
-// dualStub implements Delivery and additionally offers DeliverIsolated — the
-// shape a SharedRealization closure wraps (e.g. claude context via
-// --append-system-prompt-file), so every cell can deliver it and a
-// SharedRealization can run its isolated path directly.
+// dualStub implements Approach and additionally offers DeliverIsolated — the
+// OutOfCwd shape (e.g. claude context via --append-system-prompt-file), so
+// every cell can deliver it and a shared-cwd delivery runs its isolated form.
 type dualStub struct{}
 
+func (dualStub) Present(start present.Start) present.Presentation {
+	return start.UnderScratch("x").Build()
+}
 func (dualStub) Deliver(present.Start) (Delivered, error)         { return stubHandle{}, nil }
 func (dualStub) DeliverIsolated(present.Start) (Delivered, error) { return stubHandle{}, nil }
 
 // dualRecordingDelivery is a recordingDelivery that ALSO carries the isolated
-// path, the shape every real surface with a SharedRealization has (claude's
-// context/MCP/settings). deliverOneShared only converts a resolved surface that
-// carries DeliverIsolated, since the realization closure is a method value bound
-// to that very instance — so a double meant to exercise the conversion has to
-// carry it too.
+// form and records whether it ran — the shape every real approach with an
+// out-of-cwd form has (claude's system-prompt context, MCP, settings).
 type dualRecordingDelivery struct {
 	recordingDelivery
+	isolated *bool
 }
 
-func (dualRecordingDelivery) DeliverIsolated(present.Start) (Delivered, error) {
+func (d dualRecordingDelivery) DeliverIsolated(present.Start) (Delivered, error) {
+	if d.isolated != nil {
+		*d.isolated = true
+	}
 	return stubHandle{}, nil
+}
+
+// riderStub is a Rider: it writes nothing (nil handle) and rides settings,
+// the shape of hook-carried context.
+type riderStub struct{ got *deliveryCall }
+
+func (riderStub) Present(start present.Start) present.Presentation { return present.Presentation{} }
+func (riderStub) Rides() SurfaceKind                               { return SurfaceSettings }
+func (r riderStub) Deliver(start present.Start) (Delivered, error) {
+	if r.got != nil {
+		r.got.called = true
+		r.got.start = start
+	}
+	return nil, nil
 }
 
 // ---- compile-time guarantees ----------------------------------------------
@@ -101,8 +123,10 @@ func (dualRecordingDelivery) DeliverIsolated(present.Start) (Delivered, error) {
 // The type-level contracts the seam depends on. That these assignments COMPILE
 // is the proof the stubs satisfy the interfaces.
 var (
-	_ Delivery  = recordingDelivery{}
-	_ Delivery  = dualStub{}
+	_ Approach  = recordingDelivery{}
+	_ Approach  = dualStub{}
+	_ OutOfCwd  = dualStub{}
+	_ Rider     = riderStub{}
 	_ Delivered = stubHandle{}
 )
 
@@ -153,9 +177,9 @@ func TestDelivery_UnrootedStartIsRefusedAtBothEntryPoints(t *testing.T) {
 
 	t.Run("shared cwd", func(t *testing.T) {
 		var call deliveryCall
-		r := &ResolvedSelection{set: fakeSharedSet{}}
-		rs := resolvedSurface{kind: SurfaceCommands, approach: ApproachUnsafeFile,
-			delivery: recordingDelivery{got: &call, handle: stubHandle{}, info: "x"}}
+		r := &ResolvedSelection{}
+		rs := resolvedSurface{kind: SurfaceCommands, name: ApproachUnsafeFile,
+			approach: recordingDelivery{got: &call, handle: stubHandle{}, info: "x"}}
 		_, err := r.deliverOneShared(rs, unrooted)
 		require.ErrorIs(t, err, ErrUnrootedDelivery)
 		assert.False(t, call.called, "the surface must not run against an unresolved root")
@@ -164,63 +188,25 @@ func TestDelivery_UnrootedStartIsRefusedAtBothEntryPoints(t *testing.T) {
 
 // ---- ResolvedSelection.deliverOneShared -------------------------------------
 
-// fakeSharedSet is a minimal SurfaceSet double for exercising
-// ResolvedSelection.deliverOneShared directly: realize, when set, is what
-// SharedRealization returns (proving deliverOneShared prefers it over the
-// well-known write); when nil, every (kind, approach) pair reports no
-// realization, so deliverOneShared falls back to the loud well-known write.
-// only, when non-nil, restricts realize to firing for exactly that approach —
-// modeling claude's pair-keyed fork (system-prompt realizes, unsafe-file does
-// not) without changing every OTHER test's "fires for whatever approach is
-// queried" fake, which is what leaving only nil preserves.
-type fakeSharedSet struct {
-	realize func(present.Start) (Delivered, error)
-	only    *Approach
-}
-
-func (fakeSharedSet) Deliveries() []Delivery { return nil }
-func (fakeSharedSet) SupportedApproaches(SurfaceKind) []Approach {
-	return []Approach{ApproachUnsafeFile}
-}
-func (fakeSharedSet) DefaultApproach(SurfaceKind) (Approach, bool)       { return ApproachUnsafeFile, true }
-func (fakeSharedSet) SurfaceFor(SurfaceKind, Approach) (Delivery, error) { return nil, nil }
-
-func (f fakeSharedSet) SharedRealization(_ SurfaceKind, a Approach) (func(present.Start) (Delivered, error), bool) {
-	if f.realize == nil {
-		return nil, false
-	}
-	if f.only != nil && *f.only != a {
-		return nil, false
-	}
-	return f.realize, true
-}
-
-var _ SurfaceSet = fakeSharedSet{}
-
-// deliverOneShared prefers a backend's SharedRealization over the well-known
-// Deliver: when SharedRealization exists for the surface's kind, its closure runs
-// (and the well-known Deliver never does).
-func TestDeliverOneShared_PrefersSharedRealization(t *testing.T) {
+// deliverOneShared prefers an approach's own OutOfCwd form over its well-known
+// Deliver: when the approach carries DeliverIsolated, that form runs (and the
+// well-known Deliver never does).
+func TestDeliverOneShared_PrefersOutOfCwdForm(t *testing.T) {
 	var isolatedCalled bool
 	var wellKnownCalled deliveryCall
-	realize := func(present.Start) (Delivered, error) {
-		isolatedCalled = true
-		return stubHandle{}, nil
-	}
-	r := &ResolvedSelection{set: fakeSharedSet{realize: realize}}
-	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnownCalled, handle: stubHandle{}}}
+	r := &ResolvedSelection{}
+	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnownCalled, handle: stubHandle{}}, &isolatedCalled}
 
-	d, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, delivery: surface}, present.ProjectOnHost("/live"))
+	d, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: surface}, present.ProjectOnHost("/live"))
 	require.NoError(t, err)
 	require.NotNil(t, d)
-	assert.True(t, isolatedCalled, "SharedRealization's closure must run")
-	assert.False(t, wellKnownCalled.called, "the well-known Deliver must NOT run when a realization exists")
+	assert.True(t, isolatedCalled, "the out-of-cwd form must run")
+	assert.False(t, wellKnownCalled.called, "the well-known Deliver must NOT run when an out-of-cwd form exists")
 }
 
-// A dual-capable surface (Delivery, and additionally DeliverIsolated) is
-// deliverable by every mechanism: isolated cells via its well-known Delivery, and
-// deliverOneShared via its isolated path when the set advertises a
-// SharedRealization for its kind.
+// A dual-capable approach (Deliver, and additionally DeliverIsolated) is
+// deliverable by every mechanism: isolated cells via its well-known Delivery,
+// and deliverOneShared via its isolated form.
 func TestDualCapableSurface_WorksInEveryMechanism(t *testing.T) {
 	if _, err := NewIsolatedCell(present.ProjectOnHost("/wt")).Deliver(dualStub{}); err != nil {
 		t.Fatalf("isolated cell (worktree): %v", err)
@@ -228,8 +214,8 @@ func TestDualCapableSurface_WorksInEveryMechanism(t *testing.T) {
 	if _, err := NewIsolatedCell(present.ProjectOnHost("/home/agent")).Deliver(dualStub{}); err != nil {
 		t.Fatalf("isolated cell (container): %v", err)
 	}
-	r := &ResolvedSelection{set: fakeSharedSet{realize: dualStub{}.DeliverIsolated}}
-	if _, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, delivery: dualStub{}}, present.ProjectOnHost("/live")); err != nil {
+	r := &ResolvedSelection{}
+	if _, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: dualStub{}}, present.ProjectOnHost("/live")); err != nil {
 		t.Fatalf("deliverOneShared: %v", err)
 	}
 }
@@ -261,7 +247,7 @@ func TestDeliverOneShared_NoRealization_WarnsThenProceeds(t *testing.T) {
 	dir := "/work/project"
 	// The surface self-describes via UnsafeInfo — no hand-typed reason.
 	surface := recordingDelivery{got: &call, handle: stubHandle{}, info: "engine/settings"}
-	r := &ResolvedSelection{set: fakeSharedSet{}} // no realization for any kind
+	r := &ResolvedSelection{} // the approach has no out-of-cwd form
 
 	var (
 		d   Delivered
@@ -270,7 +256,7 @@ func TestDeliverOneShared_NoRealization_WarnsThenProceeds(t *testing.T) {
 	// (1) the WARN streams to stderr, naming the surface (via UnsafeInfo) and the
 	// shared-cwd hazard.
 	stderr := captureStderr(t, func() {
-		d, err = r.deliverOneShared(resolvedSurface{kind: SurfaceSettings, delivery: surface}, present.ProjectOnHost(dir))
+		d, err = r.deliverOneShared(resolvedSurface{kind: SurfaceSettings, approach: surface}, present.ProjectOnHost(dir))
 	})
 	require.NoError(t, err)
 	require.NotNil(t, d)
@@ -297,10 +283,10 @@ func TestDeliverOneShared_Degraded_WarnsWithoutRecording(t *testing.T) {
 
 	var call deliveryCall
 	surface := recordingDelivery{got: &call, handle: stubHandle{}, info: "engine/context"}
-	r := &ResolvedSelection{set: fakeSharedSet{}}
+	r := &ResolvedSelection{}
 
 	stderr := captureStderr(t, func() {
-		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, delivery: surface}, present.ProjectOnHost("/w"))
+		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: surface}, present.ProjectOnHost("/w"))
 		require.NoError(t, err)
 	})
 	assert.Contains(t, stderr, "warning:", "the WARN still streams in degraded mode")
@@ -310,66 +296,45 @@ func TestDeliverOneShared_Degraded_WarnsWithoutRecording(t *testing.T) {
 	assert.Empty(t, strictness.All(), "degraded mode records no finding (warn-and-continue)")
 }
 
-// A kind-keyed SharedRealization must NOT be applied to a resolved surface that
-// does not carry the isolated path. A kind can resolve to different deliveries
-// per approach (claude's context: the dual-capable surface at UnsafeFile /
-// SystemPrompt, a documented no-op at Hook), and the realization closure is a
-// method value bound to the dual-capable instance — so converting the no-op
-// would run a write the caller explicitly did not select, doubling the content
-// the hook already carries.
-func TestDeliverOneShared_SkipsRealizationForNonIsolatableSurface(t *testing.T) {
+// A Rider (hook-carried context) writes nothing of its own: deliverOneShared
+// runs its no-op Deliver, records no handle, and emits NO warning — there is
+// no well-known write into the shared cwd to warn about, and converting it
+// to some other surface's out-of-cwd form would run a write the caller never
+// selected, doubling the content the hook already carries.
+func TestDeliverOneShared_RiderIsANoOpWithoutWarning(t *testing.T) {
 	resetStrictness(t)
 
-	var realizeCalled bool
-	var wellKnown deliveryCall
-	realize := func(present.Start) (Delivered, error) {
-		realizeCalled = true
-		return stubHandle{}, nil
-	}
-	r := &ResolvedSelection{set: fakeSharedSet{realize: realize}}
-	// A plain Delivery — no DeliverIsolated, exactly like claude's Hook no-op.
-	surface := recordingDelivery{got: &wellKnown, handle: nil, info: "engine/context"}
-
-	d, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachHook, delivery: surface}, present.ProjectOnHost("/live"))
+	var call deliveryCall
+	r := &ResolvedSelection{}
+	var (
+		d   Delivered
+		err error
+	)
+	stderr := captureStderr(t, func() {
+		d, err = r.deliverOneShared(resolvedSurface{kind: SurfaceContext, name: ApproachHook, approach: riderStub{got: &call}}, present.ProjectOnHost("/live"))
+	})
 	require.NoError(t, err)
 	assert.Nil(t, d, "the no-op wrote nothing, so there is no cleanup handle")
-	assert.False(t, realizeCalled, "the kind-keyed realization belongs to a DIFFERENT surface instance")
+	assert.True(t, call.called, "the rider's own Deliver runs (it is what records the no-op)")
+	assert.NotContains(t, stderr, "warning:", "a rider writes nothing into the shared cwd, so nothing is warned")
 }
 
-// EmptySurfaceSet.SurfaceFor must REFUSE every (kind, approach) pair. The
-// SurfaceSet contract says SurfaceFor "errors on an unsupported combination the
-// builder did not pre-validate", and an empty set supports nothing at all — so
-// returning a nil Delivery with a nil error hands a direct caller an untyped-nil
-// interface that panics on the first Deliver, with no error to branch on.
-// claude's genuine no-op is a CONCRETE noopContextDelivery value, never a nil
-// Delivery, so no backend depends on the (nil, nil) spelling.
-func TestEmptySurfaceSet_SurfaceForErrorsForEveryKind(t *testing.T) {
-	for _, k := range []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceCommands, SurfaceSkills} {
-		for _, a := range []Approach{ApproachUnsafeFile, ApproachSystemPrompt, ApproachHook} {
-			d, err := EmptySurfaceSet{}.SurfaceFor(k, a)
-			require.Error(t, err, "empty set supports no (%s, %s) combination", k, a)
-			assert.Nil(t, d, "a refused resolution must not also hand back a delivery")
-			assert.Contains(t, err.Error(), k.String(), "the error must name the surface it refused")
-		}
-	}
-}
-
-// The acp/protocol-only path is UNAFFECTED by the refusal above: Build() never
-// reaches SurfaceFor on an empty set, because SupportedApproaches is nil for
-// every kind and Build treats an empty support list as a permitted no-op. This
-// is the public-seam characterization pin — green before and after the fix —
-// so the refusal cannot regress acp's "materialize nothing" contract.
-func TestEmptySurfaceSet_BuildStillResolvesToNothing(t *testing.T) {
-	everything, err := Select(EmptySurfaceSet{}).WithEverything().Build()
-	require.NoError(t, err, "WithEverything over an empty set is a no-op, not an error")
+// An EMPTY Declaration (a protocol-only engine that materializes no files)
+// resolves to nothing rather than erroring: WithEverything selects nothing,
+// and an explicitly named selection over it is still a permitted no-op — a
+// kind the engine does not declare is a fold, not a fault. This is what keeps
+// the "materialize nothing" contract from regressing.
+func TestEmptyDeclaration_BuildResolvesToNothing(t *testing.T) {
+	everything, err := Select(Declaration{}).WithEverything().Build(SurfaceInputs{}, nil)
+	require.NoError(t, err, "WithEverything over an empty declaration is a no-op, not an error")
 	assert.Empty(t, everything.Deliveries())
 
-	named, err := Select(EmptySurfaceSet{}).
-		WithContext(ContextWriteUnsafeFile).
-		WithMCP(MCPWriteUnsafeFile).
-		WithSettings(SettingsWriteUnsafeFile).
-		Build()
-	require.NoError(t, err, "an explicitly named selection over an empty set is still a permitted no-op")
+	named, err := Select(Declaration{}).
+		With(SurfaceContext, ApproachUnsafeFile).
+		With(SurfaceMCP, ApproachUnsafeFile).
+		With(SurfaceSettings, ApproachUnsafeFile).
+		Build(SurfaceInputs{}, nil)
+	require.NoError(t, err, "an explicitly named selection over an empty declaration is still a permitted no-op")
 	assert.Empty(t, named.Deliveries())
 
 	delivered, kinds, errs := everything.DeliverUnder(present.ProjectOnHost(t.TempDir()))
@@ -378,59 +343,102 @@ func TestEmptySurfaceSet_BuildStillResolvesToNothing(t *testing.T) {
 	assert.Empty(t, kinds)
 }
 
-// RESOLUTION of U100-F05, half 1 of 2 (was:
-// TestDeliverOneShared_RealizationWinsAtEveryApproach_U100F05, the anti-test
-// pinning the kind-alone defect this pair-keyed re-key fixes — see the sibling
-// test below for the other half). deliverOneShared now reads rs.approach:
-// SharedRealization is keyed on the (kind, approach) PAIR, so a caller that
-// explicitly named the out-of-cwd approach (ContextWriteSystemPrompt) gets the
-// scratch conversion, race-safe and unwarned.
-func TestDeliverOneShared_SystemPromptRealizes_U100F05(t *testing.T) {
-	resetStrictness(t)
-
-	var realizeCalled bool
-	var wellKnown deliveryCall
-	sysPrompt := ApproachSystemPrompt
-	r := &ResolvedSelection{set: fakeSharedSet{only: &sysPrompt, realize: func(present.Start) (Delivered, error) {
-		realizeCalled = true
-		return stubHandle{}, nil
-	}}}
-	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}}
-
-	stderr := captureStderr(t, func() {
-		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachSystemPrompt, delivery: surface}, present.ProjectOnHost("/live"))
-		require.NoError(t, err)
-	})
-
-	assert.True(t, realizeCalled, "system-prompt: the pair-keyed realization runs")
-	assert.False(t, wellKnown.called, "system-prompt: the well-known write never runs when a realization exists")
-	assert.NotContains(t, stderr, "warning:", "system-prompt: race-safe, no warning")
+// A name the engine does NOT declare for a kind it DOES declare is a loud
+// Build error naming the surface, the name and the declared set — never a
+// zero value that delivers nothing while reporting success, and never a
+// silent fallback to the default. This is the open-set's price (no compiler
+// check) paid the way the open-sets ruling requires: the lookup fails loud.
+func TestBuild_UndeclaredNameIsLoudError(t *testing.T) {
+	decl := Declaration{
+		SurfaceContext: Presents("eng", SurfaceContext, ApproachUnsafeFile, func(SurfaceInputs, afero.Fs) Approach {
+			return recordingDelivery{handle: stubHandle{}}
+		}),
+	}
+	_, err := Select(decl).With(SurfaceContext, "steering").Build(SurfaceInputs{}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context")
+	assert.Contains(t, err.Error(), `"steering"`)
+	assert.Contains(t, err.Error(), ApproachUnsafeFile, "the error names what IS declared")
 }
 
-// RESOLUTION of U100-F05, half 2 of 2 (see the sibling test above). A caller
-// that explicitly named the native-file approach (ContextWriteUnsafeFile —
-// "write CLAUDE.md") gets EXACTLY that: no realization fires for this pair, so
-// deliverOneShared falls to the well-known write, loudly warned — the
-// honor-with-warning fork DECIDED for U100-F05 (a refuse-loudly alternative
-// was rejected: the approach name itself is the acknowledgment).
-func TestDeliverOneShared_UnsafeFileHonoredWithWarning_U100F05(t *testing.T) {
+// A Rider selected without the surface it rides is refused at Build: delivered
+// alone it would write nothing and report success.
+func TestBuild_RiderWithoutRiddenKindIsRefused(t *testing.T) {
+	decl := Declaration{
+		SurfaceContext: Presents("eng", SurfaceContext, ApproachHook, func(SurfaceInputs, afero.Fs) Approach {
+			return riderStub{}
+		}),
+		SurfaceSettings: Presents("eng", SurfaceSettings, ApproachUnsafeFile, func(SurfaceInputs, afero.Fs) Approach {
+			return recordingDelivery{handle: stubHandle{}}
+		}),
+	}
+	_, err := Select(decl).With(SurfaceContext, ApproachHook).Build(SurfaceInputs{}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "settings")
+
+	_, err = Select(decl).With(SurfaceContext, ApproachHook).With(SurfaceSettings, ApproachUnsafeFile).Build(SurfaceInputs{}, nil)
+	require.NoError(t, err)
+}
+
+// A LaunchOnly approach is refused at rest: its bytes are announced by a
+// launch flag, and DeliverUnder has no argv sink to hand that flag to.
+func TestDeliverUnder_LaunchOnlyIsRefused(t *testing.T) {
+	var call deliveryCall
+	r := &ResolvedSelection{surfaces: []resolvedSurface{
+		{kind: SurfaceContext, name: "system-prompt", approach: launchOnlyStub{recordingDelivery{got: &call, handle: stubHandle{}}}},
+	}}
+	_, kinds, errs := r.DeliverUnder(present.ProjectOnHost("/at-rest"))
+	require.Len(t, errs, 1)
+	assert.Contains(t, errs[0].Error(), "system-prompt")
+	assert.Contains(t, errs[0].Error(), "no argv sink")
+	assert.Empty(t, kinds)
+	assert.False(t, call.called, "the write must not run at rest")
+}
+
+// launchOnlyStub marks recordingDelivery as LaunchOnly.
+type launchOnlyStub struct{ recordingDelivery }
+
+func (launchOnlyStub) LaunchOnly() {}
+
+// A caller that explicitly named the out-of-cwd approach (claude's
+// system-prompt: an approach WITH an OutOfCwd form) gets the scratch
+// conversion, race-safe and unwarned.
+func TestDeliverOneShared_OutOfCwdApproachRealizesUnwarned(t *testing.T) {
 	resetStrictness(t)
 
 	var realizeCalled bool
 	var wellKnown deliveryCall
-	sysPrompt := ApproachSystemPrompt
-	r := &ResolvedSelection{set: fakeSharedSet{only: &sysPrompt, realize: func(present.Start) (Delivered, error) {
-		realizeCalled = true
-		return stubHandle{}, nil
-	}}}
-	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}}
+	r := &ResolvedSelection{}
+	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}, &realizeCalled}
 
 	stderr := captureStderr(t, func() {
-		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachUnsafeFile, delivery: surface}, present.ProjectOnHost("/live"))
+		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, name: "system-prompt", approach: surface}, present.ProjectOnHost("/live"))
 		require.NoError(t, err)
 	})
 
-	assert.False(t, realizeCalled, "unsafe-file: no realization for this pair — the caller's native-file request is honored, not silently converted")
+	assert.True(t, realizeCalled, "the out-of-cwd form runs")
+	assert.False(t, wellKnown.called, "the well-known write never runs when an out-of-cwd form exists")
+	assert.NotContains(t, stderr, "warning:", "race-safe, no warning")
+}
+
+// A caller that explicitly named the native-file approach (an approach
+// WITHOUT an OutOfCwd form — "write CLAUDE.md") gets EXACTLY that: the
+// well-known write, loudly warned — the honor-with-warning fork (a
+// refuse-loudly alternative was rejected: the approach name itself is the
+// acknowledgment). Because the two are DIFFERENT approach values, nothing
+// can convert the native-file one by mistake.
+func TestDeliverOneShared_UnsafeFileHonoredWithWarning(t *testing.T) {
+	resetStrictness(t)
+
+	var wellKnown deliveryCall
+	r := &ResolvedSelection{}
+	surface := recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}
+
+	stderr := captureStderr(t, func() {
+		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, name: ApproachUnsafeFile, approach: surface}, present.ProjectOnHost("/live"))
+		require.NoError(t, err)
+	})
+
 	assert.True(t, wellKnown.called, "unsafe-file: the well-known write (the CLAUDE.md-equivalent write) runs")
 	assert.Equal(t, "/live", wellKnown.projectDir(), "the well-known write targets the live shared cwd")
 	assert.Contains(t, stderr, "warning:", "unsafe-file into a shared cwd is loudly warned")

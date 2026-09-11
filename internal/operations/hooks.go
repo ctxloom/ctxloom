@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -543,7 +544,7 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 // The NATIVE-file backend (kiro) reads context from
 // .kiro/steering and DIVERTS the injection hook, so for it apply names
 // WithContext(UnsafeFile), materializing the context surface with the assembled
-// context. contextViaHook (descriptor-keyed via SupportedApproaches) picks the
+// context. contextViaHook (read from the engine's Declaration) picks the
 // right approach per backend — the enum-driven replacement for the retired
 // contextViaNativeFile bool. Commands are delivered only when there are prompts,
 // preserving the prior guard (no prompts ⇒ command files left untouched).
@@ -555,37 +556,38 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash, nil).Wire()
 	settings := p.freshCfg.GetSettings()
 
-	set := backends.BuildSurfaces(backendName, agent.SurfaceInputs{
+	decl := backends.Declared(backendName)
+	inputs := agent.SurfaceInputs{
 		// Empty when context was not regenerated this round (assembledContext ==
 		// ""), which strips a native-file backend's managed context section —
-		// matching the prior write. Ignored by the hook-context backends (claude
-		// context via Hook writes no native file; codex's context surface reads
-		// Fragments, not this string), so it is safe to set for every backend.
+		// matching the prior write. Ignored by a hook-context approach (context
+		// via the hook writes no native file), so it is safe to set for every
+		// backend.
 		Context:          p.assembledContext,
 		BundleMCP:        p.bundleMCP,
 		Hooks:            hooksCfg,
 		ManageStatusline: settings.ShouldManageStatusline(),
 		Commands:         backends.CommandExportsFor(backendName, p.prompts),
 		DenyTools:        backends.AssembleManagedDenyTools(p.freshCfg, nil),
-	}, p.fs)
+	}
 
-	sel := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile)
+	sel := agent.Select(decl).With(agent.SurfaceSettings, agent.ApproachUnsafeFile).With(agent.SurfaceMCP, agent.ApproachUnsafeFile)
 	// skipContext omits WithContext entirely rather than selecting
 	// it with empty content — Select's opt-in model means an unselected
 	// surface is never delivered at all (cells.go), so this is a true no-op:
-	// nothing is written, nothing is stripped. Selecting ContextWriteUnsafeFile
+	// nothing is written, nothing is stripped. Selecting the native file
 	// with p.assembledContext == "" is what used to reach the native-file
 	// writers and get interpreted as "clear the managed section" regardless of
 	// WHY it was empty.
 	if !p.skipContext {
-		if contextViaHook(set) {
-			sel = sel.WithContext(agent.ContextWriteHook)
+		if contextViaHook(decl) {
+			sel = sel.With(agent.SurfaceContext, agent.ApproachHook)
 		} else {
-			sel = sel.WithContext(agent.ContextWriteUnsafeFile)
+			sel = sel.With(agent.SurfaceContext, agent.ApproachUnsafeFile)
 		}
 	}
 	if len(p.prompts) > 0 {
-		sel = sel.WithCommands(agent.CommandsWriteUnsafeFile)
+		sel = sel.With(agent.SurfaceCommands, agent.ApproachUnsafeFile)
 	}
 	// The ONE write in this function. Everything above resolves; nothing above
 	// touches disk. A dry run therefore stops exactly here, having done all the
@@ -593,26 +595,19 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	if p.dryRun {
 		return nil
 	}
-	if _, _, errs := sel.DeliverUnder(present.ProjectOnHost(p.workDir)); len(errs) > 0 {
+	if _, _, errs := sel.DeliverUnder(inputs, p.fs, present.ProjectOnHost(p.workDir)); len(errs) > 0 {
 		return fmt.Errorf("failed to apply %s: %w", backendName, errors.Join(errs...))
 	}
 	return nil
 }
 
 // contextViaHook reports whether the backend delivers context through the
-// SessionStart inject-context hook (claude/codex — their context surface
-// advertises agent.ApproachHook) rather than a native context file
-// (kiro, UnsafeFile only). It is the descriptor-keyed replacement for
-// the retired backends.ContextViaNativeFile: apply reads it to pick
-// WithContext(Hook) vs WithContext(UnsafeFile), so a static native file is never
+// SessionStart inject-context hook (its context surface declares
+// agent.ApproachHook) rather than only a native context file. Apply reads it
+// to pick the hook vs the native file, so a static native file is never
 // written alongside the hook.
-func contextViaHook(set agent.SurfaceSet) bool {
-	for _, a := range set.SupportedApproaches(agent.SurfaceContext) {
-		if a == agent.ApproachHook {
-			return true
-		}
-	}
-	return false
+func contextViaHook(decl agent.Declaration) bool {
+	return slices.Contains(decl.Names(agent.SurfaceContext), agent.ApproachHook)
 }
 
 // regenerateContext loads fragments from default profiles and writes the context file.

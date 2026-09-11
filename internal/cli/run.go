@@ -346,7 +346,7 @@ type runState struct {
 	agentPermissions string
 	// agentSurfaces is the bound agent's resolved delivery preference, carried
 	// to the backend on the managed payload.
-	agentSurfaces map[agent.SurfaceKind]agent.Approach
+	agentSurfaces map[agent.SurfaceKind]string
 	// The session's runtime axis: the agent's resolved runtime, or the project
 	// `runtime:` default for a classic run. Parsed once, in resolveLaunchSource
 	// (the classic-run default) or resolveAgentBinding (an agent binding's own

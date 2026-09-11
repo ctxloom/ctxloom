@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -135,12 +133,10 @@ func (c MockConfig) GetEnv() map[string]string { return c.Env }
 
 // NewMock creates a new Mock backend.
 //
-// The InitLaunch wiring is deliberately the plainest one in the tree — the
-// well-known-file Build adapter every non-claude launch backend uses, over
-// mock's context-only SurfaceSet (mock_surfaces.go). RawContext stays FALSE:
-// mock has no SessionStart hook and no CTXLOOM_CONTEXT_FILE consumer, so its
-// context rides MOCK_CONTEXT.md as its own native well-known file, and
-// ContextHook (which requires RawContext) stays false with it. History is the
+// The InitLaunch wiring is deliberately the plainest one in the tree: mock's
+// own Declaration (mock_surfaces.go). Its context rides MOCK_CONTEXT.md as
+// its own native well-known file — mock declares no hook-carried context, so
+// no SessionStart injection hook is ever installed for it. History is the
 // same NilSessionHistory the backend has always reported — mock keeps no
 // transcripts.
 // NewMockLossy builds the deliberately-lossy sibling of the mock backend. It
@@ -176,9 +172,7 @@ func newMockBackend(name string) *Mock {
 		agent.NewBaseLifecycle(name),
 		agent.NewBaseContextProvider(),
 		&NilSessionHistory{},
-		&agent.CellDelivery{Build: agent.BuildWellKnown(func(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
-			return NewMockSurfaces(name, in, fs)
-		})},
+		mockDeclaration(name),
 	)
 	return b
 }

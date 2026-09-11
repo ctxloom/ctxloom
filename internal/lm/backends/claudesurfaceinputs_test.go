@@ -27,21 +27,19 @@ import (
 // The assertion is on the delivered BYTES, not on the struct: a dropped field
 // has no compile error and no runtime error — it produces a .mcp.json that
 // looks entirely plausible and names a binary the container cannot exec.
-func TestBuildSurfaces_Claude_CarriesMCPCommandOverride(t *testing.T) {
+func TestDeclared_Claude_CarriesMCPCommandOverride(t *testing.T) {
 	const override = "/usr/local/bin/ctxloom"
 
 	fs := afero.NewMemMapFs()
 	dir := "/cell"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	set := BuildSurfaces("claude-code", agent.SurfaceInputs{
+	resolved, err := agent.Select(Declared("claude-code")).WithEverything().Build(agent.SurfaceInputs{
 		Context:            "ctx",
 		BundleMCP:          map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}},
 		Hooks:              &wire.HooksConfig{},
 		MCPCommandOverride: override,
 	}, fs)
-
-	resolved, err := agent.Select(set).WithEverything().Build()
 	require.NoError(t, err)
 	for _, kd := range resolved.Deliveries() {
 		_, err := kd.Deliver(present.ProjectOnHost(dir))

@@ -26,12 +26,13 @@ import (
 // skill exports are managed package trees: on Deliver it writes every enabled
 // package, and its cleanup reverts exactly the manifest-tracked file set by
 // re-writing with no packages. Managed skill files are cwd-rooted with no
-// SharedRealization (no engine has an out-of-cwd flag for a skill package), so
+// out-of-cwd form (no engine has an out-of-cwd flag for a skill package), so
 // a SHARED-cwd delivery of it falls back to the loud well-known write; it
 // carries an engine/surface name (e.g. "claude/skills") and self-describes for
 // that fallback's warning via UnsafeInfo.
 type ManagedSkillPackagesDelivery struct {
 	name   string
+	rel    string // the skills dir beneath the project root, for Present
 	skills []SkillExport
 	write  func(dir string, skills []SkillExport) error
 }
@@ -40,9 +41,17 @@ type ManagedSkillPackagesDelivery struct {
 // engine/surface name (e.g. "claude/skills", for the shared-cwd fallback
 // warning), the enabled exports, and the engine's manifest-scoped
 // skill-package writer, bound so that write(dir, skills) materializes every
-// package under dir and write(dir, nil) reverts exactly the managed set.
-func NewManagedSkillPackagesDelivery(name string, skills []SkillExport, write func(dir string, skills []SkillExport) error) *ManagedSkillPackagesDelivery {
-	return &ManagedSkillPackagesDelivery{name: name, skills: skills, write: write}
+// package under dir and write(dir, nil) reverts exactly the managed set. rel
+// is the skills directory the writer lands in, relative to the project root —
+// what Present declares.
+func NewManagedSkillPackagesDelivery(name, rel string, skills []SkillExport, write func(dir string, skills []SkillExport) error) *ManagedSkillPackagesDelivery {
+	return &ManagedSkillPackagesDelivery{name: name, rel: rel, skills: skills, write: write}
+}
+
+// Present declares the skills directory beneath the advised project root. No
+// flag: no engine has an out-of-cwd redirect for a skill package.
+func (s *ManagedSkillPackagesDelivery) Present(start present.Start) present.Presentation {
+	return start.UnderProjectRoot(s.rel).Build()
 }
 
 // UnsafeInfo returns the engine/surface identity for the DeliverShared
@@ -107,6 +116,6 @@ func WriteManagedSkillPackages(fs afero.Fs, skillsDir string, skills []SkillExpo
 
 // Compile-time contract.
 var (
-	_ Delivery       = (*ManagedSkillPackagesDelivery)(nil)
+	_ Approach       = (*ManagedSkillPackagesDelivery)(nil)
 	_ KindedDelivery = (*ManagedSkillPackagesDelivery)(nil)
 )

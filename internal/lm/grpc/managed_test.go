@@ -112,8 +112,8 @@ func TestManagedConverters_EmptyAndNilAreOneAnswer(t *testing.T) {
 // only symptom is context arriving by a different route.
 func TestManagedConfig_SurfacePreferenceSurvivesTheWire(t *testing.T) {
 	in := &agent.ManagedConfig{
-		Surfaces: map[agent.SurfaceKind]agent.Approach{
-			agent.SurfaceContext: agent.ApproachSystemPrompt,
+		Surfaces: map[agent.SurfaceKind]string{
+			agent.SurfaceContext: "system-prompt",
 			agent.SurfaceSkills:  agent.ApproachUnsafeFile,
 		},
 	}
@@ -122,16 +122,20 @@ func TestManagedConfig_SurfacePreferenceSurvivesTheWire(t *testing.T) {
 	assert.Equal(t, in.Surfaces, out.Surfaces, "the preference must round-trip unchanged")
 }
 
-// An unparseable label costs the caller its PREFERENCE, not its session — but
-// never silently: the engine default is a legitimate fallback, running with a
-// delivery nobody chose while reporting nothing is not.
-func TestManagedConfig_UnparseableSurfaceLabelDegradesRatherThanCorrupting(t *testing.T) {
+// An unparseable KIND label costs the caller its PREFERENCE, not its session
+// — but never silently: the engine default is a legitimate fallback, running
+// with a delivery nobody chose while reporting nothing is not. An approach
+// NAME is not judged here at all: the set of approaches is open and declared
+// per engine, so the name passes through untouched for the engine's own
+// Declaration to refuse loudly at Build.
+func TestManagedConfig_UnparseableSurfaceKindDegradesRatherThanCorrupting(t *testing.T) {
 	out := managedConfigFromProto(&ManagedConfig{
-		Surfaces: map[string]string{"context": "telepathy", "skills": "unsafe-file"},
+		Surfaces: map[string]string{"telepathy": "unsafe-file", "context": "steering", "skills": "unsafe-file"},
 	})
 	require.NotNil(t, out)
-	assert.NotContains(t, out.Surfaces, agent.SurfaceContext,
-		"an unknown approach must be dropped, never resolved to iota 0 (unsafe-file, the least safe)")
+	assert.Len(t, out.Surfaces, 2, "the unknown kind is dropped; the two readable pairs survive")
+	assert.Equal(t, "steering", out.Surfaces[agent.SurfaceContext],
+		"an approach name travels as-is; only the engine's Declaration can judge it")
 	assert.Equal(t, agent.ApproachUnsafeFile, out.Surfaces[agent.SurfaceSkills],
 		"the readable pairs still apply")
 }

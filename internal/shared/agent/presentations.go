@@ -1,12 +1,9 @@
 package agent
 
 import (
-	"fmt"
 	"sort"
-	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/spf13/afero"
 )
 
 // This file is the CONFIG-AUTHORED construction path for engine surface
@@ -18,36 +15,13 @@ import (
 // present makes an illegal one UNWRITABLE and its Build TOTAL. A composition
 // authored in USER CONFIG is seen by no compiler: an agent-binding file on
 // disk names a delivery as a bare string. Completeness there cannot be proven
-// at build time, so it is established at RESOLVE time instead, and the failure
-// is a strictness finding rather than a type error.
-//
-// What an unknown name does, and why it is not simply an error: it is a
-// ClassConfig finding — fatal by default, degradable under --degraded, where
-// it falls back to the engine's declared default. Launching with a different
-// presentation of the same bytes is not itself the harm, so the launch is
-// allowed to proceed once the user has said they accept less. A boundary
-// breach would use FailAlways; this is deliberately not one.
+// at build time, so it is established at RESOLVE time instead: the name is
+// looked up in the engine's Declaration, and a name it cannot construct is
+// refused where it entered — a ClassConfig finding at config load, a loud
+// Build error at delivery. Neither path falls back to the default behind the
+// caller's back.
 
-// Presenter builds ONE presentation of one surface.
-//
-// It receives an already-ADVISED Start — present.Paths resolved AND, where
-// this run is containerized, remapped — and begins composing from it. That
-// inversion is the point of the type: engines do not agree on what they root
-// on. One materializes under the project root; another under a relocated
-// home it names with its own environment variable. Handing over a Start
-// rather than a single pre-rooted path is what lets either kind of engine
-// build from the SAME value, choosing UnderProjectRoot or UnderEngineHome
-// for itself — and it is also what makes a Presenter provably unable to
-// branch on containerization: the rewrite already happened before this
-// function was ever called, so there is nothing left for it to ask.
-//
-// It returns a Presentation and no error. That is inherited, not overlooked —
-// present.Rooted.Build is total, so an engine that reached a buildable state
-// has nothing left to fail at. Resolving and advising Paths is the caller's
-// business and has already succeeded by the time a Presenter runs.
-type Presenter func(present.Start) present.Presentation
-
-// Presentations is one engine's declared presentations of ONE surface: every
+// Presentations is one engine's declared approaches for ONE surface: every
 // delivery that engine can construct for that surface, and which of them it
 // falls back to.
 //
@@ -55,13 +29,13 @@ type Presenter func(present.Start) present.Presentation
 // is what made the enum expensive: a name could be listed as supported while
 // no surface existed to build it, so "supported" and "constructible" were two
 // facts that could disagree, and a user-facing failure could come from either.
-// Here a name is known IF AND ONLY IF a Presenter is registered under it —
+// Here a name is known IF AND ONLY IF a Construct is registered under it —
 // support is not recorded anywhere, it is the presence of the thing that does
 // the work. The disagreement is therefore not merely caught; it is unwritable.
 //
-// The vocabulary is DERIVED from the registered Presenters (see Names), never
-// declared beside them, so it cannot drift from what the engine can actually
-// build.
+// The vocabulary is DERIVED from the registered constructors (see Names),
+// never declared beside them, so it cannot drift from what the engine can
+// actually build.
 type Presentations struct {
 	engine string
 	kind   SurfaceKind
@@ -72,19 +46,19 @@ type Presentations struct {
 	// the order of a literal load-bearing. Presents takes it as a required
 	// argument, so a Presentations without a default does not exist.
 	def    string
-	byName map[string]Presenter
+	byName map[string]Construct
 }
 
 // Presents begins an engine's declaration for one surface with its DEFAULT.
 // The default is the required first delivery rather than a field set later
 // because both of its invariants then hold by construction: every
 // Presentations has one, and it names something the engine can actually build.
-func Presents(engine string, kind SurfaceKind, defaultName string, p Presenter) Presentations {
+func Presents(engine string, kind SurfaceKind, defaultName string, c Construct) Presentations {
 	return Presentations{
 		engine: engine,
 		kind:   kind,
 		def:    defaultName,
-		byName: map[string]Presenter{defaultName: p},
+		byName: map[string]Construct{defaultName: c},
 	}
 }
 
@@ -93,76 +67,28 @@ func Presents(engine string, kind SurfaceKind, defaultName string, p Presenter) 
 // It copies rather than mutating in place so that a Presentations shared as a
 // value cannot have deliveries added to it through an alias — declarations are
 // built once and then read concurrently by whatever launches.
-func (d Presentations) Or(name string, p Presenter) Presentations {
-	next := make(map[string]Presenter, len(d.byName)+1)
+func (d Presentations) Or(name string, c Construct) Presentations {
+	next := make(map[string]Construct, len(d.byName)+1)
 	for k, v := range d.byName {
 		next[k] = v
 	}
-	next[name] = p
+	next[name] = c
 	d.byName = next
 	return d
 }
 
 // Names lists every delivery this engine can construct for this surface,
-// sorted. It is derived from the registered Presenters, so it cannot claim
+// sorted. It is derived from the registered constructors, so it cannot claim
 // support the engine does not have.
 //
 // It is a PURE function of the declaration: no environment, no roots, nothing
 // constructed. Help text and completion call it before anything is resolved.
 //
 // Sorted, and not in declaration order, on purpose: order carries NO meaning
-// here. The default is a named field, so leaving declaration order visible
-// would invite a reader to infer a ranking from it that nothing honours.
-// ApproachesFor renders a Presentations' declared names back into the Approach
-// vocabulary that SurfaceSet's cross-backend interface still keys on, with the
-// DEFAULT FIRST.
-//
-// THE DEFAULT-FIRST ORDERING IS THE WHOLE POINT, and it exists because the two
-// mechanisms disagree about whether order means anything. Names() sorts, on
-// purpose — see its doc: order carries no meaning, because the default is a
-// named field. The OLDER contract, stated in cells.go and enforced across every
-// registered backend by TestApproachDispatch_DefaultIsFirstSupported, is the
-// opposite: a backend's default IS the first approach it advertises. This
-// function is the bridge, and rebuilding the order from the NAMED default is
-// what reconciles them: the declaration stays order-free, the advertised list
-// still leads with the default.
-//
-// IT IS SHARED BECAUSE THE NAIVE VERSION IS WRONG IN A WAY NOTHING LOCAL
-// CATCHES. Both the mock and claude grew a private copy; the mock's simply
-// mapped Names() through, preserving sorted order and ignoring the default. That
-// satisfied the contract BY ACCIDENT — every mock surface has exactly one
-// approach per kind, so "first sorted" and "the default" are the same element
-// and the disagreement cannot surface. claude's context surface has three, and
-// sorted order puts "hook" ahead of the default "unsafe-file". A future engine
-// copying the mock's shape would advertise the wrong order silently, and the
-// failure would present as "the new engine broke a shared test" rather than as
-// the helper being wrong.
-//
-// Hoisting it is a deliberate SHARED-FILE edit, ruled by the human 2026-09-10
-// alongside a relaxation of the one-new-file criterion: a new engine is a new
-// PACKAGE, shared test matrices are fine, and only MEANINGFUL shared edits are
-// forbidden.
-//
-// A name Presentations produced always parses, so an unparseable one is dropped
-// rather than reported: there is no caller that could act on the error.
-func ApproachesFor(d Presentations) []Approach {
-	names := d.Names()
-	out := make([]Approach, 0, len(names))
-	def := d.Default()
-	if a, err := ParseApproach(def); err == nil {
-		out = append(out, a)
-	}
-	for _, n := range names {
-		if n == def {
-			continue
-		}
-		if a, err := ParseApproach(n); err == nil {
-			out = append(out, a)
-		}
-	}
-	return out
-}
-
+// here. The default is a named field (Default), so leaving declaration order
+// visible would invite a reader to infer a ranking from it that nothing
+// honours. Every reader that needs the default asks Default and compares by
+// identity; none reads a position.
 func (d Presentations) Names() []string {
 	names := make([]string, 0, len(d.byName))
 	for name := range d.byName {
@@ -176,22 +102,15 @@ func (d Presentations) Names() []string {
 // same reason Names is.
 func (d Presentations) Default() string { return d.def }
 
-// Resolve constructs the presentation config asked for by name, against an
-// already-advised Start.
-//
-// An unrecognised name raises a ClassConfig finding and falls back to the
-// engine's default. There is deliberately NO branch on degraded state here and
-// no strict parameter: strictness owns fatal-vs-warn centrally, so this
-// returns the same presentation either way and the startup gate decides
-// whether the launch proceeds. A check that decided its own fatality would be
-// a second policy, free to disagree with the first.
-func (d Presentations) Resolve(requested string, start present.Start) present.Presentation {
-	if p, ok := d.byName[requested]; ok {
-		return p(start)
+// Engine reports which engine declared these presentations, for error text.
+func (d Presentations) Engine() string { return d.engine }
+
+// Construct builds the named approach from a run's content. false means the
+// name is not declared; the caller names the failure (see the file doc).
+func (d Presentations) Construct(name string, in SurfaceInputs, fs afero.Fs) (Approach, bool) {
+	c, ok := d.byName[name]
+	if !ok {
+		return nil, false
 	}
-	strictness.FailOnce(strictness.ClassConfig,
-		fmt.Sprintf("set the %s surface to one of %s, or remove it to take %s's default (%s)",
-			d.kind, strings.Join(d.Names(), ", "), d.engine, d.def),
-		"%s: unknown %s delivery %q", d.engine, d.kind, requested)
-	return d.byName[d.def](start)
+	return c(in, fs), true
 }

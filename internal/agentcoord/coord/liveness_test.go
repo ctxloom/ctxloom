@@ -102,9 +102,18 @@ func TestLivenessSnapshot_FiresOnStuckChildAndNotOnHealthyOne(t *testing.T) {
 // exactly like the stuck one — a park can hold a child for minutes (waiting
 // in agent_recv, or waiting on a permission decision at its engine), and
 // reaping one turns a working system into one that kills its own children.
+//
+// The briefing turn is held OPEN for the whole test. That is not a
+// convenience: a parked child is one blocked INSIDE its agent_recv tool call
+// (AgentRecv calls onRolePark and then blocks on the poll), so its turn
+// boundary cannot land until it unparks. A fake whose turn auto-completes
+// races that boundary's StateIdle against the park — a sequence production
+// cannot produce — and whichever journals last decides the verdict.
 func TestLivenessSnapshot_ParkSuppressesTheVerdict(t *testing.T) {
 	livenessTestHome(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	gate := make(chan struct{})
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	harp := spawnOneChild(t, c)
@@ -115,18 +124,22 @@ func TestLivenessSnapshot_ParkSuppressesTheVerdict(t *testing.T) {
 	require.NotNil(t, before)
 	require.Equal(t, liveness.StateStalled, before.State, "precondition: %s", before.Reason)
 
-	// Park it, exactly as onRolePark does when a child yields its slot.
+	// Park it through the production path: a child waiting in agent_recv
+	// yields its slot mid-turn.
+	c.onRolePark(harp)
 	c.mu.Lock()
 	rt := c.byHarp[harp]
 	c.mu.Unlock()
 	require.NotNil(t, rt, "precondition: the spawned child must have a runtime attachment")
-	c.setState(rt, StateParked)
+	require.Equal(t, StateParked, c.runState(rt.runID), "precondition: onRolePark must have journaled the park")
 
 	after := reportFor(c.livenessSnapshot(context.Background()), harp)
 	require.NotNil(t, after)
 	assert.Equal(t, liveness.StateAwaitingApproval, after.State,
 		"a PARKED child must NEVER be reported stalled: %s", after.Reason)
 	assert.False(t, after.Firing())
+
+	close(gate) // release the held turn so the child's turnGate goroutine doesn't leak past the test
 }
 
 // The transcript path the adapter hands the monitor must be the one the

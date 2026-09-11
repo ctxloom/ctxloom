@@ -3,7 +3,6 @@ package operations
 import (
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -170,15 +169,10 @@ func MigrateHarpArtifacts(sessionsRoot string) (HarpArtifactMigration, error) {
 		return result, fmt.Errorf("scan %q: %w", sessionsRoot, err)
 	}
 	for _, e := range entries {
-		// Only directories are harps; index.yaml sits beside them at the root.
-		// A symlink's DirEntry type comes from lstat, so this is already false
-		// for one — stated explicitly because "never descend through a symlink
-		// into somewhere outside the sessions root" is the exclusion whose
-		// absence would be the serious one.
-		if !e.IsDir() || e.Type()&fs.ModeSymlink != 0 {
+		harp := e.Name()
+		if !isHarpDirCandidate(e, harp) {
 			continue
 		}
-		harp := e.Name()
 		if !sessionlock.Inspect(harp).Verdict.MayReclaim() {
 			result.RefusedHarps++
 			continue

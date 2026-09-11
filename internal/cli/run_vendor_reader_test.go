@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,8 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -63,19 +66,32 @@ func TestConvertVendorTranscriptOnExit_UnknownHarp(t *testing.T) {
 	assert.False(t, canonicalTranscriptExists(t, "harp-never-indexed"))
 }
 
-// TestConvertVendorTranscriptOnExit_UnregisteredBackend covers a backend with
-// no vendor reader (e.g. opencode, which keeps its own native reader —
-// docs/transcript-schema.md §8): a silent no-op, no canonical file.
+// TestConvertVendorTranscriptOnExit_UnregisteredBackend covers a harp whose
+// backend has no operations.vendorReaderRegistry entry: the exit seam is a
+// SILENT no-op — no canonical file and no warning — because there is no reader
+// to refuse with. The backend name is synthetic: every registered backend has a
+// reader, so the registry miss cannot be reached with a real one. The bound
+// transcript and recorded version are ones the claude reader WOULD accept, so
+// the only thing standing between this harp and a conversion is the missing
+// registry entry — a registry hit here would convert, or at least warn.
 func TestConvertVendorTranscriptOnExit_UnregisteredBackend(t *testing.T) {
 	testsupport.Isolate(t)
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
-	entry, err := mgr.AssignHarp("/tmp/project", "mock")
+	entry, err := mgr.AssignHarp("/tmp/project", "not-a-registered-engine")
 	require.NoError(t, err)
+	claudeVersion, ok := pinnedEngineVersion(t, config.BackendClaudeCode)
+	require.True(t, ok)
+	require.NoError(t, mgr.RecordEngineVersion(entry.HarpName, claudeVersion))
 	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", claudeVendorFixturePath(t)))
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
 
 	convertVendorTranscriptOnExit(entry.HarpName)
 	assert.False(t, canonicalTranscriptExists(t, entry.HarpName))
+	assert.Empty(t, warnings.String(), "a registry miss is quiet; only a registered reader can refuse")
 }
 
 // TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript is the real,

@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	mockreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/mock"
 )
 
@@ -158,6 +159,11 @@ func seedEndedSession(t *testing.T, projectDir, backend string) (*sessions.Manag
 	entry, err := mgr.AssignHarp(projectDir, backend)
 	require.NoError(t, err)
 	require.NoError(t, mgr.MarkEnded(entry.HarpName, time.Now().UTC()))
+	// A FREE lock file, the way a session that ended however it ended leaves
+	// one: every destroyer refuses a harp whose lock cannot prove its owner
+	// dead, and a fixture with no lock at all reads as unprovable.
+	require.NoError(t, sessionlock.Hold(entry.HarpName))
+	sessionlock.Release(entry.HarpName)
 	return mgr, entry.HarpName
 }
 

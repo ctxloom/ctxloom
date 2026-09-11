@@ -25,7 +25,9 @@ import (
 //
 // Selection flags live on the leaf that understands them — --undistilled on
 // transcript — and never on the sweep. A flag on the parent would have to
-// mean something for populations it was never about.
+// mean something for populations it was never about. --even-if-live is not a
+// selection flag: liveness is a property of the SESSION, the same for every
+// population, so every file destroyer carries it.
 //
 // ABSENCE OF --yes MEANS REPORT ONLY, always, on a TTY or not. There is no
 // per-item interactive confirmation anywhere here, and no config key may
@@ -39,10 +41,27 @@ import (
 
 var (
 	sessionPurgeYes                   bool
+	sessionPurgeEvenIfLive            bool
 	sessionTranscriptPurgeYes         bool
 	sessionTranscriptPurgeUndistilled bool
+	sessionTranscriptPurgeEvenIfLive  bool
 	sessionArtifactsPurgeYes          bool
+	sessionArtifactsPurgeEvenIfLive   bool
 )
+
+// evenIfLiveFlagName is the deliberate second keystroke past the session
+// lock. It is named where it is registered AND where the refusal quotes it,
+// so the two cannot drift apart.
+const evenIfLiveFlagName = "even-if-live"
+
+// addEvenIfLiveFlag registers --even-if-live on one file destroyer. One
+// registration for three leaves, so the help text is one sentence and not
+// three that drift.
+func addEvenIfLiveFlag(cmd *cobra.Command, target *bool) {
+	cmd.Flags().BoolVar(target, evenIfLiveFlagName, false,
+		"permit destroying a session whose owner may still be running: its session lock is held, "+
+			"or it has no lock at all (every session from before the lock existed)")
+}
 
 // --- session transcript purge -----------------------------------------------
 
@@ -58,7 +77,11 @@ changes, on a TTY or not.
 
 A session that was never distilled is REFUSED: with no essence, the
 transcript is the only record of what happened. Pass --undistilled to
-destroy it anyway.`,
+destroy it anyway.
+
+A session whose lock does not prove its owner dead is REFUSED: a running
+agent may still be appending to this transcript. A held lock, or no lock at
+all, both refuse. Pass --even-if-live to destroy it anyway.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSessionTranscriptPurge,
 }
@@ -68,6 +91,7 @@ func runSessionTranscriptPurge(cmd *cobra.Command, args []string) error {
 		populations: []operations.PurgePopulation{operations.PurgePopulationTranscript},
 		apply:       sessionTranscriptPurgeYes,
 		undistilled: sessionTranscriptPurgeUndistilled,
+		evenIfLive:  sessionTranscriptPurgeEvenIfLive,
 		commandPath: "ctxloom session transcript purge",
 	})
 }
@@ -82,7 +106,10 @@ transcript stays, which is what makes this reversible: while the transcript
 is on disk the essence can be produced again with 'ctxloom session distill'.
 
 Without --yes this only reports; nothing on disk or in the session index
-changes, on a TTY or not.`,
+changes, on a TTY or not.
+
+A session whose lock does not prove its owner dead is REFUSED — a held
+lock, or no lock at all. Pass --even-if-live to destroy it anyway.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSessionArtifactsPurge,
 }
@@ -91,6 +118,7 @@ func runSessionArtifactsPurge(cmd *cobra.Command, args []string) error {
 	return runHarpFilePurge(cmd, args[0], harpFilePurge{
 		populations: []operations.PurgePopulation{operations.PurgePopulationArtifacts},
 		apply:       sessionArtifactsPurgeYes,
+		evenIfLive:  sessionArtifactsPurgeEvenIfLive,
 		commandPath: "ctxloom session artifacts purge",
 	})
 }
@@ -114,7 +142,14 @@ The index entry SURVIVES. Purge empties a session, it does not unlist it —
 A session that was never distilled is refused, because sweeping it would
 destroy the only record of what happened. The refusal names the leaf that
 can do it deliberately: 'ctxloom session transcript purge <harp>
---undistilled'.`,
+--undistilled'.
+
+A session whose lock does not prove its owner dead is refused: a running
+agent may still be writing the transcript this would destroy. A held lock,
+or no lock at all (every session from before the lock existed), both
+refuse. Pass --even-if-live to sweep it anyway. The scratch worktrees keep
+their own verdict: a worktree whose owner is not provably dead is skipped
+and reported, never reaped.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSessionPurge,
 }
@@ -124,14 +159,17 @@ func init() {
 		"apply the plan this invocation printed (default: report only)")
 	sessionTranscriptPurgeCmd.Flags().BoolVar(&sessionTranscriptPurgeUndistilled, "undistilled", false,
 		"permit destroying the transcript of a session that has no essence")
+	addEvenIfLiveFlag(sessionTranscriptPurgeCmd, &sessionTranscriptPurgeEvenIfLive)
 	sessionTranscriptCmd.AddCommand(sessionTranscriptPurgeCmd)
 
 	sessionArtifactsPurgeCmd.Flags().BoolVarP(&sessionArtifactsPurgeYes, "yes", "y", false,
 		"apply the plan this invocation printed (default: report only)")
+	addEvenIfLiveFlag(sessionArtifactsPurgeCmd, &sessionArtifactsPurgeEvenIfLive)
 	sessionArtifactsCmd.AddCommand(sessionArtifactsPurgeCmd)
 
 	sessionPurgeCmd.Flags().BoolVarP(&sessionPurgeYes, "yes", "y", false,
 		"apply the plan this invocation printed (default: report only)")
+	addEvenIfLiveFlag(sessionPurgeCmd, &sessionPurgeEvenIfLive)
 	sessionCmd.AddCommand(sessionPurgeCmd)
 }
 
@@ -156,7 +194,8 @@ func runSessionPurge(cmd *cobra.Command, args []string) error {
 			operations.PurgePopulationTranscript,
 			operations.PurgePopulationArtifacts,
 		},
-		Apply: apply,
+		EvenIfLive: sessionPurgeEvenIfLive,
+		Apply:      apply,
 	})
 	refusal := harpPurgeRefusal(harp, purgeErr, "ctxloom session purge")
 	if refusal == "" && purgeErr != nil {
@@ -168,6 +207,14 @@ func runSessionPurge(cmd *cobra.Command, args []string) error {
 	// is owed the whole picture rather than the half that happened to come
 	// first. Nothing is destroyed on a refusal — apply is false below unless
 	// the file half also went through.
+	//
+	// It probes the session lock ITSELF, and that is only sound because
+	// PurgeSession has already returned and let go of the hold it took while
+	// destroying: a probe from under our own hold would read the sweep's own
+	// lock as a live owner and skip every worktree of a provably dead
+	// session. --even-if-live is deliberately not forwarded here — the file
+	// half destroys what the human asked for; a worktree whose owner is not
+	// provably dead is skipped and reported, and stays that way.
 	wt, wtErr := sweepHarpWorktrees(cmd.Context(), harp, apply && refusal == "")
 	if wtErr != nil {
 		return wtErr
@@ -199,6 +246,7 @@ type harpFilePurge struct {
 	populations []operations.PurgePopulation
 	apply       bool
 	undistilled bool
+	evenIfLive  bool
 	commandPath string
 }
 
@@ -207,6 +255,7 @@ func runHarpFilePurge(cmd *cobra.Command, harp string, p harpFilePurge) error {
 		Harp:        harp,
 		Populations: p.populations,
 		Undistilled: p.undistilled,
+		EvenIfLive:  p.evenIfLive,
 		Apply:       p.apply,
 	})
 	refusal := harpPurgeRefusal(harp, purgeErr, p.commandPath)
@@ -240,6 +289,10 @@ func harpPurgeRefusal(harp string, err error, commandPath string) string {
 	switch {
 	case errors.Is(err, operations.ErrPurgeLiveSession):
 		return fmt.Sprintf("ctxloom refuses to purge %s: the session is still live (no ended_at yet); nothing was removed", harp)
+	case errors.Is(err, operations.ErrPurgeOwnerNotProvenDead):
+		return fmt.Sprintf("ctxloom refuses to purge %s: %v. Nothing was removed. "+
+			"If you know the session is not running, deliberately: `%s %s --yes --%s`",
+			harp, err, commandPath, harp, evenIfLiveFlagName)
 	case errors.Is(err, operations.ErrPurgeUndistilled):
 		return fmt.Sprintf("ctxloom refuses: %s was never distilled — its transcript is the only record of what happened. "+
 			"Nothing was removed. To destroy it anyway, deliberately: `ctxloom session transcript purge %s --undistilled --yes`", harp, harp)

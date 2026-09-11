@@ -1,37 +1,44 @@
 # Engine capability matrix
 
-The fastest way to answer "does engine X actually support Y?". The `Backend`
-abstraction is uniform; **the engines behind it are not**. Several capabilities the
-abstraction implies are unsupported on specific engines, and a few are wired
-host-side but never reach any engine at all. Every cell below is what the code
-**does**, with a `file:line`.
+The fastest way to answer "does the engine actually support Y?". The `Backend`
+abstraction is uniform; **what an engine behind it can carry is not**, and a few
+capabilities are wired host-side without any engine honouring them. Every cell
+below is what the code **does**, with a `file:line`.
 
-Registered backend ids: `claude-code`, `codex`, `opencode`, `mock` — all in one
-`init()` in `internal/lm/backends/registry.go`. `internal/mockengine` is **not** a
+Registered backend ids are what `backends.List()` returns: `claude-code`
+(`config.BackendClaudeCode`) and the test doubles (`config.BackendMock` and its
+`config.BackendMock*` siblings) — all in one `init()` in
+`internal/lm/backends/registry.go`. `internal/mockengine` is **not** a
 registered backend; it is a fake vendor CLI (see [mockengine](mockengine.md)).
+Where a row below says "the doubles", the mock family behaves alike unless the
+cell says otherwise.
 
-## 1. How each engine is driven
+## 1. How the engine is driven
 
-| | claude-code | codex | antigravity | opencode |
-|---|---|---|---|---|
-| Binary | `claude` | `codex` | `agy` | `opencode` |
-| Oneshot subcommand | none (`claude --print`) | **`codex exec`** | `agy -p` | none (TUI is the default subcommand) |
-| Prompt channel | **stdin** (oneshot); trailing positional (interactive) | **positional, both surfaces** | `-p`/`-i` flag value | `--prompt <text>` |
-| Prompt-channel decl | `internal/claude/enginecli.go:182`,`:194` | `internal/codex/enginecli.go:186`,`:197` | `internal/antigravity/backend.go:120` | `internal/opencode/interactive.go:136` |
-| Session name at launch | `--name <harp>` (interactive only) | none (harp env crosses, unread) | none | none |
+| | claude-code |
+|---|---|
+| Binary | `claude` |
+| Oneshot subcommand | none (`claude --print`) |
+| Prompt channel | **stdin** (oneshot); trailing positional (interactive) |
+| Prompt-channel decl | `internal/claude/enginecli.go:182`,`:194` |
+| Session name at launch | `--name <harp>` (interactive only) |
+
+`agent.EngineCLI` is the single declaration of a vendor's flags, prompt channel
+and probe set; the mock engine reads the same declaration rather than carrying
+its own copy, which is what keeps a fake in step with the driver.
 
 ## 2. Permission tiers — what each `PermissionMode` becomes
 
 `agent.PermissionMode` (`internal/shared/agent/permissions.go:15-33`) is one
-vocabulary; each engine maps it to its own mechanism.
+vocabulary; an engine maps it to its own mechanism.
 
-| Tier | claude-code | codex | antigravity | opencode |
-|---|---|---|---|---|
-| `default` | no flag | `--sandbox workspace-write` | no flag | no managed permission key |
-| `acceptEdits` | `--permission-mode acceptEdits` | `--sandbox workspace-write` (**not distinguished from default**) | `--mode accept-edits` | no managed key |
-| `plan` | `--permission-mode plan` **+** `--disallowedTools "Bash,Edit,Write,NotebookEdit"` | `--sandbox read-only` + `--ask-for-approval never` | `--mode plan` — **emitted, not enforced** | `opencode.json` `permission {edit:"deny", bash:"deny"}` |
-| `bypass` | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` (and **no** `--sandbox`) | `--dangerously-skip-permissions` | argv `--auto` |
-| `buildArgs` | `internal/claude/claudecode.go:253-258` | `internal/codex/backend.go:452-467` | `internal/antigravity/backend.go:110-118` | `internal/opencode/settings.go:57-59`, `interactive.go:141-145` |
+| Tier | claude-code |
+|---|---|
+| `default` | no flag |
+| `acceptEdits` | `--permission-mode acceptEdits` |
+| `plan` | `--permission-mode plan` **+** `--disallowedTools "Bash,Edit,Write,NotebookEdit"` |
+| `bypass` | `--dangerously-skip-permissions` |
+| `buildArgs` | `internal/claude/claudecode.go:253-258` |
 
 ### `EnforcesReadOnlyPlan` — where `plan` collapses
 
@@ -42,31 +49,24 @@ so `plan` never runs unrestrained. Applied at `internal/cli/run.go:1499`
 
 | Backend | `enforcesReadOnlyPlan` | Does `plan` survive? | Evidence |
 |---|---|---|---|
-| `claude-code` | **true** (`registry.go:297`) | yes | LIVE VERIFIED 2026-07-15, claude 2.1.210: plan + deny list denied a sentinel overwrite (`claudecode.go:237-247`) |
-| `codex` | **true** (`registry.go:342`) | yes | `--sandbox read-only` on both subcommands |
-| `opencode` | **true** (`registry.go:437`) | yes | `edit:deny` gates both edit and write tools, `bash:deny` too — **stricter than opencode's own built-in `plan` agent**, which leaves bash allowed (`settings.go:48-56`) |
-| `antigravity` | **false** (field omitted, `registry.go:301-317`) | **no — collapses to `default`** | LIVE VERIFIED 2026-07-15, agy 1.1.2: under `--mode plan` a sentinel write **landed exactly like the bypass control**, and the model self-reported "not in plan mode or read-only mode" (`registry.go:133-147`, `backend.go:98-109`) |
-| `mock` | **false** | **no** | unset |
+| `claude-code` | **true** | yes | LIVE VERIFIED 2026-07-15, claude 2.1.210: plan + deny list denied a sentinel overwrite (`claudecode.go:237-247`) |
+| the doubles | **false** (field unset) | **no — collapses to `default`** | `TestEnforcesReadOnlyPlan` pins it, together with the unregistered case |
 
-**The antigravity row is the one to remember.** The `--mode plan` flag *is* emitted
-by `buildArgs`, and agy accepts it — it simply does not enforce read-only under
-headless `-p`. Setting the descriptor `true` would tell the resolver to trust a flag
-proven not to work. This is a deliberate, documented compensation, pinned by
-`internal/lm/backends/capabilities_test.go:29`.
+The field is opt-in `true`, and an engine that merely *emits* a plan-mode flag
+does not earn it — see [backend abstraction §3](backend-abstraction.md) for
+why. `TestEnforcesReadOnlyPlan` (`internal/lm/backends/capabilities_test.go`)
+pins the predicate so it cannot degrade into "is this backend known?".
 
-Two further permission facts:
+One further permission fact:
 
 - A headless **oneshot** floors any non-`SafeHeadless()` posture to `PermissionBypass` (`internal/lm/grpc/server.go:253-255`), so a oneshot cannot hang on an engine approval prompt. `SafeHeadless()` is true only for `bypass` and `plan` (`permissions.go:127`).
-- On antigravity, **mid-turn permission answers are inert**: `agy -p` never forwards a permission request, so `ForwardPermissions` cannot be honored; posture is decided once at launch (`internal/antigravity/chat.go:41-43`).
 
 ## 3. Native per-tool deny list
 
 | Backend | Native per-tool deny list? | Mechanism |
 |---|---|---|
-| `claude-code` | **YES — the only one** | (a) fixed plan-tier `--disallowedTools "Bash,Edit,Write,NotebookEdit"` (`claudecode.go:258`); (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` — `SurfaceInputs.DenyTools` → `internal/claude/surfaces.go:271` → `surfacedelivery.go:47` → `mergeDenyTools` (`internal/claude/claude.go:536`), monotonic union only |
-| `codex` | **no** | Only whole-sandbox tiers. `NewSurfaces` (`internal/codex/surfaces.go:311`) never reads `in.DenyTools` — the field is accepted and dropped with no warning |
-| `antigravity` | **no** | `internal/antigravity/surfaces.go:213` never reads `in.DenyTools`. The nearest thing is the out-of-band ltk PreToolUse hook's `EncodeDeny` (`hooks_wire.go:111`) |
-| `opencode` | **no** | Only the fixed two-key read-only pair `{edit, bash}` (`settings.go:57-59`); no plumbing from a per-tool deny list |
+| `claude-code` | **yes** | (a) fixed plan-tier `--disallowedTools "Bash,Edit,Write,NotebookEdit"` (`claudecode.go:258`); (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` — `SurfaceInputs.DenyTools` → `internal/claude/surfaces.go:271` → `surfacedelivery.go:47` → `mergeDenyTools` (`internal/claude/claude.go:536`), monotonic union only |
+| the doubles | **no** | there are no tools; the double executes nothing |
 
 ### The deny-list reality check
 
@@ -84,10 +84,10 @@ All three delivery paths now carry it:
 | `ctxloom profile materialize` | yes | yes | `internal/operations/profile_materialize.go:129`, `:131` |
 
 **Whether the engine then *honours* it is a separate question** — the per-engine
-table above is the one that answers it. Only claude has a native per-tool deny
-list; codex and antigravity accept `DenyTools` at the seam and drop it in
-`NewSurfaces`. The wire carrying the field does
-not give an engine a capability it never had.
+table above is the one that answers it. An engine whose surface constructors
+never read `in.DenyTools` accepts the field at the seam and drops it without a
+warning; the wire carrying the field does not give an engine a capability it
+never had.
 
 > **This used to be false and it is the reason to distrust "it is configured, so
 > it applies".** Before `40b49a7f` the proto had 5 fields and `ManagedConfigToProto`
@@ -101,74 +101,52 @@ not give an engine a capability it never had.
 | Backend | Mechanism | Reads `AGENTS.md`? | Hook-mediated? | Site |
 |---|---|---|---|---|
 | `claude-code` | **two realizations of one surface**: isolated cell → marker-merge into `CLAUDE.md`; shared cell → out-of-cwd `<hash>.sysprompt.md` passed as `--append-system-prompt-file` | **no — deliberate** (`enginecli.go:34-38`) | no (apply path uses a SessionStart injection hook) | `internal/claude/surfaces.go:81`, `contextdelivery.go:50`, `claudecode.go:294-299` |
-| `codex` | **two additive routes composed**: marker-merge into `AGENTS.md`, **plus** a SessionStart hook in `config.toml` whose argv carries the content hash — codex ingests the *hook's output*, never opening the cache file | yes | **yes — the only engine that fires the inject-context hook** | `internal/codex/surfaces.go:119`, `:165`, `:330-334`; `backend.go:109` |
-| `antigravity` | whole-file write to `.agents/AGENTS.md` | `.agents/AGENTS.md` | no (agy fires no SessionStart hook for context) | `internal/antigravity/antigravity.go:541`, `surfaces.go:61` |
-| `opencode` | `.opencode/ctxloom-context.md` referenced from `opencode.json`'s `instructions[]` key | no | no | `internal/opencode/settings.go:36`, `chat.go:190-205` |
+| the doubles | a single project-root file (`mockContextPath`) whose bytes the mock engine hashes and reports | no | no | `internal/lm/backends/mock_surfaces.go` |
 
-**`agent.OutOfCwd` — the out-of-cwd form.** Only `claude-code` declares
-approaches that carry one (`internal/claude/surfaces.go`): flag-pointed scratch
-files for context, MCP and settings, so a live shared cwd is never written
-into. An engine whose approaches lack it gets the loudly-warned well-known
-write on a shared cell.
-**Consequence: for every engine but claude, concurrent per-agent isolation requires
-a private cwd (worktree) or a container cell.** codex substitutes a per-run
-`CODEX_HOME`, which is also the only thing that isolates its global-only prompts and
-skills.
+**`agent.OutOfCwd` — the out-of-cwd form.** `claude-code`'s approaches carry
+one (`internal/claude/surfaces.go`): flag-pointed scratch files for context,
+MCP and settings, so a live shared cwd is never written into. An engine whose
+approaches lack it gets the loudly-warned well-known write on a shared cell.
+**Consequence: for such an engine, concurrent per-agent isolation requires a
+private cwd (worktree) or a container cell.**
 
 ## 5. MCP, commands and skills
 
 | Backend | MCP file | MCP scopes | Commands dir | Skills dir |
 |---|---|---|---|---|
 | `claude-code` | `.mcp.json` (+ out-of-cwd via `--mcp-config`, **without** `--strict-mcp-config`, so ctxloom's servers **layer over** the user's) | project + global (`~/.claude.json`) | `.claude/commands/*.md` | `.claude/skills/<n>/**` |
-| `codex` | `config.toml` `[mcp_servers]` | scoped by per-run `CODEX_HOME`; global `~/.codex/config.toml`; project `<dir>/.codex/config.toml` | **`$CODEX_HOME/prompts/<n>.md` — GLOBAL ONLY** | **`$CODEX_HOME/skills/<n>/SKILL.md` — GLOBAL ONLY** |
-| `antigravity` | `.agents/mcp_config.json` | **project ONLY** — `ConfigPath(global=true)` returns `ErrNoGlobalMCPConfig` (`mcp_registrar.go:16`, `:40`) | `.agents/skills/<n>/SKILL.md` | `.agents/skills/<n>/SKILL.md` |
-| `opencode` | `opencode.json` `mcp` key | project (transient overlay) | `.opencode/command/<n>.md` | `.opencode/skill/<n>/SKILL.md` |
+| the doubles | — | — | — | `.mock/skills/<n>/**` (`mockSkillsPath`), except `config.BackendMockNoSkills`, which declares no skills mapper at all |
 
-antigravity has **no per-invocation MCP flag**: requested servers are reported as an
-advisory status string, not applied for that turn
-(`internal/antigravity/chat.go:281`).
+**Skills cross the launch wire** (§3). A descriptor's `skillExports` maps them
+into `SurfaceInputs.Skills`; `backends.SupportsSkills` reports which backends
+declare one, and `config.BackendMockNoSkills` exists so the "no skills surface"
+arm of every caller has a subject.
 
-**Skills never reach a launched engine.** `ManagedConfig.Skills` does not cross the
-plugin wire (§3 above), so the skills surface receives an empty list on every
-`ctxloom run`. Five engines declare a working `skillExports` function
-(`registry.go:292`, `:315`, `:341`, `:369`, `:436`) and the machinery is otherwise
-complete — it is starved at the wire, not unimplemented.
+## 5b. Hooks — declaring what an engine cannot carry
 
-## 5b. Hooks — and the one engine that has none
-
-Five of the six engines carry ctxloom's unified hooks into a native settings
-surface. `opencode` carries none: `opencode.json` has no hook key and there is no
-event vocabulary to route the six unified events onto, so
-`OpencodeWriter.WriteSettings` takes a `*wire.HooksConfig` it can do nothing with
-(`internal/opencode/settings.go:513`).
+`claude-code` carries ctxloom's unified hooks into its native settings surface:
 
 | Backend | Hooks land in | Routed by |
 |---|---|---|
 | `claude-code` | `.claude/settings.json` | `internal/claude/claude.go:680` |
-| `codex` | `.codex/config.toml` | `internal/codex/settings.go:404` |
-| `antigravity` | `.agents/hooks.json` | `internal/antigravity/antigravity.go:463` |
-| `opencode` | **nowhere** | — (`noHooksReason`, `registry.go`) |
+| the doubles | `.mock/settings.json` (`NewMockSettingsWriter`) | not routed — the unified `HooksConfig` is marshalled whole under `mockSettingsHooksKey` |
 
-The loss is structural and fine to have; the **silence** was not.
-`ctxloom profile materialize --backend opencode` used to print four true `wrote`
-lines with the dropped hook nowhere among them, so a team could ship a guardrail
-and a deskmate could inherit the profile without either being told the guardrail
-did not come with it (`whiny-exclusive`).
+A descriptor declares what it *cannot* carry in one of two fields:
+`noHooksReason` (the engine has no hook mechanism at all) and
+`unsupportedHookKinds` (specific unified events with no native equivalent —
+`config.BackendMockLossy` models this with two events, each naming its own
+reason). The loss itself is structural and fine to have; the **silence** was not.
+A materialize used to print only true `wrote` lines with the dropped hook
+nowhere among them, so a team could ship a guardrail and a deskmate could
+inherit the profile without either being told the guardrail did not come with
+it (`whiny-exclusive`).
 
-The gap is now DECLARED (`agentDescriptor.noHooksReason`) and reported:
-`backends.UncarriedSurfaces` turns it into an `agent.SurfaceLoss` whenever the
-run actually carries hooks, materialize puts it in
-`MaterializeProfileResult.NotCarried` (so `--format json` sees it as data), and
-the CLI prints it beside the `wrote` lines:
-
-```
-Materialized team → ./out (opencode)
-  wrote context
-  wrote settings
-  wrote commands
-  wrote skills
-  NOT carried: hooks (1 session_start) — opencode has no hook mechanism
-```
+The gap is now DECLARED and reported: `backends.UncarriedSurfaces` turns a
+declaration into an `agent.SurfaceLoss` whenever the run actually carries
+hooks, materialize puts it in `MaterializeProfileResult.NotCarried` (so
+`--format json` sees it as data) and prints it beside the `wrote` lines, and
+`doctor`, `manage check` and `agent show` read the same predicate through
+`operations.CapabilityLoss`.
 
 A capability gap nobody asked to use stays quiet — a profile declaring no hooks
 gets no line, the same rule `agent.RouteUnifiedHooks` applies one level down for
@@ -178,38 +156,32 @@ every registered backend, so it cannot drift into claiming a loss that isn't rea
 or missing one that is.
 
 **Still silent elsewhere:** `ctxloom run` and `manage hooks install` deliver to
-the same hookless engine and say nothing. Only materialize reports the loss today.
+an engine with a declared loss and say nothing — neither calls
+`UncarriedSurfaces`.
 
 ## 6. Session history and transcripts
 
 | Backend | `History()` | Mechanism | Note |
 |---|---|---|---|
-| `claude-code` | **nil** | scraper **deleted** (`capabilities.go:17-27`) | its cwd→slug encoder produced non-existent dirs for any path with a dot/underscore/space |
-| `codex` | **nil** | `rollout-*.jsonl` scraper **deleted** (`capabilities.go:17-25`) | envelope-vs-flat parse mismatch silently returned zero-entry sessions |
-| `antigravity` | **nil** | `transcript_full.jsonl` scraper **deleted** | **but** `agyConversationMap` (`capabilities.go:95-153`) still parses agy's private `~/.gemini/antigravity-cli/cache/last_conversations.json` for chat continuation |
-| `opencode` | **real** | `opencode session list --format json` + `opencode export <id>` (`capabilities.go:116`, `:162`) | the only engine with a live `History()`; carries an explicit written refusal to read `opencode.db` (`capabilities.go:19-26`) |
+| `claude-code` | **nil** | scraper **deleted** | its cwd→slug encoder produced non-existent dirs for any path with a dot/underscore/space |
+| the doubles | `NilSessionHistory` — non-nil, holds nothing | the double keeps no transcript store | — |
 
-`internal/lm/grpc/canonical_source.go:50` lists the retired-scraper backends:
-codex, claude-code. A `nil` history now **fails loudly** at both
-consumers (`internal/operations/sessionfeed.go:509`,
-`internal/lm/grpc/sessionhistory.go:245`). Canonical capture is written runner-side
-into `internal/transcript`'s canonical JSONL; claude and codex additionally have opt-in vendor readers
-for the interactive-pty gap (`internal/operations/vendorreader.go:71`, `:72`).
+`RetiredScraperBackendNames` (`internal/lm/grpc/canonical_source.go`) lists the
+backends whose legacy scraper was deleted rather than demoted. A `nil` history
+**fails loudly** at both consumers (`internal/operations/sessionfeed.go`,
+`internal/lm/grpc/sessionhistory.go`). Canonical capture is written runner-side
+into `internal/transcript`'s canonical JSONL; `vendorReaderRegistry`
+(`internal/operations/vendorreader.go`) names the backends with an opt-in vendor
+reader for the interactive-pty gap.
 
 ## 7. One-shot driving and resume
 
-Two gates in `internal/agentcoord/coord/spawner.go`:
+Two gates in `internal/agentcoord/coord/spawner.go`, `resumeCapableBackends`
+and `oneShotSupportedBackends`; both name `claude-code` alone.
 
-| Backend | `resumeCapableBackends` (`:225-228`) | `oneShotSupportedBackends` (`:248-252`) |
-|---|---|---|
-| `claude-code` | yes | **yes** |
-| `codex` | yes | **yes** |
-| `antigravity` | yes | **no** — legacy go-plugin Chat dial, no live loadSession confirm |
-| `opencode` | **no** | no |
-
-`driving: oneshot` on a backend outside the intersection **fails loud** rather than
-silently degrading (`spawner.go:275-278`, `:371-375`). opencode never reaches
-the release gate — it is rejected at the resume-capability check first.
+`driving: oneshot` on a backend outside their intersection **fails loud** rather
+than silently degrading — `resolveResumeMode` refuses at the resume gate, and
+`prodSpawner.Resolve` refuses at the oneshot gate.
 
 Note that `ChatRequest.ResumeSessionID` does not cross the plugin wire at all
 ([grpc-wire](grpc-wire.md) §3).
@@ -221,26 +193,23 @@ Full detail in [isolation](isolation.md). Summary:
 | Backend | Host + worktree lever | Container image | Container auth | Gap |
 |---|---|---|---|---|
 | `claude-code` | `CLAUDE_CONFIG_DIR` | `ctxloom-agent:latest` | `ANTHROPIC_*` env, else **RW copy-mount** of `~/.claude/.credentials.json` (RW because claude refreshes the token in place) | none |
-| `codex` | `CODEX_HOME` | default tag | `OPENAI_API_KEY`, else **RO mount** of `~/.codex/auth.json` | none in-container; **on plain host runs the credential is copied into the project working tree** and is not covered by ctxloom's managed ignore set |
-| `antigravity` | **REFUSED** | default tag | file OAuth token `~/.gemini/antigravity-cli/antigravity-oauth-token` only | **subscription login cannot authenticate in a container** — the keyring's UID-addressed `/run/user/<uid>/bus` socket does not exist in the container's namespaces. On host+worktree, isolation is *refused* (fatal `curatedHomeRefusal`): agy's keyring escapes `$HOME`, and `agy -p` ignores the launch cwd entirely, always writing to global scratch |
-| `opencode` | `XDG_DATA_HOME` (**`HonoursVarForCreds: true`**) | default tag | `OPENROUTER_API_KEY` env, else RO mount of XDG `auth.json` | no subscription blocker; unverified whether a containerized run refreshes `auth.json` in place, which an RO mount would break |
-| `mock` | none | — | — | same unprofiled default arm |
+| the doubles | none needed — `config.BackendMock` is exempted by `backendsWithNoGlobalState` (`internal/lm/isolation/worktree.go`) as provably having no engine-global state; a double not named there draws the same `ClassIsolation` finding an unmapped engine would | `ctxloom-agent:latest`, installing no vendor CLI (`mockInstallFragment`) | `resolveMockContainerAuth` — the one resolver that never returns `ok=false` | none |
 
-Composable container engines, in order (`internal/lm/isolation/profile.go:357`):
-`claude-code`, `codex`, `opencode`.
+`composableEngines()` (`internal/lm/isolation/enginespec.go`) names the engines
+with a container install fragment; an engine absent from
+`engineContainerSpecFor`'s switch gets the default arm, whose auth resolver
+`noContainerAuth` **fails closed**.
 
 ## 9. Support status
 
 | Backend | Status | Source |
 |---|---|---|
-| `claude-code` | **supported — the exercised default** | `website/src/content/docs/concepts/architecture.md` @ `0f59fbae` |
-| `codex` | **experimental** + registry `LIVE-UNTESTED` banner: "never run against a real account on any dev host" | `registry.go:319-321` |
-| `antigravity` | **experimental**; package capability claims are stamped to agy **v1.0.7** while the verified install is **1.1.2**, and one v1.0.7 claim (no plan mode) is already proven false | `internal/antigravity/antigravity.go:8` |
-| `opencode` | **undeclared** — appears in neither the experimental-engines caution nor `reference/environment.md` | grep of `website/src/content/docs/` → 0 hits |
+| `claude-code` | **supported — the exercised default** | `website/src/content/docs/concepts/architecture.md` |
+| the doubles | test-only (`agentDescriptor.testOnly`) | `registry.go` |
 
 ## 10. Capabilities that exist on every engine and fire on none
 
-- ~~**`ManagedConfig.Skills`**~~, ~~**`ManagedConfig.DenyTools`**~~, ~~**`wire.Hook.PreToolFallback`**~~ — **all three now cross the launch wire** (`40b49a7f`). They belonged in this section because none of them did: five engines declared `skillExports` that never received anything, claude's deny list was never applied at launch, and `PreToolFallback` arrived `false` at its one consumer (`internal/antigravity/antigravity.go:388`, "the only way it ever fires on agy"). Left visible because "declared everywhere, fires nowhere" is the pattern this section catalogues, and these were its three clearest instances.
+- ~~**`ManagedConfig.Skills`**~~, ~~**`ManagedConfig.DenyTools`**~~, ~~**`wire.Hook.PreToolFallback`**~~ — **all three now cross the launch wire** (`40b49a7f`). They belonged in this section because none of them did: every declared `skillExports` received nothing, claude's deny list was never applied at launch, and `PreToolFallback` arrived `false` on the engine side. Left visible because "declared everywhere, fires nowhere" is the pattern this section catalogues, and these were its three clearest instances. `PreToolFallback` is carried today and read by no registered engine at launch.
 - **`RunOptions.temperature` and `RunOptions.max_tokens`** — carried by the proto, constructed by nothing, read by no backend.
 
 ## See also
@@ -248,4 +217,4 @@ Composable container engines, in order (`internal/lm/isolation/profile.go:357`):
 - [The `Backend` abstraction and registry](backend-abstraction.md)
 - [The plugin wire](grpc-wire.md)
 - [Isolation](isolation.md)
-- Per-engine pages: [claude](claude.md) · [codex](codex.md) · [opencode](opencode.md) · [mockengine](mockengine.md)
+- Per-engine pages: [claude](claude.md) · [mockengine](mockengine.md)

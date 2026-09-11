@@ -1,24 +1,16 @@
-# Engine capabilities and parity
+# Engine capabilities
 
 What ctxloom actually wires per **engine**. Vocabulary is GLOSSARY.md's: an
-**engine** is the thing a runner drives (claude-code, codex, opencode); an
-**agent** is a ctxloom actor (a profile in action);
-a **surface** is one managed deliverable (context, MCP, hooks, commands,
-settings), and the composed set is a **loadout**.
+**engine** is the thing a runner drives; an **agent** is a ctxloom actor (a
+profile in action); a **surface** is one managed deliverable (context, MCP,
+hooks, commands, settings), and the composed set is a **loadout**.
 
 Engines are registered as descriptors in `internal/lm/backends/registry.go` —
-that file is the source of truth for this document. `mock` also registers there,
-for tests.
-
-Claude Code has the largest CLI surface, so it is the reference: where a
-capability exists everywhere, ctxloom implements it everywhere; where only one
-engine's CLI supports it, the rest are N/A by CLI limitation and are listed
-under "Documented divergences" below.
-
-> Status (GLOSSARY.md): `codex` is implemented and hermetically
-> tested, but live operation is untested — no codex account exists on
-> any dev host. Treat their rows as derived from vendor docs plus hermetic
-> tests, not from a live run.
+that file is the source of truth for this document. The mock family also
+registers there, for tests; the per-engine table below is the registered
+production engine. Where a capability is a property of the engine's CLI rather
+than of ctxloom, the row says so, so an absence reads as a CLI limitation and
+not as a TODO.
 
 ## Surfaces per engine
 
@@ -26,28 +18,28 @@ Each engine's writer materializes the loadout into that engine's own native
 config. Paths are relative to the runner's working directory unless marked
 global.
 
-| Surface | claude-code | antigravity | codex |
-|---|---|---|---|
-| Context | `CLAUDE.md` | `.agents/AGENTS.md` | context file + SessionStart hook |
-| MCP | `.mcp.json` | `.agents/mcp_config.json` | `.codex/config.toml` |
-| Hooks | `.claude/settings.json` | `.agents/hooks.json` | `.codex/config.toml` |
-| Commands (slash commands) | `.claude/commands/` | `.agents/skills/` | `~/.codex/prompts/` (**global**) |
-| Settings writer | ✓ | ✓ | ✓ |
-| Out-of-cwd surface placement (concurrency-safe in a shared cwd) | ✓ `--append-system-prompt-file`, `--mcp-config`, `--settings` (commands: **no**) | **N/A** (no flag) | **N/A** (no flag) |
-| Command metadata accepted | description, argument-hint, allowed-tools, model | description | description, argument-hint | description | — |
-| Read-only plan mode enforced by the CLI | ✓ `--permission-mode plan` | — | ✓ `exec --sandbox read-only --ask-for-approval never` | — | — |
-| Statusline / HUD | ✓ (`ctxloom hook hud`) | **N/A** | **N/A** | **N/A** | **N/A** |
-| Resolved-model provenance | ✓ (real model from `--output-format json`) | **N/A** | **N/A** | **N/A** | **N/A** |
+| Surface | claude-code |
+|---|---|
+| Context | `CLAUDE.md` |
+| MCP | `.mcp.json` |
+| Hooks | `.claude/settings.json` |
+| Commands (slash commands) | `.claude/commands/` |
+| Settings writer | ✓ |
+| Out-of-cwd surface placement (concurrency-safe in a shared cwd) | ✓ `--append-system-prompt-file`, `--mcp-config`, `--settings` (commands: **no** — `.claude/commands/` has no redirect flag) |
+| Command metadata accepted | description, argument-hint, allowed-tools, model |
+| Read-only plan mode enforced by the CLI | ✓ `--permission-mode plan` |
+| Statusline / HUD | ✓ (`ctxloom hook hud`) |
+| Resolved-model provenance | ✓ (real model from `--output-format json`) |
 
 Hooks and settings fold into one surface wherever the engine keeps its hooks
-inside its settings file: claude (`.claude/settings.json`) and codex
-(`.codex/config.toml`).
+inside its settings file, as claude does (`.claude/settings.json`).
 
-Only claude accepts every surface at a path ctxloom chooses. Codex and
-antigravity expose no out-of-cwd redirect, so each of their surfaces is a
-well-known write into the working directory. Concurrent per-agent isolation on
-those engines therefore needs a private cwd — a worktree or a container cell,
-which is what the isolation axes below provide.
+An engine that accepts a surface only at a well-known path inside the working
+directory cannot share that directory between concurrent runs; per-agent
+isolation for such an engine needs a private cwd — a worktree or a container
+cell, which is what the isolation axes below provide. claude takes every
+surface but commands at a path ctxloom chooses, so it needs none of that for
+those surfaces.
 
 The `agent.StructuredChat` interface still exists and the runner still
 type-asserts for it (`internal/cli/llm_runner_common.go`), but **no shipped
@@ -56,21 +48,24 @@ conformance suites. Engines are driven through their own CLI instead.
 
 ## Hook translation
 
-ctxloom emits seven engine-agnostic hook events (`wire.UnifiedHooks`). Each
-engine's writer translates them into that engine's native events. opencode is
-absent from the table on purpose: it has no hook mechanism at all, which its
-registry descriptor declares (`noHooksReason`) rather than leaving the silence
-to be discovered.
+ctxloom emits engine-agnostic hook events (`wire.UnifiedHooks`), and each
+engine's writer translates them into that engine's native events through a
+route table (`agent.RouteUnifiedHooks`). A route the engine cannot serve is
+declared `agent.HookRoute.Unsupported` rather than left absent, so configuring
+such a hook prints a warning naming the engine and the kind — the hook is
+inert, and you are told so instead of finding out by its never firing. An
+engine with no hook mechanism at all declares that on its registry descriptor
+(`noHooksReason`) rather than leaving the silence to be discovered.
 
-| Unified event | claude-code | codex |
-|---|---|---|
-| `session_start` | `SessionStart` | `SessionStart` |
-| `session_end` | `SessionEnd` | **dropped, with a warning** (no such event) |
-| `turn_end` | `Stop`, no matcher | `Stop`, matcher dropped |
-| `pre_tool` | `PreToolUse` | `PreToolUse` |
-| `post_tool` | `PostToolUse` | `PostToolUse` |
-| `pre_shell` | `PreToolUse` matcher `Bash` | `PreToolUse` matcher `Bash` |
-| `post_file_edit` | `PostToolUse` matcher `Edit\|Write` | `PostToolUse` matcher `Edit\|Write` | `postToolUse` matcher `fs_write` |
+| Unified event | claude-code |
+|---|---|
+| `session_start` | `SessionStart` |
+| `session_end` | `SessionEnd` |
+| `turn_end` | `Stop`, no matcher |
+| `pre_tool` | `PreToolUse` |
+| `post_tool` | `PostToolUse` |
+| `pre_shell` | `PreToolUse` matcher `Bash` |
+| `post_file_edit` | `PostToolUse` matcher `Edit\|Write` |
 
 `session_end` and `turn_end` are not interchangeable, and the difference is why
 `turn_end` exists. `session_end` fires ONCE, at teardown; `turn_end` fires every
@@ -78,60 +73,36 @@ time the agent finishes a response, which is the only point at which a close-out
 contract can still be acted on.
 
 No engine honours a matcher on its turn-end event — there is no tool to match
-against at a turn boundary. codex goes further and forces the matcher to `None`
-before computing a hook's trust identity, so writing one would produce config
-text its own seeded trust record does not cover. Both writers drop the matcher
-and warn once.
+against at a turn boundary. The route declares none, and a hook that carried
+one is emitted without it.
 
-## Documented divergences (N/A by CLI limitation)
+## Capabilities that are properties of the CLI
 
-These are deliberate non-features. The underlying CLI cannot support them, so
-ctxloom does not pretend to. They are not bugs or TODOs.
+These are wired engine-neutrally on ctxloom's side and lit only where the
+engine's CLI offers the hook. They are not bugs or TODOs.
 
-### 1. Statusline / HUD — claude-code only
+### Statusline / HUD
 Claude Code runs an external `statusLine` command and pipes session JSON to it;
-ctxloom wires `ctxloom hook hud` there. No other engine exposes a
-command-backed statusline. The HUD command (`internal/cli/hook_hud.go`) is
-written engine-neutrally and is ready the moment another CLI ships one; only
-claude's writer wires it today.
+ctxloom wires `ctxloom hook hud` there. The HUD command
+(`internal/cli/hook_hud.go`) is written engine-neutrally and is ready the
+moment another CLI ships a command-backed statusline.
 
-### 2. Resolved-model provenance — claude-code only
+### Resolved-model provenance
 Claude's `--output-format json` reports the model that actually produced a
-result, so ctxloom records it (distill provenance uses this). Every other engine
-reports the *requested* model, falling back to the engine name rather than a
-fabricated id (`internal/claude/claudecode.go`, `internal/codex/backend.go`,
-`internal/antigravity/backend.go`).
+result, so ctxloom records it (distill provenance uses this). An engine that
+reports only the *requested* model falls back to the engine name rather than a
+fabricated id.
 
-### 3. SessionEnd — not on codex
-Codex's hook set has no SessionEnd-equivalent event, so unified `session_end`
-hooks are not emitted for it (`internal/codex/settings.go`). The gap is declared
-in codex's route table (`agent.HookRoute.Unsupported`) rather than left as an
-absent route, so configuring a `session_end` hook and running codex prints a
-warning naming the engine and the kind — the hook is inert, and you are told so
-instead of finding out by its never firing. Antigravity accepts the entry but
-never fires it, which costs nothing and lights up if a future agy adds the
-event.
-
-### 4. Command-metadata ceilings
+### Command-metadata ceilings
 `CommandExport` carries description, argument-hint, allowed-tools, and model.
-Each CLI accepts only a subset (see the table above). Unsupported fields are not
-emitted for that engine (`internal/lm/backends/commandfiles.go`).
+A CLI that accepts only a subset gets only that subset; unsupported fields are
+not emitted for that engine (`internal/lm/backends/commandfiles.go`).
 
-### 5. Codex prompts are global
-Codex discovers custom prompts only in the global `~/.codex/prompts`, so codex
-slash commands are inherently cross-project — unlike the workspace-scoped
-`.claude/commands` or `.agents/skills`. ctxloom writes into a cell-scoped
-`CODEX_HOME` so an isolated run does not fight the host's prompts, and a
-manifest scopes its own cleanup.
-
-### 6. Out-of-cwd placement — claude-code only
+### Out-of-cwd placement
 Claude takes each surface from a path ctxloom chooses
 (`--append-system-prompt-file`, `--mcp-config`, `--settings`), so concurrent
 runs can share one working directory without fighting over config files. Its
 commands are the exception even there: `.claude/commands/` has no redirect flag.
-Antigravity and codex expose no such flag for any surface
-(`internal/{antigravity,codex}/surfaces.go`), so concurrent per-agent runs
-on those engines need a private cwd.
 
 ## Isolation axes
 
@@ -235,7 +206,6 @@ tool's silence as unproven rather than as absence, and reach for text search.
 ## Sources
 
 - Claude Code: <https://code.claude.com/docs>
-- OpenAI Codex: <https://developers.openai.com/codex>
 - In-repo: [GLOSSARY.md](../GLOSSARY.md) (vocabulary),
   `internal/lm/backends/registry.go` (the engine set),
   [adr/0031-agent-equity-documented-divergences.md](./adr/0031-agent-equity-documented-divergences.md)

@@ -89,8 +89,8 @@ matching:
 
 ### Gated tools: an unrecognized tool is denied, not allowed
 
-Each engine adapter carries one hand-maintained list (`claudeGatedTools`,
-`antigravityGatedTools`) that is the single source of truth for **both**
+Each engine adapter carries one hand-maintained list (`claudeGatedTools`)
+that is the single source of truth for **both**
 directions: it derives the installed `PreToolUse` matcher (a regex, engine
 protocol permitting) *and* the runtime check `engine.Request.ToolUngated` that
 `Decode` uses to recognise a payload's fields. Two hand-maintained lists over a
@@ -99,10 +99,10 @@ can't.
 
 But one list over a vendor-owned tool set can still go *stale* — the vendor
 ships or renames a tool the list doesn't know, and the installed matcher fires
-on it anyway while `Decode` doesn't recognise the exact name. **Confirmed live
-on Antigravity today:** agy's matcher is an unconditional, unanchored regex
-(verified below), so a tool whose name merely *contains* a gated one — a
-hypothetical `safe_run_command` alongside `run_command` — fires the hook.
+on it anyway while `Decode` doesn't recognise the exact name. An engine whose
+matcher is an unconditional, unanchored regex fires on a tool whose name merely
+*contains* a gated one — a hypothetical `safe_run_command` alongside
+`run_command`.
 **Claude Code is narrower today, but not immune:** its matcher takes the
 unanchored-regex path only when it contains an actual regex metacharacter;
 one built purely from plain identifiers and `|` (what `claudeMatcher` always
@@ -113,7 +113,7 @@ invoking `ltk evaluate` directly, not by a substring collision Claude Code's
 current matcher would actually produce). It stops being narrow the moment
 someone hand-edits `settings.json` to widen the matcher (`.*`, a stray `+`,
 …), or a future gated tool name isn't a plain identifier — both put Claude
-Code on the same unanchored-regex path agy is already on. Either way, once
+Code on that unanchored-regex path. Either way, once
 the installed matcher fires on a name `Decode` doesn't recognise, that's
 `ToolUngated`.
 
@@ -132,35 +132,27 @@ radius is exactly the tools ltk was already told to gate.
 
 # Engine compatibility
 
-**Claude Code and Antigravity CLI (`agy`) are implemented today.** Codex is
-**planned, not built** — the design accommodates it (see below), but no
-adapter exists yet. If you want it, vote 👍 on the tracking issue:
-[Codex #2](https://github.com/ctxloom/llm-tool-killer/issues/2).
-(Gemini CLI support, formerly issue #1, was retargeted at Antigravity when
-Google discontinued Gemini CLI in June 2026.)
+The implemented engines are the `engine.Engine` values `engine.All` returns.
+Each target engine must expose a deny-capable pre-execution hook that runs an
+external program reading JSON on stdin and returning a decision. The
+differences each engine adapter absorbs:
 
-All target engines expose a deny-capable pre-execution hook that runs an
-external program reading JSON on stdin and returning a decision. The differences
-each `engine.Adapter` absorbs:
+| Engine | Hook event | Shell signal | Deny mechanism |
+|---|---|---|---|
+| **Claude Code** | `PreToolUse` | `tool_name`: `Bash` → user's `$SHELL`; `PowerShell` → pwsh | JSON `permissionDecision: deny` on **stdout**, exit **0** |
 
-| Engine | Hook event | Shell signal | Deny mechanism | Status |
-|---|---|---|---|---|
-| **Claude Code** | `PreToolUse` | `tool_name`: `Bash` → user's `$SHELL`; `PowerShell` → pwsh | JSON `permissionDecision: deny` on **stdout**, exit **0** | **✅ implemented** |
-| **Antigravity CLI** | `PreToolUse` (`.agents/hooks.json` `hooks` + matcher) | `run_command`/`execute_command`: always `bash` | JSON `{"decision":"deny","reason":…}` on **stdout**, exit **0** | **✅ implemented** |
-| **Codex CLI** | `PreToolUse` (`~/.codex/hooks.json`) | always `bash` (runs `bash -lc`) | JSON deny on **stdout**; "any deny wins" | 🗳️ planned — [vote #2](https://github.com/ctxloom/llm-tool-killer/issues/2) |
+### How another engine slots in (no rework needed)
 
-### How Codex will slot in (no rework needed)
-
-- **Adapter only.** A new `engine.Adapter` (`Decode`/`Encode`) registered in
-  `engine.Get`. The `Output{Stdout,Stderr,ExitCode}` shape already expresses
-  Codex's stdout/exit-0 path.
-- **Shell hint, not `$SHELL`.** Codex forces a fixed shell (`bash -lc`), so its
-  adapter emits a **strong `bash` hint** (precedence step 2), which bypasses
-  the `$SHELL` detection that Claude's Bash tool relies on — exactly the path
-  the Antigravity adapter exercises today. `internal/shellenv` is shared for
-  any `$SHELL` parsing it does need.
-- **No frontend work.** Codex commands are still POSIX-shell, so they reuse the
-  existing frontends.
+- **Adapter only.** A new `engine.Engine` (`Decode`/`Encode`) registered in
+  `engine.All`; `manage` and `evaluate` already dispatch polymorphically. The
+  `Output{Stdout,Stderr,ExitCode}` shape already expresses a stdout/exit-0
+  deny path.
+- **Shell hint, not `$SHELL`.** An engine that forces a fixed shell has its
+  adapter emit a **strong hint** for that shell (precedence step 2), which
+  bypasses the `$SHELL` detection that Claude's Bash tool relies on.
+  `internal/shellenv` is shared for any `$SHELL` parsing it does need.
+- **No frontend work** for an engine whose commands are still POSIX-shell:
+  they reuse the existing frontends.
 
 ### Verified Claude Code PreToolUse contract (May 2026)
 
@@ -186,45 +178,6 @@ each `engine.Adapter` absorbs:
   ```
   Matchers are literal tool names with `|` alternation (e.g. `Bash|PowerShell`),
   not a general regex. `$CLAUDE_PROJECT_DIR` is available to the command.
-
-### Verified Antigravity PreToolUse contract (agy v1.0.7, June 2026)
-
-The wire types live in `github.com/ctxloom/antigravity` (the org-shared agy
-module); ltk's adapter consumes them rather than redefining the protocol.
-
-- **Input (stdin):** `{ artifactDirectoryPath, conversationId, stepIdx,
-  toolCall: { name, args }, transcriptPath, workspacePaths }` — camelCase
-  envelope, PascalCase arg keys. `run_command`/`execute_command` carry
-  `args.CommandLine` + `args.Cwd`; `write_to_file`/`replace_file_content`
-  carry `args.TargetFile`. The hook process runs with cwd
-  `<workspace>/.agents` and `ANTIGRAVITY_CONVERSATION_ID` in its environment.
-- **Deny:** stdout `{"decision":"deny","reason":"…"}` with exit `0`. The model
-  receives the reason verbatim ("Tool call denied with reason: …").
-- **Allow / pass-through:** emit nothing, exit `0`.
-- **Fail-open warning:** a hook that exits non-zero does NOT block the tool —
-  agy logs the failure and proceeds. Denial must be the well-formed decision
-  object, never an exit code.
-- **Shell:** `run_command` executes via **bash** regardless of `$SHELL`
-  (verified `echo $0` → `bash` on a zsh host) → strong `bash` hint.
-- **Registration (`.agents/hooks.json`, project-level only):**
-  ```json
-  {
-    "hooks": {
-      "PreToolUse": [
-        { "matcher": "run_command|execute_command|write_to_file|replace_file_content",
-          "hooks": [ { "type": "command",
-                       "command": "ltk evaluate --engine antigravity --config .ltk.yaml" } ] }
-      ]
-    }
-  }
-  ```
-  The matcher is a regex over agy tool names (`.*` works). **No global
-  registration:** `~/.gemini/antigravity-cli/hooks.json` is silently ignored,
-  and a hooks.json under `~/.gemini/` or `~/.gemini/config/` hangs headless
-  `agy -p` before any hook executes — `--global` install therefore errors.
-  agy may prompt to trust a newly seen hook on first interactive run
-  (`~/.gemini/trusted_hooks.json`); headless `-p` ran untrusted workspace
-  hooks without prompting in v1.0.7.
 
 ---
 
@@ -271,15 +224,11 @@ different reasons:
 
 # Not yet built
 
-- **Codex** ([#2](https://github.com/ctxloom/llm-tool-killer/issues/2))
-  engine (above) — an `engine.Engine` implementation registered in `engines()`;
-  `manage` and `evaluate` already dispatch polymorphically, so it is purely
-  additive. **Vote 👍 on the issue to prioritize.**
 - More `match` operators.
 
 Done: POSIX-shell frontend, real **pwsh** frontend (native parser), **cmd**
-frontend (hand-written lexer), rule engine, Claude Code engine, Antigravity
-engine (`evaluate` + `manage install`/`uninstall` for both), **file-edit
+frontend (hand-written lexer), rule engine, Claude Code engine (`evaluate` +
+`manage install`/`uninstall`), **file-edit
 (`match.path`) rules** — full-glob (doublestar `**`) matching, directory
 subtrees (`vendor/`), and the `@submodules` sentinel that blocks edits inside
 every git submodule, with the shipped defaults guarding `.gitmodules` and

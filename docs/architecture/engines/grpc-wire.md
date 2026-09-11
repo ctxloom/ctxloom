@@ -161,20 +161,20 @@ timeout=5, async=6, scm=7, pre_tool_fallback=8`.
 **`PreToolFallback` (`hooks.go:38`) crosses since `40b49a7f`** — `hookToProto`
 (`managed.go:180`) and `hookFromProto` (`managed.go:196`) both carry it. It is
 persisted (`yaml:"pre_tool_fallback"`), carried through bundles
-(`internal/bundles/bundles.go:148`, `:639`), part of the hook **trust preimage**, and
-read at launch by its sole consumer `internal/antigravity/antigravity.go:388` — whose
-own comment calls it "the only way it ever fires on agy".
+(`internal/bundles/bundles.go:148`, `:639`) and part of the hook **trust
+preimage**. It declares a `session_start` hook safe to re-fire on `PreToolUse`
+for a harness that has no session-start event; every registered engine has one,
+so no writer reads it at launch — the field stays wired for the engine that
+needs it next (its own doc on `wire.Hook` says so).
 
-> **It used to be dropped**, so an antigravity `session_start` hook declared
-> `pre_tool_fallback: true` fired under `ctxloom apply-hooks` and never under
-> `ctxloom run`. The trust consequence is worth stating precisely, because it is easy
-> to over- or under-claim: the exec preimage is built **host-side**
-> (`internal/lm/backends/managed.go`'s `hookExecPayload`) from the `wire.Hook` that
-> always carried the true flag, so **the gate never hashed a wrong value and no
-> signature, hash, grant or countersignature changed** when the field was added.
-> What was broken was the other half of the correspondence — the hook *delivered* to
-> the engine had the flag cleared, so it differed from the hook the grant covered.
-> No `ExecPreimageContract` bump was needed or wanted.
+> The trust consequence of a field that crosses is worth stating precisely: the
+> exec preimage is built **host-side** (`internal/lm/backends/managed.go`'s
+> `hookExecPayload`) from the `wire.Hook`, so what the gate hashes is decided
+> before the wire — a field dropped in transit would leave every signature,
+> hash, grant and countersignature unchanged and instead break the *other* half
+> of the correspondence, the hook the engine is delivered differing from the
+> hook the grant covered. That is why every persisted `wire.Hook` field must
+> cross, and why `ExecPreimageContract` does not bump when one is added.
 
 ### `ChatRequest` — 11 Go fields, 8 proto fields
 
@@ -215,8 +215,7 @@ Proto (`llm.proto:509-516`): `name, version, tags, content, is_distilled,
 distilled_by`. `agent.Fragment` (`internal/shared/agent/backend.go:40-48`)
 additionally carries `Installation`, which the proto lacks. Of the six that do
 cross, only `content` is ever read downstream
-(`internal/shared/agent/contextfile.go:92-104`;
-`internal/codex/surfaces.go:108-120`).
+(`internal/shared/agent/contextfile.go`).
 
 ### `RunOptions` — 11 fields (`llm.proto:518-542`)
 
@@ -303,7 +302,7 @@ Values **added or defaulted on decode**, none of which the caller sent:
 | `ReadPlanFiles` | `plans.go:49` | Reads `*.plan.md` from the harp's session dir, name-sorted. |
 | `SessionReader` | `session_reader.go:20` | Host-side facade that spawns a short-lived runner per read (`withClient`, `:78`, `defer c.Kill()`); `WatchSession` (`:104`) deliberately binds plugin lifetime to stream lifetime instead. |
 | `CanonicalFallbackSource` | `canonical_source.go:68` | Canonical-transcript-first `SessionSource` with an optional legacy leg. Lives here only to dodge a `transcript → grpc → transcript` import cycle (`canonical_source.go:24-28`). |
-| `RetiredScraperBackends` | `canonical_source.go:50` | Exported **mutable** map of backends whose legacy transcript scraper was deleted: codex, claude-code. |
+| `IsRetiredScraperBackend` / `RetiredScraperBackendNames` | `canonical_source.go` | Read-only view of the roster of backends whose legacy transcript scraper was deleted, so canonical capture is their only source; `TestArch_EngineIdentityRosters_MembersAreRegisteredBackends` asserts every member is a registered backend. |
 | `MockClient` / `MockClientFactory` | `mock_client.go:13` / `:163` | Cross-package test double shipped in a non-test file. |
 | `HandshakeConfig` / `LLMPluginKey` / `PluginMap` | `shared.go:15` / `:22` / `:25` | go-plugin identity. |
 | `isolateRunner` / `killSession` / `ReapRunnerDescendants` / `InstallRunnerTeardown` | `procsession_unix.go:47` / `:77` / `:121` / `:143` | POSIX process-lifetime primitives; no-ops on Windows. |

@@ -105,7 +105,7 @@ flowchart TD
 | `LoadedContent` | `loader_content.go:16` | A resolved fragment or command: name, content, source bundle, `IsDistilled`, `Installation` |
 | `ContentInfo` / `SkillInfo` / `ExpandedRef` | `loader_content.go:131` / `loader_skills.go:146` / `loader_content.go:519` | Listing and ref-expansion DTOs; `ContentInfo.FileName` is synthesised as `<name>.yaml` for items that have no file |
 | `LoadedSkill` / `LoadedSkillFile` | `loader_skills.go:33` / `:46` | A gated skill package with its materialized files (relative path, bytes, mode) |
-| `LLMExports`, `ClaudeCodeConfig`, `AntigravityConfig`, `CodexConfig`, `KiroConfig`, `OpencodeConfig` | `loader_content.go:58-128` | Per-engine slash-command export settings; each has an identical `IsEnabled` where nil means enabled |
+| `LLMExports`, `ClaudeCodeConfig` | `loader_content.go:58-128` | Per-engine slash-command export settings; each has an identical `IsEnabled` where nil means enabled |
 | `SkillPackage` / `SkillFrontmatter` | `skill.go:134` / `:74` | A parsed skill directory (name, frontmatter, body, manifest); frontmatter carries `Name` and `Description` (validated) plus `License`, `Compatibility`, `Metadata`, `AllowedTools` (passthrough, never interpreted) |
 | `SkillManifest` / `SkillManifestEntry` | `skill.go:98` / `:87` | The canonical per-file list (`Path`, `SHA256`, `Mode` as an octal string) and its `sorted`/`Serialize`/`Hash` methods; `Serialize()` is the skill signature preimage |
 | `SkillLLMExports` / `SkillEngineExport` | `skill.go:29` / `:38` | Per-engine skill enablement, `Enabled *bool` with nil meaning enabled |

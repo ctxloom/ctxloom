@@ -125,7 +125,7 @@ The watchdog is read-only: it never terminates, relaunches or reaps.
   all** (`:180-187`).
 - **Legacy-driver children are not live-observable.** `driveChild`'s note
   (`children.go:1000-1009`) calls this "an accepted, documented gap on an already-degraded
-  path", and since S3b migrated `opencode` onto StartRun no PRODUCTION backend reaches
+  path", and no PRODUCTION backend reaches
   it by backend identity: the frozen residue (`legacyChatBackends`) is the `mock` test
   backend alone. The gap survives only for a degraded (no-reach-back) spawn of an
   otherwise-migrated backend, which is already unobservable for the same reason it is

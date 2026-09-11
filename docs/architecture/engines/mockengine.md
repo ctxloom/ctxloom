@@ -17,7 +17,7 @@ a different thing.
 flowchart LR
     L1["L1 — DECLARATION<br/>agent.EngineCLI<br/>flags · prompt channel · probes"]
     L2["L2 — RUNTIME<br/>internal/mockengine<br/>parse · walk · hash · report"]
-    L3["L3 — WIRE ADAPTER<br/>renderOneshotWire<br/>claude envelope / codex plain"]
+    L3["L3 — WIRE ADAPTER<br/>renderOneshotWire<br/>one wire shape per engine"]
     L4["L4 — BINARY<br/>cmd/mockengine<br/>installed under a vendor's name"]
     L1 --> L2 --> L3 --> L4
     L1 -.->|"single source of<br/>every vendor fact"| L3
@@ -68,7 +68,6 @@ see the divergences below.
 | `Runtime.render` | `runtime.go:108` | Routes the outcome to the surface's wire format |
 | `renderOneshotWire` | `oneshot.go:38` | **Per-engine oneshot wire dispatch**; an unknown engine is a LOUD error |
 | `renderClaudeOneshot` / `claudeJSONEnvelope` | `oneshot_claude.go:71` / `:41` | claude's `-p --output-format json` `{result, modelUsage}` envelope |
-| `renderCodexOneshot` | `oneshot_codex.go:25` | codex: plain text, **no envelope** |
 | `oneshotWantsJSON` / `oneshotModel` / `tokenEstimate` | `oneshot_claude.go:53` / `:60` / `:96` | `--output-format json` presence; `--model` value; deterministic byte→token stand-in |
 
 ## Personality dispatch and wire adapters
@@ -78,8 +77,8 @@ consumes its OWN leading flags first, because ctxloom prepends a config `args:`
 block, and stops at the first non-mock token or `--`:
 
 - `--<engine>` — any spelling `agent.CanonicalEngineName` accepts that resolves
-  to a backend declaring an engine CLI: `--claude`, `--claude-code`,
-  `--codex`. The spellings come from the repo-wide alias table and membership
+  to a backend declaring an engine CLI (`--claude`, `--claude-code`, …). The
+  spellings come from the repo-wide alias table and membership
   from the backend registry (`personalityFromFlag`), so this package names no
   engine and a newly impersonable backend needs no edit here.
 - `--personality <name>` — the same resolution, as an explicit flag
@@ -99,28 +98,25 @@ Resolution then runs `backends.EngineCLIsFor(personality)` (`main.go:83`, seam a
 (`main.go:98-104`).
 
 **Stage 2 — wire dispatch** at render time, on `r.CLI.Engine` inside
-`renderOneshotWire` (`oneshot.go:38`). Exactly two adapters exist:
+`renderOneshotWire` (`oneshot.go:38`) — one adapter per engine that declares a
+CLI, and nothing else:
 
 | Engine | Adapter | Shape |
 |---|---|---|
 | `claude-code` | `renderClaudeOneshot` (`oneshot_claude.go:71`) | Plain text, or the `{result, modelUsage}` JSON envelope when `--output-format json` is present (`oneshotWantsJSON`, `:53` — which names claude's SkipSetup signal). Mirrored by `claudeJSONEnvelope`/`claudeModelToks` (`:41`, `:46`) — the one place a mock-side restatement of a vendor fact is justified, because a process boundary sits between them, and the file argues the case explicitly |
-| `codex` | `renderCodexOneshot` (`oneshot_codex.go:25`) | Plain text, **no envelope**. Its *existence* is the assertion (`runtime_test.go:190`) |
 | anything else | — | **LOUD error**, explicitly rather than falling through to claude's shape (`oneshot.go:44-45`) |
 
-There is **no opencode adapter**: that backend does not
-implement `EngineCLIProvider` — only `internal/claude/enginecli.go:172` and
-`internal/codex/enginecli.go:167` do — so `EngineCLIsFor` reports a loud miss.
+A backend that does not implement `agent.EngineCLIProvider` cannot be
+impersonated at all: `EngineCLIsFor` reports a loud miss before any adapter is
+consulted.
 
 ## Conformance tests riding on it
 
 | Test | Location |
 |---|---|
 | `TestMockEngineContainer_DiscoversDeliveredSurfaces` | `container_docker_integration_test.go:118` (claude; `--print --output-format json --model`, prompt on stdin) |
-| `TestMockEngineContainer_CodexDiscoversDeliveredSurfaces` | `container_docker_integration_test.go:281` |
 | `TestRuntime_OneshotJSONEnvelopeUnderSkipSetup` | `runtime_test.go:72` |
 | `TestRuntime_OneshotPlainWithoutJSONFlag` | `runtime_test.go:93` |
-| `TestRuntime_CodexOneshotIsPlainTextNotEnvelope` | `runtime_test.go:160` |
-| `TestRuntime_CodexWireIndependentOfClaudeOutputFormat` | `runtime_test.go:190` |
 | `TestRuntime_FailSentinelExitsNonzero` | `runtime_test.go:224` |
 | `TestRuntime_PromptHashMatchesReceivedBytes` | `runtime_test.go:238` |
 | `TestReport_DigestExcludesAbsolutePaths` | `runtime_test.go:253` |
@@ -140,7 +136,7 @@ Most rows are "not applicable" — recorded so the matrix is complete.
 
 | Capability | Answer |
 |---|---|
-| Backend id | **none — not a registered backend.** Personality names borrow registry names (`claude-code`, `codex`) |
+| Backend id | **none — not a registered backend.** Personality names borrow registry names |
 | Permission handling | **none.** Permission flags are name-validated by `ParseArgv` and otherwise inert. `EnforcesReadOnlyPlan` returns `false` for any unregistered name (`registry.go:148-150`, pinned at `capabilities_test.go:31`); `CollapsePlanIfUnenforced` is not applicable |
 | Deny list | **none** — there are no tools; the mock never executes anything |
 | Context surface | **its entire purpose.** `Walk` (`discovery.go:42`) walks L1's declared probes and `probeOne` (`:51`) resolves each root by scope — `ScopeCwd` → `Res.Cwd`; `ScopeHome` → `Res.Home`; `ScopeEnvDir` → `res.getenv(p.EnvVar)` with a `filepath.Join(res.Home, p.EnvHomeDefault)` fallback (`:70-76`); `ScopeFlagValue` → `probeFlagValue` (`:89`) with an `inlineJSON` literal-vs-path discriminator (`:115`). `observePath` (`:129`) stats and hashes a file, or hashes a directory via `hashDir` (`:164`, recursive, name-sorted, per-file hash) |
@@ -173,10 +169,10 @@ no constructor), and `EngineCLI.Validate()` having been run.
 These matter more than usual: a blind spot in the instrument is invisible in
 everything the instrument certifies.
 
-- **Flag NAMES are validated; values, required flags, and declared mutual exclusions are not.** `ParseArgv` checks only "is this name declared" plus "does a value token follow", so `--sandbox nonsense` and codex's mutually-exclusive bypass+sandbox pair both parse cleanly and run green — argv lines the real binaries reject with exit 2. The declarations state the constraints (`internal/codex/enginecli.go:93`, `:95`; `internal/claude/enginecli.go:115`).
+- **Flag NAMES are validated; values, required flags, and declared mutual exclusions are not.** `ParseArgv` checks only "is this name declared" plus "does a value token follow", so a nonsense value, or two flags the declaration marks `ConflictsWith` each other, both parse cleanly and run green — argv lines the real binary rejects with exit 2. The declarations state the constraints (`agent.EngineCLI` flag entries in `internal/claude/enginecli.go`).
 - **A MISSING flag is invisible.** The surface is chosen out-of-band (`main.go:39` hard-codes oneshot; `--surface` has zero callers), so a driver that stopped emitting `--print` while still piping stdin produces an **identical, fully green** report — while hanging the real `claude` on a terminal handshake.
 - **`PromptSHA256` is never empty.** A nil prompt hashes to `e3b0c442…` (`report.go:144`), so "no prompt delivered" is indistinguishable from "prompt delivered" in the one field that exists to prove delivery. The neighbouring `ProbeRecord.SHA256` documents the opposite convention. `runtime_test.go:230` asserts `rep.PromptSHA256 != ""` — an assertion that can never fail.
-- **`ScopeEnvDir` silently falls back to the real `$HOME`** (`discovery.go:70-76`), so a run where ctxloom never set `CODEX_HOME` reads the developer's own `~/.codex/config.toml` and reports `present:true` for a surface ctxloom never delivered. `Root` would reveal it, but `Root` is deliberately excluded from the digest, and no `Note` records the fallback.
+- **`ScopeEnvDir` falls back to the real `$HOME`** (`EnvHomeDefault` in `probeOne`), so a run where ctxloom never set the engine's home var reads the developer's own home and reports `present:true` for a surface ctxloom never delivered. The fallback is recorded in `Note` and revealed by `Root`, but both are deliberately excluded from the digest, so the digest cannot tell.
 - **The declared environment contract is never verified.** `rg 'SetEnv|StripEnv' internal/mockengine cmd/mockengine` returns **0 hits**, and `Report` has no env section. `SetEnv`/`StripEnv` exist precisely because "a strip that silently stopped happening is otherwise invisible" (`internal/shared/agent/enginecli.go:236-238`). A run where ctxloom stopped setting `CTXLOOM_CONTEXT_FILE` reports identically to one where it did.
 - **Every `os.Stat` error flattens to `Present=false`** (`discovery.go:131-134`) — EACCES, ENOTDIR and ELOOP read exactly like "not delivered" — while the sibling read-failure path twelve lines later *does* note the error (`:150`).
 - **`hashDir` discards the walk error and emits unreadable files as entries with an empty `SHA256`** (`discovery.go:166`, `:176-181`), so an unreadable file looks like a successfully observed one. `EntryRecord` has no error field.
@@ -184,7 +180,7 @@ everything the instrument certifies.
 - **`EngineCLI.Validate()` is never called on the mock path** (`rg '\.Validate()'` → 0 hits), though `internal/shared/agent/enginecli.go:273-278` says it exists so a malformed declaration fails at its own test rather than producing a mysteriously wrong parse downstream. `probeFlagValue`'s `flag, _ := cli.LookupFlag` (`:97`) is safe only *because* Validate would have caught it. Relatedly, `discovery.go:78` overwrites the declaration's own `Note` with a bare assignment, unlike all four other note writes which use `joinNote`.
 - **A malformed `CTXLOOM_MOCK_EXIT_CODE` is silently ignored** (`sentinel.go:68-72`) — `err != nil` has no branch, so `=one` yields exit 0 with no diagnostic. The fault-injection channel degrades to "success" on a typo.
 - **An intentionally EMPTY response cannot be requested** — `if v := getenv(EnvResponse); v != ""` (`sentinel.go:65-67`) makes "set to empty" indistinguishable from unset, and `Dispatch` always seeds `"mock-engine: ok"` (`:55`). The one knob that would let a test prove ctxloom surfaces a zero-byte reply is unreachable, in the codebase whose characteristic bug **is** the zero-byte reply.
-- **Two env readers with opposite nil policies**: `Runtime.getenv` falls back to `os.Getenv` (`runtime.go:36-41`) while `Resolver.getenv` returns `""` (`discovery.go:26-31`). A `Runtime` built with a nil `Res.Getenv` probes `$HOME/.codex` while the sentinel knobs read the real process env — from one struct literal, with no error.
+- **Two env readers with opposite nil policies**: `Runtime.getenv` falls back to `os.Getenv` (`runtime.go:36-41`) while `Resolver.getenv` returns `""` (`discovery.go:26-31`). A `Runtime` built with a nil `Res.Getenv` probes the `$HOME` fallback while the sentinel knobs read the real process env — from one struct literal, with no error.
 - **The interactive surface is unreachable dead weight** while its comment advertises a "deferred" capability; `render`'s `default` arm silently echoes for ANY unknown surface (`runtime.go:112-114`) — the exact fall-through `renderOneshotWire` explicitly refuses.
 - **The container test hand-writes the vendor argv** (`container_docker_integration_test.go:136`, `:299`) under the comment "the argv mirrors what claude's buildArgs emits under SkipSetup", so the mock constrains the **declaration**, not the **driver** — the very drift the package doc says a fake must never permit. `rg buildArgs internal/mockengine` → 0 hits.
 - **Report-emission failure does not affect the exit code** (`runtime.go:87-99`, `:53`) — the instrument can exit 0 having delivered zero evidence. Both current readers do fail loudly, so this is latent.

@@ -176,7 +176,7 @@ both hits and failures per URL. Consumers: `upgrade.go`, `depgraph.go`.
 ## Context assembly — `context.go`
 
 `AssembleContext` (`context.go:112`) is the single composition entry point; 20+ production call
-sites across `cli/`, `lm/`, `codex/` and `shared/agent/`.
+sites across `cli/`, `lm/`, `claude/` and `shared/agent/`.
 
 ```mermaid
 flowchart LR
@@ -264,7 +264,7 @@ flowchart LR
 | `WatchSessionFeed` / `watchLiveFeed` / `watchStoreFeed` / `adaptConsumerFeed` | `sessionfeed.go:96,133,460,264` | Unified observation feed: prefer a live coordinator over gRPC, fall back to the recorded store. `adaptConsumerFeed` folds live item-lifecycle deltas back into whole `agent.SessionEntry` values with seq-based gap detection. |
 | `feedScrollback` | `sessionfeed.go:422` | Reads the harp's recorded transcript once as the live feed's prefix. |
 | `RecordedSessionEntries` / `RenderResumedTranscript` / `JoinLeadBlocks` | `resume.go:16,41,82` | Transcript replay for resume; the rendered block is tail-truncated to 32 KiB. `JoinLeadBlocks` joins non-empty lead blocks with a blank line and has six production call sites across three packages. |
-| `ConvertVendorTranscript` / `BackfillVendorTranscripts` | `vendorreader.go:122`, `vendorreader_backfill.go:37` | Converts a vendor-native transcript into the canonical JSONL via a per-engine registry (`claude`, `codex`); backfill never stops early and records per-harp failures. |
+| `ConvertVendorTranscript` | `vendorreader.go` | Converts a vendor-native transcript into the canonical JSONL via the per-engine vendor-reader registry. |
 
 ## Review, search and schema targets
 

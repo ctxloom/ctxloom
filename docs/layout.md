@@ -141,8 +141,8 @@ absence is ever worth a doctor warning.
 
 ## Engine homes: your real home, and the per-session instance
 
-**Your real `~/.claude` and `~/.codex` are the durable truth, and
-ctxloom never writes them.** That is the model's hardest invariant, and it is
+**Your real engine home (`~/.claude` for claude-code) is the durable truth,
+and ctxloom never writes it.** That is the model's hardest invariant, and it is
 pinned by a gate that hashes those trees before and after a real agent launch
 and requires byte identity:
 `TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch`. A path
@@ -150,9 +150,9 @@ assertion could only say where ctxloom *meant* to write.
 
 An agent whose binding declares `config_home: project` does not run against your
 real home. It gets a throwaway **per-session instance** at
-`.ctxloom/state/<harp>/home/<engine-leaf>` (`paths.SessionHomePath`; the leaves
-are `.codex`, `claude`, pairwise distinct so one instance root hosts
-every engine a session runs). No binding, an undeclared `config_home`, or an
+`.ctxloom/state/<harp>/home/<engine-leaf>` (`paths.SessionHomePath`; each engine appends its own
+leaf, distinct by construction so one instance root hosts every engine a
+session runs). No binding, an undeclared `config_home`, or an
 explicit `config_home: host` all mean the engine uses its **real home directly**
 — no instance, no copy-in (`operations.ResolveConfigHome`).
 
@@ -161,9 +161,9 @@ Three classes of content live inside an instance:
 1. **ctxloom-generated** — context, prompts, skills, managed config blocks.
    Regenerated at every launch.
 2. **engine-generated** — the scaffolding an engine needs, written by that
-   engine's own package (`agent.InstanceConfigWriter`): codex's `config.toml`
-   tables and its `[projects."<abs workdir>"]` trust pre-seed, claude's
-   `.claude.json` onboarding keys.
+   engine's own package (`agent.InstanceConfigWriter`): for claude, the
+   `.claude.json` carrying its hardened keys and the workspace-trust answer for
+   the run's working directory.
 3. **ambient** — content whose origin is your real host home, **copied in one
    way** at instance time and never back (`isolation.CopyAmbient`, over the
    per-engine allow-list `isolation.AmbientSet`).
@@ -171,12 +171,11 @@ Three classes of content live inside an instance:
 The ambient set is an **allow-list, never a deny-list**. Under a deny-list a
 file the vendor adds tomorrow would be copied by default, and the default
 direction of that mistake is a confidentiality leak: claude's `.claude.json`
-carries your own `mcpServers` registrations, codex's `config.toml` carries
-yours. So only named keys and named files cross — `claude.ambientConfigKeys` is
-the onboarding answers and nothing else, and codex's copy elides
-`[mcp_servers]` and `[hooks]` (`codex.elidedHostSections`). The set is
-**declared empty**, not omitted: its credentials live in a global store no home
-variable relocates.
+carries your own `mcpServers` registrations. So only named keys and named files
+cross — `claude.ambientConfigKeys` is the onboarding answers and nothing else.
+An engine whose credentials live in a global store no home variable relocates
+declares its set **empty** rather than omitting it, so the absence is a
+decision a reader can find.
 
 **There is no sync-back, ever.** Two costs follow, and they are accepted
 deliberately:
@@ -228,8 +227,8 @@ Two properties follow from where the file lives, and both are the point:
 - **It is rewritten wholesale, never appended to.** The old root-append path
   emitted a fresh comment header above only the patterns still *missing*, so each
   time the list grew another header landed above the new entries. In ctxloom's own
-  repo that header accumulated five times and ended up captioning
-  `.codex/auth.json` — a real credential — as "ctxloom private working state".
+  repo that header accumulated five times and ended up captioning an engine's
+  credential file as "ctxloom private working state".
   A generated file with no user-authored lines cannot drift that way.
 
 ctxloom still writes to your root `.gitignore` for two narrow reasons: engine
@@ -281,29 +280,21 @@ Three reasons, and all three are about the axis, not about tidiness:
 When a run carries no usable harp, the per-agent scratch falls back to the OS
 temp directory and says so — never to a shared project path.
 
-## codex: settings that exist only at launch
+## Settings that exist only at launch
 
-codex reads hooks, MCP servers, prompts and skills **only** from `$CODEX_HOME`,
-and ctxloom writes no durable project copy of them. This is a **declared
-absence** (`codex.LaunchOnlySettingsReason`), not an oversight, and it is
-declared so that tools can report it instead of silently writing nowhere.
-
-What follows:
-
-- `ctxloom profile materialize --backend codex` does not write codex's
-  hooks/MCP/prompts/skills and **says so**, listing them as not-carried with the
-  reason (`backends.LaunchOnlySurfaces`). It still writes codex's genuinely
-  cwd-keyed surface, the project-root `AGENTS.md`.
-- `ctxloom doctor` answers the question that absence creates — "so where *are*
-  my hooks?" — by reporting **both** homes: your real `$CODEX_HOME` (or
-  `~/.codex`), which is what any agent with no binding or `config_home: host`
-  actually uses, and the most recent per-session instance if one is on disk,
-  labelled with its harp, its age, and a note that it is not live configuration
-  (`cli.doctorCheckCodexHome`).
+An engine that reads hooks, MCP servers, prompts or skills **only** from its
+home has no durable project copy of them for ctxloom to write. A backend in
+that position declares it on its registry descriptor
+(`launchOnlySettingsReason`) — a **declared absence**, not an oversight — so
+that tools can report it instead of silently writing nowhere:
+`ctxloom profile materialize --backend <name>` lists those surfaces as
+not-carried with the reason (`backends.LaunchOnlySurfaces`) and still writes
+whatever cwd-keyed surface the engine does have.
 
 claude needs none of this: its static surfaces are cwd-keyed
-(`CLAUDE.md`, `.claude/`), so it has durable project paths to
-write.
+(`CLAUDE.md`, `.claude/`), so it has durable project paths to write. The
+mechanism stays exercised by the `mock-launch` backend, which declares a
+launch-only reason for exactly that purpose.
 
 ## See also
 

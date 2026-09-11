@@ -77,10 +77,7 @@ Editor resolution order: the `editor` setting in config, then `VISUAL`, then `ED
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `CODEX_HOME` | `~/.codex` | Home directory for the Codex backend's config and state. |
 | `HOME` | OS default | Standard home directory; roots `~/.ctxloom` and similar paths. |
-
-> Status: the Codex backend is implemented and hermetically tested; live operation is untested (no codex account on any dev host).
 
 ## Set by ctxloom for child processes
 

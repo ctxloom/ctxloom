@@ -132,5 +132,4 @@ linked page.
 | `Home.abandonPark`'s comment says "requeue"; no requeue exists | [transport.md](transport.md) |
 | `artifactstore.go:20-24` attributes corrupt-read detection to `artifacts.go`; verification is client-side in `homeartifacts.go` | [artifacts.md](artifacts.md) |
 | Summary dedupe keys `(harp, seq)` while `seq` is per-run and restarts at 1 on resume | [artifacts.md](artifacts.md) |
-| `children.go:551-554` claims the legacy chat path is production-unreachable; `antigravity` and `opencode` both take it | [child-lifecycle.md](child-lifecycle.md) |
-| `spawner.go:102-119` says one-shot is "not yet executed (v0.8)"; `Resolve` returns `ResumeModeOneShot` for claude-code and codex today | [child-lifecycle.md](child-lifecycle.md) |
+| `spawner.go:102-119` says one-shot is "not yet executed (v0.8)"; `Resolve` returns `ResumeModeOneShot` for the StartRun backend today | [child-lifecycle.md](child-lifecycle.md) |

@@ -169,6 +169,12 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// context was regenerated this round (contextHash != ""); otherwise "" would
 	// strip their managed native-context section, which skipContext now prevents
 	// whenever the emptiness is not a genuine, error-free current state.
+	//
+	// Composed for a LIVE session (the zero ContextConsumer), not
+	// MaterializedFor the backend, even though it lands in the same native file
+	// `profile materialize` writes: the hooks installed alongside it are ctxloom
+	// staying in the loop, so a session launched here can pull a premised
+	// fragment on demand and the file must carry the menu, not the bodies.
 	var assembledContext string
 	if contextHash != "" {
 		if asm, aerr := AssembleContext(ctx, freshCfg, AssembleContextRequest{Profiles: freshCfg.DefaultAgentProfiles()}); aerr == nil {

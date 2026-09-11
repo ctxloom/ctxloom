@@ -2,6 +2,9 @@ package operations
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -64,14 +67,15 @@ func deliverNativeContext(t *testing.T, backend, dir, contextText string) {
 	require.NoError(t, err)
 }
 
-// composedContext is what the fixture's default agent currently assembles —
-// the same string surfaceCurrencies compares against.
-func composedContext(t *testing.T, cfg *config.Config) string {
+// composedContext is what the fixture's default agent currently composes for
+// backend's materialized file — the same string surfaceCurrencies compares
+// against, obtained the same way.
+func composedContext(t *testing.T, cfg *config.Config, backend string) string {
 	t.Helper()
-	asm, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profiles: cfg.DefaultAgentProfiles()})
+	composed, err := intendedContextFile(context.Background(), cfg, backend)
 	require.NoError(t, err)
-	require.NotEmpty(t, asm.Context)
-	return asm.Context
+	require.NotEmpty(t, composed)
+	return composed
 }
 
 // --- ARM ONE: the alarm FIRES where materialization was expected -------------
@@ -186,7 +190,7 @@ func TestSurfaceCurrencies_ReportsStaleForPortedBackends(t *testing.T) {
 // unfixable "stale".
 func TestSurfaceCurrencies_ReportsDeliveredForPortedBackends(t *testing.T) {
 	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
-	current := composedContext(t, cfg)
+	current := composedContext(t, cfg, "claude-code")
 
 	for _, backend := range []string{"claude-code"} {
 		deliverNativeContext(t, backend, workDir, current)
@@ -201,5 +205,84 @@ func TestSurfaceCurrencies_ReportsDeliveredForPortedBackends(t *testing.T) {
 		assert.Equal(t, string(agent.StatusDelivered), got.Status,
 			"%s just wrote the composed context; detail was %q", backend, got.Detail)
 		assert.Empty(t, got.Detail)
+	}
+}
+
+// --- THE CHECK COMPOSES WHAT MATERIALIZE WROTE ------------------------------
+
+// premisedDefaultAgentFixture builds a project whose DEFAULT agent composes a
+// bundle carrying one premised fragment (body mark) — the content whose
+// delivery differs by engine — plus an empty dir to materialize into. The
+// default agent matters for the same reason as in surfaceCurrencyFixture: it
+// is what the check composes, so materialize must be handed the same profiles.
+func premisedDefaultAgentFixture(t *testing.T, mark string) (cfg *config.Config, target string) {
+	t.Helper()
+	testsupport.Isolate(t)
+	appDir, target := regenTestApp(t)
+	bundleDir := filepath.Join(authoredV1(appDir), "premise-bundle")
+	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
+	// `premise:` is the flat v1 key; the v2 tree format spells it `description:`.
+	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "bundle.yaml"),
+		[]byte("version: \"1.0\"\nfragments:\n"+
+			"  always-applies:\n    content: \"UNCONDITIONAL-MARKER\"\n"+
+			"  only-sometimes:\n    premise: \"You are about to cut a release.\"\n    content: \""+mark+"\"\n"), 0o644))
+	cfg = cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		"premised": {Bundles: []string{"premise-bundle"}},
+	}, config.Fixture{
+		DefaultAgent: "primary",
+		Agents:       map[string]agents.Agent{"primary": {Profiles: []string{"premised"}}},
+	})
+	return cfg, target
+}
+
+// TestIntendedContextFile_IsWhatMaterializeWrote pins static-vs-dynamic
+// delivery to WHAT IS WRITTEN rather than to whichever caller is composing:
+// `manage check` composes the file it compares against through
+// intendedContextFile, MaterializeProfile composes the file it writes, and for
+// the same engine the two must be the same bytes — otherwise a correct
+// materialization is reported stale for as long as it exists.
+//
+// Both arms are asserted because they resolve to DIFFERENT deliveries. An
+// engine with a skills surface gets the dynamic assembly (its premised
+// fragments become skill packages); one without gets the static assembly (they
+// are dumped into the context, since nothing behind a materialized surface can
+// pull them later). A caller picking its own mode agrees with the writer on
+// one arm by coincidence and diverges on the other, so a single-arm assertion
+// cannot tell a shared resolution from a lucky one. mock-noskills is the
+// engine without a skills mapper.
+func TestIntendedContextFile_IsWhatMaterializeWrote(t *testing.T) {
+	for _, tc := range []struct {
+		backend           string
+		premisedInContext bool
+	}{
+		{backend: "mock", premisedInContext: false},
+		{backend: "mock-noskills", premisedInContext: true},
+	} {
+		t.Run(tc.backend, func(t *testing.T) {
+			cfg, target := premisedDefaultAgentFixture(t, "PREMISED-MARKER")
+			_, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+				Profiles: cfg.DefaultAgentProfiles(), Target: target, Backend: tc.backend,
+			})
+			require.NoError(t, err)
+
+			intended, err := intendedContextFile(context.Background(), cfg, tc.backend)
+			require.NoError(t, err)
+			// Not vacuous: the two arms must compose DIFFERENT bytes for the
+			// premised fragment, or "they agree" is satisfied by a resolution
+			// that ignores the engine and always picks one mode.
+			assert.Equal(t, tc.premisedInContext, strings.Contains(intended, "PREMISED-MARKER"),
+				"%s: the check's composition must carry the premised fragment exactly when the engine has no skills surface to re-deliver it through", tc.backend)
+			assert.Contains(t, intended, "UNCONDITIONAL-MARKER")
+
+			decl := backends.Declared(tc.backend)
+			reader, ok := contextFileReader(decl, afero.NewOsFs())
+			require.True(t, ok, "%s must offer a native-file context route", tc.backend)
+			state, err := reader.State(target)
+			require.NoError(t, err)
+			cur, report := reportableContextCurrency(state, intended, contextFileExpected(decl))
+			require.True(t, report, "%s: a materialized file that exists is always reported", tc.backend)
+			assert.Equal(t, agent.StatusDelivered, cur.Status,
+				"%s: the check composed something other than what materialize wrote for the same engine — %s", tc.backend, cur.Detail)
+		})
 	}
 }

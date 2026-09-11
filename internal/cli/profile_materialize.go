@@ -121,11 +121,16 @@ type profileMaterializeDiffJSON struct {
 // HERE, rather than merely asserting the two disagree.
 //
 // It reuses operations.AssembleContext directly — the same call
-// MaterializeProfile makes for the context surface — rather than writing a
+// MaterializeProfile makes for the context surface, stating the same subject
+// (MaterializedFor --backend), so it composes what materialize would WRITE for
+// that engine rather than what a live session would see — instead of writing a
 // scratch target to disk and reading it back: --diff is read-only by design,
 // so it never touches --target at all.
 func runProfileMaterializeDiff(cmd *cobra.Command, cfg *config.Config, args []string) error {
-	asm, err := operations.AssembleContext(cmd.Context(), cfg, operations.AssembleContextRequest{Profiles: args})
+	asm, err := operations.AssembleContext(cmd.Context(), cfg, operations.AssembleContextRequest{
+		Profiles: args,
+		Consumer: operations.MaterializedFor(materializeBackend),
+	})
 	if err != nil {
 		return fmt.Errorf("assemble context for %v: %w", args, err)
 	}
@@ -168,7 +173,7 @@ func runProfileMaterializeDiff(cmd *cobra.Command, cfg *config.Config, args []st
 func init() {
 	profileCmd.AddCommand(profileMaterializeCmd)
 	profileMaterializeCmd.Flags().StringVar(&materializeTarget, "target", "", "Target directory to write the agent surface into (required)")
-	profileMaterializeCmd.Flags().StringVar(&materializeBackend, "backend", operations.DefaultMaterializeBackend, "Backend surface to write (claude-code)")
+	profileMaterializeCmd.Flags().StringVar(&materializeBackend, "backend", operations.DefaultMaterializeBackend, "Backend whose surface is written, or compared against with --diff (claude-code)")
 	profileMaterializeCmd.Flags().StringArrayVar(&materializeSurfaces, "surface", nil,
 		"Override where a surface is delivered: <kind>=<approach> (repeatable). See --help for what this project's engines support.")
 	profileMaterializeCmd.Flags().StringVar(&materializeDiff, "diff", "",

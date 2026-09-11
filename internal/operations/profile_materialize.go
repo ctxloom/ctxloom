@@ -114,15 +114,18 @@ func resolveMaterializeTarget(cfg *config.Config, req MaterializeProfileRequest)
 	if len(req.Profiles) == 0 {
 		return "", fmt.Errorf("at least one profile is required")
 	}
-	// Resolved through the ONE alias table (agent.CanonicalEngineName), never a
-	// private copy: the resolved name is what the result reports, what the CLI
-	// prints, and what every backends.* lookup keys on, so a caller's spelling
-	// must not survive into it. A local `== "claude"` branch here got that one
-	// spelling right and returned every other declared alias verbatim.
-	backend := agent.CanonicalEngineName(req.Backend)
-	if backend == "" {
-		backend = DefaultMaterializeBackend
+	if req.Backend == "" {
+		return registeredBackend(DefaultMaterializeBackend)
 	}
+	return registeredBackend(req.Backend)
+}
+
+// registeredBackend canonicalizes name through the one alias table
+// (agent.CanonicalEngineName) and refuses a name no engine is registered
+// under. The canonical name is what every backends.* lookup keys on and what
+// results report, so a caller's spelling never survives past here.
+func registeredBackend(name string) (string, error) {
+	backend := agent.CanonicalEngineName(name)
 	if !backends.Exists(backend) {
 		return "", fmt.Errorf("unknown backend %q", backend)
 	}
@@ -175,13 +178,15 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// A materialized surface is ctxloom OUT OF THE LOOP, so a premised fragment
 	// withheld here cannot be pulled later — it is lost, not deferred. Where the
 	// engine has its own Agent Skills surface we hand it the fragments as skill
-	// packages instead, which is the same progressive disclosure the premise
-	// index gives a live session, done by the engine's own mechanism. Where it
-	// does not, we dump them into context (Static) so nothing is ever lost.
-	skillsCapable := backends.SupportsSkills(backend)
+	// packages instead (WithheldFragments, below), which is the same progressive
+	// disclosure the premise index gives a live session, done by the engine's
+	// own mechanism. Where it does not, they are written into the context so
+	// nothing is ever lost. That fork is NOT decided here: this call states
+	// what it is writing and ContextConsumer.static decides, the same way it
+	// decides for every composition that must match this file.
 	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{
 		Profiles: req.Profiles,
-		Static:   !skillsCapable,
+		Consumer: MaterializedFor(backend),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("assemble context for %v: %w", req.Profiles, err)

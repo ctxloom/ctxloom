@@ -234,31 +234,32 @@ func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusReq
 // rule here: without it every hook-delivered project would be told its CLAUDE.md
 // is gone, which is the fastest way to teach a user to skip this section.
 //
-// The composed ("intended") context is assembled AT MOST ONCE, lazily, and only
-// once some backend actually has a readable file route to answer for — every
-// verdict now depends on it, missing included, because "does this loadout carry
-// anything for the file surface" cannot be answered without composing it. It
-// reads via the existing AssembleContext, never regenerateContext:
-// this is the read half the design doc calls out — "a status command that
-// rewrites the surface it inspects is its own bug" — so it must never write.
+// The composed ("intended") context is assembled lazily, at most once PER
+// BACKEND, and only for a backend that actually has a readable file route to
+// answer for — every verdict depends on it, missing included, because "does
+// this loadout carry anything for the file surface" cannot be answered without
+// composing it. Per backend rather than once, because what a materialized file
+// holds is a property of the engine it was written for (intendedContextFile).
+// It reads via the existing AssembleContext, never regenerateContext: this is
+// the read half the design doc calls out — "a status command that rewrites the
+// surface it inspects is its own bug" — so it must never write.
 func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, workDir string) (surfaces []SurfaceCurrency, errs []string) {
-	var intended string
-	var composed, composeFailed bool
-	compose := func() (string, bool) {
+	intended := map[string]string{}
+	var composeFailed bool
+	compose := func(backend string) (string, bool) {
 		if composeFailed {
 			return "", false
 		}
-		if !composed {
-			asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: cfg.DefaultAgentProfiles()})
+		if _, ok := intended[backend]; !ok {
+			composed, err := intendedContextFile(ctx, cfg, backend)
 			if err != nil {
 				errs = append(errs, fmt.Sprintf("failed to compose the current context to compare materialized surfaces against: %v", err))
 				composeFailed = true
 				return "", false
 			}
-			intended = asm.Context
-			composed = true
+			intended[backend] = composed
 		}
-		return intended, true
+		return intended[backend], true
 	}
 
 	for _, name := range backends.BackendsWithSettings() {
@@ -278,7 +279,7 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 			errs = append(errs, fmt.Sprintf("failed to read %s's materialized context surface: %v", name, err))
 			continue
 		}
-		current, ok := compose()
+		current, ok := compose(name)
 		if !ok {
 			return surfaces, errs
 		}
@@ -294,6 +295,24 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 		})
 	}
 	return surfaces, errs
+}
+
+// intendedContextFile composes what MaterializeProfile writes as backend's
+// native context file, for the configured default profiles — the check's side
+// of the currency comparison. It states the SAME subject the writer states
+// (MaterializedFor), which is the whole reason the read half and the write half
+// agree on what the file should hold: an engine without a skills surface gets
+// its premised fragments written into the file, and a comparison composed for
+// a live session would withhold them and report that file stale forever.
+func intendedContextFile(ctx context.Context, cfg *config.Config, backend string) (string, error) {
+	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{
+		Profiles: cfg.DefaultAgentProfiles(),
+		Consumer: MaterializedFor(backend),
+	})
+	if err != nil {
+		return "", err
+	}
+	return asm.Context, nil
 }
 
 // reportableContextCurrency is the whole "report it or stay quiet" rule, in one

@@ -675,7 +675,8 @@ func protoIsNil(m proto.Message) bool {
 // the go-sdk streamable server runs tool handlers on session-scoped
 // contexts and holds POST streams open, so there is no per-response write
 // hook to ack on; a crash before the ack re-delivers (at-least-once).
-// leaf selects the timeout guidance: a child finishes, a coordinator re-arms.
+// leaf selects the timeout verdict (see recvOutcome): a child gets an error
+// telling it to finish, a coordinator a successful empty receive.
 func recvHandler(home *coord.Home, leaf bool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var in struct {
@@ -689,16 +690,17 @@ func recvHandler(home *coord.Home, leaf bool) mcp.ToolHandler {
 		wait := mcpschema.ClampRecvWait(in.Wait)
 		msgs, err := home.Recv(ctx, wait)
 		if err != nil {
-			if errors.Is(err, coord.ErrRecvPreempted) {
-				// A yield is a success with nothing to deliver, never an
-				// error: rendered as a failure it invites the retry that
-				// would supersede the receive about to deliver.
-				return &mcp.CallToolResult{StructuredContent: map[string]any{
-					"messages":    []any{},
-					"disposition": mcpschema.RecvDispositionYielded,
-				}}, nil
+			// Role, not transport, picks the verdict shape; recvOutcome
+			// holds the leaf/coordinator asymmetry and the reason it must
+			// stay.
+			disposition, failure := recvOutcome(err, wait, leaf)
+			if failure != nil {
+				return nil, failure
 			}
-			return nil, recvFailure(err, wait, leaf)
+			return &mcp.CallToolResult{StructuredContent: map[string]any{
+				"messages":    []any{},
+				"disposition": disposition,
+			}}, nil
 		}
 		// home.Recv already committed msgs as RETURNED (the
 		// cursor-ack fires on the NEXT Recv) before this loop even starts —

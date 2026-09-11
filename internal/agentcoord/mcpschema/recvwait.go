@@ -49,3 +49,12 @@ func ClampRecvWait(seconds int) time.Duration {
 // which would supersede the receive that is about to deliver. Mail is never
 // lost across the yield: the newer receive holds the park.
 const RecvDispositionYielded = "yielded to a newer receive for this session: no message was lost (the newer receive holds the park and delivers whatever lands) — do not retry this call"
+
+// RecvDispositionTimedOut is agent_recv's `disposition` when a COORDINATOR's
+// wait elapsed with nothing to deliver. Only a coordinator gets it: for a leaf
+// the same timeout stays an error, because a leaf's quiet wait is its signal
+// to stop and its harness should show red. A coordinator's is not — rendered
+// as a failed call it is the same misleading red the yielded disposition
+// exists to prevent, and the caller retries into it. The window's length is
+// the caller's own `wait`, so it is not restated here.
+const RecvDispositionTimedOut = "timed out with no message: nothing arrived in this window; if you are still waiting on children, receive again"

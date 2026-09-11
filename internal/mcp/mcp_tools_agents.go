@@ -196,9 +196,9 @@ type agentBusMessage struct {
 
 type agentRecvResult struct {
 	Messages []agentBusMessage `json:"messages"`
-	// Disposition is set only when the call yielded to a newer receive
-	// (mcpschema.RecvDispositionYielded): a successful receive with nothing
-	// to deliver, which the caller must not retry.
+	// Disposition is set only on a successful receive with nothing to
+	// deliver, naming why (see recvOutcome): the call yielded to a newer
+	// receive, or a coordinator's wait elapsed quietly.
 	Disposition string `json:"disposition,omitempty"`
 }
 
@@ -368,13 +368,13 @@ func (s *ctxServer) handleAgentRecv(ctx context.Context, _ *mcp.CallToolRequest,
 	wait := mcpschema.ClampRecvWait(in.Wait)
 	msgs, err := d.c.AgentRecv(ctx, d.self, wait)
 	if err != nil {
-		if errors.Is(err, coord.ErrRecvPreempted) {
-			// A yield is a success with nothing to deliver, never an error:
-			// rendered as a failure it invites the retry that would supersede
-			// the receive about to deliver.
-			return nil, &agentRecvResult{Messages: []agentBusMessage{}, Disposition: mcpschema.RecvDispositionYielded}, nil
+		// Role, not transport, picks the verdict shape; recvOutcome holds
+		// the leaf/coordinator asymmetry and the reason it must stay.
+		disposition, failure := recvOutcome(err, wait, d.self.IsChild())
+		if failure != nil {
+			return nil, nil, failure
 		}
-		return nil, nil, recvFailure(err, wait, d.self.IsChild())
+		return nil, &agentRecvResult{Messages: []agentBusMessage{}, Disposition: disposition}, nil
 	}
 	out := &agentRecvResult{Messages: make([]agentBusMessage, 0, len(msgs))}
 	for _, m := range msgs {

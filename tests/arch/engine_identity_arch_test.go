@@ -48,6 +48,9 @@
 package arch
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -144,5 +147,55 @@ func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
 					r.source, name, known)
 			}
 		}
+	}
+}
+
+// transcriptSchemaRelPath is the published canonical-transcript schema whose
+// `engine` enum is one more engine-identity roster — the one external readers
+// of a transcript see.
+const transcriptSchemaRelPath = "docs/transcript.schema.json"
+
+// TestArch_TranscriptSchemaEngineEnum_EqualsBackendRegistry holds the schema's
+// `engine` enum to EQUALITY with backends.List(), not just the floor the
+// rosters gate above applies. The recorder writes the registered backend name
+// verbatim (internal/transcript.Record.Engine) and every registered backend
+// reaches it (a oneshot run records under whatever `--llm` resolved to), so
+// the set of names a transcript can carry IS the registry: a name in the enum
+// that nothing registers admits fixtures no writer could produce, and a
+// registered name missing from the enum makes a real transcript fail
+// validation. Reads both sides live so neither a new backend nor a removal
+// needs an edit here — only the schema does.
+func TestArch_TranscriptSchemaEngineEnum_EqualsBackendRegistry(t *testing.T) {
+	registered := backends.List()
+	if len(registered) == 0 {
+		t.Fatal("backends.List() returned nothing — the canonical registry did not populate; the gate has " +
+			"nothing to validate against")
+	}
+
+	data, err := os.ReadFile(filepath.Join(moduleRoot(t), transcriptSchemaRelPath))
+	if err != nil {
+		t.Fatalf("read %s: %v", transcriptSchemaRelPath, err)
+	}
+	var schema struct {
+		Properties struct {
+			Engine struct {
+				Enum []string `json:"enum"`
+			} `json:"engine"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("parse %s: %v", transcriptSchemaRelPath, err)
+	}
+	enum := slices.Clone(schema.Properties.Engine.Enum)
+	if len(enum) == 0 {
+		t.Fatalf("%s declares no engine enum — the roster this gate checks is gone", transcriptSchemaRelPath)
+	}
+
+	sort.Strings(enum)
+	if !slices.Equal(enum, registered) {
+		t.Errorf("%s `engine` enum %v != backends.List() %v — the enum must name exactly the registered "+
+			"backends: a member nothing registers admits fixtures no writer produces, and a registered "+
+			"backend missing from it makes a real transcript fail validation",
+			transcriptSchemaRelPath, enum, registered)
 	}
 }

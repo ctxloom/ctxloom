@@ -95,7 +95,7 @@ func CoordinationBindings() []Binding {
 		},
 		{
 			Tool:        ToolAgentRecv,
-			Description: "Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. One receive is live per session: a newer call supersedes an older parked one, and the superseded call completes SUCCESSFULLY with no messages and a `disposition` saying it yielded — nothing was lost, do not retry it. On timeout the call fails with no message and its error says what to do next.",
+			Description: "Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. One receive is live per session: a newer call supersedes an older parked one, and the superseded call completes SUCCESSFULLY with no messages and a `disposition` saying it yielded — nothing was lost, do not retry it. On timeout the verdict follows the caller's role: a coordinator gets a SUCCESSFUL empty result whose `disposition` says nothing arrived and to receive again if children are still running; a leaf gets an error telling it to finish.",
 			SyntheticInput: func(*Projector) (map[string]any, error) {
 				return map[string]any{
 					"type": "object",

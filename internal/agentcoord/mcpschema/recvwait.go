@@ -24,7 +24,7 @@ const (
 // RecvWaitDoc is the advertised description of the wait parameter, quoting the
 // bounds above so the text cannot drift from what ClampRecvWait enforces.
 var RecvWaitDoc = fmt.Sprintf(
-	"Seconds to wait for a message (default %d, max %d); on timeout the call fails with no message and its error says what to do next",
+	"Seconds to wait for a message (default %d, max %d); on timeout a coordinator gets a successful empty result with a disposition, a leaf an error",
 	int(RecvWaitDefault.Seconds()), int(RecvWaitMax.Seconds()))
 
 // ClampRecvWait resolves a caller-supplied wait in SECONDS to the duration a

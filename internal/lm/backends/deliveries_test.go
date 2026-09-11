@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -53,7 +54,7 @@ func TestDeliveries_ResolvedSelectionMaterializesEverySurface(t *testing.T) {
 				"%s: WithEverything must resolve one delivery per advertised kind", name)
 
 			for _, kd := range deliveries {
-				_, err := kd.Deliver(root)
+				_, err := kd.Deliver(present.ProjectOnHost(root))
 				require.NoError(t, err, "%s: %s failed to deliver", name, kd.Kind())
 			}
 

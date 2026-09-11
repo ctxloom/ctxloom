@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -43,7 +44,7 @@ func TestBuildSurfaces_Claude_CarriesMCPCommandOverride(t *testing.T) {
 	resolved, err := agent.Select(set).WithEverything().Build()
 	require.NoError(t, err)
 	for _, kd := range resolved.Deliveries() {
-		_, err := kd.Deliver(dir)
+		_, err := kd.Deliver(present.ProjectOnHost(dir))
 		require.NoError(t, err, "%s failed to deliver", kd.Kind())
 	}
 

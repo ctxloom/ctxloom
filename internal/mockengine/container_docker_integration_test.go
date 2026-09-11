@@ -39,6 +39,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/mockengine"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
@@ -100,7 +101,7 @@ func materializeClaudeContext(t *testing.T, workspace, context string) string {
 		if kd.Kind() != agent.SurfaceContext {
 			continue
 		}
-		if _, err := kd.Deliver(workspace); err != nil {
+		if _, err := kd.Deliver(present.ProjectOnHost(workspace)); err != nil {
 			t.Fatalf("materialize context: %v", err)
 		}
 		delivered = true

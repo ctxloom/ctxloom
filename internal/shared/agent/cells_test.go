@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -39,14 +40,19 @@ type stubHandle struct{}
 
 func (stubHandle) Cleanup() error { return nil }
 
-// deliveryCall records that a well-known Deliver ran and the dir it targeted.
+// deliveryCall records that a well-known Deliver ran and the advised roots it
+// was handed.
 type deliveryCall struct {
 	called bool
-	dir    string
+	start  present.Start
 }
 
-// recordingDelivery is a plain Delivery: it records the dir passed to Deliver. It
-// also self-describes via UnsafeInfo (info), so deliverOneShared's unsafeNamed
+// projectDir is the host side of the project root the recorded Start carries —
+// where a well-known write lands.
+func (c deliveryCall) projectDir() string { return c.start.Paths().ProjectRoot.Host }
+
+// recordingDelivery is a plain Delivery: it records the Start passed to Deliver.
+// It also self-describes via UnsafeInfo (info), so deliverOneShared's unsafeNamed
 // fallback can pick up its identity for the loud warning when no SharedRealization
 // exists for its kind.
 type recordingDelivery struct {
@@ -55,10 +61,10 @@ type recordingDelivery struct {
 	info   string
 }
 
-func (s recordingDelivery) Deliver(dir string) (Delivered, error) {
+func (s recordingDelivery) Deliver(start present.Start) (Delivered, error) {
 	if s.got != nil {
 		s.got.called = true
-		s.got.dir = dir
+		s.got.start = start
 	}
 	return s.handle, nil
 }
@@ -73,8 +79,8 @@ func (s recordingDelivery) UnsafeInfo() string { return s.info }
 // SharedRealization can run its isolated path directly.
 type dualStub struct{}
 
-func (dualStub) Deliver(string) (Delivered, error)   { return stubHandle{}, nil }
-func (dualStub) DeliverIsolated() (Delivered, error) { return stubHandle{}, nil }
+func (dualStub) Deliver(present.Start) (Delivered, error)         { return stubHandle{}, nil }
+func (dualStub) DeliverIsolated(present.Start) (Delivered, error) { return stubHandle{}, nil }
 
 // dualRecordingDelivery is a recordingDelivery that ALSO carries the isolated
 // path, the shape every real surface with a SharedRealization has (claude's
@@ -86,7 +92,9 @@ type dualRecordingDelivery struct {
 	recordingDelivery
 }
 
-func (dualRecordingDelivery) DeliverIsolated() (Delivered, error) { return stubHandle{}, nil }
+func (dualRecordingDelivery) DeliverIsolated(present.Start) (Delivered, error) {
+	return stubHandle{}, nil
+}
 
 // ---- compile-time guarantees ----------------------------------------------
 
@@ -102,10 +110,10 @@ var (
 
 // An isolated cell (worktree or container — both the SAME IsolatedCell type
 // since a collapse merged the two behaviourally-identical wrapper types)
-// accepts ANY Delivery and writes it into its own private dir — the
-// compile-time signature (Deliver(Delivery)) encodes that a well-known write
-// into a private dir is safe.
-func TestIsolatedCells_DeliverAnyDeliveryIntoPrivateDir(t *testing.T) {
+// accepts ANY Delivery and hands it the ADVISED ROOTS the cell was built from
+// — the surface never sees a bare dir string, so it cannot compute a location
+// of its own; it writes under the project root the pre-advice settled.
+func TestIsolatedCells_DeliverHandsTheAdvisedRootsToAnyDelivery(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		cell interface {
@@ -113,8 +121,8 @@ func TestIsolatedCells_DeliverAnyDeliveryIntoPrivateDir(t *testing.T) {
 		}
 		dir string
 	}{
-		{"worktree", NewIsolatedCell("/worktrees/agent-x"), "/worktrees/agent-x"},
-		{"container", NewIsolatedCell("/home/agent"), "/home/agent"},
+		{"worktree", NewIsolatedCell(present.ProjectOnHost("/worktrees/agent-x")), "/worktrees/agent-x"},
+		{"container", NewIsolatedCell(present.ProjectOnHost("/home/agent")), "/home/agent"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var call deliveryCall
@@ -122,9 +130,36 @@ func TestIsolatedCells_DeliverAnyDeliveryIntoPrivateDir(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, d)
 			assert.True(t, call.called, "inner Deliver must run")
-			assert.Equal(t, tc.dir, call.dir, "isolated cell writes into its private dir")
+			assert.Equal(t, tc.dir, call.projectDir(), "isolated cell hands the surface its private dir as the advised project root")
 		})
 	}
+}
+
+// A Start whose project root was never resolved is refused at the seam, never
+// handed on: a "" root joined into a well-known path yields a BARE RELATIVE
+// path that looks well-formed and lands wherever the process happens to be
+// — the failure the open-sets ruling names as the dangerous one. Both entry
+// points into a Delivery (the isolated cell and the shared-cwd delivery) share
+// the guard.
+func TestDelivery_UnrootedStartIsRefusedAtBothEntryPoints(t *testing.T) {
+	unrooted := present.New(present.OnHost(present.Paths{}))
+
+	t.Run("isolated cell", func(t *testing.T) {
+		var call deliveryCall
+		_, err := NewIsolatedCell(unrooted).Deliver(recordingDelivery{got: &call, handle: stubHandle{}})
+		require.ErrorIs(t, err, ErrUnrootedDelivery)
+		assert.False(t, call.called, "the surface must not run against an unresolved root")
+	})
+
+	t.Run("shared cwd", func(t *testing.T) {
+		var call deliveryCall
+		r := &ResolvedSelection{set: fakeSharedSet{}}
+		rs := resolvedSurface{kind: SurfaceCommands, approach: ApproachUnsafeFile,
+			delivery: recordingDelivery{got: &call, handle: stubHandle{}, info: "x"}}
+		_, err := r.deliverOneShared(rs, unrooted)
+		require.ErrorIs(t, err, ErrUnrootedDelivery)
+		assert.False(t, call.called, "the surface must not run against an unresolved root")
+	})
 }
 
 // ---- ResolvedSelection.deliverOneShared -------------------------------------
@@ -139,7 +174,7 @@ func TestIsolatedCells_DeliverAnyDeliveryIntoPrivateDir(t *testing.T) {
 // not) without changing every OTHER test's "fires for whatever approach is
 // queried" fake, which is what leaving only nil preserves.
 type fakeSharedSet struct {
-	realize func() (Delivered, error)
+	realize func(present.Start) (Delivered, error)
 	only    *Approach
 }
 
@@ -150,7 +185,7 @@ func (fakeSharedSet) SupportedApproaches(SurfaceKind) []Approach {
 func (fakeSharedSet) DefaultApproach(SurfaceKind) (Approach, bool)       { return ApproachUnsafeFile, true }
 func (fakeSharedSet) SurfaceFor(SurfaceKind, Approach) (Delivery, error) { return nil, nil }
 
-func (f fakeSharedSet) SharedRealization(_ SurfaceKind, a Approach) (func() (Delivered, error), bool) {
+func (f fakeSharedSet) SharedRealization(_ SurfaceKind, a Approach) (func(present.Start) (Delivered, error), bool) {
 	if f.realize == nil {
 		return nil, false
 	}
@@ -168,14 +203,14 @@ var _ SurfaceSet = fakeSharedSet{}
 func TestDeliverOneShared_PrefersSharedRealization(t *testing.T) {
 	var isolatedCalled bool
 	var wellKnownCalled deliveryCall
-	realize := func() (Delivered, error) {
+	realize := func(present.Start) (Delivered, error) {
 		isolatedCalled = true
 		return stubHandle{}, nil
 	}
 	r := &ResolvedSelection{set: fakeSharedSet{realize: realize}}
 	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnownCalled, handle: stubHandle{}}}
 
-	d, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, delivery: surface}, "/live")
+	d, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, delivery: surface}, present.ProjectOnHost("/live"))
 	require.NoError(t, err)
 	require.NotNil(t, d)
 	assert.True(t, isolatedCalled, "SharedRealization's closure must run")
@@ -187,14 +222,14 @@ func TestDeliverOneShared_PrefersSharedRealization(t *testing.T) {
 // deliverOneShared via its isolated path when the set advertises a
 // SharedRealization for its kind.
 func TestDualCapableSurface_WorksInEveryMechanism(t *testing.T) {
-	if _, err := NewIsolatedCell("/wt").Deliver(dualStub{}); err != nil {
+	if _, err := NewIsolatedCell(present.ProjectOnHost("/wt")).Deliver(dualStub{}); err != nil {
 		t.Fatalf("isolated cell (worktree): %v", err)
 	}
-	if _, err := NewIsolatedCell("/home/agent").Deliver(dualStub{}); err != nil {
+	if _, err := NewIsolatedCell(present.ProjectOnHost("/home/agent")).Deliver(dualStub{}); err != nil {
 		t.Fatalf("isolated cell (container): %v", err)
 	}
 	r := &ResolvedSelection{set: fakeSharedSet{realize: dualStub{}.DeliverIsolated}}
-	if _, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, delivery: dualStub{}}, "/live"); err != nil {
+	if _, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, delivery: dualStub{}}, present.ProjectOnHost("/live")); err != nil {
 		t.Fatalf("deliverOneShared: %v", err)
 	}
 }
@@ -235,7 +270,7 @@ func TestDeliverOneShared_NoRealization_WarnsThenProceeds(t *testing.T) {
 	// (1) the WARN streams to stderr, naming the surface (via UnsafeInfo) and the
 	// shared-cwd hazard.
 	stderr := captureStderr(t, func() {
-		d, err = r.deliverOneShared(resolvedSurface{kind: SurfaceSettings, delivery: surface}, dir)
+		d, err = r.deliverOneShared(resolvedSurface{kind: SurfaceSettings, delivery: surface}, present.ProjectOnHost(dir))
 	})
 	require.NoError(t, err)
 	require.NotNil(t, d)
@@ -246,7 +281,7 @@ func TestDeliverOneShared_NoRealization_WarnsThenProceeds(t *testing.T) {
 
 	// (2) the well-known Deliver ran (proceeded), targeting dir.
 	assert.True(t, call.called, "the well-known Deliver must run — deliverOneShared proceeds, never aborts")
-	assert.Equal(t, dir, call.dir, "well-known write must target the shared cwd dir")
+	assert.Equal(t, dir, call.projectDir(), "well-known write must target the shared cwd dir")
 
 	// A sanctioned fallback records NO fatal finding, even in strict mode: there
 	// is nothing for the startup choke owner to abort on.
@@ -265,13 +300,13 @@ func TestDeliverOneShared_Degraded_WarnsWithoutRecording(t *testing.T) {
 	r := &ResolvedSelection{set: fakeSharedSet{}}
 
 	stderr := captureStderr(t, func() {
-		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, delivery: surface}, "/w")
+		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, delivery: surface}, present.ProjectOnHost("/w"))
 		require.NoError(t, err)
 	})
 	assert.Contains(t, stderr, "warning:", "the WARN still streams in degraded mode")
 	assert.Contains(t, stderr, "engine/context", "the warning names the surface via UnsafeInfo")
 	assert.True(t, call.called, "delivery still proceeds in degraded mode")
-	assert.Equal(t, "/w", call.dir)
+	assert.Equal(t, "/w", call.projectDir())
 	assert.Empty(t, strictness.All(), "degraded mode records no finding (warn-and-continue)")
 }
 
@@ -287,7 +322,7 @@ func TestDeliverOneShared_SkipsRealizationForNonIsolatableSurface(t *testing.T) 
 
 	var realizeCalled bool
 	var wellKnown deliveryCall
-	realize := func() (Delivered, error) {
+	realize := func(present.Start) (Delivered, error) {
 		realizeCalled = true
 		return stubHandle{}, nil
 	}
@@ -295,7 +330,7 @@ func TestDeliverOneShared_SkipsRealizationForNonIsolatableSurface(t *testing.T) 
 	// A plain Delivery — no DeliverIsolated, exactly like claude's Hook no-op.
 	surface := recordingDelivery{got: &wellKnown, handle: nil, info: "engine/context"}
 
-	d, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachHook, delivery: surface}, "/live")
+	d, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachHook, delivery: surface}, present.ProjectOnHost("/live"))
 	require.NoError(t, err)
 	assert.Nil(t, d, "the no-op wrote nothing, so there is no cleanup handle")
 	assert.False(t, realizeCalled, "the kind-keyed realization belongs to a DIFFERENT surface instance")
@@ -337,7 +372,7 @@ func TestEmptySurfaceSet_BuildStillResolvesToNothing(t *testing.T) {
 	require.NoError(t, err, "an explicitly named selection over an empty set is still a permitted no-op")
 	assert.Empty(t, named.Deliveries())
 
-	delivered, kinds, errs := everything.DeliverUnder(t.TempDir())
+	delivered, kinds, errs := everything.DeliverUnder(present.ProjectOnHost(t.TempDir()))
 	assert.Empty(t, errs)
 	assert.Empty(t, delivered)
 	assert.Empty(t, kinds)
@@ -356,14 +391,14 @@ func TestDeliverOneShared_SystemPromptRealizes_U100F05(t *testing.T) {
 	var realizeCalled bool
 	var wellKnown deliveryCall
 	sysPrompt := ApproachSystemPrompt
-	r := &ResolvedSelection{set: fakeSharedSet{only: &sysPrompt, realize: func() (Delivered, error) {
+	r := &ResolvedSelection{set: fakeSharedSet{only: &sysPrompt, realize: func(present.Start) (Delivered, error) {
 		realizeCalled = true
 		return stubHandle{}, nil
 	}}}
 	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}}
 
 	stderr := captureStderr(t, func() {
-		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachSystemPrompt, delivery: surface}, "/live")
+		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachSystemPrompt, delivery: surface}, present.ProjectOnHost("/live"))
 		require.NoError(t, err)
 	})
 
@@ -384,20 +419,20 @@ func TestDeliverOneShared_UnsafeFileHonoredWithWarning_U100F05(t *testing.T) {
 	var realizeCalled bool
 	var wellKnown deliveryCall
 	sysPrompt := ApproachSystemPrompt
-	r := &ResolvedSelection{set: fakeSharedSet{only: &sysPrompt, realize: func() (Delivered, error) {
+	r := &ResolvedSelection{set: fakeSharedSet{only: &sysPrompt, realize: func(present.Start) (Delivered, error) {
 		realizeCalled = true
 		return stubHandle{}, nil
 	}}}
 	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}}
 
 	stderr := captureStderr(t, func() {
-		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachUnsafeFile, delivery: surface}, "/live")
+		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachUnsafeFile, delivery: surface}, present.ProjectOnHost("/live"))
 		require.NoError(t, err)
 	})
 
 	assert.False(t, realizeCalled, "unsafe-file: no realization for this pair — the caller's native-file request is honored, not silently converted")
 	assert.True(t, wellKnown.called, "unsafe-file: the well-known write (the CLAUDE.md-equivalent write) runs")
-	assert.Equal(t, "/live", wellKnown.dir, "the well-known write targets the live shared cwd")
+	assert.Equal(t, "/live", wellKnown.projectDir(), "the well-known write targets the live shared cwd")
 	assert.Contains(t, stderr, "warning:", "unsafe-file into a shared cwd is loudly warned")
 	assert.Contains(t, stderr, "engine/context", "the warning names the surface via UnsafeInfo")
 }

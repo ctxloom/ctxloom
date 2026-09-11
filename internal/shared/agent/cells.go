@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -24,14 +26,40 @@ import (
 // (Delivered — the handle owning a delivery's cleanup — is defined in
 // delivery.go and reused here.)
 
-// Delivery writes one surface of a loadout to a well-known path under dir — the
-// engine's native location (CLAUDE.md, .mcp.json, AGENTS.md, .claude/…). Every
-// surface implements it. It returns a Delivered handle owning the cleanup that
-// reverses the write.
+// Delivery writes one surface of a loadout to its well-known path — the
+// engine's native location (CLAUDE.md, .mcp.json, AGENTS.md, .claude/…) —
+// beneath the ADVISED roots it is handed. Every surface implements it. It
+// returns a Delivered handle owning the cleanup that reverses the write.
+//
+// Deliver receives what the pre-advice produced, never a bare directory
+// string: the same present.Start every Presenter composes from, with every
+// root already resolved for THIS run (host, worktree or container). The
+// presenter DECIDES where bytes go; Deliver ACTS. A surface therefore cannot
+// compute a location of its own from a string it was handed, and a run whose
+// roots differ from the last one (a worktree, a relocated home) reaches the
+// writer through the same value that reached its presenter.
 type Delivery interface {
-	// Deliver materializes the surface at its well-known location under dir and
-	// returns a handle owning its cleanup.
-	Deliver(dir string) (Delivered, error)
+	// Deliver materializes the surface at its well-known location beneath the
+	// advised roots and returns a handle owning its cleanup.
+	Deliver(start present.Start) (Delivered, error)
+}
+
+// ErrUnrootedDelivery is returned when a delivery is attempted against a Start
+// whose project root was never resolved. A "" root joined into a well-known
+// path yields a BARE RELATIVE path that looks well-formed and lands wherever
+// the process happens to be — the silent failure the open-sets ruling names as
+// the dangerous one — so the seam refuses it loudly at the point the Start
+// enters, before any surface can act on it.
+var ErrUnrootedDelivery = errors.New("delivery: the project root was never resolved")
+
+// rooted is the seam's entry check: every path a Start enters a Delivery
+// through (the isolated cell, the shared-cwd delivery) passes it first, so an
+// unresolved project root is refused once, in one place.
+func rooted(start present.Start) error {
+	if start.Paths().ProjectRoot.Host == "" {
+		return ErrUnrootedDelivery
+	}
+	return nil
 }
 
 // SurfaceKind names the CROSS-BACKEND category a delivery surface belongs to —
@@ -167,8 +195,11 @@ type SurfaceSet interface {
 	// on codex/kiro; claude's commands; claude's context at ApproachUnsafeFile,
 	// which the caller explicitly asked to write natively), so a SHARED-cwd
 	// delivery falls back to the loud well-known write. The returned closure,
-	// when non-nil, performs the isolated write and returns its handle.
-	SharedRealization(kind SurfaceKind, a Approach) (func() (Delivered, error), bool)
+	// when non-nil, performs the isolated write beneath the advised Scratch
+	// root of the Start it is handed — the same value the well-known Deliver
+	// receives, so the two realizations of one surface read one set of roots —
+	// and returns its handle.
+	SharedRealization(kind SurfaceKind, a Approach) (func(present.Start) (Delivered, error), bool)
 }
 
 // SurfaceInputs is the shared, per-run superset of everything a backend's
@@ -229,13 +260,13 @@ type SurfaceInputs struct {
 // one at InitLaunch; a backend that does not route launch-time delivery through
 // the typed-cell seam (acp) passes nil.
 type CellDelivery struct {
-	// Build maps the shared per-run inputs to the backend's SurfaceSet, targeting
-	// isolatedDir for any out-of-cwd (race-safe) surface — claude's append-flag /
-	// --mcp-config / --settings scratch. Backends that write only well-known files
-	// (codex/kiro) ignore isolatedDir. For claude the closure also
-	// stashes the concrete Surfaces on the backend so buildArgs can read each
+	// Build maps the shared per-run inputs to the backend's SurfaceSet. It is
+	// ROOT-FREE: no directory reaches construction, because every write — the
+	// well-known Deliver and the out-of-cwd SharedRealization alike — receives
+	// the run's advised roots when it runs. For claude the closure also stashes
+	// the concrete Surfaces on the backend so buildArgs can read each
 	// out-of-cwd file's Path() after delivery.
-	Build func(in SurfaceInputs, isolatedDir string) SurfaceSet
+	Build func(in SurfaceInputs) SurfaceSet
 
 	// RawContext materializes the assembled context into the content-addressed
 	// cache file (agent.WriteContextFile) as a Setup pre-step and sets the
@@ -254,14 +285,13 @@ type CellDelivery struct {
 }
 
 // BuildWellKnown adapts a well-known-file backend's NewSurfaces into a
-// CellDelivery.Build. Every surface writes its engine well-known path, so the
-// isolated dir is ignored and the constructor runs with the default (OS)
-// filesystem. It is the single source of truth for that adapter, shared by
-// codex/kiro — whose Build bodies would otherwise be identical
-// boilerplate. (claude is the exception: it targets the isolated dir and stashes
-// its concrete Surfaces for buildArgs, so it supplies its own Build.)
-func BuildWellKnown[S SurfaceSet](newSurfaces func(SurfaceInputs, afero.Fs) S) func(SurfaceInputs, string) SurfaceSet {
-	return func(in SurfaceInputs, _ string) SurfaceSet { return newSurfaces(in, nil) }
+// CellDelivery.Build: the constructor runs with the default (OS) filesystem.
+// It is the single source of truth for that adapter, shared by every backend
+// whose Build body would otherwise be this same boilerplate. (claude is the
+// exception: it stashes its concrete Surfaces for buildArgs, so it supplies
+// its own Build.)
+func BuildWellKnown[S SurfaceSet](newSurfaces func(SurfaceInputs, afero.Fs) S) func(SurfaceInputs) SurfaceSet {
+	return func(in SurfaceInputs) SurfaceSet { return newSurfaces(in, nil) }
 }
 
 // EmptySurfaceSet is a SurfaceSet with no surfaces. A protocol-only backend (acp)
@@ -289,7 +319,7 @@ func (EmptySurfaceSet) SurfaceFor(kind SurfaceKind, a Approach) (Delivery, error
 }
 
 // SharedRealization reports no realization for any (kind, approach) pair.
-func (EmptySurfaceSet) SharedRealization(SurfaceKind, Approach) (func() (Delivered, error), bool) {
+func (EmptySurfaceSet) SharedRealization(SurfaceKind, Approach) (func(present.Start) (Delivered, error), bool) {
 	return nil, false
 }
 
@@ -330,10 +360,10 @@ func (k CellKind) String() string {
 }
 
 // IsolatedCell is the cell for anything that owns a PRIVATE directory — a
-// per-agent WORKTREE (dir is the private checkout) or a CONTAINER (dir is the
-// filesystem-namespace location the co-located in-container engine reads; the
-// host-vs-guest resolution of dir from internal/lm/isolation is the seam wired
-// later — plan S4; the container-mount question stays open there). A
+// per-agent WORKTREE (the project root is the private checkout) or a CONTAINER
+// (the project root is the filesystem-namespace location the co-located
+// in-container engine reads). It holds the run's ADVISED roots, resolved once
+// before any surface runs, and hands them to every Delivery unchanged. A
 // well-known write into a private dir cannot race another session, so an
 // isolated cell accepts ANY Delivery — the Deliver signature encodes that
 // safety.
@@ -344,20 +374,25 @@ func (k CellKind) String() string {
 // didn't already do — collapsed to this single type. The CellKind distinction
 // itself survives where it actually matters (buildArgs/env).
 type IsolatedCell struct {
-	dir string
+	start present.Start
 }
 
-// Deliver writes the surface to this cell's private directory via the surface's
-// well-known Delivery. Accepting a plain Delivery is safe precisely because the
-// directory is private.
+// Deliver writes the surface beneath this cell's advised roots via the
+// surface's well-known Delivery. Accepting a plain Delivery is safe precisely
+// because the project root is private. An unresolved project root is refused
+// (ErrUnrootedDelivery) before the surface runs.
 func (c IsolatedCell) Deliver(s Delivery) (Delivered, error) {
-	return s.Deliver(c.dir)
+	if err := rooted(c.start); err != nil {
+		return nil, err
+	}
+	return s.Deliver(c.start)
 }
 
-// NewIsolatedCell builds an isolated cell (worktree or container) that writes
-// surfaces into the private dir.
-func NewIsolatedCell(dir string) IsolatedCell {
-	return IsolatedCell{dir: dir}
+// NewIsolatedCell builds an isolated cell (worktree or container) over the
+// run's advised roots; every surface delivered through it writes beneath
+// start's project root.
+func NewIsolatedCell(start present.Start) IsolatedCell {
+	return IsolatedCell{start: start}
 }
 
 // surfaceOrder is the stable cross-backend delivery order — context, MCP,
@@ -501,15 +536,15 @@ func containsApproach(list []Approach, a Approach) bool {
 
 // DeliverUnder is the convenience terminal for the at-rest callers (materialize,
 // apply, remove): it Builds the selection and delivers each resolved surface into an
-// IsolatedCell rooted at dir. A Build error (an unsupported approach, or
+// IsolatedCell over the advised roots. A Build error (an unsupported approach, or
 // context-Hook selected without settings) is returned as the sole entry in errs.
 // See ResolvedSelection.DeliverUnder for the collect-all-failures semantics.
-func (s *SurfaceSelection) DeliverUnder(dir string) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
+func (s *SurfaceSelection) DeliverUnder(start present.Start) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
 	r, err := s.Build()
 	if err != nil {
 		return nil, nil, []error{err}
 	}
-	return r.DeliverUnder(dir)
+	return r.DeliverUnder(start)
 }
 
 // resolvedSurface is one entry of a Built selection: the surface kind, the
@@ -529,7 +564,9 @@ type kindedResolvedDelivery struct {
 }
 
 // Deliver forwards to the wrapped Delivery.
-func (k kindedResolvedDelivery) Deliver(dir string) (Delivered, error) { return k.d.Deliver(dir) }
+func (k kindedResolvedDelivery) Deliver(start present.Start) (Delivered, error) {
+	return k.d.Deliver(start)
+}
 
 // Kind reports the RESOLVED kind (the selection's, not a type-assertion).
 func (k kindedResolvedDelivery) Kind() SurfaceKind { return k.kind }
@@ -560,8 +597,8 @@ func (r *ResolvedSelection) Deliveries() []KindedDelivery {
 }
 
 // DeliverUnder delivers each resolved surface's native (well-known) write into
-// an IsolatedCell rooted at dir — the at-rest path (materialize/apply/remove),
-// where a private dir makes every write race-free. It ERRORS on any surface
+// an IsolatedCell over the advised roots — the at-rest path
+// (materialize/apply/remove), where a private dir makes every write race-free. It ERRORS on any surface
 // resolved at ApproachSystemPrompt: that approach writes an out-of-cwd scratch file
 // consumed via a launch flag, and DeliverUnder has no argv sink to hand that flag
 // to — naming SystemPrompt for an at-rest delivery is a caller error, not a launch.
@@ -574,11 +611,11 @@ func (r *ResolvedSelection) Deliveries() []KindedDelivery {
 // nothing, nil handle — codex's context surface with no fragments, or claude's
 // Hook no-op) is neither reported nor held, so the report reflects what was
 // actually written.
-func (r *ResolvedSelection) DeliverUnder(dir string) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
-	cell := NewIsolatedCell(dir)
+func (r *ResolvedSelection) DeliverUnder(start present.Start) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
+	cell := NewIsolatedCell(start)
 	for _, rs := range r.surfaces {
 		if rs.approach == ApproachSystemPrompt {
-			errs = append(errs, fmt.Errorf("surface %s: system-prompt delivery has no argv sink at rest (dir %s)", rs.kind, dir))
+			errs = append(errs, fmt.Errorf("surface %s: system-prompt delivery has no argv sink at rest (dir %s)", rs.kind, start.Paths().ProjectRoot.Host))
 			continue
 		}
 		if rs.delivery == nil {
@@ -597,8 +634,8 @@ func (r *ResolvedSelection) DeliverUnder(dir string) (delivered []Delivered, kin
 	return delivered, kinds, errs
 }
 
-// DeliverShared delivers each resolved surface into the SHARED live cwd at dir,
-// collecting per-surface failures like DeliverUnder. It is the shared-cwd
+// DeliverShared delivers each resolved surface into the SHARED live cwd — the
+// advised project root — collecting per-surface failures like DeliverUnder. It is the shared-cwd
 // counterpart of DeliverUnder; the launch path uses deliverOneShared directly (per
 // surface) instead, so it can keep its context-failure fallback.
 //
@@ -611,9 +648,9 @@ func (r *ResolvedSelection) DeliverUnder(dir string) (delivered []Delivered, kin
 // use to exercise the shared-cwd "unsafe: warn and proceed" behavior end to
 // end (real UnsafeInfo() strings, real target paths) — kept deliberately, not
 // oversight.
-func (r *ResolvedSelection) DeliverShared(dir string) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
+func (r *ResolvedSelection) DeliverShared(start present.Start) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
 	for _, rs := range r.surfaces {
-		d, err := r.deliverOneShared(rs, dir)
+		d, err := r.deliverOneShared(rs, start)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -634,7 +671,7 @@ func (r *ResolvedSelection) DeliverShared(dir string) (delivered []Delivered, ki
 // the method, so a resolved delivery lacking it is a different object and must
 // not be converted.
 type isolatedDelivery interface {
-	DeliverIsolated() (Delivered, error)
+	DeliverIsolated(present.Start) (Delivered, error)
 }
 
 // unsafeNamed is optionally implemented by a concrete surface Delivery to
@@ -645,19 +682,23 @@ type unsafeNamed interface {
 	UnsafeInfo() string
 }
 
-// deliverOneShared delivers ONE resolved surface into the SHARED live cwd at dir.
-// When the backend offers a SharedRealization for this (kind, approach) pair
-// (claude's out-of-cwd scratch conversion, offered only at ApproachSystemPrompt
-// for context), it runs that closure — genuinely race-safe, no warning.
+// deliverOneShared delivers ONE resolved surface into the SHARED live cwd — the
+// advised project root. When the backend offers a SharedRealization for this
+// (kind, approach) pair (claude's out-of-cwd scratch conversion, offered only
+// at ApproachSystemPrompt for context), it runs that closure against the same
+// advised roots — it writes beneath Scratch — genuinely race-safe, no warning.
 // Otherwise the well-known write lands directly in the shared cwd: loudly warned
 // first, since the selected UNSAFE_FILE approach is the caller's acknowledgment
 // that ctxloom does not lock projects — this is also where an explicit
 // context=unsafe-file preference on a shared cell lands (U100-F05's fork:
 // honored, not silently converted to the scratch, and not refused). A nil
 // delivery (claude's Hook no-op) is itself a no-op.
-func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, dir string) (Delivered, error) {
+func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, start present.Start) (Delivered, error) {
 	if rs.delivery == nil {
 		return nil, nil
+	}
+	if err := rooted(start); err != nil {
+		return nil, err
 	}
 	// SharedRealization is keyed on the (kind, approach) PAIR: a kind can
 	// resolve to different deliveries per approach, and — since U100-F05 —
@@ -674,13 +715,13 @@ func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, dir string) (De
 	// context.
 	if _, isolatable := rs.delivery.(isolatedDelivery); isolatable {
 		if realize, ok := r.set.SharedRealization(rs.kind, rs.approach); ok {
-			return realize()
+			return realize(start)
 		}
 	}
 	info := rs.kind.String()
 	if n, ok := rs.delivery.(unsafeNamed); ok {
 		info = n.UnsafeInfo()
 	}
-	Warn("unsafe: %s into shared cwd %s — no isolated mechanism; races concurrent agents", info, dir)
-	return rs.delivery.Deliver(dir)
+	Warn("unsafe: %s into shared cwd %s — no isolated mechanism; races concurrent agents", info, start.Paths().ProjectRoot.Host)
+	return rs.delivery.Deliver(start)
 }

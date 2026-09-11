@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -50,7 +51,7 @@ func TestBuildSurfaces_Mock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, resolved.Deliveries(), 5, "mock is a complete engine and carries every surface")
 
-	_, _, errs := resolved.DeliverUnder(dir)
+	_, _, errs := resolved.DeliverUnder(present.ProjectOnHost(dir))
 	require.Empty(t, errs, "mock's surfaces deliver cleanly")
 
 	got, err := afero.ReadFile(fs, filepath.Join(dir, mockContextFilename))
@@ -93,7 +94,7 @@ func TestBuildSurfaces_WritesOnlyItsOwnNativeContextFile(t *testing.T) {
 		Hooks:     &wire.HooksConfig{},
 		BundleMCP: map[string]wire.MCPServer{},
 	}, fs)
-	_, _, errs := agent.Select(set).WithEverything().DeliverUnder(dir)
+	_, _, errs := agent.Select(set).WithEverything().DeliverUnder(present.ProjectOnHost(dir))
 	require.Empty(t, errs, "mock surfaces deliver cleanly")
 
 	own, err := afero.ReadFile(fs, filepath.Join(dir, "MOCK_CONTEXT.md"))

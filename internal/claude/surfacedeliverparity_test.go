@@ -15,7 +15,7 @@ import (
 // a surface's two delivery entry points.
 //
 // Without a shared recipe, mcpSurface and settingsSurface each carry TWO
-// near-identical delivery bodies: Deliver(dir) and DeliverIsolated(). Four
+// near-identical delivery bodies: Deliver and DeliverIsolated. Four
 // bodies whose only real differences are where `dir` comes from and whether the
 // resulting path is recorded — so the delivery recipe (which writer, which
 // receiver fields get threaded onto it, which arguments) has to be edited twice
@@ -32,12 +32,13 @@ func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 		wellKnownDir = "/well-known"
 		isolatedDir  = "/isolated"
 	)
+	roots := runRoots(wellKnownDir, isolatedDir)
 
 	newSurfaces := func(t *testing.T, fs afero.Fs) Surfaces {
 		t.Helper()
 		in := sampleInputs()
 		in.MCPCommandOverride = "/usr/local/bin/ctxloom"
-		return NewSurfaces(in, dirPlacement{dir: isolatedDir}, fs)
+		return NewSurfaces(in, fs)
 	}
 
 	cases := []struct {
@@ -49,15 +50,15 @@ func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 	}{
 		{
 			name:     "mcp",
-			deliver:  func(s Surfaces) (agent.Delivered, error) { return s.MCP.Deliver(wellKnownDir) },
-			isolated: func(s Surfaces) (agent.Delivered, error) { return s.MCP.DeliverIsolated() },
+			deliver:  func(s Surfaces) (agent.Delivered, error) { return s.MCP.Deliver(roots) },
+			isolated: func(s Surfaces) (agent.Delivered, error) { return s.MCP.DeliverIsolated(roots) },
 			path:     func(s Surfaces) string { return s.MCP.Path() },
 			relPath:  ".mcp.json",
 		},
 		{
 			name:     "settings",
-			deliver:  func(s Surfaces) (agent.Delivered, error) { return s.Settings.Deliver(wellKnownDir) },
-			isolated: func(s Surfaces) (agent.Delivered, error) { return s.Settings.DeliverIsolated() },
+			deliver:  func(s Surfaces) (agent.Delivered, error) { return s.Settings.Deliver(roots) },
+			isolated: func(s Surfaces) (agent.Delivered, error) { return s.Settings.DeliverIsolated(roots) },
 			path:     func(s Surfaces) string { return s.Settings.Path() },
 			relPath:  filepath.Join(".claude", "settings.json"),
 		},

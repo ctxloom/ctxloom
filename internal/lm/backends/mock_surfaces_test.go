@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -31,7 +32,7 @@ func TestMockContextSurface_Deliver_WritesActualBytes(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	s := &mockContextSurface{context: "MOCK-PAYLOAD-9f3a", fs: fs}
-	handle, err := s.Deliver(dir)
+	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NotNil(t, handle)
 
@@ -53,7 +54,7 @@ func TestMockContextSurface_Deliver_EmptyContext_WritesNothing(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	s := &mockContextSurface{context: "", fs: fs}
-	handle, err := s.Deliver(dir)
+	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	_ = handle
 
@@ -82,7 +83,7 @@ func TestMockContextSurface_Cleanup_LeavesTheFileInPlace(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	s := &mockContextSurface{context: "DELIVERED-CONTENT", fs: fs}
-	handle, err := s.Deliver(dir)
+	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	before, err := afero.ReadFile(fs, mockContextPath(dir))
@@ -110,7 +111,7 @@ func TestMockContextSurface_Deliver_PreservesUserContentOutsideMarkers(t *testin
 	require.NoError(t, afero.WriteFile(fs, path, []byte(userLine+"\n"), 0o644))
 
 	s := &mockContextSurface{context: "ctxloom-managed-body", fs: fs}
-	_, err := s.Deliver(dir)
+	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	got, err := afero.ReadFile(fs, path)
@@ -162,7 +163,7 @@ func TestMockContextSurface_State_ReportsDelivered_WhenManagedSectionMatches(t *
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	s := &mockContextSurface{context: "CURRENT-COMPOSITION", fs: fs}
-	_, err := s.Deliver(dir)
+	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	state, err := s.State(dir)
@@ -180,7 +181,7 @@ func TestMockContextSurface_State_ReportsStale_WhenManagedSectionDiffersFromInte
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	s := &mockContextSurface{context: "OLD-COMPOSITION", fs: fs}
-	_, err := s.Deliver(dir)
+	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	state, err := s.State(dir)
@@ -200,7 +201,7 @@ func TestMockContextSurface_State_IgnoresUserContentOutsideMarkersForCurrency(t 
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	s := &mockContextSurface{context: "STABLE-COMPOSITION", fs: fs}
-	_, err := s.Deliver(dir)
+	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	// A user hand-edits the file, adding prose OUTSIDE the managed markers —
@@ -281,7 +282,7 @@ func TestMockSurfaces_WithEverything_MaterializesEverySurface(t *testing.T) {
 		Hooks:     &wire.HooksConfig{},
 		Commands:  []agent.CommandExport{{Name: "review", Content: "REVIEW-COMMAND-BODY", Enabled: true}},
 	}, fs)
-	delivered, kinds, errs := agent.Select(set).WithEverything().DeliverUnder(dir)
+	delivered, kinds, errs := agent.Select(set).WithEverything().DeliverUnder(present.ProjectOnHost(dir))
 	require.Empty(t, errs)
 	require.Len(t, delivered, 5, "every declared surface must actually deliver")
 	require.ElementsMatch(t, []agent.SurfaceKind{
@@ -354,7 +355,7 @@ func TestMockSkillsSurface_Deliver_WritesEveryFileWithItsBytes(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	s := newMockSkillsSurface([]agent.SkillExport{reviewerSkillExport()}, fs)
-	handle, err := s.Deliver(dir)
+	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NotNil(t, handle)
 
@@ -383,7 +384,7 @@ func TestMockSkillsSurface_Deliver_MaterializesTheDeclaredMode(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	s := newMockSkillsSurface([]agent.SkillExport{reviewerSkillExport()}, fs)
-	_, err := s.Deliver(dir)
+	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	script, err := fs.Stat(filepath.Join(mockSkillsPath(dir), "reviewer", "scripts", "run.sh"))
@@ -412,7 +413,7 @@ func TestMockSkillsSurface_Deliver_DeclaredModeBeatsAnExistingFilesMode(t *testi
 	require.NoError(t, afero.WriteFile(fs, scriptPath, []byte("stale\n"), 0o600))
 
 	s := newMockSkillsSurface([]agent.SkillExport{reviewerSkillExport()}, fs)
-	_, err := s.Deliver(dir)
+	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	got, err := fs.Stat(scriptPath)
@@ -433,7 +434,7 @@ func TestMockSkillsSurface_Deliver_DisabledSkillWritesNothing(t *testing.T) {
 	disabled := reviewerSkillExport()
 	disabled.Enabled = false
 	s := newMockSkillsSurface([]agent.SkillExport{disabled}, fs)
-	_, err := s.Deliver(dir)
+	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	exists, err := afero.DirExists(fs, mockSkillsPath(dir))
@@ -458,7 +459,7 @@ func TestMockSkillsSurface_Cleanup_LeavesWhatItWroteInPlace(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	s := newMockSkillsSurface([]agent.SkillExport{reviewerSkillExport()}, fs)
-	handle, err := s.Deliver(dir)
+	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	before, err := afero.Exists(fs, filepath.Join(mockSkillsPath(dir), "reviewer", "SKILL.md"))
 	require.NoError(t, err)
@@ -488,7 +489,7 @@ func TestMockSkillsSurface_Cleanup_LeavesUserAuthoredFilesAlone(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, userFile, []byte("USER-AUTHORED-4f10"), 0o644))
 
 	s := newMockSkillsSurface([]agent.SkillExport{reviewerSkillExport()}, fs)
-	handle, err := s.Deliver(dir)
+	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NoError(t, handle.Cleanup())
 

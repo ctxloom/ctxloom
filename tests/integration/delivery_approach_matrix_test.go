@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -202,7 +203,7 @@ type deliverySpec struct {
 	// SKIPPED (never quietly reconciled) so the disagreement stays visible.
 	disagreement string
 	// elsewhere records that this pair's promised payload is REAL and covered
-	// — just not by this test's generic SurfaceFor(kind, approach).Deliver(root)
+	// — just not by this test's generic SurfaceFor(kind, approach).Deliver(present.ProjectOnHost(root))
 	// mechanism. claude's (context, system-prompt) is the one case: SurfaceFor
 	// resolves the SAME dual-capable object unsafe-file does (its well-known
 	// Deliver always writes the native file — that is what SurfaceFor decides,
@@ -406,7 +407,7 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 
 					if spec.noOp != "" {
 						if d != nil {
-							_, derr := d.Deliver(root)
+							_, derr := d.Deliver(present.ProjectOnHost(root))
 							require.NoError(t, derr)
 						}
 						assert.Empty(t, matrixTree(t, fs, root),
@@ -416,7 +417,7 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 					}
 
 					require.NotNil(t, d, "%s: declared pair resolved to a nil Delivery", key)
-					_, derr := d.Deliver(root)
+					_, derr := d.Deliver(present.ProjectOnHost(root))
 					require.NoError(t, derr, "%s: delivery failed", key)
 
 					tree := matrixTree(t, fs, root)
@@ -551,7 +552,7 @@ func TestDeliveryApproach_UndeclaredApproachFailsTheBuilder(t *testing.T) {
 					"the refusal must name the SUPPORTED set so the caller can correct the selection")
 
 				// The refusal must be total: nothing at all is delivered.
-				_, kinds, errs := sel.DeliverUnder("/cell")
+				_, kinds, errs := sel.DeliverUnder(present.ProjectOnHost("/cell"))
 				assert.Empty(t, kinds, "a refused selection must deliver no surface")
 				assert.NotEmpty(t, errs)
 				assert.Empty(t, matrixTree(t, fs, "/cell"), "a refused selection must write zero files")
@@ -586,11 +587,11 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 	t.Run("unsafe-file into a shared cwd honors CLAUDE.md, not the sysprompt scratch", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll(scratch, 0o755))
-		surfaces := claude.NewSurfaces(matrixSentinelInputs(), scratchPlacement{dir: scratch}, fs)
+		surfaces := claude.NewSurfaces(matrixSentinelInputs(), fs)
 
 		resolved, err := agent.Select(surfaces).WithContext(agent.ContextWriteUnsafeFile).Build()
 		require.NoError(t, err)
-		_, kinds, errs := resolved.DeliverShared("/live-cwd")
+		_, kinds, errs := resolved.DeliverShared(runRoots("/live-cwd", scratch))
 		require.Empty(t, errs)
 		require.Equal(t, []agent.SurfaceKind{agent.SurfaceContext}, kinds)
 
@@ -610,13 +611,13 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 	t.Run("system-prompt at rest never produces a sysprompt file", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll(scratch, 0o755))
-		surfaces := claude.NewSurfaces(matrixSentinelInputs(), scratchPlacement{dir: scratch}, fs)
+		surfaces := claude.NewSurfaces(matrixSentinelInputs(), fs)
 
 		// (a) Through the sanctioned at-rest terminal: an honest, loud refusal —
 		// unaffected by this fix (DeliverUnder never consults SharedRealization).
 		resolved, err := agent.Select(surfaces).WithContext(agent.ContextWriteSystemPrompt).Build()
 		require.NoError(t, err, "the approach IS declared, so Build must accept it")
-		_, kinds, errs := resolved.DeliverUnder("/cell")
+		_, kinds, errs := resolved.DeliverUnder(present.ProjectOnHost("/cell"))
 		assert.Empty(t, kinds)
 		require.Len(t, errs, 1)
 		assert.Contains(t, errs[0].Error(), "no argv sink at rest",
@@ -632,7 +633,7 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 		// SharedRealization (DeliverIsolated), which this raw call never invokes.
 		d, err := surfaces.SurfaceFor(agent.SurfaceContext, agent.ApproachSystemPrompt)
 		require.NoError(t, err)
-		_, err = d.Deliver("/raw")
+		_, err = d.Deliver(present.ProjectOnHost("/raw"))
 		require.NoError(t, err)
 		rawTree := matrixTree(t, fs, "/raw")
 		assert.Equal(t, []string{"CLAUDE.md"}, findSentinel(rawTree, slotContext))
@@ -647,7 +648,7 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 // scratch-placement-aware variant matrixSpecs' "elsewhere" entry for
 // claude-code/context/system-prompt promises, now un-skipped. Unlike every
 // other matrix cell, this pair's payload is not reached through
-// SurfaceFor(kind, approach).Deliver(root) — that resolves to the SAME
+// SurfaceFor(kind, approach).Deliver(present.ProjectOnHost(root)) — that resolves to the SAME
 // dual-capable contextSurface every context approach shares, whose well-known
 // Deliver always writes CLAUDE.md regardless of which approach was named (see
 // TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05's second
@@ -663,13 +664,13 @@ func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(root, 0o755))
 	require.NoError(t, fs.MkdirAll(scratch, 0o755))
 
-	set := claude.NewSurfaces(matrixSentinelInputs(), scratchPlacement{dir: scratch}, fs)
+	set := claude.NewSurfaces(matrixSentinelInputs(), fs)
 
 	realize, ok := set.SharedRealization(agent.SurfaceContext, agent.ApproachSystemPrompt)
 	require.True(t, ok, "claude-code/context/system-prompt must realize")
 	require.NotNil(t, realize)
 
-	handle, err := realize()
+	handle, err := realize(runRoots(root, scratch))
 	require.NoError(t, err)
 	require.NotNil(t, handle)
 
@@ -691,13 +692,16 @@ func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 		"Context.Path() (the --append-system-prompt-file argument) must name the written file")
 }
 
-// scratchPlacement is the out-of-cwd agent.Placement claude's race-safe surfaces
-// write into — the launch path's per-run scratch dir, modelled here so the
-// system-prompt destination is a real directory instead of the placeholder
-// backends.BuildSurfaces binds for the well-known path.
-type scratchPlacement struct{ dir string }
-
-func (p scratchPlacement) Dir() string { return p.dir }
+// runRoots advises a run rooted at project with its out-of-cwd scratch at
+// scratch, on the host — the launch path's per-run roots, modelled here so the
+// system-prompt destination is a real directory rather than an unresolved
+// root.
+func runRoots(project, scratch string) present.Start {
+	return present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: project},
+		Scratch:     present.Root{Host: scratch},
+	}))
+}
 
 // TestDeliveryApproach_HookCarriageMatchesDeclaration is the drift guard on the
 // declaration the loss report reads: a backend's noHooksReason is a claim about
@@ -725,7 +729,7 @@ func TestDeliveryApproach_HookCarriageMatchesDeclaration(t *testing.T) {
 
 			inputs := matrixSentinelInputs()
 			set := backends.BuildSurfaces(name, inputs, fs)
-			_, _, errs := agent.Select(set).WithEverything().DeliverUnder(root)
+			_, _, errs := agent.Select(set).WithEverything().DeliverUnder(present.ProjectOnHost(root))
 			require.Empty(t, errs)
 
 			hookFiles := findSentinel(matrixTree(t, fs, root), slotHook)

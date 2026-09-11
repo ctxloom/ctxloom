@@ -30,6 +30,29 @@ func TestOnHost_EveryRootIsItsOwnEngineSide(t *testing.T) {
 	}
 }
 
+// TestProjectOnHost_RootsOnlyTheProjectOnBothSides: the at-rest entry advises
+// exactly one root — the project, Engine equal to Host — and leaves every
+// other root unresolved, so a composition that reaches for scratch or a home
+// through it gets the loud zero root rather than a fabricated one.
+func TestProjectOnHost_RootsOnlyTheProjectOnBothSides(t *testing.T) {
+	s := ProjectOnHost("/host/project")
+	if got := s.Paths().ProjectRoot; got != (Root{Host: "/host/project", Engine: "/host/project"}) {
+		t.Fatalf("ProjectRoot must be the dir on both sides, got %+v", got)
+	}
+	for name, got := range map[string]Root{
+		"EngineHome":  s.Paths().EngineHome,
+		"CtxloomHome": s.Paths().CtxloomHome,
+		"Scratch":     s.Paths().Scratch,
+	} {
+		if got != (Root{}) {
+			t.Fatalf("%s must stay unresolved, got %+v", name, got)
+		}
+	}
+	if got := s.UnderProjectRoot("CLAUDE.md").Build().HostPath; got != filepath.Join("/host/project", "CLAUDE.md") {
+		t.Fatalf("a composition under the project root must land beneath the dir, got %q", got)
+	}
+}
+
 // TestOnHost_UnresolvedRootStaysZero: a root this run never resolved (Host
 // == "") must not be given a fabricated engine side.
 func TestOnHost_UnresolvedRootStaysZero(t *testing.T) {

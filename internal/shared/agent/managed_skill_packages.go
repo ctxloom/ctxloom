@@ -3,8 +3,10 @@ package agent
 import (
 	"path"
 
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
 // This file is the skills-surface analog of managed_commands.go: the shared
@@ -52,11 +54,11 @@ func (s *ManagedSkillPackagesDelivery) UnsafeInfo() string { return s.name }
 // Kind reports this as the skills surface.
 func (s *ManagedSkillPackagesDelivery) Kind() SurfaceKind { return SurfaceSkills }
 
-// Deliver writes the enabled skill package exports into dir via the injected
-// writer and returns a handle whose Cleanup reverts exactly the
-// manifest-tracked set (a re-write with no packages).
-func (s *ManagedSkillPackagesDelivery) Deliver(dir string) (Delivered, error) {
-	if err := s.write(dir, s.skills); err != nil {
+// Deliver writes the enabled skill package exports beneath the advised project
+// root via the injected writer and returns a handle whose Cleanup reverts
+// exactly the manifest-tracked set (a re-write with no packages).
+func (s *ManagedSkillPackagesDelivery) Deliver(start present.Start) (Delivered, error) {
+	if err := s.write(start.Paths().ProjectRoot.Host, s.skills); err != nil {
 		return nil, err
 	}
 	return SurfacePersistsAfterExit, nil

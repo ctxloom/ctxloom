@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -37,6 +38,16 @@ func captureStderr(t *testing.T, fn func()) string {
 	out, err := io.ReadAll(r)
 	require.NoError(t, err)
 	return string(out)
+}
+
+// runRoots advises a run rooted at project with its out-of-cwd scratch at
+// scratch, on the host — the two roots claude's well-known and isolated
+// realizations read respectively.
+func runRoots(project, scratch string) present.Start {
+	return present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: project},
+		Scratch:     present.Root{Host: scratch},
+	}))
 }
 
 // sampleInputs is a representative, fully-populated SurfaceInputs.
@@ -85,13 +96,13 @@ var (
 	_ agent.Delivery = (*settingsSurface)(nil)
 	_ agent.Delivery = (*commandsSurface)(nil)
 	_ interface {
-		DeliverIsolated() (agent.Delivered, error)
+		DeliverIsolated(present.Start) (agent.Delivered, error)
 	} = (*contextSurface)(nil)
 	_ interface {
-		DeliverIsolated() (agent.Delivered, error)
+		DeliverIsolated(present.Start) (agent.Delivered, error)
 	} = (*mcpSurface)(nil)
 	_ interface {
-		DeliverIsolated() (agent.Delivered, error)
+		DeliverIsolated(present.Start) (agent.Delivered, error)
 	} = (*settingsSurface)(nil)
 )
 
@@ -104,9 +115,9 @@ var (
 // belongs to per-session scratch, which this is not.
 func TestContextSurface_DeliverWritesCLAUDEmd(t *testing.T) {
 	dir := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Context.Deliver(dir)
+	handle, err := s.Context.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
@@ -126,9 +137,9 @@ func TestContextSurface_DeliverWritesCLAUDEmd(t *testing.T) {
 func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Team conventions\nalways use tabs\n"), 0644))
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Context.Deliver(dir)
+	handle, err := s.Context.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
@@ -148,9 +159,9 @@ func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
 // does NOT touch the well-known CLAUDE.md.
 func TestContextSurface_DeliverIsolated_WritesSyspromptAndExposesPath(t *testing.T) {
 	isolated := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: isolated}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Context.DeliverIsolated()
+	handle, err := s.Context.DeliverIsolated(runRoots(t.TempDir(), isolated))
 	require.NoError(t, err)
 
 	path := s.Context.Path()
@@ -176,9 +187,9 @@ func TestContextSurface_DeliverIsolated_WritesSyspromptAndExposesPath(t *testing
 // target dir; Cleanup reverts the ctxloom-owned servers.
 func TestMCPSurface_DeliverWritesMCPJSON(t *testing.T) {
 	dir := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
-	handle, err := s.MCP.Deliver(dir)
+	handle, err := s.MCP.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	servers := mcpServersOf(t, dir)
@@ -196,9 +207,9 @@ func TestMCPSurface_DeliverWritesMCPJSON(t *testing.T) {
 func TestMCPSurface_DeliverIsolated_OutOfCwd(t *testing.T) {
 	cwd := t.TempDir()      // the "shared cwd" — must stay clean
 	isolated := t.TempDir() // the out-of-cwd per-run location
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: isolated}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
-	handle, err := s.MCP.DeliverIsolated()
+	handle, err := s.MCP.DeliverIsolated(runRoots(cwd, isolated))
 	require.NoError(t, err)
 
 	assert.Equal(t, filepath.Join(isolated, ".mcp.json"), s.MCP.Path(),
@@ -218,9 +229,9 @@ func TestMCPSurface_DeliverIsolated_OutOfCwd(t *testing.T) {
 // target dir; Cleanup reverts the ctxloom-managed entries.
 func TestSettingsSurface_DeliverWritesSettingsJSON(t *testing.T) {
 	dir := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Settings.Deliver(dir)
+	handle, err := s.Settings.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	settings := readJSON(t, filepath.Join(dir, ".claude", "settings.json"))
@@ -237,9 +248,9 @@ func TestSettingsSurface_DeliverWritesSettingsJSON(t *testing.T) {
 func TestSettingsSurface_DeliverIsolated_OutOfCwd(t *testing.T) {
 	cwd := t.TempDir()
 	isolated := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: isolated}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Settings.DeliverIsolated()
+	handle, err := s.Settings.DeliverIsolated(runRoots(cwd, isolated))
 	require.NoError(t, err)
 
 	assert.Equal(t, filepath.Join(isolated, ".claude", "settings.json"), s.Settings.Path(),
@@ -259,9 +270,9 @@ func TestSettingsSurface_DeliverIsolated_OutOfCwd(t *testing.T) {
 // the manifest-tracked set.
 func TestCommandsSurface_DeliverWritesCommands(t *testing.T) {
 	dir := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Commands.Deliver(dir)
+	handle, err := s.Commands.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"))
@@ -275,7 +286,7 @@ func TestCommandsSurface_DeliverWritesCommands(t *testing.T) {
 // permitted action, never a fatal abort).
 func TestCommandsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
 	r, err := agent.Select(s).WithCommands(agent.CommandsWriteUnsafeFile).Build()
 	require.NoError(t, err)
@@ -283,7 +294,7 @@ func TestCommandsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 	var delivered []agent.Delivered
 	stderr := captureStderr(t, func() {
 		var errs []error
-		delivered, _, errs = r.DeliverShared(cwd)
+		delivered, _, errs = r.DeliverShared(present.ProjectOnHost(cwd))
 		require.Empty(t, errs)
 	})
 	require.Len(t, delivered, 1)
@@ -306,9 +317,9 @@ func TestCommandsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 // forwards SurfaceInputs.Skills straight into this Surfaces value).
 func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 	dir := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Skills.Deliver(dir)
+	handle, err := s.Skills.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	skillMD := filepath.Join(dir, ".claude", "skills", "humanize", "SKILL.md")
@@ -334,7 +345,7 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 // PROCEEDING.
 func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
 	r, err := agent.Select(s).WithSkills(agent.SkillsWriteUnsafeFile).Build()
 	require.NoError(t, err)
@@ -342,7 +353,7 @@ func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 	var delivered []agent.Delivered
 	stderr := captureStderr(t, func() {
 		var errs []error
-		delivered, _, errs = r.DeliverShared(cwd)
+		delivered, _, errs = r.DeliverShared(present.ProjectOnHost(cwd))
 		require.Empty(t, errs)
 	})
 	require.Len(t, delivered, 1)
@@ -370,7 +381,7 @@ func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 	cwd := t.TempDir()
 	isolated := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: isolated}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
 	r, err := agent.Select(s).WithEverything().Build()
 	require.NoError(t, err)
@@ -378,7 +389,7 @@ func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 	var delivered []agent.Delivered
 	stderr := captureStderr(t, func() {
 		var errs []error
-		delivered, _, errs = r.DeliverShared(cwd)
+		delivered, _, errs = r.DeliverShared(runRoots(cwd, isolated))
 		require.Empty(t, errs)
 	})
 	require.Len(t, delivered, 5, "context, MCP, settings, commands, and skills all deliver")
@@ -396,7 +407,7 @@ func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 // iteration set for a worktree / container / materialize target.
 func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 	dir := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
 	// The surfaces reach a cell through the approach-resolved selection — the
 	// same path the launch path drives. There is deliberately no raw,
@@ -407,7 +418,7 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 	ds := resolved.Deliveries()
 	require.Len(t, ds, 5, "context, MCP, settings, commands, skills")
 
-	cell := agent.NewIsolatedCell(dir)
+	cell := agent.NewIsolatedCell(present.ProjectOnHost(dir))
 	for _, surface := range ds {
 		d, err := cell.Deliver(surface)
 		require.NoError(t, err)
@@ -427,7 +438,7 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 // approaches (native file, out-of-cwd system-prompt scratch, settings-carried
 // hook); mcp/settings/commands offer only the native file.
 func TestSurfaces_SupportedApproaches(t *testing.T) {
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
 	assert.ElementsMatch(t, []agent.Approach{agent.ApproachUnsafeFile, agent.ApproachSystemPrompt, agent.ApproachHook},
 		s.SupportedApproaches(agent.SurfaceContext))
@@ -439,7 +450,7 @@ func TestSurfaces_SupportedApproaches(t *testing.T) {
 // DefaultApproach is UnsafeFile (the native file) for every surface claude has —
 // never SystemPrompt or Hook, which are explicit caller choices.
 func TestSurfaces_DefaultApproach(t *testing.T) {
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
 		a, ok := s.DefaultApproach(kind)
 		require.True(t, ok, "%s has a default approach", kind)
@@ -451,14 +462,14 @@ func TestSurfaces_DefaultApproach(t *testing.T) {
 // the settings-carried inject hook + regenerated cache file, so nothing extra is
 // written (a static CLAUDE.md alongside the hook would double the context).
 func TestSurfaceFor_ContextHookIsNoOp(t *testing.T) {
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
 	d, err := s.SurfaceFor(agent.SurfaceContext, agent.ApproachHook)
 	require.NoError(t, err)
 	require.NotNil(t, d, "a real (no-op) Delivery, not nil")
 
 	dir := t.TempDir()
-	handle, err := d.Deliver(dir)
+	handle, err := d.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	assert.Nil(t, handle, "Hook writes nothing — nil handle, the shared no-op convention")
 	assert.NoFileExists(t, filepath.Join(dir, "CLAUDE.md"), "no native file when context rides the hook")
@@ -468,7 +479,7 @@ func TestSurfaceFor_ContextHookIsNoOp(t *testing.T) {
 // dual-capable contextSurface instance — the cell (not the surface) decides which
 // method to call.
 func TestSurfaceFor_ContextUnsafeFileAndSystemPromptShareInstance(t *testing.T) {
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
 	unsafeFile, err := s.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
 	require.NoError(t, err)
@@ -480,7 +491,7 @@ func TestSurfaceFor_ContextUnsafeFileAndSystemPromptShareInstance(t *testing.T) 
 
 // An unsupported (kind, approach) combination errors loudly.
 func TestSurfaceFor_UnsupportedApproachErrors(t *testing.T) {
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 	_, err := s.SurfaceFor(agent.SurfaceMCP, agent.ApproachSystemPrompt)
 	assert.Error(t, err, "claude's MCP surface has no system-prompt approach")
 }
@@ -497,8 +508,7 @@ func TestSurfaceFor_UnsupportedApproachErrors(t *testing.T) {
 // approach — no out-of-cwd flag exists for either. claude is the only backend
 // with any realization at all.
 func TestSurfaces_SharedRealization(t *testing.T) {
-	isolated := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: isolated}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
 	cases := []struct {
 		kind     agent.SurfaceKind
@@ -563,22 +573,22 @@ func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
 	in.DenyTools = []string{"Task"}
 
 	dir := t.TempDir()
-	s := NewSurfaces(in, dirPlacement{dir: dir}, nil)
+	s := NewSurfaces(in, nil)
 
-	_, err := s.Commands.Deliver(dir)
+	_, err := s.Commands.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "recover.md"),
 		"SelfContainedCommands must reach the commands writer — otherwise a portable target silently loses "+
 			"every command that happens to exist in the delivering machine's home")
 
-	_, err = s.MCP.Deliver(dir)
+	_, err = s.MCP.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	mcpData, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
 	require.NoError(t, err)
 	assert.Contains(t, string(mcpData), "/usr/local/bin/ctxloom",
 		"MCPCommandOverride must reach the ctxloom-managed server's command")
 
-	_, err = s.Settings.Deliver(dir)
+	_, err = s.Settings.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	settingsData, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
 	require.NoError(t, err)
@@ -594,7 +604,7 @@ func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
 // resolved to the no-op.
 func TestDeliverShared_ContextHook_DoesNotWriteSyspromptScratch(t *testing.T) {
 	isolated := t.TempDir()
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: isolated}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
 	// Settings must ride along: the hook approach is carried by the settings
 	// surface, and Build() enforces that pairing.
@@ -605,7 +615,7 @@ func TestDeliverShared_ContextHook_DoesNotWriteSyspromptScratch(t *testing.T) {
 	require.NoError(t, err)
 
 	live := t.TempDir()
-	_, _, errs := resolved.DeliverShared(live)
+	_, _, errs := resolved.DeliverShared(runRoots(live, isolated))
 	require.Empty(t, errs)
 
 	assert.Empty(t, s.Context.Path(), "no --append-system-prompt-file scratch for a hook-carried context")
@@ -662,11 +672,12 @@ func (f armedFailFs) MkdirAll(path string, perm os.FileMode) error {
 func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
 	var armed bool
 	fs := armedFailFs{Fs: afero.NewMemMapFs(), armed: &armed}
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: "/iso"}, fs)
+	s := NewSurfaces(sampleInputs(), fs)
 
+	roots := runRoots("/proj", "/iso")
 	for _, tc := range []struct {
 		name    string
-		deliver func() (agent.Delivered, error)
+		deliver func(present.Start) (agent.Delivered, error)
 		path    func() string
 	}{
 		{"mcp", s.MCP.DeliverIsolated, s.MCP.Path},
@@ -675,12 +686,12 @@ func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			armed = false
-			_, err := tc.deliver()
+			_, err := tc.deliver(roots)
 			require.NoError(t, err)
 			require.NotEmpty(t, tc.path(), "the successful delivery records its path")
 
 			armed = true
-			_, err = tc.deliver()
+			_, err = tc.deliver(roots)
 			require.Error(t, err, "the armed fs must fail the second delivery")
 			assert.Empty(t, tc.path(), "a failed delivery must not leave a path naming a file that was not written")
 		})
@@ -697,7 +708,7 @@ func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
 // pinned instead: a surface added to one and missed in another fails here
 // rather than silently resolving to nothing at launch.
 func TestSurfaces_PresentationsAndFieldsEnumerateTheSameSurfaces(t *testing.T) {
-	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	s := NewSurfaces(sampleInputs(), nil)
 
 	byKind := map[agent.SurfaceKind]agent.Delivery{
 		agent.SurfaceContext:  s.Context,
@@ -739,15 +750,15 @@ func TestClaudePresentations_DeclaredPathIsWhereTheSurfaceWrites(t *testing.T) {
 	} {
 		t.Run(kind.String(), func(t *testing.T) {
 			dir := t.TempDir()
-			s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+			s := NewSurfaces(sampleInputs(), nil)
 
 			def, ok := s.DefaultApproach(kind)
 			require.True(t, ok, "%s is declared, so it must have a default", kind)
 
-			_, err := delivery(s).Deliver(dir)
+			_, err := delivery(s).Deliver(present.ProjectOnHost(dir))
 			require.NoError(t, err)
 
-			declared := claudePresentation(kind, def, dir).HostPath
+			declared := claudePresentation(kind, def, present.ProjectOnHost(dir)).HostPath
 			_, statErr := os.Stat(declared)
 			require.NoError(t, statErr,
 				"%s declares %q but delivered nothing there", kind, declared)

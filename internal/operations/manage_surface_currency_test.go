@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -60,7 +61,7 @@ func deliverNativeContext(t *testing.T, backend, dir, contextText string) {
 	set := backends.BuildSurfaces(backend, agent.SurfaceInputs{Context: contextText}, afero.NewOsFs())
 	delivery, err := set.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
 	require.NoError(t, err, "%s must offer a native-file context route", backend)
-	_, err = delivery.Deliver(dir)
+	_, err = delivery.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 }
 

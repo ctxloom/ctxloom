@@ -96,11 +96,11 @@ func NewClaudeCode() *ClaudeCode {
 }
 
 // buildSurfaces is claude's CellDelivery.Build closure: it maps the shared
-// per-run inputs to claude's SurfaceSet, targeting isolatedDir for the out-of-cwd
-// race-safe files, and stashes the concrete Surfaces on the backend so buildArgs
-// can read Context/MCP/Settings.Path() after a SharedCell delivery.
-func (b *ClaudeCode) buildSurfaces(in agent.SurfaceInputs, isolatedDir string) agent.SurfaceSet {
-	b.surfaces = NewSurfaces(in, dirPlacement{dir: isolatedDir}, nil)
+// per-run inputs to claude's SurfaceSet and stashes the concrete Surfaces on
+// the backend so buildArgs can read Context/MCP/Settings.Path() after a
+// SharedCell delivery.
+func (b *ClaudeCode) buildSurfaces(in agent.SurfaceInputs) agent.SurfaceSet {
+	b.surfaces = NewSurfaces(in, nil)
 	return b.surfaces
 }
 

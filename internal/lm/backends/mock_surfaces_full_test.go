@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -27,7 +28,7 @@ func TestMockMCPSurface_WritesTheServersItWasGiven(t *testing.T) {
 		},
 	}, fs)
 
-	handle, err := set.MCP.Deliver("/proj")
+	handle, err := set.MCP.Deliver(present.ProjectOnHost("/proj"))
 	require.NoError(t, err)
 	require.NotNil(t, handle)
 
@@ -51,7 +52,7 @@ func TestMockSettingsSurface_PreservesKeysCtxloomDoesNotOwn(t *testing.T) {
 		Hooks: &wire.HooksConfig{},
 	}, fs)
 
-	handle, err := set.Settings.Deliver("/proj")
+	handle, err := set.Settings.Deliver(present.ProjectOnHost("/proj"))
 	require.NoError(t, err)
 
 	doc := readSettingsDoc(t, fs, path)
@@ -111,7 +112,7 @@ func TestMockCommandsSurface_WritesEnabledCommands(t *testing.T) {
 		},
 	}, fs)
 
-	_, err := set.Commands.Deliver("/proj")
+	_, err := set.Commands.Deliver(present.ProjectOnHost("/proj"))
 	require.NoError(t, err)
 
 	data, err := afero.ReadFile(fs, mockCommandsPath("/proj")+"/review.md")

@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 )
 
 // Managed-section markers frame ctxloom-owned content inside a file a human may
@@ -194,7 +196,7 @@ func DeliverManagedContext(w ContextWriter, dir, content string) (Delivered, err
 	return SurfacePersistsAfterExit, nil
 }
 
-// DeliverAll runs every delivery against dir in order, collecting the handles
+// DeliverAll runs every delivery against the advised roots in order, collecting the handles
 // from any that actually deliver (a nil handle — "nothing written" — is
 // skipped, not an error) into one combined Delivered whose Cleanup reverses
 // all of them. Returns a nil handle if none delivered. This is how a backend
@@ -208,10 +210,10 @@ func DeliverManagedContext(w ContextWriter, dir, content string) (Delivered, err
 // sub-delivery in this call — consistent with how a caller one level up
 // (materialize's DeliverUnder) already tolerates partial delivery across
 // surfaces rather than transactionally reversing them.
-func DeliverAll(dir string, deliveries ...Delivery) (Delivered, error) {
+func DeliverAll(start present.Start, deliveries ...Delivery) (Delivered, error) {
 	var handles []Delivered
 	for _, d := range deliveries {
-		h, err := d.Deliver(dir)
+		h, err := d.Deliver(start)
 		if err != nil {
 			return nil, err
 		}
@@ -249,8 +251,8 @@ type ComposedDelivery struct {
 }
 
 // Deliver runs every part via DeliverAll.
-func (c ComposedDelivery) Deliver(dir string) (Delivered, error) {
-	return DeliverAll(dir, c.Parts...)
+func (c ComposedDelivery) Deliver(start present.Start) (Delivered, error) {
+	return DeliverAll(start, c.Parts...)
 }
 
 // UnsafeInfo returns the composed surface's identity for the DeliverShared

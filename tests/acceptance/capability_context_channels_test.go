@@ -34,6 +34,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 )
 
 // channelProbeHarp is a stand-in nonce for the structural tests. It never
@@ -63,7 +64,7 @@ func deliverContextUnder(t *testing.T, engine string, approach agent.Approach) m
 	require.NoError(t, err, "%s must resolve its context surface at %s — the P1 cell that pins it depends on this call succeeding", engine, approach)
 	require.NotNil(t, delivery)
 
-	_, err = delivery.Deliver(dir)
+	_, err = delivery.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	out := map[string]string{}

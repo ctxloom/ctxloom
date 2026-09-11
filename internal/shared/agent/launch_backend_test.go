@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/stretchr/testify/assert"
@@ -63,11 +64,13 @@ type recordSet struct {
 	contextErr error
 	mcpErr     error
 
-	inputs      SurfaceInputs
-	isolatedDir string
+	inputs SurfaceInputs
 
-	usedShared  bool
-	deliverDirs []string
+	usedShared bool
+	// deliverStarts / realizeStarts record the advised roots each well-known
+	// Deliver / each SharedRealization closure received, in delivery order.
+	deliverStarts []present.Start
+	realizeStarts []present.Start
 }
 
 // surfaces returns the five fake surfaces in a stable order (context first).
@@ -114,7 +117,7 @@ func (s *recordSet) SurfaceFor(kind SurfaceKind, _ Approach) (Delivery, error) {
 // approach) pair — mirroring a fully flag-backed backend (claude) so
 // DeliverShared always converts rather than falling back to a loud well-known
 // write.
-func (s *recordSet) SharedRealization(kind SurfaceKind, _ Approach) (func() (Delivered, error), bool) {
+func (s *recordSet) SharedRealization(kind SurfaceKind, _ Approach) (func(present.Start) (Delivered, error), bool) {
 	s.usedShared = true
 	for _, sf := range s.surfaces() {
 		if sf.Kind() == kind {
@@ -136,8 +139,8 @@ type recordSurface struct {
 	label string
 }
 
-func (s *recordSurface) Deliver(dir string) (Delivered, error) {
-	s.set.deliverDirs = append(s.set.deliverDirs, dir)
+func (s *recordSurface) Deliver(start present.Start) (Delivered, error) {
+	s.set.deliverStarts = append(s.set.deliverStarts, start)
 	if s.set.contextErr != nil && s.label == "context" {
 		return nil, s.set.contextErr
 	}
@@ -147,7 +150,8 @@ func (s *recordSurface) Deliver(dir string) (Delivered, error) {
 	return s.set.handle(s.label), nil
 }
 
-func (s *recordSurface) DeliverIsolated() (Delivered, error) {
+func (s *recordSurface) DeliverIsolated(start present.Start) (Delivered, error) {
+	s.set.realizeStarts = append(s.set.realizeStarts, start)
 	if s.set.contextErr != nil && s.label == "context" {
 		return nil, s.set.contextErr
 	}
@@ -226,9 +230,8 @@ func newCellBackend(set *recordSet, rawContext, contextHook bool) *LaunchBackend
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
 	b.InitLaunch(NewBaseLifecycle("test"), NewBaseContextProvider(), nil,
 		&CellDelivery{
-			Build: func(in SurfaceInputs, isolatedDir string) SurfaceSet {
+			Build: func(in SurfaceInputs) SurfaceSet {
 				set.inputs = in
-				set.isolatedDir = isolatedDir
 				return set
 			},
 			RawContext:  rawContext,
@@ -248,7 +251,7 @@ func TestSetup_EmptySurfaceSet_MergesNoFiles(t *testing.T) {
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
 	b.InitLaunch(rec, NewBaseContextProvider(), nil, &CellDelivery{
-		Build: func(SurfaceInputs, string) SurfaceSet { return EmptySurfaceSet{} },
+		Build: func(SurfaceInputs) SurfaceSet { return EmptySurfaceSet{} },
 	})
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
@@ -300,8 +303,9 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 	ephem, err := paths.HarpEphemeralDir("perky-same-chevy")
 	require.NoError(t, err)
 
+	work := t.TempDir()
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
-		WorkDir:   t.TempDir(),
+		WorkDir:   work,
 		Env:       map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		Fragments: []*Fragment{{Content: "project rules"}},
 		CellKind:  CellKindShared,
@@ -316,8 +320,13 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 	}))
 
 	assert.Equal(t, "project rules", set.inputs.Context, "assembled context string routed to Build")
-	assert.Equal(t, ephem, set.isolatedDir, "the out-of-cwd dir is the harp's PRIVATE ephemeral dir")
 	assert.True(t, set.usedShared, "a SharedCell delivers via the shared-cwd (race-safe) set")
+	require.Len(t, set.realizeStarts, 5, "every surface realized through the shared-cwd closure")
+	for _, start := range set.realizeStarts {
+		assert.Equal(t, ephem, start.Paths().Scratch.Host, "the out-of-cwd root is the harp's PRIVATE ephemeral dir")
+		assert.Equal(t, work, start.Paths().ProjectRoot.Host, "the project root is the live working dir")
+	}
+	assert.Empty(t, set.deliverStarts, "a SharedCell never runs the well-known write when a realization exists")
 	assert.Equal(t, []CommandExport{{Name: "demo"}}, set.inputs.Commands, "commands routed through inputs")
 	require.NotNil(t, set.inputs.Hooks, "merged hooks routed through inputs")
 	assert.NotEmpty(t, set.inputs.Hooks.Unified.SessionStart, "merged hooks carry the session-bind hook")
@@ -350,9 +359,10 @@ func TestSetup_IsolatedCell_UsesWellKnownSet(t *testing.T) {
 	}))
 
 	assert.False(t, set.usedShared, "an isolated cell must use the well-known Deliveries set")
-	assert.Equal(t, work, set.isolatedDir, "an isolated cell targets the private working dir")
-	for _, dir := range set.deliverDirs {
-		assert.Equal(t, work, dir, "each well-known surface lands in the private working dir")
+	require.Len(t, set.deliverStarts, 5, "every surface delivered through the well-known write")
+	for _, start := range set.deliverStarts {
+		assert.Equal(t, work, start.Paths().ProjectRoot.Host, "each well-known surface lands in the private working dir")
+		assert.Equal(t, work, start.Paths().Scratch.Host, "an isolated cell's scratch IS its private working dir")
 	}
 	require.Len(t, b.delivered, 5, "all five surfaces collected")
 }
@@ -371,7 +381,7 @@ func TestSetup_RawContext_WritesCacheFileAndKeysHook(t *testing.T) {
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
 	b.InitLaunch(rec, NewBaseContextProvider(), nil, &CellDelivery{
-		Build:       func(in SurfaceInputs, _ string) SurfaceSet { set.inputs = in; return set },
+		Build:       func(in SurfaceInputs) SurfaceSet { set.inputs = in; return set },
 		RawContext:  true,
 		ContextHook: true,
 	})
@@ -471,9 +481,8 @@ func TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface(t *testing.T) {
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
 	b.InitLaunch(NewBaseLifecycle("test"), NewBaseContextProvider(), nil, &CellDelivery{
-		Build: func(in SurfaceInputs, isolatedDir string) SurfaceSet {
+		Build: func(in SurfaceInputs) SurfaceSet {
 			inner.inputs = in
-			inner.isolatedDir = isolatedDir
 			return fake
 		},
 	})
@@ -530,9 +539,8 @@ func TestSetup_LifecycleWithoutAccessors_ErrorsRatherThanWritingEmpty(t *testing
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
 	b.InitLaunch(noAccessorLifecycle{}, NewBaseContextProvider(), nil, &CellDelivery{
-		Build: func(in SurfaceInputs, isolatedDir string) SurfaceSet {
+		Build: func(in SurfaceInputs) SurfaceSet {
 			set.inputs = in
-			set.isolatedDir = isolatedDir
 			return set
 		},
 	})
@@ -671,7 +679,7 @@ func TestSetup_ContextHookWithoutRawContext_IsRefused(t *testing.T) {
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
 	b.InitLaunch(rec, NewBaseContextProvider(), nil, &CellDelivery{
-		Build:       func(in SurfaceInputs, _ string) SurfaceSet { set.inputs = in; return set },
+		Build:       func(in SurfaceInputs) SurfaceSet { set.inputs = in; return set },
 		RawContext:  false,
 		ContextHook: true,
 	})

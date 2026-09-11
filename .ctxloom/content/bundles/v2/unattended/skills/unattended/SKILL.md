@@ -199,6 +199,11 @@ If you delegate (and you should, for anything context-heavy):
   before believing any claim about what landed. Reports have been wrong.
 - Treat an agent whose result is a sentence about waiting as **alive-but-stuck**,
   not finished. Resume it and tell it to run in the foreground.
+- **The `@live` lane is agent-accessible, bounded** (ruled 2026-09-11). When
+  neither inspection nor the focused runner can settle a claim, an implementer
+  may run `@live` cells on its own judgement: pin the cheap model, at most five
+  cells per row, and name every cell spent in its FINAL report. Unreported
+  spend is the violation, not the spend.
 
 ---
 

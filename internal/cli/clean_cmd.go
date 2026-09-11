@@ -5,6 +5,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -14,7 +17,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-var cleanYes bool
+var (
+	cleanYes       bool
+	cleanOlderThan string
+)
 
 // `ctxloom clean` obeys the same rule the session destroyers do: ABSENCE OF
 // --yes MEANS REPORT ONLY, on a TTY or not, and the report says so out loud
@@ -34,6 +40,23 @@ a clone has them. Your session records, approvals and application records are
 LOCAL-ONLY — nothing rebuilds them, so clean never takes them, and neither
 does --yes. lock.yaml survives too: it is rebuildable but committed, so
 deleting it would dirty your tree rather than free anything.
+
+Session data is LOCAL-ONLY and clean never takes it by default. Pass
+--older-than to reclaim the sessions that are BOTH older than a bound you
+state and provably not running:
+
+  ctxloom clean --older-than 30d          an offset: 30d, 12w, 720h
+  ctxloom clean --older-than 2026-01-01   or a date
+
+There is no default age, deliberately: nothing rebuilds a session record, so
+a bound this command invented for you would silently eat history. Without
+--older-than, not one session is considered.
+
+A session is reclaimed only when its liveness lock proves its owner has
+ended. A running session, or one whose liveness cannot be established at all,
+is reported and left alone. A session holding a scratch worktree with
+uncommitted work is reported and left alone too — that work exists nowhere
+else.
 
 Without --yes this only reports; nothing on disk changes.
 
@@ -70,8 +93,25 @@ func runClean(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if err := emit(cmd, res, func() error {
-		return renderCleanPlan(cmd.OutOrStdout(), res)
+	rep := cleanReport{CleanResult: res}
+
+	// The session sweep runs ONLY when the caller stated a bound. No flag, no
+	// candidates considered — see this command's Long text for why there is
+	// no default age.
+	if cleanOlderThan != "" {
+		cutoff, perr := parseAgeBound(cleanOlderThan, time.Now())
+		if perr != nil {
+			return perr
+		}
+		sessions, serr := operations.ReclaimAgedSessions(cmd.Context(), nil, cutoff, cleanYes)
+		if serr != nil {
+			return serr
+		}
+		rep.Sessions = &sessions
+	}
+
+	if err := emit(cmd, rep, func() error {
+		return renderCleanPlan(cmd.OutOrStdout(), rep)
 	}); err != nil {
 		return err
 	}
@@ -81,8 +121,19 @@ func runClean(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func renderCleanPlan(w io.Writer, res CleanResultAlias) error {
+// cleanReport is `clean`'s payload: the cache plan, plus the aged-session
+// plan when — and only when — an age bound was stated. Sessions is a pointer
+// so its ABSENCE is visible in --format json: a null says "no bound was
+// given, nothing was considered", which an empty object would misreport as
+// "considered, found nothing".
+type cleanReport struct {
+	operations.CleanResult
+	Sessions *operations.SessionReclaimResult `json:"sessions,omitempty"`
+}
+
+func renderCleanPlan(w io.Writer, rep cleanReport) error {
 	out := iox.NewErrWriter(w)
+	res := rep.CleanResult
 	present := 0
 	for _, t := range res.Targets {
 		if t.Present {
@@ -91,7 +142,7 @@ func renderCleanPlan(w io.Writer, res CleanResultAlias) error {
 	}
 	if present == 0 {
 		out.Printf("Nothing to clean: this project's cache is already absent.\n")
-		return out.Err()
+		return renderSessionReclaim(out, rep.Sessions)
 	}
 
 	verb := "would remove"
@@ -109,15 +160,90 @@ func renderCleanPlan(w io.Writer, res CleanResultAlias) error {
 		out.Printf("  %-42s %10s   rebuild: %s\n", t.Rel, humanBytes(t.Bytes), t.Rebuild)
 	}
 	out.Printf("\n")
+	return renderSessionReclaim(out, rep.Sessions)
+}
+
+// renderSessionReclaim prints the aged-session plan. A nil report means no age
+// bound was given, which prints NOTHING: a caller who did not ask about
+// sessions is not owed a paragraph about them.
+//
+// Every candidate is listed, including the skipped ones, because "why did it
+// free nothing" is the question a caller actually has — and a session left
+// alone for holding someone's uncommitted work is precisely the thing that
+// must not be silent.
+func renderSessionReclaim(out *iox.ErrWriter, rep *operations.SessionReclaimResult) error {
+	if rep == nil {
+		return out.Err()
+	}
+	if len(rep.Candidates) == 0 {
+		out.Printf("No session data is older than %s.\n", rep.Cutoff.Format(time.RFC3339))
+		return out.Err()
+	}
+
+	verb := "would reclaim"
+	if rep.Applied {
+		verb = "reclaimed"
+	}
+	out.Printf("ctxloom %s %s of session data last active before %s:\n\n",
+		verb, humanBytes(rep.Bytes), rep.Cutoff.Format(time.RFC3339))
+	for _, c := range rep.Candidates {
+		out.Printf("  %-28s %10s   %s\n", c.Harp, humanBytes(c.Bytes), c.Verdict)
+		if c.Reason != "" {
+			out.Printf("  %-28s              %s\n", "", c.Reason)
+		}
+	}
+	out.Printf("\n")
 	return out.Err()
 }
 
-// CleanResultAlias keeps renderCleanPlan's signature readable without this
-// package re-declaring the operation's result shape.
-type CleanResultAlias = operations.CleanResult
+// parseAgeBound turns a stated age into the instant that bounds it: an offset
+// back from now ("30d", "12w", "720h" — Go's own duration units plus d and w,
+// which it lacks and which are the units a person actually reaches for), or a
+// calendar date ("2026-01-01").
+//
+// It NEVER returns a zero time with a nil error: a bound that parsed to zero
+// would reach operations.ReclaimAgedSessions as "no bound stated" and be
+// refused there, but arriving at that refusal through a silently-misparsed
+// flag is a worse story than failing here with the text the caller typed.
+func parseAgeBound(raw string, now time.Time) (time.Time, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return time.Time{}, fmt.Errorf("--older-than needs an age: an offset like 30d, or a date like 2026-01-01")
+	}
+	if d, err := time.ParseDuration(expandDurationUnits(s)); err == nil {
+		if d <= 0 {
+			return time.Time{}, fmt.Errorf("--older-than %q is not a positive age", raw)
+		}
+		return now.Add(-d), nil
+	}
+	if t, err := time.Parse(time.DateOnly, s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("--older-than %q is neither an offset (30d, 12w, 720h) nor a date (2026-01-01)", raw)
+}
+
+// expandDurationUnits rewrites the day and week suffixes time.ParseDuration
+// does not know into hours. Only a bare <number><unit> is rewritten; anything
+// else is handed through untouched to fail in ParseDuration with its own
+// message.
+func expandDurationUnits(s string) string {
+	for suffix, hours := range map[string]int{"d": 24, "w": 168} {
+		if !strings.HasSuffix(s, suffix) {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSuffix(s, suffix))
+		if err != nil {
+			continue
+		}
+		return strconv.Itoa(n*hours) + "h"
+	}
+	return s
+}
 
 func init() {
 	cleanCmd.Flags().BoolVar(&cleanYes, "yes", false, "apply exactly the plan this reports")
+	cleanCmd.Flags().StringVar(&cleanOlderThan, "older-than", "",
+		"also reclaim session data last active before this age (30d, 12w, 720h) or date (2026-01-01). No default: without it, no session is considered.")
 	rootCmd.AddCommand(cleanCmd)
 }
 

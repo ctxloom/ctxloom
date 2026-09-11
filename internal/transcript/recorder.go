@@ -436,9 +436,10 @@ func RecordUserText(rec Recorder, text string) {
 
 // tee wraps events with a passthrough goroutine that calls rec.Record on every
 // event before forwarding it unchanged, and returns the forwarding channel.
-// This is the exact shape S2 drops in at its two host seams
-// (GRPCClient.Chat's returned events channel, and coord/enginehost.adapt's
-// consumed `out`) — see docs/transcript-schema.md §2c. Recording happens BEFORE forwarding so a consumer that stops reading
+// This is the exact shape the two host seams drop in (GRPCClient.Chat's
+// returned events channel, and coord/enginehost.adapt's consumed `out`) —
+// the structured-chat regime in docs/transcript-schema.md "Capture regimes".
+// Recording happens BEFORE forwarding so a consumer that stops reading
 // early never causes an event to be forwarded-but-not-recorded. Unexported:
 // TeeAndClose is the only production shape any host seam needs (a bare tee
 // would leak the Recorder's fd), so this stays a package-private helper

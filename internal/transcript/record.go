@@ -1,8 +1,8 @@
 // Package transcript owns ctxloom's OWN captured conversation record — the
 // canonical transcript.jsonl file under a harp's persist/ dir
 // (paths.HarpCanonicalTranscriptPath). It is the runner-side alternative to
-// scraping each engine's private, version-unstable session-store file (see
-// docs/transcript-schema.md for the full design rationale).
+// scraping each engine's private, version-unstable session-store file (ADR
+// 0035 for the design rationale; docs/transcript-schema.md for the format).
 //
 // This file (record.go) defines the ON-DISK SCHEMA: one JSON object per JSONL
 // line, an envelope (v/harp/session_id/engine/seq/ts/kind) wrapping exactly one

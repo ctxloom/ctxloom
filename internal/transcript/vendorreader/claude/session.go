@@ -82,8 +82,8 @@ type message struct {
 // assistant lines carry verbatim — unlike codex, whose accounting arrives on
 // a SEPARATE event_msg.token_count envelope with no shared id to correlate
 // it to a response_item by, claude's usage rides directly on the SAME
-// message object as the content it accounts for (docs/transcript-schema.md
-// §2c: "turn accounting | ... | `usage` on the assistant message | ...").
+// message object as the content it accounts for (ADR 0035, "The comparison
+// the canonical fields were derived from": the "turn accounting" row).
 type usage struct {
 	InputTokens              int `json:"input_tokens"`
 	OutputTokens             int `json:"output_tokens"`

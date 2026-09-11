@@ -25,8 +25,8 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   black hole — the structured tee (transcript.Tee/TeeAndClose) never reaches a
   pty, so ctxloom has zero memory of that work. WHAT BREAKS WITHOUT IT: every
   interactive session, and every session that ran before capture existed, is
-  unresumable and undistillable — exactly the interactive-pty gap
-  docs/transcript-schema.md §8 exists to close.
+  unresumable and undistillable — exactly the interactive-pty gap ADR 0035
+  accepted and docs/transcript-schema.md's "Capture regimes" now closes.
 
   # WHAT THIS JOURNEY CAN AND CANNOT SEE (honesty, mirroring j002100/j002200's
   # own notes). Grounded by reading the wiring and its readers, not guessed:

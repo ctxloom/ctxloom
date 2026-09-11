@@ -4,7 +4,7 @@
 // exit seam (internal/cli/run.go, right where transcript.RecordOneshot hooks
 // the oneshot exit) and the recover_session MCP tool (mcp_tools_memory.go),
 // which runs the identical conversion over already-indexed old sessions.
-// Closes docs/transcript-schema.md §8's "interactive-pty gap": an engine
+// Closes the interactive-pty gap ADR 0035 accepted: an engine
 // driven through its own interactive TUI has no ctxloom memory today because
 // the structured tee (Tee/TeeAndClose) can never reach a pty — this is the
 // missing other half, reading the engine's OWN transcript back after the
@@ -89,8 +89,8 @@ type vendorReaderEntry struct {
 // (locateBoundTranscript): the SessionStart bind hook already resolved the
 // vendor file for ctxloom's OWN index — see sessions.Manager.BindSession —
 // so there is no path-derivation logic to duplicate here, and no chance of
-// resurrecting the deleted reader's claude cwd→slug bug
-// (docs/transcript-schema.md §8).
+// resurrecting the deleted reader's claude cwd→slug bug (ADR 0035 names it,
+// and this sidestep).
 var vendorReaderRegistry = map[string]vendorReaderEntry{
 	config.BackendClaudeCode: {adapters: claudereader.VersionedAdapters, locate: locateBoundTranscript},
 	config.BackendMock:       {adapters: mockreader.VersionedAdapters, locate: locateBoundTranscript},

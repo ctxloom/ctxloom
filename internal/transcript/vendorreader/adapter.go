@@ -7,12 +7,11 @@
 // through. This is the point of the whole package: a session read from its
 // vendor's store and a tee'd session must land in byte-for-byte the same
 // on-disk schema (transcript.acp.jsonl), never a second format a downstream
-// consumer would need to special-case. See docs/transcript-schema.md §8 for
-// why a vendor reader exists at all (reversing S5's scraper deletion for
-// interactive-pty and pre-capture sessions, done through the canonical
-// Recorder this time instead of a bespoke SessionHistory scraper) and
-// internal/transcript/vendorreader/codex for the reference implementation every
-// other engine's reader copies.
+// consumer would need to special-case. See ADR 0035 for why a vendor reader
+// exists at all: the broken per-engine scrapers were deleted outright, and
+// the interactive-pty gap that left was later closed for pre-capture and
+// pty-driven sessions through the canonical Recorder instead of a bespoke
+// SessionHistory scraper.
 //
 // READER, NOT IMPORTER — and NOT the deleted scrapers either. These are not
 // one-time imports into a ctxloom-owned archive: a vendor reader is consulted
@@ -50,7 +49,7 @@ import (
 // src is an engine-specific locator for the transcript to convert. For a
 // JSONL-per-session engine (codex today; claude is the same
 // shape) this is simply the transcript file's path. A database-backed store
-// (kiro's v2 sqlite conversations_v2, per docs/transcript-schema.md §2b)
+// (the sqlite conversation table ADR 0035 records for the removed kiro engine)
 // cannot be located by a bare path alone — that engine's adapter will need a
 // composite locator (e.g. "<db-path>#<conversation-id>") once it's built;
 // this interface does not change shape to accommodate that, the string just
@@ -70,7 +69,7 @@ import (
 // A malformed line/row in src is skipped, never fatal for the whole
 // transcript — the same degrade-to-partial contract
 // agent.SessionStore.ParseSessionFile and transcript.ParseTranscriptFile
-// already guarantee on the READ side (docs/transcript-schema.md §6.4). A
+// already guarantee on the READ side. A
 // reader that aborted on the first bad byte would turn one corrupt line
 // into an entirely lost session, exactly the failure mode this package
 // exists to avoid. Convert returns an error only for a structural failure

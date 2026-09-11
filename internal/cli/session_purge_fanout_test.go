@@ -25,9 +25,12 @@ import (
 func resetSessionPurgeFlags(t *testing.T) {
 	t.Helper()
 	sessionPurgeYes = false
+	sessionPurgeEvenIfLive = false
 	sessionTranscriptPurgeYes = false
 	sessionTranscriptPurgeUndistilled = false
+	sessionTranscriptPurgeEvenIfLive = false
 	sessionArtifactsPurgeYes = false
+	sessionArtifactsPurgeEvenIfLive = false
 	sessionWorktreesPurgeYes = false
 	resetRootFormat(t)
 }

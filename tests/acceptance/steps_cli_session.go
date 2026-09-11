@@ -26,6 +26,19 @@ func registerCLISessionSteps(ctx *godog.ScenarioContext) {
 		return seedFinishedSession(c, harp, false)
 	})
 
+	// The two states the session lock cannot turn into permission. A session
+	// from before the lock existed has no lock file at all; a session resumed
+	// under its harp holds the lock again while ended_at still reads as set.
+	ctx.Step(`^a finished session "([^"]*)" with a transcript and an essence but no session lock$`, func(c context.Context, harp string) error {
+		return seedFinishedSessionFiles(c, harp, true)
+	})
+	ctx.Step(`^a session "([^"]*)" with a transcript and an essence that is running again$`, func(c context.Context, harp string) error {
+		if err := seedFinishedSessionFiles(c, harp, true); err != nil {
+			return err
+		}
+		return seedLiveSession(worldFrom(c), harp)
+	})
+
 	// The negative counterpart of "the home file X exists". Every destructive
 	// scenario asserts both directions — the report side that the file is
 	// still there, the apply side that it is gone — and only one of the two
@@ -116,6 +129,18 @@ func seedAdoptHarp(c context.Context, harp, backend, sessionID, start, end strin
 // freed, and a zero-byte fixture cannot tell "freed the file" from "freed
 // nothing".
 func seedFinishedSession(c context.Context, harp string, distilled bool) error {
+	if err := seedFinishedSessionFiles(c, harp, distilled); err != nil {
+		return err
+	}
+	// Proven finished by a FREE lock file — the one state that lets a
+	// destroyer act. Without it the session is merely unprovable.
+	return seedDeadSession(worldFrom(c), harp)
+}
+
+// seedFinishedSessionFiles is seedFinishedSession's index-and-files half,
+// with no word about liveness: the caller decides whether the harp gets a
+// free lock, a held one, or none.
+func seedFinishedSessionFiles(c context.Context, harp string, distilled bool) error {
 	w := worldFrom(c)
 	sessionsRel := filepath.Join(".ctxloom", "sessions")
 	harpRel := filepath.Join(sessionsRel, harp)

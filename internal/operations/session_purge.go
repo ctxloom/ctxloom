@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 )
 
 // Session purge — j001300 close-out area 2 (docs/design/j001300-closeout-surfaces.design.md
@@ -82,6 +83,14 @@ type PurgeSessionRequest struct {
 	// essence. Without an essence the transcript is the only record of what
 	// happened, so this is the deliberate second flag that allows it.
 	Undistilled bool
+	// EvenIfLive permits destroying a session whose liveness lock does not
+	// prove its owner dead: held (the owner is running right now), or absent
+	// (a session from before the lock existed, or one whose Hold failed), or
+	// on a filesystem whose locks cannot be trusted. It is the deliberate
+	// second flag for the one mistake purge cannot undo — destroying the
+	// transcript a running agent is still writing — and it is the ONLY way
+	// past the lock: "cannot determine" is never permission on its own.
+	EvenIfLive bool
 	// Apply is the plan/act switch. False walks and classifies only —
 	// nothing on disk or in the index changes. This is every destroyer's
 	// default: absence of --yes means report only, never act, regardless of
@@ -116,6 +125,14 @@ var (
 	// Purging a session still in progress could destroy the only transcript a
 	// live agent is still writing to.
 	ErrPurgeLiveSession = errors.New("session is still live")
+	// ErrPurgeOwnerNotProvenDead is returned when the harp's liveness lock
+	// (internal/shared/sessionlock) does not prove the owning process dead
+	// and EvenIfLive was not set. Dead — a lock file that exists and nothing
+	// holds — is the ONLY verdict that permits destroying; a held lock, a
+	// missing one and an untrusted filesystem all refuse. The index's
+	// ended_at cannot stand in for it: a session resumed under its harp is
+	// running again with ended_at still set.
+	ErrPurgeOwnerNotProvenDead = errors.New("the session lock does not prove its owner dead")
 	// ErrPurgeUndistilled is returned when the TRANSCRIPT population is asked
 	// for against a session with no essence.md and Undistilled was not also
 	// set. Without an essence the transcript is the session's ONLY record;
@@ -174,6 +191,21 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 
 	if entry.EndedAt == nil {
 		return res, fmt.Errorf("%w: %q has no ended_at yet", ErrPurgeLiveSession, harp)
+	}
+
+	// THE LOCK ONLY EVER REFUSES, and it is held across the destruction: a
+	// session resuming under this harp meanwhile waits in sessionlock.Hold
+	// instead of racing the unlink of the transcript it is about to append
+	// to. Dead alone passes; Alive, Indeterminate and any verdict that does
+	// not exist yet refuse — unless the caller's EvenIfLive says, explicitly,
+	// that it accepts the consequence. The release is deferred rather than
+	// called early so nothing below can be reached under a fresh probe: this
+	// process now holds the lock, and probing again from under its own hold
+	// would read it as a live owner.
+	probe, release := sessionlock.Acquire(harp)
+	defer release()
+	if !probe.Verdict.MayReclaim() && !req.EvenIfLive {
+		return res, fmt.Errorf("%w: %s", ErrPurgeOwnerNotProvenDead, probe.Reason)
 	}
 
 	hasEssence := false

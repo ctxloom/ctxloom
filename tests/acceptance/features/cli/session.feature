@@ -305,6 +305,39 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And the output contains "ctxloom session transcript purge brisk-copper-moth --undistilled --yes"
       And the home file ".ctxloom/sessions/brisk-copper-moth/persist/transcript.jsonl" exists
 
+    # The session lock only ever REFUSES. A free lock proves the owner dead; a
+    # held lock, or no lock at all, refuses — "cannot determine" is never
+    # permission. Every session from before the lock existed has no lock, so
+    # the refusal names the exact command that destroys it deliberately.
+    Scenario: A session the lock cannot prove finished is refused, and the escape is named
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and an essence but no session lock
+      When I run "ctxloom session purge amber-swift-owl --yes"
+      Then the command fails
+      And the output contains "cannot be proven dead"
+      And the output contains "ctxloom session purge amber-swift-owl --yes --even-if-live"
+      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
+      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+
+    Scenario: --even-if-live sweeps it anyway
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and an essence but no session lock
+      When I run "ctxloom session purge amber-swift-owl --yes --even-if-live"
+      Then the command succeeds
+      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" does not exist
+      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
+
+    # The index says ended; the lock says running. The lock wins, on the leaf
+    # as much as on the sweep.
+    Scenario: A session running again is refused by the transcript's own destroyer
+      Given an initialized ctxloom project
+      And a session "amber-swift-owl" with a transcript and an essence that is running again
+      When I run "ctxloom session transcript purge amber-swift-owl --yes"
+      Then the command fails
+      And the output contains "owner is alive"
+      And the output contains "--even-if-live"
+      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
+
     Scenario: The scratch worktrees are a population with their own listing
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript and an essence

@@ -140,10 +140,9 @@ type HarnessStatusResult struct {
 	// only, never on DELIVERY, so a stale `profile materialize` output was
 	// invisible to it). A backend with no read half yet, or with nothing
 	// materialized here AND no engine-declared expectation of one, is simply
-	// absent from this list. A missing verdict appears only where the engine
-	// itself declares the native file its default context route AND the
-	// composed context has something to put in it — see
-	// surfaceCurrencies/contextFileExpected.
+	// absent from this list. A missing verdict appears only where the install
+	// itself would have written the file (installedThroughProjectFile) AND the
+	// composed context has something to put in it — see surfaceCurrencies.
 	Surfaces []SurfaceCurrency `json:"surfaces,omitempty"`
 	// Errors records per-backend status-read failures; non-empty means the
 	// report is partial. One backend's corrupt/unreadable settings.json no
@@ -229,10 +228,11 @@ func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusReq
 // report, one set of engines.
 //
 // A materialized file that is present reports delivered or stale. A file that
-// is ABSENT reports missing only when materialization was actually EXPECTED —
-// see contextFileExpected. That predicate is the whole of the "no false alarms"
-// rule here: without it every hook-delivered project would be told its CLAUDE.md
-// is gone, which is the fastest way to teach a user to skip this section.
+// is ABSENT reports missing only when the install would have WRITTEN it —
+// installedThroughProjectFile, the same predicate the install writes and
+// retracts by. That predicate is the whole of the "no false alarms" rule here:
+// without it every hook-delivered project would be told its CLAUDE.md is
+// gone, which is the fastest way to teach a user to skip this section.
 //
 // The composed ("intended") context is assembled lazily, at most once PER
 // BACKEND, and only for a backend that actually has a readable file route to
@@ -284,7 +284,7 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 		if !ok {
 			return surfaces, errs
 		}
-		cur, report := reportableContextCurrency(state, current, contextFileExpected(decl))
+		cur, report := reportableContextCurrency(state, current, installedThroughProjectFile(decl, agent.SurfaceContext))
 		if !report {
 			continue
 		}
@@ -308,8 +308,8 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 // written into the file. `manage hooks install` composes for a live session
 // (installedContextFile) and withholds them for every engine — it is included
 // only where ApplyHooks routes context through the file at all
-// (contextViaHook), since for an engine that injects it never writes this
-// file. The file records bytes, not its writer, and both writers leave the
+// (installedThroughProjectFile), since for an engine that injects it never
+// writes this file; it retracts it. The file records bytes, not its writer, and both writers leave the
 // same hooks and MCP server beside it, so the check cannot know which one it
 // is reading: it holds the file against each, and a file current under the
 // writer that produced it is delivered. Composing one subject alone reports
@@ -325,7 +325,7 @@ func intendedContextFiles(ctx context.Context, cfg *config.Config, backend strin
 		return nil, err
 	}
 	intended := []string{materialized.Context}
-	if !contextViaHook(backends.Declared(backend)) {
+	if installedThroughProjectFile(backends.Declared(backend), agent.SurfaceContext) {
 		installed, err := installedContextFile(ctx, cfg)
 		if err != nil {
 			return nil, err
@@ -346,8 +346,8 @@ func intendedContextFiles(ctx context.Context, cfg *config.Config, backend strin
 // clearly did materialize there at some point.
 //
 // A file that is ABSENT is reported only when BOTH halves of the ruling hold:
-// the engine declares that file its context route (expected — see
-// contextFileExpected), AND the composed loadout actually carries context to
+// the install routes context through that file (expected — see
+// installedThroughProjectFile), AND the composed loadout actually carries context to
 // put in it. The second half is the rule backends.UncarriedSurfaces already
 // states — "A capability gap nobody asked to use costs nothing and stays
 // quiet" — read against agent.SurfaceInputs.Context, the field the native-file
@@ -386,37 +386,6 @@ func contextFileReader(decl agent.Declaration, fs afero.Fs) (agent.StateReader, 
 	}
 	reader, ok := approach.(agent.StateReader)
 	return reader, ok
-}
-
-// contextFileExpected reports whether an ABSENT native context file is worth a
-// missing verdict for this backend — the capability half of the rule
-// backends.UncarriedSurfaces already states: "A capability gap nobody asked to
-// use costs nothing and stays quiet."
-//
-// The expectation is a property of the ENGINE, read from what the engine itself
-// declares, never from a user-facing mode key and never inferred from
-// wire.HooksConfig. An engine whose DEFAULT context approach is the native file
-// (claude-code, kiro, opencode, mock) delivers context by materializing that
-// file, so its absence is a real finding. An engine whose default is some other
-// route does not: codex's default is agent.ApproachHook — a per-run
-// content-addressed cache file plus a SessionStart hook, with AGENTS.md as the
-// second, opt-in route — so a harpless caller like `manage check` has no
-// grounds to expect a file and must stay quiet. That is the same fact
-// backends.LaunchOnlySurfaces encodes for codex's OTHER surfaces, and its doc
-// is the reason this is not a "does the engine HAVE a file route" test: codex
-// HAS one, and reporting it missing would be the false alarm that gets the real
-// line ignored.
-//
-// LaunchOnlySurfaces itself is deliberately NOT called here. It answers about
-// hooks, MCP, commands and skills — never about a context surface — so a call
-// would return nil for every backend and every input, and a guard that can
-// never fire is worse than none: it reads as a check and is not one. The
-// declared default approach is where the same fact about codex is legible for
-// the context kind, and TestSurfaceCurrencies_StaysSilentForCodex is what keeps
-// it honest.
-func contextFileExpected(decl agent.Declaration) bool {
-	def, ok := decl.Default(agent.SurfaceContext)
-	return ok && def == agent.ApproachUnsafeFile
 }
 
 // SetStatuslineRequest contains parameters for toggling the ctxloom HUD statusline.

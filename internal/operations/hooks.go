@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 
@@ -53,6 +52,13 @@ type ApplyHooksResult struct {
 	Status      string   `json:"status"`
 	Backends    []string `json:"backends"`
 	ContextHash string   `json:"context_hash,omitempty"`
+	// Retracted names, one sentence per file, every native context file this
+	// apply stripped ctxloom's managed section from — the file an earlier
+	// `profile materialize` wrote for an engine whose installed context route
+	// is NOT that file (installedThroughProjectFile). It is a destructive
+	// edit, bounded by ctxloom's own markers, and it is reported for that
+	// reason: the user sees what went, never merely finds it gone.
+	Retracted []string `json:"retracted,omitempty"`
 	// Errors holds per-backend failures. Non-empty alongside a non-empty
 	// Backends means partial success; non-empty with an EMPTY Backends means
 	// nothing was configured at all, which ApplyHooks reports as
@@ -189,7 +195,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 		return nil, err
 	}
 
-	applied, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
+	applied, retracted, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
 		dryRun:           req.DryRun,
 		backendNames:     backendNames,
 		freshCfg:         freshCfg,
@@ -219,6 +225,15 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// export) was withheld by the trust gate (content-free).
 	execGate.WarnWithheld()
 
+	// A retraction is printed here as well as returned: the callers that run
+	// this apply at startup (the MCP server) discard the result, and a
+	// managed section that vanishes without a line saying so is the silent
+	// destructive edit the human accepted this behaviour on condition of
+	// never having.
+	for _, line := range retracted {
+		clidiag.Warn("ctxloom", "%s", line)
+	}
+
 	// Partial success is success: report which backends took and which
 	// failed rather than collapsing the whole call to an error.
 	//
@@ -237,6 +252,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 		Status:      status,
 		Backends:    applied,
 		ContextHash: contextHash,
+		Retracted:   retracted,
 		Errors:      applyErrors,
 	}
 	// The same gate again, for a trust fault first recorded AFTER regeneration
@@ -511,20 +527,22 @@ type hookApplyParams struct {
 // partial is no longer success in strict mode: each per-backend failure is a
 // fatal-class finding the startup choke owner aborts on. Degraded mode keeps
 // the warn-and-continue. Context cancellation aborts the whole loop.
-func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, applyErrors []string, err error) {
+func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, retracted, applyErrors []string, err error) {
 	applied = []string{}
 	for _, backendName := range p.backendNames {
 		if ctx.Err() != nil {
-			return applied, applyErrors, ctx.Err()
+			return applied, retracted, applyErrors, ctx.Err()
 		}
-		if e := applyHooksToBackend(backendName, p); e != nil {
+		took, e := applyHooksToBackend(backendName, p)
+		if e != nil {
 			strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)", "%s", e)
 			applyErrors = append(applyErrors, e.Error())
 			continue
 		}
 		applied = append(applied, backendName)
+		retracted = append(retracted, took...)
 	}
-	return applied, applyErrors, nil
+	return applied, retracted, applyErrors, nil
 }
 
 // applyHooksToBackend writes one backend's managed config into the project via
@@ -534,22 +552,27 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 // `ctxloom run` Setup path and avoids duplicate-hook accumulation from aliasing
 // freshCfg.Hooks across the loop.
 //
-// Apply INSTALLS runtime context injection for the HOOK backends (claude/codex):
-// the regenerated contextHash keys the SessionStart inject-context hook INTO their
-// settings/config surface (the crucial difference from materialize, which passes ""
-// so context stays static). Their context reaches a launched agent via that hook +
-// the regenerated cache file, NOT a native file, so the selection names
-// WithContext(Hook) for them — resolving (for claude) to a documented no-op that
-// writes nothing: a static CLAUDE.md alongside the hook would double the context.
+// Context takes the route installRoute resolves from the engine's Declaration.
+// For an engine that declares hook-carried context the route is the
+// settings-carried SessionStart inject hook keyed to the regenerated
+// contextHash (the crucial difference from materialize, which passes "" so
+// context stays static) — a Rider that writes no native file, since a static
+// file beside the hook would double the context. For an engine whose only
+// route is the native file, the file is materialized from the assembled
+// context.
 //
-// The NATIVE-file backend (kiro) reads context from
-// .kiro/steering and DIVERTS the injection hook, so for it apply names
-// WithContext(UnsafeFile), materializing the context surface with the assembled
-// context. contextViaHook (read from the engine's Declaration) picks the
-// right approach per backend — the enum-driven replacement for the retired
-// contextViaNativeFile bool. Commands are delivered only when there are prompts,
-// preserving the prior guard (no prompts ⇒ command files left untouched).
-func applyHooksToBackend(backendName string, p hookApplyParams) error {
+// And where the file is NOT the route, ctxloom's managed section must not be
+// in it either: an earlier `profile materialize` writes the same file for a
+// launch with no ctxloom behind it, and left in place beside the hook it is
+// the doubled context again, going stale. So the install RETRACTS it —
+// delivers the native-file route with EMPTY content, which strips the section
+// and removes a wholly-managed file — and returns one line per file it
+// touched. Retraction rides skipContext exactly as delivery does: a round with
+// no fresh context has no verdict on the file and leaves it alone.
+//
+// Commands are delivered only when there are prompts, preserving the prior
+// guard (no prompts ⇒ command files left untouched).
+func applyHooksToBackend(backendName string, p hookApplyParams) (retracted []string, err error) {
 	// The resolved model is what AssembleManagedHooks returns; a settings writer
 	// takes its Wire() projection. Ordering and provenance stay in the model, so
 	// what `manage hooks list` reports and what lands in this backend's settings
@@ -580,35 +603,134 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	// with p.assembledContext == "" is what used to reach the native-file
 	// writers and get interpreted as "clear the managed section" regardless of
 	// WHY it was empty.
+	retractContextFile := false
 	if !p.skipContext {
-		if contextViaHook(decl) {
-			sel = sel.With(agent.SurfaceContext, agent.ApproachHook)
-		} else {
-			sel = sel.With(agent.SurfaceContext, agent.ApproachUnsafeFile)
+		if name, _, ok := installRoute(decl, agent.SurfaceContext); ok {
+			sel = sel.With(agent.SurfaceContext, name)
 		}
+		retractContextFile = !installedThroughProjectFile(decl, agent.SurfaceContext)
 	}
 	if len(p.prompts) > 0 {
 		sel = sel.With(agent.SurfaceCommands, agent.ApproachUnsafeFile)
 	}
-	// The ONE write in this function. Everything above resolves; nothing above
-	// touches disk. A dry run therefore stops exactly here, having done all the
-	// work that can surface a problem and none that can cause one.
+	// The writes in this function start here. Everything above resolves;
+	// nothing above touches disk. A dry run therefore stops exactly here,
+	// having done all the work that can surface a problem and none that can
+	// cause one — retraction included, since retraction is a write.
 	if p.dryRun {
-		return nil
+		return nil, nil
 	}
 	if _, _, errs := sel.DeliverUnder(inputs, p.fs, present.ProjectOnHost(p.workDir)); len(errs) > 0 {
-		return fmt.Errorf("failed to apply %s: %w", backendName, errors.Join(errs...))
+		return nil, fmt.Errorf("failed to apply %s: %w", backendName, errors.Join(errs...))
 	}
-	return nil
+	if retractContextFile {
+		line, err := retractNativeContext(backendName, decl, p.fs, p.workDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to apply %s: %w", backendName, err)
+		}
+		if line != "" {
+			retracted = append(retracted, line)
+		}
+	}
+	return retracted, nil
 }
 
-// contextViaHook reports whether the backend delivers context through the
-// SessionStart inject-context hook (its context surface declares
-// agent.ApproachHook) rather than only a native context file. Apply reads it
-// to pick the hook vs the native file, so a static native file is never
-// written alongside the hook.
-func contextViaHook(decl agent.Declaration) bool {
-	return slices.Contains(decl.Names(agent.SurfaceContext), agent.ApproachHook)
+// retractNativeContext strips ctxloom's managed section from backend's native
+// context file under workDir — the write an earlier `profile materialize`
+// left for an engine whose installed context route is not that file. It is
+// bounded by the markers: the native-file route is delivered with EMPTY
+// content, which is the writer's own reconcile-to-nothing (WriteManagedContext:
+// content outside the markers survives byte-for-byte; a file that held only
+// the section is removed rather than left as a husk). Empty is deliberate and
+// distinct from the NIL case, which never reaches here: a round with nothing
+// to say about the file (skipContext) skips retraction along with delivery.
+//
+// It reads the file's state first and touches nothing when no properly
+// terminated managed section is present — there is nothing of ctxloom's to
+// take back, and an unterminated begin marker is a truncated surface the
+// user must see rather than have quietly reconciled. Returns one sentence
+// describing what it did, or "" when it did nothing, so the caller reports
+// the edit rather than performing it in silence.
+func retractNativeContext(backendName string, decl agent.Declaration, fs afero.Fs, workDir string) (string, error) {
+	route, ok := decl.Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, agent.SurfaceInputs{Context: ""}, fs)
+	if !ok {
+		return "", nil // no native file to retract from
+	}
+	reader, ok := route.(agent.StateReader)
+	if !ok {
+		return "", nil
+	}
+	state, err := reader.State(workDir)
+	if err != nil {
+		return "", err
+	}
+	file, ok := state.(agent.FileDeliveryState)
+	if !ok || !file.HasSection {
+		return "", nil
+	}
+	if _, err := route.Deliver(present.ProjectOnHost(workDir)); err != nil {
+		return "", fmt.Errorf("retracting ctxloom's managed section from %s: %w", file.Rel, err)
+	}
+	after, err := reader.State(workDir)
+	if err != nil {
+		return "", err
+	}
+	if remaining, ok := after.(agent.FileDeliveryState); ok && !remaining.Found {
+		return fmt.Sprintf("%s: removed %s, which held only ctxloom's managed section — context reaches this engine through the SessionStart hook, not that file", backendName, file.Rel), nil
+	}
+	return fmt.Sprintf("%s: retracted ctxloom's managed section from %s — context reaches this engine through the SessionStart hook, not that file; everything outside the markers is untouched", backendName, file.Rel), nil
+}
+
+// installRoute resolves the approach `manage hooks install` delivers kind at
+// for decl, constructed content-free so its capabilities can be read; ok is
+// false when the engine declares no approach for kind at all. A declared
+// Rider wins over the default: it rides another surface's write (hook-carried
+// context rides the settings surface), and a well-known file written beside
+// it would deliver the same content twice. The route is a fact of the
+// engine's Declaration — never a config key, never inferred from the hooks
+// found installed — which is what lets the writer and `manage check` agree.
+func installRoute(decl agent.Declaration, kind agent.SurfaceKind) (name string, route agent.Approach, ok bool) {
+	for _, n := range decl.Names(kind) {
+		a, ok := decl.Construct(kind, n, agent.SurfaceInputs{}, nil)
+		if !ok {
+			continue
+		}
+		if _, rider := a.(agent.Rider); rider {
+			return n, a, true
+		}
+	}
+	def, ok := decl.Default(kind)
+	if !ok {
+		return "", nil, false
+	}
+	a, ok := decl.Construct(kind, def, agent.SurfaceInputs{}, nil)
+	return def, a, ok
+}
+
+// installedThroughProjectFile is the ONE predicate both sides of the managed
+// surfaces consult: does kind reach the engine as a file or directory under
+// the project root once installed? ctxloom's managed content lives in that
+// file exactly when this is true — the install writes it and `manage check`
+// misses it — and otherwise the install retracts it and the check stays
+// quiet about its absence.
+//
+// False for a Rider (it writes nothing of its own) and for a LaunchOnly
+// route (its bytes are announced on argv, which an install has no sink for).
+// An approach's OutOfCwd form is NOT consulted: it is the shared-cwd LAUNCH
+// form of the same approach, and at rest the well-known write still lands
+// under the project root — the settings and MCP files are exactly that.
+func installedThroughProjectFile(decl agent.Declaration, kind agent.SurfaceKind) bool {
+	_, route, ok := installRoute(decl, kind)
+	if !ok {
+		return false
+	}
+	if _, rider := route.(agent.Rider); rider {
+		return false
+	}
+	if _, launchOnly := route.(agent.LaunchOnly); launchOnly {
+		return false
+	}
+	return true
 }
 
 // installedContextFile composes what ApplyHooks writes into a native-file

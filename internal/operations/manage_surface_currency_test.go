@@ -84,23 +84,23 @@ func composedContext(t *testing.T, cfg *config.Config, backend string) string {
 	return intended[0]
 }
 
-// --- ARM ONE: the alarm FIRES where materialization was expected -------------
+// --- ARM ONE: the alarm stays SILENT where the file is not the route ----------
 
-// TestSurfaceCurrencies_ReportsMissingWhereExpected is the finding this task
-// exists for: a project whose composed context has content, an engine that
-// declares the native file its DEFAULT context route, and no file on disk. That
-// was silent before — the one case a user most needs told about.
-func TestSurfaceCurrencies_ReportsMissingWhereExpected(t *testing.T) {
+// TestSurfaceCurrencies_StaysSilentWhereTheFileIsNotTheRoute is the false
+// alarm this predicate exists to prevent: claude declares hook-carried
+// context, so `manage hooks install` never writes CLAUDE.md — and a check
+// that reports it missing tells every hooks-installed claude project its
+// context is gone. The expectation is read from the SAME predicate the
+// install writes by (installedThroughProjectFile), so the two cannot
+// disagree about which file is the route.
+func TestSurfaceCurrencies_StaysSilentWhereTheFileIsNotTheRoute(t *testing.T) {
 	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
 
 	surfaces, errs := surfaceCurrencies(context.Background(), cfg, afero.NewOsFs(), workDir)
 	assert.Empty(t, errs)
 
-	claude, ok := currencyFor(surfaces, "claude-code")
-	require.True(t, ok, "claude-code declares CLAUDE.md its default context route, so its absence is a finding")
-	assert.Equal(t, "CLAUDE.md", claude.Route)
-	assert.Equal(t, string(agent.StatusMissing), claude.Status)
-	assert.Equal(t, "CLAUDE.md does not exist", claude.Detail)
+	got, ok := currencyFor(surfaces, "claude-code")
+	assert.False(t, ok, "claude's context reaches it through the hook, so an absent CLAUDE.md is not a finding; got %+v", got)
 }
 
 // --- ARM TWO: the alarm STAYS SILENT where nothing was expected --------------
@@ -116,7 +116,6 @@ func TestSurfaceCurrencies_LeavesTheHermeticMockEngineOutOfTheReport(t *testing.
 
 	got, ok := currencyFor(surfaces, "mock")
 	assert.False(t, ok, "mock must not appear in the report; got %+v", got)
-	assert.NotEmpty(t, surfaces, "the real engines are still reported")
 }
 
 // TestReportableContextCurrency_StaysSilentWhenTheLoadoutCarriesNothing is the
@@ -263,7 +262,7 @@ func checkVerdict(t *testing.T, cfg *config.Config, backend, dir string) agent.C
 	intended, err := intendedContextFiles(context.Background(), cfg, backend)
 	require.NoError(t, err)
 	state, _ := nativeContextState(t, backend, dir)
-	cur, report := reportableContextCurrency(state, intended, contextFileExpected(backends.Declared(backend)))
+	cur, report := reportableContextCurrency(state, intended, installedThroughProjectFile(backends.Declared(backend), agent.SurfaceContext))
 	require.True(t, report, "%s: a native file that exists is always reported", backend)
 	return cur
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 )
 
 // captureStderr redirects os.Stderr around fn and returns everything written to
@@ -46,11 +47,14 @@ func captureStderr(t *testing.T, fn func()) string {
 	return string(out)
 }
 
-// fixedPlacement is a trivial agent.Placement for building claude's Surfaces
-// against a fixed out-of-cwd scratch dir.
-type fixedPlacement struct{ dir string }
-
-func (p fixedPlacement) Dir() string { return p.dir }
+// runRoots advises a run rooted at project with its out-of-cwd scratch at
+// scratch, on the host — the two roots a shared-cwd claude delivery reads.
+func runRoots(project, scratch string) present.Start {
+	return present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: project},
+		Scratch:     present.Root{Host: scratch},
+	}))
+}
 
 // Build validates a named approach against the backend's SupportedApproaches:
 // SystemPrompt is claude-only, so a backend whose context surface declares
@@ -78,7 +82,7 @@ func TestBuild_RejectsUnsupportedContextApproach(t *testing.T) {
 // also selecting settings in the SAME Build() is rejected (there is no hook to
 // carry the injection — an unread cache file, or nothing at all).
 func TestBuild_RejectsContextHookWithoutSettings(t *testing.T) {
-	claudeSet := claude.NewSurfaces(agent.SurfaceInputs{}, nil, nil)
+	claudeSet := claude.NewSurfaces(agent.SurfaceInputs{}, nil)
 	_, err := agent.Select(claudeSet).WithContext(agent.ContextWriteHook).Build()
 	assert.Error(t, err, "Hook without Settings selected in the same Build() must fail")
 
@@ -92,13 +96,13 @@ func TestBuild_RejectsContextHookWithoutSettings(t *testing.T) {
 // terminal rejects it).
 func TestDeliverUnder_RejectsSystemPrompt(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	claudeSet := claude.NewSurfaces(agent.SurfaceInputs{Context: "hello"}, fixedPlacement{dir: "/isolated"}, fs)
+	claudeSet := claude.NewSurfaces(agent.SurfaceInputs{Context: "hello"}, fs)
 
 	r, err := agent.Select(claudeSet).WithContext(agent.ContextWriteSystemPrompt).Build()
 	require.NoError(t, err, "SystemPrompt is a valid claude approach — Build succeeds")
 
 	dir := "/target"
-	_, _, errs := r.DeliverUnder(dir)
+	_, _, errs := r.DeliverUnder(present.ProjectOnHost(dir))
 	require.Len(t, errs, 1)
 	assert.Contains(t, errs[0].Error(), "system-prompt")
 	exists, _ := afero.Exists(fs, filepath.Join(dir, "CLAUDE.md"))
@@ -129,13 +133,13 @@ func TestDeliverShared_ClaudeContextRawBuilderResolvesTableDefault_U100F05(t *te
 	fs := afero.NewMemMapFs()
 	isolated := "/isolated-scratch"
 	sharedCwd := "/live/project"
-	set := claude.NewSurfaces(agent.SurfaceInputs{Context: "project rules"}, fixedPlacement{dir: isolated}, fs)
+	set := claude.NewSurfaces(agent.SurfaceInputs{Context: "project rules"}, fs)
 
 	r, err := agent.Select(set).WithEverything().Build()
 	require.NoError(t, err)
 
 	stderr := captureStderr(t, func() {
-		delivered, _, errs := r.DeliverShared(sharedCwd)
+		delivered, _, errs := r.DeliverShared(runRoots(sharedCwd, isolated))
 		require.Empty(t, errs)
 		assert.Len(t, delivered, 5, "context, mcp, settings, commands, and skills all deliver (context via the well-known write, not a realization)")
 	})
@@ -167,7 +171,7 @@ func TestDeliverShared_NoRealization_WarnsThenWritesWellKnown(t *testing.T) {
 	var delivered []agent.Delivered
 	stderr := captureStderr(t, func() {
 		var errs []error
-		delivered, _, errs = r.DeliverShared(dir)
+		delivered, _, errs = r.DeliverShared(present.ProjectOnHost(dir))
 		require.Empty(t, errs)
 	})
 	require.Len(t, delivered, 1)

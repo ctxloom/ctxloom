@@ -46,6 +46,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -146,7 +147,7 @@ func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfi
 		BundleMCP:        bundleMCP,
 		ManageStatusline: manageStatusline,
 	}, fs)
-	_, _, errs := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile).DeliverUnder(dir)
+	_, _, errs := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile).DeliverUnder(present.ProjectOnHost(dir))
 	require.Empty(t, errs)
 }
 
@@ -187,7 +188,7 @@ func TestManagedSettings_ClaudeCode(t *testing.T) {
 // nothing (EmptySurfaceSet) rather than erroring.
 func TestManagedSettings_UnsupportedBackend(t *testing.T) {
 	set := backends.BuildSurfaces("unknown-backend", agent.SurfaceInputs{}, afero.NewMemMapFs())
-	_, _, errs := agent.Select(set).WithEverything().DeliverUnder("/project")
+	_, _, errs := agent.Select(set).WithEverything().DeliverUnder(present.ProjectOnHost("/project"))
 	assert.Empty(t, errs, "unsupported backend materializes nothing")
 }
 

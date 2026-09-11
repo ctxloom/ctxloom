@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -218,8 +219,9 @@ func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 //     file.
 //  2. MergeManaged folds the host-assembled config/bundle payload into the
 //     lifecycle (the merge engine) keyed by contextHash.
-//  3. The backend's Build closure turns the merged state into its SurfaceSet, and
-//     the cell named by req.CellKind delivers each surface — a SharedCell over the
+//  3. The backend's Build closure turns the merged state into its SurfaceSet, the
+//     run's roots are resolved and advised ONCE, and the cell named by
+//     req.CellKind delivers each surface against them — a SharedCell over the
 //     race-safe set (out-of-cwd flag files / warned Unsafe), an isolated cell over
 //     the well-known set (native files in the private dir).
 //
@@ -296,16 +298,28 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 		DenyTools:          req.Managed.DenyTools,
 	}
 
-	// A SharedCell's race-safe surfaces land in the session's PRIVATE ephemeral dir
-	// (out-of-cwd flag files); an isolated cell's well-known surfaces land in the
-	// private working dir itself.
-	isolatedDir := b.WorkDir()
-	if req.CellKind == CellKindShared {
-		isolatedDir = ephemeralPlacement{harp: req.Env[SessionHarpEnv]}.Dir()
-	}
-	set := d.Build(inputs, isolatedDir)
+	set := d.Build(inputs)
 
-	return b.deliverSet(set, req)
+	// The run's roots, resolved and advised ONCE, before any surface runs. The
+	// project root is the working dir; Scratch is where a SharedCell's race-safe
+	// surfaces land (the session's PRIVATE ephemeral dir, out of the shared
+	// cwd), while an isolated cell's private working dir is its own scratch.
+	//
+	// present.OnHost, not Containerize: Setup runs where the engine runs — for a
+	// container cell, inside it — so the writer and the engine share one
+	// filesystem namespace and the identity advice is the truthful one here.
+	// A Containerize advice belongs to whoever launches the container, before
+	// Setup ever runs in it.
+	scratch := b.WorkDir()
+	if req.CellKind == CellKindShared {
+		scratch = ephemeralPlacement{harp: req.Env[SessionHarpEnv]}.Dir()
+	}
+	start := present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: b.WorkDir()},
+		Scratch:     present.Root{Host: scratch},
+	}))
+
+	return b.deliverSet(set, req, start)
 }
 
 // assembleSurfaceContext assembles the context a surface-delivering backend
@@ -382,7 +396,7 @@ func (s *SurfaceSelection) preferSharedRealization(kind SurfaceKind) {
 // be nil, and then derefs it anyway" (SA5011). Guarding the middle block would
 // have encoded a contract the caller cannot honor; stating the contract is the
 // truthful fix.
-func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
+func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest, start present.Start) error {
 	// Launch delivers the WHOLE surface set, so it drives the builder over the same
 	// full selection materialize/apply use — the builder is the single selection
 	// input everywhere. Launch KEEPS its own cell machinery (a SharedCell over the
@@ -429,7 +443,7 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 
 	if req.CellKind == CellKindShared {
 		for _, rs := range resolved.surfaces {
-			d, err := resolved.deliverOneShared(rs, b.WorkDir())
+			d, err := resolved.deliverOneShared(rs, start)
 			if err != nil {
 				// This used to be matched by INDEX 0 rather than by kind, coupling
 				// this loop to cells.go's surfaceOrder by position — a backend with
@@ -472,7 +486,7 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 	// `isolatedCell{dir}` with no added field or method — the branch had no
 	// observable effect. Collapsed to one IsolatedCell; the CellKind
 	// distinction survives where it actually matters (buildArgs/env).
-	cell := NewIsolatedCell(b.WorkDir())
+	cell := NewIsolatedCell(start)
 	for _, kd := range resolved.Deliveries() {
 		d, err := cell.Deliver(kd)
 		if err != nil {

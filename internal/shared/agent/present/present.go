@@ -102,6 +102,17 @@ func OnHost(p Paths) Mapped {
 	return Mapped{paths: paths, mounts: mounts}
 }
 
+// ProjectOnHost advises a run that has exactly ONE root — the project
+// directory — and runs on the host. It is the entry for the at-rest callers
+// (materialize, apply, remove) and for anything that writes into a directory
+// the engine will read at the same path: they hold a dir and nothing else,
+// so this is the whole of what they can truthfully advise. Every other root
+// stays unresolved, and a composition that reaches for one gets the zero Root
+// rather than a fabricated path.
+func ProjectOnHost(dir string) Start {
+	return New(OnHost(Paths{ProjectRoot: Root{Host: dir}}))
+}
+
 // Containerize is the runtime advice: it rewrites Engine on every root that
 // has a target and mounts the root to make that true.
 //

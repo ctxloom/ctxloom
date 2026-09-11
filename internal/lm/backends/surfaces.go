@@ -50,18 +50,6 @@ func SurfacesFor(engine string) (agent.SurfaceSet, error) {
 	return BuildSurfaces(engine, agent.SurfaceInputs{}, afero.NewMemMapFs()), nil
 }
 
-// wellKnownPlacement is a placeholder agent.Placement for building a SurfaceSet
-// that only drives the well-known Deliveries() path (materialize, which lands
-// native files at the cell's dir). claude's NewSurfaces binds an out-of-cwd
-// placement for its RACE-SAFE variants (--append-system-prompt-file /
-// --mcp-config / --settings scratch); those are never exercised on the well-known
-// path, so the placement is never dereferenced and an empty dir is harmless. The
-// other backends ignore the placement entirely (no out-of-cwd flag).
-type wellKnownPlacement struct{}
-
-// Dir returns the empty string: the well-known Deliveries() path never reads it.
-func (wellKnownPlacement) Dir() string { return "" }
-
 // UncarriedSurfaces is BuildSurfaces' inverse over the SAME inputs: the parts of
 // a run's assembled loadout the named backend has NO structural place for. A
 // delivery report can only list what it wrote — every line of it true — so the

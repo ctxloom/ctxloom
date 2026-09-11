@@ -453,11 +453,9 @@ func init() {
 		newCredentialProjector: claude.NewCredentialProjector,
 		// claude takes the shared agent.SurfaceInputs directly rather than a
 		// local copy: two hand-maintained field-by-field mappers drift apart, as
-		// they did on MCPCommandOverride. It binds an out-of-cwd
-		// placement for the race-safe variants; this path never delivers one, so
-		// a wellKnownPlacement is fine.
+		// they did on MCPCommandOverride.
 		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
-			return claude.NewSurfaces(in, wellKnownPlacement{}, fs)
+			return claude.NewSurfaces(in, fs)
 		},
 		exports:              claudeExports,
 		skillExports:         claudeSkillExports,

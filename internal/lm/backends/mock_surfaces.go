@@ -54,27 +54,22 @@ import (
 // nested) so Route() names it as a human would look for it.
 const mockContextFilename = "MOCK_CONTEXT.md"
 
-// hostStart advises Paths for a bare delivery dir, uncontainerized: Deliver's
-// only input is a directory string, with no root advice of its own to hand
-// over, so this is the host transport applied directly (present.OnHost) —
-// exactly where a containerized caller would apply Containerize instead. It
-// exists so mock's own path composition runs through the SAME present chain
-// every future presenter will, rather than a second ad hoc join.
-func hostStart(dir string) present.Start {
-	return present.New(present.OnHost(present.Paths{ProjectRoot: present.Root{Host: dir}}))
+// mockContextPath returns the mock context file's path under dir, via the
+// declared context presenter. The dir-taking form serves the READ side and
+// the shared writer cores, whose own contracts hand over a directory; a
+// Deliver resolves against the advised Start it received instead.
+func mockContextPath(dir string) string {
+	return mockSurfacePath(agent.SurfaceContext, present.ProjectOnHost(dir))
 }
 
-// mockContextPath returns the mock context file's path under dir, via the
-// declared context presenter.
-func mockContextPath(dir string) string { return mockSurfacePath(agent.SurfaceContext, dir) }
-
-// mockSurfacePath resolves ONE surface's path through its declared presenter.
-// Every mock path goes through here rather than through a per-kind copy: the
-// bodies differed only by which SurfaceKind they looked up, and five copies of
-// a resolve chain is five places for it to drift.
-func mockSurfacePath(kind agent.SurfaceKind, dir string) string {
+// mockSurfacePath resolves ONE surface's path through its declared presenter
+// against the advised roots. Every mock path goes through here rather than
+// through a per-kind copy: the bodies differed only by which SurfaceKind they
+// looked up, and five copies of a resolve chain is five places for it to
+// drift.
+func mockSurfacePath(kind agent.SurfaceKind, start present.Start) string {
 	d := mockPresentations[kind]
-	return d.Resolve(d.Default(), hostStart(dir)).HostPath
+	return d.Resolve(d.Default(), start).HostPath
 }
 
 // mockContextWriter implements agent.ContextWriter for the mock engine: it
@@ -109,8 +104,8 @@ type mockContextSurface struct {
 // Deliver merges context into MOCK_CONTEXT.md via the shared managed-context
 // core and returns a handle whose Cleanup strips the managed section (removing
 // the file when nothing user-authored remains) by writing empty context.
-func (s *mockContextSurface) Deliver(dir string) (agent.Delivered, error) {
-	return agent.DeliverManagedContext(&mockContextWriter{FS: s.fs}, dir, s.context)
+func (s *mockContextSurface) Deliver(start present.Start) (agent.Delivered, error) {
+	return agent.DeliverManagedContext(&mockContextWriter{FS: s.fs}, start.Paths().ProjectRoot.Host, s.context)
 }
 
 // UnsafeInfo names mock's context surface for the DeliverShared fallback's
@@ -151,7 +146,9 @@ const mockSkillsDirName = MockConfigDirName + "/skills"
 
 // mockSkillsPath returns the mock skills directory's path under dir, via the
 // declared skills presenter.
-func mockSkillsPath(dir string) string { return mockSurfacePath(agent.SurfaceSkills, dir) }
+func mockSkillsPath(dir string) string {
+	return mockSurfacePath(agent.SurfaceSkills, present.ProjectOnHost(dir))
+}
 
 // newMockSkillsSurface builds mock's skills surface: the SHARED
 // agent.ManagedSkillPackagesDelivery bound to the SHARED
@@ -194,11 +191,17 @@ const (
 // path through its declared presenter, exactly as the context and skills
 // halves do — never by joining strings here, so Route() and the delivery agree
 // by construction.
-func mockMCPPath(dir string) string { return mockSurfacePath(agent.SurfaceMCP, dir) }
+func mockMCPPath(dir string) string {
+	return mockSurfacePath(agent.SurfaceMCP, present.ProjectOnHost(dir))
+}
 
-func mockSettingsPath(dir string) string { return mockSurfacePath(agent.SurfaceSettings, dir) }
+func mockSettingsPath(dir string) string {
+	return mockSurfacePath(agent.SurfaceSettings, present.ProjectOnHost(dir))
+}
 
-func mockCommandsPath(dir string) string { return mockSurfacePath(agent.SurfaceCommands, dir) }
+func mockCommandsPath(dir string) string {
+	return mockSurfacePath(agent.SurfaceCommands, present.ProjectOnHost(dir))
+}
 
 func mockMCPPresenter(s present.Start) present.Presentation {
 	return s.UnderProjectRoot(mockMCPFilename).Build()
@@ -256,9 +259,9 @@ type mockMCPSurface struct {
 }
 
 // Deliver writes .mock/mcp.json and returns a handle whose Cleanup removes it.
-func (s *mockMCPSurface) Deliver(dir string) (agent.Delivered, error) {
+func (s *mockMCPSurface) Deliver(start present.Start) (agent.Delivered, error) {
 	fs := agent.GetFS(s.fs)
-	path := mockMCPPath(dir)
+	path := mockSurfacePath(agent.SurfaceMCP, start)
 
 	data, err := agent.MarshalChatMCPConfig(agent.ComposeChatMCPServers(s.override, s.bundle, nil))
 	if err != nil {
@@ -297,9 +300,9 @@ type mockSettingsSurface struct {
 // top-level key it did not write. That preservation is the whole contract a
 // settings surface has — a delivery that clobbered a user's own settings would
 // model the opposite of what every real engine's writer promises.
-func (s *mockSettingsSurface) Deliver(dir string) (agent.Delivered, error) {
+func (s *mockSettingsSurface) Deliver(start present.Start) (agent.Delivered, error) {
 	fs := agent.GetFS(s.fs)
-	path := mockSettingsPath(dir)
+	path := mockSurfacePath(agent.SurfaceSettings, start)
 
 	doc, err := readMockSettings(fs, path)
 	if err != nil {
@@ -556,7 +559,7 @@ func (s MockSurfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agen
 // surface always falls back to the loud well-known write (each surface's own
 // UnsafeInfo is that fallback's warning). No engine has an out-of-cwd flag for
 // a skill package at all, so the skills half is not a mock shortcut.
-func (s MockSurfaces) SharedRealization(agent.SurfaceKind, agent.Approach) (func() (agent.Delivered, error), bool) {
+func (s MockSurfaces) SharedRealization(agent.SurfaceKind, agent.Approach) (func(present.Start) (agent.Delivered, error), bool) {
 	return nil, false
 }
 

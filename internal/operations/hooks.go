@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -592,7 +593,7 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	if p.dryRun {
 		return nil
 	}
-	if _, _, errs := sel.DeliverUnder(p.workDir); len(errs) > 0 {
+	if _, _, errs := sel.DeliverUnder(present.ProjectOnHost(p.workDir)); len(errs) > 0 {
 		return fmt.Errorf("failed to apply %s: %w", backendName, errors.Join(errs...))
 	}
 	return nil

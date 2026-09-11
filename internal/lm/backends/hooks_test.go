@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,7 @@ func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfi
 		BundleMCP:        bundleMCP,
 		ManageStatusline: manageStatusline,
 	}, fs)
-	_, _, errs := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile).DeliverUnder(dir)
+	_, _, errs := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile).DeliverUnder(present.ProjectOnHost(dir))
 	require.Empty(t, errs)
 }
 
@@ -162,7 +163,7 @@ func TestBuildSurfaces_UnsupportedBackend(t *testing.T) {
 	// selection delivers nothing and reports no errors — the opt-out no-op the old
 	// WriteSettings dispatch gave.
 	set := BuildSurfaces("unknown-backend", agent.SurfaceInputs{}, afero.NewMemMapFs())
-	_, kinds, errs := agent.Select(set).WithEverything().DeliverUnder("/project")
+	_, kinds, errs := agent.Select(set).WithEverything().DeliverUnder(present.ProjectOnHost("/project"))
 	assert.Empty(t, errs)
 	assert.Empty(t, kinds)
 }

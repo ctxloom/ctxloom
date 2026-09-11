@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -292,7 +293,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	for kind, approach := range req.Surfaces {
 		sel = sel.WithApproach(kind, approach)
 	}
-	_, kinds, errs := sel.DeliverUnder(req.Target)
+	_, kinds, errs := sel.DeliverUnder(present.ProjectOnHost(req.Target))
 	for _, e := range errs {
 		strictness.Fail(strictness.ClassApply,
 			"fix the write failure, then re-run (ctxloom profile materialize)",

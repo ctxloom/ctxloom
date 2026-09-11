@@ -1,5 +1,7 @@
 package agent
 
+import "github.com/ctxloom/ctxloom/internal/shared/agent/present"
+
 // This file hoists the shared body of every engine's MANAGED-COMMAND
 // delivery out of the per-backend surfaces.go files. The engines whose
 // command (slash-command) exports are reconciled files written by a
@@ -42,11 +44,11 @@ func (s *ManagedCommandsDelivery) UnsafeInfo() string { return s.name }
 // Kind reports this as the commands surface (codex/kiro both share it).
 func (s *ManagedCommandsDelivery) Kind() SurfaceKind { return SurfaceCommands }
 
-// Deliver writes the enabled command exports into dir via the injected writer
-// and returns a handle whose Cleanup reverts exactly the manifest-tracked set
-// (a re-write with no exports).
-func (s *ManagedCommandsDelivery) Deliver(dir string) (Delivered, error) {
-	if err := s.write(dir, s.commands); err != nil {
+// Deliver writes the enabled command exports beneath the advised project root
+// via the injected writer and returns a handle whose Cleanup reverts exactly
+// the manifest-tracked set (a re-write with no exports).
+func (s *ManagedCommandsDelivery) Deliver(start present.Start) (Delivered, error) {
+	if err := s.write(start.Paths().ProjectRoot.Host, s.commands); err != nil {
 		return nil, err
 	}
 	return SurfacePersistsAfterExit, nil

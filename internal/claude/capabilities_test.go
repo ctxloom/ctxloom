@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -148,8 +149,8 @@ func TestClaudeLifecycle_MergeManaged_Statusline(t *testing.T) {
 	deliverSettings := func(t *testing.T, manage bool) string {
 		t.Helper()
 		fs := afero.NewMemMapFs()
-		surfaces := NewSurfaces(agent.SurfaceInputs{Hooks: &wire.HooksConfig{}, ManageStatusline: manage}, dirPlacement{}, fs)
-		_, err := surfaces.Settings.Deliver("/proj")
+		surfaces := NewSurfaces(agent.SurfaceInputs{Hooks: &wire.HooksConfig{}, ManageStatusline: manage}, fs)
+		_, err := surfaces.Settings.Deliver(present.ProjectOnHost("/proj"))
 		require.NoError(t, err)
 		data, err := afero.ReadFile(fs, filepath.Join("/proj", ".claude", "settings.json"))
 		require.NoError(t, err)

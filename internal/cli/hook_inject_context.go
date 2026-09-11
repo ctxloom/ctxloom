@@ -38,8 +38,8 @@ var hookInjectContextCmd = &cobra.Command{
 	Long: `Reads the context file (.ctxloom/cache/context/<hash>.md) and outputs JSON suitable for
 AI tool SessionStart hooks.
 
-This command is invoked automatically by AI tools (Claude Code, Codex) during
-their SessionStart event to inject fresh context on startup, resume, or /clear.
+This command is invoked automatically by the AI engine (Claude Code) during
+its SessionStart event to inject fresh context on startup, resume, or /clear.
 
 Arguments:
   hash    The context file hash (filename without .md extension)

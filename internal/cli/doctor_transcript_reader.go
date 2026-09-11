@@ -94,7 +94,7 @@ func doctorCheckTranscriptReaders(ctx context.Context, cfg *config.Config, probe
 
 	if len(lines) == 0 {
 		return doctorCheck{Marker: doctorTranscriptReaderMarker, Status: doctorInfo,
-			Detail: "no configured engine reads a vendor-native transcript store (opencode reads its own; acp/mock have none), so no version-scoped reader applies"}
+			Detail: "no configured engine reads a vendor-native transcript store (none names a registered backend with a reader), so no version-scoped reader applies"}
 	}
 
 	detail := strings.Join(lines, "; ")

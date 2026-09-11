@@ -26,10 +26,11 @@ var primaryEngines = []string{config.BackendClaudeCode}
 
 // getAvailableEngines returns engines filtered by what's actually installed.
 // Primary engines come first, then secondary engines, all sorted.
-// initEngineChoices names the engines --engine accepts: every registered
-// backend a user may pick, test doubles excluded. Derived from the registry so
-// the help text cannot advertise an engine that no longer exists.
-func initEngineChoices() string {
+// userEngineNames names the engines a user may pick — every registered
+// backend that is not a test double — for help text that advertises them.
+// Derived from the registry so the help cannot name an engine that no longer
+// exists.
+func userEngineNames() string {
 	var names []string
 	for _, name := range backends.List() {
 		if !isTestOnlyBackend(name) {
@@ -215,6 +216,5 @@ func warnNoEnginesDetected() {
 	clidiag.Warn("ctxloom", "no AI engines detected")
 	fmt.Fprintln(os.Stderr, "Install one of the following to use ctxloom:")
 	fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
-	fmt.Fprintln(os.Stderr, "  codex:        npm install -g @openai/codex")
 	fmt.Fprintln(os.Stderr, "")
 }

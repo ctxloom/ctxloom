@@ -130,10 +130,7 @@ configured engine's own client, a container runtime when this project runs
 whether every configured agent resolves (profile composition +
 engine/runtime) and the roster is non-empty; the seeded
 dependency lockfile parses and a real context assembly succeeds; hooks AND
-MCP registration per configured backend; where codex's home-keyed surfaces
-actually live, since it is the one engine with no durable project copy of
-them (your real ~/.codex, plus the most recent per-session instance if one is
-on disk, labelled with its harp and age); the trust store's signers;
+MCP registration per configured backend; the trust store's signers;
 which version-scoped transcript reader each configured engine's INSTALLED
 version selects, and the version ranges ctxloom carries readers for — what
 you need when a transcript refuses to convert, since reading a vendor's own

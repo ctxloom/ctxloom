@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -217,14 +218,18 @@ func TestSessionPurge_UndistilledIsNotOnTheParent(t *testing.T) {
 		"the refusal must name the leaf that can do what was asked")
 }
 
-// TestSessionPurge_LiveSessionRefuses keeps the oldest guard: a session with
-// no ended_at may still be writing its own transcript.
+// TestSessionPurge_LiveSessionRefuses: a session with no ended_at and its
+// lock held is writing its own transcript right now. It is the LOCK that
+// refuses — the index's missing ended_at is not consulted — and the refusal
+// names the one deliberate way past it.
 func TestSessionPurge_LiveSessionRefuses(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)
+	require.NoError(t, sessionlock.Hold(entry.HarpName))
+	t.Cleanup(func() { sessionlock.Release(entry.HarpName) })
 	transcript := seedTranscript(t, entry.HarpName)
 	seedEssence(t, entry.HarpName)
 	t.Cleanup(func() { resetSessionPurgeFlags(t) })
@@ -232,7 +237,8 @@ func TestSessionPurge_LiveSessionRefuses(t *testing.T) {
 	_, stderr, err := execRootCmdBoth(t, "session", "purge", entry.HarpName, "--yes")
 	require.Error(t, err)
 	assert.True(t, onDisk(t, transcript), "a live session's transcript is never destroyed")
-	assert.Contains(t, stderr, "still live")
+	assert.Contains(t, stderr, "does not prove its owner dead")
+	assert.Contains(t, stderr, "--"+evenIfLiveFlagName)
 }
 
 // --- session worktrees -----------------------------------------------------

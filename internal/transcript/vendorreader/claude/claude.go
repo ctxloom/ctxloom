@@ -16,10 +16,12 @@
 // response_item variant is skipped in codex.
 //
 // The one bug this package exists to fix is NOT in this file: it lives one
-// layer up, in the (not-yet-rebuilt) locate step that turns a cwd into this
-// file's path (the deleted scraper's cwd→directory-slug re-encoding landing on
-// the wrong filename; ADR 0035 names it). Convert here takes the transcript
-// path directly, exactly like codex's Convert — it has no cwd to get wrong.
+// layer up, in the locate step that resolves this file's path
+// (operations.locateBoundTranscript). The deleted scraper re-encoded a cwd
+// into claude's directory slug and landed on the wrong filename (ADR 0035
+// names it); the rebuilt step re-encodes nothing — it stats the path claude's
+// own SessionStart hook bound forward. Convert here takes the transcript path
+// directly — it has no cwd to get wrong.
 package claude
 
 import (

@@ -291,7 +291,7 @@ func harpPurgeRefusal(harp string, err error, commandPath string) string {
 		return fmt.Sprintf("ctxloom refuses to purge %s: the session is still live (no ended_at yet); nothing was removed", harp)
 	case errors.Is(err, operations.ErrPurgeOwnerNotProvenDead):
 		return fmt.Sprintf("ctxloom refuses to purge %s: %v. Nothing was removed. "+
-			"If you know the session is not running, deliberately: `%s %s --yes --%s`",
+			"To destroy it anyway, deliberately: `%s %s --yes --%s`",
 			harp, err, commandPath, harp, evenIfLiveFlagName)
 	case errors.Is(err, operations.ErrPurgeUndistilled):
 		return fmt.Sprintf("ctxloom refuses: %s was never distilled — its transcript is the only record of what happened. "+

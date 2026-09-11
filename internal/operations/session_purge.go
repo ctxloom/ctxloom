@@ -205,7 +205,7 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	probe, release := sessionlock.Acquire(harp)
 	defer release()
 	if !probe.Verdict.MayReclaim() && !req.EvenIfLive {
-		return res, fmt.Errorf("%w (%s): %q", ErrPurgeOwnerNotProvenDead, probe.Reason, harp)
+		return res, fmt.Errorf("%w: %s", ErrPurgeOwnerNotProvenDead, probe.Reason)
 	}
 
 	hasEssence := false

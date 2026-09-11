@@ -177,7 +177,7 @@ type agentRecvInput struct {
 	// A struct tag must be a literal, so it cannot reference
 	// mcpschema.RecvWaitDoc the way the generated schema does;
 	// TestAgentRecvWait_StdioSchemaDescribesTheSameBounds pins them equal.
-	Wait int `json:"wait,omitempty" jsonschema:"Seconds to wait for a message (default 60, max 600). On timeout the call fails: drop the coordination, write your report/deferral state, and finish"`
+	Wait int `json:"wait,omitempty" jsonschema:"Seconds to wait for a message (default 60, max 600); on timeout the call fails with no message and its error says what to do next"`
 }
 
 type agentBusMessage struct {

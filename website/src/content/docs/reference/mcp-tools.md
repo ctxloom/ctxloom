@@ -29,11 +29,11 @@ Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write th
 
 ### agent_recv
 
-Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish.
+Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. One receive is live per session: a newer call supersedes an older parked one, and the superseded call completes SUCCESSFULLY with no messages and a `disposition` saying it yielded — nothing was lost, do not retry it. On timeout the call fails with no message and its error says what to do next.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `wait` | integer | No | Seconds to wait for a message (default 60, max 600). On timeout the call fails: drop the coordination, write your report/deferral state, and finish |
+| `wait` | integer | No | Seconds to wait for a message (default 60, max 600); on timeout the call fails with no message and its error says what to do next |
 
 ### agent_report
 

@@ -16,14 +16,15 @@ const (
 	// execution slot instead of yielding it.
 	RecvWaitDefault = 60 * time.Second
 	// RecvWaitMax caps one recv's park. A parked child holds a coordination
-	// open; past this the caller is expected to give up and finish.
+	// open; past this a child is expected to give up and finish, and a
+	// coordinator to decide whether to receive again.
 	RecvWaitMax = 10 * time.Minute
 )
 
 // RecvWaitDoc is the advertised description of the wait parameter, quoting the
 // bounds above so the text cannot drift from what ClampRecvWait enforces.
 var RecvWaitDoc = fmt.Sprintf(
-	"Seconds to wait for a message (default %d, max %d). On timeout the call fails: drop the coordination, write your report/deferral state, and finish",
+	"Seconds to wait for a message (default %d, max %d); on timeout the call fails with no message and its error says what to do next",
 	int(RecvWaitDefault.Seconds()), int(RecvWaitMax.Seconds()))
 
 // ClampRecvWait resolves a caller-supplied wait in SECONDS to the duration a

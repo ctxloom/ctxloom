@@ -1,27 +1,25 @@
 // Package claude implements vendorreader.VendorAdapter for claude-code's own
 // interactive-TUI transcript store: ~/.claude/projects/<slug>/<uuid>.jsonl.
-// It copies the shape of internal/transcript/vendorreader/codex, the reference
-// adapter (docs/transcript-schema.md §8, tough-cloud-writer-a): a small
-// envelope/payload type set, a two-pass Convert (session metadata first, then
-// a streamed entry pass), and a colocated fixture test runnable in total
-// isolation from the rest of the module.
+// It follows the shape every vendorreader adapter shares (ADR 0035 for why
+// one exists at all): a small envelope/payload type set, a two-pass Convert
+// (session metadata first, then a streamed entry pass), and a colocated
+// fixture test runnable in total isolation from the rest of the module.
 //
 // Unlike codex's rollout-*.jsonl, claude's file carries NO outer envelope —
 // each line IS the record, discriminated by its own top-level "type" (user |
-// assistant | progress | queue-operation | system | ...; docs/
-// transcript-schema.md §2b). This adapter only extracts "user" and
-// "assistant" lines; every other type is administrative UI/session state
-// (hook progress notices, queue bookkeeping, slash-command/title/mode
-// bookkeeping, turn-duration telemetry) with no conversational content of
-// its own, skipped exactly like an unrecognized response_item variant is
-// skipped in codex.
+// assistant | progress | queue-operation | system | ...; ADR 0035, "The
+// native per-engine files the old readers scraped"). This adapter only
+// extracts "user" and "assistant" lines; every other type is administrative
+// UI/session state (hook progress notices, queue bookkeeping,
+// slash-command/title/mode bookkeeping, turn-duration telemetry) with no
+// conversational content of its own, skipped exactly like an unrecognized
+// response_item variant is skipped in codex.
 //
 // The one bug this package exists to fix is NOT in this file: it lives one
 // layer up, in the (not-yet-rebuilt) locate step that turns a cwd into this
 // file's path (the deleted scraper's cwd→directory-slug re-encoding landing on
-// the wrong filename, docs/transcript-schema.md §2b "tall-grab"). Convert
-// here takes the transcript path directly, exactly like codex's Convert — it
-// has no cwd to get wrong.
+// the wrong filename; ADR 0035 names it). Convert here takes the transcript
+// path directly, exactly like codex's Convert — it has no cwd to get wrong.
 package claude
 
 import (

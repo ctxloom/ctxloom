@@ -171,7 +171,7 @@ func TestConvert_ConformsToJSONSchema(t *testing.T) {
 // fixture carries (see testdata/MANIFEST.json), never merely "the file
 // parses" or "N records exist" — the same discipline codex's own
 // TestConvert_RealFieldsSurvive follows, tracing back to the deleted claude
-// reader's own failure mode (docs/transcript-schema.md §1/§8): a cwd→slug
+// reader's own failure mode (ADR 0035): a cwd→slug
 // re-encoding bug meant it silently read the WRONG FILE for every real
 // session, and nothing caught it until someone actually looked at what came
 // out (or didn't).

@@ -1652,8 +1652,9 @@ func (st *runState) launchSession(sio sessionIO) error {
 		captureErr = recordOneshotAnswer(st.activeHarp, st.backendName, st.prompt, sio.capture.String())
 	}
 
-	// Interactive-pty exit seam for vendor-transcript import
-	// (docs/transcript-schema.md §8's "interactive-pty gap"):
+	// Interactive-pty exit seam for vendor-transcript import — the
+	// interactive-pty regime in docs/transcript-schema.md "Capture regimes";
+	// ADR 0035 for the gap it closes:
 	// the structured tee (transcript.Tee/TeeAndClose) never reaches a pty,
 	// so this is the ONLY place ctxloom can turn the just-exited engine's
 	// OWN transcript into canonical memory. Mirrors oneshotCapture's own

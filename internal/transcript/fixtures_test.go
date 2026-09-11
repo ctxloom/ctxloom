@@ -75,9 +75,9 @@ func readFixtureLines(t *testing.T, engine string) ([]string, []Record) {
 // surfaces as a missing FILE, which reads like a broken test rather than a
 // stale list. Globbing cannot drift.
 //
-// Some names are engines this build has REMOVED. That is provenance, not a
-// claim the engine exists — the fixtures are canonical, engine-agnostic JSONL.
-// See testdata/fixtures/MANIFEST.json.
+// Each basename is the fixture's `engine` value, so it must be a registered
+// backend name the schema's enum admits (TestFixtures_EngineEnumMatchesManifest
+// holds both halves). Provenance per fixture: testdata/fixtures/MANIFEST.json.
 var allFixtureEngines = discoverFixtureEngines()
 
 func discoverFixtureEngines() []string {
@@ -135,35 +135,6 @@ func TestFixtures_SeqIsMonotonicGapFree(t *testing.T) {
 // silently drops or mangles the payload must fail a test, not slip through on
 // a shape-only check.
 func TestFixtures_RealPayloadSurvives(t *testing.T) {
-	t.Run("codex: real session id, model, token accounting, and the literal echoed token", func(t *testing.T) {
-		_, recs := readFixtureLines(t, "codex")
-		require.NotEmpty(t, recs)
-		for _, r := range recs {
-			assert.Equal(t, "019f6226-e5d2-75f3-b8bb-667866092679", r.SessionID)
-		}
-		var sawUser, sawAssistant, sawComplete bool
-		for _, r := range recs {
-			switch {
-			case r.Kind == KindEntry && r.Entry.Type == "user":
-				assert.Contains(t, r.Entry.Content, "RAWNONCE-7Q4Z")
-				sawUser = true
-			case r.Kind == KindEntry && r.Entry.Type == "assistant":
-				assert.Equal(t, "RAWNONCE-7Q4Z", r.Entry.Content)
-				sawAssistant = true
-			case r.Kind == KindComplete:
-				assert.Equal(t, 20240, r.Complete.InputTokens)
-				assert.Equal(t, 4480, r.Complete.CacheReadTokens)
-				assert.Equal(t, 27, r.Complete.OutputTokens)
-				assert.Equal(t, 258400, r.Complete.ContextWindow)
-				assert.Equal(t, "gpt-5.4-mini", r.Complete.Model)
-				sawComplete = true
-			}
-		}
-		assert.True(t, sawUser, "expected a real user entry")
-		assert.True(t, sawAssistant, "expected a real assistant entry")
-		assert.True(t, sawComplete, "expected a real complete accounting line")
-	})
-
 	t.Run("claude: real ACP ping/pong turn", func(t *testing.T) {
 		_, recs := readFixtureLines(t, "claude-code")
 		var sawUser, sawAssistant bool
@@ -182,13 +153,39 @@ func TestFixtures_RealPayloadSurvives(t *testing.T) {
 		assert.True(t, sawAssistant)
 	})
 
-	t.Run("antigravity: real oneshot two-entry capture", func(t *testing.T) {
-		_, recs := readFixtureLines(t, "antigravity")
-		require.Len(t, recs, 2, "oneshot capture is exactly a user entry + an assistant entry")
-		assert.Equal(t, "user", recs[0].Entry.Type)
-		assert.Contains(t, recs[0].Entry.Content, "Reply with just: ok")
-		assert.Equal(t, "assistant", recs[1].Entry.Type)
-		assert.Equal(t, "ok", recs[1].Entry.Content)
+	t.Run("mock: real forwarded permission request, answered, then a tool turn", func(t *testing.T) {
+		_, recs := readFixtureLines(t, "mock")
+		var perms []Record
+		var sawGranted bool
+		for _, r := range recs {
+			switch {
+			case r.Kind == KindPermission:
+				perms = append(perms, r)
+			case r.Kind == KindEntry && r.Entry.Type == "assistant" && r.Entry.Content == "mock chat: permission granted":
+				sawGranted = true
+			}
+		}
+		require.Len(t, perms, 1, "the mock's PERMISSION turn forwards exactly one request")
+		p := perms[0].Permission
+		require.NotNil(t, p)
+		assert.Equal(t, "mock-perm-1", p.ID)
+		assert.Equal(t, "mock_tool", p.ToolName)
+		assert.JSONEq(t, `{"action":"scripted"}`, string(p.ToolInput))
+		assert.Equal(t, []PermissionOption{
+			{ID: "allow", Kind: "allow_once", Name: "Allow"},
+			{ID: "reject", Kind: "reject_once", Name: "Reject"},
+		}, p.Options)
+		assert.True(t, sawGranted, "the answered permission must be followed by the mock's granted reply")
+
+		byType := map[string]int{}
+		for _, r := range recs {
+			if r.Kind == KindEntry {
+				byType[r.Entry.Type]++
+			}
+		}
+		assert.Equal(t, 1, byType["thinking"])
+		assert.Equal(t, 1, byType["tool_use"])
+		assert.Equal(t, 1, byType["tool_result"])
 	})
 }
 

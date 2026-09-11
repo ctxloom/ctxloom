@@ -16,15 +16,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// installFixture copies a testdata fixture verbatim to harp's canonical
-// transcript path (paths.HarpCanonicalTranscriptPath), creating the persist/
-// dir as NewRecorder's real writer would. Returns the destination path.
 // installFixture copies testdata/fixtures/<name>.transcript.acp.jsonl into
-// harp's canonical transcript path. name is the FIXTURE BASENAME, which for a
-// live engine is its backend registry name (fixtures_test.go's
-// TestFixtures_EngineEnumMatchesManifest pins basename == engine field).
-// A name with no file fails as a missing FILE, which reads like a broken
-// test rather than a wrong argument.
+// harp's canonical transcript path (paths.HarpCanonicalTranscriptPath),
+// creating the persist/ dir as NewRecorder's real writer would, and returns
+// the destination path. name is the FIXTURE BASENAME, which is its backend
+// registry name (fixtures_test.go's TestFixtures_EngineEnumMatchesManifest
+// pins basename == engine field). A name with no file fails as a missing
+// FILE, which reads like a broken test rather than a wrong argument.
 func installFixture(t *testing.T, name, harp string) string {
 	t.Helper()
 	src := filepath.Join("testdata", "fixtures", name+".transcript.acp.jsonl")
@@ -55,20 +53,21 @@ func mint(t *testing.T, store *sessions.MemStore, harp, projectDir string) {
 	require.NoError(t, store.Rename(e.HarpName, harp))
 }
 
-// TestCanonicalHistory_RoundTrip_RealPayload feeds each of S1's six engine
-// fixtures through CanonicalHistory.GetSession end to end (harp -> disk file
-// -> agent.Session) and asserts on the reconstructed payload — never merely
-// "no error" or "some entries exist". This is the exact discipline the four
-// broken per-engine readers skipped (memory "silent-no-op-failure-mode"):
-// PROVE the bytes survive the round trip, per engine.
+// TestCanonicalHistory_RoundTrip_RealPayload feeds every capture regime —
+// the structured-chat fixtures and a live oneshot record — through
+// CanonicalHistory.GetSession end to end (harp -> disk file -> agent.Session)
+// and asserts on the reconstructed payload — never merely "no error" or
+// "some entries exist". This is the exact discipline the four broken
+// per-engine readers skipped (memory "silent-no-op-failure-mode"): PROVE the
+// bytes survive the round trip, per regime.
 func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 	testsupport.Isolate(t)
 	ctx := context.Background()
 
-	t.Run("full session with tool call", func(t *testing.T) {
-		harp := "codex-fixture-harp"
-		installFixture(t, "codex", harp)
-		h := NewCanonicalHistory("/proj/codex", sessions.NewMemStore())
+	t.Run("claude-code", func(t *testing.T) {
+		harp := "claude-fixture-harp"
+		installFixture(t, "claude-code", harp)
+		h := NewCanonicalHistory("/proj/claude", sessions.NewMemStore())
 
 		sess, err := h.GetSession(ctx, harp)
 		require.NoError(t, err)
@@ -78,34 +77,10 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 		// Span comes from EVERY line's ts (session header through complete
 		// footer), not just the entry lines' — proves ParseTranscriptFile
 		// doesn't silently narrow to entries-only timing.
-		assert.Equal(t, mustParseRFC3339(t, "2026-07-14T19:42:24Z"), sess.StartTime)
-		assert.Equal(t, mustParseRFC3339(t, "2026-07-14T19:42:39Z"), sess.EndTime)
+		assert.Equal(t, mustParseRFC3339(t, "2026-07-02T15:31:09Z"), sess.StartTime)
+		assert.Equal(t, mustParseRFC3339(t, "2026-07-02T15:31:12Z"), sess.EndTime)
 
 		require.Len(t, sess.Entries, 5, "session/complete envelope lines must NOT become entries")
-		byType := entriesByType(sess.Entries)
-		require.Len(t, byType["user"], 1)
-		assert.Contains(t, byType["user"][0].Content, "RAWNONCE-7Q4Z")
-		require.Len(t, byType["thinking"], 1)
-		assert.NotEmpty(t, byType["thinking"][0].Content)
-		require.Len(t, byType["assistant"], 1)
-		assert.Equal(t, "RAWNONCE-7Q4Z", byType["assistant"][0].Content)
-		require.Len(t, byType["tool_use"], 1)
-		assert.Equal(t, "shell", byType["tool_use"][0].ToolName)
-		assert.Contains(t, string(byType["tool_use"][0].ToolInput), "probe.txt")
-		require.Len(t, byType["tool_result"], 1)
-		assert.Equal(t, "probe file contents", byType["tool_result"][0].ToolOutput)
-		assert.False(t, byType["tool_result"][0].IsError)
-	})
-
-	t.Run("claude-code", func(t *testing.T) {
-		harp := "claude-fixture-harp"
-		installFixture(t, "claude-code", harp)
-		h := NewCanonicalHistory("/proj/claude", sessions.NewMemStore())
-
-		sess, err := h.GetSession(ctx, harp)
-		require.NoError(t, err)
-		require.Len(t, sess.Entries, 5)
-
 		byType := entriesByType(sess.Entries)
 		require.Len(t, byType["user"], 1)
 		assert.Contains(t, byType["user"][0].Content, "ping")
@@ -119,34 +94,37 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 		assert.Equal(t, "probe file contents", byType["tool_result"][0].ToolOutput)
 	})
 
-	t.Run("acp", func(t *testing.T) {
-		harp := "acp-fixture-harp"
-		installFixture(t, "acp", harp)
-		h := NewCanonicalHistory("/proj/acp", sessions.NewMemStore())
+	t.Run("mock: permission line is envelope, not conversation", func(t *testing.T) {
+		harp := "mock-fixture-harp"
+		installFixture(t, "mock", harp)
+		h := NewCanonicalHistory("/proj/mock", sessions.NewMemStore())
 
 		sess, err := h.GetSession(ctx, harp)
 		require.NoError(t, err)
 		// The permission line (kind=="permission") must NOT surface as a
 		// conversation entry — it's a forwarded request, not turn content —
-		// so this fixture's 4 entry-kind lines (user/tool_use/tool_result/
-		// assistant) must be exactly what comes back, proving a KindPermission
-		// line is handled without corrupting or dropping its neighbors.
-		require.Len(t, sess.Entries, 4)
+		// so this fixture's 7 entry-kind lines (user/assistant from the
+		// PERMISSION turn; user/thinking/tool_use/tool_result/assistant from
+		// the TOOLS turn) must be exactly what comes back, proving a
+		// KindPermission line is handled without corrupting or dropping its
+		// neighbors.
+		require.Len(t, sess.Entries, 7)
 		byType := entriesByType(sess.Entries)
-		require.Len(t, byType["user"], 1)
-		assert.Contains(t, byType["user"][0].Content, "Delete the scratch directory")
+		require.Len(t, byType["user"], 2)
+		assert.Contains(t, byType["user"][0].Content, "PERMISSION")
+		require.Len(t, byType["assistant"], 2)
+		assert.Equal(t, "mock chat: permission granted", byType["assistant"][0].Content)
+		require.Len(t, byType["thinking"], 1)
 		require.Len(t, byType["tool_use"], 1)
-		assert.Equal(t, "rm", byType["tool_use"][0].ToolName)
+		assert.Equal(t, "mock_tool", byType["tool_use"][0].ToolName)
 		require.Len(t, byType["tool_result"], 1)
-		assert.Equal(t, "removed", byType["tool_result"][0].ToolOutput)
-		require.Len(t, byType["assistant"], 1)
-		assert.Contains(t, byType["assistant"][0].Content, "/tmp/scratch is gone")
+		assert.Contains(t, byType["tool_result"][0].ToolOutput, "mock tool_result")
 	})
 
 	t.Run("two-entry oneshot", func(t *testing.T) {
-		harp := "antigravity-fixture-harp"
-		installFixture(t, "antigravity", harp)
-		h := NewCanonicalHistory("/proj/antigravity", sessions.NewMemStore())
+		harp := "mock-oneshot-harp"
+		require.NoError(t, RecordOneshot(harp, "mock", "Reply with just: ok", "ok"))
+		h := NewCanonicalHistory("/proj/oneshot", sessions.NewMemStore())
 
 		sess, err := h.GetSession(ctx, harp)
 		require.NoError(t, err)
@@ -214,7 +192,7 @@ func TestCanonicalHistory_GetSession_FallsBackToLegacyFilename(t *testing.T) {
 	dir, err := paths.HarpPersistDir(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	data, err := os.ReadFile(filepath.Join("testdata", "fixtures", "codex.transcript.acp.jsonl"))
+	data, err := os.ReadFile(filepath.Join("testdata", "fixtures", "claude-code.transcript.acp.jsonl"))
 	require.NoError(t, err)
 	legacyPath := filepath.Join(dir, "transcript.acp.jsonl")
 	require.NoError(t, os.WriteFile(legacyPath, data, 0o644))
@@ -236,7 +214,7 @@ func TestCanonicalHistory_GetSession_FallsBackToLegacyFilename(t *testing.T) {
 func TestParseTranscriptFile_TruncatedLine_DegradesToPartial(t *testing.T) {
 	testsupport.Isolate(t)
 
-	full, err := os.ReadFile(filepath.Join("testdata", "fixtures", "codex.transcript.acp.jsonl"))
+	full, err := os.ReadFile(filepath.Join("testdata", "fixtures", "claude-code.transcript.acp.jsonl"))
 	require.NoError(t, err)
 	lines := splitLines(full)
 	require.GreaterOrEqual(t, len(lines), 5)
@@ -252,15 +230,15 @@ func TestParseTranscriptFile_TruncatedLine_DegradesToPartial(t *testing.T) {
 	cut := len(fragment) / 2
 	truncated = append(truncated, []byte(fragment[:cut])...) // no trailing \n
 
-	dst := writeTempTranscript(t, "codex-truncated-harp", truncated)
+	dst := writeTempTranscript(t, "claude-truncated-harp", truncated)
 
-	sess, err := ParseTranscriptFile(dst, "codex-truncated-harp")
+	sess, err := ParseTranscriptFile(dst, "claude-truncated-harp")
 	require.NoError(t, err, "a truncated trailing line must degrade to partial, not error the whole session")
 	require.NotNil(t, sess)
 	require.Len(t, sess.Entries, 3, "user+thinking+assistant survive; the truncated tool_use line is dropped")
 	byType := entriesByType(sess.Entries)
-	assert.Contains(t, byType["user"][0].Content, "RAWNONCE-7Q4Z")
-	assert.Equal(t, "RAWNONCE-7Q4Z", byType["assistant"][0].Content)
+	assert.Contains(t, byType["user"][0].Content, "ping")
+	assert.Equal(t, "ping", byType["assistant"][0].Content)
 }
 
 // TestParseTranscriptFile_UnknownSchemaVersion_FailsLoud pins §5's fail-loud
@@ -268,7 +246,7 @@ func TestParseTranscriptFile_TruncatedLine_DegradesToPartial(t *testing.T) {
 // file, never a silent guess at an evolved shape.
 func TestParseTranscriptFile_UnknownSchemaVersion_FailsLoud(t *testing.T) {
 	testsupport.Isolate(t)
-	line := `{"v": 99, "harp": "future-harp", "engine": "codex", "seq": 0, "ts": "2026-07-15T00:00:00Z", "kind": "entry", "entry": {"type": "user", "content": "hi"}}` + "\n"
+	line := `{"v": 99, "harp": "future-harp", "engine": "mock", "seq": 0, "ts": "2026-07-15T00:00:00Z", "kind": "entry", "entry": {"type": "user", "content": "hi"}}` + "\n"
 	dst := writeTempTranscript(t, "future-harp", []byte(line))
 
 	_, err := ParseTranscriptFile(dst, "future-harp")
@@ -291,10 +269,10 @@ func TestCanonicalHistory_ListSessions_And_CurrentSession(t *testing.T) {
 	ctx := context.Background()
 	const projectDir = "/proj/multi"
 
-	older := "codex-fixture-harp"
-	newer := "acp-fixture-harp"
-	installFixture(t, "codex", older)
-	installFixture(t, "acp", newer)
+	older := "claude-fixture-harp"
+	newer := "mock-fixture-harp"
+	installFixture(t, "claude-code", older)
+	installFixture(t, "mock", newer)
 
 	store := sessions.NewMemStore()
 	mint(t, store, older, projectDir)
@@ -313,15 +291,15 @@ func TestCanonicalHistory_ListSessions_And_CurrentSession(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, metas, 2, "exactly the two project harps WITH a captured canonical transcript")
 	assert.Equal(t, newer, metas[0].ID, "most-recent-first by StartedAt")
-	assert.Equal(t, 4, metas[0].EntryCount, "acp fixture's 4 entry-kind lines")
+	assert.Equal(t, 7, metas[0].EntryCount, "mock fixture's 7 entry-kind lines")
 	assert.Equal(t, older, metas[1].ID)
-	assert.Equal(t, 5, metas[1].EntryCount, "codex fixture's 5 entry-kind lines")
+	assert.Equal(t, 5, metas[1].EntryCount, "claude-code fixture's 5 entry-kind lines")
 
 	cur, err := h.CurrentSession(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, cur)
 	assert.Equal(t, newer, cur.ID)
-	require.Len(t, cur.Entries, 4)
+	require.Len(t, cur.Entries, 7)
 }
 
 // TestCanonicalHistory_CurrentSession_NoSessions_ReturnsNilNil pins the
@@ -394,8 +372,8 @@ func TestParseTranscriptFile_NothingDecoded_FailsLoud(t *testing.T) {
 	})
 
 	t.Run("envelope-only file is legitimately zero entries", func(t *testing.T) {
-		lines := `{"v":1,"harp":"envelope-only-harp","engine":"codex","seq":0,"ts":"2026-07-25T00:00:00Z","kind":"session","session":{"model":"m"}}` + "\n" +
-			`{"v":1,"harp":"envelope-only-harp","engine":"codex","seq":1,"ts":"2026-07-25T00:00:01Z","kind":"complete","complete":{"num_turns":1}}` + "\n"
+		lines := `{"v":1,"harp":"envelope-only-harp","engine":"mock","seq":0,"ts":"2026-07-25T00:00:00Z","kind":"session","session":{"model":"m"}}` + "\n" +
+			`{"v":1,"harp":"envelope-only-harp","engine":"mock","seq":1,"ts":"2026-07-25T00:00:01Z","kind":"complete","complete":{"num_turns":1}}` + "\n"
 		dst := writeTempTranscript(t, "envelope-only-harp", []byte(lines))
 
 		sess, err := ParseTranscriptFile(dst, "envelope-only-harp")
@@ -406,7 +384,7 @@ func TestParseTranscriptFile_NothingDecoded_FailsLoud(t *testing.T) {
 
 	t.Run("one good line among corrupt ones still degrades to partial", func(t *testing.T) {
 		lines := "{garbage\n" +
-			`{"v":1,"harp":"partial-harp","engine":"codex","seq":1,"ts":"2026-07-25T00:00:01Z","kind":"entry","entry":{"type":"user","content":"hi"}}` + "\n" +
+			`{"v":1,"harp":"partial-harp","engine":"mock","seq":1,"ts":"2026-07-25T00:00:01Z","kind":"entry","entry":{"type":"user","content":"hi"}}` + "\n" +
 			"{more garbage\n"
 		dst := writeTempTranscript(t, "partial-harp", []byte(lines))
 

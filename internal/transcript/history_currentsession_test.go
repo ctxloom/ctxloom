@@ -29,8 +29,8 @@ func TestCurrentSession_SkipsAnUnreadableCandidate(t *testing.T) {
 	ctx := context.Background()
 	const projectDir = "/proj/skip-unreadable"
 
-	good := "codex-fixture-harp"
-	installFixture(t, "codex", good)
+	good := "claude-fixture-harp"
+	installFixture(t, "claude-code", good)
 
 	broken := "broken-newest-harp"
 	writeTempTranscript(t, broken, []byte("not json at all\nstill not json\n"))

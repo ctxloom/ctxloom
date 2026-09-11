@@ -1,5 +1,5 @@
 {
-  "_comment": "Provenance for this package's testdata. Mirrors ../../codex/testdata/MANIFEST.json's discipline (memory 'silent-no-op-failure-mode': assert on real payload content, never just entry counts) and the top-level ../../../testdata/fixtures/MANIFEST.json's.",
+  "_comment": "Provenance for this package's testdata. Mirrors the top-level ../../../testdata/fixtures/MANIFEST.json's discipline (memory 'silent-no-op-failure-mode': assert on real payload content, never just entry counts).",
 
   "transcript-fixture.jsonl": {
     "real_source": "~/.claude/projects/-home-babbitt-workspace-ctxloom-ctxloom-main/63147910-550b-4758-b183-91bdd614e267.jsonl (a real interactive claude-code session on this box: a Finder/Researcher subagent doing a docs truthfulness audit, interrupted mid-tool-call by the user).",

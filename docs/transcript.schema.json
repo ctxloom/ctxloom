@@ -23,8 +23,8 @@
     },
     "engine": {
       "type": "string",
-      "enum": ["codex", "kiro", "claude-code", "opencode", "acp", "antigravity", "mock"],
-      "description": "The driving backend's REGISTERED name (internal/lm/backends), exactly as transcript.NewRecorder received it — never a short form. Names of engines no longer in the tree remain only because fixtures captured from them are kept as provenance (internal/transcript/testdata/fixtures/MANIFEST.json)."
+      "enum": ["claude-code", "mock", "mock-launch", "mock-lossy", "mock-noskills"],
+      "description": "The driving backend's REGISTERED name (internal/lm/backends), exactly as transcript.NewRecorder received it — never a short form. The enum is the registry's vocabulary, no more and no less: tests/arch asserts it equals backends.List()."
     },
     "seq": {
       "type": "integer",

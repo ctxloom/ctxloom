@@ -12,13 +12,12 @@ version: 6
 # Out of the box ctxloom ships a built-in primary (claude-code) and a fast
 # compression config (claude-code on haiku), so you do not need this block at
 # all unless you want to change a model, point at a custom binary, or pair
-# different backends per role.
+# different configs per role.
 #
 # llm:
 #   configs:
 #     big:   { type: claude-code, model: claude-opus-4-8 }         # label is arbitrary...
 #     quick: { type: claude-code, model: claude-haiku-4-5-20251001 } # ...two claude-code backends
-#     c:     { type: codex }                                        # Codex CLI; model optional
 #   defaults:
 #     primary: big     # coding/interactive role → label
 #     fast:    quick    # compression role (distill, compaction) → label

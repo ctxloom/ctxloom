@@ -26,13 +26,13 @@ explicitly. Not every engine can take a container axis: one with no way to
 authenticate inside a container is refused here, and 'ctxloom llm list' reports
 per engine which values it can be given. The workspace axis (worktree vs shared
 dir) is NOT set here — it is a session trait chosen at invocation time
-(run/acp --workspace, or an agent_run spawn's workspace field). Driving
+(run --workspace, or an agent_run spawn's workspace field). Driving
 (optional: conversational|oneshot) sets
 the per-turn execution axis; omit it to keep the default conversational
 (warm-engine) model. oneshot requires a resume-capable engine and is
 EXPERIMENTAL in this release — executable, but its interfaces and behavior
 may change. Config-home (optional: project|host) decides which engine config
-home this agent's claude-code/codex/kiro runs get on the in-tree (workspace:
+home this agent's engine runs get on the in-tree (workspace:
 none) axis: "project" points the engine at a ctxloom-controlled, PER-SESSION
 home under .ctxloom/state/<session>/home/, isolated from your own and thrown
 away with the session; "host" (also the default when omitted) keeps the

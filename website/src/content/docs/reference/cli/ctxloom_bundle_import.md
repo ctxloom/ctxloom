@@ -9,17 +9,20 @@ This page is generated from `ctxloom bundle import --help`.
 
 ## ctxloom bundle import
 
-Import a bundle from a local file
+Import a bundle from a local file or directory
 
 ### Synopsis
 
-Import a bundle from a local YAML file into .ctxloom/content/bundles.
+Import a bundle from a local YAML file, or a directory-form bundle from its
+directory, into .ctxloom/content/bundles.
 
-The bundle is copied into the local .ctxloom/content/bundles directory.
-Use --force to overwrite an existing bundle.
+The bundle is copied into the local .ctxloom/content/bundles directory. A
+directory-form bundle is copied WHOLE and keeps its own name. Use --force to
+overwrite an existing bundle.
 
 Examples:
   ctxloom bundle import ../ctxloom-default/ctxloom/bundles/go-tools.yaml
+  ctxloom bundle import ../ctxloom-default/ctxloom/bundles/unattended
   ctxloom bundle import ./my-bundle.yaml --force
 
 ```

@@ -22,6 +22,12 @@ under the harp directory. Errors if the harp has no session_id bound
 ctxloom session distill <harp-name> [flags]
 ```
 
+### Options
+
+```
+      --prompt-dir string   Load distillation prompts from this directory instead of the built-in ones (expects <dir>/session-distill.md; a missing prompt is an error, not a fallback)
+```
+
 ### Options inherited from parent commands
 
 ```

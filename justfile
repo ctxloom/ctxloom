@@ -463,8 +463,8 @@ cover-html:
 # Run tests with coverage (legacy alias)
 test-coverage: cover
 
-# Run the cross-agent equity conformance suite (claude/gemini/codex through the
-# shared agent.SettingsWriter contract). Tag-gated so it's excluded from the
+# Run the cross-agent equity conformance suite (every registered backend through
+# the shared agent.SettingsWriter contract). Tag-gated so it's excluded from the
 # default `go test ./...`; run it explicitly here.
 test-conformance:
     go test -race -tags conformance ./internal/lm/conformance/...
@@ -474,25 +474,6 @@ test-conformance:
 # can point at exactly this engine's parser against a fresh vendor transcript
 # without pulling in the rest of the suite). Add a sibling target per engine
 # as internal/transcript/vendorreader/<engine> lands.
-#
-# It ALSO carries internal/codex's hook-trust vendor pin, which is not a
-# transcript reader but has the identical exposure and belongs in the identical
-# lane: ctxloom seeds `[hooks.state] trusted_hash` into config.toml, an
-# undocumented codex surface whose key format upstream itself calls provisional,
-# and a codex release that moves it puts every ctxloom hook back to being
-# SILENTLY skipped (see internal/codex/hooktrust.go). The pin asks the installed
-# codex for its own verdict over `codex app-server` — free, no credentials, no
-# model turn. It SKIPS when no codex is on PATH, so CTXLOOM_VENDOR_PIN=require
-# is set here: in this lane an absent codex means the pin graded nothing, which
-# must be a failure and not a quiet pass.
-#
-# The behavioural half (does a seeded hook actually FIRE) buys a model turn and
-# stays opt-in behind CTXLOOM_VENDOR_PIN_LIVE=1 — run it when qualifying a new
-# codex release, where one turn is cheap next to shipping dead hooks.
-test-vendor-codex:
-    go test -race ./internal/transcript/vendorreader/codex/...
-    CTXLOOM_VENDOR_PIN=require go test -race -run 'TestVendorPin_' ./internal/codex/...
-
 test-vendor-claude:
     go test -race ./internal/transcript/vendorreader/claude/...
 
@@ -1098,7 +1079,7 @@ test-acceptance-live-container: container-build-acceptance
 # Run the standalone isolation probe (tests/acceptance/features/
 # isolation_probe.feature) for exactly ONE engine x axis cell — the
 # per-engine-release regression check, not the whole live suite. ENGINE is
-# one of claude-code|codex|opencode|antigravity; AXIS is worktree,
+# a registered engine name; AXIS is worktree,
 # container-rootless, or container-rootful (or "bypass" for the engine's
 # env-API-key-forced worktree row).
 # container-rootful is wired but has never gone green on any box this suite
@@ -1115,8 +1096,8 @@ isolation-probe ENGINE AXIS: build
     go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run the LIVE delegation round trip (j002300_cross_engine_delegation.feature's
-# per-engine floor) for exactly ONE engine. ENGINE is one of
-# claude-code|codex|opencode. It spawns a real delegated child on that
+# per-engine floor) for exactly ONE engine. ENGINE is a registered engine
+# name. It spawns a real delegated child on that
 # engine and asserts the marker phrase that exists ONLY in the child's own
 # composed context comes back to the coordinator's mailbox over the
 # agent_send/agent_recv bus — the round trip agent_run's own success value
@@ -1135,7 +1116,7 @@ live-delegation ENGINE: build _ensure-gotmpdir
 # Run ONE cell of the engine x isolation floor
 # (features/engine_isolation_matrix.feature): the simplest live round trip —
 # "emit exactly this JSON object, nothing else" — for one engine under one
-# isolation scheme. ENGINE is claude-code|codex|opencode, RUNTIME is
+# isolation scheme. ENGINE is a registered engine name, RUNTIME is
 # host|container-rootless|container-rootful, WORKSPACE is none|worktree.
 # container-rootless and container-rootful are ownership modes of ONE
 # containerization axis, not a fourth engine — a host has at most one of them
@@ -1160,7 +1141,7 @@ engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
 # Run ONE cell of the capability-probe ladder (tests/acceptance's probe
 # registry): PROBE is a registry probe name without the @probe- prefix
 # ("p3-hook-firing"), FEATURE is that probe's own feature file, ENGINE is
-# claude-code|codex|opencode, RUNTIME is host|container, WORKSPACE is
+# a registered engine name, RUNTIME is host|container, WORKSPACE is
 # none|worktree. The five tags it composes are exactly the tag line every
 # probe's Examples block carries (probeCell.Tags), so this recipe and the
 # registry cannot drift about how a cell is addressed.

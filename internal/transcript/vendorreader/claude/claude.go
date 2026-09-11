@@ -5,21 +5,22 @@
 // (session metadata first, then a streamed entry pass), and a colocated
 // fixture test runnable in total isolation from the rest of the module.
 //
-// Unlike codex's rollout-*.jsonl, claude's file carries NO outer envelope —
-// each line IS the record, discriminated by its own top-level "type" (user |
+// Claude's file carries NO outer envelope — each line IS the record,
+// discriminated by its own top-level "type" (user |
 // assistant | progress | queue-operation | system | ...; ADR 0035, "The
 // native per-engine files the old readers scraped"). This adapter only
 // extracts "user" and "assistant" lines; every other type is administrative
 // UI/session state (hook progress notices, queue bookkeeping,
 // slash-command/title/mode bookkeeping, turn-duration telemetry) with no
-// conversational content of its own, skipped exactly like an unrecognized
-// response_item variant is skipped in codex.
+// conversational content of its own, and is skipped.
 //
 // The one bug this package exists to fix is NOT in this file: it lives one
-// layer up, in the (not-yet-rebuilt) locate step that turns a cwd into this
-// file's path (the deleted scraper's cwd→directory-slug re-encoding landing on
-// the wrong filename; ADR 0035 names it). Convert here takes the transcript
-// path directly, exactly like codex's Convert — it has no cwd to get wrong.
+// layer up, in the locate step that resolves this file's path
+// (operations.locateBoundTranscript). The deleted scraper re-encoded a cwd
+// into claude's directory slug and landed on the wrong filename (ADR 0035
+// names it); the rebuilt step re-encodes nothing — it stats the path claude's
+// own SessionStart hook bound forward. Convert here takes the transcript path
+// directly — it has no cwd to get wrong.
 package claude
 
 import (
@@ -69,11 +70,11 @@ var VersionedAdapters = []vendorreader.VersionedAdapter{{
 // Convert reads the claude transcript JSONL file at src and appends its
 // conversation to rec in the file's own order. See vendorreader.VendorAdapter's
 // doc comment for the general contract (malformed lines skipped, not fatal;
-// a rec.Record failure or ctx cancellation IS fatal). Deliberately mirrors
-// codex.Adapter.Convert's shape (open, readJSONLLines, convertLines): the
-// two-pass shape is the reference pattern every vendorreader.VendorAdapter
-// copies from codex (codex.go's package doc); the line-reading step itself
-// is not a copy at all — both call the same vendorreader.OpenAndReadJSONLLines.
+// a rec.Record failure or ctx cancellation IS fatal). The shape (open, read
+// lines, convertLines) is the two-pass pattern every
+// vendorreader.VendorAdapter follows (vendorreader.ConvertJSONLLines); the
+// line-reading step is the shared vendorreader.OpenAndReadJSONLLines, not a
+// per-adapter copy.
 func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string) error {
 	lines, err := vendorreader.OpenAndReadJSONLLines("claude", src)
 	if err != nil {

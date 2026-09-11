@@ -65,10 +65,11 @@ skipped. A devcontainer.json declaring dockerComposeFile needs an explicit
 service pick (--devcontainer-service, or config isolation_devcontainer_service)
 since a multi-service compose project does not map to one agent container.
 
-The engine set (claude-code, codex, opencode — each via
-its OWN official installer, one independently-cacheable Containerfile layer)
-composes into ONE shared image by default; --engines (or config
-isolation_engines) trims it.
+An agent image carries exactly ONE engine, installed via that engine's own
+official installer as an independently-cacheable Containerfile layer. By
+default the image built is the configured backend's (or the one named as the
+positional argument); --engines (or config isolation_engines) names several to
+pre-build, one image each.
 
 By default the build runs with --pull --no-cache so a rebuild picks up the most
 recent client; --keep-cache reuses layers for a fast local iteration. Runs of
@@ -446,7 +447,7 @@ func init() {
 	containerBuildCmd.Flags().StringVar(&containerBuildDevcontainerService, "devcontainer-service", "",
 		"docker-compose service to use as the base when the detected devcontainer.json declares dockerComposeFile")
 	containerBuildCmd.Flags().StringSliceVar(&containerBuildEngines, "engines", nil,
-		"engines to compose into the agent image (claude-code,codex,opencode); empty = every known engine")
+		"engines to build an agent image for, one image each ("+strings.Join(isolation.ComposableEngines(), ",")+"); empty = the configured backend")
 	containerBuildCmd.Flags().StringVar(&containerBuildRuntime, "runtime", "",
 		"container runtime to build with (docker|podman); auto-detected when empty")
 	containerBuildCmd.Flags().BoolVar(&containerBuildKeepCache, "keep-cache", false,

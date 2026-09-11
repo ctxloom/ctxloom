@@ -24,6 +24,10 @@ A session that was never distilled is REFUSED: with no essence, the
 transcript is the only record of what happened. Pass --undistilled to
 destroy it anyway.
 
+A session whose lock does not prove its owner dead is REFUSED: a running
+agent may still be appending to this transcript. A held lock, or no lock at
+all, both refuse. Pass --even-if-live to destroy it anyway.
+
 ```
 ctxloom session transcript purge <harp-name> [flags]
 ```
@@ -31,8 +35,9 @@ ctxloom session transcript purge <harp-name> [flags]
 ### Options
 
 ```
-      --undistilled   permit destroying the transcript of a session that has no essence
-  -y, --yes           apply the plan this invocation printed (default: report only)
+      --even-if-live   permit destroying a session whose owner may still be running: its session lock is held, or it has no lock at all (every session from before the lock existed)
+      --undistilled    permit destroying the transcript of a session that has no essence
+  -y, --yes            apply the plan this invocation printed (default: report only)
 ```
 
 ### Options inherited from parent commands

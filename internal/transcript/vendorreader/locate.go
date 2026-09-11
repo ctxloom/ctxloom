@@ -10,8 +10,8 @@ import (
 // content is the existing per-engine adapters' business, selected by recorded
 // engine version, and nothing here should tempt a caller to parse for itself.
 type Located struct {
-	// Engine is the backend name, matching the engine identifiers used
-	// everywhere else ("claude-code", "codex", "kiro").
+	// Engine is the backend's registered name (internal/lm/backends), matching
+	// the engine identifiers used everywhere else.
 	Engine string
 	// SessionID is the engine-native session identifier.
 	SessionID string
@@ -32,10 +32,10 @@ type Located struct {
 // # Why this exists at all, given the scrapers that were deleted
 //
 // ctxloom learns a transcript's path at BIND time, from the runner, so it can
-// only list sessions it brokered itself. Four per-engine scrapers used to walk
-// the vendors' stores and were retired for guessing at private layouts — kiro's
-// was confirmed broken when its storage became a SQLite blob, and it reported
-// NO sessions rather than an error.
+// only list sessions it brokered itself. The per-engine scrapers that used to
+// walk the vendors' stores were retired for guessing at private layouts — one
+// was confirmed broken when its vendor's storage became a SQLite blob, and it
+// reported NO sessions rather than an error.
 //
 // That failure mode is the whole contract here. A Locator MUST refuse when it
 // finds a store it does not recognise, and must never report emptiness it has

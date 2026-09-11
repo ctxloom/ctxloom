@@ -73,13 +73,13 @@ type HookSpecificOutput struct {
 // HookEventSessionStart is the event name carried in SessionStart decisions.
 const HookEventSessionStart = "SessionStart"
 
-// SessionStartPayload is the JSON written to a SessionStart hook's stdin.
-// Claude Code provides session_id (and computes transcript_path); Codex
-// provides transcript_path directly. source distinguishes the launch kind.
+// SessionStartPayload is the JSON Claude Code writes to a SessionStart hook's
+// stdin: the session id, the path of the engine's own transcript file (what
+// the bind step records forward), and the launch kind.
 type SessionStartPayload struct {
-	SessionID      string `json:"session_id"`      // Claude Code: session identifier
-	TranscriptPath string `json:"transcript_path"` // Codex: full path to transcript file
-	Source         string `json:"source"`          // Claude Code SessionStart source: startup|resume|clear|compact
+	SessionID      string `json:"session_id"`
+	TranscriptPath string `json:"transcript_path"`
+	Source         string `json:"source"` // startup|resume|clear|compact
 }
 
 // SessionStartOutput is the JSON a SessionStart hook writes to stdout to

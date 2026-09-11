@@ -39,14 +39,15 @@ skipped. A devcontainer.json declaring dockerComposeFile needs an explicit
 service pick (--devcontainer-service, or config isolation_devcontainer_service)
 since a multi-service compose project does not map to one agent container.
 
-The engine set (claude-code, codex, kiro, opencode — each via
-its OWN official installer, one independently-cacheable Containerfile layer)
-composes into ONE shared image by default; --engines (or config
-isolation_engines) trims it.
+An agent image carries exactly ONE engine, installed via that engine's own
+official installer as an independently-cacheable Containerfile layer. By
+default the image built is the configured backend's (or the one named as the
+positional argument); --engines (or config isolation_engines) names several to
+pre-build, one image each.
 
 By default the build runs with --pull --no-cache so a rebuild picks up the most
 recent client; --keep-cache reuses layers for a fast local iteration. Runs of
-`ctxloom run`/`acp` (and delegated `agent_run` children) also build this image
+`ctxloom run` (and delegated `agent_run` children) also build this image
 automatically when it is absent (honoring the same base/engine resolution); this command is the
 explicit path (refresh, custom base). To run a fully user-provided image
 instead, set isolation_images in config — those are run as-is and never built.
@@ -61,7 +62,7 @@ ctxloom container build [backend] [flags]
       --base-containerfile string     build the shared base stage from this Containerfile (your environment; the engine's agent stage layers on top) instead of an auto-detected devcontainer / the embedded default
       --base-image string             overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources
       --devcontainer-service string   docker-compose service to use as the base when the detected devcontainer.json declares dockerComposeFile
-      --engines strings               engines to compose into the agent image (claude-code,codex,kiro,opencode); empty = every known engine
+      --engines strings               engines to build an agent image for, one image each (claude-code); empty = the configured backend
       --keep-cache                    reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)
       --no-devcontainer-base          do not auto-detect the project's .devcontainer/devcontainer.json as the base image
       --runtime string                container runtime to build with (docker|podman); auto-detected when empty

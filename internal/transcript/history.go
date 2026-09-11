@@ -9,11 +9,9 @@
 // CanonicalHistory is engine-agnostic by construction: every structured
 // engine's frames already folded onto agent.ChatEvent before the Recorder
 // (recorder.go) ever wrote a line, so there is exactly one reader for every
-// structured engine instead of the per-engine scrapers this package
-// supersedes (internal/claude, internal/codex — retirement is S5, not this
-// slice). It also still reads canonical transcripts captured under
-// backend=antigravity before that engine was removed in 0.7.0 — the reader
-// makes no assumption that its engine name is currently registered.
+// structured engine. It makes no assumption that a transcript's engine name
+// is currently registered: a canonical transcript captured under a
+// since-removed engine still reads.
 //
 // Deliberately NOT imported here: internal/lm/grpc (aliased `pb` elsewhere),
 // whose pb.SessionSource interface this type's method set structurally

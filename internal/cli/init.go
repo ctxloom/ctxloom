@@ -40,7 +40,7 @@ configuration says. --no-pull suppresses it; a pull that cannot reach its remote
 never rolls the init back — it warns and leaves a usable project.
 
 When run interactively (TTY detected), init will guide you through:
-  1. Selecting an AI engine (claude-code, codex, etc.)
+  1. Selecting an AI engine
   2. Optionally adding a personal ctxloom repository as a remote
   3. Launching your AI for one setup interview: discover and configure
      profiles, then bind agents to them (a coordinator you drive, a
@@ -54,7 +54,7 @@ agent to run it) re-enters the companions/profiles/agent-binding half any time.
 Examples:
   ctxloom init                     # Interactive setup (if TTY)
   ctxloom init --home              # Initialize in ~/.ctxloom
-  ctxloom init --engine codex       # Pre-select engine
+  ctxloom init --engine claude-code # Pre-select engine
   ctxloom init --non-interactive   # Skip all prompts
   ctxloom init --no-pull           # Scaffold without installing dependencies`,
 	// init is configured entirely by flags and reads no positional argument,
@@ -106,7 +106,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initHome, "home", false, "Initialize in user home directory instead of current directory")
 	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults and flags)")
 	initCmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
-	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, codex, etc.)")
+	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine ("+userEngineNames()+")")
 	initCmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a trusted remote — its bundle changes apply without review (owner/repo or URL); repeatable")
 	initCmd.Flags().BoolVar(&initNoPull, "no-pull", false, "Skip the dependency pull init ends with; declared dependencies stay uninstalled until 'ctxloom deps pull' runs")
 	initCmd.Flags().StringVar(&initForge, "forge", "", "Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host")

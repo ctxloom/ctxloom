@@ -18,7 +18,7 @@ ctxloom manage hooks uninstall [flags]
 ### Options
 
 ```
-      --backend string   Backend to target (claude-code, codex, or all) (default "all")
+      --backend string   Engine to target (default: the engines this project configures)
 ```
 
 ### Options inherited from parent commands

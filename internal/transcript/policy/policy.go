@@ -2,7 +2,7 @@
 // transcript.
 //
 // It sits ABOVE every vendor adapter, and that separation is the whole point.
-// An adapter (internal/transcript/vendorreader/{claude,codex,kiro,...})
+// An adapter (the packages under internal/transcript/vendorreader/)
 // canonicalizes its vendor's format into ctxloom's shape TOTALLY and without
 // judgement — every element becomes a block, with Raw carrying the vendor
 // bytes verbatim. Only then does this package drop anything.
@@ -19,7 +19,7 @@
 //
 // A RULE MAY NEVER NAME A VENDOR FIELD. Rules see canonical agent.Kind*
 // values only. A rule that reaches for a claude-shaped key is a defect: it
-// silently does nothing for codex and kiro, which is the failure this
+// silently does nothing for every other engine, which is the failure this
 // boundary exists to prevent.
 //
 // The policy is HARD-CODED, not a config surface. Revisit when a second

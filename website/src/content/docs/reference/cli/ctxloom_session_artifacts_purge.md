@@ -20,6 +20,9 @@ is on disk the essence can be produced again with 'ctxloom session distill'.
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
 
+A session whose lock does not prove its owner dead is REFUSED — a held
+lock, or no lock at all. Pass --even-if-live to destroy it anyway.
+
 ```
 ctxloom session artifacts purge <harp-name> [flags]
 ```
@@ -27,7 +30,8 @@ ctxloom session artifacts purge <harp-name> [flags]
 ### Options
 
 ```
-  -y, --yes   apply the plan this invocation printed (default: report only)
+      --even-if-live   permit destroying a session whose owner may still be running: its session lock is held, or it has no lock at all (every session from before the lock existed)
+  -y, --yes            apply the plan this invocation printed (default: report only)
 ```
 
 ### Options inherited from parent commands

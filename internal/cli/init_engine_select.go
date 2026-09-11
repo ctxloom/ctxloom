@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -25,6 +26,20 @@ var primaryEngines = []string{config.BackendClaudeCode}
 
 // getAvailableEngines returns engines filtered by what's actually installed.
 // Primary engines come first, then secondary engines, all sorted.
+// userEngineNames names the engines a user may pick — every registered
+// backend that is not a test double — for help text that advertises them.
+// Derived from the registry so the help cannot name an engine that no longer
+// exists.
+func userEngineNames() string {
+	var names []string
+	for _, name := range backends.List() {
+		if !isTestOnlyBackend(name) {
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 func getAvailableEngines() (primary, secondary []string) {
 	primarySet := make(map[string]bool)
 	for _, e := range primaryEngines {
@@ -201,6 +216,5 @@ func warnNoEnginesDetected() {
 	clidiag.Warn("ctxloom", "no AI engines detected")
 	fmt.Fprintln(os.Stderr, "Install one of the following to use ctxloom:")
 	fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
-	fmt.Fprintln(os.Stderr, "  codex:        npm install -g @openai/codex")
 	fmt.Fprintln(os.Stderr, "")
 }

@@ -3,8 +3,7 @@ package vendorreader
 import "github.com/ctxloom/ctxloom/internal/shared/agent"
 
 // SessionInfoBuilder accumulates ChatSessionInfo fields discovered while
-// scanning (codex, claude) or decoding (kiro) a vendor transcript for
-// session-level metadata, latching each field onto its FIRST non-empty/
+// scanning or decoding a vendor transcript for session-level metadata, latching each field onto its FIRST non-empty/
 // non-zero value seen — mirroring transcript.Recorder.Record's own "latch
 // onto the first KindSession line" discipline (recorder.go) — and tracking
 // whether anything was ever found at all. A vendor transcript that carries

@@ -96,9 +96,9 @@ func TestMessageEntries_ToolUseEmptyInputOmitsToolInput(t *testing.T) {
 }
 
 func TestMessageEntries_ToolUseInputPassesThroughAsObject(t *testing.T) {
-	// Unlike codex's function_call.arguments (a JSON-ENCODED STRING), claude's
-	// tool_use.input is a real JSON object already — confirmed against real
-	// tool_use blocks on this box — so it needs no second unmarshal.
+	// claude's tool_use.input is a real JSON object already, not a
+	// JSON-encoded string — confirmed against real tool_use blocks on this
+	// box — so it needs no second unmarshal.
 	evs := messageEntries("assistant", false, []contentBlock{{
 		Type: "tool_use", ID: "t1", Name: "Glob", Input: json.RawMessage(`{"pattern":"*.go"}`),
 	}}, nil, nil)

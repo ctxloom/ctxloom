@@ -9,32 +9,32 @@ This page is generated from `ctxloom companion --help`.
 
 ## ctxloom companion
 
-Manage which companion binaries ctxloom may execute
+Inspect which companion binaries ctxloom may execute
 
 ### Synopsis
 
-Inspect and change which companion binaries ctxloom may execute.
+Inspect which companion binaries ctxloom may execute.
 
 ctxloom discovers companions on your PATH (the shipped ltk / taskloom / reprise,
 plus anything named ctxloom-companion-*) and EXECUTES each one to read the
 context it contributes. Because any program on your PATH can claim one of those
 names — including a transitive dependency in ./node_modules/.bin — a companion
-ctxloom has not run before is put to you once and the answer recorded, keyed to
-the binary's absolute path AND its SHA-256. Replace the file and you are asked
-again.
+runs only when its bytes carry a SIGNATURE from a publisher you trust.
 
-A non-interactive session (an agent, CI) is never prompted: an unconfirmed
-companion is skipped with a warning. 'companion trust' is how you record the
-decision for one anyway, and 'companion untrust' drops it so the next run asks
-again.
+That is the whole gate. A companion is executed when a detached '<binary>.sig'
+beside it verifies, in the companion namespace, against a key in your
+allowed_signers. Anything else is skipped with a warning: no signature, a
+signature that does not cover those bytes, or a signer you have not authorized
+to say "this may run here".
 
-The shipped companions are exempt from the prompt only when they resolve from
-the directory ctxloom itself is installed in. An 'ltk' found anywhere else is a
-third-party binary that picked a familiar name, and is asked about like any other.
+There is no command to approve or refuse one, and none is needed. To stop
+ctxloom running a companion, take away what admits it: delete its '.sig', or
+rename the binary so discovery no longer finds it. Both are ordinary file
+operations, they need no record to be kept in step with them, and they are
+visible in the place the decision actually lives.
 
-Decisions live in ~/.ctxloom/companion_consent.yaml. There is deliberately no
-committable project counterpart — a repo you cloned must not be able to arrive
-carrying pre-approved binaries.
+Sign a companion where it is BUILT — 'just sign-binary <path>' in its own
+repository — so the signature covers the bytes that were produced there.
 
 ```
 ctxloom companion [flags]
@@ -53,8 +53,6 @@ ctxloom companion [flags]
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
-* [ctxloom companion list](/reference/cli/ctxloom_companion_list/)	 - List recorded companion execution decisions
-* [ctxloom companion show](/reference/cli/ctxloom_companion_show/)	 - Show ctxloom's exec-consent decision for one companion binary
-* [ctxloom companion trust](/reference/cli/ctxloom_companion_trust/)	 - Record that ctxloom may execute a companion binary
-* [ctxloom companion untrust](/reference/cli/ctxloom_companion_untrust/)	 - Drop the recorded decision for a companion binary (it is asked about again)
+* [ctxloom companion list](/reference/cli/ctxloom_companion_list/)	 - Show which discovered companions ctxloom would execute, and why
+* [ctxloom companion show](/reference/cli/ctxloom_companion_show/)	 - Show whether ctxloom would execute one companion binary, and why
 

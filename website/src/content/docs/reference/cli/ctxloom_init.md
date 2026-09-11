@@ -32,16 +32,13 @@ configuration says. --no-pull suppresses it; a pull that cannot reach its remote
 never rolls the init back — it warns and leaves a usable project.
 
 When run interactively (TTY detected), init will guide you through:
-  1. Selecting an AI engine (claude-code, codex, etc.)
+  1. Selecting an AI engine
   2. Optionally adding a personal ctxloom repository as a remote
   3. Launching your AI for one setup interview: discover and configure
      profiles, then bind agents to them (a coordinator you drive, a
      containerized developer, a cheap finder — plus any other roles)
 
-The working outcome of init is a functioning ctxloom CLI/TUI — ACP editor
-integration (either direction: ctxloom serving an editor, or ctxloom
-connecting out to an ACP-speaking agent) is optional, separate configuration
-via the acp-setup Agent Skill, never a gate on init completing.
+The working outcome of init is a functioning ctxloom CLI/TUI.
 
 Skipped or interrupted the interview? 'ctxloom init prompt' (or ask your
 agent to run it) re-enters the companions/profiles/agent-binding half any time.
@@ -49,7 +46,7 @@ agent to run it) re-enters the companions/profiles/agent-binding half any time.
 Examples:
   ctxloom init                     # Interactive setup (if TTY)
   ctxloom init --home              # Initialize in ~/.ctxloom
-  ctxloom init --engine codex       # Pre-select engine
+  ctxloom init --engine claude-code # Pre-select engine
   ctxloom init --non-interactive   # Skip all prompts
   ctxloom init --no-pull           # Scaffold without installing dependencies
 
@@ -60,7 +57,7 @@ ctxloom init [flags]
 ### Options
 
 ```
-      --engine string        Pre-select AI engine (claude-code, codex, etc.)
+      --engine string        Pre-select AI engine (claude-code)
       --forge string         Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host
       --home                 Initialize in user home directory instead of current directory
       --no-pull              Skip the dependency pull init ends with; declared dependencies stay uninstalled until 'ctxloom deps pull' runs

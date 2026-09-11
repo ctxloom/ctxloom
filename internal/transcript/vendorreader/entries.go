@@ -23,9 +23,9 @@ import (
 // nil and json.RawMessage{} are not equal, so without it a caller comparing,
 // diffing or switching on ToolInput would see two different values for the
 // same fact. Every engine that builds a tool_use entry needs it on its own
-// arguments field, whatever shape that field arrives in vendor-side (codex's
-// is a JSON-encoded STRING wrapping an object; claude's and kiro's are
-// already bare JSON objects) — the vendor-specific unwrap stays in each
+// arguments field, whatever shape that field arrives in vendor-side
+// (claude's is a bare JSON object; a vendor that JSON-encodes it as a string
+// needs its own unwrap first) — the vendor-specific unwrap stays in each
 // adapter, only this final "empty means nil" step is shared. Unexported:
 // ToolUseEvent, 26 lines below in this same file, is its only caller.
 func nonEmptyRaw(raw json.RawMessage) json.RawMessage {
@@ -37,8 +37,8 @@ func nonEmptyRaw(raw json.RawMessage) json.RawMessage {
 
 // TextEntry wraps non-empty text as a single-element ChatEvent slice typed
 // entryType, or nil for empty text — the "zero or one canonical entries from
-// this buffered/joined text" shape codex, claude, and kiro all
-// repeat for user/assistant/thinking content: a turn with no visible text
+// this buffered/joined text" shape every adapter repeats for
+// user/assistant/thinking content: a turn with no visible text
 // (an empty reasoning.summary, a step whose wrapper wasn't recognized, a
 // content array with no text block) contributes nothing, never a
 // zero-length entry a consumer would have to filter out itself.
@@ -66,9 +66,8 @@ func ToolUseEvent(name, callID string, input json.RawMessage) agent.ChatEvent {
 // ToolResultEvent builds the canonical tool_result entry every engine emits
 // for a tool call's outcome: the call id it answers, the flattened output
 // text, and whether the vendor itself reported an error (never guessed —
-// each adapter decides its own IsError value; some vendors have no such
-// signal at all and must honestly pass false, see codex's
-// functionCallOutputEvents).
+// each adapter decides its own IsError value; a vendor with no such signal
+// at all must honestly pass false).
 // content carries the STRUCTURED elements behind that flattened text, when
 // the adapter could recover them. It is a separate parameter rather than a
 // second constructor because there is exactly one canonical tool_result

@@ -27,3 +27,18 @@ func TestPrimaryEngines_AreAllRegisteredBackends(t *testing.T) {
 			"primaryEngines offers %q, which is not a registered backend — init would accept a choice that cannot launch", name)
 	}
 }
+
+// Help text advertises exactly the engines a user may pick: every
+// registered backend that is not a test double. Derived, so the test pins the
+// relationship to the registry rather than a literal that would rot with it.
+func TestUserEngineNames_ListsRegisteredNonTestBackendsOnly(t *testing.T) {
+	got := userEngineNames()
+	for _, name := range backends.List() {
+		if backends.IsTestOnly(name) {
+			assert.NotContains(t, got, name, "test-only backend must not be advertised")
+		} else {
+			assert.Contains(t, got, name, "registered backend missing from help")
+		}
+	}
+	assert.NotEmpty(t, got)
+}

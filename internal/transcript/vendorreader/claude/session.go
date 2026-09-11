@@ -12,8 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 )
 
-// line is one top-level record of a claude transcript file. Unlike codex's
-// rolloutLine, there is no envelope to unwrap — Type IS the discriminator,
+// line is one top-level record of a claude transcript file. There is no
+// envelope to unwrap — Type IS the discriminator,
 // and every field this adapter cares about (aside from message content) sits
 // at this same top level. Only "user" and "assistant" carry conversational
 // content; every other observed Type (progress, queue-operation, system,
@@ -21,29 +21,25 @@ import (
 // file-history-snapshot, agent-name, pr-link, worktree-state,
 // file-history-delta, agent-color — confirmed by sampling real transcripts
 // on this box) is administrative session/UI bookkeeping with no turn content
-// of its own, and is silently skipped by convertLines' type switch exactly
-// like codex skips session_meta/turn_context/world_state.
+// of its own, and is silently skipped by convertLines' type switch.
 type line struct {
 	Type string `json:"type"`
 	// SessionID is claude's own session id, repeated verbatim on every line
-	// of the file (including non-conversational ones) — unlike codex, where
-	// only session_meta carries it, so the FIRST line of any type already
-	// has it.
+	// of the file (including non-conversational ones), so the FIRST line of
+	// any type already has it.
 	SessionID string `json:"sessionId"`
 	// IsSidechain marks a line belonging to claude's own in-harness subagent
 	// (a Task-tool child) rather than the session's main thread — maps
-	// directly onto agent.SessionEntry.Sidechain, a richer signal than codex
-	// exposes at all.
+	// directly onto agent.SessionEntry.Sidechain.
 	IsSidechain bool `json:"isSidechain"`
 	// IsMeta marks a "user"-type line as claude-injected rather than
 	// human-typed (e.g. the <local-command-caveat> wrapper claude prepends
 	// around local-command output, or a bundled-skill body claude splices in
 	// as a synthetic user turn) — confirmed by sampling: every isMeta:true
 	// user line observed on this box carries exactly this kind of
-	// claude-synthesized text, never something the human actually typed. The
-	// same "don't misrepresent the harness's own injected content as
-	// something the human typed" reasoning as codex's developer-role skip
-	// (rollout.go's messageEvents doc comment) — see messageEntries below.
+	// claude-synthesized text, never something the human actually typed:
+	// the harness's own injected content must not be misrepresented as
+	// something the human typed — see messageEntries below.
 	IsMeta bool `json:"isMeta"`
 	// PermissionMode rides on a genuinely human-typed "user" line only (never
 	// observed on a tool_result-carrying or isMeta "user" line) — the
@@ -79,11 +75,10 @@ type message struct {
 }
 
 // usage is the real Anthropic Messages API usage block claude's own
-// assistant lines carry verbatim — unlike codex, whose accounting arrives on
-// a SEPARATE event_msg.token_count envelope with no shared id to correlate
-// it to a response_item by, claude's usage rides directly on the SAME
-// message object as the content it accounts for (ADR 0035, "The comparison
-// the canonical fields were derived from": the "turn accounting" row).
+// assistant lines carry verbatim: it rides directly on the SAME message
+// object as the content it accounts for, so no correlation step is needed
+// (ADR 0035, "The comparison the canonical fields were derived from": the
+// "turn accounting" row).
 type usage struct {
 	InputTokens              int `json:"input_tokens"`
 	OutputTokens             int `json:"output_tokens"`
@@ -108,10 +103,10 @@ type contentBlock struct {
 	// signature}, never a "text" key).
 	Thinking string `json:"thinking,omitempty"`
 	// ID/Name/Input are populated for Type "tool_use". Input is already a
-	// JSON OBJECT here (unlike codex's function_call.arguments, which is a
-	// JSON-ENCODED STRING that itself needs a second unmarshal) — confirmed
-	// against real tool_use blocks on this box — so it passes straight
-	// through to agent.SessionEntry.ToolInput with no re-encoding step.
+	// JSON OBJECT here, not a JSON-encoded string needing a second unmarshal
+	// — confirmed against real tool_use blocks on this box — so it passes
+	// straight through to agent.SessionEntry.ToolInput with no re-encoding
+	// step.
 	ID    string          `json:"id,omitempty"`
 	Name  string          `json:"name,omitempty"`
 	Input json.RawMessage `json:"input,omitempty"`
@@ -175,19 +170,15 @@ func decodeContentBlocks(raw json.RawMessage) []contentBlock {
 	return blocks
 }
 
-// convertLines runs the two-pass conversion via vendorreader.ConvertJSONLLines,
-// mirroring codex's convertLines: scanSessionInfo first (one Session
-// ChatEvent recorded once up front), then a streamed second pass in the
-// file's own order for every user/assistant line.
-// The two-pass shape (scan once, then stream) is the reference pattern every
-// vendorreader.VendorAdapter copies from codex on purpose (codex.go's package
-// doc). What genuinely differs between codex and claude here — no envelope,
-// dual-shaped content, id-keyed accounting vs a second event type — stays in
-// each vendor's own dispatch; what doesn't differ (line reading, latching
-// session-info fields, joining text blocks, shaping a tool_use/tool_result
-// entry, flushing a pending Complete boundary, and now the outer scan/
-// stream/flush shell itself) lives once in the reader package both
-// packages import, not copied here.
+// convertLines runs the two-pass conversion via vendorreader.ConvertJSONLLines:
+// scanSessionInfo first (one Session ChatEvent recorded once up front), then
+// a streamed second pass in the file's own order for every user/assistant
+// line. What is genuinely claude-specific — no envelope, dual-shaped content,
+// accounting keyed on the message itself — stays in this package's dispatch;
+// what is not (line reading, latching session-info fields, joining text
+// blocks, shaping a tool_use/tool_result entry, flushing a pending Complete
+// boundary, and the outer scan/stream/flush shell itself) lives once in the
+// reader package, not copied here.
 func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
 	c := &converter{record: vendorreader.RecordFunc(rec, "claude")}
 	err := vendorreader.ConvertJSONLLines(ctx, rec, lines, "claude", scanSessionInfo(lines),
@@ -315,9 +306,8 @@ func (d *dropTally) summary() string {
 }
 
 // scanSessionInfo scans for session-level metadata, latching each field onto
-// its FIRST occurrence only via vendorreader.SessionInfoBuilder — mirrors codex's
-// scanSessionInfo (rollout.go). Returns nil if the file contained none of it
-// at all.
+// its FIRST occurrence only via vendorreader.SessionInfoBuilder. Returns nil
+// if the file contained none of it at all.
 //
 // It stops as soon as all three fields are latched. Because latching is
 // first-occurrence-only, nothing after that point can change the result, so
@@ -409,8 +399,8 @@ type converter struct {
 // user cancelled mid-turn). A nil pending is a normal, silent no-op.
 // pendingID is reset unconditionally: it and pending are always set/cleared
 // together (see handleAssistant), so when pending is nil, pendingID is
-// already "". See vendorreader.FlushComplete for the flush mechanics shared with
-// codex's identical boundary-flush shape.
+// already "". See vendorreader.FlushComplete for the flush mechanics every
+// adapter shares.
 func (c *converter) flushPending() error {
 	c.pendingID = ""
 	return vendorreader.FlushComplete(&c.pending, c.record)
@@ -432,7 +422,7 @@ func (c *converter) handleUser(l line) error {
 // pending turn-accounting boundary. Entries are recorded BEFORE the boundary
 // bookkeeping runs, so a flushed Complete for the PREVIOUS response always
 // lands after that response's own entries and before the new response's
-// entries — the same ordering codex's task_complete handling produces.
+// entries.
 func (c *converter) handleAssistant(l line) error {
 	if l.Message == nil {
 		return nil
@@ -488,11 +478,11 @@ func (c *converter) recordAll(evs []agent.ChatEvent, sidechain bool) error {
 // role selects EntryTypeUser vs EntryTypeAssistant for buffered text; isMeta
 // (only ever meaningful for role=="user") skips the whole line when true —
 // claude's own injected wrapper/caveat text, never something the human
-// typed, mirroring codex's developer-role skip (rollout.go's messageEvents
-// doc comment) for the same reason.
+// typed, and the harness's own injected content must not be misrepresented
+// as something the human typed.
 //
-// Consecutive "text" blocks are buffered and joined into ONE entry (like
-// codex's joinContentText) rather than one entry per block, since the common
+// Consecutive "text" blocks are buffered and joined into ONE entry rather
+// than one entry per block, since the common
 // real shape is either a single text block or several text blocks that
 // together form one coherent turn (a multi-part system-reminder + the actual
 // prompt, observed on this box). Every other block type — thinking,
@@ -545,8 +535,8 @@ func messageEntries(role string, isMeta bool, blocks []contentBlock, toolUseResu
 		default:
 			// An unmodeled/future block type (e.g. "image" pasted directly
 			// into a user turn — observed but rare on this box): skip, not
-			// fatal, same as codex's unrecognized response_item variant. It is
-			// COUNTED, though — a drop nobody can observe is indistinguishable
+			// fatal (vendorreader.VendorAdapter's degrade-to-partial contract).
+			// It is COUNTED, though — a drop nobody can observe is indistinguishable
 			// from content that was never there.
 			drops.add("block:" + b.Type)
 		}

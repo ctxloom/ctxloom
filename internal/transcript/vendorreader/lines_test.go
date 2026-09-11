@@ -19,12 +19,10 @@ func TestReadJSONLLines_TrimsAndDropsEmpty(t *testing.T) {
 	assert.Equal(t, `{"b":2}`, string(lines[1]))
 }
 
-// TestReadJSONLLines_NoTrailingNewline pins the antigravity-shaped case: a
-// file whose last line has no trailing '\n' at all must still surface that
-// final line, not silently drop it — this is exactly the behavior the old
-// os.ReadFile+bytes.Split antigravity copy and the bufio-based codex/claude
-// copy both had to get right independently; now there's one implementation
-// to get it right once.
+// TestReadJSONLLines_NoTrailingNewline pins the case a bufio.Reader loop gets
+// wrong by default: a file whose last line has no trailing '\n' at all must
+// still surface that final line, not silently drop it. There is one
+// implementation to get this right, so this is the one place it is pinned.
 func TestReadJSONLLines_NoTrailingNewline(t *testing.T) {
 	lines, err := readJSONLLines(strings.NewReader(`{"only":"line"}`))
 	require.NoError(t, err)

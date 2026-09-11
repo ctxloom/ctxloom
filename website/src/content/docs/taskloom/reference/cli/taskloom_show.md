@@ -25,9 +25,12 @@ that was not found — a partial result that looks complete is exactly the silen
 truncation this project's diagnostics exist to prevent — so nothing is printed
 at all rather than the subset that happened to resolve.
 
---format json/yaml/toml/markdown emit an ARRAY of structured tasks, always:
-one id yields a one-element array, not a bare object, so a consumer never has
-to branch on how many ids it asked for.
+--format json/yaml/toml/markdown follow the project's serialization rule: a
+GROUP serializes as a LIST, a SINGLE value as an OBJECT. One id therefore
+yields a bare object, so `jq -r '.text'` reads its body; two or more yield an
+array, so `jq -r '.[].text'` reads theirs. The shape follows what was ASKED
+FOR, not what happened to be found — a single id that resolves is always an
+object, never a one-element list.
 
 ```
 taskloom show <harp-id> [harp-id...] [flags]

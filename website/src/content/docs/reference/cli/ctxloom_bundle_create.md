@@ -25,6 +25,7 @@ ctxloom bundle create <name> [flags]
 
 ```
   -d, --description string   Bundle description
+      --tree                 author as a tree (bundle.yaml plus one file per item) in the v2 layout, instead of a single-file document
 ```
 
 ### Options inherited from parent commands

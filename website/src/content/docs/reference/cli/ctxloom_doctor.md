@@ -18,10 +18,8 @@ skill's Phase 6 postcondition check (init-as-skill.plan.md §8.2): the
 .ctxloom marker + config validity; required binaries on PATH (git, each
 configured engine's own client, a container runtime when this project runs
 'runtime: container' agents, and — recommended, not required — ssh/ssh-keygen);
-whether the ACP adapter binary (claude-code-acp/
-codex-acp) each configured claude-code/codex engine needs for HOST-runtime
-structured chat is present; whether every configured agent resolves (profile
-composition + engine/runtime) and the roster is non-empty; the seeded
+whether every configured agent resolves (profile composition +
+engine/runtime) and the roster is non-empty; the seeded
 dependency lockfile parses and a real context assembly succeeds; hooks AND
 MCP registration per configured backend; where codex's home-keyed surfaces
 actually live, since it is the one engine with no durable project copy of
@@ -47,14 +45,9 @@ Version currency has no dedicated check here (best-effort, skill-guided):
 compare 'ctxloom version' against your remote's newest tag by hand, or ask
 an assistant carrying the ctxloom-doctor skill to do it.
 
-Deliberately does NOT parse any third-party ACP client config (Zed settings,
-Nori's config.toml, VSCode acp-client, Toad, ...): client verification is
-that config's own AGENT's re-read + live connect, never this command's job —
-ctxloom stays unbound to any one frontend (init-as-skill.plan.md §6).
-
 --deps scopes the report to ONLY the machine-capability probes (git/ssh/
-ssh-keygen, a container runtime, any already-configured engine's client and
-its ACP adapter if it needs one, signing-key readiness, and git identity) —
+ssh-keygen, a container runtime, any already-configured engine's client,
+signing-key readiness, and git identity) —
 no agents/profiles/hooks/trust checks, so it reads clean on a project that
 hasn't been set up yet. This is the mode init's PRIME and the setup skill's
 phase 1 use, before there's anything else to check.
@@ -71,7 +64,7 @@ ctxloom doctor [flags]
 ### Options
 
 ```
-      --deps   check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients and ACP adapters/signing key/git identity) — skips agents/profiles/hooks/trust, for use before a project has been set up
+      --deps   check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients/signing key/git identity) — skips agents/profiles/hooks/trust, for use before a project has been set up
 ```
 
 ### Options inherited from parent commands

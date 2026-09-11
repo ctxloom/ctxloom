@@ -42,7 +42,7 @@ ctxloom profile materialize <profile>... [flags]
 ### Options
 
 ```
-      --backend string        Backend surface to write (claude-code) (default "claude-code")
+      --backend string        Backend whose surface is written, or compared against with --diff (claude-code) (default "claude-code")
       --diff string           Compare this profile's materialized context against an already-delivered context file instead of writing --target
       --surface stringArray   Override where a surface is delivered: <kind>=<approach> (repeatable). See --help for what this project's engines support.
       --target string         Target directory to write the agent surface into (required)

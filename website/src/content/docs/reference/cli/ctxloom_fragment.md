@@ -47,6 +47,7 @@ ctxloom fragment [flags]
 * [ctxloom fragment distill](/reference/cli/ctxloom_fragment_distill/)	 - Distill a fragment
 * [ctxloom fragment edit](/reference/cli/ctxloom_fragment_edit/)	 - Edit a fragment
 * [ctxloom fragment list](/reference/cli/ctxloom_fragment_list/)	 - List all fragments
+* [ctxloom fragment premises](/reference/cli/ctxloom_fragment_premises/)	 - List conditionally-loaded fragments and the premise each applies under
 * [ctxloom fragment remove](/reference/cli/ctxloom_fragment_remove/)	 - Remove a fragment
 * [ctxloom fragment show](/reference/cli/ctxloom_fragment_show/)	 - Show fragment content
 

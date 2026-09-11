@@ -15,9 +15,7 @@ Print ctxloom's setup prompt (companions, profiles, agents) for the LLM to follo
 
 Emit ctxloom's built-in setup prompt: instructions for the LLM to interview
 you and configure ctxloom collaboratively — companions (taskloom/ltk),
-profiles/content, and agents (engine↔profile bindings). ACP (editor
-integration, either direction) is a separate, optional step — see the
-acp-setup Agent Skill.
+profiles/content, and agents (engine↔profile bindings).
 
 This is the same body 'ctxloom init' hands to your engine at bootstrap and
 '/ctxloom-init' loads in any ordinary session — this command is just a

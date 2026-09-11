@@ -17,8 +17,10 @@ Export a local bundle from .ctxloom/content/bundles to a file or directory.
 
 Useful for publishing bundles to a shared repository like ctxloom-default.
 The bundle is copied as-is, preserving all content including distilled versions.
+A directory-form bundle is exported WHOLE — its items, SHA256SUMS and .sigs/
+travel with the manifest — and lands as a directory under its own name.
 
-Use -o to specify an output file path directly.
+Use -o to name the destination path directly.
 
 Examples:
   ctxloom bundle export go-tools ../ctxloom-default/ctxloom/bundles
@@ -32,7 +34,7 @@ ctxloom bundle export <name> [dest-dir] [flags]
 ### Options
 
 ```
-  -o, --output string   Output file path
+  -o, --output string   Destination path (a file, or a directory for a directory-form bundle)
 ```
 
 ### Options inherited from parent commands

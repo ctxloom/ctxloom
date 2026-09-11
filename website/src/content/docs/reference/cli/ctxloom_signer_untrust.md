@@ -13,17 +13,30 @@ Withdraw trust from a signer's public key
 
 ### Synopsis
 
-Removes every entry for <principal> from your allowed_signers store (user
-store by default; --project for the committable project store). This does
-NOT reject any content that signer already published or approved — it
-means "I will review this myself from now on", not "deny". Use
+Removes every entry for <principal> from your allowed_signers store.
+
+By default this writes to the COMMITTABLE PROJECT store
+(.ctxloom/allowed_signers) — matching 'signer trust': trust and distrust
+travel together, so a team distributes "we no longer trust this signer" the
+same way it distributes trust in the first place. --user writes to your
+PER-MACHINE USER store (~/.ctxloom/allowed_signers) instead. Run outside a
+project (no .ctxloom directory found), the default falls back to the user
+store automatically and says so.
+
+This does NOT reject any content that signer already published or approved
+— it means "I will review this myself from now on", not "deny". Use
 'ctxloom bundle reject <ref>' to actually reject content.
 
 <principal> naming ctxloom's OWN embedded release key is a special case: that
-key is compiled into the binary and cannot be deleted by this command. Instead
-this records a LOCAL distrust decision (only a new binary changes the
-compiled-in bytes themselves) — content signed only by that key is withheld
-from here on, on this machine or project.
+key is compiled into the binary and cannot be deleted by this command.
+Instead this records a LOCAL distrust decision in your distrusted_signers
+store — the same project-by-default/--user scope as above, since only a new
+binary changes the compiled-in bytes themselves. Content signed only by that
+key is withheld from here on, on this machine or project.
+
+Examples:
+  ctxloom signer untrust context@acme.com
+  ctxloom signer untrust lead@team.example --user
 
 ```
 ctxloom signer untrust <principal> [flags]
@@ -32,7 +45,8 @@ ctxloom signer untrust <principal> [flags]
 ### Options
 
 ```
-      --project   delete from the committable project store instead of the user store
+      --project   write the removal/distrust decision to the committable project store — the default; falls back to the user store when no project is configured (default true)
+      --user      write to your PER-MACHINE user store (~/.ctxloom/allowed_signers) instead of the project store
 ```
 
 ### Options inherited from parent commands

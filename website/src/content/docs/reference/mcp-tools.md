@@ -147,13 +147,13 @@ Distill and load context from a session. Accepts either session_id (backend UUID
 
 ### recover_session
 
-Recover context from the current session after /clear. Resolves the most recent session transcript for this working directory and distills it (no session id needed; pass one to target a specific session).
+Recover context from the current session after /clear. Resolves this session's own transcript by harp identity, falling back to the most recent transcript in this working directory only when that transcript cannot be attributed to a different session, and distills it (no session id needed; pass one to target a specific session).
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `backend` | string | No | Backend to read session from (defaults to the configured default LLM) |
 | `model` | string | No | LLM model to use for distillation if needed |
-| `session_id` | string | No | Session ID to recover. If not provided, uses most recent session. |
+| `session_id` | string | No | Session ID to recover. If not provided, resolves this session's own transcript by harp identity. |
 
 ### roster
 
@@ -193,7 +193,7 @@ Read-only listings are exposed as MCP resources rather than tools.
 | URI | Name | Description |
 |-----|------|-------------|
 | `ctxloom://commands` | commands | All available commands with descriptions. Replaces the list_commands tool. |
-| `ctxloom://fragments` | fragments | All local context fragments with tags and source locations. Replaces the list_fragments tool. |
+| `ctxloom://fragments` | fragments | All local context fragments with tags and source locations. A fragment carrying a PREMISE applies conditionally: the premise names the situation it applies under, and the qualified ref is what an assemble_context call quotes back to load it. |
 | `ctxloom://help` | ctxloom help | Documentation of every ctxloom resource URI. Read this first if you need to know what's available. |
 | `ctxloom://mcp-servers` | mcp servers | Configured MCP servers per backend. Replaces the list_mcp_servers tool. |
 | `ctxloom://profiles` | profiles | All configured profiles with their bundle lists. Replaces the list_profiles tool. |

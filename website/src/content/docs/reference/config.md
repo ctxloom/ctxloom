@@ -72,8 +72,11 @@ Behavioral settings
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `essence_max_chars` | integer | Character budget for a distilled session essence (default: 12000) |
 | `sign` | object | Publisher-signing defaults for `bundle push`. |
+| `silence_unsupported` | boolean | Suppress capability-loss lines when a backend does not support a requested feature (default: false) |
 | `statusline` | boolean | Whether ctxloom manages its HUD statusline (default: true); set false to keep your own |
+| `tool_reflect_bytes` | integer | Tool-result size, in bytes, at or above which the PostToolUse reflect hook fires; negative disables the hook |
 | `use_distilled` | boolean | Whether to prefer distilled versions of fragments/prompts (default: true) |
 
 #### config.sign
@@ -201,22 +204,6 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `thinking` | string | Normalized reasoning/thinking-budget level, translated to codex-acp's model_reasoning_effort (minimal/low/medium/xhigh — codex has no bare "high"; ctxloom's "high" maps to "xhigh") and model_reasoning_summary. Empty defaults to medium. Codex is model-gated and returns no reasoning at all on ChatGPT-OAuth auth (an account-tier limit, not this knob). Allowed values: `off`, `low`, `medium`, `high`. Default: `medium`. |
 | `type` | string | Must be `codex`. |
 
-#### kiro
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `agent` | string | Kiro custom agent selected via --agent (default "ctxloom"). |
-| `agent_engine` | string | Kiro harness version via --agent-engine. Allowed values: `v1`, `v2`, `v3`. |
-| `args` | string[] |  |
-| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
-| `effort` | string | Kiro reasoning effort via --effort. Allowed values: `low`, `medium`, `high`, `xhigh`, `max`. |
-| `env` | map → string |  |
-| `model` | string |  |
-| `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
-| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
-| `thinking` | string | The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on kiro: no wired mechanism (setting it only logs a warning) — use "effort" above instead. Allowed values: `off`, `low`, `medium`, `high`. |
-| `type` | string | Must be `kiro`. |
-
 #### opencode
 
 opencode driven over its first-party `opencode acp` mode (host-only chat spine). The model is delivered through a project-local opencode.json in the run's cwd — `opencode acp` has no --model flag.
@@ -241,30 +228,6 @@ opencode driven over its first-party `opencode acp` mode (host-only chat spine).
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `mock`. |
-
-#### acp
-
-Generic Agent Client Protocol client: drives any ACP-capable agent chosen by config (e.g. "kiro-cli acp", "claude-code-acp"). Structured chat + headless oneshot only (no TUI); materializes no native settings of its own.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `agent` | string | Selects a named agent on the target CLI via `--agent`. |
-| `agent_engine` | string | Names the target agent (kiro/claude/codex/agy); also passed as `--agent-engine`. |
-| `args` | string[] |  |
-| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
-| `command` | string | The agent's ACP-mode invocation, whitespace-split into the binary and its leading args (e.g. "kiro-cli acp"). |
-| `env` | map → string |  |
-| `model` | string | Passed to the spawned agent via `--model` when set. |
-| `model_config_key` | string | When set, delivers the request's model via a `-c <key>=<value>` config-override flag instead of the generic `--model` flag (mutually exclusive with it). |
-| `model_env_var` | string | When set, also delivers the request's model into the spawned agent's environment under this variable name (e.g. claude's ANTHROPIC_MODEL). |
-| `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
-| `reasoning_config_key` | string | When set, delivers reasoning_effort via an ADDITIONAL `-c <key>=<value>` override, independent of model_config_key (e.g. codex's model_reasoning_effort). |
-| `reasoning_effort` | string | The resolved value reasoning_config_key delivers. |
-| `reasoning_summary` | string | The resolved value reasoning_summary_config_key delivers. |
-| `reasoning_summary_config_key` | string | A companion `-c <key>=<value>` override in the same shape (e.g. codex's model_reasoning_summary). |
-| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
-| `strip_env` | string[] | Inherited environment variables removed from the spawned agent's env. |
-| `type` | string | Must be `acp`. |
 
 ### unifiedHooks
 

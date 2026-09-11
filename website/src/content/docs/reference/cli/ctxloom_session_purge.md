@@ -29,6 +29,13 @@ destroy the only record of what happened. The refusal names the leaf that
 can do it deliberately: 'ctxloom session transcript purge <harp>
 --undistilled'.
 
+A session whose lock does not prove its owner dead is refused: a running
+agent may still be writing the transcript this would destroy. A held lock,
+or no lock at all (every session from before the lock existed), both
+refuse. Pass --even-if-live to sweep it anyway. The scratch worktrees keep
+their own verdict: a worktree whose owner is not provably dead is skipped
+and reported, never reaped.
+
 ```
 ctxloom session purge <harp-name> [flags]
 ```
@@ -36,7 +43,8 @@ ctxloom session purge <harp-name> [flags]
 ### Options
 
 ```
-  -y, --yes   apply the plan this invocation printed (default: report only)
+      --even-if-live   permit destroying a session whose owner may still be running: its session lock is held, or it has no lock at all (every session from before the lock existed)
+  -y, --yes            apply the plan this invocation printed (default: report only)
 ```
 
 ### Options inherited from parent commands

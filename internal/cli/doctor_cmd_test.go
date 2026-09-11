@@ -798,7 +798,7 @@ func startFakeSSHAgent(t *testing.T, comments ...string) string {
 		require.NoError(t, err)
 		require.NoError(t, kr.Add(agent.AddedKey{PrivateKey: priv, Comment: comment}))
 	}
-	sock := filepath.Join(t.TempDir(), "agent.sock")
+	sock := filepath.Join(testsupport.SocketDir(t, "agent.sock"), "agent.sock")
 	l, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = l.Close() })

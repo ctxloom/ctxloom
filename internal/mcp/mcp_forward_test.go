@@ -87,8 +87,7 @@ func TestBuildForwardServer_RefusesAZeroToolRunner(t *testing.T) {
 // path (no tcp:// marker) dials as a unix socket, exactly as before the
 // off-Linux fallback existed.
 func TestDialReachBackSocket_UnixDefault(t *testing.T) {
-	dir := t.TempDir()
-	sock := dir + "/mcp.sock"
+	sock := filepath.Join(testsupport.SocketDir(t, "mcp.sock"), "mcp.sock")
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ln.Close() })

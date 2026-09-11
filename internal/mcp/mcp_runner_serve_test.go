@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestServeRunnerHTTP_ReportsAServeFailure pins the fix for the runner
@@ -22,7 +24,7 @@ import (
 func TestServeRunnerHTTP_ReportsAServeFailure(t *testing.T) {
 	warnings := captureWarnings(t)
 
-	sock := filepath.Join(t.TempDir(), "mcp.sock")
+	sock := filepath.Join(testsupport.SocketDir(t, "mcp.sock"), "mcp.sock")
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	// Closing the listener out from under Serve stands in for any reason the
@@ -42,7 +44,7 @@ func TestServeRunnerHTTP_ReportsAServeFailure(t *testing.T) {
 func TestServeRunnerHTTP_SilentOnCleanShutdown(t *testing.T) {
 	warnings := captureWarnings(t)
 
-	sock := filepath.Join(t.TempDir(), "mcp.sock")
+	sock := filepath.Join(testsupport.SocketDir(t, "mcp.sock"), "mcp.sock")
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	srv := &http.Server{Handler: http.NewServeMux()}

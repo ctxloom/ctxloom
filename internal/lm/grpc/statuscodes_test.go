@@ -28,7 +28,7 @@ func (noHistoryBackend) History() agent.SessionHistory { return nil }
 // history" from "the plugin crashed" cannot decide whether retrying, falling
 // back to another reader, or reporting a hard failure is right.
 func TestServerHandlers_ClassifyRefusalsInsteadOfCodesUnknown(t *testing.T) {
-	client, _ := plugin.TestPluginGRPCConn(t, false, map[string]plugin.Plugin{
+	client := inProcessPluginConn(t, map[string]plugin.Plugin{
 		LLMPluginKey: &LLMGRPCPlugin{Impl: noHistoryBackend{}},
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -72,7 +72,7 @@ func TestServerHandlers_ClassifyRefusalsInsteadOfCodesUnknown(t *testing.T) {
 // An absent session is NOT a missing capability: a host that has a history
 // reader and simply cannot find this id must be able to say so.
 func TestGetSession_AbsentSessionIsNotFound(t *testing.T) {
-	client, _ := plugin.TestPluginGRPCConn(t, false, map[string]plugin.Plugin{
+	client := inProcessPluginConn(t, map[string]plugin.Plugin{
 		LLMPluginKey: &LLMGRPCPlugin{Impl: nilHistoryBackend{}},
 	})
 	t.Cleanup(func() { _ = client.Close() })

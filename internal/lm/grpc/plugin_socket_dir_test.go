@@ -9,6 +9,8 @@ import (
 	"github.com/hashicorp/go-plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // sunPathLimit is Linux's sun_path capacity; a socket path this long or
@@ -26,15 +28,29 @@ func longTempDir(t *testing.T) string {
 	return dir
 }
 
-// shortDir mints a directory whose worst-case socket path fits sun_path.
-// It cannot come from t.TempDir(): inside an agent cell that root is the
-// very TMPDIR under test, ~100 bytes before the test's own name is added.
+// shortDir mints a directory whose worst-case go-plugin socket path fits
+// sun_path. It cannot come from t.TempDir(): inside an agent cell that root
+// is the very TMPDIR under test, ~100 bytes before the test's own name is
+// added. The worst-case name is sized from pluginSocketNameMax (which counts
+// the leading separator) so it cannot drift from what production budgets for.
 func shortDir(t *testing.T) string {
-	dir, err := os.MkdirTemp("/tmp", "sock")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	require.Less(t, len(dir)+pluginSocketNameMax, sunPathLimit, "fixture must be short")
-	return dir
+	t.Helper()
+	const prefix = "plugin"
+	return testsupport.SocketDir(t, prefix+strings.Repeat("0", pluginSocketNameMax-1-len(prefix)))
+}
+
+// inProcessPluginConn is plugin.TestPluginGRPCConn with its socket steered
+// under shortDir. The harness builds its listener from an EMPTY
+// UnixSocketConfig, so unlike a spawned plugin it never reads
+// plugin.EnvUnixSocketDir and pluginSpawnEnv cannot reach it: its
+// os.CreateTemp("", "plugin") lands under os.TempDir(), which inside an
+// agent cell is the TMPDIR that overflows sun_path. TMPDIR is the only
+// lever, and t.Setenv scopes it to the calling test.
+func inProcessPluginConn(t *testing.T, ps map[string]plugin.Plugin) *plugin.GRPCClient {
+	t.Helper()
+	t.Setenv("TMPDIR", shortDir(t))
+	client, _ := plugin.TestPluginGRPCConn(t, false, ps)
+	return client
 }
 
 // The defect: an agent cell's TMPDIR is so deep that go-plugin's default

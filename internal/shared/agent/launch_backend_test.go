@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -53,90 +55,65 @@ func (noAccessorLifecycle) MergeManaged(*ManagedConfig, string, string) {}
 
 // ---- cell-seam test doubles --------------------------------------------------
 
-// recordSet is a fake SurfaceSet capturing the inputs its Build closure received
-// and, when delivered, logging each surface's cleanup into a shared order slice so
-// a test can assert LIFO teardown. It records which delivery method (isolated vs
-// SharedRealization) the cell used and the dir it targeted. contextErr forces the
-// FIRST surface (context) to fail its delivery, exercising the injection-hook
-// fallback.
+// recordSet backs a fake Declaration (recordDeclaration): it captures the
+// inputs its constructors received and, when delivered, logs each surface's
+// cleanup into a shared order slice so a test can assert LIFO teardown. It
+// records which form (well-known vs out-of-cwd) the cell used and the roots
+// it targeted. contextErr forces the context surface to fail its delivery,
+// exercising the injection-hook fallback.
 type recordSet struct {
 	order      *[]string
 	contextErr error
 	mcpErr     error
 
+	// built counts constructor invocations: zero proves nothing was
+	// constructed (the nil-payload gate); five proves an EMPTY payload still
+	// reached every constructor.
+	built  int
 	inputs SurfaceInputs
 
-	usedShared bool
 	// deliverStarts / realizeStarts record the advised roots each well-known
-	// Deliver / each SharedRealization closure received, in delivery order.
+	// Deliver / each out-of-cwd form received, in delivery order.
 	deliverStarts []present.Start
 	realizeStarts []present.Start
 }
 
-// surfaces returns the five fake surfaces in a stable order (context first).
-func (s *recordSet) surfaces() []*recordSurface {
-	return []*recordSurface{
-		{set: s, label: "context"},
-		{set: s, label: "mcp"},
-		{set: s, label: "settings"},
-		{set: s, label: "commands"},
-		{set: s, label: "skills"},
+// construct returns the Construct for one fake surface, capturing the inputs.
+func (s *recordSet) construct(label string) Construct {
+	return func(in SurfaceInputs, _ afero.Fs) Approach {
+		s.built++
+		s.inputs = in
+		return &recordSurface{set: s, label: label}
 	}
 }
 
-func (s *recordSet) Deliveries() []Delivery {
-	out := make([]Delivery, 0, 5)
-	for _, sf := range s.surfaces() {
-		out = append(out, sf)
+// recordDeclaration declares every kind at ApproachUnsafeFile, each fake
+// surface additionally offering the out-of-cwd form — like claude's
+// flag-backed surfaces — so a SharedCell converts every one of them.
+func recordDeclaration(s *recordSet) Declaration {
+	return Declaration{
+		SurfaceContext:  Presents("test", SurfaceContext, ApproachUnsafeFile, s.construct("context")),
+		SurfaceMCP:      Presents("test", SurfaceMCP, ApproachUnsafeFile, s.construct("mcp")),
+		SurfaceSettings: Presents("test", SurfaceSettings, ApproachUnsafeFile, s.construct("settings")),
+		SurfaceCommands: Presents("test", SurfaceCommands, ApproachUnsafeFile, s.construct("commands")),
+		SurfaceSkills:   Presents("test", SurfaceSkills, ApproachUnsafeFile, s.construct("skills")),
 	}
-	return out
-}
-
-// SupportedApproaches advertises every kind at UnsafeFile (the fake surfaces
-// additionally offer DeliverIsolated — like claude's flag-backed surfaces), so
-// WithEverything selects all four.
-func (s *recordSet) SupportedApproaches(SurfaceKind) []Approach {
-	return []Approach{ApproachUnsafeFile}
-}
-
-// DefaultApproach reports UnsafeFile for every kind — the fake set's only approach.
-func (s *recordSet) DefaultApproach(SurfaceKind) (Approach, bool) { return ApproachUnsafeFile, true }
-
-// SurfaceFor resolves kind to the matching fake surface (fresh, sharing the set so
-// its Deliver/DeliverIsolated record into the same slices).
-func (s *recordSet) SurfaceFor(kind SurfaceKind, _ Approach) (Delivery, error) {
-	for _, sf := range s.surfaces() {
-		if sf.Kind() == kind {
-			return sf, nil
-		}
-	}
-	return nil, fmt.Errorf("no fake surface for %s", kind)
-}
-
-// SharedRealization reports the fake surface's isolated path for every (kind,
-// approach) pair — mirroring a fully flag-backed backend (claude) so
-// DeliverShared always converts rather than falling back to a loud well-known
-// write.
-func (s *recordSet) SharedRealization(kind SurfaceKind, _ Approach) (func(present.Start) (Delivered, error), bool) {
-	s.usedShared = true
-	for _, sf := range s.surfaces() {
-		if sf.Kind() == kind {
-			return sf.DeliverIsolated, true
-		}
-	}
-	return nil, false
 }
 
 func (s *recordSet) handle(label string) Delivered {
 	return recordDelivered{order: s.order, label: label}
 }
 
-// recordSurface is one fake surface implementing Delivery (isolated cell) and
-// additionally offering DeliverIsolated (the shape a SharedRealization closure
-// wraps), so the same double works whichever way a cell delivers it.
+// recordSurface is one fake surface implementing Approach and additionally
+// offering DeliverIsolated (the OutOfCwd form), so the same double works
+// whichever way a cell delivers it.
 type recordSurface struct {
 	set   *recordSet
 	label string
+}
+
+func (s *recordSurface) Present(start present.Start) present.Presentation {
+	return start.UnderProjectRoot(s.label).Build()
 }
 
 func (s *recordSurface) Deliver(start present.Start) (Delivered, error) {
@@ -161,24 +138,28 @@ func (s *recordSurface) DeliverIsolated(start present.Start) (Delivered, error) 
 	return s.set.handle(s.label), nil
 }
 
-// noContextRecordSet wraps a *recordSet to report NO supported approaches for
-// SurfaceContext — mirroring a backend with no distinct context surface (its
-// context rides another surface entirely) — so cells.go's Build() skips
-// SurfaceContext and the resolved surface list's first entry is something
-// else (MCP). It is the double this regression test needs: the shared-
-// cwd delivery loop identified the context surface by INDEX 0 rather than by
-// KIND, so on a backend shaped like this an MCP delivery failure was
-// misidentified as a context failure and silently "recovered" via the
-// context-injection-hook fallback instead of returning an error.
-type noContextRecordSet struct {
-	*recordSet
+// noContextDeclaration is recordDeclaration WITHOUT a context kind —
+// mirroring a backend with no distinct context surface (its context rides
+// another surface entirely) — so Build skips SurfaceContext and the resolved
+// surface list's first entry is something else (MCP). It is the double this
+// regression test needs: the shared-cwd delivery loop identified the context
+// surface by INDEX 0 rather than by KIND, so on a backend shaped like this an
+// MCP delivery failure was misidentified as a context failure and silently
+// "recovered" via the context-injection-hook fallback instead of returning an
+// error.
+func noContextDeclaration(s *recordSet) Declaration {
+	d := recordDeclaration(s)
+	delete(d, SurfaceContext)
+	return d
 }
 
-func (s *noContextRecordSet) SupportedApproaches(kind SurfaceKind) []Approach {
-	if kind == SurfaceContext {
-		return nil
-	}
-	return s.recordSet.SupportedApproaches(kind)
+// hookDeclaration is recordDeclaration with the context kind delivered by the
+// shared HookCarriedContext (a Rider) — the shape of an engine whose context
+// rides its hooks surface.
+func hookDeclaration(s *recordSet) Declaration {
+	d := recordDeclaration(s)
+	d[SurfaceContext] = Presents("test", SurfaceContext, ApproachHook, HookCarriedContext)
+	return d
 }
 
 // Kind maps the fake's label to its SurfaceKind so the SurfaceSelection the launch
@@ -221,38 +202,34 @@ func newLegacyBackend() (*LaunchBackend, *recordLifecycle) {
 	return b, rec
 }
 
-// newCellBackend wires a LaunchBackend onto a fake CellDelivery whose Build
-// returns set (recording the inputs it was handed). rawContext/contextHook mirror
-// the per-engine CellDelivery flags. The lifecycle is a real BaseLifecycle so
-// mergedState resolves the merged hooks/MCP the surface inputs carry.
-func newCellBackend(set *recordSet, rawContext, contextHook bool) *LaunchBackend {
+// newCellBackend wires a LaunchBackend onto the fake declaration over set
+// (recording the inputs its constructors are handed). The lifecycle is a real
+// BaseLifecycle so mergedState resolves the merged hooks/MCP the surface
+// inputs carry.
+func newCellBackend(set *recordSet) *LaunchBackend {
+	return newDeclaredBackend(recordDeclaration(set))
+}
+
+// newDeclaredBackend wires a LaunchBackend onto decl with a real
+// BaseLifecycle.
+func newDeclaredBackend(decl Declaration) *LaunchBackend {
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(NewBaseLifecycle("test"), NewBaseContextProvider(), nil,
-		&CellDelivery{
-			Build: func(in SurfaceInputs) SurfaceSet {
-				set.inputs = in
-				return set
-			},
-			RawContext:  rawContext,
-			ContextHook: contextHook,
-		})
+	b.InitLaunch(NewBaseLifecycle("test"), NewBaseContextProvider(), nil, decl)
 	return b
 }
 
-// ---- empty-set path (acp) + nil delivery ------------------------------------
+// ---- empty-declaration path (protocol-only) + no declaration ----------------
 
-// TestSetup_EmptySurfaceSet_MergesNoFiles proves the protocol-only path (acp):
-// an EmptySurfaceSet still runs MergeManaged (so ManagedChatMCPServers has the
-// merged servers to inject over the wire) but materializes no files — no Provide,
-// no delivered handles.
-func TestSetup_EmptySurfaceSet_MergesNoFiles(t *testing.T) {
+// TestSetup_EmptyDeclaration_MergesNoFiles proves the protocol-only path: an
+// empty Declaration still runs MergeManaged (so ManagedChatMCPServers has the
+// merged servers to inject over the wire) but materializes no files — no
+// Provide, no delivered handles.
+func TestSetup_EmptyDeclaration_MergesNoFiles(t *testing.T) {
 	rec := &recordLifecycle{}
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(rec, NewBaseContextProvider(), nil, &CellDelivery{
-		Build: func(SurfaceInputs) SurfaceSet { return EmptySurfaceSet{} },
-	})
+	b.InitLaunch(rec, NewBaseContextProvider(), nil, Declaration{})
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   t.TempDir(),
@@ -262,20 +239,20 @@ func TestSetup_EmptySurfaceSet_MergesNoFiles(t *testing.T) {
 
 	assert.True(t, rec.merged, "MergeManaged runs so ManagedChatMCPServers has the merged set")
 	assert.Empty(t, rec.contextHash, "no Provide: context rides the ACP protocol, not a cache file")
-	assert.Empty(t, b.delivered, "an empty surface set materializes no files")
+	assert.Empty(t, b.delivered, "an empty declaration materializes no files")
 }
 
-// TestSetup_NilDelivery_ErrorsRatherThanPanicking pins the fix: Setup used
-// to return nil (full success) when b.delivery is nil, even though the doc
-// comment right above it calls that exact case "a misconfigured backend". Not
-// panicking is right (a nil delivery is recoverable), but reporting SUCCESS
-// while setting up nothing is the "exit 0, zero bytes delivered" failure
-// shape this codebase is watched for — every real backend supplies a
-// CellDelivery at InitLaunch (acp an empty-set one), so a nil delivery here
-// is never legitimate "nothing to do".
-func TestSetup_NilDelivery_ErrorsRatherThanPanicking(t *testing.T) {
+// TestSetup_NoDeclaration_ErrorsRatherThanPanicking pins the fix: Setup used
+// to return nil (full success) when the backend declared nothing at all,
+// even though the doc comment right above it calls that exact case "a
+// misconfigured backend". Not panicking is right (a nil declaration is
+// recoverable), but reporting SUCCESS while setting up nothing is the "exit
+// 0, zero bytes delivered" failure shape this codebase is watched for — every
+// real backend supplies a Declaration at InitLaunch (a protocol-only one an
+// empty one), so a nil declaration here is never legitimate "nothing to do".
+func TestSetup_NoDeclaration_ErrorsRatherThanPanicking(t *testing.T) {
 	b, rec := newLegacyBackend()
-	require.Nil(t, b.delivery)
+	require.Nil(t, b.surfaces)
 	require.NotPanics(t, func() {
 		err := b.Setup(context.Background(), &SetupRequest{
 			WorkDir: t.TempDir(),
@@ -298,7 +275,7 @@ func TestSetup_NilDelivery_ErrorsRatherThanPanicking(t *testing.T) {
 func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order}
-	b := newCellBackend(set, false, false)
+	b := newCellBackend(set)
 
 	ephem, err := paths.HarpEphemeralDir("perky-same-chevy")
 	require.NoError(t, err)
@@ -319,9 +296,8 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 		},
 	}))
 
-	assert.Equal(t, "project rules", set.inputs.Context, "assembled context string routed to Build")
-	assert.True(t, set.usedShared, "a SharedCell delivers via the shared-cwd (race-safe) set")
-	require.Len(t, set.realizeStarts, 5, "every surface realized through the shared-cwd closure")
+	assert.Equal(t, "project rules", set.inputs.Context, "assembled context string routed to the constructors")
+	require.Len(t, set.realizeStarts, 5, "every surface realized through its out-of-cwd form")
 	for _, start := range set.realizeStarts {
 		assert.Equal(t, ephem, start.Paths().Scratch.Host, "the out-of-cwd root is the harp's PRIVATE ephemeral dir")
 		assert.Equal(t, work, start.Paths().ProjectRoot.Host, "the project root is the live working dir")
@@ -348,7 +324,7 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 func TestSetup_IsolatedCell_UsesWellKnownSet(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order}
-	b := newCellBackend(set, false, false)
+	b := newCellBackend(set)
 	work := t.TempDir()
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
@@ -358,7 +334,7 @@ func TestSetup_IsolatedCell_UsesWellKnownSet(t *testing.T) {
 		Managed:   &ManagedConfig{},
 	}))
 
-	assert.False(t, set.usedShared, "an isolated cell must use the well-known Deliveries set")
+	assert.Empty(t, set.realizeStarts, "an isolated cell never runs an out-of-cwd form")
 	require.Len(t, set.deliverStarts, 5, "every surface delivered through the well-known write")
 	for _, start := range set.deliverStarts {
 		assert.Equal(t, work, start.Paths().ProjectRoot.Host, "each well-known surface lands in the private working dir")
@@ -367,48 +343,63 @@ func TestSetup_IsolatedCell_UsesWellKnownSet(t *testing.T) {
 	require.Len(t, b.delivered, 5, "all five surfaces collected")
 }
 
-// ---- cell path: RawContext (codex/kiro) ---------------------------------
+// ---- cell path: hook-carried context, on EVERY cell ---------------------------
 
-// TestSetup_RawContext_WritesCacheFileAndKeysHook proves the RawContext pre-step:
-// the content-addressed cache file is materialized (setting the env path), and for
-// a hook engine (ContextHook) the merge hash is the cache file's hash so the
-// SessionStart injection hook is keyed correctly.
-func TestSetup_RawContext_WritesCacheFileAndKeysHook(t *testing.T) {
+// TestSetup_HookContext_InstallsHookOnEveryCell proves that a context surface
+// resolved at the hook approach (a Rider) gets its hook INSTALLED — the
+// content-addressed cache file materialized and the SessionStart injection
+// hook appended to the merged hooks the settings surface writes — on an
+// ISOLATED cell as well as a shared one. It used to be installed only on the
+// SharedCell arm, so a worktree or container launch pinned to the hook
+// approach launched a context-less session while Setup reported success.
+func TestSetup_HookContext_InstallsHookOnEveryCell(t *testing.T) {
+	for _, cell := range []CellKind{CellKindDirectoryIsolated, CellKindProcessIsolated, CellKindShared} {
+		t.Run(cell.String(), func(t *testing.T) {
+			var order []string
+			set := &recordSet{order: &order}
+			b := newDeclaredBackend(hookDeclaration(set))
+
+			work := t.TempDir()
+			require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+				WorkDir:   work,
+				Env:       map[string]string{SessionHarpEnv: "perky-same-chevy"},
+				Fragments: []*Fragment{{Content: "project rules"}},
+				CellKind:  cell,
+				Managed:   &ManagedConfig{Hooks: &wire.HooksConfig{}},
+			}))
+
+			hash := b.context.GetContextHash()
+			require.NotEmpty(t, hash, "the hook approach materializes the raw cache file")
+			require.FileExists(t, filepath.Join(work, SCMContextSubdir, hash+".md"))
+			assert.NotEmpty(t, b.context.GetContextFilePath(), "the CTXLOOM_CONTEXT_FILE path is set")
+			hooks, _, ok := b.mergedState()
+			require.True(t, ok)
+			var injected bool
+			for _, h := range hooks.Unified.SessionStart {
+				if h.ContextHash == hash {
+					injected = true
+				}
+			}
+			assert.True(t, injected, "the SessionStart injection hook is appended to the merged hooks the settings surface writes")
+			// Context is a Rider: no handle of its own; the other four deliver.
+			assert.Len(t, b.delivered, 4)
+		})
+	}
+}
+
+// ---- NIL vs EMPTY payload -----------------------------------------------------
+
+// TestSetup_ManagedNil_DeliversNothing pins the NIL half: a nil managed
+// payload means the config failed to load and the run degraded through, so
+// Setup returns without touching any surface — nothing merged, nothing
+// constructed, nothing delivered, and no cache file written either.
+func TestSetup_ManagedNil_DeliversNothing(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order}
-	// Use a recordLifecycle to capture the hash handed to MergeManaged.
 	rec := &recordLifecycle{}
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(rec, NewBaseContextProvider(), nil, &CellDelivery{
-		Build:       func(in SurfaceInputs) SurfaceSet { set.inputs = in; return set },
-		RawContext:  true,
-		ContextHook: true,
-	})
-
-	work := t.TempDir()
-	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
-		WorkDir:   work,
-		Fragments: []*Fragment{{Content: "project rules"}},
-		CellKind:  CellKindDirectoryIsolated,
-		Managed:   &ManagedConfig{},
-	}))
-
-	assert.NotEmpty(t, rec.contextHash, "a hook engine keys the injection hook to the cache file hash")
-	assert.NotEmpty(t, b.context.GetContextFilePath(), "RawContext sets the CTXLOOM_CONTEXT_FILE path")
-	// The cache file is on disk under the working dir (so MergeManaged's chunk read
-	// sees it).
-	cachePath := filepath.Join(work, SCMContextSubdir, rec.contextHash+".md")
-	require.FileExists(t, cachePath, "the raw cache file must be materialized before MergeManaged")
-}
-
-// TestSetup_RawContext_ManagedNilShortCircuits proves a nil managed payload
-// short-circuits after the RawContext pre-step: the cache file stands alone (as in
-// the legacy Flush no-op) and no surfaces are built or delivered.
-func TestSetup_RawContext_ManagedNilShortCircuits(t *testing.T) {
-	var order []string
-	set := &recordSet{order: &order}
-	b := newCellBackend(set, true, false)
+	b.InitLaunch(rec, NewBaseContextProvider(), nil, hookDeclaration(set))
 
 	work := t.TempDir()
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
@@ -418,12 +409,32 @@ func TestSetup_RawContext_ManagedNilShortCircuits(t *testing.T) {
 		Managed:   nil,
 	}))
 
-	hash := b.context.GetContextHash()
-	require.NotEmpty(t, hash)
-	assert.FileExists(t, filepath.Join(work, SCMContextSubdir, hash+".md"),
-		"the raw cache file is still written")
+	assert.False(t, rec.merged, "a nil payload never reaches the merge")
+	assert.Zero(t, set.built, "no approach is constructed with no managed payload")
 	assert.Empty(t, b.delivered, "no surfaces are delivered when there is no managed payload")
-	assert.Nil(t, set.inputs.Fragments, "Build is never invoked with no managed payload")
+	assert.Empty(t, b.context.GetContextHash(), "no cache file is written for a degraded run")
+	assert.NoDirExists(t, filepath.Join(work, SCMContextSubdir))
+}
+
+// TestSetup_ManagedEmpty_ReachesTheWriters pins the EMPTY half, which is a
+// DIFFERENT fact: an empty payload deliberately flows on to the writers, which
+// reconcile to it and retract what ctxloom installed last round. Every
+// constructor runs with the (empty) inputs and every surface delivers.
+func TestSetup_ManagedEmpty_ReachesTheWriters(t *testing.T) {
+	var order []string
+	set := &recordSet{order: &order}
+	b := newCellBackend(set)
+
+	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+		WorkDir:  t.TempDir(),
+		CellKind: CellKindDirectoryIsolated,
+		Managed:  &ManagedConfig{},
+	}))
+
+	assert.Equal(t, 5, set.built, "every declared approach is constructed from the empty payload")
+	assert.Empty(t, set.inputs.Commands)
+	assert.Empty(t, set.inputs.BundleMCP)
+	require.Len(t, b.delivered, 5, "every surface delivers — that is what retracts last round's install")
 }
 
 // ---- cell path: context-delivery fallback (item 6) --------------------------
@@ -437,7 +448,7 @@ func TestSetup_RawContext_ManagedNilShortCircuits(t *testing.T) {
 func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order, contextErr: errors.New("disk full")}
-	b := newCellBackend(set, false, false)
+	b := newCellBackend(set)
 
 	work := t.TempDir()
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
@@ -476,16 +487,8 @@ func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
 func TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface(t *testing.T) {
 	var order []string
 	inner := &recordSet{order: &order, mcpErr: fmt.Errorf("mcp write failed")}
-	fake := &noContextRecordSet{recordSet: inner}
 
-	b := &LaunchBackend{}
-	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(NewBaseLifecycle("test"), NewBaseContextProvider(), nil, &CellDelivery{
-		Build: func(in SurfaceInputs) SurfaceSet {
-			inner.inputs = in
-			return fake
-		},
-	})
+	b := newDeclaredBackend(noContextDeclaration(inner))
 
 	err := b.Setup(context.Background(), &SetupRequest{
 		WorkDir:  t.TempDir(),
@@ -508,7 +511,7 @@ func TestSetup_SharedCell_ContextFailureWarningNamesCause(t *testing.T) {
 	var order []string
 	cause := errors.New("disk full")
 	set := &recordSet{order: &order, contextErr: cause}
-	b := newCellBackend(set, false, false)
+	b := newCellBackend(set)
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)
@@ -538,12 +541,7 @@ func TestSetup_LifecycleWithoutAccessors_ErrorsRatherThanWritingEmpty(t *testing
 	set := &recordSet{order: &order}
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(noAccessorLifecycle{}, NewBaseContextProvider(), nil, &CellDelivery{
-		Build: func(in SurfaceInputs) SurfaceSet {
-			set.inputs = in
-			return set
-		},
-	})
+	b.InitLaunch(noAccessorLifecycle{}, NewBaseContextProvider(), nil, recordDeclaration(set))
 
 	err := b.Setup(context.Background(), &SetupRequest{
 		WorkDir:  t.TempDir(),
@@ -561,7 +559,7 @@ func TestSetup_LifecycleWithoutAccessors_ErrorsRatherThanWritingEmpty(t *testing
 func TestCleanup_RunsDeliveredHandlesLIFO(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order}
-	b := newCellBackend(set, false, false)
+	b := newCellBackend(set)
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   t.TempDir(),
@@ -634,7 +632,7 @@ func TestExecuteEnv_MergesExtraEnv(t *testing.T) {
 func TestSetup_SurfaceContext_FragmentsAssemblingToNothingIsLoud(t *testing.T) {
 	order := []string{}
 	set := &recordSet{order: &order}
-	b := newCellBackend(set, false, false)
+	b := newCellBackend(set)
 
 	err := b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   t.TempDir(),
@@ -653,7 +651,7 @@ func TestSetup_SurfaceContext_FragmentsAssemblingToNothingIsLoud(t *testing.T) {
 func TestSetup_SurfaceContext_NoFragmentsStillSetsUp(t *testing.T) {
 	order := []string{}
 	set := &recordSet{order: &order}
-	b := newCellBackend(set, false, false)
+	b := newCellBackend(set)
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:  t.TempDir(),
@@ -661,46 +659,6 @@ func TestSetup_SurfaceContext_NoFragmentsStillSetsUp(t *testing.T) {
 		CellKind: CellKindShared,
 	}))
 	assert.NotEmpty(t, b.delivered, "no context configured is not a reason to skip the other surfaces")
-}
-
-// A CellDelivery that sets ContextHook WITHOUT RawContext is a misconfigured
-// backend and must be refused loudly. CellDelivery.ContextHook's own doc says
-// "Requires RawContext (the hook reads the cache file)", but nothing enforced
-// it: setupViaCells reads ContextHook only INSIDE the RawContext arm, so the
-// pair {ContextHook: true, RawContext: false} silently left contextHash empty,
-// MergeManaged appended no SessionStart injection hook, and Setup reported
-// success — a backend author asking for hook-delivered context got a session
-// with NO context and no diagnostic. What is measurable here is a silent
-// DROP, not a bogus hook.
-func TestSetup_ContextHookWithoutRawContext_IsRefused(t *testing.T) {
-	var order []string
-	set := &recordSet{order: &order}
-	rec := &recordLifecycle{}
-	b := &LaunchBackend{}
-	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(rec, NewBaseContextProvider(), nil, &CellDelivery{
-		Build:       func(in SurfaceInputs) SurfaceSet { set.inputs = in; return set },
-		RawContext:  false,
-		ContextHook: true,
-	})
-
-	// The fixture must be hostile from setupViaCells' point of view BEFORE any
-	// behaviour is asserted: this is exactly the pair the doc forbids.
-	require.True(t, b.delivery.ContextHook && !b.delivery.RawContext,
-		"the fixture must actually hold the forbidden pair, or this test proves nothing")
-
-	err := b.Setup(context.Background(), &SetupRequest{
-		WorkDir:   t.TempDir(),
-		Fragments: []*Fragment{{Content: "project rules"}},
-		CellKind:  CellKindDirectoryIsolated,
-		Managed:   &ManagedConfig{},
-	})
-
-	require.Error(t, err, "a hook engine that never materializes the cache file must not report success")
-	assert.Contains(t, err.Error(), "ContextHook")
-	assert.Contains(t, err.Error(), "RawContext")
-	assert.False(t, rec.merged, "the refusal must precede the merge, not leave a half-configured lifecycle")
-	assert.Empty(t, b.delivered, "nothing may be delivered for a backend that cannot deliver its context")
 }
 
 // ---- ExecuteCLI: stdin cleanup relay ----------------------------------------
@@ -767,22 +725,4 @@ func TestExecuteCLI_NonInteractiveCarriesNoStdinCleanup(t *testing.T) {
 
 	assert.Nil(t, captured.StdinCleanup,
 		"a non-interactive launch owns no pty copier, so there is nothing to release and no reader it may close")
-}
-
-// The two LEGAL pairings are unchanged — the characterization half, green before
-// and after. RawContext without ContextHook (kiro: context rides
-// AGENTS.md/steering, hash stays "") and both false (claude: context rides the
-// append flag) both still Setup cleanly.
-func TestSetup_LegalContextHookPairingsStillSucceed(t *testing.T) {
-	for _, tc := range []struct{ raw, hook bool }{{true, false}, {false, false}} {
-		var order []string
-		set := &recordSet{order: &order}
-		b := newCellBackend(set, tc.raw, tc.hook)
-		require.NoError(t, b.Setup(context.Background(), &SetupRequest{
-			WorkDir:   t.TempDir(),
-			Fragments: []*Fragment{{Content: "project rules"}},
-			CellKind:  CellKindDirectoryIsolated,
-			Managed:   &ManagedConfig{},
-		}), "RawContext=%v ContextHook=%v is a legal pairing", tc.raw, tc.hook)
-	}
 }

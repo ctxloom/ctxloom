@@ -28,12 +28,12 @@ import (
 // facade default, with no opt, MANAGED the statusline, so pass true there).
 func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
 	t.Helper()
-	set := BuildSurfaces(backend, agent.SurfaceInputs{
+	sel := agent.Select(Declared(backend)).With(agent.SurfaceSettings, agent.ApproachUnsafeFile).With(agent.SurfaceMCP, agent.ApproachUnsafeFile)
+	_, _, errs := sel.DeliverUnder(agent.SurfaceInputs{
 		Hooks:            hooks,
 		BundleMCP:        bundleMCP,
 		ManageStatusline: manageStatusline,
-	}, fs)
-	_, _, errs := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile).DeliverUnder(present.ProjectOnHost(dir))
+	}, fs, present.ProjectOnHost(dir))
 	require.Empty(t, errs)
 }
 
@@ -158,12 +158,11 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 // =============================================================================
 // Top-level WriteSettings dispatches to appropriate backend writer.
 
-func TestBuildSurfaces_UnsupportedBackend(t *testing.T) {
-	// Unsupported backends materialize no surfaces (EmptySurfaceSet), so a full
-	// selection delivers nothing and reports no errors — the opt-out no-op the old
-	// WriteSettings dispatch gave.
-	set := BuildSurfaces("unknown-backend", agent.SurfaceInputs{}, afero.NewMemMapFs())
-	_, kinds, errs := agent.Select(set).WithEverything().DeliverUnder(present.ProjectOnHost("/project"))
+func TestDeclared_UnsupportedBackend(t *testing.T) {
+	// Unsupported backends declare no surfaces (an empty Declaration), so a
+	// full selection delivers nothing and reports no errors — the opt-out
+	// no-op the old WriteSettings dispatch gave.
+	_, kinds, errs := agent.Select(Declared("unknown-backend")).WithEverything().DeliverUnder(agent.SurfaceInputs{}, afero.NewMemMapFs(), present.ProjectOnHost("/project"))
 	assert.Empty(t, errs)
 	assert.Empty(t, kinds)
 }

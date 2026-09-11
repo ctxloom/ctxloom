@@ -49,11 +49,6 @@ func (c ClaudeConfig) GetEnv() map[string]string { return c.Env }
 // agent.LaunchBackend; ClaudeCode adds only the Claude-specific Configure/Execute.
 type ClaudeCode struct {
 	agent.LaunchBackend
-	// surfaces is the SurfaceSet Setup built for the current run, stashed by the
-	// Build closure so buildArgs can read each out-of-cwd file's Path() (the
-	// --append-system-prompt-file / --mcp-config / --settings scratch a SharedCell
-	// delivered) after Setup ran. Zero value (nil surface fields) before Setup.
-	surfaces Surfaces
 	// gate tracks whether claude is currently showing a modal, so a
 	// coordinator wake is withheld rather than answering the prompt for the
 	// human. It satisfies agent.InputGate; see inputgate.go for the
@@ -90,18 +85,9 @@ func NewClaudeCode() *ClaudeCode {
 		agent.NewBaseLifecycle("claude-code"),
 		agent.NewBaseContextProvider(),
 		nil, // SessionHistory: claude's ~/.claude/projects/*.jsonl scraper deleted — canonical capture is the only transcript source now
-		&agent.CellDelivery{Build: b.buildSurfaces},
+		Surfaces,
 	)
 	return b
-}
-
-// buildSurfaces is claude's CellDelivery.Build closure: it maps the shared
-// per-run inputs to claude's SurfaceSet and stashes the concrete Surfaces on
-// the backend so buildArgs can read Context/MCP/Settings.Path() after a
-// SharedCell delivery.
-func (b *ClaudeCode) buildSurfaces(in agent.SurfaceInputs) agent.SurfaceSet {
-	b.surfaces = NewSurfaces(in, nil)
-	return b.surfaces
 }
 
 // Configure applies a decoded claude-code config to this backend.
@@ -346,24 +332,12 @@ func sessionNameArgs(env map[string]string) []string {
 // This is therefore plan-ONLY. Under a posture with no read-only tier the
 // hint gate is absent, and a server-level grant WOULD be blanket permission
 // for that server's mutating tools.
-// mcpServerNames lists the MCP servers this launch actually attaches, sorted.
-//
-// The delivered bundle map is the honest answer to "which servers is this argv
-// wiring up": it already carries ctxloom's own server alongside the config- and
-// bundle-supplied ones, which is why it is read here rather than the ctxloom
-// name being appended separately. A server attached but not named here is a
-// server a plan agent cannot reach.
-func (s Surfaces) mcpServerNames() []string {
-	if s.MCP == nil {
-		return nil
-	}
-	out := make([]string, 0, len(s.MCP.bundle))
-	for name := range s.MCP.bundle {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
-}
+// The delivered bundle map (mcpServerNames, surfaces.go) is the honest
+// answer to "which servers is this argv wiring up": it already carries
+// ctxloom's own server alongside the config- and bundle-supplied ones, which
+// is why it is read there rather than the ctxloom name being appended
+// separately. A server attached but not named is a server a plan agent
+// cannot reach.
 
 func permissionArgs(mode agent.PermissionMode, mcpServers []string) []string {
 	switch mode {
@@ -414,7 +388,7 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	args := make([]string, len(b.Args))
 	copy(args, b.Args)
 
-	args = append(args, permissionArgs(req.Permissions, b.surfaces.mcpServerNames())...)
+	args = append(args, permissionArgs(req.Permissions, mcpServerNames(b.Resolved()))...)
 
 	// The model is resolved by the caller (the fast role's labeled config for
 	// compression, the primary role's for coding); the backend no longer
@@ -450,7 +424,7 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	// no flags are needed. Skipped in minimal/distill mode (SkipSetup), which drops
 	// context and supplies its own --settings/--strict-mcp-config below.
 	if !req.SkipSetup && req.CellKind == agent.CellKindShared {
-		args = append(args, b.surfaces.flagArgs()...)
+		args = append(args, flagArgs(b.Resolved())...)
 	}
 
 	// Minimal mode for distillation/compaction - skip all unnecessary startup.

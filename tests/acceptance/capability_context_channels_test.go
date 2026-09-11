@@ -32,6 +32,7 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
@@ -46,25 +47,23 @@ const channelProbeHarp = "probe-structural-harp"
 // filesystem, selects the context surface at approach, delivers it into a
 // directory, and returns every file that landed with its content.
 //
-// The whole point is that nothing is simulated: this is backends.BuildSurfaces
-// and the backend's own SurfaceFor, the same two calls the launch path makes.
-func deliverContextUnder(t *testing.T, engine string, approach agent.Approach) map[string]string {
+// The whole point is that nothing is simulated: this is backends.Declared
+// and the engine's own declared constructor, the same two calls the launch
+// path makes.
+func deliverContextUnder(t *testing.T, engine string, approach string) map[string]string {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	dir := "/work"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	set := backends.BuildSurfaces(engine, agent.SurfaceInputs{
+	delivery, ok := backends.Declared(engine).Construct(agent.SurfaceContext, approach, agent.SurfaceInputs{
 		Context:   "The nonce for this session is " + channelProbeHarp,
 		Fragments: []*agent.Fragment{{Name: "nonce", Content: "The nonce for this session is " + channelProbeHarp}},
 	}, fs)
-	require.NotNil(t, set, "%s must build a surface set, or this test compares against nothing", engine)
-
-	delivery, err := set.SurfaceFor(agent.SurfaceContext, approach)
-	require.NoError(t, err, "%s must resolve its context surface at %s — the P1 cell that pins it depends on this call succeeding", engine, approach)
+	require.True(t, ok, "%s must construct its context surface at %s — the P1 cell that pins it depends on this call succeeding", engine, approach)
 	require.NotNil(t, delivery)
 
-	_, err = delivery.Deliver(present.ProjectOnHost(dir))
+	_, err := delivery.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	out := map[string]string{}
@@ -85,16 +84,12 @@ func deliverContextUnder(t *testing.T, engine string, approach agent.Approach) m
 
 // TestClaudeHookApproach_DeliversNothing pins the mechanism behind P1's one red.
 //
-// claude's SurfaceFor returns noopContextDelivery for (context, Hook) — a
-// documented no-op, on the reasoning that claude's apply path carries context
-// through the settings-borne inject hook plus a regenerated cache file, so the
-// context surface has nothing extra to write. On a LAUNCH that reasoning does
-// not hold: the context surface is the thing that would have written the cache
-// file, and at this approach it writes nothing.
-//
-// So the red cell is not a broken route. It is a user-selectable approach that
-// delivers zero bytes and reports success — this project's characteristic bug,
-// sitting in the delivery layer, reachable from a config key.
+// claude's context at ApproachHook is the shared agent.HookCarriedContext —
+// a Rider whose own Deliver is a documented no-op: the context rides the
+// settings-borne inject hook plus a cache file, both of which the LAUNCH
+// installs once it sees the rider resolved (LaunchBackend.deliverSet, on
+// every cell). The surface itself therefore writes nothing, and this pins
+// that: if it has started writing, the launch would double the context.
 func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 	files := deliverContextUnder(t, "claude-code", agent.ApproachHook)
 	require.Empty(t, files,
@@ -105,36 +100,37 @@ func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 // structural basis for the side-channel judgement recorded against every P1
 // cell.
 //
-// A workspace=none cell is a SHARED cell, and a shared delivery does not use the
-// well-known write: deliverSet asks the backend for a SharedRealization first —
-// the out-of-cwd conversion — and only falls back to the loud native write when
-// there is none. So "does this cell's DELIVERY put nonce bytes where a
-// workspace search can reach them" is answered here, per (engine, approach),
-// and nowhere else.
+// A workspace=none cell is a SHARED cell, and a shared delivery does not use
+// the well-known write when the approach has an out-of-cwd form
+// (agent.OutOfCwd) — it runs that form — and only falls back to the loud
+// native write when there is none. So "does this cell's DELIVERY put nonce
+// bytes where a workspace search can reach them" is answered here, per
+// (engine, approach), and nowhere else.
 //
 // The answer is lopsided, and the asymmetry is exactly which of claude's cells
 // can be argued side-channel-controlled:
 //
-//	claude  context/system-prompt -> HAS a realization (out-of-cwd scratch)
+//	claude  context/system-prompt -> HAS an out-of-cwd form (the scratch)
 //	claude  context/unsafe-file   -> none: the caller asked for CLAUDE.md
 //	claude  context/hook          -> none: it is a no-op anyway
 //
-// An engine with no realization writes its context INTO the working directory
-// by construction. For a tool-using engine that is a channel, whatever the
-// approach nominally is.
+// An approach with no out-of-cwd form writes its context INTO the working
+// directory by construction. For a tool-using engine that is a channel,
+// whatever the approach nominally is.
 func TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	build := func(engine string) agent.SurfaceSet {
-		return backends.BuildSurfaces(engine, agent.SurfaceInputs{Context: channelProbeHarp}, fs)
+	converts := func(engine, approach string) bool {
+		a, ok := backends.Declared(engine).Construct(agent.SurfaceContext, approach, agent.SurfaceInputs{Context: channelProbeHarp}, fs)
+		require.True(t, ok, "%s must declare context=%s", engine, approach)
+		_, ok = a.(agent.OutOfCwd)
+		return ok
 	}
 
-	_, ok := build("claude-code").SharedRealization(agent.SurfaceContext, agent.ApproachSystemPrompt)
-	require.True(t, ok,
-		"claude's system-prompt approach must keep its out-of-cwd realization: it is the ONE context delivery in the ladder that puts no nonce bytes in the workspace, and P1's side-channel argument for that cell rests entirely on it")
+	require.True(t, converts("claude-code", claude.ApproachSystemPrompt),
+		"claude's system-prompt approach must keep its out-of-cwd form: it is the ONE context delivery in the ladder that puts no nonce bytes in the workspace, and P1's side-channel argument for that cell rests entirely on it")
 
-	_, ok = build("claude-code").SharedRealization(agent.SurfaceContext, agent.ApproachUnsafeFile)
-	require.False(t, ok,
-		"unsafe-file is the caller's explicit request for the native in-workspace write; a realization here would silently convert it and make the two claude cells measure the same thing")
+	require.False(t, converts("claude-code", agent.ApproachUnsafeFile),
+		"unsafe-file is the caller's explicit request for the native in-workspace write; an out-of-cwd form here would silently convert it and make the two claude cells measure the same thing")
 }
 
 func keysOf(m map[string]string) []string {

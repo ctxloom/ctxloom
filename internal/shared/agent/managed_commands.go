@@ -23,6 +23,7 @@ import "github.com/ctxloom/ctxloom/internal/shared/agent/present"
 // and self-describes for that fallback's warning via UnsafeInfo.
 type ManagedCommandsDelivery struct {
 	name     string
+	rel      string // the commands dir beneath the project root, for Present
 	commands []CommandExport
 	write    func(dir string, commands []CommandExport) error
 }
@@ -31,9 +32,17 @@ type ManagedCommandsDelivery struct {
 // engine/surface name (e.g. "kiro/commands", for the shared-cwd fallback
 // warning), the enabled exports, and the engine's manifest-scoped
 // command-file writer, bound so that write(dir, commands) materializes the
-// exports under dir and write(dir, nil) reverts exactly the managed set.
-func NewManagedCommandsDelivery(name string, commands []CommandExport, write func(dir string, commands []CommandExport) error) *ManagedCommandsDelivery {
-	return &ManagedCommandsDelivery{name: name, commands: commands, write: write}
+// exports under dir and write(dir, nil) reverts exactly the managed set. rel
+// is the commands directory the writer lands in, relative to the project
+// root — what Present declares.
+func NewManagedCommandsDelivery(name, rel string, commands []CommandExport, write func(dir string, commands []CommandExport) error) *ManagedCommandsDelivery {
+	return &ManagedCommandsDelivery{name: name, rel: rel, commands: commands, write: write}
+}
+
+// Present declares the commands directory beneath the advised project root.
+// No flag: an engine finds its command files by name.
+func (s *ManagedCommandsDelivery) Present(start present.Start) present.Presentation {
+	return start.UnderProjectRoot(s.rel).Build()
 }
 
 // UnsafeInfo returns the engine/surface identity for the DeliverShared fallback's
@@ -56,7 +65,7 @@ func (s *ManagedCommandsDelivery) Deliver(start present.Start) (Delivered, error
 
 // Compile-time contract.
 var (
-	_ Delivery       = (*ManagedCommandsDelivery)(nil)
+	_ Approach       = (*ManagedCommandsDelivery)(nil)
 	_ KindedDelivery = (*ManagedCommandsDelivery)(nil)
 	_ Delivered      = DeliveredFunc(nil)
 )

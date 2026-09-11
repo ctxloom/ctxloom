@@ -2,7 +2,7 @@ package operations
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -22,54 +22,33 @@ import (
 // system-prompt is claude-only; an agent bound to any other engine and naming
 // it has made a mistake worth hearing about, and silently giving it that
 // engine's own delivery instead would teach it the request had worked.
-func ResolveAgentSurfaces(engine string, declared map[string]string) (map[agent.SurfaceKind]agent.Approach, error) {
+func ResolveAgentSurfaces(engine string, declared map[string]string) (map[agent.SurfaceKind]string, error) {
 	if len(declared) == 0 {
 		return nil, nil
 	}
-	set, serr := backends.SurfacesFor(engine)
+	decl, serr := backends.SurfacesFor(engine)
 	if serr != nil {
 		return nil, fmt.Errorf("surfaces: %w", serr)
 	}
-	out := make(map[agent.SurfaceKind]agent.Approach, len(declared))
+	out := make(map[agent.SurfaceKind]string, len(declared))
 	for name, approach := range declared {
 		kind, err := agent.ParseSurfaceKind(strings.TrimSpace(name))
 		if err != nil {
 			return nil, fmt.Errorf("surfaces: %w", err)
 		}
-		a, aerr := agent.ParseApproach(strings.TrimSpace(approach))
-		if aerr != nil {
-			return nil, fmt.Errorf("surfaces %s: %w", name, aerr)
-		}
-		supported := set.SupportedApproaches(kind)
-		if !containsApproach(supported, a) {
+		approach = strings.TrimSpace(approach)
+		supported := decl.Names(kind)
+		if !slices.Contains(supported, approach) {
+			// Names is already sorted, so the message is stable; an empty set
+			// is a FOLD (the engine carries this kind inside another surface).
+			supports := strings.Join(supported, ", ")
+			if supports == "" {
+				supports = "none — this engine folds the surface into another"
+			}
 			return nil, fmt.Errorf("surfaces %s=%s: %s does not support it (supports: %s)",
-				name, approach, engine, approachList(supported))
+				name, approach, engine, supports)
 		}
-		out[kind] = a
+		out[kind] = approach
 	}
 	return out, nil
-}
-
-func containsApproach(in []agent.Approach, want agent.Approach) bool {
-	for _, a := range in {
-		if a == want {
-			return true
-		}
-	}
-	return false
-}
-
-// approachList renders an engine's supported approaches for an error a human
-// reads. Sorted by NAME so the message is stable — the declaration order is
-// meaningful to the code (first is the at-rest default) and meaningless here.
-func approachList(in []agent.Approach) string {
-	if len(in) == 0 {
-		return "none — this engine folds the surface into another"
-	}
-	names := make([]string, 0, len(in))
-	for _, a := range in {
-		names = append(names, a.String())
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
 }

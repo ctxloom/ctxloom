@@ -7,13 +7,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 func TestParseSurfaceOverrides_ParsesPairsAndRejectsNamesThatExistNowhere(t *testing.T) {
 	got, err := parseSurfaceOverrides([]string{"context=unsafe-file", "skills=hook"})
 	require.NoError(t, err)
-	assert.Equal(t, map[agent.SurfaceKind]agent.Approach{
+	assert.Equal(t, map[agent.SurfaceKind]string{
 		agent.SurfaceContext: agent.ApproachUnsafeFile,
 		agent.SurfaceSkills:  agent.ApproachHook,
 	}, got)
@@ -31,12 +32,12 @@ func TestParseSurfaceOverrides_ParsesPairsAndRejectsNamesThatExistNowhere(t *tes
 	}
 }
 
-// TestParseSurfaceOverrides_TyposDoNotResolveToTheZeroValue is the reason both
-// parsers return an error instead of a zero value. SurfaceContext is iota 0 and
-// ApproachUnsafeFile is iota 0 — and unsafe-file is the LEAST safe approach, the
-// one whose own doc calls choosing it a race acknowledgment. A parser that
-// swallowed a typo would silently aim an override at the context surface and
-// elect a well-known shared-cwd write nobody asked for.
+// TestParseSurfaceOverrides_TyposDoNotResolveToTheZeroValue is the reason the
+// kind parser returns an error instead of a zero value — SurfaceContext is
+// iota 0, so a swallowed typo would silently aim an override at the context
+// surface — and the reason an approach name is checked against what SOME
+// registered engine declares: a near-miss must fail rather than travel on as
+// a name no engine can construct.
 func TestParseSurfaceOverrides_TyposDoNotResolveToTheZeroValue(t *testing.T) {
 	_, err := parseSurfaceOverrides([]string{"kontext=hook"})
 	require.Error(t, err)
@@ -47,11 +48,12 @@ func TestParseSurfaceOverrides_TyposDoNotResolveToTheZeroValue(t *testing.T) {
 	require.Error(t, err, "underscore is not the spelling; a near-miss must fail rather than resolve to iota 0")
 }
 
-// TestParseSurfaceOverrides_ErrorTextIsDerivedFromTheEnums pins that the "known"
-// lists are generated, not restated. They were hand-written first, which is
-// three copies of one enumeration and the shape that goes stale the next time a
-// surface kind is added.
-func TestParseSurfaceOverrides_ErrorTextIsDerivedFromTheEnums(t *testing.T) {
+// TestParseSurfaceOverrides_ErrorTextIsDerivedFromTheDeclarations pins that
+// the "known" lists are generated, not restated: the kinds from the enum, the
+// approach names from every registered engine's Declaration. They were
+// hand-written first, which is three copies of one enumeration and the shape
+// that goes stale the next time a surface kind or an approach is added.
+func TestParseSurfaceOverrides_ErrorTextIsDerivedFromTheDeclarations(t *testing.T) {
 	_, err := parseSurfaceOverrides([]string{"nope=hook"})
 	require.Error(t, err)
 	for _, name := range agent.SurfaceKindNames() {
@@ -61,9 +63,11 @@ func TestParseSurfaceOverrides_ErrorTextIsDerivedFromTheEnums(t *testing.T) {
 
 	_, err = parseSurfaceOverrides([]string{"context=nope"})
 	require.Error(t, err)
-	for _, name := range agent.ApproachNames() {
+	known := backends.KnownApproachNames()
+	require.NotEmpty(t, known)
+	for _, name := range known {
 		assert.Contains(t, err.Error(), name,
-			"every approach the enum declares must appear in the error a user reads")
+			"every approach some engine declares must appear in the error a user reads")
 	}
 }
 

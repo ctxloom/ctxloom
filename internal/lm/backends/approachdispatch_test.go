@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 )
 
 // allSurfaceKinds is every kind the SurfaceSelection builder can ask a backend
@@ -23,10 +24,10 @@ var allSurfaceKinds = []agent.SurfaceKind{
 	agent.SurfaceKind(99),
 }
 
-// nativeSurfaceBackends is every registered backend with a REAL (non-Empty)
-// SurfaceSet — exactly the backends BuildSurfaces answers with something other
-// than agent.EmptySurfaceSet, which is the same `newSurfaces != nil` predicate
-// BuildSurfaces itself branches on.
+// nativeSurfaceBackends is every registered backend with a REAL (non-empty)
+// Declaration — exactly the backends Declared answers with something other
+// than an empty agent.Declaration, which is the same `surfaces != nil`
+// predicate Declared itself branches on.
 //
 // DERIVED from the registry rather than listed. A hand-written roster of engine
 // names silently stops covering a backend the moment one is added, and silently
@@ -41,68 +42,95 @@ func nativeSurfaceBackends(t *testing.T) []string {
 	t.Helper()
 	var names []string
 	for name, d := range descriptors {
-		if d.newSurfaces != nil {
+		if d.surfaces != nil {
 			names = append(names, name)
 		}
 	}
 	sort.Strings(names)
-	require.NotEmpty(t, names, "no registered backend has a real SurfaceSet; this gate would range over nothing")
+	require.NotEmpty(t, names, "no registered backend has a real Declaration; this gate would range over nothing")
 	return names
 }
 
-// TestApproachDispatch_DefaultIsFirstSupported is the parity gate for
-// approach dispatch.
+// TestApproachDispatch_DefaultIsDeclared is the parity gate for every
+// engine's Declaration: for every kind an engine declares, its default is one
+// of the names it declares — a NAMED default, compared by identity. It
+// deliberately does NOT assert a position: Names() is sorted and carries no
+// meaning, and no reader anywhere needs the default first (help and
+// completion mark it by identity, the builder checks membership). The
+// older "default is the FIRST advertised approach" contract was the bridge
+// between two vocabularies; with one vocabulary there is nothing to bridge.
 //
-// Written per backend, SupportedApproaches and DefaultApproach come to SIX
-// bodies — once per (backend × method) — each a one-liner naming that backend's
-// own table. Six hand-written bodies can disagree with each other and with the
-// contract cells.go states for them: "DefaultApproach reports the approach WithEverything
-// selects for kind — the backend's native realization. false means kind is
-// absent/folded for this backend."
-//
-// This test states that contract ONCE and holds every one of them to it, so the
-// single shared agent.TableDispatch carrier is checked against behaviour rather
-// than against a diff. It is deliberately written against the
-// agent.SurfaceSet interface, not against any backend's concrete Surfaces, so it
-// keeps gating a backend added later.
-func TestApproachDispatch_DefaultIsFirstSupported(t *testing.T) {
+// It is written against agent.Declaration, not against any backend's concrete
+// types, so it keeps gating a backend added later.
+func TestApproachDispatch_DefaultIsDeclared(t *testing.T) {
 	for _, name := range nativeSurfaceBackends(t) {
 		t.Run(name, func(t *testing.T) {
-			set := BuildSurfaces(name, agent.SurfaceInputs{Context: "ctx"}, afero.NewMemMapFs())
+			decl := Declared(name)
 
-			anySupported := false
+			anyDeclared := false
 			for _, kind := range allSurfaceKinds {
-				supported := set.SupportedApproaches(kind)
-				def, ok := set.DefaultApproach(kind)
+				names := decl.Names(kind)
+				def, ok := decl.Default(kind)
 
-				if len(supported) == 0 {
-					assert.False(t, ok, "%s: %s advertises no approach, so DefaultApproach must report absent/folded", name, kind)
+				if len(names) == 0 {
+					assert.False(t, ok, "%s: %s declares no approach, so Default must report absent/folded", name, kind)
 					continue
 				}
-				anySupported = true
-				assert.True(t, ok, "%s: %s advertises approaches, so it must have a default", name, kind)
-				assert.Equal(t, supported[0], def,
-					"%s: %s's default must be the FIRST declared approach (cells.go's stated contract)", name, kind)
+				anyDeclared = true
+				assert.True(t, ok, "%s: %s declares approaches, so it must have a default", name, kind)
+				assert.Contains(t, names, def,
+					"%s: %s's default must be one of its declared names", name, kind)
 			}
-			assert.True(t, anySupported, "%s: a native-surface backend must advertise at least one approach", name)
+			assert.True(t, anyDeclared, "%s: a native-surface backend must declare at least one approach", name)
 		})
 	}
 }
 
-// TestApproachDispatch_SupportedIsResolvable pins the other half of the pair:
-// every approach a backend ADVERTISES must actually resolve to a concrete
-// surface via SurfaceFor. An advertised-but-unresolvable approach is the
-// silent-no-op shape — Build() accepts the selection and the delivery writes
-// nothing.
-func TestApproachDispatch_SupportedIsResolvable(t *testing.T) {
+// TestApproachDispatch_DeclaredIsConstructible pins the other half of the
+// pair: every name a backend DECLARES must actually construct a non-nil
+// Approach that presents somewhere. A declared-but-unconstructible name is
+// the silent-no-op shape — Build accepts the selection and the delivery
+// writes nothing.
+func TestApproachDispatch_DeclaredIsConstructible(t *testing.T) {
 	for _, name := range nativeSurfaceBackends(t) {
 		t.Run(name, func(t *testing.T) {
-			set := BuildSurfaces(name, agent.SurfaceInputs{Context: "ctx"}, afero.NewMemMapFs())
+			decl := Declared(name)
 			for _, kind := range allSurfaceKinds {
-				for _, a := range set.SupportedApproaches(kind) {
-					d, err := set.SurfaceFor(kind, a)
-					assert.NoError(t, err, "%s: %s advertises %s but SurfaceFor rejects it", name, kind, a)
-					assert.NotNil(t, d, "%s: %s via %s resolved to a nil Delivery", name, kind, a)
+				for _, n := range decl.Names(kind) {
+					a, ok := decl.Construct(kind, n, agent.SurfaceInputs{Context: "ctx"}, afero.NewMemMapFs())
+					require.True(t, ok, "%s: %s declares %s but Construct rejects it", name, kind, n)
+					require.NotNil(t, a, "%s: %s via %s constructed a nil Approach", name, kind, n)
+					// Present must not panic against advised roots; a Rider may
+					// legitimately present nothing.
+					_ = a.Present(present.ProjectOnHost("/p"))
+				}
+			}
+		})
+	}
+}
+
+// TestApproachDispatch_SharedPreferenceIsUnambiguous guards the one arm of
+// the shared-cwd default derivation that fails loud at launch: a kind
+// declaring MORE THAN ONE approach with an out-of-cwd form, none of them the
+// default. No registered engine may reach it — an engine that rich has to
+// name its preference, and this is where that requirement is checked before
+// a user finds it at launch.
+func TestApproachDispatch_SharedPreferenceIsUnambiguous(t *testing.T) {
+	for _, name := range nativeSurfaceBackends(t) {
+		t.Run(name, func(t *testing.T) {
+			decl := Declared(name)
+			for _, kind := range allSurfaceKinds {
+				var converting []string
+				def, _ := decl.Default(kind)
+				for _, n := range decl.Names(kind) {
+					a, _ := decl.Construct(kind, n, agent.SurfaceInputs{Context: "ctx"}, afero.NewMemMapFs())
+					if _, ok := a.(agent.OutOfCwd); ok {
+						converting = append(converting, n)
+					}
+				}
+				if len(converting) > 1 {
+					assert.Contains(t, converting, def,
+						"%s: %s declares several out-of-cwd approaches (%v); its default must be one of them", name, kind, converting)
 				}
 			}
 		})

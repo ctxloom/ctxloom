@@ -60,13 +60,18 @@ type LaunchBackend struct {
 	context   HashedContext
 	history   SessionHistory
 
-	// delivery routes launch-time surface delivery through the surfaces × typed-
-	// cells seam. Every launch backend supplies one at InitLaunch (acp an empty-set
-	// one — it materializes no files); Setup builds the backend's SurfaceSet from
-	// the merged state and delivers it through the cell named by req.CellKind,
-	// recording the returned handles in delivered for teardown. A nil delivery is a
-	// misconfigured backend, so Setup no-ops rather than panics.
-	delivery *CellDelivery
+	// surfaces is the engine's static Declaration: which approaches it
+	// constructs for each surface kind. Setup selects from it, constructs the
+	// selected approaches from the merged state, and delivers them through the
+	// cell named by req.CellKind, recording the returned handles in delivered
+	// for teardown. A protocol-only engine that materializes no files declares
+	// nothing (an empty Declaration); a nil one is a misconfigured backend and
+	// Setup fails loudly rather than reporting success while setting up nothing.
+	surfaces Declaration
+	// resolved is the selection Setup built and delivered for the current run,
+	// exposed via Resolved so an engine can read what its own approaches
+	// recorded (claude's out-of-cwd file paths) when it builds argv.
+	resolved *ResolvedSelection
 	// extraEnv, when set, contributes per-backend child-env entries on top of the
 	// shared ExecuteEnv (the request env + the SCM context-file path) — the seam a
 	// cell-aware backend (codex's cell-scoped CODEX_HOME) uses to compute env from
@@ -79,15 +84,19 @@ type LaunchBackend struct {
 
 // InitLaunch wires the constructed capabilities into the base. Call it from the
 // concrete constructor once the capabilities (which usually close over the
-// concrete backend) have been built. delivery configures cell-based surface
-// delivery (claude/codex/kiro); pass nil for a backend that keeps
-// the legacy lifecycle path (acp).
-func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, ctxProvider HashedContext, history SessionHistory, delivery *CellDelivery) {
+// concrete backend) have been built. surfaces is the engine's Declaration of
+// the approaches it delivers at launch.
+func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, ctxProvider HashedContext, history SessionHistory, surfaces Declaration) {
 	b.lifecycle = lifecycle
 	b.context = ctxProvider
 	b.history = history
-	b.delivery = delivery
+	b.surfaces = surfaces
 }
+
+// Resolved returns the selection Setup built and delivered for the current
+// run, or nil before Setup ran (or when it delivered nothing). An engine reads
+// it to learn what its own approaches recorded — never to deliver again.
+func (b *LaunchBackend) Resolved() *ResolvedSelection { return b.resolved }
 
 // SetExecuteEnv registers a per-backend child-env contributor merged into
 // ExecuteEnv. A cell-aware backend (codex) uses it to inject cell-scoped env
@@ -189,85 +198,54 @@ func (b *LaunchBackend) contextFilePath() string {
 // Setup prepares the backend for execution. The host resolves ctxloom
 // config/bundles and ships the result in req.Managed, so Setup consumes only the
 // wire-typed payload — it never imports config/bundles. Every launch backend
-// supplies a CellDelivery at InitLaunch (a protocol-only backend like acp an empty
-// one), so Setup builds the backend's SurfaceSet from the merged state and
-// delivers it through the cell named by req.CellKind. A nil delivery is a
-// misconfigured backend (InitLaunch was called without one) — never a
-// legitimate "nothing to do" — so it fails loudly rather than reporting
-// success while setting up nothing.
+// supplies its Declaration at InitLaunch (a protocol-only backend an empty
+// one), so Setup selects from it, constructs from the merged state, and
+// delivers through the cell named by req.CellKind. A nil Declaration is a
+// misconfigured backend (InitLaunch was never called) — never a legitimate
+// "nothing to do" — so it fails loudly rather than reporting success while
+// setting up nothing.
 func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
-	if b.delivery == nil {
-		return fmt.Errorf("%s: misconfigured backend: InitLaunch was called with a nil CellDelivery", b.Name())
+	if b.surfaces == nil {
+		return fmt.Errorf("%s: misconfigured backend: InitLaunch was never called, so this backend declares no surfaces", b.Name())
 	}
 	return b.setupViaCells(req)
 }
 
 // setupViaCells is the generic surfaces × typed-cells Setup shared by every
 // launch backend that routes delivery through the seam. It prepares the
-// engine-consumed files in three steps:
+// engine-consumed files in two steps:
 //
-//  1. RawContext pre-step — the file/hook engines (codex/kiro)
-//     materialize the content-addressed cache file (agent.WriteContextFile via
-//     Provide) and the CTXLOOM_CONTEXT_FILE env path. codex ALSO keys the
-//     SessionStart context-injection hook to that hash (ContextHook) — and because
-//     the cache file is on disk BEFORE MergeManaged runs, NewContextInjectionHooks
-//     reads it and makes its chunk decision against the actual file.
-//     kiro diverts context to AGENTS.md/steering (its context
-//     surface), so its hook hash stays "". claude leaves RawContext false: its
-//     context rides an out-of-cwd flag or a well-known CLAUDE.md, never the cache
-//     file.
-//  2. MergeManaged folds the host-assembled config/bundle payload into the
-//     lifecycle (the merge engine) keyed by contextHash.
-//  3. The backend's Build closure turns the merged state into its SurfaceSet, the
-//     run's roots are resolved and advised ONCE, and the cell named by
-//     req.CellKind delivers each surface against them — a SharedCell over the
-//     race-safe set (out-of-cwd flag files / warned Unsafe), an isolated cell over
-//     the well-known set (native files in the private dir).
+//  1. MergeManaged folds the host-assembled config/bundle payload into the
+//     lifecycle (the merge engine).
+//  2. The selection is built from the engine's Declaration and the merged
+//     state, the run's roots are resolved and advised ONCE, and the cell named
+//     by req.CellKind delivers each surface against them — a SharedCell over
+//     the race-safe set (out-of-cwd flag files / warned Unsafe), an isolated
+//     cell over the well-known set (native files in the private dir).
 //
-// The req.Managed == nil short-circuit and the LIFO Cleanup are preserved.
+// Context that rides a hook (an approach declaring Rider for the context
+// surface) is installed by deliverSet once the selection is known, on every
+// cell, so there is no pre-step here and nothing for one to get wrong.
 func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
-	d := b.delivery
-
-	// 0. Enforce CellDelivery.ContextHook's stated precondition. The hook is keyed
-	// to the RawContext cache file's hash, so without RawContext there is no hash
-	// and no file: contextHash below stays "", MergeManaged appends no injection
-	// hook, and the session launches with NO context while Setup reports success.
-	// That is a misconfigured backend, not a legitimate "no context" case (which is
-	// ContextHook false), so it fails loudly — same call as the mergedState
-	// accessor check below.
-	if d.ContextHook && !d.RawContext {
-		return fmt.Errorf("backend delivery sets ContextHook without RawContext: the SessionStart injection hook is keyed to the RawContext cache file, so no hook can be installed")
-	}
-
-	// 1. RawContext pre-step (codex/kiro).
-	contextHash := ""
-	if d.RawContext {
-		if err := b.context.Provide(b.WorkDir(), req.Fragments); err != nil {
-			return fmt.Errorf("failed to provide context: %w", err)
-		}
-		if d.ContextHook {
-			contextHash = b.context.GetContextHash()
-		}
-	}
-
 	// A NIL payload means the config failed to load and the run degraded
 	// through, so this returns without touching any surface — deliver nothing,
 	// retract nothing. An EMPTY payload is a different fact and deliberately
 	// does NOT stop here: it flows on to the writers, which reconcile to it and
 	// retract what ctxloom installed last round. SetupRequest.Managed defines
 	// both, and the difference is the whole reason this is not a len() check.
-	//
-	// The RawContext cache file, when written above, stands alone either way.
 	if req.Managed == nil {
 		return nil
 	}
 
-	// 2. Fold the host-assembled hooks + MCP into the lifecycle (the merge engine).
-	// contextHash appends the injection hook only for the hook engine (codex).
-	b.lifecycle.MergeManaged(req.Managed, b.WorkDir(), contextHash)
+	// 1. Fold the host-assembled hooks + MCP into the lifecycle (the merge
+	// engine). The context hash is "" here: hook-carried context is installed
+	// AFTER the selection resolves (deliverSet), against these same merged
+	// hooks, so it lands only when the selected context approach actually
+	// rides the hook.
+	b.lifecycle.MergeManaged(req.Managed, b.WorkDir(), "")
 
-	// 3. Read the merged hooks + MCP so the settings/config surfaces write exactly
+	// 2. Read the merged hooks + MCP so the settings/config surfaces write exactly
 	// the merged state. `ok` used to be discarded, so a lifecycle lacking
 	// the accessors (every production backend embeds BaseLifecycle, which has both —
 	// this is defense against a future one that doesn't) fell through to building
@@ -298,8 +276,6 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 		DenyTools:          req.Managed.DenyTools,
 	}
 
-	set := d.Build(inputs)
-
 	// The run's roots, resolved and advised ONCE, before any surface runs. The
 	// project root is the working dir; Scratch is where a SharedCell's race-safe
 	// surfaces land (the session's PRIVATE ephemeral dir, out of the shared
@@ -319,7 +295,7 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 		Scratch:     present.Root{Host: scratch},
 	}))
 
-	return b.deliverSet(set, req, start)
+	return b.deliverSet(inputs, req, start)
 }
 
 // assembleSurfaceContext assembles the context a surface-delivering backend
@@ -343,136 +319,152 @@ func assembleSurfaceContext(fragments []*Fragment) (string, error) {
 	return assembled, nil
 }
 
-// preferSharedRealization retargets kind's currently-selected approach (as
-// WithEverything left it — the backend's table default) to the first
-// backend-supported approach that HAS a shared realization, when the
-// currently-selected approach does not have one. It is deliverSet's
-// SharedCell default-derivation step (U100-F05) and nothing else calls it: an
-// at-rest selection (DeliverUnder / profile materialize) never reaches this
-// method, so its table default (claude context's unsafe-file) is untouched
-// there, and profile_materialize.go's explicit
-// WithApproach(SurfaceContext, ApproachUnsafeFile) still names its own
-// default independently. For claude this turns the table default (unsafe-file
-// — approach.go:44-50 explains why no table order can make system-prompt the
-// default there) into system-prompt for a no-preference SHARED launch,
-// preserving the scratch-write behaviour every claude launch had before this
-// pair-key existed. mcp/settings already realize at their sole approach, so
-// this is a no-op for them; a backend with no realization at all (codex/kiro/
-// opencode/mock) leaves every kind exactly as WithEverything set it.
-func (s *SurfaceSelection) preferSharedRealization(kind SurfaceKind) {
-	cur, ok := s.approaches[kind]
+// preferOutOfCwd is the SharedCell default-derivation step: a SHARED-cwd
+// launch with no explicit per-surface preference should still prefer a
+// race-safe form over the at-rest default (the native file) — that default
+// exists for DeliverUnder, which has no argv sink for anything else, not for a
+// launch, which does. The current selection is kept when the selected
+// approach already has an OutOfCwd form; otherwise the kind's declared
+// approaches are constructed and the one that has one is chosen.
+//
+// Whether an approach converts is read from the constructed VALUE
+// (OutOfCwd), never from a name, so an engine's own naming decides nothing
+// here. Two candidates is an ambiguity nothing can resolve silently: the
+// default wins if it is one of them, otherwise the launch is refused naming
+// both — a declaration that rich has to say which it prefers. No registered
+// engine reaches that arm (TestApproachDispatch_SharedPreferenceIsUnambiguous).
+func (s *SurfaceSelection) preferOutOfCwd(kind SurfaceKind, in SurfaceInputs) error {
+	cur, ok := s.names[kind]
 	if !ok {
-		return
+		return nil
 	}
-	if _, ok := s.set.SharedRealization(kind, cur); ok {
-		return
+	p, ok := s.decl[kind]
+	if !ok {
+		return nil
 	}
-	for _, a := range s.set.SupportedApproaches(kind) {
-		if _, ok := s.set.SharedRealization(kind, a); ok {
-			s.approaches[kind] = a
-			return
+	if a, ok := p.Construct(cur, in, nil); ok {
+		if _, converts := a.(OutOfCwd); converts {
+			return nil
 		}
+	}
+	var candidates []string
+	for _, name := range p.Names() {
+		a, ok := p.Construct(name, in, nil)
+		if !ok {
+			continue
+		}
+		if _, converts := a.(OutOfCwd); converts {
+			candidates = append(candidates, name)
+		}
+	}
+	switch len(candidates) {
+	case 0:
+		return nil
+	case 1:
+		s.names[kind] = candidates[0]
+		return nil
+	default:
+		for _, name := range candidates {
+			if name == p.Default() {
+				s.names[kind] = name
+				return nil
+			}
+		}
+		return fmt.Errorf("surface %s: %s declares more than one out-of-cwd approach (%s) and none of them is its default — the declaration must name the preferred one", kind, p.Engine(), strings.Join(candidates, ", "))
 	}
 }
 
-// deliverSet delivers every surface of set through the cell named by
-// req.CellKind, recording each returned handle so Cleanup can reverse it (LIFO).
-// A SharedCell takes the race-safe set (out-of-cwd flag files, or a warned Unsafe
-// well-known write) prepared for the live working dir; an isolated cell takes the
-// plain well-known set written into its private directory (the working dir, which
-// the worktree/container private-checkout makes non-racy).
+// deliverSet selects from the engine's Declaration, constructs the selected
+// approaches from in, and delivers each through the cell named by
+// req.CellKind, recording each returned handle so Cleanup can reverse it
+// (LIFO). A SharedCell takes the race-safe set (out-of-cwd flag files, or a
+// warned Unsafe well-known write) prepared for the live working dir; an
+// isolated cell takes the plain well-known set written into its private
+// directory (the working dir, which the worktree/container private-checkout
+// makes non-racy).
+//
+// Hook-carried context (a context approach declaring Rider) is installed
+// HERE, on every cell: the cache file is materialized and the injection hook
+// appended to the merged hooks the not-yet-delivered settings surface then
+// writes. It used to be installed only on the SharedCell arm, so a worktree or
+// container launch pinned to the hook approach wrote the hook nowhere and
+// launched a context-less session while Setup reported success.
 //
 // Fault tolerance (CLAUDE.md, item 6): for a flag-context backend (claude) the
 // context surface is FIRST, and its out-of-cwd scratch write is the one delivery
-// whose loss would strand the user's context. If it fails, fall back to the legacy
-// SessionStart injection hook — Provide the raw cache file and append the injection
-// hook to the shared merged hooks, which the not-yet-delivered settings surface
-// then writes — rather than launching a context-less session.
-// req is NON-NIL: the sole caller has already dereferenced it (req.Fragments,
-// req.Managed.BundleMCP, req.CellKind) to build the set it passes here, so a nil
-// req would have panicked well before this call. Two `req != nil` guards used to
-// sit either side of the CellKindShared block below, which dereferences req
-// unconditionally — staticcheck read that ordering as "the author thinks this can
-// be nil, and then derefs it anyway" (SA5011). Guarding the middle block would
-// have encoded a contract the caller cannot honor; stating the contract is the
-// truthful fix.
-func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest, start present.Start) error {
+// whose loss would strand the user's context. If it fails, fall back to the
+// SessionStart injection hook — Provide the raw cache file and append the
+// injection hook to the shared merged hooks, which the not-yet-delivered
+// settings surface then writes — rather than launching a context-less session.
+// req is NON-NIL: the sole caller has already dereferenced it.
+func (b *LaunchBackend) deliverSet(in SurfaceInputs, req *SetupRequest, start present.Start) error {
 	// Launch delivers the WHOLE surface set, so it drives the builder over the same
 	// full selection materialize/apply use — the builder is the single selection
-	// input everywhere. Launch KEEPS its own cell machinery (a SharedCell over the
-	// SharedRealization-converted / warned-native set, an isolated cell over the
-	// well-known set): only the surface LIST is derived from the selection, not the
-	// cell/placement choice.
-	sel := Select(set).WithEverything()
+	// input everywhere. Launch KEEPS its own cell machinery: only the surface
+	// LIST is derived from the selection, not the cell/placement choice.
+	sel := Select(b.surfaces).WithEverything()
 	explicit := map[SurfaceKind]bool{}
-	if req.Managed != nil {
-		for kind := range req.Managed.Surfaces {
-			explicit[kind] = true
-		}
+	for kind := range req.Managed.Surfaces {
+		explicit[kind] = true
 	}
-	// U100-F05's default-derivation step: a SHARED-cwd launch with no explicit
-	// per-surface preference should still prefer a race-safe realization over
-	// the table's at-rest default (unsafe-file) — that default exists for
-	// DeliverUnder, which has no argv sink for anything else, not for a launch,
-	// which does. Restricted to CellKindShared (an isolated cell's well-known
-	// write is already race-free by construction — see Deliveries' doc — so
-	// there is nothing to prefer) and skipped for any kind the caller named
-	// explicitly (req.Managed.Surfaces, applied below): an explicit
-	// context=unsafe-file preference must be HONORED, not silently converted
-	// back to the scratch (the fork DECIDED for U100-F05).
+	// Restricted to CellKindShared (an isolated cell's well-known write is
+	// already race-free by construction — see Deliveries' doc — so there is
+	// nothing to prefer) and skipped for any kind the caller named explicitly
+	// (req.Managed.Surfaces, applied below): an explicit context=unsafe-file
+	// preference must be HONORED, not silently converted back to the scratch.
 	if req.CellKind == CellKindShared {
-		for kind := range sel.approaches {
-			if !explicit[kind] {
-				sel.preferSharedRealization(kind)
+		for kind := range sel.names {
+			if explicit[kind] {
+				continue
+			}
+			if err := sel.preferOutOfCwd(kind, in); err != nil {
+				return err
 			}
 		}
 	}
 	// The agent binding's preference, applied where it is actually valid: a
-	// launch has the argv sink system-prompt needs, which is exactly why this
-	// belongs on the agent rather than in the engine's table (an at-rest
-	// DeliverUnder inheriting it would fail for want of one).
-	if req.Managed != nil {
-		for kind, approach := range req.Managed.Surfaces {
-			sel = sel.WithApproach(kind, approach)
-		}
+	// launch has the argv sink a flag-announced approach needs, which is
+	// exactly why this belongs on the agent rather than in the engine's
+	// declaration (an at-rest DeliverUnder inheriting it would fail for want
+	// of one).
+	for kind, name := range req.Managed.Surfaces {
+		sel = sel.With(kind, name)
 	}
-	resolved, err := sel.Build()
+	resolved, err := sel.Build(in, nil)
 	if err != nil {
 		return err
+	}
+	b.resolved = resolved
+
+	// installHook: a resolved context approach that RIDES the hooks surface
+	// carries nothing itself — the launch installs the hook it rides on. Same
+	// on every cell.
+	installHook := func(rs resolvedSurface) error {
+		if rs.kind != SurfaceContext {
+			return nil
+		}
+		if _, rider := rs.approach.(Rider); !rider {
+			return nil
+		}
+		if !b.installContextInjectionHook(req) {
+			return fmt.Errorf("failed to install the context-injection hook for surface %s", rs.kind)
+		}
+		return nil
 	}
 
 	if req.CellKind == CellKindShared {
 		for _, rs := range resolved.surfaces {
 			d, err := resolved.deliverOneShared(rs, start)
 			if err != nil {
-				// This used to be matched by INDEX 0 rather than by kind, coupling
-				// this loop to cells.go's surfaceOrder by position — a backend with
-				// no distinct context surface (its context rides another surface)
-				// has resolved.surfaces[0] be something else (MCP), and that
-				// surface's failure was misidentified as the context failure this
-				// fallback exists for.
-				if rs.kind == SurfaceContext && !b.delivery.RawContext && b.recoverContextViaHook(req, err) {
+				// Matched by KIND, not by index: a backend with no distinct
+				// context surface has resolved.surfaces[0] be something else.
+				if rs.kind == SurfaceContext && b.recoverContextViaHook(req, err) {
 					continue
 				}
 				return fmt.Errorf("failed to deliver surface into shared cwd: %w", err)
 			}
-			// A caller-selected ApproachHook context surface delivers successfully
-			// as a documented no-op WRITE (noopContextDelivery: err==nil, d==nil) —
-			// the design intent is that the settings-carried SessionStart hook
-			// itself carries the context, but nothing installs that hook unless
-			// something does so here. Without this, the err==nil branch above never
-			// runs recoverContextViaHook (it fires only on a write FAILURE), so a
-			// deliberately-pinned hook approach silently launched a context-less
-			// session while Setup reported success — CONTEXT-DELIVERY was
-			// measured empty though assembly and hook-firing both succeeded.
-			// Scoped to SharedCell/SurfaceContext/ApproachHook exactly like the
-			// failure fallback above; !b.delivery.RawContext guards a future
-			// RawContext-and-Hook backend, whose setupViaCells pre-step already
-			// installed the hook, from a double append.
-			if rs.kind == SurfaceContext && rs.approach == ApproachHook && !b.delivery.RawContext {
-				if !b.installContextInjectionHook(req) {
-					return fmt.Errorf("failed to install the context-injection hook for surface %s", rs.kind)
-				}
+			if err := installHook(rs); err != nil {
+				return err
 			}
 			if d != nil { // a no-op delivery (wrote nothing) holds no cleanup handle
 				b.delivered = append(b.delivered, d)
@@ -481,16 +473,14 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest, start pres
 		return nil
 	}
 
-	// DirectoryIsolatedCell/ProcessIsolatedCell used to be two distinct
-	// types chosen between here on req.CellKind, but both were
-	// `isolatedCell{dir}` with no added field or method — the branch had no
-	// observable effect. Collapsed to one IsolatedCell; the CellKind
-	// distinction survives where it actually matters (buildArgs/env).
 	cell := NewIsolatedCell(start)
-	for _, kd := range resolved.Deliveries() {
-		d, err := cell.Deliver(kd)
+	for _, rs := range resolved.surfaces {
+		d, err := cell.Deliver(rs.approach)
 		if err != nil {
 			return fmt.Errorf("failed to deliver surface: %w", err)
+		}
+		if err := installHook(rs); err != nil {
+			return err
 		}
 		if d != nil { // a no-op delivery (wrote nothing) holds no cleanup handle
 			b.delivered = append(b.delivered, d)

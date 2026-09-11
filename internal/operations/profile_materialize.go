@@ -39,7 +39,7 @@ type MaterializeProfileRequest struct {
 	// naming what the engine does support. It is not silently downgraded to the
 	// default: a caller who asked for a file and received a hook would have no
 	// file and no error.
-	Surfaces map[agent.SurfaceKind]agent.Approach `json:"-"`
+	Surfaces map[agent.SurfaceKind]string `json:"-"`
 }
 
 // MaterializeProfileResult reports which managed surfaces were written under
@@ -247,7 +247,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 		SelfContainedSkills:   true,
 		DenyTools:             denyTools,
 	}
-	set := backends.BuildSurfaces(backend, inputs, fs)
+	decl := backends.Declared(backend)
 
 	// The LOSS half of the report, read from the SAME inputs the delivery is
 	// built from. res.Wrote can only ever list what landed — every line true —
@@ -289,11 +289,11 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// honourable: claude, kiro and opencode have always had it, and
 	// codex gained it when its native AGENTS.md route stopped being folded
 	// invisibly into the hook approach.
-	sel := agent.Select(set).WithEverything().WithApproach(agent.SurfaceContext, agent.ApproachUnsafeFile)
+	sel := agent.Select(decl).WithEverything().With(agent.SurfaceContext, agent.ApproachUnsafeFile)
 	for kind, approach := range req.Surfaces {
-		sel = sel.WithApproach(kind, approach)
+		sel = sel.With(kind, approach)
 	}
-	_, kinds, errs := sel.DeliverUnder(present.ProjectOnHost(req.Target))
+	_, kinds, errs := sel.DeliverUnder(inputs, fs, present.ProjectOnHost(req.Target))
 	for _, e := range errs {
 		strictness.Fail(strictness.ClassApply,
 			"fix the write failure, then re-run (ctxloom profile materialize)",

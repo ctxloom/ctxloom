@@ -142,12 +142,12 @@ func TestApplyHooksRequest_FSField(t *testing.T) {
 // facade. manageStatusline mirrors the old WithStatusLineDisabled inverse.
 func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
 	t.Helper()
-	set := backends.BuildSurfaces(backend, agent.SurfaceInputs{
+	sel := agent.Select(backends.Declared(backend)).With(agent.SurfaceSettings, agent.ApproachUnsafeFile).With(agent.SurfaceMCP, agent.ApproachUnsafeFile)
+	_, _, errs := sel.DeliverUnder(agent.SurfaceInputs{
 		Hooks:            hooks,
 		BundleMCP:        bundleMCP,
 		ManageStatusline: manageStatusline,
-	}, fs)
-	_, _, errs := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile).DeliverUnder(present.ProjectOnHost(dir))
+	}, fs, present.ProjectOnHost(dir))
 	require.Empty(t, errs)
 }
 
@@ -187,8 +187,7 @@ func TestManagedSettings_ClaudeCode(t *testing.T) {
 // TestManagedSettings_UnsupportedBackend tests that unsupported backends deliver
 // nothing (EmptySurfaceSet) rather than erroring.
 func TestManagedSettings_UnsupportedBackend(t *testing.T) {
-	set := backends.BuildSurfaces("unknown-backend", agent.SurfaceInputs{}, afero.NewMemMapFs())
-	_, _, errs := agent.Select(set).WithEverything().DeliverUnder(present.ProjectOnHost("/project"))
+	_, _, errs := agent.Select(backends.Declared("unknown-backend")).WithEverything().DeliverUnder(agent.SurfaceInputs{}, afero.NewMemMapFs(), present.ProjectOnHost("/project"))
 	assert.Empty(t, errs, "unsupported backend materializes nothing")
 }
 

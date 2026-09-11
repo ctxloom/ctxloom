@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -78,8 +77,8 @@ func removeBackendHarness(name, workDir string, fs afero.Fs, settingsOpts []back
 	if err := backends.RemoveSettings(name, workDir, settingsOpts...); err != nil {
 		return fmt.Errorf("failed to remove %s settings: %w", name, err)
 	}
-	set := backends.BuildSurfaces(name, agent.SurfaceInputs{}, fs)
-	if _, _, errs := agent.Select(set).WithCommands(agent.CommandsWriteUnsafeFile).DeliverUnder(present.ProjectOnHost(workDir)); len(errs) > 0 {
+	sel := agent.Select(backends.Declared(name)).With(agent.SurfaceCommands, agent.ApproachUnsafeFile)
+	if _, _, errs := sel.DeliverUnder(agent.SurfaceInputs{}, fs, present.ProjectOnHost(workDir)); len(errs) > 0 {
 		return fmt.Errorf("failed to remove %s commands: %w", name, errors.Join(errs...))
 	}
 	return nil
@@ -269,8 +268,8 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 		if backends.IsTestOnly(name) {
 			continue
 		}
-		set := backends.BuildSurfaces(name, agent.SurfaceInputs{}, fs)
-		reader, ok := contextFileReader(set)
+		decl := backends.Declared(name)
+		reader, ok := contextFileReader(decl, fs)
 		if !ok {
 			continue
 		}
@@ -283,7 +282,7 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 		if !ok {
 			return surfaces, errs
 		}
-		cur, report := reportableContextCurrency(state, current, contextFileExpected(set))
+		cur, report := reportableContextCurrency(state, current, contextFileExpected(decl))
 		if !report {
 			continue
 		}
@@ -326,20 +325,17 @@ func reportableContextCurrency(state agent.DeliveryState, intended string, expec
 // contextFileReader resolves a backend's materialized-file context route to its
 // read half, or reports false when it has none to read.
 //
-// It asks for agent.ApproachUnsafeFile by name. An empty SupportedApproaches
-// for the kind means the backend has no distinct context surface at all — a
-// FOLD, not a loss (backends.UncarriedSurfaces' doc: "reporting a folded
-// surface as lost would be a false alarm"), so it is skipped in silence rather
-// than reported as an unreadable route.
-func contextFileReader(set agent.SurfaceSet) (agent.StateReader, bool) {
-	if !slices.Contains(set.SupportedApproaches(agent.SurfaceContext), agent.ApproachUnsafeFile) {
+// It asks for agent.ApproachUnsafeFile by name, constructed with no content
+// (only its READ side is used). A backend that declares no context surface
+// at all has a FOLD, not a loss (backends.UncarriedSurfaces' doc: "reporting
+// a folded surface as lost would be a false alarm"), so it is skipped in
+// silence rather than reported as an unreadable route.
+func contextFileReader(decl agent.Declaration, fs afero.Fs) (agent.StateReader, bool) {
+	approach, ok := decl.Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, agent.SurfaceInputs{}, fs)
+	if !ok {
 		return nil, false
 	}
-	delivery, err := set.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
-	if err != nil {
-		return nil, false
-	}
-	reader, ok := delivery.(agent.StateReader)
+	reader, ok := approach.(agent.StateReader)
 	return reader, ok
 }
 
@@ -369,8 +365,8 @@ func contextFileReader(set agent.SurfaceSet) (agent.StateReader, bool) {
 // declared default approach is where the same fact about codex is legible for
 // the context kind, and TestSurfaceCurrencies_StaysSilentForCodex is what keeps
 // it honest.
-func contextFileExpected(set agent.SurfaceSet) bool {
-	def, ok := set.DefaultApproach(agent.SurfaceContext)
+func contextFileExpected(decl agent.Declaration) bool {
+	def, ok := decl.Default(agent.SurfaceContext)
 	return ok && def == agent.ApproachUnsafeFile
 }
 

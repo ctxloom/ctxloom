@@ -66,7 +66,7 @@ func TestSetup_ContextScratchUnderEphemeralDir_ProjectTreeClean(t *testing.T) {
 	work := t.TempDir()
 	backend, ephem := setupClaudeInTempHome(t, work, "perky-same-chevy", &agent.ManagedConfig{})
 
-	framed := backend.surfaces.Context.Path()
+	framed := contextPathOf(backend)
 	require.NotEmpty(t, framed, "Setup must materialize the framed context file")
 
 	// Lands under the harp ephemeral dir.
@@ -121,7 +121,7 @@ func TestSetup_SharedCell_SettingsOutOfCwd(t *testing.T) {
 
 	// Settings land under the harp's private ephemeral dir and buildArgs points
 	// --settings at them.
-	settingsPath := backend.surfaces.Settings.Path()
+	settingsPath := settingsPathOf(backend)
 	require.NotEmpty(t, settingsPath, "Setup must materialize the out-of-cwd settings file")
 	assert.True(t, strings.HasPrefix(settingsPath, ephem),
 		"settings scratch must live under the harp ephemeral dir: %q", settingsPath)
@@ -152,7 +152,7 @@ func TestSetup_SharedCell_DenyToolsInSettings(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(work, ".claude", "settings.json"),
 		"SharedCell must NOT write settings into the live cwd")
 
-	settingsPath := backend.surfaces.Settings.Path()
+	settingsPath := settingsPathOf(backend)
 	require.NotEmpty(t, settingsPath, "Setup must materialize the out-of-cwd settings file")
 	assert.True(t, strings.HasPrefix(settingsPath, ephem),
 		"settings scratch must live under the harp ephemeral dir: %q", settingsPath)
@@ -193,7 +193,7 @@ func TestSetup_SharedCell_MCPOutOfCwd(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(work, ".mcp.json"),
 		"SharedCell must NOT write .mcp.json into the live cwd")
 
-	mcpPath := backend.surfaces.MCP.Path()
+	mcpPath := mcpPathOf(backend)
 	require.NotEmpty(t, mcpPath, "Setup must materialize the out-of-cwd MCP file")
 	assert.True(t, strings.HasPrefix(mcpPath, ephem),
 		"MCP scratch must live under the harp ephemeral dir: %q", mcpPath)
@@ -291,9 +291,9 @@ func TestCleanup_RemovesDeliveredSurfaces(t *testing.T) {
 	}
 	backend, _ := setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
 
-	framed := backend.surfaces.Context.Path()
-	settingsPath := backend.surfaces.Settings.Path()
-	mcpPath := backend.surfaces.MCP.Path()
+	framed := contextPathOf(backend)
+	settingsPath := settingsPathOf(backend)
+	mcpPath := mcpPathOf(backend)
 	require.FileExists(t, framed, "context scratch must exist after Setup")
 	require.FileExists(t, settingsPath, "settings scratch must exist after Setup")
 	require.FileExists(t, mcpPath, "MCP scratch must exist after Setup")
@@ -385,7 +385,7 @@ func TestSetup_NoFragmentsIsNotAnError(t *testing.T) {
 		Managed:   &agent.ManagedConfig{},
 		CellKind:  agent.CellKindShared,
 	}))
-	assert.Empty(t, backend.surfaces.Context.Path(), "nothing was asked for, so nothing is delivered")
+	assert.Empty(t, contextPathOf(backend), "nothing was asked for, so nothing is delivered")
 
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindShared})
 	assert.NotContains(t, args, flagAppendSystemFile, "no context means no context flag")

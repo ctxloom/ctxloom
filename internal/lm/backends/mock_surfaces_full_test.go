@@ -22,7 +22,7 @@ import (
 
 func TestMockMCPSurface_WritesTheServersItWasGiven(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{
+	set := newMockSurfaces(agent.SurfaceInputs{
 		BundleMCP: map[string]wire.MCPServer{
 			"postgres": {Command: "mcp-postgres", Args: []string{"--readonly"}},
 		},
@@ -48,7 +48,7 @@ func TestMockSettingsSurface_PreservesKeysCtxloomDoesNotOwn(t *testing.T) {
 	path := mockSettingsPath("/proj")
 	require.NoError(t, afero.WriteFile(fs, path, []byte(`{"theme":"dark"}`), 0o600))
 
-	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{
+	set := newMockSurfaces(agent.SurfaceInputs{
 		Hooks: &wire.HooksConfig{},
 	}, fs)
 
@@ -105,7 +105,7 @@ func TestMockSettingsWriter_RemoveNeverCreatesAFile(t *testing.T) {
 
 func TestMockCommandsSurface_WritesEnabledCommands(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{
+	set := newMockSurfaces(agent.SurfaceInputs{
 		Commands: []agent.CommandExport{
 			{Name: "review", Content: "Review the diff.", Enabled: true},
 			{Name: "skipped", Content: "Never written.", Enabled: false},
@@ -132,4 +132,30 @@ func readSettingsDoc(t *testing.T, fs afero.Fs, path string) map[string]json.Raw
 	doc := map[string]json.RawMessage{}
 	require.NoError(t, json.Unmarshal(data, &doc))
 	return doc
+}
+
+// mockBuilt holds one constructed instance of each mock approach, so a test
+// can drive a surface directly rather than through the builder.
+type mockBuilt struct {
+	Context, Skills, MCP, Settings, Commands agent.Approach
+}
+
+// newMockSurfaces constructs every mock approach from in through the
+// Declaration — the same path Build takes.
+func newMockSurfaces(in agent.SurfaceInputs, fs afero.Fs) mockBuilt {
+	decl := mockDeclaration(config.BackendMock)
+	must := func(kind agent.SurfaceKind) agent.Approach {
+		a, ok := decl.Construct(kind, agent.ApproachUnsafeFile, in, fs)
+		if !ok {
+			panic("mock does not declare " + kind.String())
+		}
+		return a
+	}
+	return mockBuilt{
+		Context:  must(agent.SurfaceContext),
+		Skills:   must(agent.SurfaceSkills),
+		MCP:      must(agent.SurfaceMCP),
+		Settings: must(agent.SurfaceSettings),
+		Commands: must(agent.SurfaceCommands),
+	}
 }

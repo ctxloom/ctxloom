@@ -1,10 +1,8 @@
 package agent_test
 
-// This file exercises the SurfaceSelection builder (Select/Build/ResolvedSelection
-// — vital-tiger v2) against the REAL backend Surfaces,
-// proving the per-provider dispatch tables (S2) integrate correctly with the
-// generic builder BEFORE any caller is wired onto it (materialize/apply/remove/
-// launch are migrated separately, plan S4). It is an EXTERNAL test package
+// This file exercises the SurfaceSelection builder (Select/Build/ResolvedSelection)
+// against the REAL engine Declarations, proving each engine's declared
+// approaches integrate correctly with the generic builder. It is an EXTERNAL test package
 // (agent_test, not agent) because internal test files cannot import a package
 // that itself imports the package under test — the engine packages all import
 // internal/shared/agent, so this file must live outside it to avoid the Go
@@ -56,12 +54,13 @@ func runRoots(project, scratch string) present.Start {
 	}))
 }
 
-// Build validates a named approach against the backend's SupportedApproaches:
-// SystemPrompt is claude-only, so a backend whose context surface declares
-// native-file delivery alone rejects it.
+// Build validates a named approach against the engine's Declaration:
+// system-prompt is claude's own name, so an engine whose context surface
+// declares native-file delivery alone rejects it — with NO edit to any shared
+// list having been needed for claude to declare it in the first place.
 func TestBuild_RejectsSystemPrompt_OnANativeFileOnlyBackend(t *testing.T) {
-	mockSet := backends.NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{}, nil)
-	_, err := agent.Select(mockSet).WithContext(agent.ContextWriteSystemPrompt).Build()
+	mock := backends.Declared(config.BackendMock)
+	_, err := agent.Select(mock).With(agent.SurfaceContext, claude.ApproachSystemPrompt).Build(agent.SurfaceInputs{}, nil)
 	assert.Error(t, err, "a native-file-only context surface must reject system-prompt")
 }
 
@@ -73,8 +72,8 @@ func TestBuild_RejectsSystemPrompt_OnANativeFileOnlyBackend(t *testing.T) {
 // a native file with no hook route at all — so (context, hook) is a genuinely
 // unsupported pair rather than a limitation that might later be declared.
 func TestBuild_RejectsUnsupportedContextApproach(t *testing.T) {
-	mockSet := backends.NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{}, nil)
-	_, err := agent.Select(mockSet).WithContext(agent.ContextWriteHook).WithSettings(agent.SettingsWriteUnsafeFile).Build()
+	mock := backends.Declared(config.BackendMock)
+	_, err := agent.Select(mock).With(agent.SurfaceContext, agent.ApproachHook).With(agent.SurfaceSettings, agent.ApproachUnsafeFile).Build(agent.SurfaceInputs{}, nil)
 	assert.Error(t, err, "a native-file-only context surface must refuse hook, not downgrade to it")
 }
 
@@ -82,11 +81,10 @@ func TestBuild_RejectsUnsupportedContextApproach(t *testing.T) {
 // also selecting settings in the SAME Build() is rejected (there is no hook to
 // carry the injection — an unread cache file, or nothing at all).
 func TestBuild_RejectsContextHookWithoutSettings(t *testing.T) {
-	claudeSet := claude.NewSurfaces(agent.SurfaceInputs{}, nil)
-	_, err := agent.Select(claudeSet).WithContext(agent.ContextWriteHook).Build()
+	_, err := agent.Select(claude.Surfaces).With(agent.SurfaceContext, agent.ApproachHook).Build(agent.SurfaceInputs{}, nil)
 	assert.Error(t, err, "Hook without Settings selected in the same Build() must fail")
 
-	_, err = agent.Select(claudeSet).WithContext(agent.ContextWriteHook).WithSettings(agent.SettingsWriteUnsafeFile).Build()
+	_, err = agent.Select(claude.Surfaces).With(agent.SurfaceContext, agent.ApproachHook).With(agent.SurfaceSettings, agent.ApproachUnsafeFile).Build(agent.SurfaceInputs{}, nil)
 	assert.NoError(t, err, "Hook WITH Settings selected builds cleanly")
 }
 
@@ -96,9 +94,8 @@ func TestBuild_RejectsContextHookWithoutSettings(t *testing.T) {
 // terminal rejects it).
 func TestDeliverUnder_RejectsSystemPrompt(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	claudeSet := claude.NewSurfaces(agent.SurfaceInputs{Context: "hello"}, fs)
 
-	r, err := agent.Select(claudeSet).WithContext(agent.ContextWriteSystemPrompt).Build()
+	r, err := agent.Select(claude.Surfaces).With(agent.SurfaceContext, claude.ApproachSystemPrompt).Build(agent.SurfaceInputs{Context: "hello"}, fs)
 	require.NoError(t, err, "SystemPrompt is a valid claude approach — Build succeeds")
 
 	dir := "/target"
@@ -109,16 +106,12 @@ func TestDeliverUnder_RejectsSystemPrompt(t *testing.T) {
 	assert.False(t, exists, "the rejected surface must not fall back to a native write")
 }
 
-// RESOLUTION of U100-F05 (was:
-// TestDeliverShared_ClaudeContextConvertsToSystemPrompt_NeverHook, pinning the
-// kind-alone defect where DeliverShared "ALWAYS converts... yet DeliverShared
-// still converts it" regardless of which approach the caller resolved).
-// SharedRealization is now PAIR-keyed: a RAW builder call — Select(set).
-// WithEverything().Build(), with no launch involved — resolves context to the
-// backend's table default (claude: ApproachUnsafeFile), and that pair has NO
-// realization, so DeliverShared honors it: the native CLAUDE.md write lands in
-// the shared cwd, loudly warned, exactly like commands/skills (which never had
-// a realization). This is deliberately NOT the "no-preference shared launch"
+// RESOLUTION of U100-F05. A RAW builder call — Select(decl).WithEverything()
+// .Build(), with no launch involved — resolves context to the engine's
+// declared default (claude: ApproachUnsafeFile), and that approach VALUE has
+// NO out-of-cwd form, so DeliverShared honors it: the native CLAUDE.md write
+// lands in the shared cwd, loudly warned, exactly like commands/skills (which
+// never had one). This is deliberately NOT the "no-preference shared launch"
 // behaviour — that is a LAUNCH concern, not a builder concern: the
 // default-derivation step that keeps a real claude launch on the scratch
 // (preferring the pair that DOES realize when the caller named no preference)
@@ -133,9 +126,7 @@ func TestDeliverShared_ClaudeContextRawBuilderResolvesTableDefault_U100F05(t *te
 	fs := afero.NewMemMapFs()
 	isolated := "/isolated-scratch"
 	sharedCwd := "/live/project"
-	set := claude.NewSurfaces(agent.SurfaceInputs{Context: "project rules"}, fs)
-
-	r, err := agent.Select(set).WithEverything().Build()
+	r, err := agent.Select(claude.Surfaces).WithEverything().Build(agent.SurfaceInputs{Context: "project rules"}, fs)
 	require.NoError(t, err)
 
 	stderr := captureStderr(t, func() {
@@ -150,22 +141,20 @@ func TestDeliverShared_ClaudeContextRawBuilderResolvesTableDefault_U100F05(t *te
 	assert.Contains(t, stderr, "commands", "commands has no realization and must warn")
 	assert.Contains(t, stderr, "skills", "skills has no realization and must warn")
 	assert.Equal(t, 3, strings.Count(stderr, "warning:"),
-		"context, commands, and skills all warn; only mcp/settings convert silently via SharedRealization (their sole approach IS the one that realizes)")
+		"context, commands, and skills all warn; only mcp/settings convert silently via their out-of-cwd form (their sole approach IS the one that has it)")
 }
 
-// A backend with NO SharedRealization for a surface (only claude declares one)
-// falls back to the loud well-known write for that surface: the exact warning
+// An approach with NO out-of-cwd form (only claude's have one) falls back to
+// the loud well-known write for that surface: the exact warning
 // format survives (the substrings existing assertions pin: "warning:", the
 // surface name, "shared cwd"), and the write still proceeds.
 func TestDeliverShared_NoRealization_WarnsThenWritesWellKnown(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/live"
-	set := backends.NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{
+	r, err := agent.Select(backends.Declared(config.BackendMock)).With(agent.SurfaceSkills, agent.ApproachUnsafeFile).Build(agent.SurfaceInputs{
 		Skills: []agent.SkillExport{{Name: "review", Enabled: true,
 			Files: []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("do it")}}}},
 	}, fs)
-
-	r, err := agent.Select(set).WithSkills(agent.SkillsWriteUnsafeFile).Build()
 	require.NoError(t, err)
 
 	var delivered []agent.Delivered

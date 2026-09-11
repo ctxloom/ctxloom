@@ -425,7 +425,7 @@ func TestMaterializeProfile_SurfaceOverrideChangesWhereContextLands(t *testing.T
 	_, err = MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"},
 		Target:   overridden,
-		Surfaces: map[agent.SurfaceKind]agent.Approach{
+		Surfaces: map[agent.SurfaceKind]string{
 			agent.SurfaceContext: agent.ApproachHook,
 		},
 	})

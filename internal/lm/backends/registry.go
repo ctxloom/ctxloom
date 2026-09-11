@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -31,8 +29,8 @@ type Configurable interface {
 // not touching four separate maps/switches.
 //
 // Only name and newBackend are mandatory. The optional fields gate
-// capability-specific dispatch: a nil newSurfaces means the backend materializes
-// no surfaces (BuildSurfaces returns an EmptySurfaceSet); a nil newWriter means it
+// capability-specific dispatch: a nil surfaces means the backend materializes
+// no surfaces (Declared returns an empty Declaration); a nil newWriter means it
 // has no settings-writer dispatch (BackendsWithSettings omits it, GetSettingsWriter
 // returns nil); a nil exports means no slash-command export (CommandExportsFor
 // yields nil, so the commands surface has nothing to write). The mock backend
@@ -73,16 +71,13 @@ type agentDescriptor struct {
 	// nil = the backend's ambient credential files copy VERBATIM; only claude
 	// registers one today.
 	newCredentialProjector func() agent.CredentialProjector
-	// newSurfaces builds the backend's SurfaceSet from a run's shared inputs and a
-	// filesystem (nil = OS fs), so a name-only caller (materialize) can deliver
-	// every native surface through a cell without importing the concrete backend.
-	// It is the delivery-seam counterpart of newWriter. nil = backend
-	// materializes no surfaces; BuildSurfaces then returns an
-	// EmptySurfaceSet. mock is NOT in that set: it registers a
-	// real newSurfaces (context + skills, mock_surfaces.go) so hermetic
-	// delivery tests can prove a fragment or a skill package actually reached
-	// a written file.
-	newSurfaces func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet
+	// surfaces is the backend's static DECLARATION of the approaches it
+	// delivers, per surface kind (agent.Declaration). nil for a backend that
+	// materializes no surfaces; Declared then returns an empty Declaration.
+	// mock is NOT in that set: it registers a real declaration (context +
+	// skills + the rest, mock_surfaces.go) so hermetic delivery tests can
+	// prove a fragment or a skill package actually reached a written file.
+	surfaces agent.Declaration
 	// exports maps loaded bundle content to this backend's command exports,
 	// resolving its per-prompt enablement + metadata. nil = no command export.
 	// Read by CommandExportsFor, which feed the commands surface
@@ -451,16 +446,11 @@ func init() {
 		newWriter:              claude.NewWriter,
 		newInstanceConfig:      claude.NewInstanceConfigWriter,
 		newCredentialProjector: claude.NewCredentialProjector,
-		// claude takes the shared agent.SurfaceInputs directly rather than a
-		// local copy: two hand-maintained field-by-field mappers drift apart, as
-		// they did on MCPCommandOverride.
-		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
-			return claude.NewSurfaces(in, fs)
-		},
-		exports:              claudeExports,
-		skillExports:         claudeSkillExports,
-		enforcesReadOnlyPlan: true, // --permission-mode plan is read-only
-		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseClaudeCodeVersion},
+		surfaces:               claude.Surfaces,
+		exports:                claudeExports,
+		skillExports:           claudeSkillExports,
+		enforcesReadOnlyPlan:   true, // --permission-mode plan is read-only
+		versionCommand:         engineversion.Command{Args: []string{"--version"}, Parse: parseClaudeCodeVersion},
 		// claude's project settings.json (claude.ProjectSettingsPath) collapses
 		// onto its user-global one (claude.GlobalSettingsPath) exactly when
 		// workDir == $HOME — found live (`manage
@@ -509,9 +499,7 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &MockConfig{})
 		},
-		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
-			return NewMockSurfaces(config.BackendMock, in, fs)
-		},
+		surfaces:  mockDeclaration(config.BackendMock),
 		newWriter: NewMockSettingsWriter,
 		exports:   mockExports,
 		testOnly:  true,
@@ -539,9 +527,7 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &MockLossyConfig{})
 		},
-		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
-			return NewMockSurfaces(config.BackendMockLossy, in, fs)
-		},
+		surfaces:     mockDeclaration(config.BackendMockLossy),
 		newWriter:    NewMockSettingsWriter,
 		exports:      mockExports,
 		skillExports: mockSkillExports,
@@ -580,9 +566,7 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &MockLaunchConfig{})
 		},
-		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
-			return NewMockLaunchSurfaces(config.BackendMockLaunch, in, fs)
-		},
+		surfaces:     mockLaunchDeclaration(config.BackendMockLaunch),
 		newWriter:    NewMockSettingsWriter,
 		exports:      mockExports,
 		skillExports: mockSkillExports,
@@ -614,9 +598,7 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &MockNoSkillsConfig{})
 		},
-		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
-			return NewMockSurfaces(config.BackendMockNoSkills, in, fs)
-		},
+		surfaces:  mockDeclaration(config.BackendMockNoSkills),
 		newWriter: NewMockSettingsWriter,
 		exports:   mockExports,
 		testOnly:  true,

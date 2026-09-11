@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -28,12 +29,14 @@ import (
 // reported against the flag the user typed instead of surfacing later as a
 // surface that quietly kept its default. Whether the pair is SUPPORTED by the
 // chosen engine is a different question, answered by the builder's Build()
-// against that engine's own table — this only rejects names that exist nowhere.
-func parseSurfaceOverrides(pairs []string) (map[agent.SurfaceKind]agent.Approach, error) {
+// against that engine's own Declaration — this only rejects names that exist
+// nowhere, i.e. that NO registered engine declares.
+func parseSurfaceOverrides(pairs []string) (map[agent.SurfaceKind]string, error) {
 	if len(pairs) == 0 {
 		return nil, nil
 	}
-	out := make(map[agent.SurfaceKind]agent.Approach, len(pairs))
+	known := backends.KnownApproachNames()
+	out := make(map[agent.SurfaceKind]string, len(pairs))
 	for _, p := range pairs {
 		name, approach, ok := strings.Cut(p, "=")
 		if !ok {
@@ -44,9 +47,9 @@ func parseSurfaceOverrides(pairs []string) (map[agent.SurfaceKind]agent.Approach
 		if err != nil {
 			return nil, fmt.Errorf("--surface %q: %w", p, err)
 		}
-		a, err := agent.ParseApproach(strings.TrimSpace(approach))
-		if err != nil {
-			return nil, fmt.Errorf("--surface %q: %w", p, err)
+		a := strings.TrimSpace(approach)
+		if !slices.Contains(known, a) {
+			return nil, fmt.Errorf("--surface %q: unknown approach %q (known: %s)", p, a, strings.Join(known, ", "))
 		}
 		if prev, dup := out[k]; dup && prev != a {
 			return nil, fmt.Errorf("--surface names %s twice, as %s and %s; a surface is delivered one way",
@@ -104,8 +107,8 @@ func surfaceHelpFor(engines []string) string {
 		return b.String()
 	}
 	for _, e := range engines {
-		set, err := backends.SurfacesFor(e)
-		if err != nil || set == nil {
+		decl, err := backends.SurfacesFor(e)
+		if err != nil || decl == nil {
 			fmt.Fprintf(&b, "\n  %s: (no surface information available)\n", e)
 			continue
 		}
@@ -115,7 +118,7 @@ func surfaceHelpFor(engines []string) string {
 			if perr != nil {
 				continue
 			}
-			supported := set.SupportedApproaches(kind)
+			supported := decl.Names(kind)
 			if len(supported) == 0 {
 				// An empty result is not a gap: the engine folds this kind into
 				// another surface (codex carries MCP in its config). Saying so
@@ -123,14 +126,14 @@ func surfaceHelpFor(engines []string) string {
 				fmt.Fprintf(&b, "    %-9s (folded into another surface on this engine)\n", k)
 				continue
 			}
-			def, hasDefault := set.DefaultApproach(kind)
+			def, hasDefault := decl.Default(kind)
 			names := make([]string, 0, len(supported))
 			for _, a := range supported {
 				if hasDefault && a == def {
-					names = append(names, a.String()+" (default)")
+					names = append(names, a+" (default)")
 					continue
 				}
-				names = append(names, a.String())
+				names = append(names, a)
 			}
 			fmt.Fprintf(&b, "    %-9s %s\n", k, strings.Join(names, ", "))
 		}
@@ -161,16 +164,16 @@ func completeSurfaceOverrides(cmd *cobra.Command, _ []string, toComplete string)
 	if f := cmd.Flags().Lookup("backend"); f != nil && f.Changed {
 		engine = f.Value.String()
 	}
-	set, err := backends.SurfacesFor(engine)
-	if err != nil || set == nil {
+	decl, err := backends.SurfacesFor(engine)
+	if err != nil || decl == nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	var out []string
 	for _, k := range surfaceKinds() {
-		for _, a := range set.SupportedApproaches(k) {
-			pair := k.String() + "=" + a.String()
+		for _, a := range decl.Names(k) {
+			pair := k.String() + "=" + a
 			if strings.HasPrefix(pair, toComplete) {
-				if def, ok := set.DefaultApproach(k); ok && def == a {
+				if def, ok := decl.Default(k); ok && def == a {
 					pair += "\tdefault for " + engine
 				}
 				out = append(out, pair)

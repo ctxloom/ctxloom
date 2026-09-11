@@ -351,43 +351,42 @@ func mcpServerMapFromProto(in map[string]*MCPServer) map[string]wire.MCPServer {
 // --- surface preference ---
 //
 // Carried as the stable lowercase LABELS, never enum numbers: the wire stays
-// readable, and a label the receiver does not know fails loudly through the
-// Parse* functions rather than resolving to iota 0 — which for both enums is
-// the least safe value (SurfaceContext, ApproachUnsafeFile).
+// readable, and a kind label the receiver does not know fails loudly through
+// ParseSurfaceKind rather than resolving to iota 0 (SurfaceContext). Approach
+// names are an open, per-engine set and travel as-is.
 
-func surfacesToProto(in map[agent.SurfaceKind]agent.Approach) map[string]string {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	for k, a := range in {
-		out[k.String()] = a.String()
+func surfacesToProto(in map[agent.SurfaceKind]string) map[string]string {
+	var out map[string]string
+	for k, name := range in {
+		if out == nil {
+			out = make(map[string]string, len(in))
+		}
+		out[k.String()] = name
 	}
 	return out
 }
 
-// surfacesFromProto drops a pair it cannot parse, with a warning, rather than
-// failing the whole launch: a preference is an optimisation over the engine's
-// default, so an unreadable one costs the caller its preference and not its
-// session. Silence is what is refused — an agent that quietly ran with a
-// different delivery than it asked for is the defect this field exists inside.
-func surfacesFromProto(in map[string]string) map[agent.SurfaceKind]agent.Approach {
+// surfacesFromProto drops a pair whose KIND it cannot parse, with a warning,
+// rather than failing the whole launch: a preference is an optimisation over
+// the engine's default, so an unreadable one costs the caller its preference
+// and not its session. The approach NAME passes through untouched — the set
+// of approaches is open, declared per engine, so only the engine's own
+// Declaration can judge it, and it does so LOUDLY at Build (an undeclared
+// name is a launch error, never a silent fallback to the default). Silence is
+// what is refused either way — an agent that quietly ran with a different
+// delivery than it asked for is the defect this field exists inside.
+func surfacesFromProto(in map[string]string) map[agent.SurfaceKind]string {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make(map[agent.SurfaceKind]agent.Approach, len(in))
+	out := make(map[agent.SurfaceKind]string, len(in))
 	for name, approach := range in {
 		k, err := agent.ParseSurfaceKind(name)
 		if err != nil {
 			clidiag.Warn("ctxloom", "agent surface preference: %v (using the engine default for it)", err)
 			continue
 		}
-		a, aerr := agent.ParseApproach(approach)
-		if aerr != nil {
-			clidiag.Warn("ctxloom", "agent surface preference for %s: %v (using the engine default)", name, aerr)
-			continue
-		}
-		out[k] = a
+		out[k] = approach
 	}
 	if len(out) == 0 {
 		return nil

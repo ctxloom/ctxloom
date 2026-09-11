@@ -102,9 +102,9 @@ func setupBackendForMatrix(t *testing.T) *ClaudeCode {
 			},
 		},
 	}))
-	require.NotEmpty(t, b.surfaces.Context.Path(), "matrix needs a delivered context path")
-	require.NotEmpty(t, b.surfaces.MCP.Path(), "matrix needs a delivered mcp path")
-	require.NotEmpty(t, b.surfaces.Settings.Path(), "matrix needs a delivered settings path")
+	require.NotEmpty(t, contextPathOf(b), "matrix needs a delivered context path")
+	require.NotEmpty(t, mcpPathOf(b), "matrix needs a delivered mcp path")
+	require.NotEmpty(t, settingsPathOf(b), "matrix needs a delivered settings path")
 	return b
 }
 

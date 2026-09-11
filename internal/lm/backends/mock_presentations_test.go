@@ -12,16 +12,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 )
 
-// This file pins the NEW protocol mock_surfaces.go migrated onto: presenters
-// composed against an advised present.Start, declared via agent.Presents,
-// rather than a raw filepath.Join keyed off an ApproachTable literal. The
-// pre-migration test suite (mock_surfaces_test.go) never named mockApproaches,
-// ApproachTable or TableDispatch directly — it exercised MockSurfaces only
-// through the SurfaceSet interface, so it needed no rewrite and stays the
-// external-behaviour regression net. These tests cover what that suite
-// structurally could not: the presenter's own root choice, and its behaviour
-// under an advised (containerized) Start, which nothing before this file could
-// even construct.
+// This file pins the protocol mock_surfaces.go sits on: approaches
+// constructed from the mock's Declaration whose Present composes against an
+// advised present.Start, rather than a raw filepath.Join. These tests cover
+// what the external-behaviour suite (mock_surfaces_test.go) structurally
+// cannot: each approach's own root choice, and its behaviour under an advised
+// (containerized) Start.
 
 // twoDistinguishableRoots builds an advised Start whose ProjectRoot and
 // EngineHome are DIFFERENT, non-empty values. Two roots close together is
@@ -44,7 +40,7 @@ func twoDistinguishableRoots(projectRoot, engineHome string) present.Start {
 func TestMockContextPresenter_RootsUnderProjectRoot_NotEngineHome(t *testing.T) {
 	start := twoDistinguishableRoots("/proj", "/elsewhere/home")
 
-	got := mockContextPresenter(start)
+	got := mockPresent(t, agent.SurfaceContext, start)
 
 	want := filepath.Join("/proj", mockContextFilename)
 	assert.Equal(t, want, got.HostPath)
@@ -57,7 +53,7 @@ func TestMockContextPresenter_RootsUnderProjectRoot_NotEngineHome(t *testing.T) 
 func TestMockSkillsPresenter_RootsUnderProjectRoot_NotEngineHome(t *testing.T) {
 	start := twoDistinguishableRoots("/proj", "/elsewhere/home")
 
-	got := mockSkillsPresenter(start)
+	got := mockPresent(t, agent.SurfaceSkills, start)
 
 	want := filepath.Join("/proj", filepath.FromSlash(mockSkillsDirName))
 	assert.Equal(t, want, got.HostPath)
@@ -95,7 +91,7 @@ func TestMockContextPresenter_ContainerizedRun_EnginePathDivergesFromHostPath(t 
 	})
 	start := present.New(mapped)
 
-	got := mockContextPresenter(start)
+	got := mockPresent(t, agent.SurfaceContext, start)
 
 	assert.Equal(t, filepath.Join("/home/user/project", mockContextFilename), got.HostPath)
 	assert.Equal(t, "/mnt/proj/"+mockContextFilename, got.EnginePath)
@@ -106,69 +102,49 @@ func TestMockContextPresenter_ContainerizedRun_EnginePathDivergesFromHostPath(t 
 	assert.Equal(t, present.Mount{HostDir: "/home/user/project", TargetDir: "/mnt/proj"}, mapped.Mounts()[0])
 }
 
-// TestMockPresentations_SupportedAndDefault_AgreeWithTheDeclaration proves
-// SupportedApproaches/DefaultApproach are DERIVED from mockPresentations
-// rather than a second, independently maintained fact — the exact disagreement
-// ApproachTable's doc says a capability-list-plus-construction-map shape used
-// to allow. A hand-edited SupportedApproaches that fell out of step with
-// mockPresentations would pass a test asserting only "non-empty"; this
-// compares against the declaration's own Names()/Default().
-func TestMockPresentations_SupportedAndDefault_AgreeWithTheDeclaration(t *testing.T) {
-	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{}, nil)
-
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSkills} {
-		decl := mockPresentations[kind]
-
-		gotSupported := set.SupportedApproaches(kind)
-		require.Len(t, gotSupported, len(decl.Names()))
-		for _, name := range decl.Names() {
-			wantApproach, err := agent.ParseApproach(name)
-			require.NoError(t, err)
-			assert.Contains(t, gotSupported, wantApproach)
-		}
-
-		gotDefault, ok := set.DefaultApproach(kind)
-		require.True(t, ok)
-		wantDefault, err := agent.ParseApproach(decl.Default())
-		require.NoError(t, err)
-		assert.Equal(t, wantDefault, gotDefault)
-	}
+// mockPresent constructs the mock's DEFAULT approach for kind and presents it
+// against start — what a launch would do, minus the write.
+func mockPresent(t *testing.T, kind agent.SurfaceKind, start present.Start) present.Presentation {
+	t.Helper()
+	decl := mockDeclaration(config.BackendMock)
+	def, ok := decl.Default(kind)
+	require.True(t, ok)
+	a, ok := decl.Construct(kind, def, agent.SurfaceInputs{}, nil)
+	require.True(t, ok)
+	return a.Present(start)
 }
 
-// TestMockSurfaces_SurfaceFor_UnsupportedApproach_Errors pins the branch
-// SurfaceFor takes when the KIND is declared but the requested APPROACH is
-// not one of its names — mock declares only unsafe-file, so asking for
-// ApproachHook on the context surface must be refused, not silently resolved
-// to something else.
-func TestMockSurfaces_SurfaceFor_UnsupportedApproach_Errors(t *testing.T) {
-	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{Context: "X"}, nil)
+// TestMockDeclaration_UnsupportedApproach_IsRefused pins the branch Build
+// takes when the KIND is declared but the requested APPROACH is not one of
+// its names — mock declares only unsafe-file, so asking for ApproachHook on
+// the context surface must be refused, not silently resolved to something
+// else. The message must distinguish "the approach is unsupported" from "the
+// kind is absent": it names the surface, the name and what IS declared.
+func TestMockDeclaration_UnsupportedApproach_IsRefused(t *testing.T) {
+	decl := mockDeclaration(config.BackendMock)
 
-	_, err := set.SurfaceFor(agent.SurfaceContext, agent.ApproachHook)
+	_, err := agent.Select(decl).With(agent.SurfaceContext, agent.ApproachHook).Build(agent.SurfaceInputs{Context: "X"}, nil)
 	require.Error(t, err)
-	// Exact text, not merely non-nil: a kind-absent refusal ("no context
-	// surface") would also satisfy an error-is-not-nil check, so the message
-	// must distinguish "the kind is unsupported" from "the approach is".
-	assert.Equal(t, "mock: no context surface via hook", err.Error())
+	assert.Equal(t, `mock: surface context: approach "hook" not supported (supports unsafe-file)`, err.Error())
 }
 
-// TestMockSurfaces_SurfaceFor_UnsupportedKind_Errors pins the branch
-// SurfaceFor takes when the KIND itself is absent from mockPresentations —
-// mock must refuse rather than fabricate a surface nothing built.
+// TestMockDeclaration_UnsupportedKind_IsAbsent pins that a KIND absent from
+// the mock's declaration reads as absent — Construct false, Names nil,
+// Default absent — rather than fabricating a surface nothing built.
 //
-// It uses an OUT-OF-RANGE kind because mock now declares every real one. That
-// is not a contrivance to keep a test alive: the branch is genuinely still
+// It uses an OUT-OF-RANGE kind because mock declares every real one. That is
+// not a contrivance to keep a test alive: the branch is genuinely still
 // reachable (a future SurfaceKind added to the seam reaches it until mock
-// takes a position), and it is the branch that must refuse rather than return
-// a nil Delivery a caller would then use.
-func TestMockSurfaces_SurfaceFor_UnsupportedKind_Errors(t *testing.T) {
-	set := NewMockSurfaces(config.BackendMock, agent.SurfaceInputs{}, nil)
+// takes a position), and it is the branch that must report absence rather
+// than return a nil Approach a caller would then use.
+func TestMockDeclaration_UnsupportedKind_IsAbsent(t *testing.T) {
+	decl := mockDeclaration(config.BackendMock)
 
 	const notASurface = agent.SurfaceKind(9999)
-	_, err := set.SurfaceFor(notASurface, agent.ApproachUnsafeFile)
-	require.Error(t, err)
-	// Exact text: "no mcp surface" (kind absent) must not read as "no mcp
-	// surface via unsafe-file" (kind present, approach unsupported) — a
-	// SurfaceFor that fell through the kind-absent check into the approach
-	// loop would still refuse, but for the wrong stated reason.
-	assert.Contains(t, err.Error(), "no ", "the refusal must state the kind is absent, not that an approach is unsupported")
+	a, ok := decl.Construct(notASurface, agent.ApproachUnsafeFile, agent.SurfaceInputs{}, nil)
+	assert.False(t, ok)
+	assert.Nil(t, a)
+	assert.Nil(t, decl.Names(notASurface))
+	_, ok = decl.Default(notASurface)
+	assert.False(t, ok)
 }

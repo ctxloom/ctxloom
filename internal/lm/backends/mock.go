@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -176,9 +174,7 @@ func newMockBackend(name string) *Mock {
 		agent.NewBaseLifecycle(name),
 		agent.NewBaseContextProvider(),
 		&NilSessionHistory{},
-		&agent.CellDelivery{Build: agent.BuildWellKnown(func(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
-			return NewMockSurfaces(name, in, fs)
-		})},
+		mockDeclaration(name),
 	)
 	return b
 }

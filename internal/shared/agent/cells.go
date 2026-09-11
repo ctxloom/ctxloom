@@ -13,15 +13,14 @@ import (
 
 // This file is the type-level FOUNDATION of ctxloom's unified surface-delivery
 // seam: the Delivery interface every surface implements, the typed isolation
-// cells that land a well-known write in a private dir, and the approach-keyed
-// SurfaceSelection builder that resolves a caller's named
-// per-surface approach to a concrete Delivery via each backend's per-provider
-// dispatch. Race-safety is handled by the CELL, not a parallel type hierarchy:
-// an isolated cell's private dir makes any well-known write race-free by
-// construction, and a SHARED-cwd delivery either runs the backend's
-// SharedRealization (claude's out-of-cwd scratch conversion) or performs the
-// well-known write with a loud warning — the caller's UNSAFE_FILE approach
-// choice IS that warning's acknowledgment.
+// cells that land a well-known write in a private dir, and the name-keyed
+// SurfaceSelection builder that resolves a caller's named per-surface approach
+// against the engine's Declaration and constructs it. Race-safety is handled
+// by the CELL, not a parallel type hierarchy: an isolated cell's private dir
+// makes any well-known write race-free by construction, and a SHARED-cwd
+// delivery either runs the approach's own OutOfCwd form (claude's scratch
+// conversion) or performs the well-known write with a loud warning — the
+// caller's ApproachUnsafeFile choice IS that warning's acknowledgment.
 //
 // (Delivered — the handle owning a delivery's cleanup — is defined in
 // delivery.go and reused here.)
@@ -155,53 +154,6 @@ type KindedDelivery interface {
 	Kind() SurfaceKind
 }
 
-// SurfaceSet is the per-backend set of delivery surfaces for one run, exposed so
-// the SurfaceSelection builder can drive delivery without importing the concrete
-// backend. Every backend's `Surfaces` value satisfies it. The four
-// approach-dispatch methods below are the per-provider dispatch
-// the opt-in SurfaceSelection builder resolves a caller's named approach through
-// — descriptor-keyed, never a cross-backend type switch.
-//
-// There is deliberately NO Deliveries() here. Iterating a set's surfaces is what
-// Select(set).WithEverything().Build().Deliveries() does, approach-resolved and
-// with the kind attached. A raw, unresolved Deliveries() on this interface would
-// be a SECOND iteration path — one five backends hand-maintain as a slice
-// literal and no production caller reads — for a materialized tree measured to
-// be identical (see TestDeliveries_ResolvedSelectionMaterializesEverySurface in
-// internal/lm/backends).
-type SurfaceSet interface {
-	// SupportedApproaches reports the delivery approaches this backend offers for
-	// kind. An EMPTY result means the backend has no distinct surface of that kind
-	// (codex folds MCP into its config/settings surface) — selecting the kind is
-	// then a permitted no-op rather than an error. A non-empty result that omits a
-	// named approach makes that (kind, approach) combination unsupported — the
-	// builder's Build() rejects it loudly (WithContext(Hook) on kiro,
-	// WithContext(SystemPrompt) on codex).
-	SupportedApproaches(kind SurfaceKind) []Approach
-	// DefaultApproach reports the approach WithEverything selects for kind — the
-	// backend's native realization. false means kind is absent/folded for this
-	// backend (codex's MCP), so WithEverything skips it entirely.
-	DefaultApproach(kind SurfaceKind) (Approach, bool)
-	// SurfaceFor resolves one (kind, approach) to the concrete Delivery that
-	// executes it, against the SAME underlying surface instance NewSurfaces built
-	// (never a second construction) — so any state a prior delivery recorded (e.g.
-	// claude's out-of-cwd scratch Path()) stays visible to a later reader. It
-	// errors on an unsupported combination the builder did not pre-validate.
-	SurfaceFor(kind SurfaceKind, a Approach) (Delivery, error)
-	// SharedRealization reports the backend's out-of-cwd, genuinely race-safe
-	// conversion for the (kind, approach) pair — claude's
-	// --append-system-prompt-file /--mcp-config / --settings scratch writers.
-	// false means the backend has no such conversion for this pair (every kind
-	// on codex/kiro; claude's commands; claude's context at ApproachUnsafeFile,
-	// which the caller explicitly asked to write natively), so a SHARED-cwd
-	// delivery falls back to the loud well-known write. The returned closure,
-	// when non-nil, performs the isolated write beneath the advised Scratch
-	// root of the Start it is handed — the same value the well-known Deliver
-	// receives, so the two realizations of one surface read one set of roots —
-	// and returns its handle.
-	SharedRealization(kind SurfaceKind, a Approach) (func(present.Start) (Delivered, error), bool)
-}
-
 // SurfaceInputs is the shared, per-run superset of everything a backend's
 // surfaces write: the assembled context (as a string for the ContextWriter-core
 // engines, and the raw fragments for codex's file writer), the merged MCP config
@@ -253,74 +205,6 @@ type SurfaceInputs struct {
 	// silently disagreed). Empty uses the backend's own default and is a
 	// no-op for every other backend.
 	AgentName string
-}
-
-// CellDelivery configures a launch backend's cell-based surface delivery. A
-// backend that routes launch-time delivery through the typed-cell seam supplies
-// one at InitLaunch; a backend that does not route launch-time delivery through
-// the typed-cell seam (acp) passes nil.
-type CellDelivery struct {
-	// Build maps the shared per-run inputs to the backend's SurfaceSet. It is
-	// ROOT-FREE: no directory reaches construction, because every write — the
-	// well-known Deliver and the out-of-cwd SharedRealization alike — receives
-	// the run's advised roots when it runs. For claude the closure also stashes
-	// the concrete Surfaces on the backend so buildArgs can read each
-	// out-of-cwd file's Path() after delivery.
-	Build func(in SurfaceInputs) SurfaceSet
-
-	// RawContext materializes the assembled context into the content-addressed
-	// cache file (agent.WriteContextFile) as a Setup pre-step and sets the
-	// CTXLOOM_CONTEXT_FILE env path — matching the legacy lifecycle path for the
-	// file/hook engines (codex/kiro). claude leaves it false: its
-	// context rides an out-of-cwd launch flag or a well-known CLAUDE.md, never the
-	// cache file.
-	RawContext bool
-
-	// ContextHook keys the SessionStart context-injection hook to the cache file's
-	// hash (codex — the one engine that reads context via a hook that fires at run
-	// time). kiro diverts context to AGENTS.md/steering (its context
-	// surface), so its hook hash stays "". Requires RawContext (the hook reads
-	// the cache file). claude leaves it false (context rides the append flag).
-	ContextHook bool
-}
-
-// BuildWellKnown adapts a well-known-file backend's NewSurfaces into a
-// CellDelivery.Build: the constructor runs with the default (OS) filesystem.
-// It is the single source of truth for that adapter, shared by every backend
-// whose Build body would otherwise be this same boilerplate. (claude is the
-// exception: it stashes its concrete Surfaces for buildArgs, so it supplies
-// its own Build.)
-func BuildWellKnown[S SurfaceSet](newSurfaces func(SurfaceInputs, afero.Fs) S) func(SurfaceInputs) SurfaceSet {
-	return func(in SurfaceInputs) SurfaceSet { return newSurfaces(in, nil) }
-}
-
-// EmptySurfaceSet is a SurfaceSet with no surfaces. A protocol-only backend (acp)
-// uses it so Setup still runs the lifecycle merge — populating the managed MCP set
-// its structured chat injects over the wire (ManagedChatMCPServers) — while
-// materializing no files. It lets acp share the one cell-based Setup path without
-// inventing well-known files no ACP agent reads.
-type EmptySurfaceSet struct{}
-
-// SupportedApproaches reports no approaches for any kind: a protocol-only backend
-// has no file surfaces, so a WithEverything selection resolves to nothing.
-func (EmptySurfaceSet) SupportedApproaches(SurfaceKind) []Approach { return nil }
-
-// DefaultApproach reports no default for any kind (nothing to select).
-func (EmptySurfaceSet) DefaultApproach(SurfaceKind) (Approach, bool) { return 0, false }
-
-// SurfaceFor resolves nothing — an empty set materializes no files, so EVERY
-// (kind, approach) pair is unsupported and is refused with an error, per the
-// SurfaceSet contract. Build() never reaches here (SupportedApproaches is nil
-// for every kind, which Build treats as a permitted no-op), so the refusal is
-// visible only to a direct caller — which is exactly the caller that would
-// otherwise be handed a nil Delivery it has no error to branch on.
-func (EmptySurfaceSet) SurfaceFor(kind SurfaceKind, a Approach) (Delivery, error) {
-	return nil, fmt.Errorf("empty surface set: no %s surface via %s (this backend materializes no files)", kind, a)
-}
-
-// SharedRealization reports no realization for any (kind, approach) pair.
-func (EmptySurfaceSet) SharedRealization(SurfaceKind, Approach) (func(present.Start) (Delivered, error), bool) {
-	return nil, false
 }
 
 // CellKind is the resolved isolation cell a run executes in, decided host-side
@@ -401,146 +285,94 @@ func NewIsolatedCell(start present.Start) IsolatedCell {
 // a caller chained the WithX() calls in.
 var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceCommands, SurfaceSkills}
 
-// SurfaceSelection is an OPT-IN builder over a SurfaceSet: the default selects
-// NOTHING, and each chainable .WithX(approach) opts one SurfaceKind in AT A NAMED
-// APPROACH. Opt-in (no opt-out / "except") is deliberate — every caller states
-// EXACTLY which surfaces it delivers, so a future surface kind can never silently
-// ride along a broad selection. The caller ALWAYS names the approach:
-// there is no silent default at the call site, and a race-capable
-// choice is spelled UNSAFE_FILE so picking it IS the race acknowledgment. Build it
-// with Select(set), chain the surfaces, then call Build() (or the DeliverUnder
-// convenience for the at-rest callers).
-type SurfaceSelection struct {
-	set        SurfaceSet
-	approaches map[SurfaceKind]Approach
-}
-
-// Select begins an opt-in selection over set with NOTHING selected.
-func Select(set SurfaceSet) *SurfaceSelection {
-	return &SurfaceSelection{set: set, approaches: map[SurfaceKind]Approach{}}
-}
-
-// WithApproach opts kind into the selection at a. It is the generic form of the
-// five typed With* methods below, for a caller holding a (kind, approach) pair
-// it parsed rather than one it wrote — `profile materialize --surface
-// context=unsafe-file` is the reason it exists.
+// SurfaceSelection is an OPT-IN builder over an engine's Declaration: the
+// default selects NOTHING, and each With(kind, name) opts one SurfaceKind in
+// AT A NAMED APPROACH. Opt-in (no opt-out / "except") is deliberate — every
+// caller states EXACTLY which surfaces it delivers, so a future surface kind
+// can never silently ride along a broad selection. The caller ALWAYS names
+// the approach: there is no silent default at the call site, and a
+// race-capable choice is spelled ApproachUnsafeFile so picking it IS the race
+// acknowledgment. Build it with Select(decl), chain the surfaces, then call
+// Build (or the DeliverUnder convenience for the at-rest callers).
 //
-// The typed methods are NOT replaced by it and should stay preferred in code:
-// WithContext(ContextWriteHook) cannot name an approach the context surface has
-// no spelling for, while this can, and only Build() will catch it. That is the
-// right trade for a parsed pair and the wrong one for a literal.
-func (s *SurfaceSelection) WithApproach(kind SurfaceKind, a Approach) *SurfaceSelection {
-	s.approaches[kind] = a
+// Selection is SEPARABLE from construction and from mechanism: With records
+// names only; Build constructs exactly the selected approaches from the run's
+// content; the terminal (DeliverUnder / DeliverShared / a launch cell) owns
+// WHERE they land.
+type SurfaceSelection struct {
+	decl  Declaration
+	names map[SurfaceKind]string
+}
+
+// Select begins an opt-in selection over decl with NOTHING selected.
+func Select(decl Declaration) *SurfaceSelection {
+	return &SurfaceSelection{decl: decl, names: map[SurfaceKind]string{}}
+}
+
+// With opts kind into the selection at the named approach. The name is
+// validated at Build against the Declaration — a name the engine cannot
+// construct is a loud error there, never a fallback.
+func (s *SurfaceSelection) With(kind SurfaceKind, name string) *SurfaceSelection {
+	s.names[kind] = name
 	return s
 }
 
-// WithContext opts the context surface into the selection at the named approach.
-func (s *SurfaceSelection) WithContext(c ContextWrite) *SurfaceSelection {
-	s.approaches[SurfaceContext] = c.approach()
-	return s
-}
-
-// WithMCP opts the MCP surface into the selection at the named approach.
-func (s *SurfaceSelection) WithMCP(m MCPWrite) *SurfaceSelection {
-	s.approaches[SurfaceMCP] = m.approach()
-	return s
-}
-
-// WithSettings opts the settings/hooks surface into the selection at the named
-// approach (for engines that fold MCP or context into it, the whole folded file
-// rides along).
-func (s *SurfaceSelection) WithSettings(w SettingsWrite) *SurfaceSelection {
-	s.approaches[SurfaceSettings] = w.approach()
-	return s
-}
-
-// WithCommands opts the commands / slash-command surface into the selection at
-// the named approach.
-func (s *SurfaceSelection) WithCommands(w CommandsWrite) *SurfaceSelection {
-	s.approaches[SurfaceCommands] = w.approach()
-	return s
-}
-
-// WithSkills opts the Agent Skills surface into the selection at the named
-// approach.
-func (s *SurfaceSelection) WithSkills(w SkillsWrite) *SurfaceSelection {
-	s.approaches[SurfaceSkills] = w.approach()
-	return s
-}
-
-// WithEverything opts every PRESENT surface kind in at the backend's
-// DefaultApproach — the materialize selection (a full native surface tree), and
-// the selection the launch path borrows. A kind the backend folds or omits (codex's
-// MCP, which rides its config/settings surface) reports no default and is
-// skipped, never erroring.
+// WithEverything opts every DECLARED surface kind in at the engine's default
+// — the materialize selection (a full native surface tree), and the selection
+// the launch path borrows. A kind the engine folds or omits is absent from
+// the Declaration and is skipped, never erroring.
 func (s *SurfaceSelection) WithEverything() *SurfaceSelection {
 	for _, k := range surfaceOrder {
-		if a, ok := s.set.DefaultApproach(k); ok {
-			s.approaches[k] = a
+		if def, ok := s.decl.Default(k); ok {
+			s.names[k] = def
 		}
 	}
 	return s
 }
 
-// Build validates every selected (kind, approach) against the backend's
-// SupportedApproaches and resolves each to its concrete Delivery via SurfaceFor,
-// returning a ResolvedSelection a cell/dir consumes. A selected kind the backend
-// folds or omits (empty SupportedApproaches — codex's MCP) is a permitted no-op; a
-// named approach the backend does not support is a loud error naming the surface,
-// the requested approach, and the supported set. Selection is kept SEPARABLE from
-// mechanism: Build decides only WHICH surfaces at WHICH approach; the terminal
-// (DeliverUnder / DeliverShared) owns WHERE they land.
-func (s *SurfaceSelection) Build() (*ResolvedSelection, error) {
-	// The context Hook approach rides the settings-carried inject hook — a
-	// context-only selection at Hook would write an unread cache file with no hook
-	// to consume it, so Settings must be selected in the SAME Build().
-	if a, ok := s.approaches[SurfaceContext]; ok && a == ApproachHook {
-		if _, ok := s.approaches[SurfaceSettings]; !ok {
-			return nil, fmt.Errorf("context: the hook approach rides the settings surface — select settings in the same Build()")
-		}
-	}
-
-	r := &ResolvedSelection{set: s.set}
+// Build validates every selected (kind, name) against the Declaration and
+// constructs each from the run's content, returning a ResolvedSelection a
+// cell/dir consumes. A selected kind the engine does not declare is a
+// permitted no-op; a name the engine does not declare for a kind it does have
+// is a loud error naming the surface, the requested name and the declared set.
+// A Rider (hook-carried context) is refused unless the kind it rides is
+// selected in the SAME Build: delivered alone it would write nothing and
+// report success.
+func (s *SurfaceSelection) Build(in SurfaceInputs, fs afero.Fs) (*ResolvedSelection, error) {
+	r := &ResolvedSelection{decl: s.decl}
 	for _, k := range surfaceOrder {
-		a, ok := s.approaches[k]
+		name, ok := s.names[k]
 		if !ok {
 			continue
 		}
-		supported := s.set.SupportedApproaches(k)
-		if len(supported) == 0 {
-			// The backend has no distinct surface of this kind (codex folds MCP
-			// into its config surface): selecting it delivers nothing extra.
+		p, declared := s.decl[k]
+		if !declared {
+			// The engine has no distinct surface of this kind (it folds MCP
+			// into its settings file): selecting it delivers nothing extra.
 			continue
 		}
-		if !containsApproach(supported, a) {
-			return nil, fmt.Errorf("surface %s: approach %s not supported (supports %v)", k, a, supported)
+		a, ok := p.Construct(name, in, fs)
+		if !ok {
+			return nil, fmt.Errorf("%s: surface %s: approach %q not supported (supports %s)", p.Engine(), k, name, strings.Join(p.Names(), ", "))
 		}
-		d, err := s.set.SurfaceFor(k, a)
-		if err != nil {
-			return nil, err
+		if rider, ok := a.(Rider); ok {
+			if _, selected := s.names[rider.Rides()]; !selected {
+				return nil, fmt.Errorf("%s: the %s approach rides the %s surface — select %s in the same Build()", k, name, rider.Rides(), rider.Rides())
+			}
 		}
-		r.surfaces = append(r.surfaces, resolvedSurface{kind: k, approach: a, delivery: d})
+		r.surfaces = append(r.surfaces, resolvedSurface{kind: k, name: name, approach: a})
 	}
 	return r, nil
 }
 
-// containsApproach reports whether list includes a.
-func containsApproach(list []Approach, a Approach) bool {
-	for _, x := range list {
-		if x == a {
-			return true
-		}
-	}
-	return false
-}
-
-// DeliverUnder is the convenience terminal for the at-rest callers (materialize,
-// apply, remove): it Builds the selection and delivers each resolved surface into an
-// IsolatedCell over the advised roots. A Build error (an unsupported approach, or
-// context-Hook selected without settings) is returned as the sole entry in errs.
-// See ResolvedSelection.DeliverUnder for the collect-all-failures semantics.
-func (s *SurfaceSelection) DeliverUnder(start present.Start) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
-	r, err := s.Build()
+// DeliverUnder is the convenience terminal for the at-rest callers
+// (materialize, apply, remove): it Builds the selection from the run's
+// content and delivers each resolved surface into an IsolatedCell over the
+// advised roots. A Build error (an undeclared approach, or a rider without
+// the surface it rides) is returned as the sole entry in errs. See
+// ResolvedSelection.DeliverUnder for the collect-all-failures semantics.
+func (s *SurfaceSelection) DeliverUnder(in SurfaceInputs, fs afero.Fs, start present.Start) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
+	r, err := s.Build(in, fs)
 	if err != nil {
 		return nil, nil, []error{err}
 	}
@@ -548,14 +380,23 @@ func (s *SurfaceSelection) DeliverUnder(start present.Start) (delivered []Delive
 }
 
 // resolvedSurface is one entry of a Built selection: the surface kind, the
-// approach it resolved at, and the concrete Delivery to write.
+// approach name it resolved at, and the constructed Approach to write.
 type resolvedSurface struct {
 	kind     SurfaceKind
+	name     string
 	approach Approach
-	delivery Delivery
 }
 
-// kindedResolvedDelivery adapts a resolved (kind, Delivery) pair into a
+// ResolvedApproach is one Built surface as a caller sees it: a launch backend
+// reads these after delivery to learn what its engine's approaches recorded
+// (claude's out-of-cwd file paths for its launch flags).
+type ResolvedApproach struct {
+	Kind     SurfaceKind
+	Name     string
+	Approach Approach
+}
+
+// kindedResolvedDelivery adapts a resolved (kind, Approach) pair into a
 // KindedDelivery for an isolated cell: the kind rides the RESOLVED SELECTION
 // itself, not a type-assertion on the concrete surface.
 type kindedResolvedDelivery struct {
@@ -571,57 +412,61 @@ func (k kindedResolvedDelivery) Deliver(start present.Start) (Delivered, error) 
 // Kind reports the RESOLVED kind (the selection's, not a type-assertion).
 func (k kindedResolvedDelivery) Kind() SurfaceKind { return k.kind }
 
-// ResolvedSelection is a Built selection — the deliverable a cell/dir consumes. It
-// carries the ordered, approach-resolved surfaces. The at-rest terminals
-// (DeliverUnder / DeliverShared) live here; a cell-aware caller (the launch path)
-// may instead read Deliveries() directly and drive its own cell.
+// ResolvedSelection is a Built selection — the deliverable a cell/dir
+// consumes. It carries the ordered, constructed surfaces. The at-rest
+// terminals (DeliverUnder / DeliverShared) live here; a cell-aware caller
+// (the launch path) may instead read Deliveries() directly and drive its own
+// cell.
 type ResolvedSelection struct {
-	set      SurfaceSet
+	decl     Declaration
 	surfaces []resolvedSurface
 }
 
-// Deliveries returns the resolved surfaces as KindedDelivery, in stable order, for
-// an isolated cell (worktree/container) to iterate — a well-known write into a
-// private dir is safe regardless of the resolved approach. A Hook-approach
-// no-op delivery (claude context riding the settings-carried hook) is included —
-// its Deliver returns a nil handle, the shared "nothing written" convention.
+// Approaches lists the resolved surfaces in delivery order.
+func (r *ResolvedSelection) Approaches() []ResolvedApproach {
+	out := make([]ResolvedApproach, 0, len(r.surfaces))
+	for _, rs := range r.surfaces {
+		out = append(out, ResolvedApproach{Kind: rs.kind, Name: rs.name, Approach: rs.approach})
+	}
+	return out
+}
+
+// Deliveries returns the resolved surfaces as KindedDelivery, in stable order,
+// for an isolated cell (worktree/container) to iterate — a well-known write
+// into a private dir is safe regardless of the resolved approach. A Rider's
+// no-op delivery (hook-carried context) is included — its Deliver returns a
+// nil handle, the shared "nothing written" convention.
 func (r *ResolvedSelection) Deliveries() []KindedDelivery {
 	out := make([]KindedDelivery, 0, len(r.surfaces))
 	for _, rs := range r.surfaces {
-		if rs.delivery == nil {
-			continue
-		}
-		out = append(out, kindedResolvedDelivery{kind: rs.kind, d: rs.delivery})
+		out = append(out, kindedResolvedDelivery{kind: rs.kind, d: rs.approach})
 	}
 	return out
 }
 
 // DeliverUnder delivers each resolved surface's native (well-known) write into
 // an IsolatedCell over the advised roots — the at-rest path
-// (materialize/apply/remove), where a private dir makes every write race-free. It ERRORS on any surface
-// resolved at ApproachSystemPrompt: that approach writes an out-of-cwd scratch file
-// consumed via a launch flag, and DeliverUnder has no argv sink to hand that flag
-// to — naming SystemPrompt for an at-rest delivery is a caller error, not a launch.
-// It ATTEMPTS every OTHER surface and COLLECTS per-surface failures rather than
-// stopping at the first — the surfaces under one root are independent, so a partial
-// delivery is still useful and the caller routes failures through its own fault
-// policy (fatal-by-default, or warn-and-continue under --degraded). It returns the
-// handles for the surfaces that actually delivered (in order, for teardown), their
-// kinds (for a delivery report), and the failures. A no-op delivery (writes
-// nothing, nil handle — codex's context surface with no fragments, or claude's
-// Hook no-op) is neither reported nor held, so the report reflects what was
-// actually written.
+// (materialize/apply/remove), where a private dir makes every write race-free.
+// It ERRORS on any surface resolved at a LaunchOnly approach: that approach's
+// bytes are announced by a launch flag, and DeliverUnder has no argv sink to
+// hand that flag to — naming it for an at-rest delivery is a caller error, not
+// a launch. It ATTEMPTS every OTHER surface and COLLECTS per-surface failures
+// rather than stopping at the first — the surfaces under one root are
+// independent, so a partial delivery is still useful and the caller routes
+// failures through its own fault policy (fatal-by-default, or
+// warn-and-continue under --degraded). It returns the handles for the
+// surfaces that actually delivered (in order, for teardown), their kinds (for
+// a delivery report), and the failures. A no-op delivery (writes nothing, nil
+// handle — a context surface with no fragments, or a Rider) is neither
+// reported nor held, so the report reflects what was actually written.
 func (r *ResolvedSelection) DeliverUnder(start present.Start) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
 	cell := NewIsolatedCell(start)
 	for _, rs := range r.surfaces {
-		if rs.approach == ApproachSystemPrompt {
-			errs = append(errs, fmt.Errorf("surface %s: system-prompt delivery has no argv sink at rest (dir %s)", rs.kind, start.Paths().ProjectRoot.Host))
+		if _, launchOnly := rs.approach.(LaunchOnly); launchOnly {
+			errs = append(errs, fmt.Errorf("surface %s: %s delivery has no argv sink at rest (dir %s)", rs.kind, rs.name, start.Paths().ProjectRoot.Host))
 			continue
 		}
-		if rs.delivery == nil {
-			continue
-		}
-		handle, err := cell.Deliver(rs.delivery)
+		handle, err := cell.Deliver(rs.approach)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -635,19 +480,16 @@ func (r *ResolvedSelection) DeliverUnder(start present.Start) (delivered []Deliv
 }
 
 // DeliverShared delivers each resolved surface into the SHARED live cwd — the
-// advised project root — collecting per-surface failures like DeliverUnder. It is the shared-cwd
-// counterpart of DeliverUnder; the launch path uses deliverOneShared directly (per
-// surface) instead, so it can keep its context-failure fallback.
+// advised project root — collecting per-surface failures like DeliverUnder. It
+// is the shared-cwd counterpart of DeliverUnder; the launch path uses
+// deliverOneShared directly (per surface) instead, so it can keep its
+// context-failure fallback.
 //
-// This has no PRODUCTION call site — true, but a suggested fix ("port callers
-// onto deliverOneShared directly") does not work for its actual callers:
-// deliverOneShared is unexported, and every current caller of DeliverShared
-// (claude/kiro/codex's surfaces_test.go, selection_test.go) lives
-// in a DIFFERENT package, so it cannot reach an unexported method here.
-// DeliverShared is the sanctioned, exported seam those four packages' tests
-// use to exercise the shared-cwd "unsafe: warn and proceed" behavior end to
-// end (real UnsafeInfo() strings, real target paths) — kept deliberately, not
-// oversight.
+// This has no PRODUCTION call site — true, but its callers (the engine
+// packages' surface tests) live in a DIFFERENT package and cannot reach the
+// unexported deliverOneShared. It is the sanctioned, exported seam those tests
+// use to exercise the shared-cwd "unsafe: warn and proceed" behaviour end to
+// end (real UnsafeInfo() strings, real target paths) — kept deliberately.
 func (r *ResolvedSelection) DeliverShared(start present.Start) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
 	for _, rs := range r.surfaces {
 		d, err := r.deliverOneShared(rs, start)
@@ -663,65 +505,44 @@ func (r *ResolvedSelection) DeliverShared(start present.Start) (delivered []Deli
 	return delivered, kinds, errs
 }
 
-// isolatedDelivery is optionally implemented by a concrete surface Delivery that
-// can write its content OUT of the shared cwd (claude's context/MCP/settings
-// scratch files, consumed via a launch flag). It is the structural proof that a
-// backend's kind-keyed SharedRealization belongs to THIS resolved surface: the
-// realization closure is a method value bound to the very instance that carries
-// the method, so a resolved delivery lacking it is a different object and must
-// not be converted.
-type isolatedDelivery interface {
-	DeliverIsolated(present.Start) (Delivered, error)
-}
-
-// unsafeNamed is optionally implemented by a concrete surface Delivery to
-// self-describe for the DeliverShared warning (e.g. "claude/commands"). A surface
-// without it (the shared codex/kiro ManagedCommandsDelivery) falls back
-// to its cross-backend SurfaceKind label.
+// unsafeNamed is optionally implemented by a concrete Approach to
+// self-describe for the DeliverShared warning (e.g. "claude/commands"). One
+// without it falls back to its cross-backend SurfaceKind label.
 type unsafeNamed interface {
 	UnsafeInfo() string
 }
 
-// deliverOneShared delivers ONE resolved surface into the SHARED live cwd — the
-// advised project root. When the backend offers a SharedRealization for this
-// (kind, approach) pair (claude's out-of-cwd scratch conversion, offered only
-// at ApproachSystemPrompt for context), it runs that closure against the same
-// advised roots — it writes beneath Scratch — genuinely race-safe, no warning.
-// Otherwise the well-known write lands directly in the shared cwd: loudly warned
-// first, since the selected UNSAFE_FILE approach is the caller's acknowledgment
-// that ctxloom does not lock projects — this is also where an explicit
-// context=unsafe-file preference on a shared cell lands (U100-F05's fork:
-// honored, not silently converted to the scratch, and not refused). A nil
-// delivery (claude's Hook no-op) is itself a no-op.
+// deliverOneShared delivers ONE resolved surface into the SHARED live cwd —
+// the advised project root. When the approach has an OutOfCwd form it runs
+// THAT against the same advised roots — it writes beneath Scratch —
+// genuinely race-safe, no warning. Otherwise the well-known write lands
+// directly in the shared cwd: loudly warned first, since the selected
+// ApproachUnsafeFile is the caller's acknowledgment that ctxloom does not lock
+// projects — this is also where an explicit context=unsafe-file preference on
+// a shared cell lands (honoured, not silently converted to the scratch, and
+// not refused). A Rider's no-op delivery is itself a no-op: it writes nothing
+// and is not warned.
+//
+// Whether an approach converts is the APPROACH's own property, carried by the
+// very value that was constructed for it: claude's context declares the
+// native file WITHOUT an OutOfCwd form and its system prompt WITH one, so the
+// pair-keyed lookup that used to guard "do not convert a surface the caller
+// asked not to write" is no longer needed — the value asked for is the value
+// that decides.
 func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, start present.Start) (Delivered, error) {
-	if rs.delivery == nil {
-		return nil, nil
+	if _, rider := rs.approach.(Rider); rider {
+		return rs.approach.Deliver(start)
 	}
 	if err := rooted(start); err != nil {
 		return nil, err
 	}
-	// SharedRealization is keyed on the (kind, approach) PAIR: a kind can
-	// resolve to different deliveries per approach, and — since U100-F05 —
-	// different approaches of the SAME dual-capable delivery can realize
-	// differently. claude's context resolves to the dual-capable contextSurface
-	// at both UnsafeFile and SystemPrompt, but only SystemPrompt has a
-	// realization; UnsafeFile is the caller's explicit request to write the
-	// native file, honored below with a warning (the fork this method already
-	// implements). Hook resolves to a documented no-op. Requiring the RESOLVED
-	// delivery to carry the isolated path is what keeps the pair-keyed lookup
-	// from converting a surface the caller asked not to write: running the
-	// scratch writer for a hook-carried context would emit
-	// --append-system-prompt-file alongside the inject hook and DOUBLE the
-	// context.
-	if _, isolatable := rs.delivery.(isolatedDelivery); isolatable {
-		if realize, ok := r.set.SharedRealization(rs.kind, rs.approach); ok {
-			return realize(start)
-		}
+	if o, ok := rs.approach.(OutOfCwd); ok {
+		return o.DeliverIsolated(start)
 	}
 	info := rs.kind.String()
-	if n, ok := rs.delivery.(unsafeNamed); ok {
+	if n, ok := rs.approach.(unsafeNamed); ok {
 		info = n.UnsafeInfo()
 	}
 	Warn("unsafe: %s into shared cwd %s — no isolated mechanism; races concurrent agents", info, start.Paths().ProjectRoot.Host)
-	return rs.delivery.Deliver(start)
+	return rs.approach.Deliver(start)
 }

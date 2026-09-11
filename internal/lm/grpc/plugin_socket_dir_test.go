@@ -31,10 +31,12 @@ func longTempDir(t *testing.T) string {
 // shortDir mints a directory whose worst-case go-plugin socket path fits
 // sun_path. It cannot come from t.TempDir(): inside an agent cell that root
 // is the very TMPDIR under test, ~100 bytes before the test's own name is
-// added. pluginSocketNameMax counts the leading separator, hence the -1.
+// added. The worst-case name is sized from pluginSocketNameMax (which counts
+// the leading separator) so it cannot drift from what production budgets for.
 func shortDir(t *testing.T) string {
 	t.Helper()
-	return testsupport.SocketDir(t, strings.Repeat("0", pluginSocketNameMax-1))
+	const prefix = "plugin"
+	return testsupport.SocketDir(t, prefix+strings.Repeat("0", pluginSocketNameMax-1-len(prefix)))
 }
 
 // inProcessPluginConn is plugin.TestPluginGRPCConn with its socket steered

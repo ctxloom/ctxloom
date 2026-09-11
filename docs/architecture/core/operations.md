@@ -69,7 +69,7 @@ flowchart TD
     ASM --> APPLY["ApplyHooks<br/>hooks.go:54<br/>settings / MCP / context / commands"]
     ASM --> RUN["runResolvedAgent<br/>oneshot.go:315"]
     ASM --> MAT["MaterializeProfile<br/>profile_materialize.go:57"]
-    APPLY --> SURF["backends.BuildSurfaces<br/>-> native engine files"]
+    APPLY --> SURF["backends.Declared → Select → DeliverUnder<br/>-> native engine files"]
 ```
 
 ## Bootstrap — `init.go`, `legacy_cleanup.go`

@@ -105,11 +105,11 @@ not give an engine a capability it never had.
 | `antigravity` | whole-file write to `.agents/AGENTS.md` | `.agents/AGENTS.md` | no (agy fires no SessionStart hook for context) | `internal/antigravity/antigravity.go:541`, `surfaces.go:61` |
 | `opencode` | `.opencode/ctxloom-context.md` referenced from `opencode.json`'s `instructions[]` key | no | no | `internal/opencode/settings.go:36`, `chat.go:190-205` |
 
-**`SharedRealization` — out-of-cwd redirect.** Only `claude-code` has one
-(`internal/claude/surfaces.go:388`): flag-pointed scratch files for context, MCP and
-settings, so a live shared cwd is never written into. codex and
-opencode both return `nil, false`
-(`internal/codex/surfaces.go:414`, `internal/opencode/surfaces.go:183`).
+**`agent.OutOfCwd` — the out-of-cwd form.** Only `claude-code` declares
+approaches that carry one (`internal/claude/surfaces.go`): flag-pointed scratch
+files for context, MCP and settings, so a live shared cwd is never written
+into. An engine whose approaches lack it gets the loudly-warned well-known
+write on a shared cell.
 **Consequence: for every engine but claude, concurrent per-agent isolation requires
 a private cwd (worktree) or a container cell.** codex substitutes a per-run
 `CODEX_HOME`, which is also the only thing that isolates its global-only prompts and
@@ -240,7 +240,6 @@ Composable container engines, in order (`internal/lm/isolation/profile.go:357`):
 
 ## 10. Capabilities that exist on every engine and fire on none
 
-- **`ContentCommands` / `RegisterFromContent`** — implemented with a real body by every registered backend. `LaunchBackend.commands` is assigned at `internal/shared/agent/launch_backend.go:92` and **read nowhere**. Production call sites: zero. Real command writes go through the commands *surface* instead.
 - ~~**`ManagedConfig.Skills`**~~, ~~**`ManagedConfig.DenyTools`**~~, ~~**`wire.Hook.PreToolFallback`**~~ — **all three now cross the launch wire** (`40b49a7f`). They belonged in this section because none of them did: five engines declared `skillExports` that never received anything, claude's deny list was never applied at launch, and `PreToolFallback` arrived `false` at its one consumer (`internal/antigravity/antigravity.go:388`, "the only way it ever fires on agy"). Left visible because "declared everywhere, fires nowhere" is the pattern this section catalogues, and these were its three clearest instances.
 - **`RunOptions.temperature` and `RunOptions.max_tokens`** — carried by the proto, constructed by nothing, read by no backend.
 

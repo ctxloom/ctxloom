@@ -28,8 +28,11 @@ Three observed consequences:
    can ask a route "is what you carry current?" (taskloom `hefty-gallery`; J001900's
    B6 hop, where the boundary table credits an inspector with a hop it does not
    watch).
-3. **The mock backend materializes nothing** (`EmptySurfaceSet`), so J001400's
-   twelve delivery-matrix rows cannot be exercised hermetically at all.
+3. **Delivery assertions need a hermetic vehicle.** The mock engine's
+   `Declaration` (`mockDeclaration`, `internal/lm/backends`) gives every
+   surface kind a real approach, which is what lets J001400's delivery-matrix
+   rows run without a live engine; the read half below is what a status
+   report still lacks.
 
 ---
 
@@ -206,8 +209,14 @@ project:
 isolation it is not the project dir, and a field named for one case invites a
 caller to reason about the others wrongly. The isolation axes are independent
 and compose, so the one thing a delivery must never assume is that its root is
-the project. Renaming it, `Delivery.Deliver(dir)` and `DeliverAll(dir, …)` to
-`targetDir` is mechanical and rides with this change.
+the project.
+
+The write seam already takes this shape: `Delivery.Deliver` receives a
+`present.Start` — every root resolved and advised for THIS run — rather than
+a bare directory string, so a surface cannot compute a location of its own
+from a string it was handed. The `targetDir` here is that Start's project
+root; `EngineDelivery` should take the same value, not a string, for the same
+reason. Only `ContextWriteRequest.ProjectDir` still carries the misnomer.
 
 ---
 
@@ -256,9 +265,10 @@ user to fix what is already correct.
 
 ### The mock engine implements both halves
 
-The mock has `EmptySurfaceSet` and materializes nothing, which is why J001400's
-delivery matrix is untestable. It gains a real context route implementing
-`EngineDelivery` and `StateReader`.
+The mock already declares a real approach for every surface kind
+(`mockDeclaration`), so the write half is exercisable hermetically today. What
+it lacks is the read half: its context route gains `EngineDelivery` and
+`StateReader` so a status report can be proven against it.
 
 This is not a test convenience. A mock that delivers nothing cannot prove
 delivery, so every delivery assertion either runs against a live engine or is
@@ -296,7 +306,8 @@ should not land during the tree-format migration.
    resolved ordered forms out. Today it is spread across `internal/config` and
    `internal/operations`.
 5. `EngineDelivery` — the wide change, landed per engine behind the existing
-   `SurfaceSet`, once the process stage emits resolved forms.
+   `Declaration` / `Approach` seam, once the process stage emits resolved
+   forms.
 
 Steps 1–3 are independent of the tree-format migration. Step 5 waits for it: a
 migration verb that pre-renders payloads would entrench the shape step 5

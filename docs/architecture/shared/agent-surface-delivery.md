@@ -1,182 +1,241 @@
 # agent — surface selection and delivery (cells)
 
-The mechanism that decides *which* of a backend's context/MCP/settings/commands/skills surfaces get written and *how* their bytes reach the model. `SurfaceKind` names the category, `Approach` names the mechanism (unsafe-file / system-prompt / hook), `SurfaceSet` is a backend's declaration of what it supports, and `SurfaceSelection` is the opt-in builder that validates a caller's (kind, approach) choices and resolves them to `Delivery` values. Delivery then happens either into a private *isolated cell* (a per-run directory, making every well-known write race-free) or, when a backend must write into the shared cwd, through `deliverOneShared`.
+The mechanism that decides *which* of an engine's surfaces get written and
+*how* their bytes reach the model. `SurfaceKind` names the category (context,
+MCP, settings, commands, skills); an `Approach` is ONE way one surface's bytes
+reach the engine; an engine's `Declaration` is the static statement of every
+approach it can construct per kind and which one it falls back to; and
+`SurfaceSelection` is the opt-in builder that resolves a caller's named
+(kind, approach) choices against that declaration and constructs them.
+Delivery then happens either into a private *isolated cell* (a per-run
+directory, making every well-known write race-free) or, when an engine must
+write into the shared cwd, through the approach's own out-of-cwd form where it
+has one and a loudly-warned well-known write where it does not.
+
+Authority: `internal/shared/agent/declaration.go` (the open set and the
+capabilities), `approach.go` (the well-known names), `presentations.go` (a
+declaration's per-kind half), `cells.go` (the seam, the cells, the builder).
 
 ```mermaid
 classDiagram
     class SurfaceKind {
         <<enum>>
-        Context, MCP, Settings, Commands, Skills
+        the cross-engine surface categories
     }
     class Approach {
-        <<enum>>
-        UnsafeFile, SystemPrompt, Hook
-    }
-    class ContextWrite { <<per-surface enum>> }
-    class MCPWrite { <<1 value>> }
-    class SettingsWrite { <<1 value>> }
-    class CommandsWrite { <<1 value>> }
-    class SkillsWrite { <<1 value>> }
-    class ApproachTable {
-        map of SurfaceKind to Approach list
-        Supported(kind)
-        Default(kind)
-        SurfaceFor(backend, surfaces, kind, a)
-    }
-    class SurfaceSet {
         <<interface>>
-        Deliveries()
-        SupportedApproaches(kind)
-        DefaultApproach(kind)
-        SurfaceFor(kind, approach)
-        SharedRealization(kind)
+        Present(start) Presentation
+        Deliver(start) Delivered
     }
-    class EmptySurfaceSet
-    class SurfaceInputs {
-        Context, MCP, Hooks, Commands, Skills
-        MCPCommandOverride, SelfContained*
+    class OutOfCwd {
+        <<optional capability>>
+        DeliverIsolated(start) Delivered
     }
-    class CellDelivery {
-        Build closure
-        RawContext bool
-        ContextHook bool
+    class LaunchOnly { <<optional capability>> }
+    class Rider {
+        <<optional capability>>
+        Rides() SurfaceKind
     }
+    class Construct { <<func>> (SurfaceInputs, Fs) Approach }
+    class Presentations {
+        one engine, one kind
+        Presents(engine, kind, default, Construct)
+        Or(name, Construct)
+        Names() Default() Construct(name, in, fs)
+    }
+    class Declaration {
+        map SurfaceKind to Presentations
+        Names(kind) Default(kind) AllNames()
+        Construct(kind, name, in, fs)
+    }
+    class SurfaceInputs { one run's content, no roots }
     class SurfaceSelection {
-        WithContext/WithMCP/WithSettings
-        WithCommands/WithSkills/WithEverything
-        Build() ResolvedSelection
-        DeliverUnder(dir)
+        Select(Declaration)
+        With(kind, name) WithEverything()
+        Build(in, fs) ResolvedSelection
     }
     class ResolvedSelection {
-        Deliveries() KindedDelivery~list~
-        DeliverUnder(dir)
-        DeliverShared(dir)
-        deliverOneShared(rs, dir)
+        Approaches() Deliveries()
+        DeliverUnder(start) DeliverShared(start)
     }
-    class resolvedSurface { kind, approach, delivery }
-    class Delivery { <<interface>> Deliver(dir) Delivered }
-    class KindedDelivery { <<interface>> Kind() SurfaceKind }
-    class unsafeNamed { <<interface>> UnsafeInfo() string }
+    class Delivery { <<interface>> Deliver(start) Delivered }
     class Delivered { <<interface>> Cleanup() error }
-    class isolatedCell { dir; Deliver(Delivery) }
+    class IsolatedCell { Deliver(Delivery) }
     class CellKind { <<enum>> shared, dirIsolated, procIsolated }
-    class Placement { <<interface>> Dir() string }
 
-    ContextWrite --> Approach : approach()
-    MCPWrite --> Approach
-    SettingsWrite --> Approach
-    CommandsWrite --> Approach
-    SkillsWrite --> Approach
-    ApproachTable ..|> SurfaceSet : mechanical half
-    EmptySurfaceSet ..|> SurfaceSet
-    SurfaceSelection --> SurfaceSet : validates against
+    Declaration *-- Presentations
+    Presentations --> Construct : name keyed
+    Construct ..> Approach : builds per run
+    Approach ..|> Delivery
+    OutOfCwd ..> Approach : implemented by some
+    LaunchOnly ..> Approach : implemented by some
+    Rider ..> Approach : implemented by some
+    SurfaceSelection --> Declaration : resolves names against
     SurfaceSelection --> ResolvedSelection : Build()
-    ResolvedSelection *-- resolvedSurface
-    resolvedSurface --> Delivery
-    ResolvedSelection --> isolatedCell : DeliverUnder
-    KindedDelivery --|> Delivery
+    ResolvedSelection --> IsolatedCell : DeliverUnder
     Delivery ..> Delivered : returns
-    isolatedCell <|-- DirectoryIsolatedCell
-    isolatedCell <|-- ProcessIsolatedCell
 ```
 
-## Selection vocabulary
+## The open set
 
-| Symbol | file:line | Purpose |
+`Approach` is an interface, and the set of approaches is OPEN: an engine
+supplies one value per delivery mechanism it actually supports, in its own
+package, and says nothing about the ones it cannot. Shared code never
+enumerates approaches and never names an engine-specific one.
+
+Why not a shared enum: a shared vocabulary defined by its consumers is not a
+vocabulary — it is the first engine's shape with every later engine mapped
+onto it, and adding one that did not fit meant editing the enum, its ordering
+list and its parser. The file doc on `declaration.go` records this as the
+reason the set is open, and the shape follows the open-sets ruling that
+already governs roots: keyed by name; the well-known members stay well-known
+as NAMED CONSTANTS; and a name the declaration cannot construct FAILS LOUD.
+
+Exactly two names are shared constants, and only because SHARED code has to
+ask for them by name (`approach.go`):
+
+- `ApproachUnsafeFile` — the engine's native, well-known file. The at-rest
+  callers (materialize, apply, remove, currency) ask every engine for this.
+  "unsafe" names itself loudly because choosing it IS the race
+  acknowledgment: a well-known write into a shared live cwd cannot be locked
+  against a concurrent session; into an isolated cell it is always safe.
+- `ApproachHook` — context carried by a SessionStart injection hook reading a
+  content-addressed cache file. apply and the launch fallback ask for it.
+
+An approach only one engine has is named by that engine in its own package
+(claude's `ApproachSystemPrompt`); naming it in shared code would be the enum
+growing back.
+
+### Three phases, kept apart
+
+| Phase | When | What it may read |
 |---|---|---|
-| `Approach` | `internal/shared/agent/approach.go:25` | The shared dispatch key naming HOW a surface's bytes reach the model: `UnsafeFile` / `SystemPrompt` / `Hook`. |
-| `Approach.String` | `internal/shared/agent/approach.go:48` | Diagnostic label, used in `Build`/`SurfaceFor` error text. |
-| `ContextWrite` | `internal/shared/agent/approach.go:63` | Caller-facing per-surface enum for the context surface (3 values). |
-| `MCPWrite` | `internal/shared/agent/approach.go:96` | Single-valued per-surface enum for MCP. |
-| `SettingsWrite` | `internal/shared/agent/approach.go:110` | Single-valued per-surface enum for settings. |
-| `CommandsWrite` | `internal/shared/agent/approach.go:124` | Single-valued per-surface enum for commands. |
-| `SkillsWrite` | `internal/shared/agent/approach.go:141` | Single-valued per-surface enum for skills. |
-| `ApproachTable` | `internal/shared/agent/approach.go:162` | `map[SurfaceKind][]Approach` — the data half of per-backend dispatch, with shared method bodies so only the table differs per engine. |
-| `ApproachTable.Supported` | `internal/shared/agent/approach.go:166` | Approaches declared for a kind. |
-| `ApproachTable.Default` | `internal/shared/agent/approach.go:171` | First entry of the slice, or `false`. |
-| `ApproachTable.SurfaceFor` | `internal/shared/agent/approach.go:184` | Validates the approach then resolves kind → surface; errors name backend, kind, and approach. |
-| `SurfaceKind` | `internal/shared/agent/cells.go:45` | The cross-backend surface category; explicitly not a dispatch key. |
-| `SurfaceKind.String` | `internal/shared/agent/cells.go:73` | Stable label; `default:` correctly yields `"unknown"`. |
+| REGISTRATION | package init | Nothing run-specific. A name maps straight to a `Construct`, so "supported" and "constructible" are ONE fact — a name is known if and only if a constructor is registered under it (`Presentations`). |
+| CONSTRUCTION | per run | THAT run's content (`SurfaceInputs`). No roots: the built `Approach` receives them at `Present`/`Deliver` time through the advised `present.Start`. One registration builds for a host run, a worktree run and a container run and lands in different places. |
+| ENUMERATION | `--help`, completion, config validation | Registration ONLY. `Declaration.Names`/`Default`/`AllNames` are pure; nothing they read may require a built approach or a root. |
 
-## Delivery seam
+`Presentations.Names` is sorted, not in declaration order, on purpose: order
+carries no meaning. The default is a NAMED key into the constructors
+(`Presents` takes it as the required first delivery), never a positional
+convention, so a `Presentations` without a default does not exist and a
+default that nobody can ask for by name is unwritable.
 
-| Symbol | file:line | Purpose |
+### Optional capabilities replace branching on identity
+
+Shared code never asks "is this approach X". It asks what the approach can do,
+by type assertion against three small interfaces in `declaration.go`:
+
+| Capability | Meaning | Who consumes it |
 |---|---|---|
-| `Delivery` | `internal/shared/agent/cells.go:30` | The one-method write contract: `Deliver(dir) (Delivered, error)`. |
-| `KindedDelivery` | `internal/shared/agent/cells.go:93` | `Delivery` plus `Kind()`, so the surface kind rides the value instead of a downcast. |
-| `unsafeNamed` | `internal/shared/agent/cells.go:560` | Optional self-describe (`UnsafeInfo()`), discovered by type assertion for the shared-cwd warning. |
-| `Delivered` | `internal/shared/agent/delivery.go:21` | The universal cleanup handle returned by every `Deliver`. |
-| `ContextDelivery` | `internal/shared/agent/delivery.go:31` | Per-surface facet: deliver context. Implemented only by `internal/claude`. |
-| `MCPDelivery` | `internal/shared/agent/delivery.go:40` | Per-surface facet: deliver MCP. Implemented only by `internal/claude`. |
-| `CommandsDelivery` | `internal/shared/agent/delivery.go:50` | Per-surface facet: deliver commands. Implemented only by `internal/claude`. |
-| `SettingsDelivery` | `internal/shared/agent/delivery.go:60` | Per-surface facet: deliver settings. Implemented only by `internal/claude`. |
-| `Placement` | `internal/shared/agent/delivery.go:71` | "Where does a file-writing strategy write" — one method, `Dir()`. |
-| `ephemeralPlacement` | `internal/shared/agent/delivery.go:81` | Harp-scoped ephemeral dir, falling back to `os.TempDir()`. |
-| `ephemeralPlacement.Dir` | `internal/shared/agent/delivery.go:87` | Resolves the dir; the `HarpEphemeralDir` error is deliberately swallowed into the fallback. |
-| `cwdPlacement` | `internal/shared/agent/delivery.go:100` | Fixed-directory placement. Referenced only from `delivery_test.go:25`; `internal/claude` declares its own `dirPlacement` (`claude/surfaces.go:36`) instead. |
-| `DeliveredFunc` | `internal/shared/agent/managedcontext.go:108` | The canonical closure → `Delivered` adapter. |
-| `deliveredFunc` | `internal/shared/agent/managed_commands.go:57` | A byte-identical unexported twin of `DeliveredFunc`, 14 lines away in the same package. |
-| `ComposedDelivery` | `internal/shared/agent/managedcontext.go:178` | Composes N deliveries sharing one `SurfaceKind` into one `KindedDelivery` (codex's two context routes). |
-| `DeliverAll` | `internal/shared/agent/managedcontext.go:144` | Runs N deliveries, folding their handles into one. |
-| `ManagedCommandsDelivery` | `internal/shared/agent/managed_commands.go:22` | Shared `Delivery` for engines whose slash-command exports are managed files (codex/antigravity/opencode). |
-| `NewManagedCommandsDelivery` | `internal/shared/agent/managed_commands.go:33` | Constructor taking `{name, commands, write}`. |
-| `ManagedSkillPackagesDelivery` | `internal/shared/agent/managed_skill_packages.go:19` | The skills-surface twin of the above; declared in its own header as a clone, differing only in element type and `Kind()`. |
-| `NewManagedSkillPackagesDelivery` | `internal/shared/agent/managed_skill_packages.go:30` | Constructor. |
+| `OutOfCwd` | The approach ALSO has a race-safe FORM: the same surface written beneath the advised Scratch root and announced to the engine by a launch flag, via `DeliverIsolated`. It is a second form of one approach, not a separate approach — that is what keeps a well-known-file approach pinned on a shared launch converted, and the same approach on an isolated cell landing as the well-known file. | `ResolvedSelection.deliverOneShared` runs it in place of `Deliver`, without the race warning; `LaunchBackend`'s shared-launch preference (`preferOutOfCwd`) prefers a declared approach that has one. |
+| `Rider` | The approach writes no bytes of its own and rides another kind's write (hook-carried context rides the settings surface). | `SurfaceSelection.Build` refuses a selection naming a Rider without its ridden kind — a rider delivered alone would report success having carried nothing. Its own delivery is a no-op that holds no cleanup handle. |
+| `LaunchOnly` | The bytes reach the engine only through a launch: the out-of-cwd form is announced on argv, and an at-rest delivery has no argv sink to hand that flag to. | `ResolvedSelection.DeliverUnder` refuses it, naming the surface; selecting it at rest is a caller error, not a launch. |
 
-## Surface sets and cells
+Omitting a capability is the safe direction in every case: an approach
+without `OutOfCwd` is warned and not preferred, never silently treated as
+race-free.
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `SurfaceSet` | `internal/shared/agent/cells.go:107` | A backend's delivery surfaces plus the four approach-dispatch methods. |
-| `SurfaceInputs` | `internal/shared/agent/cells.go:147` | The per-run superset of everything any backend's surfaces write (11 fields, all consumed by at least one backend). |
-| `CellDelivery` | `internal/shared/agent/cells.go:188` | A backend's cell-delivery configuration: a `Build` closure plus `RawContext` and `ContextHook` booleans. |
-| `BuildWellKnown` | `internal/shared/agent/cells.go:220` | Generic adapter turning `func(SurfaceInputs, Fs) S` into `func(SurfaceInputs, string) SurfaceSet`; used by antigravity. |
-| `EmptySurfaceSet` | `internal/shared/agent/cells.go:229` | Null object so opencode/mock share the one cell-based `Setup` path. |
-| `CellKind` | `internal/shared/agent/cells.go:255` | Plugin-side mirror of the grpc cell enum: shared / directory-isolated / process-isolated. |
-| `CellKind.String` | `internal/shared/agent/cells.go:267` | Diagnostic label. |
-| `isolatedCell` | `internal/shared/agent/cells.go:282` | A private directory that makes any well-known write race-free. |
-| `isolatedCell.Deliver` | `internal/shared/agent/cells.go:289` | Forwards to the surface with the private dir — this call *is* the safety statement. |
-| `DirectoryIsolatedCell` | `internal/shared/agent/cells.go:296` | Named `isolatedCell` subtype; adds no fields and no methods. |
-| `ProcessIsolatedCell` | `internal/shared/agent/cells.go:304` | Named `isolatedCell` subtype; adds no fields and no methods. |
-| `NewDirectoryIsolatedCell` | `internal/shared/agent/cells.go:310` | Constructor. |
-| `NewProcessIsolatedCell` | `internal/shared/agent/cells.go:588` | Constructor with an identical body. |
+## Resolution: name in, approach out, no fallback
 
-## Builder and resolution
+`Select(decl)` begins a selection over an engine's `Declaration`. `With(kind,
+name)` opts one kind in at a named approach; `WithEverything` opts every
+DECLARED kind in at its default — a kind absent from the declaration is
+skipped, never an error, because absence means "this engine has no such
+surface or folds it into another". `Build(in, fs)` validates every (kind,
+name) against the declaration and constructs it.
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `Select` | `internal/shared/agent/cells.go:335` | Begins an empty selection; establishes the non-nil map invariant. |
-| `SurfaceSelection` | `internal/shared/agent/cells.go:329` | Opt-in builder — the caller names each kind at a named approach. |
-| `SurfaceSelection.WithContext` | `internal/shared/agent/cells.go:340` | Opts the context surface in at a `ContextWrite` approach. |
-| `SurfaceSelection.WithMCP` | `internal/shared/agent/cells.go:346` | Opts the MCP surface in. |
-| `SurfaceSelection.WithSettings` | `internal/shared/agent/cells.go:354` | Opts the settings surface in. |
-| `SurfaceSelection.WithCommands` | `internal/shared/agent/cells.go:361` | Opts the commands surface in. |
-| `SurfaceSelection.WithSkills` | `internal/shared/agent/cells.go:368` | Opts the skills surface in. Reached in production only via `WithEverything`. |
-| `SurfaceSelection.WithEverything` | `internal/shared/agent/cells.go:378` | Opts every present kind in at its default approach; an absent kind is skipped, not an error. |
-| `SurfaceSelection.Build` | `internal/shared/agent/cells.go:395` | Validates and resolves every selected (kind, approach) into a `ResolvedSelection`. |
-| `SurfaceSelection.DeliverUnder` | `internal/shared/agent/cells.go:444` | Build + delegate — the at-rest convenience terminal. |
-| `resolvedSurface` | `internal/shared/agent/cells.go:454` | One built entry: `{kind, approach, delivery}`. |
-| `kindedResolvedDelivery` | `internal/shared/agent/cells.go:463` | Adapts `(kind, Delivery)` → `KindedDelivery` so the kind rides the selection. |
-| `ResolvedSelection` | `internal/shared/agent/cells.go:478` | The built deliverable. |
-| `ResolvedSelection.Deliveries` | `internal/shared/agent/cells.go:488` | Projects surfaces to `[]KindedDelivery`, dropping nils. |
-| `ResolvedSelection.DeliverUnder` | `internal/shared/agent/cells.go:514` | Delivers every surface into an isolated cell, collecting failures; `SystemPrompt` at rest is a loud, explicit error. |
-| `ResolvedSelection.DeliverShared` | `internal/shared/agent/cells.go:541` | Shared-cwd counterpart to `DeliverUnder`. |
-| `ResolvedSelection.deliverOneShared` | `internal/shared/agent/cells.go:660` | Prefers a backend's `SharedRealization` for the resolved (kind, approach) pair, else warns loudly and does the well-known write. |
-| `containsApproach` | `internal/shared/agent/cells.go:430` | Slice membership helper. |
+There is deliberately no fallback anywhere on this path. `Declaration.Construct`
+returns false for a name the engine does not declare and the CALLER names the
+failure: `Build` errors, a config loader raises its finding. A name that
+resolved to the default behind the caller's back would deliver a different
+presentation than the one asked for — the silent substitution the open set
+exists to refuse. This is also why a config-authored composition (an agent
+binding naming a delivery as a bare string) is checked at RESOLVE time rather
+than build time: no compiler sees it, so the name is looked up where it
+entered and refused there (`presentations.go`'s file doc contrasts this with
+the program-authored `present` chain, where an illegal composition is
+unwritable).
+
+## Cells own race-safety
+
+A cell, not a parallel type hierarchy, decides whether a well-known write is
+safe.
+
+- **Isolated cell** (`IsolatedCell`, built from the advised `present.Start` by
+  `NewIsolatedCell`): a private per-run directory makes ANY well-known write
+  race-free by construction. `ResolvedSelection.DeliverUnder` delivers every
+  resolved surface through it; the resolved approach is irrelevant to safety
+  there.
+- **Shared cwd** (`ResolvedSelection.DeliverShared`, per surface
+  `deliverOneShared`): runs the approach's `OutOfCwd` form when it has one;
+  otherwise performs the well-known write and warns loudly, using the
+  surface's own `UnsafeInfo` (the optional `unsafeNamed` self-description) for
+  the warning text. The caller's `ApproachUnsafeFile` choice IS that warning's
+  acknowledgment.
+
+Every path a `present.Start` enters a `Delivery` through checks `rooted` first:
+an unresolved project root is refused once with `ErrUnrootedDelivery`, because
+a `""` root joined into a well-known path yields a bare relative path that
+looks well-formed and lands wherever the process happens to be.
+
+`CellKind` is the plugin-side mirror of the wire cell enum; its values are
+decoded from the wire, and a test pins them to the proto's. The directory- and
+process-isolated kinds deliver identically — the distinction is the launcher's,
+not the seam's.
+
+## The write seam
+
+`Delivery.Deliver(start present.Start)` is the one-method write contract every
+approach satisfies. It receives what the pre-advice produced — the same
+`present.Start` every presenter composes from, with every root resolved for
+THIS run — never a bare directory string. The presenter DECIDES where bytes
+go; `Deliver` ACTS. A surface therefore cannot compute a location of its own
+from a string it was handed, and a run whose roots differ from the last one
+reaches the writer through the same value that reached its presenter.
+
+`Delivered` is the cleanup handle every `Deliver` returns; nil means nothing
+was written and there is nothing to reverse. `KindedDelivery` carries the
+`SurfaceKind` on the value so a cell never downcasts to learn what it wrote.
+
+Generic approaches — implemented once in `approaches_generic.go`, registered
+by any engine that can use them, imposed on none — exist only where more than
+one engine already shares the mechanism: `NativeContextFile` (the native
+managed-section context file, a `Construct` factory because the writer and
+path are static facts about the engine while the content is a per-run fact)
+and `HookCarriedContext` (the shared `Rider`). The managed commands and skill
+package deliveries are likewise shared writers an engine's approach wraps.
 
 ## Invariants and contracts
 
-- **`surfaceOrder` is `{Context, MCP, Settings, Commands, Skills}`** (`cells.go:318`). `Build` iterates in that order and **skips** any kind whose `SupportedApproaches` is empty, so `surfaces[0]` is only the context surface for backends that have one.
-- **In an `ApproachTable`, the FIRST entry of the slice is the default.** Connascence of position that every backend's table literal must honour (e.g. `claude/surfaces.go:350-356`).
-- **Chaining order on `SurfaceSelection` does not matter** — `surfaceOrder` normalizes it. The one real ordering rule is checked and errors loudly: selecting context at the `Hook` approach requires the settings surface in the same `Build` (`cells.go:399-403`).
-- **`deliverOneShared` keys `SharedRealization` on the (kind, approach) PAIR** (`cells.go:678`, fixed 2026-08-11 — U100-F05). claude's context surface realizes ONLY at `ApproachSystemPrompt`; a caller naming `ContextWriteUnsafeFile` on a shared cell gets EXACTLY that — the native CLAUDE.md write, loudly warned (the honor-with-warning fork DECIDED for that finding) — never the scratch it did not ask for. `SharedRealization`'s own default (no explicit caller preference) still lands on the scratch: `launch_backend.go`'s `deliverSet` derives it for a `CellKindShared` launch only, preferring the first `SupportedApproaches` entry that has a realization over the table's at-rest default, so a no-preference claude launch is unchanged from before this fix. mcp/settings have exactly one approach each and it is the one that realizes, so their `--mcp-config`/`--settings` launch flags are untouched by the re-key.
-- **`ResolvedSelection.DeliverShared` has no production callers.** Production delivers per surface via `deliverOneShared` (`launch_backend.go:299`), which supports a context-failure fallback `DeliverShared` cannot express; the 11 `DeliverShared` call sites are all in `_test.go`.
-- **`EmptySurfaceSet.SurfaceFor` errors on every (kind, approach) pair** (`cells.go:289`), matching the `SurfaceSet` contract ("errors on an unsupported combination the builder did not pre-validate," `cells.go:162`) rather than contradicting it. Reached only by a direct caller — `Build` short-circuits when `len(supported) == 0` (acp's protocol-only path), so a real selection never sees the refusal (the protocol-only path that reached it is gone).
-- **`Approach.String()`'s `default:` arm renders any out-of-range value as `"unsafe-file"`** and **`CellKind.String()`'s as `"shared"`** — in both cases the least-isolated option. `SurfaceKind.String` is the correct model (`default: "unknown"`).
-- **`CellKind`'s values must match `pb.CellKind`'s decode.** Asserted by `internal/.../operations/cellkind_test.go:28`; it is decoded from the wire at `backend.go:338`/`:390`, so an out-of-range value is reachable.
-- **`CellDelivery.ContextHook` requires `RawContext`** (the hook reads the cache file) and nothing validates the pair. `{ContextHook: true, RawContext: false}` compiles and installs a hook keyed to a file that was never written.
-- **`DirectoryIsolatedCell` and `ProcessIsolatedCell` are behaviourally identical** — same embedded `isolatedCell{dir}`, no added fields or methods, identical constructor bodies. The consumer branches between them through an anonymous single-method interface (`launch_backend.go:313-320`), so the choice has no observable effect on delivery.
-- **`unsafeNamed` is optional and discovered dynamically** by type assertion at `cells.go:579`; every implementer documents the link back.
-- **Only `internal/claude` implements the four `DeliverX` facets** in `delivery.go`; every other backend goes through `Delivery`/`KindedDelivery` in `cells.go`. Two parallel mechanisms for the same job coexist.
-- **A nil delivery is skipped and not reported as delivered** by `DeliverUnder`/`deliverOneShared` — the report reflects what was actually written.
-- **`DeliverAll` stops at the first error with no rollback** of prior sub-deliveries, leaving a partial multi-route delivery on disk with no handle to reverse it.
+- **A name is known iff a `Construct` is registered under it.** Support is not
+  recorded anywhere; it is the presence of the thing that does the work. The
+  vocabulary `Names` reports is derived from the constructors, so it cannot
+  drift from what the engine can build.
+- **Every `Presentations` has a default, and it is constructible.** Both hold
+  by construction: `Presents` takes the default as its required first
+  delivery, and `Or` copies rather than mutating so a declaration shared as a
+  value cannot gain deliveries through an alias after registration.
+- **No fallback on resolution.** `Declaration.Construct` / `Presentations.Construct`
+  return false for an undeclared name; the caller errors. Nothing substitutes
+  the default.
+- **Preference between approaches is the CALLER's and the CELL's, never a list
+  order.** `profile materialize` names the native file because its output must
+  outlive ctxloom; a shared-cwd launch prefers whichever declared approach has
+  an `OutOfCwd` form; an isolated cell takes the default. `preferOutOfCwd`
+  errors when an engine declares more than one out-of-cwd approach for a kind
+  and none of them is its default — a declaration that rich must say which it
+  prefers.
+- **A `Rider` needs its ridden kind in the same `Build`.** Checked at `Build`,
+  errors loudly, names both kinds.
+- **A `LaunchOnly` approach is refused at rest.** `DeliverUnder` errors,
+  naming the surface. It is not a silent skip.
+- **Isolation converts; nothing else does.** The same approach lands as the
+  well-known file in an isolated cell and as its `OutOfCwd` form on a shared
+  launch. An explicit per-kind preference from the caller is HONOURED on a
+  shared launch, not converted back to the scratch form.
+- **A nil `Delivered` is skipped and not reported as delivered.** The report
+  reflects what was actually written.
+- **`Present` is load-bearing for argv.** An engine that announces an
+  out-of-cwd file on a launch flag reads the flag NAME from the approach's own
+  `Present(...)`, not from a constant beside it, so changing a declared flag
+  changes the argv with it (claude's `flagArgs`).

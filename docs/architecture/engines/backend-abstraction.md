@@ -3,8 +3,9 @@
 `internal/lm/backends` is the **registry and dispatch table** for every engine
 ctxloom can launch. It owns one contract: given a backend *name* string, hand
 back a constructed `agent.Backend`, its typed config decoder, its settings
-writer, its surface builder, its command/skill exporters, and its declared
-capabilities — without any shared code ever type-switching on a concrete engine.
+writer, its `agent.Declaration` of surface approaches (`backends.Declared`),
+its command/skill exporters, and its declared capabilities — without any
+shared code ever type-switching on a concrete engine.
 The interface itself (`agent.Backend`) lives one layer down in
 `internal/shared/agent` so the plugin side can implement it without importing the
 registry.
@@ -31,8 +32,9 @@ classDiagram
 
     class LaunchBackend {
         <<embedded base>>
+        +InitLaunch(lifecycle, context, history, Declaration)
         +setupViaCells(req)
-        +delivery CellDelivery
+        +Resolved() ResolvedSelection
     }
 
     class StructuredChat {
@@ -84,7 +86,7 @@ type's own doc comment).
 | `Session` / `SessionEntry` | `internal/shared/agent/backend.go:119`, `:153` | The normalized transcript IR (see [transcript IR](#the-transcript-ir)). |
 | `Fragment` | `internal/shared/agent/backend.go:40-48` | One piece of injected context. Distinct from slash commands, which ride `ManagedConfig.Commands`. |
 | `CellKind` | `internal/shared/agent/cells.go:249-264` | Shared / DirectoryIsolated / ProcessIsolated — the resolved isolation cell, decided host-side. |
-| `SurfaceInputs` | `internal/shared/agent/cells.go:147-182` | Everything a backend's surface builders consume. **Has `Skills` (`:166`) and `DenyTools` (`:181`).** |
+| `SurfaceInputs` | `internal/shared/agent/cells.go` | One run's content — everything an engine's approach constructors (`agent.Construct`) consume. Carries no roots; those reach the built approach at `Present`/`Deliver` time. |
 
 ### Registry API
 
@@ -237,7 +239,6 @@ corrupt settings file while antigravity and codex still **warn and continue**.
 
 *Stated factually; defect triage lives in `FINDINGS.md`, not here.*
 
-- **`ContentCommands` is implemented six times and invoked zero times.** The interface at `internal/shared/agent/launch_backend.go:51` has a real `RegisterFromContent` body in every registered backend. `LaunchBackend.commands` is assigned at `launch_backend.go:92` and read nowhere; production call sites of `RegisterFromContent` number zero. A future backend author reading the interface will believe it must be implemented.
 - ~~**`ManagedConfig.Skills` and `ManagedConfig.DenyTools` never reach any backend.**~~ **RESOLVED `40b49a7f`** — the proto carries all 7 fields, and `SurfaceInputs`/`setupViaCells` (`cells.go:166`, `:181`; `launch_backend.go`) now receive real values rather than always-empty ones. Full chain in [the plugin wire](grpc-wire.md). Kept on this page because it is the abstraction's sharpest lesson: **the Go interface looked complete at every layer** — the host populated the fields, the struct declared them, the consumer read them — and the only broken link was a hand-written converter with no compiler binding. The parity sweep (`internal/lm/grpc/arch_test.go`) is what supplies that binding now.
 - **`binary_path` has two incompatible meanings**, decided by an unexported type switch at `internal/cli/llm_resolve.go:89-100`: on claude / codex / antigravity it flips the run onto the external go-plugin path and **drops isolation**; on opencode it is merely a CLI override. The config schema documents it identically for all of them.
 - **A backend in neither `credentialSeedSpecs` nor `curatedHomeSpecs` gets zero engine-global isolation, silently** (`internal/lm/isolation/auth.go:341` bare `return nil`; `Env()` at `:526` emits nothing). See [isolation](isolation.md).

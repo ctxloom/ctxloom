@@ -58,6 +58,15 @@ is reported and left alone. A session holding a scratch worktree with
 uncommitted work is reported and left alone too — that work exists nowhere
 else.
 
+A session that predates the liveness lock has no lock file, so its owner can
+never be proven dead — and this sweep, which ranges over every session at
+once, will NEVER reclaim it. That is deliberate, not a gap: nothing but the
+lock can tell such a session apart from one still running, and a bulk sweep
+is the wrong place to gamble a live session's only copy of its history on a
+guess. Clearing one is a per-session decision a human makes by naming it:
+'ctxloom session transcript purge <harp> --even-if-live' (and the artifacts
+counterpart) destroy the machine-written bulk of the one session you name.
+
 Without --yes this only reports; nothing on disk changes.
 
 clean is not uninstall. What it takes comes back on your next run, because

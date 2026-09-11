@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -57,6 +58,86 @@ func endedSession(t *testing.T, projectDir string) string {
 	require.NoError(t, err)
 	require.NoError(t, mgr.MarkEnded(harp, time.Now()))
 	return harp
+}
+
+// crashedSession registers harp UNENDED in the index — exactly what a session
+// whose process died before EndSession leaves behind — with a liveness lock
+// file that nothing holds. Hold-then-Release produces the identical on-disk
+// state a SIGKILL does (the kernel drops the lock; the file and its pid
+// remain), without needing a process to kill.
+func crashedSession(t *testing.T, projectDir string) string {
+	t.Helper()
+	harp := liveSession(t, projectDir)
+	require.NoError(t, sessionlock.Hold(harp))
+	sessionlock.Release(harp)
+	return harp
+}
+
+// heldSession registers harp UNENDED and holds its liveness lock for the
+// rest of the test — a session that is genuinely running right now.
+func heldSession(t *testing.T, projectDir string) string {
+	t.Helper()
+	harp := liveSession(t, projectDir)
+	require.NoError(t, sessionlock.Hold(harp))
+	t.Cleanup(func() { sessionlock.Release(harp) })
+	return harp
+}
+
+// TestReapOrphanedSessionHomes_ReapsACrashedSession is the row's own case:
+// the index still says nil EndedAt (the process died before it could say
+// otherwise), but the liveness lock is FREE, so the owner is dead and the
+// credential must not stay on disk. Before the lock existed this instance
+// was un-reapable forever.
+//
+// MUTATION: invert the lock sense (treat a free lock as alive) → red; treat
+// a nil EndedAt as live without consulting the lock → red.
+func TestReapOrphanedSessionHomes_ReapsACrashedSession(t *testing.T) {
+	testsupport.Isolate(t)
+	projectDir := t.TempDir()
+	appPath := filepath.Join(projectDir, paths.AppDirName)
+
+	crashed := crashedSession(t, projectDir)
+	root, cred := seedInstance(t, projectDir, crashed)
+
+	res, err := ReapOrphanedSessionHomes(appPath)
+	require.NoError(t, err)
+
+	assert.NoFileExists(t, cred, "a crashed session's copied credential must not stay on disk")
+	assert.NoDirExists(t, root)
+	assert.Equal(t, 1, res.Reaped)
+	assert.Equal(t, 0, res.Skipped)
+}
+
+// TestReapOrphanedSessionHomes_SkipsAHeldSession is the lock's refusal: a
+// nil-EndedAt session whose lock is HELD is running, and its instance is the
+// config its engine is running against. Beside it, one with NO lock file at
+// all (a session from before the lock existed) is indeterminate and equally
+// untouched — "cannot determine" is never permission.
+//
+// MUTATION: invert the lock sense (treat a held lock as dead) → red; treat
+// a missing lock as dead → red.
+func TestReapOrphanedSessionHomes_SkipsAHeldSession(t *testing.T) {
+	testsupport.Isolate(t)
+	projectDir := t.TempDir()
+	appPath := filepath.Join(projectDir, paths.AppDirName)
+
+	held := heldSession(t, projectDir)
+	heldRoot, heldCred := seedInstance(t, projectDir, held)
+	unlocked := liveSession(t, projectDir) // index-live, no lock file ever written
+	unlockedRoot, unlockedCred := seedInstance(t, projectDir, unlocked)
+	crashed := crashedSession(t, projectDir)
+	crashedRoot, _ := seedInstance(t, projectDir, crashed)
+
+	res, err := ReapOrphanedSessionHomes(appPath)
+	require.NoError(t, err)
+
+	assert.FileExists(t, heldCred, "a running session's instance is never touched")
+	assert.DirExists(t, heldRoot)
+	assert.FileExists(t, unlockedCred, "a session with no lock cannot be proven dead, so it is left alone")
+	assert.DirExists(t, unlockedRoot)
+	assert.NoDirExists(t, crashedRoot, "the crashed sibling proves the sweep did run")
+	assert.Equal(t, 1, res.Reaped)
+	assert.Equal(t, 2, res.Skipped)
 }
 
 // TestEndSession_RemovesThisSessionsInstance is the teardown half: ending a

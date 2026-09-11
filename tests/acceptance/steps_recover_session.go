@@ -6,11 +6,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/cucumber/godog"
 
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
@@ -115,6 +119,181 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+
+	// The BARE-CALL fixture (finite-parabola): a self harp that has just been
+	// /cleared, set up so recover_session's NO-session_id branch has a lineage
+	// to resolve against. handleRecoverSession reads its own identity from
+	// CTXLOOM_SESSION_HARP (via selfIdentityFromEnv), then resolves the target
+	// from that harp's lineage — the per-binding engine-transcript links under
+	// its session dir (operations.HarpTranscripts) — skipping whichever id the
+	// index currently binds. So the shape this must build, matching what a real
+	// /clear leaves on disk, is:
+	//
+	//   - an index entry for the harp whose CURRENT session_id is the post-clear
+	//     one (the id the resolver must SKIP), with the pre-clear session in
+	//     Rotations (so the pre-clear id reverse-resolves back to this harp);
+	//   - a mock vendor transcript per binding, each carrying a distinct marker;
+	//   - one engine-transcript link per binding, named for its session id, so
+	//     the lineage scan discovers both — the pre-clear one is the target.
+	//
+	// The canonical transcript is NOT hand-written: recover's live refresh
+	// (RefreshVendorTranscript) rebuilds it from the rotation + live vendor
+	// files, which is the production path and the one that would silently serve
+	// nothing if the rebuild leg were broken. The link target's BASE NAME is
+	// what HarpTranscripts reads as the session id, so each vendor file is named
+	// <session-id>.jsonl and the link points straight at it.
+	ctx.Step(`^a cleared session "([^"]*)" whose prior thread is in its lineage$`, func(c context.Context, harp string) error {
+		return seedClearedHarpLineage(worldFrom(c), harp)
+	})
+}
+
+// bareRecoverPreclearID / bareRecoverPostclearID are the two backend-native
+// session ids the cleared-harp fixture binds: the pre-clear thread the bare
+// recover must return, and the post-clear session it must skip. They are
+// asserted on directly in the feature (session_id equals "sess-preclear"), so
+// they are the contract with that scenario and live here beside the fixture
+// that writes them.
+const (
+	bareRecoverPreclearID  = "sess-preclear"
+	bareRecoverPostclearID = "sess-postclear"
+	// bareRecoverPreclearMarker rides ONLY in the pre-clear vendor transcript,
+	// so finding it in the recovered essence proves the pre-clear thread's real
+	// bytes made the round trip rather than an empty or placeholder result.
+	bareRecoverPreclearMarker = "PRECLEAR-THREAD-MARKER"
+)
+
+// seedClearedHarpLineage writes the on-disk state a /cleared session leaves
+// behind for harp: a two-binding index entry (post-clear current, pre-clear
+// rotated), a mock vendor transcript per binding, and one engine-transcript
+// link per binding so operations.HarpTranscripts discovers the lineage. It
+// also points CTXLOOM_SESSION_HARP at harp so the MCP server adopts it as its
+// own identity — the same door through the ambient-session scrub the session
+// hooks use (see steps_session_hooks.go).
+func seedClearedHarpLineage(w *World, harp string) error {
+	// SetChildEnv, not SetEnv: CTXLOOM_SESSION_HARP is on the ambient-session
+	// scrub list, so a plain SetEnv would be stripped before the MCP server
+	// child ever saw it (see steps_session_hooks.go). This is the deliberate
+	// door through the scrub — the value is one the scenario chose.
+	w.env.SetChildEnv("CTXLOOM_SESSION_HARP", harp)
+
+	harpDir := ".ctxloom/sessions/" + harp
+	preclearVendorRel := harpDir + "/vendor/" + bareRecoverPreclearID + ".jsonl"
+	postclearVendorRel := harpDir + "/vendor/" + bareRecoverPostclearID + ".jsonl"
+
+	// The pre-clear thread carries the marker the scenario asserts on; the
+	// post-clear (current) session carries its own, so a resolver that failed
+	// to skip it would surface the wrong marker AND the wrong session_id.
+	if err := writeMockVendorTranscript(w, preclearVendorRel, []string{
+		"Trace the flaky capture-integrity test to its root. " + bareRecoverPreclearMarker,
+		"The tee raced the pty close; the fix is to drain before close. " + bareRecoverPreclearMarker,
+	}); err != nil {
+		return err
+	}
+	if err := writeMockVendorTranscript(w, postclearVendorRel, []string{
+		"POSTCLEAR-CURRENT-SESSION starting fresh after the clear.",
+		"POSTCLEAR-CURRENT-SESSION nothing concluded yet.",
+	}); err != nil {
+		return err
+	}
+
+	preclearVendorAbs := filepath.Join(w.env.HomeDir, preclearVendorRel)
+	postclearVendorAbs := filepath.Join(w.env.HomeDir, postclearVendorRel)
+
+	// The index entry: current binding is the POST-clear id (the exclusion),
+	// the PRE-clear id is a rotation (so it reverse-resolves to this harp).
+	rotatedAt := time.Date(2026, 3, 14, 1, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	index := fmt.Sprintf("sessions:\n"+
+		"  - harp_name: %s\n"+
+		"    session_id: %s\n"+
+		"    backend: %s\n"+
+		"    engine_version: %s\n"+
+		"    project_dir: %s\n"+
+		"    started_at: 2026-03-14T00:00:00Z\n"+
+		"    transcript_path: %q\n"+
+		"    rotations:\n"+
+		"      - session_id: %s\n"+
+		"        transcript_path: %q\n"+
+		"        rotated_at: %s\n",
+		harp, bareRecoverPostclearID, config.BackendMock,
+		j001000SeededEngineVersion(config.BackendMock), w.env.ProjectDir,
+		postclearVendorAbs, bareRecoverPreclearID, preclearVendorAbs, rotatedAt)
+	if err := w.env.WriteHomeFile(".ctxloom/sessions/index.yaml", index); err != nil {
+		return err
+	}
+
+	// One engine-transcript link per binding, at the harp dir's root, each
+	// pointing at its vendor file. HarpTranscripts reads the link TARGET's base
+	// name as the session id, so the target must be named <session-id>.jsonl —
+	// which is exactly how these vendor files are named above. The prefix is
+	// taken from the production constant so a rename of the scheme reaches this
+	// fixture too.
+	if err := linkEngineTranscript(w, harp, bareRecoverPreclearID, preclearVendorAbs); err != nil {
+		return err
+	}
+	if err := linkEngineTranscript(w, harp, bareRecoverPostclearID, postclearVendorAbs); err != nil {
+		return err
+	}
+
+	// The post-clear session must sort NEWEST in the lineage so that a resolver
+	// which stopped skipping the current binding would return IT (reddening the
+	// session_id assertion) rather than the pre-clear one by accident of mtime.
+	// HarpTranscripts stats the link TARGET, so it is the vendor files' mtimes
+	// that order the lineage.
+	preTime := time.Date(2026, 3, 14, 0, 30, 0, 0, time.UTC)
+	postTime := time.Date(2026, 3, 14, 1, 30, 0, 0, time.UTC)
+	if err := os.Chtimes(preclearVendorAbs, preTime, preTime); err != nil {
+		return fmt.Errorf("set pre-clear vendor mtime: %w", err)
+	}
+	if err := os.Chtimes(postclearVendorAbs, postTime, postTime); err != nil {
+		return fmt.Errorf("set post-clear vendor mtime: %w", err)
+	}
+	return nil
+}
+
+// writeMockVendorTranscript writes turns to relPath under the fake home in the
+// mock vendor format ({"role","text","ts"} per line — the one
+// internal/transcript/vendorreader/mock parses), alternating user/assistant so
+// every line converts to an entry (the adapter's checkFloor refuses a file that
+// yields none). Unlike j001200WriteMockVendorTranscript this takes an explicit
+// path, because the lineage fixture needs two vendor files named for their
+// session ids rather than the single fixed vendor/mock-session.jsonl.
+func writeMockVendorTranscript(w *World, relPath string, turns []string) error {
+	var b strings.Builder
+	ts := time.Date(2026, 3, 14, 0, 0, 0, 0, time.UTC)
+	for i, text := range turns {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		line, err := json.Marshal(map[string]any{
+			"role": role,
+			"text": text,
+			"ts":   ts.Add(time.Duration(i) * time.Minute).Format(time.RFC3339),
+		})
+		if err != nil {
+			return fmt.Errorf("render mock vendor line %d: %w", i, err)
+		}
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	return w.env.WriteHomeFile(relPath, b.String())
+}
+
+// linkEngineTranscript creates the per-binding engine-transcript symlink the
+// lineage scan reads — <harp dir>/engine-transcript-<mock>-<id>.jsonl pointing
+// at targetAbs — mirroring what sessions.linkEngineTranscript writes in
+// production. The leaf prefix comes from paths.EngineTranscriptLinkPrefix so
+// the fixture cannot drift from the scheme HarpTranscripts filters on.
+func linkEngineTranscript(w *World, harp, sessionID, targetAbs string) error {
+	linkName := paths.EngineTranscriptLinkPrefix + config.BackendMock + "-" + sessionID + ".jsonl"
+	linkAbs := filepath.Join(w.env.HomeDir, ".ctxloom", "sessions", harp, linkName)
+	if err := os.MkdirAll(filepath.Dir(linkAbs), 0o755); err != nil {
+		return fmt.Errorf("create harp dir for link: %w", err)
+	}
+	if err := os.Symlink(targetAbs, linkAbs); err != nil {
+		return fmt.Errorf("link engine transcript %s: %w", linkName, err)
+	}
+	return nil
 }
 
 // syntheticCanonicalTranscript builds a valid transcript.jsonl document (one

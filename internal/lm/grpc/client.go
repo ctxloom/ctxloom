@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
@@ -308,11 +309,13 @@ func runnerSessionPID(c *plugin.Client) (int, bool) {
 // real subprocesses. Production points it at the real go-plugin machinery.
 var dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
 	c := exec.Command(cmd, args...)
+	env = pluginSpawnEnv(env)
 	if len(env) > 0 {
-		// Per-spawn runner env (the coordinator reach-back trio): stamped on
-		// the subprocess env, never the process-global launcher env (racy
-		// across concurrent spawns). go-plugin appends its handshake vars to
-		// a non-nil cmd.Env, so the base environment must ride along.
+		// Per-spawn runner env (the coordinator reach-back trio, plus the
+		// plugin socket dir): stamped on the subprocess env, never the
+		// process-global launcher env (racy across concurrent spawns).
+		// go-plugin appends its handshake vars to a non-nil cmd.Env, so the
+		// base environment must ride along.
 		c.Env = append(os.Environ(), env...)
 	}
 	// Fresh session leader: gives killSession a safe,
@@ -327,6 +330,63 @@ var dialLLMConnection = func(cmd string, args []string, env []string, logger hcl
 		},
 		Logger: logger,
 	})}
+}
+
+// pluginSpawnEnv returns env plus the go-plugin socket-dir variable, unless
+// the launcher's own environment already carries one (go-plugin appends
+// os.Environ() after cmd.Env, so an ambient value would win anyway; skipping
+// it here just keeps that explicit and avoids a duplicate key).
+//
+// This is the ENV VAR and not ClientConfig.UnixSocketConfig.TempDir on
+// purpose: in go-plugin's Cmd branch that field is never read — only the
+// RunnerFunc branch (ContainerClientConfig's path) consumes it. For a
+// Cmd-launched plugin the server side reads plugin.EnvUnixSocketDir directly.
+func pluginSpawnEnv(env []string) []string {
+	if _, ambient := os.LookupEnv(plugin.EnvUnixSocketDir); ambient {
+		return env
+	}
+	dir := pluginSocketDir()
+	if dir == "" {
+		return env
+	}
+	return append(env, plugin.EnvUnixSocketDir+"="+dir)
+}
+
+// pluginSocketNameMax is the longest socket file name go-plugin produces:
+// os.CreateTemp(dir, "plugin") appends a ten-digit random suffix.
+const pluginSocketNameMax = len("/plugin0000000000")
+
+// pluginSocketDir picks the directory the serve subprocess binds its
+// go-plugin unix socket in, or "" to leave go-plugin's default (os.TempDir()).
+//
+// That default is what breaks inside an agent cell: the cell's TMPDIR is
+// ~100 bytes deep by itself, so $TMPDIR/pluginNNNNNNNNNN exceeds sun_path
+// (108 on Linux, 104 on macOS) and every handshake dies with
+// "bind: invalid argument" before a line reaches stdout. Preference order
+// mirrors runnerSocketPath's host tiers: $XDG_RUNTIME_DIR/ctxloom — short,
+// user-private, and already where the runner's own sockets live — then
+// os.TempDir() when it fits, then /tmp. A candidate is taken only if its
+// worst-case socket path fits the portable headroom.
+//
+// Sharing one directory across concurrent sessions is collision-safe by
+// construction: go-plugin names the socket with os.CreateTemp (O_EXCL,
+// random suffix), so no two plugins can be handed the same path.
+func pluginSocketDir() string {
+	const sunPathHeadroom = 100
+	candidates := []string{"", os.TempDir(), "/tmp"}
+	if xdg := os.Getenv("XDG_RUNTIME_DIR"); xdg != "" {
+		candidates[0] = filepath.Join(xdg, "ctxloom")
+	}
+	for _, dir := range candidates {
+		if dir == "" || len(dir)+pluginSocketNameMax > sunPathHeadroom {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			continue
+		}
+		return dir
+	}
+	return ""
 }
 
 // dialContainerConnection is the container-transport analogue of

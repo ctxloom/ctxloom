@@ -174,6 +174,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		Gitignore   string   `json:"gitignore"`
 		Status      string   `json:"status"`
 		Backends    []string `json:"backends"`
+		Retracted   []string `json:"retracted,omitempty"`
 		Errors      []string `json:"errors,omitempty"`
 	}
 	out := manageInstallResult{
@@ -182,6 +183,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		Gitignore:   filepath.Join(projectDir, ".gitignore"),
 		Status:      result.Status,
 		Backends:    result.Backends,
+		Retracted:   result.Retracted,
 		Errors:      result.Errors,
 	}
 	if err := emit(cmd, out, func() error {
@@ -576,12 +578,14 @@ func runManageHooksInstall(cmd *cobra.Command, _ []string) error {
 		Status      string   `json:"status"`
 		Backends    []string `json:"backends"`
 		ProjectRoot string   `json:"project_root"`
+		Retracted   []string `json:"retracted,omitempty"`
 		Errors      []string `json:"errors,omitempty"`
 	}
 	out := manageHooksInstallResult{
 		Status:      result.Status,
 		Backends:    result.Backends,
 		ProjectRoot: workDir,
+		Retracted:   result.Retracted,
 		Errors:      result.Errors,
 	}
 	if err := emit(cmd, out, func() error {

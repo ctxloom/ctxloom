@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // The invariant these tests pin: ctxloom's managed content lives in a
@@ -121,7 +122,7 @@ func materializeClaudeContext(t *testing.T, fs afero.Fs, managed string) {
 func TestApplyHooks_ClaudeCode_RetractsTheManagedSectionAndKeepsAuthoredContent(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	authored := "# Team conventions\nalways use tabs, never spaces\n"
-	require.NoError(t, afero.WriteFile(fs, "/project/CLAUDE.md", []byte(authored), 0o644))
+	testsupport.WriteFileString(t, fs, "/project/CLAUDE.md", authored, 0o644)
 	materializeClaudeContext(t, fs, "LEFT BEHIND BY MATERIALIZE")
 	before, err := afero.ReadFile(fs, "/project/CLAUDE.md")
 	require.NoError(t, err)
@@ -155,7 +156,7 @@ func TestApplyHooks_ClaudeCode_RetractionRemovesAWhollyManagedFile(t *testing.T)
 func TestApplyHooks_ClaudeCode_RetractsNothingWhenThereIsNoManagedSection(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	authored := "# Team conventions\nalways use tabs, never spaces\n"
-	require.NoError(t, afero.WriteFile(fs, "/project/CLAUDE.md", []byte(authored), 0o644))
+	testsupport.WriteFileString(t, fs, "/project/CLAUDE.md", authored, 0o644)
 
 	result, diag := claudeHooksInstall(t, fs, true)
 

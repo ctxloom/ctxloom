@@ -8,17 +8,19 @@ vendor CLI. It owns the mapping from ctxloom's generalized
 posture — permission tier, context, MCP set, hooks, commands, skills, deny-tools —
 onto claude's **own documented surfaces**, never onto private internals.
 
-It is **the exercised default engine** and the only backend with a
-`SharedRealization`: out-of-cwd scratch files converted into
-`--append-system-prompt-file` / `--mcp-config` / `--settings`, so a live shared cwd
-is never written into.
+It is **the exercised default engine**, and the engine whose approaches carry
+an out-of-cwd form (`agent.OutOfCwd`): on a shared-cwd launch, context, MCP
+and settings land beneath the advised Scratch root and are announced to the
+CLI by launch flag, so a live shared cwd is never written into. Its
+`Declaration` (`Surfaces`, `surfaces.go`) is authored in this package and is
+the one place claude's surface membership is stated.
 
 ## Exported surface
 
 | Symbol | Location | Meaning |
 |---|---|---|
-| `ClaudeCode` | `claudecode.go:38` | The launch backend; embeds `agent.LaunchBackend`. Fields `surfaces Surfaces`, `thinking agent.ThinkingLevel` |
-| `NewClaudeCode` | `claudecode.go:54` | Constructor: `BinaryPath="claude"`, `NewBaseBackend("claude-code","1.0.0")`, `InitLaunch(lifecycle, &ClaudeCommands{}, ctxProvider, nil /*SessionHistory*/, &agent.CellDelivery{Build: b.buildSurfaces})` |
+| `ClaudeCode` | `claudecode.go` | The launch backend; embeds `agent.LaunchBackend` |
+| `NewClaudeCode` | `claudecode.go` | Constructor: sets the binary, embeds `agent.LaunchBackend`, and hands `InitLaunch` the lifecycle, the context provider, a nil `SessionHistory`, and `Surfaces` — claude's `agent.Declaration` |
 | `ClaudeConfig` | `claudecode.go:18` | Typed decode target. `BinaryPath`/`Args`/`Env`/`Thinking` are live; `Model` is decoded and never read |
 | `ClaudeConfig.BackendType` | `claudecode.go:33` | `"claude-code"` |
 | `Configure` | `claudecode.go:96` | `agent.Configurable`: binary/args/env + thinking level |
@@ -34,7 +36,9 @@ is never written into.
 | `MCPRegistrar` | `mcp_registrar.go:15` | `agent.MCPRegistrar` for taskloom |
 | `WriteCommandFiles` / `TransformToClaudeCommand` | `commandfiles.go:18` / `:44` | `.claude/commands/*.md` manifest write + renderer |
 | `WriteSkillFiles` | `skillfiles.go:21` | `.claude/skills/<name>/**` manifest write |
-| `Surfaces` / `NewSurfaces` / `SurfaceInputs` | `surfaces.go:280` / `:298` / `:249` | claude's `agent.SurfaceSet`. It is the **only** backend that keeps a local copy of `agent.SurfaceInputs` |
+| `Surfaces` | `surfaces.go` | claude's `agent.Declaration`: per surface kind, the approaches claude can construct and its default. Every approach wraps an existing claude writer verbatim |
+| `ApproachSystemPrompt` | `surfaces.go` | claude's own name for its out-of-cwd framed context consumed via `--append-system-prompt-file`. Declared here and nowhere shared: no other engine has it |
+| `flagArgs` | `surfaces.go` | Reads the out-of-cwd launch flags off the run's `Resolved()` selection — flag name from each approach's own `Present`, path from what it recorded — and contributes nothing for an approach that delivered nothing |
 | `HookPayload` / `HookOutput` / `DecodeHookPayload` / `EncodeDeny` | `hooks_wire.go:33` / `:103` / `:110` | The hook wire contract `internal/ltk/engine` and `internal/cli` import rather than redefine |
 
 **Stubbed or absent:** `SessionHistory` is `nil` (`claudecode.go:67`). There is no
@@ -75,9 +79,9 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 
 ## Invariants
 
-1. **`Setup` must run `buildSurfaces` before `buildArgs` reads `b.surfaces.*.Path()`** — connascence of execution order. The zero value is nil-safe but yields a *silently flagless* argv, not an error (`claudecode.go:38`).
-2. **`SurfaceFor` must return the same instance** for `ApproachUnsafeFile` and `ApproachSystemPrompt`, so `buildArgs`' later `Path()` read observes the write (`internal/shared/agent/cells.go:124-127`).
-3. **`Path() == ""` means "emit no flag"** — the seam between delivery and argv (`claudecode.go:296`, `:301`, `:306`).
+1. **`Setup` must run before `buildArgs`** — connascence of execution order. `buildArgs` reads the out-of-cwd paths off `LaunchBackend.Resolved()`, which is nil before `Setup`; `flagArgs` then contributes nothing, so the argv is *silently flagless*, not an error.
+2. **`Present` is load-bearing for argv.** `flagArgs` takes each flag's NAME from the resolved approach's own `Present(...)`, never from a constant beside it: change a declared flag and the argv changes with it.
+3. **`Path() == ""` means "emit no flag"** — the seam between delivery and argv. An approach reports `""` when it delivered nothing (empty content, or context that fell back to the injection hook), and claude must never be handed a flag naming a file that was never written.
 4. **Ownership is marked by the `"ctxloom"` executable token** via `agent.IsManaged(cmd, "ctxloom")`, repeated at six call sites and deliberately verb-agnostic.
 5. **`loadSettings` and `saveSettings` must mirror each other key-for-key** — the round-trip is what preserves foreign keys (`claude.go:259`, `:364`).
 6. **`claudeCodeHook.SCM` is `json:"-"`** because claude validates settings against a strict Zod schema (`claude.go:149`).
@@ -93,13 +97,7 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 - **The field doc promises to preserve "legacy mcpServers for backwards compat" while the code does `delete(raw, "mcpServers")`** with no migration anywhere (`claude.go:100` vs `:333`). It also fires on the uninstall path.
 - **An unparseable `.mcp.json` becomes an empty config, and `writeMCPConfig` then saves a file containing only ctxloom's servers** (`claude.go:434-438`) — asymmetric with `loadSettings`, which was hardened for exactly this.
 - **Empty assembled context produces no file, no flag, and no warning** (`contextdelivery.go:50-55`; `claudecode.go:294-299`); nothing distinguishes "legitimately no context" from "assembly bug".
-- **`ClaudeCommands` is constructed and passed to `InitLaunch` but never dispatched** — `LaunchBackend.commands` is write-only (`internal/shared/agent/launch_backend.go:92`). Real command writes go via `commandsSurface`.
 - **`agentfiles.go` — the entire sub-agent-roster writer (`ClaudeAgents`, `AgentExport`, `WriteAgentFiles`, `TransformToClaudeAgent`) plus a 219-line test suite — has zero production callers**; `enginecli.go:149` states it outright. It predates claude's own native `--agents <json>` flag.
-- **`claude.SurfaceInputs` duplicates `agent.SurfaceInputs` and the two hand-written mappers have already diverged** — `registry.go:282-293` omits the `MCPCommandOverride` that `claudecode.go:79-91` sets (`surfaces.go:249`). Inert today, unenforced.
-- **`SharedRealization` keys on `SurfaceKind` alone, discarding the approach** (`surfaces.go:388`), so a shared-cwd context delivery under `ApproachHook` would run `DeliverIsolated` instead of the documented no-op, producing double context. Latent, not live.
-- **`SelfContainedSkills` is set by three call sites and read by none** (`surfaces.go:265`).
-- **Three mutually-exclusive optional fields on the delivery types cannot be set by the constructor**, producing six construct-then-assign rituals (`surfacedelivery.go:23-55`; `surfaces.go:116-217`). Omitting one is compile-clean and silently wrong: the container MCP command reverts to the host path, or `deny_tools` silently stops applying.
-- **On a failed `DeliverIsolated`, `s.path` retains its prior value**, so `Path()` can report a path for a delivery that did not happen (`surfaces.go:131-136`, `:182-187`).
 - **A `minimalSettings` marshal failure returns `"{}"`, dropping `permissions.defaultMode: bypassPermissions`** — the setting that keeps a headless distill run from blocking (`claudecode.go:375-378`).
 - **Four `exists, _ := afero.Exists(...)` sites treat an I/O error as "absent"** (`claude.go:759`, `:781`, `:803`, `:814`; `commandfiles.go:24`), so a permission-denied `settings.json` makes `RemoveSettings` a silent no-op and `Status` report "not installed".
 - **`internal/claude/docs/design/*.md` carries 357 lines describing deleted symbols** (`chat_stream.go`, `chat_run.go`, `ClaudeSessionHistory.parseEntries`) and the unwired `agentfiles.go`.

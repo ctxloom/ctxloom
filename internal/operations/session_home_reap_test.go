@@ -48,16 +48,44 @@ func liveSession(t *testing.T, projectDir string) string {
 	return e.HarpName
 }
 
-// endedSession registers harp and marks it ended, without touching the tree —
-// the crash-shaped state the backstop exists for (a session whose end-mark
-// landed but whose instance removal did not).
+// endedSession registers harp, runs it under the liveness lock, and marks it
+// ended with the lock released — the on-disk state a session leaves when it
+// reached EndSession but its instance removal did not (Release keeps the
+// file; unlocked IS the dead signal). This is the backstop's ordinary prey.
 func endedSession(t *testing.T, projectDir string) string {
 	t.Helper()
+	harp := crashedSession(t, projectDir)
+	markEnded(t, harp)
+	return harp
+}
+
+// locklessEndedSession registers harp and marks it ended WITHOUT ever holding
+// its lock: a session from before the lock existed. Nothing can prove its
+// owner dead, so the sweep must leave it alone.
+func locklessEndedSession(t *testing.T, projectDir string) string {
+	t.Helper()
 	harp := liveSession(t, projectDir)
+	markEnded(t, harp)
+	return harp
+}
+
+// resumedSession registers harp, marks it ended, and then HOLDS its lock for
+// the rest of the test — a session resumed under its harp: EndedAt is still
+// set from the earlier end, and its owner is running right now.
+func resumedSession(t *testing.T, projectDir string) string {
+	t.Helper()
+	harp := liveSession(t, projectDir)
+	markEnded(t, harp)
+	require.NoError(t, sessionlock.Hold(harp))
+	t.Cleanup(func() { sessionlock.Release(harp) })
+	return harp
+}
+
+func markEnded(t *testing.T, harp string) {
+	t.Helper()
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
 	require.NoError(t, mgr.MarkEnded(harp, time.Now()))
-	return harp
 }
 
 // crashedSession registers harp UNENDED in the index — exactly what a session
@@ -201,8 +229,8 @@ func TestEndSession_UnknownHarpTouchesNothing(t *testing.T) {
 }
 
 // TestReapOrphanedSessionHomes_ReapsEndedSession is the crash backstop's
-// positive case: a session the index says has ENDED, whose instance is still on
-// disk (teardown never ran, or failed), is removed.
+// positive case: a session the index says has ENDED, whose lock is FREE and
+// whose instance is still on disk (teardown never ran, or failed), is removed.
 func TestReapOrphanedSessionHomes_ReapsEndedSession(t *testing.T) {
 	testsupport.Isolate(t)
 	projectDir := t.TempDir()
@@ -220,16 +248,83 @@ func TestReapOrphanedSessionHomes_ReapsEndedSession(t *testing.T) {
 	assert.Equal(t, 0, res.Skipped)
 }
 
+// TestReapOrphanedSessionHomes_SkipsAResumedSession is the case ended_at gets
+// exactly wrong in the destructive direction: a session RESUMED under its harp
+// has EndedAt still set from the earlier end, and its lock is HELD by the
+// process running now. Its instance is the config (and credential) that
+// engine is running against. The index's timestamp is not permission; only a
+// free lock is.
+//
+// The ended sibling with a free lock is the vacuity guard: it proves the sweep
+// ran and could remove an ended session — so the survivor survived because
+// of the lock, not because nothing happened.
+//
+// MUTATION: reap index-ended candidates without probing the lock → red.
+func TestReapOrphanedSessionHomes_SkipsAResumedSession(t *testing.T) {
+	testsupport.Isolate(t)
+	projectDir := t.TempDir()
+	appPath := filepath.Join(projectDir, paths.AppDirName)
+
+	resumed := resumedSession(t, projectDir)
+	resumedRoot, resumedCred := seedInstance(t, projectDir, resumed)
+	ended := endedSession(t, projectDir)
+	endedRoot, _ := seedInstance(t, projectDir, ended)
+
+	res, err := ReapOrphanedSessionHomes(appPath)
+	require.NoError(t, err)
+
+	assert.DirExists(t, resumedRoot, "a resumed session's instance must survive: its lock is held, whatever EndedAt says")
+	got, rerr := os.ReadFile(resumedCred)
+	require.NoError(t, rerr)
+	assert.Equal(t, instanceCredential, string(got),
+		"the resumed session's credential must be byte-identical after the sweep")
+	assert.NoDirExists(t, endedRoot, "the ended sibling proves the sweep did run")
+	assert.Equal(t, 1, res.Reaped)
+	assert.Equal(t, 1, res.Skipped)
+}
+
+// TestReapOrphanedSessionHomes_SkipsALocklessEndedSession pins the accepted
+// cost of asking the lock for every candidate: a session that predates the
+// lock has an EndedAt and no lock file, so nothing can prove its owner dead,
+// and "cannot determine" is never permission. Its credential stays until the
+// harp is resumed and ended under the lock, or purged deliberately — the same
+// price `clean --older-than` already states in its help.
+//
+// MUTATION: treat a non-nil EndedAt as permission → red.
+func TestReapOrphanedSessionHomes_SkipsALocklessEndedSession(t *testing.T) {
+	testsupport.Isolate(t)
+	projectDir := t.TempDir()
+	appPath := filepath.Join(projectDir, paths.AppDirName)
+
+	lockless := locklessEndedSession(t, projectDir)
+	locklessRoot, locklessCred := seedInstance(t, projectDir, lockless)
+	ended := endedSession(t, projectDir)
+	endedRoot, _ := seedInstance(t, projectDir, ended)
+
+	res, err := ReapOrphanedSessionHomes(appPath)
+	require.NoError(t, err)
+
+	assert.FileExists(t, locklessCred, "no lock file means the owner cannot be proven dead; the instance is left alone")
+	assert.DirExists(t, locklessRoot)
+	assert.NoDirExists(t, endedRoot, "the ended sibling proves the sweep did run")
+	assert.Equal(t, 1, res.Reaped)
+	assert.Equal(t, 1, res.Skipped)
+}
+
 // TestReapOrphanedSessionHomes_ReapsHarpAbsentFromTheIndex covers the other
-// non-live shape: an instance whose harp the index no longer carries at all
-// (`session forget`, a hand-edited index, a pre-index checkout). It is not a
-// live session, so its credential must not stay behind.
+// ended shape: an instance whose harp the index no longer carries at all
+// (`session forget`, a hand-edited index, a pre-index checkout) but whose
+// lock file survives, free. The index's silence is not what permits the
+// reap; the free lock is — an absent harp is probed like every other.
 func TestReapOrphanedSessionHomes_ReapsHarpAbsentFromTheIndex(t *testing.T) {
 	testsupport.Isolate(t)
 	projectDir := t.TempDir()
 	appPath := filepath.Join(projectDir, paths.AppDirName)
 
-	root, cred := seedInstance(t, projectDir, "forgotten-quiet-heron")
+	const forgotten = "forgotten-quiet-heron"
+	require.NoError(t, sessionlock.Hold(forgotten))
+	sessionlock.Release(forgotten)
+	root, cred := seedInstance(t, projectDir, forgotten)
 
 	res, err := ReapOrphanedSessionHomes(appPath)
 	require.NoError(t, err)

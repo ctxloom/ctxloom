@@ -165,7 +165,7 @@ func TestFixtures_RealPayloadSurvives(t *testing.T) {
 	})
 
 	t.Run("claude: real ACP ping/pong turn", func(t *testing.T) {
-		_, recs := readFixtureLines(t, "claude")
+		_, recs := readFixtureLines(t, "claude-code")
 		var sawUser, sawAssistant bool
 		for _, r := range recs {
 			if r.Kind != KindEntry {

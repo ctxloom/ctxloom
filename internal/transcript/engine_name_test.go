@@ -21,10 +21,16 @@ import (
 // backend name RunnerHello advertised (enginehost.go). Neither normalizes.
 const registeredClaudeBackendName = "claude-code"
 
-// schemaEngineNameForClaude is the only claude spelling
-// docs/transcript.schema.json's `engine` enum admits — the spelling every
-// testdata fixture carries and the one no production writer ever emits.
-const schemaEngineNameForClaude = "claude"
+// registeredMockBackendName is the test double's registry name. It is a
+// production-reachable writer (`--llm mock` reaches transcript.RecordOneshot
+// through internal/operations), so the schema must admit it too.
+const registeredMockBackendName = "mock"
+
+// unregisteredClaudeShortName is the short spelling no backend registers and
+// no production writer ever emits. The schema must NOT admit it: the `engine`
+// enum is the registry's vocabulary, and admitting a second spelling for one
+// engine would let a fixture pass under a name a real line never carries.
+const unregisteredClaudeShortName = "claude"
 
 // readRecordedRawLines returns a harp's canonical transcript file as its raw
 // JSON lines. Schema validation has to see the BYTES on disk, not a re-marshal
@@ -47,29 +53,20 @@ func readRecordedRawLines(t *testing.T, harp string) []string {
 	return out
 }
 
-// TestRecorder_EngineIsWrittenVerbatimAndClaudeFailsThePublishedSchema is the
-// standing tripwire for the engine-name discrepancy, which is ESCALATED
-// rather than fixed: the registered-backend-name vocabulary ("claude-code")
-// and the published transcript schema's `engine` enum ("claude") disagree,
-// and deciding which one is canonical is a contract call, not a sweep's.
-//
-// The two halves together are the whole mechanism, and neither is sufficient
-// alone:
+// TestRecorder_EngineIsWrittenVerbatimAndValidatesAgainstThePublishedSchema
+// pins the engine-name contract from both sides:
 //
 //   - the recorder writes `engine` VERBATIM from its constructor argument —
 //     there is no normalization, allowlist or refusal anywhere on the path;
-//   - the value production actually supplies for claude is rejected by
-//     docs/transcript.schema.json, while the fixtures' spelling is accepted.
+//   - docs/transcript.schema.json's `engine` enum speaks the backend
+//     REGISTRY's vocabulary, so the value production actually supplies is
+//     admitted and the short spelling nothing registers is rejected.
 //
-// So every claude transcript this recorder writes violates the shipped
-// schema, and TestFixtures_ConformToJSONSchema cannot see it because the
-// fixtures are hand-authored with the spelling production never emits.
-//
-// This test asserts the CURRENT, divergent state deliberately. It is written
-// to fail the moment either side moves — a normalization step in the
-// recorder, or a widened enum in the schema — so whichever way the escalation
-// is decided, the decision cannot land silently.
-func TestRecorder_EngineIsWrittenVerbatimAndClaudeFailsThePublishedSchema(t *testing.T) {
+// Together they mean a real claude line written by this recorder validates
+// against the shipped schema, and that no fixture can pass under a spelling
+// production never emits. Either side moving — a normalization step in the
+// recorder, or the enum drifting back to a short name — fails here.
+func TestRecorder_EngineIsWrittenVerbatimAndValidatesAgainstThePublishedSchema(t *testing.T) {
 	// compileTranscriptSchema reads docs/ relative to this source file, so it
 	// must run BEFORE HOME is rerooted; Isolate only moves HOME, but ordering
 	// it first keeps the dependency obvious.
@@ -78,10 +75,12 @@ func TestRecorder_EngineIsWrittenVerbatimAndClaudeFailsThePublishedSchema(t *tes
 
 	// The enum's own membership, stated once so the rest of the test is about
 	// the recorder rather than about JSON Schema.
-	require.Error(t, schema.Validate(engineProbeLine(t, registeredClaudeBackendName)),
-		"schema must reject the registered backend name; if this passes the enum was widened and U144-F05 was decided")
-	require.NoError(t, schema.Validate(engineProbeLine(t, schemaEngineNameForClaude)),
-		"schema must accept the fixtures' spelling")
+	require.NoError(t, schema.Validate(engineProbeLine(t, registeredClaudeBackendName)),
+		"schema must admit the registered claude backend name")
+	require.NoError(t, schema.Validate(engineProbeLine(t, registeredMockBackendName)),
+		"schema must admit the registered mock backend name")
+	require.Error(t, schema.Validate(engineProbeLine(t, unregisteredClaudeShortName)),
+		"schema must reject the short claude spelling no writer emits")
 
 	harp := "u144f05-engine-name-harp"
 	writeOneClaudeRecord(t, harp)
@@ -92,14 +91,12 @@ func TestRecorder_EngineIsWrittenVerbatimAndClaudeFailsThePublishedSchema(t *tes
 	var decoded Record
 	require.NoError(t, json.Unmarshal([]byte(lines[0]), &decoded))
 	assert.Equal(t, registeredClaudeBackendName, decoded.Engine,
-		"the recorder passes engine through verbatim; a mismatch here means normalization was added and U144-F05 was decided")
+		"the recorder passes engine through verbatim; a mismatch here means normalization was added")
 
 	var onDisk interface{}
 	require.NoError(t, json.Unmarshal([]byte(lines[0]), &onDisk))
-	err := schema.Validate(onDisk)
-	require.Error(t, err, "a real claude line is currently schema-INVALID — that is the finding, not a passing state")
-	assert.Contains(t, err.Error(), "engine",
-		"the schema failure must be the engine enum and nothing else")
+	require.NoError(t, schema.Validate(onDisk),
+		"a real claude line must validate against the shipped schema byte-for-byte")
 }
 
 // writeOneClaudeRecord drives a real Recorder exactly as production does for

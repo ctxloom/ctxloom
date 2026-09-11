@@ -67,7 +67,7 @@ func TestListSessions_VersionMismatchWarningIsActionable(t *testing.T) {
 	const projectDir = "/proj/version-skew"
 
 	good := "codex-fixture-harp"
-	installFixture(t, "claude", good)
+	installFixture(t, "claude-code", good)
 	future := "future-version-harp"
 	writeTempTranscript(t, future, futureVersionLine())
 

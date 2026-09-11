@@ -80,13 +80,10 @@ type Record struct {
 	// Engine carries the driving backend's REGISTERED name verbatim, exactly
 	// as NewRecorder received it: nothing on this path normalizes, allowlists
 	// or refuses a value. That name comes from the backend registry
-	// (internal/lm/backends), which is NOT the vocabulary of the `engine`
-	// enum published in docs/transcript.schema.json, and the two disagree —
-	// claude registers as "claude-code" and the test backend as "mock",
-	// neither of which the enum admits. So a claude line written here does
-	// not validate against the shipped schema. Which vocabulary is canonical
-	// is an open contract decision; it cannot be settled by normalizing here,
-	// because "mock" has no enum member to normalize onto.
+	// (internal/lm/backends), and the registry IS the vocabulary of the
+	// `engine` enum published in docs/transcript.schema.json — never a short
+	// form of it. engine_name_test.go pins both halves: verbatim passthrough
+	// here, and the schema admitting what the registry hands us.
 	//
 	// antigravity's lines (before the engine was removed in 0.7.0) never
 	// arrived through the structured tee either: its StructuredChat was a

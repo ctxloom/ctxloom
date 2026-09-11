@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ctxloom.dev/schema/transcript.schema.json",
   "title": "ctxloom canonical transcript record",
-  "description": "One line of ~/.ctxloom/sessions/<harp>/persist/transcript.jsonl. See docs/transcript-schema.md for the full design rationale (tough-cloud). Generated/maintained by hand alongside internal/transcript/record.go — the two must be kept in sync (see internal/transcript/schema_test.go).",
+  "description": "One line of ~/.ctxloom/sessions/<harp>/persist/transcript.jsonl. docs/transcript-schema.md describes the format; docs/adr/0035-canonical-transcript-derived-from-cross-engine-comparison.md records why the fields are what they are. Maintained by hand alongside internal/transcript/record.go — the internal/transcript tests validate every fixture and every recorder-written line against this file.",
   "type": "object",
   "required": ["v", "harp", "engine", "seq", "ts", "kind"],
   "additionalProperties": false,
@@ -23,8 +23,8 @@
     },
     "engine": {
       "type": "string",
-      "enum": ["codex", "kiro", "claude", "opencode", "acp", "antigravity"],
-      "description": "The backend driving this conversation."
+      "enum": ["codex", "kiro", "claude-code", "opencode", "acp", "antigravity", "mock"],
+      "description": "The driving backend's REGISTERED name (internal/lm/backends), exactly as transcript.NewRecorder received it — never a short form. Names of engines no longer in the tree remain only because fixtures captured from them are kept as provenance (internal/transcript/testdata/fixtures/MANIFEST.json)."
     },
     "seq": {
       "type": "integer",

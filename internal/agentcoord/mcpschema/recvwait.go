@@ -39,3 +39,12 @@ func ClampRecvWait(seconds int) time.Duration {
 	}
 	return wait
 }
+
+// RecvDispositionYielded is agent_recv's `disposition` when the call completed
+// by YIELDING: one receive is live per session, a newer one supersedes an
+// older parked one, and the superseded call returns successfully with no
+// messages and this text. It is prose, not a code, because the caller is a
+// model deciding what to do next — and the one thing it must not do is retry,
+// which would supersede the receive that is about to deliver. Mail is never
+// lost across the yield: the newer receive holds the park.
+const RecvDispositionYielded = "yielded to a newer receive for this session: no message was lost (the newer receive holds the park and delivers whatever lands) — do not retry this call"

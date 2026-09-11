@@ -11,18 +11,25 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// Typed mailbox failures — the recv timeout is a contract, not a fault: the
-// caller is expected to drop the coordination and write its report/deferral
-// state. (Vocabulary carried over from the retired agentbus broker.)
+// Typed mailbox completions. Neither the timeout nor the preemption is a
+// fault, and what the caller should do next depends on WHO is parked — a
+// child that times out finishes, a coordinator re-arms — which this package
+// cannot know: recvMail sees a role, not an audience. So the sentinels name
+// the event and nothing more; the MCP handlers, which do know their audience,
+// attach the guidance. (Vocabulary carried over from the retired agentbus
+// broker.)
 var (
 	// ErrRecvTimeout completes a parked agent_recv whose bounded wait
 	// elapsed with no message.
-	ErrRecvTimeout = errors.New("agent_recv: timed out with no message; drop the coordination, write your report/deferral state, and finish")
+	ErrRecvTimeout = errors.New("agent_recv: timed out with no message")
 	// ErrPeerRouting rejects executor→executor addressing (hub-and-spoke).
 	ErrPeerRouting = errors.New(`agent_send: executors may only address "parent"; route via coordinator`)
 	// ErrRecvPreempted completes the OLDER of two long-polls for one role:
-	// one active long-poll per role, newest preempts.
-	ErrRecvPreempted = errors.New("agent_recv: preempted by a newer receive for this session")
+	// one active long-poll per role, newest preempts. It is a YIELD, not a
+	// failure — no mail is lost, the newer poll holds the park — and the
+	// tool surfaces render it as a successful empty receive; it rides the
+	// error channel only because that is the one completion path a poll has.
+	ErrRecvPreempted = errors.New("agent_recv: yielded to a newer receive for this session")
 	// ErrRevoked completes a parked long-poll whose credential was revoked
 	// (run ended / agent_stop): revocation severs parked polls.
 	ErrRevoked = errors.New("agent_recv: this session's credential was revoked")

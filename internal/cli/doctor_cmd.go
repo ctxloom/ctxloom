@@ -199,6 +199,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 			doctorCheckForeignWorktrees(ctx, git.NewExec(), doctorProjectDir(cfg)),
 			doctorCheckHarpDurability(),
 			doctorCheckSpoolBacklog(cfg),
+			doctorCheckSpoolCounters(ctx),
 		}
 	}
 	report := doctorReport{Checks: checks}

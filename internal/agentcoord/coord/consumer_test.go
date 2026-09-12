@@ -322,6 +322,47 @@ func TestConsumerService_ListRuns(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 }
 
+// TestConsumerService_SpoolStats_ReportsLiveCounters pins the one path an
+// out-of-process diagnostic has onto the coordinator's spool counters: the
+// values the in-process accessors (SpoolDeliveryStats, SpoolDoorbellStats,
+// PushUnavailableCount) return are exactly what the unary RPC hands a
+// consumer credential — every counter, each on its own wire field, so a
+// tally of failures cannot be mistaken for a tally of deliveries.
+func TestConsumerService_SpoolStats_ReportsLiveCounters(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, startRunSpawner(nil), nil)
+	// Six distinct values so a field crossed with any other is caught.
+	c.spoolDeliveryCount.delivered.Add(11)
+	c.spoolDeliveryCount.consumed.Add(12)
+	c.spoolDeliveryCount.failed.Add(13)
+	c.spoolDoorbell.dropped.Add(14)
+	c.spoolDoorbell.rejected.Add(15)
+	c.pushUnavailable.Add(16)
+
+	client, _ := dialConsumer(t, c.LoopbackURL(), c.consumerCreds.token())
+	res, err := client.SpoolStats(context.Background(), &agentcoordpb.SpoolStatsRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, c.SpoolDeliveryStats().Delivered, res.GetDelivered())
+	assert.Equal(t, c.SpoolDeliveryStats().Consumed, res.GetConsumed())
+	assert.Equal(t, c.SpoolDeliveryStats().Failed, res.GetFailed())
+	assert.Equal(t, c.SpoolDoorbellStats().Dropped, res.GetDoorbellDropped())
+	assert.Equal(t, c.SpoolDoorbellStats().Rejected, res.GetDoorbellRejected())
+	assert.Equal(t, c.PushUnavailableCount(), res.GetPushUnavailable())
+	assert.Equal(t, uint64(11), res.GetDelivered())
+	assert.Equal(t, uint64(16), res.GetPushUnavailable())
+}
+
+// TestConsumerService_SpoolStats_RequiresCredential: the counters ride the
+// same authenticated surface as the roster — no bearer, no numbers.
+func TestConsumerService_SpoolStats_RequiresCredential(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, startRunSpawner(nil), nil)
+	client, _ := dialConsumer(t, c.LoopbackURL(), "not-a-credential")
+	_, err := client.SpoolStats(context.Background(), &agentcoordpb.SpoolStatsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+}
+
 // TestConsumer_CredentialRejectedOnCoordinatorService is the read-only scope
 // enforcement: a consumer credential authenticates ConsumerService only — it
 // must be a rejected IDENTITY (PermissionDenied), not merely an unauthorized

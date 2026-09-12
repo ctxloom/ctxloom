@@ -353,6 +353,30 @@ func (s *consumerService) ListRuns(_ context.Context, req *agentcoordpb.ListRuns
 	return s.c.listRunsSnapshot(req.GetIncludeTerminal(), req.GetRole()), nil
 }
 
+// SpoolStats is the unary read of the coordinator's process-lifetime spool
+// counters — the three in-process accessors (SpoolDeliveryStats,
+// SpoolDoorbellStats, PushUnavailableCount) projected onto one wire message.
+// No journal fact records any of these (they are outcome tallies, not
+// state), so this RPC is the ONLY way a process that does not host the
+// coordinator can see them.
+func (s *consumerService) SpoolStats(context.Context, *agentcoordpb.SpoolStatsRequest) (*agentcoordpb.SpoolStatsResult, error) {
+	return s.c.spoolStatsSnapshot(), nil
+}
+
+// spoolStatsSnapshot projects the live counters onto the wire shape.
+func (c *Coordinator) spoolStatsSnapshot() *agentcoordpb.SpoolStatsResult {
+	delivery := c.SpoolDeliveryStats()
+	doorbell := c.SpoolDoorbellStats()
+	return &agentcoordpb.SpoolStatsResult{
+		Delivered:        delivery.Delivered,
+		Consumed:         delivery.Consumed,
+		Failed:           delivery.Failed,
+		DoorbellDropped:  doorbell.Dropped,
+		DoorbellRejected: doorbell.Rejected,
+		PushUnavailable:  c.PushUnavailableCount(),
+	}
+}
+
 // WatchRuns serves the stream: snapshot first, then live AgentEvents
 // (subscribe BEFORE building the snapshot so nothing published in the gap
 // between subscribing and sending is missed — it simply arrives, correctly

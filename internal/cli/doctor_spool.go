@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,8 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
@@ -304,4 +307,95 @@ func doctorCheckSpoolBacklog(cfg *config.Config) doctorCheck {
 			len(sweepErrs), strings.Join(sweepErrs, "; ")))
 	}
 	return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorWarn, Detail: strings.Join(parts, "; ")}
+}
+
+// doctorSpoolCountersMarker is the DOCTOR-CHECK-* vocabulary entry for a live
+// coordinator's spool counters — see doctorCheckSpoolCounters.
+const doctorSpoolCountersMarker = "DOCTOR-CHECK-SPOOL-COUNTERS-w3"
+
+// doctorCheckSpoolCounters reads the spool counters of every LIVE coordinator
+// this user can reach and prints them by name. It is the complement of
+// doctorCheckSpoolBacklog: that check reads the filesystem substrate, which
+// survives the coordinator; this one reads the coordinator PROCESS, which is
+// the only place the counters exist — no journal fact records a failed
+// delivery or a rejected doorbell, so once the process exits its tallies are
+// gone. The read is ConsumerService.SpoolStats over the loopback endpoint
+// each coordinator records in endpoint.json (internal/agentcoord/discover),
+// presenting the read-only consumer credential the same file carries.
+//
+// Distinguishable outcomes, worded differently on purpose (a success line
+// over zero bytes examined is this project's characteristic defect):
+//   - no endpoint.json anywhere: nothing has ever served — INFO, not a pass;
+//     there was nothing to ask.
+//   - endpoints recorded, none answering: the ordinary state between
+//     sessions — endpoint.json is kept after exit so a relaunch re-binds the
+//     same port — INFO, naming each endpoint, so a stale file is not read
+//     as a live coordinator with clean counters.
+//   - one or more answered: the state actually observed. Every counter is
+//     printed with its name and value. A non-zero `failed` (a message that
+//     has not arrived) or `doorbell_rejected` (a ref that did not parse: a
+//     broken or hostile sender, never a race) is the fail-loud WARN. A
+//     dropped doorbell costs latency until the next sweep, and unpushed mail
+//     waits for its recipient's poll — both are shown, neither warns.
+//   - an endpoint.json present but unreadable or undecodable is a real
+//     problem discovery reports separately, and is surfaced as WARN rather
+//     than folded into "none live".
+func doctorCheckSpoolCounters(ctx context.Context) doctorCheck {
+	endpoints, skipped := discover.List()
+	var problems []string
+	for _, err := range skipped {
+		problems = append(problems, err.Error())
+	}
+	if len(endpoints) == 0 && len(problems) == 0 {
+		return doctorCheck{Marker: doctorSpoolCountersMarker, Status: doctorInfo,
+			Detail: "no coordinator endpoint recorded under ~/.ctxloom/coord; the spool counters live only " +
+				"in a running coordinator, so there is nothing to query"}
+	}
+
+	var live []string
+	var dead []string
+	faults := 0
+	for _, ep := range endpoints {
+		stats, err := operations.QueryCoordinatorSpoolStats(ctx, ep)
+		if err != nil {
+			dead = append(dead, fmt.Sprintf("%s (%v)", ep.URL, err))
+			continue
+		}
+		line := fmt.Sprintf("%s: delivered=%d consumed=%d failed=%d doorbell_dropped=%d doorbell_rejected=%d push_unavailable=%d",
+			ep.URL, stats.GetDelivered(), stats.GetConsumed(), stats.GetFailed(),
+			stats.GetDoorbellDropped(), stats.GetDoorbellRejected(), stats.GetPushUnavailable())
+		if stats.GetFailed() > 0 {
+			faults++
+			line += " — failed>0: each one is a message that has not arrived"
+		}
+		if stats.GetDoorbellRejected() > 0 {
+			faults++
+			line += " — doorbell_rejected>0: a doorbell ref that did not validate (a broken or hostile sender, not a race)"
+		}
+		live = append(live, line)
+	}
+
+	var parts []string
+	status := doctorInfo
+	if len(live) > 0 {
+		status = doctorOK
+		if faults > 0 {
+			status = doctorWarn
+		}
+		parts = append(parts, fmt.Sprintf("%d live coordinator(s) answered: %s", len(live), strings.Join(live, "; ")))
+	}
+	if len(dead) > 0 {
+		if len(live) == 0 {
+			parts = append(parts, fmt.Sprintf("%d recorded coordinator endpoint(s), none live (an endpoint.json outlives "+
+				"its coordinator by design, so this is the ordinary state between sessions); nothing to query: %s",
+				len(dead), strings.Join(dead, ", ")))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d not live: %s", len(dead), strings.Join(dead, ", ")))
+		}
+	}
+	if len(problems) > 0 {
+		status = doctorWarn
+		parts = append(parts, fmt.Sprintf("%d endpoint file(s) could not be read: %s", len(problems), strings.Join(problems, "; ")))
+	}
+	return doctorCheck{Marker: doctorSpoolCountersMarker, Status: status, Detail: strings.Join(parts, "; ")}
 }

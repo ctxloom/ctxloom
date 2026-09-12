@@ -178,26 +178,39 @@ func (b bearerToken) GetRequestMetadata(context.Context, ...string) (map[string]
 }
 func (bearerToken) RequireTransportSecurity() bool { return false }
 
+// dialConsumer opens a ConsumerService client against one discovered
+// coordinator endpoint, presenting its consumer credential as the bearer.
+// The connection is LAZY (grpc.NewClient never connects): a dead coordinator
+// — an endpoint.json that outlived its process, the common case, since the
+// file is kept for port re-bind — surfaces on the first RPC, not here. The
+// caller owns conn and closes it.
+func dialConsumer(ep discover.Endpoint) (agentcoordpb.ConsumerServiceClient, *grpc.ClientConn, error) {
+	u, err := url.Parse(ep.URL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse coordinator endpoint %q: %w", ep.URL, err)
+	}
+	if u.Host == "" {
+		return nil, nil, fmt.Errorf("coordinator endpoint %q has no host", ep.URL)
+	}
+	conn, err := grpc.NewClient(u.Host,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(bearerToken(ep.Cred)))
+	if err != nil {
+		return nil, nil, fmt.Errorf("dial coordinator %s: %w", ep.URL, err)
+	}
+	return agentcoordpb.NewConsumerServiceClient(conn), conn, nil
+}
+
 // watchConsumerFeed dials one coordinator candidate, resolves the harp to a
 // live run_id via ListRuns (ConsumerService has no by-harp lookup — the
 // roster is small; a client-side scan is simplest), and opens WatchRuns
 // filtered to that run. Returns an error (never partially wires up a feed)
 // when this candidate does not hold the harp, so the caller moves on.
 func watchConsumerFeed(ctx context.Context, ep discover.Endpoint, entry *sessions.Entry, backend string) (*SessionFeed, error) {
-	u, err := url.Parse(ep.URL)
+	client, conn, err := dialConsumer(ep)
 	if err != nil {
-		return nil, fmt.Errorf("watch: parse coordinator endpoint %q: %w", ep.URL, err)
+		return nil, fmt.Errorf("watch: %w", err)
 	}
-	if u.Host == "" {
-		return nil, fmt.Errorf("watch: coordinator endpoint %q has no host", ep.URL)
-	}
-	conn, err := grpc.NewClient(u.Host,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(bearerToken(ep.Cred)))
-	if err != nil {
-		return nil, fmt.Errorf("watch: dial coordinator %s: %w", ep.URL, err)
-	}
-	client := agentcoordpb.NewConsumerServiceClient(conn)
 
 	lctx, cancel := context.WithTimeout(ctx, consumerDialTimeout)
 	runs, err := client.ListRuns(lctx, &agentcoordpb.ListRunsRequest{IncludeTerminal: false})

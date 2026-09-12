@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -386,4 +389,163 @@ func TestDoctorCheckSpoolBacklog_DeliveryOffAndNoSpool_StaysAPass(t *testing.T) 
 	check := doctorCheckSpoolBacklog(spoolDeliveryConfig(t, false))
 	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "spool_delivery is off")
+}
+
+// --- DOCTOR-CHECK-SPOOL-COUNTERS-w3 ----------------------------------------
+
+// writeDeadEndpoint records a coordinator endpoint nothing listens on — the
+// shape an endpoint.json has once its coordinator exits (the file is kept
+// for port re-bind, so this is the ordinary state, not corruption).
+func writeDeadEndpoint(t *testing.T, home, projectKey string) string {
+	t.Helper()
+	dir := filepath.Join(home, ".ctxloom", "coord", projectKey)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"),
+		[]byte(`{"loopback_port":1,"consumer_cred":"stale"}`), 0o600))
+	return discover.LoopbackURL(1)
+}
+
+// TestDoctorCheckSpoolCounters_NoCoordinatorRecorded_IsInfoNotPass: with no
+// endpoint.json anywhere there is nothing to ask, and the check must say so
+// as context (info), never as a pass — the counters only exist inside a
+// running coordinator, so "none recorded" examined zero of them.
+func TestDoctorCheckSpoolCounters_NoCoordinatorRecorded_IsInfoNotPass(t *testing.T) {
+	testsupport.Isolate(t)
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorSpoolCountersMarker, check.Marker)
+	assert.Equal(t, doctorInfo, check.Status)
+	assert.Contains(t, check.Detail, "no coordinator endpoint recorded")
+}
+
+// TestDoctorCheckSpoolCounters_RecordedButDead_IsInfoNamingEndpoint: an
+// endpoint that outlived its coordinator is the common case and must read as
+// "not live" — naming the endpoint — rather than as a warning or as zeros.
+func TestDoctorCheckSpoolCounters_RecordedButDead_IsInfoNamingEndpoint(t *testing.T) {
+	home := testsupport.Isolate(t)
+	url := writeDeadEndpoint(t, home, "gone")
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorInfo, check.Status)
+	assert.Contains(t, check.Detail, "none live")
+	assert.Contains(t, check.Detail, url)
+	assert.NotContains(t, check.Detail, "delivered=", "a dead coordinator has no counters to print")
+}
+
+// TestDoctorCheckSpoolCounters_LiveCleanCounters_OK is the state actually
+// observed: a live coordinator answered and every counter is printed by
+// name, so a reader can tell "0 failed because nothing ran" from "0 failed
+// across N delivered".
+func TestDoctorCheckSpoolCounters_LiveCleanCounters_OK(t *testing.T) {
+	home := testsupport.Isolate(t)
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 7, Consumed: 5}
+	startFakeCoordinator(t, home, f)
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorOK, check.Status)
+	for _, want := range []string{"1 live coordinator", "delivered=7", "consumed=5", "failed=0",
+		"doorbell_dropped=0", "doorbell_rejected=0", "push_unavailable=0"} {
+		assert.Contains(t, check.Detail, want)
+	}
+}
+
+// TestDoctorCheckSpoolCounters_FailedDelivery_Warns: a non-zero failed
+// tally is a message that has not arrived (spooldelivery.go's own words),
+// so it is the fail-loud signal, named with its count.
+func TestDoctorCheckSpoolCounters_FailedDelivery_Warns(t *testing.T) {
+	home := testsupport.Isolate(t)
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 9, Failed: 3}
+	startFakeCoordinator(t, home, f)
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "failed=3")
+	assert.Contains(t, check.Detail, "has not arrived")
+}
+
+// TestDoctorCheckSpoolCounters_RejectedDoorbell_Warns: a rejected doorbell is
+// a fault (a ref that did not parse — a broken or hostile sender), never a
+// race, so it warns even with every delivery counter clean.
+func TestDoctorCheckSpoolCounters_RejectedDoorbell_Warns(t *testing.T) {
+	home := testsupport.Isolate(t)
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{DoorbellRejected: 2}
+	startFakeCoordinator(t, home, f)
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "doorbell_rejected=2")
+}
+
+// TestDoctorCheckSpoolCounters_DropsAndUnpushedMailAreNotFaults: a dropped
+// doorbell costs latency until the next sweep, and unpushed mail waits for
+// the recipient's poll — both are reported by count and neither is a warn.
+func TestDoctorCheckSpoolCounters_DropsAndUnpushedMailAreNotFaults(t *testing.T) {
+	home := testsupport.Isolate(t)
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{DoorbellDropped: 4, PushUnavailable: 6}
+	startFakeCoordinator(t, home, f)
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "doorbell_dropped=4")
+	assert.Contains(t, check.Detail, "push_unavailable=6")
+}
+
+// TestDoctorCheckSpoolCounters_LiveAndDeadTogether: one live coordinator
+// beside a stale endpoint is still a read of the live one — its counters
+// decide the status, and the dead endpoint is listed as not live, not as an
+// error that masks the answer.
+func TestDoctorCheckSpoolCounters_LiveAndDeadTogether(t *testing.T) {
+	home := testsupport.Isolate(t)
+	deadURL := writeDeadEndpoint(t, home, "gone")
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 1}
+	startFakeCoordinator(t, home, f)
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "delivered=1")
+	assert.Contains(t, check.Detail, "1 not live")
+	assert.Contains(t, check.Detail, deadURL)
+}
+
+// TestDoctorCmd_ShowsLiveCoordinatorSpoolCounters is the row's settling
+// claim end to end: `ctxloom doctor` — the published command, JSON form —
+// carries the spool counters of a LIVE coordinator, read over its consumer
+// socket, not from any file.
+func TestDoctorCmd_ShowsLiveCoordinatorSpoolCounters(t *testing.T) {
+	root, _ := setupProject(t, "claude-code")
+	// isolateGitHostState is what runDoctor does internally; done here by
+	// hand so the fake coordinator's endpoint.json lands in the HOME the
+	// command will actually discover from.
+	home := t.TempDir()
+	isolateGitHostState(t, "", home)
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 42, Failed: 1}
+	startFakeCoordinator(t, home, f)
+
+	out, err := execDoctor(t, root, "--format", "json")
+	require.NoError(t, err)
+	check := doctorCheckNamed(t, out, doctorSpoolCountersMarker)
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "delivered=42")
+	assert.Contains(t, check.Detail, "failed=1")
+}
+
+// TestDoctorCheckSpoolCounters_UndecodableEndpointFile_Warns: an
+// endpoint.json that exists but does not parse is a real problem discovery
+// reports separately (a corrupt state dir), and must not be folded into
+// "nothing recorded" — the one silent case discovery keeps quiet on purpose
+// is a not-yet-minted credential, which is not this.
+func TestDoctorCheckSpoolCounters_UndecodableEndpointFile_Warns(t *testing.T) {
+	home := testsupport.Isolate(t)
+	dir := filepath.Join(home, ".ctxloom", "coord", "corrupt")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte("not json"), 0o600))
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "could not be read")
+	assert.Contains(t, check.Detail, "corrupt")
 }

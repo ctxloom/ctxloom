@@ -53,6 +53,10 @@
 //     runner-read and uploaded via ArtifactTransferService alongside the
 //     automatic *.plan.md manifest stamping (unchanged).
 //
+//   - ConsumerService gains SpoolStats (unary, read-only): the
+//     coordinator's process-lifetime spool counters, which no journal fact
+//     records, so a diagnostic in another process can only read them from a
+//     live coordinator. Additive.
 //   - new ConsumerService — WatchRuns (server-stream: a fold SNAPSHOT
 //     followed by LIVE plane-1 AgentEvents, full payloads including delta
 //     text, teed as they arrive on each run's RunChannel; the durable
@@ -996,6 +1000,40 @@ service ConsumerService {
   // ListRuns is a one-shot poll alternative to keeping a stream open — the
   // same roster projection AgentRequest's plane-2 ListRunsRequest reuses.
   rpc ListRuns(ListRunsRequest) returns (ListRunsResult);
+
+  // SpoolStats reads the coordinator's cumulative file-plane counters. They
+  // live only in the coordinator PROCESS (no journal fact backs them — they
+  // are outcome tallies, not state), so the one way an out-of-process
+  // diagnostic can see them is to ask a LIVE coordinator; a coordinator
+  // that has exited took its counts with it.
+  rpc SpoolStats(SpoolStatsRequest) returns (SpoolStatsResult);
+}
+
+message SpoolStatsRequest {}
+
+// SpoolStatsResult is the coordinator's process-lifetime tally of what the
+// file mail plane did and could not do: coord's SpoolDeliveryStats
+// (delivered/consumed/failed) and SpoolDoorbellStats (dropped/rejected), plus
+// the mailbox plane's push-unavailable count, which is the same "mail is
+// waiting on a poll nobody is making" silence seen from the other side.
+message SpoolStatsResult {
+  // Messages the coordinator handed to its own surface (routed sends).
+  uint64 delivered = 1;
+  // Consume-renames observed or performed.
+  uint64 consumed = 2;
+  // Everything that did not get through — an unreadable file, an unroutable
+  // message, a rename that errored. Each one is a message that has not
+  // arrived.
+  uint64 failed = 3;
+  // Outbound doorbells that could not be sent when rung. Each one costs
+  // latency until the next sweep, never a message.
+  uint64 doorbell_dropped = 4;
+  // Inbound doorbells refused at the receive chokepoint: a ref that did not
+  // validate. A fault, not a race — a broken or hostile sender.
+  uint64 doorbell_rejected = 5;
+  // Mail that could not be pushed to its recipient and stays queued until
+  // that recipient polls (agent_recv).
+  uint64 push_unavailable = 6;
 }
 
 message WatchRunsRequest {

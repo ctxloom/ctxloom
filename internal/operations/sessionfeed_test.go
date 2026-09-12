@@ -14,6 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
@@ -66,9 +69,10 @@ func seedFeedHarp(t *testing.T, home string, withTranscript bool) string {
 type fakeConsumerServer struct {
 	agentcoordpb.UnimplementedConsumerServiceServer
 
-	mu   sync.Mutex
-	runs []*agentcoordpb.ListRunsResult_RunInfo
-	subs map[chan *agentcoordpb.AgentEvent]struct{}
+	mu    sync.Mutex
+	runs  []*agentcoordpb.ListRunsResult_RunInfo
+	subs  map[chan *agentcoordpb.AgentEvent]struct{}
+	stats *agentcoordpb.SpoolStatsResult // nil answers all-zero, like a fresh coordinator
 }
 
 func newFakeConsumerServer() *fakeConsumerServer {
@@ -85,6 +89,15 @@ func (f *fakeConsumerServer) ListRuns(context.Context, *agentcoordpb.ListRunsReq
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return &agentcoordpb.ListRunsResult{Runs: f.runs}, nil
+}
+
+func (f *fakeConsumerServer) SpoolStats(context.Context, *agentcoordpb.SpoolStatsRequest) (*agentcoordpb.SpoolStatsResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.stats == nil {
+		return &agentcoordpb.SpoolStatsResult{}, nil
+	}
+	return f.stats, nil
 }
 
 func (f *fakeConsumerServer) WatchRuns(_ *agentcoordpb.WatchRunsRequest, stream grpc.ServerStreamingServer[agentcoordpb.WatchEvent]) error {
@@ -137,7 +150,24 @@ func (f *fakeConsumerServer) push(t *testing.T, ev *agentcoordpb.AgentEvent) {
 // socket-glob convention is replaced by).
 func startFakeCoordinator(t *testing.T, home, projectKey string, f *fakeConsumerServer) {
 	t.Helper()
-	srv := grpc.NewServer()
+	// The fake refuses any call not presenting the credential its
+	// endpoint.json advertises, exactly as a real coordinator's interceptor
+	// does — so a client that stops sending the bearer fails here rather
+	// than only against a live coordinator.
+	srv := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+			if err := requireFakeCred(ctx); err != nil {
+				return nil, err
+			}
+			return handler(ctx, req)
+		}),
+		grpc.ChainStreamInterceptor(func(v any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+			if err := requireFakeCred(ss.Context()); err != nil {
+				return err
+			}
+			return handler(v, ss)
+		}),
+	)
 	agentcoordpb.RegisterConsumerServiceServer(srv, f)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -147,8 +177,22 @@ func startFakeCoordinator(t *testing.T, home, projectKey string, f *fakeConsumer
 	port := ln.Addr().(*net.TCPAddr).Port
 	dir := filepath.Join(home, ".ctxloom", "coord", projectKey)
 	require.NoError(t, os.MkdirAll(dir, 0o700))
-	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":"test-cred"}`, port)
+	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q}`, port, fakeConsumerCred)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte(body), 0o600))
+}
+
+// fakeConsumerCred is the consumer credential every startFakeCoordinator
+// endpoint.json advertises and its interceptor demands back.
+const fakeConsumerCred = "test-cred"
+
+func requireFakeCred(ctx context.Context) error {
+	md, _ := metadata.FromIncomingContext(ctx)
+	for _, v := range md.Get("authorization") {
+		if v == "Bearer "+fakeConsumerCred {
+			return nil
+		}
+	}
+	return status.Error(codes.Unauthenticated, "fake coordinator: consumer credential not presented")
 }
 
 // runInfoFor is the minimal ListRuns roster row watchConsumerFeed's by-harp

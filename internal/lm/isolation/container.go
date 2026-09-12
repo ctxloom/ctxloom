@@ -52,12 +52,13 @@ const (
 // AUTH crosses the boundary deliberately and scoped (PrepareWorkspace → the
 // spec's resolveAuth): the container gets the engine's scoped env passthrough
 // (claude: ANTHROPIC_* when ANTHROPIC_API_KEY is set) or the
-// engine's credentials bind-mounted READ-ONLY into the fresh HOME (claude
-// subscription OAuth). No resolvable auth → PrepareWorkspace errors → the caller
-// degrades down the chain to None — a fatal finding (ClassIsolation) the choke
-// owner aborts on unless --degraded, since the container was EXPLICITLY
-// requested. Only the TRUSTED top-level run reaches this; low-trust fan-out auth
-// (per-agent keys/budgets, T1.5) is a later concern.
+// engine's credentials bind-mounted into the fresh HOME (claude subscription
+// OAuth, read-WRITE — see claudeCredentialMounts). No resolvable auth →
+// PrepareWorkspace errors → the caller degrades down the chain to None — a
+// fatal finding (ClassIsolation) the choke owner aborts on unless --degraded,
+// since the container was EXPLICITLY requested. The owner's run and every
+// delegated agent, at any depth, resolve the same plan: there is no trust gate
+// on this path, by ruling (see containerAuth).
 //
 // CONFIG: ctxloom's managed-config writers (.claude/settings.json, commands, the
 // framed context file under .ctxloom/cache) target the run's cwd, which here is

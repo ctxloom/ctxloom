@@ -41,12 +41,21 @@ func (m containerAuthMode) String() string {
 }
 
 // containerAuth is the resolved plan for authenticating the engine INSIDE a
-// container: the scoped env vars to inject (env passthrough) and/or the read-only
+// container: the scoped env vars to inject (env passthrough) and/or the
 // credential mounts to bind into the fresh HOME (subscription OAuth). Each engine
 // resolves its own plan behind the engineContainerSpec.resolveAuth seam (claude:
 // ANTHROPIC_* passthrough or ~/.claude mounts).
-// Only the TRUSTED top-level run reaches it — low-trust fan-out auth
-// (budget-capped per-agent keys, T1.5) is a separate, later concern.
+//
+// The plan is DEPTH-BLIND, and that is a ruling (full credential parity at
+// every delegation depth, no trust gate), not an omission: the session owner
+// and every delegated agent, however deep in the delegation tree, resolve the
+// SAME plan from the same host env and host home, and so authenticate with the
+// same credential under the same mount mode. Nothing that reaches the resolver
+// says where in the tree a run sits — Prepare carries axes, backend, agent id
+// and session state, none of which encode depth or trust, and the resolver
+// reads only the host env and the container home.
+// TestContainerMount_CredentialMountIsReadWriteAtEveryDelegationDepth pins the
+// parity against the rendered MountPlan.
 type containerAuth struct {
 	mode containerAuthMode
 	// envPassthrough is the scoped set of auth env var NAMES (never "KEY=VAL")
@@ -65,7 +74,9 @@ type containerAuth struct {
 	// where owner-readability does not apply at all. A value must NEVER be stored
 	// here.
 	envPassthrough []string
-	mounts         []Mount // read-only credential mounts into the container HOME
+	// mounts are the credential mounts into the container HOME. Each engine's
+	// resolver sets the mode; claude's is read-WRITE (see claudeCredentialMounts).
+	mounts []Mount
 }
 
 // claudeAuthEnvVars is the SCOPED set of Anthropic auth/config vars a claude run

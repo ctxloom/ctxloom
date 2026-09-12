@@ -32,10 +32,10 @@ import (
 // would split that lifecycle across the boundary and put worktree creation +
 // teardown out of reach of the host-side WIP-safe Git seam.
 //
-// Auth (resolveContainerAuth) comes from the surrounding Container. Trust
-// caveat: a low-trust fan-out member
-// currently receives the SAME full host creds as the trusted top-level run —
-// per-agent key/budget scoping is a later concern, flagged not solved.
+// Auth comes from the surrounding Container (its spec's resolveAuth): a
+// delegated member receives the SAME full host credential, under the same
+// mount mode, as the owner's run — full parity at every delegation depth, no
+// trust gate, by ruling (see containerAuth).
 type worktreeBase struct{ wt Worktree }
 
 // name identifies the worktree-in-container policy.

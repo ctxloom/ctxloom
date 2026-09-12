@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/config"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/liveness"
@@ -371,6 +372,17 @@ type Coordinator struct {
 	// is: every admission site must be able to check it without taking
 	// c.mu.
 	admissionClosed atomic.Bool
+	// drainBound is how long BeginDrain waits on a child's PROCESS before
+	// forcing it — resolved at construction (tunables.drainBound) from
+	// agent_recv's own maximum wait, mcpschema.RecvWaitMax, which is the one
+	// declaration of that number. A field so a test can shrink it; no
+	// Options field, because the bound is the policy, not a knob.
+	drainBound time.Duration
+	// drain is the bounded drain BeginDrain started, nil until then. Guarded
+	// by drainMu (not c.mu: BeginDrain must not need the big lock, and the
+	// drain runner takes c.mu itself).
+	drainMu sync.Mutex
+	drain   *Drain
 
 	// execGaugeHook, if set (tests only), is sampled synchronously every time
 	// a run's §6a state durably transitions (setState, terminateRun): it
@@ -429,6 +441,7 @@ func New(opts Options) (*Coordinator, error) {
 		maxLaunchAttempts:  t.maxLaunchAttempts,
 		launchBackoffBase:  t.launchBackoffBase,
 		launchBackoffMax:   t.launchBackoffMax,
+		drainBound:         t.drainBound,
 		watch:              newWatchHub(),
 		consumerCreds:      &consumerCreds{},
 		attach:             make(map[string]*childRt),
@@ -509,6 +522,7 @@ type tunables struct {
 	maxLaunchAttempts  int
 	launchBackoffBase  time.Duration
 	launchBackoffMax   time.Duration
+	drainBound         time.Duration
 }
 
 // resolveTunables applies each Options field's documented fallback.
@@ -543,6 +557,12 @@ func resolveTunables(opts Options) tunables {
 	// operator/env tunable, not a per-call test seam): resolved once, here,
 	// from the environment (resolveLaunchTunables), never per attempt.
 	t.maxLaunchAttempts, t.launchBackoffBase, t.launchBackoffMax = resolveLaunchTunables()
+	// ONE POLICY, TWO BOUNDS: a wait on a process is bounded at the longest
+	// wait agent_recv itself will park for; a wait on a human (a parked
+	// child) is not bounded at all. The drain bound is therefore agent_recv's
+	// maximum, read by name — never a second number that could drift from
+	// it.
+	t.drainBound = mcpschema.RecvWaitMax
 	return t
 }
 
@@ -701,6 +721,62 @@ func (c *Coordinator) adopt() {
 	}
 }
 
+// BeginDrain flips the coordinator into the application-layer DRAINING
+// state and starts the BOUNDED drain of its children, returning the handle
+// that settles when the drain has.
+//
+// Admission closes first: every admission site (AgentRun, StartOwnedRun,
+// RunnerChannel's Hello for a runner with nothing already in flight, Serve)
+// starts returning ErrDraining instead of admitting new work, and the
+// relaunch paths (launchgate.go, driveQueued) stop resuming ended children.
+// This is a one-way, idempotent flip — no corresponding "undrain": nothing in
+// this codebase resumes accepting work after announcing it will not — and a
+// second call returns the drain already in progress.
+//
+// Then ONE POLICY, TWO BOUNDS (see runDrain): every live child is either a
+// PROCESS wait, bounded at c.drainBound — exit REQUESTED now (no new turn is
+// handed out; the child ends at its next turn boundary, or immediately when
+// it is between turns or never started) and FORCED when the bound elapses —
+// or a PARK on a human (StateParked), which is not waited on at all: the
+// child keeps its turn, its slot yield and its session lock, and the outcome
+// lists it so the park cannot be forgotten.
+//
+// This is deliberately an APPLICATION-layer drain, not a transport-level
+// one: coordServing.close's doc explains why grpc-go's GracefulStop cannot
+// be used on this server — its only transport (h2c via ServeHTTP) wraps
+// every connection in a serverHandlerTransport whose Drain() is an
+// unconditional panic, and RunChannel/RunnerChannel are perpetual streams
+// a transport-level drain would never resolve against even without that
+// panic. BeginDrain instead closes admission here, at the verbs that mint
+// new work, and leaves the transport alone. Close() is still the caller's:
+// it is the hard teardown, and a caller that holds parked children decides
+// for itself whether the morning is worth waiting for.
+func (c *Coordinator) BeginDrain() *Drain {
+	c.admissionClosed.Store(true)
+	c.drainMu.Lock()
+	d := c.drain
+	fresh := d == nil
+	if fresh {
+		d = newDrain()
+		c.drain = d
+	}
+	c.drainMu.Unlock()
+	if fresh {
+		// Which children the drain accounts for is decided HERE, before this
+		// returns: a caller that ends a run right after BeginDrain must find
+		// it in the outcome, not lose it to a snapshot that ran later.
+		tracked := c.drainTracked()
+		bound := c.drainBound
+		c.goTracked(func() { c.runDrain(d, tracked, bound) })
+	}
+	return d
+}
+
+// Draining reports whether BeginDrain has been called.
+func (c *Coordinator) Draining() bool {
+	return c.admissionClosed.Load()
+}
+
 // Close tears the coordinator down: listeners, journals, owner lock. Live
 // children are killed via their launch close (the run process is their
 // lifetime).
@@ -715,33 +791,6 @@ func (c *Coordinator) adopt() {
 // wg.Wait (bounded escape) → close journals → remove an ephemeral state
 // dir. This guarantees no tracked goroutine touches the state dir after
 // Close() returns (barring the logged bounded-escape case).
-// BeginDrain flips the coordinator into the application-layer DRAINING
-// state: every admission site (AgentRun, StartOwnedRun, RunnerChannel's
-// Hello for a runner with nothing already in flight, Serve) starts
-// returning ErrDraining instead of admitting new work. Already-admitted
-// runs are untouched — this is a one-way, idempotent flip (no
-// corresponding "undrain": nothing in this codebase resumes accepting work
-// after announcing it will not).
-//
-// This is deliberately an APPLICATION-layer drain, not a transport-level
-// one: coordServing.close's doc explains why grpc-go's GracefulStop cannot
-// be used on this server — its only transport (h2c via ServeHTTP) wraps
-// every connection in a serverHandlerTransport whose Drain() is an
-// unconditional panic, and RunChannel/RunnerChannel are perpetual streams
-// a transport-level drain would never resolve against even without that
-// panic. BeginDrain instead closes admission here, at the verbs that mint
-// new work, and leaves the transport alone; the caller is responsible for
-// waiting until nothing is left in flight (Roster/WatchRuns) before
-// calling Close().
-func (c *Coordinator) BeginDrain() {
-	c.admissionClosed.Store(true)
-}
-
-// Draining reports whether BeginDrain has been called.
-func (c *Coordinator) Draining() bool {
-	return c.admissionClosed.Load()
-}
-
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
 		c.tracked.seal()
@@ -1002,6 +1051,8 @@ func deliveryDisposition(state string) (mode, prose string) {
 	switch state {
 	case StateEnded:
 		return DeliveryResumed, "child session had ended — resuming it with the message as its next turn"
+	case deliveryEndedDraining:
+		return DeliveryQueued, "queued: the child session had ended and the coordinator is draining, so it is not resumed; the message waits in its mailbox for the harp's next run"
 	case StateIdle:
 		return DeliveryNewTurn, "delivering as a new turn"
 	case StateQueued:

@@ -3,95 +3,10 @@
 package coord
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"path/filepath"
-	"runtime"
-	"sort"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
-
-// referencingFiles returns the files in dir that MENTION sym somewhere other
-// than in sym's own declaration. Comments are invisible to it: the files are
-// parsed without them, so prose naming a symbol never counts as a use.
-// packageDir is this package's source directory, located from the test file
-// itself rather than the working directory: SandboxedMain moves the cwd to a
-// throwaway root before any test runs, so "." is no longer the package.
-func packageDir(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller must locate this test file")
-	return filepath.Dir(file)
-}
-
-func referencingFiles(t *testing.T, dir, sym string, includeTests bool) []string {
-	t.Helper()
-
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-
-	fset := token.NewFileSet()
-	var out []string
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") {
-			continue
-		}
-		if !includeTests && strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-
-		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
-		require.NoError(t, err, "parsing %s", name)
-
-		found := false
-		ast.Inspect(f, func(n ast.Node) bool {
-			if found {
-				return false
-			}
-			switch v := n.(type) {
-			case *ast.FuncDecl:
-				// The declaration of sym is not a reference to it. Its BODY
-				// still is — a method that calls itself is a real call site.
-				if v.Name != nil && v.Name.Name == sym {
-					if v.Body != nil {
-						ast.Inspect(v.Body, func(b ast.Node) bool {
-							if id, ok := b.(*ast.Ident); ok && id.Name == sym {
-								found = true
-								return false
-							}
-							return true
-						})
-					}
-					return false
-				}
-			case *ast.SelectorExpr:
-				if v.Sel != nil && v.Sel.Name == sym {
-					found = true
-					return false
-				}
-			case *ast.Ident:
-				if v.Name == sym {
-					found = true
-					return false
-				}
-			}
-			return true
-		})
-
-		if found {
-			out = append(out, name)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
 
 // TestArch_SpoolWrite_HappensOnlyInTheCourier pins the invariant that gives the
 // spool its one-write-one-ring guarantee: a message file appears on disk in

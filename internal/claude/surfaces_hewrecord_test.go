@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // This file proves the hew-record settings approach: the first delivery on
@@ -72,7 +73,7 @@ func recordFixture(t *testing.T) (afero.Fs, string, string) {
 	const recordsDir = "/home/.ctxloom/records"
 	t.Cleanup(paths.SetHomeRecordsDirForTesting(recordsDir))
 	target := filepath.Join(recordHome, SettingsFileName)
-	require.NoError(t, afero.WriteFile(fs, target, userSettings(t), 0o644))
+	testsupport.WriteFile(t, fs, target, userSettings(t), 0o644)
 	return fs, target, recordsDir
 }
 
@@ -323,7 +324,7 @@ func TestSettingsRecord_Deliver_RefusesToInsertBesideAnExistingHookEvent(t *test
 			"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "echo user"}}}},
 		},
 	})
-	require.NoError(t, afero.WriteFile(fs, target, seeded, 0o644))
+	testsupport.WriteFile(t, fs, target, seeded, 0o644)
 	a, ok := Surfaces.Construct(agent.SurfaceSettings, ApproachHewRecord, sampleInputs(), fs)
 	require.True(t, ok)
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestMain isolates the package from the working directory. NewRegistry("")
@@ -18,29 +19,22 @@ import (
 // would then write ".ctxloom/remotes.yaml" straight into internal/remote/,
 // which is exactly what was found sitting there uncommitted (gitignored by
 // internal/**/.ctxloom/, so `git status` never surfaced it, but the directory
-// still physically existed and confused worktree-safe WIP detection). This
-// mirrors internal/operations/main_test.go's guard: chdir into a throwaway
-// dir before any test runs, then fail loudly if a nested .ctxloom still
-// turns up afterward instead of silently leaving it for .gitignore to hide.
+// still physically existed and confused worktree-safe WIP detection).
+//
+// testsupport.SandboxedMain moves the whole binary into a temp cwd (and a
+// temp HOME) before any test runs, which also closes config.findAppDir's
+// walk-up from the source directory. The guard afterward is what makes an
+// escape fail loudly instead of leaving a nested .ctxloom for .gitignore to
+// hide.
 func TestMain(m *testing.M) {
 	os.Exit(func() int {
 		origWD, wdErr := os.Getwd()
-		if work, werr := os.MkdirTemp("", "ctxloom-remote-test-cwd-*"); werr == nil {
-			if cerr := os.Chdir(work); cerr == nil { //nolint:forbidigo // no *testing.T in TestMain
-				defer func() {
-					if wdErr == nil {
-						_ = os.Chdir(origWD) //nolint:forbidigo // no *testing.T in TestMain
-					}
-					_ = os.RemoveAll(work)
-				}()
-			}
-		}
 
-		code := m.Run()
+		code := testsupport.SandboxedMain(m)
 
 		// A stray relative ".ctxloom" under the package source dir means a test
-		// escaped isolation despite the chdir above (e.g. it used an absolute
-		// path built from the pre-chdir cwd, or the chdir itself failed).
+		// escaped isolation despite the sandbox (e.g. it used an absolute path
+		// built from the pre-sandbox cwd).
 		if wdErr == nil {
 			leak := filepath.Join(origWD, paths.AppDirName)
 			if _, statErr := os.Stat(leak); statErr == nil {

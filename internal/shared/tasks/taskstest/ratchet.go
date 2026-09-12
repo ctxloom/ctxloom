@@ -33,23 +33,11 @@ package taskstest
 // exemption: it reads as a known hazard while covering nothing.
 var appDirEscapeRatchet = map[string]bool{
 	"cmd/validate":                            true,
-	"internal/agentcoord/coord":               true,
 	"internal/claude":                         true,
-	"internal/config":                         true,
-	"internal/lm/backends":                    true,
-	"internal/lm/grpc":                        true,
-	"internal/lm/isolation":                   true,
-	"internal/mcp":                            true,
-	"internal/memory":                         true,
 	"internal/operations":                     true,
-	"internal/paths":                          true,
 	"internal/projectroot":                    true,
-	"internal/remote":                         true,
-	"internal/sessions":                       true,
-	"internal/shared/tasks/operations":        true,
 	"internal/transcript":                     true,
 	"internal/transcript/vendorreader/claude": true,
-	"internal/vpio/dockerexec":                true,
 
 	// The two isolation helpers themselves. Their own tests drive Isolate and
 	// ProjectDir as SUBJECTS and assert on the working directory they leave

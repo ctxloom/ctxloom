@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // testStamp is a whole, CLEAN version stamp — the shape version.ValidStamp
@@ -36,7 +37,9 @@ func TestMain(m *testing.M) {
 	// default fixture is therefore "none installed"; the tests that exercise
 	// the companion half install their own (withCompanions).
 	companionLookPath = noCompanionsOnPath
-	os.Exit(m.Run())
+	// SandboxedMain closes config.findAppDir's walk-up from the working
+	// directory for every test in this binary; a temp HOME alone does not.
+	os.Exit(testsupport.SandboxedMain(m))
 }
 
 // noCompanionsOnPath is the TestMain default: no companion resolves.

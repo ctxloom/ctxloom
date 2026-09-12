@@ -221,3 +221,63 @@ func listGoSourceFiles(t *testing.T, root string) []string {
 	}
 	return files
 }
+
+// TestPackageMutationTargets_TableIsWellFormed pins the shape of every
+// gremlins package entry, as TableIsWellFormed does for the ooze tables: a
+// single-token unique name (it is the -run address and the baseline key), and
+// a unique, module-relative package path — gremlins is handed "./" + Pkg, so a
+// leading "./", a trailing "/" or an absolute path would either double the
+// prefix or escape the module.
+func TestPackageMutationTargets_TableIsWellFormed(t *testing.T) {
+	if len(packageMutationTargets) == 0 {
+		t.Fatal("packageMutationTargets is empty — the lane would measure nothing and report success")
+	}
+
+	seenName := map[string]bool{}
+	seenPkg := map[string]bool{}
+	for _, target := range packageMutationTargets {
+		if target.Name == "" {
+			t.Errorf("entry for %q has no Name — its subtest could not be addressed by -run", target.Pkg)
+		}
+		if strings.ContainsAny(target.Name, "/ \t") {
+			t.Errorf("entry name %q contains a slash or space — -run's grammar is slash-separated and would not address it", target.Name)
+		}
+		if seenName[target.Name] {
+			t.Errorf("duplicate entry name %q — t.Run would suffix one of them and -run could not address it", target.Name)
+		}
+		seenName[target.Name] = true
+
+		if target.Pkg == "" || strings.HasPrefix(target.Pkg, "./") || strings.HasPrefix(target.Pkg, "/") || strings.HasSuffix(target.Pkg, "/") || strings.Contains(target.Pkg, "\\") {
+			t.Errorf("entry %q: Pkg %q must be a bare slash-separated path relative to the module root (no ./, no trailing /, not absolute)", target.Name, target.Pkg)
+		}
+		if seenPkg[target.Pkg] {
+			t.Errorf("duplicate package %q — that is the same run twice", target.Pkg)
+		}
+		seenPkg[target.Pkg] = true
+	}
+}
+
+// TestPackageMutationTargets_PackagesExist checks that every Pkg is a real
+// directory holding at least one non-test .go file. gremlins over a path with
+// nothing to mutate reports zero mutants, which the ratchet refuses — but only
+// after the module has been copied once per worker and coverage gathered.
+func TestPackageMutationTargets_PackagesExist(t *testing.T) {
+	root := repoRoot(t)
+
+	for _, target := range packageMutationTargets {
+		t.Run(target.Name, func(t *testing.T) {
+			dir := filepath.Join(root, filepath.FromSlash(target.Pkg))
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatalf("Pkg %q is not a readable directory: %v", target.Pkg, err)
+			}
+			for _, e := range entries {
+				name := e.Name()
+				if !e.IsDir() && strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
+					return
+				}
+			}
+			t.Errorf("Pkg %q holds no non-test .go file — gremlins would have nothing to mutate", target.Pkg)
+		})
+	}
+}

@@ -22,7 +22,7 @@
 // module and the run becomes both meaningless and enormous.
 //
 // THE INVARIANT (do not re-litigate): acceptance mutation runs through ooze
-// ONLY, via `just test-mutation-cucumber`. There is no gremlins profile for
+// ONLY, via `just test-mutation-acceptance`. There is no gremlins profile for
 // the acceptance suite and there must not be one.
 //
 // gremlins is COVERAGE-GATED: it mutates source, runs `go test`, and scores

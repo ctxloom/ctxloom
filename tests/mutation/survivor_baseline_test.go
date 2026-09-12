@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// The survivor ratchet (tests/mutation/survivor_ratchet.sh, driven by
-// `just test-mutation-cucumber`) fails a run whose survivor count is higher
+// The survivor ratchet (tests/mutation/survivor_ratchet.sh, driven by the
+// ratcheted mutation recipes) fails a run whose survivor count is higher
 // than the count recorded for that target in survivor_baseline.txt. Its own
 // silent failure mode is a row that names a target no run produces: the row is
 // then never compared, and the target it was meant to guard goes unratcheted
@@ -74,9 +74,9 @@ func readSurvivorBaseline(t *testing.T) map[string]baselineRow {
 }
 
 // TestSurvivorBaseline_HasARowForEveryTarget is the load-bearing one: a
-// mutationTargets entry with no row is a target the ratchet cannot judge. The
+// ratcheted table entry with no row is a target the ratchet cannot judge. The
 // key is the TEST name, because that is what the harness prints as its
-// `ooze-target:` marker and what -run addresses — so renaming an entry
+// `<tool>-target:` marker and what -run addresses — so renaming an entry
 // silently orphans its row, and this is what says so.
 func TestSurvivorBaseline_HasARowForEveryTarget(t *testing.T) {
 	rows := readSurvivorBaseline(t)
@@ -85,6 +85,12 @@ func TestSurvivorBaseline_HasARowForEveryTarget(t *testing.T) {
 		key := "TestAcceptanceMutation/" + target.Name
 		if _, ok := rows[key]; !ok {
 			t.Errorf("no baseline row for %q — that target's survivors are not ratcheted, and a run of it would have nothing to be judged against", key)
+		}
+	}
+	for _, target := range packageMutationTargets {
+		key := "TestPackageMutation/" + target.Name
+		if _, ok := rows[key]; !ok {
+			t.Errorf("no baseline row for %q — that package's unverified mutants are not ratcheted, and a run of it would have nothing to be judged against", key)
 		}
 	}
 	if _, ok := rows[baselineGuardTarget]; !ok {
@@ -101,6 +107,9 @@ func TestSurvivorBaseline_NamesOnlyTargetsThatExist(t *testing.T) {
 	known := map[string]bool{baselineGuardTarget: true}
 	for _, target := range mutationTargets {
 		known["TestAcceptanceMutation/"+target.Name] = true
+	}
+	for _, target := range packageMutationTargets {
+		known["TestPackageMutation/"+target.Name] = true
 	}
 
 	for name := range rows {

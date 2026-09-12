@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The SURVIVOR RATCHET for the mutation-vs-cucumber gate.
+# The SURVIVOR RATCHET for the mutation gates that carry a baseline.
 #
 # Usage: survivor_ratchet.sh <baseline-file> <run-log>
 #
@@ -16,12 +16,23 @@
 # an improvement in one target mask a regression in another, and each target
 # mutates a different file with a different suite behind it.
 #
-# A target is identified by the `ooze-target: <test name>` marker the harness
-# prints to stdout immediately before releasing ooze. Marker and summary box
-# travel the same stream from the same goroutine, and ooze summarizes in a
-# t.Cleanup that runs before the next target's marker — so the box that
+# A target is identified by the `<tool>-target: <test name>` marker the harness
+# prints to stdout immediately before releasing the tool — `ooze-target:` for a
+# file mutated by ooze, `gremlins-target:` for a package mutated by gremlins.
+# Marker and summary travel the same stream from the same goroutine, and each
+# tool summarizes before the next target's marker — so the summary that
 # follows a marker is that target's, whatever order `go test` chooses to flush
-# its own bookkeeping in. Nothing here reads `=== RUN` or `--- PASS`.
+# its own bookkeeping in. Nothing here reads `=== RUN` or `--- PASS`. The
+# marker names the tool so the summary can be parsed in that tool's shape, and
+# a summary of the OTHER tool's shape under a marker is unattributable.
+#
+# WHAT COUNTS AS A SURVIVOR, per tool. ooze reports it directly: `Survived`.
+# gremlins reports LIVED (a test ran and did not notice) and NOT COVERED (no
+# test executed the line) separately, and BOTH are survivors here: the ratchet
+# refuses a change that leaves more mechanisms unverified than it found, and an
+# uncovered mechanism is unverified. Counting LIVED alone would let a new,
+# untested function through the gate with a better efficacy figure. TIMED OUT
+# and NOT VIABLE are neither killed nor survived; they sit in TOTAL only.
 #
 # CTXLOOM_MUTATION_BASELINE=update rewrites the rows this run covered, marking
 # them `measured`, instead of judging them. That is how a `recorded`, `stale`
@@ -49,21 +60,45 @@ done
 # measurement in this log can be attributed to anything).
 measured=$(awk '
     function num(s,   t) { t = s; sub(/^[^0-9]*/, "", t); sub(/[^0-9].*$/, "", t); return t + 0 }
+    # nums fills out[1..] with every run of digits in s, in order, and returns
+    # how many there were — gremlins puts three counts on one line.
+    function nums(s, out,   k, m, i) {
+        k = 0; m = split(s, parts, /[^0-9]+/)
+        for (i = 1; i <= m; i++) if (parts[i] != "") out[++k] = parts[i] + 0
+        return k
+    }
     BEGIN { esc = sprintf("%c", 27); cur = ""; n = 0; orphans = 0 }
     { line = $0; gsub(esc "\\[[0-9;]*[a-zA-Z]", "", line) }
-    line ~ /^ooze-target: / {
+    line ~ /^[ \t]*(ooze|gremlins)-target: / {
+        kind = line; sub(/^[ \t]*/, "", kind); sub(/-target:.*$/, "", kind)
         cur = line
-        sub(/^ooze-target:[ \t]*/, "", cur)
+        sub(/^[ \t]*(ooze|gremlins)-target:[ \t]*/, "", cur)
         sub(/[ \t\r]+$/, "", cur)
         if (!(cur in seen)) {
-            seen[cur] = 1; order[++n] = cur
+            seen[cur] = 1; order[++n] = cur; tool[cur] = kind
             total[cur] = -1; killed[cur] = -1; surv[cur] = -1
         }
         next
     }
-    index(line, "\xe2\x80\xa2 Total:")    { if (cur == "") orphans++;    else total[cur]  = num(line); next }
-    index(line, "\xe2\x80\xa2 Killed:")   { if (cur != "") killed[cur] = num(line); next }
-    index(line, "\xe2\x80\xa2 Survived:") { if (cur != "") surv[cur]   = num(line); next }
+    # ooze: the summary box, one figure per line.
+    index(line, "\xe2\x80\xa2 Total:")    { if (cur == "" || tool[cur] != "ooze") orphans++; else total[cur]  = num(line); next }
+    index(line, "\xe2\x80\xa2 Killed:")   { if (cur != "" && tool[cur] == "ooze") killed[cur] = num(line); next }
+    index(line, "\xe2\x80\xa2 Survived:") { if (cur != "" && tool[cur] == "ooze") surv[cur]   = num(line); next }
+    # gremlins: two tally lines. The first carries the verdict; the second only
+    # completes TOTAL, so a log cut after the first still yields a measurement.
+    line ~ /^[ \t]*Killed: [0-9]+, Lived: [0-9]+, Not covered: [0-9]+/ {
+        if (cur == "" || tool[cur] != "gremlins") { orphans++; next }
+        nums(line, g)
+        killed[cur] = g[1]; surv[cur] = g[2] + g[3]; total[cur] = g[1] + g[2] + g[3]
+        next
+    }
+    line ~ /^[ \t]*Timed out: [0-9]+, Not viable: [0-9]+, Skipped: [0-9]+/ {
+        if (cur != "" && tool[cur] == "gremlins" && total[cur] >= 0) {
+            nums(line, g)
+            total[cur] += g[1] + g[2] + g[3]
+        }
+        next
+    }
     END {
         for (i = 1; i <= n; i++) {
             k = order[i]
@@ -78,13 +113,15 @@ measured=$(grep -v '^#orphans ' <<<"$measured")
 
 if [ -z "$measured" ]; then
     echo "error: the run named no mutation target — nothing in this log can be attributed." >&2
-    echo "       The harness prints 'ooze-target: <test name>' to stdout before every" >&2
+    echo "       The harness prints '<tool>-target: <test name>' to stdout before every" >&2
     echo "       release; ${orphans:-0} summary box(es) arrived without one. Do not read" >&2
     echo "       this as a pass." >&2
     exit 1
 fi
 if [ "${orphans:-0}" -ne 0 ]; then
     echo "error: $orphans mutation summary box(es) belong to no announced target." >&2
+    echo "       Either no marker preceded it, or the marker named a different tool" >&2
+    echo "       than the one that produced the summary." >&2
     echo "       A score that cannot be attributed cannot be ratcheted. Do not read" >&2
     echo "       this as a pass." >&2
     exit 1

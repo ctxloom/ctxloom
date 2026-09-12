@@ -1,6 +1,7 @@
 # THE RATCHET. Each row is the survivor count one mutation target is known to
-# produce. `just test-mutation-cucumber` fails when a target measures MORE
-# survivors than its row here.
+# produce. The ratcheted recipes (`just test-mutation-acceptance` and its
+# per-entry form, `just test-mutation-package`) fail when a target measures
+# MORE survivors than its row here.
 #
 # It does not fail on the counts already recorded: those are tracked debt, and
 # a gate that refused them would simply never be run. What it refuses is a
@@ -9,17 +10,21 @@
 # WithMinimumThreshold(0) so that a threshold is never chosen before a
 # measurement exists.
 #
-# A survivor is a mutant no scenario killed: a mechanism a feature CLAIMS to
-# cover and does not actually verify. The ratchet keys on that COUNT, not on
-# the score. Score is killed/total, so a change that adds well-covered code
+# A survivor is a mutant nothing killed: a mechanism the tests CLAIM to cover
+# and do not actually verify. For an ooze target that is its `Survived`
+# figure. For a gremlins package target it is LIVED plus NOT COVERED — a
+# mutant no test executed is as unverified as one a test ran past, and
+# counting only LIVED would wave through new code that no test reaches. The
+# ratchet keys on that COUNT, not on the score. Score is killed/total, so a change that adds well-covered code
 # raises the score while leaving MORE mechanisms unverified than before; the
 # count cannot be moved that way. TOTAL is recorded beside it only so a
 # failure can say whether the extra survivors arrived with a bigger mutant set
 # or on the same one — nothing is gated on TOTAL.
 #
 # TARGET                                   TOTAL  SURVIVED  PROVENANCE
-# what the harness prints as its `ooze-target:` marker, so a row can only be
-# compared against the measurement it names.
+# what the harness prints as its `<tool>-target:` marker (`ooze-target:` for a
+# file, `gremlins-target:` for a package), so a row can only be compared
+# against the measurement it names.
 #
 # PROVENANCE says what licenses the number, and is the one thing here taken on
 # trust:
@@ -34,6 +39,7 @@
 #
 # Re-record the rows a run covered:
 #   CTXLOOM_MUTATION_BASELINE=update just test-mutation-entry <name>
+#   CTXLOOM_MUTATION_BASELINE=update just test-mutation-package <name>
 #
 # A count that goes DOWN is reported, never lowered automatically. Lowering it
 # is what keeps the ratchet tracking the debt down instead of banking slack,
@@ -46,3 +52,4 @@ TestAcceptanceMutation/signer_store          138        83  stale
 TestAcceptanceMutation/isolation_axes         43        31  recorded
 TestAcceptanceMutation/remote_registry         -         -  unknown
 TestTrustCascadeGuardMutation                  -         -  unknown
+TestPackageMutation/isolation                  -         -  unknown

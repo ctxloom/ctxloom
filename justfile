@@ -1444,7 +1444,13 @@ _mutation-driver RATCHET *ARGS:
     # pattern that matched nothing, failing the recipe over a passing run.
     shift
     mkdir -p "{{mutation_tmp}}"
-    trap 'rm -f "{{mutation_tmp}}/.run.$$.log"' EXIT
+    # TMPDIR pinned to disk for every tool this driver can release: gremlins
+    # (the package lane) copies the whole module once per worker, and on a
+    # tmpfs /tmp that has emptied 16G — same hazard, same pin, as test-mutation
+    # above. ooze's laboratory is a symlink farm and is indifferent to where it
+    # lands. The sweep matches test-mutation-pkg's.
+    export TMPDIR="{{mutation_tmp}}"
+    trap 'rm -f "{{mutation_tmp}}/.run.$$.log"; rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
     set +e
     # -v is LOAD-BEARING, not a debugging convenience. ooze prints its per-mutant
     # diffs and its summary box to STDOUT, and `go test` swallows a PASSING test's
@@ -1474,18 +1480,19 @@ _mutation-driver RATCHET *ARGS:
     # and must never read as a clean bill of health. Exit 0 here would be the
     # exact failure this gate replaced (gremlins reporting success over an empty
     # mutant set).
-    if ! grep -q 'Score:' <<<"$output"; then
+    # ooze reports `Score:`; gremlins (the package lane) reports `Test efficacy:`.
+    if ! grep -qE 'Score:|Test efficacy:' <<<"$output"; then
         echo "error: the run produced no mutation score — it measured NOTHING." >&2
-        echo "       ooze prints its summary to stdout; if that is missing, either no" >&2
-        echo "       target was released or the output was swallowed. Do not read this" >&2
-        echo "       as a pass." >&2
+        echo "       ooze and gremlins print their summaries to stdout; if that is" >&2
+        echo "       missing, either no target was released or the output was" >&2
+        echo "       swallowed. Do not read this as a pass." >&2
         exit 1
     fi
     # Repeat the summary AFTER the -v firehose, so the number is not buried
     # thousands of scenario lines up.
     echo
     echo "=== mutation summary ==="
-    grep -E 'Total:|Killed:|Survived:|Score:' <<<"$output" || true
+    grep -E 'Total:|Killed:|Survived:|Score:|Timed out:|Test efficacy:' <<<"$output" || true
     # ooze's box counts a mutant that DID NOT COMPILE as killed: its verdict is
     # the runner's exit code and nothing else, so the compiler is scored as if it
     # were the test suite. The runners mark those; subtract them here so the
@@ -1542,22 +1549,42 @@ test-mutation-unit *ARGS:
 test-mutation-entry NAME *ARGS:
     @just test-mutation-acceptance -run 'TestAcceptanceMutation/^{{NAME}}$' {{ARGS}}
 
+# Run ONE standing gremlins PACKAGE target (see `just test-mutation-entries`),
+# ratcheted against tests/mutation/survivor_baseline.txt like the acceptance
+# entries. This is `test-mutation-pkg` with a memory: same tool, same
+# .gremlins.yaml, but the package is named in a table, its unverified count
+# (LIVED + NOT COVERED) has a row, and a run that leaves more unverified than
+# the row fails. gremlins' own efficacy threshold does NOT fail this recipe —
+# the harness logs the miss and hands the tally to the ratchet, because a
+# standing gate that reds on every recorded debt is never run. The threshold
+# stays where .gremlins.yaml puts it; nothing here lowers it.
+#
+# Scheduled, not per-PR: minutes to tens of minutes per package. Record the
+# first measurement, or a lower one, with CTXLOOM_MUTATION_BASELINE=update.
+#
+#   just test-mutation-package isolation
+test-mutation-package NAME *ARGS:
+    @just _mutation-driver ratchet -run 'TestPackageMutation/^{{NAME}}$' {{ARGS}}
+
 # List the mutation target table's entry names, with the file each one mutates.
 # Reads the table itself, so it cannot drift from the code the way a hand-kept
 # list in a comment would.
 test-mutation-entries:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Both tables are listed because both live in tests/mutation/*_test.go. Only
-    # ACCEPTANCE entries are addressable by `just test-mutation-entry NAME`,
-    # which drives TestAcceptanceMutation; a unit entry is run with
-    # `just test-mutation-unit -run 'TestUnitMutation/^NAME$'`.
+    # Every table is listed because they all live in tests/mutation/*_test.go.
+    # ACCEPTANCE entries are addressable by `just test-mutation-entry NAME`
+    # (TestAcceptanceMutation); PACKAGE entries by `just test-mutation-package
+    # NAME` (TestPackageMutation); a unit entry is run with
+    # `just test-mutation-unit -run 'TestUnitMutation/^NAME$'`. An entry that
+    # names a .go FILE is an ooze entry; one that names a directory is gremlins'.
     echo "mutation target tables (tests/mutation/):"
     echo "  acceptance -> just test-mutation-entry NAME"
+    echo "  package    -> just test-mutation-package NAME"
     echo "  unit       -> just test-mutation-unit -run 'TestUnitMutation/^NAME\$'"
     echo
     grep -A2 -E '^\s+Name:\s+"' tests/mutation/*_test.go \
-      | grep -oE '"(([a-z_]+)|(internal/[^"]+\.go))"' \
+      | grep -oE '"(([a-z_]+)|(internal/[^"]+))"' \
       | tr -d '"' \
       | paste - - \
       | awk '{ printf "  %-16s %s\n", $1, $2 }'

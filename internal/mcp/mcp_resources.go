@@ -56,7 +56,7 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 		Name:        "fragments",
 		Description: "All local context fragments with tags and source locations. A fragment carrying a PREMISE applies conditionally: the premise names the situation it applies under, and the qualified ref is what an assemble_context call quotes back to load it.",
 		MIMEType:    "application/yaml",
-	}, listResource(s, operations.ListFragments))
+	}, s.handleResourceFragments)
 
 	server.AddResource(&mcp.Resource{
 		URI:         resourceProfilesURI,
@@ -252,6 +252,30 @@ func listResource[Req, Res any](s *ctxServer, list func(context.Context, *config
 		}
 		return marshalResourceYAML(req.Params.URI, result)
 	}
+}
+
+// fragmentsResource is what a reader of ctxloom://fragments receives: the
+// listing every other list-style resource would serve, plus the instruction
+// an agent selects premises by. The instruction rides HERE because this is
+// where the server instructions send an agent to read premises, and a reader
+// handed the rows alone chooses with none of the three properties measurement
+// showed to carry selection. `ctxloom fragment premises` ships the same field
+// beside its rows for the same reason; both take the wording from
+// operations.PremiseSelectionInstruction so neither can drift from the other.
+type fragmentsResource struct {
+	Instruction                     string `yaml:"instruction"`
+	*operations.ListFragmentsResult `yaml:",inline"`
+}
+
+func (s *ctxServer) handleResourceFragments(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	result, err := operations.ListFragments(ctx, s.cfg, operations.ListFragmentsRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return marshalResourceYAML(req.Params.URI, fragmentsResource{
+		Instruction:         operations.PremiseSelectionInstruction(),
+		ListFragmentsResult: result,
+	})
 }
 
 // handleResourceSessionsAll returns every harp-named session in the index, not

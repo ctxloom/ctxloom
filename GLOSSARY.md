@@ -106,12 +106,51 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
   socket, and no nested daemon.
 
   **2b — a nested `ctxloom run` owning its own runtime coordinator — is OUT OF
-  SCOPE, not merely deferred.** True recursion is unwanted; four or five levels
-  is the ceiling and going deeper is a major-change conversation, not a flag.
-  This matters because the two readings look identical when written as "a
-  container for the orchestrator", and the distinction decides whether the
-  discouraged path costs one default-off flag or a privileged nested runtime.
-  Name the shape, never the phrase.
+  SCOPE, not merely deferred.** The two readings look identical when written as
+  "a container for the orchestrator", so name the shape, never the phrase.
+
+  WHY TRUE RECURSION IS UNWANTED (ruled 2026-09-12, after a feasibility study
+  and an independent adversarial review of it). Not because it is hard. Because
+  FLATNESS IS LOAD-BEARING: four properties this design relies on are bought by
+  having exactly two agent depths — the orchestrator, and everything it spawns.
+
+  1. POSITION IMPLIES PRIVILEGE. `runnerIsLeaf` decides delegation from depth
+     against `delegation.depth`. That works only while there are two depths. Add
+     recursion and there is an orchestrator at depth n and executors at n+1 for
+     every n, so no global cap can express "orchestrators may delegate,
+     executors may not" — which revives the per-binding flag
+     `agents.RetiredCoordinatorKey` deliberately REMOVED in favour of position.
+     That retirement is correct only because the tree is flat.
+
+  2. ONE CAP SEES EVERYTHING. Heavy work is bounded because a single
+     `Coordinator.slots` observes the whole tree — which is why an orchestrator
+     dispatches gates to executors instead of running them. With a runtime
+     coordinator per level, each caps its own children and nothing holds a
+     global view.
+
+  3. ONE SWEEPER RECLAIMS EVERYTHING. Orphan reclaim is keyed on
+     `ctxloom.owner-pid` plus a liveness check, and PID LIVENESS DOES NOT CROSS
+     A NAMESPACE BOUNDARY: a nested container's owner pid is a pid inside its
+     parent, unevaluable from outside. Every level would need its own sweeper,
+     and a level that dies takes its children's reaper with it. Unreclaimable by
+     construction.
+
+  4. IDENTITY PATH MAPPING STAYS CORRECT, and `renderRunSpec` has no privilege
+     knob at all — no `--device`, no `--security-opt`, no `--privileged`. That
+     absence is a PROPERTY, not a gap: no agent cell can be granted a nested
+     runtime by configuration. Recursion means deliberately reopening it.
+
+  The decisive argument is that properties 2 and 3 are exactly the two failures
+  that have actually occurred here: an OOM took a whole run when five concurrent
+  heavy jobs ran against a cap that could see three, and the same kill stranded
+  three worktrees that only manual recovery found. Recursion makes both
+  structurally worse, in exchange for a capability nothing has yet needed.
+
+  THE TRAP TO WATCH FOR: someone reaching for recursion to solve a problem that
+  a flat tree plus the per-session exchange directory already solves — an
+  executor wanting work done without spending the orchestrator's context does
+  NOT need to spawn anything itself. If recursion is ever revisited, price all
+  four properties above; the full analysis is in the container-topology study.
 
   Note that delegation privilege is DERIVED, never declared: a per-binding
   `coordinator: true` flag existed and was deliberately REMOVED

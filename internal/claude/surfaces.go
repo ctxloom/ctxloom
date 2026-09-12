@@ -13,10 +13,12 @@ import (
 // This file is claude's DECLARATION on the unified surface-delivery seam
 // (internal/shared/agent/cells.go, declaration.go): each approach claude
 // supports as a value implementing agent.Approach, and Surfaces — the one
-// place claude's surface membership is stated. Every approach WRAPS an
+// place claude's surface membership is stated. Every approach here WRAPS an
 // existing claude writer verbatim — appendFlagDelivery (contextdelivery.go),
 // fileTemplateDelivery (surfacedelivery.go), and the ContextWriter core
-// WriteContext (claude.go). Context/MCP/settings ALSO carry an out-of-cwd
+// WriteContext (claude.go); the record-backed settings approach, which
+// writes through confpatch instead, lives in surfaces_hewrecord.go.
+// Context/MCP/settings ALSO carry an out-of-cwd
 // form (agent.OutOfCwd) an engine launch flag consumes; buildArgs
 // (claudecode.go) reads each such file's Path() after a SHARED-cwd delivery
 // ran that form.
@@ -292,11 +294,13 @@ func newSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 // and out-of-cwd alike, receives the run's advised roots when it runs, so
 // nothing here binds a directory.
 //
-// context is the one multi-approach surface — the native file (the DEFAULT,
+// context is a multi-approach surface — the native file (the DEFAULT,
 // named explicitly rather than inferred from declaration order), the
 // out-of-cwd system prompt, and the settings-carried hook (the shared
-// implementation; claude registers it, it does not own it). Every other
-// surface has exactly one approach.
+// implementation; claude registers it, it does not own it). settings is the
+// other: the project file (the DEFAULT) and the record-backed write into the
+// engine's private home (surfaces_hewrecord.go), which a binding selects by
+// name. Every other surface has exactly one approach.
 //
 // A name here is known IF AND ONLY IF a constructor is registered under it, so
 // "supported" and "constructible" cannot disagree — which is the whole reason
@@ -317,6 +321,8 @@ var Surfaces = agent.Declaration{
 	}),
 	agent.SurfaceSettings: agent.Presents("claude", agent.SurfaceSettings, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 		return &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: agent.GetFS(fs)}
+	}).Or(ApproachHewRecord, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		return &settingsRecord{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: agent.GetFS(fs)}
 	}),
 	agent.SurfaceCommands: agent.Presents("claude", agent.SurfaceCommands, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 		return &commandsSurface{commands: in.Commands, fs: agent.GetFS(fs), selfContainedCommands: in.SelfContainedCommands}

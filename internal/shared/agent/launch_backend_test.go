@@ -726,3 +726,59 @@ func TestExecuteCLI_NonInteractiveCarriesNoStdinCleanup(t *testing.T) {
 	assert.Nil(t, captured.StdinCleanup,
 		"a non-interactive launch owns no pty copier, so there is nothing to release and no reader it may close")
 }
+
+// ---- cell path: the engine home root ----------------------------------------
+
+// TestSetup_EngineHomeRoot_ResolvesFromTheDeclaredVar proves the run's
+// EngineHome root reaches every writer through the same advised Start the
+// project root does: the engine names the env var that relocates its config
+// home (SetEngineHomeVar), and setupViaCells reads THAT run's value of it.
+// A run with no such var set — no controlled home — advises no EngineHome at
+// all, so an approach that needs one refuses rather than guessing.
+func TestSetup_EngineHomeRoot_ResolvesFromTheDeclaredVar(t *testing.T) {
+	const homeVar = "TEST_ENGINE_HOME"
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"declared and set", map[string]string{homeVar: "/proj/.ctxloom/state/h/home/test"}, "/proj/.ctxloom/state/h/home/test"},
+		{"declared but unset", map[string]string{}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			set := &recordSet{}
+			b := newCellBackend(set)
+			b.SetEngineHomeVar(homeVar)
+			require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+				WorkDir:   t.TempDir(),
+				Fragments: []*Fragment{{Content: "rules"}},
+				Env:       tc.env,
+				CellKind:  CellKindDirectoryIsolated,
+				Managed:   &ManagedConfig{},
+			}))
+			require.Len(t, set.deliverStarts, 5)
+			for _, start := range set.deliverStarts {
+				assert.Equal(t, tc.want, start.Paths().EngineHome.Host)
+			}
+		})
+	}
+}
+
+// An engine that never declares its home var advises no EngineHome, even
+// when the run env happens to carry one: the root is a fact the ENGINE
+// states, never inferred from whatever variables are in the environment.
+func TestSetup_EngineHomeRoot_UndeclaredEngineAdvisesNone(t *testing.T) {
+	set := &recordSet{}
+	b := newCellBackend(set)
+	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+		WorkDir:   t.TempDir(),
+		Fragments: []*Fragment{{Content: "rules"}},
+		Env:       map[string]string{"CLAUDE_CONFIG_DIR": "/somewhere"},
+		CellKind:  CellKindDirectoryIsolated,
+		Managed:   &ManagedConfig{},
+	}))
+	require.Len(t, set.deliverStarts, 5)
+	for _, start := range set.deliverStarts {
+		assert.Equal(t, "", start.Paths().EngineHome.Host)
+	}
+}

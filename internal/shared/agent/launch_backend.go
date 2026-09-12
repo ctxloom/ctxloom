@@ -77,6 +77,13 @@ type LaunchBackend struct {
 	// cell-aware backend (codex's cell-scoped CODEX_HOME) uses to compute env from
 	// the request without reimplementing the shared assembly.
 	extraEnv func(req *ExecuteRequest) map[string]string
+	// engineHomeVar names the env var that relocates this engine's config
+	// home (claude's CLAUDE_CONFIG_DIR). setupViaCells reads THIS RUN's value
+	// of it as the EngineHome root every writer is advised. Empty — an engine
+	// that never declared one — advises no EngineHome, whatever the run env
+	// happens to carry: the root is a fact the engine states, never inferred
+	// from the environment.
+	engineHomeVar string
 	// delivered accumulates the handles Setup materialized through the delivery
 	// seam, in delivery order. Cleanup reverses them LIFO.
 	delivered []Delivered
@@ -105,6 +112,11 @@ func (b *LaunchBackend) Resolved() *ResolvedSelection { return b.resolved }
 func (b *LaunchBackend) SetExecuteEnv(fn func(req *ExecuteRequest) map[string]string) {
 	b.extraEnv = fn
 }
+
+// SetEngineHomeVar names the env var that relocates this engine's config
+// home, so a run that carries it (an agent binding with config_home: project)
+// advises its private engine home to every writer. See engineHomeVar.
+func (b *LaunchBackend) SetEngineHomeVar(name string) { b.engineHomeVar = name }
 
 // History returns the session history accessor.
 func (b *LaunchBackend) History() SessionHistory { return b.history }
@@ -290,8 +302,19 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	if req.CellKind == CellKindShared {
 		scratch = ephemeralPlacement{harp: req.Env[SessionHarpEnv]}.Dir()
 	}
+	//
+	// EngineHome is the engine's PRIVATE config home for this run, read from
+	// the var the engine declared (SetEngineHomeVar). A run with none — no
+	// binding, or one that keeps the real host home — advises no EngineHome,
+	// and an approach that writes beneath it refuses (ErrUnrootedEngineHome)
+	// rather than landing in the user's own home.
+	var engineHome string
+	if b.engineHomeVar != "" {
+		engineHome = req.Env[b.engineHomeVar]
+	}
 	start := present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: b.WorkDir()},
+		EngineHome:  present.Root{Host: engineHome},
 		Scratch:     present.Root{Host: scratch},
 	}))
 

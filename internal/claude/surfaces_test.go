@@ -445,12 +445,14 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 
 // Surfaces pins claude's per-surface declaration: context offers all three
 // approaches (native file, out-of-cwd system prompt, settings-carried hook);
-// mcp/settings/commands/skills offer only the native file; and the default
+// settings offers the project file and the engine-home record write;
+// mcp/commands/skills offer only the native file; and the default
 // everywhere is the native file — named, not positional.
-func TestSurfaces_DeclaresContextThreeWaysAndTheRestOnce(t *testing.T) {
+func TestSurfaces_DeclaresContextThreeWaysSettingsTwoAndTheRestOnce(t *testing.T) {
 	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt, agent.ApproachHook},
 		Surfaces.Names(agent.SurfaceContext))
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
+	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachHewRecord}, Surfaces.Names(agent.SurfaceSettings))
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceMCP, agent.SurfaceCommands, agent.SurfaceSkills} {
 		assert.Equal(t, []string{agent.ApproachUnsafeFile}, Surfaces.Names(kind), "%s", kind)
 	}
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {

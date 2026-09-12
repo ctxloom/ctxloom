@@ -87,6 +87,10 @@ func NewClaudeCode() *ClaudeCode {
 		nil, // SessionHistory: claude's ~/.claude/projects/*.jsonl scraper deleted — canonical capture is the only transcript source now
 		Surfaces,
 	)
+	// The run's CLAUDE_CONFIG_DIR is the engine home the record-backed
+	// settings write (surfaces_hewrecord.go) lands beneath; a run without one
+	// advises no engine home and that write refuses.
+	b.SetEngineHomeVar(ConfigDirEnv)
 	return b
 }
 

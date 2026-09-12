@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -68,6 +69,24 @@ func TestInstalledThroughProjectFile_IsFalseForALaunchOnlyDefault(t *testing.T) 
 	}
 	assert.False(t, installedThroughProjectFile(decl, agent.SurfaceContext),
 		"a launch-only route has no at-rest write, so no project file carries it")
+}
+
+// The first route on the seam that is neither a rider nor launch-only and
+// still not a project file: claude's hew-record settings write lands beneath
+// the ENGINE HOME. A marker-enumerating predicate would have classed it a
+// project file; the predicate asks the presenter, so an engine whose default
+// settings route is the record write installs nothing through a project
+// file for that kind — and `manage check` is not sent looking for one.
+func TestInstalledThroughProjectFile_IsFalseForAnEngineHomeDefault(t *testing.T) {
+	record, ok := backends.Declared("claude-code")[agent.SurfaceSettings].Construct(claude.ApproachHewRecord, agent.SurfaceInputs{}, nil)
+	require.True(t, ok, "claude declares settings=hew-record")
+	decl := agent.Declaration{
+		agent.SurfaceSettings: agent.Presents("synthetic", agent.SurfaceSettings, claude.ApproachHewRecord, func(agent.SurfaceInputs, afero.Fs) agent.Approach {
+			return record
+		}),
+	}
+	assert.False(t, installedThroughProjectFile(decl, agent.SurfaceSettings),
+		"a record write beneath the engine home is not delivered through a project file")
 }
 
 func TestInstallRoute_PrefersTheRiderOverTheDefault(t *testing.T) {

@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"fmt"
 	"os"
 	"os/exec"
@@ -50,6 +51,7 @@ var realHOME = os.Getenv("HOME")
 // a signal (SIGINT/SIGTERM, unlike a panic, IS catchable) can tear down both
 // halves with one RemoveAll instead of coordinating two.
 func TestMain(m *testing.M) {
+	engines.MustRegister()
 	os.Exit(func() int {
 		sandbox, cleanupSandbox := acquireSandbox()
 		defer cleanupSandbox()

@@ -1,4 +1,6 @@
-package main
+//go:build arch
+
+package arch
 
 import (
 	"os"

@@ -7,9 +7,12 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // =============================================================================
@@ -63,15 +66,13 @@ func TestRegistry_List(t *testing.T) {
 	names := List()
 
 	var want []string
-	for name, d := range descriptors {
-		if d.newBackend != nil {
-			want = append(want, name)
-		}
+	for name := range descriptors {
+		want = append(want, name)
 	}
 	sort.Strings(want)
-	require.NotEmpty(t, want, "no descriptor can construct a backend, so this comparison would be trivially satisfied")
+	require.NotEmpty(t, want, "no descriptor is registered, so this comparison would be trivially satisfied")
 	assert.Equal(t, want, names,
-		"List() must name every descriptor that can construct a backend, in sorted order, and only those")
+		"List() must name every registered descriptor, in sorted order, and only those")
 
 	// Concrete anchors, so both sides going empty together cannot pass.
 	assert.Contains(t, names, "claude-code")
@@ -185,33 +186,22 @@ func TestDecodeLLMConfig_DecodeFailureNamesBackend(t *testing.T) {
 		"decode failure must name the backend it came from: got %q", err.Error())
 }
 
-// TestDescriptorTable_Invariants pins the descriptor registry's shape: every
-// built-in agent is registered as ONE complete descriptor (backend ctor +
-// config decoder + settings writer + surface builder + command-export mapper),
-// keyed by the name its module's Name() reports. The mock backend is the
-// deliberate exception — it registers only backend+config (no settings, no
-// surfaces, no exports). A descriptor that loses a capability field silently
-// degrades that backend, so this must fail loudly.
+// TestDescriptorTable_Invariants pins the registry's shape: every registered
+// descriptor is keyed by the name its backend's Name() reports, and every
+// shipped engine carries settings, surfaces and command export. mock is NOT
+// exempt: it is a complete engine with no real model behind it.
 func TestDescriptorTable_Invariants(t *testing.T) {
 	require.NotEmpty(t, descriptors)
 	for name, d := range descriptors {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, name, d.name, "descriptor keyed under a different name than it carries")
-			require.NotNil(t, d.newBackend, "every descriptor must construct a backend")
-			require.NotNil(t, d.decodeConfig, "every descriptor must decode its config")
-			assert.Equal(t, name, d.newBackend().Name(),
+			require.Equal(t, name, d.Name, "descriptor keyed under a different name than it carries")
+			assert.Equal(t, name, d.NewBackend(RunLaunchSpec).Name(),
 				"registry name must match the module's Name()")
-
-			// NO exemption, deliberately — mock included. mock is a complete
-			// engine with no real model behind it, so it satisfies the same
-			// descriptor invariants as every shipped backend. The exemption
-			// that used to sit here ("mock must not gain settings support
-			// silently") existed to force a visible edit at the moment mock
-			// grew those capabilities; it has served that purpose, and keeping
-			// it would now assert an absence that is no longer true.
-			assert.NotNil(t, d.newWriter, "backend must have a settings writer")
-			assert.NotNil(t, d.surfaces, "backend must declare its surfaces")
-			assert.NotNil(t, d.exports, "backend must have a command-export mapper")
+			_, hasWriter := d.SettingsWriter.Get()
+			assert.True(t, hasWriter, "backend must have a settings writer")
+			assert.NotEmpty(t, d.Surfaces, "backend must declare its surfaces")
+			_, hasExports := d.CommandExports.Get()
+			assert.True(t, hasExports, "backend must have a command-export mapper")
 		})
 	}
 }
@@ -224,13 +214,13 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 // TYPE — ConfiguredBackend does Get(cfg.BackendType()), and cli's
 // serveBackendConfig only decodes an entry whose EffectiveType() equals the
 // backend name. So the ONLY way a backend can be handed a config it cannot read
-// is a descriptor whose decodeConfig builds some other backend's struct. That
+// is a descriptor whose NewConfig builds some other backend's struct. That
 // mismatch is silent by construction: the wrong-typed config would be dropped
 // whole, and the run would launch on defaults with every override ignored.
 func TestDescriptorTable_ConfigDecodesToItsOwnType(t *testing.T) {
-	for name, d := range descriptors {
+	for name := range descriptors {
 		t.Run(name, func(t *testing.T) {
-			cfg, err := d.decodeConfig(map[string]interface{}{})
+			cfg, err := DecodeLLMConfig(name, map[string]interface{}{})
 			require.NoError(t, err)
 			require.NotNil(t, cfg)
 			assert.Equal(t, name, cfg.BackendType(),
@@ -240,18 +230,44 @@ func TestDescriptorTable_ConfigDecodesToItsOwnType(t *testing.T) {
 	}
 }
 
-// registerDescriptor must not silently overwrite an existing same-name
-// entry — a duplicate registration is a programming error at init time (a
-// future backend accidentally reusing a name), and the losing descriptor's
-// writer/surfaces/exports would otherwise vanish with no signal.
-func TestRegisterDescriptor_DuplicateNamePanics(t *testing.T) {
+// Register must not silently overwrite an existing same-name entry — a
+// duplicate registration is a programming error (a future backend
+// accidentally reusing a name), and the losing descriptor's
+// writer/surfaces/exports would otherwise vanish with no signal. It is an
+// ERROR, not a panic: registration runs from a composition root that can
+// surface it.
+func TestRegister_DuplicateNameIsAnError(t *testing.T) {
 	const name = "u057-f25-dup-test"
 	t.Cleanup(func() { UnregisterForTesting(name) })
 
-	registerDescriptor(agentDescriptor{name: name})
-	assert.Panics(t, func() {
-		registerDescriptor(agentDescriptor{name: name})
-	}, "a second registerDescriptor call for the same name must panic, not silently win")
+	require.NoError(t, Register(enginefixture.Descriptor(name)))
+	err := Register(enginefixture.Descriptor(name))
+	require.Error(t, err, "a second Register call for the same name must be refused, not silently win")
+	assert.Contains(t, err.Error(), name)
+}
+
+// A batch with one bad descriptor installs NOTHING: the good ones are not
+// half-registered around the refusal.
+func TestRegister_BatchIsAllOrNothing(t *testing.T) {
+	const good = "u057-batch-good"
+	t.Cleanup(func() { UnregisterForTesting(good) })
+	bad := enginefixture.Descriptor("u057-batch-bad")
+	bad.NewBackend = nil
+
+	require.Error(t, Register(enginefixture.Descriptor(good), bad))
+	assert.False(t, Exists(good), "the valid descriptor must not be installed when its batch is refused")
+}
+
+// A refused descriptor's error names the engine and the slot, so the
+// composition root's message says what to fix.
+func TestRegister_UndeclaredSlotIsRefusedByName(t *testing.T) {
+	d := enginefixture.Descriptor("u057-undeclared")
+	d.Home = agent.Declared[agent.EngineHome]{}
+	err := Register(d)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "u057-undeclared")
+	assert.Contains(t, err.Error(), "Home")
+	assert.False(t, Exists("u057-undeclared"))
 }
 
 // TestConfiguredBackend builds a backend from a typed config and applies it.

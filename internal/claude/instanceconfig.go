@@ -156,7 +156,7 @@ func (w *claudeInstanceConfig) WriteInstanceConfig(req agent.InstanceConfigReque
 		return rep, fmt.Errorf("claude instance config: no instance home to generate %s in", InstanceConfigFileName)
 	}
 	fs := agent.GetFS(w.FS)
-	dir := filepath.Join(req.InstanceHome, inTreeConfigLeaf)
+	dir := filepath.Join(req.InstanceHome, HomeLeaf)
 	dest := filepath.Join(dir, InstanceConfigFileName)
 
 	err := agent.WithFileLock(fs, dest, func() error {

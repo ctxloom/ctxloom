@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,6 +31,7 @@ import (
 // seam that runs whether a test opts in or not — see testsupport.SandboxedMain,
 // which also refuses to run any test at all if the sandbox did not take.
 func TestMain(m *testing.M) {
+	engines.MustRegister()
 	os.Exit(testsupport.SandboxedMain(m))
 }
 

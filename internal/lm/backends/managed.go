@@ -154,10 +154,14 @@ func managedStatuslineEnabled(cfg *config.Config) bool {
 // paths can't diverge.
 func CommandExportsFor(backendName string, prompts []*bundles.LoadedContent) []agent.CommandExport {
 	d, ok := lookup(backendName)
-	if !ok || d.exports == nil {
+	if !ok {
 		return nil
 	}
-	return d.exports(prompts)
+	exports, ok := d.CommandExports.Get()
+	if !ok {
+		return nil
+	}
+	return exports(prompts)
 }
 
 // SkillExportsFor maps loaded bundle skills to the named backend's Agent
@@ -166,10 +170,14 @@ func CommandExportsFor(backendName string, prompts []*bundles.LoadedContent) []a
 // skillExports field — the skills-surface analog of CommandExportsFor.
 func SkillExportsFor(backendName string, skills []*bundles.LoadedSkill) []agent.SkillExport {
 	d, ok := lookup(backendName)
-	if !ok || d.skillExports == nil {
+	if !ok {
 		return nil
 	}
-	return d.skillExports(skills)
+	exports, ok := d.SkillExports.Get()
+	if !ok {
+		return nil
+	}
+	return exports(skills)
 }
 
 // AssembleManagedDenyTools builds the union of deny_tools declared by the

@@ -16,6 +16,7 @@
 package main
 
 import (
+	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"fmt"
 	"os"
 	"strings"
@@ -30,7 +31,14 @@ import (
 // block and the driver owns the argv.
 const envPersonality = "MOCKENGINE_PERSONALITY"
 
-func main() { os.Exit(run(os.Args[1:])) }
+func main() {
+	// The personality registry is the backend registry; compose it first.
+	if err := engines.Register(); err != nil {
+		fmt.Fprintf(os.Stderr, "mockengine: %v\n", err)
+		os.Exit(2)
+	}
+	os.Exit(run(os.Args[1:]))
+}
 
 // personalityFromFlag resolves a leading `--<engine>` token to the registered
 // backend it selects, reporting false for anything else so the caller stops

@@ -17,7 +17,7 @@ type MCPRegistrar struct{}
 var _ agent.MCPRegistrar = MCPRegistrar{}
 
 // Name returns the agent identifier.
-func (MCPRegistrar) Name() string { return "claude-code" }
+func (MCPRegistrar) Name() string { return EngineName }
 
 // Present reports whether Claude Code appears to be in use for the scope.
 func (MCPRegistrar) Present(dir string, global bool) bool {

@@ -7,36 +7,27 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 )
 
-// configDecoder turns an LLM entry's raw body into a backend's typed config.
-type configDecoder func(body map[string]interface{}) (agent.BackendConfig, error)
-
 // DecodeLLMConfig decodes a labeled entry's raw body into the typed config for
 // the named backend type. An unknown type is an error the caller degrades
 // (fault tolerance). The label that keyed the entry is NOT consulted — only the
 // explicit type drives which decoder runs.
 func DecodeLLMConfig(backendType string, body map[string]interface{}) (agent.BackendConfig, error) {
 	d, ok := lookup(backendType)
-	if !ok || d.decodeConfig == nil {
+	if !ok {
 		return nil, fmt.Errorf("unknown LLM backend type %q", backendType)
 	}
-	cfg, err := d.decodeConfig(body)
-	if err != nil {
-		// decodeBody's mapstructure error names no backend, so a
-		// multi-backend config load could not attribute a decode failure to
-		// its source entry.
+	// One shared mapstructure pass fills the engine's own zero config (the
+	// descriptor's NewConfig) from the raw YAML body; the "model" key and
+	// the rest map straight onto the target's mapstructure tags. The engine
+	// declares the TYPE, the registry owns the decode.
+	cfg := d.NewConfig()
+	if err := mapstructure.Decode(body, cfg); err != nil {
+		// The mapstructure error names no backend, so a multi-backend
+		// config load could not attribute a decode failure to its source
+		// entry without this.
 		return nil, fmt.Errorf("backend %q: %w", backendType, err)
 	}
 	return cfg, nil
-}
-
-// decodeBody is the shared mapstructure pass each backend's decoder uses to
-// fill its struct from the raw YAML body. The "model" key (and any other
-// fields) map straight onto the target's mapstructure tags.
-func decodeBody(body map[string]interface{}, target agent.BackendConfig) (agent.BackendConfig, error) {
-	if err := mapstructure.Decode(body, target); err != nil {
-		return nil, err
-	}
-	return target, nil
 }
 
 // ConfiguredBackend instantiates the backend named by cfg's type and applies

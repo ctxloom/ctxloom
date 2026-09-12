@@ -6,18 +6,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// inTreeConfigLeaf is the directory INSIDE the session's instance home
-// (paths.SessionHomePath) that CLAUDE_CONFIG_DIR names. It equals the leaf the
-// WORKTREE axis uses (internal/lm/isolation's credentialSeedSpecs
-// ["claude-code"] destSubdir / HomeVars Subdir) so claude's config-home layout
-// is the same shape on every axis, and — load-bearing — so
-// isolation.PrepareClaudeHome, which joins its OWN copy of that leaf under the
-// root it is handed, writes .credentials.json into the exact directory
-// SessionConfigDir names. The two literals live in different packages because
-// internal/lm/isolation carries its own literal rather than importing this
-// package; TestSessionConfigDir_IsTheSeedDestination is the gate that keeps
-// the two equal.
-const inTreeConfigLeaf = "claude"
+// HomeLeaf is the directory INSIDE a ctxloom-provisioned instance home
+// (paths.SessionHomePath on the in-tree axis, the per-agent config home on the
+// worktree axis) that CLAUDE_CONFIG_DIR names. It is ONE constant on purpose:
+// the engine's descriptor declares it as the home var's Subdir, so the seed
+// internal/lm/isolation writes and the directory SessionConfigDir names are
+// the same directory by construction, on every axis.
+const HomeLeaf = "claude"
 
 // SessionConfigDir is the CLAUDE_CONFIG_DIR value for ONE SESSION's in-tree
 // agent run in workDir — <workDir>/.ctxloom/state/<harp>/home/claude.
@@ -52,5 +47,5 @@ func SessionConfigDir(workDir, harp string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, inTreeConfigLeaf), nil
+	return filepath.Join(root, HomeLeaf), nil
 }

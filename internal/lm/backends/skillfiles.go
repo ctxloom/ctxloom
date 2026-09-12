@@ -1,22 +1,13 @@
 package backends
 
 import (
-	"os"
-
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
-
-// modeFromPOSIX converts a resolved skill file's POSIX permission bits
-// (bundles.LoadedSkillFile.Mode — plain uint32, since bundles.go avoids an
-// os.FileMode dependency in the loader/manifest layer) into the os.FileMode
-// agent.PackageFile carries.
-func modeFromPOSIX(mode uint32) os.FileMode {
-	return os.FileMode(mode)
-}
 
 // This file is the skills analog of commands.go/commandfiles.go: the
 // single skill-export assembly (LoadSkillExports) and the per-engine mapping
@@ -112,31 +103,6 @@ func forceExportSkill(ls *bundles.LoadedSkill) *bundles.LoadedSkill {
 	return ls
 }
 
-// buildSkillExports is the shared skill-export loop: it maps every resolved
-// skill's frontmatter/files (engine-agnostic) into an agent.SkillExport with
-// pick supplying the engine-specific enablement.
-func buildSkillExports(skills []*bundles.LoadedSkill, pick func(*bundles.LoadedSkill) bool) []agent.SkillExport {
-	out := make([]agent.SkillExport, 0, len(skills))
-	for _, s := range skills {
-		files := make([]agent.PackageFile, 0, len(s.Files))
-		for _, f := range s.Files {
-			files = append(files, agent.PackageFile{RelPath: f.RelPath, Content: f.Content, Mode: modeFromPOSIX(f.Mode)})
-		}
-		out = append(out, agent.SkillExport{
-			Name:        s.Frontmatter.Name,
-			Description: s.Frontmatter.Description,
-			Enabled:     pick(s),
-			Files:       files,
-		})
-	}
-	return out
-}
-
-// claudeSkillExports resolves claude-code's per-skill enablement.
-func claudeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.ClaudeCode.IsEnabled() })
-}
-
 // mockSkillExports resolves the mock engine's per-skill enablement: every
 // resolved skill is exported.
 //
@@ -151,5 +117,5 @@ func claudeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
 // rather than mapping bundles.LoadedSkill to agent.SkillExport itself, so the
 // file bytes and the DECLARED modes reach the surface by the one path.
 func mockSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return buildSkillExports(skills, func(*bundles.LoadedSkill) bool { return true })
+	return engine.BuildSkillExports(skills, func(*bundles.LoadedSkill) bool { return true })
 }

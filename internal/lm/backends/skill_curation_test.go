@@ -12,6 +12,7 @@
 package backends
 
 import (
+	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
 	"os"
 	"path/filepath"
 	"testing"
@@ -104,7 +105,7 @@ func TestLoadSkillExports_UncuratedProfileExportsAllBundleSkills(t *testing.T) {
 	// Per-engine opt-out is still respected on the UNCURATED path: "hidden"
 	// disabled claude-code at the bundle level must resolve disabled for
 	// claude-code, while "shown" (no opt-out) resolves enabled.
-	ex := claudeSkillExports(skills)
+	ex := claudeengine.SkillExports(skills)
 	byName := map[string]bool{}
 	for _, e := range ex {
 		byName[e.Name] = e.Enabled
@@ -130,7 +131,7 @@ func TestLoadSkillExports_CuratedForceEnablesBundleOptOut(t *testing.T) {
 	skills := LoadSkillExports(cfg, []string{"curated-hidden"})
 	require.ElementsMatch(t, []string{"hidden"}, skillItemNames(skills))
 
-	ex := claudeSkillExports(skills)
+	ex := claudeengine.SkillExports(skills)
 	require.Len(t, ex, 1)
 	assert.True(t, ex[0].Enabled, "curating a skill force-enables it even though the bundle opted it out of claude-code")
 }

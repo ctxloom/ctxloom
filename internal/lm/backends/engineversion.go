@@ -1,16 +1,9 @@
-// This file is the per-engine half of the version probe (task
-// wrought-spearman): WHICH flag asks each engine for its version, and HOW to
-// read the answer out of what it prints. The mechanism — lazy probing,
-// fingerprint-keyed caching, the typed refusals — lives in
-// internal/engineversion; only the per-engine facts live here, in and beside
-// the descriptor table, with the rest of what ctxloom knows about each engine.
-//
-// The three parsers below are three DIFFERENT shapes, measured on this
-// project's dev host, not three copies of one guess:
-//
-//	claude    --version  ->  "2.1.225 (Claude Code)"   version first, name in parens
-//	codex     --version  ->  "codex-cli 0.144.4"       name first, then version
-//	opencode  --version  ->  "1.18.4"                  bare version
+// This file is the registry half of the version probe: it pairs an engine's
+// resolved binary with the version command its descriptor declares. The
+// mechanism — lazy probing, fingerprint-keyed caching, the typed refusals —
+// lives in internal/engineversion; the per-engine facts (which flag, how to
+// read the answer — vendors print three different shapes, so one shared
+// regex would be a guess) live in each engine's own descriptor.
 package backends
 
 import (
@@ -29,10 +22,10 @@ var engineVersionProber = engineversion.NewProber(ResolveEngineVersionCommand)
 // so there is no single binary whose version would mean anything.
 func VersionCommandFor(name string) (engineversion.Command, bool) {
 	d, ok := lookup(name)
-	if !ok || d.versionCommand.Parse == nil {
+	if !ok {
 		return engineversion.Command{}, false
 	}
-	return d.versionCommand, true
+	return d.VersionCommand.Get()
 }
 
 // ResolveEngineVersionCommand is this registry's engineversion.Resolver: it
@@ -60,11 +53,4 @@ func ResolveEngineVersionCommand(engine string) (string, engineversion.Command, 
 // internal/engineversion's typed refusals; there is no fallback value.
 func ProbeEngineVersion(ctx context.Context, engine string) (string, error) {
 	return engineVersionProber.Probe(ctx, engine)
-}
-
-// parseClaudeCodeVersion reads claude-code's `--version` output.
-// MEASURED: "2.1.225 (Claude Code)" — the version leads, the
-// product name follows in parentheses.
-func parseClaudeCodeVersion(output string) (string, error) {
-	return engineversion.TokenAt(output, 0)
 }

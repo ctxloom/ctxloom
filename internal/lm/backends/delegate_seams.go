@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -19,9 +21,8 @@ import (
 // backend-identity branching; operations now calls ResolveModelFor /
 // CheckHookTargetScope and never imports claude/codex itself.
 //
-// Both seams are descriptor fields (hookGlobalScopePaths/hookGlobalScopeLabel,
-// resolveModel in registry.go's agentDescriptor) rather than a hardcoded
-// switch here, so a backend that needs either capability registers it once,
+// Both seams are descriptor fields (HookGlobalScope, ResolveModel on
+// engine.Descriptor) rather than a hardcoded switch here, so a backend that needs either capability registers it once,
 // in its own descriptor block, and both operations call sites pick it up with
 // no operations-side edit — closing the gap the pre-fix hardcoded 3-way
 // if/else left: a NEW backend with its own project/global collision class (or
@@ -37,10 +38,10 @@ import (
 // resolve" is not a failure.
 func ResolveModelFor(name, model string) (resolved string, ok bool) {
 	d, exists := lookup(name)
-	if !exists || d.resolveModel == nil {
+	if !exists || d.ResolveModel == nil {
 		return model, true
 	}
-	return d.resolveModel(model)
+	return d.ResolveModel(model)
 }
 
 // CheckHookTargetScope refuses (or, with force, loudly warns) when workDir
@@ -57,10 +58,14 @@ func ResolveModelFor(name, model string) (resolved string, ok bool) {
 // deliberate escape hatch for a genuine intentional global install.
 func CheckHookTargetScope(name, workDir string, force bool) error {
 	d, ok := lookup(name)
-	if !ok || d.hookGlobalScopePaths == nil {
+	if !ok {
 		return nil
 	}
-	projectPath, globalPath, err := d.hookGlobalScopePaths(workDir)
+	scope, ok := d.HookGlobalScope.Get()
+	if !ok {
+		return nil
+	}
+	projectPath, globalPath, err := scope.Paths(workDir)
 	if err != nil {
 		// No resolvable home directory: nothing to collide with.
 		return nil
@@ -68,7 +73,7 @@ func CheckHookTargetScope(name, workDir string, force bool) error {
 	if cleanAbsPath(projectPath) != cleanAbsPath(globalPath) {
 		return nil
 	}
-	label := d.hookGlobalScopeLabel
+	label := scope.Label
 	if force {
 		clidiag.Warn("ctxloom", "hooks target %s resolves to %s (%s); proceeding because --force was given — this applies ctxloom to EVERY project, not just this one.", workDir, label, globalPath)
 		return nil
@@ -76,27 +81,21 @@ func CheckHookTargetScope(name, workDir string, force bool) error {
 	return fmt.Errorf("refusing to install hooks: %s resolves to %s (%s), which would apply ctxloom to every project instead of just this one; run from inside a project (or set CTXLOOM_ROOT), or pass --force to proceed anyway", workDir, label, globalPath)
 }
 
-// RegisterHookGlobalScopeForTesting wires a backend's project/global
-// collision-check hook for tests only (mirrors agent.
-// SetExecutablePathForTesting's naming/shape) — it exists so a flow test can
-// prove T12's generic property directly: a backend that registers
-// hookGlobalScopePaths gets CheckHookTargetScope's (and so ApplyHooks')
-// guard automatically, with no operations-side edit, rather than only the
-// three names a pre-fix hardcoded if/else happened to know about. Production
-// code never calls this; only registerDescriptor's own init() wiring
-// (registry.go) sets these fields outside tests.
-func RegisterHookGlobalScopeForTesting(name string, paths func(workDir string) (projectPath, globalPath string, err error), label string) {
-	d := descriptorFor(name)
-	d.hookGlobalScopePaths = paths
-	d.hookGlobalScopeLabel = label
-}
-
-// UnregisterForTesting removes a name's descriptor entirely — the
-// RegisterHookGlobalScopeForTesting cleanup counterpart, so a test's
-// synthetic backend does not linger in the shared, package-level descriptors
-// table for later tests to trip over.
+// UnregisterForTesting removes a name's descriptor entirely — Register's
+// cleanup counterpart for a test's synthetic engine, so it does not linger in
+// the shared, package-level table for later tests to trip over. It unwinds
+// every table Register wrote.
 func UnregisterForTesting(name string) {
-	delete(descriptors, agent.CanonicalEngineName(name))
+	canonical := agent.CanonicalEngineName(name)
+	if d, ok := descriptors[canonical]; ok {
+		if _, had := d.InstanceConfig.Get(); had {
+			isolation.RegisterInstanceConfigWriter(canonical, nil)
+		}
+		if _, had := d.CredentialProjector.Get(); had {
+			isolation.RegisterCredentialProjector(canonical, nil)
+		}
+	}
+	delete(descriptors, canonical)
 }
 
 // InTreeAgentHomeSpec is one backend's ctxloom-CONTROLLED config home INSTANCE
@@ -136,33 +135,37 @@ type InTreeAgentHomeSpec struct {
 // validation warns and declines, because a caller that got this far with an
 // unusable session name has a bug the run should not paper over.
 //
-// The roster's absentees are deliberate:
-//
-//   - opencode has none because its only lever is XDG_CONFIG_HOME /
-//     XDG_DATA_HOME, which are not engine-private: relocating them moves git's,
-//     fish's and every other XDG-aware tool's config for the child too.
-//   - mock has no engine-global home for ctxloom to control.
-//
-// codex USED to be an absentee, on the reasoning that it relocated CODEX_HOME
-// on every axis itself and a second contributor here would race the one that
-// works. The D2 ruling ended that asymmetry: codex reads config_home like
-// claude, its own resolver's non-isolated arm now lands on the real
-// ~/.codex, and this seam is the single contributor of a controlled home for
-// both.
+// It is DERIVED from the engine's Home declaration, not a slot of its own:
+// the home var and its leaf are the same facts on every axis, so the
+// in-tree instance is <session home>/<leaf> with the declared var pointing at
+// it, prepared by THE ambient copy-in (isolation.CopyAmbient). An engine
+// with Home declared absent (mock: no engine-global home to control) has no
+// in-tree home, and that absence is its own declaration.
 func InTreeAgentHomeFor(name, workDir, harp string) (InTreeAgentHomeSpec, bool) {
 	d, exists := lookup(name)
-	if !exists || d.inTreeAgentHome == nil {
+	if !exists {
 		return InTreeAgentHomeSpec{}, false
 	}
-	if harp == "" {
+	home, ok := d.Home.Get()
+	if !ok || harp == "" {
 		return InTreeAgentHomeSpec{}, false
 	}
-	spec, err := d.inTreeAgentHome(workDir, harp)
+	// The error is harp validation (paths.SessionHomePath): an instance
+	// cannot be named without a valid session, which is what keeps a durable
+	// project-wide home from regrowing.
+	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harp)
 	if err != nil {
 		clidiag.Warn("ctxloom", "cannot resolve a per-session config home for %s in session %q (%v); this run uses the engine's own host config home instead", name, harp, err)
 		return InTreeAgentHomeSpec{}, false
 	}
-	return spec, true
+	// Validate refuses a Home with more than one var, so Vars[0] is the var.
+	v := home.Vars[0]
+	engine := d.Name
+	return InTreeAgentHomeSpec{
+		EnvVar:  v.EnvVar,
+		Dir:     filepath.Join(root, v.Subdir),
+		Prepare: func() error { return prepareInTreeAmbient(engine, root, workDir) },
+	}, true
 }
 
 // cleanAbsPath returns p's cleaned absolute form for path comparison, falling
@@ -174,4 +177,28 @@ func cleanAbsPath(p string) string {
 		return filepath.Clean(abs)
 	}
 	return filepath.Clean(p)
+}
+
+// prepareInTreeAmbient is the Prepare every in-tree config-home instance
+// shares: THE ambient copy-in (isolation.CopyAmbient) into this session's
+// instance root, turning its "nothing seedable" DECISION into the actionable
+// error operations.InTreeAgentHomeEnv fails loud on.
+//
+// The decision is not an error inside CopyAmbient because the two axes answer
+// it differently — this one refuses the relocation outright rather than point
+// an engine at a home it cannot authenticate against; the worktree axis records
+// a degradable ClassIsolation finding and carries on.
+func prepareInTreeAmbient(engine, instanceRoot, workDir string) error {
+	report, err := isolation.CopyAmbient(isolation.AmbientRequest{
+		Engine:       engine,
+		InstanceHome: instanceRoot,
+		WorkDir:      workDir,
+	})
+	if err != nil {
+		return err
+	}
+	if report.NoSource {
+		return fmt.Errorf("%s", report.NoSourceReason)
+	}
+	return nil
 }

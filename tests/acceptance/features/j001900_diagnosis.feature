@@ -256,7 +256,7 @@ Feature: The day the assistant goes blind
   # (which this harness always is) the no-flag row now gets the JSON
   # BundleInfo array, not the "[held]" name-line suffix the old assertion
   # checked unconditionally. The JSON row selects the runbook's own entry
-  # ([Name=<bundle>]) and reads its Held field directly.
+  # ([name=<bundle>]) and reads its held field directly.
   Scenario Outline: The runbook is frozen at an older version, and the listing names the hold
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
     And Carol publishes a newer signed runbook while Alice's copy is held

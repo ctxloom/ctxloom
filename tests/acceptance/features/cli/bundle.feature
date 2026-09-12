@@ -75,9 +75,8 @@ Feature: bundle — the container authored content lives in, and everything that
     # which a renderer that lost every count would still print — so the counts
     # are asserted, and asserted again after the manifest changes underneath
     # them, so a hard-coded summary cannot pass twice. `bundle list`'s payload
-    # is a bare array of bundle objects (PascalCase — this type carries no
-    # json tags of its own), so cardinality is read off the array itself
-    # rather than a "count" field neither format has here.
+    # is a bare array of bundle objects, so cardinality is read off the array
+    # itself rather than a "count" field neither format has here.
     Scenario Outline: The listing summarizes each bundle by version and by what it holds
       Given an initialized ctxloom project
       And a bundle "demo" exists
@@ -87,15 +86,15 @@ Feature: bundle — the container authored content lives in, and everything that
         """
       Then the command succeeds
       And the output reports "$" having "<bundle count>" entries
-      And the output reports "[Name=demo].Version" as "<the version>"
-      And the output reports "[Name=demo].FragmentCount" as "<the fragment count>"
-      And the output reports "[Name=demo].CommandCount" as "<the command count>"
+      And the output reports "[name=demo].version" as "<the version>"
+      And the output reports "[name=demo].fragment_count" as "<the fragment count>"
+      And the output reports "[name=demo].command_count" as "<the command count>"
       # Move the manifest and the summary has to move with it.
       When I run "ctxloom bundle edit demo --version 2.0.0 --add-fragment testing"
       Then the command succeeds
       When I run "ctxloom bundle list <flags>"
-      Then the output reports "[Name=demo].Version" as "<the version after edit>"
-      And the output reports "[Name=demo].FragmentCount" as "<the fragment count after edit>"
+      Then the output reports "[name=demo].version" as "<the version after edit>"
+      And the output reports "[name=demo].fragment_count" as "<the fragment count after edit>"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | bundle count            | the version   | the fragment count    | the command count | the version after edit | the fragment count after edit |
@@ -111,7 +110,7 @@ Feature: bundle — the container authored content lives in, and everything that
       When I run "ctxloom bundle --no-companions <flags>"
       Then the command succeeds
       And the output reports "$" having "<bundle count>" entries
-      And the output reports "[Name=demo].Version" as "<the version>"
+      And the output reports "[name=demo].version" as "<the version>"
       And the output does not contain "Available Commands:"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -145,15 +144,15 @@ Feature: bundle — the container authored content lives in, and everything that
         ctxloom bundle show demo <flags>
         """
       Then the command succeeds
-      And the output reports "Name" as "<names the bundle>"
-      And the output reports "Description" as "<the description>"
-      And the output reports "Fragments" having "<fragment count>" entries
-      And the output reports "Fragments.example.NoDistill" as "<the seeded fragment's distill marker>"
-      And the output reports "Fragments.testing.NoDistill" as "<the added fragment's distill marker>"
-      And the output reports "Commands" having "<command count>" entries
+      And the output reports "name" as "<names the bundle>"
+      And the output reports "description" as "<the description>"
+      And the output reports "fragments" having "<fragment count>" entries
+      And the output reports "fragments.example.no_distill" as "<the seeded fragment's distill marker>"
+      And the output reports "fragments.testing.no_distill" as "<the added fragment's distill marker>"
+      And the output reports "commands" having "<command count>" entries
       # The command's own authored description, stored in the manifest and
       # printed from it — not a word the command line ever passed in.
-      And the output reports "Commands.example.Description" as "<the command's description>"
+      And the output reports "commands.example.description" as "<the command's description>"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the bundle | the description                   | fragment count   | the seeded fragment's distill marker | the added fragment's distill marker | command count  | the command's description |
@@ -176,7 +175,7 @@ Feature: bundle — the container authored content lives in, and everything that
       And a fragment "testing" in bundle "demo" exists
       When I run "ctxloom bundle show demo <flags>"
       Then the command succeeds
-      And the output reports "Fragments" having "<fragment count>" entries
+      And the output reports "fragments" having "<fragment count>" entries
       When Alice tries to drill into an item the way view lets her:
         """
         ctxloom bundle show demo#fragments/testing
@@ -510,7 +509,7 @@ Feature: bundle — the container authored content lives in, and everything that
       # the file (or the reverse) would satisfy exactly one of these.
       And the file ".ctxloom/content/bundles/v2/demo.yaml" exists
       When I run "ctxloom bundle list <flags>"
-      Then the output reports "[Name=demo].Name" as "<the bundle that survived>"
+      Then the output reports "[name=demo].name" as "<the bundle that survived>"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied  | the cost named               | the invocation that would          | the bundle that survived |

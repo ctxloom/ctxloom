@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
-	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
 var bundleListCmd = &cobra.Command{
@@ -43,7 +42,10 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 		bundleInfos = []*bundles.BundleInfo{}
 	}
 
-	return emit(cmd, bundleInfos, func() error {
+	// The structured forms publish the CLI-owned row, never the loader's
+	// type: bundles.BundleInfo is free to change for its own callers without
+	// that silently changing what a script reads.
+	return emit(cmd, newBundleListRows(bundleInfos), func() error {
 		out := cmd.OutOrStdout()
 		if len(bundleDirs) == 0 {
 			w := iox.NewErrWriter(out)
@@ -184,9 +186,9 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Route through emit() so `bundle show --format json` yields the structured
-	// bundle, matching `bundle list` and the rest of the CLI; text stays the
-	// human view.
-	if err := emit(cmd, bundle, func() error {
+	// view, matching `bundle list` and the rest of the CLI; text stays the
+	// human view. The view, not the yaml-tagged Bundle, is the contract.
+	if err := emit(cmd, newBundleShowView(bundle), func() error {
 		return renderBundleShow(cmd.OutOrStdout(), bundle)
 	}); err != nil {
 		return err
@@ -299,9 +301,7 @@ func renderBundleFragmentEntry(w *iox.ErrWriter, name string, frag bundles.Bundl
 	}
 	w.Println()
 
-	// 70 bytes TOTAL, ellipsis reserved by Ellipsize.
-	firstLine := textutil.Ellipsize(strings.Split(strings.TrimSpace(frag.Content), "\n")[0], 70)
-	w.Printf("      %s\n", firstLine)
+	w.Printf("      %s\n", itemPreview(frag.Content))
 }
 
 func renderBundleCommandEntry(w *iox.ErrWriter, name string, prompt bundles.BundleCommand) {

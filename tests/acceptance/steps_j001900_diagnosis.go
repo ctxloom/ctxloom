@@ -847,7 +847,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
 		}
 		for _, e := range entries {
-			name, err := jsonAtPath(e, "Name")
+			name, err := jsonAtPath(e, "name")
 			if err != nil {
 				continue
 			}
@@ -855,12 +855,12 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 			if !ok || !strings.Contains(got, j001900Bundle) {
 				continue
 			}
-			held, err := jsonAtPath(e, "Held")
+			held, err := jsonAtPath(e, "held")
 			if err != nil {
 				return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
 			}
 			if hs, _ := jsonScalar(held); hs != "true" {
-				return fmt.Errorf("the installed-bundle JSON listing's %q entry has Held=%s, want true; stdout:\n%s",
+				return fmt.Errorf("the installed-bundle JSON listing's %q entry has held=%s, want true; stdout:\n%s",
 					got, hs, w.env.LastStdout())
 			}
 			return nil

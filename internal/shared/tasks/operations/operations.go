@@ -17,6 +17,7 @@ import (
 
 	semver "github.com/Masterminds/semver/v3"
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/lint"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
@@ -113,6 +114,14 @@ type TaskResult struct {
 	Path    string
 	Task    tasks.Task
 	Warning string
+	// Refused lists, one message each, the tags this write SKIPPED under
+	// degraded mode because the tag-schema rejected them (see admitTags).
+	// Empty in strict mode — there a refusal fails the whole call and
+	// nothing is written. It rides on the result, not only on stderr,
+	// because the MCP server's stderr is invisible to the model driving it:
+	// a skipped write that is not reported on the one channel the caller
+	// reads is a silent one.
+	Refused []string
 
 	// ProjectID/ProjectDir identify the store the mutation landed in — a
 	// pinned project-id (CTXLOOM_PROJECT_ID exported by `ctxloom run`) wins
@@ -264,6 +273,11 @@ func ListTasks(tc TaskContext, opts ListOptions) (*TaskListResult, error) {
 // AddTask appends a task to the project log, stamping the session as origin.
 // A non-empty trigger parks the task on a revive condition; required when
 // status is Deferred (the store enforces the invariant for both CLI and MCP).
+// AddTask, SetTaskStatus and EditTask share the resolve-store-then-call
+// shape with DeferredSince, which produces no TaskResult and so has nowhere
+// to carry the refused-tag set the three writers thread through — a
+// legitimate difference, not drift to reconcile.
+// reprise:accept-drift
 func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) {
 	store, proj, warning, err := resolveTaskStore(tc)
 	if err != nil {
@@ -273,16 +287,17 @@ func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("add task: %w", err)
 	}
-	return proj.taskResult(store, task, warning), nil
+	return proj.taskResult(store, task, warning, nil), nil
 }
 
 // AddTaskWithTags is AddTask with an initial tag set stamped on the same
-// `add` event. This is a write seam: every tag is validated against
-// validateTags (this file's tagma-aware grammar/reserved-word check)
-// BEFORE the store is touched, so a tag that would be permanently
-// unqueryable is rejected loudly instead of silently persisted. This check
-// must never move onto the fold/read path: an existing log already carrying
-// such a tag must keep loading without error.
+// `add` event. This is a write seam: every tag passes admitTags (this
+// file's tagma-aware grammar/reserved-word/schema gate, and the
+// strictness choke) BEFORE the store is touched, so a tag that would be
+// permanently unqueryable is refused loudly instead of silently persisted —
+// refusing the whole add in strict mode, skipping and reporting the tag
+// under --degraded. This check must never move onto the fold/read path: an
+// existing log already carrying such a tag must keep loading without error.
 //
 // When tc.TagSchema declares a target arity=scalar, tags itself is
 // collapsed BEFORE the store is touched: if tags carries more than one
@@ -290,8 +305,9 @@ func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) 
 // own order) survives — there is no existing task yet to retract a value
 // from, so this is pure intra-list dedup, not an untag (see scalarCollapse).
 func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string) (*TaskResult, error) {
-	if err := validateTags(tags, tc.TagSchema); err != nil {
-		return nil, fmt.Errorf("add task: %w", err)
+	tags, refused, err := admitTags("add task", tags, tc.TagSchema)
+	if err != nil {
+		return nil, err
 	}
 	if tc.TagSchema != nil {
 		tags, _ = scalarCollapse(tc.TagSchema, nil, tags)
@@ -304,7 +320,7 @@ func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string
 	if err != nil {
 		return nil, fmt.Errorf("add task: %w", err)
 	}
-	return proj.taskResult(store, task, warning), nil
+	return proj.taskResult(store, task, warning, refused), nil
 }
 
 // TagTask adds and/or removes tags on an existing task in one call,
@@ -312,12 +328,12 @@ func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string
 // must be non-empty. Add is applied before remove, so a tag named in both
 // lists ends up removed.
 //
-// This is a write seam for the `add` list only: those tags are validated
-// against validateTags before the store is touched (see AddTaskWithTags),
-// rejecting the whole call before any event is written. `remove` is never
-// validated — subtracting an already-malformed tag never creates new
-// unqueryable data, and an existing log may legitimately carry one to
-// remove.
+// This is a write seam for the `add` list only: those tags pass admitTags
+// before the store is touched (see AddTaskWithTags) — refusing the whole
+// call before any event is written in strict mode, skipping and reporting
+// the refused tags under --degraded. `remove` is never validated —
+// subtracting an already-malformed tag never creates new unqueryable data,
+// and an existing log may legitimately carry one to remove.
 //
 // When tc.TagSchema declares a target arity=scalar, the add list is passed
 // through scalarCollapse against the task's CURRENT tags (read via
@@ -333,12 +349,24 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 	if len(add) == 0 && len(remove) == 0 {
 		return nil, fmt.Errorf("at least one tag to add or remove is required")
 	}
-	if err := validateTags(add, tc.TagSchema); err != nil {
-		return nil, fmt.Errorf("add tags: %w", err)
+	add, refused, err := admitTags("add tags", add, tc.TagSchema)
+	if err != nil {
+		return nil, err
 	}
 	store, proj, warning, err := resolveTaskStore(tc)
 	if err != nil {
 		return nil, err
+	}
+	if len(add) == 0 && len(remove) == 0 {
+		// Every requested change was refused and skipped (degraded mode):
+		// the write is skipped in full, so the log gains no event and the
+		// caller gets the task as it stands plus the report of what was
+		// skipped — never an error, which would read as a strict refusal.
+		task, cerr := currentTask(store, harpID)
+		if cerr != nil {
+			return nil, fmt.Errorf("add tags: %w", cerr)
+		}
+		return proj.taskResult(store, task, warning, refused), nil
 	}
 	var task tasks.Task
 	if len(add) > 0 {
@@ -378,7 +406,66 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 			return nil, fmt.Errorf("remove tags: %w", err)
 		}
 	}
-	return proj.taskResult(store, task, warning), nil
+	return proj.taskResult(store, task, warning, refused), nil
+}
+
+// currentTask returns harpID's folded state without appending anything —
+// the read a fully-skipped degraded write hands back in place of a
+// mutation result.
+func currentTask(store *tasks.Store, harpID string) (tasks.Task, error) {
+	all, err := store.Snapshot()
+	if err != nil {
+		return tasks.Task{}, err
+	}
+	for _, t := range all {
+		if t.HarpID == harpID {
+			return t, nil
+		}
+	}
+	return tasks.Task{}, fmt.Errorf("task not found: %s", harpID)
+}
+
+// refusedTagFixIt is the remedy every tag refusal carries: the fault is in
+// the caller's input, and degraded mode is the sanctioned way to land the
+// rest of the write without it.
+const refusedTagFixIt = "drop or correct the tag (taskloom tags / the project's tag_schema), or pass --degraded to write without it"
+
+// admitTags is the write-side tag gate on both mutation seams (AddTaskWithTags,
+// TagTask's add list) and taskloom's one entry into the strictness contract:
+// every tag validateTag rejects is a strictness.ClassTask finding — printed as
+// a warning AND recorded, in both modes — and the mode decides what the
+// refusal means for the write:
+//
+//   - STRICT (the default): any refusal fails the whole call, before the
+//     store is touched, with an error naming EVERY refused tag (all of them,
+//     never first-error). Nothing is written.
+//   - DEGRADED (--degraded): the refused tags are dropped from the write
+//     and returned in refused, one message each, for the caller to report;
+//     the admitted tags proceed. The invariant is that degraded NEVER writes
+//     a malformed row — a refused write is skipped and reported, not let
+//     through.
+//
+// The mode is consulted only through strictness.Actionable (via
+// FindingsError), never tested here, so this gate cannot drift from what
+// --degraded means elsewhere. The findings are bracketed in a fresh
+// Checkpoint window so a long-lived `taskloom mcp` re-records the same
+// refusal on the next call instead of deduping it away, and Close releases
+// the window since a request goroutine outlives no single call.
+func admitTags(op string, tags []string, schema *tagschema.Schema) (admitted, refused []string, err error) {
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	for _, t := range tags {
+		if verr := validateTag(t, schema); verr != nil {
+			strictness.FailOnce(strictness.ClassTask, refusedTagFixIt, "%s: %v", op, verr)
+			refused = append(refused, verr.Error())
+			continue
+		}
+		admitted = append(admitted, t)
+	}
+	if ferr := strictness.FindingsError(mark); ferr != nil {
+		return nil, nil, fmt.Errorf("%s: refused %d tag(s), nothing written: %w", op, len(refused), ferr)
+	}
+	return admitted, refused, nil
 }
 
 // scalarCollapse enforces schema's arity=scalar declarations over incoming
@@ -479,27 +566,11 @@ func scalarTagOf(schema *tagschema.Schema, raw string) (target, value string, sc
 	return target, value, schema.IsScalar(target)
 }
 
-// validateTags calls validateTag for every tag in tags, in order, against
-// schema, returning the first error encountered (nil if every tag is
-// queryable and, where schema declares an enum/range for its target,
-// schema-conformant). This is the write-side counterpart to
-// internal/shared/tasks.filterTasks's lenient read side: a tag rejected here
-// can never be stored, so filterTasks's leniency (skipping a tag
-// tagma.ParseTag can't parse, or one violating an enum/range it never
-// checks) only ever has to cover data written before this guard existed —
-// see validateTag's own doc for why schema is applied ONLY to tags, never to
-// a task's pre-existing stored tags.
-func validateTags(tags []string, schema *tagschema.Schema) error {
-	for _, t := range tags {
-		if err := validateTag(t, schema); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // validateTag reports whether tag would be PERMANENTLY UNQUERYABLE once
-// stored, under tagma's grammar plus this package's own reserved-word rule;
+// stored (the write-side counterpart to internal/shared/tasks.filterTasks's
+// lenient read side: a tag rejected here can never be stored, so that
+// leniency only ever has to cover data written before this guard existed),
+// under tagma's grammar plus this package's own reserved-word rule;
 // would inject config into the reserved tag-schema namespace; or — when
 // schema declares an enum or range for tag's (namespace, key) target —
 // carries a value schema doesn't allow. A tag is rejected when:
@@ -545,7 +616,7 @@ func validateTags(tags []string, schema *tagschema.Schema) error {
 //
 // schema is applied ONLY to tag itself — the value being written — never to
 // any tag already stored on the task being mutated. AddTaskWithTags/TagTask
-// only ever pass their own incoming add-list through validateTags; a task's
+// only ever pass their own incoming add-list through admitTags; a task's
 // EXISTING tags (including 318 live legacy/foreign ones predating this
 // standard, or tags any other project's schema wrote) are never
 // re-validated on a write that doesn't touch them, so e.g. task_set_status
@@ -628,6 +699,7 @@ func validateTag(tag string, schema *tagschema.Schema) error {
 // SetTaskStatus moves a task to a different status, attributing the change to
 // the acting session. A non-empty trigger (re)sets the revive condition;
 // moving to Deferred requires one (supplied here or already on the task).
+// reprise:accept-drift — see AddTask: DeferredSince shares the shape but carries no TaskResult.
 func SetTaskStatus(tc TaskContext, harpID, status, trigger string) (*TaskResult, error) {
 	store, proj, warning, err := resolveTaskStore(tc)
 	if err != nil {
@@ -637,12 +709,13 @@ func SetTaskStatus(tc TaskContext, harpID, status, trigger string) (*TaskResult,
 	if err != nil {
 		return nil, fmt.Errorf("set status: %w", err)
 	}
-	return proj.taskResult(store, task, warning), nil
+	return proj.taskResult(store, task, warning, nil), nil
 }
 
 // EditTask replaces a task's text in place, keyed by harp ID, attributing the
 // edit to the acting session. The whole text is replaced; status and trigger
 // are untouched.
+// reprise:accept-drift — see AddTask: DeferredSince shares the shape but carries no TaskResult.
 func EditTask(tc TaskContext, harpID, text string) (*TaskResult, error) {
 	store, proj, warning, err := resolveTaskStore(tc)
 	if err != nil {
@@ -652,7 +725,7 @@ func EditTask(tc TaskContext, harpID, text string) (*TaskResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("edit task: %w", err)
 	}
-	return proj.taskResult(store, task, warning), nil
+	return proj.taskResult(store, task, warning, nil), nil
 }
 
 // TagCount reports one tag's usage across the project's tasks. Active counts
@@ -823,11 +896,12 @@ type projectIdentity struct {
 // taskResult is the one shape every single-task mutation returns. Every field
 // is populated here, so a field added to TaskResult cannot be left unset on
 // some mutation paths and not others.
-func (p projectIdentity) taskResult(store *tasks.Store, task tasks.Task, warning string) *TaskResult {
+func (p projectIdentity) taskResult(store *tasks.Store, task tasks.Task, warning string, refused []string) *TaskResult {
 	return &TaskResult{
 		Path:       store.Path(),
 		Task:       task,
 		Warning:    warning,
+		Refused:    refused,
 		ProjectID:  p.ID,
 		ProjectDir: p.Dir,
 	}

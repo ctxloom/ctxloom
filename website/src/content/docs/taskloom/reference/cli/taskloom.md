@@ -29,6 +29,7 @@ vocabulary in use with `taskloom tags`, and filter with `taskloom list --tag-que
 
 ```
       --config-set stringArray   Override a taskloom config value for this invocation: --config-set <dotted.path>=<value> (repeatable)
+      --degraded                 degrade instead of failing: a write carrying a tag the tag_schema refuses lands WITHOUT that tag (the refusal is still printed) instead of being refused outright; a refused tag is never written
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help                     help for taskloom
       --homing homing            Task-store location for this invocation: "home" keeps it private under ~/.ctxloom/tasks (today's default behavior); "repo" checks it into .taskloom/tasks.jsonl so it travels with clones. Overrides the homing key in .taskloom/config.yaml and TASKLOOM_CONFIG_HOMING.

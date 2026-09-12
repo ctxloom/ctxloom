@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	taskloomconfig "github.com/ctxloom/ctxloom/internal/taskloom/config"
@@ -57,9 +58,24 @@ vocabulary in use with ` + "`taskloom tags`" + `, and filter with ` + "`taskloom
 }
 
 func rootPersistentPreRun(cmd *cobra.Command, _ []string) {
+	// Applied only when the flag was given, mirroring cmd/ctxloom's root:
+	// the mode is process-global and a bare invocation must not reset a mode
+	// something earlier in the process set (tests drive this tree repeatedly).
+	if cmd.Root().PersistentFlags().Changed(degradedFlagName) {
+		strictness.SetDegraded(degradedFlag)
+	}
 	format, ferr := cliemit.Resolve(cmd)
 	clidiag.SetStructured(ferr == nil && format.Structured())
 }
+
+// degradedFlagName is the persistent --degraded flag, taskloom's entry into
+// the strictness contract shared with ctxloom: a write refused over a tag
+// the tag_schema rejects (see operations.TaskResult.Refused) fails the whole
+// command by default; under --degraded the refused tag is skipped and
+// reported and the rest of the write lands. It never writes a malformed row.
+const degradedFlagName = "degraded"
+
+var degradedFlag bool
 
 // tasksProject is the --project override: an explicit project-id to act on,
 // winning over both the session's CTXLOOM_PROJECT_ID pin and cwd resolution.
@@ -75,6 +91,10 @@ var tasksProject string
 var tasksHoming string
 
 func init() {
+	// Refusals this binary prints through strictness carry its own name.
+	strictness.SetProg(progName)
+	rootCmd.PersistentFlags().BoolVar(&degradedFlag, degradedFlagName, false,
+		"degrade instead of failing: a write carrying a tag the tag_schema refuses lands WITHOUT that tag (the refusal is still printed) instead of being refused outright; a refused tag is never written")
 	rootCmd.PersistentFlags().StringVar(&tasksProject, "project", "", "Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)")
 	rootCmd.PersistentFlags().StringVar(&tasksHoming, "homing", "",
 		`Task-store location for this invocation: "home" keeps it private under ~/.ctxloom/tasks `+

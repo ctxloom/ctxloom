@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
@@ -941,7 +942,7 @@ func TestTagTaskRejectsDeclaredEnumViolation(t *testing.T) {
 }
 
 // TestWriteSeamNeverRevalidatesPreExistingTags pins the CRITICAL constraint
-// this whole feature depends on: validateTag/validateTags examine ONLY the
+// this whole feature depends on: validateTag/admitTags examine ONLY the
 // tags being WRITTEN on a given call, never a task's already-stored tag
 // set. Without this, task_set_status/task_edit/task_tag on any of this
 // project's 318 live tasks carrying bare unnamespaced legacy tags — or, as
@@ -1382,10 +1383,11 @@ func TestTaskResult_PopulatesEveryField(t *testing.T) {
 
 	proj := projectIdentity{ID: "proj-id", Dir: "/proj/dir"}
 	task := tasks.Task{HarpID: "aa-bb-cc", Text: "t"}
-	got := proj.taskResult(store, task, "a warning")
+	got := proj.taskResult(store, task, "a warning", []string{"a refusal"})
 
 	if got.Path != store.Path() || got.Task.HarpID != task.HarpID ||
-		got.Warning != "a warning" || got.ProjectID != "proj-id" || got.ProjectDir != "/proj/dir" {
+		got.Warning != "a warning" || got.ProjectID != "proj-id" || got.ProjectDir != "/proj/dir" ||
+		!slices.Equal(got.Refused, []string{"a refusal"}) {
 		t.Fatalf("taskResult mispopulated: %+v", got)
 	}
 	v := reflect.ValueOf(*got)
@@ -1610,4 +1612,214 @@ func TestMissingLogSiblingNote_SaysWhenItCouldNotLook(t *testing.T) {
 			t.Fatalf("warning = %q; a registry entry whose id has no usable log path must be named", got.Warning)
 		}
 	})
+}
+
+// storeBytes reads the raw bytes of tc's task log — the ground truth every
+// strictness test below asserts on, since a returned error says only what
+// the caller was TOLD, not what landed on disk. A log that was never created
+// reads as empty.
+func storeBytes(t *testing.T, tc TaskContext) string {
+	t.Helper()
+	_, logPath, err := ResolveLogPath(tc)
+	if err != nil {
+		t.Fatalf("resolve log path: %v", err)
+	}
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ""
+		}
+		t.Fatalf("read log: %v", err)
+	}
+	return string(b)
+}
+
+// TestAddTaskWithTags_StrictRefusesSchemaRejectedTagAndWritesNothing pins
+// the strict half of the strictness contract on the add seam: a tag the
+// project's tag-schema rejects (triage:kind is a closed enum under
+// triageValueSchema, and "sparkles" is not a member) refuses the WHOLE add, the refusal
+// is a recorded ClassTask finding, and the store's bytes stay empty.
+func TestAddTaskWithTags_StrictRefusesSchemaRejectedTagAndWritesNothing(t *testing.T) {
+	taskstest.Isolate(t)
+	diag := taskstest.Strictness(t, false)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+
+	_, err := AddTaskWithTags(tc, "refused add", "", "", []string{"urgent", "triage:kind=sparkles"})
+	if err == nil {
+		t.Fatal("strict mode must refuse an add carrying a schema-rejected tag")
+	}
+	if !strings.Contains(err.Error(), "triage:kind=sparkles") {
+		t.Fatalf("the refusal must name the rejected tag, got %v", err)
+	}
+	if got := storeBytes(t, tc); got != "" {
+		t.Fatalf("strict refusal must write NOTHING, store holds %q", got)
+	}
+	if !strings.Contains(diag.String(), "triage:kind=sparkles") {
+		t.Fatalf("the refusal must be printed as a diagnostic, got %q", diag.String())
+	}
+	found := strictness.All()
+	if len(found) != 1 || found[0].Class != strictness.ClassTask {
+		t.Fatalf("expected exactly one ClassTask finding, got %+v", found)
+	}
+}
+
+// TestAddTaskWithTags_DegradedSkipsRefusedTagAndWritesRowWithoutIt pins the
+// degraded half: the same add under --degraded creates the row WITHOUT the
+// refused tag (never a malformed row), keeps every admitted tag, prints the
+// refusal, still records the finding, and reports the skipped tag on the
+// result — all asserted on the store's bytes.
+func TestAddTaskWithTags_DegradedSkipsRefusedTagAndWritesRowWithoutIt(t *testing.T) {
+	taskstest.Isolate(t)
+	diag := taskstest.Strictness(t, true)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+
+	res, err := AddTaskWithTags(tc, "degraded add", "", "", []string{"urgent", "triage:kind=sparkles"})
+	if err != nil {
+		t.Fatalf("degraded mode must skip the refused tag, not refuse the add: %v", err)
+	}
+	if !slices.Equal(res.Task.Tags, []string{"urgent"}) {
+		t.Fatalf("tags = %v, want only the admitted [urgent]", res.Task.Tags)
+	}
+	if len(res.Refused) != 1 || !strings.Contains(res.Refused[0], "triage:kind=sparkles") {
+		t.Fatalf("result must report the skipped tag, got %v", res.Refused)
+	}
+	got := storeBytes(t, tc)
+	if !strings.Contains(got, "degraded add") || !strings.Contains(got, `"urgent"`) {
+		t.Fatalf("the row must land with its admitted tag, store holds %q", got)
+	}
+	if strings.Contains(got, "sparkles") {
+		t.Fatalf("degraded must NEVER write the refused tag, store holds %q", got)
+	}
+	if !strings.Contains(diag.String(), "triage:kind=sparkles") {
+		t.Fatalf("the refusal must be printed even when skipped, got %q", diag.String())
+	}
+	if found := strictness.All(); len(found) != 1 || found[0].Class != strictness.ClassTask {
+		t.Fatalf("degraded suppresses fatality, not recording: got %+v", found)
+	}
+}
+
+// TestAddTaskWithTags_StrictListsEveryRefusedTag pins fail-loudly's
+// all-of-them rule: two bad tags in one add are both named in the refusal,
+// never just the first one encountered.
+func TestAddTaskWithTags_StrictListsEveryRefusedTag(t *testing.T) {
+	taskstest.Isolate(t)
+	taskstest.Strictness(t, false)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+
+	_, err := AddTaskWithTags(tc, "two bad", "", "", []string{"foo/bar", "triage:kind=sparkles"})
+	if err == nil {
+		t.Fatal("expected a refusal")
+	}
+	for _, want := range []string{"foo/bar", "triage:kind=sparkles"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %v does not name %q", err, want)
+		}
+	}
+	if len(strictness.All()) != 2 {
+		t.Fatalf("expected one finding per refused tag, got %+v", strictness.All())
+	}
+}
+
+// TestTagTask_DegradedSkipsRefusedAddAndAppliesTheRest pins the tag seam
+// under --degraded: the refused tag is skipped and reported, the admitted
+// add and the remove still land, and the log never carries the refused tag.
+func TestTagTask_DegradedSkipsRefusedAddAndAppliesTheRest(t *testing.T) {
+	taskstest.Isolate(t)
+	taskstest.Strictness(t, true)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+
+	add, err := AddTaskWithTags(tc, "a task", "", "", []string{"urgent"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	res, err := TagTask(tc, add.Task.HarpID, []string{"release", "triage:kind=sparkles"}, []string{"urgent"})
+	if err != nil {
+		t.Fatalf("degraded TagTask must skip the refused tag, not refuse the call: %v", err)
+	}
+	if !slices.Equal(res.Task.Tags, []string{"release"}) {
+		t.Fatalf("tags = %v, want [release] (admitted add applied, remove applied, refused skipped)", res.Task.Tags)
+	}
+	if len(res.Refused) != 1 || !strings.Contains(res.Refused[0], "triage:kind=sparkles") {
+		t.Fatalf("result must report the skipped tag, got %v", res.Refused)
+	}
+	if got := storeBytes(t, tc); strings.Contains(got, "sparkles") {
+		t.Fatalf("degraded must NEVER write the refused tag, store holds %q", got)
+	}
+}
+
+// TestTagTask_DegradedEveryAddRefusedWritesNothing pins the edge where
+// nothing survives admission and there is nothing to remove: the call
+// succeeds as a fully-skipped, reported write — the task comes back
+// unchanged and the log gains no event.
+func TestTagTask_DegradedEveryAddRefusedWritesNothing(t *testing.T) {
+	taskstest.Isolate(t)
+	taskstest.Strictness(t, true)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+
+	add, err := AddTaskWithTags(tc, "a task", "", "", []string{"urgent"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	before := storeBytes(t, tc)
+	res, err := TagTask(tc, add.Task.HarpID, []string{"triage:kind=sparkles"}, nil)
+	if err != nil {
+		t.Fatalf("a fully-refused degraded tag call is a skipped write, not an error: %v", err)
+	}
+	if res.Task.HarpID != add.Task.HarpID || !slices.Equal(res.Task.Tags, []string{"urgent"}) {
+		t.Fatalf("task = %+v, want the unchanged task", res.Task)
+	}
+	if len(res.Refused) != 1 {
+		t.Fatalf("result must report the skipped tag, got %v", res.Refused)
+	}
+	if after := storeBytes(t, tc); after != before {
+		t.Fatalf("a fully-refused call must append nothing:\nbefore %q\nafter  %q", before, after)
+	}
+}
+
+// TestTagTask_StrictRefusesSchemaRejectedAddAndWritesNothing is the strict
+// mirror on the tag seam: one refused tag refuses the whole call, including
+// the admitted add and the remove that rode along with it.
+func TestTagTask_StrictRefusesSchemaRejectedAddAndWritesNothing(t *testing.T) {
+	taskstest.Isolate(t)
+	taskstest.Strictness(t, false)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+
+	add, err := AddTaskWithTags(tc, "a task", "", "", []string{"urgent"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	before := storeBytes(t, tc)
+	if _, err := TagTask(tc, add.Task.HarpID, []string{"release", "triage:kind=sparkles"}, []string{"urgent"}); err == nil {
+		t.Fatal("strict mode must refuse the whole tag call")
+	}
+	if after := storeBytes(t, tc); after != before {
+		t.Fatalf("strict refusal must append nothing:\nbefore %q\nafter  %q", before, after)
+	}
+}
+
+// TestAddTaskWithTags_ARefusalDoesNotBleedIntoTheNextCall pins the per-call
+// checkpoint window in admitTags: each call judges only the findings IT
+// recorded. Without a fresh Checkpoint, a long-lived `taskloom mcp` that
+// refused one call's tag would carry that finding into every later call on
+// the same goroutine and refuse a perfectly clean write — a task store that
+// goes read-only after the first typo. The refusal must fire again on a
+// repeat of the same bad tag, and a clean add in between must land.
+func TestAddTaskWithTags_ARefusalDoesNotBleedIntoTheNextCall(t *testing.T) {
+	taskstest.Isolate(t)
+	taskstest.Strictness(t, false)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+
+	if _, err := AddTaskWithTags(tc, "refused", "", "", []string{"triage:kind=sparkles"}); err == nil {
+		t.Fatal("the first add must refuse")
+	}
+	if _, err := AddTaskWithTags(tc, "clean", "", "", []string{"triage:kind=defect"}); err != nil {
+		t.Fatalf("a clean add after a refusal must land, got: %v", err)
+	}
+	if _, err := AddTaskWithTags(tc, "refused again", "", "", []string{"triage:kind=sparkles"}); err == nil {
+		t.Fatal("the same refusal must fire again, not be deduped into a silent write")
+	}
+	got := storeBytes(t, tc)
+	if !strings.Contains(got, "clean") || strings.Contains(got, "sparkles") || strings.Contains(got, "refused") {
+		t.Fatalf("store must hold exactly the clean add, holds %q", got)
+	}
 }

@@ -29,9 +29,26 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// prog stamps the warning lines; this package is ctxloom-internal, so the
-// binary name is fixed (clidiag stays parameterized for the companion binaries).
-const prog = "ctxloom"
+// prog stamps the warning lines. It defaults to ctxloom's own name and a
+// companion binary that joins the strictness contract (taskloom) names
+// itself once at startup via SetProg, so a refusal it prints is attributed to
+// the binary the user actually ran. Read under mu, like the mode.
+var prog = "ctxloom"
+
+// SetProg names the binary that stamps this package's warning lines. Called
+// once at startup by a companion binary; ctxloom itself keeps the default.
+func SetProg(name string) {
+	mu.Lock()
+	defer mu.Unlock()
+	prog = name
+}
+
+// progName returns the current warning-line prefix.
+func progName() string {
+	mu.Lock()
+	defer mu.Unlock()
+	return prog
+}
 
 // ExitCodeFatalFindings is the process exit status of a strict-mode startup
 // abort — the run refused to launch over the findings collected here. It lives
@@ -85,8 +102,10 @@ const (
 	// the ambient host default degrades silently and never lands here.
 	ClassIsolation Class = "isolation"
 	// ClassTask is an EXPLICITLY-requested task-store mutation that could not
-	// be applied — today `ctxloom run --seed-task <harp>` against a corrupt,
-	// unreadable, or non-matching project task log. Only an explicit request
+	// be applied — `ctxloom run --seed-task <harp>` against a corrupt,
+	// unreadable, or non-matching project task log, or a taskloom write
+	// carrying a tag its tag-schema refuses (the write-side gate in
+	// internal/shared/tasks/operations). Only an explicit request
 	// reaches this class, mirroring ClassIsolation: ambient task bookkeeping
 	// that nobody asked for stays a plain warning. The point is that a user
 	// who named a task must not be told the launch succeeded while the task
@@ -423,7 +442,7 @@ func Reset() {
 // message already says).
 func Fail(class Class, fixit, format string, args ...any) {
 	msg := detailOr(class, fmt.Sprintf(format, args...))
-	clidiag.Warn(prog, "%s", msg)
+	clidiag.Warn(progName(), "%s", msg)
 	record(class, fixit, msg, false, false)
 }
 
@@ -438,7 +457,7 @@ func Fail(class Class, fixit, format string, args ...any) {
 // every loader build).
 func FailOnce(class Class, fixit, format string, args ...any) {
 	msg := detailOr(class, fmt.Sprintf(format, args...))
-	clidiag.WarnOnce(prog, "%s", msg)
+	clidiag.WarnOnce(progName(), "%s", msg)
 	record(class, fixit, msg, true, false)
 }
 
@@ -460,7 +479,7 @@ func FailOnce(class Class, fixit, format string, args ...any) {
 // uses this.
 func FailAlways(class Class, fixit, format string, args ...any) {
 	msg := detailOr(class, fmt.Sprintf(format, args...))
-	clidiag.Warn(prog, "%s", msg)
+	clidiag.Warn(progName(), "%s", msg)
 	record(class, fixit, msg, false, true)
 }
 

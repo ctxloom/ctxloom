@@ -106,6 +106,11 @@ type taskAddResult struct {
 	ProjectID  string `json:"project_id,omitempty"`
 	ProjectDir string `json:"project_dir,omitempty"`
 	Warning    string `json:"warning,omitempty"`
+	// Refused lists the tags this write SKIPPED under `taskloom mcp
+	// --degraded` because the tag_schema rejected them, one message each
+	// (see operations.TaskResult.Refused). Omitted when nothing was
+	// refused; in strict mode a refusal is the call's error instead.
+	Refused []string `json:"refused,omitempty"`
 }
 
 type taskSetStatusInput struct {
@@ -171,6 +176,11 @@ type taskTagResult struct {
 	ProjectID  string `json:"project_id,omitempty"`
 	ProjectDir string `json:"project_dir,omitempty"`
 	Warning    string `json:"warning,omitempty"`
+	// Refused lists the tags this write SKIPPED under `taskloom mcp
+	// --degraded` because the tag_schema rejected them, one message each
+	// (see operations.TaskResult.Refused). Omitted when nothing was
+	// refused; in strict mode a refusal is the call's error instead.
+	Refused []string `json:"refused,omitempty"`
 }
 
 // This and the sibling registerXTools functions elsewhere in the ctxloom
@@ -275,58 +285,56 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 	return nil, out, nil
 }
 
-func handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (*mcp.CallToolResult, *taskAddResult, error) {
+// runTaskTool is the one shape every single-task write tool shares: resolve
+// the current project's task context, run the operation, surface its
+// warning on stderr, and hand the result to the tool's own typed wrapper.
+// The wrapper is per tool because each tool's result type is its published
+// schema; only task_add and task_tag carry a refused-tag set.
+func runTaskTool[R any](op func(operations.TaskContext) (*operations.TaskResult, error), wrap func(*operations.TaskResult) *R) (*mcp.CallToolResult, *R, error) {
 	tc, err := taskContextSingle()
 	if err != nil {
 		return nil, nil, err
 	}
-	res, err := operations.AddTaskWithTags(tc, in.Text, in.Status, in.Trigger, in.Tags)
+	res, err := op(tc)
 	if err != nil {
 		return nil, nil, err
 	}
 	warnTask(res.Warning)
-	return nil, &taskAddResult{Path: res.Path, Task: res.Task,
-		ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning}, nil
+	return nil, wrap(res), nil
+}
+
+func handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (*mcp.CallToolResult, *taskAddResult, error) {
+	return runTaskTool(func(tc operations.TaskContext) (*operations.TaskResult, error) {
+		return operations.AddTaskWithTags(tc, in.Text, in.Status, in.Trigger, in.Tags)
+	}, func(res *operations.TaskResult) *taskAddResult {
+		return &taskAddResult{Path: res.Path, Task: res.Task,
+			ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning, Refused: res.Refused}
+	})
 }
 
 func handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetStatusInput) (*mcp.CallToolResult, *taskSetStatusResult, error) {
-	tc, err := taskContextSingle()
-	if err != nil {
-		return nil, nil, err
-	}
-	res, err := operations.SetTaskStatus(tc, in.HarpID, in.Status, in.Trigger)
-	if err != nil {
-		return nil, nil, err
-	}
-	warnTask(res.Warning)
-	return nil, &taskSetStatusResult{Path: res.Path, Task: res.Task,
-		ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning}, nil
+	return runTaskTool(func(tc operations.TaskContext) (*operations.TaskResult, error) {
+		return operations.SetTaskStatus(tc, in.HarpID, in.Status, in.Trigger)
+	}, func(res *operations.TaskResult) *taskSetStatusResult {
+		return &taskSetStatusResult{Path: res.Path, Task: res.Task,
+			ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning}
+	})
 }
 
 func handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput) (*mcp.CallToolResult, *taskEditResult, error) {
-	tc, err := taskContextSingle()
-	if err != nil {
-		return nil, nil, err
-	}
-	res, err := operations.EditTask(tc, in.HarpID, in.Text)
-	if err != nil {
-		return nil, nil, err
-	}
-	warnTask(res.Warning)
-	return nil, &taskEditResult{Path: res.Path, Task: res.Task,
-		ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning}, nil
+	return runTaskTool(func(tc operations.TaskContext) (*operations.TaskResult, error) {
+		return operations.EditTask(tc, in.HarpID, in.Text)
+	}, func(res *operations.TaskResult) *taskEditResult {
+		return &taskEditResult{Path: res.Path, Task: res.Task,
+			ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning}
+	})
 }
 
 func handleTaskTag(_ context.Context, _ *mcp.CallToolRequest, in taskTagInput) (*mcp.CallToolResult, *taskTagResult, error) {
-	tc, err := taskContextSingle()
-	if err != nil {
-		return nil, nil, err
-	}
-	res, err := operations.TagTask(tc, in.HarpID, in.Add, in.Remove)
-	if err != nil {
-		return nil, nil, err
-	}
-	warnTask(res.Warning)
-	return nil, &taskTagResult{Path: res.Path, Task: res.Task,
-		ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning}, nil
+	return runTaskTool(func(tc operations.TaskContext) (*operations.TaskResult, error) {
+		return operations.TagTask(tc, in.HarpID, in.Add, in.Remove)
+	}, func(res *operations.TaskResult) *taskTagResult {
+		return &taskTagResult{Path: res.Path, Task: res.Task,
+			ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning, Refused: res.Refused}
+	})
 }

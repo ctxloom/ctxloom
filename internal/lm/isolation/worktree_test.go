@@ -34,10 +34,17 @@ func TestWorktree_PrepareCreatesWorktree(t *testing.T) {
 	assert.True(t, strings.HasPrefix(ws.Dir(), os.TempDir()), "worktree lives under the OS temp dir, not the repo tree")
 	assert.NotContains(t, ws.Dir(), "/proj/", "worktree is not created inside the project tree")
 
-	// The Fake records exactly one detached HEAD add.
+	// The Fake records exactly one add: checked out to HEAD on a NEW branch
+	// named for the agent, so commits made inside outlive the checkout.
 	require.Len(t, f.Calls, 1)
 	assert.True(t, strings.HasPrefix(f.Calls[0], "add "), "one worktree add")
 	assert.Contains(t, f.Calls[0], "@HEAD", "checked out to HEAD")
+	require.Len(t, f.Worktrees, 1)
+	assert.False(t, f.Worktrees[0].Detached, "never detached")
+	assert.Equal(t, worktreeBranchName(ws.Dir()), f.Worktrees[0].Branch,
+		"on the branch derived from the checkout's own name")
+	assert.True(t, strings.HasPrefix(f.Worktrees[0].Branch, worktreeBranchPrefix+"member-a-"),
+		"the branch carries the agent id under the agent namespace")
 
 	env := WorkspaceEnv(ws)
 	require.NotNil(t, env, "worktree exposes per-agent config-home envs")
@@ -952,4 +959,26 @@ func TestWorktreeCleanup_NoResourceStrandedByTheDirGuard(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestWorktreeBranchName pins the branch ↔ checkout derivation: the branch a
+// per-agent worktree is created on is a pure function of the checkout's
+// directory name, so anyone holding either can find the other (the
+// coordinator merging from it, doctor reading `git worktree list`, a human
+// triaging leftovers) without a side table. The scratch prefix is dropped
+// and the agent namespace prefix added; the sanitized agent id and the
+// uniqueness token ride through unchanged.
+func TestWorktreeBranchName(t *testing.T) {
+	for _, tc := range []struct{ dir, want string }{
+		{"/sess/ephemeral/ctxloom-wt-member-a-0a1b2c", "ctxloom/member-a-0a1b2c"},
+		{"/tmp/ctxloom-wt-developer-93f8-ffff", "ctxloom/developer-93f8-ffff"},
+		{"/tmp/ctxloom-wt-agent-deadbeef", "ctxloom/agent-deadbeef"},
+	} {
+		assert.Equal(t, tc.want, worktreeBranchName(tc.dir), tc.dir)
+	}
+	// It is the same name PrepareWorkspace hands the git seam: one
+	// derivation, not two that can drift.
+	p := worktreeScratchPath(t.TempDir(), worktreeScratchPrefix, "x/y z")
+	assert.Equal(t, worktreeBranchPrefix+strings.TrimPrefix(filepath.Base(p), worktreeCandidatePrefix), worktreeBranchName(p))
+	assert.NotContains(t, worktreeBranchName(p), " ", "a git ref never carries whitespace")
 }

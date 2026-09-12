@@ -49,9 +49,10 @@ func (execGit) CommonDir(ctx context.Context, dir string) (string, error) {
 	return filepath.Clean(p), nil
 }
 
-// WorktreeAdd creates a detached worktree at path checked out to ref.
-func (execGit) WorktreeAdd(ctx context.Context, repoDir, path, ref string) error {
-	return run(ctx, repoDir, "worktree", "add", "--detach", path, ref)
+// WorktreeAdd creates a worktree at path on the new branch `branch`, starting
+// at ref. -b (not -B) so an existing branch name is refused, never reset.
+func (execGit) WorktreeAdd(ctx context.Context, repoDir, path, branch, ref string) error {
+	return run(ctx, repoDir, "worktree", "add", "-b", branch, path, ref)
 }
 
 // WorktreeRemove removes the worktree at path. Never --force: git refuses a

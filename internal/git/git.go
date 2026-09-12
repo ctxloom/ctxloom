@@ -45,10 +45,16 @@ type Git interface {
 	// a common-dir exclude is honored inside every worktree.
 	CommonDir(ctx context.Context, dir string) (string, error)
 
-	// WorktreeAdd creates a fresh, DETACHED worktree at path checked out to ref
-	// (git -C repoDir worktree add --detach path ref). Detached by design: these
-	// are ephemeral per-agent checkouts, never branch-per-agent.
-	WorktreeAdd(ctx context.Context, repoDir, path, ref string) error
+	// WorktreeAdd creates a fresh worktree at path on a NEW branch named
+	// branch, starting from ref (git -C repoDir worktree add -b branch path
+	// ref). Named, never detached, and that is the whole point: a commit made
+	// inside the checkout is held by the branch in the shared repository, so
+	// it survives every way the checkout can disappear — teardown, prune, a
+	// harness auto-clean, a /tmp wipe. A detached checkout's commits were held
+	// only by its own HEAD and went unreachable the moment it was removed.
+	// The branch is -b, never -B: a name already taken is git's own refusal,
+	// never a silent reset of someone else's branch.
+	WorktreeAdd(ctx context.Context, repoDir, path, branch, ref string) error
 
 	// WorktreeRemove removes the worktree at path (no --force: git REFUSES a
 	// dirty worktree, the WIP-safe default the teardown relies on). There is
@@ -108,10 +114,11 @@ type Git interface {
 	WorkingChanges(ctx context.Context, dir string, maxEntries int) ([]string, error)
 
 	// CurrentBranch returns dir's checked-out branch name (git rev-parse
-	// --abbrev-ref HEAD). Detached HEAD (the case inside a `git worktree add
-	// --detach` checkout — every ctxloom-created worktree) reports git's own
-	// sentinel string "HEAD", never a real branch name; callers that need to
-	// tell the two apart compare against that literal.
+	// --abbrev-ref HEAD). A detached HEAD reports git's own sentinel string
+	// "HEAD", never a real branch name; callers that need to tell the two
+	// apart compare against that literal. A worktree this seam created is
+	// always on its named branch (WorktreeAdd), so the sentinel there means a
+	// checkout ctxloom did NOT make.
 	CurrentBranch(ctx context.Context, dir string) (string, error)
 
 	// CommitAll stages EVERY change git considers dirty at dir — including

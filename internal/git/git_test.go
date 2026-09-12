@@ -112,7 +112,7 @@ func TestExecGit_Lifecycle(t *testing.T) {
 	assert.Equal(t, resolvePath(t, filepath.Join(repo, ".git")), resolvePath(t, common))
 
 	wt := filepath.Join(t.TempDir(), "wt")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "HEAD"))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/lifecycle", "HEAD"))
 
 	list, err := g.WorktreeList(ctx, repo)
 	require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestExecGit_CommonDir_SymlinkedWorktreePath(t *testing.T) {
 	repo := initRepo(t)
 
 	wt := filepath.Join(t.TempDir(), "wt")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "HEAD"))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/symlinked", "HEAD"))
 
 	// A symlinked ALIAS to the worktree — the scenario a repo reached via a
 	// symlinked path (a symlinked project dir, or a worktree on a symlinked
@@ -337,9 +337,10 @@ func TestExecGit_ListTracked(t *testing.T) {
 }
 
 // TestExecGit_CurrentBranch pins both shapes: an attached checkout reports
-// its real branch name, and a detached one (exactly what `git worktree add
-// --detach` leaves every ctxloom-created worktree in) reports git's own
-// sentinel "HEAD" — the dirty-tree commit handler's guard against
+// its real branch name — including a worktree the seam created, which is now
+// always on a NAMED branch — and a genuinely detached checkout (made here
+// with raw git, since the seam no longer produces one) reports git's own
+// sentinel "HEAD". The dirty-tree commit handler's guard against
 // auto-committing inside a ref-less checkout depends on telling these apart.
 func TestExecGit_CurrentBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
@@ -353,11 +354,66 @@ func TestExecGit_CurrentBranch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "main", branch)
 
-	wt := filepath.Join(t.TempDir(), "detached-wt")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "HEAD"))
-	detached, err := g.CurrentBranch(ctx, wt)
+	wt := filepath.Join(t.TempDir(), "named-wt")
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/named", "HEAD"))
+	named, err := g.CurrentBranch(ctx, wt)
+	require.NoError(t, err)
+	assert.Equal(t, "agent/named", named, "a seam-created worktree is on its named branch, never detached")
+
+	detachedWT := filepath.Join(t.TempDir(), "detached-wt")
+	gitRun(t, repo, "worktree", "add", "--detach", detachedWT, "HEAD")
+	detached, err := g.CurrentBranch(ctx, detachedWT)
 	require.NoError(t, err)
 	assert.Equal(t, "HEAD", detached, `git's own sentinel for detached HEAD`)
+}
+
+// TestExecGit_WorktreeAdd_NamedBranch pins the property the per-agent
+// worktree lifecycle now rests on: the checkout is created on a NEW branch
+// named by the caller, starting at ref, so any commit made inside it is held
+// by that branch and survives the worktree's teardown. Detached was the old
+// shape; a commit there was held only by the worktree's own HEAD and went
+// unreachable the moment the checkout was removed.
+func TestExecGit_WorktreeAdd_NamedBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping WorktreeAdd integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t)
+	base, err := g.HeadSHA(ctx, repo)
+	require.NoError(t, err)
+
+	wt := filepath.Join(t.TempDir(), "wt")
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/member-a", "HEAD"))
+
+	list, err := g.WorktreeList(ctx, repo)
+	require.NoError(t, err)
+	var entry *Worktree
+	for i := range list {
+		if resolvePath(t, list[i].Path) == resolvePath(t, wt) {
+			entry = &list[i]
+		}
+	}
+	require.NotNil(t, entry, "the new worktree is listed")
+	assert.False(t, entry.Detached, "never detached")
+	assert.Equal(t, "refs/heads/agent/member-a", entry.Branch, "attached to the branch the caller named")
+	assert.Equal(t, base, entry.Head, "the branch starts at ref")
+
+	// The branch outlives the checkout: a commit made inside, then a teardown,
+	// leaves the commit reachable from the branch in the shared repository.
+	sha := commit(t, wt, "work.txt", "done overnight", "agent work")
+	require.NoError(t, g.WorktreeRemove(ctx, repo, wt))
+	assert.Equal(t, sha, gitRun(t, repo, "rev-parse", "agent/member-a"),
+		"the branch still holds the commit after the worktree is gone")
+
+	// git's own refusal stands: a second add on an existing branch name is
+	// an error, never a silent reset of that branch (-b, not -B).
+	other := filepath.Join(t.TempDir(), "wt2")
+	err = g.WorktreeAdd(ctx, repo, other, "agent/member-a", "HEAD")
+	require.Error(t, err, "a branch name already taken is refused")
+	assert.NoDirExists(t, other)
+	assert.Equal(t, sha, gitRun(t, repo, "rev-parse", "agent/member-a"),
+		"the refused add did not move the existing branch")
 }
 
 // TestExecGit_MergedBranches pins the primitive doctor's foreign-worktree
@@ -501,7 +557,7 @@ func TestExecGit_DiffPatch_ApplyPatch_RoundTrip(t *testing.T) {
 
 	// A second, independent worktree checked out at the SAME HEAD, clean.
 	target := filepath.Join(t.TempDir(), "copy-target")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, target, "HEAD"))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, target, "agent/copy-target", "HEAD"))
 	dirtyBefore, err := g.IsDirty(ctx, target)
 	require.NoError(t, err)
 	require.False(t, dirtyBefore)

@@ -157,16 +157,17 @@ func (f *Fake) CommonDir(_ context.Context, dir string) (string, error) {
 	return dir + "/.git", nil
 }
 
-// WorktreeAdd records the add and (unless AddErr is set) appends the new worktree
-// to the list so a subsequent WorktreeList reflects it.
-func (f *Fake) WorktreeAdd(_ context.Context, _, path, ref string) error {
+// WorktreeAdd records the add and (unless AddErr is set) appends the new
+// worktree — attached to branch, as the real seam leaves it — to the list so a
+// subsequent WorktreeList reflects it.
+func (f *Fake) WorktreeAdd(_ context.Context, _, path, branch, ref string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.record(fmt.Sprintf("add %s@%s", path, ref))
+	f.record(fmt.Sprintf("add %s@%s -b %s", path, ref, branch))
 	if f.AddErr != nil {
 		return f.AddErr
 	}
-	f.Worktrees = append(f.Worktrees, Worktree{Path: path, Detached: true})
+	f.Worktrees = append(f.Worktrees, Worktree{Path: path, Branch: branch})
 	return nil
 }
 

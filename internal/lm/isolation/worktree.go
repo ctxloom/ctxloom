@@ -39,11 +39,18 @@ const credentialSeedFixIt = "authenticate the engine on this host (e.g. `claude 
 // backendHasNoGlobalState, which resolves aliases.
 var backendsWithNoGlobalState = map[string]bool{"mock": true}
 
-// worktreeBaseRef is the ref each per-agent worktree is checked out to: HEAD,
-// DETACHED (T0.2). Ephemeral per-agent checkouts are never branch-per-agent in
-// this phase — detached avoids "branch already checked out elsewhere" collisions
-// between concurrent members and leaves no stray branches to clean up.
+// worktreeBaseRef is the ref each per-agent worktree's branch starts from:
+// the project's HEAD at the moment the member is prepared.
 const worktreeBaseRef = "HEAD"
+
+// worktreeBranchPrefix is the ref namespace every per-agent worktree branch
+// lives under (the naming standard's short-lived `<type>/<desc>` form). The
+// branch is NAMED, never detached: a member's commits are then held by the
+// shared repository and survive the checkout's teardown, which is what lets
+// the coordinator merge from it after the member is gone. The uniqueness
+// token in the checkout's name (worktreeScratchPath) is what keeps
+// concurrent members from colliding on "branch already checked out".
+const worktreeBranchPrefix = "ctxloom/"
 
 // worktreeTeardownTimeout bounds the WIP-safe teardown's git calls so a wedged
 // git can't hang a member's Cleanup forever.
@@ -106,7 +113,8 @@ func NewWorktree(g git.Git, backend string) Worktree {
 // Name identifies the policy.
 func (Worktree) Name() string { return "worktree" }
 
-// ResolveWorkspace creates a fresh detached worktree for the member. It errors
+// ResolveWorkspace creates a fresh worktree for the member on its own named
+// branch (worktreeBranchName). It errors
 // (→ caller degrades to None) when projectDir is not a git repo or the worktree
 // add fails. On success it also, best-effort, provisions the member's HOST
 // isolation lever and writes the broadened ctxloom-config excludes to the
@@ -141,7 +149,7 @@ func (w Worktree) ResolveWorkspace(ctx context.Context, projectDir, agentID stri
 	}
 
 	wtPath := worktreeScratchPath(w.scratchBase(), worktreeScratchPrefix, agentID)
-	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, worktreeBaseRef); err != nil {
+	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, worktreeBranchName(wtPath), worktreeBaseRef); err != nil {
 		return nil, fmt.Errorf("worktree add: %w", err)
 	}
 	ws := &worktreeWorkspace{
@@ -751,6 +759,16 @@ func (w Worktree) scratchBase() string {
 // members never collide.
 func worktreeScratchPath(base, prefix, agentID string) string {
 	return filepath.Join(base, fmt.Sprintf("%s-%s-%s", prefix, sanitizeAgentID(agentID), randToken()))
+}
+
+// worktreeBranchName derives the branch a per-agent checkout is created on
+// from the checkout's own directory name: the scratch prefix swapped for the
+// agent ref namespace, sanitized id and uniqueness token riding through. A
+// pure function of the path, so whoever holds the checkout (the coordinator,
+// doctor, a human triaging leftovers) can name the branch without a side
+// table, and the reverse.
+func worktreeBranchName(wtPath string) string {
+	return worktreeBranchPrefix + strings.TrimPrefix(filepath.Base(wtPath), worktreeCandidatePrefix)
 }
 
 // sanitizeAgentID renders agentID safe for use as a single path segment or a

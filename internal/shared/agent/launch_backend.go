@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -300,7 +301,7 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	// Setup ever runs in it.
 	scratch := b.WorkDir()
 	if req.CellKind == CellKindShared {
-		scratch = ephemeralPlacement{harp: req.Env[SessionHarpEnv]}.Dir()
+		scratch = sharedScratchDir(req.Env[SessionHarpEnv])
 	}
 	//
 	// EngineHome is the engine's PRIVATE config home for this run, read from
@@ -319,6 +320,20 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	}))
 
 	return b.deliverSet(inputs, req, start)
+}
+
+// sharedScratchDir is where a SharedCell's race-safe surfaces land: the
+// session's regenerable ephemeral directory (paths.HarpEphemeralDir), which is
+// PRIVATE to the run and out of the shared cwd. When harp is empty or that
+// directory cannot be resolved it falls back to the OS temp dir, so a
+// file-writing approach always has a writable root.
+func sharedScratchDir(harp string) string {
+	if harp != "" {
+		if dir, err := paths.HarpEphemeralDir(harp); err == nil {
+			return dir
+		}
+	}
+	return os.TempDir()
 }
 
 // assembleSurfaceContext assembles the context a surface-delivering backend

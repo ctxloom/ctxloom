@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -262,6 +263,17 @@ func TestSetup_NoDeclaration_ErrorsRatherThanPanicking(t *testing.T) {
 	})
 	assert.False(t, rec.merged, "a nil delivery does nothing")
 	assert.Empty(t, b.delivered)
+}
+
+// TestSharedScratchDir pins where a SharedCell's race-safe surfaces land: a
+// valid harp resolves to that harp's ephemeral directory, and an empty harp
+// falls back to the OS temp dir.
+func TestSharedScratchDir(t *testing.T) {
+	want, err := paths.HarpEphemeralDir("perky-same-chevy")
+	require.NoError(t, err)
+	assert.Equal(t, want, sharedScratchDir("perky-same-chevy"))
+
+	assert.Equal(t, os.TempDir(), sharedScratchDir(""))
 }
 
 // ---- cell path: shared cell (claude-like, RawContext=false) -----------------

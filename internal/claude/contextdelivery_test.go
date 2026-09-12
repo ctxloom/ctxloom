@@ -15,9 +15,8 @@ import (
 )
 
 // fakePlacement is a local placement test-double: Dir() returns a fixed
-// directory (a test temp dir). It stands in for the package-agent placements
-// (ephemeralPlacement / cwdPlacement) which are unexported and not constructible
-// from here.
+// directory (a test temp dir), so a delivery can be pointed at any root without
+// going through the advised present.Start the production placement reads.
 type fakePlacement struct{ dir string }
 
 func (p fakePlacement) Dir() string { return p.dir }

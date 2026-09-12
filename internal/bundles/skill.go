@@ -19,7 +19,7 @@ import (
 // This file holds Part B, slice B1 of the skill/command split: the SKILL
 // PACKAGE DATA MODEL. A skill is a directory (SKILL.md + optional sibling
 // files), not a single text blob — ParseSkillPackage reads that tree off an
-// afero.Fs into a validated, manifest-bearing SkillPackage. Archive codec
+// afero.Fs into a manifest-bearing SkillPackage. Archive codec
 // (zip pack/unpack), signing/trust wiring, and per-engine materialization are
 // deliberately NOT here — those are B1b/B2/B3+.
 
@@ -41,33 +41,20 @@ func (c SkillEngineExport) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
-// Skill authoring/validation constraints (Anthropic Agent Skills spec, VERIFIED
-// hard constraints — see the skill/command split plan §3.1). Violating any of
-// these fails LOUD at parse time; nothing here silently truncates or skips.
-const (
-	// SkillNameMaxLen is the maximum length of a skill's frontmatter `name`.
-	SkillNameMaxLen = 64
-	// SkillDescriptionMaxLen is the maximum length of a skill's frontmatter
-	// `description`.
-	SkillDescriptionMaxLen = 1024
-	// DefaultMaxSkillPackageBytes is the total package size cap (Anthropic's
-	// Skills-API upload constraint, <30MB) applied when ParseSkillPackage is
-	// called with maxBytes<=0.
-	DefaultMaxSkillPackageBytes int64 = 30 * 1024 * 1024
-)
+// DefaultMaxSkillPackageBytes is the total package size cap (Anthropic's
+// Skills-API upload constraint, <30MB) applied when ParseSkillPackage is
+// called with maxBytes<=0. Exceeding it fails LOUD at parse time; nothing here
+// silently truncates or skips.
+const DefaultMaxSkillPackageBytes int64 = 30 * 1024 * 1024
 
-// skillNamePattern enforces "lowercase alphanumerics and hyphens only" on a
-// skill's frontmatter name.
-var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-
-// skillReservedWords may not appear (as a substring, case-insensitive) in a
-// skill's frontmatter name.
-var skillReservedWords = []string{"anthropic", "claude"}
-
-// SkillFrontmatter is SKILL.md's YAML frontmatter block. name and description
-// are required and validated (see validateSkillFrontmatter); license,
-// compatibility, metadata, and allowed-tools are optional passthrough —
-// carried verbatim, never interpreted by ctxloom.
+// SkillFrontmatter is SKILL.md's YAML frontmatter block, carried VERBATIM:
+// nothing in it is validated on load. A vendor's rules for `name` and
+// `description` (length caps, character set, reserved words) are that
+// vendor's acceptance criteria, not a property of the package, so they are
+// enforced where the package is emitted for that engine — a package one
+// engine refuses still loads, and can still be delivered to another. license,
+// compatibility, metadata, and allowed-tools are optional passthrough, never
+// interpreted by ctxloom.
 type SkillFrontmatter struct {
 	Name          string            `yaml:"name"`
 	Description   string            `yaml:"description"`
@@ -145,7 +132,7 @@ func (m SkillManifest) Hash() string {
 }
 
 // SkillPackage is an Agent Skill package parsed from its source-tree
-// directory: SKILL.md's validated frontmatter + body, plus the deterministic
+// directory: SKILL.md's frontmatter + body, plus the deterministic
 // per-file manifest of every file in the tree (SKILL.md included). It is the
 // parsed/runtime twin of BundleSkill (the authored bundle.yaml entry) — B1b's
 // archive codec and B2's signing both operate on a SkillPackage, never on the
@@ -172,61 +159,24 @@ func splitFrontmatter(raw []byte) (frontmatter []byte, body string, err error) {
 	return []byte(m[1]), m[2], nil
 }
 
-// normalizeSkillDirName lowercases and folds underscores to hyphens, the
-// case/underscore-insensitive comparison the Anthropic Skills-API top-level
-// directory rule uses (D5): a directory "Financial_Skill" matches frontmatter
-// name "financial-skill".
-func normalizeSkillDirName(s string) string {
-	return strings.ReplaceAll(strings.ToLower(s), "_", "-")
-}
-
-// validateSkillFrontmatter enforces the Anthropic Agent Skills hard
-// constraints against a parsed frontmatter block, given the on-disk directory
-// name it was read from. Every violation returns a precise, actionable error;
-// none of them are ever silently downgraded to a truncate or skip.
-func validateSkillFrontmatter(fm SkillFrontmatter, dirName string) error {
-	if fm.Name == "" {
-		return fmt.Errorf("skill directory %q: SKILL.md frontmatter is missing the required `name` field", dirName)
-	}
-	if len(fm.Name) > SkillNameMaxLen {
-		return fmt.Errorf("skill directory %q: name %q is %d chars, exceeds the %d char limit", dirName, fm.Name, len(fm.Name), SkillNameMaxLen)
-	}
-	if !skillNamePattern.MatchString(fm.Name) {
-		return fmt.Errorf("skill directory %q: name %q must be lowercase alphanumerics and hyphens only", dirName, fm.Name)
-	}
-	lowerName := strings.ToLower(fm.Name)
-	for _, reserved := range skillReservedWords {
-		if strings.Contains(lowerName, reserved) {
-			return fmt.Errorf("skill directory %q: name %q must not contain the reserved word %q", dirName, fm.Name, reserved)
-		}
-	}
-	if normalizeSkillDirName(fm.Name) != normalizeSkillDirName(dirName) {
-		return fmt.Errorf("skill directory %q: SKILL.md name %q must match its directory name (case/underscore-insensitive)", dirName, fm.Name)
-	}
-	if fm.Description == "" {
-		return fmt.Errorf("skill directory %q: SKILL.md frontmatter is missing the required `description` field", dirName)
-	}
-	if len(fm.Description) > SkillDescriptionMaxLen {
-		return fmt.Errorf("skill directory %q: description is %d chars, exceeds the %d char limit", dirName, len(fm.Description), SkillDescriptionMaxLen)
-	}
-	return nil
-}
-
 // ParseSkillPackage parses an Agent Skill package rooted at dir (the skill's
-// own directory, e.g. "<bundle-dir>/skills/<name>") on fsys: it reads and
-// validates SKILL.md's frontmatter, then enumerates every file in the tree
-// (SKILL.md included) into a deterministic, sha256+mode-stamped manifest.
-// This is the one parse both authoring (skill create/sync) and the loader
-// (resolving a bundle's skill from its source tree) go through.
+// own directory, e.g. "<bundle-dir>/skills/<name>") on fsys: it reads
+// SKILL.md's frontmatter, then enumerates every file in the tree (SKILL.md
+// included) into a deterministic, sha256+mode-stamped manifest. This is the
+// one parse both authoring (skill create/sync) and the loader (resolving a
+// bundle's skill from its source tree) go through.
+//
+// The package's Name is the DIRECTORY's basename, not the frontmatter's: the
+// frontmatter is carried verbatim (see SkillFrontmatter) and may say anything,
+// including something an engine will refuse at emit time.
 //
 // maxBytes caps the total package size (Anthropic's Skills-API <30MB
 // constraint, simulate a smaller cap in tests rather than building a 30MB
 // fixture); maxBytes<=0 uses DefaultMaxSkillPackageBytes.
 //
-// Every validation failure returns a loud, actionable error — a missing
-// SKILL.md, an invalid frontmatter field, or an oversized package are never
-// silently skipped or truncated (silent-no-op is this codebase's
-// characteristic bug).
+// Every failure returns a loud, actionable error — a missing SKILL.md,
+// unparseable frontmatter, or an oversized package are never silently skipped
+// or truncated (silent-no-op is this codebase's characteristic bug).
 func ParseSkillPackage(fsys afero.Fs, dir string, maxBytes int64) (*SkillPackage, error) {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxSkillPackageBytes
@@ -246,9 +196,6 @@ func ParseSkillPackage(fsys afero.Fs, dir string, maxBytes int64) (*SkillPackage
 	var fm SkillFrontmatter
 	if err := yaml.Unmarshal(frontRaw, &fm); err != nil {
 		return nil, fmt.Errorf("skill directory %q: invalid SKILL.md frontmatter: %w", name, err)
-	}
-	if err := validateSkillFrontmatter(fm, name); err != nil {
-		return nil, err
 	}
 
 	manifest, err := buildSkillManifest(fsys, dir, name, maxBytes)

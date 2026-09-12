@@ -15,11 +15,12 @@ import (
 // exactly that set on a re-materialize with fewer/no skills. This is claude's
 // half of the skill/command split plan's Part B3-seam: the shared
 // agent.WriteManagedSkillPackages writer, engine-specific ONLY in the target
-// directory and the manifest name — the per-skill path prefix, the declared
-// mode and the manifest-scoped reversal are the one shared body every engine
-// (and the mock engine) goes through.
+// directory, the manifest name and the vendor constraints applied on the way
+// in (acceptedSkills, skillconstraints.go) — the per-skill path prefix, the
+// declared mode and the manifest-scoped reversal are the one shared body
+// every engine (and the mock engine) goes through.
 func WriteSkillFiles(workDir string, skills []agent.SkillExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
 	skillsDir := filepath.Join(workDir, ConfigDirName, SkillsDirName)
-	return agent.WriteManagedSkillPackages(fs, skillsDir, skills)
+	return agent.WriteManagedSkillPackages(fs, skillsDir, acceptedSkills(skills))
 }

@@ -27,7 +27,7 @@ import (
 // implemented here.
 
 // LoadedSkill is the resolved runtime form of a bundle's Agent Skill package:
-// SKILL.md's validated frontmatter/body plus every file in the package
+// SKILL.md's frontmatter/body plus every file in the package
 // (SKILL.md included) with its bytes and mode, plus the per-engine
 // enablement the bundle authored. It is the skill counterpart of
 // LoadedContent.
@@ -35,7 +35,7 @@ type LoadedSkill struct {
 	Name        string            // Full identity ("<bundle>/<item>")
 	Bundle      string            // Owning bundle's loader name
 	Item        string            // Bare skill name within the bundle (the bundle.yaml map key)
-	Frontmatter SkillFrontmatter  // SKILL.md's parsed, validated frontmatter
+	Frontmatter SkillFrontmatter  // SKILL.md's parsed frontmatter, carried verbatim
 	Body        string            // SKILL.md content after the frontmatter block
 	Files       []LoadedSkillFile // every file in the package, SKILL.md included
 	LLM         SkillLLMExports   // per-engine enablement

@@ -80,8 +80,8 @@ func PremisedFragmentSkills(frags []PremisedFragment) ([]agent.SkillExport, erro
 // The premise goes in the FRONTMATTER, not merely on SkillExport.Description:
 // that struct field is write-only — no engine reads it — and the description an
 // engine actually acts on travels inside these bytes. The frontmatter `name`
-// must equal the package directory's basename or bundles.ParseSkillPackage
-// rejects the package on load, so both come from skillNameForRef.
+// is what an engine materializes the package under, so it comes from the same
+// skillNameForRef as the package directory — one identity, not two.
 func skillMarkdown(name, premise, body string) string {
 	var b strings.Builder
 	b.WriteString("---\nname: ")

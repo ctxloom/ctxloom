@@ -192,12 +192,12 @@ type CreateSkillResult struct {
 }
 
 // skillTemplate renders the scaffolded SKILL.md a fresh `ctxloom skill
-// create` writes. name is both the frontmatter `name` (must equal the
-// directory name — bundles.validateSkillFrontmatter's hard constraint) and
+// create` writes. name is both the frontmatter `name` (the directory name —
+// one identity, so the emitted package lands where its frontmatter says) and
 // the heading; description is a TODO the author must replace before the
-// skill is useful (an empty/placeholder description still passes the length
-// check, so this does not block create, but IS a signal for `sync`/review to
-// flag — left to the human, never silently filled in with something untrue).
+// skill is useful (a placeholder description does not block create, but IS a
+// signal for `sync`/review to flag — left to the human, never silently filled
+// in with something untrue).
 //
 // The frontmatter is built via yaml.Marshal (not a hand-rolled fmt template):
 // a placeholder or author-supplied description containing a colon+space (a

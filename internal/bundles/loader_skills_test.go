@@ -83,6 +83,23 @@ func TestSkillsFromBundleRef_ResolvesFrontmatterAndFiles(t *testing.T) {
 	assert.Equal(t, uint32(0644), byPath["assets/logo.png"].Mode)
 }
 
+// TestSkillsFromBundleRef_VendorInvalidFrontmatterStillResolves proves the
+// catalog carries a skill whose frontmatter one engine will refuse (here a
+// name with a reserved word, which claude's writer rejects at emit): the
+// loader has no vendor rules, so the skill resolves with its frontmatter
+// verbatim and the refusal, if any, is the emitting engine's to make.
+func TestSkillsFromBundleRef_VendorInvalidFrontmatterStillResolves(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	bundlesDir := "/bundles"
+	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "claude-helper", true)
+
+	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
+	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
+	require.Len(t, got, 1, "a vendor-invalid skill still resolves from the bundle")
+	assert.Equal(t, "claude-helper", got[0].Item)
+	assert.Equal(t, "claude-helper", got[0].Frontmatter.Name, "frontmatter travels verbatim")
+}
+
 // TestSkillsFromBundleRef_PerEngineDisabledStillResolves proves a skill
 // disabled for claude-code still RESOLVES from the loader (enablement
 // filtering is the per-engine export mapper's job, backends.claudeSkillExports

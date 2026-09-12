@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -103,80 +102,39 @@ func TestParseSkillPackage_MissingSkillMDErrsLoud(t *testing.T) {
 	assert.Contains(t, err.Error(), "SKILL.md")
 }
 
-func TestParseSkillPackage_NameTooLong(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	dir := "/bundle/skills/toolongname"
-	long := strings.Repeat("a", 65)
-	require.NoError(t, fsys.MkdirAll(dir, 0755))
-	require.NoError(t, afero.WriteFile(fsys, dir+"/SKILL.md",
-		[]byte("---\nname: "+long+"\ndescription: d\n---\nbody\n"), 0644))
+// TestParseSkillPackage_VendorInvalidFrontmatterLoads pins the load/emit
+// split: frontmatter that a vendor would refuse (a name over Anthropic's
+// length cap, wrong case, a reserved word, a name that is not the directory's,
+// an over-long or missing description) is NOT the loader's concern. The
+// package loads and carries its frontmatter verbatim; whether an engine will
+// take it is decided where the package is emitted for that engine (see
+// claude's skill writer). Every case here used to fail this parse.
+func TestParseSkillPackage_VendorInvalidFrontmatterLoads(t *testing.T) {
+	cases := []struct {
+		label, dir, name, description string
+	}{
+		{"name over 64 chars", "/bundle/skills/toolongname", strings.Repeat("a", 65), "d"},
+		{"name not lowercase-hyphen", "/bundle/skills/Bad_Name", "Bad_Name", "d"},
+		{"name carries a reserved word", "/bundle/skills/claude-helper", "claude-helper", "d"},
+		{"name differs from its directory", "/bundle/skills/myskill", "other-name", "d"},
+		{"description over 1024 chars", "/bundle/skills/longdesc", "longdesc", strings.Repeat("d", 1025)},
+		{"description missing", "/bundle/skills/nodesc", "nodesc", ""},
+		{"name missing", "/bundle/skills/noname", "", "d"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			fsys := afero.NewMemMapFs()
+			require.NoError(t, fsys.MkdirAll(tc.dir, 0755))
+			require.NoError(t, afero.WriteFile(fsys, tc.dir+"/SKILL.md",
+				[]byte("---\nname: "+tc.name+"\ndescription: "+tc.description+"\n---\nbody\n"), 0644))
 
-	_, err := ParseSkillPackage(fsys, dir, 0)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "64")
-}
-
-func TestParseSkillPackage_InvalidNameChars(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	dir := "/bundle/skills/Bad_Name"
-	require.NoError(t, fsys.MkdirAll(dir, 0755))
-	require.NoError(t, afero.WriteFile(fsys, dir+"/SKILL.md",
-		[]byte("---\nname: Bad_Name\ndescription: d\n---\nbody\n"), 0644))
-
-	_, err := ParseSkillPackage(fsys, dir, 0)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "lowercase")
-}
-
-func TestParseSkillPackage_ReservedWord(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	dir := "/bundle/skills/claude-helper"
-	require.NoError(t, fsys.MkdirAll(dir, 0755))
-	require.NoError(t, afero.WriteFile(fsys, dir+"/SKILL.md",
-		[]byte("---\nname: claude-helper\ndescription: d\n---\nbody\n"), 0644))
-
-	_, err := ParseSkillPackage(fsys, dir, 0)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "reserved")
-}
-
-func TestParseSkillPackage_NameDirMismatch(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	dir := "/bundle/skills/myskill"
-	require.NoError(t, fsys.MkdirAll(dir, 0755))
-	require.NoError(t, afero.WriteFile(fsys, dir+"/SKILL.md",
-		[]byte("---\nname: other-name\ndescription: d\n---\nbody\n"), 0644))
-
-	_, err := ParseSkillPackage(fsys, dir, 0)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "directory")
-}
-
-// TestParseSkillPackage_NameDirMatchIsCaseUnderscoreInsensitive pins D5: a
-// directory "Financial_Skill" matches frontmatter name "financial-skill".
-func TestParseSkillPackage_NameDirMatchIsCaseUnderscoreInsensitive(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	dir := "/bundle/skills/Financial_Skill"
-	require.NoError(t, fsys.MkdirAll(dir, 0755))
-	require.NoError(t, afero.WriteFile(fsys, dir+"/SKILL.md",
-		[]byte("---\nname: financial-skill\ndescription: d\n---\nbody\n"), 0644))
-
-	pkg, err := ParseSkillPackage(fsys, dir, 0)
-	require.NoError(t, err)
-	assert.Equal(t, "financial-skill", pkg.Frontmatter.Name)
-}
-
-func TestParseSkillPackage_DescriptionTooLong(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	dir := "/bundle/skills/longdesc"
-	long := strings.Repeat("d", 1025)
-	require.NoError(t, fsys.MkdirAll(dir, 0755))
-	require.NoError(t, afero.WriteFile(fsys, dir+"/SKILL.md",
-		[]byte("---\nname: longdesc\ndescription: "+long+"\n---\nbody\n"), 0644))
-
-	_, err := ParseSkillPackage(fsys, dir, 0)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "1024")
+			pkg, err := ParseSkillPackage(fsys, tc.dir, 0)
+			require.NoError(t, err, "vendor constraints are not enforced on load")
+			assert.Equal(t, filepath.Base(tc.dir), pkg.Name, "the package name is the directory's, whatever the frontmatter says")
+			assert.Equal(t, tc.name, pkg.Frontmatter.Name, "frontmatter travels verbatim")
+			assert.Equal(t, tc.description, pkg.Frontmatter.Description, "frontmatter travels verbatim")
+		})
+	}
 }
 
 // TestParseSkillPackage_PackageTooLarge simulates the <30MB constraint with an
@@ -219,35 +177,6 @@ func TestParseSkillPackage_DefaultMaxSizeGatesRealParsing(t *testing.T) {
 
 	_, err := ParseSkillPackage(fsys, dir, 0) // maxBytes<=0 -> DefaultMaxSkillPackageBytes
 	require.NoError(t, err, "a 20MB package must parse under the real 30MB default cap")
-}
-
-// =============================================================================
-// validateSkillFrontmatter boundary tests — pin the EXACT `>` limits so a
-// CONDITIONALS_BOUNDARY mutant (`>` becoming `>=`) is caught: a name/description
-// exactly AT the limit must be accepted, one character over must be rejected.
-// =============================================================================
-
-func TestValidateSkillFrontmatter_NameLengthBoundary(t *testing.T) {
-	exact := strings.Repeat("a", SkillNameMaxLen)
-	err := validateSkillFrontmatter(SkillFrontmatter{Name: exact, Description: "d"}, exact)
-	assert.NoError(t, err, "a name exactly at the %d char limit must be accepted", SkillNameMaxLen)
-
-	over := strings.Repeat("a", SkillNameMaxLen+1)
-	err = validateSkillFrontmatter(SkillFrontmatter{Name: over, Description: "d"}, over)
-	require.Error(t, err, "a name one char OVER the limit must be rejected")
-	assert.Contains(t, err.Error(), strconv.Itoa(SkillNameMaxLen))
-}
-
-func TestValidateSkillFrontmatter_DescriptionLengthBoundary(t *testing.T) {
-	const name = "validname"
-	exact := strings.Repeat("d", SkillDescriptionMaxLen)
-	err := validateSkillFrontmatter(SkillFrontmatter{Name: name, Description: exact}, name)
-	assert.NoError(t, err, "a description exactly at the %d char limit must be accepted", SkillDescriptionMaxLen)
-
-	over := strings.Repeat("d", SkillDescriptionMaxLen+1)
-	err = validateSkillFrontmatter(SkillFrontmatter{Name: name, Description: over}, name)
-	require.Error(t, err, "a description one char OVER the limit must be rejected")
-	assert.Contains(t, err.Error(), strconv.Itoa(SkillDescriptionMaxLen))
 }
 
 // TestBuildSkillManifest_PackageSizeBoundary pins buildSkillManifest's running

@@ -9,32 +9,21 @@ package agent
 // types, mirroring how CommandExport decouples the writers from
 // bundles.LoadedContent.
 type SkillExport struct {
-	// Name is the skill's package/directory name (SKILL.md frontmatter `name`,
-	// already validated to equal its source directory's basename — see
-	// bundles.ParseSkillPackage). It is used as the materialized subdirectory
-	// name under the engine's native skills dir.
+	// Name is the SKILL.md frontmatter `name`, carried verbatim from the
+	// package. It is used as the materialized subdirectory name under the
+	// engine's native skills dir — which is why an engine's own rules for it
+	// (length, character set, reserved words) are checked by that engine's
+	// writer before it emits, not on load.
 	Name string
-	// Description mirrors the SKILL.md frontmatter `description` for engines
-	// that need it registered outside the package itself (e.g. a config-file
-	// listing) — claude needs none (it discovers skills by scanning the
-	// directory), but the field travels so a later engine doesn't need a
-	// different export type.
-	//
-	// No such engine exists yet, so this field is WRITE-ONLY. It is set once, by
-	// lm/backends/skillfiles.go's buildSkillExports, and read by no engine —
-	// claude/opencode's skill writers take Enabled, Name and Files
-	// only; the sole read anywhere is one assertion in skillfiles_test.go.
-	// Nothing is lost by deleting it: the description an engine actually reads
-	// travels verbatim inside the authored SKILL.md, which is one of Files
-	// (pinned by TestSkillExports_DescriptionReachesTheEngineInSKILLmd).
-	//
-	// It is NOT deleted because it is WIRE-BACKED, which is not a Go-side call:
-	// llm.proto's `SkillExport.description = 2`
-	// carries it host->plugin, with converters at lm/grpc/managed.go:109 and
-	// :128. Removing the Go field alone leaves a proto field nothing populates
-	// — which the wire-parity gate (lm/grpc/arch_test.go) exists to reject —
-	// so the honest change removes or RESERVES the proto field too. That is a
-	// schema edit for the human.
+	// Description mirrors the SKILL.md frontmatter `description`, carried
+	// verbatim like Name. No engine registers it outside the package (claude
+	// discovers skills by scanning the directory, and the description it acts
+	// on travels inside the authored SKILL.md, one of Files — pinned by
+	// TestSkillExports_DescriptionReachesTheEngineInSKILLmd); what an engine's
+	// writer reads it FOR is its own acceptance rules (presence, length) before
+	// it emits the package. It is also WIRE-BACKED: llm.proto's
+	// `SkillExport.description` carries it host->plugin, so removing it would
+	// be a schema edit, not a Go-side deletion.
 	Description string
 	// Enabled is the resolved per-target-agent enablement (already resolved
 	// host-side from bundles.SkillLLMExports), mirroring CommandExport.Enabled.

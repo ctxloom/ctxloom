@@ -106,7 +106,7 @@ flowchart TD
 | `ContentInfo` / `SkillInfo` / `ExpandedRef` | `loader_content.go:131` / `loader_skills.go:146` / `loader_content.go:519` | Listing and ref-expansion DTOs; `ContentInfo.FileName` is synthesised as `<name>.yaml` for items that have no file |
 | `LoadedSkill` / `LoadedSkillFile` | `loader_skills.go:33` / `:46` | A gated skill package with its materialized files (relative path, bytes, mode) |
 | `LLMExports`, `ClaudeCodeConfig` | `loader_content.go:58-128` | Per-engine slash-command export settings; each has an identical `IsEnabled` where nil means enabled |
-| `SkillPackage` / `SkillFrontmatter` | `skill.go:134` / `:74` | A parsed skill directory (name, frontmatter, body, manifest); frontmatter carries `Name` and `Description` (validated) plus `License`, `Compatibility`, `Metadata`, `AllowedTools` (passthrough, never interpreted) |
+| `SkillPackage` / `SkillFrontmatter` | `skill.go:134` / `:74` | A parsed skill directory (name, frontmatter, body, manifest); frontmatter carries `Name` and `Description` (verbatim; vendor constraints are the emitting engine's, see `claude.checkSkillConstraints`) plus `License`, `Compatibility`, `Metadata`, `AllowedTools` (passthrough, never interpreted) |
 | `SkillManifest` / `SkillManifestEntry` | `skill.go:98` / `:87` | The canonical per-file list (`Path`, `SHA256`, `Mode` as an octal string) and its `sorted`/`Serialize`/`Hash` methods; `Serialize()` is the skill signature preimage |
 | `SkillLLMExports` / `SkillEngineExport` | `skill.go:29` / `:38` | Per-engine skill enablement, `Enabled *bool` with nil meaning enabled |
 | `ArchiveFormat` / `ExtractOptions` / `entryKind` | `skill_archive.go:36` / `:150` / `:172` | zip vs tar.gz vs unknown; the bomb-defense caps `MaxTotalBytes`/`MaxEntries` (zero means default, applied by `normalized`); and the per-entry file/dir/symlink/other classification |
@@ -194,8 +194,7 @@ flowchart TD
 
 | Signature | file:line | Contract |
 |---|---|---|
-| `ParseSkillPackage(fsys, dir, name) (*SkillPackage, error)` | `skill.go:211` | Reads and validates SKILL.md, splits frontmatter, builds the manifest. Every failure names the directory |
-| `validateSkillFrontmatter` | `skill.go:168` | Six hard constraints, each with a precise error naming the field and limit |
+| `ParseSkillPackage(fsys, dir, name) (*SkillPackage, error)` | `skill.go:211` | Reads SKILL.md, splits frontmatter (carried verbatim — no vendor validation on load), builds the manifest. Every failure names the directory |
 | `buildSkillManifest` | `skill.go:251` | Walks the package, hashes each file, records a `%04o` mode, enforces a total size cap |
 | `SkillManifest.Serialize() []byte` / `Hash()` | `skill.go:112` / `:124` | Canonical JSON preimage over the sorted manifest, and its sha256; `Serialize` is what `operations/skills.go:459` signs and `PublisherSkillSignatureVerifier` verifies |
 | `ResolveSkillDir(bundleDir, entry, name) (string, error)` | `skill.go:299` | `entry.Path` or `skills/<name>`, confined under `bundleDir` |

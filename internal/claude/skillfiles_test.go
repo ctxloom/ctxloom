@@ -19,8 +19,9 @@ import (
 func TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes(t *testing.T) {
 	dir := t.TempDir()
 	skills := []agent.SkillExport{{
-		Name:    "humanize",
-		Enabled: true,
+		Name:        "humanize",
+		Description: "d",
+		Enabled:     true,
 		Files: []agent.PackageFile{
 			{RelPath: "SKILL.md", Content: []byte("---\nname: humanize\ndescription: d\n---\n\nBody\n"), Mode: 0644},
 			{RelPath: "scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: 0755},
@@ -54,9 +55,10 @@ func TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes(t *testing.T) {
 func TestWriteSkillFiles_DisabledSkillNotWritten(t *testing.T) {
 	dir := t.TempDir()
 	skills := []agent.SkillExport{{
-		Name:    "off",
-		Enabled: false,
-		Files:   []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("should not appear")}},
+		Name:        "off",
+		Description: "d",
+		Enabled:     false,
+		Files:       []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("should not appear")}},
 	}}
 
 	require.NoError(t, WriteSkillFiles(dir, skills))
@@ -76,9 +78,10 @@ func TestWriteSkillFiles_CleanupPreservesForeignSkill(t *testing.T) {
 	require.NoError(t, os.WriteFile(foreign, []byte("hand authored"), 0644))
 
 	skills := []agent.SkillExport{{
-		Name:    "humanize",
-		Enabled: true,
-		Files:   []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("managed"), Mode: 0644}},
+		Name:        "humanize",
+		Description: "d",
+		Enabled:     true,
+		Files:       []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("managed"), Mode: 0644}},
 	}}
 	require.NoError(t, WriteSkillFiles(dir, skills))
 	require.FileExists(t, filepath.Join(dir, ".claude", "skills", "humanize", "SKILL.md"))

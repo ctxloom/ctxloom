@@ -163,9 +163,10 @@ func launchManaged() *agent.ManagedConfig {
 	return &agent.ManagedConfig{
 		Commands: []agent.CommandExport{{Name: "review", Content: "review it", Enabled: true}},
 		Skills: []agent.SkillExport{{
-			Name:    "humanize",
-			Enabled: true,
-			Files:   []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("---\nname: humanize\n---\nBody.\n"), Mode: 0o644}},
+			Name:        "humanize",
+			Description: "removes AI writing tells",
+			Enabled:     true,
+			Files:       []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("---\nname: humanize\ndescription: removes AI writing tells\n---\nBody.\n"), Mode: 0o644}},
 		}},
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},

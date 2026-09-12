@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -19,6 +20,16 @@ import (
 // referencingFiles returns the files in dir that MENTION sym somewhere other
 // than in sym's own declaration. Comments are invisible to it: the files are
 // parsed without them, so prose naming a symbol never counts as a use.
+// packageDir is this package's source directory, located from the test file
+// itself rather than the working directory: SandboxedMain moves the cwd to a
+// throwaway root before any test runs, so "." is no longer the package.
+func packageDir(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	require.True(t, ok, "runtime.Caller must locate this test file")
+	return filepath.Dir(file)
+}
+
 func referencingFiles(t *testing.T, dir, sym string, includeTests bool) []string {
 	t.Helper()
 
@@ -89,7 +100,7 @@ func referencingFiles(t *testing.T, dir, sym string, includeTests bool) []string
 // ever told about — the file would sit there until the next 30s sweep, or
 // forever if the recipient never sweeps.
 func TestArch_SpoolWrite_HappensOnlyInTheCourier(t *testing.T) {
-	got := referencingFiles(t, ".", "writerFor", false)
+	got := referencingFiles(t, packageDir(t), "writerFor", false)
 	assert.Equal(t, []string{"spoolcourier.go"}, got,
 		"only the courier may reach a spool writer: it is what pairs the write with the ring. "+
 			"If you added a caller, route it through spoolCourier.SendProjected instead; "+
@@ -102,7 +113,7 @@ func TestArch_SpoolWrite_HappensOnlyInTheCourier(t *testing.T) {
 // until a message goes missing. The two files below do not CALL it: each
 // installs it as a courier's ring field, which is the whole point.
 func TestArch_RingSpool_ReachedOnlyThroughTheCourier(t *testing.T) {
-	got := referencingFiles(t, ".", "ringSpool", false)
+	got := referencingFiles(t, packageDir(t), "ringSpool", false)
 	assert.Equal(t, []string{"spooldelivery.go", "spoolturnresult.go"}, got,
 		"ringSpool belongs to the courier: these two files may only hand it to one as its ring. "+
 			"A new file here means someone rings without writing through the courier — "+

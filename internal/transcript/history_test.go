@@ -25,7 +25,7 @@ import (
 // FILE, which reads like a broken test rather than a wrong argument.
 func installFixture(t *testing.T, name, harp string) string {
 	t.Helper()
-	src := filepath.Join("testdata", "fixtures", name+".transcript.acp.jsonl")
+	src := fixturePath(name + ".transcript.acp.jsonl")
 	data, err := os.ReadFile(src)
 	require.NoError(t, err, "read fixture %s", name)
 	return writeTempTranscript(t, harp, data)
@@ -192,7 +192,7 @@ func TestCanonicalHistory_GetSession_FallsBackToLegacyFilename(t *testing.T) {
 	dir, err := paths.HarpPersistDir(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	data, err := os.ReadFile(filepath.Join("testdata", "fixtures", "claude-code.transcript.acp.jsonl"))
+	data, err := os.ReadFile(fixturePath("claude-code.transcript.acp.jsonl"))
 	require.NoError(t, err)
 	legacyPath := filepath.Join(dir, "transcript.acp.jsonl")
 	require.NoError(t, os.WriteFile(legacyPath, data, 0o644))
@@ -214,7 +214,7 @@ func TestCanonicalHistory_GetSession_FallsBackToLegacyFilename(t *testing.T) {
 func TestParseTranscriptFile_TruncatedLine_DegradesToPartial(t *testing.T) {
 	testsupport.Isolate(t)
 
-	full, err := os.ReadFile(filepath.Join("testdata", "fixtures", "claude-code.transcript.acp.jsonl"))
+	full, err := os.ReadFile(fixturePath("claude-code.transcript.acp.jsonl"))
 	require.NoError(t, err)
 	lines := splitLines(full)
 	require.GreaterOrEqual(t, len(lines), 5)

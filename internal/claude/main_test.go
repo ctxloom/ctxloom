@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/selfexec"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestMain pins the self-exec command (agent.CtxloomCommand → selfexec.Path)
@@ -15,22 +16,15 @@ import (
 // ".../claude.test"), which would make every managed-detection/removal test
 // in this package see an unrecognized command. See selfexec.SetPathForTesting.
 //
-// It also redirects HOME. Writing .mcp.json goes through the §9.7 record
-// store, which paths.HomeRecordsDir roots at the REAL ~/.ctxloom/records —
-// so every test here that calls WriteSettings against an on-disk temp dir
-// deposited a record in the developer's own home.
+// The rest of the run is the process-wide sandbox. Writing .mcp.json goes
+// through the §9.7 record store, which paths.HomeRecordsDir roots at the REAL
+// ~/.ctxloom/records — so every test here that calls WriteSettings against
+// an on-disk temp dir once deposited a record in the developer's own home.
+// Redirecting HOME alone left the cwd walk-up open; the sandbox closes both.
 func TestMain(m *testing.M) {
 	os.Exit(func() int {
 		restore := selfexec.SetPathForTesting("ctxloom")
 		defer restore()
-
-		home, err := os.MkdirTemp("", "claude-test-home")
-		if err != nil {
-			panic(err)
-		}
-		defer func() { _ = os.RemoveAll(home) }()
-		os.Setenv("HOME", home) //nolint:forbidigo // no *testing.T in TestMain
-
-		return m.Run()
+		return testsupport.SandboxedMain(m)
 	}())
 }

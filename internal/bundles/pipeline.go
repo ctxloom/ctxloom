@@ -2,11 +2,15 @@ package bundles
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // The PROCESS stage of the delivery pipeline
@@ -189,6 +193,55 @@ func (p *Pipeline) admitSkill(ls *LoadedSkill) bool {
 	return p.admit(ls.Read, ls.TrustRef, ls.TrustPayload, FormRaw)
 }
 
+// deliverSkill is the process stage for a skill package: ADMIT the package,
+// then SELECT the body an engine receives. Returns nil when the package may
+// not be delivered.
+//
+// Admission comes first and covers the WHOLE package. A skill's preimage is
+// its manifest, which names every body the package carries, so the gate has
+// already decided on the bytes of whichever body is selected here — unlike a
+// command, where the selected bytes ARE the preimage and selection must
+// therefore precede the gate (deliver).
+//
+// Selection only PREFERS, like ContentForms.Select: a package with no
+// distilled body serves raw. What it never does is deliver both bodies or an
+// engine-side file for the unselected one; the materialization it applies
+// (content.SkillMaterialization) is the same rule the content store's
+// Skill.Materialize applies, so the two cannot disagree about which file is a
+// body. A materialization failure withholds the package loudly rather than
+// delivering an empty or two-bodied one.
+func (p *Pipeline) deliverSkill(ls *LoadedSkill) *LoadedSkill {
+	if !p.admitSkill(ls) {
+		return nil
+	}
+	paths := make([]string, len(ls.Files))
+	for i, f := range ls.Files {
+		paths[i] = f.RelPath
+	}
+	form := signing.FormRaw
+	if p.preferDistilled && slices.Contains(content.SkillForms(paths), signing.FormDistilled) {
+		form = signing.FormDistilled
+	}
+	layout, err := content.SkillMaterialization(paths, form)
+	if err != nil {
+		clidiag.Warn("ctxloom", "skill %q withheld: %v", ls.Name, err)
+		p.recordWithheld(ls.TrustRef)
+		return nil
+	}
+	files := make([]LoadedSkillFile, 0, len(layout))
+	for _, f := range ls.Files {
+		target, ok := layout[f.RelPath]
+		if !ok {
+			continue
+		}
+		f.RelPath = target
+		files = append(files, f)
+	}
+	out := *ls
+	out.Files = files
+	return &out
+}
+
 // firstAdmissible returns the first candidate the gate admits, gating every
 // earlier one on the way (so each rejection is tallied). A withheld match does
 // not end the scan — a trusted copy of the same bare name in another bundle
@@ -245,17 +298,22 @@ func (p *Pipeline) GetCommand(name string) (*LoadedContent, error) {
 // that may be delivered, in the reader's deterministic (name-sorted) order.
 // A withheld command is omitted, so it is never exported as a slash command.
 func (p *Pipeline) CommandsFromBundleRef(bundleRef string) []*LoadedContent {
-	reads := p.loader.ReadBundleCommands(bundleRef)
+	return deliverEach(p.loader.ReadBundleCommands(bundleRef), p.deliver)
+}
+
+// deliverEach runs one item's delivery gate over a bundle's reads and keeps
+// what it lets through. A nil read set is returned as nil, never an empty
+// slice: the reader could not resolve the bundle at all (and already warned),
+// and "this bundle would not load" must stay distinguishable from "this
+// bundle ships nothing of this kind".
+func deliverEach[R, D any](reads []*R, deliver func(*R) *D) []*D {
 	if reads == nil {
-		// The reader could not resolve the bundle at all and already warned.
-		// nil, not an empty slice: "this bundle would not load" must stay
-		// distinguishable from "this bundle ships no commands".
 		return nil
 	}
-	out := make([]*LoadedContent, 0, len(reads))
+	out := make([]*D, 0, len(reads))
 	for _, r := range reads {
-		if lc := p.deliver(r); lc != nil {
-			out = append(out, lc)
+		if d := deliver(r); d != nil {
+			out = append(out, d)
 		}
 	}
 	return out
@@ -338,8 +396,8 @@ func (p *Pipeline) GetSkill(name string) (*LoadedSkill, error) {
 		return nil, err
 	}
 	for _, ls := range reads {
-		if p.admitSkill(ls) {
-			return ls, nil
+		if out := p.deliverSkill(ls); out != nil {
+			return out, nil
 		}
 	}
 	if len(reads) > 0 {
@@ -368,17 +426,5 @@ func (p *Pipeline) ListAllSkills() ([]SkillInfo, error) {
 // SkillsFromBundleRef returns every skill the bundle at bundleRef ships that
 // may be delivered, in the reader's deterministic (name-sorted) order.
 func (p *Pipeline) SkillsFromBundleRef(bundleRef string) []*LoadedSkill {
-	reads := p.loader.ReadBundleSkills(bundleRef)
-	if reads == nil {
-		// See CommandsFromBundleRef: an unresolvable bundle is nil, never an
-		// empty export set.
-		return nil
-	}
-	out := make([]*LoadedSkill, 0, len(reads))
-	for _, ls := range reads {
-		if p.admitSkill(ls) {
-			out = append(out, ls)
-		}
-	}
-	return out
+	return deliverEach(p.loader.ReadBundleSkills(bundleRef), p.deliverSkill)
 }

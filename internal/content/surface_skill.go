@@ -13,13 +13,76 @@ import (
 
 // skillDescriptorName is the file an Agent Skill package must contain.
 //
-// It is used ONLY for recognition. It is emphatically not a primary component:
-// nothing designates it as "the" content of a skill, the digest covers every file
-// equally, and there is no Primary/Main/Descriptor concept anywhere in this
-// package. Designating one file would bake a naming convention into trust
-// identity — the day a skill grows a second entry point, what is signed would
-// change silently.
+// It is used for recognition and for LAYOUT: it is the file an engine reads,
+// so it is where Materialize places the selected body, and its form siblings
+// (skillBodyName) are the package's other bodies. It is emphatically not a
+// primary component: nothing designates it as "the" content of a skill for
+// TRUST purposes, the digest covers every file of a form equally, and there is
+// no Primary/Main/Descriptor concept anywhere in this package. Designating one
+// file for identity would bake a naming convention into what is signed — the
+// day a descriptor is renamed, what is signed would change silently.
 const skillDescriptorName = "SKILL.md"
+
+// skillBodyName is the package-relative file carrying a skill's body in form f:
+// the descriptor itself for the base form, and the descriptor with the form
+// suffix spliced before its extension otherwise ("SKILL.distilled.md"). That
+// is the same filename convention formOf reads, so the store's per-form
+// partition and Materialize's body selection name the same file.
+func skillBodyName(f signing.Form) string {
+	if f == signing.FormRaw {
+		return skillDescriptorName
+	}
+	ext := path.Ext(skillDescriptorName)
+	return strings.TrimSuffix(skillDescriptorName, ext) + "." + string(f) + ext
+}
+
+// skillBodyForms is every form a skill body can be authored in: the base form
+// first, then each suffix form.
+func skillBodyForms() []signing.Form {
+	return append([]signing.Form{signing.FormRaw}, formSuffixForms...)
+}
+
+// SkillForms reports the forms a skill package carries, given its
+// package-relative file paths: the base form always, then each suffix form
+// whose body file is present. It is the rule skillType.Forms applies and is
+// exported for a loader that holds a package as paths rather than as a Source.
+func SkillForms(files []string) []signing.Form {
+	out := []signing.Form{signing.FormRaw}
+	for _, f := range formSuffixForms {
+		if slices.Contains(files, skillBodyName(f)) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// SkillMaterialization is what materializing a skill package for an engine in
+// form f writes, as a map from each package-relative source path to the
+// package-relative path it lands at. The selected body lands at the
+// descriptor, because that is the one place an engine reads; every body of
+// another form is absent from the map; every other file maps to itself.
+//
+// A form the package has no body for is ErrNoSuchForm, never an empty map and
+// never a fallback to the body it does have: a caller that asked for a form
+// gets that form or an error it cannot mistake for success.
+func SkillMaterialization(files []string, f signing.Form) (map[string]string, error) {
+	if !slices.Contains(SkillForms(files), f) {
+		return nil, fmt.Errorf("%w: skill package has no %q body (has %v)", ErrNoSuchForm, f, SkillForms(files))
+	}
+	selected := skillBodyName(f)
+	out := make(map[string]string, len(files))
+	for _, p := range files {
+		switch {
+		case p == selected:
+			out[p] = skillDescriptorName
+		case slices.ContainsFunc(skillBodyForms(), func(other signing.Form) bool { return p == skillBodyName(other) }):
+			continue
+		default:
+			out[p] = p
+		}
+	}
+	return out, nil
+}
 
 // Skill is an Agent Skill package: a directory of files, plus ctxloom metadata
 // held in a sidecar OUTSIDE the package so the package itself stays a pure Agent
@@ -33,9 +96,36 @@ type Skill struct {
 	// duplicated here, so in practice only EngineExport.Enabled is meaningful for
 	// a skill; the shared type carries the rest harmlessly.
 	Exports EngineExports
-	// Files is every file in the package, package-relative, sorted by path. No
-	// entry is privileged, SKILL.md included.
+	// Files is every file in the package, package-relative, sorted by path,
+	// every body of every form included. No entry is privileged for trust;
+	// Materialize is where one body is selected for an engine.
 	Files []SkillFile
+}
+
+// Materialize returns the package as an engine receives it in form f: that
+// form's body at the descriptor path, every other body omitted, every other
+// file as-is, in path order. It applies SkillMaterialization, so selecting a
+// form the package has no body for is ErrNoSuchForm and nothing is returned.
+func (s Skill) Materialize(f signing.Form) ([]SkillFile, error) {
+	paths := make([]string, len(s.Files))
+	for i, file := range s.Files {
+		paths[i] = file.Path
+	}
+	layout, err := SkillMaterialization(paths, f)
+	if err != nil {
+		return nil, fmt.Errorf("content: materializing skill %q: %w", s.Name, err)
+	}
+	out := make([]SkillFile, 0, len(layout))
+	for _, file := range s.Files {
+		target, ok := layout[file.Path]
+		if !ok {
+			continue
+		}
+		file.Path = target
+		out = append(out, file)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out, nil
 }
 
 // SkillFile is one file of a skill package.
@@ -158,14 +248,27 @@ func (t skillType) Detect(src Source) bool {
 	return ok
 }
 
-// Forms reports FormRaw only. A skill is never distilled: SKILL.md's description
-// IS the progressive-disclosure mechanism a model reads before loading the rest,
-// and distilling that would defeat it.
+// Forms reports the base form, then each suffix form whose body the package
+// carries beside the descriptor (SkillForms). Only the descriptor carries a
+// form: a sibling file whose name happens to end in a form suffix is content,
+// not a body, and does not make the package claim a form it cannot materialize.
 func (t skillType) Forms(src Source) ([]signing.Form, error) {
-	if _, ok := detectSkill(src); !ok {
+	name, ok := detectSkill(src)
+	if !ok {
 		return nil, fmt.Errorf("%w: not a skill package", ErrUnrecognized)
 	}
-	return []signing.Form{signing.FormRaw}, nil
+	paths, err := src.List()
+	if err != nil {
+		return nil, err
+	}
+	prefix := t.Dir() + "/" + name + "/"
+	rels := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if rel, ok := strings.CutPrefix(p, prefix); ok {
+			rels = append(rels, rel)
+		}
+	}
+	return SkillForms(rels), nil
 }
 
 func (t skillType) RefFor(bundle string, src Source) (trust.Ref, error) {

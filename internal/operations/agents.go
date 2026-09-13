@@ -42,7 +42,7 @@ type AgentEntry struct {
 	// ConfigHome is the agent's declared per-engine config-home policy
 	// (project|host), as written; empty (undeclared) defaults to host at
 	// resolve time — see agents.Agent.ConfigHome's doc.
-	ConfigHome agents.ConfigHome `json:"config_home,omitempty"`
+	ConfigHome string `json:"config_home,omitempty"`
 }
 
 // ListAgents returns every locally-defined agent (the `agents:` config key),
@@ -253,7 +253,7 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 	// dropping the very opt-in the write was trying to make — refused here
 	// instead, before it is ever persisted.
 	if req.ConfigHome != nil && *req.ConfigHome != "" {
-		if _, err := ResolveConfigHome(agents.ConfigHome(*req.ConfigHome)); err != nil {
+		if _, err := agents.ParseConfigHome(*req.ConfigHome); err != nil {
 			return fmt.Errorf("agent %q: %w", name, err)
 		}
 	}
@@ -411,9 +411,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		if req.Driving != nil {
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
-		if req.ConfigHome != nil {
-			entry.ConfigHome = agents.ConfigHome(*req.ConfigHome)
-		}
+		entry.ConfigHome = orKeep(req.ConfigHome, entry.ConfigHome)
 		d.Agents[name] = entry
 		return nil
 	})
@@ -542,7 +540,7 @@ type ResolvedAgent struct {
 	Driving agents.DrivingMode `json:"driving,omitempty"`
 	// ConfigHome is the agent's EFFECTIVE, already-resolved config-home
 	// policy — always agents.ConfigHomeProject or agents.ConfigHomeHost,
-	// never empty, whatever the binding declared (ResolveConfigHome's
+	// never empty, whatever the binding declared (agents.ParseConfigHome's
 	// undeclared/unresolvable → host default already applied). It is the
 	// ONE thing every invocation path (cli/run.go's prepareWorkspace,
 	// operations/delegate.go's bindIsolatedSpawn/startOneshot) threads into
@@ -661,7 +659,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		clidiag.Warn("ctxloom", "agent %q: %v — using %s's default delivery", name, serr, backend)
 	}
 
-	configHome, cherr := ResolveConfigHome(sub.ConfigHome)
+	configHome, cherr := agents.ParseConfigHome(sub.ConfigHome)
 	if cherr != nil {
 		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, cherr)
 	}

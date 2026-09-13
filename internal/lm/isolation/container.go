@@ -1107,8 +1107,9 @@ type containerWorkspace struct {
 // containerEngineHome is the runtime advice a container workspace hands the
 // engine-home resolver (RuntimeAdvice): the home's bytes stay where the host
 // put them, the engine is told a path under the container's own $HOME —
-// <home>/.ctxloom/home/<leaf> — and the mount that makes it true is
-// recorded for MountEngineHome. The leaf is the host root's own last
+// <home>/<paths.AppDirName>/<paths.SessionHomeDirName>/<leaf>, the same
+// leaf-under-home shape the host instance has — and the mount that makes it
+// true is recorded for MountEngineHome. The leaf is the host root's own last
 // element, because the leaf name is load-bearing for an engine that composes
 // its home path itself (agent.HomeVar) and the resolver already chose it.
 //
@@ -1124,7 +1125,7 @@ var _ present.PathsAdvice = containerEngineHome{}
 func (a containerEngineHome) ApplyPaths(p present.Paths) (present.Paths, []present.Mount) {
 	c := present.Containerize{}
 	if p.EngineHome.Host != "" {
-		c.EngineHome = path.Join(a.home, paths.AppDirName, "home", filepath.Base(p.EngineHome.Host))
+		c.EngineHome = path.Join(a.home, paths.AppDirName, paths.SessionHomeDirName, filepath.Base(p.EngineHome.Host))
 	}
 	return c.ApplyPaths(p)
 }

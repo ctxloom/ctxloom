@@ -139,17 +139,20 @@ type Agent struct {
 	// it chose decides only where the engine is told that home is (on the
 	// host, the path itself; in a container, a mount target).
 	//
-	// Validated against ConfigHomeNames when WRITTEN (operations.SetAgent,
-	// same treatment as Surfaces — an unknown value is refused, naming the
-	// two valid ones); a value that fails that same check at RESOLVE time (a
-	// hand-edited config.yaml) warns and falls back to ConfigHomeHost rather
-	// than blocking the launch (operations.ResolveConfigHome).
-	ConfigHome ConfigHome `yaml:"config_home,omitempty"`
+	// This is the DECLARED value as written — a raw string, because a
+	// hand-edited config.yaml can hold anything. ParseConfigHome turns it
+	// into the EFFECTIVE ConfigHome: validated against ConfigHomeNames when
+	// WRITTEN (operations.SetAgent, same treatment as Surfaces — an unknown
+	// value is refused, naming the two valid ones); a value that fails that
+	// same check at RESOLVE time warns and falls back to ConfigHomeHost
+	// rather than blocking the launch.
+	ConfigHome string `yaml:"config_home,omitempty"`
 }
 
-// ConfigHome is Agent.ConfigHome's value type: one of the two accepted
-// policies below, or "" for undeclared (a no-binding run carries the same
-// empty value, and both read as ConfigHomeHost at resolve time).
+// ConfigHome is the EFFECTIVE config-home policy a declaration parses to:
+// one of the two constants below. A run with NO agent binding carries the
+// zero value, which reads exactly like ConfigHomeHost everywhere it is
+// consulted — there is no binding through which such a run could opt in.
 type ConfigHome string
 
 // ConfigHomeProject and ConfigHomeHost are Agent.ConfigHome's two accepted
@@ -163,6 +166,33 @@ const (
 // shell completion, and error messages.
 func ConfigHomeNames() []string {
 	return []string{string(ConfigHomeProject), string(ConfigHomeHost)}
+}
+
+// ParseConfigHome validates and normalizes a binding's DECLARED
+// Agent.ConfigHome into its always-non-empty EFFECTIVE value: the declared
+// value when it is one of ConfigHomeNames, else ConfigHomeHost — undeclared
+// (empty) and unrecognized both default to the runtime's own home, so the
+// controlled home stays strictly opt-in.
+//
+// One function, two callers, deliberately — the SAME shape ValidateDriving
+// has for the same reason. The agent WRITE path (operations.SetAgent) calls
+// it so a typo is refused by the command that set it and nothing is
+// persisted; the RESOLVE path (operations.resolveAgentBinding) calls it so a
+// hand-edited config.yaml degrades to the safe default (host) with a warning
+// rather than blocking the launch — unlike the write path, an unresolvable
+// value here is not fatal, because by the time a run reaches this call the
+// binding already exists and refusing to launch over it would be a
+// regression, not a safety net.
+func ParseConfigHome(declared string) (ConfigHome, error) {
+	switch ConfigHome(declared) {
+	case "":
+		return ConfigHomeHost, nil
+	case ConfigHomeProject, ConfigHomeHost:
+		return ConfigHome(declared), nil
+	default:
+		return ConfigHomeHost, fmt.Errorf("config_home %q: unknown value (known: %s)",
+			declared, strings.Join(ConfigHomeNames(), ", "))
+	}
 }
 
 // DrivingMode is Agent.Driving's enum: the per-turn execution axis a binding

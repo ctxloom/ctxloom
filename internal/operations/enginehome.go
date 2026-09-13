@@ -105,7 +105,7 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 //
 // The controlled-home behaviour is strictly OPT-IN: a binding that never
 // mentions config_home resolves to agents.ConfigHomeHost
-// (operations.ResolveConfigHome), so declaring the binding at all is not
+// (agents.ParseConfigHome), so declaring the binding at all is not
 // enough on its own — an agent that wants its runs kept off the human's real
 // ~/.claude must say `config_home: project`. A delegated child, a fan-out
 // member, a `run --agent` — these ARE ctxloom's processes, and pointing an

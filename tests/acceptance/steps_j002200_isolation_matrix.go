@@ -528,7 +528,7 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 // declares config_home" step), which is the load-bearing fact this scenario
 // proves: config_home wins on EVERY invocation path a binding resolves
 // through, including a bare launch under default_agent — an undeclared
-// binding resolves to the host default (operations.ResolveConfigHome)
+// binding resolves to the host default (agents.ParseConfigHome)
 // regardless of whether it was reached via `--agent iso` or a bare `ctxloom
 // run`, so Alice's own session keeps her real ~/.claude here for the SAME
 // reason the sibling "undeclared binding" scenario keeps it for an explicit

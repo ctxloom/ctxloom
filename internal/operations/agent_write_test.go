@@ -332,8 +332,8 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 // outright — SetAgent errors and nothing is persisted, naming the two valid
 // values.
 //
-// MUTATION TARGET m3: with the ResolveConfigHome check dropped from
-// validateAgentAxes (or ResolveConfigHome itself accepting anything), the
+// MUTATION TARGET m3: with the agents.ParseConfigHome check dropped from
+// validateAgentAxes (or agents.ParseConfigHome itself accepting anything), the
 // "must be rejected" assertion below goes red — an unknown config_home would
 // be written as though it were valid.
 func TestSetAgent_PersistsConfigHome(t *testing.T) {
@@ -352,7 +352,7 @@ func TestSetAgent_PersistsConfigHome(t *testing.T) {
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("coder")
 	require.True(t, ok)
-	assert.Equal(t, agents.ConfigHomeProject, sub.ConfigHome)
+	assert.Equal(t, string(agents.ConfigHomeProject), sub.ConfigHome)
 
 	// Unknown value: REJECTED — nothing written, naming the two valid values.
 	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", ConfigHome: ptr("wildwest")})
@@ -383,7 +383,7 @@ func TestSetAgent_PersistsConfigHomeHost(t *testing.T) {
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("human-adjacent")
 	require.True(t, ok)
-	assert.Equal(t, agents.ConfigHomeHost, sub.ConfigHome)
+	assert.Equal(t, string(agents.ConfigHomeHost), sub.ConfigHome)
 }
 
 // TestSetAgent_UpdatesExisting proves a second set with the same name REPLACES
@@ -477,7 +477,7 @@ agents:
 			assert.Equal(t, "container-rootless", got.Runtime)
 			assert.Equal(t, "bypass", got.Permissions)
 			assert.Equal(t, agents.DrivingOneshot, got.Driving)
-			assert.Equal(t, agents.ConfigHomeProject, got.ConfigHome)
+			assert.Equal(t, string(agents.ConfigHomeProject), got.ConfigHome)
 			require.Len(t, got.Escalation, 1)
 			assert.Equal(t, "auto_accept", got.Escalation[0].Action)
 		})

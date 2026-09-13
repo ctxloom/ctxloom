@@ -204,9 +204,9 @@ func TestResolveInTreeAgentHome_NeverWritesTheRealHostHome(t *testing.T) {
 
 // THE SCOPING RULE. A run with no agent binding at all (ConfigHome == "", the
 // human's own session), an AGENT-BOUND run whose binding never declares
-// config_home (ResolveConfigHome's default), and a binding that EXPLICITLY
+// config_home (agents.ParseConfigHome's default), and a binding that EXPLICITLY
 // declares host all keep the REAL host home — and each says so. The three are
-// pinned separately: MUTATION TARGET m1 flips ResolveConfigHome's default to
+// pinned separately: MUTATION TARGET m1 flips agents.ParseConfigHome's default to
 // project (the undeclared case goes red alone); m2 ignores a declared host
 // value (the declared case goes red alone).
 func TestResolveInTreeAgentHome_NotProjectKeepsTheRuntimeHomeAndSaysSo(t *testing.T) {
@@ -214,7 +214,7 @@ func TestResolveInTreeAgentHome_NotProjectKeepsTheRuntimeHomeAndSaysSo(t *testin
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
-	undeclared, err := ResolveConfigHome("")
+	undeclared, err := agents.ParseConfigHome("")
 	require.NoError(t, err)
 
 	cases := map[string]agents.ConfigHome{

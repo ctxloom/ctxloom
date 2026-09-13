@@ -154,7 +154,7 @@ real home. It gets a throwaway **per-session instance** at
 leaf, distinct by construction so one instance root hosts every engine a
 session runs). No binding, an undeclared `config_home`, or an
 explicit `config_home: host` all mean the engine uses its **real home directly**
-— no instance, no copy-in (`operations.ResolveConfigHome`).
+— no instance, no copy-in (`agents.ParseConfigHome`).
 
 Three classes of content live inside an instance:
 

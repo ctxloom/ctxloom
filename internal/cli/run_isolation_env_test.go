@@ -149,7 +149,7 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 
 	// MUTATION TARGET m1: invert the "undeclared → host" default so an
 	// agent-bound run with NO declared config_home resolves to project — this
-	// case (agentConfigHome == "project" produced only via ResolveConfigHome's
+	// case (agentConfigHome == "project" produced only via agents.ParseConfigHome's
 	// own default, exercised in the operations-layer test) is pinned there;
 	// here the headline red is the UNDECLARED-binding case just below, which
 	// this same st.prepareWorkspace call must resolve to the real home.
@@ -162,7 +162,7 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		workDir := t.TempDir()
 		// agentConfigHome carries the RESOLVED value a ResolvedAgent would hand
 		// prepareWorkspace — an undeclared binding resolves to
-		// agents.ConfigHomeHost (operations.ResolveConfigHome's default), never
+		// agents.ConfigHomeHost (agents.ParseConfigHome's default), never
 		// the empty string a no-binding run leaves behind.
 		st := newState(t, workDir, agents.ConfigHomeHost, hostAxes)
 		st.prepareWorkspace()

@@ -376,7 +376,7 @@ declared binding; only whether a binding is in play at all does. A run with
 `config_home` to read in the first place, and always keeps the real host
 home — there is no binding through which it could even opt in. Decided in
 `operations.InTreeAgentHomeEnv` off the resolved binding's *effective*
-`ConfigHome` (`operations.ResolveConfigHome`), the single place the condition
+`ConfigHome` (`agents.ParseConfigHome`), the single place the condition
 lives; contributed by `cli/run.go`'s `prepareWorkspace`,
 `operations/delegate.go`'s `bindIsolatedSpawn`/`startOneshot`, and
 `operations/oneshot.go`'s `runResolvedAgent`.

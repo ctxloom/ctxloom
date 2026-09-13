@@ -55,11 +55,7 @@ func TestWorkDirWithBoundary_BadOverrideIsNotABoundary(t *testing.T) {
 // override: the override is discarded, the git root wins, and found is true
 // because of the REPOSITORY, not because of the variable.
 func TestWorkDirWithBoundary_BadOverrideFallsThroughToGitRoot(t *testing.T) {
-	repo := testsupport.ProjectDir(t)
-	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(repo, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644))
-	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git", "objects"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git", "refs"), 0o755))
+	tempGitRepo(t)
 
 	var sink bytes.Buffer
 	t.Cleanup(clidiag.SetSink(&sink))

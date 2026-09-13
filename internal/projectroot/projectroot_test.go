@@ -310,9 +310,8 @@ func TestWorkDir(t *testing.T) {
 	})
 
 	t.Run("invalid_env_falls_through_to_git", func(t *testing.T) {
-		testsupport.Isolate(t)
+		tempGitRepo(t) // a repo of our own; git-root detection succeeds in it
 		t.Setenv(EnvVar, filepath.Join(t.TempDir(), "nope"))
-		// The test runs inside the ctxloom repo, so git-root detection succeeds.
 		expected, err := gitutil.FindRoot(".")
 		require.NoError(t, err)
 		assert.Equal(t, expected, WorkDir(),
@@ -344,9 +343,9 @@ func TestRootFromFallback(t *testing.T) {
 	})
 
 	t.Run("false_inside_repo", func(t *testing.T) {
-		testsupport.Isolate(t) // clear env; the test runs inside the ctxloom repo
+		tempGitRepo(t) // clear env, chdir into a repo of our own
 		require.NoError(t, func() error { _, err := gitutil.FindRoot("."); return err }(),
-			"precondition: tests run inside a git repo")
+			"precondition: the test built itself a git repo")
 		assert.False(t, RootFromFallback(),
 			"a discovered git root is a stable project root, not a fallback")
 	})

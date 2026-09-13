@@ -248,3 +248,69 @@ func TestServePeerSend_RefusesReservedTypedKind(t *testing.T) {
 		"the refusal must say the kind is the coordinator's own to mint")
 	assert.Nil(t, resp.GetPeerSend(), "nothing was queued")
 }
+
+// TestMailKinds_AgreeWithTheWireEnum pins the human ruling that the proto's
+// MessageKind is the SINGLE vocabulary: every mailbox kind maps onto exactly one
+// recognised, non-UNSPECIFIED wire member and back, and every wire member
+// (UNSPECIFIED aside) is a mailbox kind. No exemption list on either side — a
+// member added to one and not the other goes RED here, which is the only way
+// the receive side can render the typed field for every kind it can carry.
+func TestMailKinds_AgreeWithTheWireEnum(t *testing.T) {
+	mail := MailKinds()
+	require.Contains(t, mail, KindUnset)
+
+	seen := make(map[agentcoordpb.MessageKind]string, len(mail))
+	for _, kind := range mail {
+		if kind == KindUnset {
+			continue
+		}
+		wire, err := agentcoordpb.MessageKindForLegacyName(kind)
+		require.NoError(t, err, "mail kind %q has no wire member", kind)
+		require.NotEqual(t, agentcoordpb.MessageKind_MESSAGE_KIND_UNSPECIFIED, wire, "mail kind %q must not map onto UNSPECIFIED", kind)
+		assert.Equal(t, kind, agentcoordpb.LegacyKindName(wire), "the mapping must round trip for %q", kind)
+		if prev, dup := seen[wire]; dup {
+			t.Fatalf("mail kinds %q and %q share the wire member %s", prev, kind, wire)
+		}
+		seen[wire] = kind
+	}
+
+	for value, name := range agentcoordpb.MessageKind_name {
+		wire := agentcoordpb.MessageKind(value)
+		if wire == agentcoordpb.MessageKind_MESSAGE_KIND_UNSPECIFIED {
+			continue
+		}
+		spelling := agentcoordpb.LegacyKindName(wire)
+		assert.True(t, knownMailKind(spelling), "wire member %s (%q) is not a mailbox kind; the vocabularies must agree 1:1", name, spelling)
+		assert.Equal(t, spelling, seen[wire], "wire member %s must be reached from its mailbox spelling", name)
+	}
+
+	// The unkinded Message — the Go zero value, minted by no producer in this
+	// build — is UNSPECIFIED on the wire, and an unmapped name is an error, never
+	// a silent zero.
+	wire, err := agentcoordpb.MessageKindForLegacyName(KindUnset)
+	require.NoError(t, err)
+	assert.Equal(t, agentcoordpb.MessageKind_MESSAGE_KIND_UNSPECIFIED, wire)
+	_, err = agentcoordpb.MessageKindForLegacyName("a_kind_nobody_mapped")
+	require.Error(t, err)
+}
+
+// TestReservedMailKinds_AreTheEnumsReservedMembers pins the split's second
+// half the same way TestSenderMailKind_VocabularySplit pins the first: what
+// coord refuses from a sender as RESERVED is exactly what the enum marks
+// coordinator-reserved — including MESSAGE_KIND_USER_CONTROL, which has no
+// producer yet and gains a mailbox spelling here so the day it does, the frame
+// renders it as a name from the closed set rather than an unknown.
+func TestReservedMailKinds_AreTheEnumsReservedMembers(t *testing.T) {
+	for value := range agentcoordpb.MessageKind_name {
+		wire := agentcoordpb.MessageKind(value)
+		if !wire.IsCoordinatorReserved() {
+			continue
+		}
+		kind := agentcoordpb.LegacyKindName(wire)
+		err := SenderMailKind(kind)
+		require.Error(t, err, "kind %q is coordinator-reserved on the wire and must be refused from a sender", kind)
+		assert.Contains(t, err.Error(), "reserved", "the refusal for %q must say reserved, not merely invalid", kind)
+		assert.True(t, knownMailKind(kind), "reserved kind %q must be renderable as a header name", kind)
+	}
+	assert.Contains(t, reservedMailKinds, KindUserControl)
+}

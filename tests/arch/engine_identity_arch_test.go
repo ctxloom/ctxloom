@@ -40,11 +40,16 @@
 //     correctly-registered backend never requires an edit here — only a
 //     roster member that has drifted out of registration does.
 //
-// Neither gate forces every roster to contain every registered backend: an
-// engine legitimately absent from a roster (one with no vendor-native
-// transcript store is absent from vendorReaderRegistry, say) is not a
-// failure. The gate is a floor (every listed name is real), not a ceiling
-// (every real name must be listed everywhere).
+// The floor gate alone does not force every roster to contain every
+// registered backend, and for a roster kept as a LITERAL TABLE it cannot: an
+// engine legitimately absent (no vendor-native transcript store, say) and an
+// engine somebody forgot to add are byte-identical there, and the miss is
+// silent at the read site. A roster that is instead a DERIVED VIEW over the
+// registry — the engine's own descriptor declares the fact, and the roster
+// is the registry filtered by that declaration — makes the absence a stated
+// value with a reason, and for those TestArch_DerivedEngineRosters_
+// CoverEveryRegisteredBackend gates the reverse direction too: every
+// registered backend is a member or says why it is not.
 package arch
 
 import (
@@ -60,6 +65,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // enginePluginImportPaths are the concrete, engine-identity-branching plugin
@@ -145,6 +151,60 @@ func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
 				t.Errorf("%s lists backend %q, which is not a currently-registered internal/lm/backends name "+
 					"(known: %v) — a typo, or a stale entry from a rename/removal in the canonical registry",
 					r.source, name, known)
+			}
+		}
+	}
+}
+
+// derivedRoster is a roster that is a VIEW over the registry: members are
+// the registered backends whose descriptor provides the fact, and absence
+// reads back the declared reason for every backend that is not a member.
+type derivedRoster struct {
+	source  string
+	members []string
+	absence func(name string) string
+}
+
+// declaredAbsence adapts a registry accessor returning agent.Declared[T]
+// into the reason-only reader derivedRoster wants.
+func declaredAbsence[T any](get func(string) agent.Declared[T]) func(string) string {
+	return func(name string) string { return get(name).AbsentReason() }
+}
+
+// TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend is the reverse of
+// the floor above, for the rosters that are derived from the registry: every
+// registered backend either appears in the roster or its descriptor declares
+// the fact absent WITH A REASON. A forgotten entry cannot exist by
+// construction; what this catches is the derivation itself dropping a member
+// (a filter that skips an engine the descriptor provides for) — the
+// mutation "remove an engine from the derived roster" dies here.
+func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
+	known := backends.List()
+	if len(known) == 0 {
+		t.Fatal("backends.List() returned nothing — the canonical registry did not populate; the gate has " +
+			"nothing to validate against")
+	}
+
+	rosters := []derivedRoster{
+		{
+			source:  "internal/operations.VendorReaderEngineNames (engine.Descriptor.TranscriptReaders)",
+			members: operations.VendorReaderEngineNames(),
+			absence: declaredAbsence(backends.TranscriptReadersFor),
+		},
+	}
+
+	for _, r := range rosters {
+		for _, name := range known {
+			member := slices.Contains(r.members, name)
+			reason := r.absence(name)
+			switch {
+			case member && reason != "":
+				t.Errorf("%s lists %q, whose descriptor declares the fact ABSENT (%q) — the derivation is not "+
+					"reading the declaration", r.source, name, reason)
+			case !member && reason == "":
+				t.Errorf("%s omits registered backend %q, and its descriptor gives no reason for the absence — "+
+					"either the derivation dropped a member, or the engine's declaration is not reaching the roster",
+					r.source, name)
 			}
 		}
 	}

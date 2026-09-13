@@ -67,7 +67,7 @@ func TestConvertVendorTranscriptOnExit_UnknownHarp(t *testing.T) {
 }
 
 // TestConvertVendorTranscriptOnExit_UnregisteredBackend covers a harp whose
-// backend has no operations.vendorReaderRegistry entry: the exit seam is a
+// backend declares no transcript reader: the exit seam is a
 // SILENT no-op — no canonical file and no warning — because there is no reader
 // to refuse with. The backend name is synthetic: every registered backend has a
 // reader, so the registry miss cannot be reached with a real one. The bound

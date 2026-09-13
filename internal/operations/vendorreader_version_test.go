@@ -13,8 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 )
 
@@ -31,6 +34,21 @@ func stubVersionedAdapter(a vendorreader.VendorAdapter) []vendorreader.Versioned
 		Adapter:  a,
 		Versions: vendorreader.VersionRange{MinInclusive: "0.0.1"},
 	}}
+}
+
+// registerReaderFixture registers a synthetic engine whose ONLY provided
+// capability is the given transcript adapter, and returns its name. A test
+// that needs a reader to misbehave authors an engine that declares that
+// reader, exactly as a real engine would, instead of rewriting another
+// engine's declaration behind the registry's back.
+func registerReaderFixture(t *testing.T, a vendorreader.VendorAdapter) string {
+	t.Helper()
+	name := "fixture-reader-" + strings.ToLower(strings.NewReplacer("/", "-", " ", "-").Replace(t.Name()))
+	d := enginefixture.Descriptor(name)
+	d.TranscriptReaders = agent.Provide(stubVersionedAdapter(a))
+	require.NoError(t, backends.Register(d))
+	t.Cleanup(func() { backends.UnregisterForTesting(name) })
+	return name
 }
 
 // enginePins reads .github/engine-versions.env — the same real repository file
@@ -78,7 +96,7 @@ func TestVendorReaderRanges_ContainThePinnedTestedVersion(t *testing.T) {
 		pin, ok := pins[key]
 		require.True(t, ok, "%s must be pinned in .github/engine-versions.env", key)
 
-		reg, ok := vendorReaderRegistry[engine]
+		reg, ok := vendorReaderFor(engine)
 		require.True(t, ok, "%s must have a vendor reader", engine)
 		require.NotEmpty(t, reg.adapters, "%s must declare at least one versioned adapter", engine)
 
@@ -191,11 +209,14 @@ func TestConvertVendorTranscript_MalformedLineInAKnownVersionDegradesToPartial(t
 // require below fails loudly rather than passing vacuously, which is the
 // point.
 func TestVendorReaderRegistry_IsAPortNotASingleImplementation(t *testing.T) {
-	require.GreaterOrEqual(t, len(vendorReaderRegistry), 2,
+	engines := VendorReaderEngineNames()
+	require.GreaterOrEqual(t, len(engines), 2,
 		"a one-entry registry cannot prove polymorphism — every mutation to the keyed lookup would survive")
 
 	seen := map[string]string{}
-	for engine, reg := range vendorReaderRegistry {
+	for _, engine := range engines {
+		reg, ok := vendorReaderFor(engine)
+		require.True(t, ok)
 		require.NotEmpty(t, reg.adapters, "%s must declare at least one versioned adapter", engine)
 		require.NotNil(t, reg.locate, "%s must declare a locate func", engine)
 
@@ -213,13 +234,12 @@ func TestVendorReaderRegistry_IsAPortNotASingleImplementation(t *testing.T) {
 		require.True(t, ok, "%s must resolve through the exported keyed lookup", engine)
 		require.NotEmpty(t, viaLookup)
 
-		// The adapter a lookup returns must be DISTINCT per engine. A lookup
-		// that ignores its key returns the same concrete type for every
-		// engine, and this is what catches that.
-		concrete := fmt.Sprintf("%T", viaLookup[0].Adapter)
-		if prev, dup := seen[concrete]; dup {
-			t.Fatalf("engines %s and %s resolve to the same adapter type %s — the registry lookup is not keyed", prev, engine, concrete)
-		}
-		seen[concrete] = engine
+		// A lookup that ignores its key returns the same concrete adapter
+		// type for every engine; the roster must resolve to more than one.
+		// Not one per engine: mock's doubles share mock's descriptor and so
+		// legitimately share its adapter.
+		seen[fmt.Sprintf("%T", viaLookup[0].Adapter)] = engine
 	}
+	require.GreaterOrEqual(t, len(seen), 2,
+		"every engine resolved to the same adapter type %v — the registry lookup is not keyed", seen)
 }

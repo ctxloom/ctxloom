@@ -52,14 +52,20 @@ func TestVersionParsers_RefuseAShapeItDoesNotOwn(t *testing.T) {
 	assert.Error(t, err, "a non-version token must be refused, never returned as a version")
 }
 
-// Every engine whose vendor transcripts ctxloom READS must be askable for its
-// version — otherwise reader selection has nothing to select on and every
-// session under that engine refuses. These are the REGISTERED engines
-// operations.vendorReaderRegistry covers (and .github/engine-versions.env
-// pins); this test states the requirement where the descriptors live so a new
-// engine cannot be added without one.
+// Every shippable engine whose vendor transcripts ctxloom READS must be
+// askable for its version — otherwise reader selection has nothing to select
+// on and every session under that engine refuses. Read off the registry:
+// an engine that provides TranscriptReaders and is not a test double must
+// also provide VersionCommand, so a new engine cannot declare a reader
+// without one. (mock provides a degenerate reader and no binary; TestOnly is
+// what exempts it, not a name.)
 func TestVersionCommands_DeclaredForEveryVendorReaderEngine(t *testing.T) {
-	for _, engine := range []string{"claude-code"} {
+	checked := 0
+	for _, engine := range List() {
+		if _, reads := TranscriptReadersFor(engine).Get(); !reads || IsTestOnly(engine) {
+			continue
+		}
+		checked++
 		cmd, ok := VersionCommandFor(engine)
 		assert.True(t, ok, "%s reads a vendor transcript, so it must declare a version command", engine)
 		if ok {
@@ -67,6 +73,7 @@ func TestVersionCommands_DeclaredForEveryVendorReaderEngine(t *testing.T) {
 			assert.NotEmpty(t, cmd.Args, "%s's version command must pass some argument", engine)
 		}
 	}
+	assert.GreaterOrEqual(t, checked, 1, "at least one shippable engine reads vendor transcripts")
 }
 
 // mock deliberately declares NO version command: it has no binary at all, so

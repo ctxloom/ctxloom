@@ -24,15 +24,13 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
-	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
-	mockreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/mock"
 )
 
 // lockFileMode and lockDirMode are the modes the canonical-transcript
@@ -65,50 +63,51 @@ type vendorReaderEntry struct {
 	locate   vendorLocate
 }
 
-// vendorReaderRegistry maps a backend registry name — the SAME name
-// backends.descriptors registers it under (agent.NewBaseBackend's first arg:
-// config.BackendClaudeCode "claude-code"),
-// the plugin's own Info RPC reports, and transcript.RecordOneshot's engine
-// param already carries — to its VendorAdapter + locate pair. This is
-// deliberately the REGISTRY name, not the reader packages' own short test
-// names ("claude" in their _test.go fixtures):
-// using anything else would make a harp's oneshot-mode entries (Engine:
-// "claude-code") and its interactive-mode entries (this file) disagree about
-// which engine wrote a canonical transcript's Engine field.
+// vendorReaderFor resolves engine's reader entry as a VIEW over the backend
+// registry: the adapters are the ones the engine's own descriptor declares
+// (engine.Descriptor.TranscriptReaders), so an engine cannot be registered
+// and launchable yet missing here — the roster is the registry, filtered by
+// what each engine declared. ok=false is a DECLARED absence (the descriptor
+// said, with a reason, that the engine keeps no vendor-native transcript) or
+// an unregistered name; it is never a forgotten table entry, because there is
+// no table.
 //
-// mock IS registered, and the objection to that is real enough to answer
-// here: mock has no vendor-native transcript store of its own, so on the
-// product's own terms it has nothing to import. It carries a DEGENERATE
-// adapter anyway (internal/transcript/vendorreader/mock) because a
-// single-entry registry cannot fail — version dispatch, the locate
-// indirection and the lookup below have no branch to take wrongly with one
-// engine, so mutations to them all survive. The second adapter is what makes
-// them die. Mock's adapter must stay degenerate; see that package's doc.
+// The name resolves through the registry's own alias handling, so a harp's
+// oneshot-mode entries (Engine: "claude-code") and its interactive-mode
+// entries agree about which engine wrote a canonical transcript's Engine
+// field: both go through the same lookup.
 //
-// Every registered engine PREFERS the already-bound transcript path
+// mock declares a DEGENERATE adapter (internal/transcript/vendorreader/mock)
+// though it has no vendor store, because a single-entry roster cannot fail —
+// version dispatch, the locate indirection and the lookup have no branch to
+// take wrongly with one engine, so mutations to them all survive. The second
+// adapter is what makes them die.
+//
+// Every engine PREFERS the already-bound transcript path
 // (locateBoundTranscript): the SessionStart bind hook already resolved the
 // vendor file for ctxloom's OWN index — see sessions.Manager.BindSession —
 // so there is no path-derivation logic to duplicate here, and no chance of
 // resurrecting the deleted reader's claude cwd→slug bug (ADR 0035 names it,
 // and this sidestep).
-var vendorReaderRegistry = map[string]vendorReaderEntry{
-	config.BackendClaudeCode: {adapters: claudereader.VersionedAdapters, locate: locateBoundTranscript},
-	config.BackendMock:       {adapters: mockreader.VersionedAdapters, locate: locateBoundTranscript},
+func vendorReaderFor(engine string) (vendorReaderEntry, bool) {
+	adapters, ok := backends.TranscriptReadersFor(engine).Get()
+	if !ok {
+		return vendorReaderEntry{}, false
+	}
+	return vendorReaderEntry{adapters: adapters, locate: locateBoundTranscript}, true
 }
 
-// VendorReaderEngineNames returns the backend names vendorReaderRegistry
-// covers (one of the four independently-maintained engine-identity
-// rosters found spread across the codebase — see
-// tests/arch/engine_identity_arch_test.go's TestArch_EngineIdentityRosters_
-// MembersAreRegisteredBackends, which validates every name returned here is
-// still a real, currently-registered internal/lm/backends name). Exported
-// read-only so that gate can reach this package's otherwise-unexported
-// roster without operations importing backends any more than it already
-// does, and without the gate importing operations' internals.
+// VendorReaderEngineNames returns the registered backend names that declare
+// a vendor reader, sorted. Derived from the registry on every call, so a
+// newly registered engine that declares readers appears here without an
+// edit; an engine that declares them absent does not, and its reason is
+// readable through backends.TranscriptReadersFor.
 func VendorReaderEngineNames() []string {
-	names := make([]string, 0, len(vendorReaderRegistry))
-	for name := range vendorReaderRegistry {
-		names = append(names, name)
+	var names []string
+	for _, name := range backends.List() {
+		if _, ok := vendorReaderFor(name); ok {
+			names = append(names, name)
+		}
 	}
 	return names
 }
@@ -129,7 +128,7 @@ func VendorReaderEngineNames() []string {
 // package vars, which are FACTS those packages state about themselves, and a
 // caller must not be able to rewrite them through a read.
 func VendorReaderAdaptersFor(engine string) ([]vendorreader.VersionedAdapter, bool) {
-	reg, ok := vendorReaderRegistry[engine]
+	reg, ok := vendorReaderFor(engine)
 	if !ok {
 		return nil, false
 	}
@@ -267,7 +266,7 @@ func RefreshVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 // (re)built: the vendor file naming that conversation was still on disk, but
 // nothing pointed at it anymore.
 func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool) (converted bool, err error) {
-	reg, ok := vendorReaderRegistry[e.Backend]
+	reg, ok := vendorReaderFor(e.Backend)
 	if !ok || e.HarpName == "" {
 		return false, nil
 	}

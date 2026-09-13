@@ -116,7 +116,7 @@ func TestDoctorCheckTranscriptReaders_RightState_UnprobedVersionIsInfoNotWarn(t 
 //
 // It uses an UNREGISTERED engine name deliberately. Every registered backend
 // now carries a vendor reader (mock included, as the degenerate second adapter
-// that keeps vendorReaderRegistry polymorphic), so this branch is reachable
+// that keeps the reader roster polymorphic), so this branch is reachable
 // only through a config naming a backend this build does not have.
 func TestDoctorCheckTranscriptReaders_RightState_EngineWithNoVendorReader(t *testing.T) {
 	// InitializeProject REFUSES an unregistered engine, so the config is built

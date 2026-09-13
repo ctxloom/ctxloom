@@ -1,5 +1,5 @@
 // Package mock is the DEGENERATE vendor-transcript adapter: the second
-// implementation that proves internal/operations' vendorReaderRegistry is a
+// implementation that proves internal/operations' vendor-reader view is a
 // real port rather than a single-implementation seam wearing an interface.
 //
 // WHY THIS EXISTS AT ALL, since the honest objection is obvious and was

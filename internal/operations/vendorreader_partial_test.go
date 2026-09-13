@@ -45,14 +45,9 @@ func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(
 	testsupport.Isolate(t)
 	harp := "convert-partial-failure-harp"
 
-	orig := vendorReaderRegistry["claude-code"]
-	vendorReaderRegistry["claude-code"] = vendorReaderEntry{
-		adapters: stubVersionedAdapter(partialFailAdapter{n: 3}),
-		locate:   orig.locate,
-	}
-	defer func() { vendorReaderRegistry["claude-code"] = orig }()
+	engine := registerReaderFixture(t, partialFailAdapter{n: 3})
 
-	e := sessions.Entry{HarpName: harp, Backend: "claude-code", TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
+	e := sessions.Entry{HarpName: harp, Backend: engine, TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	assert.True(t, converted, "Convert was genuinely attempted")
@@ -92,14 +87,9 @@ func TestConvertVendorTranscript_ZeroLinesIsNotReportedAsConverted(t *testing.T)
 	testsupport.Isolate(t)
 	harp := "convert-zero-lines-harp"
 
-	orig := vendorReaderRegistry["claude-code"]
-	vendorReaderRegistry["claude-code"] = vendorReaderEntry{
-		adapters: stubVersionedAdapter(zeroLineAdapter{}),
-		locate:   orig.locate,
-	}
-	defer func() { vendorReaderRegistry["claude-code"] = orig }()
+	engine := registerReaderFixture(t, zeroLineAdapter{})
 
-	e := sessions.Entry{HarpName: harp, Backend: "claude-code", TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
+	e := sessions.Entry{HarpName: harp, Backend: engine, TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	require.NoError(t, err)

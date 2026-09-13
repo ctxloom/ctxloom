@@ -136,8 +136,8 @@ engine's private files after the fact.
   granularity.
 - **Interactive pty.** A human driving the engine's own TUI never routes the
   assistant's text through ctxloom's process, so nothing can be teed. For a
-  backend with a registered `vendorreader.VendorAdapter`
-  (`operations.vendorReaderRegistry`), the engine's native store is converted
+  backend whose descriptor declares a `vendorreader.VendorAdapter`
+  (`engine.Descriptor.TranscriptReaders`), the engine's native store is converted
   through the same `transcript.Recorder` the tee uses — on exit of an
   interactive `ctxloom run` (`convertVendorTranscriptOnExit`), and on demand
   when a read finds no canonical transcript (`operations.ResolveAndHeal`,

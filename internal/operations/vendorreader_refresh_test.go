@@ -180,12 +180,7 @@ func TestRefreshVendorTranscript_FailedRefreshKeepsTheTranscriptItHad(t *testing
 
 	// The engine's store is now unreadable partway through — a bad byte on a
 	// line the first conversion never reached.
-	orig := vendorReaderRegistry[config.BackendClaudeCode]
-	vendorReaderRegistry[config.BackendClaudeCode] = vendorReaderEntry{
-		adapters: stubVersionedAdapter(partialFailAdapter{n: 3}),
-		locate:   orig.locate,
-	}
-	defer func() { vendorReaderRegistry[config.BackendClaudeCode] = orig }()
+	e.Backend = registerReaderFixture(t, partialFailAdapter{n: 3})
 
 	_, err = RefreshVendorTranscript(context.Background(), e)
 	require.Error(t, err, "a conversion that dies partway must surface, not be swallowed")

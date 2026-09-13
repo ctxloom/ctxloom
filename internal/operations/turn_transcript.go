@@ -14,11 +14,10 @@ import (
 // the transcript of the turn now ending on harp.
 //
 // It exists so those hooks route by the session's ACTUAL engine instead of
-// assuming one. It reads vendorReaderRegistry — the same registry
+// assuming one. It reads vendorReaderFor — the same registry-derived view
 // convertVendorTranscript reads — so a hook and a canonical conversion can
 // never disagree about which parser an engine's bytes get, and no second
-// engine-identity roster is minted (the four that already exist are
-// enumerated in tests/arch/engine_identity_arch_test.go).
+// engine-identity roster is minted.
 //
 // The returned src is the ADAPTER'S OWN LOCATOR, not necessarily a file path:
 // kiro's is a "<db-path>#<conversation-id>" composite, which is exactly why a
@@ -46,7 +45,7 @@ func ResolveTurnTranscript(ctx context.Context, harp, hookTranscriptPath string)
 	if entry == nil {
 		return nil, "", fmt.Errorf("%s is not an indexed session, so there is no engine to select a transcript reader for", harp)
 	}
-	reg, ok := vendorReaderRegistry[entry.Backend]
+	reg, ok := vendorReaderFor(entry.Backend)
 	if !ok {
 		return nil, "", fmt.Errorf("ctxloom carries no transcript reader for engine %q, so %s's turn cannot be read", entry.Backend, harp)
 	}

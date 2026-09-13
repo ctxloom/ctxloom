@@ -170,9 +170,10 @@ an engine with a declared loss and say nothing — neither calls
 backends whose legacy scraper was deleted rather than demoted. A `nil` history
 **fails loudly** at both consumers (`internal/operations/sessionfeed.go`,
 `internal/lm/grpc/sessionhistory.go`). Canonical capture is written runner-side
-into `internal/transcript`'s canonical JSONL; `vendorReaderRegistry`
-(`internal/operations/vendorreader.go`) names the backends with an opt-in vendor
-reader for the interactive-pty gap.
+into `internal/transcript`'s canonical JSONL; each engine declares its own
+vendor reader on its descriptor (`engine.Descriptor.TranscriptReaders`), and
+`internal/operations/vendorreader.go` reads that declaration for the
+interactive-pty gap.
 
 ## 7. One-shot driving and resume
 

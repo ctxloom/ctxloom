@@ -85,7 +85,7 @@ func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 	// Every written record must carry the REGISTRY backend name
 	// (config.BackendClaudeCode == "claude-code"), not the reader
 	// package's own short test-fixture name ("claude") — see
-	// vendorReaderRegistry's doc comment for why: RecordOneshot and the live
+	// vendorReaderFor's doc comment for why: RecordOneshot and the live
 	// structured-chat tee (lm/grpc/chat.go's openRecorder, keyed off the
 	// plugin's own Info RPC name) both already stamp "claude-code" for this
 	// harp/engine, and a mismatched Engine value on the SAME harp would be
@@ -226,23 +226,21 @@ func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 	assert.False(t, converted)
 }
 
-// TestVendorReaderRegistry_Membership locks in exactly which backend names
-// carry a vendor reader — a change here (adding/removing an engine) should be
-// a deliberate, visible edit to this test, not a silent registry drift.
-//
-// TWO members is the load-bearing part, not an accident of which engines
-// exist: claude-code is the real vendor reader, and mock is the degenerate
-// second adapter that keeps this a PORT rather than a single-implementation
-// seam (see vendorReaderRegistry's doc and the mock reader package). If this
-// ever drops back to one entry, the version-dispatch and locate mutations
-// stop dying — so a change reducing it needs to explain what replaced the
-// polymorphism, not merely update the expected list.
-func TestVendorReaderRegistry_Membership(t *testing.T) {
-	got := make([]string, 0, len(vendorReaderRegistry))
-	for name := range vendorReaderRegistry {
-		got = append(got, name)
-	}
-	assert.ElementsMatch(t, []string{config.BackendClaudeCode, config.BackendMock}, got)
+// TestVendorReaderRegistry_IsAPortWithARealAndADegenerateMember pins the two
+// members that make the roster a PORT rather than a single implementation:
+// claude-code is the real vendor reader, and mock is the degenerate second
+// adapter that gives version dispatch and the keyed lookup a wrong branch to
+// take (see vendorReaderFor's doc and the mock reader package). Membership
+// itself is DERIVED from the registry — every registered engine that
+// declares readers is in, and TestVendorReaderAdaptersFor_AgreesWithEvery
+// RegisteredDeclaration holds that — so this test only asserts the floor
+// that keeps the mutations dying: if either of these two ever stops
+// declaring a reader, the change must explain what replaced the polymorphism.
+func TestVendorReaderRegistry_IsAPortWithARealAndADegenerateMember(t *testing.T) {
+	got := VendorReaderEngineNames()
+	assert.Contains(t, got, config.BackendClaudeCode)
+	assert.Contains(t, got, config.BackendMock)
+	assert.GreaterOrEqual(t, len(got), 2)
 }
 
 // TestLocateBoundTranscript exercises the shared locate func directly

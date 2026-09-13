@@ -151,6 +151,12 @@ type childRt struct {
 	// agent_stop reaches an attempt through the per-harp registration
 	// instead, which also covers an attempt that has no run yet.
 	launchCancel context.CancelFunc
+	// exitRequested is a bulk agent_stop's REQUEST (drain.go, requestExit):
+	// set while this run's turn is in flight, it makes the turn boundary end
+	// the run under that policy instead of parking it idle. Nil otherwise.
+	// Guarded by Coordinator.mu. Per RUN, not per harp, so a resumed run
+	// can never inherit a stale request.
+	exitRequested *drainPolicy
 	// ownerRun marks a top-level, OWNER-OWNED run (Phase 2a-B, StartOwnedRun):
 	// the owning session's own structured/oneshot container run, minted
 	// parent-less with the OWNER'S HARP reused as its run role. It rides the
@@ -1446,11 +1452,11 @@ func (c *Coordinator) onTurnIdle(role string) {
 	if !rt.ownerRun {
 		c.bridgeTurnResult(rt)
 	}
-	// DRAINING: the boundary is where the drain's exit request is honoured
+	// DRAINING: the boundary is where a drain's exit request is honoured
 	// (drain.go). Checked before the one-shot teardown so the terminal says
-	// drained rather than resumable — under drain nothing resumes it.
-	if c.Draining() {
-		c.drainAtBoundary(rt)
+	// drained (or stopped) rather than resumable — nothing resumes it here.
+	if p := c.exitRequested(rt); p != nil {
+		c.drainAtBoundary(rt, p)
 		return
 	}
 	// ONE-SHOT (Slice 4): a driving:oneshot child that is live-confirmed
@@ -1573,11 +1579,12 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 // an empty mailbox parks the child idle and yields the slot.
 func (c *Coordinator) onTurnBoundary(rt *childRt) {
 	c.bridgeTurnResult(rt)
-	// DRAINING: the boundary is where the drain's exit request is honoured
+	// DRAINING: the boundary is where a drain's exit request is honoured
 	// (drain.go) — before the mailbox is consulted, so queued mail stays
-	// queued for the next run rather than starting a turn under shutdown.
-	if c.Draining() {
-		c.drainAtBoundary(rt)
+	// queued for the next run rather than starting a turn the request said
+	// not to.
+	if p := c.exitRequested(rt); p != nil {
+		c.drainAtBoundary(rt, p)
 		return
 	}
 	// A journal failure here is NOT "the mailbox is empty": parking

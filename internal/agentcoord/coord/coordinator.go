@@ -378,11 +378,14 @@ type Coordinator struct {
 	// declaration of that number. A field so a test can shrink it; no
 	// Options field, because the bound is the policy, not a knob.
 	drainBound time.Duration
-	// drain is the bounded drain BeginDrain started, nil until then. Guarded
-	// by drainMu (not c.mu: BeginDrain must not need the big lock, and the
+	// drain is the SHUTDOWN drain BeginDrain started, nil until then; drains
+	// is every drain still running — that one and any bulk agent_stop sweep
+	// (StopChildren) — which is the set drainWake pokes. Both guarded by
+	// drainMu (not c.mu: BeginDrain must not need the big lock, and the
 	// drain runner takes c.mu itself).
 	drainMu sync.Mutex
 	drain   *Drain
+	drains  map[*Drain]struct{}
 
 	// execGaugeHook, if set (tests only), is sampled synchronously every time
 	// a run's §6a state durably transitions (setState, terminateRun): it
@@ -442,6 +445,7 @@ func New(opts Options) (*Coordinator, error) {
 		launchBackoffBase:  t.launchBackoffBase,
 		launchBackoffMax:   t.launchBackoffMax,
 		drainBound:         t.drainBound,
+		drains:             make(map[*Drain]struct{}),
 		watch:              newWatchHub(),
 		consumerCreds:      &consumerCreds{},
 		attach:             make(map[string]*childRt),
@@ -757,17 +761,15 @@ func (c *Coordinator) BeginDrain() *Drain {
 	d := c.drain
 	fresh := d == nil
 	if fresh {
-		d = newDrain()
+		// Which children the drain accounts for is decided HERE, before this
+		// returns: a caller that ends a run right after BeginDrain must find
+		// it in the outcome, not lose it to a snapshot that ran later.
+		d = newDrain(shutdownPolicy, c.drainTracked(nil))
 		c.drain = d
 	}
 	c.drainMu.Unlock()
 	if fresh {
-		// Which children the drain accounts for is decided HERE, before this
-		// returns: a caller that ends a run right after BeginDrain must find
-		// it in the outcome, not lose it to a snapshot that ran later.
-		tracked := c.drainTracked()
-		bound := c.drainBound
-		c.goTracked(func() { c.runDrain(d, tracked, bound) })
+		c.startDrain(d)
 	}
 	return d
 }

@@ -1130,10 +1130,13 @@ func (st *runState) hostCoordinator() func() {
 	}
 
 	st.sessionCoord = sc
+	// Stamped WHOLE by the coordinator (coord.OwnerRunnerEnv, via
+	// mcp.SessionOwnerEnv) — the same producer every child spawn goes through,
+	// so the owner's runner carries the harp, its depth/oneshot leafness and
+	// both spool postures on identical terms. This used to patch
+	// CTXLOOM_SESSION_HARP back in by hand on the line below, which is how the
+	// postures went missing on the owner's runner alone.
 	st.runnerSpawnEnv = coordEnv
-	// The runner's local identity (session instructions, plan stamping) is the
-	// session harp.
-	st.runnerSpawnEnv["CTXLOOM_SESSION_HARP"] = st.activeHarp
 
 	// RevokeSessionOwner existed with zero call sites, so a depth-0
 	// session-owner credential (minted per `ctxloom run` process by

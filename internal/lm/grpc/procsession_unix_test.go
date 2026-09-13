@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/procalive"
 )
 
 // TestHelperKillSessionRunner is not a real test — it is the re-exec target
@@ -42,25 +44,11 @@ func TestHelperKillSessionRunner(t *testing.T) {
 // processAlive reports whether pid denotes a still-running process (not a
 // zombie). The zombie carve-out matters under an unreaped-ancestor
 // container, where a reaped-by-nobody process lingers in the table and
-// kill(pid, 0) still succeeds against it.
+// kill(pid, 0) still succeeds against it. The actual check lives in
+// internal/testsupport/procalive, shared with tests/integration's own reap
+// test so the two cannot drift apart again.
 func processAlive(pid int) bool {
-	if err := syscall.Kill(pid, 0); err != nil {
-		return false
-	}
-	return !isZombie(pid)
-}
-
-func isZombie(pid int) bool {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return false
-	}
-	for i := len(data) - 1; i >= 0; i-- {
-		if data[i] == ')' && i+2 < len(data) {
-			return data[i+2] == 'Z'
-		}
-	}
-	return false
+	return procalive.Alive(pid)
 }
 
 func waitForFile(t *testing.T, path string, timeout time.Duration) string {

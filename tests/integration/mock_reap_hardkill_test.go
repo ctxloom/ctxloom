@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/procalive"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -145,8 +146,12 @@ func TestMockPluginReapedOnHardKilledParent(t *testing.T) {
 		"mock plugin subprocess pid %d outlived its hard-killed parent %d with nothing left to reap it — this is the orphaned-`llm serve mock` leak", childPID, parentPID)
 }
 
-// processAlive reports whether pid names a live process, via the standard
-// POSIX kill(pid, 0) existence probe (no signal actually sent).
+// processAlive reports whether pid names a live, non-zombie process. A bare
+// kill(pid, 0) probe succeeds against a zombie too, which would make this
+// exact reap test pass or fail on the environment's reaping behavior rather
+// than on the product path it exists to check — see
+// internal/testsupport/procalive, shared with internal/lm/grpc's own reap
+// tests so the two checks cannot drift apart again.
 func processAlive(pid int) bool {
-	return syscall.Kill(pid, 0) == nil
+	return procalive.Alive(pid)
 }

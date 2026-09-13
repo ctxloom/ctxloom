@@ -1622,28 +1622,28 @@ clean-caches:
     done
     echo "after:  $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
 
-# Report Go cache sizes and, above LIMIT_GB, evict the oldest build-cache
-# entries until the build cache is back under the limit. The SIZE bound that
-# `clean-caches` (all-or-nothing) and Go itself do not provide.
+# Report Go cache sizes, and warn when the build cache is over LIMIT_GB.
+# REPORTS ONLY — nothing here evicts. Go's own build-cache trim is the only
+# bound; `go clean -cache` is how to reclaim now, and it is safe only when no
+# build is in flight in ANY worktree.
 #
-# WHY: ~/.cache/go-build is one unbounded directory shared by the host, gopls,
-# every worktree, and every `just _run` container (see the GOCACHE mount in
-# _run — that sharing is deliberate and stays). Go's own trim only evicts
-# entries unused for ~5 days, so the cache is bounded at ~5 days of churn;
-# a heavy multi-agent day here produces ~100 GB, so 5 days is ~500 GB. That is
-# how /home reached 99% full with a 218 GB build cache while Go's trim was
-# working exactly as designed. Worktrees compound it: without -trimpath the
-# compiler embeds absolute source paths, so the same package built in 13
-# ctxloom worktrees is 13 distinct cache entries.
+# WHY IT GROWS, which is not obvious and is what decides the response: GOCACHE
+# is ONE unbounded directory shared by the host, gopls, every worktree, and
+# every `just _run` container (see the GOCACHE mount in _run — that sharing is
+# deliberate and stays). Go's trim evicts only entries unused for ~5 days, so
+# the cache is bounded by TIME, never by SIZE: five days of churn, whatever
+# that happens to weigh. On a machine running many agents it is hundreds of GB
+# with the trim working exactly as designed, so a large cache is not evidence
+# of anything being broken.
 #
-# Eviction is age-based, the same mechanism as Go's own trim: delete
-# <hash>-a/<hash>-d files older than a cutoff, tightening the cutoff until
-# under the limit. A missing entry is a plain cache miss, never a wrong build,
-# so partial eviction is always safe. NEVER touches ~/go/pkg/mod (expensive to
-# refetch, and not the problem).
+# Worktrees MULTIPLY it: without -trimpath the compiler embeds absolute source
+# paths, so one package built in N worktrees is N distinct cache entries.
 #
-#   just cache-report        report, evict above the 40 GB default
-#   just cache-report 0      report only, evict nothing
+# GOMODCACHE is reported but never touched — expensive to refetch, and not the
+# thing that grows.
+#
+#   just cache-report        report, warn above the 40 GB default
+#   just cache-report 0      report only, no warning
 cache-report LIMIT_GB="40":
     #!/usr/bin/env bash
     set -uo pipefail
@@ -1657,8 +1657,8 @@ cache-report LIMIT_GB="40":
     if [ ! -d "$gbc" ] || [ "${limit%%.*}" = "0" ]; then exit 0; fi
     over=$(awk -v a="$(size_gb "$gbc")" -v b="$limit" 'BEGIN{print (a>b)?1:0}')
     if [ "$over" = "1" ]; then
-        echo "  OVER the ${limit} GB limit. Nothing is evicted here any more —"
-        echo "  Go's own build cache trim bounds this. To reclaim now, run"
+        echo "  OVER the ${limit} GB limit. This reports only; nothing is evicted."
+        echo "  Go's own build cache trim is the bound. To reclaim now, run"
         echo "  \`go clean -cache\` when no build is in flight in ANY worktree."
     fi
 

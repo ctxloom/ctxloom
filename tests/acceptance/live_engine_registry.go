@@ -75,9 +75,9 @@ type liveAgent struct {
 	// engine read AND WRITE its REAL credential files from inside an
 	// otherwise-isolated run — the MAPPED half of the mapped-or-API-key
 	// policy (task erased-collar). Non-nil only for engines whose own
-	// config-home var relocates CREDENTIALS
-	// (internal/lm/isolation/auth.go's credentialSeedSpecs
-	// HonoursVarForCreds==true: claude's CLAUDE_CONFIG_DIR, say). It NEVER
+	// config-home var relocates CREDENTIALS (the descriptor's
+	// agent.EngineHome.Credentials is Provided: claude's CLAUDE_CONFIG_DIR,
+	// say). It NEVER
 	// writes, copies, moves
 	// or chmods a credential file: it only points at directories, and errors
 	// loudly when the real credential material is absent.
@@ -382,8 +382,8 @@ func mapCredentialHome(engine, envVar, dir string, required ...string) ([]creden
 }
 
 // mapClaudeCredentials points CLAUDE_CONFIG_DIR at the REAL ~/.claude.
-// credentialSeedSpecs["claude-code"] records HonoursVarForCreds true —
-// CLAUDE_CONFIG_DIR relocates both config AND credentials — and marks
+// claude's descriptor declares its home var relocates both config AND
+// credentials (agent.EngineHome.Credentials) and credentialSeedSpecs marks
 // .credentials.json the one REQUIRED source file, so that file's absence is
 // the loud failure here too.
 //

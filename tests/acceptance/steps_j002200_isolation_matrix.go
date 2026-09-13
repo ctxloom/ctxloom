@@ -1157,30 +1157,6 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^the spy "([^"]*)" process's "([^"]*)" env var points to an isolated per-agent directory, not the host's own$`, func(c context.Context, engine, varName string) error {
-		w := worldFrom(c)
-		j := isoMatrixOf(w)
-		body, err := isoReadSpyOut(j)
-		if err != nil {
-			return fmt.Errorf("engine %q: %w", engine, err)
-		}
-		env := isoParseSpyEnv(body)
-		val, ok := env[varName]
-		if !ok || val == "" {
-			return fmt.Errorf("spy %s process's env carries no %s; full env dump:\n%s", engine, varName, body)
-		}
-		hostDotDir := filepath.Join(w.env.HomeDir, ".claude")
-		if val == hostDotDir || val == filepath.Join(w.env.HomeDir, ".codex") || val == w.env.HomeDir {
-			return fmt.Errorf("%s=%q is the shared host directory, not an isolated one", varName, val)
-		}
-		marker := filepath.Join(".ctxloom", "sessions")
-		if !strings.Contains(val, marker) {
-			return fmt.Errorf("%s=%q does not look like a per-session isolated scratch path (expected it to contain %q)", varName, val, marker)
-		}
-		w.docStepMaterialized = fmt.Sprintf("spy %s process env: %s=%s\n(host original would have been %s or %s)", engine, varName, val, hostDotDir, w.env.HomeDir)
-		return nil
-	})
-
 	// The VERBATIM-copy assertion, for an engine whose whole credential file is
 	// safe to copy (codex's auth.json — no rotation, no projector). claude-code
 	// is NOT verbatim: it uses the access-token-only step below.

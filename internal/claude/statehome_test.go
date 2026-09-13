@@ -95,24 +95,21 @@ func TestSessionConfigDir_IsTheSeedDestination(t *testing.T) {
 	}
 }
 
-// TestSessionConfigDir_MatchesTheIsolationHomeVarSubdir keeps the in-tree leaf
-// equal to the leaf the WORKTREE axis points CLAUDE_CONFIG_DIR at. The two axes
-// root their homes in different places by design; the leaf must not also
-// diverge, or claude's config-home layout would differ per axis.
-func TestSessionConfigDir_MatchesTheIsolationHomeVarSubdir(t *testing.T) {
-	hv := isolation.CredentialSeedHomeVars("claude-code")
-	if len(hv) != 1 {
-		t.Fatalf(`isolation.CredentialSeedHomeVars("claude-code") = %v, want exactly one entry`, hv)
-	}
-	if hv[0].EnvVar != ConfigDirEnv {
-		t.Errorf("claude's isolation HomeVar is %q, want ConfigDirEnv %q", hv[0].EnvVar, ConfigDirEnv)
+// TestSessionConfigDir_MatchesTheIsolationSeedSubdir keeps the leaf
+// CLAUDE_CONFIG_DIR names equal to the subdirectory isolation SEEDS the
+// credential into. The seed and the var are decided in different packages;
+// the leaf must not diverge, or the engine would look where nothing landed.
+func TestSessionConfigDir_MatchesTheIsolationSeedSubdir(t *testing.T) {
+	subdir, ok := isolation.CredentialSeedDestSubdir("claude-code")
+	if !ok {
+		t.Fatal(`isolation.CredentialSeedDestSubdir("claude-code") = not registered, want claude's seed row`)
 	}
 	got, err := SessionConfigDir(testWorkDir(), harpA)
 	if err != nil {
 		t.Fatalf("SessionConfigDir() error = %v", err)
 	}
-	if base := filepath.Base(got); base != hv[0].Subdir {
-		t.Errorf("SessionConfigDir leaf = %q, want the isolation HomeVar Subdir %q", base, hv[0].Subdir)
+	if base := filepath.Base(got); base != subdir {
+		t.Errorf("SessionConfigDir leaf = %q, want the isolation seed subdir %q", base, subdir)
 	}
 }
 

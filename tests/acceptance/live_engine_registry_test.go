@@ -450,8 +450,7 @@ func TestMapCredentials_PointAtTheRealDirectory(t *testing.T) {
 		wantVar string
 		wantDir string
 	}{
-		// credentialSeedSpecs["claude-code"]: HonoursVarForCreds true,
-		// CLAUDE_CONFIG_DIR relocates config AND credentials.
+		// claude declares CLAUDE_CONFIG_DIR relocates config AND credentials.
 		{"claude", "CLAUDE_CONFIG_DIR", filepath.Join(realHome, ".claude")},
 	}
 	for _, tc := range cases {
@@ -584,9 +583,9 @@ func TestSeedLiveCredentials_NoMechanismIsLoud(t *testing.T) {
 }
 
 // TestLiveAgents_MappableEnginesAreMappedUnmappableOnesAreNot is the registry
-// floor for the policy. Every engine internal/lm/isolation/auth.go's
-// credentialSeedSpecs records as HonoursVarForCreds TRUE must be MAPPED. An engine whose
-// credentials no config-home var relocates (HonoursVarForCreds FALSE) cannot
+// floor for the policy. Every engine whose descriptor declares its home var
+// relocates credentials (agent.EngineHome.Credentials provided) must be
+// MAPPED. An engine whose credentials no config-home var relocates cannot
 // be mapped this way and must keep a copier instead; the false arm below is
 // what stops a future edit from quietly mapping such an engine at a
 // directory the engine never reads.

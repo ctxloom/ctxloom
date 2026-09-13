@@ -695,8 +695,8 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 // probeable on one and not the other, and a caller must say which axis it
 // is asking about. No engine currently drives the worktree axis away from
 // the plain env-key-or-host-file precedence, so this defers wholly to
-// probeDecideAuthPath — an engine whose worktree gate diverges (a
-// GatedOnCreds HomeVar, say) gets its override here, not at the call sites.
+// probeDecideAuthPath — an engine whose worktree gate diverges gets its
+// override here, not at the call sites.
 func probeWorktreeAuthAvailable(backendType string) (probeAuthPath, string) {
 	return probeDecideAuthPath(backendType)
 }

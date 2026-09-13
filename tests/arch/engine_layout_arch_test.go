@@ -11,13 +11,6 @@
 //   - internal/lm/isolation/enginespec.go's per-engine overlayDirs and
 //     transcriptStoreRel (the container-axis config-shadow and
 //     transcript-mount tables).
-//   - internal/lm/backends/mock.go's configHomeEnvKeys (the roster
-//     isolation.EnvWorkspace threads into RunOptions.Env) — found STALE by
-//     the census this gate encodes: it missed opencode's XDG_CONFIG_HOME/
-//     XDG_DATA_HOME entirely despite its own comment claiming to mirror
-//     EnvWorkspace. Fixed alongside this gate (internal/lm/backends/mock.go
-//     now builds the roster from each engine package's own exported env-var
-//     constant).
 //   - internal/gitignore/gitignore.go's WorktreeArtifactPatterns (the LIVE
 //     per-agent-worktree exclude set) and TransientArtifactPatterns/
 //     WorktreeArtifactPatterns' pinned LEGACY .codex/* entries (the
@@ -44,8 +37,8 @@
 // gate does not pretend otherwise (a false-positive "drift" gate would be
 // worse than the one it replaced):
 //
-//   - credentialSeedSpecs' destSubdir/HomeVars[].Subdir choose the LEAF NAME
-//     isolation uses inside its OWN per-agent configHome tree. For claude
+//   - credentialSeedSpecs' destSubdir chooses the LEAF NAME isolation seeds
+//     into inside a controlled home. For claude
 //     ("claude", no dot) and opencode ("xdg-config"/"xdg-data") this is
 //     isolation's OWN arbitrary naming — it does not, and need not, match
 //     the engine's ConfigDirName. codex is the sole DOCUMENTED exception:
@@ -88,42 +81,10 @@ const ()
 // this file's package doc. Each sub-test below covers one table x one axis;
 // a failure names the drifted row, the table it came from, and both values.
 func TestArch_EngineLayoutAgreement(t *testing.T) {
-	t.Run("credentialSeedSpecs_HomeVarEnvNames", testCredentialSeedHomeVarEnvNames)
 	t.Run("credentialSeedSpecs_SourceFiles", testCredentialSeedSourceFiles)
 	t.Run("spec_OverlayDirs", testSpecOverlayDirs)
 	t.Run("spec_TranscriptStoreRel", testSpecTranscriptStoreRel)
-	t.Run("mock_ConfigHomeEnvKeysRoster", testMockConfigHomeEnvKeysRoster)
 	t.Run("gitignore_LivePatterns", testGitignoreLivePatterns)
-}
-
-// homeVarEnvCheck names one credentialSeedSpecs row's expected HomeVars env
-// var names, in order, sourced from the owning engine package's own exported
-// constant(s).
-type homeVarEnvCheck struct {
-	seedKey string
-	want    []string
-}
-
-func testCredentialSeedHomeVarEnvNames(t *testing.T) {
-	checks := []homeVarEnvCheck{
-		{seedKey: "claude-code", want: []string{claude.ConfigDirEnv}},
-	}
-	for _, c := range checks {
-		t.Run(c.seedKey, func(t *testing.T) {
-			hv := isolation.CredentialSeedHomeVars(c.seedKey)
-			if hv == nil {
-				t.Fatalf("isolation.CredentialSeedHomeVars(%q) returned nothing — credentialSeedSpecs is missing this row or its HomeVars", c.seedKey)
-			}
-			got := make([]string, len(hv))
-			for i, v := range hv {
-				got[i] = v.EnvVar
-			}
-			if !slices.Equal(got, c.want) {
-				t.Errorf("isolation.credentialSeedSpecs[%q].HomeVars env vars = %v, want %v (from the owning engine package's own exported env-var constant)",
-					c.seedKey, got, c.want)
-			}
-		})
-	}
 }
 
 // sourceFileCheck names one credentialSeedSpecs row's expected seed-file
@@ -221,41 +182,6 @@ func testSpecTranscriptStoreRel(t *testing.T) {
 					c.backend, got, c.want)
 			}
 		})
-	}
-}
-
-// testMockConfigHomeEnvKeysRoster pins backends.ConfigHomeEnvKeys() equal to
-// the FULL, DEDUPLICATED set of env var names every credentialSeedSpecs
-// engine's HomeVars names — the roster fix this gate was written to prove
-// (mock's table used to omit a registered engine's home vars entirely).
-func testMockConfigHomeEnvKeysRoster(t *testing.T) {
-	want := map[string]bool{}
-	for _, engine := range isolation.CredentialSeedEngineNames() {
-		for _, hv := range isolation.CredentialSeedHomeVars(engine) {
-			want[hv.EnvVar] = true
-		}
-	}
-	if len(want) == 0 {
-		t.Fatal("no HomeVars env names found across any credentialSeedSpecs engine — the gate has nothing to compare against")
-	}
-
-	got := map[string]bool{}
-	for _, k := range backends.ConfigHomeEnvKeys() {
-		if got[k] {
-			t.Errorf("backends.ConfigHomeEnvKeys() lists %q more than once", k)
-		}
-		got[k] = true
-	}
-
-	for k := range want {
-		if !got[k] {
-			t.Errorf("backends.ConfigHomeEnvKeys() is missing %q, present in isolation.credentialSeedSpecs' HomeVars", k)
-		}
-	}
-	for k := range got {
-		if !want[k] {
-			t.Errorf("backends.ConfigHomeEnvKeys() lists %q, which no credentialSeedSpecs engine's HomeVars names — stale entry?", k)
-		}
 	}
 }
 

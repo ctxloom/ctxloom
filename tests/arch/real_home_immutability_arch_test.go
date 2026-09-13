@@ -34,7 +34,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -196,17 +195,20 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 
 	instances := map[string]string{}
 	for _, backend := range []string{"claude-code"} {
-		env := operations.InTreeAgentHomeEnv(operations.InTreeAgentHome{
+		res := operations.ResolveInTreeAgentHome(operations.InTreeAgentHome{
 			Backend:    backend,
 			WorkDir:    workDir,
+			Cwd:        workDir,
 			Harp:       harp,
 			ConfigHome: agents.ConfigHomeProject,
-			Policy:     isolation.None{},
 		})
-		if len(env) != 1 {
-			t.Fatalf("%s: a config_home: project run must be handed exactly one config-home var, got %v", backend, env)
+		if res.Absent != "" {
+			t.Fatalf("%s: a config_home: project run must be handed a home, got absent: %s", backend, res.Absent)
 		}
-		for _, v := range env {
+		if len(res.Env) != 1 {
+			t.Fatalf("%s: a config_home: project run must be handed exactly one config-home var, got %v", backend, res.Env)
+		}
+		for _, v := range res.Env {
 			instances[backend] = v
 		}
 	}

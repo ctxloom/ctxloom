@@ -189,8 +189,8 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			// cell took four live runs to reach the bus.
 			//
 			// HOST: seedLiveCredentials MAPS the engine at its real credential
-			// directory by exporting CLAUDE_CONFIG_DIR (credentialSeedSpecs'
-			// HomeVars) into the fake home. A host engine reads that var.
+			// directory by exporting CLAUDE_CONFIG_DIR (the engine's declared
+			// home var) into the fake home. A host engine reads that var.
 			//
 			// CONTAINER: it cannot, and not by oversight.
 			// isolation.claudeAuthEnvVars — the ONLY env allowed to cross into a
@@ -217,18 +217,20 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			// fake home. Repointing would silently drop those and read the
 			// developer's real ~/.ctxloom/config.yaml instead.
 			// WHICH CELLS NEED THE LINK: any run whose credential is resolved
-			// from $HOME rather than from an env var. That is BOTH isolated
-			// axes, for two different mechanisms:
+			// from $HOME rather than from an env var, for two different
+			// mechanisms:
 			//
-			//   container -> isolation.claudeCredentialMounts BIND-MOUNTS
-			//                ~/.claude/.credentials.json into the per-agent home
-			//   worktree  -> credentialSeedSpecs["claude-code"].sourceFiles SEEDS
-			//                the same file into a per-agent config-home
+			//   container            -> isolation.claudeCredentialMounts
+			//                           BIND-MOUNTS ~/.claude/.credentials.json
+			//                           into the container's own home
+			//   config_home: project -> isolation.CopyAmbient SEEDS the same
+			//                           file into the session's controlled
+			//                           home, on whichever cell the run landed
 			//
 			// Both take their source path from isolation.hostHomeDir
 			// (os.UserHomeDir), so both are blind to the CLAUDE_CONFIG_DIR that
-			// seedLiveCredentials exports. Only host+none reads that var and so
-			// only host+none works without the link.
+			// seedLiveCredentials exports. Only a run that keeps the host home
+			// reads that var and so only it works without the link.
 			//
 			// MEASURED: gating this on runtime alone left host/worktree failing
 			// with "no host claude credentials found to seed the per-agent

@@ -44,15 +44,14 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #      mock now also records req.WorkDir (internal/lm/backends/mock.go),
   #      the value isolation.Prepare actually resolved and threaded through
   #      RunOptions.WorkDir — THAT is the honest signal this journey reads.
-  #   2. Per-engine config-home isolation (CLAUDE_CONFIG_DIR —
-  #      internal/lm/isolation/auth.go's credentialSeedSpecs) is
-  #      keyed by the REGISTERED backend name;
-  #      the built-in "mock" backend has no entry, so Worktree's Env()
-  #      contributes nothing for it — hermetically true for every workspace
-  #      axis. This journey therefore proves the WORKSPACE boundary itself
-  #      (distinct worktree checkouts, no escape into the project tree), not
-  #      per-engine config-home variable isolation — that needs a real
-  #      registered-engine fixture, out of hermetic scope here.
+  #   2. Per-engine config-home isolation (CLAUDE_CONFIG_DIR) is decided off
+  #      the agent binding's config_home, for every cell alike
+  #      (operations.ResolveInTreeAgentHome), and the built-in "mock" backend
+  #      declares no relocatable home at all — hermetically true for every
+  #      workspace axis. This journey therefore proves the WORKSPACE boundary
+  #      itself (distinct worktree checkouts, no escape into the project
+  #      tree), not per-engine config-home variable isolation — that needs a
+  #      real registered-engine fixture, out of hermetic scope here.
   #
   # Credential SEEDING into an isolated config-home (grave-prize) is a
   # further, separate claim this journey does not make either way — see (2).
@@ -433,22 +432,25 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     When Alice runs the isolated "claude-code" agent under workspace "none"
     Then the run aborts with an isolation finding naming "no ANTHROPIC_API_KEY and no host ~/.claude/.credentials.json"
 
-  # LOCKED — the safety net grave-prize exists to guarantee: an isolated
-  # worktree run for an engine that DOES relocate credentials with its
-  # config-home var (HonoursVarForCreds=true —
-  # auth.go) refuses to start rather than silently handing the engine an
-  # empty, logged-out config-home. This is provable without any engine binary
-  # at all: the finding fires, and the run aborts, BEFORE isolation.Prepare
-  # ever tries to spawn one.
+  # LOCKED — the safety net grave-prize exists to guarantee: a run that
+  # declared config_home: project, on the WORKTREE cell this time, for an
+  # engine that DOES relocate credentials with its config-home var refuses to
+  # start rather than silently handing the engine an empty, logged-out
+  # config-home. The home is orthogonal to the worktree: the SAME resolver
+  # and the SAME refusal the in-tree scenario above pins, reached from a
+  # different cell. This is provable without any engine binary at all: the
+  # finding fires, and the run aborts, BEFORE isolation.Prepare ever tries to
+  # spawn one.
   Scenario Outline: A worktree run refuses to start an engine it cannot authenticate, rather than silently sharing the host's global credentials
     Given Alice has a git-backed project
     And Alice has no "<engine>" credentials or API key on the host
+    And Alice's agent declares config_home "project"
     When Alice runs the isolated "<engine>" agent under workspace "worktree"
     Then the run aborts with an isolation finding naming "<needle>"
 
     Examples:
       | engine      | needle                                                              |
-      | claude-code | no ANTHROPIC_API_KEY and no host claude credentials                |
+      | claude-code | no ANTHROPIC_API_KEY and no host ~/.claude/.credentials.json       |
 
   # The bypass half of the SAME gate: an API key riding the environment is
   # its own proof of intent to authenticate that way (auth.go's
@@ -457,19 +459,20 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #
   # "PROCEED" is the load-bearing word in this scenario's title, so it is what
   # gets asserted: the run exits 0, the engine really launches, and the
-  # config-home variable it is handed points at a per-agent scratch tree — the
-  # isolation this axis was asked for is still in place, only the credential
-  # gate stood down. Asserting merely that no finding was printed used to let
-  # this pass under a mutation that stopped any engine from launching, and
-  # under one that collapsed isolation to nothing at all; the degrade warning's
-  # wording matched neither needle.
+  # config-home variable it is handed points at this session's instance — the
+  # controlled home the binding asked for is still in place, only the
+  # credential gate stood down. Asserting merely that no finding was printed
+  # used to let this pass under a mutation that stopped any engine from
+  # launching, and under one that collapsed isolation to nothing at all; the
+  # degrade warning's wording matched neither needle.
   Scenario Outline: The same engines proceed without any isolation finding once their API key rides the environment
     Given Alice has a git-backed project
     And Alice has no "<engine>" credentials on the host
     And Alice has set the "<engine>" API key in the environment
+    And Alice's agent declares config_home "project"
     When Alice runs the isolated "<engine>" agent under workspace "worktree"
     Then the run reports no isolation finding
-    And the spy "<engine>" process's "<var>" env var points to an isolated per-agent directory, not the host's own
+    And the spy "<engine>" process's "<var>" env var points at this session's config-home instance
 
     Examples:
       | engine      | var               |
@@ -494,15 +497,17 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # this one is fast, hermetic, and catches a ctxloom-side regression in CI on
   # every commit; the probe is slow, costs a real paid call, and is the one
   # that catches a vendor-side regression a spy can never see.
-  # claude's copy is ACCESS-TOKEN-ONLY (easiest-stomp): the same CopyAmbient
-  # mechanism as the in-tree axis, so the worktree exposure closes here too —
-  # the isolated copy authenticates but cannot rotate the host's single-use
-  # refresh token, and the host's own file keeps its refresh token in full.
+  # claude's copy is ACCESS-TOKEN-ONLY (easiest-stomp): the SAME resolver and
+  # the SAME CopyAmbient seed as the in-tree cell — the home is orthogonal to
+  # the worktree — so the worktree exposure closes here too: the isolated copy
+  # authenticates but cannot rotate the host's single-use refresh token, and
+  # the host's own file keeps its refresh token in full.
   Scenario: A worktree claude run copies an access-token-only credential into the isolated config-home, and never touches the host's own copy
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
+    And Alice's agent declares config_home "project"
     When Alice runs the isolated "claude-code" agent under workspace "worktree"
-    Then the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points to an isolated per-agent directory, not the host's own
+    Then the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points at this session's config-home instance
     And the isolated "claude-code" credential is access-token-only (refresh token stripped)
     And the host "claude-code" credential file was never modified
 

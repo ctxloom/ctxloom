@@ -58,7 +58,6 @@ func TestCredentialSeedSpecFor_ResolvesDeclaredAliases(t *testing.T) {
 		require.True(t, ok, "alias %q of %q must resolve to a credential-seed spec", alias, canonical)
 		assert.Equal(t, want.engine, got.engine, "alias %q must reach %q's own spec", alias, canonical)
 		assert.Equal(t, want.destSubdir, got.destSubdir, "alias %q must reach %q's own spec", alias, canonical)
-		assert.Equal(t, want.HomeVars, got.HomeVars, "alias %q must reach %q's own home vars", alias, canonical)
 	}
 }
 
@@ -83,7 +82,6 @@ func TestCredentialSeedSpecFor_UnknownEngineStillMisses(t *testing.T) {
 	_, ok := credentialSeedSpecFor(unknownEngineName)
 	assert.False(t, ok, "an unregistered engine must not resolve to any spec")
 
-	assert.Nil(t, CredentialSeedHomeVars(unknownEngineName), "an unregistered engine exports no scoped home var")
 	subdir, ok := CredentialSeedDestSubdir(unknownEngineName)
 	assert.False(t, ok, "an unregistered engine has no destination subdir")
 	assert.Empty(t, subdir)

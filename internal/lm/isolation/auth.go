@@ -272,55 +272,49 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// --- Host+worktree credential seeding -------------------------------------
+// --- Controlled-home credential seeding ------------------------------------
 //
-// The container path above authenticates a fresh, isolated HOME by BIND-
-// MOUNTING host credential files into it (claudeCredentialMounts). A
-// host+worktree run has no fresh HOME to mount into — it relocates the
-// engine's config lookup via an env var (CLAUDE_CONFIG_DIR, see
-// worktree.go's Env()) pointing at a per-agent scratch dir
-// that starts EMPTY. An engine that honours the var for CREDENTIALS too
-// (not just config) then finds no creds there and starts logged out — silent
-// unless something seeds the dir. That "something" is this section: a COPY
-// (never a symlink — the destination must stay WRITABLE so a token refresh
-// lands in the per-agent copy, not back on the host's shared credential;
-// see worktree.go's provisionConfigHome doc) of the same host credential
-// material claudeCredentialMounts already knows how to find, gated on the
-// SAME envTrigger precedence resolveClaudeContainerAuth uses.
+// The container path above authenticates the container's OWN fresh HOME by
+// BIND-MOUNTING host credential files into it (claudeCredentialMounts). A
+// CONTROLLED home — the per-session instance operations.ResolveInTreeAgentHome
+// points the engine's home var at, on every cell — starts EMPTY. An engine
+// that honours that var for CREDENTIALS too (not just config) then finds no
+// creds there and starts logged out — silent unless something seeds the
+// instance. That "something" is this section, reached through CopyAmbient: a
+// COPY (never a symlink — the destination must stay WRITABLE so a token
+// refresh lands in the instance's copy, not back on the host's shared
+// credential) of the same host credential material claudeCredentialMounts
+// already knows how to find, gated on the SAME envTrigger precedence
+// resolveClaudeContainerAuth uses.
 //
 // credentialSeedSpec is a per-engine descriptor answering the three
-// questions worktree config-home provisioning needs: (1) does an env var
-// already carry usable auth, bypassing seeding entirely (envTrigger); (2)
-// what host file(s) hold the credential material, in copy order, and is each
-// one REQUIRED (its absence means "nothing to seed") or best-effort/optional
-// (e.g. an account-association file); (3) which config-home subdirectory the
-// engine's isolation var points at (destSubdir — must match worktree.go's
-// Env()). Only engines that (a) honour their isolation home-var for
-// CREDENTIALS and (b) keep those credentials in copyable file(s) belong in
-// credentialSeedSpecs below — see the registry doc for the engines
-// deliberately left out and why.
+// questions seeding a controlled home needs: (1) does an env var already
+// carry usable auth, bypassing seeding entirely (envTrigger); (2) what host
+// file(s) hold the credential material, in copy order, and is each one
+// REQUIRED (its absence means "nothing to seed") or best-effort/optional; (3)
+// which subdirectory of the instance root the engine's home var points at
+// (destSubdir — the engine's declared HomeVar leaf, which tests/arch pins).
+// Only engines that (a) honour their home var for CREDENTIALS and (b) keep
+// those credentials in copyable file(s) belong in credentialSeedSpecs below.
 type credentialSeedSpec struct {
 	// engine names the backend for fail-loud messages (e.g. "claude") —
 	// deliberately not the registered backend name (which is "claude-code"),
 	// so messages read naturally.
 	engine string
-	// destSubdir is the config-home subdirectory the engine's PRIMARY
-	// isolation env var is pointed at by worktree.go's Env() (e.g. "claude"
-	// for CLAUDE_CONFIG_DIR). The seed lands here so Env()'s wiring picks it
-	// up unchanged. "" for a spec with no sourceFiles (nothing to seed).
+	// destSubdir is the instance subdirectory the engine's home var is
+	// pointed at (e.g. "claude" for CLAUDE_CONFIG_DIR) — the same leaf the
+	// engine's descriptor declares, so the seed lands where the var looks.
+	// "" for a spec with no sourceFiles (nothing to seed).
 	destSubdir string
 	// envTrigger is the env var whose presence means the engine already has
 	// usable auth riding the process env (e.g. ANTHROPIC_API_KEY) — seeding
 	// is skipped (not an error), mirroring resolveClaudeContainerAuth's
-	// authEnv precedence (auth.go:82-83). "" if the engine has no such
-	// bypass. Doubles as the GatedOnCreds bypass check for a
-	// HonoursVarForCreds==false spec: its presence is what makes isolating
-	// that var SAFE rather than silently logging the agent out.
+	// authEnv precedence. "" if the engine has no such bypass.
 	envTrigger string
 	// sourceFiles returns the host credential file(s) to copy, given the
 	// host home directory, in copy order. nil for a spec with no copyable
-	// credential material — creds that live in a global store no per-agent
-	// home var relocates; see HonoursVarForCreds.
+	// credential material — creds that live in a global store no home var
+	// relocates.
 	sourceFiles func(hostHome string) []seedFile
 	// loginHint is the command that MAKES this engine's credential file
 	// exist (e.g. "claude login") — the one fix, besides envTrigger, that
@@ -330,50 +324,6 @@ type credentialSeedSpec struct {
 	// added with a fail-loud path that names no fix at all. "" for a spec
 	// with no sourceFiles (nothing to log in FOR, here).
 	loginHint string
-	// HomeVars is the FULL set of isolation env vars this engine's per-agent
-	// config-home contributes to worktreeWorkspace.Env() — the creds-only
-	// descriptor widened to the full config/state/creds home map per the
-	// per-engine-isolation-home plan §6, so the var wiring rides the SAME
-	// struct as the credential seed instead of a
-	// second hardcoded map. An engine whose whole home moves with a single
-	// var has one entry; an engine that splits config and data across
-	// separate XDG vars contributes one entry per var.
-	HomeVars []homeVar
-	// HonoursVarForCreds reports whether this engine's HomeVars actually
-	// relocate CREDENTIALS (true — sourceFiles/envTrigger seed them into the
-	// isolated home) or the credential store lives in a GLOBAL location no
-	// HomeVar moves (false). A false spec has no
-	// sourceFiles; instead, each of its GatedOnCreds HomeVars is included in
-	// Env() ONLY when envTrigger is present in the process env — absent, a
-	// ClassIsolation fail-loud finding is recorded (worktree.go's
-	// seedCredentials) and that var is omitted, falling back to the
-	// engine's shared global store rather than silently forking it
-	// per-agent. Every registry entry sets this explicitly (no useful zero
-	// value).
-	HonoursVarForCreds bool
-}
-
-// homeVar is one env-var-to-subdir mapping an engine's isolation home
-// contributes to worktreeWorkspace.Env(). Subdir is joined under the
-// per-agent configHome (e.g. "claude" → CLAUDE_CONFIG_DIR=<configHome>/claude).
-//
-// The LEAF NAME is load-bearing, not cosmetic: an engine that composes its own
-// home path from a project-dir-shaped value must land on this EXACT directory,
-// so a Subdir here has to match whatever leaf that engine's own resolution
-// appends.
-type homeVar struct {
-	EnvVar string
-	Subdir string
-	// GatedOnCreds marks this var as the one that relocates the engine's
-	// CREDENTIAL store (not just config/session state). A var that relocates
-	// an engine's home but no credentials is NOT gated: it isolates
-	// unconditionally. Only meaningful on a
-	// HonoursVarForCreds==false spec; ignored otherwise (a
-	// HonoursVarForCreds==true spec's vars are never gated — a seed
-	// failure there is reported by seedCredentials, but the var still
-	// isolates so the agent gets an isolated-but-possibly-unseeded home
-	// rather than silently sharing the global one).
-	GatedOnCreds bool
 }
 
 // seedFile is one host file a credentialSeedSpec copies into the seeded
@@ -386,23 +336,17 @@ type seedFile struct {
 	required bool
 }
 
-// credentialSeedSpecs is the registry provisionConfigHome (worktree.go)
-// consults, keyed by the REGISTERED backend name (internal/lm/backends — see
-// enginespec.go's engineContainerSpecFor, which the same keys already drive).
-// It is the SINGLE per-engine
-// isolation-home descriptor (per-engine-isolation-home plan §6): every
-// entry's HomeVars drives worktreeWorkspace.Env() in addition to whatever
-// credential-seed behaviour HonoursVarForCreds selects. A backend absent from
-// this registry has no known host isolation lever at all and keeps the
-// pre-fix, config-only-isolation no-op.
+// credentialSeedSpecs is the registry CopyAmbient consults, keyed by the
+// REGISTERED backend name (internal/lm/backends — see enginespec.go's
+// engineContainerSpecFor, which the same keys already drive). A backend
+// absent from this registry has no seedable credential material.
 //
 // Keyed by CANONICAL name: enginekeys.go's init asserts it, and
 // credentialSeedSpecFor is the only read path, so an aliased spelling cannot
 // miss an engine that is in fact registered here.
 //
-//   - claude: HonoursVarForCreds true — CLAUDE_CONFIG_DIR relocates both
-//     config AND credentials, so seeding copies .credentials.json (+
-//     .claude.json) into it.
+//   - claude: CLAUDE_CONFIG_DIR relocates both config AND credentials, so
+//     seeding copies .credentials.json into it.
 var credentialSeedSpecs = map[string]credentialSeedSpec{
 	"claude-code": {
 		engine:     "claude",
@@ -432,8 +376,6 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 				},
 			}
 		},
-		HomeVars:           []homeVar{{EnvVar: "CLAUDE_CONFIG_DIR", Subdir: "claude"}},
-		HonoursVarForCreds: true,
 	},
 }
 
@@ -452,32 +394,6 @@ func CredentialSeedEngineNames() []string {
 		names = append(names, name)
 	}
 	return names
-}
-
-// CredentialSeedHomeVar is a read-only copy of one homeVar entry, exported so
-// tests/arch's engine-layout gate can check credentialSeedSpecs' env-var-name
-// and subdir literals against the owning
-// engine package's own exported constants. This package does not import the
-// engine packages, so those tables keep their literals; the arch test, which
-// is free to import every package, is the enforcement point instead.
-type CredentialSeedHomeVar struct {
-	EnvVar       string
-	Subdir       string
-	GatedOnCreds bool
-}
-
-// CredentialSeedHomeVars returns engine's HomeVars (nil for an unregistered
-// engine name — see CredentialSeedEngineNames for the valid keys).
-func CredentialSeedHomeVars(engine string) []CredentialSeedHomeVar {
-	spec, ok := credentialSeedSpecFor(engine)
-	if !ok {
-		return nil
-	}
-	out := make([]CredentialSeedHomeVar, len(spec.HomeVars))
-	for i, hv := range spec.HomeVars {
-		out[i] = CredentialSeedHomeVar(hv)
-	}
-	return out
 }
 
 // CredentialSeedDestSubdir returns engine's destSubdir and true, or ("",
@@ -541,9 +457,9 @@ func CredentialSeedSourceFiles(engine string) []CredentialSeedFile {
 // mechanism, one allow-list per engine, both axes through it.
 
 // seedResult is hostCredentialSeed's decision, returned instead of a bare
-// bool so the caller (worktree.go) can tell "nothing to do" (seedSkippedEnv,
-// seedNotApplicable) apart from "nothing WAS seedable" (seedNoSource) — only
-// the latter is the fail-loud case.
+// bool so the caller (CopyAmbient) can tell "nothing to do" (seedSkippedEnv)
+// apart from "nothing WAS seedable" (seedNoSource) — only the latter is the
+// fail-loud case.
 type seedResult int
 
 const (

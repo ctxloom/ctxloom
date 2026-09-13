@@ -19,11 +19,46 @@ import (
 // home var at, on every cell — starts EMPTY. An engine that honours that var
 // for CREDENTIALS too (not just config) then finds no creds there and starts
 // logged out — silent unless something seeds the instance. That "something"
-// is this file, reached through CopyAmbient: a COPY (never a symlink — the
-// destination must stay WRITABLE so a token refresh lands in the instance's
-// copy, not back on the host's shared credential) of the host credential
+// is this file, reached through CopyAmbient: a COPY of the host credential
 // material the engine DECLARES (agent.CredentialSeed), gated on the same
 // env-trigger precedence the container resolver uses.
+//
+// THE COST OF THE COPY, STATED PLAINLY. A copy means a token refresh inside
+// one instance stays there: other agents and the host keep the credential
+// they started with, and re-authenticate on their own schedule. The wanted
+// invariant is the opposite — when ANY agent refreshes auth, ALL agents get
+// it — and on the host that would mean LINKING the instance's credential to
+// the host's rather than copying it.
+//
+// THE LINK CANNOT CARRY THAT INVARIANT FOR THIS ENGINE, measured rather than
+// assumed; credentiallink_hazard_test.go holds the evidence as executable
+// assertions, and the shapes are these:
+//
+//   - A file SYMLINK is refused outright. claude-code opens its credential
+//     with O_NOFOLLOW and maps the resulting ELOOP to an explicit
+//     "refused-symlink" state, so a symlinked credential does not degrade on
+//     first refresh — it never authenticates at all, on any run.
+//   - A file HARDLINK reads fine, then breaks on the first refresh. The
+//     engine writes its credential by staging a temp file and RENAMING it
+//     over the target, which installs a NEW inode at the path and orphans
+//     the link. Propagation stops silently, which is the failure mode the
+//     shared-refresh invariant exists to prevent. Hardlinks also cannot
+//     cross filesystems, and the instance home and the user's home
+//     routinely sit on different ones.
+//   - A DIRECTORY symlink is the only shape a rename survives, and it is
+//     unavailable here: the credential shares one leaf with the per-session
+//     instance config (both are claude.HomeLeaf), so linking that directory
+//     would write every session's generated config into the human's real
+//     engine home — destroying the isolation this whole mechanism exists to
+//     create.
+//
+// So the copy stays, and shared refresh is an OPEN PROBLEM rather than a
+// solved one. Do not switch this to a link without first re-running that
+// test: it is what makes "the link does not work" a fact instead of a
+// recollection. The container path reaches the same invariant a different
+// way — it BIND-MOUNTS the host credential file (see credentialFileMounts
+// in auth.go), and a bind mount is not disturbed by a rename inside the
+// container the way a link is.
 //
 // WHAT to seed is not decided here. Each engine declares its seed on its own
 // descriptor (engine.Descriptor.Home.Credentials), and internal/lm/backends

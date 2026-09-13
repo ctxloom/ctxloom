@@ -15,6 +15,7 @@
 package arch
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -114,15 +115,40 @@ func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
 	}
 }
 
+// pairwiseDistinctViolations reports one message per pair of engines whose
+// instance directories collide. It is the collision-detection half of
+// TestArch_EngineInstanceLeavesArePairwiseDistinct, pulled out to a pure
+// function so it can be driven by a synthetic fixture
+// (TestArch_EngineInstanceLeavesPairwiseDistinct_SyntheticFixture) as well as
+// by the real engine registry — the synthetic fixture is what proves this
+// logic actually catches a collision instead of only ever seeing the
+// one-element map today's single real engine produces.
+func pairwiseDistinctViolations(dirs map[string]string) []string {
+	var violations []string
+	seen := map[string]string{}
+	for engine, dir := range dirs {
+		if other, dup := seen[dir]; dup {
+			violations = append(violations, fmt.Sprintf("%s and %s share the instance directory %q; the leaves must be pairwise distinct", engine, other, dir))
+		}
+		seen[dir] = engine
+	}
+	return violations
+}
+
 // TestArch_EngineInstanceLeavesArePairwiseDistinct is what lets ONE session
 // root host every engine: each engine's own leaf hangs off the same
 // <harp>/home directory, so two engines in one session can never read each
 // other's config or credentials.
 //
-// NOTE ON REACH: only one home-controlled engine is registered today, so the
-// hangs-off-the-root assertion is live while the PAIRWISE half cannot fire —
-// a one-element map has no pair. Adding a second home-controlled engine here
-// is what restores it; do not read the current green as covering collisions.
+// NOTE ON REACH: only one home-controlled engine is registered today, so this
+// test's own map has one element and its call into pairwiseDistinctViolations
+// can find no pair to compare. That is a property of the real registry, not
+// of the collision-detection logic itself — see
+// TestArch_EngineInstanceLeavesPairwiseDistinct_SyntheticFixture, which drives
+// that same helper with synthetic engine leaves so the pairwise branch is
+// actually exercised, and demonstrably fails on a collision, before a second
+// real engine ever exists. Adding a second home-controlled engine here is what
+// lets THIS test's own map start exercising it too.
 func TestArch_EngineInstanceLeavesArePairwiseDistinct(t *testing.T) {
 	const workDir = "/proj"
 	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), archHarpA)
@@ -140,13 +166,47 @@ func TestArch_EngineInstanceLeavesArePairwiseDistinct(t *testing.T) {
 			t.Errorf("%s's instance %q does not hang directly off the session home root %q", engine, dir, root)
 		}
 	}
-	seen := map[string]string{}
-	for engine, dir := range dirs {
-		if other, dup := seen[dir]; dup {
-			t.Errorf("%s and %s share the instance directory %q; the leaves must be pairwise distinct", engine, other, dir)
-		}
-		seen[dir] = engine
+	for _, v := range pairwiseDistinctViolations(dirs) {
+		t.Error(v)
 	}
+}
+
+// TestArch_EngineInstanceLeavesPairwiseDistinct_SyntheticFixture exercises the
+// pairwise-collision branch of TestArch_EngineInstanceLeavesArePairwiseDistinct
+// without waiting for a second home-controlled engine to be registered. It
+// drives pairwiseDistinctViolations directly with synthetic engine leaves:
+// one fixture with distinct leaves (must report nothing) and one with a
+// deliberate collision (must be caught). The collision case is the one that
+// matters — it is what proves the detection logic actually fires rather than
+// merely existing unexercised, so a real second engine inherits a gate that
+// has been SEEN to work rather than one that has only ever run against a
+// map with nowhere to find a pair.
+func TestArch_EngineInstanceLeavesPairwiseDistinct_SyntheticFixture(t *testing.T) {
+	t.Run("distinct synthetic leaves report nothing", func(t *testing.T) {
+		dirs := map[string]string{
+			"synthetic-engine-a": "/proj/.ctxloom/state/harp/home/synthetic-a",
+			"synthetic-engine-b": "/proj/.ctxloom/state/harp/home/synthetic-b",
+		}
+		if violations := pairwiseDistinctViolations(dirs); len(violations) != 0 {
+			t.Errorf("distinct synthetic leaves flagged as colliding: %v", violations)
+		}
+	})
+
+	t.Run("colliding synthetic leaves are caught", func(t *testing.T) {
+		const collided = "/proj/.ctxloom/state/harp/home/synthetic-shared"
+		dirs := map[string]string{
+			"synthetic-engine-a": collided,
+			"synthetic-engine-b": collided,
+		}
+		violations := pairwiseDistinctViolations(dirs)
+		if len(violations) == 0 {
+			t.Fatal("two synthetic engines sharing an instance directory produced no violation; the pairwise branch did not fire")
+		}
+		wantSubstr := fmt.Sprintf("share the instance directory %q", collided)
+		if !strings.Contains(violations[0], wantSubstr) {
+			t.Errorf("violation message = %q, want substring %q", violations[0], wantSubstr)
+		}
+	})
 }
 
 // TestArch_SessionInstancesDoNotShareAcrossSessions is the per-session property

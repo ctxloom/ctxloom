@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/lm/enginenames"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -147,6 +148,10 @@ func TestMain(m *testing.M) {
 		// so a pin expecting 1 fails loudly instead of hanging.
 		os.Exit(0)
 	}
+	// The tests below call into the command tree without going through
+	// main(), so they compose the lean engine-name root the way main does:
+	// the alias table is populated by composition, never born full.
+	enginenames.MustRegister()
 	// SandboxedMain, not m.Run: it installs a temp HOME and a temp working
 	// directory for the whole binary, which is what closes config.findAppDir's
 	// walk-up from the working directory into this checkout's .ctxloom. The

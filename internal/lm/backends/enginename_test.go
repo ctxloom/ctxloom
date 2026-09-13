@@ -87,12 +87,38 @@ func TestRegistryLookups_StillRefuseAnUnknownName(t *testing.T) {
 	}
 }
 
-// TestRegister_NonCanonicalNameIsAnError pins the key side of the table.
-// A descriptor registered under a name the alias table would rewrite lands
-// where no lookup can reach it, and the backend reads as having no
-// capabilities at all rather than as misregistered.
-func TestRegister_NonCanonicalNameIsAnError(t *testing.T) {
+// TestRegister_NameClaimedAsAnotherEnginesAliasIsAnError pins the key side of
+// the table. A descriptor registered under a spelling another engine already
+// declares as its alias lands where no lookup can reach it, and the backend
+// reads as having no capabilities at all rather than as misregistered.
+func TestRegister_NameClaimedAsAnotherEnginesAliasIsAnError(t *testing.T) {
 	err := Register(enginefixture.Descriptor("claude"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not canonical (want claude-code)")
+	assert.Contains(t, err.Error(), "another engine's alias (resolves to claude-code)")
+}
+
+// TestRegister_AliasOwnedByAnotherEngineIsAnError pins the other side: an
+// engine cannot claim a spelling that already resolves to a different
+// engine, and the refused batch installs nothing — the table is populated
+// from descriptors, so the conflict is found before either side lands.
+func TestRegister_AliasOwnedByAnotherEngineIsAnError(t *testing.T) {
+	d := enginefixture.Descriptor("fixture-claimant")
+	d.Aliases = []string{"claude"}
+	err := Register(d)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `alias "claude" already resolves to "claude-code"`)
+	assert.False(t, Exists("fixture-claimant"), "a refused batch installs nothing")
+	assert.Equal(t, "claude-code", agent.CanonicalEngineName("claude"))
+}
+
+// TestRegister_PopulatesTheAliasTable: the table is what the descriptors
+// declare — an engine's spellings resolve because it registered, and to it.
+func TestRegister_PopulatesTheAliasTable(t *testing.T) {
+	d := enginefixture.Descriptor("fixture-spelled")
+	d.Aliases = []string{"fixture-sp", "fsp"}
+	require.NoError(t, Register(d))
+	t.Cleanup(func() { UnregisterForTesting("fixture-spelled") })
+	assert.Equal(t, "fixture-spelled", agent.CanonicalEngineName("FSP"))
+	assert.Equal(t, []string{"fixture-sp", "fsp"}, agent.EngineNameAliases("fixture-spelled"))
+	assert.True(t, Exists("fixture-sp"), "the registry resolves through the spellings it populated")
 }

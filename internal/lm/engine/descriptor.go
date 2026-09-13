@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/engineversion"
@@ -125,20 +124,8 @@ func (d Descriptor) Validate() error {
 	if d.Name == "" {
 		return errors.New("descriptor: Name is empty")
 	}
-	if d.Name != strings.ToLower(d.Name) {
-		return fmt.Errorf("descriptor %s: Name must be lowercase", d.Name)
-	}
-	seen := map[string]bool{}
-	for _, a := range d.Aliases {
-		switch {
-		case a == d.Name:
-			return fmt.Errorf("descriptor %s: alias %q equals the name", d.Name, a)
-		case a != strings.ToLower(a):
-			return fmt.Errorf("descriptor %s: alias %q must be lowercase", d.Name, a)
-		case seen[a]:
-			return fmt.Errorf("descriptor %s: alias %q declared twice", d.Name, a)
-		}
-		seen[a] = true
+	if err := agent.ValidateEngineAliases(d.Name, d.Aliases); err != nil {
+		return fmt.Errorf("descriptor: %w", err)
 	}
 	if !d.Distribution.Decided() {
 		return fmt.Errorf("descriptor %s: Distribution is %s; declare Default, OptIn or TestOnly — an undeclared policy must not default-ship", d.Name, d.Distribution)

@@ -58,11 +58,17 @@ var descriptors = make(map[string]*engine.Descriptor)
 //
 // Two-phase: every descriptor is validated (engine.Descriptor.Validate, plus
 // the cross-descriptor rules below) before any is installed, so a failed
-// batch leaves the table as it was. The rules that live here rather than in
-// Validate are the ones that need the table: a duplicate name, a name the
-// alias table would rewrite (a descriptor keyed where no lookup can reach it
-// reads exactly like an engine with no capabilities), and an alias that does
-// not resolve to its own engine.
+// batch leaves the tables as they were. The rules that live here rather than
+// in Validate are the ones that need the tables: a duplicate name, a name
+// some other engine's alias already claims (a descriptor keyed where no
+// lookup can reach it reads exactly like an engine with no capabilities), and
+// an alias another engine already owns.
+//
+// The alias table is POPULATED from here, not checked against: each
+// descriptor's Aliases are the engine's own declaration, and this is the
+// ctxloom binary's composition of them (agent.RegisterEngineAliases). The
+// lean binaries compose the same declarations through
+// internal/lm/enginenames; tests/arch holds the two roots together.
 func Register(descs ...engine.Descriptor) error {
 	batch := map[string]bool{}
 	for i := range descs {
@@ -71,20 +77,23 @@ func Register(descs ...engine.Descriptor) error {
 			return err
 		}
 		if canonical := agent.CanonicalEngineName(d.Name); canonical != d.Name {
-			return fmt.Errorf("descriptor %s: name is not canonical (want %s)", d.Name, canonical)
+			return fmt.Errorf("descriptor %s: name is another engine's alias (resolves to %s)", d.Name, canonical)
 		}
 		if _, dup := descriptors[d.Name]; dup || batch[d.Name] {
 			return fmt.Errorf("descriptor %s: already registered", d.Name)
 		}
 		batch[d.Name] = true
 		for _, a := range d.Aliases {
-			if got := agent.CanonicalEngineName(a); got != d.Name {
-				return fmt.Errorf("descriptor %s: alias %q resolves to %q", d.Name, a, got)
+			if got := agent.CanonicalEngineName(a); got != a && got != d.Name {
+				return fmt.Errorf("descriptor %s: alias %q already resolves to %q", d.Name, a, got)
 			}
 		}
 	}
 	for i := range descs {
 		d := descs[i]
+		if err := agent.RegisterEngineAliases(d.Name, d.Aliases); err != nil {
+			return fmt.Errorf("descriptor %s: %w", d.Name, err)
+		}
 		descriptors[d.Name] = &d
 		// Push the engine-owned isolation facts down to internal/lm/isolation
 		// at the same moment, so a backend can never be launchable here while

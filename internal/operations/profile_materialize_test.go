@@ -443,7 +443,7 @@ func TestMaterializeProfile_SurfaceOverrideChangesWhereContextLands(t *testing.T
 // enumerated here.
 //
 // resolveMaterializeTarget used to carry its own one-entry alias table
-// (`backend == "claude"`), a hand-rolled second copy of agent.engineAliases.
+// (`backend == "claude"`), a hand-rolled second copy of the alias table.
 // That copy got the one spelling it named right and every other declared
 // spelling wrong: "claudecode" is a declared alias and "CLAUDE" differs only
 // in case, and both passed backends.Exists (which canonicalizes internally via

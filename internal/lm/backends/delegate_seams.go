@@ -98,6 +98,7 @@ func UnregisterForTesting(name string) {
 		}
 	}
 	delete(descriptors, canonical)
+	agent.ForgetEngineAliases(canonical)
 }
 
 // InTreeAgentHomeSpec is one backend's ctxloom-CONTROLLED config home INSTANCE

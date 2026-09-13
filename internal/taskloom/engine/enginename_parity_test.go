@@ -24,7 +24,7 @@ import (
 // parityRegistries must agree about: the ones it has to accept, and the shapes
 // it has to refuse. It is a floor, not the whole set — derivedAliasCases below
 // adds every spelling the shared alias table currently declares, so an alias
-// added to agent.engineAliases is covered without an edit here.
+// an engine declares is covered without an edit here.
 var engineNameCorpus = []struct {
 	in   string
 	want string // canonical name, or "" when the spelling names no engine
@@ -163,7 +163,7 @@ func TestEngineNameVocabularyParity(t *testing.T) {
 // carry deliberately different memberships (ltk drives only claude-code;
 // backends also holds acp, opencode and the mock), so a name only some of them
 // know cannot be asserted in parity — but for the ones they share, an alias
-// added to agent.engineAliases must not need an edit in this file to be tested.
+// an engine declares must not need an edit in this file to be tested.
 func derivedAliasCases(t *testing.T, registries []engineRegistry) []struct {
 	in   string
 	want string

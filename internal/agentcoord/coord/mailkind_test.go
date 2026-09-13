@@ -36,14 +36,14 @@ func TestSenderMailKind_VocabularySplit(t *testing.T) {
 	assert.ErrorIs(t, err, ErrSenderMailKind)
 	assert.Contains(t, err.Error(), "required", "the refusal must say the kind is required")
 	assert.Contains(t, err.Error(), KindResult, "the refusal must name the accepted vocabulary")
-	for _, kind := range []string{KindApprovalRequest, KindUserInjected, KindExited} {
+	for _, kind := range []string{KindApprovalRequest, KindUserInjected, KindExited, KindSteer, KindReport, KindSummarize, KindUserControl} {
 		err := SenderMailKind(kind)
 		require.Error(t, err, "kind %q is coordinator-reserved", kind)
 		assert.ErrorIs(t, err, ErrSenderMailKind)
 		assert.Contains(t, err.Error(), "reserved", "the refusal must say the kind is reserved, not merely invalid")
 		assert.Contains(t, err.Error(), KindResult, "the refusal must name the accepted vocabulary")
 	}
-	for _, kind := range []string{"task", "APPROVAL_REQUEST", "approval_request ", "steer"} {
+	for _, kind := range []string{"task", "APPROVAL_REQUEST", "approval_request ", "note"} {
 		err := SenderMailKind(kind)
 		require.Error(t, err, "kind %q is outside the vocabulary", kind)
 		assert.ErrorIs(t, err, ErrSenderMailKind)

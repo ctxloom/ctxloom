@@ -533,7 +533,7 @@ func TestPushMail_SaturatedPumpReleasesTheDroppedReservation(t *testing.T) {
 	c := newTestCoordinator(t, researcherSpawner(), nil)
 	const harp = "child-with-a-saturated-pump"
 
-	msgID, _, err := c.queueMail(ownerIdentity().Harp, harp, "note", "do not strand me")
+	msgID, _, err := c.queueMail(ownerIdentity().Harp, harp, KindMessage, "do not strand me")
 	if !assert.NoError(t, err) {
 		return
 	}

@@ -628,11 +628,13 @@ func (c *Coordinator) pushMail(role string) {
 	c.unreserve(role, dropped)
 }
 
-// peerMessageProto projects a mailbox message onto the wire shape. Kind
-// rides structured.kind (PeerMessage has no kind field by design); any
-// caller-supplied Structured payload (e.g. an escalation ladder's relayed
-// ApprovalRequest projection, Wave C2) merges under it — kind always wins on
-// a key collision, so a caller cannot spoof the message's own kind.
+// peerMessageProto projects a mailbox message onto the wire shape. Kind rides
+// the typed PeerMessage.kind field, spelled from the mailbox vocabulary; a kind
+// outside that vocabulary is an ERROR rather than UNSPECIFIED, so a message
+// nobody mapped cannot reach a recipient as "unset". Structured is the caller's
+// companion (e.g. an escalation ladder's relayed ApprovalRequest projection)
+// carried verbatim — no key is merged into it, and the receive side reads no
+// kind out of it, so a "kind" key a caller put there is inert.
 //
 // A payload that cannot be carried is an ERROR, not an empty result.
 // Both failures were previously swallowed — the json.Unmarshal error by an
@@ -643,31 +645,29 @@ func (c *Coordinator) pushMail(role string) {
 // (pushMail) warns and leaves the message pending rather than spending it on a
 // hollow notice.
 func peerMessageProto(m Message) (*agentcoordpb.PeerMessage, error) {
+	kind, err := agentcoordpb.MessageKindForLegacyName(m.Kind)
+	if err != nil {
+		return nil, err
+	}
 	pm := &agentcoordpb.PeerMessage{
 		MessageId:   m.ID,
 		FromAgentId: m.From,
 		Text:        m.Body,
 		InReplyTo:   m.InReplyTo,
+		Kind:        kind,
 	}
-	fields := map[string]any{}
 	if len(m.Structured) > 0 {
-		var extra map[string]any
-		if err := json.Unmarshal(m.Structured, &extra); err != nil {
+		var fields map[string]any
+		if err := json.Unmarshal(m.Structured, &fields); err != nil {
 			return nil, fmt.Errorf("decode structured payload: %w", err)
 		}
-		for k, v := range extra {
-			fields[k] = v
+		if len(fields) > 0 {
+			s, err := structpb.NewStruct(fields)
+			if err != nil {
+				return nil, fmt.Errorf("encode structured payload: %w", err)
+			}
+			pm.Structured = s
 		}
-	}
-	if m.Kind != "" {
-		fields["kind"] = m.Kind
-	}
-	if len(fields) > 0 {
-		s, err := structpb.NewStruct(fields)
-		if err != nil {
-			return nil, fmt.Errorf("encode structured payload: %w", err)
-		}
-		pm.Structured = s
 	}
 	return pm, nil
 }

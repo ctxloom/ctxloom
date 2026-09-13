@@ -23,3 +23,19 @@ func TranscriptReadersFor(name string) agent.Declared[[]vendorreader.VersionedAd
 	}
 	return d.TranscriptReaders
 }
+
+// CredentialSeedFor returns the named engine's declaration of the host
+// credential material that seeds an isolated home — flattened through Home:
+// an engine with no relocatable home has, by the same declaration, nothing
+// to seed, and the reason it gives for the one is the reason for the other.
+func CredentialSeedFor(name string) agent.Declared[agent.CredentialSeed] {
+	d, ok := lookup(name)
+	if !ok {
+		return agent.Declared[agent.CredentialSeed]{}
+	}
+	home, ok := d.Home.Get()
+	if !ok {
+		return agent.Absent[agent.CredentialSeed](d.Home.AbsentReason())
+	}
+	return home.Credentials
+}

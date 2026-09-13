@@ -222,10 +222,17 @@ func TestCopyAmbient_ClaudeStripsRefreshTokenEndToEnd(t *testing.T) {
 func TestAmbientSet_IsAnExplicitAllowListPerEngine(t *testing.T) {
 	home := withFakeHome(t)
 
+	// An engine that declares NO seed is in the roster with its reason, and
+	// has an empty set: the difference between "declared nothing to seed"
+	// and "nobody registered it" is that the former can be read back.
+	const unseeded = "unseeded-fixture"
+	RegisterCredentialSeed(unseeded, agent.Absent[agent.CredentialSeed](unseeded+" keeps its credential in a global store no home var moves"))
+	t.Cleanup(func() { RegisterCredentialSeed(unseeded, agent.Declared[agent.CredentialSeed]{}) })
+
 	names := AmbientEngineNames()
 	sort.Strings(names)
-	assert.Equal(t, []string{"claude-code"}, names,
-		"every registered backend needs an EXPLICIT ambient declaration, empty or not")
+	assert.Equal(t, []string{"claude-code", unseeded}, names,
+		"every registered backend needs an EXPLICIT ambient declaration, provided or absent")
 
 	want := map[string][]AmbientFile{
 		"claude-code": {{HostRel: ".claude/.credentials.json", DestRel: "claude/.credentials.json", Mode: 0o600, Required: true}},
@@ -233,7 +240,13 @@ func TestAmbientSet_IsAnExplicitAllowListPerEngine(t *testing.T) {
 	for engine, files := range want {
 		assert.Equal(t, files, AmbientSet(engine), "%s's ambient set", engine)
 	}
-	assert.Nil(t, AmbientSet("mock"), "an engine with no declaration has no ambient set")
+	assert.Nil(t, AmbientSet(unseeded), "a declared absence has no ambient set")
+	declared, ok := credentialSeedDeclared(unseeded)
+	require.True(t, ok, "a declared absence is still a registered declaration")
+	assert.NotEmpty(t, declared.AbsentReason())
+	assert.Nil(t, AmbientSet("never-registered"), "an unregistered engine has no ambient set either")
+	_, ok = credentialSeedDeclared("never-registered")
+	assert.False(t, ok, "…but it is not a declaration, and that is the readable difference")
 
 	// The sets are resolved against the REAL host home seam, not a literal.
 	claude := AmbientSet("claude-code")

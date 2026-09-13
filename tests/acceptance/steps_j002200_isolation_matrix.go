@@ -78,6 +78,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // isoSpyEnvAllowlist is the CLOSED set of environment variables the spy is
@@ -215,26 +216,31 @@ func isoBinaryNames(engine string) ([]string, error) {
 	}
 }
 
-// isoAPIKeyEnvVar maps an engine to the env var whose presence bypasses
-// credential seeding (auth.go's credentialSeedSpecs[...].envTrigger).
+// isoAPIKeyEnvVar is the env var whose presence bypasses credential seeding
+// for engine — read off the engine's own declaration
+// (agent.CredentialSeed.EnvTrigger), not re-typed here.
 func isoAPIKeyEnvVar(engine string) (string, error) {
-	switch engine {
-	case config.BackendClaudeCode:
-		return "ANTHROPIC_API_KEY", nil
-	default:
+	seed, ok := backends.CredentialSeedFor(engine).Get()
+	if !ok || seed.EnvTrigger == "" {
 		return "", fmt.Errorf("iso matrix: engine %q has no API-key bypass", engine)
 	}
+	return seed.EnvTrigger, nil
 }
 
-// isoCredHostPath maps an engine to its host credential file's path,
-// relative to HOME (auth.go's credentialSeedSpecs[...].sourceFiles).
+// isoCredHostPath is engine's REQUIRED host credential file's path, relative
+// to HOME — the file whose absence is the seed's fail-loud case — read off
+// the engine's own declaration (agent.CredentialSeed.Files).
 func isoCredHostPath(engine string) (string, error) {
-	switch engine {
-	case config.BackendClaudeCode:
-		return filepath.Join(".claude", ".credentials.json"), nil
-	default:
+	seed, ok := backends.CredentialSeedFor(engine).Get()
+	if !ok {
 		return "", fmt.Errorf("iso matrix: no known host credential path for engine %q", engine)
 	}
+	for _, f := range seed.Files {
+		if f.Required {
+			return filepath.FromSlash(f.HostRelHome), nil
+		}
+	}
+	return "", fmt.Errorf("iso matrix: engine %q declares no required credential file", engine)
 }
 
 // isoHostHomeDirRel maps an engine to the directory it uses as its config home

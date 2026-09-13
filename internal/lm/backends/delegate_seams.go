@@ -88,6 +88,7 @@ func CheckHookTargetScope(name, workDir string, force bool) error {
 func UnregisterForTesting(name string) {
 	canonical := agent.CanonicalEngineName(name)
 	if d, ok := descriptors[canonical]; ok {
+		isolation.RegisterCredentialSeed(canonical, agent.Declared[agent.CredentialSeed]{})
 		if _, had := d.InstanceConfig.Get(); had {
 			isolation.RegisterInstanceConfigWriter(canonical, nil)
 		}

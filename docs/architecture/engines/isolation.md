@@ -59,7 +59,7 @@ flowchart TD
 | Axes | Policy | `Name()` | Ownership demanded | Isolates | Does **not** isolate |
 |---|---|---|---|---|---|
 | `{none, host}` | `None` | `"none"` | — | nothing — the fault-tolerant floor | everything |
-| `{worktree, host}` | `Worktree` | `"worktree"` | — | cwd (detached git worktree at `HEAD`) + **one host lever per backend**: the scoped config-home env var its `credentialSeedSpecs` entry names (`HomeVars`) | engine *global* state where the engine ignores the var; the git common dir; credentials (they are **copied in**, not withheld) |
+| `{worktree, host}` | `Worktree` | `"worktree"` | — | cwd (detached git worktree at `HEAD`) + **one host lever per backend**: the scoped config-home env var its descriptor's `Home` declaration names | engine *global* state where the engine ignores the var; the git common dir; credentials (they are **copied in**, not withheld) |
 | `{none, container-rootless}` | `Container{hostBase}` | `"container"` | rootless only | process, fs view, fresh `$HOME`; project mounted at its **identical absolute path** | the project dir (mounted RW) and the whole `.git` common dir (mounted RW) |
 | `{none, container-rootful}` | `Container{hostBase}` | `"container"` | rootful only | same as the rootless row | same as the rootless row |
 | `{worktree, container-rootless}` | `Container{worktreeBase}` | `"container-worktree"` | rootless only | as above + a per-agent checkout as cwd | the git common dir is still whole-dir RW |

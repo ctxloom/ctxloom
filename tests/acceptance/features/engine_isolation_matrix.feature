@@ -72,7 +72,7 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
   EACH CELL USES PRODUCTION'S OWN CREDENTIAL MECHANISM, NOT A HARNESS
   SUBSTITUTE. We drive real engines on real subscriptions, and every axis
   already has a solved mechanism: the host axis uses the engine's real home;
-  the worktree axis seeds per-agent homes through credentialSeedSpecs; the
+  the worktree axis seeds per-agent homes from the engine's declared seed; the
   container axis mounts the host credential store (claude's read-write, so a
   refresh lands in the live chain — merge 07072acf), identically under either
   ownership mode. Those mechanisms all resolve from the real host home, so

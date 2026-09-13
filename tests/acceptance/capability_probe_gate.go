@@ -131,7 +131,7 @@ func probeCellDecide(status engineStatus) (report, skip string) {
 // WHAT WENT WRONG BEFORE, AND WHY THIS IS THE FIX. testenv isolates HOME to a
 // temp dir, which is right for filesystem assertions and wrong here: EVERY
 // production credential path resolves from hostHomeDir() — worktree.go's
-// seedCredentials via credentialSeedSpecs, and the container mounts
+// seedCredentials via the engine's declared credential seed, and the container mounts
 // (claudeCredentialCopyMounts read-write, codexCredentialMounts /
 // opencodeCredentialMounts read-only) all start there. Point HOME at an empty
 // temp dir and every one of them finds nothing, so cells failed or had to be

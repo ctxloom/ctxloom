@@ -86,12 +86,17 @@ func Register(descs ...engine.Descriptor) error {
 	for i := range descs {
 		d := descs[i]
 		descriptors[d.Name] = &d
-		// Push the engine-owned instance-config writer and credential
-		// projector down to internal/lm/isolation at the same moment, so a
-		// backend can never be launchable here while invisible there.
-		// isolation resolves engines by NAME (CopyAmbient is handed a backend
-		// name, never an engine value) and cannot import the engine packages,
-		// so this is the only direction the wiring can run.
+		// Push the engine-owned isolation facts down to internal/lm/isolation
+		// at the same moment, so a backend can never be launchable here while
+		// invisible there. isolation resolves engines by NAME (CopyAmbient is
+		// handed a backend name, never an engine value) and cannot import the
+		// engine packages, so this is the only direction the wiring can run.
+		//
+		// The credential seed is pushed for EVERY descriptor, absent ones
+		// included: isolation's roster is then the registry by construction,
+		// and an engine with nothing to seed is a declaration it can read
+		// back, not a lookup miss.
+		isolation.RegisterCredentialSeed(d.Name, credentialSeedOf(&d))
 		if w, ok := d.InstanceConfig.Get(); ok {
 			isolation.RegisterInstanceConfigWriter(d.Name, w(agent.SettingsOptions{}))
 		}

@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
@@ -68,48 +67,6 @@ func TestSessionConfigDir_RefusesAHarplessCaller(t *testing.T) {
 		if got != "" {
 			t.Errorf("SessionConfigDir(harp=%q) returned %q alongside its error", bad, got)
 		}
-	}
-}
-
-// TestSessionConfigDir_IsTheSeedDestination is the writer-agreement pin: the
-// value ctxloom hands claude as CLAUDE_CONFIG_DIR and the directory isolation's
-// one-way copy-in writes .credentials.json into MUST be the same directory, or
-// the engine reads a home nothing prepared. Both sides are derived here from
-// the ONE helper plus the ONE registry.
-func TestSessionConfigDir_IsTheSeedDestination(t *testing.T) {
-	workDir := testWorkDir()
-	destSubdir, ok := isolation.CredentialSeedDestSubdir("claude-code")
-	if !ok {
-		t.Fatal(`isolation.CredentialSeedDestSubdir("claude-code") reports no such row`)
-	}
-	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harpA)
-	if err != nil {
-		t.Fatalf("paths.SessionHomePath() error = %v", err)
-	}
-	got, err := SessionConfigDir(workDir, harpA)
-	if err != nil {
-		t.Fatalf("SessionConfigDir() error = %v", err)
-	}
-	if want := filepath.Join(root, destSubdir); got != want {
-		t.Errorf("SessionConfigDir(%q, %q) = %q, want the copy-in destination %q", workDir, harpA, got, want)
-	}
-}
-
-// TestSessionConfigDir_MatchesTheIsolationSeedSubdir keeps the leaf
-// CLAUDE_CONFIG_DIR names equal to the subdirectory isolation SEEDS the
-// credential into. The seed and the var are decided in different packages;
-// the leaf must not diverge, or the engine would look where nothing landed.
-func TestSessionConfigDir_MatchesTheIsolationSeedSubdir(t *testing.T) {
-	subdir, ok := isolation.CredentialSeedDestSubdir("claude-code")
-	if !ok {
-		t.Fatal(`isolation.CredentialSeedDestSubdir("claude-code") = not registered, want claude's seed row`)
-	}
-	got, err := SessionConfigDir(testWorkDir(), harpA)
-	if err != nil {
-		t.Fatalf("SessionConfigDir() error = %v", err)
-	}
-	if base := filepath.Base(got); base != subdir {
-		t.Errorf("SessionConfigDir leaf = %q, want the isolation seed subdir %q", base, subdir)
 	}
 }
 

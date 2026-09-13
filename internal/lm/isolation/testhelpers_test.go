@@ -7,7 +7,11 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/ctxloom/ctxloom/internal/claude"
+	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -52,7 +56,24 @@ func TestMain(m *testing.M) {
 	// the OAuth token would be copied into the instance home and the stripping
 	// assertions would pass by never running the stripper.
 	RegisterCredentialProjector(claude.EngineName, claude.NewCredentialProjector())
+	// Push claude's REAL credential-seed declaration the same way, for the
+	// same reason: the seed these tests exercise is the one the engine
+	// authors on its descriptor, not a fixture that mirrors it and drifts.
+	claudeHome, ok := claudeengine.Descriptor().Home.Get()
+	if !ok {
+		panic("isolation tests: claude's descriptor declares no Home; the seed tests have nothing to exercise")
+	}
+	RegisterCredentialSeed(claude.EngineName, claudeHome.Credentials)
 	os.Exit(testsupport.SandboxedMain(m))
+}
+
+// claudeSeed returns the seed claude declares, as TestMain pushed it — what
+// every seed test here hands hostCredentialSeed.
+func claudeSeed(t *testing.T) agent.CredentialSeed {
+	t.Helper()
+	seed, ok := credentialSeedFor(claude.EngineName)
+	require.True(t, ok, "fixture: claude's credential seed must be registered by TestMain")
+	return seed
 }
 
 // noCompanionsOnPath is the TestMain default: no companion resolves.

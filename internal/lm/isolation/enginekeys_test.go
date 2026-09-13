@@ -51,13 +51,12 @@ func TestCredentialSeedSpecFor_ResolvesDeclaredAliases(t *testing.T) {
 	for _, pair := range aliasPairs(t, CredentialSeedEngineNames()) {
 		canonical, alias := pair[0], pair[1]
 
-		want, ok := credentialSeedSpecFor(canonical)
-		require.True(t, ok, "fixture: %q must be registered in credentialSeedSpecs", canonical)
+		want, ok := credentialSeedDeclared(canonical)
+		require.True(t, ok, "fixture: %q must have a credential-seed declaration", canonical)
 
-		got, ok := credentialSeedSpecFor(alias)
-		require.True(t, ok, "alias %q of %q must resolve to a credential-seed spec", alias, canonical)
-		assert.Equal(t, want.engine, got.engine, "alias %q must reach %q's own spec", alias, canonical)
-		assert.Equal(t, want.destSubdir, got.destSubdir, "alias %q must reach %q's own spec", alias, canonical)
+		got, ok := credentialSeedDeclared(alias)
+		require.True(t, ok, "alias %q of %q must resolve to a credential-seed declaration", alias, canonical)
+		assert.Equal(t, want, got, "alias %q must reach %q's own declaration", alias, canonical)
 	}
 }
 
@@ -65,11 +64,11 @@ func TestCredentialSeedSpecFor_ResolvesDeclaredAliases(t *testing.T) {
 // canonicalization: an engine name differing only in case is the same engine.
 func TestCredentialSeedSpecFor_ResolvesCaseVariants(t *testing.T) {
 	roster := CredentialSeedEngineNames()
-	require.NotEmpty(t, roster, "fixture: credentialSeedSpecs must not be empty")
+	require.NotEmpty(t, roster, "fixture: the credential-seed roster must not be empty")
 	for _, canonical := range roster {
 		upper := upperSpelling(t, canonical)
-		_, ok := credentialSeedSpecFor(upper)
-		assert.True(t, ok, "%q must resolve to %q's spec", upper, canonical)
+		_, ok := credentialSeedDeclared(upper)
+		assert.True(t, ok, "%q must resolve to %q's declaration", upper, canonical)
 	}
 }
 
@@ -77,19 +76,14 @@ func TestCredentialSeedSpecFor_ResolvesCaseVariants(t *testing.T) {
 // name nobody registered must keep missing. Trading a silent miss for a silent
 // default would be worse than the bug being fixed.
 func TestCredentialSeedSpecFor_UnknownEngineStillMisses(t *testing.T) {
-	require.NotEmpty(t, credentialSeedSpecs, "fixture: credentialSeedSpecs must not be empty")
+	require.NotEmpty(t, CredentialSeedEngineNames(), "fixture: the credential-seed roster must not be empty")
 
-	_, ok := credentialSeedSpecFor(unknownEngineName)
-	assert.False(t, ok, "an unregistered engine must not resolve to any spec")
-
-	subdir, ok := CredentialSeedDestSubdir(unknownEngineName)
-	assert.False(t, ok, "an unregistered engine has no destination subdir")
-	assert.Empty(t, subdir)
-	assert.Nil(t, CredentialSeedSourceFiles(unknownEngineName), "an unregistered engine has no seed files")
+	_, ok := credentialSeedDeclared(unknownEngineName)
+	assert.False(t, ok, "an unregistered engine must not resolve to any declaration")
 	assert.Nil(t, AmbientSet(unknownEngineName), "an unregistered engine has no ambient allow-list")
 
 	// No fuzzy rounding: a near-miss of a real engine name is still a miss.
-	_, ok = credentialSeedSpecFor("claude-cod")
+	_, ok = credentialSeedDeclared("claude-cod")
 	assert.False(t, ok, "a prefix of a real engine name must not resolve to it")
 }
 
@@ -165,7 +159,7 @@ func TestRegisterCredentialProjector_ResolvesAliasesAndRefusesNonCanonicalKeys(t
 // alias table rewrites is unreachable by any lookup.
 func TestEngineKeyedTables_HoldCanonicalKeys(t *testing.T) {
 	rosters := map[string][]string{
-		"credentialSeedSpecs":  CredentialSeedEngineNames(),
+		"credentialSeeds":      CredentialSeedEngineNames(),
 		"ContainerAuthEngines": ContainerAuthEngines(),
 		"composableEngines":    composableEngines(),
 	}

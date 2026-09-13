@@ -42,10 +42,11 @@ type AmbientFile struct {
 
 // AmbientSet returns engine's ambient allow-list, keyed by REGISTERED backend
 // name. It returns nil both for an unregistered engine and for a registered one
-// whose set is DECLARED EMPTY — an engine whose credentials live in a global
+// whose seed is DECLARED ABSENT — an engine whose credentials live in a global
 // store no home var relocates. The two are told apart by AmbientEngineNames,
-// which lists exactly the registered ones; the roster arch gate asserts every
-// registered backend has an explicit entry, empty or not.
+// which lists exactly the registered ones: every registered backend has an
+// explicit declaration here, provided or absent, because the registry pushes
+// each one at registration (RegisterCredentialSeed).
 //
 // ALLOW-LIST, NEVER DENY-LIST. Under a deny-list, a file the engine vendor adds
 // tomorrow is copied by DEFAULT, and the default direction of a mistake there
@@ -54,26 +55,17 @@ type AmbientFile struct {
 // crosses — by name, one line each — is what makes D4 and D5 decisions rather
 // than accidents.
 func AmbientSet(engine string) []AmbientFile {
-	spec, ok := credentialSeedSpecFor(engine)
-	if !ok || spec.sourceFiles == nil {
+	seed, ok := credentialSeedFor(engine)
+	if !ok {
 		return nil
 	}
-	home, err := hostHomeDir()
-	if err != nil || home == "" {
-		home = credentialSeedSourceFileSentinelHome
-	}
-	files := spec.sourceFiles(home)
-	out := make([]AmbientFile, 0, len(files))
-	for _, f := range files {
-		rel, relErr := filepath.Rel(home, f.host)
-		if relErr != nil {
-			rel = f.host
-		}
+	out := make([]AmbientFile, 0, len(seed.Files))
+	for _, f := range seed.Files {
 		out = append(out, AmbientFile{
-			HostRel:  filepath.ToSlash(rel),
-			DestRel:  filepath.ToSlash(filepath.Join(spec.destSubdir, f.destName)),
+			HostRel:  f.HostRelHome,
+			DestRel:  filepath.ToSlash(filepath.Join(seed.Subdir, f.DestName)),
 			Mode:     ambientCredentialMode,
-			Required: f.required,
+			Required: f.Required,
 		})
 	}
 	return out
@@ -86,9 +78,9 @@ func AmbientSet(engine string) []AmbientFile {
 const ambientCredentialMode fs.FileMode = 0o600
 
 // AmbientEngineNames returns the backend names with an EXPLICIT ambient
-// declaration — the same roster credentialSeedSpecs carries, exposed under the
-// ambient name so a caller asking "does this engine have a declared set?" does
-// not have to know the set is stored in the credential-seed registry.
+// declaration, provided or absent — the credential-seed roster, exposed under
+// the ambient name so a caller asking "does this engine have a declared set?"
+// does not have to know where the declaration is stored.
 func AmbientEngineNames() []string { return CredentialSeedEngineNames() }
 
 // AmbientRequest is one ambient copy-in: which engine, into which instance
@@ -114,12 +106,12 @@ type AmbientCopyReport struct {
 	// MissingOptional counts allow-listed, non-Required files absent from the
 	// host.
 	MissingOptional int
-	// SkippedEnv reports that the engine's envTrigger (ANTHROPIC_API_KEY,
-	// OPENAI_API_KEY, ...) already carries usable auth, so there was nothing to
-	// copy. Not an error; the caller still points the engine at the instance.
+	// SkippedEnv reports that the engine's EnvTrigger already carries usable
+	// auth, so there was nothing to copy. Not an error; the caller still
+	// points the engine at the instance.
 	SkippedEnv bool
 	// NoSource reports the FAIL-LOUD case: this engine relocates credentials
-	// with its home var, no envTrigger is set, and the required host
+	// with its home var, no EnvTrigger is set, and the required host
 	// credential is absent — an engine launched at this instance would start
 	// logged out. It is returned as a DECISION rather than a Go error so the
 	// caller can refuse the relocation in its own words (a fail-loud finding
@@ -248,24 +240,28 @@ func credentialProjectorFor(engine string) agent.CredentialProjector {
 // harpless worktree fallback under the OS temp dir, whose home is per-AGENT and
 // therefore has no second writer to race.
 func CopyAmbient(req AmbientRequest) (AmbientCopyReport, error) {
-	spec, ok := credentialSeedSpecFor(req.Engine)
+	declared, ok := credentialSeedDeclared(req.Engine)
 	if !ok {
 		return AmbientCopyReport{}, fmt.Errorf("ambient copy-in: backend %q has no declared ambient set (internal error)", req.Engine)
 	}
+	engine := agent.CanonicalEngineName(req.Engine)
 	if req.InstanceHome == "" {
-		return AmbientCopyReport{}, fmt.Errorf("ambient copy-in for %s: no instance home to copy into (internal error)", spec.engine)
+		return AmbientCopyReport{}, fmt.Errorf("ambient copy-in for %s: no instance home to copy into (internal error)", engine)
 	}
 	unlock := lockInstanceHome(req.InstanceHome)
 	defer unlock()
-	return copyAmbientLocked(spec, req)
+	return copyAmbientLocked(engine, declared, req)
 }
 
-// copyAmbientLocked is CopyAmbient's body, with the instance lock already held.
-func copyAmbientLocked(spec credentialSeedSpec, req AmbientRequest) (AmbientCopyReport, error) {
+// copyAmbientLocked is CopyAmbient's body, with the instance lock already
+// held. A declared-absent seed skips the copy half entirely — the engine
+// said it has nothing seedable — and still runs the engine's own
+// instance-config generation.
+func copyAmbientLocked(engine string, declared agent.Declared[agent.CredentialSeed], req AmbientRequest) (AmbientCopyReport, error) {
 	var rep AmbientCopyReport
 
-	if spec.sourceFiles != nil {
-		result, err := hostCredentialSeed(spec, req.InstanceHome, credentialProjectorFor(req.Engine))
+	if seed, ok := declared.Get(); ok {
+		result, err := hostCredentialSeed(engine, seed, req.InstanceHome, credentialProjectorFor(engine))
 		if err != nil {
 			return rep, err
 		}
@@ -274,17 +270,17 @@ func copyAmbientLocked(spec credentialSeedSpec, req AmbientRequest) (AmbientCopy
 			rep.SkippedEnv = true
 		case seedNoSource:
 			rep.NoSource = true
-			rep.NoSourceReason = noAmbientSourceReason(spec)
+			rep.NoSourceReason = noAmbientSourceReason(seed)
 			// Nothing to authenticate with: do NOT generate a config for an
 			// instance the caller is about to refuse. Reporting the decision is
 			// this call's whole remaining job.
 			return rep, nil
 		case seedOK:
-			rep.Copied, rep.MissingOptional = ambientCopyCounts(spec)
+			rep.Copied, rep.MissingOptional = ambientCopyCounts(seed)
 		}
 	}
 
-	writer := instanceConfigWriterFor(req.Engine)
+	writer := instanceConfigWriterFor(engine)
 	if writer == nil {
 		return rep, nil
 	}
@@ -300,7 +296,7 @@ func copyAmbientLocked(spec credentialSeedSpec, req AmbientRequest) (AmbientCopy
 	rep.Generated = engineRep.Wrote
 	rep.Warnings = engineRep.Warnings
 	for _, w := range rep.Warnings {
-		clidiag.Warn("ctxloom", "%s instance config: %s", spec.engine, w)
+		clidiag.Warn("ctxloom", "%s instance config: %s", engine, w)
 	}
 	if err != nil {
 		return rep, err
@@ -308,17 +304,16 @@ func copyAmbientLocked(spec credentialSeedSpec, req AmbientRequest) (AmbientCopy
 	return rep, nil
 }
 
-// ambientCopyCounts reports how many of spec's ambient files were present on
+// ambientCopyCounts reports how many of seed's ambient files were present on
 // the host and how many OPTIONAL ones were absent, after a successful seed.
-// Recomputed from the same source-file descriptor the seed used rather than
-// threaded back out of it, so the counting cannot claim a copy the seed did not
-// make.
-func ambientCopyCounts(spec credentialSeedSpec) (copied, missingOptional int) {
+// Recomputed from the same declaration the seed used rather than threaded
+// back out of it, so the counting cannot claim a copy the seed did not make.
+func ambientCopyCounts(seed agent.CredentialSeed) (copied, missingOptional int) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		return 0, 0
 	}
-	for _, f := range spec.sourceFiles(home) {
+	for _, f := range resolveSeedFiles(seed, home) {
 		switch {
 		case fileExists(f.host):
 			copied++
@@ -336,39 +331,24 @@ func ambientCopyCounts(spec credentialSeedSpec) (copied, missingOptional int) {
 // CALLER's strictness finding, never by the code that surfaces this string, and
 // an error naming an escape hatch that does not exist sends the user round a
 // loop that cannot terminate.
-func noAmbientSourceReason(spec credentialSeedSpec) string {
+func noAmbientSourceReason(seed agent.CredentialSeed) string {
 	return fmt.Sprintf(
 		"no %s and no host ~/%s credentials found to authenticate this run — run `%s` or set %s",
-		spec.envTrigger, primaryAmbientHostRel(spec), spec.loginHint, spec.envTrigger)
+		seed.EnvTrigger, primaryAmbientHostRel(seed), seed.LoginHint, seed.EnvTrigger)
 }
 
-// primaryAmbientHostRel is the slash-separated, home-relative path of spec's
+// primaryAmbientHostRel is the slash-separated, home-relative path of seed's
 // REQUIRED credential file — the one whose absence is the fail-loud case — for
-// use in a message. Falls back to the first entry when no file is marked
-// required (no current spec does).
-func primaryAmbientHostRel(spec credentialSeedSpec) string {
-	if spec.sourceFiles == nil {
-		return ""
-	}
-	home, err := hostHomeDir()
-	if err != nil || home == "" {
-		home = credentialSeedSourceFileSentinelHome
-	}
-	rel := func(f seedFile) string {
-		r, relErr := filepath.Rel(home, f.host)
-		if relErr != nil {
-			return f.host
-		}
-		return filepath.ToSlash(r)
-	}
-	files := spec.sourceFiles(home)
-	for _, f := range files {
-		if f.required {
-			return rel(f)
+// use in a message. agent.EngineHome.Validate refuses a seed with no required
+// file, so the fallback to the first entry is for an unvalidated value only.
+func primaryAmbientHostRel(seed agent.CredentialSeed) string {
+	for _, f := range seed.Files {
+		if f.Required {
+			return f.HostRelHome
 		}
 	}
-	if len(files) > 0 {
-		return rel(files[0])
+	if len(seed.Files) > 0 {
+		return seed.Files[0].HostRelHome
 	}
 	return ""
 }

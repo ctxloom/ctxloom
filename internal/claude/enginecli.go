@@ -66,10 +66,11 @@ const (
 // The claude ISOLATION vocabulary. Unlike the block above (facts the writers
 // and probe declarations both build paths from), these three describe how
 // claude relocates its home and where its OWN credential/transcript state
-// lives — facts internal/lm/isolation's credentialSeedSpecs/engineContainerSpec
-// tables duplicate as literals today rather than importing this package, so
-// tests/arch's engine-layout gate cross-checks those literals against these
-// instead.
+// lives. The descriptor (internal/claude/engine) declares the credential
+// seed from them; internal/lm/isolation's engineContainerSpec table still
+// duplicates the container-side facts as literals rather than importing this
+// package, so tests/arch's engine-layout gate cross-checks those literals
+// against these instead.
 const (
 	// ConfigDirEnv is the environment variable claude honors to relocate its
 	// config home away from the default ~/.claude — CLAUDE_CONFIG_DIR.
@@ -79,8 +80,8 @@ const (
 	ConfigDirEnv = "CLAUDE_CONFIG_DIR"
 	// CredentialsFileName is the OAuth/API credential file claude reads and
 	// refreshes inside its config home (ConfigDirName, or a
-	// CLAUDE_CONFIG_DIR-relocated equivalent) — seeded per-agent by
-	// internal/lm/isolation's credentialSeedSpecs.
+	// CLAUDE_CONFIG_DIR-relocated equivalent) — seeded per-agent from the
+	// descriptor's credential-seed declaration.
 	CredentialsFileName = ".credentials.json"
 	// TranscriptsDirName is the subdirectory of ConfigDirName claude stores
 	// its native per-project session transcripts under (~/.claude/projects).

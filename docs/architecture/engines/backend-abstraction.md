@@ -222,7 +222,7 @@ so writers recognise it as managed. Invocation is `just test-conformance`.
 *Stated factually; defect triage lives in `FINDINGS.md`, not here.*
 
 - ~~**`ManagedConfig.Skills` and `ManagedConfig.DenyTools` never reach any backend.**~~ **RESOLVED `40b49a7f`** — the proto carries all 7 fields, and `SurfaceInputs`/`setupViaCells` (`cells.go:166`, `:181`; `launch_backend.go`) now receive real values rather than always-empty ones. Full chain in [the plugin wire](grpc-wire.md). Kept on this page because it is the abstraction's sharpest lesson: **the Go interface looked complete at every layer** — the host populated the fields, the struct declared them, the consumer read them — and the only broken link was a hand-written converter with no compiler binding. The parity sweep (`internal/lm/grpc/arch_test.go`) is what supplies that binding now.
-- **A backend in neither `credentialSeedSpecs` nor `backendsWithNoGlobalState` gets a worktree with no engine-global isolation lever** — now recorded as a `ClassIsolation` finding by `Worktree.PrepareWorkspace` rather than passing silently. See [isolation](isolation.md).
+- **A backend with no engine-global isolation lever gets a worktree with none** — every registered engine now declares its `Home` (provided, or absent with a reason) on its descriptor, and `Worktree.PrepareWorkspace` records a `ClassIsolation` finding rather than passing silently. See [isolation](isolation.md).
 
 ## See also
 

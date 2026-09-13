@@ -137,7 +137,7 @@ func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
 		{source: "internal/lm/grpc.RetiredScraperBackendNames", members: grpc.RetiredScraperBackendNames()},
 		{source: "internal/operations.VendorReaderEngineNames (vendorReaderRegistry)", members: operations.VendorReaderEngineNames()},
 		{source: "internal/lm/isolation.ComposableEngines (composableEngines)", members: isolation.ComposableEngines()},
-		{source: "internal/lm/isolation.CredentialSeedEngineNames (credentialSeedSpecs)", members: isolation.CredentialSeedEngineNames()},
+		{source: "internal/lm/isolation.CredentialSeedEngineNames (pushed engine.Descriptor.Home.Credentials)", members: isolation.CredentialSeedEngineNames()},
 	}
 
 	for _, r := range rosters {
@@ -191,6 +191,11 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 			members: operations.VendorReaderEngineNames(),
 			absence: declaredAbsence(backends.TranscriptReadersFor),
 		},
+		{
+			source:  "internal/lm/isolation.AmbientSet (pushed engine.Descriptor.Home.Credentials)",
+			members: seededEngines(),
+			absence: declaredAbsence(backends.CredentialSeedFor),
+		},
 	}
 
 	for _, r := range rosters {
@@ -208,6 +213,18 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 			}
 		}
 	}
+}
+
+// seededEngines lists the backends isolation would seed credentials for —
+// those with a PROVIDED seed at the seam, read the way CopyAmbient reads it.
+func seededEngines() []string {
+	var names []string
+	for _, name := range isolation.AmbientEngineNames() {
+		if isolation.AmbientSet(name) != nil {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // transcriptSchemaRelPath is the published canonical-transcript schema whose

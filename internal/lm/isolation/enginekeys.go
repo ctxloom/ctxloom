@@ -35,29 +35,15 @@ func assertCanonicalEngineKey(table, key string) {
 }
 
 // init pins the key side of every engine-keyed table declared as a literal in
-// this package. The runtime-populated tables (instanceConfigWriters,
-// credentialProjectors) assert in their Register functions instead, and the
-// engineContainerSpecFor switch is pinned through the rosters that enumerate
-// its arms.
+// this package. The runtime-populated tables (credentialSeeds,
+// instanceConfigWriters, credentialProjectors) assert in their Register
+// functions instead, and the engineContainerSpecFor switch is pinned through
+// the rosters that enumerate its arms.
 func init() {
-	for name := range credentialSeedSpecs {
-		assertCanonicalEngineKey("credentialSeedSpecs", name)
-	}
 	for _, name := range ContainerAuthEngines() {
 		assertCanonicalEngineKey("ContainerAuthEngines", name)
 	}
 	for _, name := range composableEngines() {
 		assertCanonicalEngineKey("composableEngines", name)
 	}
-}
-
-// credentialSeedSpecFor resolves engine to its credential-seed descriptor
-// through the repo-wide alias table. It is the ONLY read path into
-// credentialSeedSpecs, so the key side and the read side cannot drift.
-//
-// ok=false means "this engine has no declared isolation lever", which every
-// caller already handles; it never means "this engine is spelled differently".
-func credentialSeedSpecFor(engine string) (credentialSeedSpec, bool) {
-	spec, ok := credentialSeedSpecs[agent.CanonicalEngineName(engine)]
-	return spec, ok
 }

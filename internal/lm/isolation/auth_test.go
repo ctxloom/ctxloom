@@ -7,6 +7,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // TestPresentEnvKeys_OnlyKnownSetVars: the scoped auth-env set carries ONLY the
@@ -219,17 +222,15 @@ func TestContainerAuthMode_String(t *testing.T) {
 
 // --- Host+worktree credential seeding ----------------------------------
 
-// TestCredentialSeedSpecs_ClaudeCodeRegistered pins the registry entry claude
-// needs: keyed by the REGISTERED backend name "claude-code" (not "claude" —
-// see enginespec.go's engineContainerSpecFor using the same key), the ANTHROPIC_API_KEY
-// trigger, and the "claude" destSubdir that worktree.go's Env() already points
-// CLAUDE_CONFIG_DIR at.
-func TestCredentialSeedSpecs_ClaudeCodeRegistered(t *testing.T) {
-	spec, ok := credentialSeedSpecs["claude-code"]
-	require.True(t, ok, "claude-code must have a credentialSeedSpec")
-	assert.Equal(t, "claude", spec.engine)
-	assert.Equal(t, "claude", spec.destSubdir)
-	assert.Equal(t, "ANTHROPIC_API_KEY", spec.envTrigger)
+// TestCredentialSeed_ClaudeDeclarationReachesTheSeam pins what the pushed
+// declaration must carry for the seed to land where the engine looks: keyed
+// by the REGISTERED backend name, an env trigger, and the destination leaf
+// equal to the one CLAUDE_CONFIG_DIR is pointed at (claude.HomeLeaf).
+func TestCredentialSeed_ClaudeDeclarationReachesTheSeam(t *testing.T) {
+	seed := claudeSeed(t)
+	assert.Contains(t, CredentialSeedEngineNames(), claude.EngineName)
+	assert.Equal(t, claude.HomeLeaf, seed.Subdir)
+	assert.Equal(t, "ANTHROPIC_API_KEY", seed.EnvTrigger)
 }
 
 // TestHostCredentialSeed_SkipsWhenEnvTriggerSet: ANTHROPIC_API_KEY present →
@@ -242,7 +243,7 @@ func TestHostCredentialSeed_SkipsWhenEnvTriggerSet(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
+	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedSkippedEnv, result)
 	assert.NoDirExists(t, filepath.Join(dest, "claude"), "no seed dir is created when the env trigger covers auth")
@@ -255,7 +256,7 @@ func TestHostCredentialSeed_SkipsWhenEnvTriggerSet(t *testing.T) {
 // (0600), and land at the exact path worktree.go's Env()
 // (CLAUDE_CONFIG_DIR = <configHome>/claude) expects. This used
 // to also assert a seeded ~/.claude.json copy — removed along with that
-// seed (see credentialSeedSpecs' claude-code sourceFiles doc): it leaked
+// seed (see claude's descriptor's Home declaration): it leaked
 // the host user's own mcpServers registrations into every isolated agent's
 // config-home, for mere onboarding convenience .credentials.json alone
 // doesn't need.
@@ -265,7 +266,7 @@ func TestHostCredentialSeed_CopiesCredentialFileWhenPresent(t *testing.T) {
 	writeCreds(t, home, true) // withDotClaude=true: host ALSO has ~/.claude.json — must not be seeded
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
+	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 
@@ -292,7 +293,7 @@ func TestHostCredentialSeed_OnlyCredentialFileRequired(t *testing.T) {
 	writeCreds(t, home, false)
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
+	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 	assert.FileExists(t, filepath.Join(dest, "claude", ".credentials.json"))
@@ -308,7 +309,7 @@ func TestHostCredentialSeed_NoSourceReturnsNoSourceNotError(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
+	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
 	require.NoError(t, err, "nothing seedable is a DECISION, not an I/O error")
 	assert.Equal(t, seedNoSource, result)
 	assert.NoDirExists(t, filepath.Join(dest, "claude"), "no half-built seed dir is left behind")
@@ -325,7 +326,7 @@ func TestHostCredentialSeed_UnresolvableHostHome(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
+	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result)
 }
@@ -483,7 +484,7 @@ func TestHostCredentialSeed_NeverLeaksPersonalMCPConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), []byte(realisticDotClaudeJSON), 0o600))
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
+	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 
@@ -548,10 +549,10 @@ func TestHostCredentialSeed_TightensAPreExistingSeedDir(t *testing.T) {
 	writeCreds(t, home, false)
 	dest := t.TempDir()
 
-	seedDir := filepath.Join(dest, credentialSeedSpecs["claude-code"].destSubdir)
+	seedDir := filepath.Join(dest, claudeSeed(t).Subdir)
 	require.NoError(t, os.MkdirAll(seedDir, 0o755))
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
+	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
 	require.NoError(t, err)
 	require.Equal(t, seedOK, result)
 
@@ -578,13 +579,13 @@ func TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	done := captureStderr(t)
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], t.TempDir(), nil)
+	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), t.TempDir(), nil)
 	stderr := done()
 
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result, "still a degrade, not an abort")
 	assert.Contains(t, stderr, "HOME lookup exploded", "the discarded cause must reach the user")
-	assert.Contains(t, stderr, "claude credential seed", "…named for the engine whose seed it broke")
+	assert.Contains(t, stderr, "claude-code credential seed", "…named for the engine whose seed it broke")
 }
 
 // TestClaudeCredentialMounts_AbsentCredentialStaysSilent: a host with no
@@ -620,7 +621,7 @@ func TestHostCredentialSeed_SeedDirUncreatable(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], notADir, nil)
+	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), notADir, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credential seed dir")
 	assert.Equal(t, seedNoSource, result)
@@ -640,9 +641,9 @@ func TestHostCredentialSeed_UnreadableSourceIsAnError(t *testing.T) {
 	require.NoError(t, os.Chmod(src, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(src, 0o600) })
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], t.TempDir(), nil)
+	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), t.TempDir(), nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "seed claude credential")
+	assert.Contains(t, err.Error(), "seed claude-code credential")
 	assert.Equal(t, seedNoSource, result)
 }
 
@@ -652,14 +653,13 @@ func TestHostCredentialSeed_UnreadableSourceIsAnError(t *testing.T) {
 // nothing" is precisely the shape this project's characteristic bug takes.
 func TestHostCredentialSeed_AllOptionalAndNonePresent(t *testing.T) {
 	withFakeHome(t)
-	spec := credentialSeedSpec{
-		engine:      "phantom",
-		destSubdir:  "phantom",
-		sourceFiles: func(h string) []seedFile { return []seedFile{{host: filepath.Join(h, "nope"), destName: "nope"}} },
+	seed := agent.CredentialSeed{
+		Subdir: "phantom",
+		Files:  []agent.SeedFile{{HostRelHome: "nope", DestName: "nope"}},
 	}
 
 	dest := t.TempDir()
-	result, err := hostCredentialSeed(spec, dest, nil)
+	result, err := hostCredentialSeed("phantom", seed, dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result, "copying nothing is never seedOK")
 	assert.NoFileExists(t, filepath.Join(dest, "phantom", "nope"))

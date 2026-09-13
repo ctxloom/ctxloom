@@ -383,8 +383,8 @@ func mapCredentialHome(engine, envVar, dir string, required ...string) ([]creden
 
 // mapClaudeCredentials points CLAUDE_CONFIG_DIR at the REAL ~/.claude.
 // claude's descriptor declares its home var relocates both config AND
-// credentials (agent.EngineHome.Credentials) and credentialSeedSpecs marks
-// .credentials.json the one REQUIRED source file, so that file's absence is
+// credentials (agent.EngineHome.Credentials) and marks .credentials.json the
+// one REQUIRED source file, so that file's absence is
 // the loud failure here too.
 //
 // COST, ACCEPTED AND STATED (erased-collar's "decide per engine and say where

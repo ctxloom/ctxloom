@@ -1,6 +1,7 @@
 package backends
 
 import (
+	"github.com/ctxloom/ctxloom/internal/lm/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 )
@@ -33,6 +34,12 @@ func CredentialSeedFor(name string) agent.Declared[agent.CredentialSeed] {
 	if !ok {
 		return agent.Declared[agent.CredentialSeed]{}
 	}
+	return credentialSeedOf(d)
+}
+
+// credentialSeedOf is CredentialSeedFor on a descriptor in hand — what
+// Register pushes to isolation before the descriptor is reachable by name.
+func credentialSeedOf(d *engine.Descriptor) agent.Declared[agent.CredentialSeed] {
 	home, ok := d.Home.Get()
 	if !ok {
 		return agent.Absent[agent.CredentialSeed](d.Home.AbsentReason())

@@ -330,8 +330,8 @@ func ContainerInstanceHome(ws Workspace) string {
 // MountEngineHome records the bind mounts a resolved engine home needs inside
 // a container workspace, so the launch that follows binds Root.Host at
 // Root.Engine. It is an error on a workspace that executes on the host: such
-// a workspace's RuntimeAdvice is the identity and never yields a mount, so
-// reaching here with one means the advice and the workspace disagree.
+// a workspace has no ContainerInstanceHome and the resolver never yields a
+// mount for it, so reaching here with one means the two disagree.
 //
 // TWO mounts, not one, when the run authenticates by credential mount. The
 // directory mount hands the engine its relocated home — and the copy seeded

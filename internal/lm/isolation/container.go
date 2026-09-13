@@ -154,11 +154,11 @@ var _ Policy = Container{}
 func NewContainerFor(rt Runtime, backend string) Container {
 	p := engineContainerSpecFor(backend)
 	return Container{
-		runtime:    rt,
-		base:       hostBase{},
-		image:      p.image,
-		engine:     backend,
-		engineSpec: p,
+		runtime:      rt,
+		base:         hostBase{},
+		image:        p.image,
+		engine:       backend,
+		engineSpec:   p,
 		binaryPath:   defaultContainerBinary,
 		home:         defaultContainerHome,
 		instanceHome: defaultContainerInstanceHome,
@@ -286,16 +286,16 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 		return nil, err
 	}
 	return &containerWorkspace{
-		dir:         dir,
-		projectDir:  projectDir,
-		scratchRoot: sc.root,
-		socketDir:   sc.socketDir,
-		authMounts:  sc.auth.mounts,
-		stateMounts: sc.stateMounts,
-		scratchEnv:  sc.runEnv(),
-		authMode:    sc.auth.mode,
-		agentID:     agentID,
-		baseCleanup: baseCleanup,
+		dir:          dir,
+		projectDir:   projectDir,
+		scratchRoot:  sc.root,
+		socketDir:    sc.socketDir,
+		authMounts:   sc.auth.mounts,
+		stateMounts:  sc.stateMounts,
+		scratchEnv:   sc.runEnv(),
+		authMode:     sc.auth.mode,
+		agentID:      agentID,
+		baseCleanup:  baseCleanup,
 		runtime:      c.runtime,
 		instanceHome: c.instanceHome,
 		engineSpec:   c.engineSpec,

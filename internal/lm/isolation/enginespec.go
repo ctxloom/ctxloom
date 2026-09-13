@@ -66,11 +66,11 @@ import (
 // not import the backends registry (it would drag the whole backend tree into
 // the seam); the names are part of the descriptor contract.
 type engineContainerSpec struct {
-	image              string
-	engineInstall      []byte
-	validate           string
-	resolveAuth        func(containerHome, scratchDir string) (containerAuth, bool)
-	authHint           string
+	image         string
+	engineInstall []byte
+	validate      string
+	resolveAuth   func(containerHome, scratchDir string) (containerAuth, bool)
+	authHint      string
 	// relocatedCredentialMounts takes the ENGINE-side path of the relocated
 	// home (what the engine is told) and returns the file mount(s) into it;
 	// ok=false when the host credential material is absent.
@@ -238,8 +238,8 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 			// the most recent claude) is the build source. A user can still
 			// overlay onto any client-shipping base via `container build
 			// --base-image`.
-			engineInstall:      claudeCodeInstallFragment,
-			validate:           "claude --version",
+			engineInstall:             claudeCodeInstallFragment,
+			validate:                  "claude --version",
 			resolveAuth:               resolveClaudeContainerAuth,
 			authHint:                  claudeContainerAuthHint(),
 			relocatedCredentialMounts: claudeCredentialMountsAt,

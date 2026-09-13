@@ -20,7 +20,7 @@ func TestDescriptor_NameAndAliasesAreTheEnginePackagesOwn(t *testing.T) {
 	d := Descriptor()
 	assert.Equal(t, claude.EngineName, d.Name)
 	assert.Equal(t, claude.EngineAliases(), d.Aliases)
-	assert.False(t, d.TestOnly)
+	assert.Equal(t, agent.DistributionDefault, d.Distribution)
 }
 
 // The home declaration is built from the engine's own constants, so the

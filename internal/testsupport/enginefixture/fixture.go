@@ -34,7 +34,7 @@ func Descriptor(name string) engine.Descriptor {
 		Home:                agent.Absent[agent.EngineHome](name + " (fixture) keeps no global state"),
 		Container:           agent.Absent[agent.EngineContainer](name + " (fixture) has no container story"),
 		TranscriptReaders:   agent.Absent[[]vendorreader.VersionedAdapter](name + " (fixture) keeps no transcripts"),
-		TestOnly:            true,
+		Distribution:        agent.DistributionTestOnly,
 	}
 }
 

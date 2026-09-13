@@ -26,8 +26,9 @@ import (
 func Descriptor() engine.Descriptor {
 	credentialRelHome := filepath.ToSlash(filepath.Join(claude.ConfigDirName, claude.CredentialsFileName))
 	return engine.Descriptor{
-		Name:    claude.EngineName,
-		Aliases: claude.EngineAliases(),
+		Name:         claude.EngineName,
+		Aliases:      claude.EngineAliases(),
+		Distribution: agent.DistributionDefault,
 		NewBackend: func(launch agent.Launcher) agent.Backend {
 			b := claude.NewClaudeCode()
 			b.SetLauncher(launch)

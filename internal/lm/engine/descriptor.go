@@ -29,9 +29,10 @@ type Descriptor struct {
 	// Aliases are the alternate spellings that resolve to Name, repo-wide
 	// (ltk and taskloom included). Empty is the honest "none".
 	Aliases []string
-	// TestOnly marks a test/development double: registered and reachable at
-	// runtime, never offered to a user as a choice.
-	TestOnly bool
+	// Distribution is the engine's shipping policy — offered by default,
+	// offered on request, or a test double hidden from every user-facing
+	// enumeration. Unset is refused: see agent.Distribution.
+	Distribution agent.Distribution
 
 	// NewBackend constructs a fresh backend, with the registry's launcher
 	// injected — the substrate that execs processes lives with the registry,
@@ -138,6 +139,9 @@ func (d Descriptor) Validate() error {
 			return fmt.Errorf("descriptor %s: alias %q declared twice", d.Name, a)
 		}
 		seen[a] = true
+	}
+	if !d.Distribution.Decided() {
+		return fmt.Errorf("descriptor %s: Distribution is %s; declare Default, OptIn or TestOnly — an undeclared policy must not default-ship", d.Name, d.Distribution)
 	}
 	if d.NewBackend == nil {
 		return fmt.Errorf("descriptor %s: NewBackend is nil", d.Name)

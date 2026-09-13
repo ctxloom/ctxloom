@@ -21,11 +21,12 @@ func (fixtureConfig) BackendType() string { return "fixture" }
 // every required field set. Each refusal test below breaks exactly one thing.
 func validDescriptor() Descriptor {
 	return Descriptor{
-		Name:       "fixture",
-		Aliases:    []string{"fix"},
-		NewBackend: func(agent.Launcher) agent.Backend { return nil },
-		NewConfig:  func() agent.BackendConfig { return &fixtureConfig{} },
-		Surfaces:   agent.Declaration{},
+		Name:         "fixture",
+		Aliases:      []string{"fix"},
+		Distribution: agent.DistributionDefault,
+		NewBackend:   func(agent.Launcher) agent.Backend { return nil },
+		NewConfig:    func() agent.BackendConfig { return &fixtureConfig{} },
+		Surfaces:     agent.Declaration{},
 		SettingsWriter: agent.Absent[func(agent.SettingsOptions) agent.SettingsWriter](
 			"fixture writes no settings"),
 		InstanceConfig: agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter](

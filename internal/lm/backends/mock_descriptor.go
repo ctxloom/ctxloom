@@ -64,7 +64,7 @@ func MockDescriptors() []engine.Descriptor {
 func mockDescriptor(name string, ctor func() *Mock, newConfig func() agent.BackendConfig) engine.Descriptor {
 	return engine.Descriptor{
 		Name:           name,
-		TestOnly:       true,
+		Distribution:   agent.DistributionTestOnly,
 		NewBackend:     func(agent.Launcher) agent.Backend { return ctor() },
 		NewConfig:      newConfig,
 		Surfaces:       mockDeclaration(name),

@@ -133,8 +133,17 @@ func lookup(name string) (*engine.Descriptor, bool) {
 // "engine you may not pick" separately, and folding the two here would turn a
 // typo into a silent omission.
 func IsTestOnly(name string) bool {
+	return DistributionFor(name) == agent.DistributionTestOnly
+}
+
+// DistributionFor returns the named engine's shipping policy, or Unset for a
+// name nobody registered — which no policy check reads as any decision.
+func DistributionFor(name string) agent.Distribution {
 	d, ok := lookup(name)
-	return ok && d.TestOnly
+	if !ok {
+		return agent.DistributionUnset
+	}
+	return d.Distribution
 }
 
 // Get returns a new instance of the named backend, with this package's

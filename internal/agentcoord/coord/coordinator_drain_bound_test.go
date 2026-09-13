@@ -355,6 +355,31 @@ func TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock(t *testing.T)
 	assert.Equal(t, CauseDrained, currentRunCause(c, harp))
 }
 
+// TestBeginDrain_RunEndedBeforeDrainBeganIsNotInTheOutcome pins the
+// drainTracked skip end-to-end through BeginDrain, at the level DrainOutcome
+// itself promises: a run that had already ended before BeginDrain was ever
+// called is not "live when the drain began" and must not appear anywhere in
+// the outcome — Exited included, since Exited is documented for children the
+// drain itself watched end, not ones already dead on arrival.
+func TestBeginDrain_RunEndedBeforeDrainBeganIsNotInTheOutcome(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	c := newTestCoordinator(t, sp, nil)
+
+	harp := spawnOneChild(t, c)
+	require.Eventually(t, func() bool { return rosterState(c, harp) == StateIdle }, conformanceWait, 5*time.Millisecond)
+
+	var runID string
+	c.runs.View(func() { runID = c.runsF.currentRun(harp).RunID })
+	c.terminateRun(runID, CauseStopped, "stopped well before any drain began")
+	require.Equal(t, StateEnded, rosterState(c, harp), "precondition: the run ended before BeginDrain is ever called")
+
+	out := awaitDrain(t, c.BeginDrain())
+	assert.Empty(t, out.Exited, "a run already ended before the drain began was never live for it to track")
+	assert.Empty(t, out.Interrupted)
+	assert.Empty(t, out.Parked)
+}
+
 // TestBeginDrain_IsIdempotentAndReturnsTheSameDrain: a second BeginDrain does
 // not start a second bounded wait; it returns the drain already in progress.
 func TestBeginDrain_IsIdempotentAndReturnsTheSameDrain(t *testing.T) {

@@ -876,6 +876,18 @@ enum MessageKind {
   // so it survives the target's run succession. No producer yet (later
   // stage); declared here so that stage adds no schema.
   MESSAGE_KIND_STEER = 14;
+
+  // COORDINATOR-RESERVED: the notice a child's FINAL agent_report queues to
+  // its parent. The report's content lives in the reports fold (roster); this
+  // is its ARRIVAL, so a parent's waiting agent_recv is not silent when the
+  // child files the deliverable.
+  MESSAGE_KIND_REPORT = 15;
+
+  // COORDINATOR-RESERVED: the coordinator's own on-demand summary ask,
+  // answered by correlation (in_reply_to). Its sibling QUESTION is
+  // sender-allowed because a peer may ask a peer; this one carries the
+  // coordinator's request for a report and is not a sender's to mint.
+  MESSAGE_KIND_SUMMARIZE = 16;
 }
 
 // Peer messaging is hub-and-spoke: sender asks the coordinator to relay;
@@ -1421,7 +1433,7 @@ message PeerMessage {
   // the message. A recognised value here is guaranteed by decode; an
   // unrecognised one is refused rather than delivered unclassified.
   MessageKind kind = 8 [(field_schema) = {
-    doc: "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices."
+    doc: "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_REPORT means a child of yours filed its FINAL report (read it from roster); MESSAGE_KIND_SUMMARIZE is the coordinator asking you for a summary, answered with in_reply_to; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices."
   }];
 }
 

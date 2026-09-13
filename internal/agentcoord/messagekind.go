@@ -125,42 +125,90 @@ func SenderAllowedKindNames() string {
 	return strings.Join(names, ", ")
 }
 
-// LegacyKindName is one enum value's spelling in the RETIRED free-string
+// LegacyKindName is one enum value's spelling in the mailbox's string
 // vocabulary: the enum name with its MESSAGE_KIND_ prefix stripped and
 // lowercased. MESSAGE_KIND_APPROVAL_REQUEST -> "approval_request".
 //
-// It exists so the two guards cannot drift by SPELLING. The string-level
-// chokepoint guard (`coord.SenderMailKind`) and this typed enum have to agree
-// while both exist, and they live in packages that cannot import each other
-// (coord imports this one). So the relationship is made mechanical instead of
-// remembered: every enum value's legacy spelling is DERIVED, and a test pins the
-// derivation against the four names the string vocabulary actually uses.
+// The enum is the SINGLE vocabulary; the mailbox, the spool frontmatter and
+// the journal spell its members as these strings, and coord (which imports
+// this package, not the other way round) builds its sender-allowed and
+// reserved lists from LegacySenderKindNames/LegacyReservedKindNames rather
+// than keeping literals of its own. So the relationship is mechanical instead
+// of remembered: every value's spelling is DERIVED here, and the inverse
+// (MessageKindForLegacyName) is derived from the same function, so the two
+// directions cannot disagree.
 //
-// What this does NOT prove: that the string guard's MEMBERSHIP matches. That
-// check belongs at the merge that brings both into one tree, and it has one
-// obvious form — repoint coord's `senderMailKinds` at LegacySenderKindNames()
-// and delete its literal. Until then, this is the shared definition to converge
-// on rather than a second one to maintain.
+// UNSPECIFIED has no spelling: the string vocabulary expresses "unkinded" as
+// the EMPTY STRING, which the enum deliberately does not represent (see
+// MESSAGE_KIND_MESSAGE's comment). It returns "".
 //
-// UNSPECIFIED has no legacy spelling: the free-string vocabulary expressed
-// "unkinded" as the EMPTY STRING, which the enum deliberately does not
-// represent (see MESSAGE_KIND_MESSAGE's comment). It returns "".
+// The name comes from the generated MessageKind_name map, not k.String():
+// String() reads the file descriptor, which the generated init() builds AFTER
+// package-level vars — and legacyNameToKind below is one.
 func LegacyKindName(k MessageKind) string {
-	if k == MessageKind_MESSAGE_KIND_UNSPECIFIED || !k.recognised() {
+	name, ok := MessageKind_name[int32(k)]
+	if !ok || k == MessageKind_MESSAGE_KIND_UNSPECIFIED {
 		return ""
 	}
-	return strings.ToLower(strings.TrimPrefix(k.String(), "MESSAGE_KIND_"))
+	return strings.ToLower(strings.TrimPrefix(name, "MESSAGE_KIND_"))
 }
 
-// LegacySenderKindNames is the sender-allowed vocabulary in the retired
-// free-string spelling, sorted — the exact set `agent_send` used to accept as
-// text, derived from the enum so there is one source for it.
-func LegacySenderKindNames() []string {
-	names := make([]string, 0, len(senderAllowedKinds))
-	for k := range senderAllowedKinds {
-		names = append(names, LegacyKindName(k))
+// legacyNameToKind inverts LegacyKindName over every declared value, built
+// once. "" maps to UNSPECIFIED by construction (LegacyKindName's own answer for
+// it), so the unkinded mailbox Message projects onto the wire's zero value.
+var legacyNameToKind = func() map[string]MessageKind {
+	inv := make(map[string]MessageKind, len(MessageKind_name))
+	for v := range MessageKind_name {
+		k := MessageKind(v)
+		inv[LegacyKindName(k)] = k
 	}
-	sort.Strings(names)
+	return inv
+}()
+
+// MessageKindForLegacyName resolves a mailbox spelling back onto the enum —
+// the projection a mailbox Message makes when it becomes a PeerMessage. It is
+// the inverse of LegacyKindName, not a second string→kind conversion: the
+// table is derived from that function. A spelling outside it is an ERROR,
+// never UNSPECIFIED, so a kind nobody mapped cannot ride the wire as "unset".
+func MessageKindForLegacyName(name string) (MessageKind, error) {
+	k, ok := legacyNameToKind[name]
+	if !ok {
+		return MessageKind_MESSAGE_KIND_UNSPECIFIED,
+			fmt.Errorf("mail kind %q is not a spelling of any message kind this build knows; the vocabulary is %s", name, allKindNames())
+	}
+	return k, nil
+}
+
+// LegacySenderKindNames is the sender-allowed vocabulary in the mailbox
+// spelling, in enum-declaration order — the order every refusal enumerates
+// the legal values in, and the source coord's own list is built from.
+func LegacySenderKindNames() []string {
+	return legacyNamesWhere(func(k MessageKind) bool { return k.IsSenderAllowed() })
+}
+
+// LegacyReservedKindNames is the coordinator-reserved vocabulary in the
+// mailbox spelling, in enum-declaration order — what coord refuses from a
+// sender as reserved, and what only the coordinator constructs.
+func LegacyReservedKindNames() []string {
+	return legacyNamesWhere(func(k MessageKind) bool { return k.IsCoordinatorReserved() })
+}
+
+// legacyNamesWhere lists the spellings of every declared value that satisfies
+// keep, in enum-declaration (numeric) order. Declaration order rather than
+// alphabetical because the documented vocabulary reads in that order and the
+// refusal text quotes it.
+func legacyNamesWhere(keep func(MessageKind) bool) []string {
+	values := make([]int32, 0, len(MessageKind_name))
+	for v := range MessageKind_name {
+		if keep(MessageKind(v)) {
+			values = append(values, v)
+		}
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	names := make([]string, 0, len(values))
+	for _, v := range values {
+		names = append(names, LegacyKindName(MessageKind(v)))
+	}
 	return names
 }
 

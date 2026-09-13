@@ -31,7 +31,7 @@
               "type": "string"
             },
             "kind": {
-              "description": "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices.",
+              "description": "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_REPORT means a child of yours filed its FINAL report (read it from roster); MESSAGE_KIND_SUMMARIZE is the coordinator asking you for a summary, answered with in_reply_to; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices.",
               "enum": [
                 "MESSAGE_KIND_UNSPECIFIED",
                 "MESSAGE_KIND_MESSAGE",
@@ -42,7 +42,9 @@
                 "MESSAGE_KIND_USER_INJECTED",
                 "MESSAGE_KIND_USER_CONTROL",
                 "MESSAGE_KIND_EXITED",
-                "MESSAGE_KIND_STEER"
+                "MESSAGE_KIND_STEER",
+                "MESSAGE_KIND_REPORT",
+                "MESSAGE_KIND_SUMMARIZE"
               ],
               "type": "string"
             },

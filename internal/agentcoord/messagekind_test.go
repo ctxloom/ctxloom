@@ -151,7 +151,7 @@ func TestParseMessageKind(t *testing.T) {
 // its own expectation from the code under test would pass no matter what the
 // code said.
 func TestLegacySenderKindNames_MatchTheStringVocabulary(t *testing.T) {
-	want := []string{"error", "message", "question", "result"}
+	want := []string{"message", "result", "error", "question"}
 	got := LegacySenderKindNames()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("sender-allowed legacy spellings are %v, want %v — the typed enum and the "+
@@ -168,9 +168,15 @@ func TestLegacyKindName_CoversTheReservedVocabulary(t *testing.T) {
 		MessageKind_MESSAGE_KIND_USER_CONTROL:     "user_control",
 		MessageKind_MESSAGE_KIND_EXITED:           "exited",
 		MessageKind_MESSAGE_KIND_STEER:            "steer",
+		MessageKind_MESSAGE_KIND_REPORT:           "report",
+		MessageKind_MESSAGE_KIND_SUMMARIZE:        "summarize",
 	} {
 		if got := LegacyKindName(k); got != want {
 			t.Errorf("LegacyKindName(%v) = %q, want %q", k, got, want)
+		}
+		back, err := MessageKindForLegacyName(want)
+		if err != nil || back != k {
+			t.Errorf("MessageKindForLegacyName(%q) = %v, %v; want %v", want, back, err, k)
 		}
 	}
 	// "unkinded" was the EMPTY STRING in the free-string vocabulary, and the
@@ -182,6 +188,31 @@ func TestLegacyKindName_CoversTheReservedVocabulary(t *testing.T) {
 	}
 	if got := LegacyKindName(MessageKind(99)); got != "" {
 		t.Errorf("an unrecognised value has no legacy spelling, got %q", got)
+	}
+}
+
+// The inverse is the receive side's only way back onto the wire: "" is
+// UNSPECIFIED (the unkinded Message, minted by no producer), anything outside
+// the derived spellings is an error rather than a silent zero.
+func TestMessageKindForLegacyName_RefusesUnknownSpellings(t *testing.T) {
+	if got, err := MessageKindForLegacyName(""); err != nil || got != MessageKind_MESSAGE_KIND_UNSPECIFIED {
+		t.Errorf("MessageKindForLegacyName(\"\") = %v, %v; want UNSPECIFIED, nil", got, err)
+	}
+	for _, name := range []string{"MESSAGE_KIND_RESULT", "Result", "result ", "task"} {
+		if got, err := MessageKindForLegacyName(name); err == nil {
+			t.Errorf("MessageKindForLegacyName(%q) = %v, want an error", name, got)
+		}
+	}
+}
+
+// LegacyReservedKindNames is what coord's reserved list is BUILT from, so its
+// membership is pinned here as copied literals in enum-declaration order — the
+// order the refusal text enumerates.
+func TestLegacyReservedKindNames_CoversTheReservedVocabulary(t *testing.T) {
+	want := []string{"approval_request", "user_injected", "user_control", "exited", "steer", "report", "summarize"}
+	got := LegacyReservedKindNames()
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("reserved legacy spellings are %v, want %v", got, want)
 	}
 }
 

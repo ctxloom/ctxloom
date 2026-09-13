@@ -485,6 +485,98 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	})
 }
 
+// pathAtOrAboveHome reports whether container-side path target IS the
+// container home or a path ANCESTOR of it, comparing cleaned,
+// separator-aware path segments rather than raw strings. A naive
+// strings.HasPrefix(home, target) gets this wrong in both directions: it
+// would call "/home/ctxloomX" an ancestor of "/home/ctxloom" (it shares the
+// string prefix but is a SIBLING, not a path ancestor — nothing under
+// ctxloomX is under ctxloom), and it would miss "/" as an ancestor of
+// everything (root shares no non-trivial string prefix with anything, but
+// path-wise it dominates every absolute path). Both are handled here: an
+// ancestor must match on a full path SEGMENT boundary, and the root is
+// special-cased since target+separator ("//" ) never prefix-matches
+// anything.
+func pathAtOrAboveHome(target, home string) bool {
+	target = filepath.Clean(target)
+	home = filepath.Clean(home)
+	if target == home {
+		return true
+	}
+	if target == string(filepath.Separator) {
+		return true
+	}
+	return strings.HasPrefix(home, target+string(filepath.Separator))
+}
+
+// TestPathAtOrAboveHome pins the prefix-vs-ancestor distinction the gate
+// below depends on: a sibling directory that happens to share a string
+// prefix with the home path (ctxloomX vs ctxloom) must NOT read as an
+// ancestor, a child of home must NOT read as "at or above" it, and the root
+// must read as an ancestor of everything despite sharing no string prefix.
+func TestPathAtOrAboveHome(t *testing.T) {
+	const home = "/home/ctxloom"
+	tests := []struct {
+		name   string
+		target string
+		want   bool
+	}{
+		{"exact match", "/home/ctxloom", true},
+		{"root is an ancestor of everything absolute", "/", true},
+		{"direct parent", "/home", true},
+		{"trailing slash on target still matches", "/home/ctxloom/", true},
+		{"unclean target still matches", "/home/./ctxloom", true},
+		{"sibling sharing a string prefix is NOT an ancestor", "/home/ctxloomX", false},
+		{"shorter sibling sharing a string prefix is NOT an ancestor", "/home/ctxloo", false},
+		{"child of home is BELOW it, not above", "/home/ctxloom/sub", false},
+		{"unrelated absolute path", "/var/lib", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, pathAtOrAboveHome(tt.target, home))
+		})
+	}
+}
+
+// TestSessionStateMounts_NoMountAtOrAboveContainerHome is the GATE for the
+// discipline this file's doc comment states only in PROSE ("Never a blanket
+// ~/.ctxloom mount"): container agents are separated from each other by
+// NAMESPACE, not by path — every container run gets the identical HOME
+// (defaultContainerHome, stamped onto Container by NewContainerFor and onto
+// the process by renderRunSpec's -e HOME=...), and is distinct from every
+// other only because each has its own filesystem. That boundary rests
+// entirely on nothing from the host being mounted AT or ABOVE that shared
+// path. A mount landing there would silently merge every container agent's
+// home onto one host directory: same path, same code, green suite — nothing
+// else in this file would notice.
+//
+// This walks the REAL mounts sessionStateMounts returns, across every branch
+// that changes which mounts it emits (harp+project, harp only, project only,
+// neither) — never a hand-maintained list of expected mounts, which would
+// just reproduce the defect this gate exists to catch.
+func TestSessionStateMounts_NoMountAtOrAboveContainerHome(t *testing.T) {
+	testsupport.Isolate(t)
+
+	states := []SessionState{
+		{Harp: "brisk-teal-otter", ProjectID: "proj-1"},
+		{Harp: "brisk-teal-otter"},
+		{ProjectID: "proj-1"},
+		{},
+	}
+	for _, state := range states {
+		c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+		c.state = state
+		mounts, err := c.sessionStateMounts()
+		require.NoError(t, err)
+		require.NotEmpty(t, mounts, "the locks-dir mount is unconditional and always present")
+		for _, m := range mounts {
+			assert.False(t, pathAtOrAboveHome(m.Container, c.home),
+				"mount target %q sits at or above the container home %q (state=%+v): every container agent shares this home, so this mount would silently merge them into one",
+				m.Container, c.home, state)
+		}
+	}
+}
+
 // TestSessionStateMounts_DegradeNoticeCoversEveryAffectedMember pins a fix.
 // A review row observed that a missing harp or project id degrades durability behind
 // clidiag.WarnOnce, so in a delegated fan-out (agent_run — all one process)

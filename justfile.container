@@ -484,8 +484,11 @@ test-integration: build
 # test binary's stdout (the live-engine availability report printed once up
 # front, and godog's own "pretty" per-scenario output) and only shows it on
 # failure, which had silently made every green CI run of this suite mute.
+# -timeout 30m: the same budget the host justfile's test-acceptance carries.
+# Under go test's 600s default the suite dies mid-run with a panic, which is
+# a red exit for a reason unrelated to any scenario.
 test-acceptance: build
-    go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Generate the "living docs" journey pages inside the container: same as the
 # host justfile's gen-living-docs, but via this file's own `build` (no

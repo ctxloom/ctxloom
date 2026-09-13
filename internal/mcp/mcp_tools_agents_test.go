@@ -309,3 +309,37 @@ func waitForChatCapture(t *testing.T, spawns *fakeChatEngineSpawns, n int) *fake
 	}, 5*time.Second, 5*time.Millisecond, "spawn #%d never reached the engine's Chat call", n)
 	return engine
 }
+
+// TestAgentStopHandler_OmittedHarpIsTheBulkForm pins the stdio server's
+// agent_stop with NO harp: every live child of this session is stopped and
+// each is named in the result; omitting the reason as well is refused,
+// naming what is missing, and stops nothing.
+func TestAgentStopHandler_OmittedHarpIsTheBulkForm(t *testing.T) {
+	cfg, c, spawns := buildHostCoordinator(t, map[string]agents.Agent{
+		"worker": headlessAgent("p1"),
+	})
+	s := &ctxServer{
+		cfg:    cfg,
+		self:   coord.Identity{Harp: "coordinator-harp", Depth: 0},
+		agents: &agentDelegation{self: coord.Identity{Harp: "coordinator-harp", Depth: 0}, c: c},
+	}
+	_, runOut, err := s.handleAgentRun(context.Background(), nil, agentRunInput{Agent: "worker", Prompt: "go"})
+	require.NoError(t, err)
+	waitForChatCapture(t, spawns, 0)
+
+	_, _, err = s.handleAgentStop(context.Background(), nil, agentStopInput{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reason")
+	assert.Contains(t, err.Error(), "harp")
+
+	_, stopOut, err := s.handleAgentStop(context.Background(), nil, agentStopInput{Reason: "batch done"})
+	require.NoError(t, err)
+	require.NotNil(t, stopOut)
+	require.Len(t, stopOut.Children, 1, "the result names each child: %+v", stopOut)
+	assert.Equal(t, runOut.Harp, stopOut.Children[0].Harp)
+	assert.NotEmpty(t, stopOut.Children[0].Outcome)
+	assert.Contains(t, stopOut.Children[0].Detail, "batch done")
+	for _, e := range c.Roster() {
+		assert.Equal(t, coord.StateEnded, e.State, "roster afterwards shows none live: %+v", e)
+	}
+}

@@ -938,3 +938,61 @@ func TestPushTargetForLocked_ClassifiesEveryChannelShape(t *testing.T) {
 		})
 	}
 }
+
+// TestRunChannel_StopRunOmittedRunId_SweepsTheCallersChildren: plane-2
+// agent_stop with NO run_id is the bulk form — every live child of the
+// CALLER is stopped under the drain bound and the result names each one with
+// its outcome. With a run_id the verb is untouched (TestRunChannel_StopRunLineage).
+func TestRunChannel_StopRunOmittedRunId_SweepsTheCallersChildren(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c.drainBound = 300 * time.Millisecond
+	first := spawnResearcher(t, c)
+	second := spawnResearcher(t, c)
+	owner := ownerHome(t, c)
+
+	resp, err := owner.Request(context.Background(), &agentcoordpb.AgentRequest{
+		Kind: &agentcoordpb.AgentRequest_StopRun{StopRun: &agentcoordpb.StopRun{Reason: "fan-out complete"}},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+
+	children := resp.GetStopRun().GetChildren()
+	require.Len(t, children, 2, "the result names EVERY child, not a count")
+	byHarp := map[string]*agentcoordpb.StopRunResult_Child{}
+	for _, ch := range children {
+		byHarp[ch.GetHarp()] = ch
+	}
+	for _, out := range []*RunOutcome{first, second} {
+		ch := byHarp[out.Harp]
+		require.NotNil(t, ch, "child %s missing from %v", out.Harp, children)
+		assert.Equal(t, out.RunID, ch.GetRunId())
+		assert.Equal(t, "researcher", ch.GetAgent())
+		assert.Contains(t, []string{StopOutcomeStopped, StopOutcomeInterrupted}, ch.GetOutcome())
+		assert.Contains(t, ch.GetDetail(), "fan-out complete", "the reason reaches each child's terminal detail")
+		assert.Equal(t, StateEnded, rosterState(c, out.Harp))
+		assert.Equal(t, CauseStopped, currentRunCause(c, out.Harp))
+	}
+	for _, e := range c.Roster() {
+		assert.Equal(t, StateEnded, e.State, "roster afterwards shows none live: %+v", e)
+	}
+}
+
+// TestRunChannel_StopRunOmittedRunIdAndReason_IsRefused: omitting BOTH is
+// refused, naming the missing reason, and nothing is stopped — the bulk form
+// cannot be reached by an accidental omission.
+func TestRunChannel_StopRunOmittedRunIdAndReason_IsRefused(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	out := spawnResearcher(t, c)
+	owner := ownerHome(t, c)
+
+	resp, err := owner.Request(context.Background(), &agentcoordpb.AgentRequest{
+		Kind: &agentcoordpb.AgentRequest_StopRun{StopRun: &agentcoordpb.StopRun{}},
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, codes.InvalidArgument, resp.GetStatus().GetCode())
+	assert.Contains(t, resp.GetStatus().GetMessage(), "reason")
+	assert.Contains(t, resp.GetStatus().GetMessage(), "run_id")
+	assert.NotEqual(t, StateEnded, rosterState(c, out.Harp), "a refused sweep stops nothing")
+}

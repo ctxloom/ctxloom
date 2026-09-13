@@ -4,7 +4,7 @@ tags:
     - unattended
     - overnight
     - autonomy
-    - coordinator
+    - orchestrator
 author: ben-abbitt-me
 description: Unattended and overnight operation — work an admitted queue autonomously, getting as far as is safely feasible while stopping short of any decision that is hard to reverse or that endangers the environment, and leave behind a report the human can act on cold.
 notes: |
@@ -29,6 +29,6 @@ notes: |
     - "escalate and continue, never halt" — halting on item 3 of 40 wastes the
       night, which is the whole resource being spent.
 
-    Pairs with agent-ensemble (coordinator conduct, delegation, prompt-authoring)
+    Pairs with agent-ensemble (orchestrator conduct, delegation, prompt-authoring)
     and with taskloom for the queue itself.
 name: unattended

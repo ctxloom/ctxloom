@@ -4,7 +4,7 @@ tags:
   - default
   - decisions
   - human
-  - coordinator
+  - orchestrator
 ---
 Invoke the `prompt-human` skill and follow it.
 

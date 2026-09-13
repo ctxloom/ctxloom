@@ -233,7 +233,7 @@ in one breath will get one answered well and one answered carelessly.
 ## Failure modes this exists to prevent
 
 - **The decision that never surfaced.** It sat in an agent's DEFERRALS section
-  and the coordinator summarised the agent's successes instead.
+  and the orchestrator summarised the agent's successes instead.
 - **The context-free question.** "Should we use A or B?" about something they
   last saw four hours and three subsystems ago.
 - **The question the code answered.** Their attention spent on your homework.

@@ -50,7 +50,7 @@ the root justfile's package lists before — the recipes share a name, which is
 exactly what made the divergence invisible. An exit code from one is therefore
 not the same claim as an exit code from the other.
 
-A coordinator deciding whether to merge is relying on that distinction, so
+An orchestrator deciding whether to merge is relying on that distinction, so
 name the recipe path you used when you report. "test-integration exit 0" with
 no path is an ambiguous claim, and the ambiguity always resolves in the
 optimistic direction.

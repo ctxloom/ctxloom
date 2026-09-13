@@ -186,7 +186,7 @@ func ComposableEngines() []string {
 func engineContainerSpecFor(backend string) engineContainerSpec {
 	if r, ok := engineContainerDeclared(backend); ok {
 		if c, ok := r.container.Get(); ok {
-			return specFromDeclaration(c)
+			return specFromDeclaration(backend, c)
 		}
 	}
 	// This used to be a claude-oriented default that failed OPEN on
@@ -207,8 +207,11 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 // specFromDeclaration is the one place an engine's declared container story
 // becomes this package's working spec. Everything engine-specific is read
 // off the declaration; the only facts added are ctxloom's own (the image tag
-// namespace and the cache overlay dir).
-func specFromDeclaration(c agent.EngineContainer) engineContainerSpec {
+// namespace and the cache overlay dir). engine is the REGISTERED backend
+// name, threaded through so relocatedCredentialMounts can read the SAME
+// engine's credential-seed declaration (credentialSeedFor) rather than
+// re-deriving a leaf name credentialSeed.Files already states.
+func specFromDeclaration(engine string, c agent.EngineContainer) engineContainerSpec {
 	spec := engineContainerSpec{
 		image:              defaultContainerImage,
 		engineInstall:      c.Install,
@@ -232,18 +235,33 @@ func specFromDeclaration(c agent.EngineContainer) engineContainerSpec {
 	if len(a.CredentialFiles) > 0 {
 		files := a.CredentialFiles
 		spec.relocatedCredentialMounts = func(engineHome string) ([]Mount, bool) {
-			return relocatedCredentialMounts(files, engineHome)
+			return relocatedCredentialMounts(engine, files, engineHome)
 		}
 	}
 	return spec
 }
 
 // relocatedCredentialMounts overlays each declared host credential FILE onto
-// the RELOCATED engine home, at the file's own leaf name (the same leaf the
-// seeded copy landed at), with the mode the declaration gives it. ok=false
-// when any host file is absent: a bind mount of a missing file would create
-// a directory in its place, which is worse than the seeded copy alone.
-func relocatedCredentialMounts(files []agent.CredentialFile, engineHome string) ([]Mount, bool) {
+// the RELOCATED engine home, at the SAME leaf the seeded copy landed at, with
+// the mode the declaration gives it. ok=false when any host file is absent: a
+// bind mount of a missing file would create a directory in its place, which
+// is worse than the seeded copy alone.
+//
+// The seeded copy's leaf is whatever the engine's agent.CredentialSeed
+// declares as SeedFile.DestName (credentialSeedFor, matched on the shared
+// HostRelHome) — never re-derived from ContainerRelHome. ContainerRelHome
+// describes the file's place in the container's UNRELOCATED $HOME layout
+// (see credentialFileMounts), which shares a leaf with the seeded DestName
+// only when the engine does not rename the file on seed; claude's two
+// declarations happen to agree, but an engine whose descriptor renames the
+// file would otherwise get a mount that misses the seeded copy and silently
+// authenticate off a stale credential. Falling back to
+// path.Base(ContainerRelHome) when no matching SeedFile is registered (no
+// seed declared for this engine, or its HostRelHome does not appear in one)
+// preserves today's coincidental-match behavior for that corner rather than
+// refusing to mount at all — a provisioner redesign, not this fix, owns
+// deciding whether that corner should exist.
+func relocatedCredentialMounts(engine string, files []agent.CredentialFile, engineHome string) ([]Mount, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		return nil, false
@@ -254,13 +272,36 @@ func relocatedCredentialMounts(files []agent.CredentialFile, engineHome string) 
 		if !fileExists(host) {
 			return nil, false
 		}
+		leaf, ok := seededLeafFor(engine, f.HostRelHome)
+		if !ok {
+			leaf = path.Base(f.ContainerRelHome)
+		}
 		mounts = append(mounts, Mount{
 			Host:      host,
-			Container: path.Join(engineHome, path.Base(f.ContainerRelHome)),
+			Container: path.Join(engineHome, leaf),
 			ReadOnly:  f.ReadOnly,
 		})
 	}
 	return mounts, true
+}
+
+// seededLeafFor reads the leaf name engine's credential seed declares for the
+// host file at hostRelHome (agent.SeedFile.DestName, matched by the
+// HostRelHome the two declarations share) — the destination the file was
+// ACTUALLY copied to under the relocated home, as opposed to any assumption
+// drawn from the container-auth declaration alone. ok=false when engine has
+// no registered seed, or none of its Files shares this HostRelHome.
+func seededLeafFor(engine, hostRelHome string) (string, bool) {
+	seed, ok := credentialSeedFor(engine)
+	if !ok {
+		return "", false
+	}
+	for _, f := range seed.Files {
+		if f.HostRelHome == hostRelHome {
+			return f.DestName, true
+		}
+	}
+	return "", false
 }
 
 // noContainerAuthHint is the fail-closed default's degrade diagnostic.

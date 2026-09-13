@@ -590,3 +590,117 @@ func TestWorktreeBranchName(t *testing.T) {
 	assert.Equal(t, worktreeBranchPrefix+strings.TrimPrefix(filepath.Base(p), worktreeCandidatePrefix), worktreeBranchName(p))
 	assert.NotContains(t, worktreeBranchName(p), " ", "a git ref never carries whitespace")
 }
+
+// --- sizable-antler: resume must find its own surviving worktree, or refuse ---
+//
+// Worktree teardown deliberately PRESERVES a dirty checkout (unsafeToRemove),
+// so a child stopped with WIP leaves its worktree standing. On resume, the
+// SAME session harp is reused (that is what "resume" means to the
+// coordinator — see enqueueRun's currentRun(harp) check in
+// internal/agentcoord), so a second ResolveWorkspace call for that harp +
+// agentID must be able to find what the first call left, rather than
+// silently creating a brand-new, empty checkout at a different path and
+// leaving the agent's own prior work invisible to it.
+
+// TestWorktree_ResumeFindsItsOwnSurvivingCheckout pins the settled behaviour:
+// two ResolveWorkspace calls for the SAME (harp, agentID) — the first
+// simulating the original run, the second simulating a resume after the
+// process died with the worktree left in place (teardown never ran) — land
+// on the exact same checkout, and the resumed run can see a file the first
+// run wrote (the marker standing in for real WIP). Before the fix landed,
+// this test failed: the second call minted a brand-new, randomly-suffixed
+// path (worktreeScratchPath's randToken()), so ws2.Dir() != ws1.Dir() and the
+// marker was invisible — a silent, undetectable loss of the agent's own
+// prior work. It is unit-level and hermetic on purpose (git.Fake, no real
+// git binary, no container, no daemon): the row explicitly notes this needs
+// none of that to reproduce.
+func TestWorktree_ResumeFindsItsOwnSurvivingCheckout(t *testing.T) {
+	testsupport.Isolate(t)
+	f := &git.Fake{CommonDirValue: t.TempDir()}
+
+	w1 := NewWorktree(f)
+	w1.state = SessionState{Harp: "resume-harp-a"}
+	ws1, err := w1.PrepareWorkspace(context.Background(), "/proj", "worker")
+	require.NoError(t, err, "first (original) run prepares normally")
+	dir1 := ws1.Dir()
+
+	// Simulate WIP the original run left behind, then simulate the process
+	// dying WITHOUT a graceful Cleanup() — exactly what "stopped with WIP,
+	// worktree preserved" means. The Fake's registered worktree entry is
+	// left in place too (teardown never ran to remove it). The Fake never
+	// touches the real filesystem for `worktree add` (unlike real git), so
+	// the checkout directory itself is created here by hand — standing in
+	// for what a real `git worktree add` would have left on disk.
+	require.NoError(t, os.MkdirAll(dir1, 0o755))
+	marker := filepath.Join(dir1, "WIP_MARKER.txt")
+	require.NoError(t, os.WriteFile(marker, []byte("prior work"), 0o644))
+
+	// Resume: a FRESH Worktree value (a new process), but the SAME harp and
+	// the SAME agentID — precisely what the coordinator's resume path
+	// (currentRun(harp)) hands back to PrepareWorkspace.
+	w2 := NewWorktree(f)
+	w2.state = SessionState{Harp: "resume-harp-a"}
+	ws2, err := w2.PrepareWorkspace(context.Background(), "/proj", "worker")
+	require.NoError(t, err, "resume must succeed — reuse or a named refusal, never a silent fresh checkout")
+
+	assert.Equal(t, dir1, ws2.Dir(), "resume lands back in the SAME checkout the original run left, not a fresh one elsewhere")
+
+	got, err := os.ReadFile(filepath.Join(ws2.Dir(), "WIP_MARKER.txt"))
+	require.NoError(t, err, "the resumed workspace can see the file the original run wrote")
+	assert.Equal(t, "prior work", string(got))
+
+	addCalls := 0
+	for _, c := range f.Calls {
+		if strings.HasPrefix(c, "add ") {
+			addCalls++
+		}
+	}
+	assert.Equal(t, 1, addCalls, "resume must NOT attempt to re-add an already-registered worktree")
+}
+
+// TestWorktree_RefusesAStrangerAtTheResumePath: a path collision alone is
+// never proof of ownership. When the deterministic resume path is already
+// occupied by something that is NOT a registered git worktree of this repo
+// (a plain leftover directory, unrelated content, anything git worktree
+// list doesn't know about), ResolveWorkspace must REFUSE — naming the path —
+// rather than adopt it or silently fall back to running with no workspace
+// isolation at all.
+func TestWorktree_RefusesAStrangerAtTheResumePath(t *testing.T) {
+	testsupport.Isolate(t)
+	f := &git.Fake{CommonDirValue: t.TempDir()}
+
+	w := NewWorktree(f)
+	w.state = SessionState{Harp: "resume-harp-b"}
+
+	// Pre-create the deterministic path by hand, WITHOUT registering it as a
+	// git worktree — the "stranger" case: something occupies the path that
+	// git itself does not recognize as this repo's checkout.
+	path := w.checkoutPath("worker")
+	require.NoError(t, os.MkdirAll(path, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(path, "not-mine.txt"), []byte("x"), 0o644))
+
+	_, err := w.PrepareWorkspace(context.Background(), "/proj", "worker")
+	require.Error(t, err, "an unverifiable occupant at the resume path must refuse, not adopt or silently degrade")
+	assert.Contains(t, err.Error(), path, "the refusal names the path")
+}
+
+// TestWorktree_RefusesWrongBranchAtTheResumePath: the path is occupied AND
+// registered as a git worktree of this repo, but on a DIFFERENT branch than
+// a fresh create at this path would use — evidence that whatever is there is
+// not this agent's own leftover (or the naming scheme has diverged
+// underneath it). Refuse rather than guess.
+func TestWorktree_RefusesWrongBranchAtTheResumePath(t *testing.T) {
+	testsupport.Isolate(t)
+	f := &git.Fake{CommonDirValue: t.TempDir()}
+
+	w := NewWorktree(f)
+	w.state = SessionState{Harp: "resume-harp-c"}
+
+	path := w.checkoutPath("worker")
+	require.NoError(t, os.MkdirAll(path, 0o755))
+	f.Worktrees = []git.Worktree{{Path: path, Branch: "some/unrelated-branch"}}
+
+	_, err := w.PrepareWorkspace(context.Background(), "/proj", "worker")
+	require.Error(t, err, "a registered worktree on the wrong branch is not provably this agent's own")
+	assert.Contains(t, err.Error(), path)
+}

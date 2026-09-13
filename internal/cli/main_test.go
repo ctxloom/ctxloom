@@ -2,10 +2,10 @@ package cli
 
 import (
 	"github.com/ctxloom/ctxloom/internal/lm/engines"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -72,23 +72,28 @@ func TestCLITestBinary_FailsClosedWithoutTheSandbox(t *testing.T) {
 }
 
 // pkgSourceDir returns this package's own source directory, and repoDir the
-// module root, both derived from this file's compiled-in path rather than the
-// working directory — TestMain has already moved that into the sandbox, which
-// is the whole point. Every source-scanning test in this package (the exit-code
-// policy sweep, the doc-comment sweep, the reach-back marker sweep) resolves
-// through these: a scan rooted at "." silently scans an EMPTY directory once
-// the binary is sandboxed, and a sweep that finds nothing reports "no
-// violations", which is the false green these sweeps exist to prevent.
+// module root, both taken from where the test binary STARTED rather than the
+// current working directory — TestMain has already moved that into the sandbox,
+// which is the whole point. Every source-scanning test in this package (the
+// exit-code policy sweep, the doc-comment sweep, the reach-back marker sweep)
+// resolves through these: a scan rooted at "." silently scans an EMPTY
+// directory once the binary is sandboxed, and a sweep that finds nothing
+// reports "no violations", which is the false green these sweeps exist to
+// prevent.
 func pkgSourceDir(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller: cannot locate this source file")
+	dir, err := sourcedir.Dir()
+	if err != nil {
+		t.Fatalf("locate this package's source directory: %v", err)
 	}
-	return filepath.Dir(file)
+	return dir
 }
 
 func repoDir(t *testing.T) string {
 	t.Helper()
-	return filepath.Dir(filepath.Dir(pkgSourceDir(t))) // internal/cli -> repo root
+	root, err := sourcedir.RepoRoot()
+	if err != nil {
+		t.Fatalf("locate the module root: %v", err)
+	}
+	return root
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // buildCtxloomBinary compiles the ctxloom CLI to a tempdir and returns the
@@ -27,9 +28,8 @@ func buildCtxloomBinary(t *testing.T) string {
 		t.Skip("skipping wire-protocol integration test in -short mode")
 	}
 
-	// Walk up from this test file (internal/cli/) to the module root.
-	_, file, _, _ := runtime.Caller(0)
-	moduleRoot := filepath.Dir(filepath.Dir(filepath.Dir(file))) // internal/cli/ → repo root
+	moduleRoot, err := sourcedir.RepoRoot()
+	require.NoError(t, err, "locate the module root to build the CLI from")
 
 	binDir := t.TempDir()
 	binName := "ctxloom"

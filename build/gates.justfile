@@ -59,7 +59,7 @@ docker_integration_pkgs := "./internal/lm/isolation/... ./internal/agentcoord/co
 # definition; caching their verdict is wrong regardless of which variable
 # changed.
 test-docker-integration: _require-generated _check-docker-integration-pkgs _check-docker-skip-gate
-    go test -v -count=1 -tags docker_integration {{docker_integration_pkgs}}
+    go test -trimpath -v -count=1 -tags docker_integration {{docker_integration_pkgs}}
 
 # Drift gate for docker_integration_pkgs: every file carrying the
 # `//go:build docker_integration` constraint must live under a package the
@@ -156,7 +156,7 @@ test-arch: _require-generated
     #!/usr/bin/env bash
     set -euo pipefail
     set +e
-    output=$(go test -count=1 -tags arch -run 'TestArch_' -v ./... 2>&1)
+    output=$(go test -trimpath -count=1 -tags arch -run 'TestArch_' -v ./... 2>&1)
     status=$?
     set -e
     # Gates and package results only, not the "no tests to run" noise from the

@@ -349,12 +349,12 @@ test-default:
     # -race suites, not just -race — see the host recipe's comment for why
     # (the no-race path is what gremlins/`just cover` actually run, and it was
     # gating nothing). `set -e` aborts here on either failure.
-    go test ./...
+    go test -trimpath ./...
     # Unique per-invocation raw profile — see the host justfile's `test`
     # recipe for why a fixed coverage.raw.out name races concurrent runs.
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
-    go test -race -coverprofile="$raw" ./...
+    go test -trimpath -race -coverprofile="$raw" ./...
     just -f justfile.container _check-no-ctxloom-leak
     just -f justfile.container _filter_coverage "$raw" coverage.out
 
@@ -390,7 +390,7 @@ _filter_coverage INPUT OUTPUT:
 
 # Run tests with the treesitter (CGO) build tag — exercises the code compressor
 test-treesitter:
-    CGO_ENABLED=1 go test -race -tags treesitter ./internal/compression/...
+    CGO_ENABLED=1 go test -trimpath -race -tags treesitter ./internal/compression/...
 
 # Run a single package's tests under -race (fast iteration inside the
 # container). Mirrors the host justfile's test-pkg, including both build-tag
@@ -445,7 +445,7 @@ test-pkg PKG *ARGS:
             ;;
     esac
     set +e
-    output=$(go test -race "$@" "$pkg" 2>&1)
+    output=$(go test -trimpath -race "$@" "$pkg" 2>&1)
     status=$?
     set -e
     printf '%s\n' "$output"
@@ -475,7 +475,7 @@ test-pkg PKG *ARGS:
 
 # Run integration tests (requires ctxloom binary)
 test-integration: build
-    go test -v -tags integration ./tests/integration/...
+    go test -trimpath -v -tags integration ./tests/integration/...
 
 # Run the full-stack acceptance suite (godog) inside the container. Hermetic by
 # default; @live scenarios are opt-in and self-skip without credentials.
@@ -488,7 +488,7 @@ test-integration: build
 # Under go test's 600s default the suite dies mid-run with a panic, which is
 # a red exit for a reason unrelated to any scenario.
 test-acceptance: build
-    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Generate the "living docs" journey pages inside the container: same as the
 # host justfile's gen-living-docs, but via this file's own `build` (no
@@ -503,7 +503,7 @@ gen-living-docs: build
     # package dir, not the repo root).
     capture_dir="$(pwd)/.cache/doc-capture"
     rm -rf "$capture_dir"
-    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -trimpath -tags "acceptance integration" -count=1 ./tests/acceptance/...
     go run ./scripts/gendocs/livingdocs --capture-dir "$capture_dir"
 
 # test-docker-integration comes from build/gates.justfile (imported at the top

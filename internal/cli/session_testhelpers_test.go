@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	mockreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/mock"
 )
 
@@ -94,9 +94,8 @@ func pinnedEngineVersion(t *testing.T, backend string) (string, bool) {
 // enginePinFromLock reads one KEY=value out of .github/engine-versions.env.
 func enginePinFromLock(t *testing.T, key string) string {
 	t.Helper()
-	_, self, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(self)))
+	repoRoot, err := sourcedir.RepoRoot()
+	require.NoError(t, err)
 	raw, err := os.ReadFile(filepath.Join(repoRoot, ".github", "engine-versions.env"))
 	require.NoError(t, err, "read .github/engine-versions.env")
 

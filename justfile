@@ -358,7 +358,7 @@ test-default: build _ensure-covdata vet-integration _ensure-gotmpdir
     # invisible to `just test` while breaking mutation testing outright. `set
     # -e` means either run failing aborts here with a nonzero exit, before the
     # leak check / coverage filtering below ever runs.
-    go test ./...
+    go test -trimpath ./...
     # Unique per-invocation raw profile (not a fixed repo-root name): two
     # concurrent `just test`/`just cover` runs used to share coverage.raw.out,
     # so one run's `rm -f` could delete the file the other was still reading,
@@ -366,7 +366,7 @@ test-default: build _ensure-covdata vet-integration _ensure-gotmpdir
     # both the happy path and `set -e` aborting mid-recipe.
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
-    go test -race -coverprofile="$raw" ./...
+    go test -trimpath -race -coverprofile="$raw" ./...
     just _check-no-ctxloom-leak
     just _filter_coverage "$raw" coverage.out
 
@@ -391,7 +391,7 @@ _check-no-ctxloom-leak:
 
 # Run tests with verbose output
 test-verbose: _ensure-gotmpdir
-    GOTMPDIR="{{go_tmp}}" go test -v ./...
+    GOTMPDIR="{{go_tmp}}" go test -trimpath -v ./...
 
 # Run the offline suite under a hostile environment to prove test isolation: a
 # junk HOME (no real ~/.ctxloom) plus poison session env. A green run means no
@@ -433,7 +433,7 @@ cover:
     echo "Running tests with coverage..."
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
-    go test -coverprofile="$raw" ./... > /dev/null 2>&1
+    go test -trimpath -coverprofile="$raw" ./... > /dev/null 2>&1
     just _filter_coverage "$raw" coverage.out
     echo "Coverage (excluding patterns from .coverignore):"
     go tool cover -func=coverage.out | tail -1
@@ -444,7 +444,7 @@ cover-func:
     set -e
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
-    go test -coverprofile="$raw" ./... > /dev/null 2>&1
+    go test -trimpath -coverprofile="$raw" ./... > /dev/null 2>&1
     just _filter_coverage "$raw" coverage.out
     echo "Coverage by function (excluding patterns from .coverignore):"
     go tool cover -func=coverage.out
@@ -455,7 +455,7 @@ cover-html:
     set -e
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
-    go test -coverprofile="$raw" ./... > /dev/null 2>&1
+    go test -trimpath -coverprofile="$raw" ./... > /dev/null 2>&1
     just _filter_coverage "$raw" coverage.out
     go tool cover -html=coverage.out -o coverage.html
     echo "Coverage report generated: coverage.html"
@@ -467,7 +467,7 @@ test-coverage: cover
 # the shared agent.SettingsWriter contract). Tag-gated so it's excluded from the
 # default `go test ./...`; run it explicitly here.
 test-conformance:
-    go test -race -tags conformance ./internal/lm/conformance/...
+    go test -trimpath -race -tags conformance ./internal/lm/conformance/...
 
 # Validate ONE vendor-transcript reader in isolation (its own package,
 # already part of `go test ./...`, but named here so a release-monitoring job
@@ -475,7 +475,7 @@ test-conformance:
 # without pulling in the rest of the suite). Add a sibling target per engine
 # as internal/transcript/vendorreader/<engine> lands.
 test-vendor-claude:
-    go test -race ./internal/transcript/vendorreader/claude/...
+    go test -trimpath -race ./internal/transcript/vendorreader/claude/...
 
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
@@ -531,9 +531,11 @@ vet-integration: _require-generated
 # run also removes them; a failing one leaves the tree to be looked at.
 #
 # -trimpath on every pass, for the same cache reason: without it the compiler
-# embeds the scratch path and none of these entries is ever reusable. Safe
-# here because nothing this recipe runs is a test — the runtime.Caller(0) sites
-# that block -trimpath on the test path never execute.
+# embeds the scratch path and none of these entries is ever reusable. The test
+# path carries -trimpath too now (obtuse-equinox); the runtime.Caller(0) sites
+# that used to block it resolve through internal/testsupport/sourcedir, which
+# reads the directory the test binary STARTED in rather than a compiled-in
+# absolute path.
 #
 # GENERATED PROTOBUF IS SEEDED FROM THIS WORKTREE. *.pb.go is gitignored, so
 # REF's tree has none and every package above a leaf would fail for a reason
@@ -623,7 +625,7 @@ check-head-builds REF="HEAD": _require-generated _ensure-gotmpdir
 
 # Run integration tests (requires ctxloom binary)
 test-integration: build _ensure-gotmpdir
-    GOTMPDIR="{{go_tmp}}" go test -v -tags integration ./tests/integration/...
+    GOTMPDIR="{{go_tmp}}" go test -trimpath -v -tags integration ./tests/integration/...
 
 # Run integration tests matching a -run PATTERN (requires ctxloom binary).
 # Same false-green hazard as test-pkg: a PATTERN that matches nothing still
@@ -640,7 +642,7 @@ test-integration-run PATTERN: build _ensure-gotmpdir
     set -euo pipefail
     export GOTMPDIR="{{go_tmp}}"
     set +e
-    output=$(go test -v -tags integration -run "$1" ./tests/integration/... 2>&1)
+    output=$(go test -trimpath -v -tags integration -run "$1" ./tests/integration/... 2>&1)
     status=$?
     set -e
     printf '%s\n' "$output"
@@ -681,7 +683,7 @@ test-acceptance: build _ensure-gotmpdir
     #!/usr/bin/env bash
     # No `set -e`: the exit code is captured and propagated deliberately.
     set -uo pipefail
-    GOTMPDIR="{{go_tmp}}" go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    GOTMPDIR="{{go_tmp}}" go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
     exit $?
 
 # Run a NARROW slice of the acceptance suite: one or more feature files, and
@@ -745,7 +747,7 @@ test-acceptance-focus PATHS TAGS="": build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" \
     ACCEPTANCE_PATHS={{PATHS}} \
     ACCEPTANCE_TAGS="{{TAGS}}" \
-    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/... 2>&1 | tee "$log"
+    go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/... 2>&1 | tee "$log"
     status="${PIPESTATUS[0]}"
     if [ "$status" -ne 0 ]; then
         exit "$status"
@@ -839,7 +841,7 @@ test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
     # bakes in exemptions for code that is in fact covered.
     PATH="$coverbin:$PATH" GOTMPDIR="{{go_tmp}}" GOCOVERDIR="$covdir" \
         CTXLOOM_BINARY="$coverbin/ctxloom" \
-        go test -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+        go test -trimpath -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
     status=$?
     set -e
     files=$(find "$covdir" -name 'covcounters.*' | wc -l)
@@ -865,7 +867,7 @@ test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
     echo
     echo "=== every CLI leaf's RunE ran, and every Changed() flag was passed? ==="
     CTXLOOM_COVERPROFILE="$profile" GOTMPDIR="{{go_tmp}}" \
-        go test -v -tags "acceptance integration coveragegate" -count=1 \
+        go test -trimpath -v -tags "acceptance integration coveragegate" -count=1 \
         -run 'TestCLICoverage_' ./tests/acceptance/... || status=1
     exit "$status"
 
@@ -903,7 +905,7 @@ test-coverage-gate PROFILE="":
     fi
     echo "=== CLI coverage gates (profile: $profile) ==="
     CTXLOOM_COVERPROFILE="$profile" GOTMPDIR="{{ go_tmp }}" \
-        go test -v -tags "acceptance integration coveragegate" -count=1 \
+        go test -trimpath -v -tags "acceptance integration coveragegate" -count=1 \
         -run 'TestCLICoverage_' ./tests/acceptance/...
 
 # Run the @container acceptance rows — the ones that actually launch an engine
@@ -923,7 +925,7 @@ test-acceptance-container: build _ensure-gotmpdir
     ACCEPTANCE_PATHS=features/journeys/j002400_container.feature,features/j001400_bundle_distribution.feature,features/j002200_isolation.feature \
     ACCEPTANCE_TAGS="@container" \
     GOTMPDIR="{{go_tmp}}" \
-    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # test-docker-integration lives in build/gates.justfile, imported at the top
 # of this file and by justfile.container, so the host recipe and the one CI
@@ -1074,7 +1076,7 @@ test-acceptance-live-container: container-build-acceptance
         {{registry}}/ctxloom-acceptance:latest \
         bash -c 'set -e; \
             go build -o /home/ctxloom/ctxloom . && \
-            CTXLOOM_BINARY=/home/ctxloom/ctxloom go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...'
+            CTXLOOM_BINARY=/home/ctxloom/ctxloom go test -trimpath -v -tags "acceptance integration" -count=1 ./tests/acceptance/...'
 
 # Run the standalone isolation probe (tests/acceptance/features/
 # isolation_probe.feature) for exactly ONE engine x axis cell — the
@@ -1093,7 +1095,7 @@ isolation-probe ENGINE AXIS: build
     ACCEPTANCE_PATHS=features/isolation_probe.feature \
     ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{AXIS}}" \
     CTXLOOM_ACCEPTANCE_LIVE=1 \
-    go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -trimpath -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run the LIVE delegation round trip (j002300_cross_engine_delegation.feature's
 # per-engine floor) for exactly ONE engine. ENGINE is a registered engine
@@ -1111,7 +1113,7 @@ live-delegation ENGINE: build _ensure-gotmpdir
     ACCEPTANCE_PATHS=features/j002300_cross_engine_delegation.feature \
     ACCEPTANCE_TAGS="@live && @delegation && @{{ENGINE}}" \
     CTXLOOM_ACCEPTANCE_LIVE=1 \
-    go test -v -timeout 20m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -trimpath -v -timeout 20m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the engine x isolation floor
 # (features/engine_isolation_matrix.feature): the simplest live round trip —
@@ -1136,7 +1138,7 @@ engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
     ACCEPTANCE_PATHS=features/engine_isolation_matrix.feature \
     ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}" \
     CTXLOOM_ACCEPTANCE_LIVE=1 \
-    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the capability-probe ladder (tests/acceptance's probe
 # registry): PROBE is a registry probe name without the @probe- prefix
@@ -1163,7 +1165,7 @@ capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
     ACCEPTANCE_PATHS=features/{{FEATURE}} \
     ACCEPTANCE_TAGS="@live && @probe-{{PROBE}} && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}" \
     CTXLOOM_ACCEPTANCE_LIVE=1 \
-    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the plan-sentinel probe (P4 of the capability ladder,
 # features/capability_plan_sentinel.feature): does `permissions: plan` actually
@@ -1186,7 +1188,7 @@ plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
     ACCEPTANCE_PATHS=features/capability_plan_sentinel.feature \
     ACCEPTANCE_TAGS="@live && @probe-p4-plan-sentinel && @{{ENGINE}} && @host && @ws-none{{ if POSTURE == 'pair' { '' } else { ' && @var-' + POSTURE } }}" \
     CTXLOOM_ACCEPTANCE_LIVE=1 \
-    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run a single package's tests under -race (fast local iteration).
 # A `-run` pattern that matches nothing still exits 0 from `go test` (`ok
@@ -1291,7 +1293,7 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
             ;;
     esac
     set +e
-    output=$(go test -race "$@" "$pkg" 2>&1)
+    output=$(go test -trimpath -race "$@" "$pkg" 2>&1)
     status=$?
     set -e
     printf '%s\n' "$output"
@@ -1465,7 +1467,7 @@ _mutation-driver RATCHET *ARGS:
     # 240m, not 120m: the four-entry table measured 111 minutes of mutants
     # (63 + 30 + 12 + 6) plus the guard test, so 120m was already marginal and a
     # timeout mid-table loses the whole run's results.
-    output=$(go test -tags mutation -v -count=1 -timeout 240m ./tests/mutation/... "$@" 2>&1)
+    output=$(go test -trimpath -tags mutation -v -count=1 -timeout 240m ./tests/mutation/... "$@" 2>&1)
     status=$?
     set -e
     printf '%s\n' "$output"
@@ -1936,7 +1938,7 @@ gen-living-docs: build
     # separately via `go run` from the repo root, would never find it.
     capture_dir="{{TOP}}/.cache/doc-capture"
     rm -rf "$capture_dir"
-    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -trimpath -tags "acceptance integration" -count=1 ./tests/acceptance/...
     go run ./scripts/gendocs/livingdocs --capture-dir "$capture_dir"
 
 # Initialize .ctxloom directory

@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -17,16 +16,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // claudeVendorFixturePath resolves the same real claude transcript fixture
 // internal/transcript/vendorreader/claude's own test suite exercises, anchored
-// via runtime.Caller so it resolves regardless of the test binary's cwd.
+// at the module root so it resolves regardless of the test binary's cwd.
 func claudeVendorFixturePath(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	return filepath.Join(filepath.Dir(file), "..", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
+	root, err := sourcedir.RepoRoot()
+	require.NoError(t, err)
+	return filepath.Join(root, "internal", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
 }
 
 // canonicalTranscriptExists reports whether harp has a non-empty canonical

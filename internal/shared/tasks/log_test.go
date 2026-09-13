@@ -704,8 +704,8 @@ func TestAppend_LeavesPriorEntriesIntactWhenAWriteFailsPartway(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the store no longer loads after a failed append: %v", err)
 	}
-	if len(tasks) != 1 || tasks[0].ID != first.ID {
-		t.Fatalf("prior entries lost; got %+v, want just %s", tasks, first.ID)
+	if len(tasks) != 1 || tasks[0].HarpID != first.HarpID {
+		t.Fatalf("prior entries lost; got %+v, want just %s", tasks, first.HarpID)
 	}
 }
 

@@ -312,19 +312,19 @@ func WorkspaceEnv(ws Workspace) map[string]string {
 	return nil
 }
 
-// RuntimeAdvice is the runtime axis's half of an engine-home presentation
-// (present.PathsAdvice): how a root's ENGINE side is rewritten for the
-// environment the engine process actually runs in. A host-executing workspace
-// (none, worktree) is the identity — the engine opens the host path itself. A
-// container workspace names the in-container target for each root and
-// records the mount that makes it true; the caller hands that mount back
-// through MountEngineHome. It never decides WHETHER a run has a home, only
-// where the engine is told it is.
-func RuntimeAdvice(ws Workspace) present.PathsAdvice {
+// ContainerInstanceHome is the runtime axis's half of an engine-home
+// presentation: the FIXED in-container root a relocated engine home is
+// mounted under, for a workspace whose engine runs in a container — or ""
+// for a host-executing workspace (none, worktree), where the engine opens the
+// host path itself and nothing is mounted. The resolver
+// (operations.ResolveInTreeAgentHome) hangs the engine's DECLARED leaf under
+// it and hands the resulting mount back through MountEngineHome. It never
+// decides WHETHER a run has a home, only where the engine is told it is.
+func ContainerInstanceHome(ws Workspace) string {
 	if cw, ok := ws.(*containerWorkspace); ok {
-		return containerEngineHome{home: cw.home}
+		return cw.instanceHome
 	}
-	return present.Host{}
+	return ""
 }
 
 // MountEngineHome records the bind mounts a resolved engine home needs inside

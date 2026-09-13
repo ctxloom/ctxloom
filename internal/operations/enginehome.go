@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -49,12 +50,14 @@ type InTreeAgentHome struct {
 	// agents.ConfigHomeHost (an undeclared or explicitly host-declared
 	// binding) both mean "keep the home the runtime gives you".
 	ConfigHome agents.ConfigHome
-	// Runtime is the runtime axis's rewrite of the home root: where the
-	// ENGINE sees the bytes. nil or present.Host leaves Engine equal to Host;
-	// a container's advice (isolation.RuntimeAdvice) names the in-container
-	// target and is what makes the resolution carry a Mount. It decides WHERE
-	// the engine is told the home is, never WHETHER there is one.
-	Runtime present.PathsAdvice
+	// ContainerHome is the runtime axis's half: the FIXED in-container root a
+	// relocated home is mounted under when the engine runs in a container
+	// (isolation.ContainerInstanceHome), or "" when it runs on the host and
+	// opens the host path itself. Non-empty is what makes the resolution
+	// carry a Mount — Root.Host bound at <ContainerHome>/<the engine's
+	// declared leaf>. It decides WHERE the engine is told the home is, never
+	// WHETHER there is one.
+	ContainerHome string
 }
 
 // AgentHomeResolution is what one run learned about its controlled engine
@@ -69,7 +72,8 @@ type AgentHomeResolution struct {
 	Root present.Root
 	// Env is the engine's declared home var pointed at Root.Engine.
 	Env map[string]string
-	// Mount makes Root.Engine true inside a container: Root.Host bound at
+	// Mount makes Root.Engine true inside a container: Root.Host — this
+	// session's instance leaf, the RIGHT host directory — bound at
 	// Root.Engine. nil whenever Engine equals Host.
 	Mount *present.Mount
 	// Absent is "" when the home is present; otherwise WHY this run has none.
@@ -126,12 +130,15 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 // THE HOME IS ORTHOGONAL TO THE CELL. Nothing here reads which workspace or
 // runtime the run chose: a host run, a worktree run and a container run with
 // the same binding get the same session instance. The runtime axis
-// (in.Runtime) rewrites only the ENGINE side of the root — on the host the
-// engine is told the host path; in a container it is told the mount target,
-// and the Mount that makes that true rides the resolution for the caller to
-// hand the workspace (isolation.MountEngineHome). The workspace axis does not
-// touch the home at all: a worktree's own env (isolation.EnvWorkspace) carries
-// scratch and git identity, never a config-home var.
+// (in.ContainerHome) rewrites only the ENGINE side of the root — on the host
+// the engine is told the host path; in a container it is told
+// <ContainerHome>/<leaf>, the leaf being the one the engine DECLARES
+// (agent.HomeVar.Subdir, via the backend spec) rather than anything
+// re-derived from the host path, and the Mount that makes that true rides
+// the resolution for the caller to hand the workspace
+// (isolation.MountEngineHome). The workspace axis does not touch the home at
+// all: a worktree's own env (isolation.EnvWorkspace) carries scratch and git
+// identity, never a config-home var.
 //
 // THE INSTANCE IS PER SESSION. Two concurrent sessions in one checkout get two
 // homes. Two runs WITHIN one session (a coordinator and its delegated child,
@@ -180,9 +187,11 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 		return absent("cannot create %s: %v", home, err)
 	}
 
-	advice := in.Runtime
-	if advice == nil {
-		advice = present.Host{}
+	var advice present.PathsAdvice = present.Host{}
+	if in.ContainerHome != "" {
+		// A container path, so joined with forward slashes whatever the
+		// host's separator (present.Containerize's own rule for Engine).
+		advice = present.Containerize{EngineHome: path.Join(in.ContainerHome, spec.Subdir)}
 	}
 	paths, mounts := advice.ApplyPaths(present.Paths{EngineHome: present.Root{Host: home}})
 	res := AgentHomeResolution{
@@ -196,13 +205,13 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 	return res
 }
 
-// BindAgentHome is the glue every launch path shares: it presents the home
-// through the prepared workspace's runtime advice, resolves, and — for a
-// container — records the mount that makes the engine-side path true. The
-// returned resolution's Env is what the caller merges under its run env; the
-// caller owns that merge, so a user's own `--env` still wins.
+// BindAgentHome is the glue every launch path shares: it reads where the
+// prepared workspace's runtime would mount a relocated home, resolves, and —
+// for a container — records the mount that makes the engine-side path true.
+// The returned resolution's Env is what the caller merges under its run env;
+// the caller owns that merge, so a user's own `--env` still wins.
 func BindAgentHome(ws isolation.Workspace, in InTreeAgentHome) AgentHomeResolution {
-	in.Runtime = isolation.RuntimeAdvice(ws)
+	in.ContainerHome = isolation.ContainerInstanceHome(ws)
 	res := ResolveInTreeAgentHome(in)
 	if res.Mount == nil {
 		return res

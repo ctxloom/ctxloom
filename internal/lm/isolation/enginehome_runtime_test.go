@@ -55,7 +55,7 @@ func TestContainerInstanceHome_HostWorkspacesHaveNone(t *testing.T) {
 // engine writes its session state into its home), rendered through the
 // runtime's Expose so a path-mapping runtime maps it like every other mount.
 func TestMountEngineHome_ContainerCarriesTheMountIntoItsLaunchSpec(t *testing.T) {
-	cw := &containerWorkspace{home: "/home/ctxloom", runtime: fakeRuntime{}}
+	cw := &containerWorkspace{instanceHome: "/ctxloom/home", runtime: fakeRuntime{}}
 	m := present.Mount{HostDir: hostEngineHome, TargetDir: "/home/ctxloom/.ctxloom/home/claude"}
 
 	require.NoError(t, MountEngineHome(cw, m))
@@ -86,10 +86,10 @@ const relocatedEngineHome = "/ctxloom/home/claude"
 // the only state MountEngineHome reads to decide the credential overlay.
 func claudeContainerWorkspace(mode containerAuthMode) *containerWorkspace {
 	return &containerWorkspace{
-		home:       "/home/ctxloom",
-		runtime:    fakeRuntime{},
-		engineSpec: engineContainerSpecFor("claude-code"),
-		authMode:   mode,
+		instanceHome: "/ctxloom/home",
+		runtime:      fakeRuntime{},
+		engineSpec:   engineContainerSpecFor("claude-code"),
+		authMode:     mode,
 	}
 }
 
@@ -161,7 +161,7 @@ func TestMountEngineHome_AbsentRealCredentialFallsBackToTheSeededCopyAndSaysSo(t
 func TestMountEngineHome_EngineWithoutACredentialMountsOnlyTheHome(t *testing.T) {
 	var sink strings.Builder
 	t.Cleanup(clidiag.SetSink(&sink))
-	cw := &containerWorkspace{home: "/home/ctxloom", runtime: fakeRuntime{}, engineSpec: engineContainerSpecFor("mock"), authMode: authCredentialMount}
+	cw := &containerWorkspace{instanceHome: "/ctxloom/home", runtime: fakeRuntime{}, engineSpec: engineContainerSpecFor("mock"), authMode: authCredentialMount}
 
 	require.NoError(t, MountEngineHome(cw, present.Mount{HostDir: "/proj/.ctxloom/state/h/home/mock", TargetDir: "/home/ctxloom/.ctxloom/home/mock"}))
 

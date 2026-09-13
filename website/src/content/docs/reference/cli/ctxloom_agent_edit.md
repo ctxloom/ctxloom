@@ -60,7 +60,7 @@ ctxloom agent edit <name> [flags]
 ### Options
 
 ```
-      --config-home string         Per-engine config-home policy on the in-tree axis: project|host (empty = host, the default — controlled homes are opt-in)
+      --config-home string         Per-engine config-home policy, on every isolation cell: project|host (empty = host, the default — controlled homes are opt-in)
       --llm string                 llm.configs label to bind (overrides the profiles' llm; empty = project default)
       --permissions string         Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
       --profiles strings           Comma-separated profile name(s)/ref(s) to compose

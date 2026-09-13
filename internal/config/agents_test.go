@@ -142,7 +142,11 @@ agents:
 	assert.Equal(t, "container-rootless", dev.Runtime)
 	assert.Equal(t, "bypass", dev.Permissions)
 	assert.Equal(t, agents.DrivingOneshot, dev.Driving)
-	assert.Equal(t, agents.ConfigHomeProject, dev.ConfigHome)
+	// Binding.ConfigHome stays a RAW string on purpose — a hand-edited
+	// config.yaml can hold anything, and agents.ParseConfigHome is what turns it
+	// into the typed vocabulary. Asserting the typed constant here compares
+	// agents.ConfigHome against string and fails on the type, not the value.
+	assert.Equal(t, "project", dev.ConfigHome)
 	assert.Equal(t, map[string]string{"context": "system-prompt"}, dev.Surfaces)
 
 	_, ok = cfg.Agent("absent")

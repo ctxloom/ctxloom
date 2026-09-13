@@ -273,7 +273,7 @@ func TestPrintDiscoveryPostureHint(t *testing.T) {
 // EVERY registered backend runs the SAME assertions: this is a conformance
 // suite over backends.List(), not a hand-maintained table of engine/expected
 // pairs. A table drifts the moment a backend is added or removed, and it
-// duplicates the fix strings that engineAuthFix already owns — so the expected
+// duplicates the fix strings each engine's own declaration owns — so the expected
 // text is read from production via engineAuthFixHint rather than re-typed
 // here. A newly registered backend is covered without editing this file.
 func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
@@ -297,9 +297,9 @@ func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
 	}
 }
 
-// TestPingEngineAuth_UnlistedEngine_GetsGenericFix: an engine not (yet) in
-// engineAuthFix still fails loud, with a generic-but-actionable fix, rather
-// than panicking on a missing map entry.
+// TestPingEngineAuth_UnlistedEngine_GetsGenericFix: an engine that is not
+// registered still fails loud, with a generic-but-actionable fix, rather
+// than blanking on a missing declaration.
 func TestPingEngineAuth_UnlistedEngine_GetsGenericFix(t *testing.T) {
 	stub := &stubPingClient{exitCode: 1}
 	orig := authPingFactory

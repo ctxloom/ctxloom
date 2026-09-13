@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -235,23 +236,22 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 // prove a live, authenticated round trip happened.
 const authPingTask = "Reply with exactly: ok"
 
-// engineAuthFix names, per engine, the fix for a failed auth probe: the
-// subscription-login and API-key-env paths each backend actually offers
-// (internal/lm/isolation/auth.go's envTrigger constants are the verified
-// source for the env var names). Keyed by backend name (backends.List()); an
-// engine this map doesn't (yet) name gets engineAuthFixHint's generic
-// fallback rather than blocking on a missing entry.
-var engineAuthFix = map[string]string{
-	"claude-code": "run `claude login` (or set ANTHROPIC_API_KEY)",
-}
-
-// engineAuthFixHint returns engine's named fix, or a generic fallback for an
-// engine not (yet) in engineAuthFix.
+// engineAuthFixHint names the fix for a failed auth probe, read off the
+// engine's OWN credential declaration (backends.CredentialSeedFor): the
+// login command that makes its credential file exist, and the env var that
+// carries usable auth instead. An engine that declares no seedable
+// credential — or is not registered at all — gets a generic but actionable
+// fix rather than a blank, since the probe still failed.
 func engineAuthFixHint(engine string) string {
-	if fix, ok := engineAuthFix[engine]; ok {
-		return fix
+	seed, ok := backends.CredentialSeedFor(engine).Get()
+	if !ok {
+		return "authenticate the engine (subscription login or its API-key env var) and try again"
 	}
-	return "authenticate the engine (subscription login or its API-key env var) and try again"
+	fix := fmt.Sprintf("run `%s`", seed.LoginHint)
+	if seed.EnvTrigger != "" {
+		fix += fmt.Sprintf(" (or set %s)", seed.EnvTrigger)
+	}
+	return fix
 }
 
 // authPingFactory is a test seam: nil self-invokes the compiled-in backend

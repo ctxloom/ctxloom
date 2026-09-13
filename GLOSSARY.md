@@ -44,9 +44,9 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 | **profile** | An agent's *definition* (config). `agent` = profile-in-action. | `internal/config` profiles |
 | **runtime coordinator** | The **process/library**: durable CQRS stores (run registry, role mailboxes, interaction journal), credential minting/verification, the agentcoord gRPC server (RunnerChannel/RunChannel), spawn-queue scheduling, and runner-loss synthesis. Hosted by every session-owning process (`ctxloom run`, the `ctxloom mcp serve` fallback). Never an LLM. | `internal/agentcoord/coord` |
 | **orchestrating agent** (*orchestrator*) | The **LLM role**: an agent (usually the session's primary) that *uses* the coordination tools — spawning children (`agent_run`), routing their mail (`agent_send`/`agent_recv`), reading the roster, filing reports. Judgment lives here; process facts live in the runtime coordinator. Formerly "coordinating agent" — renamed 2026-09-12, see the naming decision below. | the `orchestrator` agent binding; the agent-ensemble profiles |
-| **originator** | **Level 1**: the process a human launches (`ctxloom run`). It hosts the runtime coordinator, and it is the ONLY process that ever execs a container runtime — every spawn below it is performed here, on a requester's behalf. | `ctxloom run`; `internal/agentcoord/coord` |
-| **executor** | **Level 3**: an agent the orchestrator spawns to do work, including HEAVY work. Orchestrators dispatch the full suite, acceptance and mutation to executors and consume the verdict rather than running them — that is what keeps every heavy job countable against `delegation.concurrency`. | the `developer` binding; `delegation.concurrency` |
-| **subagent** | **Level 4**: a light agent (find/search) that serves an executor. The executor REQUESTS it; the ORCHESTRATOR spawns it. Never spawned by the executor itself — the tree stays flat. | `agent_run`; `Coordinator.AgentRun` |
+| **originator** | The process a human launches (`ctxloom run`). It hosts the runtime coordinator, and it is the ONLY process that ever execs a container runtime — every spawn below it is performed here, on a requester's behalf. | `ctxloom run`; `internal/agentcoord/coord` |
+| **executor** | An agent the orchestrator spawns to do work, including HEAVY work. Orchestrators dispatch the full suite, acceptance and mutation to executors and consume the verdict rather than running them — that is what keeps every heavy job countable against `delegation.concurrency`. | the `developer` binding; `delegation.concurrency` |
+| **subagent** | A light agent (find/search) that serves an executor. A PEER of the executors, not below them — same delegation depth. The executor REQUESTS it; the ORCHESTRATOR spawns it. Never spawned by the executor itself — the tree stays flat. | `agent_run`; `Coordinator.AgentRun` |
 
 > Status: the `codex` engine above is implemented and hermetically tested; live operation is untested (no codex account on any dev host).
 
@@ -99,7 +99,21 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
   is never a coordinator.
 
 - **The topology is FOUR LEVELS and does not recurse** (ruled 2026-09-12).
-  originator → orchestrator → executors → subagents. An orchestrator MAY itself
+  originator → orchestrator → executors → subagents.
+
+  THOSE FOUR NAMES ARE ROLES, NOT DEPTHS, and the distinction is load-bearing
+  enough to state: originator and orchestrator describe WHERE A PROCESS RUNS
+  (containment), while executor and subagent describe WHAT AN AGENT IS FOR
+  (role and service). Read as a ladder they mislead, because a subagent does
+  NOT sit below an executor — the executor only REQUESTS it and the orchestrator
+  spawns it, so the two are PEERS.
+
+  There are exactly TWO agent depths, and that is the fact the mechanism uses:
+  the orchestrating agent is depth 0 — containerized or not, since a top-level
+  container run is enqueued at the owner's depth — and executors and subagents
+  are both depth 1, leaves under the default `delegation.depth`. Everything in
+  the section below turns on there being two, so do not infer a third from the
+  names. An orchestrator MAY itself
   run in a container ("level 2"), and that shape is **2a**: the orchestrating
   agent is an ordinary depth-1 child cell, while the runtime coordinator stays
   in the originator. Its container therefore needs no container runtime, no

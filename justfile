@@ -370,25 +370,6 @@ test-default: build _ensure-covdata vet-integration _ensure-gotmpdir
     just _check-no-ctxloom-leak
     just _filter_coverage "$raw" coverage.out
 
-# Fail (and clean up) if any test wrote a nested internal/**/.ctxloom into the
-# source tree instead of isolating through t.TempDir(). internal/operations'
-# TestMain catches this for itself; other packages had no such guard, so a
-# regression there was caught by nothing but a .gitignore rule for
-# internal/**/.ctxloom — which hides the symptom (git status stays clean) but
-# the directory still physically exists, which is what confuses worktree-safe
-# WIP detection and blocks worktree reaping. This runs after every `just
-# test`, so the leak is a build failure instead of invisible disk residue.
-_check-no-ctxloom-leak:
-    #!/usr/bin/env bash
-    set -e
-    leaked="$(find internal -mindepth 2 -type d -name .ctxloom 2>/dev/null)"
-    if [ -n "$leaked" ]; then
-        echo "$leaked" | xargs -I{} rm -rf {}
-        echo "TEST ISOLATION FAILURE: a test wrote a nested .ctxloom into the source tree (should use t.TempDir()):" >&2
-        echo "$leaked" >&2
-        exit 1
-    fi
-
 # Run tests with verbose output
 test-verbose: _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" go test -trimpath -v ./...
@@ -410,21 +391,6 @@ test-dirty:
     export GITHUB_TOKEN=poison-token GH_TOKEN=poison-token CODEX_HOME=/poison/codex
     export CTXLOOM_ROOT=/poison/root
     "$GO" test ./internal/... ./cmd/...
-
-# Filter coverage output using patterns from .coverignore
-# Usage: _filter_coverage <input> <output>
-_filter_coverage INPUT OUTPUT:
-    #!/usr/bin/env bash
-    set -e
-    if [ -f .coverignore ]; then
-        # Build grep pattern from .coverignore (skip comments and empty lines)
-        patterns=$(grep -v '^#' .coverignore | grep -v '^$' | paste -sd '|' -)
-        if [ -n "$patterns" ]; then
-            grep -Ev "$patterns" "{{INPUT}}" > "{{OUTPUT}}" || cp "{{INPUT}}" "{{OUTPUT}}"
-            exit 0
-        fi
-    fi
-    cp "{{INPUT}}" "{{OUTPUT}}"
 
 # Run tests with coverage (excludes patterns in .coverignore)
 cover:

@@ -32,7 +32,7 @@ package taskstest
 // the list cannot quietly stop shrinking. A stale exemption is worse than no
 // exemption: it reads as a known hazard while covering nothing.
 var appDirEscapeRatchet = map[string]bool{
-	"internal/operations":  true,
+	"internal/operations": true,
 
 	// The two isolation helpers themselves. Their own tests drive Isolate and
 	// ProjectDir as SUBJECTS and assert on the working directory they leave

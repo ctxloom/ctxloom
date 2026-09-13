@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -371,7 +372,7 @@ type runState struct {
 	// default), never how it was invoked. Only "was any binding resolved at
 	// all" is invocation-shaped, and that is exactly what an empty
 	// agentConfigHome (vs. a resolved "project"/"host") already answers.
-	agentConfigHome string
+	agentConfigHome agents.ConfigHome
 
 	// prepareRequestInputs: everything the RunStart payload is built from that
 	// does not depend on the session having been opened.
@@ -1341,30 +1342,30 @@ func (st *runState) prepareWorkspace() {
 	// that is the point of the host stopgap.
 	st.policy, st.ws = isolation.Prepare(st.ctx, st.runAxes, st.backendName, operations.IsolationImageConfig(st.cfg, st.backendName), st.workDir, st.activeHarp, isolation.SessionStateFromEnv(st.runEnv))
 
-	// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
-	// config layer (CLAUDE_CONFIG_DIR / CODEX_HOME / KIRO_HOME / ...) from
-	// this run; nil for none/container. Mirrors the fan-out member path
+	// The workspace's own env (a worktree's per-agent scratch dir and git
+	// identity; nil for none/container). Mirrors the fan-out member path
 	// (operations/oneshot.go's workspaceEnv/env assembly): merged UNDER the
 	// already-assembled req.Options.Env (session identity + user --env), so
 	// an explicit user/session var still wins over a resolved isolation var
 	// — this must never clobber a caller-set env, only fill gaps.
 	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, isolation.WorkspaceEnv(st.ws))
 
-	// IN-TREE AGENT HOME. On the none axis there is no isolation-provided
-	// config home, and claude/kiro would otherwise run against the human's own
-	// ~/.claude / ~/.kiro. A run bound to an agent whose EFFECTIVE config_home
-	// is "project" gets a project-scoped controlled home instead; every other
-	// run — no binding at all, or a binding that is undeclared or declares
-	// "host" — keeps the real one. See operations.InTreeAgentHomeEnv for the
-	// whole rule, and st.agentConfigHome for why this reads the resolved
-	// agent's OWN declared policy rather than how it was invoked.
+	// THE AGENT'S CONFIG HOME, from exactly one place. A run bound to an agent
+	// whose EFFECTIVE config_home is "project" gets this session's controlled
+	// home, whichever cell it landed in — on the host the engine is told the
+	// path itself; in a container the home is mounted and the engine is told
+	// the mount target. Every other run — no binding at all, or a binding
+	// that is undeclared or declares "host" — keeps the home its runtime
+	// gives it. See operations.ResolveInTreeAgentHome for the whole rule, and
+	// st.agentConfigHome for why this reads the resolved agent's OWN declared
+	// policy rather than how it was invoked.
 	//
-	// Merged with the SAME precedence as the isolation env above (and layered
-	// under it — the call reads the already-merged map and declines any var
-	// already present), so an explicit user/session var still wins.
-	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, operations.InTreeAgentHomeEnv(operations.InTreeAgentHome{
+	// Merged with the SAME precedence as the workspace env above, so an
+	// explicit user/session var still wins.
+	home := operations.BindAgentHome(st.ws, operations.InTreeAgentHome{
 		Backend: st.backendName,
 		WorkDir: st.workDir,
+		Cwd:     st.ws.Dir(),
 		// The instance is PER SESSION, and st.activeHarp is this session:
 		// runRun calls openSession() BEFORE prepareWorkspace(), and openSession
 		// is what assigns it (and stamps CTXLOOM_SESSION_HARP into runEnv). A
@@ -1372,9 +1373,8 @@ func (st *runState) prepareWorkspace() {
 		// the engine's own host home.
 		Harp:       st.activeHarp,
 		ConfigHome: st.agentConfigHome,
-		Policy:     st.policy,
-		Env:        st.req.Options.Env,
-	}))
+	})
+	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, home.Env)
 }
 
 // cleanupWorkspace tears the prepared workspace down. none's cleanup is a

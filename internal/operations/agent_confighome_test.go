@@ -22,7 +22,7 @@ func TestResolveConfigHome_UndeclaredDefaultsToHost(t *testing.T) {
 // both round-trip unchanged and with no error — the opt-in and the explicit
 // opt-out are equally valid declarations.
 func TestResolveConfigHome_AcceptsBothDeclaredValues(t *testing.T) {
-	for _, want := range []string{agents.ConfigHomeProject, agents.ConfigHomeHost} {
+	for _, want := range []agents.ConfigHome{agents.ConfigHomeProject, agents.ConfigHomeHost} {
 		got, err := ResolveConfigHome(want)
 		require.NoError(t, err)
 		assert.Equal(t, want, got)

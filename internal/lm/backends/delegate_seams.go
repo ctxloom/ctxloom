@@ -113,21 +113,22 @@ type InTreeAgentHomeSpec struct {
 	// Prepare populates Dir before the engine is launched at it: the one-way
 	// copy-in of ambient host material (credentials today) plus any
 	// engine-specific scaffolding, returning an actionable error when there is
-	// nothing to authenticate with. nil when the backend needs neither.
-	Prepare func() error
+	// nothing to authenticate with. cwd is the directory the engine will
+	// actually run in — what a generated workspace-trust answer must name.
+	// nil when the backend needs neither.
+	Prepare func(cwd string) error
 }
 
 // InTreeAgentHomeFor resolves the named backend's controlled config-home
 // INSTANCE for (workDir, harp), or ok=false when that backend has none — or
 // when the harp cannot name one. It is the polymorphic seam
-// operations.InTreeAgentHomeEnv reads instead of branching on engine identity
-// (ADR-0026) — the same shape ResolveModelFor and CheckHookTargetScope above
-// have, and for the same reason.
+// operations.ResolveInTreeAgentHome reads instead of branching on engine
+// identity (ADR-0026) — the same shape ResolveModelFor and
+// CheckHookTargetScope above have, and for the same reason.
 //
 // This answers only WHERE, never WHETHER. The scoping rule — controlled homes
-// go to runs whose agent binding declares `config_home: project`, on the
-// in-tree axis, when nothing has already set the var — belongs to the caller
-// and lives in ONE place there, for all three engines.
+// go to runs whose agent binding declares `config_home: project`, whichever
+// cell they run in — belongs to the caller and lives in ONE place there.
 //
 // harp is REQUIRED. An empty harp resolves nothing and creates nothing: there
 // is no session-less instance to fall back to, and a project-wide fallback is
@@ -164,7 +165,7 @@ func InTreeAgentHomeFor(name, workDir, harp string) (InTreeAgentHomeSpec, bool) 
 	return InTreeAgentHomeSpec{
 		EnvVar:  v.EnvVar,
 		Dir:     filepath.Join(root, v.Subdir),
-		Prepare: func() error { return prepareInTreeAmbient(engine, root, workDir) },
+		Prepare: func(cwd string) error { return prepareInTreeAmbient(engine, root, cwd) },
 	}, true
 }
 
@@ -179,20 +180,18 @@ func cleanAbsPath(p string) string {
 	return filepath.Clean(p)
 }
 
-// prepareInTreeAmbient is the Prepare every in-tree config-home instance
-// shares: THE ambient copy-in (isolation.CopyAmbient) into this session's
-// instance root, turning its "nothing seedable" DECISION into the actionable
-// error operations.InTreeAgentHomeEnv fails loud on.
-//
-// The decision is not an error inside CopyAmbient because the two axes answer
-// it differently — this one refuses the relocation outright rather than point
-// an engine at a home it cannot authenticate against; the worktree axis records
-// a degradable ClassIsolation finding and carries on.
-func prepareInTreeAmbient(engine, instanceRoot, workDir string) error {
+// prepareInTreeAmbient is the Prepare every config-home instance shares: THE
+// ambient copy-in (isolation.CopyAmbient) into this session's instance root,
+// turning its "nothing seedable" DECISION into the actionable error
+// operations.ResolveInTreeAgentHome fails loud on — the relocation is refused
+// outright rather than point an engine at a home it cannot authenticate
+// against. cwd is the directory the engine runs in, which the generated
+// workspace-trust answer names.
+func prepareInTreeAmbient(engine, instanceRoot, cwd string) error {
 	report, err := isolation.CopyAmbient(isolation.AmbientRequest{
 		Engine:       engine,
 		InstanceHome: instanceRoot,
-		WorkDir:      workDir,
+		WorkDir:      cwd,
 	})
 	if err != nil {
 		return err

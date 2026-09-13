@@ -27,6 +27,7 @@ import (
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -283,25 +284,60 @@ func StarterForWorkspace(p Policy, ws Workspace, backendName, label string, verb
 	}
 }
 
-// EnvWorkspace is an OPTIONAL Workspace capability: a workspace whose isolation
-// includes per-agent config-home env vars (CLAUDE_CONFIG_DIR
-// isolating each engine's GLOBAL config layer) exposes them here. The run threads
-// them into the member's RunOptions.Env. None and Container do not implement it
-// (None shares the host config; Container isolates via a fresh $HOME), so the
-// caller uses WorkspaceEnv to read them only when present.
+// EnvWorkspace is an OPTIONAL Workspace capability: a workspace that
+// PROVISIONED something of its own for the run — a per-agent toolchain
+// scratch dir, a git identity for the checkout it created — exposes the env
+// that points the engine at it. The run threads that env into the member's
+// RunOptions.Env.
+//
+// It is NOT the engine's config-home carrier, and must not become one again.
+// The controlled config home (CLAUDE_CONFIG_DIR and its kin) is decided and
+// presented by operations.ResolveInTreeAgentHome for EVERY cell, off the agent
+// binding alone; a workspace has no say in whether a run has one. The vars
+// here are exactly the ones a prepared workspace genuinely owns because it
+// created what they name.
 type EnvWorkspace interface {
 	Workspace
-	// Env returns the per-agent env additions for the member's engine process.
+	// Env returns the env additions for what this workspace provisioned.
 	Env() map[string]string
 }
 
-// WorkspaceEnv returns the per-agent config-home env additions when the workspace
-// exposes them (worktree), or nil otherwise (none/container). The caller merges
-// the result into the member's RunOptions.Env.
+// WorkspaceEnv returns the workspace's own env additions when it exposes them
+// (worktree), or nil otherwise (none/container). The caller merges the result
+// into the member's RunOptions.Env.
 func WorkspaceEnv(ws Workspace) map[string]string {
 	if e, ok := ws.(EnvWorkspace); ok {
 		return e.Env()
 	}
+	return nil
+}
+
+// RuntimeAdvice is the runtime axis's half of an engine-home presentation
+// (present.PathsAdvice): how a root's ENGINE side is rewritten for the
+// environment the engine process actually runs in. A host-executing workspace
+// (none, worktree) is the identity — the engine opens the host path itself. A
+// container workspace names the in-container target for each root and
+// records the mount that makes it true; the caller hands that mount back
+// through MountEngineHome. It never decides WHETHER a run has a home, only
+// where the engine is told it is.
+func RuntimeAdvice(ws Workspace) present.PathsAdvice {
+	if cw, ok := ws.(*containerWorkspace); ok {
+		return containerEngineHome{home: cw.home}
+	}
+	return present.Host{}
+}
+
+// MountEngineHome records the bind mount a resolved engine home needs inside
+// a container workspace, so the launch that follows binds Root.Host at
+// Root.Engine. It is an error on a workspace that executes on the host: such
+// a workspace's RuntimeAdvice is the identity and never yields a mount, so
+// reaching here with one means the advice and the workspace disagree.
+func MountEngineHome(ws Workspace, m present.Mount) error {
+	cw, ok := ws.(*containerWorkspace)
+	if !ok {
+		return fmt.Errorf("engine home mount %s -> %s: workspace %T executes on the host and cannot mount", m.HostDir, m.TargetDir, ws)
+	}
+	cw.extraMounts = append(cw.extraMounts, cw.runtime.Expose(m.HostDir, m.TargetDir, false))
 	return nil
 }
 

@@ -22,7 +22,7 @@ import (
 // value here is not fatal, because by the time a run reaches this call the
 // binding already exists and refusing to launch over it would be a
 // regression, not a safety net.
-func ResolveConfigHome(declared string) (string, error) {
+func ResolveConfigHome(declared agents.ConfigHome) (agents.ConfigHome, error) {
 	switch declared {
 	case "":
 		return agents.ConfigHomeHost, nil

@@ -114,49 +114,55 @@ type Agent struct {
 	// changes execution semantics, unlike Runtime/Permissions' advisory-only
 	// unknown-value handling, so it does not get their lenient treatment).
 	Driving DrivingMode `yaml:"driving,omitempty"`
-	// ConfigHome is this binding's per-engine config-home POLICY: whether an
-	// in-tree (workspace: none) run gets a ctxloom-CONTROLLED, PER-SESSION
-	// engine config home under .ctxloom/state/<harp>/home/<leaf>
-	// (ConfigHomeProject) or the engine's REAL host home (ConfigHomeHost,
-	// which ctxloom never writes). It is the single source of
-	// truth for operations.InTreeAgentHomeEnv's scoping rule, and a DECLARED
-	// value wins on every invocation path this binding resolves through — a
-	// bare run under default_agent, `run --agent`, a delegated child, a
-	// oneshot fan member alike. Invocation never matters for a declared
-	// binding; only whether ANY binding is in play at all does (a run with no
-	// agent binding — no --agent, no default_agent — has no ConfigHome to
-	// read and always keeps the real host home).
+	// ConfigHome is this binding's per-engine config-home POLICY: whether a
+	// run gets a ctxloom-CONTROLLED, PER-SESSION engine config home under
+	// .ctxloom/state/<harp>/home/<leaf> (ConfigHomeProject) or keeps the home
+	// its runtime gives it (ConfigHomeHost — the engine's REAL host home,
+	// which ctxloom never writes, or a container's own fresh $HOME). It is
+	// the single source of truth for operations.ResolveInTreeAgentHome's
+	// scoping rule, and a DECLARED value wins on every invocation path this
+	// binding resolves through — a bare run under default_agent, `run
+	// --agent`, a delegated child, a oneshot fan member alike. Invocation
+	// never matters for a declared binding; only whether ANY binding is in
+	// play at all does (a run with no agent binding — no --agent, no
+	// default_agent — has no ConfigHome to read and always keeps the real
+	// host home).
 	//
 	// Empty (undeclared) DEFAULTS TO ConfigHomeHost: nothing gets a
-	// controlled in-tree home until a binding explicitly opts in with
-	// "project". An unconfigured binding therefore behaves exactly like no
-	// binding at all on this one axis — the controlled-home behaviour is
-	// strictly opt-in, never assumed.
+	// controlled home until a binding explicitly opts in with "project". An
+	// unconfigured binding therefore behaves exactly like no binding at all
+	// on this one axis — the controlled-home behaviour is strictly opt-in,
+	// never assumed.
 	//
-	// Only the IN-TREE axis (workspace: none) reads this. The worktree axis
-	// already provisions a per-agent config home unconditionally, for every
-	// run whether or not it is agent-bound, and container's fresh in-container
-	// $HOME already is a controlled home — ConfigHome does not touch either.
+	// The policy is ORTHOGONAL to the run's isolation cell: whether a run has
+	// a controlled home is decided here alone, and which workspace or runtime
+	// it chose decides only where the engine is told that home is (on the
+	// host, the path itself; in a container, a mount target).
 	//
 	// Validated against ConfigHomeNames when WRITTEN (operations.SetAgent,
 	// same treatment as Surfaces — an unknown value is refused, naming the
 	// two valid ones); a value that fails that same check at RESOLVE time (a
 	// hand-edited config.yaml) warns and falls back to ConfigHomeHost rather
 	// than blocking the launch (operations.ResolveConfigHome).
-	ConfigHome string `yaml:"config_home,omitempty"`
+	ConfigHome ConfigHome `yaml:"config_home,omitempty"`
 }
+
+// ConfigHome is Agent.ConfigHome's value type: one of the two accepted
+// policies below, or "" for undeclared (a no-binding run carries the same
+// empty value, and both read as ConfigHomeHost at resolve time).
+type ConfigHome string
 
 // ConfigHomeProject and ConfigHomeHost are Agent.ConfigHome's two accepted
 // values. See that field's doc for the scoping rule they select between.
 const (
-	ConfigHomeProject = "project"
-	ConfigHomeHost    = "host"
+	ConfigHomeProject ConfigHome = "project"
+	ConfigHomeHost    ConfigHome = "host"
 )
 
 // ConfigHomeNames lists the accepted config_home values, for flag help,
 // shell completion, and error messages.
 func ConfigHomeNames() []string {
-	return []string{ConfigHomeProject, ConfigHomeHost}
+	return []string{string(ConfigHomeProject), string(ConfigHomeHost)}
 }
 
 // DrivingMode is Agent.Driving's enum: the per-turn execution axis a binding

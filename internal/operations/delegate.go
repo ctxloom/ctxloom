@@ -371,24 +371,22 @@ func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.C
 	rs := p.req.Resolved
 	mark := strictness.Checkpoint()
 	policy, ws := prepareIsolation(ctx, p.axes, rs.Backend, IsolationImageConfig(cfg, rs.Backend), p.req.WorkDir, rs.Name, isolation.SessionStateFromEnv(p.req.Env))
-	p.workspaceEnv = isolation.WorkspaceEnv(ws)
 	// A delegated child is ALWAYS an agent run (p.req.Resolved IS the
-	// binding), so on the none axis its EFFECTIVE config_home decides: only
-	// rs.ConfigHome == "project" gets a project-scoped controlled config home
-	// rather than the human's own ~/.claude / ~/.kiro — see
-	// InTreeAgentHomeEnv. Resolved inside the checkpoint window so its
+	// binding), so its EFFECTIVE config_home decides, whichever cell it
+	// landed in: only rs.ConfigHome == "project" gets the session's controlled
+	// config home rather than the home its runtime gives it — see
+	// ResolveInTreeAgentHome. Resolved inside the checkpoint window so its
 	// fail-loud finding lands in this spawn's own gate below.
-	p.workspaceEnv = mergeInTreeAgentHome(p.workspaceEnv, InTreeAgentHome{
+	p.workspaceEnv = workspaceEnvWithAgentHome(ws, InTreeAgentHome{
 		Backend: rs.Backend,
 		WorkDir: p.req.WorkDir,
+		Cwd:     ws.Dir(),
 		// The SESSION's harp, not this child's agent name: a delegated child
 		// runs inside its parent's session and deliberately shares its config
 		// -home instance. It rides p.req.Env under agent.SessionHarpEnv — the
 		// same map isolation.SessionStateFromEnv reads two lines above.
 		Harp:       p.req.Env[agent.SessionHarpEnv],
 		ConfigHome: rs.ConfigHome,
-		Policy:     policy,
-		Env:        mergedEnvView(p.workspaceEnv, p.req.Env),
 	})
 	found := strictness.Since(mark)
 	strictness.Close(mark)

@@ -8,6 +8,7 @@ import (
 	"maps"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -212,7 +213,7 @@ type resolvedRunRequest struct {
 	// InTreeAgentHomeEnv. RunOneshot leaves it "", since a bare-profile
 	// oneshot has no binding at all, which reads identically to an undeclared
 	// one — both keep the real host home.
-	ConfigHome string
+	ConfigHome agents.ConfigHome
 
 	Factory pb.ClientFactory // nil self-invokes the compiled-in backend
 }
@@ -499,28 +500,24 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// one entry per member forever.
 		mark := strictness.Checkpoint()
 		policy, ws := prepareIsolation(ctx, req.Axes, req.Backend, req.IsolationImage, req.WorkDir, req.AgentID, isolation.SessionStateFromEnv(req.ExtraEnv))
-		// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
-		// config layer; nil for none/container. Threaded into the member's engine
-		// env below so the shared ~/.claude.json etc. don't clobber.
-		workspaceEnv = isolation.WorkspaceEnv(ws)
-		// The none axis has no isolation-provided config home, so an AGENT run
-		// there would otherwise use the human's own engine config home. Give
-		// it a project-scoped controlled one instead. Resolved INSIDE the
-		// checkpoint window below so its fail-loud finding (nothing to seed) is
-		// caught by this member's own isolation gate rather than escaping into
-		// a sibling member's window. It declines any var the workspace env or
-		// ExtraEnv already carries, so isolation and the caller both win.
-		workspaceEnv = mergeInTreeAgentHome(workspaceEnv, InTreeAgentHome{
+		// The workspace's own env (a worktree's scratch dir and git identity)
+		// plus the member's controlled engine config home, decided off the
+		// agent binding alone whichever cell the member landed in — see
+		// ResolveInTreeAgentHome. Resolved INSIDE the checkpoint window below
+		// so its fail-loud finding (nothing to seed) is caught by this
+		// member's own isolation gate rather than escaping into a sibling
+		// member's window. ExtraEnv is layered over it below, so the caller
+		// still wins.
+		workspaceEnv = workspaceEnvWithAgentHome(ws, InTreeAgentHome{
 			Backend: req.Backend,
 			WorkDir: req.WorkDir,
+			Cwd:     ws.Dir(),
 			// The SESSION's harp — the one this member runs inside, carried on
 			// ExtraEnv under agent.SessionHarpEnv exactly as the transcript
 			// capture below reads it. NOT req.AgentID: fan-out members of one
 			// session share that session's instance.
 			Harp:       req.ExtraEnv[agent.SessionHarpEnv],
 			ConfigHome: req.ConfigHome,
-			Policy:     policy,
-			Env:        mergedEnvView(workspaceEnv, req.ExtraEnv),
 		})
 		found := strictness.Since(mark)
 		strictness.Close(mark)

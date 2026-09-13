@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -17,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/git"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -276,6 +278,8 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 		authMode:    sc.auth.mode,
 		agentID:     agentID,
 		baseCleanup: baseCleanup,
+		runtime:     c.runtime,
+		home:        c.home,
 	}, nil
 }
 
@@ -1091,6 +1095,38 @@ type containerWorkspace struct {
 	// down), the worktree's WIP-safe teardown for the worktree base. Nil only on
 	// a bare test-built workspace — Cleanup nil-guards it.
 	baseCleanup func() error
+	// runtime renders a mount recorded AFTER Mount ran (MountEngineHome) the
+	// same way Mount rendered its own — through the runtime's Expose, so a
+	// path-mapping runtime maps it too.
+	runtime Runtime
+	// home is the container's own $HOME (Container.home), the root every
+	// in-container engine-home target hangs under (containerEngineHome).
+	home string
+}
+
+// containerEngineHome is the runtime advice a container workspace hands the
+// engine-home resolver (RuntimeAdvice): the home's bytes stay where the host
+// put them, the engine is told a path under the container's own $HOME —
+// <home>/.ctxloom/home/<leaf> — and the mount that makes it true is
+// recorded for MountEngineHome. The leaf is the host root's own last
+// element, because the leaf name is load-bearing for an engine that composes
+// its home path itself (agent.HomeVar) and the resolver already chose it.
+//
+// Only the engine home gets a target of its own. Every other root
+// present.Containerize is asked about is left at its identical path, which is
+// how a container already sees the project dir (the identical-path cwd
+// mount) — a root this advice is never handed contributes nothing.
+type containerEngineHome struct{ home string }
+
+var _ present.PathsAdvice = containerEngineHome{}
+
+// ApplyPaths implements present.PathsAdvice.
+func (a containerEngineHome) ApplyPaths(p present.Paths) (present.Paths, []present.Mount) {
+	c := present.Containerize{}
+	if p.EngineHome.Host != "" {
+		c.EngineHome = path.Join(a.home, paths.AppDirName, "home", filepath.Base(p.EngineHome.Host))
+	}
+	return c.ApplyPaths(p)
 }
 
 // Dir returns the identical-path cwd (the container mounts it there so cwd + .git

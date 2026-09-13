@@ -142,7 +142,7 @@ func TestTopLevelRunIsolationEnv_WorktreeDeliversConfigHomeEnv(t *testing.T) {
 // helper's own behaviour is pinned in internal/operations, and what can rot
 // here is the CONDITION prepareWorkspace passes it.
 func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
-	newState := func(t *testing.T, workDir string, agentConfigHome string, axes isolation.Axes) *runState {
+	newState := func(t *testing.T, workDir string, agentConfigHome agents.ConfigHome, axes isolation.Axes) *runState {
 		t.Helper()
 		return &runState{
 			ctx:             context.Background(),

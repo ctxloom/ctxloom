@@ -42,7 +42,7 @@ type AgentEntry struct {
 	// ConfigHome is the agent's declared per-engine config-home policy
 	// (project|host), as written; empty (undeclared) defaults to host at
 	// resolve time — see agents.Agent.ConfigHome's doc.
-	ConfigHome string `json:"config_home,omitempty"`
+	ConfigHome agents.ConfigHome `json:"config_home,omitempty"`
 }
 
 // ListAgents returns every locally-defined agent (the `agents:` config key),
@@ -253,7 +253,7 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 	// dropping the very opt-in the write was trying to make — refused here
 	// instead, before it is ever persisted.
 	if req.ConfigHome != nil && *req.ConfigHome != "" {
-		if _, err := ResolveConfigHome(*req.ConfigHome); err != nil {
+		if _, err := ResolveConfigHome(agents.ConfigHome(*req.ConfigHome)); err != nil {
 			return fmt.Errorf("agent %q: %w", name, err)
 		}
 	}
@@ -411,7 +411,9 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		if req.Driving != nil {
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
-		entry.ConfigHome = orKeep(req.ConfigHome, entry.ConfigHome)
+		if req.ConfigHome != nil {
+			entry.ConfigHome = agents.ConfigHome(*req.ConfigHome)
+		}
 		d.Agents[name] = entry
 		return nil
 	})
@@ -547,7 +549,7 @@ type ResolvedAgent struct {
 	// InTreeAgentHome.ConfigHome — a run with NO resolved agent binding at
 	// all never has a ResolvedAgent to read this from, and so falls back to
 	// the real host home by construction, not by this field's value.
-	ConfigHome string `json:"config_home,omitempty"`
+	ConfigHome agents.ConfigHome `json:"config_home,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an

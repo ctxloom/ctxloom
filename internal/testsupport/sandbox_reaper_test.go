@@ -103,7 +103,7 @@ func TestReapSandboxes_MissingRoot_IsANoop(t *testing.T) {
 func TestAcquireSandbox_ReapsDeadThenStakesOwnPidDir(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
-	root := filepath.Join(tmp, sandboxRootName)
+	root := filepath.Join(tmp, SandboxRootName)
 	leftover := pidDir(t, root, strconv.Itoa(deadPid(t)))
 
 	dir, cleanup, err := acquireSandbox()

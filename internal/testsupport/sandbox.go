@@ -3,9 +3,14 @@ package testsupport
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
+	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
@@ -16,10 +21,30 @@ import (
 // run any test at all rather than letting the binary loose on the real home.
 const SandboxOffEnv = "CTXLOOM_TEST_SANDBOX_OFF"
 
-// sandboxRootEnv marks "this process is already inside a test sandbox", so a
+// SandboxRootEnv marks "this process is already inside a test sandbox", so a
 // re-exec'd child adopts the parent's rather than minting its own. See
 // SandboxedMain for why it sits outside the CTXLOOM_* namespace.
-const sandboxRootEnv = "GOTEST_CTXLOOM_SANDBOX_ROOT"
+//
+// It is exported for the one kind of test that wants the OPPOSITE: a test
+// that spawns a fresh sandboxed process to observe SandboxedMain itself must
+// strip this variable from the child's environment, or the child inherits the
+// parent's sandbox and there is nothing to observe.
+const SandboxRootEnv = "GOTEST_CTXLOOM_SANDBOX_ROOT"
+
+// SandboxRootName is the directory under os.TempDir() that groups every
+// sandboxed test process's sandbox by pid. One process = one pid = one
+// TestMain invocation, so a single subdirectory per pid holds both the HOME
+// and the working-directory halves, and a single RemoveAll of the pid
+// directory tears both down together. Exported so a test that spawns a
+// sandboxed child under its own TMPDIR can find what the child left behind.
+const SandboxRootName = "ctxloom-test-sandbox"
+
+// maxOrphanAge is how long a sandbox directory may sit unreaped before it is
+// reclaimed regardless of whether its pid currently resolves to a live
+// process. No real test run takes anywhere near this long; it exists only to
+// bound the rare case where a dead run's pid gets recycled by an unrelated
+// process before the liveness-only reap gets a chance to run.
+const maxOrphanAge = 2 * time.Hour
 
 // SandboxedMain is the TestMain body for any package whose tests drive code
 // that resolves ctxloom's app directory (config.Load / cli.GetConfig and every
@@ -60,13 +85,31 @@ func SandboxedMain(m *testing.M) int {
 	// covers that namespace and Isolate clears every key in it, which would
 	// hide the parent's sandbox from any child spawned after the first
 	// Isolate call — the exact case this exists to handle.
-	if os.Getenv(SandboxOffEnv) == "" && os.Getenv(sandboxRootEnv) == "" {
+	if os.Getenv(SandboxOffEnv) == "" && os.Getenv(SandboxRootEnv) == "" {
 		cleanup, err := enterSandbox()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "test sandbox: could not establish an isolated HOME/cwd: %v\n", err)
 			return 1
 		}
 		defer cleanup()
+
+		// A panic crashes the process before this defer (or any other) runs,
+		// so it cannot reap its own sandbox — only a LATER process's startup
+		// reaper (acquireSandbox -> reapSandboxes) can, once this pid is dead.
+		// SIGINT/SIGTERM, by contrast, are ordinary signals this process can
+		// catch, so honor them by cleaning up before dying instead of leaving
+		// that to the next reaper.
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(sigCh)
+		go func() {
+			sig, ok := <-sigCh
+			if !ok {
+				return
+			}
+			cleanup()
+			os.Exit(128 + int(sig.(syscall.Signal))) //nolint:forbidigo // no *testing.T in TestMain
+		}()
 	}
 
 	// A `go test` binary gets no ldflags, so internal/version.Version is empty
@@ -113,12 +156,20 @@ func AppDirIsolationError() error {
 // and clears every EnvKeys variable, process-wide (os.Setenv, not t.Setenv:
 // there is no *testing.T at TestMain time). The returned func restores the
 // working directory and removes the sandbox.
+//
+// HOME and cwd each get their own subdirectory under a single per-process
+// sandbox (see acquireSandbox), rather than two independent MkdirTemp calls,
+// because a panic anywhere in m.Run() crashes the process via tRunner's
+// re-panic before any defer in SandboxedMain ever runs. A single sandbox
+// directory means the NEXT process's startup reaper only has one thing to
+// find and remove per dead pid instead of two independent ones, and a signal
+// can tear down both halves with one RemoveAll instead of coordinating two.
 func enterSandbox() (func(), error) {
 	realHome, err := os.UserHomeDir() // BEFORE the redirect below
 	if err != nil {
 		return nil, err
 	}
-	root, err := os.MkdirTemp("", "ctxloom-test-sandbox-")
+	root, removeSandbox, err := acquireSandbox()
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +183,7 @@ func enterSandbox() (func(), error) {
 	if err := pinGoToolchainDirs(realHome); err != nil {
 		return nil, err
 	}
-	if err := os.Setenv(sandboxRootEnv, root); err != nil {
+	if err := os.Setenv(SandboxRootEnv, root); err != nil {
 		return nil, err
 	}
 	if err := os.Setenv("HOME", home); err != nil {
@@ -155,9 +206,85 @@ func enterSandbox() (func(), error) {
 	}
 	return func() {
 		_ = os.Chdir(prev)
-		_ = os.Unsetenv(sandboxRootEnv)
-		removeAllForced(root)
+		_ = os.Unsetenv(SandboxRootEnv)
+		removeSandbox()
 	}, nil
+}
+
+// acquireSandbox reaps whatever dead runs left behind, then stakes out this
+// process's own pid-scoped sandbox directory. The returned cleanup removes
+// the whole directory; on the normal exit path that single deferred call is
+// enough. On a panic, tRunner's re-panic tears down the process before any
+// defer runs, so cleanup never fires — the NEXT process to call
+// acquireSandbox reaps it instead via the pid-liveness check in
+// reapSandboxes, since a panicked process's pid is dead the instant the
+// process exits.
+func acquireSandbox() (dir string, cleanup func(), err error) {
+	root := filepath.Join(os.TempDir(), SandboxRootName)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", nil, err
+	}
+	reapSandboxes(root)
+
+	dir = filepath.Join(root, strconv.Itoa(os.Getpid()))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", nil, err
+	}
+	return dir, func() { removeAllForced(dir) }, nil
+}
+
+// reapSandboxes removes sandbox directories left behind by processes that can
+// no longer be running, without ever touching a directory that a CONCURRENT
+// sibling process might still be using — `go test ./...` and mutation runners
+// both keep several test binaries alive at once, so this must be provably
+// safe under that concurrency.
+//
+// A directory is only removed when its owning pid is verifiably dead (an
+// ESRCH-equivalent signal-0 probe, not a heuristic), or when it is older than
+// maxOrphanAge regardless of pid liveness. The age fallback exists because a
+// dead pid can be recycled by an unrelated, currently-alive process, which
+// would otherwise make an orphaned directory look permanently "live" and
+// never get reclaimed; recycling within maxOrphanAge is implausible on any
+// machine this runs on. Neither path can misfire against a live sibling: a
+// pid that is genuinely still running never satisfies either condition
+// within the time it takes that sibling's own test run to finish, and a
+// signal-0 probe cannot report "dead" for a process that is in fact alive.
+//
+// A directory named after THIS process's own pid is a special case: since
+// this call always runs before this process creates its own directory, any
+// existing entry under our pid cannot be ours — it is a leftover from
+// whichever earlier process last held this (now recycled) pid, and that
+// process is, by definition, not us and not running as this pid anymore, so
+// it is always safe to remove.
+func reapSandboxes(root string) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return // nothing to reap yet (root doesn't exist) or unreadable; best-effort
+	}
+	self := os.Getpid()
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue // not one of our pid-named directories; leave it alone
+		}
+		path := filepath.Join(root, e.Name())
+		if pid == self {
+			removeAllForced(path)
+			continue
+		}
+		info, statErr := e.Info()
+		orphanedByAge := statErr == nil && time.Since(info.ModTime()) > maxOrphanAge
+		// !MaybeAlive() (true only for a confirmed Dead) instead of a bare
+		// !Alive check — removal is destructive, so an unconfirmable probe
+		// must be left alone exactly like a confirmed-live pid, unless the
+		// age fallback already independently justifies reaping it.
+		if !pidalive.Probe(pid).MaybeAlive() || orphanedByAge {
+			removeAllForced(path)
+		}
+	}
 }
 
 // pinGoToolchainDirs resolves the Go toolchain's HOME-derived directories to

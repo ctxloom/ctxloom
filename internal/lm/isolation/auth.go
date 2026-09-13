@@ -184,6 +184,22 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 // .claude.json. ok=false when any listed host file is absent (a bind mount of
 // a missing file would create a directory in its place). ContainerRelHome is
 // a CONTAINER path, joined with forward slashes whatever the host separator.
+//
+// This is relocatedCredentialMounts' (enginespec.go) twin, and the two are
+// NOT merged: they mount onto different ROOTS. containerHome here is the
+// container's REAL, UNRELOCATED $HOME, so ContainerRelHome's full relative
+// path (e.g. ".claude/.credentials.json") is exactly where the engine looks
+// with no relocation — joined WHOLE, never trimmed to a leaf. The relocated
+// twin's engineHome, by contrast, already IS the relocated subdirectory an
+// engine's home var points at (e.g. what CLAUDE_CONFIG_DIR resolves to), so
+// joining the same full ContainerRelHome there would double the subdir; it
+// must join only the file's leaf — and that leaf has its OWN source of
+// truth (agent.SeedFile.DestName, the name the seeded copy actually landed
+// under), which need not equal ContainerRelHome's leaf if the engine renames
+// on seed. One shared helper parameterized on "which root" would hide that
+// the roots aren't just different strings but different semantics — the
+// unrelocated case needs no seed at all, and consulting one would be reading
+// a declaration that has no bearing on the answer.
 func credentialFileMounts(files []agent.CredentialFile, containerHome string) ([]Mount, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {

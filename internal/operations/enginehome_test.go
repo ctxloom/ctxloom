@@ -65,10 +65,11 @@ const (
 // bytes" is this project's signature failure mode.
 const hostCredentialFixture = `{"claudeAiOauth":{"accessToken":"seed-fixture-token","refreshToken":"seed-fixture-refresh"}}`
 
-// containerHomeTarget is where a container cell's advice tells the engine its
-// home is: an in-container path that is NOT the host path, so the Engine side
-// of the root is observably distinct from the Host side.
-const containerHomeTarget = "/home/ctxloom/.ctxloom/home/claude"
+// containerInstanceRoot stands in for the fixed in-container instance root
+// (isolation.ContainerInstanceHome). The engine's home lands under it at the
+// leaf the ENGINE declares — an in-container path that is NOT the host path,
+// so the Engine side of the root is observably distinct from the Host side.
+const containerInstanceRoot = "/ctxloom-test/home"
 
 // projectHome is the input every case starts from: an agent binding that
 // declared config_home: project, on the host (no runtime advice).
@@ -114,38 +115,38 @@ func TestResolveInTreeAgentHome_ContainerGetsTheSessionHomeMapped(t *testing.T) 
 	workDir := t.TempDir()
 
 	in := projectHome(workDir, harpA)
-	in.Runtime = present.Containerize{EngineHome: containerHomeTarget}
+	in.ContainerHome = containerInstanceRoot
 	res := ResolveInTreeAgentHome(in)
 	requireResolutionInvariant(t, res)
 
+	// The leaf is the ENGINE's declared HomeVar.Subdir (claude.HomeLeaf), taken
+	// from the declaration — never re-derived from the host path.
+	target := containerInstanceRoot + "/" + claude.HomeLeaf
 	host := mustClaudeInstance(t, workDir, harpA)
-	assert.Equal(t, present.Root{Host: host, Engine: containerHomeTarget}, res.Root)
-	assert.Equal(t, map[string]string{claude.ConfigDirEnv: containerHomeTarget}, res.Env,
+	assert.Equal(t, present.Root{Host: host, Engine: target}, res.Root)
+	assert.Equal(t, map[string]string{claude.ConfigDirEnv: target}, res.Env,
 		"the engine is told the path IT can open, never the host path")
 	require.NotNil(t, res.Mount)
-	assert.Equal(t, present.Mount{HostDir: host, TargetDir: containerHomeTarget}, *res.Mount)
+	assert.Equal(t, present.Mount{HostDir: host, TargetDir: target}, *res.Mount,
+		"the RIGHT host directory — this session's instance leaf — lands at the fixed root")
 	assert.DirExists(t, host, "the mount source must exist before the runtime is asked to bind it")
 	assert.FileExists(t, filepath.Join(host, ".credentials.json"), "the mapped home is seeded exactly like the host cell's")
 	assert.Empty(t, strictness.All())
 }
 
-// A host cell (no runtime advice, or the identity advice) is told the host
-// path itself and mounts nothing.
+// A host cell (no container instance root) is told the host path itself and
+// mounts nothing.
 func TestResolveInTreeAgentHome_HostCellEngineSeesTheHostPath(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 	want := mustClaudeInstance(t, workDir, harpA)
 
-	for name, advice := range map[string]present.PathsAdvice{"nil": nil, "identity": present.Host{}} {
-		in := projectHome(workDir, harpA)
-		in.Runtime = advice
-		res := ResolveInTreeAgentHome(in)
-		requireResolutionInvariant(t, res)
-		assert.Equal(t, present.Root{Host: want, Engine: want}, res.Root, name)
-		assert.Equal(t, map[string]string{claude.ConfigDirEnv: want}, res.Env, name)
-		assert.Nil(t, res.Mount, name)
-	}
+	res := ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	requireResolutionInvariant(t, res)
+	assert.Equal(t, present.Root{Host: want, Engine: want}, res.Root)
+	assert.Equal(t, map[string]string{claude.ConfigDirEnv: want}, res.Env)
+	assert.Nil(t, res.Mount)
 }
 
 // t1 — an in-tree AGENT run for claude-code is handed CLAUDE_CONFIG_DIR at the

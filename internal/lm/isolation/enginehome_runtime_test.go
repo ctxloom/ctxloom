@@ -18,43 +18,36 @@ import (
 // on the host, exactly as operations.ResolveInTreeAgentHome hands it over.
 const hostEngineHome = "/proj/.ctxloom/state/ugly-icy-squid/home/claude"
 
-// A container workspace's advice tells the engine an in-container path under
-// the container's own $HOME, keeps the host path as the mount source, and
-// records the one mount that makes the engine-side path true. The leaf is
-// preserved: the engine composes its home from that name.
-func TestRuntimeAdvice_ContainerPresentsTheHomeUnderTheContainerHome(t *testing.T) {
-	cw := &containerWorkspace{home: "/home/ctxloom", runtime: fakeRuntime{}}
-
-	paths, mounts := RuntimeAdvice(cw).ApplyPaths(present.Paths{EngineHome: present.Root{Host: hostEngineHome}})
-
-	assert.Equal(t, present.Root{Host: hostEngineHome, Engine: "/home/ctxloom/.ctxloom/home/claude"}, paths.EngineHome)
-	require.Len(t, mounts, 1, "exactly one mount makes the engine-side path true")
-	assert.Equal(t, present.Mount{HostDir: hostEngineHome, TargetDir: "/home/ctxloom/.ctxloom/home/claude"}, mounts[0])
+// THE FIXED ROOT, pinned by value so a refactor cannot quietly move it: every
+// container cell hangs its relocated engine home under this well-known
+// in-container path, at the leaf the engine declares. It is a property of
+// the container filesystem ctxloom owns, not of $HOME — so it is not derived
+// from Container.home either.
+func TestContainerInstanceHome_IsTheFixedWellKnownRoot(t *testing.T) {
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+	cw := &containerWorkspace{instanceHome: c.instanceHome}
+	assert.Equal(t, "/ctxloom/home", ContainerInstanceHome(cw))
 }
 
-// The identity half: a workspace that executes on the host (none, worktree)
-// leaves the engine reading the host path and mounts nothing.
-func TestRuntimeAdvice_HostWorkspacesAreTheIdentity(t *testing.T) {
+// The override is a builder on the policy (like WithImage), so a caller that
+// owns an image whose filesystem cannot host the default root pins its own —
+// and a test can pin one without touching package state.
+func TestContainerInstanceHome_IsOverridableOnThePolicy(t *testing.T) {
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code").WithInstanceHome("/opt/agent-home")
+	cw := &containerWorkspace{instanceHome: c.instanceHome}
+	assert.Equal(t, "/opt/agent-home", ContainerInstanceHome(cw))
+}
+
+// A workspace that executes on the host has no container root: the engine is
+// told the host path itself, and the resolver mounts nothing.
+func TestContainerInstanceHome_HostWorkspacesHaveNone(t *testing.T) {
 	noneWS, err := None{}.PrepareWorkspace(context.Background(), "/proj", "m")
 	require.NoError(t, err)
 	wtWS, err := NewWorktree(&git.Fake{CommonDirValue: t.TempDir()}).PrepareWorkspace(context.Background(), "/proj", "m")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = wtWS.Cleanup() })
-
-	for name, ws := range map[string]Workspace{"none": noneWS, "worktree": wtWS} {
-		paths, mounts := RuntimeAdvice(ws).ApplyPaths(present.Paths{EngineHome: present.Root{Host: hostEngineHome}})
-		assert.Equal(t, present.Root{Host: hostEngineHome, Engine: hostEngineHome}, paths.EngineHome, name)
-		assert.Empty(t, mounts, name)
-	}
-}
-
-// A root the advice is never handed contributes nothing: an empty Host is
-// left alone, not turned into a mount of "" at a fabricated target.
-func TestRuntimeAdvice_ContainerLeavesAnUnresolvedRootAlone(t *testing.T) {
-	cw := &containerWorkspace{home: "/home/ctxloom", runtime: fakeRuntime{}}
-	paths, mounts := RuntimeAdvice(cw).ApplyPaths(present.Paths{})
-	assert.Equal(t, present.Root{}, paths.EngineHome)
-	assert.Empty(t, mounts)
+	assert.Empty(t, ContainerInstanceHome(noneWS))
+	assert.Empty(t, ContainerInstanceHome(wtWS))
 }
 
 // MountEngineHome is what turns the advice's mount into a bind the launch
@@ -84,9 +77,9 @@ func TestMountEngineHome_HostWorkspaceRefuses(t *testing.T) {
 	assert.Contains(t, err.Error(), "cannot mount")
 }
 
-// relocatedEngineHome is where a container cell's advice tells the engine its
-// home is (containerEngineHome's target for hostEngineHome).
-const relocatedEngineHome = "/home/ctxloom/.ctxloom/home/claude"
+// relocatedEngineHome is where a container cell tells the engine its
+// home is: hostEngineHome mounted under the fixed root, at the declared leaf.
+const relocatedEngineHome = "/ctxloom/home/claude"
 
 // claudeContainerWorkspace is a container workspace whose auth resolved to the
 // credential mount, for claude, exactly as prepareContainerScratch leaves it —

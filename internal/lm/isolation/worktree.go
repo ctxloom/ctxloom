@@ -54,7 +54,13 @@ const worktreeScratchPrefix = "ctxloom-wt"
 // so the caller degrades to None. A lost worktree is a WORKSPACE-axis degrade
 // (config isolation only, not a security boundary), so it stays a silent
 // warn-and-continue — unlike a lost CONTAINER boundary, which is fatal unless
-// --degraded.
+// --degraded. The ONE exception (sizable-antler): a resume whose deterministic
+// per-agent path (checkoutPath) is already occupied never falls into that
+// silent degrade — reuseExistingCheckout either verifies the occupant as this
+// agent's own surviving checkout and REUSES it, or REFUSES loud, naming the
+// path. A degrade may tolerate a problem; it must never grant a bypass that
+// strands an agent's own prior work while it writes, unknowingly, into the
+// live project tree instead.
 type Worktree struct {
 	git git.Git
 	// state is the run's session identity, stamped by Prepare
@@ -81,10 +87,18 @@ func NewWorktree(g git.Git) Worktree {
 // Name identifies the policy.
 func (Worktree) Name() string { return "worktree" }
 
-// ResolveWorkspace creates a fresh worktree for the member on its own named
-// branch (worktreeBranchName). It errors
-// (→ caller degrades to None) when projectDir is not a git repo or the worktree
-// add fails. On success it also, best-effort, provisions the member's
+// ResolveWorkspace creates a worktree for the member on its own named branch
+// (worktreeBranchName), OR — when a session harp is known (checkoutPath) and
+// a resume finds its own prior checkout still standing at the deterministic
+// path a WIP-preserving teardown left it at — REUSES that checkout in place
+// (reuseExistingCheckout) instead of adding a new one. It errors when
+// projectDir is not a git repo, the worktree add fails, or the resume path is
+// already occupied by something that cannot be VERIFIED as this agent's own
+// leftover: a bare path collision is never treated as proof of ownership
+// (sizable-antler), so an unverifiable occupant is a REFUSAL, not a
+// degrade — the caller must NOT silently continue with no workspace
+// isolation the way a genuine "not a repo"/"add failed" error still degrades
+// to None for. On success it also, best-effort, provisions the member's
 // toolchain scratch dir and writes the broadened ctxloom-config excludes to
 // the shared common-dir .git/info/exclude so a developer member's merge-back
 // never carries per-agent config (§3.1). Neither best-effort step fails the
@@ -110,9 +124,15 @@ func (w Worktree) ResolveWorkspace(ctx context.Context, projectDir, agentID stri
 		return nil, fmt.Errorf("worktree isolation: %q is not a git repository", projectDir)
 	}
 
-	wtPath := worktreeScratchPath(w.scratchBase(), worktreeScratchPrefix, agentID)
-	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, worktreeBranchName(wtPath), worktreeBaseRef); err != nil {
-		return nil, fmt.Errorf("worktree add: %w", err)
+	wtPath := w.checkoutPath(agentID)
+	reused, err := w.reuseExistingCheckout(ctx, projectDir, wtPath)
+	if err != nil {
+		return nil, err
+	}
+	if !reused {
+		if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, worktreeBranchName(wtPath), worktreeBaseRef); err != nil {
+			return nil, fmt.Errorf("worktree add: %w", err)
+		}
 	}
 	ws := &worktreeWorkspace{
 		git:     w.git,
@@ -122,17 +142,26 @@ func (w Worktree) ResolveWorkspace(ctx context.Context, projectDir, agentID stri
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			_ = os.RemoveAll(ws.dir)
-			// Removing the directory does not retire the repo's
-			// administrative registration of it (.git/worktrees/<name>) —
-			// that is what prune is for, and the graceful teardown below
-			// runs it for the same reason. Without it every recovered
-			// panic leaves a `git worktree list` entry naming a path that
-			// no longer exists. A FRESH context: the caller's may already
-			// be cancelled, and this unwind must still complete.
-			pruneCtx, cancelPrune := context.WithTimeout(context.Background(), worktreeTeardownTimeout)
-			_ = w.git.WorktreePrune(pruneCtx, projectDir)
-			cancelPrune()
+			// A REUSED checkout is a resumed agent's own preserved WIP, not
+			// something this call created — the recovery below must remove
+			// only what THIS call is responsible for, or a mutant/bug in the
+			// best-effort steps after this point would DESTROY the very work
+			// sizable-antler exists to protect (a degrade must never do
+			// damage — see obstinate-judiciary). Only a freshly-added
+			// checkout is unwound here.
+			if !reused {
+				_ = os.RemoveAll(ws.dir)
+				// Removing the directory does not retire the repo's
+				// administrative registration of it (.git/worktrees/<name>) —
+				// that is what prune is for, and the graceful teardown below
+				// runs it for the same reason. Without it every recovered
+				// panic leaves a `git worktree list` entry naming a path that
+				// no longer exists. A FRESH context: the caller's may already
+				// be cancelled, and this unwind must still complete.
+				pruneCtx, cancelPrune := context.WithTimeout(context.Background(), worktreeTeardownTimeout)
+				_ = w.git.WorktreePrune(pruneCtx, projectDir)
+				cancelPrune()
+			}
 			if ws.scratchDir != "" {
 				_ = os.RemoveAll(ws.scratchDir)
 			}
@@ -519,6 +548,97 @@ func (w Worktree) scratchBase() string {
 // members never collide.
 func worktreeScratchPath(base, prefix, agentID string) string {
 	return filepath.Join(base, fmt.Sprintf("%s-%s-%s", prefix, sanitizeAgentID(agentID), randToken()))
+}
+
+// checkoutPath returns the per-agent worktree CHECKOUT path (not the
+// toolchain scratch dir — provisionScratchDir keeps its own random suffix
+// unconditionally; only the checkout's identity needs to survive a resume).
+//
+// When the run carries a valid session harp, this is a pure, DETERMINISTIC
+// function of (harp, agentID): no random suffix. It is stable across a
+// resume because the coordinator's resume path reuses the SAME harp for the
+// SAME logical run (internal/agentcoord's enqueueRun checks
+// currentRun(harp) before minting a new one) — so a second ResolveWorkspace
+// call for that harp+agentID always recomputes the identical path a
+// WIP-preserving teardown may have left standing, which is exactly what lets
+// reuseExistingCheckout find and verify it instead of the resumed agent
+// silently getting a brand-new, empty checkout while its prior work sits
+// invisible under a path nothing recomputes (sizable-antler). Two DIFFERENT
+// agents within the same harp already get different agentIDs, so dropping
+// the random suffix here introduces no new collision risk.
+//
+// Without a harp (no session accounting: the legacy/OS-temp-dir fallback),
+// there is no stable cross-process identity to make "is this my own
+// leftover" answerable at all, so this keeps the historical random-suffixed
+// path unchanged — a fresh checkout every call, same as before this fix.
+func (w Worktree) checkoutPath(agentID string) string {
+	base := w.scratchBase()
+	if safePathSegment(w.state.Harp) {
+		return filepath.Join(base, fmt.Sprintf("%s-%s", worktreeScratchPrefix, sanitizeAgentID(agentID)))
+	}
+	return worktreeScratchPath(base, worktreeScratchPrefix, agentID)
+}
+
+// reuseExistingCheckout decides what ResolveWorkspace does when checkoutPath
+// already names something on disk BEFORE this call would create it:
+//
+//   - Nothing there yet → (false, nil): the ordinary fresh-`worktree add`
+//     path is untouched.
+//   - Something there, and `git worktree list` confirms it is a linked
+//     worktree of projectDir on the EXACT branch a fresh create at this path
+//     would use (worktreeBranchName) → (true, nil): REUSE it — this call
+//     must NOT call WorktreeAdd (git would refuse both the occupied path and
+//     the already-existing branch anyway).
+//   - Anything else — the list can't be read, the path isn't registered as a
+//     worktree of this repo at all, or it's registered on some OTHER
+//     branch — → (false, err): REFUSE, naming the path and what a human
+//     should check, rather than adopting an unverified occupant or letting
+//     the caller silently degrade to running with no workspace isolation.
+//
+// A bare path match is deliberately NOT enough on its own: sizable-antler is
+// explicit that "a path collision is not proof of ownership" — the
+// registered-worktree-on-the-right-branch check is what turns "something is
+// sitting at the path I'd use" into "this is provably the checkout my own
+// naming scheme would have produced", without requiring a second, independent
+// identity channel this layer doesn't have.
+func (w Worktree) reuseExistingCheckout(ctx context.Context, projectDir, wtPath string) (bool, error) {
+	if _, err := os.Stat(wtPath); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("worktree isolation: cannot inspect existing path %q before preparing a workspace there: %w", wtPath, err)
+	}
+
+	expectedBranch := worktreeBranchName(wtPath)
+	list, err := w.git.WorktreeList(ctx, projectDir)
+	if err != nil {
+		return false, fmt.Errorf("worktree isolation: %q already exists (likely a prior run's preserved WIP) but its ownership could not be verified: git worktree list failed: %w — refusing to reuse or overwrite it; inspect the path by hand, then either remove it or retry once git is healthy", wtPath, err)
+	}
+	for _, wt := range list {
+		if !sameWorktreePath(wt.Path, wtPath) {
+			continue
+		}
+		if wt.Branch != expectedBranch {
+			return false, fmt.Errorf("worktree isolation: %q already exists as a git worktree but on branch %q, not the %q this agent's naming would use — refusing to adopt a workspace that is not provably this agent's own; inspect it by hand before resuming", wtPath, wt.Branch, expectedBranch)
+		}
+		return true, nil
+	}
+	return false, fmt.Errorf("worktree isolation: %q already exists but is not a registered git worktree of %q — refusing to reuse or silently run elsewhere with no workspace isolation; inspect and remove the stale path (or run the worktree reaper), then resume again", wtPath, projectDir)
+}
+
+// sameWorktreePath reports whether a and b name the same directory,
+// tolerating the symlink-alias case CommonDir's own tests already guard
+// against (macOS /tmp vs /private/tmp and similar) — mirroring nestedUnder's
+// resolution. An exact string match short-circuits; otherwise both sides must
+// resolve for the comparison to count, so an unresolvable path (removed
+// mid-race, or one side simply not present) never falsely reads as a match.
+func sameWorktreePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
 }
 
 // worktreeBranchName derives the branch a per-agent checkout is created on

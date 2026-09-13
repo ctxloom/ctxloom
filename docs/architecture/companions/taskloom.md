@@ -127,7 +127,7 @@ detail (config paths, on-disk format, merge semantics) lives in each agent modul
 | `TaskloomName` | `engine.go:25` | `"taskloom"`, the registration key |
 | `TaskloomServer` | `engine.go:29` | `wire.MCPServer{Command: "taskloom", Args: ["mcp"]}` — the one place the command line is named |
 | `All` | `engine.go` | The registry — one `MCPRegistrar` per backend that has one |
-| `Get` | `engine.go` | Linear scan of `All()` on `Name()` plus the shared `agent.EngineNameAliases` spellings. **No prefix matching** — a typo must error |
+| `Get` | `engine.go` | Linear scan of `All()` on `Name()`, matched exactly. **No alias, case or prefix matching** — a typo must error |
 
 **Invariants**
 

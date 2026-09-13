@@ -140,3 +140,58 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 
 	close(gate) // release the scripted engine's gated turn so t.Cleanup can tear down cleanly
 }
+
+// TestDrainTracked_SkipsARunThatEndedBeforeTheDrainBegan pins drainTracked's
+// skip branch directly: a harp whose CURRENT run had already ended before
+// drainTracked ever runs must not be tracked. A mutant that turns the guard's
+// `||` into `&&` lets an ended run through — it would then be reported under
+// DrainOutcome.Exited, which documents "every child that was LIVE when the
+// drain began" (folds.go's RunRecord.Ended is exactly the signal that says it
+// was not).
+func TestDrainTracked_SkipsARunThatEndedBeforeTheDrainBegan(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	c := newTestCoordinator(t, sp, nil)
+
+	harp := spawnOneChild(t, c)
+	require.Eventually(t, func() bool { return rosterState(c, harp) == StateIdle }, conformanceWait, 5*time.Millisecond,
+		"precondition: the child must be idle before it is ended, so ending it is not confused with the drain's own idle-end path")
+
+	var runID string
+	c.runs.View(func() { runID = c.runsF.currentRun(harp).RunID })
+	c.terminateRun(runID, CauseStopped, "ended well before any drain began")
+	require.Equal(t, StateEnded, rosterState(c, harp), "precondition: the run is ended before drainTracked ever runs")
+
+	tracked := c.drainTracked(nil)
+	for _, ch := range tracked {
+		assert.NotEqual(t, harp, ch.harp,
+			"a run that had already ended before the drain began must not be tracked — it would surface in DrainOutcome.Exited, which promises only children live at drain start")
+	}
+}
+
+// TestDrainTracked_SkipsARosterHarpWhoseCurrentRunIsNil pins drainTracked's
+// other half of the same guard: a roster entry whose currentRun lookup comes
+// back nil (a harp on the §6a roster with no matching run record — the same
+// defensive case livenessTargets already guards against) must be skipped
+// without dereferencing it. A mutant that turns the guard's leading `||` into
+// `&&` evaluates r.Ended on that nil r before the nil check can short it out,
+// which panics.
+func TestDrainTracked_SkipsARosterHarpWhoseCurrentRunIsNil(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(nil, nil)
+	c := newTestCoordinator(t, sp, nil)
+
+	const ghost = "ghost-harp"
+	c.runs.View(func() {
+		// A roster entry with no counterpart in runsF: currentRun(ghost)
+		// resolves to nil, exactly the shape drainTracked must tolerate.
+		c.rosterF.entries[ghost] = &RosterEntry{Harp: ghost, State: StateExecuting}
+	})
+
+	var tracked []drainChild
+	require.NotPanics(t, func() { tracked = c.drainTracked(nil) },
+		"a roster harp with no current run must be skipped, not dereferenced")
+	for _, ch := range tracked {
+		assert.NotEqual(t, ghost, ch.harp, "a harp with no current run must never be tracked")
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -39,6 +40,18 @@ func TestMain(m *testing.M) {
 	companionLookPath = noCompanionsOnPath
 	// SandboxedMain closes config.findAppDir's walk-up from the working
 	// directory for every test in this binary; a temp HOME alone does not.
+	// Install the REAL claude credential projector. Registration became
+	// explicit (no init), and this package CANNOT compose the registry the way
+	// other test binaries do: backends imports isolation (delegate_seams.go),
+	// so importing backends or engines from here is an import cycle. Calling
+	// the same seam backends calls, with the same constructor the descriptor
+	// supplies, keeps the end-to-end projector under test without the cycle.
+	//
+	// It is load-bearing, not setup noise: with no projector registered
+	// CopyAmbient seeds the host credential VERBATIM, so the refresh half of
+	// the OAuth token would be copied into the instance home and the stripping
+	// assertions would pass by never running the stripper.
+	RegisterCredentialProjector(claude.EngineName, claude.NewCredentialProjector())
 	os.Exit(testsupport.SandboxedMain(m))
 }
 

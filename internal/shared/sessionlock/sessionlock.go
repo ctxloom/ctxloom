@@ -45,6 +45,7 @@ import (
 	"github.com/gofrs/flock"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
 
@@ -126,10 +127,11 @@ var (
 //
 // THE ORDER IS STAMP, THEN LOCK, and both halves are load-bearing:
 //
-//   - The pid is written IN PLACE on the existing inode (a plain truncating
-//     open, never write-temp-then-rename). A rename would swap the inode
-//     under any lock already held on the path, and a sweeper opening the
-//     new inode would find it unlocked and read a LIVE session as dead.
+//   - The pid is written IN PLACE on the existing inode
+//     (iox.TruncateInPlace, never write-temp-then-rename). A rename would
+//     swap the inode under any lock already held on the path, and a sweeper
+//     opening the new inode would find it unlocked and read a LIVE session
+//     as dead.
 //   - It is written BEFORE the lock is taken so no second descriptor is ever
 //     opened on a locked file: on the fcntl-emulated platforms closing any
 //     descriptor drops the process's lock, and on Windows LockFileEx refuses
@@ -179,17 +181,23 @@ func Hold(harp string) error {
 }
 
 // stampPID writes this process's pid as path's whole content, in place.
+//
+// iox.TruncateInPlace, NOT iox.WriteFileAtomic, and the choice is the whole
+// correctness of the probe: an atomic write renames a fresh temp file over
+// the destination, which swaps the INODE. A sweeper mid-Acquire holds its
+// flock on the inode it opened; after a rename that inode is unreferenced by
+// the path, and the next sweeper to open the path gets a NEW, unlocked inode
+// and reads a live session as dead. Truncating in place leaves the inode
+// every existing lock is bound to exactly where it was
+// (iox.TestWriteFileInPlace_KeepsTheSameInode is the differential proof, and
+// TestStampPID_KeepsALockedInodeVisiblyAlive pins it for this call site).
+//
+// The pid text is never empty, so TruncateInPlace's refusal to write zero
+// bytes over an existing file cannot fire here.
 func stampPID(path string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, lockFileMode)
-	if err != nil {
+	pid := []byte(strconv.Itoa(os.Getpid()) + "\n")
+	if err := iox.WriteFileInPlace(path, iox.TruncateInPlace, pid, lockFileMode); err != nil {
 		return fmt.Errorf("sessionlock: stamp %s: %w", path, err)
-	}
-	_, werr := fmt.Fprintf(f, "%d\n", os.Getpid())
-	if cerr := f.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		return fmt.Errorf("sessionlock: stamp %s: %w", path, werr)
 	}
 	return nil
 }

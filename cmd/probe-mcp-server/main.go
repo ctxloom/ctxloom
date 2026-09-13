@@ -25,6 +25,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // toolName is the single tool served. The client may namespace it, so calls are
@@ -47,8 +49,12 @@ type server struct {
 	out     *bufio.Writer
 }
 
-// record appends one evidence line. O_APPEND plus a single Write keeps records
-// whole even if a client starts the server more than once.
+// record appends one evidence line. Appending, not replacing, is the
+// correctness mechanism: a client may start this server more than once, and
+// P2's verdict reads both the records a SECOND tools/call adds and the
+// difference between the file being ABSENT (the server never started) and
+// EMPTY (it started and the tool was never called) — findings about different
+// subsystems that a whole-file replace would collapse into one.
 //
 // Evidence must never take the server down: a crashed server is reported as an
 // MCP-DELIVERY failure, which is a different finding from the one this probe is
@@ -63,12 +69,7 @@ func (s *server) record(event string, detail map[string]any) {
 	if err != nil {
 		return
 	}
-	f, err := os.OpenFile(s.callLog, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.Write(append(line, '\n'))
+	_ = iox.WriteFileInPlace(s.callLog, iox.AppendInPlace, append(line, '\n'), 0o600)
 }
 
 func (s *server) send(msg map[string]any) {

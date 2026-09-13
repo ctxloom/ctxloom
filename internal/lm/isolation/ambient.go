@@ -151,7 +151,6 @@ var (
 // its ambient FILE copies and no generated config — which is also what an
 // isolation-only test binary sees, since nothing links backends into it.
 func RegisterInstanceConfigWriter(engine string, w agent.InstanceConfigWriter) {
-	assertCanonicalEngineKey("instanceConfigWriters", engine)
 	instanceConfigMu.Lock()
 	defer instanceConfigMu.Unlock()
 	if w == nil {
@@ -161,14 +160,12 @@ func RegisterInstanceConfigWriter(engine string, w agent.InstanceConfigWriter) {
 	instanceConfigWriters[engine] = w
 }
 
-// instanceConfigWriterFor returns engine's registered generator, or nil. It
-// resolves through the repo-wide alias table, so an aliased engine name reaches
-// the same writer the canonical one does — a miss here means the engine
-// generates no instance config, never that it was spelled differently.
+// instanceConfigWriterFor returns engine's registered generator, or nil — a
+// miss means the engine generates no instance config.
 func instanceConfigWriterFor(engine string) agent.InstanceConfigWriter {
 	instanceConfigMu.RLock()
 	defer instanceConfigMu.RUnlock()
-	return instanceConfigWriters[agent.CanonicalEngineName(engine)]
+	return instanceConfigWriters[engine]
 }
 
 // credentialProjectors is the engine-owned ambient-credential projector per
@@ -190,7 +187,6 @@ var (
 // a test can restore the pre-existing registration). An engine with no
 // registration copies its ambient credential files verbatim.
 func RegisterCredentialProjector(engine string, p agent.CredentialProjector) {
-	assertCanonicalEngineKey("credentialProjectors", engine)
 	credentialProjectorMu.Lock()
 	defer credentialProjectorMu.Unlock()
 	if p == nil {
@@ -200,15 +196,12 @@ func RegisterCredentialProjector(engine string, p agent.CredentialProjector) {
 	credentialProjectors[engine] = p
 }
 
-// credentialProjectorFor returns engine's registered projector, or nil. It
-// resolves through the repo-wide alias table, so an aliased engine name reaches
-// the same projector the canonical one does — a miss here means the engine's
-// ambient credentials are copied verbatim, never that it was spelled
-// differently.
+// credentialProjectorFor returns engine's registered projector, or nil — a
+// miss means the engine's ambient credentials are copied verbatim.
 func credentialProjectorFor(engine string) agent.CredentialProjector {
 	credentialProjectorMu.RLock()
 	defer credentialProjectorMu.RUnlock()
-	return credentialProjectors[agent.CanonicalEngineName(engine)]
+	return credentialProjectors[engine]
 }
 
 // CopyAmbient performs THE ambient copy-in — the one one-way transfer from the
@@ -244,7 +237,7 @@ func CopyAmbient(req AmbientRequest) (AmbientCopyReport, error) {
 	if !ok {
 		return AmbientCopyReport{}, fmt.Errorf("ambient copy-in: backend %q has no declared ambient set (internal error)", req.Engine)
 	}
-	engine := agent.CanonicalEngineName(req.Engine)
+	engine := req.Engine
 	if req.InstanceHome == "" {
 		return AmbientCopyReport{}, fmt.Errorf("ambient copy-in for %s: no instance home to copy into (internal error)", engine)
 	}

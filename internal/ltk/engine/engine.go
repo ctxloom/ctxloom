@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // Request is the engine-neutral view of a tool invocation to be checked. It is
@@ -191,13 +190,12 @@ func All() []Engine {
 	return engines()
 }
 
-// Get returns the engine for a name: the canonical name or a declared alias,
-// case-insensitively. There is no prefix matching — a typo must error rather
-// than silently pick an engine.
+// Get returns the engine registered under exactly name. There is no alias,
+// case or prefix matching — a typo must error rather than silently pick an
+// engine.
 func Get(name string) (Engine, error) {
-	want := agent.CanonicalEngineName(name)
 	for _, e := range engines() {
-		if e.Name() == want {
+		if e.Name() == name {
 			return e, nil
 		}
 	}

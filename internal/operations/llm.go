@@ -207,17 +207,13 @@ func SetLLM(mgr *config.Manager, req SetLLMRequest) (*LLMEntry, error) {
 		return nil, fmt.Errorf("label is required")
 	}
 	if req.Type != nil && *req.Type != "" {
-		// The stored discriminator is CANONICAL, not what the caller typed:
-		// config.json pins llm.configs.*.type to a const per backend, so
-		// persisting an accepted alias ("claude") or a case variant
-		// ("Claude-Code") would write an entry that resolves at every read and
-		// still fails schema validation on every subsequent load. The registry
-		// resolves aliases; only this write decides what lands on disk.
-		canonical := agent.CanonicalEngineName(*req.Type)
-		if !backends.Exists(canonical) {
+		// config.json pins llm.configs.*.type to a const per backend, so the
+		// registry's exact-name membership check here is also what keeps an
+		// entry that would fail schema validation on every later load from
+		// landing on disk.
+		if !backends.Exists(*req.Type) {
 			return nil, fmt.Errorf("llm %q: unknown type %q; known: %s", req.Label, *req.Type, strings.Join(backends.List(), ", "))
 		}
-		req.Type = &canonical
 	}
 	warnLLMPermissionsTypo(req.Label, req.Permissions)
 

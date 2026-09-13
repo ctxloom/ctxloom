@@ -16,7 +16,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/lm/enginenames"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -92,13 +91,6 @@ func reportExecuteError(w io.Writer, root *cobra.Command, err error) {
 }
 
 func main() {
-	// ltk resolves --engine through the process-wide alias table, which is
-	// populated by composition: this binary links no engine descriptor, so it
-	// composes the lean name root instead.
-	if err := enginenames.Register(); err != nil {
-		fmt.Fprintf(os.Stderr, "ltk: %v\n", err)
-		os.Exit(1)
-	}
 	root := newRootCmd()
 	if err := root.Execute(); err != nil {
 		reportExecuteError(os.Stderr, root, err)

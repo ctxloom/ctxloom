@@ -120,16 +120,14 @@ func resolveMaterializeTarget(cfg *config.Config, req MaterializeProfileRequest)
 	return registeredBackend(req.Backend)
 }
 
-// registeredBackend canonicalizes name through the one alias table
-// (agent.CanonicalEngineName) and refuses a name no engine is registered
-// under. The canonical name is what every backends.* lookup keys on and what
-// results report, so a caller's spelling never survives past here.
+// registeredBackend refuses a name no engine is registered under exactly.
+// The registered name is what every backends.* lookup keys on and what
+// results report.
 func registeredBackend(name string) (string, error) {
-	backend := agent.CanonicalEngineName(name)
-	if !backends.Exists(backend) {
-		return "", fmt.Errorf("unknown backend %q", backend)
+	if !backends.Exists(name) {
+		return "", fmt.Errorf("unknown backend %q", name)
 	}
-	return backend, nil
+	return name, nil
 }
 
 // MaterializeProfile writes the assembled profile(s) into Target as the backend's

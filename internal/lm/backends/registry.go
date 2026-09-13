@@ -17,11 +17,9 @@ type Configurable interface {
 	Configure(cfg agent.BackendConfig)
 }
 
-// descriptors is the per-engine descriptor table, keyed by canonical name
-// (agent.CanonicalEngineName). Register asserts the key side and lookup is
-// the only read path, so the two cannot drift. It holds engine.Descriptor
-// values authored in each engine's OWN package; nothing in this package
-// names an engine.
+// descriptors is the per-engine descriptor table, keyed by the engine's one
+// registered name. It holds engine.Descriptor values authored in each
+// engine's OWN package; nothing in this package names an engine.
 var descriptors = make(map[string]*engine.Descriptor)
 
 // Every backend registered here reaches its model by spawning the VENDOR'S OWN
@@ -57,18 +55,8 @@ var descriptors = make(map[string]*engine.Descriptor)
 // happened to init first.
 //
 // Two-phase: every descriptor is validated (engine.Descriptor.Validate, plus
-// the cross-descriptor rules below) before any is installed, so a failed
-// batch leaves the tables as they were. The rules that live here rather than
-// in Validate are the ones that need the tables: a duplicate name, a name
-// some other engine's alias already claims (a descriptor keyed where no
-// lookup can reach it reads exactly like an engine with no capabilities), and
-// an alias another engine already owns.
-//
-// The alias table is POPULATED from here, not checked against: each
-// descriptor's Aliases are the engine's own declaration, and this is the
-// ctxloom binary's composition of them (agent.RegisterEngineAliases). The
-// lean binaries compose the same declarations through
-// internal/lm/enginenames; tests/arch holds the two roots together.
+// the duplicate-name rule, which needs the table) before any is installed,
+// so a failed batch leaves the tables as they were.
 func Register(descs ...engine.Descriptor) error {
 	batch := map[string]bool{}
 	for i := range descs {
@@ -76,24 +64,13 @@ func Register(descs ...engine.Descriptor) error {
 		if err := d.Validate(); err != nil {
 			return err
 		}
-		if canonical := agent.CanonicalEngineName(d.Name); canonical != d.Name {
-			return fmt.Errorf("descriptor %s: name is another engine's alias (resolves to %s)", d.Name, canonical)
-		}
 		if _, dup := descriptors[d.Name]; dup || batch[d.Name] {
 			return fmt.Errorf("descriptor %s: already registered", d.Name)
 		}
 		batch[d.Name] = true
-		for _, a := range d.Aliases {
-			if got := agent.CanonicalEngineName(a); got != a && got != d.Name {
-				return fmt.Errorf("descriptor %s: alias %q already resolves to %q", d.Name, a, got)
-			}
-		}
 	}
 	for i := range descs {
 		d := descs[i]
-		if err := agent.RegisterEngineAliases(d.Name, d.Aliases); err != nil {
-			return fmt.Errorf("descriptor %s: %w", d.Name, err)
-		}
 		descriptors[d.Name] = &d
 		// Push the engine-owned isolation facts down to internal/lm/isolation
 		// at the same moment, so a backend can never be launchable here while
@@ -118,20 +95,12 @@ func Register(descs ...engine.Descriptor) error {
 	return nil
 }
 
-// lookup resolves name to its descriptor through the repo-wide alias table
-// (agent.CanonicalEngineName), so every spelling that resolves at ltk and at
-// taskloom resolves to the same backend here.
-//
-// The registry read is the chokepoint that can hold this invariant, not any
-// single entry boundary: an engine name reaches this package from CLI flags,
-// from decoded config entries, from stored agent definitions and from MCP tool
-// arguments, and no boundary is common to all of them.
-//
-// No fuzzy matching: an unrecognized name arrives here lowercased and
-// unresolved, so the caller still refuses it rather than rounding it to a real
-// backend.
+// lookup resolves name to its descriptor by EXACT match on the registered
+// name. No alias, case or prefix resolution: an engine has one spelling, and
+// any other reaches the caller unresolved so it is refused rather than
+// rounded to a real backend.
 func lookup(name string) (*engine.Descriptor, bool) {
-	d, ok := descriptors[agent.CanonicalEngineName(name)]
+	d, ok := descriptors[name]
 	return d, ok
 }
 

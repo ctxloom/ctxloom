@@ -57,11 +57,10 @@ type pasteTarget struct {
 // prevents is silent — an unbracketed paste is not rejected by the receiving
 // program, it is accepted as literal text — so a wrong entry corrupts input
 // rather than erroring, and nothing downstream will report it.
-// Keyed on the CANONICAL engine name (agent.CanonicalEngineName), which is
-// what the launcher sends: agent.BaseBackend.run stamps LaunchSpec.Engine from
-// the backend's registered name, and claude registers as "claude-code". Keying
-// on the alias "claude" instead admitted nothing at all in production while
-// every test in this package — all of which spell it "claude" — stayed green.
+// Keyed on the REGISTERED engine name, which is what the launcher sends:
+// agent.BaseBackend.run stamps LaunchSpec.Engine from the backend's registered
+// name, and claude registers as "claude-code". An entry under any other
+// spelling admits nothing at all in production.
 var pasteMeasuredTargets = map[pasteTarget]bool{
 	{engine: "claude-code", surface: agent.CLISurfaceInteractive}: true,
 }
@@ -140,12 +139,7 @@ func (p *PaneInjector) Inject(ctx context.Context, harp, text string, submit boo
 	// buffer, no file and no partial paste behind — a refusal that had
 	// already written half of itself into the pane would be the silent
 	// corruption this gate exists to prevent.
-	// Canonicalized so the gate keys on the ENGINE, not on how the caller
-	// spelled it: "claude" and "claude-code" are one engine, and an allowlist
-	// whose verdict depends on the spelling is not an allowlist over engines.
-	// CanonicalEngineName resolves declared aliases only — no prefix or fuzzy
-	// matching — so this cannot widen the gate to a different engine.
-	if !pasteMeasuredTargets[pasteTarget{engine: agent.CanonicalEngineName(pn.engine), surface: pn.surface}] {
+	if !pasteMeasuredTargets[pasteTarget{engine: pn.engine, surface: pn.surface}] {
 		return fmt.Errorf("pane inject: %q runs engine %q on surface %q: %w; measure THAT PAIR's response to a bracketed paste and add it to pasteMeasuredTargets, or deliver this text by a route that does not paste",
 			harp, pn.engine, pn.surface, ErrPasteUnmeasured)
 	}

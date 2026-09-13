@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/engineversion"
@@ -23,11 +24,9 @@ import (
 // Descriptor is one engine's complete registration record.
 type Descriptor struct {
 	// Name is the registry key: lowercase, and what the backend's Name()
-	// reports.
+	// reports. It is the engine's ONLY spelling — there is no alias table,
+	// and a lookup under any other spelling is an unknown engine.
 	Name string
-	// Aliases are the alternate spellings that resolve to Name, repo-wide
-	// (ltk and taskloom included). Empty is the honest "none".
-	Aliases []string
 	// Distribution is the engine's shipping policy — offered by default,
 	// offered on request, or a test double hidden from every user-facing
 	// enumeration. Unset is refused: see agent.Distribution.
@@ -124,8 +123,8 @@ func (d Descriptor) Validate() error {
 	if d.Name == "" {
 		return errors.New("descriptor: Name is empty")
 	}
-	if err := agent.ValidateEngineAliases(d.Name, d.Aliases); err != nil {
-		return fmt.Errorf("descriptor: %w", err)
+	if d.Name != strings.ToLower(d.Name) {
+		return fmt.Errorf("descriptor %s: name must be lowercase", d.Name)
 	}
 	if !d.Distribution.Decided() {
 		return fmt.Errorf("descriptor %s: Distribution is %s; declare Default, OptIn or TestOnly — an undeclared policy must not default-ship", d.Name, d.Distribution)

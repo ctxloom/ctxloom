@@ -652,16 +652,15 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 // This is the promotion boundary: on one side a label the user typed, on the
 // other a BACKEND NAME the whole launch path keys tables by — including
 // internal/lm/isolation's credential-seed, instance-config and projector
-// tables, which resolve engines by name and would silently seed nothing for a
-// spelling they do not hold. So the name leaves here canonical, whether it came
-// from the ad-hoc arm (`--llm claude`) or from a hand-written entry whose type
-// is an accepted alias.
+// tables, which resolve engines by exact name. An engine has one spelling, so
+// the name leaves here as the registry holds it: the ad-hoc arm admits only a
+// registered name, and a configured entry's type is validated on write.
 func ResolveBackend(cfg *config.Config, label string) (backend, model string) {
 	backend, model = cfg.ResolveLLM(label)
 	if _, configured := cfg.GetLLMEntry(label); !configured && backends.Exists(label) {
 		backend, model = label, ""
 	}
-	return agent.CanonicalEngineName(backend), model
+	return backend, model
 }
 
 // resolveOneshotLabel picks the config label for a oneshot run: an explicit

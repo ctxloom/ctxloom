@@ -86,19 +86,17 @@ func CheckHookTargetScope(name, workDir string, force bool) error {
 // the shared, package-level table for later tests to trip over. It unwinds
 // every table Register wrote.
 func UnregisterForTesting(name string) {
-	canonical := agent.CanonicalEngineName(name)
-	if d, ok := descriptors[canonical]; ok {
-		isolation.RegisterCredentialSeed(canonical, agent.Declared[agent.CredentialSeed]{})
-		isolation.RegisterEngineContainer(canonical, agent.Declared[agent.EngineContainer]{}, agent.DistributionUnset)
+	if d, ok := descriptors[name]; ok {
+		isolation.RegisterCredentialSeed(name, agent.Declared[agent.CredentialSeed]{})
+		isolation.RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, agent.DistributionUnset)
 		if _, had := d.InstanceConfig.Get(); had {
-			isolation.RegisterInstanceConfigWriter(canonical, nil)
+			isolation.RegisterInstanceConfigWriter(name, nil)
 		}
 		if _, had := d.CredentialProjector.Get(); had {
-			isolation.RegisterCredentialProjector(canonical, nil)
+			isolation.RegisterCredentialProjector(name, nil)
 		}
 	}
-	delete(descriptors, canonical)
-	agent.ForgetEngineAliases(canonical)
+	delete(descriptors, name)
 }
 
 // InTreeAgentHomeSpec is one backend's ctxloom-CONTROLLED config home INSTANCE

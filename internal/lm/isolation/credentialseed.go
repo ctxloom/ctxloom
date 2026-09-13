@@ -47,7 +47,6 @@ var (
 // it, and an undecided (zero) value deletes the entry, so a test can unwind
 // its synthetic engine.
 func RegisterCredentialSeed(engine string, seed agent.Declared[agent.CredentialSeed]) {
-	assertCanonicalEngineKey("credentialSeeds", engine)
 	credentialSeedMu.Lock()
 	defer credentialSeedMu.Unlock()
 	if !seed.Decided() {
@@ -58,14 +57,13 @@ func RegisterCredentialSeed(engine string, seed agent.Declared[agent.CredentialS
 }
 
 // credentialSeedDeclared returns engine's declaration and whether the engine
-// is registered at all, resolving through the repo-wide alias table so an
-// aliased spelling reaches the same entry. ok=false is "nobody registered
-// this name"; a registered engine with no seed is ok=true with an absent
-// declaration — the two are different answers.
+// is registered at all. ok=false is "nobody registered this name"; a
+// registered engine with no seed is ok=true with an absent declaration — the
+// two are different answers.
 func credentialSeedDeclared(engine string) (agent.Declared[agent.CredentialSeed], bool) {
 	credentialSeedMu.RLock()
 	defer credentialSeedMu.RUnlock()
-	d, ok := credentialSeeds[agent.CanonicalEngineName(engine)]
+	d, ok := credentialSeeds[engine]
 	return d, ok
 }
 

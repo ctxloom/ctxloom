@@ -44,32 +44,27 @@ func main() {
 // backend it selects, reporting false for anything else so the caller stops
 // consuming and treats the token as vendor argv.
 //
-// Both halves come from elsewhere on purpose. The SPELLINGS come from
-// agent.CanonicalEngineName, the repo-wide alias table, whose own doc warns
-// that engine names are shared user-facing vocabulary and that "two tables
-// drift into one spelling resolving under one binary and erroring under the
-// other" — which is exactly what a hand-written per-engine flag switch here
-// was, and it had already drifted (--claude worked while
-// --personality claude did not). MEMBERSHIP comes from the backend registry,
-// so this package names no engine and a newly impersonable backend is
-// selectable the same way the existing ones are without editing main.
+// The flag's spelling IS the backend registry's name (--claude-code), and
+// membership comes from the registry, so this package names no engine and a
+// newly impersonable backend is selectable the same way the existing ones are
+// without editing main. A hand-written per-engine flag switch here is the
+// second copy of the engine vocabulary that drifts.
 func personalityFromFlag(tok string) (string, bool) {
 	name, ok := strings.CutPrefix(tok, "--")
 	if !ok || name == "" {
 		return "", false
 	}
-	canonical := agent.CanonicalEngineName(name)
-	if _, ok := backends.EngineCLIsFor(canonical); !ok {
+	if _, ok := backends.EngineCLIsFor(name); !ok {
 		return "", false
 	}
-	return canonical, true
+	return name, true
 }
 
 // run parses the mock's OWN leading flags, resolves the personality's EngineCLI
 // via the backends resolver, parses the remaining vendor argv against L1, and
 // runs the L2 runtime. It returns a process exit code.
 func run(args []string) int {
-	personality := agent.CanonicalEngineName(os.Getenv(envPersonality))
+	personality := os.Getenv(envPersonality)
 	surface := agent.CLISurfaceOneshot // this slice: oneshot is the built surface
 	vendorArgs := args
 
@@ -86,7 +81,7 @@ consume:
 				fmt.Fprintln(os.Stderr, "mock-engine: --personality needs a value")
 				return 2
 			}
-			personality = agent.CanonicalEngineName(vendorArgs[1])
+			personality = vendorArgs[1]
 			vendorArgs = vendorArgs[2:]
 		case "--":
 			vendorArgs = vendorArgs[1:]

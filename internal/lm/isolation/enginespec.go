@@ -111,7 +111,6 @@ var (
 // re-registering a name replaces it, and an undecided (zero) declaration
 // deletes the entry, so a test can unwind its synthetic engine.
 func RegisterEngineContainer(engine string, container agent.Declared[agent.EngineContainer], distribution agent.Distribution) {
-	assertCanonicalEngineKey("engineContainers", engine)
 	engineContainerMu.Lock()
 	defer engineContainerMu.Unlock()
 	if !container.Decided() {
@@ -122,16 +121,15 @@ func RegisterEngineContainer(engine string, container agent.Declared[agent.Engin
 }
 
 // engineContainerDeclared returns engine's registration and whether the
-// engine is registered at all, resolving through the repo-wide alias table so
-// an aliased spelling reaches the same entry.
+// engine is registered at all.
 func engineContainerDeclared(engine string) (engineContainerRegistration, bool) {
 	engineContainerMu.RLock()
 	defer engineContainerMu.RUnlock()
-	r, ok := engineContainers[agent.CanonicalEngineName(engine)]
+	r, ok := engineContainers[engine]
 	return r, ok
 }
 
-// registeredEngineContainers returns every registration, keyed by canonical
+// registeredEngineContainers returns every registration, keyed by engine
 // name — a snapshot for the roster filters below.
 func registeredEngineContainers() map[string]engineContainerRegistration {
 	engineContainerMu.RLock()

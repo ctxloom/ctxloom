@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/lm/enginenames"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 )
 
@@ -26,13 +25,6 @@ func reportExecuteError(w io.Writer, err error) {
 }
 
 func main() {
-	// taskloom resolves --engine through the process-wide alias table, which
-	// is populated by composition: this binary links no engine descriptor, so
-	// it composes the lean name root instead.
-	if err := enginenames.Register(); err != nil {
-		fmt.Fprintf(os.Stderr, "taskloom: %v\n", err)
-		os.Exit(1)
-	}
 	// A no-op unless built with `-tags docsgen` (`just gen-docs`), which mounts
 	// the shared reference-doc generator on the tree. See docs_gen.go.
 	registerDocsCmd(rootCmd)

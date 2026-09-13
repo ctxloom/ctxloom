@@ -230,6 +230,20 @@ func (c *Coordinator) cancelLaunch(harp string) {
 	}
 }
 
+// markStopped is cancelLaunch's MARK half alone: the harp is stopped — no
+// armed or future relaunch proceeds — but a launch context in flight is left
+// running. The bulk agent_stop (StopChildren) needs exactly this: on the
+// legacy path the launch context IS the engine's lifetime for the whole run
+// (runChild deregisters it only when driveChild returns), so cancelling it
+// would kill a turn the sweep means to let reach its boundary. terminateRun
+// fires the run's own launchCancel when the sweep ends the run, in-flight
+// launch included.
+func (c *Coordinator) markStopped(harp string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.launchGateLocked(harp).stopped = true
+}
+
 // launchStopped reports whether an agent_stop has landed for harp since its
 // last explicit delivery. Checked by resumeChild at every point it could
 // still turn back — an attempt armed BEFORE the stop must not carry on

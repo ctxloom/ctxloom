@@ -378,9 +378,10 @@ type StoppedChild struct {
 // a coordinator never has to hand-roster the current ones.
 //
 // Each child is an agent_stop: the launch gate is marked stopped first (an
-// attempt in flight turns back, leftover mail does not relaunch it), the stop
-// is audited per child with the reason, and the terminal is CauseStopped with
-// the reason in its detail. The child stays resumable by an explicit
+// armed relaunch turns back, leftover mail does not relaunch it — the mark
+// only, not cancelLaunch's cancel, which on the legacy path would kill the
+// very turn the REQUEST lets finish), the stop is audited per child with the
+// reason, and the terminal is CauseStopped with the reason in its detail. The child stays resumable by an explicit
 // agent_send, exactly as after the per-run form. Admission is NOT closed:
 // this is a sweep so the session can spawn again, not the shutdown drain.
 //
@@ -393,7 +394,7 @@ func (c *Coordinator) StopChildren(ctx context.Context, caller Identity, reason 
 	}
 	tracked := c.drainTracked(func(r *RunRecord) bool { return r.ParentHarp == caller.Harp })
 	for _, ch := range tracked {
-		c.cancelLaunch(ch.harp)
+		c.markStopped(ch.harp)
 		c.audit("agent_stop", caller.Harp, map[string]string{"harp": ch.harp, "run_id": ch.runID, "reason": reason})
 	}
 	d := newDrain(stopPolicy(caller.Harp, reason), tracked)

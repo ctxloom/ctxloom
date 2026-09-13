@@ -159,19 +159,31 @@ func TestStopChildren_InFlightTurnEndsAtItsBoundaryNotBefore(t *testing.T) {
 // which is exactly what the sweep exists to prevent.
 func TestStopChildren_ParkedChildIsEnded(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	gate := make(chan struct{}) // never closed: the turn stays open under the park
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
-	require.NoError(t, err)
-	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
+	harp := spawnGatedChild(t, sp, c)
+	// Park it through the production path (a child waiting in agent_recv
+	// yields its slot mid-turn and holds the turn open), with a long-poll
+	// registered so the severance can be observed.
+	var runID string
+	c.runs.View(func() { runID = c.runsF.currentRun(harp).RunID })
+	child := Identity{Harp: harp, RunID: runID, Depth: 1}
 	severed := make(chan error, 1)
 	go func() {
 		_, rerr := c.AgentRecv(context.Background(), child, conformanceWait)
 		severed <- rerr
 	}()
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateParked }, conformanceWait, 5*time.Millisecond)
+	require.Eventually(t, func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.polls[harp] != nil
+	}, conformanceWait, 10*time.Millisecond)
+	c.onRolePark(harp)
+	require.Equal(t, StateParked, rosterState(c, harp), "precondition: the child is parked")
 
 	started := time.Now()
 	stopped, err := c.StopChildren(context.Background(), ownerIdentity(), "batch complete")
@@ -179,13 +191,15 @@ func TestStopChildren_ParkedChildIsEnded(t *testing.T) {
 	assert.Less(t, time.Since(started), c.drainBound, "a parked child holds no turn to wait for")
 	require.Len(t, stopped, 1)
 	assert.Equal(t, StopOutcomeStopped, stopped[0].Outcome)
-	assert.Equal(t, StateEnded, rosterState(c, out.Harp))
+	assert.Contains(t, stopped[0].Detail, "while parked")
+	assert.Equal(t, StateEnded, rosterState(c, harp))
 	select {
 	case rerr := <-severed:
 		require.ErrorIs(t, rerr, ErrRevoked, "the parked poll is severed like any agent_stop's")
 	case <-time.After(conformanceWait):
 		t.Fatal("the parked poll was never severed")
 	}
+	awaitRelease(t, sp, 0)
 }
 
 // TestStopChildren_OnlyTheCallersOwnChildren: the sweep is scoped to the

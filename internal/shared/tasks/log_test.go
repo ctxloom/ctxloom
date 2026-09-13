@@ -7,9 +7,10 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 func newLog(t *testing.T, session string) *Store {
@@ -640,51 +641,71 @@ func TestEventLog_WriteFailsLoudOnUnresolvedAnomaly(t *testing.T) {
 	}
 }
 
-// TestAppendLine_LeavesFileUnchangedOnWriteFailure pins the fix: append()
-// had no rollback, so a write that failed partway (ENOSPC, EIO, ...) left a
-// torn line on disk — and fold() treats ANY unparseable line as fatal for
-// the WHOLE log, so one failed append from this process alone would brick
-// every future read and write, with "move the file aside and re-add every
-// task" as the only stated recovery.
+// TestAppend_LeavesPriorEntriesIntactWhenAWriteFailsPartway pins the
+// property the whole store rests on: a failed append leaves the log EXACTLY
+// as it found it, never a torn line. fold() treats ANY unparseable line as
+// fatal for the WHOLE log, so one half-written event from this process would
+// brick every future read and write, with "move the file aside and re-add
+// every task" as the only stated recovery.
 //
-// A genuine mid-write OS failure (a short write followed by ENOSPC) isn't
-// portably forceable from a Go unit test without OS-specific privileges
-// this sandbox doesn't have (rlimits deliver SIGXFSZ asynchronously and
-// proved unreliable to intercept here). Closing the file's raw fd out from
-// under the still-open *os.File is a reliable, portable way to make the
-// NEXT Write on it fail deterministically (EBADF) without corrupting
-// anything else — it exercises the same error-handling branch appendLine
-// must take on any write failure, and lets this test assert the contract
-// that actually matters: the file's bytes are UNCHANGED after a failed
-// append, never showing a torn line.
-func TestAppendLine_LeavesFileUnchangedOnWriteFailure(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
-	const existing = "prefix-line-that-must-survive\n"
-	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+// A genuine mid-write OS failure (a short write followed by ENOSPC) is not
+// portably forceable from a Go unit test without privileges this sandbox does
+// not have. The writeInPlace seam stages exactly that shape instead: bytes
+// land, then the call reports failure — which is the only case the rollback
+// exists for, since a write that never opened the file needs no rollback at
+// all. What is asserted is the contract that matters on disk, not the seam:
+// every prior entry is still readable and the partial bytes are gone.
+func TestAppend_LeavesPriorEntriesIntactWhenAWriteFailsPartway(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "taskloom.jsonl")
+	s, err := OpenLog(path, "")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("open store: %v", err)
 	}
-	defer f.Close()
-	if err := syscall.Close(int(f.Fd())); err != nil {
-		t.Fatalf("close underlying fd: %v", err)
-	}
-
-	if err := appendLine(f, []byte("this line must never land\n")); err == nil {
-		t.Fatal("expected an error writing through a closed fd")
+	first, err := s.AddWithTrigger("a task that must survive", "", "")
+	if err != nil {
+		t.Fatalf("seed: %v", err)
 	}
 
-	// Re-open a fresh handle (the corrupted one is unusable) to inspect
-	// what actually landed on disk.
-	got, err := os.ReadFile(path)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read seeded log: %v", err)
+	}
+
+	boom := errors.New("the write failed after delivering some bytes")
+	prev := writeInPlace
+	writeInPlace = func(p string, mode iox.InPlaceMode, data []byte, perm os.FileMode, opts ...iox.Option) error {
+		// A SHORT write, not none: the torn half-line is what must not
+		// survive, and a seam that wrote nothing would pass a broken
+		// implementation.
+		if werr := prev(p, mode, data[:len(data)/2], perm, opts...); werr != nil {
+			t.Fatalf("staging the partial write: %v", werr)
+		}
+		return boom
+	}
+	t.Cleanup(func() { writeInPlace = prev })
+
+	if _, err := s.AddWithTrigger("a task that must never land", "", ""); !errors.Is(err, boom) {
+		t.Fatalf("append error = %v, want the staged write failure", err)
+	}
+	writeInPlace = prev
+
+	after, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
-	if string(got) != existing {
-		t.Fatalf("file changed after a failed append: got %q, want unchanged %q", got, existing)
+	if string(after) != string(before) {
+		t.Fatalf("the log changed after a failed append:\n got %q\nwant %q", after, before)
+	}
+
+	// The store must still LOAD — the point of the rollback, not just byte
+	// equality: a torn line would make every later read fail.
+	tasks, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("the store no longer loads after a failed append: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].HarpID != first.HarpID {
+		t.Fatalf("prior entries lost; got %+v, want just %s", tasks, first.HarpID)
 	}
 }
 
@@ -841,37 +862,6 @@ func TestFold_BlankIdentityAddIsCharacterizedNotRejected(t *testing.T) {
 	}
 	if !slices.Contains(ids, "beta") {
 		t.Fatalf("the real task must still fold; ids = %v", ids)
-	}
-}
-
-// TestCloseAfter_ReportsACloseFailureOnASuccessfulWrite pins the log's only
-// write path against reporting success for an event that may not be on disk.
-// A close error after a SUCCEEDED write is the result; a close
-// error after a failed one is noise, and the original diagnosis must survive.
-func TestCloseAfter_ReportsACloseFailureOnASuccessfulWrite(t *testing.T) {
-	open := func() *os.File {
-		f, err := os.Create(filepath.Join(t.TempDir(), "x"))
-		if err != nil {
-			t.Fatalf("create: %v", err)
-		}
-		return f
-	}
-
-	f := open()
-	if err := f.Close(); err != nil {
-		t.Fatalf("close: %v", err)
-	}
-	if err := closeAfter(f, nil); err == nil {
-		t.Fatal("closeAfter swallowed a close failure on a successful write")
-	}
-
-	f2 := open()
-	if err := f2.Close(); err != nil {
-		t.Fatalf("close: %v", err)
-	}
-	want := errors.New("the write itself failed")
-	if got := closeAfter(f2, want); !errors.Is(got, want) {
-		t.Fatalf("closeAfter = %v, want the original write error %v", got, want)
 	}
 }
 

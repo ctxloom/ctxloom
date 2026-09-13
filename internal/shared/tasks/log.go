@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,6 +26,15 @@ import (
 const (
 	lockFileMode = 0o644
 	lockDirMode  = 0o755
+)
+
+// logFileMode and logDirMode are the event log's own mode and its parent
+// directory's. Named rather than spelled inline because iox applies a mode
+// EXACTLY (umask-free) to a file it creates, so this constant is the whole
+// answer to "what are a task log's permissions", not a pre-umask wish.
+const (
+	logFileMode = 0o644
+	logDirMode  = 0o755
 )
 
 // Event is one line in a per-project append-only task log (ADR 0025). The log
@@ -360,8 +368,25 @@ func (f *folded) anomalyError(path string) error {
 	return fmt.Errorf("%s: unresolved harp collision(s) — two different tasks were independently minted with the same harp id (most likely two branches, each correct against what it could see, later union-merged); the displaced task is NOT lost but is excluded from this view, and every event addressed to its harp is silently applying to the OTHER task instead. This cannot be auto-repaired (reassigning a harp would break every plan file and cross-reference pointing at it) — inspect and run `taskloom repair` (or Store.Repair() directly) to re-add the displaced task(s) under a fresh harp: %s", path, strings.Join(descs, "; "))
 }
 
-// append writes one event as a single JSON line under O_APPEND. The caller
-// holds the locks.
+// append writes one event as a single JSON line, appended to the log. The
+// caller holds the locks.
+//
+// iox.AppendInPlace, not iox.WriteFileAtomic: this log's whole value is that
+// prior entries survive every write, and a whole-file replace would have to
+// read back and rewrite bytes it did not author to express that.
+//
+// A FAILED APPEND MUST LEAVE THE FILE AS IT FOUND IT. fold() treats ANY
+// unparseable line as fatal for the WHOLE log, so a torn line from one failed
+// write (ENOSPC partway through, EIO on the fsync) would brick every future
+// read and write of the store, with "move the file aside and re-add every
+// task" as the only stated recovery. iox writes and fsyncs but does not roll
+// back, so this function does: it records the log's length before the write
+// and truncates back to it on any failure. That is safe precisely because the
+// caller holds the exclusive lock (eventLog.lock) — no other appender can
+// have extended the file in between, so the recorded length is still the
+// offset this write landed at. Truncate's own error is deliberately ignored:
+// the write error is what the caller needs to see, and a filesystem where
+// even Truncate fails is past anything this function can do.
 func (l *eventLog) append(ev Event) error {
 	if err := admissible(ev); err != nil {
 		return err
@@ -374,48 +399,59 @@ func (l *eventLog) append(ev Event) error {
 		return err
 	}
 	dir := filepath.Dir(l.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, logDirMode); err != nil {
 		return err
 	}
-	_, statErr := os.Stat(l.path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	prior, created, err := logExtent(l.path)
 	if err != nil {
 		return err
 	}
+	// Durable() only when this write CREATES the file: it fsyncs the parent
+	// directory, which matters only for a new directory entry — appending to
+	// a file that already exists changes no entry, and an unconditional
+	// directory fsync would be a second sync on every task event for nothing.
+	// The ordering (bytes, file fsync, then directory fsync) is fine even
+	// though the old hand-rolled version synced the directory FIRST: nothing
+	// is reported as written until this call returns, so a crash in between
+	// can still only lose the whole file or nothing, never leave a CONFIRMED
+	// event in a file with no name.
+	var opts []iox.Option
 	if created {
-		// The log file did not exist a moment ago, so this open just created
-		// its directory entry — and appendLine's fsync below makes the file's
-		// CONTENTS durable, never the entry that names them. Flush the entry
-		// first, so a power loss can lose the whole file or nothing, never
-		// leave a confirmed event in a file with no name. Done BEFORE the
-		// event is written so a failure here is unambiguous: nothing was
-		// appended, and the caller's error means exactly that.
-		//
-		// iox.SyncDir, not the Durable() Option: this append is O_APPEND onto
-		// a file that may already exist, never an atomic rename, so
-		// WriteFileAtomic's Option shape does not fit here — only the raw
-		// directory-fsync primitive underneath it does.
-		if err := iox.SyncDir(dir); err != nil {
-			return closeAfter(f, fmt.Errorf("sync task log directory %s: %w", dir, err))
-		}
+		opts = append(opts, iox.Durable())
 	}
-	return closeAfter(f, appendLine(f, append(b, '\n')))
+	if err := writeInPlace(l.path, iox.AppendInPlace, append(b, '\n'), logFileMode, opts...); err != nil {
+		_ = os.Truncate(l.path, prior)
+		return err
+	}
+	return nil
 }
 
-// closeAfter closes f and decides which error the caller should see. opErr
-// wins when it is non-nil: it is the diagnosis (a failed write, a failed
-// sync), and the close error that follows a failure is noise. When the
-// operation succeeded, the close error IS the result — this is the log's only
-// write path, and a close failure means the event the caller is about to be
-// told it wrote may not be there. Discarding it would report success for a
-// write that did not land.
-func closeAfter(f *os.File, opErr error) error {
-	cerr := f.Close()
-	if opErr != nil {
-		return opErr
+// writeInPlace is iox.WriteFileInPlace, indirected so a test can drive the
+// partial-write path — a write that delivers SOME bytes and then fails —
+// which a real filesystem will not produce on demand and which is the exact
+// failure the rollback above exists for. iox deliberately offers no
+// afero twin for in-place writing, so this is the only seam available.
+var writeInPlace = iox.WriteFileInPlace
+
+// logExtent reports the log's current length and whether it is absent, which
+// together are everything append needs to know before it writes: the length
+// is the offset to roll back to, and absence decides whether the parent
+// directory's entry needs flushing.
+//
+// A stat failure that is NOT "no such file" is returned rather than treated
+// as a zero-length log. Guessing zero here would make the rollback truncate a
+// log it could not measure down to nothing — turning an unreadable stat into
+// data loss.
+func logExtent(path string) (length int64, created bool, err error) {
+	st, err := os.Stat(path)
+	switch {
+	case err == nil:
+		return st.Size(), false, nil
+	case errors.Is(err, os.ErrNotExist):
+		return 0, true, nil
+	default:
+		return 0, false, fmt.Errorf("measure task log %s: %w", path, err)
 	}
-	return cerr
 }
 
 // admissible rejects an event this reader could never fold back. The write
@@ -438,35 +474,6 @@ func admissible(ev Event) error {
 	}
 	if strings.TrimSpace(ev.Task) == "" {
 		return fmt.Errorf("refusing to write a %q event with no task id: every event addresses a task by harp", ev.Op)
-	}
-	return nil
-}
-
-// appendLine writes line to f — already opened O_APPEND, so the write always
-// lands at the file's current end — and fsyncs it before returning success.
-// If either the write or the sync fails partway (ENOSPC, EIO, a killed
-// process resumed with a stale fd, ...), it rolls the file back to its
-// length as of just before this call rather than leaving a torn line on
-// disk. That matters because fold() treats ANY unparseable line as fatal
-// for the whole log — without this, a single failed append from
-// THIS process would brick every future read and write of the store, with
-// "move the file aside and re-add every task" as the only stated recovery.
-// Truncate's own error is deliberately ignored: it is already best-effort
-// (the original Write/Sync error is what the caller needs to see), and if
-// the filesystem is in a state where even Truncate fails, there is nothing
-// more this function can do about it.
-func appendLine(f *os.File, line []byte) error {
-	off, err := f.Seek(0, io.SeekEnd)
-	if err != nil {
-		return err
-	}
-	if _, werr := f.Write(line); werr != nil {
-		_ = f.Truncate(off)
-		return werr
-	}
-	if serr := f.Sync(); serr != nil {
-		_ = f.Truncate(off)
-		return serr
 	}
 	return nil
 }

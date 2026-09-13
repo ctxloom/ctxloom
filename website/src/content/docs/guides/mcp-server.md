@@ -69,7 +69,7 @@ The MCP surface is deliberately small: it retrieves context, works with session 
 | `agent_run` | Launch a configured ctxloom agent as a delegated child session |
 | `agent_send` | Send a message to another agent session (coordinator → child by harp, or child → "parent") |
 | `agent_recv` | Receive pending mailbox messages for this session, waiting up to a bounded timeout |
-| `agent_stop` | Stop a delegated child session; it stays resumable via a later `agent_send` |
+| `agent_stop` | Stop one delegated child session by harp, or — with no harp and a reason — every live child of this session; a stopped child stays resumable via a later `agent_send` |
 
 :::note
 This is the standalone `ctxloom mcp serve` surface — the one this page documents. A normal

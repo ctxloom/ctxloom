@@ -78,13 +78,15 @@ type drainPolicy struct {
 }
 
 // shutdownPolicy is BeginDrain's: the coordinator is going away.
-var shutdownPolicy = drainPolicy{
-	label:       "coordinator drain",
-	parkIsWait:  true,
-	endCause:    CauseDrained,
-	endDetail:   func(where string) string { return "coordinator drain: ended " + where },
-	forceCause:  CauseDrainInterrupted,
-	forceDetail: func(bound time.Duration) string { return fmt.Sprintf("coordinator drain: turn still running after the %s bound; interrupted", bound) },
+func shutdownPolicy() drainPolicy {
+	return drainPolicy{
+		label:       "coordinator drain",
+		parkIsWait:  true,
+		endCause:    CauseDrained,
+		endDetail:   func(where string) string { return "coordinator drain: ended " + where },
+		forceCause:  CauseDrainInterrupted,
+		forceDetail: func(bound time.Duration) string { return fmt.Sprintf("coordinator drain: turn still running after the %s bound; interrupted", bound) },
+	}
 }
 
 // stopPolicy is StopChildren's: every end is an agent_stop by `caller` for
@@ -125,8 +127,8 @@ type DrainOutcome struct {
 	// Exited ended inside the bound: at the turn boundary the drain asked
 	// for, between turns, before ever starting, or by dying on their own.
 	Exited []string
-	// Interrupted were still running when the bound elapsed and were forced.
-	// Their terminal cause is CauseDrainInterrupted.
+	// Interrupted were still running when the bound elapsed and were forced,
+	// with the policy's forced cause as their terminal.
 	Interrupted []string
 	// Parked were waiting on a human when the drain settled and were left
 	// exactly as they were: turn open, slot yielded, session lock held. The
@@ -311,7 +313,8 @@ func (c *Coordinator) requestExit(runID string, p drainPolicy) {
 // stop's is the per-run mark.
 func (c *Coordinator) exitRequested(rt *childRt) *drainPolicy {
 	if c.Draining() {
-		return &shutdownPolicy
+		p := shutdownPolicy()
+		return &p
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -365,7 +368,9 @@ type StoppedChild struct {
 	RunID   string
 	Agent   string
 	Outcome string
-	// Detail is the run's terminal detail as the roster shows it.
+	// Detail is the run's terminal detail as the roster shows it, led by
+	// its cause when that is not the stop itself (a child that died on its
+	// own mid-sweep).
 	Detail string
 }
 
@@ -416,8 +421,15 @@ func (c *Coordinator) StopChildren(ctx context.Context, caller Identity, reason 
 			sc.Outcome = StopOutcomeInterrupted
 		}
 		c.runs.View(func() {
-			if r := c.runsF.run(ch.runID); r != nil {
-				sc.Detail = r.Detail
+			r := c.runsF.run(ch.runID)
+			if r == nil {
+				return
+			}
+			sc.Detail = r.Detail
+			// A child that died on its own mid-sweep is reported as what it
+			// was — the cause it died of leads — not repainted as a stop.
+			if r.Cause != CauseStopped {
+				sc.Detail = r.Cause + ": " + r.Detail
 			}
 		})
 		out = append(out, sc)

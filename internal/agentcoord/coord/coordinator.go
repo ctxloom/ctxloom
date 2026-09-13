@@ -765,7 +765,7 @@ func (c *Coordinator) BeginDrain() *Drain {
 		// Which children the drain accounts for is decided HERE, before this
 		// returns: a caller that ends a run right after BeginDrain must find
 		// it in the outcome, not lose it to a snapshot that ran later.
-		d = newDrain(shutdownPolicy, c.drainTracked(nil))
+		d = newDrain(shutdownPolicy(), c.drainTracked(nil))
 		c.drain = d
 	}
 	c.drainMu.Unlock()

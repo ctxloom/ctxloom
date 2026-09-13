@@ -306,3 +306,54 @@ func TestStopChildren_NoLiveChildrenIsEmptyNotAnError(t *testing.T) {
 	assert.Empty(t, out)
 	assert.Less(t, time.Since(started), c.drainBound)
 }
+
+// TestStopChildren_ChildDyingDuringSweepIsNotRelaunched: a child that exits
+// on its own mid-sweep with mail still queued is ordinarily relaunched by
+// terminateRun's leftover-mail tail. Under a sweep it is not — the sweep
+// marked it stopped — and the result names it with the cause it actually
+// died of, not repainted as a stop.
+func TestStopChildren_ChildDyingDuringSweepIsNotRelaunched(t *testing.T) {
+	resetStrictness(t)
+	gate := make(chan struct{})
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+	c := newTestCoordinator(t, sp, nil)
+	c.drainBound = time.Minute
+
+	harp := spawnGatedChild(t, sp, c)
+	_, err := c.AgentSend(ownerIdentity(), harp, KindMessage, "one more thing", nil, "")
+	require.NoError(t, err)
+	require.Positive(t, c.pendingCount(harp), "precondition: the child must have mail pending when it dies")
+
+	done := make(chan []StoppedChild, 1)
+	go func() {
+		out, err := c.StopChildren(context.Background(), ownerIdentity(), "winding down")
+		require.NoError(t, err)
+		done <- out
+	}()
+	require.Eventually(t, func() bool { return len(readAuditKind(t, c, "drain_request")) == 1 }, conformanceWait, 10*time.Millisecond,
+		"the sweep must have requested the running child's exit before it dies")
+	var runID string
+	c.runs.View(func() { runID = c.runsF.currentRun(harp).RunID })
+	c.terminateRun(runID, CauseRunnerExit, "engine crashed during the sweep")
+
+	var out []StoppedChild
+	select {
+	case out = <-done:
+	case <-time.After(drainWait):
+		t.Fatal("the sweep did not settle on the child's own death")
+	}
+	require.Len(t, out, 1)
+	assert.Equal(t, StopOutcomeStopped, out[0].Outcome, "it ended without being forced")
+	assert.Contains(t, out[0].Detail, CauseRunnerExit, "the death is reported as what it was, not repainted as a stop")
+
+	launches := func() int {
+		sp.mu.Lock()
+		defer sp.mu.Unlock()
+		return len(sp.engines)
+	}
+	assert.Never(t, func() bool { return launches() > 1 }, 500*time.Millisecond, 10*time.Millisecond,
+		"a child that dies during a sweep must NOT be relaunched")
+	assert.Equal(t, CauseRunnerExit, currentRunCause(c, harp))
+	assert.Positive(t, c.pendingCount(harp), "its mail is preserved for whoever runs next, not consumed")
+}

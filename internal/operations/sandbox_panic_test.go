@@ -1,12 +1,16 @@
 package operations
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,23 +40,19 @@ func pkgDir(t *testing.T) string {
 	return filepath.Dir(thisFile)
 }
 
-// runOperationsSubprocess runs `go test -run <pattern>` on this package in a
-// fresh process with TMPDIR pinned to tmpDir, so the child's sandbox (and
-// this test's assertions about it) are confined to a throwaway root instead
-// of the developer's real /tmp.
+// freshSandboxEnv is the environment for a child that must mint its OWN
+// sandbox under tmpDir (TMPDIR pinned there, so the child's sandbox — and
+// this test's assertions about it — are confined to a throwaway root instead
+// of the developer's real /tmp).
 //
-// The parent's own sandbox marker is STRIPPED from the child's environment:
-// SandboxedMain treats an inherited testsupport.SandboxRootEnv as "already
-// inside a sandbox" and adopts it instead of minting its own — the right
-// call for a re-exec'd child, and exactly wrong here, where the child's own
-// sandbox is the thing under observation. HOME is left as the parent's
-// sandbox home on purpose: SandboxedMain pins the go toolchain's cache
-// directories explicitly, so the child's `go test` build phase does not need
-// the real HOME to find them.
-func runOperationsSubprocess(t *testing.T, tmpDir, pattern string, extraEnv map[string]string) ([]byte, error) {
-	t.Helper()
-	cmd := exec.Command("go", "test", "-run", pattern, "-count=1", ".")
-	cmd.Dir = pkgDir(t)
+// The parent's own sandbox marker is STRIPPED: SandboxedMain treats an
+// inherited testsupport.SandboxRootEnv as "already inside a sandbox" and
+// adopts it instead of minting its own — the right call for a re-exec'd
+// child, and exactly wrong here, where the child's own sandbox is the thing
+// under observation. HOME is left as the parent's sandbox home on purpose:
+// SandboxedMain pins the go toolchain's cache directories explicitly, so a
+// child's `go test` build phase does not need the real HOME to find them.
+func freshSandboxEnv(tmpDir string, extraEnv map[string]string) []string {
 	env := []string{"TMPDIR=" + tmpDir}
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, testsupport.SandboxRootEnv+"=") {
@@ -62,7 +62,16 @@ func runOperationsSubprocess(t *testing.T, tmpDir, pattern string, extraEnv map[
 	for k, v := range extraEnv {
 		env = append(env, k+"="+v)
 	}
-	cmd.Env = env
+	return env
+}
+
+// runOperationsSubprocess runs `go test -run <pattern>` on this package in a
+// fresh process whose sandbox lands under tmpDir (see freshSandboxEnv).
+func runOperationsSubprocess(t *testing.T, tmpDir, pattern string, extraEnv map[string]string) ([]byte, error) {
+	t.Helper()
+	cmd := exec.Command("go", "test", "-run", pattern, "-count=1", ".")
+	cmd.Dir = pkgDir(t)
+	cmd.Env = freshSandboxEnv(tmpDir, extraEnv)
 	return cmd.CombinedOutput()
 }
 
@@ -114,4 +123,71 @@ func TestMainSandbox_SurvivesCrash_ThenGetsReaped(t *testing.T) {
 
 	remaining := sandboxLeftovers(t, tmpDir)
 	assert.Empty(t, remaining, "the dead process's sandbox dir must be reaped by the next process to start, got %v", remaining)
+}
+
+// blockGuardReadyEnv names the file TestBlockGuard touches once it is inside
+// m.Run() and about to block; its presence is what makes the parent's signal
+// land on a process that has finished installing its sandbox and handler,
+// rather than racing the startup window.
+const blockGuardReadyEnv = "CTXLOOM_OPTEST_BLOCK_READY"
+
+// TestBlockGuard exists only to be run as a subprocess by
+// TestMainSandbox_SignalCleansUpBeforeExit: it announces readiness, then
+// blocks so the parent can deliver a signal to a process that is mid-run.
+// The sleep is bounded so a handler that never fires ends in a normal exit
+// the parent can distinguish from a signalled one.
+func TestBlockGuard(t *testing.T) {
+	ready := os.Getenv(blockGuardReadyEnv)
+	if ready == "" {
+		t.Skip("subprocess-only guard test; set " + blockGuardReadyEnv + " to invoke")
+	}
+	require.NoError(t, os.WriteFile(ready, nil, 0o600))
+	time.Sleep(time.Minute)
+}
+
+// TestMainSandbox_SignalCleansUpBeforeExit proves the half of the crash story
+// a process CAN handle itself: SIGTERM, unlike a panic, is catchable, so a
+// signalled process removes its own sandbox before dying instead of leaving
+// it for the next process's reaper. The child is THIS test binary re-exec'd
+// directly (not through `go test`, whose own signal forwarding would be the
+// thing under test), so the signal lands on SandboxedMain's handler.
+func TestMainSandbox_SignalCleansUpBeforeExit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SIGTERM delivery to a child is not supported on windows")
+	}
+	tmpDir := t.TempDir()
+	ready := filepath.Join(tmpDir, "ready")
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	cmd := exec.Command(exe, "-test.run=^TestBlockGuard$", "-test.timeout=2m")
+	cmd.Dir = pkgDir(t)
+	cmd.Env = freshSandboxEnv(tmpDir, map[string]string{blockGuardReadyEnv: ready})
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	require.NoError(t, cmd.Start())
+
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			t.Fatalf("the child never announced readiness:\n%s", out.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	require.Len(t, sandboxLeftovers(t, tmpDir), 1,
+		"the child must be running inside its own sandbox before it is signalled")
+
+	require.NoError(t, cmd.Process.Signal(syscall.SIGTERM))
+	err = cmd.Wait()
+	var exitErr *exec.ExitError
+	require.True(t, errors.As(err, &exitErr), "the signalled child must exit, not vanish; err=%v output:\n%s", err, out.String())
+	assert.Equal(t, 128+int(syscall.SIGTERM), exitErr.ExitCode(),
+		"the handler exits with the conventional 128+signal code (a default-action death reports -1); output:\n%s", out.String())
+	assert.Empty(t, sandboxLeftovers(t, tmpDir),
+		"a signalled process must remove its own sandbox before dying; output:\n%s", out.String())
 }

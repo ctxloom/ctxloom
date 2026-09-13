@@ -49,7 +49,7 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 
 	// No host credential is needed to clear PrepareWorkspace's auth gate: the
 	// policy is keyed on the mock engine, whose resolver authenticates against
-	// no vendor (resolveMockContainerAuth). This test never calls SpawnClient,
+	// no vendor (a Vendorless declaration). This test never calls SpawnClient,
 	// only PrepareWorkspace.
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)

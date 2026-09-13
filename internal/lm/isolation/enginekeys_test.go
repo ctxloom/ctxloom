@@ -115,7 +115,7 @@ func TestEngineContainerSpecFor_UnknownEngineStillFailsClosed(t *testing.T) {
 
 	spec := engineContainerSpecFor(unknownEngineName)
 	assert.Equal(t, noContainerAuthHint, spec.authHint, "the default arm's marker hint identifies it")
-	assert.Equal(t, defaultOverlayDirs, spec.overlayDirs, "an unmapped engine keeps the default overlay dirs")
+	assert.Equal(t, []string{ctxloomCacheOverlayDir}, spec.overlayDirs, "an unmapped engine shadows only ctxloom's own cache dir")
 }
 
 // TestRegisterInstanceConfigWriter_ResolvesAliasesAndRefusesNonCanonicalKeys

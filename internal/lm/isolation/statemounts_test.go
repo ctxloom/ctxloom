@@ -46,7 +46,6 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 		storeRel string
 	}{
 		{"claude-code", ".claude/projects"},
-		{"unmapped-backend", ".claude/projects"}, // default spec is claude-oriented
 	}
 	for _, tt := range tests {
 		t.Run(tt.backend, func(t *testing.T) {
@@ -94,6 +93,25 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 					"the task sources are FILES and the session sources are DIRS; a missing file source is created as a directory by the runtime")
 			}
 		})
+	}
+}
+
+// TestSessionStateMounts_UnmappedBackendMountsNoStore: an engine nobody
+// declared a container story for maps no transcript store — the fail-closed
+// default carries none, because no engine said where its store is — so the
+// transcript mount is skipped and every other state mount still applies.
+// (Such a run never gets past the auth gate anyway; this pins the mounts
+// alone.)
+func TestSessionStateMounts_UnmappedBackendMountsNoStore(t *testing.T) {
+	testsupport.Isolate(t)
+
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "unmapped-backend")
+	c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
+	mounts, err := c.sessionStateMounts()
+	require.NoError(t, err)
+	require.Len(t, mounts, 4, "persist, task log, its lock, and the locks dir — no transcript store")
+	for _, m := range mounts {
+		assert.NotContains(t, m.Container, "projects", "no engine store root is guessed for an undeclared engine")
 	}
 }
 

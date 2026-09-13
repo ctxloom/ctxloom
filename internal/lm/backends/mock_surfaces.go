@@ -111,12 +111,8 @@ var newMockContext = agent.NativeContextFile("mock/context", mockContextFilename
 })
 
 // MockConfigDirName is the mock engine's project-relative managed-config
-// directory — its analogue of each real engine's own ConfigDirName.
-// Exported so tests/arch's
-// engine-layout gate can check internal/lm/isolation's mockOverlayDirs
-// literal against this package's own fact; mock has no separate engine
-// plugin package (it IS internal/lm/backends), so this package is the
-// owner directly, with no cycle to route around.
+// directory — its analogue of each real engine's own ConfigDirName, and
+// what mock's descriptor declares as its container overlay dir.
 const MockConfigDirName = ".mock"
 
 // mockSkillsDirName is the directory the mock engine "reads" its Agent Skill

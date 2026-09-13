@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+
 	containerfiles "github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -175,21 +177,20 @@ func TestBuildSources_Composable(t *testing.T) {
 	}
 }
 
-// TestBuildSources_MockIsComposable pins that mock's own spec now has a
-// local-build recipe: `ctxloom container build mock` used to fail outright
-// ("no local build recipe for this engine") because engineContainerSpecFor fell
-// through to the non-composable default for any unrecognized/unmapped
-// name, mock included. mockInstallFragment being non-nil is what flips
+// TestBuildSources_VendorlessIsComposable pins that a vendorless declaration
+// with an install fragment (the shape mock declares) has a local-build
+// recipe: `ctxloom container build mock` used to fail outright ("no local
+// build recipe for this engine") because the spec lookup fell through to the
+// non-composable default for it. A non-nil fragment is what flips
 // buildSources from empty to composableBuildSources' output — this pins the
-// OUTCOME (buildSources itself), not just the fragment's non-nilness, so a
-// future change that sets engineInstall but breaks buildSources' composable
-// branch for it would still be caught here.
-func TestBuildSources_MockIsComposable(t *testing.T) {
-	p := engineContainerSpecFor("mock")
-	require.NotNil(t, p.engineInstall, "precondition: mock is composable")
+// OUTCOME (buildSources itself), not just the fragment's non-nilness.
+func TestBuildSources_VendorlessIsComposable(t *testing.T) {
+	registerVendorlessFixture(t, "vendorless-build", agent.DistributionTestOnly)
+	p := engineContainerSpecFor("vendorless-build")
+	require.NotNil(t, p.engineInstall, "precondition: the fixture declares a fragment")
 
-	got := buildSources(p, buildSourcesOptions{engine: "mock"})
-	require.NotEmpty(t, got, "mock must have a local-build recipe now (previously nil/empty — 'no local build recipe for this engine')")
+	got := buildSources(p, buildSourcesOptions{engine: "vendorless-build"})
+	require.NotEmpty(t, got, "a declared fragment is a local-build recipe")
 	assert.Contains(t, got[0].desc, "agent stage (engine:")
 }
 

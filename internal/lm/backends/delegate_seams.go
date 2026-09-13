@@ -89,6 +89,7 @@ func UnregisterForTesting(name string) {
 	canonical := agent.CanonicalEngineName(name)
 	if d, ok := descriptors[canonical]; ok {
 		isolation.RegisterCredentialSeed(canonical, agent.Declared[agent.CredentialSeed]{})
+		isolation.RegisterEngineContainer(canonical, agent.Declared[agent.EngineContainer]{}, agent.DistributionUnset)
 		if _, had := d.InstanceConfig.Get(); had {
 			isolation.RegisterInstanceConfigWriter(canonical, nil)
 		}

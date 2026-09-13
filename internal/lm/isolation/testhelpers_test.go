@@ -64,7 +64,24 @@ func TestMain(m *testing.M) {
 		panic("isolation tests: claude's descriptor declares no Home; the seed tests have nothing to exercise")
 	}
 	RegisterCredentialSeed(claude.EngineName, claudeHome.Credentials)
+	// And its container story with its shipping policy, for the same reason:
+	// the spec the container tests build is the one claude declares.
+	claudeDesc := claudeengine.Descriptor()
+	RegisterEngineContainer(claude.EngineName, claudeDesc.Container, claudeDesc.Distribution)
 	os.Exit(testsupport.SandboxedMain(m))
+}
+
+// claudeAuth returns the container-auth plan claude declares, as TestMain
+// pushed it — what the auth tests hand resolveDeclaredAuth.
+func claudeAuth(t *testing.T) agent.ContainerAuth {
+	t.Helper()
+	r, ok := engineContainerDeclared(claude.EngineName)
+	require.True(t, ok, "fixture: claude's container declaration must be registered by TestMain")
+	c, ok := r.container.Get()
+	require.True(t, ok)
+	a, ok := c.Auth.Get()
+	require.True(t, ok)
+	return a
 }
 
 // claudeSeed returns the seed claude declares, as TestMain pushed it — what
@@ -133,4 +150,11 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 	restore := clidiag.SetSink(&buf)
 	t.Cleanup(restore)
 	return &buf
+}
+
+// claudeOverlayDirs returns the overlay set claude's declaration yields —
+// its own config dir plus ctxloom's cache.
+func claudeOverlayDirs(t *testing.T) []string {
+	t.Helper()
+	return engineContainerSpecFor(claude.EngineName).overlayDirs
 }

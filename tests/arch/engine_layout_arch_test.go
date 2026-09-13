@@ -12,9 +12,12 @@
 //     and the registry pushes it into internal/lm/isolation. What this gate
 //     still checks is the DECLARATION itself against the engine's constants —
 //     a descriptor can hand-type a path as easily as a table could.
-//   - internal/lm/isolation/enginespec.go's per-engine overlayDirs and
-//     transcriptStoreRel (the container-axis config-shadow and
-//     transcript-mount tables).
+//   - the container-axis overlay dirs and transcript-store root. Also no
+//     longer isolation literals: each engine declares them on its descriptor
+//     (engine.Descriptor.Container) and the registry pushes them into
+//     internal/lm/isolation, which is read back here through
+//     ContainerOverlayDirsFor / ContainerTranscriptStoreRelFor — so the
+//     check covers the declaration AND that the push delivered it.
 //   - internal/gitignore/gitignore.go's WorktreeArtifactPatterns (the LIVE
 //     per-agent-worktree exclude set) and TransientArtifactPatterns/
 //     WorktreeArtifactPatterns' pinned LEGACY .codex/* entries (the
@@ -23,12 +26,11 @@
 //     re-opens — see that file's own "THE .codex ENTRIES ARE NOW LEGACY"
 //     comment).
 //
-// internal/lm/isolation and internal/gitignore still carry these facts as
-// literals rather than importing the engine packages, so nothing in
-// PRODUCTION code makes the two sides agree. internal/lm/backends is the
-// exception: it already imports the engine packages directly (registry.go),
-// so mock.go's roster consumes their constants for real instead of re-typing
-// them (see that file's own doc).
+// internal/gitignore still carries its facts as literals rather than
+// importing the engine packages, so nothing in PRODUCTION code makes the two
+// sides agree there. The isolation-side facts are now DECLARED by each
+// engine from its own constants; what remains checkable is that the
+// declaration was built from them rather than re-typed.
 //
 // Everywhere the literals remain, THIS gate is the enforcement point:
 // tests/arch is a standalone test binary free to import every package, so it
@@ -46,8 +48,8 @@
 //     declares claude.HomeLeaf, "claude", no dot) and need not match the
 //     engine's ConfigDirName; agent.EngineHome.Validate already holds it
 //     equal to a home var's Subdir, so it is not re-gated here.
-//   - the shared ".ctxloom/cache" overlay entry every spec carries is
-//     ctxloom's own cache path, not a fact about any engine's file
+//   - the shared ".ctxloom/cache" overlay entry isolation appends for every
+//     engine is ctxloom's own cache path, not a fact about any engine's file
 //     arrangement — never checked here.
 //   - TransientArtifactPatterns' and WorktreeArtifactPatterns' ".codex/
 //     config.toml"/".codex/auth.json" entries are PINNED LEGACY (see the

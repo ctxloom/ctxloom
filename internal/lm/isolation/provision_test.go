@@ -86,7 +86,7 @@ func TestBuildRunSpec_UnixSocketTransportPublishesNoPort(t *testing.T) {
 func TestContainerConfigOverlay_ShadowsManagedPaths(t *testing.T) {
 	proj := t.TempDir()
 	root := t.TempDir()
-	mounts, _, err := containerConfigOverlay(Docker{}, proj, root, defaultOverlayDirs)
+	mounts, _, err := containerConfigOverlay(Docker{}, proj, root, claudeOverlayDirs(t))
 	require.NoError(t, err)
 	require.Len(t, mounts, 2)
 
@@ -114,11 +114,11 @@ func TestContainerConfigOverlay_PrecreatesTargets(t *testing.T) {
 	proj := t.TempDir() // fresh: no .claude, no .ctxloom
 	root := t.TempDir()
 
-	mounts, _, err := containerConfigOverlay(Docker{}, proj, root, defaultOverlayDirs)
+	mounts, _, err := containerConfigOverlay(Docker{}, proj, root, claudeOverlayDirs(t))
 	require.NoError(t, err)
-	require.Len(t, mounts, len(defaultOverlayDirs))
+	require.Len(t, mounts, len(claudeOverlayDirs(t)))
 
-	for _, rel := range defaultOverlayDirs {
+	for _, rel := range claudeOverlayDirs(t) {
 		target := filepath.Join(proj, rel)
 		info, statErr := os.Stat(target)
 		require.NoError(t, statErr, "ctxloom pre-creates overlay target %q so docker never root-creates it in the host project", target)
@@ -145,7 +145,7 @@ func TestContainerConfigOverlay_SeedsFromProject(t *testing.T) {
 	// .ctxloom/cache deliberately absent from the project.
 
 	root := t.TempDir()
-	mounts, _, err := containerConfigOverlay(Docker{}, proj, root, defaultOverlayDirs)
+	mounts, _, err := containerConfigOverlay(Docker{}, proj, root, claudeOverlayDirs(t))
 	require.NoError(t, err)
 	require.Len(t, mounts, 2)
 

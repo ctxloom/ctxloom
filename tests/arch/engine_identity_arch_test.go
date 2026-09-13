@@ -135,7 +135,7 @@ func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
 	rosters := []rosterCheck{
 		{source: "internal/lm/backends.RetiredScraperBackendNames (engine.Descriptor.NoLegacyHistoryReason)", members: backends.RetiredScraperBackendNames()},
 		{source: "internal/operations.VendorReaderEngineNames (vendorReaderRegistry)", members: operations.VendorReaderEngineNames()},
-		{source: "internal/lm/isolation.ComposableEngines (composableEngines)", members: isolation.ComposableEngines()},
+		{source: "internal/lm/isolation.ComposableEngines (pushed engine.Descriptor.Container)", members: isolation.ComposableEngines()},
 		{source: "internal/lm/isolation.CredentialSeedEngineNames (pushed engine.Descriptor.Home.Credentials)", members: isolation.CredentialSeedEngineNames()},
 	}
 
@@ -195,6 +195,32 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 			members: seededEngines(),
 			absence: declaredAbsence(backends.CredentialSeedFor),
 		},
+		{
+			source:  "internal/lm/isolation.ComposableEngines (pushed engine.Descriptor.Container + Distribution)",
+			members: isolation.ComposableEngines(),
+			absence: containerAbsence(func(c agent.EngineContainer, dist agent.Distribution) string {
+				switch {
+				case c.Install == nil:
+					return "declares no container installer"
+				case dist != agent.DistributionDefault:
+					return "ships " + dist.String() + ", so it is not default-composed"
+				}
+				return ""
+			}),
+		},
+		{
+			source:  "internal/lm/isolation.ContainerAuthEngines (pushed engine.Descriptor.Container + Distribution)",
+			members: isolation.ContainerAuthEngines(),
+			absence: containerAbsence(func(c agent.EngineContainer, dist agent.Distribution) string {
+				switch {
+				case c.Auth.AbsentReason() != "":
+					return c.Auth.AbsentReason()
+				case dist == agent.DistributionTestOnly:
+					return "a test double is never offered"
+				}
+				return ""
+			}),
+		},
 	}
 
 	for _, r := range rosters {
@@ -211,6 +237,23 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 					r.source, name)
 			}
 		}
+	}
+}
+
+// containerAbsence explains why a registered backend is outside a
+// container roster: its Container is declared absent (that reason), or the
+// roster's own filter — capability or policy — excludes it, per why.
+func containerAbsence(why func(agent.EngineContainer, agent.Distribution) string) func(string) string {
+	return func(name string) string {
+		declared := backends.ContainerFor(name)
+		if reason := declared.AbsentReason(); reason != "" {
+			return reason
+		}
+		c, ok := declared.Get()
+		if !ok {
+			return ""
+		}
+		return why(c, backends.DistributionFor(name))
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 )
 
@@ -83,14 +82,4 @@ func TestDiscover_UnrecognizedStoreRefusesRatherThanReportingZero(t *testing.T) 
 	require.ErrorAs(t, err, &unrecognized)
 	assert.Contains(t, err.Error(), root, "the message names the store it could not read")
 	assert.Contains(t, err.Error(), "refusing to report zero sessions")
-}
-
-// TestArch_ClaudeStoreRel_MatchesEngineSpec binds this package's copy of the
-// store path to the one isolation declares for container mounts. Two spellings
-// of one fact drift; the mount path is exercised by container runs, so it is
-// the one that stays honest, and this gate is what keeps the Locator with it.
-func TestArch_ClaudeStoreRel_MatchesEngineSpec(t *testing.T) {
-	assert.Equal(t, filepath.FromSlash(isolation.ContainerTranscriptStoreRelFor("claude-code")),
-		filepath.FromSlash(StoreRel),
-		"the Locator's store path must match the one container mounts use")
 }

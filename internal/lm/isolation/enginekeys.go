@@ -9,7 +9,9 @@ import (
 // repo-wide alias table on the read side. The invariant lives in the data, not
 // in any caller: an engine name reaches this package from CLI flags, from
 // decoded config, from stored agent definitions and from the backend registry's
-// init-time push, and no boundary is common to all of them.
+// registration-time push, and no boundary is common to all of them. Every
+// table here is populated by that push, and each Register function asserts
+// the key it is handed.
 //
 // The failure this prevents is silent. These tables gate credential seeding,
 // per-agent config homes and container auth; a lookup that MISSES because the
@@ -31,19 +33,5 @@ import (
 func assertCanonicalEngineKey(table, key string) {
 	if canonical := agent.CanonicalEngineName(key); canonical != key {
 		panic("isolation: " + table + " key " + key + " is not canonical (want " + canonical + ")")
-	}
-}
-
-// init pins the key side of every engine-keyed table declared as a literal in
-// this package. The runtime-populated tables (credentialSeeds,
-// instanceConfigWriters, credentialProjectors) assert in their Register
-// functions instead, and the engineContainerSpecFor switch is pinned through
-// the rosters that enumerate its arms.
-func init() {
-	for _, name := range ContainerAuthEngines() {
-		assertCanonicalEngineKey("ContainerAuthEngines", name)
-	}
-	for _, name := range composableEngines() {
-		assertCanonicalEngineKey("composableEngines", name)
 	}
 }

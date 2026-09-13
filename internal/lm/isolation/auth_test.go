@@ -18,7 +18,7 @@ import (
 // environment.
 func TestPresentEnvKeys_OnlyKnownSetVars(t *testing.T) {
 	env := map[string]string{"ANTHROPIC_API_KEY": "k", "ANTHROPIC_BASE_URL": "", "PATH": "/x"}
-	out := presentEnvKeys(func(k string) string { return env[k] }, claudeAuthEnvVars)
+	out := presentEnvKeys(func(k string) string { return env[k] }, claudeAuth(t).EnvPassthrough)
 	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, out, "only set, known auth var NAMES cross (no value; empty + unknown dropped)")
 }
 
@@ -97,13 +97,13 @@ func writeCreds(t *testing.T, home string, withDotClaude bool) {
 // axes, which copy an access-token-ONLY credential precisely because a copy
 // that refreshes WOULD rotate the host's single-use token). This used to assert
 // a SECOND mount carrying ~/.claude.json — removed along with that mount (see
-// claudeCredentialMountsAt' doc): it leaked the host user's own mcpServers
+// credentialFileMounts' doc): it leaked the host user's own mcpServers
 // registrations into every isolated agent, for mere onboarding convenience
 // .credentials.json alone doesn't need.
 func TestClaudeCredentialMountsAt_PresentAndAbsent(t *testing.T) {
 	home := withFakeHome(t)
 
-	_, ok := claudeCredentialMountsAt("/root/.claude")
+	_, ok := credentialFileMounts(claudeAuth(t).CredentialFiles, "/root")
 	assert.False(t, ok, "no ~/.claude/.credentials.json → cannot credential-mount")
 
 	realCreds := filepath.Join(home, ".claude", ".credentials.json")
@@ -111,7 +111,7 @@ func TestClaudeCredentialMountsAt_PresentAndAbsent(t *testing.T) {
 	require.NoError(t, os.WriteFile(realCreds,
 		[]byte(`{"claudeAiOauth":{"accessToken":"at","refreshToken":"single-use-rotating-rt"}}`), 0o600))
 
-	mounts, ok := claudeCredentialMountsAt("/root/.claude")
+	mounts, ok := credentialFileMounts(claudeAuth(t).CredentialFiles, "/root")
 	require.True(t, ok)
 	require.Len(t, mounts, 1, "only the OAuth token file is ever mounted — never ~/.claude.json (tangy-heave)")
 	assert.Equal(t, "/root/.claude/.credentials.json", mounts[0].Container)
@@ -130,7 +130,7 @@ func TestClaudeCredentialMountsAt_PresentAndAbsent(t *testing.T) {
 func TestClaudeCredentialMounts_OmitsDotClaudeEvenWhenPresent(t *testing.T) {
 	home := withFakeHome(t)
 	writeCreds(t, home, true) // withDotClaude=true: ~/.claude.json DOES exist on the host
-	mounts, ok := claudeCredentialMountsAt("/root/.claude")
+	mounts, ok := credentialFileMounts(claudeAuth(t).CredentialFiles, "/root")
 	require.True(t, ok)
 	require.Len(t, mounts, 1, "~/.claude.json must never be mounted, present or not")
 	assert.Equal(t, filepath.Join(home, ".claude", ".credentials.json"), mounts[0].Host, "the REAL credential, no copy")
@@ -143,15 +143,14 @@ func TestClaudeCredentialMounts_OmitsDotClaudeEvenWhenPresent(t *testing.T) {
 func TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "") // ensure no ambient key
-	scratch := t.TempDir()
 
 	// No key, no creds → degrade (the caller falls back to none).
-	_, ok := resolveClaudeContainerAuth("/root", scratch)
+	_, ok := resolveDeclaredAuth(claudeAuth(t), "/root")
 	assert.False(t, ok, "no resolvable auth → degrade to none")
 
 	// Creds present, still no key → credential-mount.
 	writeCreds(t, home, false)
-	auth, ok := resolveClaudeContainerAuth("/root", scratch)
+	auth, ok := resolveDeclaredAuth(claudeAuth(t), "/root")
 	require.True(t, ok)
 	assert.Equal(t, authCredentialMount, auth.mode)
 	assert.NotEmpty(t, auth.mounts)
@@ -161,7 +160,7 @@ func TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T
 	// carries the NAME only (never the value): the value is forwarded from the
 	// launcher's env at run time, so it never reaches the world-readable argv.
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	auth, ok = resolveClaudeContainerAuth("/root", scratch)
+	auth, ok = resolveDeclaredAuth(claudeAuth(t), "/root")
 	require.True(t, ok)
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_API_KEY", "the auth var crosses by NAME")
@@ -182,7 +181,7 @@ func TestResolveClaudeContainerAuth_AuthTokenAlsoTriggers(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "gw-token")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
 
-	auth, ok := resolveClaudeContainerAuth("/root", t.TempDir())
+	auth, ok := resolveDeclaredAuth(claudeAuth(t), "/root")
 	require.True(t, ok, "ANTHROPIC_AUTH_TOKEN alone must trigger env passthrough")
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_AUTH_TOKEN")
@@ -206,7 +205,7 @@ func TestResolveClaudeContainerAuth_TriggersOnApiKeyNotOtherAnthropicVars(t *tes
 	t.Setenv("ANTHROPIC_BASE_URL", "https://x") // …but OTHER ANTHROPIC_* vars ARE set
 	t.Setenv("ANTHROPIC_MODEL", "claude-x")
 
-	auth, ok := resolveClaudeContainerAuth("/root", t.TempDir())
+	auth, ok := resolveDeclaredAuth(claudeAuth(t), "/root")
 	require.False(t, ok,
 		"other ANTHROPIC_* set without ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN (and no creds) must NOT env-trigger — it degrades")
 	assert.Equal(t, authNone, auth.mode, "no key and no creds resolves to no auth, not env passthrough")
@@ -461,7 +460,7 @@ func TestClaudeCredentialMounts_NeverLeaksPersonalMCPConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), []byte(realisticDotClaudeJSON), 0o600))
 
-	mounts, ok := claudeCredentialMountsAt("/root/.claude")
+	mounts, ok := credentialFileMounts(claudeAuth(t).CredentialFiles, "/root")
 	require.True(t, ok)
 	for _, m := range mounts {
 		data, err := os.ReadFile(m.Host)
@@ -598,7 +597,7 @@ func TestClaudeCredentialMounts_AbsentCredentialStaysSilent(t *testing.T) {
 	withFakeHome(t) // no ~/.claude/.credentials.json written
 
 	done := captureStderr(t)
-	_, ok := claudeCredentialMountsAt("/home/ctxloom/.claude")
+	_, ok := credentialFileMounts(claudeAuth(t).CredentialFiles, "/home/ctxloom")
 	stderr := done()
 
 	assert.False(t, ok)

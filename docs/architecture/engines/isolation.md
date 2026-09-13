@@ -234,8 +234,8 @@ down to *set* variables only — **names only cross the boundary**.
 
 | Engine | Env trigger | Mount | Site |
 |---|---|---|---|
-| claude | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | bind-mounts the **real** `~/.claude/.credentials.json` **RW** — no copy — so claude's single-use token refresh lands in the one real file (see [Single-use refresh tokens](#single-use-refresh-tokens-why-the-three-axes-differ) below) | `resolveClaudeContainerAuth` / `claudeCredentialMountsAt`. `~/.claude.json` is deliberately never mounted |
-| mock | none needed | none | `resolveMockContainerAuth` — the one resolver that never returns `ok=false`: mock authenticates against no vendor |
+| claude | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | bind-mounts the **real** `~/.claude/.credentials.json` **RW** — no copy — so claude's single-use token refresh lands in the one real file (see [Single-use refresh tokens](#single-use-refresh-tokens-why-the-three-axes-differ) below) | claude's descriptor `Container.Auth`, resolved by `resolveDeclaredAuth` / `credentialFileMounts`. `~/.claude.json` is deliberately never mounted |
+| mock | none needed | none | a `Vendorless` declaration — the one plan that never fails to resolve: mock authenticates against no vendor |
 | **unmapped/empty backend** | — | — | `noContainerAuth` — **fails closed**; the containerized run aborts at `PrepareWorkspace`'s auth gate rather than inheriting any other engine's credentials |
 
 Controlled-home seeding is `hostCredentialSeed` + `copyCredentialFile` (writes
@@ -473,8 +473,11 @@ loops over them.
 | Backend | Image | Install fragment | Build validate gate | `overlayDirs` | `transcriptStoreRel` |
 |---|---|---|---|---|---|
 | `claude-code` | `ctxloom-agent:latest` | npm — no official image resolves | `claude --version` + `adapterRunGate` | `.claude`, `.ctxloom/cache` | `.claude/projects` |
-| `mock` | `ctxloom-agent:latest` | `mockInstallFragment` — installs no vendor CLI at all | `cat --version` | `mockOverlayDirs` | `""` (mock keeps no transcripts) |
-| **default arm** (unmapped engine) | `ctxloom-agent:latest` | none | none | `defaultOverlayDirs` | `.claude/projects` |
+| `mock` | `ctxloom-agent:latest` | asserts `cat` only — installs no vendor CLI at all | `cat --version` | `.mock`, `.ctxloom/cache` | `""` (mock keeps no transcripts) |
+| **fail-closed default** (an engine with no container declaration) | `ctxloom-agent:latest` | none | none | `.ctxloom/cache` only | `""` (no store is guessed) |
+
+Every row above is the engine's OWN declaration (`engine.Descriptor.Container`),
+pushed into `internal/lm/isolation` at registration; isolation keeps no table.
 
 The default arm's `resolveAuth` is `noContainerAuth`: an engine with no mapping
 gets **no credentials at all** and its containerized run aborts at

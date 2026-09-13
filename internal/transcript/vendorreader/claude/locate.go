@@ -9,15 +9,15 @@ import (
 
 	"github.com/spf13/afero"
 
+	claudecli "github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 )
 
-// StoreRel is claude-code's transcript store, relative to HOME.
-//
-// It matches isolation.ContainerTranscriptStoreRelFor("claude-code"), which
-// declares the same path for container mounts. Two spellings of one fact is a
-// drift risk; TestArch_ClaudeStoreRel_MatchesEngineSpec binds them.
-const StoreRel = ".claude/projects"
+// StoreRel is claude-code's transcript store, relative to HOME, in slash
+// form — built from the engine package's own constants, the same two the
+// descriptor joins for its container transcript mount, so there is one
+// spelling of the fact and nothing to bind.
+var StoreRel = claudecli.ConfigDirName + "/" + claudecli.TranscriptsDirName
 
 // Locator enumerates claude-code's own transcript store.
 type Locator struct {

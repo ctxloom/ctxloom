@@ -61,7 +61,7 @@ const (
 // spec's resolveAuth): the container gets the engine's scoped env passthrough
 // (claude: ANTHROPIC_* when ANTHROPIC_API_KEY is set) or the
 // engine's credentials bind-mounted into the fresh HOME (claude subscription
-// OAuth, read-WRITE — see claudeCredentialMountsAt). No resolvable auth →
+// OAuth, read-WRITE — see credentialFileMounts). No resolvable auth →
 // PrepareWorkspace errors → the caller degrades down the chain to None — a
 // fatal finding (ClassIsolation) the choke owner aborts on unless --degraded,
 // since the container was EXPLICITLY requested. The owner's run and every
@@ -760,7 +760,7 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	// resolveAuth, historically because a resolver could COPY a credential into
 	// it and mount that copy read-write. No resolver does that anymore — claude's
 	// token-refresh case bind-mounts the REAL host credential read-write
-	// (auth.go's claudeCredentialMountsAt), so the scratch dir it is handed goes
+	// (auth.go's credentialFileMounts), so the scratch dir it is handed goes
 	// unused there — but the root is still needed at this point for the socket
 	// dir carved out of it just below, so its creation stays here.
 	root, err := os.MkdirTemp(containerScratchBase(), "ctxloom-iso-")

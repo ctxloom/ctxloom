@@ -62,7 +62,7 @@ ctxloom container build [backend] [flags]
       --base-containerfile string     build the shared base stage from this Containerfile (your environment; the engine's agent stage layers on top) instead of an auto-detected devcontainer / the embedded default
       --base-image string             overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources
       --devcontainer-service string   docker-compose service to use as the base when the detected devcontainer.json declares dockerComposeFile
-      --engines strings               engines to build an agent image for, one image each (claude-code); empty = the configured backend
+      --engines strings               engines to build an agent image for, one image each (any engine that declares a container installer); empty = the configured backend
       --keep-cache                    reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)
       --no-devcontainer-base          do not auto-detect the project's .devcontainer/devcontainer.json as the base image
       --runtime string                container runtime to build with (docker|podman); auto-detected when empty

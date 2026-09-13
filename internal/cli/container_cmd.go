@@ -447,7 +447,7 @@ func init() {
 	containerBuildCmd.Flags().StringVar(&containerBuildDevcontainerService, "devcontainer-service", "",
 		"docker-compose service to use as the base when the detected devcontainer.json declares dockerComposeFile")
 	containerBuildCmd.Flags().StringSliceVar(&containerBuildEngines, "engines", nil,
-		"engines to build an agent image for, one image each ("+strings.Join(isolation.ComposableEngines(), ",")+"); empty = the configured backend")
+		"engines to build an agent image for, one image each (any engine that declares a container installer); empty = the configured backend")
 	containerBuildCmd.Flags().StringVar(&containerBuildRuntime, "runtime", "",
 		"container runtime to build with (docker|podman); auto-detected when empty")
 	containerBuildCmd.Flags().BoolVar(&containerBuildKeepCache, "keep-cache", false,

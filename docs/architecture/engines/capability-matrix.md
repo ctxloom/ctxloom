@@ -194,7 +194,7 @@ Full detail in [isolation](isolation.md). Summary:
 | Backend | Host + worktree lever | Container image | Container auth | Gap |
 |---|---|---|---|---|
 | `claude-code` | `CLAUDE_CONFIG_DIR` | `ctxloom-agent:latest` | `ANTHROPIC_*` env, else **RW copy-mount** of `~/.claude/.credentials.json` (RW because claude refreshes the token in place) | none |
-| the doubles | none needed — `config.BackendMock` is exempted by `backendsWithNoGlobalState` (`internal/lm/isolation/worktree.go`) as provably having no engine-global state; a double not named there draws the same `ClassIsolation` finding an unmapped engine would | `ctxloom-agent:latest`, installing no vendor CLI (`mockInstallFragment`) | `resolveMockContainerAuth` — the one resolver that never returns `ok=false` | none |
+| the doubles | none needed — mock's descriptor declares `Home` absent (a bare echo that never touches disk), a NAMED exemption; a double that declared nothing would be refused at registration | `ctxloom-agent:latest`, installing no vendor CLI (its descriptor's install fragment asserts `cat` only) | a `Vendorless` auth declaration — the one plan that never fails to resolve | none |
 
 `composableEngines()` (`internal/lm/isolation/enginespec.go`) names the engines
 with a container install fragment; an engine absent from

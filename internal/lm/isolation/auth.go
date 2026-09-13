@@ -5,7 +5,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // containerAuthMode names HOW a container run authenticates the engine, for
@@ -22,7 +23,7 @@ const (
 	// bind-mounted into the container's fresh HOME — read-only for engines whose
 	// non-interactive mode never refreshes, read-WRITE and
 	// pointed at the REAL host file for claude, whose token refresh must write
-	// back in place (see claudeCredentialMountsAt).
+	// back in place (see credentialFileMounts).
 	authCredentialMount
 )
 
@@ -41,8 +42,8 @@ func (m containerAuthMode) String() string {
 // containerAuth is the resolved plan for authenticating the engine INSIDE a
 // container: the scoped env vars to inject (env passthrough) and/or the
 // credential mounts to bind into the fresh HOME (subscription OAuth). Each engine
-// resolves its own plan behind the engineContainerSpec.resolveAuth seam (claude:
-// ANTHROPIC_* passthrough or ~/.claude mounts).
+// DECLARES its own plan (agent.ContainerAuth); resolveDeclaredAuth turns it
+// into this.
 //
 // The plan is DEPTH-BLIND, and that is a ruling (full credential parity at
 // every delegation depth, no trust gate), not an omission: the session owner
@@ -73,23 +74,8 @@ type containerAuth struct {
 	// here.
 	envPassthrough []string
 	// mounts are the credential mounts into the container HOME. Each engine's
-	// resolver sets the mode; claude's is read-WRITE (see claudeCredentialMountsAt).
+	// resolver sets the mode; claude's is read-WRITE (see credentialFileMounts).
 	mounts []Mount
-}
-
-// claudeAuthEnvVars is the SCOPED set of Anthropic auth/config vars a claude run
-// honors — the ONLY host env allowed to cross into the container for auth,
-// distinct from the handshake-only containerHandshakeEnv (which deliberately
-// DROPS ANTHROPIC_API_KEY). ANTHROPIC_API_KEY OR ANTHROPIC_AUTH_TOKEN presence is
-// the trigger (a gateway host authenticates with AUTH_TOKEN+BASE_URL and carries
-// no API key at all — see resolveClaudeContainerAuth); the rest cross only when
-// also set. NEVER logged.
-var claudeAuthEnvVars = []string{
-	"ANTHROPIC_API_KEY",
-	"ANTHROPIC_AUTH_TOKEN",
-	"ANTHROPIC_BASE_URL",
-	"ANTHROPIC_MODEL",
-	"ANTHROPIC_SMALL_FAST_MODEL",
 }
 
 // hostHomeDir is the seam over the host user's home directory (source of the
@@ -120,81 +106,40 @@ func resolveEnvOrMountAuth(triggers []string, envVars []string, mountFn func() (
 	return containerAuth{mode: authNone}, false
 }
 
-// noContainerAuth is the resolveAuth for a backend with NO registered
-// container-auth spec at all: it always returns ok=false, so an
+// noContainerAuth is the resolveAuth for a backend with NO declared
+// container-auth plan at all: it always returns ok=false, so an
 // unrecognized/unmapped engine's containerized run degrades honestly
 // (a fatal ClassIsolation finding down the isolation chain, same as any other
-// unresolvable auth) instead of silently inheriting the DEFAULT spec's
-// resolveClaudeContainerAuth and mounting the user's Anthropic credentials
-// into a foreign engine's container. Every backend that SHOULD authenticate
-// must set its own explicit resolveAuth in engineContainerSpecFor.
+// unresolvable auth) instead of silently inheriting another engine's
+// credentials into a foreign engine's container. Every backend that SHOULD
+// authenticate declares its own plan (engine.Descriptor.Container.Auth).
 func noContainerAuth(_ string, _ string) (containerAuth, bool) {
 	return containerAuth{mode: authNone}, false
 }
 
-// resolveClaudeContainerAuth builds the auth plan for a containerized claude run
-// whose fresh HOME is containerHome. It PREFERS env passthrough (an
-// ANTHROPIC_API_KEY OR ANTHROPIC_AUTH_TOKEN in the host env — the latter covers a
-// gateway host that authenticates via BASE_URL+AUTH_TOKEN and carries no API key)
-// and otherwise falls back to BIND-MOUNTING the host's REAL subscription OAuth
-// credential read-write into the container HOME (see claudeCredentialMountsAt —
-// the container's token refresh writes back into the one real file so nothing
-// desyncs the host's single-use rotating token). It returns ok=false only when
-// NEITHER is available, so the caller errors and degrades down the chain to None
-// rather than launching an unauthenticated engine that would hang or fail — a
-// fatal finding (ClassIsolation) the choke owner aborts on unless --degraded,
-// since the container was EXPLICITLY requested.
+// resolveDeclaredAuth builds the auth plan a containerized run of an engine
+// gets from the engine's OWN declaration (agent.ContainerAuth), whose fresh
+// HOME is containerHome. It PREFERS env passthrough (any declared trigger set
+// in the host env) and otherwise falls back to BIND-MOUNTING the declared
+// host credential files into the container HOME. It returns ok=false only
+// when NEITHER is available, so the caller errors and degrades down the chain
+// to None rather than launching an unauthenticated engine that would hang or
+// fail — a fatal finding (ClassIsolation) the choke owner aborts on unless
+// --degraded, since the container was EXPLICITLY requested.
 //
-// The second parameter (the run's host-side scratch dir) is unused: the claude
-// credential is now the real host file, not a staged copy, so nothing is written
-// under scratch here. It is retained only to satisfy the shared resolveAuth seam
-// signature (engineContainerSpec.resolveAuth).
-func resolveClaudeContainerAuth(containerHome, _ string) (containerAuth, bool) {
-	return resolveEnvOrMountAuth(
-		[]string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
-		claudeAuthEnvVars,
-		func() ([]Mount, bool) { return claudeCredentialMountsAt(path.Join(containerHome, ".claude")) },
-	)
-}
-
-// claudeContainerAuthHint is the claude spec's degrade diagnostic —
-// platform-aware because the fallback credential path differs by OS. On
-// darwin, a subscription login keeps its OAuth token in the macOS Keychain,
-// NOT ~/.claude/.credentials.json — that file does not exist there, so naming
-// it (the non-darwin hint below) is unfollowable advice. Extracting the
-// Keychain token into a per-run scratch file is a real fix but needs a real
-// Mac to verify (task sudsy-sip, a separate follow-up); until it lands, the
-// only WORKING container auth on darwin is ANTHROPIC_API_KEY (or
-// ANTHROPIC_AUTH_TOKEN), so the darwin hint names that instead of the file.
-func claudeContainerAuthHint() string {
-	if runtime.GOOS == "darwin" {
-		return "no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN to authenticate the in-container engine (a macOS Keychain-held subscription login cannot be mounted — set ANTHROPIC_API_KEY for a containerized run on Mac)"
+// A VENDORLESS declaration (a double that authenticates against nothing)
+// resolves unconditionally to the empty plan: a POSITIVE fact the engine
+// states about itself and agent.ContainerAuth.Validate holds exclusive of
+// every other field — never the shape a real engine's plan may take.
+func resolveDeclaredAuth(a agent.ContainerAuth, containerHome string) (containerAuth, bool) {
+	if a.Vendorless != "" {
+		return containerAuth{mode: authNone}, true
 	}
-	return "no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN and no ~/.claude credentials to authenticate the in-container engine"
-}
-
-// resolveMockContainerAuth builds the (trivial) auth plan for a containerized
-// mock run: mock authenticates against NO vendor at all. internal/lm/backends'
-// Mock is compiled directly into ctxloom and calls no external AI service (see
-// backends/mock.go's package doc — it echoes fragments/context back and writes
-// a record file); there is no API key, OAuth token, or credential file it could
-// ever need. ok is therefore unconditionally true, and the plan is the
-// unconditional zero value (authNone, no env, no mounts).
-//
-// This is deliberately NOT the same shape as noContainerAuth's
-// ok=false: that default exists because an UNPROFILED engine's auth needs are
-// UNKNOWN, and failing closed is the only safe answer until someone writes a
-// real resolver for it (see that function's own doc). mock's needs are not
-// unknown — they are KNOWN, and verified by reading its implementation, to be
-// zero: a POSITIVE fact about this one backend, not an absence of policy.
-// Every real engine resolver in this file returns ok=false on SOME path
-// (missing env var, missing credential file); this is the only one that never
-// does, and that is correct ONLY because mock has no vendor to authenticate
-// against. Nothing about this function generalizes to a real engine — a
-// resolver for a real engine that "resolved" no credentials MUST return
-// ok=false (see every resolver above), never copy this shape.
-func resolveMockContainerAuth(_ string, _ string) (containerAuth, bool) {
-	return containerAuth{mode: authNone}, true
+	var mountFn func() ([]Mount, bool)
+	if len(a.CredentialFiles) > 0 {
+		mountFn = func() ([]Mount, bool) { return credentialFileMounts(a.CredentialFiles, containerHome) }
+	}
+	return resolveEnvOrMountAuth(a.EnvTriggers, a.EnvPassthrough, mountFn)
 }
 
 // presentEnvKeys returns the subset of keys that getenv reports as set
@@ -215,58 +160,48 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 	return out
 }
 
-// claudeCredentialMountsAt builds the READ-WRITE credential mount that
-// authenticates a subscription (OAuth) claude inside the container: the host's
-// REAL ~/.claude/.credentials.json is bind-mounted DIRECTLY into dir — the
-// container's own $HOME/.claude, or a RELOCATED engine home (MountEngineHome,
-// where the file lands OVER the access-token-only copy seeded into the
-// instance, so the engine keeps a credential it can refresh) — read-write,
-// with NO intervening copy.
+// credentialFileMounts builds the bind mounts that put an engine's declared
+// host credential FILES into the container HOME: each is the REAL host file,
+// mounted DIRECTLY with NO intervening copy, at the mode the engine declared.
 //
-// This deliberately REVERSES the earlier copy-then-mount design for the
-// container axis (RULED). claude refreshes its OAuth token in place,
-// and that refresh token is SINGLE-USE and ROTATING: any COPY of the credential
-// that refreshes mints a new token and INVALIDATES every other holder —
-// including the host's own login. A read-write copy kept the refresh off the
-// host file, but the container's refresh then rotated a token the host still
-// believed current, silently logging the host out mid-session. Mounting the ONE
-// real file means the container's refresh lands in the single source of truth:
-// host and container share the same rotating token, nothing desyncs, and the
-// host stays valid. The container therefore KEEPS refresh (no re-launch at
-// expiry) — deliberately UNLIKE the host+worktree axes, which copy an
+// The no-copy shape is RULED, and the reason is claude's: it refreshes its
+// OAuth token in place, and that refresh token is SINGLE-USE and ROTATING —
+// any COPY that refreshes mints a new token and INVALIDATES every other
+// holder, including the host's own login. Mounting the ONE real file means the
+// container's refresh lands in the single source of truth. An engine whose
+// non-interactive mode never refreshes declares its file ReadOnly instead.
+// This is deliberately UNLIKE the host+worktree axes, which copy an
 // ACCESS-TOKEN-ONLY credential (refresh stripped, see hostCredentialSeed and
 // copyCredentialFile's projector) precisely because a copy THERE could rotate
-// the host's single-use token. See docs/architecture/engines/isolation.md for
-// the full three-axis model.
+// the host's single-use token. See docs/architecture/engines/isolation.md.
 //
-// The ctxloom-never-writes-real-home invariant HOLDS: ctxloom only DECLARES the
-// bind mount; claude-the-binary writes the credential THROUGH it, exactly as it
-// writes ~/.claude/.credentials.json on a non-containerized run. ctxloom itself
-// never opens the real credential for writing.
+// The ctxloom-never-writes-real-home invariant HOLDS: ctxloom only DECLARES
+// the bind mount; the engine binary writes through it exactly as it writes
+// its own home on a non-containerized run.
 //
-// Only ~/.claude/.credentials.json ever crosses — never ~/.claude.json, which
-// on a real host is claude's WHOLE top-level config including the user's OWN
-// mcpServers registrations (and whatever secrets those carry); mounting it would
-// hand every isolated agent read access to the user's personal integrations, a
-// confidentiality leak, and .credentials.json alone is live-verified sufficient
-// to authenticate (claude's descriptor says why on its Home declaration). Returns
-// ok=false when the host OAuth token file is absent (nothing to mount). dir
-// is a CONTAINER path, so the target is joined with forward slashes whatever
-// the host's separator.
-func claudeCredentialMountsAt(dir string) ([]Mount, bool) {
+// Only the files the engine LISTS ever cross — an allow-list, never a
+// deny-list; claude's descriptor says why it lists .credentials.json and not
+// .claude.json. ok=false when any listed host file is absent (a bind mount of
+// a missing file would create a directory in its place). ContainerRelHome is
+// a CONTAINER path, joined with forward slashes whatever the host separator.
+func credentialFileMounts(files []agent.CredentialFile, containerHome string) ([]Mount, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		return nil, false
 	}
-	creds := filepath.Join(home, ".claude", ".credentials.json")
-	if !fileExists(creds) {
-		return nil, false
+	mounts := make([]Mount, 0, len(files))
+	for _, f := range files {
+		host := filepath.Join(home, filepath.FromSlash(f.HostRelHome))
+		if !fileExists(host) {
+			return nil, false
+		}
+		mounts = append(mounts, Mount{
+			Host:      host,
+			Container: path.Join(containerHome, f.ContainerRelHome),
+			ReadOnly:  f.ReadOnly,
+		})
 	}
-	return []Mount{{
-		Host:      creds,
-		Container: path.Join(dir, ".credentials.json"),
-		ReadOnly:  false,
-	}}, true
+	return mounts, true
 }
 
 // fileExists reports whether path is an existing regular file (not a directory).

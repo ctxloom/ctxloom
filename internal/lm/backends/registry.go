@@ -92,11 +92,13 @@ func Register(descs ...engine.Descriptor) error {
 		// handed a backend name, never an engine value) and cannot import the
 		// engine packages, so this is the only direction the wiring can run.
 		//
-		// The credential seed is pushed for EVERY descriptor, absent ones
-		// included: isolation's roster is then the registry by construction,
-		// and an engine with nothing to seed is a declaration it can read
-		// back, not a lookup miss.
+		// The credential seed and the container story are pushed for EVERY
+		// descriptor, absent ones included: isolation's rosters are then the
+		// registry by construction, and an engine with nothing to seed or no
+		// container story is a declaration it can read back, not a lookup
+		// miss.
 		isolation.RegisterCredentialSeed(d.Name, credentialSeedOf(&d))
+		isolation.RegisterEngineContainer(d.Name, d.Container, d.Distribution)
 		if w, ok := d.InstanceConfig.Get(); ok {
 			isolation.RegisterInstanceConfigWriter(d.Name, w(agent.SettingsOptions{}))
 		}

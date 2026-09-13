@@ -280,6 +280,7 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 		baseCleanup: baseCleanup,
 		runtime:     c.runtime,
 		home:        c.home,
+		engineSpec:  c.engineSpec,
 	}, nil
 }
 
@@ -1102,6 +1103,10 @@ type containerWorkspace struct {
 	// home is the container's own $HOME (Container.home), the root every
 	// in-container engine-home target hangs under (containerEngineHome).
 	home string
+	// engineSpec is the engine's container spec (Container.engineSpec),
+	// consulted after Mount for the credential a relocated engine home needs
+	// mounted over its seeded copy (MountEngineHome).
+	engineSpec engineContainerSpec
 }
 
 // containerEngineHome is the runtime advice a container workspace hands the

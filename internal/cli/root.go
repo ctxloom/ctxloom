@@ -208,6 +208,20 @@ func rootCommand() *cobra.Command {
 		installHelpFlag(rootCmd)
 		disableHelpCommand(rootCmd)
 
+		// Compose the registry HERE as well as in Run(). Register is idempotent
+		// (sync.Once), and Run() still reports its error — but a path that only
+		// DOCUMENTS the CLI (scripts/gendocs via GetRootCmd) never reaches Run(),
+		// so without this the generated reference renders every engine list
+		// empty while the shipped binary renders it correctly. This function's
+		// own contract is that every path which dispatches OR documents the CLI
+		// comes through here, which makes it the one place that cannot diverge.
+		_ = engines.Register()
+
+		// The help that NAMES the registered engines is filled in after that,
+		// for the same reason version.Version is read here: registration is
+		// explicit, and it happens after every package init() has fired.
+		applyEngineNamedHelp()
+
 		// version.Version is read HERE and not in init() because a TEST binary
 		// receives its stamp from TestMain (testsupport.StampTestBinary), which
 		// runs after every package init() has already fired. First assembly is

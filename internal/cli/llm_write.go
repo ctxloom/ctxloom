@@ -29,7 +29,14 @@ var (
 
 // llmWriteLong is the shared body for `llm create`/`llm edit`: the fields an
 // entry carries are identical either way.
-var llmWriteLong = `--type is the backend discriminator (` + userEngineNames() + `);
+//
+// It is a FUNCTION, not a package var, and that is load-bearing. It names the
+// REGISTERED engines, and registration is explicit rather than init-time — the
+// composition root runs in Run(), after every package var has already been
+// evaluated. A var here freezes the engine list at init, when the registry is
+// still empty, and the help ships reading "the backend discriminator ()".
+func llmWriteLong() string {
+	return `--type is the backend discriminator (` + userEngineNames() + `);
 omit it to keep claude-code's default. --model sets the model string. --permissions
 sets the launch-time posture (default|acceptEdits|plan|bypass).
 
@@ -43,43 +50,22 @@ straight to your PER-MACHINE user config (~/.ctxloom/config.yaml, never a
 committed project file — llm.configs.*.env is machine-scoped by design).
 'llm list' and this command's own confirmation report only which keys are
 declared, never their values.`
+}
 
 var llmCreateCmd = &cobra.Command{
 	Use:   "create <label>",
 	Short: "Create a new LLM engine config",
-	Long: `Create a NEW labeled LLM engine config under the 'llm.configs' key of
-.ctxloom/config.yaml. Refuses a label that already names a config entry OR a
-registered backend (` + userEngineNames() + `) — change an
-existing one with 'ctxloom llm edit'.
-
-` + llmWriteLong + `
-
-Examples:
-  ctxloom llm create big --type claude-code --model claude-opus-4-8
-  ctxloom llm create fast --type claude-code --permissions bypass`,
-	Args: cobra.ExactArgs(1),
-	RunE: runLLMCreate,
+	Long:  "", // set by applyLLMWriteHelp, after the registry is composed
+	Args:  cobra.ExactArgs(1),
+	RunE:  runLLMCreate,
 }
 
 var llmEditCmd = &cobra.Command{
 	Use:   "edit <label>",
 	Short: "Edit an existing LLM engine config",
-	Long: `Change an EXISTING labeled LLM engine config. Refuses a label neither
-config.yaml nor a registered backend defines — create one with 'ctxloom llm
-create'. A registered backend name with no config.yaml entry yet (e.g.
-"claude-code") may still be edited: that is how you turn a built-in into an
-explicit entry.
-
-Only the flags you pass are applied; every unnamed field keeps its current
-value.
-
-` + llmWriteLong + `
-
-Examples:
-  ctxloom llm edit big --model o1-pro
-  ctxloom llm edit big --env-file secrets.env`,
-	Args: cobra.ExactArgs(1),
-	RunE: runLLMEdit,
+	Long:  "", // set by applyLLMWriteHelp, after the registry is composed
+	Args:  cobra.ExactArgs(1),
+	RunE:  runLLMEdit,
 }
 
 func runLLMCreate(cmd *cobra.Command, args []string) error { return writeLLM(cmd, args[0], false) }
@@ -246,7 +232,7 @@ func init() {
 // registerLLMWriteFlags binds the entry-axis flags to cmd (shared by `llm
 // create` and `llm edit`).
 func registerLLMWriteFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&llmSetType, "type", "", "backend discriminator: "+userEngineNames()+" (empty = claude-code)")
+	cmd.Flags().StringVar(&llmSetType, "type", "", "backend discriminator (empty = claude-code)")
 	cmd.Flags().StringVar(&llmSetModel, "model", "", "model string")
 	cmd.Flags().StringVar(&llmSetPermissions, "permissions", "", "permission posture: default|acceptEdits|plan|bypass")
 	cmd.Flags().StringVar(&llmSetEnvFile, "env-file", "", "read KEY=VALUE env/credential lines from this file ('-' for stdin); REPLACES the entry's whole env block")
@@ -254,4 +240,48 @@ func registerLLMWriteFlags(cmd *cobra.Command) {
 		return backends.List(), cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = cmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
+}
+
+// applyEngineNamedHelp fills in every piece of help that names the registered
+// engines — `llm create`/`llm edit`, and `init --engine`. It must run AFTER the composition root has
+// registered them, which is why none of this is a package var or an init():
+// package vars and init() both run before Run() composes the registry, so the
+// engine list would be empty and the help would ship saying so. rootCommand()
+// is the one place that is reached only after registration.
+func applyEngineNamedHelp() {
+	engines := userEngineNames()
+	llmCreateCmd.Long = `Create a NEW labeled LLM engine config under the 'llm.configs' key of
+.ctxloom/config.yaml. Refuses a label that already names a config entry OR a
+registered backend (` + engines + `) — change an
+existing one with 'ctxloom llm edit'.
+
+` + llmWriteLong() + `
+
+Examples:
+  ctxloom llm create big --type claude-code --model claude-opus-4-8
+  ctxloom llm create fast --type claude-code --permissions bypass`
+
+	llmEditCmd.Long = `Change an EXISTING labeled LLM engine config. Refuses a label neither
+config.yaml nor a registered backend defines — create one with 'ctxloom llm
+create'. A registered backend name with no config.yaml entry yet (e.g.
+"claude-code") may still be edited: that is how you turn a built-in into an
+explicit entry.
+
+Only the flags you pass are applied; every unnamed field keeps its current
+value.
+
+` + llmWriteLong() + `
+
+Examples:
+  ctxloom llm edit big --model o1-pro
+  ctxloom llm edit big --env-file secrets.env`
+
+	for _, c := range []*cobra.Command{llmCreateCmd, llmEditCmd} {
+		if f := c.Flags().Lookup("type"); f != nil {
+			f.Usage = "backend discriminator: " + engines + " (empty = claude-code)"
+		}
+	}
+	if f := initCmd.Flags().Lookup("engine"); f != nil {
+		f.Usage = "Pre-select AI engine (" + engines + ")"
+	}
 }

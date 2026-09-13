@@ -106,7 +106,9 @@ func init() {
 	initCmd.Flags().BoolVar(&initHome, "home", false, "Initialize in user home directory instead of current directory")
 	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults and flags)")
 	initCmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
-	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine ("+userEngineNames()+")")
+	// Usage is completed by applyEngineNamedHelp once the registry is composed;
+	// init() runs before that, when the engine list is still empty.
+	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine")
 	initCmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a trusted remote — its bundle changes apply without review (owner/repo or URL); repeatable")
 	initCmd.Flags().BoolVar(&initNoPull, "no-pull", false, "Skip the dependency pull init ends with; declared dependencies stay uninstalled until 'ctxloom deps pull' runs")
 	initCmd.Flags().StringVar(&initForge, "forge", "", "Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host")

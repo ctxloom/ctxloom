@@ -52,4 +52,4 @@ TestAcceptanceMutation/signer_store          138        83  stale
 TestAcceptanceMutation/isolation_axes         43        31  recorded
 TestAcceptanceMutation/remote_registry         -         -  unknown
 TestTrustCascadeGuardMutation                  -         -  unknown
-TestPackageMutation/isolation                  -         -  unknown
+TestPackageMutation/isolation                761       110  measured

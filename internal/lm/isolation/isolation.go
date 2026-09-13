@@ -312,32 +312,60 @@ func WorkspaceEnv(ws Workspace) map[string]string {
 	return nil
 }
 
-// RuntimeAdvice is the runtime axis's half of an engine-home presentation
-// (present.PathsAdvice): how a root's ENGINE side is rewritten for the
-// environment the engine process actually runs in. A host-executing workspace
-// (none, worktree) is the identity — the engine opens the host path itself. A
-// container workspace names the in-container target for each root and
-// records the mount that makes it true; the caller hands that mount back
-// through MountEngineHome. It never decides WHETHER a run has a home, only
-// where the engine is told it is.
-func RuntimeAdvice(ws Workspace) present.PathsAdvice {
+// ContainerInstanceHome is the runtime axis's half of an engine-home
+// presentation: the FIXED in-container root a relocated engine home is
+// mounted under, for a workspace whose engine runs in a container — or ""
+// for a host-executing workspace (none, worktree), where the engine opens the
+// host path itself and nothing is mounted. The resolver
+// (operations.ResolveInTreeAgentHome) hangs the engine's DECLARED leaf under
+// it and hands the resulting mount back through MountEngineHome. It never
+// decides WHETHER a run has a home, only where the engine is told it is.
+func ContainerInstanceHome(ws Workspace) string {
 	if cw, ok := ws.(*containerWorkspace); ok {
-		return containerEngineHome{home: cw.home}
+		return cw.instanceHome
 	}
-	return present.Host{}
+	return ""
 }
 
-// MountEngineHome records the bind mount a resolved engine home needs inside
+// MountEngineHome records the bind mounts a resolved engine home needs inside
 // a container workspace, so the launch that follows binds Root.Host at
 // Root.Engine. It is an error on a workspace that executes on the host: such
-// a workspace's RuntimeAdvice is the identity and never yields a mount, so
-// reaching here with one means the advice and the workspace disagree.
+// a workspace has no ContainerInstanceHome and the resolver never yields a
+// mount for it, so reaching here with one means the two disagree.
+//
+// TWO mounts, not one, when the run authenticates by credential mount. The
+// directory mount hands the engine its relocated home — and the copy seeded
+// into it, which is ACCESS-TOKEN-ONLY by design (a copy that could refresh
+// would rotate the host's single-use token). Once its home var relocates, the
+// engine no longer reads the real credential bind-mounted into the
+// container's own $HOME, so on that copy alone a long run dies at expiry.
+// RULED: the engine's real host credential FILE is bind-mounted read-write
+// OVER the seeded copy, at the engine-side home, so the container's refresh
+// lands in the one real file exactly as it does for an unrelocated home. The
+// file only — the confidentiality line the seed draws (never ~/.claude.json)
+// is drawn here too, by the engine's relocatedCredentialMounts. Auth that
+// rides the environment needs no file and gets none; an engine with no
+// relocatable credential has nothing to overlay.
+//
+// The real file vanishing between auth resolution and this call must not turn
+// a working run into a broken one: the home still mounts, the run
+// authenticates from the seeded copy, and the lost refresh is said out loud
+// instead of discovered at expiry.
 func MountEngineHome(ws Workspace, m present.Mount) error {
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
 		return fmt.Errorf("engine home mount %s -> %s: workspace %T executes on the host and cannot mount", m.HostDir, m.TargetDir, ws)
 	}
 	cw.extraMounts = append(cw.extraMounts, cw.runtime.Expose(m.HostDir, m.TargetDir, false))
+	if cw.authMode != authCredentialMount || cw.engineSpec.relocatedCredentialMounts == nil {
+		return nil
+	}
+	creds, ok := cw.engineSpec.relocatedCredentialMounts(m.TargetDir)
+	if !ok {
+		clidiag.Warn("ctxloom", "container engine home %s: the host credential file (.credentials.json) resolved at launch is no longer there to mount over the seeded copy; this run authenticates from the copy and cannot refresh its token in place", m.TargetDir)
+		return nil
+	}
+	cw.extraMounts = append(cw.extraMounts, creds...)
 	return nil
 }
 

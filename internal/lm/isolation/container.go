@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -18,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/git"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -33,6 +31,14 @@ import (
 const (
 	defaultContainerImage  = "ctxloom-agent:latest"
 	defaultContainerBinary = "/usr/local/bin/ctxloom"
+	// defaultContainerInstanceHome is the FIXED, well-known in-container root
+	// every RELOCATED engine home (config_home: project) hangs under, at the
+	// leaf the engine declares (agent.HomeVar.Subdir): <root>/<leaf>. A
+	// container cell runs exactly one engine on a filesystem ctxloom owns, so
+	// there is nothing to negotiate about where the home lives, and nothing
+	// to compute from $HOME — the mount is what matters. Overridable per
+	// policy through Container.WithInstanceHome.
+	defaultContainerInstanceHome = "/ctxloom/home"
 	// defaultContainerHome is the ctxloom user's home baked into the agent
 	// images (the entrypoint remaps that user to the launching uid/gid and
 	// hands it this home). Auth credential mounts land under it.
@@ -55,7 +61,7 @@ const (
 // spec's resolveAuth): the container gets the engine's scoped env passthrough
 // (claude: ANTHROPIC_* when ANTHROPIC_API_KEY is set) or the
 // engine's credentials bind-mounted into the fresh HOME (claude subscription
-// OAuth, read-WRITE — see claudeCredentialMounts). No resolvable auth →
+// OAuth, read-WRITE — see claudeCredentialMountsAt). No resolvable auth →
 // PrepareWorkspace errors → the caller degrades down the chain to None — a
 // fatal finding (ClassIsolation) the choke owner aborts on unless --degraded,
 // since the container was EXPLICITLY requested. The owner's run and every
@@ -86,7 +92,10 @@ type Container struct {
 	engineSpec engineContainerSpec // backend-keyed knobs: auth, overlays, local-build recipe
 	binaryPath string              // the container's ctxloom path (runs `llm serve <backend>`)
 	home       string              // fresh $HOME inside the container
-	socketDir  string              // fixed in-container unix-socket dir (bind-mount target)
+	// instanceHome is the fixed in-container root a RELOCATED engine home is
+	// mounted under (defaultContainerInstanceHome; WithInstanceHome overrides).
+	instanceHome string
+	socketDir    string // fixed in-container unix-socket dir (bind-mount target)
 	// baseContainerfile is the user-provided base Containerfile a local build
 	// layers the agent stage onto (config isolation_base_containerfile;
 	// "" = the embedded default base). Beats devcontainer auto-detection
@@ -145,15 +154,24 @@ var _ Policy = Container{}
 func NewContainerFor(rt Runtime, backend string) Container {
 	p := engineContainerSpecFor(backend)
 	return Container{
-		runtime:    rt,
-		base:       hostBase{},
-		image:      p.image,
-		engine:     backend,
-		engineSpec: p,
-		binaryPath: defaultContainerBinary,
-		home:       defaultContainerHome,
-		socketDir:  defaultContainerSocketDir,
+		runtime:      rt,
+		base:         hostBase{},
+		image:        p.image,
+		engine:       backend,
+		engineSpec:   p,
+		binaryPath:   defaultContainerBinary,
+		home:         defaultContainerHome,
+		instanceHome: defaultContainerInstanceHome,
+		socketDir:    defaultContainerSocketDir,
 	}
+}
+
+// WithInstanceHome overrides the fixed in-container root a relocated engine
+// home is mounted under (defaultContainerInstanceHome) — for an image whose
+// filesystem cannot host the default, and for a test that pins its own.
+func (c Container) WithInstanceHome(root string) Container {
+	c.instanceHome = root
+	return c
 }
 
 // containerFor builds the backend's container policy with the user's image
@@ -268,18 +286,19 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 		return nil, err
 	}
 	return &containerWorkspace{
-		dir:         dir,
-		projectDir:  projectDir,
-		scratchRoot: sc.root,
-		socketDir:   sc.socketDir,
-		authMounts:  sc.auth.mounts,
-		stateMounts: sc.stateMounts,
-		scratchEnv:  sc.runEnv(),
-		authMode:    sc.auth.mode,
-		agentID:     agentID,
-		baseCleanup: baseCleanup,
-		runtime:     c.runtime,
-		home:        c.home,
+		dir:          dir,
+		projectDir:   projectDir,
+		scratchRoot:  sc.root,
+		socketDir:    sc.socketDir,
+		authMounts:   sc.auth.mounts,
+		stateMounts:  sc.stateMounts,
+		scratchEnv:   sc.runEnv(),
+		authMode:     sc.auth.mode,
+		agentID:      agentID,
+		baseCleanup:  baseCleanup,
+		runtime:      c.runtime,
+		instanceHome: c.instanceHome,
+		engineSpec:   c.engineSpec,
 	}, nil
 }
 
@@ -741,7 +760,7 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	// resolveAuth, historically because a resolver could COPY a credential into
 	// it and mount that copy read-write. No resolver does that anymore — claude's
 	// token-refresh case bind-mounts the REAL host credential read-write
-	// (auth.go's claudeCredentialMounts), so the scratch dir it is handed goes
+	// (auth.go's claudeCredentialMountsAt), so the scratch dir it is handed goes
 	// unused there — but the root is still needed at this point for the socket
 	// dir carved out of it just below, so its creation stays here.
 	root, err := os.MkdirTemp(containerScratchBase(), "ctxloom-iso-")
@@ -1099,35 +1118,14 @@ type containerWorkspace struct {
 	// same way Mount rendered its own — through the runtime's Expose, so a
 	// path-mapping runtime maps it too.
 	runtime Runtime
-	// home is the container's own $HOME (Container.home), the root every
-	// in-container engine-home target hangs under (containerEngineHome).
-	home string
-}
-
-// containerEngineHome is the runtime advice a container workspace hands the
-// engine-home resolver (RuntimeAdvice): the home's bytes stay where the host
-// put them, the engine is told a path under the container's own $HOME —
-// <home>/<paths.AppDirName>/<paths.SessionHomeDirName>/<leaf>, the same
-// leaf-under-home shape the host instance has — and the mount that makes it
-// true is recorded for MountEngineHome. The leaf is the host root's own last
-// element, because the leaf name is load-bearing for an engine that composes
-// its home path itself (agent.HomeVar) and the resolver already chose it.
-//
-// Only the engine home gets a target of its own. Every other root
-// present.Containerize is asked about is left at its identical path, which is
-// how a container already sees the project dir (the identical-path cwd
-// mount) — a root this advice is never handed contributes nothing.
-type containerEngineHome struct{ home string }
-
-var _ present.PathsAdvice = containerEngineHome{}
-
-// ApplyPaths implements present.PathsAdvice.
-func (a containerEngineHome) ApplyPaths(p present.Paths) (present.Paths, []present.Mount) {
-	c := present.Containerize{}
-	if p.EngineHome.Host != "" {
-		c.EngineHome = path.Join(a.home, paths.AppDirName, paths.SessionHomeDirName, filepath.Base(p.EngineHome.Host))
-	}
-	return c.ApplyPaths(p)
+	// instanceHome is the fixed in-container root a relocated engine home is
+	// mounted under (Container.instanceHome) — what ContainerInstanceHome
+	// hands the resolver.
+	instanceHome string
+	// engineSpec is the engine's container spec (Container.engineSpec),
+	// consulted after Mount for the credential a relocated engine home needs
+	// mounted over its seeded copy (MountEngineHome).
+	engineSpec engineContainerSpec
 }
 
 // Dir returns the identical-path cwd (the container mounts it there so cwd + .git

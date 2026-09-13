@@ -3,6 +3,7 @@ package isolation
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 )
@@ -21,7 +22,7 @@ const (
 	// bind-mounted into the container's fresh HOME — read-only for engines whose
 	// non-interactive mode never refreshes, read-WRITE and
 	// pointed at the REAL host file for claude, whose token refresh must write
-	// back in place (see claudeCredentialMounts).
+	// back in place (see claudeCredentialMountsAt).
 	authCredentialMount
 )
 
@@ -72,7 +73,7 @@ type containerAuth struct {
 	// here.
 	envPassthrough []string
 	// mounts are the credential mounts into the container HOME. Each engine's
-	// resolver sets the mode; claude's is read-WRITE (see claudeCredentialMounts).
+	// resolver sets the mode; claude's is read-WRITE (see claudeCredentialMountsAt).
 	mounts []Mount
 }
 
@@ -136,7 +137,7 @@ func noContainerAuth(_ string, _ string) (containerAuth, bool) {
 // ANTHROPIC_API_KEY OR ANTHROPIC_AUTH_TOKEN in the host env — the latter covers a
 // gateway host that authenticates via BASE_URL+AUTH_TOKEN and carries no API key)
 // and otherwise falls back to BIND-MOUNTING the host's REAL subscription OAuth
-// credential read-write into the container HOME (see claudeCredentialMounts —
+// credential read-write into the container HOME (see claudeCredentialMountsAt —
 // the container's token refresh writes back into the one real file so nothing
 // desyncs the host's single-use rotating token). It returns ok=false only when
 // NEITHER is available, so the caller errors and degrades down the chain to None
@@ -152,7 +153,7 @@ func resolveClaudeContainerAuth(containerHome, _ string) (containerAuth, bool) {
 	return resolveEnvOrMountAuth(
 		[]string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
 		claudeAuthEnvVars,
-		func() ([]Mount, bool) { return claudeCredentialMounts(containerHome) },
+		func() ([]Mount, bool) { return claudeCredentialMountsAt(path.Join(containerHome, ".claude")) },
 	)
 }
 
@@ -214,10 +215,13 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 	return out
 }
 
-// claudeCredentialMounts builds the READ-WRITE credential mount that
+// claudeCredentialMountsAt builds the READ-WRITE credential mount that
 // authenticates a subscription (OAuth) claude inside the container: the host's
-// REAL ~/.claude/.credentials.json is bind-mounted DIRECTLY into containerHome,
-// read-write, with NO intervening copy.
+// REAL ~/.claude/.credentials.json is bind-mounted DIRECTLY into dir — the
+// container's own $HOME/.claude, or a RELOCATED engine home (MountEngineHome,
+// where the file lands OVER the access-token-only copy seeded into the
+// instance, so the engine keeps a credential it can refresh) — read-write,
+// with NO intervening copy.
 //
 // This deliberately REVERSES the earlier copy-then-mount design for the
 // container axis (RULED). claude refreshes its OAuth token in place,
@@ -246,8 +250,10 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 // hand every isolated agent read access to the user's personal integrations, a
 // confidentiality leak, and .credentials.json alone is live-verified sufficient
 // to authenticate (claude's descriptor says why on its Home declaration). Returns
-// ok=false when the host OAuth token file is absent (nothing to mount).
-func claudeCredentialMounts(containerHome string) ([]Mount, bool) {
+// ok=false when the host OAuth token file is absent (nothing to mount). dir
+// is a CONTAINER path, so the target is joined with forward slashes whatever
+// the host's separator.
+func claudeCredentialMountsAt(dir string) ([]Mount, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		return nil, false
@@ -258,7 +264,7 @@ func claudeCredentialMounts(containerHome string) ([]Mount, bool) {
 	}
 	return []Mount{{
 		Host:      creds,
-		Container: filepath.Join(containerHome, ".claude", ".credentials.json"),
+		Container: path.Join(dir, ".credentials.json"),
 		ReadOnly:  false,
 	}}, true
 }

@@ -645,7 +645,7 @@ below, and deliberately does not on the one axis where the home is yours:
 
 | Binding | Home | Lifetime | Answer generated? |
 |------|------|----------|-------------------|
-| `config_home: project`, any cell | `<WorkDir>/.ctxloom/state/<harp>/home/<engine leaf>` (mounted into a container at `<container $HOME>/.ctxloom/home/<engine leaf>`) | one session | yes — naming the directory the engine actually runs in (a worktree's checkout, not the project root) |
+| `config_home: project`, any cell | `<WorkDir>/.ctxloom/state/<harp>/home/<engine leaf>` (mounted into a container at `/ctxloom/home/<engine leaf>`) | one session | yes — naming the directory the engine actually runs in (a worktree's checkout, not the project root) |
 | undeclared / `host` / no binding, container cell | the container's own fresh `$HOME` | one run | **no** — the container receives only the credential mount, no generated config |
 | undeclared / `host` / no binding, host cell | your real engine home | yours, durable | **no** |
 

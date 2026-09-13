@@ -197,7 +197,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			// container — is the five ANTHROPIC_* vars; CLAUDE_CONFIG_DIR is
 			// deliberately absent. A container authenticates by BIND-MOUNTING
 			// the host's own ~/.claude/.credentials.json into the per-agent home
-			// (isolation.claudeCredentialMounts), READ-WRITE, because the engine
+			// (isolation.claudeCredentialMountsAt), READ-WRITE, because the engine
 			// ROTATES that credential and the refreshed token must land back on
 			// the host file.
 			//
@@ -220,7 +220,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			// from $HOME rather than from an env var, for two different
 			// mechanisms:
 			//
-			//   container            -> isolation.claudeCredentialMounts
+			//   container            -> isolation.claudeCredentialMountsAt
 			//                           BIND-MOUNTS ~/.claude/.credentials.json
 			//                           into the container's own home
 			//   config_home: project -> isolation.CopyAmbient SEEDS the same
@@ -244,7 +244,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 				}
 				src := filepath.Join(realHomeDir, ".claude", ".credentials.json")
 				if _, err := os.Stat(src); err != nil {
-					return fmt.Errorf("p6: container cell needs %s to mount into the per-agent home (isolation.claudeCredentialMounts), and it is not readable: %w", src, err)
+					return fmt.Errorf("p6: container cell needs %s to mount into the per-agent home (isolation.claudeCredentialMountsAt), and it is not readable: %w", src, err)
 				}
 				dstDir := filepath.Join(w.env.HomeDir, ".claude")
 				if err := os.MkdirAll(dstDir, 0o755); err != nil {

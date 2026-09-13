@@ -234,7 +234,7 @@ down to *set* variables only — **names only cross the boundary**.
 
 | Engine | Env trigger | Mount | Site |
 |---|---|---|---|
-| claude | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | bind-mounts the **real** `~/.claude/.credentials.json` **RW** — no copy — so claude's single-use token refresh lands in the one real file (see [Single-use refresh tokens](#single-use-refresh-tokens-why-the-three-axes-differ) below) | `resolveClaudeContainerAuth` / `claudeCredentialMounts`. `~/.claude.json` is deliberately never mounted |
+| claude | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | bind-mounts the **real** `~/.claude/.credentials.json` **RW** — no copy — so claude's single-use token refresh lands in the one real file (see [Single-use refresh tokens](#single-use-refresh-tokens-why-the-three-axes-differ) below) | `resolveClaudeContainerAuth` / `claudeCredentialMountsAt`. `~/.claude.json` is deliberately never mounted |
 | mock | none needed | none | `resolveMockContainerAuth` — the one resolver that never returns `ok=false`: mock authenticates against no vendor |
 | **unmapped/empty backend** | — | — | `noContainerAuth` — **fails closed**; the containerized run aborts at `PrepareWorkspace`'s auth gate rather than inheriting any other engine's credentials |
 
@@ -268,13 +268,17 @@ all handle the credential the same way.
   long session pays a re-launch at expiry. A controlled home exists to keep
   the child off the host config in the first place, so a stripped, copied
   credential is coherent with what it is for. A containerized run with
-  `config_home: project` reads this seeded copy through its mounted instance,
-  and so pays the same re-launch at expiry rather than refreshing in place.
+  `config_home: project` is the RULED exception: the real host
+  `~/.claude/.credentials.json` is bind-mounted read-write OVER the seeded
+  copy at `<mounted home>/.credentials.json` (`MountEngineHome`), so the
+  container keeps refreshing in place exactly as an unrelocated container
+  does — the real long-lived credential is inside the container, an accepted
+  trade, scoped to that one file (never `~/.claude.json`).
 
 - **A container's own fresh `$HOME`** (the home a container run keeps when it
   has no controlled home) does the **opposite**: it bind-mounts the
   **real** `~/.claude/.credentials.json` **read-write**, with **no copy**
-  (`claudeCredentialMounts`). The container's refresh lands in the one real
+  (`claudeCredentialMountsAt`). The container's refresh lands in the one real
   file — the single source of truth the host also holds — so host and container
   share the same rotating token and nothing ever desyncs. A container therefore
   **keeps refresh** (no re-launch at expiry), the reverse of the two host axes'
@@ -330,7 +334,7 @@ engine natively looks.
 
 | Engine | Var | `config_home: project`, host cells (none / worktree) | `config_home: project`, container | undeclared / `host` / no binding, host cells | undeclared / `host` / no binding, container |
 |---|---|---|---|---|---|
-| claude-code | `CLAUDE_CONFIG_DIR` | `<WorkDir>/.ctxloom/state/<harp>/home/claude` | the same host directory, bind-mounted at `<container $HOME>/.ctxloom/home/claude`, which is what the engine is told | **real `~/.claude`** | the container's fresh `$HOME/.claude` |
+| claude-code | `CLAUDE_CONFIG_DIR` | `<WorkDir>/.ctxloom/state/<harp>/home/claude` | the same host directory, bind-mounted at `/ctxloom/home/claude` (the fixed instance root + the declared leaf), which is what the engine is told; the real `~/.claude/.credentials.json` is bind-mounted RW over the seeded copy inside it | **real `~/.claude`** | the container's fresh `$HOME/.claude` |
 
 An engine whose only relocation lever is a shared var (`XDG_CONFIG_HOME` /
 `XDG_DATA_HOME`) cannot be given an instance this way: relocating those moves
@@ -385,9 +389,13 @@ lives; bound through `operations.BindAgentHome` by every launch path.
 workspace or runtime the run chose. The cell decides only how the home is
 *presented*: a host-executing cell (none or worktree) tells the engine the host
 path itself; a container cell mounts the same host directory at
-`<container $HOME>/.ctxloom/home/<leaf>` and tells the engine that target
-(`isolation.RuntimeAdvice` supplies the rewrite, `isolation.MountEngineHome`
-records the mount). A worktree's own env (`isolation.EnvWorkspace`) carries the
+`/ctxloom/home/<leaf>` — a FIXED, well-known in-container root
+(`Container.WithInstanceHome` overrides it) plus the leaf the engine DECLARES
+(`agent.HomeVar.Subdir`, never re-derived from the host path) — and tells the
+engine that target (`isolation.ContainerInstanceHome` supplies the root,
+`isolation.MountEngineHome` records the mount, and, for an engine whose
+credential lives in its home, the real host credential file bind-mounted
+read-write over the seeded copy so the container keeps refreshing in place). A worktree's own env (`isolation.EnvWorkspace`) carries the
 scratch dir and git identity it provisioned and never a config-home var — a
 second carrier there is how a run's home once came to depend on which
 workspace it happened to pick.
@@ -504,7 +512,7 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 |---|---|---|
 | `Policy` | `isolation.go` | The seam: `Name` / `PrepareWorkspace` / `SpawnClient` / `StartRunner` |
 | `Workspace` / `EnvWorkspace` | `isolation.go` | dir + teardown; optional env for what the workspace provisioned (scratch dir, git identity — never a config-home var). `EnvWorkspace` is implemented **only** by `worktreeWorkspace` |
-| `RuntimeAdvice` / `MountEngineHome` | `isolation.go` | the container's half of presenting a controlled engine home: the in-container target, and the mount that makes it true |
+| `ContainerInstanceHome` / `MountEngineHome` | `isolation.go` | the container's half of presenting a controlled engine home: the fixed in-container root, and the mounts (home directory, real credential file over it) that make it true |
 | `Axes` / `WorkspaceAxis` / `RuntimeAxis` | `isolation.go` | The isolation request |
 | `WorkspaceNames` / `RuntimeNames` | `isolation.go` | Single source for validation, completion, schema |
 | `IsContainerRuntimeAxis` | `isolation.go` | "Is a container requested at all?", independent of which ownership |

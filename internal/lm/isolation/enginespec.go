@@ -38,10 +38,15 @@ import (
 //     run's host-side scratch dir too, a seam-signature remnant: no current
 //     resolver writes a credential under it (claude's token-refresh case now
 //     bind-mounts the REAL host credential read-write instead of a scratch
-//     copy — auth.go's claudeCredentialMounts; other engines mount their real
+//     copy — auth.go's claudeCredentialMountsAt; other engines mount their real
 //     host credential read-only). Every resolver ignores the scratch dir today.
 //   - authHint: the degrade diagnostic when resolveAuth finds nothing — names
 //     the engine's trigger var/credential source without leaking values.
+//   - relocatedCredentialMounts: the credential FILE mount a run whose engine
+//     home was RELOCATED (config_home: project — MountEngineHome) needs over
+//     the copy seeded into that home, so the engine keeps a credential it
+//     can refresh in place. nil for an engine that authenticates against no
+//     vendor or whose credential no home var relocates.
 //   - overlayDirs: the project-relative managed-config DIRECTORIES ctxloom's
 //     writers target under the run's cwd for this engine, shadowed by scratch
 //     overlay mounts on the live-project mount so the HOST project stays clean
@@ -61,13 +66,17 @@ import (
 // not import the backends registry (it would drag the whole backend tree into
 // the seam); the names are part of the descriptor contract.
 type engineContainerSpec struct {
-	image              string
-	engineInstall      []byte
-	validate           string
-	resolveAuth        func(containerHome, scratchDir string) (containerAuth, bool)
-	authHint           string
-	overlayDirs        []string
-	transcriptStoreRel string
+	image         string
+	engineInstall []byte
+	validate      string
+	resolveAuth   func(containerHome, scratchDir string) (containerAuth, bool)
+	authHint      string
+	// relocatedCredentialMounts takes the ENGINE-side path of the relocated
+	// home (what the engine is told) and returns the file mount(s) into it;
+	// ok=false when the host credential material is absent.
+	relocatedCredentialMounts func(engineHome string) ([]Mount, bool)
+	overlayDirs               []string
+	transcriptStoreRel        string
 }
 
 // defaultOverlayDirs is the claude-oriented managed-config overlay set:
@@ -229,12 +238,13 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 			// the most recent claude) is the build source. A user can still
 			// overlay onto any client-shipping base via `container build
 			// --base-image`.
-			engineInstall:      claudeCodeInstallFragment,
-			validate:           "claude --version",
-			resolveAuth:        resolveClaudeContainerAuth,
-			authHint:           claudeContainerAuthHint(),
-			overlayDirs:        defaultOverlayDirs,
-			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
+			engineInstall:             claudeCodeInstallFragment,
+			validate:                  "claude --version",
+			resolveAuth:               resolveClaudeContainerAuth,
+			authHint:                  claudeContainerAuthHint(),
+			relocatedCredentialMounts: claudeCredentialMountsAt,
+			overlayDirs:               defaultOverlayDirs,
+			transcriptStoreRel:        filepath.FromSlash(".claude/projects"),
 		}
 	// mock is COMPOSABLE (engineInstall != nil, so buildSources stops
 	// reporting "no local build recipe" for it) but — unlike every other

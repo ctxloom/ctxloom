@@ -53,7 +53,7 @@ func TestContainerMount_CredentialMountIsReadWriteAtEveryDelegationDepth(t *test
 	require.NoError(t, os.WriteFile(realCreds,
 		[]byte(`{"claudeAiOauth":{"accessToken":"at","refreshToken":"single-use-rotating-rt"}}`), 0o600))
 	// The personal top-level config exists on the host so the test also proves
-	// it is NOT what crosses at any depth (claudeCredentialMounts' doc).
+	// it is NOT what crosses at any depth (claudeCredentialMountsAt's doc).
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"mcpServers":{"private":{}}}`), 0o600))
 
 	// The REAL claude-code spec — its resolver is the code under test. A stub

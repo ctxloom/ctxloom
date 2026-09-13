@@ -589,28 +589,29 @@ func missingPatterns(content []byte, patterns []string) []string {
 
 // appendBlock appends a comment header and the patterns to the file at path,
 // inserting a separating newline when the existing content lacks a trailing one.
+//
+// APPEND, not iox's default write-temp-then-rename replace, because this file
+// is the USER'S: ctxloom owns the block it adds and nothing else in it. A
+// whole-file replace would have to rewrite every line the user authored to
+// add one of ours, turning an append into a rewrite that a concurrent editor
+// can lose — and it would fail outright with EBUSY if the project's
+// .gitignore were bind-mounted. iox.AppendInPlace is the primitive for
+// exactly that shape; see WriteFileInPlace's doc for why atomic stays the
+// default everywhere else.
+//
+// The block is composed in memory first so the file is opened once, with the
+// whole block already known: a partial write is then a failed write rather
+// than half a block appended to the user's file. iox surfaces a failed Close
+// (ENOSPC/EDQUOT/EIO) rather than discarding it, which is load-bearing here —
+// the migration path in Ensure has already committed the REMOVAL of the
+// superseded blanket rule before this append runs, so an append that reported
+// a false success would leave the project with FEWER ignore rules than before.
 func appendBlock(path string, content []byte, comment string, patterns []string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
+	var block bytes.Buffer
+	if err := writeBlock(&block, content, comment, patterns); err != nil {
 		return err
 	}
-	if err := writeBlock(f, content, comment, patterns); err != nil {
-		_ = f.Close()
-		return err
-	}
-	// A deferred, discarded Close() hides an ENOSPC/EDQUOT/EIO
-	// write failure behind a nil error — the worst case being the migration
-	// path in Ensure, which has already committed the REMOVAL of the
-	// superseded blanket rule before this append runs; a silently-failed
-	// append then leaves the project with FEWER ignore rules than before.
-	return closeChecked(f, path)
-}
-
-// closeChecked closes f and, on failure, wraps the error naming path — split
-// out so a test can drive Close-error propagation (via an already-closed
-// *os.File) without needing to force a real ENOSPC/EDQUOT/EIO.
-func closeChecked(f *os.File, path string) error {
-	if err := f.Close(); err != nil {
+	if err := iox.WriteFileInPlace(path, iox.AppendInPlace, block.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("gitignore: writing %s: %w", path, err)
 	}
 	return nil

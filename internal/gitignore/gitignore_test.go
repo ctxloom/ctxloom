@@ -651,24 +651,3 @@ func TestEnsureFile_DoesNotWarnWithoutAnAffectedNegation(t *testing.T) {
 
 	assert.Empty(t, warnings.String(), "an unrelated re-include is none of ctxloom's business")
 }
-
-// TestCloseChecked_PropagatesCloseError pins that appendBlock's old
-// `defer func() { _ = f.Close() }()` discarded a write-never-reached-disk
-// failure and reported success — the worst case being Ensure's migration
-// path, which has already committed the REMOVAL of the superseded blanket
-// rule before the replacement append runs, so a silently-failed Close left
-// the project with FEWER ignore rules than before. Forcing a REAL ENOSPC is
-// impractical in a portable unit test, so this drives the exact propagation
-// path (closeChecked) via an already-closed *os.File, whose second Close
-// reliably errors.
-func TestCloseChecked_PropagatesCloseError(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".gitignore")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
-	require.NoError(t, err)
-	require.NoError(t, f.Close(), "first close must succeed")
-
-	err = closeChecked(f, path)
-	require.Error(t, err, "a second Close on an already-closed file must error, and closeChecked must surface it rather than discard it")
-	assert.Contains(t, err.Error(), path, "the error must name the file, not just the bare OS error")
-}

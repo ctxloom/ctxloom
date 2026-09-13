@@ -208,11 +208,11 @@ type resolvedRunRequest struct {
 	// binding (a delegated child, a fan-out member), or "" when it was not —
 	// a bare-profile oneshot has no agent binding to read one from (the same
 	// fact its Permissions comment already records). It decides ONE thing:
-	// whether an in-tree run gets a ctxloom-controlled engine config home
-	// instead of the human's own (~/.claude and the like) — see
-	// InTreeAgentHomeEnv. RunOneshot leaves it "", since a bare-profile
+	// whether this run gets a ctxloom-controlled engine config home instead
+	// of the home its runtime gives it (~/.claude and the like) — see
+	// ResolveInTreeAgentHome. RunOneshot leaves it "", since a bare-profile
 	// oneshot has no binding at all, which reads identically to an undeclared
-	// one — both keep the real host home.
+	// one — both keep the runtime's home.
 	ConfigHome agents.ConfigHome
 
 	Factory pb.ClientFactory // nil self-invokes the compiled-in backend
@@ -322,7 +322,7 @@ var prepareIsolation = isolation.Prepare
 // REQUESTED and the prepared workspace silently degraded toward a WEAKER
 // posture than asked for. Two distinct cases share this class today: (1) a
 // requested CONTAINER couldn't start and the run fell back to the bare,
-// unsandboxed host; (2) a requested WORKTREE's per-agent config-home has no
+// unsandboxed host; (2) a binding that declared config_home: project has no
 // credentials to seed and no API-key env, so the engine would launch logged
 // out. Either way, running the member as-is would silently
 // deliver less than what was asked for. In strict mode that fails THE MEMBER

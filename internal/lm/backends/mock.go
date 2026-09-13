@@ -236,12 +236,11 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 	return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
 }
 
-// ConfigHomeEnvKeys returns the per-agent config-home env vars
-// isolation.EnvWorkspace can thread into RunOptions.Env — each registered
-// engine's own home-relocation var(s), DERIVED from the descriptors' Home
-// declarations so the roster cannot miss an engine that declared one. mock
-// records whichever of these are set so a hermetic test can prove what
-// isolation env the engine received.
+// ConfigHomeEnvKeys returns the config-home env vars a run can thread into
+// RunOptions.Env — each registered engine's own home-relocation var(s),
+// DERIVED from the descriptors' Home declarations so the roster cannot miss
+// an engine that declared one. mock records whichever of these are set so a
+// hermetic test can prove what config-home env the engine received.
 func ConfigHomeEnvKeys() []string {
 	var keys []string
 	seen := map[string]bool{}

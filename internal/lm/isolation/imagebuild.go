@@ -985,8 +985,8 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 		// defensive against a mutation-testing mutant that flips this check
 		// and discards a dir MkdirTemp actually created, which would
 		// otherwise leak it under the OS temp dir with no reference left
-		// anywhere to remove it (see worktree.go's provisionConfigHome and
-		// container.go's prepareContainerScratch for the same hardening).
+		// anywhere to remove it (see container.go's prepareContainerScratch
+		// for the same hardening).
 		_ = os.RemoveAll(dir)
 		return "", fmt.Errorf("base build context: %w", err)
 	}

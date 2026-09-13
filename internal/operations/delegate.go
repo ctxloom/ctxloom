@@ -288,10 +288,10 @@ func warnOnEmptyLeadContext(rs *ResolvedAgent, lead string) {
 //
 // This is a WORKSPACE-axis (file-level) default only. It narrows a delegated
 // child's blast radius on the PROJECT CHECKOUT — it does NOT isolate the
-// engine's global config/credential/conversation store, which some engines
-// keep outside any per-agent config-home env lever entirely (see
-// EnvWorkspace's doc). Do not read a worktree default as "delegated children are now sandboxed from
-// the user's engine state" — they are not.
+// engine's global config/credential/conversation store; that is the binding's
+// config_home (ResolveInTreeAgentHome), decided independently of this axis.
+// Do not read a worktree default as "delegated children are now sandboxed
+// from the user's engine state" — they are not.
 //
 // The RUNTIME axis carries the agent's own resolved choice through untouched:
 // it is an agent trait, not an invocation one.

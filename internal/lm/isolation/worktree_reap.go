@@ -92,10 +92,9 @@ type WorktreeReapResult struct {
 // worktreeCandidatePrefix is the on-disk directory-name prefix
 // worktreeScratchPath stamps every per-agent worktree checkout with
 // (worktreeScratchPrefix + "-<sanitized-agent-id>-<rand>") — used here to pick
-// worktree checkouts out of a session's ephemeral/ dir without matching its
-// sibling config-home/curated-home/toolchain-scratch dirs (which use their own
-// "ctxloom-cfg-"/"ctxloom-home-"/"ctxloom-tmp-" prefixes and are plain
-// non-git scratch, out of this sweep's scope).
+// worktree checkouts out of a session's ephemeral/ dir without matching the
+// sibling toolchain-scratch dirs (which use their own "ctxloom-tmp-" prefix
+// and are plain non-git scratch, out of this sweep's scope).
 var worktreeCandidatePrefix = worktreeScratchPrefix + "-"
 
 // ReapOrphanedWorktrees sweeps every per-session ephemeral dir under

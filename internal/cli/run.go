@@ -364,8 +364,8 @@ type runState struct {
 	// to resolve.
 	//
 	// It exists as its own field because boundAgent cannot answer the
-	// question the in-tree engine config home (prepareWorkspace →
-	// operations.InTreeAgentHomeEnv) needs: resolveDefaultAgent sets
+	// question the engine config home (prepareWorkspace →
+	// operations.BindAgentHome) needs: resolveDefaultAgent sets
 	// boundAgent too, so "boundAgent != \"\"" is true of a plain `ctxloom run`
 	// just as much as `run --agent x` — both bind a real agent, and the
 	// decision reads that agent's OWN declared config_home (always host by

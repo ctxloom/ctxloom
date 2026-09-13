@@ -144,9 +144,11 @@ func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir
 // READ-ONLY, deliberately. The worktree axis promises the live project's files
 // are not the cell's to change, and a read-write delivery would quietly punch a
 // hole straight through that promise into the one tree the user actually keeps.
-// Nothing legitimate writes there from a cell: the worktree axis homes its
-// instance state under ~/.ctxloom/sessions/<harp>/ephemeral (CopyAmbient's D8
-// ruling), not in the project, so a write here would be the bug, not the need.
+// Nothing legitimate writes through THIS mount from a cell: the one thing a
+// cell does write under the project's .ctxloom — its controlled engine home,
+// in the state tier — reaches it through its own read-write mount
+// (MountEngineHome), never through the delivered config tree, so a write here
+// would be the bug, not the need.
 //
 // A checkout carrying its OWN committed .ctxloom is left alone — no mount, no
 // shadowing. That is not politeness, it is the same precedence worktreeSignpost

@@ -238,11 +238,10 @@ down to *set* variables only — **names only cross the boundary**.
 | mock | none needed | none | `resolveMockContainerAuth` — the one resolver that never returns `ok=false`: mock authenticates against no vendor |
 | **unmapped/empty backend** | — | — | `noContainerAuth` — **fails closed**; the containerized run aborts at `PrepareWorkspace`'s auth gate rather than inheriting any other engine's credentials |
 
-Host/worktree seeding is `hostCredentialSeed` + `copyCredentialFile` (writes at
-0600). An exported seam reuses it for callers whose home relocation is not
-driven by a `Policy` at all: `PrepareClaudeHome`, used by
-`operations.InTreeAgentHomeEnv` (below) to populate a per-session instance
-home. It is named *Prepare* because the destination is created at
+Controlled-home seeding is `hostCredentialSeed` + `copyCredentialFile` (writes
+at 0600), reached through `isolation.CopyAmbient` by
+`operations.ResolveInTreeAgentHome` (below) to populate a per-session instance
+home on whichever cell the run landed. The destination is created at
 instance time and thrown away at session end — the copy is one-way, from the
 real host home in, never back.
 
@@ -258,19 +257,22 @@ host login**, silently logging you out of your own machine. This is the fact
 the three claude-credential axes are built around, and it is why they do not
 all handle the credential the same way.
 
-- **Worktree** (`{worktree, host}`) and **in-tree instance**
-  (`config_home: project`) both **COPY** the credential into a per-agent /
-  per-session home, and both copies are **access-token-ONLY**: the refresh
+- **A controlled home** (`config_home: project`, on any cell) **COPIES** the
+  credential into the per-session instance, and the copy is
+  **access-token-ONLY**: the refresh
   token is **stripped** as the bytes cross (`copyCredentialFile`'s projector →
   claude's `ProjectAmbientCredential`). A stripped copy *cannot* refresh, so it
   can never rotate the host's single-use token. The deliberate trade: such a
   run authenticates only until its access token expires, then must be
   **re-launched** to pick up a fresh copy — it does not refresh in place, so a
-  long session pays a re-launch at expiry. These axes exist to isolate the
-  child from host config in the first place, so a stripped, copied credential
-  is coherent with what they are for.
+  long session pays a re-launch at expiry. A controlled home exists to keep
+  the child off the host config in the first place, so a stripped, copied
+  credential is coherent with what it is for. A containerized run with
+  `config_home: project` reads this seeded copy through its mounted instance,
+  and so pays the same re-launch at expiry rather than refreshing in place.
 
-- **Container** (either ownership) does the **opposite**: it bind-mounts the
+- **A container's own fresh `$HOME`** (the home a container run keeps when it
+  has no controlled home) does the **opposite**: it bind-mounts the
   **real** `~/.claude/.credentials.json` **read-write**, with **no copy**
   (`claudeCredentialMounts`). The container's refresh lands in the one real
   file — the single source of truth the host also holds — so host and container
@@ -326,9 +328,9 @@ An engine's **cwd-keyed** surfaces are a different thing entirely and are never
 relocated: `CLAUDE.md` and `.claude/` live at the project root, where the
 engine natively looks.
 
-| Engine | Var | Container | Worktree | In-tree, `config_home: project` | In-tree, undeclared / `host` / no binding |
+| Engine | Var | `config_home: project`, host cells (none / worktree) | `config_home: project`, container | undeclared / `host` / no binding, host cells | undeclared / `host` / no binding, container |
 |---|---|---|---|---|---|
-| claude-code | `CLAUDE_CONFIG_DIR` | fresh `$HOME/.claude` | per-agent scratch | `<WorkDir>/.ctxloom/state/<harp>/home/claude` | **real `~/.claude`** |
+| claude-code | `CLAUDE_CONFIG_DIR` | `<WorkDir>/.ctxloom/state/<harp>/home/claude` | the same host directory, bind-mounted at `<container $HOME>/.ctxloom/home/claude`, which is what the engine is told | **real `~/.claude`** | the container's fresh `$HOME/.claude` |
 
 An engine whose only relocation lever is a shared var (`XDG_CONFIG_HOME` /
 `XDG_DATA_HOME`) cannot be given an instance this way: relocating those moves
@@ -351,7 +353,7 @@ instance. A run with no session name gets no instance at all and keeps the
 engine's real home; there is no session-less fallback, because a shared one
 would be the project-scoped home this model replaced.
 
-### The rule: `config_home: project`, declared, on the in-tree axis only
+### The rule: `config_home: project`, declared, on every cell
 
 Each agent binding declares its own policy, `agents.<name>.config_home:
 project|host`:
@@ -375,11 +377,20 @@ declared binding; only whether a binding is in play at all does. A run with
 **no agent binding whatsoever** (no `--agent`, no `default_agent`) has no
 `config_home` to read in the first place, and always keeps the real host
 home — there is no binding through which it could even opt in. Decided in
-`operations.InTreeAgentHomeEnv` off the resolved binding's *effective*
+`operations.ResolveInTreeAgentHome` off the resolved binding's *effective*
 `ConfigHome` (`agents.ParseConfigHome`), the single place the condition
-lives; contributed by `cli/run.go`'s `prepareWorkspace`,
-`operations/delegate.go`'s `bindIsolatedSpawn`/`startOneshot`, and
-`operations/oneshot.go`'s `runResolvedAgent`.
+lives; bound through `operations.BindAgentHome` by every launch path.
+
+**The home is orthogonal to the cell.** Nothing in that decision reads which
+workspace or runtime the run chose. The cell decides only how the home is
+*presented*: a host-executing cell (none or worktree) tells the engine the host
+path itself; a container cell mounts the same host directory at
+`<container $HOME>/.ctxloom/home/<leaf>` and tells the engine that target
+(`isolation.RuntimeAdvice` supplies the rewrite, `isolation.MountEngineHome`
+records the mount). A worktree's own env (`isolation.EnvWorkspace`) carries the
+scratch dir and git identity it provisioned and never a config-home var — a
+second carrier there is how a run's home once came to depend on which
+workspace it happened to pick.
 
 A delegated child, a fan-out member, a `run --agent` — these ARE ctxloom's
 processes, and pointing one at the human's real engine home hands it their
@@ -406,19 +417,22 @@ cwd-keyed surfaces (`.claude/`, `.mcp.json`), so it pays nothing here; an
 engine with no cwd-keyed equivalent gets a degraded run, told so out loud with
 the fix (`config_home: project`) named.
 
-### Three exclusions, and one fail-loud
+### Absent, with the reason, and one fail-loud
 
-The in-tree contribution declines, each condition independently sufficient:
+The resolution is either present or **absent with a stated reason**
+(`AgentHomeResolution.Absent`) — an empty root with no reason is not a shape
+it can take. It is absent when:
 
 1. **the effective `config_home` is not `project`** — the rule above (this
-   covers no binding, an undeclared binding, and an explicit `host`);
-2. **not the in-tree axis** — a container's fresh `$HOME` already *is* the
-   controlled home, and a worktree's per-agent home is already provisioned and
-   seeded by this package, UNCONDITIONALLY — `config_home` does not reach the
-   worktree axis at all. An in-tree path handed to either names a directory the
-   boundary cannot see;
-3. **the var is already set** — isolation's own `Env()`, or the user's `--env`,
-   wins outright. This fills gaps; it never overrides.
+   covers no binding, an undeclared binding, and an explicit `host`); the
+   documented default, recorded but not warned about;
+2. **the run carries no session name**, or **the engine declares no
+   relocatable home** (`mock`), or **the instance cannot be created** — each
+   warned out loud, because a binding that asked for a home and got none
+   deserves to learn why.
+
+A user's own `--env` still wins at the launch path's merge: the resolution
+fills gaps; it never overrides.
 
 Credentials follow the home (claude's `.credentials.json` is copied from
 `~/.claude`, never moved, never written back). That is a property of the
@@ -489,7 +503,8 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 | Symbol | File | Meaning |
 |---|---|---|
 | `Policy` | `isolation.go` | The seam: `Name` / `PrepareWorkspace` / `SpawnClient` / `StartRunner` |
-| `Workspace` / `EnvWorkspace` | `isolation.go` | dir + teardown; optional per-agent config-home env. `EnvWorkspace` is implemented **only** by `worktreeWorkspace` |
+| `Workspace` / `EnvWorkspace` | `isolation.go` | dir + teardown; optional env for what the workspace provisioned (scratch dir, git identity — never a config-home var). `EnvWorkspace` is implemented **only** by `worktreeWorkspace` |
+| `RuntimeAdvice` / `MountEngineHome` | `isolation.go` | the container's half of presenting a controlled engine home: the in-container target, and the mount that makes it true |
 | `Axes` / `WorkspaceAxis` / `RuntimeAxis` | `isolation.go` | The isolation request |
 | `WorkspaceNames` / `RuntimeNames` | `isolation.go` | Single source for validation, completion, schema |
 | `IsContainerRuntimeAxis` | `isolation.go` | "Is a container requested at all?", independent of which ownership |
@@ -542,7 +557,7 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 - ~~**The default (unprofiled) container profile authenticates with claude credentials**~~ — **RESOLVED.** The default arm used to return `resolveClaudeContainerAuth`, passing `ANTHROPIC_*` and copy-mounting `~/.claude` into *any* unrecognized engine's container (reachable at the time: a generic `acp` backend was registered, and the ACP container transport passed an unrecognized or empty engine name through unchanged). It now fails **closed** (`noContainerAuth`) and the launch aborts; `operations.validateContainerAuth` refuses such a binding at write time so the abort is not the first the user hears of it.
 - ~~**A backend in neither `credentialSeedSpecs` nor a curated-home registry gets a worktree with zero engine-global isolation and no finding at all**~~ — **PARTIALLY RESOLVED.** `Worktree.PrepareWorkspace` now records a `strictness.Fail(ClassIsolation)` for any backend that is neither in `credentialSeedSpecs` nor named in `backendsWithNoGlobalState` — closing the gap for every unmapped engine. `backendsWithNoGlobalState` carries exactly one, independently-verified exemption (`mock`, which provably touches no engine-global state), not a silent carve-out; an empty backend (no agent context at all) stays silent by design.
 - **The curated-HOME allowlist** that used to symlink `~/.gitconfig`/`~/.ssh` into a worktree's per-agent home **has been removed along with the whole curated-home mechanism** — `Worktree` now relies solely on `credentialSeedSpecs`' scoped env vars (`Worktree.prepareHomeVarDirs`), which is why `.gitconfig`/`.ssh` identity is left on the *shared* worktree checkout instead of being copied or symlinked per agent. Whether that removal fully retired the class of bug the old allowlist was tracking (over-broad `.ssh` exposure) was not re-verified here.
-- **The worktree reaper's scope is `~/.ctxloom/sessions/*/ephemeral/` only** (`ReapOrphanedWorktrees`); worktrees on the `os.TempDir()` fallback are permanently unreapable, and nothing sweeps the sibling `ctxloom-cfg-*` / `ctxloom-home-*` / `ctxloom-tmp-*` dirs — so a crashed run leaves 0600 credential copies on disk indefinitely.
+- **The worktree reaper's scope is `~/.ctxloom/sessions/*/ephemeral/` only** (`ReapOrphanedWorktrees`); worktrees on the `os.TempDir()` fallback are permanently unreapable, and nothing sweeps the sibling `ctxloom-tmp-*` dirs.
 - **`worktreeWorkspace.Cleanup`'s idempotence guard is `dir` alone**, short-circuiting removal of `configHome` / `scratchDir` if a caller ever reaches it with `dir == ""` but either of those still set.
 
 **Green build, nothing delivered**

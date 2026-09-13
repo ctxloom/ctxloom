@@ -89,9 +89,9 @@ func Register(descs ...engine.Descriptor) error {
 		// Push the engine-owned instance-config writer and credential
 		// projector down to internal/lm/isolation at the same moment, so a
 		// backend can never be launchable here while invisible there.
-		// isolation resolves engines by NAME (its worktree axis has no engine
-		// value in hand) and cannot import the engine packages, so this is
-		// the only direction the wiring can run.
+		// isolation resolves engines by NAME (CopyAmbient is handed a backend
+		// name, never an engine value) and cannot import the engine packages,
+		// so this is the only direction the wiring can run.
 		if w, ok := d.InstanceConfig.Get(); ok {
 			isolation.RegisterInstanceConfigWriter(d.Name, w(agent.SettingsOptions{}))
 		}

@@ -121,10 +121,9 @@ type AmbientCopyReport struct {
 	// NoSource reports the FAIL-LOUD case: this engine relocates credentials
 	// with its home var, no envTrigger is set, and the required host
 	// credential is absent — an engine launched at this instance would start
-	// logged out. It is returned as a DECISION rather than a Go error because
-	// the two axes handle it differently (the in-tree axis refuses the
-	// relocation; the worktree axis records a degradable ClassIsolation
-	// finding), and an error would force both to parse one.
+	// logged out. It is returned as a DECISION rather than a Go error so the
+	// caller can refuse the relocation in its own words (a fail-loud finding
+	// with the fix named) instead of parsing one back out of an error.
 	NoSource bool
 	// NoSourceReason is the ready-to-surface, actionable message for NoSource —
 	// naming only fixes that work (authenticate the engine, or set its API-key
@@ -146,11 +145,9 @@ type AmbientCopyReport struct {
 //
 // This indirection is not decoration. This package cannot import
 // internal/lm/backends (backends imports this package), so it cannot reach the
-// engine-owned writers directly. But the WORKTREE axis resolves its engine by
-// NAME, inside this
-// package, with no engine value in hand — so without a name-keyed registry the
-// engine write-config directive would reach only the in-tree axis, and D8's
-// "one mechanism for both axes" would be a mechanism for one.
+// engine-owned writers directly, and CopyAmbient is handed a backend NAME,
+// not an engine value — so without a name-keyed registry the engine
+// write-config directive could not reach the instance at all.
 var (
 	instanceConfigMu      sync.RWMutex
 	instanceConfigWriters = map[string]agent.InstanceConfigWriter{}
@@ -185,8 +182,8 @@ func instanceConfigWriterFor(engine string) agent.InstanceConfigWriter {
 // credentialProjectors is the engine-owned ambient-credential projector per
 // registered backend, populated once at init by internal/lm/backends alongside
 // instanceConfigWriters — for the identical name-keyed-indirection reason (this
-// package cannot import the engine packages, and the worktree axis resolves its
-// engine by NAME with no engine value in hand). An engine with no registered
+// package cannot import the engine packages, and CopyAmbient is handed a
+// backend NAME with no engine value in hand). An engine with no registered
 // projector has its ambient credential files copied byte-for-byte; only claude
 // registers one today (to strip its single-use refresh token — see
 // agent.CredentialProjector and internal/claude.NewCredentialProjector).

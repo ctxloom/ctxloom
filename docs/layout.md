@@ -152,9 +152,12 @@ An agent whose binding declares `config_home: project` does not run against your
 real home. It gets a throwaway **per-session instance** at
 `.ctxloom/state/<harp>/home/<engine-leaf>` (`paths.SessionHomePath`; each engine appends its own
 leaf, distinct by construction so one instance root hosts every engine a
-session runs). No binding, an undeclared `config_home`, or an
-explicit `config_home: host` all mean the engine uses its **real home directly**
-— no instance, no copy-in (`agents.ParseConfigHome`).
+session runs) — on every isolation cell: a host cell tells the engine that
+path, a container cell mounts it and tells the engine the mount target. No
+binding, an undeclared `config_home`, or an explicit `config_home: host` all
+mean the engine uses the home its runtime gives it **directly** — your real
+home on the host, a fresh `$HOME` in a container — with no instance and no
+copy-in (`agents.ParseConfigHome`).
 
 Three classes of content live inside an instance:
 
@@ -256,26 +259,17 @@ Two notes on that list, because both look like mistakes and are not:
   credential included. The credential arch gate still asserts specific instance
   paths by name, because a blanket rule is one careless edit from narrowed.
 
-## Per-agent worktree homes stay in your home directory
+## Per-agent worktree scratch stays in your home directory
 
-The worktree isolation axis also gives each agent a config home, and it is the
-same *shape* as an in-tree instance — ephemeral, one-way copied from your real
-home, torn down at cleanup. It shares the same mechanism (`isolation.CopyAmbient`
-serves both axes). It does **not** share the location: per-agent worktree homes
-live at `~/.ctxloom/sessions/<harp>/ephemeral/ctxloom-cfg-<agent>`
-(`isolation.Worktree.provisionConfigHome`, rooted at `paths.HarpEphemeralDir`),
-never in the project tree.
-
-Three reasons, and all three are about the axis, not about tidiness:
-
-1. The worktree home is per-**agent**, not per-session — a fan-out has several
-   concurrent members, and `state/<harp>/` is keyed by session.
-2. A worktree run's checkout is a *different directory* from the project, so
-   "the project's `state/`" is ambiguous — and importing engine state back into
-   the tree is precisely what the worktree axis exists to avoid.
-3. Consumers walk the home-rooted shape directly, with no project in hand:
-   the orphan-worktree reaper, session purge, and vendor transcript
-   reader all enumerate `~/.ctxloom/sessions/*/ephemeral/`.
+The worktree isolation axis gives each agent a checkout and a toolchain
+scratch dir, and those live at `~/.ctxloom/sessions/<harp>/ephemeral/`
+(rooted at `paths.HarpEphemeralDir`), never in the project tree: a worktree
+run's checkout is a *different directory* from the project, and consumers —
+the orphan-worktree reaper, session purge — walk the home-rooted shape
+directly, with no project in hand. The engine's config home is **not** part of
+that scratch: it is the same per-session instance described above, decided
+off the binding for every cell (`operations.ResolveInTreeAgentHome`), so a
+worktree run and a live-tree run with the same binding share one answer.
 
 When a run carries no usable harp, the per-agent scratch falls back to the OS
 temp directory and says so — never to a shared project path.

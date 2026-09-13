@@ -7,15 +7,15 @@ import (
 )
 
 // HomeLeaf is the directory INSIDE a ctxloom-provisioned instance home
-// (paths.SessionHomePath on the in-tree axis, the per-agent config home on the
-// worktree axis) that CLAUDE_CONFIG_DIR names. It is ONE constant on purpose:
-// the engine's descriptor declares it as the home var's Subdir, so the seed
-// internal/lm/isolation writes and the directory SessionConfigDir names are
-// the same directory by construction, on every axis.
+// (paths.SessionHomePath) that CLAUDE_CONFIG_DIR names. It is ONE constant on
+// purpose: the engine's descriptor declares it as the home var's Subdir, so
+// the seed internal/lm/isolation writes and the directory SessionConfigDir
+// names are the same directory by construction, on every cell.
 const HomeLeaf = "claude"
 
-// SessionConfigDir is the CLAUDE_CONFIG_DIR value for ONE SESSION's in-tree
-// agent run in workDir — <workDir>/.ctxloom/state/<harp>/home/claude.
+// SessionConfigDir is the CLAUDE_CONFIG_DIR value for ONE SESSION's agent run
+// in workDir — <workDir>/.ctxloom/state/<harp>/home/claude — on the host; a
+// container run is told the path that directory is mounted at instead.
 //
 // PER SESSION, not per project. The instance is created at instance time,
 // seeded one-way from the real host home, and disposable: two concurrent
@@ -32,8 +32,8 @@ const HomeLeaf = "claude"
 // The rule is AGENT runs whose binding declares `config_home: project`: every
 // other run — no binding, an undeclared binding, an explicit `host` — keeps the
 // real ~/.claude. See docs/architecture/engines/isolation.md's engine config
-// homes section, and operations.InTreeAgentHomeEnv, which is the one place that
-// condition is decided.
+// homes section, and operations.ResolveInTreeAgentHome, which is the one place
+// that condition is decided.
 //
 // claude's CWD-KEYED surfaces — CLAUDE.md, .claude/settings.json, .claude/
 // commands, .claude/skills, .claude/agents — are untouched by this and stay at

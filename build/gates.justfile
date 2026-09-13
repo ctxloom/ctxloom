@@ -203,3 +203,48 @@ test-arch: _require-generated
 # emits, maintained by nobody and caught by nothing when buf.gen.yaml changes.
 # It also tested existence ONLY, so a .pb.go older than its .proto passed.
 _require-generated: proto
+
+# ===== Coverage / test-isolation gates =====
+
+# Fail (and clean up) if any test wrote a nested internal/**/.ctxloom into the
+# source tree instead of isolating through t.TempDir(). internal/operations'
+# TestMain catches this for itself; other packages had no such guard, so a
+# regression there was caught by nothing but a .gitignore rule for
+# internal/**/.ctxloom — which hides the symptom (git status stays clean) but
+# the directory still physically exists, which is what confuses worktree-safe
+# WIP detection and blocks worktree reaping. This runs after every `just
+# test`, so the leak is a build failure instead of invisible disk residue.
+#
+# Imported, not duplicated. It used to exist twice, once in each root
+# justfile, and a coverage/leak check that only runs on one side is exactly
+# the shape of bug this file exists to remove.
+_check-no-ctxloom-leak:
+    #!/usr/bin/env bash
+    set -e
+    leaked="$(find internal -mindepth 2 -type d -name .ctxloom 2>/dev/null)"
+    if [ -n "$leaked" ]; then
+        echo "$leaked" | xargs -I{} rm -rf {}
+        echo "TEST ISOLATION FAILURE: a test wrote a nested .ctxloom into the source tree (should use t.TempDir()):" >&2
+        echo "$leaked" >&2
+        exit 1
+    fi
+
+# Filter coverage output using patterns from .coverignore.
+# Usage: _filter_coverage <input> <output>
+#
+# Imported, not duplicated. It decides what counts toward coverage, so a
+# host copy and a container copy that drift would make local and CI coverage
+# numbers disagree SILENTLY — no gate fails, the numbers simply stop meaning
+# the same thing. One definition means that disagreement cannot arise.
+_filter_coverage INPUT OUTPUT:
+    #!/usr/bin/env bash
+    set -e
+    if [ -f .coverignore ]; then
+        # Build grep pattern from .coverignore (skip comments and empty lines)
+        patterns=$(grep -v '^#' .coverignore | grep -v '^$' | paste -sd '|' -)
+        if [ -n "$patterns" ]; then
+            grep -Ev "$patterns" "{{INPUT}}" > "{{OUTPUT}}" || cp "{{INPUT}}" "{{OUTPUT}}"
+            exit 0
+        fi
+    fi
+    cp "{{INPUT}}" "{{OUTPUT}}"

@@ -96,7 +96,7 @@ func TestContainerMount_CredentialMountIsReadWriteAtEveryDelegationDepth(t *test
 		base containerBase
 	}{
 		{"host-base", hostBase{}},
-		{"worktree-base", worktreeBase{wt: NewWorktree(&git.Fake{}, "claude-code")}},
+		{"worktree-base", worktreeBase{wt: NewWorktree(&git.Fake{})}},
 	}
 	// One (harp, agent id) pair per depth: the identity a run at that depth
 	// actually carries into Prepare. Distinct on purpose — identical inputs

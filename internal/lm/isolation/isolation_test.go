@@ -402,7 +402,7 @@ func TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName(t *testing.T) {
 		"a bare Container (nil base) still reports a container-backed name")
 
 	assert.False(t, IsContainerPolicyName(None{}.Name()), "the host policy is not a container boundary")
-	assert.False(t, IsContainerPolicyName(NewWorktree(nil, "claude-code").Name()),
+	assert.False(t, IsContainerPolicyName(NewWorktree(nil).Name()),
 		"a host worktree is a workspace boundary, never a container one")
 	assert.False(t, IsContainerPolicyName(""), "an empty name is never a container boundary")
 }

@@ -43,9 +43,6 @@ func init() {
 	for name := range credentialSeedSpecs {
 		assertCanonicalEngineKey("credentialSeedSpecs", name)
 	}
-	for name := range backendsWithNoGlobalState {
-		assertCanonicalEngineKey("backendsWithNoGlobalState", name)
-	}
 	for _, name := range ContainerAuthEngines() {
 		assertCanonicalEngineKey("ContainerAuthEngines", name)
 	}
@@ -63,12 +60,4 @@ func init() {
 func credentialSeedSpecFor(engine string) (credentialSeedSpec, bool) {
 	spec, ok := credentialSeedSpecs[agent.CanonicalEngineName(engine)]
 	return spec, ok
-}
-
-// backendHasNoGlobalState reports whether backend is on the
-// backendsWithNoGlobalState exemption list, resolved through the alias table so
-// an aliased spelling cannot lose the exemption and draw a spurious
-// "unregistered backend" isolation finding.
-func backendHasNoGlobalState(backend string) bool {
-	return backendsWithNoGlobalState[agent.CanonicalEngineName(backend)]
 }

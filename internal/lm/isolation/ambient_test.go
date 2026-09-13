@@ -1,7 +1,6 @@
 package isolation
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -15,7 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -354,38 +352,4 @@ func TestCopyAmbient_SerializesTwoRunsSharingOneInstance(t *testing.T) {
 	require.Len(t, rec.seen(), 2, "both runs must have prepared the shared instance")
 	assert.Equal(t, int32(1), rec.maxInFlight.Load(),
 		"two runs sharing one session instance must serialize; %d were generating at once", rec.maxInFlight.Load())
-}
-
-// TestWorktreeAxis_RoutesThroughCopyAmbient is D8 made testable: the worktree
-// axis's provisionConfigHome reaches the SAME mechanism the in-tree axis does,
-// so claude's field-scoped .claude.json and codex's section elision apply to a
-// fan-out member too. The LOCATION stays split — the instance home handed over
-// is this axis's own per-agent config home, and the working directory is this
-// member's own checkout, never the shared project root.
-func TestWorktreeAxis_RoutesThroughCopyAmbient(t *testing.T) {
-	resetStrictness(t)
-	home := withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	writeCreds(t, home, false)
-	rec := &recordingInstanceConfig{}
-	withInstanceConfigWriter(t, "claude-code", rec)
-
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "claude-code").PrepareWorkspace(context.Background(), "/proj", "member-ambient")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ws.Cleanup() })
-
-	seen := rec.seen()
-	require.Len(t, seen, 1, "the worktree axis must reach the engine through CopyAmbient, not a second seeding path")
-	assert.Equal(t, home, seen[0].HostHome)
-	assert.Equal(t, ws.Dir(), seen[0].WorkDir,
-		"the member's own checkout is what an engine-generated trust answer must name, never the shared project root")
-
-	configDir := WorkspaceEnv(ws)["CLAUDE_CONFIG_DIR"]
-	require.NotEmpty(t, configDir)
-	assert.Equal(t, filepath.Dir(configDir), seen[0].InstanceHome,
-		"the engine is handed the config-home ROOT and appends its own leaf, exactly as on the in-tree axis")
-	assert.NotContains(t, filepath.ToSlash(seen[0].InstanceHome), "/"+paths.AppDirName+"/state/",
-		"D8 shares the MECHANISM, not the location: a worktree member's home must not migrate into the project state tier")
 }

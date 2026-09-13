@@ -48,7 +48,7 @@ func TestWorktreeBase_UnwindsWhatItCreated(t *testing.T) {
 		boom := errors.New("worktree add refused")
 		f := &git.Fake{AddErr: boom}
 
-		dir, cleanup, err := worktreeBase{wt: NewWorktree(f, "mock")}.resolveBase(ctx, proj, "m")
+		dir, cleanup, err := worktreeBase{wt: NewWorktree(f)}.resolveBase(ctx, proj, "m")
 
 		require.Error(t, err)
 		assert.ErrorIs(t, err, boom, "the worktree's own failure must reach the caller intact")
@@ -61,7 +61,7 @@ func TestWorktreeBase_UnwindsWhatItCreated(t *testing.T) {
 	t.Run("gitdir mount failed after the worktree exists: the checkout does not survive", func(t *testing.T) {
 		boom := errors.New("common dir unreadable")
 		f := &git.Fake{CommonDirErr: boom}
-		base := worktreeBase{wt: NewWorktree(f, "mock")}
+		base := worktreeBase{wt: NewWorktree(f)}
 
 		dir, cleanup, err := base.resolveBase(ctx, proj, "m")
 		require.NoError(t, err, "premise: the checkout comes up — the failure under test is in the MAPPING")
@@ -131,7 +131,7 @@ func TestContainerWorktree_FailedMappingDoesNotLeakTheCheckout(t *testing.T) {
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
 		socketDir:  defaultContainerSocketDir,
-		base:       worktreeBase{wt: NewWorktree(f, "mock")},
+		base:       worktreeBase{wt: NewWorktree(f)},
 	}
 
 	ws, err := c.PrepareWorkspace(ctx, t.TempDir(), "member-unwind")

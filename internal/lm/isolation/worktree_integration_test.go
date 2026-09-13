@@ -26,7 +26,7 @@ func TestWorktreePolicy_RealGitLifecycle(t *testing.T) {
 	ctx := context.Background()
 	repo := initRealRepo(t)
 
-	pol := NewWorktree(git.NewExec(), "")
+	pol := NewWorktree(git.NewExec())
 	ws, err := pol.PrepareWorkspace(ctx, repo, "member-int")
 	require.NoError(t, err, "PrepareWorkspace must add a worktree in a real repo")
 	wtDir := ws.Dir()
@@ -38,7 +38,6 @@ func TestWorktreePolicy_RealGitLifecycle(t *testing.T) {
 	// os.RemoveAll on an already-removed dir (the normal, asserted path) is a
 	// harmless no-op.
 	t.Cleanup(func() { _ = os.RemoveAll(wtDir) })
-	cleanupConfigHome(t, ws)
 
 	// The worktree exists, is under the OS temp dir, and carries the seed file.
 	info, err := os.Stat(ws.Dir())
@@ -79,7 +78,7 @@ func TestWorktreePolicy_RealGitPreservesInnerWIP(t *testing.T) {
 	ctx := context.Background()
 	repo := initRealRepo(t)
 
-	pol := NewWorktree(git.NewExec(), "")
+	pol := NewWorktree(git.NewExec())
 	ws, err := pol.PrepareWorkspace(ctx, repo, "member-nest")
 	require.NoError(t, err)
 	outer := ws.Dir()
@@ -94,7 +93,6 @@ func TestWorktreePolicy_RealGitPreservesInnerWIP(t *testing.T) {
 	// so leftover `git worktree list` bookkeeping doesn't matter — only the
 	// disk space does. LIFO cleanup order removes inner before outer.
 	t.Cleanup(func() { _ = os.RemoveAll(outer) })
-	cleanupConfigHome(t, ws)
 
 	// Simulate claude's EnterWorktree: a nested worktree INSIDE ours, with WIP.
 	inner := filepath.Join(outer, ".claude", "worktrees", "inner")
@@ -142,12 +140,11 @@ func TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan(t *testing.T
 	gitRun(t, repo, "add", "CLAUDE.md")
 	gitRun(t, repo, "commit", "-m", "seed CLAUDE.md")
 
-	pol := NewWorktree(git.NewExec(), "")
+	pol := NewWorktree(git.NewExec())
 	ws, err := pol.PrepareWorkspace(ctx, repo, "member-ctx")
 	require.NoError(t, err)
 	wtDir := ws.Dir()
 	t.Cleanup(func() { _ = os.RemoveAll(wtDir) })
-	cleanupConfigHome(t, ws)
 
 	require.FileExists(t, filepath.Join(wtDir, "CLAUDE.md"), "the worktree checkout carries the tracked CLAUDE.md")
 
@@ -167,26 +164,6 @@ func TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan(t *testing.T
 	assert.NotContains(t, out, wtDir, "no leftover worktree registration after teardown")
 }
 
-// cleanupConfigHome registers a raw, unmutated os.RemoveAll safety net for the
-// workspace's per-agent config-home dir (provisionConfigHome's ctxloom-cfg-*
-// scratch), reaching the unexported field directly since this file shares
-// worktree.go's package. ws.Cleanup() already removes configHome itself
-// unconditionally (unlike the WIP-gated worktree checkout), but that removal
-// runs through the SAME production code gremlins mutates — a mutant that
-// breaks it is "killed" by an assertion failing elsewhere while, as a genuine
-// side effect, also leaving this dir on disk. Registering a redundant
-// test-side removal (plain stdlib, never a mutation target) is the only way
-// to keep that expected mutant-kill from also being a real leak.
-func cleanupConfigHome(t *testing.T, ws Workspace) {
-	t.Helper()
-	concrete, ok := ws.(*worktreeWorkspace)
-	if !ok || concrete.configHome == "" {
-		return
-	}
-	home := concrete.configHome
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-}
-
 // requireCleanWorkspace registers unconditional, mutation-proof safety-net
 // removal for every REAL on-disk scratch resource a prepared workspace may
 // hold, for tests across this package that call PrepareWorkspace directly
@@ -194,9 +171,9 @@ func cleanupConfigHome(t *testing.T, ws Workspace) {
 // successful PrepareWorkspace, before any other test code that could
 // fail/panic and skip a later manual/mid-test cleanup.
 //
-//   - *worktreeWorkspace: the checkout (ws.Dir()) plus its config-home — see
-//     cleanupConfigHome, plus the toolchain scratchDir (TMPDIR/GOTMPDIR —
-//     spawner-env). The checkout is WIP-gated in ws.Cleanup() by design
+//   - *worktreeWorkspace: the checkout (ws.Dir()) plus the toolchain
+//     scratchDir (TMPDIR/GOTMPDIR — spawner-env). The checkout is WIP-gated
+//     in ws.Cleanup() by design
 //     (production code, correctly conservative for a real developer); tests
 //     that deliberately dirty their own throwaway checkout must not rely on
 //     that guard clearing it.
@@ -218,7 +195,6 @@ func requireCleanWorkspace(t *testing.T, ws Workspace) {
 		if dir := concrete.dir; dir != "" {
 			t.Cleanup(func() { _ = os.RemoveAll(dir) })
 		}
-		cleanupConfigHome(t, ws)
 		if scratch := concrete.scratchDir; scratch != "" {
 			t.Cleanup(func() { _ = os.RemoveAll(scratch) })
 		}

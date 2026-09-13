@@ -3,7 +3,6 @@ package isolation
 import (
 	"context"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,13 +17,11 @@ import (
 
 // TestWorktree_PrepareCreatesWorktree: in a repo, PrepareWorkspace adds a detached
 // worktree under the OS temp dir (NOT inside the repo) and exposes it as Dir(),
-// with per-agent config-home envs.
+// with the env for what it provisioned.
 func TestWorktree_PrepareCreatesWorktree(t *testing.T) {
 	common := t.TempDir() // stand-in .git common dir so the exclude write succeeds
 	f := &git.Fake{CommonDirValue: common}
-	// A real backend is needed so Env() (now driven by credentialSeedSpecs,
-	// per-engine-isolation-home plan §6) has a spec to resolve HomeVars from.
-	ws, err := NewWorktree(f, "claude-code").PrepareWorkspace(context.Background(), "/proj", "member-a")
+	ws, err := NewWorktree(f).PrepareWorkspace(context.Background(), "/proj", "member-a")
 	require.NoError(t, err)
 	// Safety net registered BEFORE any assertion below can fail/panic and skip
 	// the ws.Cleanup() call at the end of this test (see requireCleanWorkspace).
@@ -47,8 +43,8 @@ func TestWorktree_PrepareCreatesWorktree(t *testing.T) {
 		"the branch carries the agent id under the agent namespace")
 
 	env := WorkspaceEnv(ws)
-	require.NotNil(t, env, "worktree exposes per-agent config-home envs")
-	assert.Contains(t, env["CLAUDE_CONFIG_DIR"], "ctxloom-cfg-")
+	require.NotNil(t, env, "worktree exposes the env for its scratch dir and git identity")
+	assert.Contains(t, env["TMPDIR"], "ctxloom-tmp-")
 
 	// §3.1: the broadened config excludes land in the common-dir info/exclude.
 	excl, err := os.ReadFile(filepath.Join(common, "info", "exclude"))
@@ -69,7 +65,7 @@ func TestWorktree_SkipsTrackedConfig(t *testing.T) {
 		CommonDirValue: common,
 		TrackedFiles:   []string{".mcp.json", ".claude/settings.json"},
 	}
-	ws, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", "member-t")
+	ws, err := NewWorktree(f).PrepareWorkspace(context.Background(), "/proj", "member-t")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ws.Cleanup() })
 	requireCleanWorkspace(t, ws)
@@ -82,7 +78,7 @@ func TestWorktree_SkipsTrackedConfig(t *testing.T) {
 // the caller degrades to None. None never fails.
 func TestWorktree_DegradesOnNonRepo(t *testing.T) {
 	f := &git.Fake{Repos: map[string]bool{}} // no dirs are repos
-	_, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/not-a-repo", "m")
+	_, err := NewWorktree(f).PrepareWorkspace(context.Background(), "/not-a-repo", "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a git repository")
 	assert.Empty(t, f.Calls, "no worktree add is attempted on a non-repo")
@@ -92,7 +88,7 @@ func TestWorktree_DegradesOnNonRepo(t *testing.T) {
 // degrades), never returning a half-built workspace.
 func TestWorktree_DegradesOnAddFailure(t *testing.T) {
 	f := &git.Fake{AddErr: assertErr("disk full")}
-	_, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", "m")
+	_, err := NewWorktree(f).PrepareWorkspace(context.Background(), "/proj", "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "worktree add")
 }
@@ -210,96 +206,6 @@ func TestWorktree_TeardownLeaksOnListFailure(t *testing.T) {
 	assert.Empty(t, f.Removed, "no removal when the worktree list is unavailable")
 }
 
-// TestProvisionConfigHome_OwnerOnly: the per-agent config-home holds engine
-// creds/state (CLAUDE_CONFIG_DIR & co.) in the SHARED OS temp dir — it must be
-// owner-only (0700) like every MkdirTemp sibling in this package, never
-// world-traversable.
-func TestProvisionConfigHome_OwnerOnly(t *testing.T) {
-	home, _ := Worktree{}.provisionConfigHome("agent-x", t.TempDir())
-	require.NotEmpty(t, home)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-
-	info, err := os.Stat(home)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "engine creds/state dir is owner-only")
-}
-
-// TestWorktree_UnregisteredBackendRecordsFinding pins that a backend not
-// registered in credentialSeedSpecs (e.g. "acp", a real, user-selectable
-// registered backend — registry.go:392) used to fall through
-// PrepareWorkspace with zero engine-global isolation and no finding at all —
-// the run reports "worktree" isolation while the engine's global config/creds
-// stay fully shared with the host. It must now be loud.
-func TestWorktree_UnregisteredBackendRecordsFinding(t *testing.T) {
-	resetStrictness(t)
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "acp").PrepareWorkspace(context.Background(), "/proj", "agent-a")
-	require.NoError(t, err, "PrepareWorkspace itself still succeeds — the fail-loud gate is the CALLER's job")
-	t.Cleanup(func() { _ = ws.Cleanup() })
-
-	findings := strictness.All()
-	require.Len(t, findings, 1, "an unregistered backend must record exactly one fatal finding")
-	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-	assert.Contains(t, findings[0].Message, `"acp"`)
-	assert.Contains(t, findings[0].Message, "not registered in the credential-seed registry")
-}
-
-// TestWorktree_MockBackendExemptFromUnregisteredFinding is the negative
-// space the fix above must not break: the built-in "mock" test backend is a
-// NAMED, independently-verified exemption (a bare echo with no on-disk
-// global state — see j002200_isolation.feature's own hermeticity note), not an
-// unregistered real backend, so it must never fire the new finding.
-func TestWorktree_MockBackendExemptFromUnregisteredFinding(t *testing.T) {
-	resetStrictness(t)
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "mock").PrepareWorkspace(context.Background(), "/proj", "agent-a")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ws.Cleanup() })
-	assert.Empty(t, strictness.All(), "the built-in mock backend has no global state to isolate — it must stay exempt")
-}
-
-// TestWorktree_ConfigHomeMkdirFailureRecordsFinding pins that a total
-// provisionConfigHome MkdirAll failure — which costs ALL engine-global
-// isolation for every registered engine — used to be a plain clidiag.Warn,
-// a QUIETER severity than the LESSER (partial: creds present but unseedable)
-// failure in seedCredentials, which is a strictness.Fail. The ordering was
-// inverted; both must now be fatal-unless-degraded.
-func TestWorktree_ConfigHomeMkdirFailureRecordsFinding(t *testing.T) {
-	resetStrictness(t)
-	notADir := filepath.Join(t.TempDir(), "not-a-dir")
-	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o644))
-	t.Setenv("TMPDIR", notADir)
-
-	w := NewWorktree(nil, "claude-code")
-	home, denied := w.provisionConfigHome("agent-a", t.TempDir())
-	assert.Empty(t, home)
-	assert.Nil(t, denied)
-
-	findings := strictness.All()
-	require.Len(t, findings, 1, "a total config-home provisioning failure must now be fatal, matching seedNoSource's severity")
-	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "config-home unavailable")
-}
-
-// TestWorktreeCleanup_SurfacesConfigHomeResidue: the config-home removal was a
-// bare `_ = os.RemoveAll` — an unremovable tree (e.g. wrongly-owned files)
-// must stream a warning naming the path, never vanish silently.
-func TestWorktreeCleanup_SurfacesConfigHomeResidue(t *testing.T) {
-	home := brokenScratch(t)
-	target := filepath.Join(os.TempDir(), "ctxloom-wt-res")
-	f := &git.Fake{Worktrees: []git.Worktree{{Path: target}}}
-	ws := &worktreeWorkspace{git: f, repoDir: "/proj", dir: target, configHome: home}
-
-	done := captureStderr(t)
-	require.NoError(t, ws.Cleanup())
-	stderr := done()
-
-	assert.Contains(t, stderr, home, "the warning names the residue path")
-	assert.Contains(t, stderr, "sudo rm", "…and the manual fix")
-}
-
 // TestWorktree_CleanupIdempotent: a second Cleanup is a noop (no double-teardown).
 func TestWorktree_CleanupIdempotent(t *testing.T) {
 	outer := filepath.Join(os.TempDir(), "ctxloom-wt-i")
@@ -318,144 +224,6 @@ func TestWorktree_CleanupIdempotent(t *testing.T) {
 // reaches provisionConfigHome and that the seeded bytes land where Env() points
 // CLAUDE_CONFIG_DIR — the assertion that would have caught the original bug
 // (provisioning returned no error while shipping an EMPTY config-home).
-
-// TestWorktree_PrepareSeedsClaudeCredentials is the end-to-end PAYLOAD-asserting
-// regression test: a "claude-code" worktree, no ANTHROPIC_API_KEY,
-// real host creds available (via the hostHomeDir seam) → Env()'s
-// CLAUDE_CONFIG_DIR points at a directory that ACTUALLY CONTAINS the seeded
-// credential bytes, not an empty dir claude would find "Not logged in" against.
-func TestWorktree_PrepareSeedsClaudeCredentials(t *testing.T) {
-	resetStrictness(t)
-	home := withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	writeCreds(t, home, true)
-
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "claude-code").PrepareWorkspace(context.Background(), "/proj", "member-seed")
-	require.NoError(t, err)
-	requireCleanWorkspace(t, ws)
-
-	env := WorkspaceEnv(ws)
-	require.NotNil(t, env)
-	configDir := env["CLAUDE_CONFIG_DIR"]
-	require.NotEmpty(t, configDir)
-
-	wantCreds, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
-	require.NoError(t, err)
-	gotCreds, err := os.ReadFile(filepath.Join(configDir, ".credentials.json"))
-	require.NoError(t, err, "CLAUDE_CONFIG_DIR must actually contain the seeded credential, not be empty")
-	assert.Equal(t, wantCreds, gotCreds, "seeded bytes must be byte-identical to the host source")
-
-	assert.Empty(t, strictness.All(), "a successfully-seeded worktree records no ClassIsolation finding")
-	require.NoError(t, ws.Cleanup())
-}
-
-// TestWorktree_PrepareFailsLoudWhenNoCredsAndNoKey pins the OTHER half of the
-// fix: a "claude-code" worktree with NO ANTHROPIC_API_KEY and NO host creds must
-// NOT silently ship an empty (logged-out) config-home — it records a fatal
-// ClassIsolation finding the choke owner (isolationGateErr in
-// internal/operations) aborts on in strict mode. PrepareWorkspace itself still
-// succeeds (the finding is recorded, not returned as an error here) — the abort
-// decision belongs to the caller's checkpoint/gate, exactly as the container
-// degrade path works.
-func TestWorktree_PrepareFailsLoudWhenNoCredsAndNoKey(t *testing.T) {
-	resetStrictness(t)
-	withFakeHome(t) // empty fake home — nothing to seed
-	t.Setenv("ANTHROPIC_API_KEY", "")
-
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "claude-code").PrepareWorkspace(context.Background(), "/proj", "member-nokey")
-	require.NoError(t, err, "PrepareWorkspace itself still succeeds — the fail-loud gate is the CALLER's job")
-	requireCleanWorkspace(t, ws)
-
-	findings := strictness.All()
-	require.Len(t, findings, 1, "no creds + no key must record exactly one fatal finding")
-	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "member-nokey")
-	assert.Contains(t, findings[0].Message, "logged out")
-	assert.NotEmpty(t, findings[0].FixIt)
-
-	// And the config-home is NOT silently populated with a half-seeded state —
-	// no claude subdirectory at all.
-	env := WorkspaceEnv(ws)
-	requireNothingSeeded(t, env["CLAUDE_CONFIG_DIR"])
-
-	require.NoError(t, ws.Cleanup())
-}
-
-// TestWorktree_PrepareSkipsSeedingWithApiKeyNoFailLoud: ANTHROPIC_API_KEY set
-// (even with no host creds at all) rides the env exactly as the container path
-// prefers env passthrough — no seed attempt, and critically NO fail-loud finding
-// (this is the "unaffected by construction" guarantee, §5.4 of the plan).
-func TestWorktree_PrepareSkipsSeedingWithApiKeyNoFailLoud(t *testing.T) {
-	resetStrictness(t)
-	withFakeHome(t) // no host creds
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "claude-code").PrepareWorkspace(context.Background(), "/proj", "member-key")
-	require.NoError(t, err)
-	requireCleanWorkspace(t, ws)
-
-	assert.Empty(t, strictness.All(), "ANTHROPIC_API_KEY covers auth — no finding, seeding skipped")
-	env := WorkspaceEnv(ws)
-	requireNothingSeeded(t, env["CLAUDE_CONFIG_DIR"])
-
-	require.NoError(t, ws.Cleanup())
-}
-
-// TestWorktree_NoBackendSkipsSeedingAndFailLoud: a Worktree built with NO
-// backend (the pre-fix construction, or a caller with no backend context, e.g.
-// the container-worktree base) makes NO seeding attempt and records NO finding
-// — config-only isolation exactly as before this fix, never a NEW fail-loud
-// surprise for a caller that never opted into credential seeding.
-func TestWorktree_NoBackendSkipsSeedingAndFailLoud(t *testing.T) {
-	resetStrictness(t)
-	withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "")
-
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", "member-nobackend")
-	require.NoError(t, err)
-	requireCleanWorkspace(t, ws)
-
-	assert.Empty(t, strictness.All(), "no backend context → no seed attempt → no finding")
-	require.NoError(t, ws.Cleanup())
-}
-
-// TestWorktree_AsymmetryWithNone guards the None-vs-Worktree asymmetry
-// directly (plan §6): None sets NO CLAUDE_CONFIG_DIR at all (the engine reads
-// the real ~/.claude and just authenticates), while a seeded Worktree sets one
-// whose target ACTUALLY CONTAINS credentials — proving the fix closes the gap
-// between the two without regressing None's already-working behavior.
-func TestWorktree_AsymmetryWithNone(t *testing.T) {
-	resetStrictness(t)
-	home := withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	writeCreds(t, home, true)
-
-	noneWS, err := None{}.PrepareWorkspace(context.Background(), "/proj", "member-none")
-	require.NoError(t, err)
-	noneEnv := WorkspaceEnv(noneWS)
-	assert.Nil(t, noneEnv, "None sets no config-home env at all — it uses the real ~/.claude directly")
-
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "claude-code").PrepareWorkspace(context.Background(), "/proj", "member-asym")
-	require.NoError(t, err)
-	requireCleanWorkspace(t, ws)
-
-	env := WorkspaceEnv(ws)
-	require.NotEmpty(t, env["CLAUDE_CONFIG_DIR"], "worktree DOES set CLAUDE_CONFIG_DIR")
-	assert.FileExists(t, filepath.Join(env["CLAUDE_CONFIG_DIR"], ".credentials.json"),
-		"...and unlike before the fix, that directory is NOT empty — it carries the seeded creds")
-
-	require.NoError(t, ws.Cleanup())
-}
 
 // TestResolveWorktree wires the workspace axis through chainFor's lead policy.
 func TestResolveWorktree(t *testing.T) {
@@ -478,7 +246,7 @@ type assertErr string
 func (e assertErr) Error() string { return string(e) }
 
 // TestWorktree_ScratchRelocatesIntoHarpEphemeral: a run that carries a session
-// harp homes BOTH per-agent scratch dirs (the checkout and the config-home)
+// harp homes the per-agent scratch dirs (the checkout and the toolchain temp)
 // under the session's ephemeral/ dir — the §6d layout: regenerable state in
 // one inspectable per-session place — instead of the OS temp dir. The no-harp
 // case keeps the temp dir (pinned by TestWorktree_PrepareCreatesWorktree).
@@ -486,7 +254,7 @@ func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
 	home := testsupport.Isolate(t)
 	f := &git.Fake{CommonDirValue: t.TempDir()}
 
-	w := NewWorktree(f, "claude-code")
+	w := NewWorktree(f)
 	w.state = SessionState{Harp: "brisk-teal-otter"}
 	ws, err := w.PrepareWorkspace(context.Background(), "/proj", "member-a")
 	require.NoError(t, err)
@@ -498,10 +266,8 @@ func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
 
 	env := WorkspaceEnv(ws)
 	require.NotNil(t, env)
-	assert.True(t, strings.HasPrefix(env["CLAUDE_CONFIG_DIR"], eph+string(os.PathSeparator)),
-		"config-home %q lives under the session ephemeral dir", env["CLAUDE_CONFIG_DIR"])
 
-	// spawner-env: the toolchain scratch dir (TMPDIR/GOTMPDIR) is the THIRD
+	// spawner-env: the toolchain scratch dir (TMPDIR/GOTMPDIR) is the second
 	// per-agent scratch resource homed under the session ephemeral dir — NOT
 	// the OS temp dir, which is the whole point (the shared /tmp is what
 	// corrupted concurrent agents in the first place).
@@ -529,7 +295,7 @@ func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
 func TestWorktree_ScratchDir_TMPDIRAndGOTMPDIRMatchAndExist(t *testing.T) {
 	common := t.TempDir()
 	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", "member-scratch")
+	ws, err := NewWorktree(f).PrepareWorkspace(context.Background(), "/proj", "member-scratch")
 	require.NoError(t, err)
 	requireCleanWorkspace(t, ws)
 
@@ -565,7 +331,7 @@ func TestWorktree_ConcurrentAgents_DisjointScratchDirs(t *testing.T) {
 		wg.Add(1)
 		go func(i int, agentID string) {
 			defer wg.Done()
-			ws, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", agentID)
+			ws, err := NewWorktree(f).PrepareWorkspace(context.Background(), "/proj", agentID)
 			results[i] = result{ws: ws, env: WorkspaceEnv(ws), err: err}
 		}(i, agentID)
 	}
@@ -591,7 +357,7 @@ func TestWorktree_ConcurrentAgents_DisjointScratchDirs(t *testing.T) {
 func TestWorktree_ScratchDir_CleanedUpOnTeardown(t *testing.T) {
 	common := t.TempDir()
 	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", "member-teardown")
+	ws, err := NewWorktree(f).PrepareWorkspace(context.Background(), "/proj", "member-teardown")
 	require.NoError(t, err)
 	requireCleanWorkspace(t, ws)
 
@@ -613,7 +379,7 @@ func TestWorktree_ScratchDir_CleanedUpOnTeardown(t *testing.T) {
 func TestWorktree_GitIdentity_AttributesToAgentNotHuman(t *testing.T) {
 	common := t.TempDir()
 	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", "reviewer-3")
+	ws, err := NewWorktree(f).PrepareWorkspace(context.Background(), "/proj", "reviewer-3")
 	require.NoError(t, err)
 	requireCleanWorkspace(t, ws)
 
@@ -630,149 +396,6 @@ func TestWorktree_GitIdentity_AttributesToAgentNotHuman(t *testing.T) {
 }
 
 // --- Per-engine isolation-home -----------------------------------------
-
-// TestWorktree_HomeVars_PerBackend is the "descriptor table guard" the
-// per-engine-isolation-home plan §9 asks for: each backend's Env() var-set
-// size must match the cartography table — a registered backend gets its own
-// scoped config-home var(s), and "" (no backend context) gets 0 of them (the
-// pre-fix, config-only-isolation default — see
-// TestWorktree_NoBackendSkipsSeedingAndFailLoud) — PLUS the 6 toolchain vars
-// (spawner-env: TMPDIR, GOTMPDIR, GIT_AUTHOR_{NAME,EMAIL},
-// GIT_COMMITTER_{NAME,EMAIL}) every backend gets UNCONDITIONALLY, including
-// "" (no backend context still gets a scratch dir; the git identity is
-// omitted for "" only because the test cases below pass a real agentID —
-// see gitIdentity's empty-agentID no-op for when it wouldn't).
-func TestWorktree_HomeVars_PerBackend(t *testing.T) {
-	resetStrictness(t)
-	withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test") // skip claude's seed attempt — only var COUNT matters here
-
-	const toolchainVars = 6 // TMPDIR, GOTMPDIR, GIT_AUTHOR_{NAME,EMAIL}, GIT_COMMITTER_{NAME,EMAIL}
-	cases := []struct {
-		backend string
-		want    int
-	}{
-		{"claude-code", 1 + toolchainVars},
-		{"", 0 + toolchainVars},
-	}
-	for _, c := range cases {
-		t.Run(c.backend, func(t *testing.T) {
-			common := t.TempDir()
-			f := &git.Fake{CommonDirValue: common}
-			ws, err := NewWorktree(f, c.backend).PrepareWorkspace(context.Background(), "/proj", "member-"+c.backend)
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = ws.Cleanup() })
-
-			env := WorkspaceEnv(ws)
-			assert.Len(t, env, c.want, "backend %q home-var count", c.backend)
-		})
-	}
-}
-
-// TestWorktree_ScopedLeverEngines_NoHomeOverride pins that every
-// credentialSeedSpecs-registered engine gets its OWN scoped config-home var
-// (claude-code's is CLAUDE_CONFIG_DIR) with no blanket HOME
-// override — a scoped var leaves ~/.gitconfig/~/.ssh identity untouched,
-// which a HOME override would strip. Formerly lived alongside the curated-HOME
-// mechanism (deleted with antigravity, its only registrant) as the negative
-// space proving these engines never took that path; kept standalone now
-// that there is no second lever kind to contrast against.
-func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
-	for _, tc := range []struct {
-		backend string
-		envVar  string
-	}{
-		{"claude-code", "CLAUDE_CONFIG_DIR"},
-	} {
-		t.Run(tc.backend, func(t *testing.T) {
-			resetStrictness(t)
-			withFakeHome(t)
-			t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-
-			common := t.TempDir()
-			f := &git.Fake{CommonDirValue: common}
-			ws, err := NewWorktree(f, tc.backend).PrepareWorkspace(context.Background(), "/proj", "agent-a")
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = ws.Cleanup() })
-
-			env := WorkspaceEnv(ws)
-			require.NotNil(t, env)
-			assert.NotContains(t, env, "HOME", "%s has a scoped lever — no blanket HOME override", tc.backend)
-			assert.Contains(t, env, tc.envVar)
-		})
-	}
-}
-
-// TestWorktree_HomeVarDirsExist pins that every directory Env() names
-// for a backend's HomeVars must EXIST, owner-only, by the time the workspace is
-// handed to a caller. Only hostCredentialSeed ever created a config-home
-// subdirectory, it created spec.destSubdir alone, and only on the path where
-// there was something to seed — so an engine authenticating from the
-// environment (ANTHROPIC_API_KEY below) or one with no seedable files at all
-// was handed a scoped var naming a directory nothing had created. The
-// MODE is half the assertion: these hold engine config/state and must be 0700
-// like every sibling scratch dir, not whatever umask the engine would have
-// mkdir'd them with itself.
-func TestWorktree_HomeVarDirsExist(t *testing.T) {
-	resetStrictness(t)
-	withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test") // claude authenticates from the env: nothing to seed
-
-	for _, backend := range []string{"claude-code"} {
-		t.Run(backend, func(t *testing.T) {
-			common := t.TempDir()
-			f := &git.Fake{CommonDirValue: common}
-			ws, err := NewWorktree(f, backend).PrepareWorkspace(context.Background(), "/proj", "member-"+backend)
-			require.NoError(t, err)
-			requireCleanWorkspace(t, ws)
-			t.Cleanup(func() { _ = ws.Cleanup() })
-
-			spec := credentialSeedSpecs[backend]
-			require.NotEmpty(t, spec.HomeVars, "%q must have HomeVars for this pin to mean anything", backend)
-			env := WorkspaceEnv(ws)
-			for _, hv := range spec.HomeVars {
-				dir := env[hv.EnvVar]
-				require.NotEmpty(t, dir, "%s must be exported", hv.EnvVar)
-				info, statErr := os.Stat(dir)
-				require.NoError(t, statErr, "%s names a directory that must exist on disk", hv.EnvVar)
-				assert.True(t, info.IsDir(), "%s names a directory", hv.EnvVar)
-				assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(),
-					"%s holds engine config/state and must be owner-only", hv.EnvVar)
-			}
-		})
-	}
-}
-
-// requireNothingSeeded asserts a per-agent config-home subdirectory carries no
-// seeded CREDENTIAL material. It states the invariant a NoDirExists check used
-// only to approximate: the directory Env() names is created unconditionally, so
-// "no seed happened" cannot be its absence.
-//
-// Nor is it EMPTINESS, which is what this used to assert. The ambient copy-in
-// has two halves and only the first is the credential copy: the second asks the
-// ENGINE to generate its own instance config (claude's .claude.json onboarding
-// and workspace-trust answers), and that half runs whether or not a credential
-// moved — an ANTHROPIC_API_KEY run authenticates fine and still meets the trust
-// dialog. So the assertion is about the credential FILES, named from the same
-// allow-list the copy itself reads, so the two cannot drift.
-func requireNothingSeeded(t *testing.T, dir string) {
-	t.Helper()
-	require.NotEmpty(t, dir, "the scoped config-home var must be exported")
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err, "the config-home subdirectory exists even when nothing was seeded")
-
-	credentialNames := map[string]bool{}
-	for _, engine := range AmbientEngineNames() {
-		for _, f := range AmbientSet(engine) {
-			credentialNames[path.Base(f.DestRel)] = true
-		}
-	}
-	require.NotEmpty(t, credentialNames, "the allow-list must name real files, or this check proves nothing")
-	for _, e := range entries {
-		assert.False(t, credentialNames[e.Name()],
-			"no credential is seeded when there is nothing to seed, but %s appeared in %s", e.Name(), dir)
-	}
-}
 
 // panicAfterAddGit panics on CommonDir — the first git call PrepareWorkspace
 // makes AFTER the checkout exists and the leak-recovery defer is installed, so
@@ -795,7 +418,7 @@ func TestWorktree_PanicRecoveryPrunesRegistration(t *testing.T) {
 	t.Setenv("TMPDIR", tmp)
 
 	f := &git.Fake{}
-	w := NewWorktree(panicAfterAddGit{Fake: f}, "")
+	w := NewWorktree(panicAfterAddGit{Fake: f})
 	assert.Panics(t, func() {
 		_, _ = w.PrepareWorkspace(context.Background(), "/proj", "member-panic")
 	}, "the original failure is preserved, not swallowed")
@@ -850,7 +473,7 @@ func TestWorktree_UnsafeHarpIsReported(t *testing.T) {
 	t.Run("rejected harp is reported", func(t *testing.T) {
 		const badHarp = "wave31/u065-unsafe-harp"
 		f := &git.Fake{CommonDirValue: t.TempDir()}
-		w := NewWorktree(f, "")
+		w := NewWorktree(f)
 		w.state = SessionState{Harp: badHarp}
 
 		done := captureStderr(t)
@@ -867,7 +490,7 @@ func TestWorktree_UnsafeHarpIsReported(t *testing.T) {
 
 	t.Run("absent harp stays silent", func(t *testing.T) {
 		f := &git.Fake{CommonDirValue: t.TempDir()}
-		w := NewWorktree(f, "")
+		w := NewWorktree(f)
 
 		done := captureStderr(t)
 		ws, err := w.PrepareWorkspace(context.Background(), "/proj", "member-noharp")
@@ -897,7 +520,7 @@ func TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern(t *testing.T) {
 
 	common := t.TempDir()
 	f := &git.Fake{CommonDirValue: common}
-	NewWorktree(f, "").excludeConfigFromMerge(context.Background(), "/proj")
+	NewWorktree(f).excludeConfigFromMerge(context.Background(), "/proj")
 
 	raw, err := os.ReadFile(filepath.Join(common, "info", "exclude"))
 	require.NoError(t, err, "the exclude file must exist")
@@ -914,51 +537,36 @@ func TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern(t *testing.T) {
 
 // TestWorktreeCleanup_NoResourceStrandedByTheDirGuard pins a claim, and
 // the row is REFUTED on its consequence. The claim: Cleanup's idempotence guard
-// `if w.dir == "" { return nil }` also short-circuits removal of configHome
-// and scratchDir, which are independent resources.
+// `if w.dir == "" { return nil }` also short-circuits removal of scratchDir,
+// an independent resource.
 //
-// The guard does gate both — that half is true. The leak it implies is
+// The guard does gate it — that half is true. The leak it implies is
 // unreachable by construction, and this pins the two properties that make it
 // so: (1) the only production construction of a worktreeWorkspace sets dir
-// FIRST and non-empty, before any scratch home exists to strand, and (2) one
+// FIRST and non-empty, before any scratch dir exists to strand, and (2) one
 // Cleanup clears every field and removes every resource, so a second call has
 // nothing left to reach. Either property breaking — a construction that leaves
 // dir empty, or a Cleanup arm that stops clearing its field — turns the shared
 // guard into the leak the row describes, and turns this red.
 func TestWorktreeCleanup_NoResourceStrandedByTheDirGuard(t *testing.T) {
 	withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	f := &git.Fake{CommonDirValue: t.TempDir()}
+	ws, err := NewWorktree(f).PrepareWorkspace(context.Background(), "/proj", "member-a")
+	require.NoError(t, err)
+	requireCleanWorkspace(t, ws)
+	concrete, ok := ws.(*worktreeWorkspace)
+	require.True(t, ok)
 
-	for _, backend := range []string{"claude-code"} {
-		t.Run(backend, func(t *testing.T) {
-			resetStrictness(t)
-			f := &git.Fake{CommonDirValue: t.TempDir()}
-			ws, err := NewWorktree(f, backend).PrepareWorkspace(context.Background(), "/proj", "member-"+backend)
-			require.NoError(t, err)
-			requireCleanWorkspace(t, ws)
-			concrete, ok := ws.(*worktreeWorkspace)
-			require.True(t, ok)
+	require.NotEmpty(t, concrete.dir,
+		"the guard's own field is set before any scratch dir exists to be stranded by it")
+	scratch := concrete.scratchDir
+	require.NotEmpty(t, scratch, "a scratch dir must be provisioned for this pin to mean anything")
 
-			require.NotEmpty(t, concrete.dir,
-				"the guard's own field is set before any scratch home exists to be stranded by it")
-			var live []string
-			for _, r := range []string{concrete.configHome, concrete.scratchDir} {
-				if r != "" {
-					live = append(live, r)
-				}
-			}
-			require.NotEmpty(t, live, "%q must provision a scratch home for this pin to mean anything", backend)
+	require.NoError(t, ws.Cleanup())
 
-			require.NoError(t, ws.Cleanup())
-
-			assert.Empty(t, concrete.dir, "dir is cleared")
-			assert.Empty(t, concrete.configHome, "configHome is cleared in the SAME call, never left for a second one")
-			assert.Empty(t, concrete.scratchDir, "scratchDir is cleared in the SAME call")
-			for _, r := range live {
-				assert.NoDirExists(t, r, "Cleanup removed %q from disk", r)
-			}
-		})
-	}
+	assert.Empty(t, concrete.dir, "dir is cleared")
+	assert.Empty(t, concrete.scratchDir, "scratchDir is cleared in the SAME call, never left for a second one")
+	assert.NoDirExists(t, scratch, "Cleanup removed the scratch dir from disk")
 }
 
 // TestWorktreeBranchName pins the branch ↔ checkout derivation: the branch a

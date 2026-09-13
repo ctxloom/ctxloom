@@ -80,11 +80,12 @@ func (b worktreeBase) resolveBase(ctx context.Context, projectDir, agentID strin
 		_ = raw.Cleanup()
 		return "", nil, fmt.Errorf("container-worktree: unexpected worktree workspace %T", raw)
 	}
-	// cleanup is the worktree's WIP-safe, nested-aware teardown; the container mounts
-	// wt.dir as cwd. It deliberately exposes NO per-agent config-home env: the engine
-	// runs inside the container with a fresh HOME, so the worktree's host config-home
-	// envs (CLAUDE_CONFIG_DIR/…) would point at unmounted host paths and mean nothing
-	// there — the unified containerWorkspace never implements EnvWorkspace.
+	// cleanup is the worktree's WIP-safe, nested-aware teardown; the container
+	// mounts wt.dir as cwd. The worktree's own Env() (host scratch dir, git
+	// identity) is not carried: the engine runs inside the container, where a
+	// host scratch path means nothing — the unified containerWorkspace never
+	// implements EnvWorkspace, and the container's git identity rides its
+	// mount plan instead.
 	return wt.dir, wt.Cleanup, nil
 }
 
@@ -196,12 +197,6 @@ func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (Mount, bool
 // builds), the worktree half from the Git seam.
 func NewContainerWorktreeFor(rt Runtime, backend string, img ImageConfig, g git.Git) Container {
 	c := containerFor(rt, backend, img)
-	// backend threaded for consistency with the pure host+worktree
-	// construction site (chainFor); harmless here specifically because the
-	// unified containerWorkspace never implements EnvWorkspace (see the
-	// package doc above), so the wrapped Worktree's Env()/credential-seeding
-	// is dead code in this composition — auth flows through the surrounding
-	// Container's resolveContainerAuth mounts instead.
-	c.base = worktreeBase{wt: NewWorktree(g, backend)}
+	c.base = worktreeBase{wt: NewWorktree(g)}
 	return c
 }

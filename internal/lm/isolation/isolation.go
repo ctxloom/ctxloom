@@ -596,7 +596,7 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 		rt := selectRuntimeProbe("", axes.Runtime)
 		if _, isHost := rt.(Host); !isHost {
 			if axes.WantsWorktree() {
-				return []Policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil, backend), None{}}
+				return []Policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil), None{}}
 			}
 			return []Policy{containerFor(rt, backend, img), None{}}
 		}
@@ -619,15 +619,12 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 	if axes.WantsWorktree() {
 		// Workspace-only isolation, no runtime dependency — the git-repo check
 		// and the worktree-add both degrade to None inside PrepareWorkspace
-		// (prepareChain warns). This is the PURE host+worktree path:
-		// NewWorktree carries backend so PrepareWorkspace can provision
-		// whichever host isolation lever the backend registers — a scoped
-		// config-home var (credentialSeedSpecs, auth.go). Reached both for a
-		// bare {worktree, host} request and for a
+		// (prepareChain warns). This is the PURE host+worktree path. Reached
+		// both for a bare {worktree, host} request and for a
 		// {worktree, container} request that just degraded to host above (the
 		// container was dropped, worktree stays) — either way the agent ends
 		// up on the HOST with only a worktree.
-		return []Policy{NewWorktree(nil, backend), None{}}
+		return []Policy{NewWorktree(nil), None{}}
 	}
 	return []Policy{None{}}
 }

@@ -95,23 +95,6 @@ func TestCredentialSeedSpecFor_UnknownEngineStillMisses(t *testing.T) {
 	assert.False(t, ok, "a prefix of a real engine name must not resolve to it")
 }
 
-// TestBackendHasNoGlobalState_ResolvesAliasesAndKeepsUnknownFalse pins the
-// exemption list: an aliased spelling must keep the exemption, and an engine
-// that is not on the list must not acquire one.
-func TestBackendHasNoGlobalState_ResolvesAliasesAndKeepsUnknownFalse(t *testing.T) {
-	require.NotEmpty(t, backendsWithNoGlobalState, "fixture: the exemption list must not be empty")
-	for name := range backendsWithNoGlobalState {
-		require.True(t, backendHasNoGlobalState(name), "fixture: %q must be exempt", name)
-		for _, alias := range agent.EngineNameAliases(name) {
-			assert.True(t, backendHasNoGlobalState(alias), "alias %q of %q must keep the exemption", alias, name)
-		}
-		assert.True(t, backendHasNoGlobalState(upperSpelling(t, name)),
-			"a case variant of %q must keep the exemption", name)
-	}
-	assert.False(t, backendHasNoGlobalState(unknownEngineName), "an unlisted backend must not be exempt")
-	assert.False(t, backendHasNoGlobalState(""), "the no-context construction is handled by its own guard, not the exemption list")
-}
-
 // TestEngineContainerSpecFor_ResolvesDeclaredAliases is the container half of
 // the same hazard: an aliased engine reaching the fail-closed default arm
 // cannot authenticate at all, and config validation would refuse the binding.
@@ -184,10 +167,9 @@ func TestRegisterCredentialProjector_ResolvesAliasesAndRefusesNonCanonicalKeys(t
 // alias table rewrites is unreachable by any lookup.
 func TestEngineKeyedTables_HoldCanonicalKeys(t *testing.T) {
 	rosters := map[string][]string{
-		"credentialSeedSpecs":       CredentialSeedEngineNames(),
-		"ContainerAuthEngines":      ContainerAuthEngines(),
-		"composableEngines":         composableEngines(),
-		"backendsWithNoGlobalState": noGlobalStateNames(),
+		"credentialSeedSpecs":  CredentialSeedEngineNames(),
+		"ContainerAuthEngines": ContainerAuthEngines(),
+		"composableEngines":    composableEngines(),
 	}
 	for table, names := range rosters {
 		require.NotEmpty(t, names, "fixture: roster %s must not be empty", table)
@@ -195,12 +177,4 @@ func TestEngineKeyedTables_HoldCanonicalKeys(t *testing.T) {
 			assert.Equal(t, agent.CanonicalEngineName(name), name, "%s key %q must be canonical", table, name)
 		}
 	}
-}
-
-func noGlobalStateNames() []string {
-	names := make([]string, 0, len(backendsWithNoGlobalState))
-	for name := range backendsWithNoGlobalState {
-		names = append(names, name)
-	}
-	return names
 }

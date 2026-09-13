@@ -25,7 +25,7 @@ func TestMCPCommandOverrideForPolicy(t *testing.T) {
 		want   string
 	}{
 		{"none→no override (host self-exec stays)", isolation.None{}, ""},
-		{"worktree→no override (host self-exec stays)", isolation.NewWorktree(nil, ""), ""},
+		{"worktree→no override (host self-exec stays)", isolation.NewWorktree(nil), ""},
 		{"container→in-container binary path", isolation.NewContainerFor(nil, "mock").WithImage("img"), "/usr/local/bin/ctxloom"},
 		{"container-worktree→in-container binary path", isolation.NewContainerWorktreeFor(nil, "mock", isolation.ImageConfig{Image: "img"}, nil), "/usr/local/bin/ctxloom"},
 	}

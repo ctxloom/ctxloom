@@ -145,7 +145,7 @@ func TestWorktreeBase_MountBaseCarriesTheConfigMount(t *testing.T) {
 	source := writeConfigTree(t, projectDir, "project config")
 
 	f := &git.Fake{}
-	base := worktreeBase{wt: NewWorktree(f, "mock")}
+	base := worktreeBase{wt: NewWorktree(f)}
 
 	mounts, cleanup, err := base.mountBase(ctx, rt, projectDir, worktreeDir, t.TempDir(), engineContainerSpec{}, f)
 
@@ -174,7 +174,7 @@ func TestWorktreeBase_MountBaseOmitsTheConfigMountWhenThereIsNothingToDeliver(t 
 	projectDir, worktreeDir := newCell(t)
 
 	f := &git.Fake{}
-	base := worktreeBase{wt: NewWorktree(f, "mock")}
+	base := worktreeBase{wt: NewWorktree(f)}
 
 	mounts, _, err := base.mountBase(ctx, rt, projectDir, worktreeDir, t.TempDir(), engineContainerSpec{}, f)
 

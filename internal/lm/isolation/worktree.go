@@ -14,30 +14,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
-
-// credentialSeedFixIt is the fix-it hint attached to a worktree credential-seed
-// fail-loud finding (see Worktree.seedCredentials): unlike the container path's
-// isolationFixIt (which points at installing/starting a runtime), the escape
-// hatch here is authenticating the engine or supplying its API key — there is no
-// runtime to start.
-const credentialSeedFixIt = "authenticate the engine on this host (e.g. `claude login`) or set its API-key env var, or pass --degraded (env CTXLOOM_DEGRADED=1) to run this member on the shared host config instead of an isolated one"
-
-// backendsWithNoGlobalState are registered backends that provably have NO
-// engine-global config/credential state of their own to isolate, so the
-// "unregistered backend" finding below must not fire for them. Only
-// entry today: "mock", ctxloom's own built-in test double — a bare echo that
-// never spawns a grandchild process and never touches disk (see
-// tests/acceptance/features/j002200_isolation.feature's own hermeticity note).
-// This is a NAMED, independently-verified exemption, never a convenience
-// default — a real, user-selectable backend (e.g. "acp") that falls through
-// both registries is exactly the bug this guards against, not a candidate for
-// this list.
-//
-// Keyed by CANONICAL name (enginekeys.go asserts it); read only through
-// backendHasNoGlobalState, which resolves aliases.
-var backendsWithNoGlobalState = map[string]bool{"mock": true}
 
 // worktreeBaseRef is the ref each per-agent worktree's branch starts from:
 // the project's HEAD at the moment the member is prepared.
@@ -69,45 +46,36 @@ const worktreeScratchPrefix = "ctxloom-wt"
 // project surface. It is NOT a security boundary — only container bypasses
 // approvals — so approvals stay Prompt. SpawnClient is the SAME bare self-invoked
 // subprocess as None; the isolation is expressed purely via the worktree cwd
-// (RunOptions.WorkDir) plus per-agent config-home envs. Not a git repo, or the
-// worktree add fails → PrepareWorkspace errors so the caller degrades to None.
-// A lost worktree is a WORKSPACE-axis degrade (config isolation only, not a
-// security boundary), so it stays a silent warn-and-continue — unlike a lost
-// CONTAINER boundary, which is fatal unless --degraded.
+// (RunOptions.WorkDir) plus the per-agent scratch and git identity its Env()
+// carries. The engine's config home is NOT this policy's to provide: it is
+// decided off the agent binding for every cell (operations.ResolveInTreeAgentHome),
+// so a worktree run and a live-tree run with the same binding share the same
+// answer. Not a git repo, or the worktree add fails → PrepareWorkspace errors
+// so the caller degrades to None. A lost worktree is a WORKSPACE-axis degrade
+// (config isolation only, not a security boundary), so it stays a silent
+// warn-and-continue — unlike a lost CONTAINER boundary, which is fatal unless
+// --degraded.
 type Worktree struct {
 	git git.Git
 	// state is the run's session identity, stamped by Prepare
 	// (withSessionState). A known harp homes the per-agent scratch (checkout +
-	// config-home) under the session's ephemeral/ dir instead of the OS temp
-	// dir — one place to inspect a session's regenerable state (§6d). Zero on
-	// paths without session accounting → the OS temp dir, exactly as before.
+	// toolchain temp) under the session's ephemeral/ dir instead of the OS
+	// temp dir — one place to inspect a session's regenerable state (§6d).
+	// Zero on paths without session accounting → the OS temp dir.
 	state SessionState
-	// backend is the REGISTERED backend name (e.g. "claude-code") this
-	// policy's config-home is provisioned for. provisionConfigHome uses it
-	// to look up a credentialSeedSpec (auth.go) and seed subscription
-	// credentials into the isolated config-home — without it, an isolated
-	// engine that honours its config-home var for creds too (claude) starts
-	// logged out. Empty is valid (a bare Worktree{}, or a
-	// caller with no backend context, e.g. the worktree-in-container base's
-	// generic test constructor): no spec matches, so no seeding is
-	// attempted — the pre-fix behavior.
-	backend string
 }
 
 // Ensure Worktree satisfies the Policy interface.
 var _ Policy = Worktree{}
 
-// NewWorktree builds a worktree policy over the given Git seam for the given
-// backend. A nil Git uses the default git-binary implementation; tests pass a
-// git.Fake to drive the lifecycle and the WIP-safe teardown without a real repo.
-// backend is the registered backend name (e.g. "claude-code"); pass "" when no
-// backend context is available (config-home credential seeding is then skipped —
-// see the Worktree.backend field doc).
-func NewWorktree(g git.Git, backend string) Worktree {
+// NewWorktree builds a worktree policy over the given Git seam. A nil Git uses
+// the default git-binary implementation; tests pass a git.Fake to drive the
+// lifecycle and the WIP-safe teardown without a real repo.
+func NewWorktree(g git.Git) Worktree {
 	if g == nil {
 		g = git.NewExec()
 	}
-	return Worktree{git: g, backend: backend}
+	return Worktree{git: g}
 }
 
 // Name identifies the policy.
@@ -116,20 +84,14 @@ func (Worktree) Name() string { return "worktree" }
 // ResolveWorkspace creates a fresh worktree for the member on its own named
 // branch (worktreeBranchName). It errors
 // (→ caller degrades to None) when projectDir is not a git repo or the worktree
-// add fails. On success it also, best-effort, provisions the member's HOST
-// isolation lever and writes the broadened ctxloom-config excludes to the
-// shared common-dir .git/info/exclude so a developer member's merge-back never
-// carries per-agent config (§3.1). Neither best-effort step fails the
+// add fails. On success it also, best-effort, provisions the member's
+// toolchain scratch dir and writes the broadened ctxloom-config excludes to
+// the shared common-dir .git/info/exclude so a developer member's merge-back
+// never carries per-agent config (§3.1). Neither best-effort step fails the
 // workspace.
 //
-// The lever, when the backend is registered in credentialSeedSpecs (auth.go),
-// is a SCOPED env var (CLAUDE_CONFIG_DIR) pointed at a
-// per-agent subdir; the rest of the process env, including HOME, is
-// untouched. A backend not in that registry gets the pre-fix,
-// config-only-isolation no-op (no per-agent env at all).
-//
 // The deferred recover below exists because the worktree checkout and
-// whichever scratch home was provisioned are real on-disk resources created
+// the scratch dir provisioned after it are real on-disk resources created
 // BEFORE this function returns a Workspace the caller could Cleanup() — if
 // anything after WorktreeAdd panics (a bug in excludeConfigFromMerge/
 // skipTrackedConfig, or — the case that surfaced this — a mutation-testing
@@ -156,7 +118,6 @@ func (w Worktree) ResolveWorkspace(ctx context.Context, projectDir, agentID stri
 		git:     w.git,
 		repoDir: projectDir,
 		dir:     wtPath,
-		backend: w.backend,
 		agentID: agentID,
 	}
 	defer func() {
@@ -172,29 +133,12 @@ func (w Worktree) ResolveWorkspace(ctx context.Context, projectDir, agentID stri
 			pruneCtx, cancelPrune := context.WithTimeout(context.Background(), worktreeTeardownTimeout)
 			_ = w.git.WorktreePrune(pruneCtx, projectDir)
 			cancelPrune()
-			if ws.configHome != "" {
-				_ = os.RemoveAll(ws.configHome)
-			}
 			if ws.scratchDir != "" {
 				_ = os.RemoveAll(ws.scratchDir)
 			}
 			panic(r)
 		}
 	}()
-	if _, seeded := credentialSeedSpecFor(w.backend); !seeded && w.backend != "" && !backendHasNoGlobalState(w.backend) {
-		// A backend registered in NEITHER credentialSeedSpecs (e.g. "acp")
-		// used to fall through here with zero engine-global isolation and NO
-		// finding at all — the run reports "worktree" isolation while the
-		// engine's global config/creds stay fully shared with the host.
-		// w.backend == "" stays silent: that is the documented no-context
-		// construction, not an unregistered backend. backendsWithNoGlobalState
-		// is the one, independently-verified exemption (the built-in mock
-		// backend), not a silent carve-out.
-		strictness.Fail(strictness.ClassIsolation, credentialSeedFixIt,
-			"worktree isolation for agent %q: backend %q is not registered in the credential-seed registry — only the working directory is isolated; the engine's global config and credentials remain fully shared with the host",
-			agentID, w.backend)
-	}
-	ws.configHome, ws.deniedHomeVars = w.provisionConfigHome(agentID, wtPath)
 	ws.scratchDir = w.provisionScratchDir(agentID)
 	w.excludeConfigFromMerge(ctx, projectDir)
 	w.skipTrackedConfig(ctx, wtPath)
@@ -203,9 +147,9 @@ func (w Worktree) ResolveWorkspace(ctx context.Context, projectDir, agentID stri
 
 // Mount maps nothing. Like None, the worktree policy runs the engine on the
 // HOST, directly inside the checkout ResolveWorkspace created — there is no
-// second environment to map the tree into. The per-agent config-home and
-// toolchain-scratch env the worktree does provide rides worktreeWorkspace.Env
-// (the EnvWorkspace seam the spawn already consults), not a mount plan.
+// second environment to map the tree into. The toolchain-scratch and git
+// identity env the worktree does provide rides worktreeWorkspace.Env (the
+// EnvWorkspace seam the spawn already consults), not a mount plan.
 func (Worktree) Mount(context.Context, Workspace) (MountPlan, error) { return MountPlan{}, nil }
 
 // PrepareWorkspace resolves and maps in one step (see prepareWorkspace).
@@ -215,15 +159,14 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 
 // provisionScratchDir creates the per-agent TOOLCHAIN scratch root
 // (worktreeWorkspace.Env()'s TMPDIR/GOTMPDIR) under the same scratchBase as
-// the checkout and config-home — the session's ephemeral/ dir when a harp is
-// known, else the OS temp dir. This is the fix for the shared-/tmp toolchain
+// the checkout — the session's ephemeral/ dir when a harp is known, else the
+// OS temp dir. This is the fix for the shared-/tmp toolchain
 // contention that corrupted concurrent agents (spawner-env audit): every
 // worktree member previously inherited the SAME process TMPDIR, so `go
 // build`'s per-invocation $WORK scratch, `git`'s temp blobs, and any other
 // tool honouring TMPDIR collided across members. Returns "" on the MkdirAll
-// failure — best-effort like provisionConfigHome, never blocking the run;
-// Env() then simply omits TMPDIR/GOTMPDIR and the child falls back to the
-// shared process default.
+// failure — best-effort, never blocking the run; Env() then simply omits
+// TMPDIR/GOTMPDIR and the child falls back to the shared process default.
 func (w Worktree) provisionScratchDir(agentID string) string {
 	dir := worktreeScratchPath(w.scratchBase(), "ctxloom-tmp", agentID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -248,153 +191,6 @@ func (Worktree) SpawnClient(backendName, label string, verbosity int, ws Workspa
 // one unit rather than duplicate it.
 func (Worktree) StartRunner(ctx context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
 	return None{}.StartRunner(ctx, backendName, label, verbosity, ws, spawnEnv)
-}
-
-// provisionConfigHome creates the per-agent config-home root (P2, T0.6) and, when
-// this policy carries a backend with a registered credentialSeedSpec, seeds it
-// with the backend's host subscription credentials. Returns "" on
-// the MkdirAll failure — the run still proceeds against the shared global config
-// (warn), never blocking. The scoped envs are preferred over a per-session HOME,
-// which would strip ~/.gitconfig/ssh identity the worktree still needs. denied
-// carries any GatedOnCreds HomeVars seedCredentials decided NOT to isolate (see
-// its doc) — Env() reads it back to omit them.
-//
-// workDir is THIS member's own checkout — the directory the engine will
-// actually run in, and therefore the one an engine-generated workspace-trust
-// answer must name. It is the per-agent worktree, never the shared project
-// root: trusting the project root would answer for a directory this member
-// never enters.
-func (w Worktree) provisionConfigHome(agentID, workDir string) (home string, denied map[string]bool) {
-	home = worktreeScratchPath(w.scratchBase(), "ctxloom-cfg", agentID)
-	// 0700 like every MkdirTemp sibling in this package: the dir holds engine
-	// creds/state (CLAUDE_CONFIG_DIR & co.) in the SHARED OS temp dir — never
-	// world-traversable.
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		// This used to be a plain clidiag.Warn, while a LESSER
-		// (partial: creds present but unseedable) failure two frames later in
-		// seedCredentials is a strictness.Fail(ClassIsolation) — inverting
-		// the severity ordering, so a TOTAL loss of engine-global isolation
-		// was quieter than a partial one, and a strict run would proceed
-		// unsandboxed-in-config where it would have aborted on the lesser
-		// fault. Escalate to match: fatal unless --degraded, like every
-		// sibling isolation gate.
-		strictness.Fail(strictness.ClassIsolation, credentialSeedFixIt,
-			"worktree isolation for agent %q: per-agent config-home unavailable (%v) — falling back to the shared global config, with no engine-global isolation at all",
-			agentID, err)
-		// Defensive against a mutant flipping this check: home is a
-		// deterministic path (not MkdirTemp-random), so a real success
-		// misclassified as failure would otherwise leave a fully-created,
-		// unreferenced dir on disk — the caller stores "" and can never find
-		// it again. A genuine MkdirAll failure makes this a harmless no-op.
-		_ = os.RemoveAll(home)
-		return "", nil
-	}
-	denied = w.seedCredentials(home, agentID, workDir)
-	w.prepareHomeVarDirs(home, denied)
-	return home, denied
-}
-
-// prepareHomeVarDirs creates the per-agent directories Env() points this
-// backend's HomeVars at. Seeding alone does not: hostCredentialSeed creates
-// spec.destSubdir and nothing else, and only on the path where there was
-// something to seed — so an engine that authenticates from its envTrigger, or
-// one with no seedable files at all, is otherwise handed a scoped var
-// naming a directory nobody created. 0700 like every sibling scratch dir here:
-// these hold engine config/state, and leaving the engine to mkdir them itself
-// yields whatever its umask says instead. denied vars are skipped — Env() does
-// not export them, so their directory would be pure litter. Best-effort, like
-// the rest of this provisioning step: a failure warns and leaves the var
-// pointing at an absent directory, exactly as before.
-func (w Worktree) prepareHomeVarDirs(configHome string, denied map[string]bool) {
-	spec, ok := credentialSeedSpecFor(w.backend)
-	if !ok {
-		return
-	}
-	for _, hv := range spec.HomeVars {
-		if denied[hv.EnvVar] {
-			continue
-		}
-		dir := filepath.Join(configHome, hv.Subdir)
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			clidiag.Warn("ctxloom", "worktree: cannot create the per-agent %s directory %q (the engine will see a missing config home): %v", hv.EnvVar, dir, err)
-		}
-	}
-}
-
-// seedCredentials seeds w.backend's subscription credentials into the per-agent
-// config-home when the backend has a registered credentialSeedSpec (auth.go)
-// with copyable sourceFiles (HonoursVarForCreds true: an engine whose
-// isolation env var relocates CREDENTIALS, not just config), or — for a
-// HonoursVarForCreds==false spec whose creds live in an unrelocatable global
-// store — gates each GatedOnCreds HomeVar on its bypass env instead (see
-// gateHomeVars). No spec (w.backend == "", or a backend genuinely left out of
-// the registry, with no host isolation lever at all) is a silent no-op: the
-// pre-fix, config-only provisioning.
-//
-// The copy mechanics (I/O failure) stay best-effort like the rest of this
-// provisioning step — a warn, not a block. But "nothing seedable" is NOT
-// best-effort: no envTrigger (e.g. ANTHROPIC_API_KEY) set AND no host
-// credential file present is exactly the silent-logged-out-agent failure mode
-// fail-loudly exists to catch, so it records a
-// ClassIsolation finding the choke owner aborts on in strict mode (default)
-// unless --degraded — matching how the container path treats unresolvable auth
-// (resolveClaudeContainerAuth / container.go).
-// It routes through isolation.CopyAmbient — the ONE one-way ambient copy-in,
-// shared with the in-tree axis (D8, ruled). Sharing the mechanism is
-// what makes the D4/D5 rulings — claude's field-scoped .claude.json, another engine's
-// [mcp_servers]/[hooks] elision — apply to a fan-out member for free, instead
-// of being an in-tree-only privilege the worktree axis silently missed. The
-// LOCATION stays split: this axis's homes remain home-rooted under
-// ~/.ctxloom/sessions/<harp>/ephemeral/, because they are per-AGENT, not
-// per-session.
-func (w Worktree) seedCredentials(configHome, agentID, workDir string) map[string]bool {
-	spec, ok := credentialSeedSpecFor(w.backend)
-	if !ok {
-		return nil
-	}
-	if spec.sourceFiles == nil {
-		return w.gateHomeVars(spec, agentID)
-	}
-	report, err := CopyAmbient(AmbientRequest{Engine: w.backend, InstanceHome: configHome, WorkDir: workDir})
-	if err != nil {
-		clidiag.Warn("ctxloom", "worktree: could not seed %s credentials for %q (using an unseeded config-home): %v", spec.engine, agentID, err)
-		return nil
-	}
-	if report.NoSource {
-		strictness.Fail(strictness.ClassIsolation, credentialSeedFixIt,
-			"worktree isolation for agent %q: no %s and no host %s credentials found to seed the per-agent config-home — the agent would start logged out",
-			agentID, spec.envTrigger, spec.engine)
-	}
-	return nil
-}
-
-// gateHomeVars decides, for a HonoursVarForCreds==false spec (one whose
-// credentials live in a global store no per-agent HomeVar relocates), whether
-// each GatedOnCreds HomeVar is safe to isolate: safe when spec.envTrigger is
-// present in the process env, so the agent can authenticate under a fresh var
-// via that key. When it is absent, isolating that var
-// would silently strand the agent logged out of a credential store it can never
-// reach again, so this records a
-// ClassIsolation fail-loud finding (degradable via --degraded) and returns the
-// var DENIED — Env() omits it, so the agent falls back to the engine's shared
-// global store instead. Non-gated HomeVars on the same spec — those relocating
-// config/state but no credentials — are never denied.
-func (w Worktree) gateHomeVars(spec credentialSeedSpec, agentID string) map[string]bool {
-	granted := spec.envTrigger != "" && os.Getenv(spec.envTrigger) != ""
-	var denied map[string]bool
-	for _, hv := range spec.HomeVars {
-		if !hv.GatedOnCreds || granted {
-			continue
-		}
-		if denied == nil {
-			denied = map[string]bool{}
-		}
-		denied[hv.EnvVar] = true
-		strictness.Fail(strictness.ClassIsolation, credentialSeedFixIt,
-			"worktree isolation for agent %q: isolating %s would relocate %s's credential store away from where it's authenticated, with no %s set to authenticate a fresh one — sharing the host's global store instead",
-			agentID, hv.EnvVar, spec.engine, spec.envTrigger)
-	}
-	return denied
 }
 
 // excludeConfigFromMerge writes the broadened ctxloom-config exclude block to the
@@ -441,22 +237,12 @@ func (w Worktree) skipTrackedConfig(ctx context.Context, wtPath string) {
 }
 
 // worktreeWorkspace is the Worktree policy's workspace: Dir() is the per-agent
-// worktree checkout, Env() the per-agent host-lever envs (EnvWorkspace), and
-// Cleanup() the WIP-safe, nested-worktree-aware teardown.
+// worktree checkout, Env() the env for what the worktree provisioned
+// (EnvWorkspace), and Cleanup() the WIP-safe, nested-worktree-aware teardown.
 type worktreeWorkspace struct {
-	git        git.Git
-	repoDir    string
-	dir        string
-	configHome string
-	// backend is the registered backend name this workspace's scratch home
-	// was provisioned for (Worktree.backend, copied at PrepareWorkspace
-	// time) — Env() looks up credentialSeedSpecs[backend] to build its
-	// HomeVars set.
-	backend string
-	// deniedHomeVars names GatedOnCreds env vars seedCredentials decided NOT
-	// to isolate (gateHomeVars: a credential-relocating var whose spec's
-	// bypass env is unset); Env() omits them.
-	deniedHomeVars map[string]bool
+	git     git.Git
+	repoDir string
+	dir     string
 	// agentID is the member label PrepareWorkspace was given (Worktree.
 	// PrepareWorkspace's agentID param, copied at construction) — Env() uses
 	// it to build the per-agent git identity (gitIdentity) and
@@ -464,33 +250,25 @@ type worktreeWorkspace struct {
 	agentID string
 	// scratchDir is the per-agent TOOLCHAIN scratch root (provisionScratchDir)
 	// that Env() points TMPDIR/GOTMPDIR at — scoping build/VCS temp-file
-	// traffic per agent the same way configHome scopes engine config. "" when
-	// provisioning failed (best-effort; Env() then omits both vars).
+	// traffic per agent. "" when provisioning failed (best-effort; Env() then
+	// omits both vars).
 	scratchDir string
 }
 
-// Ensure the workspace exposes its per-agent host-lever envs.
+// Ensure the workspace exposes the env for what it provisioned.
 var _ EnvWorkspace = (*worktreeWorkspace)(nil)
 
 // Dir returns the worktree checkout the member's engine runs in.
 func (w *worktreeWorkspace) Dir() string { return w.dir }
 
-// Env returns the per-agent host-lever envs. configHome set: the SCOPED
-// config-home envs that isolate each engine's GLOBAL config/state/creds home
-// (T0.6, widened per per-engine-isolation-home plan §6), driven entirely by
-// credentialSeedSpecs[w.backend].HomeVars — one entry per var that engine
-// isolates, less any gateHomeVars denied. HOME itself is left
-// untouched, deliberately: a blanket HOME override would strip the
-// ~/.gitconfig/~/.ssh identity the worktree still needs for git itself,
-// which a scoped var avoids by construction.
+// Env returns the env for what this worktree provisioned — and ONLY that.
+// It never names an engine's config home: that is decided off the agent
+// binding for every cell (operations.ResolveInTreeAgentHome), and a worktree
+// that set it would make a run's home depend on which workspace it picked.
+// HOME itself is left untouched, deliberately: a blanket HOME override would
+// strip the ~/.gitconfig/~/.ssh identity the worktree still needs for git.
 //
-// Empty when NEITHER a scratch dir, a git identity, nor any configHome var
-// could be provisioned/resolved.
-//
-// TWO additions ride here UNCONDITIONALLY, ahead of and independent from the
-// configHome engine-config lever above — every worktree member gets them
-// regardless of backend registry membership, because they scope
-// TOOLCHAIN/VCS state shared across linked worktrees, not engine config:
+// Empty when neither a scratch dir nor a git identity could be provisioned.
 //
 //   - TMPDIR / GOTMPDIR: provisionScratchDir's per-agent root, when
 //     provisioning succeeded. Deliberately NOT GOCACHE — Go's build cache is
@@ -513,16 +291,6 @@ func (w *worktreeWorkspace) Env() map[string]string {
 		env["GIT_AUTHOR_EMAIL"] = email
 		env["GIT_COMMITTER_NAME"] = name
 		env["GIT_COMMITTER_EMAIL"] = email
-	}
-	if w.configHome != "" {
-		if spec, ok := credentialSeedSpecFor(w.backend); ok {
-			for _, hv := range spec.HomeVars {
-				if w.deniedHomeVars[hv.EnvVar] {
-					continue
-				}
-				env[hv.EnvVar] = filepath.Join(w.configHome, hv.Subdir)
-			}
-		}
 	}
 	if len(env) == 0 {
 		return nil
@@ -558,8 +326,7 @@ func gitIdentity(agentID string) (name, email string) {
 }
 
 // Cleanup runs the WIP-safe, repo-worktree-aware teardown, then removes the
-// provisioned configHome and, independently, the toolchain scratchDir (both
-// may be set together). Idempotent (guarded by clearing dir). It NEVER
+// provisioned toolchain scratchDir. Idempotent (guarded by clearing dir). It NEVER
 // returns an error — every git inability warns and continues (fault
 // tolerance), and WIP is sacred: an inner worktree with uncommitted work, or
 // an unknowable state, leaves the whole tree in place rather than risk
@@ -575,13 +342,6 @@ func (w *worktreeWorkspace) Cleanup() error {
 	defer cancel()
 	teardownWorktree(ctx, w.git, w.repoDir, target)
 
-	if w.configHome != "" {
-		home := w.configHome
-		w.configHome = ""
-		if err := os.RemoveAll(home); err != nil {
-			warnCleanupResidue("per-agent config-home", home, err)
-		}
-	}
 	if w.scratchDir != "" {
 		dir := w.scratchDir
 		w.scratchDir = ""

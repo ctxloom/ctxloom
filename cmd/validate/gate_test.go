@@ -86,15 +86,12 @@ func TestDefaultTargets_CoversTheTrackedDocuments(t *testing.T) {
 	}, required, "the gate's required inputs are the tracked config documents")
 }
 
-// packageDir is this package's source directory, located from this test file
-// rather than the working directory: TestMain moves the whole binary into a
+// repoRoot resolves the ctxloom module root so the gate can reach the tracked
+// documents it validates. It is taken from where the test binary STARTED, not
+// from the current working directory: TestMain moves the whole binary into a
 // throwaway sandbox cwd, so a relative "../../resources/..." resolves to
 // nothing there — and fails as a missing FILE, which reads exactly like a
 // document that does not validate.
-func packageDir() string { return sourcedir.MustDir() }
-
-// repoRoot resolves the ctxloom module root from this package's location
-// (cmd/validate/) so the gate can reach the tracked documents it validates.
 func repoRoot() string { return sourcedir.MustRepoRoot() }
 
 // TestTrackedDocumentsValidate runs the real gate over the repo's real

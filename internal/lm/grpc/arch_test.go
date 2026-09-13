@@ -386,8 +386,9 @@ func TestArch_ProtoConverters_EveryPairIsSwept(t *testing.T) {
 	// test. The sweep is over this package's own non-test sources, which is
 	// exactly what the file list below enumerates.
 	fset := token.NewFileSet()
-	// Located from this file, not the working directory: SandboxedMain moves
-	// the cwd to a throwaway root before any test runs.
+	// Located from where the test binary STARTED, not the current working
+	// directory: SandboxedMain moves the cwd to a throwaway root before any
+	// test runs.
 	pkgDir, err := sourcedir.Dir()
 	require.NoError(t, err, "locate this package's source directory")
 	entries, err := os.ReadDir(pkgDir)
@@ -435,8 +436,13 @@ func TestArch_ProtoConverters_EveryPairIsSwept(t *testing.T) {
 	}
 	require.NotEmpty(t, encoders, "found no converters at all — the source walk is broken, not the package")
 
-	src, err := os.ReadFile(self)
+	// This file itself: the sweep below asks which converter names this test
+	// mentions, so the subject of the read is arch_test.go, not the package.
+	// A rename makes the read fail loudly rather than silently sweeping an
+	// empty string and reporting every converter as uncovered.
+	src, err := os.ReadFile(filepath.Join(pkgDir, "arch_test.go"))
 	require.NoError(t, err)
+	require.NotEmpty(t, src, "read this test's own source as empty; the sweep would prove nothing")
 	sweep := string(src)
 	mentioned := func(name string) bool {
 		return regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`).MatchString(sweep)

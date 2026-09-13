@@ -424,10 +424,19 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	// load. (--settings likewise layers over the user's .claude/settings.json.) Each
 	// Path() is "" when that surface delivered nothing (empty context/MCP/hooks) or
 	// when context fell back to the injection hook, so buildArgs then adds no flag.
-	// In an isolated cell the surfaces are the engine's well-known files in cwd, so
-	// no flags are needed. Skipped in minimal/distill mode (SkipSetup), which drops
-	// context and supplies its own --settings/--strict-mcp-config below.
-	if !req.SkipSetup && req.CellKind == agent.CellKindShared {
+	// Skipped in minimal/distill mode (SkipSetup), which drops context and
+	// supplies its own --settings/--strict-mcp-config below.
+	//
+	// NOT gated on the cell kind. Whether a flag is needed is a property of the
+	// resolved APPROACH, and Path() already reports it: one that wrote no
+	// flag-announced file returns "" and contributes nothing here. Gating on
+	// CellKindShared instead assumed every isolated-cell surface is a well-known
+	// file in cwd — true only while the flag-announced approaches were
+	// unreachable there. Now that an isolated cell can resolve one (a selected
+	// context:system-prompt), that gate would write the file and withhold the
+	// flag naming it: a delivery reporting success having handed the engine
+	// nothing.
+	if !req.SkipSetup {
 		args = append(args, flagArgs(b.Resolved())...)
 	}
 

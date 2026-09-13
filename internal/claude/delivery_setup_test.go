@@ -404,3 +404,48 @@ func TestSetup_ContextPayloadStillReachesTheLaunchFlag(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "project rules", "the fragment's own bytes must be in the delivered file")
 }
+
+// setupClaudeIsolatedSelecting runs an isolated-cell (worktree) Setup with an
+// EXPLICIT per-surface approach selection, which is the only way to reach the
+// approach a shared launch would otherwise derive for itself.
+func setupClaudeIsolatedSelecting(t *testing.T, work string, surfaces map[agent.SurfaceKind]string) *ClaudeCode {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	backend := NewClaudeCode()
+	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
+		WorkDir:   work,
+		Fragments: []*agent.Fragment{{Content: "project rules"}},
+		Managed:   &agent.ManagedConfig{Surfaces: surfaces},
+		CellKind:  agent.CellKindDirectoryIsolated,
+	}))
+	return backend
+}
+
+// TestSetup_IsolatedCell_SystemPromptIsHonouredNotConvertedToCLAUDEmd is
+// feeble-sway's settle condition: an ISOLATED launch that selected
+// context:system-prompt gets the framed sysprompt file and its launch flag —
+// NOT a CLAUDE.md. Before the one-form change the isolated arm ran the
+// approach's plain Deliver, which WAS the CLAUDE.md write, so a worktree or
+// container launch silently received project memory instead of the system
+// prompt it asked for.
+func TestSetup_IsolatedCell_SystemPromptIsHonouredNotConvertedToCLAUDEmd(t *testing.T) {
+	work := t.TempDir()
+	backend := setupClaudeIsolatedSelecting(t, work, map[agent.SurfaceKind]string{
+		agent.SurfaceContext: ApproachSystemPrompt,
+	})
+
+	framed := contextPathOf(backend)
+	require.NotEmpty(t, framed, "selecting system-prompt must materialize the framed context file")
+	assert.True(t, strings.HasSuffix(framed, agent.SCMFramedContextSuffix),
+		"the delivered file must be the framed sysprompt, got %q", framed)
+	data, err := os.ReadFile(framed)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "project rules")
+
+	assert.NoFileExists(t, filepath.Join(work, ContextFileName),
+		"selecting system-prompt must NOT be converted into a CLAUDE.md write")
+
+	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindDirectoryIsolated})
+	assert.True(t, argPair(args, flagAppendSystemFile, framed),
+		"the selected approach's file must be announced on argv, else the content never reaches the engine: %v", args)
+}

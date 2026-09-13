@@ -18,20 +18,20 @@ import (
 // fileTemplateDelivery (surfacedelivery.go), and the ContextWriter core
 // WriteContext (claude.go); the record-backed settings approach, which
 // writes through confpatch instead, lives in surfaces_hewrecord.go.
-// Context/MCP/settings ALSO carry an out-of-cwd
-// form (agent.OutOfCwd) an engine launch flag consumes; buildArgs
-// (claudecode.go) reads each such file's Path() after a SHARED-cwd delivery
-// ran that form.
+// buildArgs (claudecode.go) reads each flag-announced approach's Path() after
+// delivery, on every cell.
 //
-// Capability recap:
+// Capability recap. A surface with TWO approaches names both: which one runs
+// is the caller's selection (or, on a shared launch with no preference, the
+// derivation in preferOutOfCwd), never a conversion applied underneath it.
 //
-//	surface   | Delivery (well-known)     | also an out-of-cwd flag form?
-//	----------|---------------------------|-----------------------------------------
-//	context   | CLAUDE.md                 | ✅ --append-system-prompt-file <file> (the system-prompt approach)
-//	MCP       | .mcp.json                 | ✅ --mcp-config <file> (--strict-mcp-config = replace)
-//	settings  | .claude/settings.json     | ✅ --settings <file> (carries hooks)
-//	commands  | .claude/commands/         | ❌ no out-of-cwd flag → loud native write when shared
-//	skills    | .claude/skills/<name>/    | ❌ no out-of-cwd flag → loud native write when shared
+//	surface   | approaches                                  | where its bytes land
+//	----------|---------------------------------------------|----------------------------------------
+//	context   | unsafe-file (default) / system-prompt / hook | CLAUDE.md / <hash>.sysprompt.md announced on --append-system-prompt-file / rides settings
+//	MCP       | .mcp.json                                   | project file, announced on --mcp-config when out of cwd
+//	settings  | unsafe-file (default) / hew-record          | .claude/settings.json (--settings when out of cwd) / <EngineHome>/settings.json
+//	commands  | .claude/commands/                           | ❌ no flag form → loud native write when shared
+//	skills    | .claude/skills/<name>/                      | ❌ no flag form → loud native write when shared
 //
 // claude folds "settings + hooks" into ONE surface because claude's hooks live
 // inside .claude/settings.json — there is no separate hooks file to deliver.
@@ -60,6 +60,39 @@ type dirPlacement struct{ dir string }
 // Dir returns the fixed directory this placement wraps.
 func (p dirPlacement) Dir() string { return p.dir }
 
+// privateRoot is the ONE place claude decides which advised root a run's
+// CONFIGURATION lands under — the framed system prompt and the default
+// .mcp.json, neither of which may be written into the shared live cwd.
+// Every such approach reads it rather than naming a root itself, so the
+// choice is made once and cannot drift between two surfaces that are supposed
+// to obey one rule.
+//
+// It is Scratch TODAY, and that is a placement decision with a known cost, not
+// the final one. The ruled destination is the run-specific RELOCATED ENGINE
+// HOME — configuration is a property of the run, mounted into the container
+// and inited against — but only a run whose binding advises that home resolves
+// EngineHome at all: a container cell and a default shared `ctxloom run`
+// currently advise none, so rooting here at EngineHome would turn those into
+// refusals rather than deliveries. Scratch is advised on all three cell kinds,
+// so it is the root that keeps this decision honest until every cell has a
+// relocated home; when one does, this function is the only thing that changes.
+//
+// KNOWN COST, recorded so it is not rediscovered: on an ISOLATED cell Scratch
+// IS the working directory, so the framed file lands in the checkout root for
+// the life of the run (the Delivered handle removes it). It is private there —
+// the checkout is per-agent — so it races nothing; it is merely visible.
+func privateRoot(start present.Start) present.Root { return start.Paths().Scratch }
+
+// underPrivateRoot roots a PRESENTATION at rel beneath the same root
+// privateRoot names. It sits here, adjacent to privateRoot and nowhere else,
+// because the two must move together: the presenter states where the bytes go
+// and Deliver puts them there, so a flip that changed one and not the other
+// would announce a path nothing was written to. They are checked against each
+// other by TestSurfaces_PresentedPathIsWhereTheApproachWrites.
+func underPrivateRoot(start present.Start, rel string) present.Rooted {
+	return start.UnderScratch(rel)
+}
+
 // claudeContextWriter is the ContextWriter the native-file context approach
 // merges through — the same core WriteContext (claude.go) every CLAUDE.md
 // write uses.
@@ -69,20 +102,27 @@ func claudeContextWriter(fs afero.Fs) agent.ContextWriter { return &ClaudeCodeHo
 //
 // Its out-of-cwd form (DeliverIsolated) writes the framed <hash>.sysprompt.md
 // beneath the advised Scratch root via the existing appendFlagDelivery and
-// exposes its path (Path) for --append-system-prompt-file; a SHARED-cwd
-// launch runs that form, race-free. It is LaunchOnly: at rest there is no
-// argv sink for the flag, so DeliverUnder refuses it.
+// exposes its path (Path) for --append-system-prompt-file. It is LaunchOnly:
+// at rest there is no argv sink for the flag, so DeliverUnder refuses it.
 //
-// Its well-known Deliver writes CLAUDE.md — the SAME write the native-file
-// approach performs. That is what an ISOLATED launch cell runs for it, and it
-// is preserved exactly as it was: whether a system-prompt pin on a worktree or
-// container launch should instead land the scratch file there (the cell's
-// Scratch root is the private working dir itself) is an open question that
-// was deliberately NOT decided in the refactor that made this its own type.
+// It has exactly ONE form, on every cell. It previously had two, and they were
+// named backwards from the cell that ran them: the plain Deliver was the
+// CLAUDE.md write — the same write the native-file approach performs — so an
+// ISOLATED launch (worktree or container) that had selected system-prompt was
+// silently handed project memory instead, while only a SHARED launch got the
+// framed file. The content reaches the engine by a different mechanism under a
+// different name, which is a different product behaviour, not a placement
+// detail.
+//
+// The substitution is gone rather than redirected, because a surface is the
+// wrong place to decide one: the system prompt does not know what it would be
+// degrading to, or whether the caller would have accepted CLAUDE.md instead.
+// That is the engine declaration's job. A run that cannot serve this approach
+// gets ErrUnrootedScratch and writes nothing.
 type systemPromptContext struct {
 	content string
 	fs      afero.Fs
-	path    string // set by DeliverIsolated: the out-of-cwd framed context file
+	path    string // set by Deliver: the framed context file under the private root
 }
 
 // LaunchOnly marks the approach as refused at rest.
@@ -95,26 +135,29 @@ func (*systemPromptContext) LaunchOnly() {}
 // after the write. What this presentation contributes is the FLAG, which
 // flagArgs reads.
 func (s *systemPromptContext) Present(start present.Start) present.Presentation {
-	return start.UnderScratch("").AnnounceFlag(flagAppendSystemFile).Build()
+	return underPrivateRoot(start, "").AnnounceFlag(flagAppendSystemFile).Build()
 }
 
-// Deliver is the well-known CLAUDE.md write (see the type doc for why).
+// Deliver writes the framed context file through the reused appendFlagDelivery
+// beneath the advised private root; Path then exposes it for
+// --append-system-prompt-file. This is the approach's ONLY form, so every cell
+// reaches it — an isolated launch that selected system-prompt now gets the
+// system prompt.
+//
+// An unresolved private root REFUSES (ErrUnrootedScratch) rather than writing
+// the well-known file instead; see the type doc. A FAILED write leaves Path ""
+// (the writer's own contract): no flag may name a file that was not written.
 func (s *systemPromptContext) Deliver(start present.Start) (agent.Delivered, error) {
-	return agent.DeliverManagedContext(claudeContextWriter(s.fs), start.Paths().ProjectRoot.Host, s.content)
-}
-
-// DeliverIsolated writes the framed context file through the reused
-// appendFlagDelivery beneath the advised Scratch root; Path then exposes it.
-// A FAILED write leaves Path "" (the writer's own contract), for the same
-// reason mcpSurface's does: no flag may name a file that was not written.
-func (s *systemPromptContext) DeliverIsolated(start present.Start) (agent.Delivered, error) {
-	d := newAppendFlagDelivery(dirPlacement{dir: start.Paths().Scratch.Host}, s.fs)
+	if err := agent.ScratchRooted(start); err != nil {
+		return nil, err
+	}
+	d := newAppendFlagDelivery(dirPlacement{dir: privateRoot(start).Host}, s.fs)
 	handle, err := d.DeliverContext(s.content)
 	s.path = d.Path()
 	return handle, err
 }
 
-// Path returns the framed <hash>.sysprompt.md written by DeliverIsolated (for
+// Path returns the framed <hash>.sysprompt.md written by Deliver (for
 // --append-system-prompt-file), or "" whenever no file stands behind it: before
 // delivery, for empty context, and after a FAILED delivery.
 func (s *systemPromptContext) Path() string { return s.path }
@@ -336,7 +379,6 @@ var Surfaces = agent.Declaration{
 // the loud well-known write (proved in surfaces_test.go).
 var (
 	_ agent.Approach   = (*systemPromptContext)(nil)
-	_ agent.OutOfCwd   = (*systemPromptContext)(nil)
 	_ agent.LaunchOnly = (*systemPromptContext)(nil)
 	_ agent.Approach   = (*mcpSurface)(nil)
 	_ agent.OutOfCwd   = (*mcpSurface)(nil)

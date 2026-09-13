@@ -124,8 +124,9 @@ func newSurfaces(in agent.SurfaceInputs, fs afero.Fs) builtSurfaces {
 
 // ---- context surface -------------------------------------------------------
 
-// context Delivery writes CLAUDE.md (the ContextWriter core) into the target
-// dir, in the ctxloom-managed section, and the file SURVIVES Cleanup: a
+// The NATIVE-FILE context approach writes CLAUDE.md (the ContextWriter core)
+// into the target dir, in the ctxloom-managed section, and the file SURVIVES
+// Cleanup: a
 // project surface outlives the run that delivered it
 // (agent.SurfacePersistsAfterExit), so the handle reverses nothing. Teardown
 // belongs to per-session scratch, which this is not.
@@ -133,7 +134,7 @@ func TestContextSurface_DeliverWritesCLAUDEmd(t *testing.T) {
 	dir := t.TempDir()
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Context.Deliver(present.ProjectOnHost(dir))
+	handle, err := s.Native.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
@@ -155,7 +156,7 @@ func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Team conventions\nalways use tabs\n"), 0644))
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Context.Deliver(present.ProjectOnHost(dir))
+	handle, err := s.Native.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
@@ -170,14 +171,15 @@ func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
 	assert.Contains(t, string(got), sampleInputs().Context, "the managed section survives Cleanup: a project surface persists")
 }
 
-// context DeliverIsolated writes the framed <hash>.sysprompt.md into the
-// out-of-cwd placement (via appendFlagDelivery) and exposes it via Path() — and
-// does NOT touch the well-known CLAUDE.md.
-func TestContextSurface_DeliverIsolated_WritesSyspromptAndExposesPath(t *testing.T) {
+// The system-prompt approach's ONE form writes the framed <hash>.sysprompt.md
+// beneath the private root (via appendFlagDelivery) and exposes it via Path()
+// — and does NOT touch the well-known CLAUDE.md. Every cell reaches this form;
+// there is no second one for a cell to pick instead.
+func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
 	isolated := t.TempDir()
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Context.DeliverIsolated(runRoots(t.TempDir(), isolated))
+	handle, err := s.Context.Deliver(runRoots(t.TempDir(), isolated))
 	require.NoError(t, err)
 
 	path := s.Context.Path()
@@ -478,23 +480,39 @@ func TestSurfaces_ContextHookIsANoOpRider(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, "CLAUDE.md"), "no native file when context rides the hook")
 }
 
-// Which approaches convert on a shared cwd is a property of each VALUE: the
-// native-file context has no out-of-cwd form (an explicit unsafe-file request
-// is honoured, warned); the system prompt, MCP and settings have one; commands
-// and skills have none. The system prompt alone is LaunchOnly — it is refused
-// at rest, where nothing can sink its flag.
-func TestSurfaces_OutOfCwdFormsAndLaunchOnly(t *testing.T) {
+// Whether an approach is safe in a shared cwd is a property of each VALUE, and
+// it is asserted on the BEHAVIOUR — where the bytes land — not on the marker
+// interface that used to carry it. The distinction is the point of this test:
+// the system prompt's safety was previously readable only as "it implements
+// OutOfCwd, so a shared launch converts it", and that same marker was what
+// silently converted an ISOLATED launch's selection into a CLAUDE.md. The
+// property that actually matters survives the marker's removal — the system
+// prompt's bytes never land in the workspace, on ANY cell.
+//
+// The native-file context is deliberately NOT safe: an explicit unsafe-file
+// request is honoured, and warned. commands and skills have no private form at
+// all. The system prompt alone is LaunchOnly — refused at rest, where nothing
+// can sink its flag.
+func TestSurfaces_SharedCwdSafetyAndLaunchOnly(t *testing.T) {
 	s := newSurfaces(sampleInputs(), nil)
-	converts := func(a agent.Approach) bool { _, ok := a.(agent.OutOfCwd); return ok }
 	launchOnly := func(a agent.Approach) bool { _, ok := a.(agent.LaunchOnly); return ok }
 
-	assert.False(t, converts(s.Native), "context unsafe-file: honoured natively, never converted")
-	assert.True(t, converts(s.Context), "context system-prompt converts to the scratch")
-	assert.False(t, converts(s.Hook))
-	assert.True(t, converts(s.MCP))
-	assert.True(t, converts(s.Settings))
-	assert.False(t, converts(s.Commands))
-	assert.False(t, converts(s.Skills))
+	assert.False(t, agent.SafeInSharedCwd(s.Native), "context unsafe-file: honoured natively, never converted")
+	assert.True(t, agent.SafeInSharedCwd(s.Context), "the system prompt stays out of the workspace")
+	assert.True(t, agent.SafeInSharedCwd(s.Hook), "a rider writes no bytes of its own")
+	assert.True(t, agent.SafeInSharedCwd(s.MCP))
+	assert.True(t, agent.SafeInSharedCwd(s.Settings))
+	assert.False(t, agent.SafeInSharedCwd(s.Commands))
+	assert.False(t, agent.SafeInSharedCwd(s.Skills))
+
+	// The system prompt's safety is STRUCTURAL, not a conversion a cell opts
+	// into: its presentation is outside the project root, so the property holds
+	// on an isolated cell too — which is exactly what the silent conversion
+	// used to break.
+	assert.False(t, agent.PresentsUnderProjectRoot(s.Context),
+		"the framed system prompt must never present as a project file")
+	assert.True(t, agent.PresentsUnderProjectRoot(s.Native),
+		"CLAUDE.md is a project file — that is what makes unsafe-file unsafe")
 
 	assert.True(t, launchOnly(s.Context), "system-prompt has no argv sink at rest")
 	for _, a := range []agent.Approach{s.Native, s.Hook, s.MCP, s.Settings, s.Commands, s.Skills} {
@@ -676,7 +694,7 @@ func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
 	}{
 		{"mcp", s.MCP.DeliverIsolated, s.MCP.Path},
 		{"settings", s.Settings.DeliverIsolated, s.Settings.Path},
-		{"context", s.Context.DeliverIsolated, s.Context.Path},
+		{"context", s.Context.Deliver, s.Context.Path},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			armed = false

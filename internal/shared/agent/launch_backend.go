@@ -381,7 +381,7 @@ func (s *SurfaceSelection) preferOutOfCwd(kind SurfaceKind, in SurfaceInputs) er
 		return nil
 	}
 	if a, ok := p.Construct(cur, in, nil); ok {
-		if _, converts := a.(OutOfCwd); converts {
+		if SafeInSharedCwd(a) {
 			return nil
 		}
 	}
@@ -391,7 +391,14 @@ func (s *SurfaceSelection) preferOutOfCwd(kind SurfaceKind, in SurfaceInputs) er
 		if !ok {
 			continue
 		}
-		if _, converts := a.(OutOfCwd); converts {
+		// A Rider is race-safe but is not a SUBSTITUTE: it writes nothing of
+		// its own, so deriving it here would silently move the surface onto a
+		// different carrier the caller never named. Only an approach that
+		// delivers its own bytes outside the project root is a candidate.
+		if _, rider := a.(Rider); rider {
+			continue
+		}
+		if SafeInSharedCwd(a) {
 			candidates = append(candidates, name)
 		}
 	}

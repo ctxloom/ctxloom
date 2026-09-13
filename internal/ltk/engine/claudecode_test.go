@@ -84,14 +84,12 @@ func TestClaudeCodeEncodeDeny(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	for _, name := range []string{"claude-code", "claudecode", "claude", "CLAUDE-CODE"} {
-		if _, err := Get(name); err != nil {
-			t.Errorf("%q should resolve: %v", name, err)
-		}
+	if _, err := Get("claude-code"); err != nil {
+		t.Errorf("the registered name should resolve: %v", err)
 	}
-	// Names resolve exactly (plus declared aliases) — a bare prefix is not a
-	// match, so a typo can't silently pick an engine.
-	for _, name := range []string{"nope", "c", "cl", ""} {
+	// Names resolve exactly — no alias, case or prefix match — so neither a
+	// retired short spelling nor a typo can silently pick an engine.
+	for _, name := range []string{"claudecode", "claude", "CLAUDE-CODE", "nope", "c", "cl", ""} {
 		if _, err := Get(name); err == nil {
 			t.Errorf("%q should not resolve to an engine", name)
 		}

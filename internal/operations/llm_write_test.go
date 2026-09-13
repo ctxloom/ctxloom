@@ -41,26 +41,26 @@ func TestSetLLM_CreatesAndPersists(t *testing.T) {
 	assert.Equal(t, "mock", got.Type)
 }
 
-// TestSetLLM_StoresTheCanonicalType pins the write BOUNDARY: an accepted alias
-// or case variant of an engine name is persisted in its canonical spelling.
-// config.json pins llm.configs.*.type to a const per backend, so storing what
-// the caller typed would write an entry that resolves at every read and still
-// warns on every subsequent config load.
-func TestSetLLM_StoresTheCanonicalType(t *testing.T) {
+// TestSetLLM_RefusesNonRegisteredSpellings pins the write BOUNDARY: an engine
+// has one name, so a retired short spelling or a case variant is an unknown
+// type, refused with nothing written. config.json pins llm.configs.*.type to
+// a const per backend, so an entry under any other spelling would warn on
+// every subsequent config load.
+func TestSetLLM_RefusesNonRegisteredSpellings(t *testing.T) {
 	for _, spelling := range []string{"claude", "CLAUDE", "Claude-Code", "claudecode"} {
 		t.Run(spelling, func(t *testing.T) {
 			_, appDir := loadConfigDir(t, "version: 5\n")
 			mgr := managerFor(appDir)
 
-			entry, err := SetLLM(mgr, SetLLMRequest{Label: "big", Type: ptr(spelling)})
-			require.NoError(t, err)
-			assert.Equal(t, "claude-code", entry.Type)
+			_, err := SetLLM(mgr, SetLLMRequest{Label: "big", Type: ptr(spelling)})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "unknown type")
+			assert.Contains(t, err.Error(), "claude-code", "the refusal names the registered spelling")
 
 			reloaded, err := config.Load(config.WithAppDir(appDir))
 			require.NoError(t, err)
-			got, ok := reloaded.GetLLMEntry("big")
-			require.True(t, ok)
-			assert.Equal(t, "claude-code", got.Type, "the stored type must be canonical, not what was typed")
+			_, ok := reloaded.GetLLMEntry("big")
+			assert.False(t, ok, "a refused type must write nothing")
 		})
 	}
 }

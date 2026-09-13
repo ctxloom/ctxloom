@@ -197,24 +197,34 @@ func TestResolveBackend(t *testing.T) {
 		assert.Empty(t, model)
 	})
 
-	// A backend NAME is what the launch path keys tables by — including
-	// internal/lm/isolation's credential-seed and instance-config tables, which
-	// resolve engines by name and hold only canonical spellings. An alias that
-	// left here as typed would seed no credentials and report nothing.
-	t.Run("an ad-hoc alias is promoted to the canonical backend name", func(t *testing.T) {
+	t.Run("the ad-hoc arm admits only a registered backend name", func(t *testing.T) {
+		backend, model := ResolveBackend(cfg, "claude-code")
+		assert.Equal(t, "claude-code", backend)
+		assert.Empty(t, model)
+	})
+
+	// There is no alias table, so a retired short spelling is not a backend
+	// name. As an ad-hoc label it is simply an unknown label, and takes the
+	// same degrade path "no-such-label" does above — it is NOT resolved to
+	// the engine it used to abbreviate.
+	t.Run("a retired short spelling is an unknown label, not a backend", func(t *testing.T) {
 		for _, spelling := range []string{"claude", "CLAUDE", "claudecode", "Claude-Code"} {
 			backend, model := ResolveBackend(cfg, spelling)
-			assert.Equal(t, "claude-code", backend, "ResolveBackend(%q)", spelling)
+			assert.Equal(t, config.DefaultLLM, backend, "ResolveBackend(%q) degrades like any unknown label", spelling)
 			assert.Empty(t, model)
 		}
 	})
 
-	t.Run("a hand-written entry whose type is an alias resolves canonical", func(t *testing.T) {
-		aliased := config.NewFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
+	// A configured entry's type is validated on write (SetLLM); a hand-written
+	// one that names no registered backend leaves here AS WRITTEN, so the
+	// launch path refuses it as an unknown backend rather than this boundary
+	// rounding it to a real one.
+	t.Run("a hand-written entry's type is not rewritten", func(t *testing.T) {
+		handWritten := config.NewFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
 			"hand-edited": {Type: "claude", Body: map[string]any{"model": "opus"}},
 		}}})
-		backend, model := ResolveBackend(aliased, "hand-edited")
-		assert.Equal(t, "claude-code", backend)
+		backend, model := ResolveBackend(handWritten, "hand-edited")
+		assert.Equal(t, "claude", backend)
 		assert.Equal(t, "opus", model)
 	})
 }

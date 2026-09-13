@@ -116,14 +116,17 @@ func TestEngines_Uninstall_AbsentIsNoop(t *testing.T) {
 	}
 }
 
-func TestGet_AliasesAndUnknown(t *testing.T) {
-	for _, alias := range []string{"claude", "claudecode", "claude-code", "CLAUDE"} {
-		e, err := Get(alias)
-		require.NoError(t, err, alias)
-		assert.Equal(t, "claude-code", e.Name())
+func TestGet_RegisteredNameOnly(t *testing.T) {
+	e, err := Get("claude-code")
+	require.NoError(t, err)
+	assert.Equal(t, "claude-code", e.Name())
+
+	// An engine has one name: the retired short spellings and case variants
+	// are unknown engines, as a typo is — nothing guesses.
+	for _, spelling := range []string{"claude", "claudecode", "CLAUDE", "Claude-Code", "cluade"} {
+		_, err := Get(spelling)
+		assert.Error(t, err, "%q must not resolve", spelling)
 	}
-	_, err := Get("cluade")
-	assert.Error(t, err, "typos must error, not guess")
 }
 
 func TestConfigPath_Scopes(t *testing.T) {

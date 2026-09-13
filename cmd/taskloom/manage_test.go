@@ -49,7 +49,7 @@ func TestManageInstall_AutoRegistersOnlyPresentBackends(t *testing.T) {
 func TestManageInstall_ExplicitEngineCreatesConfig(t *testing.T) {
 	home := fakeHome(t)
 	// claude is not "present", but the user asked for it by name.
-	require.NoError(t, manageInstall("claude", ".", true, false, os.Stderr))
+	require.NoError(t, manageInstall("claude-code", ".", true, false, os.Stderr))
 	servers := readServers(t, filepath.Join(home, ".claude.json"))
 	assert.Contains(t, servers, "taskloom")
 }

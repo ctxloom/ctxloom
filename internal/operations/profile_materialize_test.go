@@ -104,14 +104,16 @@ func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 		"a command byte-identical to one in the materializing host's ~/.claude/commands must still land in the portable --target tree")
 }
 
-// TestMaterializeProfile_BackendAlias proves `claude` maps to claude-code.
-func TestMaterializeProfile_BackendAlias(t *testing.T) {
+// TestMaterializeProfile_RefusesARetiredShortSpelling: `claude` is not an
+// engine name and no alias maps it to one, so the request is refused rather
+// than materialized under a backend the caller did not name.
+func TestMaterializeProfile_RefusesARetiredShortSpelling(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	_, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target, Backend: "claude",
 	})
-	require.NoError(t, err)
-	assert.Equal(t, "claude-code", res.Backend)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown backend "claude"`)
 }
 
 // TestMaterializeProfile_OverwritesEachRun proves the export is the source of

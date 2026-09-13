@@ -302,7 +302,6 @@ Values **added or defaulted on decode**, none of which the caller sent:
 | `ReadPlanFiles` | `plans.go:49` | Reads `*.plan.md` from the harp's session dir, name-sorted. |
 | `SessionReader` | `session_reader.go:20` | Host-side facade that spawns a short-lived runner per read (`withClient`, `:78`, `defer c.Kill()`); `WatchSession` (`:104`) deliberately binds plugin lifetime to stream lifetime instead. |
 | `CanonicalFallbackSource` | `canonical_source.go:68` | Canonical-transcript-first `SessionSource` with an optional legacy leg. Lives here only to dodge a `transcript → grpc → transcript` import cycle (`canonical_source.go:24-28`). |
-| `IsRetiredScraperBackend` / `RetiredScraperBackendNames` | `canonical_source.go` | Read-only view of the roster of backends whose legacy transcript scraper was deleted, so canonical capture is their only source; `TestArch_EngineIdentityRosters_MembersAreRegisteredBackends` asserts every member is a registered backend. |
 | `MockClient` / `MockClientFactory` | `mock_client.go:13` / `:163` | Cross-package test double shipped in a non-test file. |
 | `HandshakeConfig` / `LLMPluginKey` / `PluginMap` | `shared.go:15` / `:22` / `:25` | go-plugin identity. |
 | `isolateRunner` / `killSession` / `ReapRunnerDescendants` / `InstallRunnerTeardown` | `procsession_unix.go:47` / `:77` / `:121` / `:143` | POSIX process-lifetime primitives; no-ops on Windows. |

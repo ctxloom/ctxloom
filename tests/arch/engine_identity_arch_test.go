@@ -62,7 +62,6 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -134,7 +133,7 @@ func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
 	}
 
 	rosters := []rosterCheck{
-		{source: "internal/lm/grpc.RetiredScraperBackendNames", members: grpc.RetiredScraperBackendNames()},
+		{source: "internal/lm/backends.RetiredScraperBackendNames (engine.Descriptor.NoLegacyHistoryReason)", members: backends.RetiredScraperBackendNames()},
 		{source: "internal/operations.VendorReaderEngineNames (vendorReaderRegistry)", members: operations.VendorReaderEngineNames()},
 		{source: "internal/lm/isolation.ComposableEngines (composableEngines)", members: isolation.ComposableEngines()},
 		{source: "internal/lm/isolation.CredentialSeedEngineNames (pushed engine.Descriptor.Home.Credentials)", members: isolation.CredentialSeedEngineNames()},

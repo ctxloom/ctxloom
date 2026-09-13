@@ -84,7 +84,7 @@ func NewClaudeCode() *ClaudeCode {
 	b.InitLaunch(
 		agent.NewBaseLifecycle(EngineName),
 		agent.NewBaseContextProvider(),
-		nil, // SessionHistory: claude's ~/.claude/projects/*.jsonl scraper deleted — canonical capture is the only transcript source now
+		nil, // SessionHistory: retired; the descriptor's NoLegacyHistoryReason says why
 		Surfaces,
 	)
 	// The run's CLAUDE_CONFIG_DIR is the engine home the record-backed

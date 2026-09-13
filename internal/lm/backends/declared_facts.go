@@ -46,3 +46,27 @@ func credentialSeedOf(d *engine.Descriptor) agent.Declared[agent.CredentialSeed]
 	}
 	return home.Credentials
 }
+
+// NoLegacyHistoryReason returns why the named engine's legacy session
+// scraper was retired, or "" when it keeps a legacy leg (or is not
+// registered — an unknown name is handed the default, never a retirement).
+func NoLegacyHistoryReason(name string) string {
+	d, ok := lookup(name)
+	if !ok {
+		return ""
+	}
+	return d.NoLegacyHistoryReason
+}
+
+// RetiredScraperBackendNames lists the registered engines whose legacy
+// scraper was retired, sorted — a view over the descriptors, for a gate that
+// wants the set rather than one answer.
+func RetiredScraperBackendNames() []string {
+	var names []string
+	for _, name := range List() {
+		if NoLegacyHistoryReason(name) != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}

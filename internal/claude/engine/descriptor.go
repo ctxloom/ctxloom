@@ -97,6 +97,10 @@ func Descriptor() engine.Descriptor {
 		}),
 		TranscriptReaders:    agent.Provide(claudereader.VersionedAdapters),
 		EnforcesReadOnlyPlan: true, // --permission-mode plan is read-only
+		// The ~/.claude/projects/*.jsonl scraper was proven broken (wrong
+		// filename) and deleted outright rather than demoted; canonical
+		// capture, read back through TranscriptReaders, is the only source.
+		NoLegacyHistoryReason: "claude's legacy session scraper was deleted; canonical capture is the only transcript source",
 	}
 }
 

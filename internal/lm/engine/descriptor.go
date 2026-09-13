@@ -96,6 +96,12 @@ type Descriptor struct {
 	// UnsupportedHookKinds names, per unified hook kind, why the engine's
 	// mechanism lacks a native event for it. nil = every kind is carried.
 	UnsupportedHookKinds map[string]string
+	// NoLegacyHistoryReason declares the engine's legacy per-engine session
+	// scraper was RETIRED: its backend's History() is nil, and canonical
+	// capture is the ONLY transcript source, so a session-source builder
+	// must not construct a legacy leg for it. Empty = the engine keeps a
+	// legacy leg. The backend registry holds the two in agreement.
+	NoLegacyHistoryReason string
 }
 
 // HookGlobalScope resolves an engine's project-scoped config path (under a

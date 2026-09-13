@@ -28,52 +28,14 @@ import (
 // transcript for Tee) — but the reverse direction is fine, and pb.SessionSource
 // is defined here anyway.
 //
-// S5: the broken per-engine scrapers were DELETED outright (the user's
-// explicit decision — not demoted to a fixture-pinned vendor reader, §4c/§4d of the
-// removal plan). retiredScraperBackends names them. A caller building a
-// source for one of those backends passes legacy=nil: canonical capture is
-// the ONLY source, matching the delete decision (no legacy leg to ever fall
-// back to, since there is no reader left to fall back onto). opencode is
-// deliberately absent from that set — its native reader
-// (internal/opencode/capabilities.go) is correct and stays wired as the
-// fallback leg.
-
-// retiredScraperBackends names the backends whose legacy per-engine
-// SessionHistory scraper was removed in S5 (proven broken:
-// codex's envelope-vs-flat parse, tall-grab's claude wrong-filename).
-// antigravity's global-store mis-key and kiro's v1-vs-v2-sqlite were retired
-// alongside them, but both of those backends were later deleted entirely, so
-// their entries went with them — a backend with no History() to retire cannot
-// appear in a roster of backends whose History() was retired.
-// A backend named here has no History() implementation left — its
-// Backend.History() now returns nil — so a caller resolving a SessionSource
-// for it must not construct a legacy leg at all (there is nothing there to
-// ask). Every other backend keeps its legacy leg.
-//
-// Unexported: a roster is data this package owns, and an exported map is
-// writable by every importer. Reach it through IsRetiredScraperBackend or
-// RetiredScraperBackendNames — the same shape the sibling engine rosters use
-// (operations.VendorReaderEngineNames, isolation.ComposableEngines).
-var retiredScraperBackends = map[string]bool{
-	"claude-code": true,
-}
-
-// IsRetiredScraperBackend reports whether backendName lost its legacy scraper
-// in S5, i.e. whether a SessionSource for it must be built with legacy=nil.
-func IsRetiredScraperBackend(backendName string) bool {
-	return retiredScraperBackends[backendName]
-}
-
-// RetiredScraperBackendNames returns the roster, sorted, as a fresh slice the
-// caller may keep or reorder without reaching this package's own copy.
-func RetiredScraperBackendNames() []string {
-	names := make([]string, 0, len(retiredScraperBackends))
-	for name := range retiredScraperBackends {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
+// S5: a broken per-engine scraper is DELETED outright (the user's explicit
+// decision — not demoted to a fixture-pinned vendor reader, §4c/§4d of the
+// removal plan). An engine that lost its scraper DECLARES that on its own
+// descriptor (engine.Descriptor.NoLegacyHistoryReason; read through
+// backends.NoLegacyHistoryReason), and a caller building a source for it
+// passes legacy=nil: canonical capture is the ONLY source, matching the
+// delete decision (no legacy leg to ever fall back to, since there is no
+// reader left to fall back onto). Every other engine keeps its legacy leg.
 
 // CanonicalFallbackSource wraps a legacy SessionSource with canonical-first
 // selection. Store resolves a backend-native session id to the harp that owns
@@ -237,8 +199,8 @@ func (f *CanonicalFallbackSource) ListSessions(ctx context.Context) ([]agent.Ses
 	canonMetas, canonErr := f.canonical.ListSessions(ctx)
 
 	if f.legacy == nil {
-		// No legacy leg to fall back to (a retired scraper — see
-		// retiredScraperBackends): a failed canonical read is the WHOLE
+		// No legacy leg to fall back to (a retired scraper, declared on the
+		// engine's descriptor): a failed canonical read is the WHOLE
 		// listing's failure, not "zero sessions". Discarding canonErr
 		// here used to report a confident empty list indistinguishable from a
 		// project that genuinely has none.

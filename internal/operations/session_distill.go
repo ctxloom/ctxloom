@@ -167,7 +167,7 @@ func ResolveSessionSource(cfg *config.Config, backendName, workDir string) (pb.S
 		return nil, backendName, fmt.Errorf("unknown backend: %s", backendName)
 	}
 	var legacy pb.SessionSource
-	if !pb.IsRetiredScraperBackend(backendName) {
+	if backends.NoLegacyHistoryReason(backendName) == "" {
 		legacy = pb.NewSessionReader(backendName, 0)
 	}
 	store, err := sessions.Open("")

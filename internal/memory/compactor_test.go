@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
@@ -1348,7 +1349,7 @@ func TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) 
 	require.Error(t, openErr, "fixture is not hostile: sessions.Open still succeeds")
 
 	backend := "claude-code"
-	require.True(t, pb.IsRetiredScraperBackend(backend),
+	require.NotEmpty(t, backends.NoLegacyHistoryReason(backend),
 		"fixture assumes a backend with no legacy scraper leg")
 
 	c, err := NewCompactor(CompactionConfig{Backend: backend})

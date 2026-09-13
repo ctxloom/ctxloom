@@ -132,7 +132,9 @@ func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context
 
 // HostCoordinatorForSession is the run/acp hosting helper: coordinator up,
 // viewer socket bound under the owner harp, owner credential minted, and the
-// engine-env pair (EnvCoordURL, EnvCoordCred) returned for injection at launch. A standup failure returns
+// owner's full per-spawn RUNNER env (SessionOwnerEnv → coord.OwnerRunnerEnv:
+// the reach-back trio, the session harp, and this coordinator's depth/oneshot/
+// spool stamps) returned for injection at launch. A standup failure returns
 // the error for the caller's fail-loud gate; the caller decides degraded
 // behavior.
 func HostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp string, runtimeAxis agent.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
@@ -149,10 +151,17 @@ func HostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp string,
 }
 
 // SessionOwnerEnv mints one session-owner credential on an already-hosted
-// coordinator and returns the env pair for that owner's harness. D2 retired
+// coordinator and returns the per-spawn env for that owner's RUNNER. D2 retired
 // the per-owner-harp agent-bus.sock bind step: observe/roster/inject now
 // ride ConsumerService, a single coordinator-wide surface Serve() already
 // stood up — nothing left to bind here.
+//
+// The env itself is the coordinator's to build, not this function's: it calls
+// coord.OwnerRunnerEnv, the same constructor every child spawn goes through.
+// This function used to hand-build a two-key map here, which made it a SECOND
+// producer of the runner env that silently omitted every stamp it had not been
+// told about (see OwnerRunnerEnv's doc for what that cost). Mint the
+// credential, resolve the endpoint, hand both to the one producer.
 func SessionOwnerEnv(c *coord.Coordinator, ownerHarp string, runtimeAxis agent.RuntimeAxis) (map[string]string, error) {
 	token, err := c.RegisterSessionOwner(ownerHarp)
 	if err != nil {
@@ -162,8 +171,5 @@ func SessionOwnerEnv(c *coord.Coordinator, ownerHarp string, runtimeAxis agent.R
 	if err != nil {
 		return nil, err
 	}
-	return map[string]string{
-		coord.EnvCoordURL:  url,
-		coord.EnvCoordCred: token,
-	}, nil
+	return c.OwnerRunnerEnv(ownerHarp, token, url), nil
 }

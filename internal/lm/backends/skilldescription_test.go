@@ -1,6 +1,7 @@
 package backends
 
 import (
+	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,7 +37,7 @@ func TestSkillExports_DescriptionReachesTheEngineInSKILLmd(t *testing.T) {
 		LLM: bundles.SkillLLMExports{ClaudeCode: bundles.SkillEngineExport{Enabled: boolPtr(true)}},
 	}
 
-	ex := claudeSkillExports([]*bundles.LoadedSkill{skill})
+	ex := claudeengine.SkillExports([]*bundles.LoadedSkill{skill})
 	require.Len(t, ex, 1)
 	require.True(t, ex[0].Enabled)
 

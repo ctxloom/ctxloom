@@ -50,7 +50,7 @@ func writeHostConfig(t *testing.T, body string) string {
 // readInstanceConfig reads back the generated instance file as a table.
 func readInstanceConfig(t *testing.T, instanceHome string) map[string]any {
 	t.Helper()
-	path := filepath.Join(instanceHome, inTreeConfigLeaf, InstanceConfigFileName)
+	path := filepath.Join(instanceHome, HomeLeaf, InstanceConfigFileName)
 	data, err := os.ReadFile(path)
 	require.NoError(t, err, "the instance config must exist at <CLAUDE_CONFIG_DIR>/%s", InstanceConfigFileName)
 	require.NotEmpty(t, data, "an empty instance config is this project's signature false green")
@@ -95,7 +95,7 @@ func TestWriteInstanceConfig_CopiesOnlyTheOnboardingAllowList(t *testing.T) {
 
 	// And nothing leaked through the raw bytes either — a key could be absent
 	// while its VALUE rode in under some other name.
-	raw, err := os.ReadFile(filepath.Join(instance, inTreeConfigLeaf, InstanceConfigFileName))
+	raw, err := os.ReadFile(filepath.Join(instance, HomeLeaf, InstanceConfigFileName))
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), "SECRET-SPOTIFY-TOKEN")
 	assert.NotContains(t, string(raw), "SECRET-GMAIL-TOKEN")
@@ -153,7 +153,7 @@ func TestWriteInstanceConfig_TrustIsGeneratedForTheWorkDir(t *testing.T) {
 	assert.Equal(t, float64(1), entry["projectOnboardingSeenCount"])
 
 	assert.NotContains(t, projects, instance, "the instance home is not a workspace and must never be trusted as one")
-	assert.NotContains(t, projects, filepath.Join(instance, inTreeConfigLeaf))
+	assert.NotContains(t, projects, filepath.Join(instance, HomeLeaf))
 	assert.NotContains(t, projects, "/home/user/some-other-repo",
 		"the host's own projects map carries their history and must never be copied wholesale")
 	assert.Len(t, projects, 1, "exactly one project — the one this run works in")
@@ -240,7 +240,7 @@ func TestWriteInstanceConfig_NeverWritesTheHostHome(t *testing.T) {
 // rep, nil`, reporting success over a config file that was never written.
 func TestWriteInstanceConfig_PropagatesTheLockedClosuresError(t *testing.T) {
 	instance := t.TempDir()
-	dest := filepath.Join(instance, inTreeConfigLeaf, InstanceConfigFileName)
+	dest := filepath.Join(instance, HomeLeaf, InstanceConfigFileName)
 	require.NoError(t, os.MkdirAll(filepath.Dir(dest), 0o700))
 	require.NoError(t, os.WriteFile(dest, []byte(`{not valid json`), 0o600))
 
@@ -261,7 +261,7 @@ func TestWriteInstanceConfig_OwnerOnly(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	info, err := os.Stat(filepath.Join(instance, inTreeConfigLeaf, InstanceConfigFileName))
+	info, err := os.Stat(filepath.Join(instance, HomeLeaf, InstanceConfigFileName))
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
@@ -282,7 +282,7 @@ func TestWriteInstanceConfig_SecondRunPreservesWhatClaudeWrote(t *testing.T) {
 	require.NoError(t, err)
 
 	// Stand in for whatever claude accumulated during the first run.
-	path := filepath.Join(instance, inTreeConfigLeaf, InstanceConfigFileName)
+	path := filepath.Join(instance, HomeLeaf, InstanceConfigFileName)
 	cfg := readInstanceConfig(t, instance)
 	cfg["numStartups"] = float64(7)
 	cfg["projects"].(map[string]any)[workDir].(map[string]any)["history"] = []any{"the child's own prompt"}
@@ -306,8 +306,8 @@ func TestWriteInstanceConfig_SecondRunPreservesWhatClaudeWrote(t *testing.T) {
 // clothes, so it is named.
 func TestWriteInstanceConfig_ReportsAPrecedenceFileShadowingIt(t *testing.T) {
 	instance := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(instance, inTreeConfigLeaf), 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(instance, inTreeConfigLeaf, precedenceConfigFileName), []byte(`{}`), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(instance, HomeLeaf), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(instance, HomeLeaf, precedenceConfigFileName), []byte(`{}`), 0o600))
 
 	rep, err := NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
 		HostHome: writeHostConfig(t, realisticHostClaudeJSON), InstanceHome: instance, WorkDir: t.TempDir(),

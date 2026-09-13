@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"os"
 	"sync"
 
@@ -236,6 +237,13 @@ var rootAssembly sync.Once
 // main installed (the zap logger's sinks) would be dropped on exactly the runs
 // that failed. Returning the code keeps the exit and the teardown in one frame.
 func Run() int {
+	// Compose the shipped engines before any command can read the registry.
+	// A refused declaration is a startup failure that names the engine and
+	// slot — never a silently empty registry.
+	if err := engines.Register(); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: %v\n", err)
+		return 1
+	}
 	err := rootCommand().Execute()
 	if err == nil {
 		return 0

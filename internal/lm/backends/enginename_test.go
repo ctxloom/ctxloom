@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // claudeCodeSpellings are every spelling of claude-code the repo-wide alias
@@ -86,12 +87,12 @@ func TestRegistryLookups_StillRefuseAnUnknownName(t *testing.T) {
 	}
 }
 
-// TestRegisterDescriptor_NonCanonicalNamePanics pins the key side of the table.
+// TestRegister_NonCanonicalNameIsAnError pins the key side of the table.
 // A descriptor registered under a name the alias table would rewrite lands
 // where no lookup can reach it, and the backend reads as having no
 // capabilities at all rather than as misregistered.
-func TestRegisterDescriptor_NonCanonicalNamePanics(t *testing.T) {
-	assert.PanicsWithValue(t,
-		"backends: descriptor name claude is not canonical (want claude-code)",
-		func() { registerDescriptor(agentDescriptor{name: "claude"}) })
+func TestRegister_NonCanonicalNameIsAnError(t *testing.T) {
+	err := Register(enginefixture.Descriptor("claude"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not canonical (want claude-code)")
 }

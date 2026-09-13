@@ -1,4 +1,6 @@
-package main
+//go:build integration
+
+package integration
 
 import (
 	"os"

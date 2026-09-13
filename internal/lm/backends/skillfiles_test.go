@@ -2,6 +2,7 @@ package backends
 
 import (
 	"bytes"
+	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -40,7 +41,7 @@ func loadedSkill(name string, claudeEnabled bool) *bundles.LoadedSkill {
 func TestClaudeSkillExports_ResolvesEnablementAndFiles(t *testing.T) {
 	skills := []*bundles.LoadedSkill{loadedSkill("humanize", true)}
 
-	ex := claudeSkillExports(skills)
+	ex := claudeengine.SkillExports(skills)
 	require.Len(t, ex, 1)
 	assert.Equal(t, "humanize", ex[0].Name)
 	assert.Equal(t, "does a thing", ex[0].Description)
@@ -67,7 +68,7 @@ func TestClaudeSkillExports_ResolvesEnablementAndFiles(t *testing.T) {
 func TestClaudeSkillExports_DisabledSkillReportsDisabled(t *testing.T) {
 	skills := []*bundles.LoadedSkill{loadedSkill("humanize", false)}
 
-	ex := claudeSkillExports(skills)
+	ex := claudeengine.SkillExports(skills)
 	require.Len(t, ex, 1)
 	assert.False(t, ex[0].Enabled)
 }

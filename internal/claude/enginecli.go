@@ -202,7 +202,7 @@ func (b *ClaudeCode) EngineCLIs() []agent.EngineCLI {
 // (not a package var) so no consumer can mutate the shared declaration.
 func ClaudeEngineCLIs() []agent.EngineCLI {
 	oneshot := agent.EngineCLI{
-		Engine:  "claude-code",
+		Engine:  EngineName,
 		Surface: agent.CLISurfaceOneshot,
 		Binary:  "claude",
 		Prompt:  agent.PromptStdin,
@@ -214,7 +214,7 @@ func ClaudeEngineCLIs() []agent.EngineCLI {
 		Probes: probes(),
 	}
 	interactive := agent.EngineCLI{
-		Engine:  "claude-code",
+		Engine:  EngineName,
 		Surface: agent.CLISurfaceInteractive,
 		Binary:  "claude",
 		Prompt:  agent.PromptPositional,

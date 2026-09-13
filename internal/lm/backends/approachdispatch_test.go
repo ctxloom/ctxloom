@@ -42,7 +42,7 @@ func nativeSurfaceBackends(t *testing.T) []string {
 	t.Helper()
 	var names []string
 	for name, d := range descriptors {
-		if d.surfaces != nil {
+		if len(d.Surfaces) > 0 {
 			names = append(names, name)
 		}
 	}

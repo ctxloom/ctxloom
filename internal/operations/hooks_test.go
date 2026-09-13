@@ -44,11 +44,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/lm/engine"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // ==========================================================================
@@ -515,10 +517,9 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 // protection no matter how it registered itself, because operations' copy of
 // "which backends have this collision" could only ever be edited by hand.
 //
-// This test registers a synthetic backend nobody has hardcoded anywhere
-// (backends.RegisterHookGlobalScopeForTesting, the exact seam a real
-// backend's descriptor uses in registry.go) and proves ApplyHooks refuses the
-// $HOME collision for it — generalizing the per-engine
+// This test registers a synthetic backend nobody has hardcoded anywhere (a
+// full descriptor through backends.Register, the exact seam a real engine's
+// own package uses) and proves ApplyHooks refuses the $HOME collision for it — generalizing the per-engine
 // fix to "any registered backend", the property the old hardcoded branch
 // could not have: it would have silently proceeded for this name.
 func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) {
@@ -530,12 +531,14 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 	// A collision class shaped exactly like the guarded engines' own: the
 	// "project" path is a workDir join that happens to equal the "global"
 	// path whenever workDir == HOME.
-	backends.RegisterHookGlobalScopeForTesting(fakeBackend,
-		func(workDir string) (string, string, error) {
+	fake := enginefixture.Descriptor(fakeBackend)
+	fake.HookGlobalScope = agent.Provide(engine.HookGlobalScope{
+		Paths: func(workDir string) (string, string, error) {
 			return filepath.Join(workDir, ".t12fake", "settings.json"), filepath.Join(home, ".t12fake", "settings.json"), nil
 		},
-		"the T12 fake engine's global settings",
-	)
+		Label: "the T12 fake engine's global settings",
+	})
+	require.NoError(t, backends.Register(fake))
 	t.Cleanup(func() { backends.UnregisterForTesting(fakeBackend) })
 
 	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{

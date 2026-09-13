@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/lm/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -28,8 +29,8 @@ import (
 // to print a table, and — the line the open-sets ruling draws — enumerating
 // an engine's surfaces must never need a primed instance.
 func Declared(name string) agent.Declaration {
-	if d, ok := lookup(name); ok && d.surfaces != nil {
-		return d.surfaces
+	if d, ok := lookup(name); ok {
+		return d.Surfaces
 	}
 	return agent.Declaration{}
 }
@@ -51,7 +52,7 @@ func SurfacesFor(engine string) (agent.Declaration, error) {
 func KnownApproachNames() []string {
 	seen := map[string]bool{}
 	for _, d := range descriptors {
-		for _, n := range d.surfaces.AllNames() {
+		for _, n := range d.Surfaces.AllNames() {
 			seen[n] = true
 		}
 	}
@@ -85,12 +86,12 @@ func UncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss 
 	if !ok || in.Hooks == nil {
 		return nil
 	}
-	if d.noHooksReason != "" {
+	if d.NoHooksReason != "" {
 		detail := droppedHookDetail(name, *in.Hooks)
 		if detail == "" {
 			return nil
 		}
-		return []agent.SurfaceLoss{{Surface: "hooks", Detail: detail, Reason: d.noHooksReason}}
+		return []agent.SurfaceLoss{{Surface: "hooks", Detail: detail, Reason: d.NoHooksReason}}
 	}
 	return unsupportedHookKindLosses(d, *in.Hooks)
 }
@@ -115,7 +116,7 @@ func UncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss 
 // MCP, commands, skills) so the report can be diffed.
 func LaunchOnlySurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss {
 	d, ok := lookup(name)
-	if !ok || d.launchOnlySettingsReason == "" {
+	if !ok || d.LaunchOnlySettingsReason == "" {
 		return nil
 	}
 	var losses []agent.SurfaceLoss
@@ -123,7 +124,7 @@ func LaunchOnlySurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss
 		if detail == "" {
 			return
 		}
-		losses = append(losses, agent.SurfaceLoss{Surface: surface, Detail: detail, Reason: d.launchOnlySettingsReason})
+		losses = append(losses, agent.SurfaceLoss{Surface: surface, Detail: detail, Reason: d.LaunchOnlySettingsReason})
 	}
 	if in.Hooks != nil {
 		// droppedHookDetail names the events in the user's own config
@@ -149,7 +150,7 @@ func LaunchOnlySettingsReason(name string) string {
 	if !ok {
 		return ""
 	}
-	return d.launchOnlySettingsReason
+	return d.LaunchOnlySettingsReason
 }
 
 // managedMCPDetail counts the MCP servers a delivery would have registered:
@@ -173,12 +174,12 @@ func managedMCPDetail(in agent.SurfaceInputs) string {
 // configure — same "only when it costs something" rule as the whole-backend
 // case above. Sorted by kind so the report is stable across a map's
 // randomized range order.
-func unsupportedHookKindLosses(d *agentDescriptor, hooks wire.HooksConfig) []agent.SurfaceLoss {
-	if len(d.unsupportedHookKinds) == 0 {
+func unsupportedHookKindLosses(d *engine.Descriptor, hooks wire.HooksConfig) []agent.SurfaceLoss {
+	if len(d.UnsupportedHookKinds) == 0 {
 		return nil
 	}
-	kinds := make([]string, 0, len(d.unsupportedHookKinds))
-	for k := range d.unsupportedHookKinds {
+	kinds := make([]string, 0, len(d.UnsupportedHookKinds))
+	for k := range d.UnsupportedHookKinds {
 		kinds = append(kinds, k)
 	}
 	sort.Strings(kinds)
@@ -191,7 +192,7 @@ func unsupportedHookKindLosses(d *agentDescriptor, hooks wire.HooksConfig) []age
 		losses = append(losses, agent.SurfaceLoss{
 			Surface: "hooks",
 			Detail:  fmt.Sprintf("%d %s", n, kind),
-			Reason:  d.unsupportedHookKinds[kind],
+			Reason:  d.UnsupportedHookKinds[kind],
 		})
 	}
 	return losses
@@ -215,11 +216,11 @@ func stripUnsupportedHookKinds(name string, hooks *wire.HooksConfig) *wire.Hooks
 		return nil
 	}
 	d, ok := lookup(name)
-	if !ok || len(d.unsupportedHookKinds) == 0 {
+	if !ok || len(d.UnsupportedHookKinds) == 0 {
 		return hooks
 	}
 	stripped := *hooks
-	for kind := range d.unsupportedHookKinds {
+	for kind := range d.UnsupportedHookKinds {
 		setUnifiedEventHooks(&stripped.Unified, kind, nil)
 	}
 	// Nothing left to deliver is reported as NO CONFIG, not as an empty one.

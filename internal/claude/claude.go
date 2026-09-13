@@ -230,7 +230,7 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 		w.addUnifiedHooks(settings, hooks.Unified)
 
 		// Add ctxloom hooks from backend-specific passthrough
-		if backendHooks, ok := hooks.Plugins["claude-code"]; ok {
+		if backendHooks, ok := hooks.Plugins[EngineName]; ok {
 			w.addBackendHooks(settings, backendHooks)
 		}
 
@@ -897,7 +897,7 @@ func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings, 
 
 // addUnifiedHooks translates unified hooks to Claude Code format and adds them.
 func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, unified wire.UnifiedHooks) {
-	agent.RouteUnifiedHooks("claude-code", []agent.HookRoute{
+	agent.RouteUnifiedHooks(EngineName, []agent.HookRoute{
 		{Hooks: unified.PreTool, Event: "PreToolUse"},
 		{Hooks: unified.PostTool, Event: "PostToolUse"},
 		{Hooks: unified.SessionStart, Event: "SessionStart"},

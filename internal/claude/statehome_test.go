@@ -30,7 +30,7 @@ func TestSessionConfigDir_IsUnderTheSessionInstanceHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SessionConfigDir() error = %v", err)
 	}
-	if want := filepath.Join(root, inTreeConfigLeaf); got != want {
+	if want := filepath.Join(root, HomeLeaf); got != want {
 		t.Errorf("SessionConfigDir(%q, %q) = %q, want %q", workDir, harpA, got, want)
 	}
 }

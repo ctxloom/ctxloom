@@ -36,7 +36,7 @@ type ClaudeConfig struct {
 }
 
 // BackendType identifies the backend this config drives.
-func (ClaudeConfig) BackendType() string { return "claude-code" }
+func (ClaudeConfig) BackendType() string { return EngineName }
 
 // GetEnv returns the labeled entry's env map. Lets shared code (see
 // operations.LLMEnvFor) reach a decoded config's Env through an interface
@@ -74,7 +74,7 @@ type ClaudeCode struct {
 // NewClaudeCode creates a new Claude Code backend with default settings.
 func NewClaudeCode() *ClaudeCode {
 	b := &ClaudeCode{}
-	b.BaseBackend = agent.NewBaseBackend("claude-code", "1.0.0")
+	b.BaseBackend = agent.NewBaseBackend(EngineName, "1.0.0")
 	b.BinaryPath = "claude"
 	// claude routes launch-time surface delivery through the surfaces × cells
 	// seam. In a SharedCell context/MCP/settings ride out-of-cwd launch flags (the
@@ -82,7 +82,7 @@ func NewClaudeCode() *ClaudeCode {
 	// they land as well-known files in the private working dir. The Build closure
 	// stashes the concrete Surfaces so buildArgs can read the flag files' paths.
 	b.InitLaunch(
-		agent.NewBaseLifecycle("claude-code"),
+		agent.NewBaseLifecycle(EngineName),
 		agent.NewBaseContextProvider(),
 		nil, // SessionHistory: claude's ~/.claude/projects/*.jsonl scraper deleted — canonical capture is the only transcript source now
 		Surfaces,

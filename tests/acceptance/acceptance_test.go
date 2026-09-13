@@ -5,6 +5,7 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"os"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ func TestMain(m *testing.M) {
 	for _, k := range testsupport.EnvKeys {
 		_ = os.Unsetenv(k)
 	}
+	engines.MustRegister()
 	code := m.Run()
 	// The taskloom binary testenv builds for the j002500/j002600/trigger steps lives
 	// behind a sync.Once and is shared by every scenario, so its ~30MB

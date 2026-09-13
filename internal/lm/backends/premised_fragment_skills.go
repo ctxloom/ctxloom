@@ -17,7 +17,11 @@ import (
 // the two would diverge the first time either changed.
 func SupportsSkills(backendName string) bool {
 	d, ok := lookup(backendName)
-	return ok && d.skillExports != nil
+	if !ok {
+		return false
+	}
+	_, provided := d.SkillExports.Get()
+	return provided
 }
 
 // PremisedFragment is one fragment a STATIC assembly withheld: its qualified

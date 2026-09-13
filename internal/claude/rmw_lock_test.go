@@ -44,7 +44,7 @@ func TestWriteInstanceConfig_SerializesAgainstConcurrentWriter(t *testing.T) {
 	testsupport.Isolate(t)
 	instance := t.TempDir()
 	workDir := t.TempDir()
-	dest := filepath.Join(instance, inTreeConfigLeaf, InstanceConfigFileName)
+	dest := filepath.Join(instance, HomeLeaf, InstanceConfigFileName)
 
 	// Writer A: take the real home lock directly, standing in for a
 	// concurrent WriteInstanceConfig call already mid-critical-section.
@@ -98,7 +98,7 @@ func TestWriteInstanceConfig_LockIsDistinctFromCallersProjectLock(t *testing.T) 
 	// or the home-rooted worktree fallback under ~/.ctxloom/sessions).
 	instance := filepath.Join(root, ".ctxloom", "state", "harp", "home")
 	require.NoError(t, os.MkdirAll(instance, 0o700))
-	dest := filepath.Join(instance, inTreeConfigLeaf, InstanceConfigFileName)
+	dest := filepath.Join(instance, HomeLeaf, InstanceConfigFileName)
 
 	callerLockPath, err := paths.ProjectPathFor(instance)
 	require.NoError(t, err)

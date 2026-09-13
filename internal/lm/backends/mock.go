@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
@@ -237,25 +236,28 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 	return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
 }
 
-// configHomeEnvKeys are the per-agent config-home env vars isolation.EnvWorkspace
-// threads into RunOptions.Env (see internal/lm/isolation.EnvWorkspace) — each
-// engine's own global-config isolation knob. Sourced from each engine
-// package's own exported env-var constant (this package already imports
-// the engine packages directly in registry.go, so no cycle) rather
-// than re-typed literals, so a roster gap between this list and the env vars
-// EnvWorkspace actually threads cannot recur silently.
-// tests/arch's engine-layout gate pins this roster equal to the full set of
-// env vars internal/lm/isolation's credentialSeedSpecs HomeVars name across
-// every engine.
-var configHomeEnvKeys = []string{
-	claude.ConfigDirEnv,
-}
-
-// ConfigHomeEnvKeys returns a copy of configHomeEnvKeys, exported read-only
-// so tests/arch's engine-layout gate can check this roster without this
-// package exporting the mutable var itself.
+// ConfigHomeEnvKeys returns the per-agent config-home env vars
+// isolation.EnvWorkspace can thread into RunOptions.Env — each registered
+// engine's own home-relocation var(s), DERIVED from the descriptors' Home
+// declarations so the roster cannot miss an engine that declared one. mock
+// records whichever of these are set so a hermetic test can prove what
+// isolation env the engine received.
 func ConfigHomeEnvKeys() []string {
-	return append([]string(nil), configHomeEnvKeys...)
+	var keys []string
+	seen := map[string]bool{}
+	for _, name := range List() {
+		home, ok := descriptors[name].Home.Get()
+		if !ok {
+			continue
+		}
+		for _, v := range home.Vars {
+			if !seen[v.EnvVar] {
+				seen[v.EnvVar] = true
+				keys = append(keys, v.EnvVar)
+			}
+		}
+	}
+	return keys
 }
 
 // recordMockInput writes the assembled request to recordFile when one is set
@@ -341,7 +343,7 @@ func writeMockRecord(recordFile string, in mockRecordFields, managed *agent.Mana
 	}
 	_, _ = fmt.Fprintf(&input, "container_markers=%s\n", strings.Join(containerprobe.Markers(), ","))
 	input.WriteString("=== Env ===\n")
-	for _, key := range configHomeEnvKeys {
+	for _, key := range ConfigHomeEnvKeys() {
 		if v := getEnvFromMap(in.Env, key); v != "" {
 			_, _ = fmt.Fprintf(&input, "%s=%s\n", key, v)
 		}

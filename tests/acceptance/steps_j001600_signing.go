@@ -17,7 +17,7 @@
 //
 // ISOLATION. Every path in this file goes through testenv.TestEnvironment,
 // whose isolatedEnv() roots HOME/USERPROFILE/XDG at e.HomeDir and drops the
-// canonical testsupport.EnvKeys set (mcpclient.go's sessionEnvKeys is built
+// canonical testsupport.EnvKeys set (environment.go's sessionEnvKeys is built
 // from that one list) — the subprocess analogue of testsupport.Isolate, and
 // the reason `w.env.HomeFileExists(".ctxloom/allowed_signers")` is a
 // MEANINGFUL assertion rather than a read of the developer's real home. No

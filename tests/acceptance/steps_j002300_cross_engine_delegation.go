@@ -610,8 +610,8 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 
 	// --- @live-only: agent_recv, retried within a live-turn-sized budget ----
 	//
-	// testenv/mcpclient.go's mcpRecvTimeout hard-caps EVERY single JSON-RPC
-	// round trip this harness makes at 15s, client-side, regardless of the
+	// testenv.MCPCallTimeout hard-caps EVERY single JSON-RPC round trip
+	// this harness makes at 15s, client-side, regardless of the
 	// agent_recv tool's own `wait` argument — shared harness code this task
 	// must not change. A real claude/codex turn (context load + reasoning +
 	// deciding to call agent_send) routinely exceeds that. Retrying

@@ -9,7 +9,7 @@ import "syscall"
 // Windows would need a Job Object, out of scope here — see internal/lm/grpc/
 // procsession_windows.go for the identical precedent on the production
 // side). Non-Linux CI still gets the pid-precise defense-in-depth reap in
-// ptyrun.go/mcpclient.go's Close methods, just not the "whole test binary
+// ptyrun.go/mcpsession.go's Close methods, just not the "whole test binary
 // hard-killed" case only a kernel-delivered signal can reach — see
 // pdeathsig_linux.go.
 func pdeathsigSysProcAttr() *syscall.SysProcAttr { return nil }

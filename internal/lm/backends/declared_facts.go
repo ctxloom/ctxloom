@@ -70,3 +70,13 @@ func RetiredScraperBackendNames() []string {
 	}
 	return names
 }
+
+// ContainerFor returns the named engine's declaration of how a containerized
+// run of it is built and authenticated.
+func ContainerFor(name string) agent.Declared[agent.EngineContainer] {
+	d, ok := lookup(name)
+	if !ok {
+		return agent.Declared[agent.EngineContainer]{}
+	}
+	return d.Container
+}

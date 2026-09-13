@@ -460,7 +460,7 @@ func TestAgentStop_FreesSlot(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, second.Queued)
 
-	disp, err := c.AgentStop(ownerIdentity(), first.Harp)
+	disp, err := c.AgentStop(ownerIdentity(), first.Harp, "")
 	require.NoError(t, err)
 	assert.Contains(t, disp, "freed")
 	assert.Equal(t, StateEnded, rosterState(c, first.Harp))

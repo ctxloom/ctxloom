@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1075,7 +1076,10 @@ func (c *Coordinator) AgentRecv(ctx context.Context, caller Identity, wait time.
 
 // AgentStop kills a child run (KillRun semantics): the engine/container dies,
 // the slot frees, the terminal is journaled, and the credential is revoked.
-func (c *Coordinator) AgentStop(caller Identity, harp string) (string, error) {
+// The host-side verb is keyed by harp; reason (optional) becomes the run's
+// terminal detail. The bulk form — every child of the caller — is
+// StopChildren (drain.go).
+func (c *Coordinator) AgentStop(caller Identity, harp, reason string) (string, error) {
 	if caller.IsChild() {
 		return "", errors.New("agent_stop: only the coordinating session may stop its children")
 	}
@@ -1089,21 +1093,44 @@ func (c *Coordinator) AgentStop(caller Identity, harp string) (string, error) {
 	if rec == nil {
 		return "", fmt.Errorf("agent_stop: unknown session %q: not a child of this session", harp)
 	}
-	// Cancel the LAUNCH before anything else, and do it on BOTH paths below.
-	// A stop that only ends the run record cannot stop a launcher: a stop can
-	// land on an already-ended run (the retry loop's own terminal) with a
-	// relaunch already armed behind it, report success, and leave the retry
-	// loop spinning on indefinitely. This marks the harp stopped — so an
-	// armed-but-not-yet-enqueued relaunch turns back — and cancels the context
-	// of any attempt currently in flight, which a container prepare makes a
-	// seconds-wide window.
-	c.cancelLaunch(harp)
+	return c.stopRun(caller, rec, reason), nil
+}
+
+// stopRun is the per-run agent_stop both surfaces (AgentStop, serveStopRun)
+// share once the caller's claim on rec is settled; it returns the disposition
+// prose the caller reports.
+//
+// The LAUNCH is cancelled before anything else, on both branches. A stop that
+// only ends the run record cannot stop a launcher: a stop can land on an
+// already-ended run (the retry loop's own terminal) with a relaunch already
+// armed behind it, report success, and leave the retry loop spinning on
+// indefinitely. cancelLaunch marks the harp stopped — so an armed-but-not-
+// yet-enqueued relaunch turns back — and cancels the context of any attempt
+// currently in flight, which a container prepare makes a seconds-wide window.
+//
+// reason is the run's terminal DETAIL — what the roster, the journal and the
+// audit record show for this stop. Absent, the detail keeps the exact
+// wording that shipped. A stop landing on an ended run reports the earlier
+// terminal's reason when there was one, so a second agent_stop says WHY it
+// ended, not just that it did.
+func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string) string {
+	c.cancelLaunch(rec.Harp)
 	if rec.Ended {
-		return fmt.Sprintf("child %s had already ended (%s); any pending relaunch is cancelled", harp, rec.Cause), nil
+		ended := rec.Cause
+		if rec.Detail != "" {
+			ended += ": " + rec.Detail
+		}
+		return fmt.Sprintf("child %s had already ended (%s); any pending relaunch is cancelled", rec.Harp, ended)
 	}
-	c.audit("agent_stop", caller.Harp, map[string]string{"harp": harp, "run_id": rec.RunID})
-	c.terminateRun(rec.RunID, CauseStopped, fmt.Sprintf("stopped by %s", caller.Harp))
-	return fmt.Sprintf("stopped child %s; its execution slot is freed (a later agent_send resumes it as a fresh run)", harp), nil
+	detail := fmt.Sprintf("stopped by %s", caller.Harp)
+	audit := map[string]string{"harp": rec.Harp, "run_id": rec.RunID}
+	if reason = strings.TrimSpace(reason); reason != "" {
+		detail += ": " + reason
+		audit["reason"] = reason
+	}
+	c.audit("agent_stop", caller.Harp, audit)
+	c.terminateRun(rec.RunID, CauseStopped, detail)
+	return fmt.Sprintf("stopped child %s; its execution slot is freed (a later agent_send resumes it as a fresh run)", rec.Harp)
 }
 
 // Inject delivers user-typed text into a child. It is now a thin wrapper over

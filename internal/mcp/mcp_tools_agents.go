@@ -203,12 +203,27 @@ type agentRecvResult struct {
 }
 
 type agentStopInput struct {
-	Harp string `json:"harp" jsonschema:"The child session harp to stop (its engine is killed and its execution slot freed; a later agent_send resumes it as a fresh run)"`
+	Harp   string `json:"harp,omitempty" jsonschema:"The ONE child session harp to stop (its engine is killed and its execution slot freed; a later agent_send resumes it as a fresh run). OMIT this to stop EVERY live child of this session instead (the bulk sweep), which then requires reason."`
+	Reason string `json:"reason,omitempty" jsonschema:"Why you are stopping. REQUIRED when harp is omitted (the bulk sweep stops every live child of this session and is never done silently); optional when harp is given. Recorded on each run's terminal record and in the coordinator audit log, and shown in the roster's cause."`
+}
+
+// agentStoppedChild is one child of the bulk sweep, as the stdio server
+// reports it (the plane-2 surface's StopRunResult.Child, same fields).
+type agentStoppedChild struct {
+	Harp    string `json:"harp"`
+	RunID   string `json:"run_id"`
+	Agent   string `json:"agent"`
+	Outcome string `json:"outcome" jsonschema:"stopped: ended without a turn being cut short; interrupted: its turn was still running when the drain bound elapsed and it was forced"`
+	Detail  string `json:"detail"`
 }
 
 type agentStopResult struct {
-	Harp        string `json:"harp"`
+	// Harp and Disposition describe the ONE child stopped when harp was given.
+	Harp        string `json:"harp,omitempty"`
 	Disposition string `json:"disposition"`
+	// Children is set ONLY by the bulk sweep (harp omitted): every child of
+	// this session that was live when the sweep began, each with its outcome.
+	Children []agentStoppedChild `json:"children,omitempty"`
 }
 
 // agentRunInputSchema is agent_run's advertised input schema: the shape
@@ -279,7 +294,7 @@ func (s *ctxServer) registerAgentTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "agent_stop",
-			Description: "Stop a delegated child session: its engine (or container) is killed, its execution slot frees immediately (the spawn queue advances), its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches it as a fresh run primed with its recorded history.",
+			Description: "Stop delegated child sessions. This tool has TWO SHAPES, chosen by whether harp is given. (1) harp GIVEN: stop that ONE child. (2) harp OMITTED: stop EVERY live child of this session — the bulk sweep. Omitting harp is NOT \"stop nothing\" and there is no default target: it addresses all of your live children at once (each is asked to exit at its turn boundary and forced when the drain bound elapses), and the result names every child with its outcome. Because of that, the omitted-harp shape REQUIRES reason — an accidental omission is refused rather than stopping everything silently. In both shapes a stopped child's engine (or container) is killed, its execution slot frees immediately (the spawn queue advances), its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches it as a fresh run primed with its recorded history. Use the sweep to reclaim slots and containers held by children that have finished (they stay open, resumable, until stopped).",
 		},
 		s.handleAgentStop)
 }
@@ -399,15 +414,30 @@ func (s *ctxServer) handleAgentRecv(ctx context.Context, _ *mcp.CallToolRequest,
 	return nil, out, nil
 }
 
-func (s *ctxServer) handleAgentStop(_ context.Context, _ *mcp.CallToolRequest, in agentStopInput) (*mcp.CallToolResult, *agentStopResult, error) {
+func (s *ctxServer) handleAgentStop(ctx context.Context, _ *mcp.CallToolRequest, in agentStopInput) (*mcp.CallToolResult, *agentStopResult, error) {
 	d, err := s.delegation()
 	if err != nil {
 		return nil, nil, err
 	}
 	if in.Harp == "" {
-		return nil, nil, errors.New("agent_stop: harp is required (a child session harp; see the roster)")
+		// The bulk sweep: every live child of this session.
+		stopped, err := d.c.StopChildren(ctx, d.self, in.Reason)
+		if errors.Is(err, coord.ErrStopReasonRequired) {
+			return nil, nil, fmt.Errorf("%w — give harp to stop one child, or reason to stop them all", err)
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("agent_stop: %w", err)
+		}
+		out := &agentStopResult{Disposition: fmt.Sprintf("stopped %d child(ren) of this session; their execution slots are freed (a later agent_send resumes any of them as a fresh run)", len(stopped))}
+		if len(stopped) == 0 {
+			out.Disposition = "no live children to stop"
+		}
+		for _, sc := range stopped {
+			out.Children = append(out.Children, agentStoppedChild{Harp: sc.Harp, RunID: sc.RunID, Agent: sc.Agent, Outcome: sc.Outcome, Detail: sc.Detail})
+		}
+		return nil, out, nil
 	}
-	disposition, err := d.c.AgentStop(d.self, in.Harp)
+	disposition, err := d.c.AgentStop(d.self, in.Harp, in.Reason)
 	if err != nil {
 		return nil, nil, err
 	}

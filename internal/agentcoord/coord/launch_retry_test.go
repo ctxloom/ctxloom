@@ -153,7 +153,7 @@ func stopDuringArmedRelaunch(t *testing.T, viaStartRun bool) {
 
 	// The stop the operator issues. It observes an ENDED run — the success-
 	// shaped answer the incident got.
-	_, err = c.AgentStop(ownerIdentity(), out.Harp)
+	_, err = c.AgentStop(ownerIdentity(), out.Harp, "")
 	require.NoError(t, err)
 
 	// Release the relaunch that was already in flight behind the stop.
@@ -184,7 +184,7 @@ func TestAgentStop_StopsRunningLaunchRetryLoop(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 	harp := spinUpRetryLoop(t, c, sp)
 
-	_, err := c.AgentStop(ownerIdentity(), harp)
+	_, err := c.AgentStop(ownerIdentity(), harp, "")
 	require.NoError(t, err)
 
 	assertLaunchesStop(t, sp)
@@ -205,7 +205,7 @@ func TestAgentStop_CancelsInFlightLaunch(t *testing.T) {
 	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond,
 		"precondition: a launch must be in flight")
 
-	_, err = c.AgentStop(ownerIdentity(), out.Harp)
+	_, err = c.AgentStop(ownerIdentity(), out.Harp, "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return sp.cancelled.Load() >= 1 }, 2*time.Second, 10*time.Millisecond,

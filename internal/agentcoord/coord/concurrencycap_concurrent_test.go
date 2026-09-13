@@ -168,8 +168,8 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 			// Exactly-once terminal: two RACING agent_stop calls.
 			var wgStop sync.WaitGroup
 			wgStop.Add(2)
-			go func() { defer wgStop.Done(); _, _ = c.AgentStop(ownerIdentity(), harps[i]) }()
-			go func() { defer wgStop.Done(); _, _ = c.AgentStop(ownerIdentity(), harps[i]) }()
+			go func() { defer wgStop.Done(); _, _ = c.AgentStop(ownerIdentity(), harps[i], "") }()
+			go func() { defer wgStop.Done(); _, _ = c.AgentStop(ownerIdentity(), harps[i], "") }()
 			wgStop.Wait()
 		}()
 	}

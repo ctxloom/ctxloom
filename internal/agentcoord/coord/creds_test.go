@@ -60,7 +60,7 @@ func TestCredentialRevocation_SeversParkedPoll(t *testing.T) {
 	require.True(t, ok, "a live credential verifies")
 
 	// Stop the child: revocation severs the parked poll and the credential.
-	_, err = c.AgentStop(ownerIdentity(), out.Harp)
+	_, err = c.AgentStop(ownerIdentity(), out.Harp, "")
 	require.NoError(t, err)
 
 	select {

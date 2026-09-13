@@ -939,7 +939,9 @@ func (c *Coordinator) serveAgentRequest(caller Identity, req *agentcoordpb.Agent
 	case *agentcoordpb.AgentRequest_ListRuns:
 		return c.serveListRuns(caller, kind.ListRuns)
 	case *agentcoordpb.AgentRequest_StopRun:
-		return c.serveStopRun(caller, kind.StopRun)
+		// The bulk shape waits on the drain, bounded; baseCtx is the only
+		// ctx a plane-2 dispatch has, and Close settles the drain anyway.
+		return c.serveStopRun(c.baseCtx, caller, kind.StopRun)
 	case *agentcoordpb.AgentRequest_Custom:
 		return c.serveCustom(caller, kind.Custom)
 	default:
@@ -1197,12 +1199,15 @@ func (c *Coordinator) serveListRuns(caller Identity, req *agentcoordpb.ListRunsR
 	}
 }
 
-// serveStopRun is agent_stop (D1): ownership-checked against the REQUESTER's
-// lineage — only the run's parent may stop it.
-func (c *Coordinator) serveStopRun(caller Identity, req *agentcoordpb.StopRun) *agentcoordpb.CoordinatorResponse {
+// serveStopRun is agent_stop (D1), in its two shapes. With a run_id it is
+// ownership-checked against the REQUESTER's lineage — only the run's parent
+// may stop it. With NO run_id it is the bulk sweep: every live child of the
+// requester's session, under the drain bound, each named in the result with
+// its outcome; a reason is required so an accidental omission stops nothing.
+func (c *Coordinator) serveStopRun(ctx context.Context, caller Identity, req *agentcoordpb.StopRun) *agentcoordpb.CoordinatorResponse {
 	runID := req.GetRunId()
 	if runID == "" {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_stop: run_id is required (from spawn's child_run_id or the roster)")}
+		return c.serveStopChildren(ctx, caller, req.GetReason())
 	}
 	var rec *RunRecord
 	c.runs.View(func() {
@@ -1214,45 +1219,38 @@ func (c *Coordinator) serveStopRun(caller Identity, req *agentcoordpb.StopRun) *
 	if rec == nil || rec.ParentHarp != caller.Harp {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.PermissionDenied, fmt.Sprintf("agent_stop: run %q is not a child of this session", runID))}
 	}
-	// Cancel the LAUNCH before anything else, on BOTH agent_stop
-	// surfaces — this is plane-2's twin of Coordinator.AgentStop's own fix
-	// (coordinator.go), where a stop can land on
-	// an already-ended run with a relaunch already armed behind it,
-	// report success, and leave the loop spinning on indefinitely. A stop
-	// that only ends the run record cannot stop a launcher: this marks the
-	// harp stopped (an armed-but-not-yet-enqueued relaunch turns back) and
-	// cancels the context of any attempt currently in flight (a container
-	// prepare makes a seconds-wide window) — needed here too because this
-	// is the path a coordinator-capable CHILD uses to stop its own
-	// grandchild, not just the host-side verb.
-	c.cancelLaunch(rec.Harp)
-	if rec.Ended {
-		// The detail carries the earlier stop's `reason` when there was one,
-		// so a second agent_stop reports WHY it ended, not just that it did.
-		ended := rec.Cause
-		if rec.Detail != "" {
-			ended = rec.Cause + ": " + rec.Detail
-		}
-		return &agentcoordpb.CoordinatorResponse{
-			Status: okStatus(fmt.Sprintf("child %s had already ended (%s)", rec.Harp, ended)),
-			Kind:   &agentcoordpb.CoordinatorResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{}},
-		}
-	}
-	// `reason` was advertised to the model and thrown away. It is
-	// now the run's terminal DETAIL — what the roster, the journal and the
-	// audit record show for this stop. Absent, the detail keeps the exact
-	// wording that shipped.
-	detail := fmt.Sprintf("stopped by %s", caller.Harp)
-	audit := map[string]string{"harp": rec.Harp, "run_id": runID}
-	if reason := strings.TrimSpace(req.GetReason()); reason != "" {
-		detail = fmt.Sprintf("stopped by %s: %s", caller.Harp, reason)
-		audit["reason"] = reason
-	}
-	c.audit("agent_stop", caller.Harp, audit)
-	c.terminateRun(runID, CauseStopped, detail)
+	// This is the path a coordinator-capable CHILD uses to stop its own
+	// grandchild, not just the host-side verb — the shared stopRun cancels
+	// the launch here too.
 	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(fmt.Sprintf("stopped child %s; its execution slot is freed (a later agent_send resumes it as a fresh run)", rec.Harp)),
+		Status: okStatus(c.stopRun(caller, rec, req.GetReason())),
 		Kind:   &agentcoordpb.CoordinatorResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{}},
+	}
+}
+
+// serveStopChildren is agent_stop's bulk shape on plane 2: StopChildren
+// projected onto StopRunResult.children.
+func (c *Coordinator) serveStopChildren(ctx context.Context, caller Identity, reason string) *agentcoordpb.CoordinatorResponse {
+	stopped, err := c.StopChildren(ctx, caller, reason)
+	if errors.Is(err, ErrStopReasonRequired) {
+		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, fmt.Sprintf("%v — give run_id to stop one child, or reason to stop them all", err))}
+	}
+	if err != nil {
+		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unavailable, fmt.Sprintf("agent_stop: %v", err))}
+	}
+	result := &agentcoordpb.StopRunResult{}
+	for _, sc := range stopped {
+		result.Children = append(result.Children, &agentcoordpb.StopRunResult_Child{
+			Harp: sc.Harp, RunId: sc.RunID, Agent: sc.Agent, Outcome: sc.Outcome, Detail: sc.Detail,
+		})
+	}
+	msg := fmt.Sprintf("stopped %d child(ren) of this session; their execution slots are freed (a later agent_send resumes any of them as a fresh run)", len(stopped))
+	if len(stopped) == 0 {
+		msg = "no live children to stop"
+	}
+	return &agentcoordpb.CoordinatorResponse{
+		Status: okStatus(msg),
+		Kind:   &agentcoordpb.CoordinatorResponse_StopRun{StopRun: result},
 	}
 }
 

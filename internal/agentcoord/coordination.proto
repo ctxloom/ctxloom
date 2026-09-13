@@ -393,15 +393,14 @@ message StartRunResult {
 // removed `grace` field below.
 message StopRun {
   option (message_schema) = {
-    doc: "Stop a delegated child run: its engine (or container) is killed, its execution slot frees immediately (the spawn queue advances), its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches its harp as a fresh run primed with its recorded history."
+    doc: "Stop delegated child sessions. This verb has TWO SHAPES, chosen by whether run_id is given. (1) run_id GIVEN: stop that ONE child run. (2) run_id OMITTED: stop EVERY live child of this session — the bulk sweep. Omitting run_id is NOT \"stop nothing\" and there is no default target: it addresses all of your live children at once (each is asked to exit at its turn boundary and forced when the drain bound elapses), and the result names every child with its outcome. Because of that, the omitted-run_id shape REQUIRES reason — an accidental omission is refused rather than stopping everything silently. In both shapes a stopped child's engine (or container) is killed, its execution slot frees immediately (the spawn queue advances), its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches its harp as a fresh run primed with its recorded history. Use the sweep to reclaim slots and containers held by children that have finished (they stay open, resumable, until stopped); a run_id captured at spawn is STALE after any resume, so the sweep never asks you for one."
   };
 
   string run_id = 1 [(field_schema) = {
-    required: true,
-    doc: "The child run to stop (from spawn's child_run_id, or the roster's current run_id — a resumed child runs under a FRESH run_id)"
+    doc: "The ONE child run to stop (from spawn's child_run_id, or the roster's current run_id — a resumed child runs under a FRESH run_id, so a run_id captured at spawn is stale after any resume). OMIT this to stop EVERY live child of this session instead (the bulk sweep), which then requires reason."
   }];
   string reason = 2 [(field_schema) = {
-    doc: "Why you are stopping this child. Recorded on the run's terminal record and in the coordinator audit log, and shown in the roster's cause — say something a later reader can act on (\"superseded by a narrower brief\", \"wrong base commit\")",
+    doc: "Why you are stopping. REQUIRED when run_id is omitted (the bulk sweep stops every live child of this session and is never done silently); optional when run_id is given. Recorded on each run's terminal record and in the coordinator audit log, and shown in the roster's cause — say something a later reader can act on (\"superseded by a narrower brief\", \"fan-out complete; reclaiming idle workers\")",
     example: "\"superseded by a narrower brief\""
   }];
   // 3 was grace (google.protobuf.Duration), REMOVED:
@@ -418,6 +417,25 @@ message StopRunResult {
   // response field asserting an unmeasured fact. Nothing measures it now
   // that `grace` is gone.
   reserved 1;
+
+  // One child of the bulk sweep (run_id omitted).
+  message Child {
+    string harp = 1;
+    string run_id = 2;
+    string agent = 3;
+    // "stopped": ended without a turn being cut short (between turns, at its
+    // turn boundary, before it started, or while parked). "interrupted": its
+    // turn was still running when the drain bound elapsed and it was forced.
+    // Produced from coord's StopOutcome* constants (drain.go).
+    string outcome = 4;
+    // The run's terminal detail as the roster shows it: who stopped it, the
+    // reason, and where it ended.
+    string detail = 5;
+  }
+  // Set ONLY by the bulk sweep (run_id omitted): every child of this session
+  // that was live when the sweep began, each with its outcome. Empty when a
+  // run_id was given, and when the sweep found no live child.
+  repeated Child children = 2;
 }
 
 // SIGKILL now. The run will surface as RunExited without a terminal

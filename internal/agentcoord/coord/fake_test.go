@@ -37,6 +37,20 @@ type fakeEngine struct {
 	// prove the coordinator CAPTURES a legacy backend's native session id
 	// (previously silently discarded — no ev.Session case existed).
 	sessionID string
+	// released closes when the launch's Close fired — the seam a production
+	// child's container teardown hangs off (AgentChatLaunch.Close /
+	// EngineSpawn.Kill → the runner handle's Kill, which force-removes the
+	// container). A test that must prove a stop RELEASED the child watches
+	// this rather than inferring it from the roster.
+	released chan struct{}
+}
+
+// releasedCh returns the channel launch closes when the engine's Close
+// fires; nil before the engine was launched.
+func (f *fakeEngine) releasedCh() <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.released
 }
 
 func (f *fakeEngine) recordedTexts() []string {
@@ -72,6 +86,8 @@ func (f *fakeEngine) launch(ctx context.Context, contextText, resumeSessionID st
 	f.gotEnv = env
 	f.gotRunnerEnv = runnerEnv
 	f.gotResumeID = resumeSessionID
+	released := make(chan struct{})
+	f.released = released
 	f.mu.Unlock()
 	in := make(chan agent.ChatMessage)
 	// events is small-buffered (not unbuffered like `in`): the REAL client
@@ -87,6 +103,11 @@ func (f *fakeEngine) launch(ctx context.Context, contextText, resumeSessionID st
 	events := make(chan agent.ChatEvent, 4)
 	errs := make(chan error, 1)
 	turnCtx, cancel := context.WithCancel(ctx)
+	var releaseOnce sync.Once
+	closeFn := func() {
+		cancel()
+		releaseOnce.Do(func() { close(released) })
+	}
 	first := true
 	go func() {
 		defer close(errs)
@@ -142,7 +163,7 @@ func (f *fakeEngine) launch(ctx context.Context, contextText, resumeSessionID st
 			}
 		}
 	}()
-	return &operations.AgentChatLaunch{In: in, Events: events, Errs: errs, Close: cancel, Oneshot: f.oneshot}
+	return &operations.AgentChatLaunch{In: in, Events: events, Errs: errs, Close: closeFn, Oneshot: f.oneshot}
 }
 
 // resumeSessionID returns the resumeSessionID this engine's Launch call

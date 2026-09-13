@@ -204,11 +204,11 @@ func TestCompleteness(t *testing.T) {
 
 	// "The server advertised zero tools" and "the response never parsed" must
 	// not look identical: the loop below iterates an empty slice and passes
-	// vacuously either way. mcpclient.go's parseNamedArray errors on a
-	// malformed response (liveSurface already t.Fatalf's on that), but a
-	// genuinely empty registration is itself a real regression this
-	// completeness gate exists to catch — an explicit floor makes that case
-	// loud too, independent of the parse-error path.
+	// vacuously either way. The SDK client fails a list call on a malformed
+	// response (liveSurface already t.Fatalf's on that), but a genuinely
+	// empty registration is itself a real regression this completeness gate
+	// exists to catch — an explicit floor makes that case loud too,
+	// independent of the decode-error path.
 	if len(tools) == 0 {
 		t.Fatal("the live MCP server advertised zero tools — either a real regression or a parsing failure masquerading as one; completeness cannot be checked against an empty surface")
 	}
@@ -347,22 +347,36 @@ func liveSurface(t *testing.T) (tools, resources, templates []string) {
 	if err := writeMinimalConfig(env); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	client, err := env.StartMCP()
+	session, err := env.StartMCP()
 	if err != nil {
 		t.Fatalf("start mcp: %v", err)
 	}
-	t.Cleanup(func() { _ = client.Close() })
-	if err := client.Initialize(); err != nil {
-		t.Fatalf("initialize: %v", err)
+	t.Cleanup(func() {
+		if err := session.Close(); err != nil {
+			t.Errorf("mcp session close: %v", err)
+		}
+	})
+	ctx, cancel := callCtx()
+	defer cancel()
+	// The cursor-following iterators, so a server that pages its surface is
+	// enumerated whole rather than to its first page.
+	for tool, err := range session.Tools(ctx, nil) {
+		if err != nil {
+			t.Fatalf("list tools: %v", err)
+		}
+		tools = append(tools, tool.Name)
 	}
-	if tools, err = client.ListTools(); err != nil {
-		t.Fatalf("list tools: %v", err)
+	for res, err := range session.Resources(ctx, nil) {
+		if err != nil {
+			t.Fatalf("list resources: %v", err)
+		}
+		resources = append(resources, res.URI)
 	}
-	if resources, err = client.ListResources(); err != nil {
-		t.Fatalf("list resources: %v", err)
-	}
-	if templates, err = client.ListResourceTemplates(); err != nil {
-		t.Fatalf("list resource templates: %v", err)
+	for tmpl, err := range session.ResourceTemplates(ctx, nil) {
+		if err != nil {
+			t.Fatalf("list resource templates: %v", err)
+		}
+		templates = append(templates, tmpl.URITemplate)
 	}
 	return tools, resources, templates
 }

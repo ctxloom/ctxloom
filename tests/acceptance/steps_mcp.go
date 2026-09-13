@@ -5,11 +5,100 @@ package acceptance
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/cucumber/godog"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
+
+// toolOutcome is the assertion-side view of one tools/call: the SDK result
+// when the server answered with one, or the JSON-RPC error it answered with
+// instead. Exactly one of the two is set once a call has been made; the zero
+// value means no call yet. Transport failures never land here — callTool
+// fails the step on those, because a server that did not answer at all is a
+// harness failure, not an outcome a scenario can assert about.
+type toolOutcome struct {
+	res    *mcp.CallToolResult
+	rpcErr *jsonrpc.Error
+}
+
+// Inner unwraps the embedded operation-result JSON the server embeds in the
+// first text content. It returns an error when the call produced a JSON-RPC
+// error or the result carries no such text.
+func (o toolOutcome) Inner() (map[string]any, error) {
+	if o.rpcErr != nil {
+		return nil, fmt.Errorf("tool error: %v", o.rpcErr)
+	}
+	if o.res == nil {
+		return nil, errors.New("no tool call has been made")
+	}
+	text, ok := firstText(o.res)
+	if !ok {
+		return nil, errors.New("result.content has no leading text content")
+	}
+	var inner map[string]any
+	if err := json.Unmarshal([]byte(text), &inner); err != nil {
+		return nil, fmt.Errorf("unwrap tool json: %w", err)
+	}
+	return inner, nil
+}
+
+// IsError reports whether the tool call failed and a short failure message.
+// Failure means EITHER a JSON-RPC error answer OR a CallToolResult with
+// isError=true — the form the MCP SDK uses for handler errors and input
+// validation failures, which never become a JSON-RPC error. The
+// "succeeds"/"fails" assertions must consult this, not just rpcErr.
+func (o toolOutcome) IsError() (bool, string) {
+	if o.rpcErr != nil {
+		return true, o.rpcErr.Error()
+	}
+	if o.res != nil && o.res.IsError {
+		text, _ := firstText(o.res)
+		return true, text
+	}
+	return false, ""
+}
+
+// JSON renders the outcome for substring assertions and doc capture: the
+// SDK result in its wire shape, or the JSON-RPC error object. Empty before
+// any call.
+func (o toolOutcome) JSON() string {
+	switch {
+	case o.rpcErr != nil:
+		data, _ := json.Marshal(map[string]any{"error": o.rpcErr})
+		return string(data)
+	case o.res != nil:
+		data, _ := json.Marshal(o.res)
+		return string(data)
+	}
+	return ""
+}
+
+// firstText returns the text of a result's first content when that content
+// is text.
+func firstText(res *mcp.CallToolResult) (string, bool) {
+	if len(res.Content) == 0 {
+		return "", false
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		return "", false
+	}
+	return tc.Text, true
+}
+
+// callCtx bounds one MCP round trip. The parent is deliberately not the
+// step's context: the scenario's lifetime is not the call's, and the
+// per-call ceiling is what turns a wedged server into a failed step instead
+// of a hung suite.
+func callCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), testenv.MCPCallTimeout)
+}
 
 func registerMCPSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the agent calls tool "([^"]*)"$`, func(c context.Context, name string) error {
@@ -109,11 +198,16 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return err
 		}
-		text, mime, err := agent.ReadResource(uri)
+		ctx, cancel := callCtx()
+		defer cancel()
+		res, err := agent.ReadResource(ctx, &mcp.ReadResourceParams{URI: uri})
 		if err != nil {
 			return err
 		}
-		w.lastRes, w.lastMime = text, mime
+		if len(res.Contents) == 0 {
+			return fmt.Errorf("resource %q: result.contents missing or empty", uri)
+		}
+		w.lastRes, w.lastMime = res.Contents[0].Text, res.Contents[0].MIMEType
 		return nil
 	})
 
@@ -148,12 +242,22 @@ func callTool(c context.Context, name string, args map[string]any) error {
 	if err != nil {
 		return err
 	}
-	res, err := agent.CallTool(name, args)
-	if err != nil {
+	ctx, cancel := callCtx()
+	defer cancel()
+	res, err := agent.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+	var rpcErr *jsonrpc.Error
+	switch {
+	case err == nil:
+		w.lastTool = toolOutcome{res: res}
+	case errors.As(err, &rpcErr):
+		// The server ANSWERED, with a refusal (unknown tool, malformed
+		// params). That is an outcome the "fails" assertions exist to
+		// inspect, not a harness failure.
+		w.lastTool = toolOutcome{rpcErr: rpcErr}
+	default:
 		return err
 	}
-	w.lastTool = res
-	w.lastInner, w.lastInnerErr = res.Inner()
+	w.lastInner, w.lastInnerErr = w.lastTool.Inner()
 	// An MCP tool call is an invocation like a CLI command, so it advances a
 	// counter the doc-capture sidecar reads for the same reason it reads
 	// env.RunCount(): a step that INVOKED something owns the result as its
@@ -165,11 +269,11 @@ func callTool(c context.Context, name string, args map[string]any) error {
 
 // assertToolCallSucceeds is "the tool call succeeds"'s body, named so it is
 // directly unit-testable without going through godog. Checks two distinct
-// failure shapes: the CallToolResult's isError flag (the MCP SDK reports
-// handler/validation failures as a result with isError=true and a nil
-// envelope error, not just a JSON-RPC error), AND whether the
-// envelope could be unwrapped at all. Before this, an envelope that failed
-// to unwrap (a malformed/error payload Inner() couldn't parse) left
+// failure shapes: the outcome's IsError (a JSON-RPC error answer OR a
+// CallToolResult with isError=true — the MCP SDK reports handler/validation
+// failures as the latter, never as a JSON-RPC error), AND whether the
+// result could be unwrapped at all. Before this, a result that failed to
+// unwrap (a malformed/error payload Inner() couldn't parse) left
 // w.lastInner nil with no signal, so every subsequent "the tool result
 // field X is set" assertion reported the misleading "field is absent"
 // instead of naming the real unwrap failure, and "the tool call succeeds"

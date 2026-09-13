@@ -24,9 +24,9 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
-	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // j002500State is J002500's fixture state: the name->harp mapping the tag-matching
@@ -391,10 +391,6 @@ func registerJ002500Steps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("start taskloom mcp: %w", err)
 		}
-		if err := client.Initialize(); err != nil {
-			_ = client.Close()
-			return fmt.Errorf("initialize taskloom mcp: %w", err)
-		}
 		w.tlMCP = client
 		return nil
 	})
@@ -404,7 +400,7 @@ func registerJ002500Steps(ctx *godog.ScenarioContext) {
 		if w.tlMCP == nil {
 			return fmt.Errorf("not connected to the taskloom MCP server")
 		}
-		instructions := w.tlMCP.Instructions()
+		instructions := w.tlMCP.InitializeResult().Instructions
 		if !strings.Contains(instructions, want) {
 			return fmt.Errorf("server instructions do not mention %q; instructions:\n%s", want, instructions)
 		}
@@ -413,24 +409,31 @@ func registerJ002500Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the tool "([^"]*)" input schema mentions "([^"]*)"$`, func(c context.Context, toolName, want string) error {
 		w := worldFrom(c)
-		detail, err := j002500ToolDetail(w, toolName)
+		tool, err := j002500ToolDetail(w, toolName)
 		if err != nil {
 			return err
 		}
-		if !strings.Contains(detail.SchemaJSON, want) {
-			return fmt.Errorf("tool %q input schema does not mention %q; schema:\n%s", toolName, want, detail.SchemaJSON)
+		// The schema as raw JSON text, for substring assertions against
+		// per-field jsonschema descriptions the schema — not the static
+		// Description — carries.
+		schema, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			return fmt.Errorf("tool %q input schema: %w", toolName, err)
+		}
+		if !strings.Contains(string(schema), want) {
+			return fmt.Errorf("tool %q input schema does not mention %q; schema:\n%s", toolName, want, schema)
 		}
 		return nil
 	})
 
 	ctx.Step(`^the tool "([^"]*)" description mentions "([^"]*)"$`, func(c context.Context, toolName, want string) error {
 		w := worldFrom(c)
-		detail, err := j002500ToolDetail(w, toolName)
+		tool, err := j002500ToolDetail(w, toolName)
 		if err != nil {
 			return err
 		}
-		if !strings.Contains(detail.Description, want) {
-			return fmt.Errorf("tool %q description does not mention %q; description:\n%s", toolName, want, detail.Description)
+		if !strings.Contains(tool.Description, want) {
+			return fmt.Errorf("tool %q description does not mention %q; description:\n%s", toolName, want, tool.Description)
 		}
 		return nil
 	})
@@ -538,26 +541,25 @@ func readTaskLogLines(w *World, mustExist bool) ([]string, error) {
 	return lines, nil
 }
 
-// j002500ToolDetail fetches tools/list from the (already-connected) taskloom MCP
-// client and returns the named tool's detail. Refetches every call rather
-// than caching — tools/list is cheap and this keeps each assertion
-// independent of step ordering.
-func j002500ToolDetail(w *World, toolName string) (*testenv.ToolDetail, error) {
+// j002500ToolDetail walks tools/list on the (already-connected) taskloom MCP
+// session and returns the named tool as the server advertised it. Refetches
+// every call rather than caching — tools/list is cheap and this keeps each
+// assertion independent of step ordering.
+func j002500ToolDetail(w *World, toolName string) (*mcp.Tool, error) {
 	if w.tlMCP == nil {
 		return nil, fmt.Errorf("not connected to the taskloom MCP server")
 	}
-	tools, err := w.tlMCP.ListToolDetails()
-	if err != nil {
-		return nil, fmt.Errorf("tools/list: %w", err)
-	}
-	for i := range tools {
-		if tools[i].Name == toolName {
-			return &tools[i], nil
+	ctx, cancel := callCtx()
+	defer cancel()
+	var names []string
+	for tool, err := range w.tlMCP.Tools(ctx, nil) {
+		if err != nil {
+			return nil, fmt.Errorf("tools/list: %w", err)
 		}
-	}
-	names := make([]string, len(tools))
-	for i, t := range tools {
-		names[i] = t.Name
+		if tool.Name == toolName {
+			return tool, nil
+		}
+		names = append(names, tool.Name)
 	}
 	return nil, fmt.Errorf("tool %q not found; available: %v", toolName, names)
 }

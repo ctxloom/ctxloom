@@ -21,14 +21,14 @@ import (
 type World struct {
 	env   *testenv.TestEnvironment // isolated home+project, CLI exec, file asserts
 	mock  *testenv.MockLM          // deterministic LLM backend (set by fixtures)
-	mcp   *testenv.MCPClient       // mock agent: JSON-RPC stdio client (lazy)
-	tlMCP *testenv.MCPClient       // J002500: taskloom's own MCP server (see steps_j002500_taskloom.go), eager (started explicitly, not lazily)
+	mcp   *testenv.MCPSession      // mock agent: SDK client session to `ctxloom mcp` (lazy)
+	tlMCP *testenv.MCPSession      // J002500: taskloom's own MCP server (see steps_j002500_taskloom.go), eager (started explicitly, not lazily)
 
-	lastTool     testenv.ToolResult // last tools/call envelope
-	lastInner    map[string]any     // unwrapped inner result of lastTool
-	lastInnerErr error              // error from lastTool.Inner(), if the envelope could not be unwrapped
-	lastRes      string             // last resources/read text
-	lastMime     string             // last resources/read MIME type
+	lastTool     toolOutcome    // last tools/call outcome (see steps_mcp.go)
+	lastInner    map[string]any // unwrapped inner result of lastTool
+	lastInnerErr error          // error from lastTool.Inner(), if the result could not be unwrapped
+	lastRes      string         // last resources/read text
+	lastMime     string         // last resources/read MIME type
 
 	remoteBare map[string]string // seeded remote name -> bare repo dir (for advancing)
 
@@ -107,22 +107,18 @@ func worldFrom(ctx context.Context) *World {
 	return w
 }
 
-// agent returns the mock-agent MCP client, starting and initializing it on first
-// use so scenarios that never touch the agent pay nothing.
-func (w *World) agent() (*testenv.MCPClient, error) {
+// agent returns the mock-agent MCP session, starting it (handshake included)
+// on first use so scenarios that never touch the agent pay nothing.
+func (w *World) agent() (*testenv.MCPSession, error) {
 	if w.mcp != nil {
 		return w.mcp, nil
 	}
-	c, err := w.env.StartMCP()
+	s, err := w.env.StartMCP()
 	if err != nil {
 		return nil, err
 	}
-	if err := c.Initialize(); err != nil {
-		_ = c.Close()
-		return nil, err
-	}
-	w.mcp = c
-	return c, nil
+	w.mcp = s
+	return s, nil
 }
 
 // InitializeScenario wires the lifecycle hooks and registers every step. godog

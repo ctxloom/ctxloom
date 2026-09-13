@@ -94,13 +94,13 @@ func writeCreds(t *testing.T, home string, withDotClaude bool) {
 // axes, which copy an access-token-ONLY credential precisely because a copy
 // that refreshes WOULD rotate the host's single-use token). This used to assert
 // a SECOND mount carrying ~/.claude.json — removed along with that mount (see
-// claudeCredentialMounts' doc): it leaked the host user's own mcpServers
+// claudeCredentialMountsAt' doc): it leaked the host user's own mcpServers
 // registrations into every isolated agent, for mere onboarding convenience
 // .credentials.json alone doesn't need.
-func TestClaudeCredentialMounts_PresentAndAbsent(t *testing.T) {
+func TestClaudeCredentialMountsAt_PresentAndAbsent(t *testing.T) {
 	home := withFakeHome(t)
 
-	_, ok := claudeCredentialMounts("/root")
+	_, ok := claudeCredentialMountsAt("/root/.claude")
 	assert.False(t, ok, "no ~/.claude/.credentials.json → cannot credential-mount")
 
 	realCreds := filepath.Join(home, ".claude", ".credentials.json")
@@ -108,7 +108,7 @@ func TestClaudeCredentialMounts_PresentAndAbsent(t *testing.T) {
 	require.NoError(t, os.WriteFile(realCreds,
 		[]byte(`{"claudeAiOauth":{"accessToken":"at","refreshToken":"single-use-rotating-rt"}}`), 0o600))
 
-	mounts, ok := claudeCredentialMounts("/root")
+	mounts, ok := claudeCredentialMountsAt("/root/.claude")
 	require.True(t, ok)
 	require.Len(t, mounts, 1, "only the OAuth token file is ever mounted — never ~/.claude.json (tangy-heave)")
 	assert.Equal(t, "/root/.claude/.credentials.json", mounts[0].Container)
@@ -127,7 +127,7 @@ func TestClaudeCredentialMounts_PresentAndAbsent(t *testing.T) {
 func TestClaudeCredentialMounts_OmitsDotClaudeEvenWhenPresent(t *testing.T) {
 	home := withFakeHome(t)
 	writeCreds(t, home, true) // withDotClaude=true: ~/.claude.json DOES exist on the host
-	mounts, ok := claudeCredentialMounts("/root")
+	mounts, ok := claudeCredentialMountsAt("/root/.claude")
 	require.True(t, ok)
 	require.Len(t, mounts, 1, "~/.claude.json must never be mounted, present or not")
 	assert.Equal(t, filepath.Join(home, ".claude", ".credentials.json"), mounts[0].Host, "the REAL credential, no copy")
@@ -446,7 +446,7 @@ const realisticDotClaudeJSON = `{
 }`
 
 // TestClaudeCredentialMounts_NeverLeaksPersonalMCPConfig is the container-path
-// regression test: claudeCredentialMounts must not carry the user's own
+// regression test: claudeCredentialMountsAt must not carry the user's own
 // mcpServers registrations (or any other non-auth state) into an isolated
 // agent's mounted config — an isolated agent seeing the host user's personal
 // Spotify/Gmail/etc. integrations (and their embedded tokens) is a
@@ -460,7 +460,7 @@ func TestClaudeCredentialMounts_NeverLeaksPersonalMCPConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), []byte(realisticDotClaudeJSON), 0o600))
 
-	mounts, ok := claudeCredentialMounts("/root")
+	mounts, ok := claudeCredentialMountsAt("/root/.claude")
 	require.True(t, ok)
 	for _, m := range mounts {
 		data, err := os.ReadFile(m.Host)
@@ -597,7 +597,7 @@ func TestClaudeCredentialMounts_AbsentCredentialStaysSilent(t *testing.T) {
 	withFakeHome(t) // no ~/.claude/.credentials.json written
 
 	done := captureStderr(t)
-	_, ok := claudeCredentialMounts("/home/ctxloom")
+	_, ok := claudeCredentialMountsAt("/home/ctxloom/.claude")
 	stderr := done()
 
 	assert.False(t, ok)

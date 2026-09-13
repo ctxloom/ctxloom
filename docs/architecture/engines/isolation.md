@@ -234,7 +234,7 @@ down to *set* variables only — **names only cross the boundary**.
 
 | Engine | Env trigger | Mount | Site |
 |---|---|---|---|
-| claude | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | bind-mounts the **real** `~/.claude/.credentials.json` **RW** — no copy — so claude's single-use token refresh lands in the one real file (see [Single-use refresh tokens](#single-use-refresh-tokens-why-the-three-axes-differ) below) | `resolveClaudeContainerAuth` / `claudeCredentialMounts`. `~/.claude.json` is deliberately never mounted |
+| claude | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | bind-mounts the **real** `~/.claude/.credentials.json` **RW** — no copy — so claude's single-use token refresh lands in the one real file (see [Single-use refresh tokens](#single-use-refresh-tokens-why-the-three-axes-differ) below) | `resolveClaudeContainerAuth` / `claudeCredentialMountsAt`. `~/.claude.json` is deliberately never mounted |
 | mock | none needed | none | `resolveMockContainerAuth` — the one resolver that never returns `ok=false`: mock authenticates against no vendor |
 | **unmapped/empty backend** | — | — | `noContainerAuth` — **fails closed**; the containerized run aborts at `PrepareWorkspace`'s auth gate rather than inheriting any other engine's credentials |
 
@@ -274,7 +274,7 @@ all handle the credential the same way.
 - **A container's own fresh `$HOME`** (the home a container run keeps when it
   has no controlled home) does the **opposite**: it bind-mounts the
   **real** `~/.claude/.credentials.json` **read-write**, with **no copy**
-  (`claudeCredentialMounts`). The container's refresh lands in the one real
+  (`claudeCredentialMountsAt`). The container's refresh lands in the one real
   file — the single source of truth the host also holds — so host and container
   share the same rotating token and nothing ever desyncs. A container therefore
   **keeps refresh** (no re-launch at expiry), the reverse of the two host axes'

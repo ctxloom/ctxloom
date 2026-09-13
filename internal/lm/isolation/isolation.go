@@ -327,17 +327,45 @@ func RuntimeAdvice(ws Workspace) present.PathsAdvice {
 	return present.Host{}
 }
 
-// MountEngineHome records the bind mount a resolved engine home needs inside
+// MountEngineHome records the bind mounts a resolved engine home needs inside
 // a container workspace, so the launch that follows binds Root.Host at
 // Root.Engine. It is an error on a workspace that executes on the host: such
 // a workspace's RuntimeAdvice is the identity and never yields a mount, so
 // reaching here with one means the advice and the workspace disagree.
+//
+// TWO mounts, not one, when the run authenticates by credential mount. The
+// directory mount hands the engine its relocated home — and the copy seeded
+// into it, which is ACCESS-TOKEN-ONLY by design (a copy that could refresh
+// would rotate the host's single-use token). Once its home var relocates, the
+// engine no longer reads the real credential bind-mounted into the
+// container's own $HOME, so on that copy alone a long run dies at expiry.
+// RULED: the engine's real host credential FILE is bind-mounted read-write
+// OVER the seeded copy, at the engine-side home, so the container's refresh
+// lands in the one real file exactly as it does for an unrelocated home. The
+// file only — the confidentiality line the seed draws (never ~/.claude.json)
+// is drawn here too, by the engine's relocatedCredentialMounts. Auth that
+// rides the environment needs no file and gets none; an engine with no
+// relocatable credential has nothing to overlay.
+//
+// The real file vanishing between auth resolution and this call must not turn
+// a working run into a broken one: the home still mounts, the run
+// authenticates from the seeded copy, and the lost refresh is said out loud
+// instead of discovered at expiry.
 func MountEngineHome(ws Workspace, m present.Mount) error {
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
 		return fmt.Errorf("engine home mount %s -> %s: workspace %T executes on the host and cannot mount", m.HostDir, m.TargetDir, ws)
 	}
 	cw.extraMounts = append(cw.extraMounts, cw.runtime.Expose(m.HostDir, m.TargetDir, false))
+	if cw.authMode != authCredentialMount || cw.engineSpec.relocatedCredentialMounts == nil {
+		return nil
+	}
+	creds, ok := cw.engineSpec.relocatedCredentialMounts(m.TargetDir)
+	if !ok {
+		clidiag.Warn("ctxloom", "container engine home %s: the host credential file (.credentials.json) resolved at launch is no longer there to mount over the seeded copy; this run authenticates from the copy and cannot refresh its token in place", m.TargetDir)
+		return nil
+	}
+	cw.extraMounts = append(cw.extraMounts, creds...)
 	return nil
 }
 

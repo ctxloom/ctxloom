@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"golang.org/x/crypto/ssh"
 	"os"
 	"os/exec"
@@ -695,6 +696,33 @@ func (e *TestEnvironment) AddGitWorktree(name string) (string, error) {
 		return "", fmt.Errorf("git worktree add %q failed: %s: %w", name, output, err)
 	}
 	return dir, nil
+}
+
+// sessionEnvKeys are the ambient session / forge variables scrubbed before any
+// child binary is spawned, so a test never inherits the host session's project
+// id, harp, or tokens and resolves its home-rooted stores against our fake
+// home instead. Sourced from the canonical testsupport key list so there is
+// one definition of "ambient state to isolate from".
+var sessionEnvKeys = func() map[string]bool {
+	m := make(map[string]bool, len(testsupport.EnvKeys))
+	for _, k := range testsupport.EnvKeys {
+		m[k] = true
+	}
+	return m
+}()
+
+// scrubSessionEnv returns env with the ambient session variables removed,
+// without mutating the input slice.
+func scrubSessionEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		if sessionEnvKeys[key] {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // isolatedEnv returns environment variables with home directory properly

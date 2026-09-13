@@ -22,7 +22,7 @@ import "syscall"
 // no-op). It does not, by itself, protect against the spawned ctxloom
 // process being killed directly (its own parent — this test binary —
 // staying alive): that gap is covered by the pid-precise defense-in-depth
-// reap in ptyrun.go's PTYSession.Close and mcpclient.go's MCPClient.Close,
+// reap in ptyrun.go's PTYSession.Close and mcpsession.go's MCPSession.Close,
 // the two places this harness deliberately hard-kills its own child.
 func pdeathsigSysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}

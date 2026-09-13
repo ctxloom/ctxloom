@@ -147,13 +147,11 @@ func (e *TestEnvironment) RunTaskloomIn(dir string, extraEnv []string, args ...s
 // StartTaskloomMCP spawns `taskloom mcp` in e's project directory with the
 // same isolated environment StartMCP uses for `ctxloom mcp`, so the
 // agent-instruction-surface journey observes the SAME session-scrubbed home
-// as every other MCP-facing scenario. Reuses startMCPProcess (mcpclient.go)
-// rather than re-implementing the stdio JSON-RPC process/reader plumbing —
-// additive: StartMCP's signature and behavior are untouched.
-func (e *TestEnvironment) StartTaskloomMCP(extraEnv ...string) (*MCPClient, error) {
+// as every other MCP-facing scenario, through the same connectMCP plumbing.
+func (e *TestEnvironment) StartTaskloomMCP(extraEnv ...string) (*MCPSession, error) {
 	bin, err := TaskloomBinary()
 	if err != nil {
 		return nil, err
 	}
-	return startMCPProcess(bin, []string{"mcp"}, e.ProjectDir, e.isolatedEnv(), extraEnv...)
+	return connectMCP(bin, []string{"mcp"}, e.ProjectDir, e.isolatedEnv(), extraEnv...)
 }

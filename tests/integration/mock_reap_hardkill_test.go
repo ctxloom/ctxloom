@@ -44,7 +44,7 @@ const hardKillSentinel = "hardkill-sentinel"
 // now an orphan") and then prove testenv.KillPids could collect it. That
 // premise is now false by construction, which is the point: the harness reap
 // (testenv.PluginChildrenOf + testenv.KillPids, still wired into
-// PTYSession.Close and MCPClient.Close and still exercised by this test's own
+// PTYSession.Close and MCPSession.Close and still exercised by this test's own
 // t.Cleanup(sess.Close)) was a harness-side workaround for a product-side
 // leak, and could only ever protect processes this harness itself spawned.
 // Nothing protected `ctxloom run` in a developer's terminal — a real source

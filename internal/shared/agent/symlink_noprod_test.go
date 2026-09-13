@@ -4,11 +4,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // repoRootFromSource resolves the repository root from THIS test file's
@@ -17,10 +18,8 @@ import (
 // TestMain sandboxes the binary into a temp dir.
 func repoRootFromSource(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller must resolve this test's source path")
-	// <root>/internal/shared/agent/symlink_noprod_test.go
-	root := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
+	root, err := sourcedir.RepoRoot()
+	require.NoError(t, err, "must resolve the module root")
 	// Assert the fixture is what it claims to be before asserting anything
 	// about it: a scan root that is not the repo root proves nothing.
 	require.FileExists(t, filepath.Join(root, "go.mod"), "scan root must be the repo root")

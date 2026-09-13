@@ -5,11 +5,12 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // pkgSourceFile parses one of this package's own .go files, located from the
@@ -19,11 +20,11 @@ import (
 // instead of failing.
 func pkgSourceFile(t *testing.T, name string) (*token.FileSet, *ast.File) {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller could not resolve this test's own source path")
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err, "could not resolve this package's source directory")
 
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, filepath.Join(filepath.Dir(thisFile), name), nil, parser.ParseComments)
+	f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.ParseComments)
 	require.NoError(t, err)
 	require.NotEmpty(t, f.Decls, "parsed %s but found no declarations — the scan is looking at the wrong file", name)
 	return fset, f

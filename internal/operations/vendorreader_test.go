@@ -19,18 +19,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
-// thisDir is this test file's own source directory, resolved via
-// runtime.Caller rather than a relative literal: this package's TestMain
+// thisDir is this package's own source directory, taken from where the test
+// binary STARTED rather than from a relative literal: this package's TestMain
 // (main_test.go) chdirs the whole test run into a throwaway sandbox dir
 // (isolation from the package source dir as a working dir), so a
 // cwd-relative fixture path would silently resolve to nothing there —
 // mirrors each reader package's own test suite's repoRoot helper.
-func thisDir() string {
-	_, file, _, _ := runtime.Caller(0)
-	return filepath.Dir(file)
-}
+func thisDir() string { return sourcedir.MustDir() }
 
 // claudeFixturePath, claudeFixturePath resolve to the
 // REAL vendor-native fixture files each reader package's own test suite

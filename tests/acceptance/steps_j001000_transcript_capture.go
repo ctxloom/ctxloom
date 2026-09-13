@@ -29,6 +29,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	mockreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/mock"
 )
@@ -65,18 +66,12 @@ var j001000FixtureFile = map[string]string{
 	"claude": filepath.Join("internal", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl"),
 }
 
-// j001000RepoRoot resolves the repo root relative to THIS source file via
-// runtime.Caller — steps_j001800_guardrails.go's j001800LtkLoadoutYAML precedent —
-// so the shipped-fixture paths never drift from wherever the repo happens
-// to be checked out (never assume the test binary's cwd).
-func j001000RepoRoot() (string, error) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		return "", fmt.Errorf("resolve this source file's own path")
-	}
-	// tests/acceptance/steps_j001000_transcript_capture.go -> repo root
-	return filepath.Join(filepath.Dir(thisFile), "..", ".."), nil
-}
+// j001000RepoRoot resolves the repo root by walking up from where the test
+// binary STARTED — steps_j001800_guardrails.go's j001800LtkLoadoutYAML
+// precedent — so the shipped-fixture paths never drift from wherever the repo
+// happens to be checked out (never assume the test binary's current cwd,
+// which godog steps routinely move).
+func j001000RepoRoot() (string, error) { return sourcedir.RepoRoot() }
 
 func j001000FixturePath(engineKey string) (string, error) {
 	rel, ok := j001000FixtureFile[engineKey]
@@ -130,11 +125,10 @@ func j001000SeededEngineVersion(backend string) string {
 // the tested-version lock. Returns "" when the key is absent, which seeds a
 // session with no version and therefore a refusal — loud, and never a guess.
 func enginePinFromLock(key string) string {
-	_, self, _, ok := runtime.Caller(0)
-	if !ok {
+	repoRoot, err := sourcedir.RepoRoot()
+	if err != nil {
 		return ""
 	}
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(self)))
 	raw, err := os.ReadFile(filepath.Join(repoRoot, ".github", "engine-versions.env"))
 	if err != nil {
 		return ""

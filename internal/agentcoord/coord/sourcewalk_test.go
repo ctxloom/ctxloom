@@ -7,7 +7,6 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +14,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // packageDir is this package's source directory, located from the test file
@@ -24,9 +25,9 @@ import (
 // the one locator.
 func packageDir(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller must locate this test file")
-	return filepath.Dir(file)
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err, "locate this package's source directory")
+	return dir
 }
 
 // referencingFiles returns the files in dir that MENTION sym somewhere other

@@ -11,13 +11,13 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -388,9 +388,8 @@ func TestArch_ProtoConverters_EveryPairIsSwept(t *testing.T) {
 	fset := token.NewFileSet()
 	// Located from this file, not the working directory: SandboxedMain moves
 	// the cwd to a throwaway root before any test runs.
-	_, self, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller must locate this test file")
-	pkgDir := filepath.Dir(self)
+	pkgDir, err := sourcedir.Dir()
+	require.NoError(t, err, "locate this package's source directory")
 	entries, err := os.ReadDir(pkgDir)
 	require.NoError(t, err, "read this package's own directory")
 

@@ -3,10 +3,10 @@ package claude
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,9 +17,9 @@ import (
 // there — and fails as a missing FILE, which reads like a broken fixture.
 func fixture(t *testing.T, name string) []byte {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller failed")
-	b, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "testdata", "streamjson", name))
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err)
+	b, err := os.ReadFile(filepath.Join(dir, "testdata", "streamjson", name))
 	require.NoError(t, err)
 	return b
 }

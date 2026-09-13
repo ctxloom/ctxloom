@@ -22,8 +22,6 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -35,6 +33,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 const (
@@ -215,9 +214,7 @@ func crossBoundaryFixtureRoot(t *testing.T) string {
 	if info, err := os.Stat(varTmp); err == nil && info.IsDir() {
 		return varTmp
 	}
-	_, file, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller must locate this test file")
-	root, err := filepath.Abs(filepath.Join(filepath.Dir(file), "..", "..", "..", ".."))
-	require.NoError(t, err)
+	root, err := sourcedir.RepoRoot()
+	require.NoError(t, err, "locate the module root")
 	return root
 }

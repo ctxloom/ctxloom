@@ -9,11 +9,12 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // The FLAG-LEVEL completeness gate, the sibling of
@@ -464,13 +465,9 @@ func literalFlagName(c *ast.CallExpr) (string, bool) {
 // the module is checked out.
 func cliSourceDir(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatalf("runtime.Caller could not locate this test file, so the census has no tree to read")
-	}
-	root, err := moduleRootFrom(filepath.Dir(thisFile))
+	root, err := sourcedir.RepoRoot()
 	if err != nil {
-		t.Fatalf("locate the module root from %s: %v", thisFile, err)
+		t.Fatalf("could not locate the module root, so the census has no tree to read: %v", err)
 	}
 	dir := filepath.Join(root, "internal", "cli")
 	if _, err := os.Stat(dir); err != nil {

@@ -26,12 +26,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 const (
@@ -95,7 +95,7 @@ func untaggedDeps(t *testing.T, pkg string) []string {
 // taken in some other tree (or a temp dir) and come back empty.
 func moduleRoot(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	require.True(t, ok, "cannot resolve this test's own source path")
-	return filepath.Join(filepath.Dir(file), "..", "..")
+	root, err := sourcedir.RepoRoot()
+	require.NoError(t, err, "cannot resolve the module root")
+	return root
 }

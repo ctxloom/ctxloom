@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // pkgSource returns this package's own source text, located from the
@@ -19,9 +20,9 @@ import (
 // of failing.
 func pkgSource(t *testing.T, name string) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller could not resolve this test's own source path")
-	b, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), name))
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err, "could not resolve this package's source directory")
+	b, err := os.ReadFile(filepath.Join(dir, name))
 	require.NoError(t, err)
 	require.NotEmpty(t, b, "read an empty %s — the scan is looking at the wrong file", name)
 	return string(b)

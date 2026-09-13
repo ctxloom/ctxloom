@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -21,6 +20,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
@@ -37,9 +37,9 @@ func TestMain(m *testing.M) { os.Exit(testsupport.SandboxedMain(m)) }
 // reads exactly like a genuine conversion failure. Anchor it instead.
 func fixturePath(t *testing.T, name string) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller failed")
-	return filepath.Join(filepath.Dir(thisFile), "testdata", name)
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err)
+	return filepath.Join(dir, "testdata", name)
 }
 
 // runConvert converts testdata/<fixture> into a fresh, isolated Recorder and

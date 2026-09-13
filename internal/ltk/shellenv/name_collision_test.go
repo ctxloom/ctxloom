@@ -4,13 +4,12 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 const (
@@ -104,22 +103,14 @@ func TestNoFileImportsBothShellenvPackages(t *testing.T) {
 	}
 }
 
-// moduleRoot locates the module root from this file's COMPILED-IN path, not
-// the working directory, for the reason the scan-size assertion above states.
+// moduleRoot locates the module root from where the test binary STARTED, not
+// from the current working directory, for the reason the scan-size assertion
+// above states.
 func moduleRoot(t *testing.T) string {
 	t.Helper()
-	_, self, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate this test's own source file")
+	root, err := sourcedir.RepoRoot()
+	if err != nil {
+		t.Fatal(err)
 	}
-	for dir := filepath.Dir(self); ; {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("no go.mod above %s", filepath.Dir(self))
-		}
-		dir = parent
-	}
+	return root
 }

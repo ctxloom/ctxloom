@@ -16,7 +16,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,6 +23,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // gitEnv makes the test's git invocations — and, through
@@ -342,9 +343,9 @@ func TestGitPublisher_ContainsNoSSHOrHostKeyCode(t *testing.T) {
 	// Resolved from this test's COMPILED-IN source path, never the working
 	// directory: this package's TestMain chdirs into a temp dir, so a relative
 	// read would find nothing — and a scan that finds nothing passes.
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "could not locate this test's own source file")
-	body, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "git_publisher.go"))
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err, "could not locate this package's source directory")
+	body, err := os.ReadFile(filepath.Join(dir, "git_publisher.go"))
 	require.NoError(t, err)
 	require.NotEmpty(t, body, "the scan read an empty file; it is not scanning what it thinks")
 

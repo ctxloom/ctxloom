@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 )
 
@@ -61,9 +61,8 @@ func registerReaderFixture(t *testing.T, a vendorreader.VendorAdapter) string {
 // against whichever one ran last.
 func enginePins(t *testing.T) map[string]string {
 	t.Helper()
-	_, self, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(self)))
+	repoRoot, err := sourcedir.RepoRoot()
+	require.NoError(t, err)
 	raw, err := os.ReadFile(filepath.Join(repoRoot, ".github", "engine-versions.env"))
 	require.NoError(t, err)
 	out := map[string]string{}

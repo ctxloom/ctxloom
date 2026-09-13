@@ -7,7 +7,6 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 func TestResolve(t *testing.T) {
@@ -215,9 +215,9 @@ func TestFromEnv_RepeatedInvalidRootWarnsOnce(t *testing.T) {
 // never depend on where the test binary happens to run.
 func pkgSourceDir(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller could not resolve this test's own source path")
-	return filepath.Dir(file)
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err, "could not resolve this package's source directory")
+	return dir
 }
 
 // TestPackageDocNamesEveryExportedSurface pins the invariant the package doc

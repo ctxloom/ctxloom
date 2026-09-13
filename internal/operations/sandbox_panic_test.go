@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // TestPanicGuard exists only to be run as a subprocess by
@@ -35,9 +36,9 @@ func TestPanicGuard(t *testing.T) {
 // run, so os.Getwd() cannot be used to find where `go test` must be invoked.
 func pkgDir(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller must resolve this file's path")
-	return filepath.Dir(thisFile)
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err, "must resolve this package's source directory")
+	return dir
 }
 
 // freshSandboxEnv is the environment for a child that must mint its OWN

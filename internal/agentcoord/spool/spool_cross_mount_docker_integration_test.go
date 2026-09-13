@@ -47,6 +47,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 const (
@@ -195,10 +196,8 @@ func buildProbe(t *testing.T, out string) {
 // repoRoot locates the module root from this file's own path.
 func repoRoot(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller must locate this test file")
-	root, err := filepath.Abs(filepath.Join(filepath.Dir(file), "..", "..", ".."))
-	require.NoError(t, err)
+	root, err := sourcedir.RepoRoot()
+	require.NoError(t, err, "locate the module root")
 	require.FileExists(t, filepath.Join(root, "go.mod"), "derived repo root must contain go.mod")
 	return root
 }

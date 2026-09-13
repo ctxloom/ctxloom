@@ -3,11 +3,12 @@ package git
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // Every git child process this layer spawns must take its environment from
@@ -25,9 +26,8 @@ func TestGitSpawns_TakeASanitizedEnvironment(t *testing.T) {
 	// Resolved from this test's compiled-in source path: a scan rooted at the
 	// working directory finds nothing as soon as anything moves the cwd, and a
 	// scan that finds nothing passes without ever looking at the code.
-	_, thisFile, ok := callerFile()
-	require.True(t, ok, "could not locate this test's own source file")
-	pkgDir := filepath.Dir(thisFile)
+	pkgDir, err := sourcedir.Dir()
+	require.NoError(t, err, "could not locate this package's source directory")
 
 	entries, err := os.ReadDir(pkgDir)
 	require.NoError(t, err)
@@ -60,9 +60,4 @@ func TestGitSpawns_TakeASanitizedEnvironment(t *testing.T) {
 	// and found the spawn site it exists to guard.
 	require.NotZero(t, scanned, "the scan read no source files; it is not scanning what it thinks")
 	require.NotZero(t, spawns, "the scan found no exec.Command site; it is not scanning what it thinks")
-}
-
-func callerFile() (uintptr, string, bool) {
-	pc, file, _, ok := runtime.Caller(1)
-	return pc, file, ok
 }

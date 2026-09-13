@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -15,14 +14,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // claudeVendorFixture is the real claude-code transcript the vendorreader
 // package's own suite exercises, reused rather than hand-rolled so a conversion
 // that only works on a synthetic stub cannot pass here.
 func claudeVendorFixture() string {
-	_, file, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(file), "..", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
+	return sourcedir.RepoPath("internal", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
 }
 
 // TestLoadOrDistillSession_ConvertsVendorTranscriptOnDemand is the claim the

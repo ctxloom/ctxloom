@@ -65,6 +65,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -96,16 +97,15 @@ const (
 // j001800LtkLoadoutYAML reads ltk's REAL, committed loadout bundle
 // (cmd/ltk/loadout.yaml — "the single source of truth for what ltk tells
 // ctxloom about itself", per cmd/ltk/loadout.go's own doc comment) relative
-// to THIS source file via runtime.Caller, so the fake companion's content is
-// never a hand-typed duplicate that could silently drift from what the real
-// ltk binary ships.
+// to the module root, found by walking up from where the test binary STARTED,
+// so the fake companion's content is never a hand-typed duplicate that could
+// silently drift from what the real ltk binary ships.
 func j001800LtkLoadoutYAML() (string, error) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		return "", fmt.Errorf("resolve this source file's own path")
+	root, err := sourcedir.RepoRoot()
+	if err != nil {
+		return "", fmt.Errorf("resolve the module root: %w", err)
 	}
-	// tests/acceptance/steps_j001800_guardrails.go -> repo root -> cmd/ltk/loadout.yaml
-	path := filepath.Join(filepath.Dir(thisFile), "..", "..", "cmd", "ltk", "loadout.yaml")
+	path := filepath.Join(root, "cmd", "ltk", "loadout.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read ltk's real loadout.yaml (%s): %w", path, err)

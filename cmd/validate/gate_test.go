@@ -3,11 +3,12 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // The pre-build schema gate validated ZERO files in CI, on
@@ -90,17 +91,11 @@ func TestDefaultTargets_CoversTheTrackedDocuments(t *testing.T) {
 // throwaway sandbox cwd, so a relative "../../resources/..." resolves to
 // nothing there — and fails as a missing FILE, which reads exactly like a
 // document that does not validate.
-func packageDir() string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller: cannot locate this source file")
-	}
-	return filepath.Dir(thisFile)
-}
+func packageDir() string { return sourcedir.MustDir() }
 
 // repoRoot resolves the ctxloom module root from this package's location
 // (cmd/validate/) so the gate can reach the tracked documents it validates.
-func repoRoot() string { return filepath.Join(packageDir(), "..", "..") }
+func repoRoot() string { return sourcedir.MustRepoRoot() }
 
 // TestTrackedDocumentsValidate runs the real gate over the repo's real
 // documents, anchored at this test file rather than the cwd — the check

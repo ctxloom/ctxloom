@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // TestIsolate_ClearsVarsBeyondTheOriginalThree pins the fix: this package's
@@ -167,15 +169,14 @@ func TestRestoreDir_SilentOnSuccess(t *testing.T) {
 // falls below the number the prose states, either the prose is stale or the
 // package really has narrowed, and both deserve a look.
 //
-// The scan root comes from runtime.Caller, NOT the working directory. A
-// source-scanning gate rooted at "." walks whatever temp directory the binary
-// happens to be in, finds nothing, and passes — a gate that evaporates rather
-// than fails. This is the same idiom internal/cli's pkgSourceDir documents.
+// The scan root comes from where the test binary STARTED, NOT the current
+// working directory. A source-scanning gate rooted at "." walks whatever temp
+// directory the binary happens to be in, finds nothing, and passes — a gate
+// that evaporates rather than fails. This is the same idiom internal/cli's
+// pkgSourceDir documents.
 func TestPackageDoc_GeneralPurposeClaimHolds(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller: cannot locate this source file")
-	// internal/shared/tasks/taskstest -> repo root
-	repo := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))))
+	repo, rootErr := sourcedir.RepoRoot()
+	require.NoError(t, rootErr, "cannot locate the module root")
 	require.FileExists(t, filepath.Join(repo, "go.mod"),
 		"the scan root must be the repo, or this test measures nothing")
 

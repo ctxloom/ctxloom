@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // statCountingFs counts Stat calls per suffix: the walk measured here is driven
@@ -97,15 +98,15 @@ func TestFindAppDir_WorktreeProbePerAncestor(t *testing.T) {
 // its own afero.NewOsFs() and offers no injection point; that missing seam is
 // itself part of what an eventual fix would have to add.
 //
-// The source path comes from runtime.Caller, never the cwd: several tests in
-// this package chdir, and a source-scanning assertion rooted at "." would read
-// nothing, match nothing and still exit 0 — a gate that evaporates instead of
-// failing.
+// The source path comes from where the test binary STARTED, never the current
+// cwd: several tests in this package chdir, and a source-scanning assertion
+// rooted at "." would read nothing, match nothing and still exit 0 — a gate
+// that evaporates instead of failing.
 func TestAmbientStampReWalks(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller could not resolve this test's own source path")
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err, "could not resolve this package's source directory")
 
-	src, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "config.go"))
+	src, err := os.ReadFile(filepath.Join(dir, "config.go"))
 	require.NoError(t, err)
 	body := string(src)
 

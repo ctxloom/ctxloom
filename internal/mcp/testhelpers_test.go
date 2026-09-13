@@ -4,14 +4,13 @@ import (
 	"bytes"
 	"io"
 	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // Diagnostic-capture and strict-state helpers for this package's tests.
@@ -69,9 +68,9 @@ func resetStrictness(t *testing.T) {
 // clean sweep).
 func pkgSourceDir(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller: cannot locate this source file")
+	dir, err := sourcedir.Dir()
+	if err != nil {
+		t.Fatal(err)
 	}
-	return filepath.Dir(file)
+	return dir
 }

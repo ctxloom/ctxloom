@@ -77,6 +77,8 @@ import (
 	"testing"
 
 	"github.com/gtramontina/ooze"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // mutationTarget pairs ONE source file with the acceptance feature files
@@ -373,11 +375,10 @@ const minIgnoredFiles = 400
 // <root>/tests/mutation/trust_cascade_mutation_test.go.
 func repoRoot(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("could not determine this file's path via runtime.Caller")
+	root, err := sourcedir.RepoRoot()
+	if err != nil {
+		t.Fatalf("could not determine the module root: %v", err)
 	}
-	root := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
 		t.Fatalf("computed repo root %q does not contain go.mod: %v", root, err)
 	}

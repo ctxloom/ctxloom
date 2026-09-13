@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // Probe-mode environment for the container side of the docker-gated
@@ -108,13 +108,7 @@ func sourceTreeLeaks(dir string) []string {
 // packageSourceDir returns this package's source directory, derived from the
 // compiled-in file path so it is correct no matter what the working directory
 // is when it is called.
-func packageSourceDir() string {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return ""
-	}
-	return filepath.Dir(file)
-}
+func packageSourceDir() string { return sourcedir.MustDir() }
 
 // crossMountFixtureRoot returns the parent directory for the docker-gated
 // test's fixture home.

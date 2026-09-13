@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // failOpenFs wraps an afero.Fs and fails Open/OpenFile for one path with a
@@ -123,9 +123,9 @@ func TestWarningKind_EveryKindIsFatalClassWithAFixIt(t *testing.T) {
 // than the working directory: a cwd-relative scan silently finds nothing when
 // something moves the cwd, and a gate that finds nothing passes.
 func TestWarningKind_DocStatesTheInvariantWithoutHandCountingKinds(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "cannot resolve this test's own source path")
-	src, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "warnings.go"))
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err, "cannot resolve this package's source directory")
+	src, err := os.ReadFile(filepath.Join(dir, "warnings.go"))
 	require.NoError(t, err)
 
 	_, after, found := strings.Cut(string(src), "// WarningKind classifies")

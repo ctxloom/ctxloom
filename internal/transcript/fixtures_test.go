@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -13,6 +12,8 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // packageDir is this package's source directory, located from this test
@@ -21,13 +22,7 @@ import (
 // nothing there — and fails as a missing FILE, which reads exactly like a
 // genuine parse failure. It takes no *testing.T because the fixture roster
 // is discovered at package init, before any test runs.
-func packageDir() string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller: cannot locate this source file")
-	}
-	return filepath.Dir(thisFile)
-}
+func packageDir() string { return sourcedir.MustDir() }
 
 // repoRoot resolves the ctxloom module root from this package's location
 // (internal/transcript/) so the fixture tests can reach docs/ without an

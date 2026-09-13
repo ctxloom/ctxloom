@@ -3,12 +3,13 @@ package gitutil
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // The package doc now makes two claims a reader will act on. Both are pinned
@@ -57,9 +58,9 @@ func TestGitutil_SpawnsNoSubprocesses(t *testing.T) {
 	// Resolved from this test's COMPILED-IN source path, not the cwd: a scan
 	// rooted at "." finds nothing the moment anything moves the working
 	// directory, and a gate that finds nothing passes.
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "could not locate this test's own source file")
-	src, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "gitutil.go"))
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err, "could not locate this package's source directory")
+	src, err := os.ReadFile(filepath.Join(dir, "gitutil.go"))
 	require.NoError(t, err)
 	require.NotEmpty(t, src, "the scan found an empty file; it is not scanning what it thinks")
 	body := string(src)

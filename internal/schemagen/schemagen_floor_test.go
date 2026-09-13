@@ -7,9 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // Generate with zero targets used to succeed silently — MkdirAll succeeded,
@@ -229,11 +230,11 @@ func TestGenerate_UnderivableNameIsRefused(t *testing.T) {
 // nothing (which would read as a clean pass).
 func pkgSourceDir(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot resolve this test's own source path")
+	dir, err := sourcedir.Dir()
+	if err != nil {
+		t.Fatal(err)
 	}
-	return filepath.Dir(file)
+	return dir
 }
 
 // TestIDBase_MatchesTheHandMaintainedInputSchemas pins the invariant idBase's

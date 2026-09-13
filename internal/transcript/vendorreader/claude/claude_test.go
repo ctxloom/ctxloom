@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +27,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
@@ -40,9 +40,9 @@ const fixtureHarp = "claude-fixture-harp"
 // genuine conversion failure.
 func packageDir(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller failed")
-	return filepath.Dir(thisFile)
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err)
+	return dir
 }
 
 // repoRoot resolves the module root from this package's location
@@ -50,7 +50,9 @@ func packageDir(t *testing.T) string {
 // reach docs/transcript.schema.json without an embedded copy going stale.
 func repoRoot(t *testing.T) string {
 	t.Helper()
-	return filepath.Join(packageDir(t), "..", "..", "..", "..")
+	root, err := sourcedir.RepoRoot()
+	require.NoError(t, err)
+	return root
 }
 
 // fixturePath is testdata/<name>, anchored at packageDir.

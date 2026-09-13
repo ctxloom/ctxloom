@@ -49,6 +49,28 @@ func ownerLabelArgs() []string {
 	}
 }
 
+// initArgs asks the container runtime to put a real init at PID 1.
+//
+// Without it the image entrypoint's `exec "$@"` REPLACES the entrypoint, so the
+// engine itself becomes PID 1 — and PID 1 must reap orphans. `ctxloom llm host`
+// does not, so a delegated runner reparented to it becomes a permanent zombie.
+// That is not merely untidy: a zombie keeps its process-table entry, so
+// pidalive.Probe (which classifies with signal 0) reads it as ALIVE, its stale
+// discovery marker is never reaped, and the next `ctxloom mcp` in that cell
+// REFUSES TO START rather than risk becoming a rogue second coordinator.
+// Measured: 13 zombies accumulated in one agent session, and it cost two
+// acceptance scenarios that are green wherever PID 1 is a real init.
+//
+// Rendered once here rather than at each runtime's RunArgs, because a rule
+// hand-copied into two run-arg heads is a rule that drifts — this package has
+// already watched the `-timeout 30m` gate rule diverge across three copies.
+//
+// NOTE the flag is NOT one binary: docker's --init runs docker-init (tini),
+// podman's runs catatonit, which must be present on the host or the run fails.
+// Owning a pinned init in our own image is the settled follow-up; until then
+// this is the runtime's init, not ours.
+func initArgs() []string { return []string{"--init"} }
+
 // ContainerReapVerdict is one candidate's outcome, mirroring WorktreeVerdict's
 // vocabulary (see worktree_reap.go) for the container sweep.
 type ContainerReapVerdict string

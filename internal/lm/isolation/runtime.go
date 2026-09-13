@@ -434,6 +434,7 @@ func (Docker) Available() bool { return runtimeReachable("docker") }
 // identity HEAD plus the shared renderRunSpec tail (via ociRuntime.runArgs).
 func (d Docker) RunArgs(spec RunSpec) []string {
 	args := []string{"run", "--rm", "--name", spec.Name}
+	args = append(args, initArgs()...)
 	args = append(args, ownerLabelArgs()...)
 	if !d.rootless {
 		// Rootful daemon: the entrypoint remaps ctxloom to the launching
@@ -503,6 +504,7 @@ func (Podman) Available() bool { return runtimeReachable("podman") }
 // host instead of a subuid.
 func (p Podman) RunArgs(spec RunSpec) []string {
 	args := []string{"run", "--rm", "--name", spec.Name}
+	args = append(args, initArgs()...)
 	args = append(args, ownerLabelArgs()...)
 	if p.rootless {
 		// keep-id's DEFAULT user is the host uid (not root), which couldn't

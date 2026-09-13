@@ -10,8 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/git"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -44,9 +43,9 @@ func fakeHostHome(t *testing.T, creds string) string {
 	return home
 }
 
-// mustClaudeInstance resolves one session's instance
-// through the owning engine package's OWN helper, so these assertions cannot
-// drift from the resolution the production path uses.
+// mustClaudeInstance resolves one session's instance through the owning
+// engine package's OWN helper, so these assertions cannot drift from the
+// resolution the production path uses.
 func mustClaudeInstance(t *testing.T, workDir, harp string) string {
 	t.Helper()
 	dir, err := claude.SessionConfigDir(workDir, harp)
@@ -66,6 +65,89 @@ const (
 // bytes" is this project's signature failure mode.
 const hostCredentialFixture = `{"claudeAiOauth":{"accessToken":"seed-fixture-token","refreshToken":"seed-fixture-refresh"}}`
 
+// containerHomeTarget is where a container cell's advice tells the engine its
+// home is: an in-container path that is NOT the host path, so the Engine side
+// of the root is observably distinct from the Host side.
+const containerHomeTarget = "/home/ctxloom/.ctxloom/home/claude"
+
+// projectHome is the input every case starts from: an agent binding that
+// declared config_home: project, on the host (no runtime advice).
+func projectHome(workDir, harp string) InTreeAgentHome {
+	return InTreeAgentHome{
+		Backend:    "claude-code",
+		WorkDir:    workDir,
+		Cwd:        workDir,
+		Harp:       harp,
+		ConfigHome: agents.ConfigHomeProject,
+	}
+}
+
+// requireResolutionInvariant pins the one shape a resolution can never take:
+// an empty root with no stated reason. Every case runs its result through
+// this, so a code path that declines without saying why cannot be added
+// without going red here.
+func requireResolutionInvariant(t *testing.T, res AgentHomeResolution) {
+	t.Helper()
+	if res.Root.Host == "" {
+		require.NotEmpty(t, res.Absent, "a resolution with no home must say why")
+		assert.Empty(t, res.Env, "an absent home contributes no env")
+		assert.Nil(t, res.Mount, "an absent home mounts nothing")
+		return
+	}
+	require.Empty(t, res.Absent, "a present home carries no absence reason")
+	require.NotEmpty(t, res.Root.Engine, "a present home names an engine-side path")
+	if res.Root.Engine == res.Root.Host {
+		assert.Nil(t, res.Mount, "Engine == Host: nothing to mount")
+	} else {
+		require.NotNil(t, res.Mount, "Engine != Host: a mount must make the engine-side path true")
+	}
+}
+
+// THE DEFECT: a container cell used to get no relocated home at all — the
+// resolver declined on the policy, and the container's fresh in-container
+// $HOME was ephemeral, unmapped and uninspectable. Now the SAME session home
+// the host cell gets is handed to the container: the bytes stay on the host,
+// the engine is told the in-container path, and one mount makes that true.
+func TestResolveInTreeAgentHome_ContainerGetsTheSessionHomeMapped(t *testing.T) {
+	resetEngineHomeStrictness(t)
+	fakeHostHome(t, hostCredentialFixture)
+	workDir := t.TempDir()
+
+	in := projectHome(workDir, harpA)
+	in.Runtime = present.Containerize{EngineHome: containerHomeTarget}
+	res := ResolveInTreeAgentHome(in)
+	requireResolutionInvariant(t, res)
+
+	host := mustClaudeInstance(t, workDir, harpA)
+	assert.Equal(t, present.Root{Host: host, Engine: containerHomeTarget}, res.Root)
+	assert.Equal(t, map[string]string{claude.ConfigDirEnv: containerHomeTarget}, res.Env,
+		"the engine is told the path IT can open, never the host path")
+	require.NotNil(t, res.Mount)
+	assert.Equal(t, present.Mount{HostDir: host, TargetDir: containerHomeTarget}, *res.Mount)
+	assert.DirExists(t, host, "the mount source must exist before the runtime is asked to bind it")
+	assert.FileExists(t, filepath.Join(host, ".credentials.json"), "the mapped home is seeded exactly like the host cell's")
+	assert.Empty(t, strictness.All())
+}
+
+// A host cell (no runtime advice, or the identity advice) is told the host
+// path itself and mounts nothing.
+func TestResolveInTreeAgentHome_HostCellEngineSeesTheHostPath(t *testing.T) {
+	resetEngineHomeStrictness(t)
+	fakeHostHome(t, hostCredentialFixture)
+	workDir := t.TempDir()
+	want := mustClaudeInstance(t, workDir, harpA)
+
+	for name, advice := range map[string]present.PathsAdvice{"nil": nil, "identity": present.Host{}} {
+		in := projectHome(workDir, harpA)
+		in.Runtime = advice
+		res := ResolveInTreeAgentHome(in)
+		requireResolutionInvariant(t, res)
+		assert.Equal(t, present.Root{Host: want, Engine: want}, res.Root, name)
+		assert.Equal(t, map[string]string{claude.ConfigDirEnv: want}, res.Env, name)
+		assert.Nil(t, res.Mount, name)
+	}
+}
+
 // t1 — an in-tree AGENT run for claude-code is handed CLAUDE_CONFIG_DIR at the
 // project-scoped state home, and the host credential is really there,
 // owner-only — but ACCESS-TOKEN-ONLY (easiest-stomp): claude's projector strips
@@ -73,21 +155,16 @@ const hostCredentialFixture = `{"claudeAiOauth":{"accessToken":"seed-fixture-tok
 // never rotate and invalidate the human's own login. The env var alone would be
 // a half-truth: a controlled home claude cannot authenticate against is worse
 // than no relocation at all.
-func TestInTreeAgentHomeEnv_ClaudeGetsASeededControlledHome(t *testing.T) {
+func TestResolveInTreeAgentHome_ClaudeGetsASeededControlledHome(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
-	got := InTreeAgentHomeEnv(InTreeAgentHome{
-		Backend:    "claude-code",
-		WorkDir:    workDir,
-		Harp:       harpA,
-		ConfigHome: agents.ConfigHomeProject,
-		Policy:     isolation.None{},
-	})
+	res := ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	requireResolutionInvariant(t, res)
 
 	want := mustClaudeInstance(t, workDir, harpA)
-	assert.Equal(t, map[string]string{claude.ConfigDirEnv: want}, got)
+	assert.Equal(t, map[string]string{claude.ConfigDirEnv: want}, res.Env)
 
 	seeded, err := os.ReadFile(filepath.Join(want, ".credentials.json"))
 	require.NoError(t, err, "the controlled home must actually carry the seeded credential")
@@ -106,7 +183,7 @@ func TestInTreeAgentHomeEnv_ClaudeGetsASeededControlledHome(t *testing.T) {
 // t1b — the host's own ~/.claude is READ and never written. There is no
 // migration on this axis (nothing has ever lived at the new path); the human's
 // home is somebody else's property.
-func TestInTreeAgentHomeEnv_NeverWritesTheRealHostHome(t *testing.T) {
+func TestResolveInTreeAgentHome_NeverWritesTheRealHostHome(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	home := fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
@@ -114,7 +191,7 @@ func TestInTreeAgentHomeEnv_NeverWritesTheRealHostHome(t *testing.T) {
 	before, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
 	require.NoError(t, err)
 
-	InTreeAgentHomeEnv(InTreeAgentHome{Backend: "claude-code", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
+	ResolveInTreeAgentHome(projectHome(workDir, harpA))
 
 	after, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
 	require.NoError(t, err)
@@ -125,161 +202,67 @@ func TestInTreeAgentHomeEnv_NeverWritesTheRealHostHome(t *testing.T) {
 	assert.Len(t, entries, 1, "seeding added files to the human's own ~/.claude")
 }
 
-// t3 — THE SCOPING RULE, no-binding half. A run with no agent binding at all
-// (InTreeAgentHome.ConfigHome == "", the human's own session) keeps the REAL
-// host home, and nothing is created in the tree. Yanking a human's own
-// ~/.claude memory, plugins and settings out from under their interactive
-// session is a regression, not isolation.
-func TestInTreeAgentHomeEnv_OwnerSessionKeepsTheRealHostHome(t *testing.T) {
+// THE SCOPING RULE. A run with no agent binding at all (ConfigHome == "", the
+// human's own session), an AGENT-BOUND run whose binding never declares
+// config_home (ResolveConfigHome's default), and a binding that EXPLICITLY
+// declares host all keep the REAL host home — and each says so. The three are
+// pinned separately: MUTATION TARGET m1 flips ResolveConfigHome's default to
+// project (the undeclared case goes red alone); m2 ignores a declared host
+// value (the declared case goes red alone).
+func TestResolveInTreeAgentHome_NotProjectKeepsTheRuntimeHomeAndSaysSo(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
-	for _, backend := range []string{"claude-code"} {
-		got := InTreeAgentHomeEnv(InTreeAgentHome{
-			Backend:    backend,
-			WorkDir:    workDir,
-			Harp:       harpA,
-			ConfigHome: "",
-			Policy:     isolation.None{},
-		})
-		assert.Nil(t, got, "%s: an unbound owner session must be handed no config-home override", backend)
+	undeclared, err := ResolveConfigHome("")
+	require.NoError(t, err)
+
+	cases := map[string]agents.ConfigHome{
+		"no binding":    "",
+		"undeclared":    undeclared,
+		"declared host": agents.ConfigHomeHost,
+	}
+	for name, ch := range cases {
+		in := projectHome(workDir, harpA)
+		in.ConfigHome = ch
+		res := ResolveInTreeAgentHome(in)
+		requireResolutionInvariant(t, res)
+		assert.Empty(t, res.Env, "%s: must be handed no config-home override", name)
+		assert.Contains(t, res.Absent, "config_home", "%s: the reason names the policy that declined", name)
 	}
 	assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"),
-		"an owner session must not even create the instance root")
+		"a declined run must not even create the instance root")
 }
 
-// t3b — THE SCOPING RULE, undeclared-binding half. An AGENT-BOUND run whose
-// binding never declares config_home resolves to agents.ConfigHomeHost
-// (operations.ResolveConfigHome's default) — MUTATION TARGET m1: flip that
-// default to agents.ConfigHomeProject and this goes red, because a bound-but-
-// undeclared run would then get a controlled home it never asked for.
-func TestInTreeAgentHomeEnv_UndeclaredBindingKeepsTheRealHostHome(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
-	workDir := t.TempDir()
-
-	for _, backend := range []string{"claude-code"} {
-		declared, err := ResolveConfigHome("") // what an undeclared binding resolves to
-		require.NoError(t, err)
-		got := InTreeAgentHomeEnv(InTreeAgentHome{
-			Backend:    backend,
-			WorkDir:    workDir,
-			Harp:       harpA,
-			ConfigHome: declared,
-			Policy:     isolation.None{},
-		})
-		assert.Nil(t, got, "%s: an agent-bound run with an UNDECLARED config_home must still keep the real host home", backend)
-	}
-	assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
-}
-
-// t3c — THE SCOPING RULE, declared-host half. A binding that EXPLICITLY
-// declares config_home: host reads identically to an undeclared one on this
-// axis — MUTATION TARGET m2: a bug that ignored a declared "host" value
-// (treating any resolved agent binding as project) would make this red while
-// t3b (the undeclared case) could stay green, so the two are pinned
-// separately even though they assert the same outcome.
-func TestInTreeAgentHomeEnv_DeclaredHostKeepsTheRealHostHome(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
-	workDir := t.TempDir()
-
-	got := InTreeAgentHomeEnv(InTreeAgentHome{
-		Backend:    "claude-code",
-		WorkDir:    workDir,
-		Harp:       harpA,
-		ConfigHome: agents.ConfigHomeHost,
-		Policy:     isolation.None{},
-	})
-	assert.Nil(t, got, "a binding that DECLARES config_home: host must keep the real host home")
-	assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
-}
-
-// t4 — PRECEDENCE. The worktree axis sets these vars itself (through
-// isolation's Env()), and a user's own `--env CLAUDE_CONFIG_DIR=...` rides the
-// same map. Either way an already-set value WINS: this contribution fills gaps,
-// it never overrides.
-func TestInTreeAgentHomeEnv_AlreadySetVarWins(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
-	workDir := t.TempDir()
-
-	got := InTreeAgentHomeEnv(InTreeAgentHome{
-		Backend:    "claude-code",
-		WorkDir:    workDir,
-		Harp:       harpA,
-		ConfigHome: agents.ConfigHomeProject,
-		Policy:     isolation.None{},
-		Env:        map[string]string{claude.ConfigDirEnv: "/somewhere/isolation/put/it"},
-	})
-	assert.Nil(t, got, "an isolation- or user-provided config home must not be overridden")
-	assert.NoDirExists(t, mustClaudeInstance(t, workDir, harpA), "the losing arm must not create its home either")
-}
-
-// t5 — an ISOLATED policy contributes nothing on either axis. A container run's
-// fresh in-container $HOME is already the controlled home; a worktree run's
-// per-agent config home is already provisioned and seeded by isolation itself.
-// Contributing an in-tree path to either would point the engine at a directory
-// that does not exist inside the boundary.
-func TestInTreeAgentHomeEnv_IsolatedPoliciesContributeNothing(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
-	workDir := t.TempDir()
-
-	policies := map[string]isolation.Policy{
-		"container": isolation.Container{},
-		"worktree":  isolation.NewWorktree(&git.Fake{}, "claude-code"),
-	}
-	for name, policy := range policies {
-		for _, backend := range []string{"claude-code"} {
-			got := InTreeAgentHomeEnv(InTreeAgentHome{
-				Backend:    backend,
-				WorkDir:    workDir,
-				Harp:       harpA,
-				ConfigHome: agents.ConfigHomeProject,
-				Policy:     policy,
-			})
-			assert.Nil(t, got, "%s/%s: the in-tree contribution must not fire off the in-tree axis", name, backend)
-		}
-	}
-	assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
-}
-
-// A nil Policy is the injected-Factory / no-isolation-resolved path (oneshot's
-// test seam). Treat it as "no in-tree axis was resolved" and contribute
-// nothing, rather than assuming none: guessing the axis is how an engine ends
-// up pointed at a home the boundary cannot see.
-func TestInTreeAgentHomeEnv_NilPolicyContributesNothing(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
-	workDir := t.TempDir()
-
-	assert.Nil(t, InTreeAgentHomeEnv(InTreeAgentHome{Backend: "claude-code", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject}))
-}
-
-// An engine with no in-tree home policy at all contributes nothing, silently
-// and by design.
-func TestInTreeAgentHomeEnv_UnregisteredBackendContributesNothing(t *testing.T) {
+// An engine that declares no relocatable home cannot be given one, on any
+// cell. That is no longer silent: the resolution carries the engine's own
+// stated reason, because a binding that asked for `config_home: project` and
+// got nothing deserves to learn why.
+func TestResolveInTreeAgentHome_EngineWithoutAHomeSaysWhy(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
 
-	assert.Nil(t, InTreeAgentHomeEnv(InTreeAgentHome{Backend: "mock", WorkDir: t.TempDir(), Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}}))
+	in := projectHome(t.TempDir(), harpA)
+	in.Backend = "mock"
+	res := ResolveInTreeAgentHome(in)
+	requireResolutionInvariant(t, res)
+	assert.Contains(t, res.Absent, "mock", "the reason names the engine")
 }
 
 // Nothing to seed is FAIL-LOUD, never a silent relocation: with neither
 // ANTHROPIC_API_KEY nor a host credential file, pointing claude at an empty
 // controlled home would strand the agent logged out. Record the ClassIsolation
-// finding the choke owner aborts on, and contribute NOTHING — so a --degraded
-// run falls back to the host home it used before this policy existed, instead
-// of launching against a home that cannot authenticate.
-func TestInTreeAgentHomeEnv_NothingToSeedFailsLoudAndContributesNothing(t *testing.T) {
+// finding the choke owner aborts on, and resolve ABSENT with the reason — so a
+// --degraded run falls back to the home its runtime gives it, instead of
+// launching against a home that cannot authenticate.
+func TestResolveInTreeAgentHome_NothingToSeedFailsLoudAndIsAbsent(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, "") // no ~/.claude at all, no API key
 	workDir := t.TempDir()
 
-	got := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "claude-code", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
-	assert.Nil(t, got, "a home that cannot be authenticated must not be handed to the engine")
+	res := ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	requireResolutionInvariant(t, res)
+	assert.Contains(t, res.Absent, "ANTHROPIC_API_KEY")
 
 	found := strictness.All()
 	require.Len(t, found, 1, "an unauthenticatable controlled home must fail loud")
@@ -291,14 +274,15 @@ func TestInTreeAgentHomeEnv_NothingToSeedFailsLoudAndContributesNothing(t *testi
 // The API-key path: auth rides the environment, so there is nothing to seed and
 // nothing to fail about — the controlled home is still handed over, and it
 // exists.
-func TestInTreeAgentHomeEnv_ApiKeyAuthenticatesAFreshControlledHome(t *testing.T) {
+func TestResolveInTreeAgentHome_ApiKeyAuthenticatesAFreshControlledHome(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, "")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	workDir := t.TempDir()
 
-	got := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "claude-code", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
-	assert.Equal(t, map[string]string{claude.ConfigDirEnv: mustClaudeInstance(t, workDir, harpA)}, got)
+	res := ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	requireResolutionInvariant(t, res)
+	assert.Equal(t, map[string]string{claude.ConfigDirEnv: mustClaudeInstance(t, workDir, harpA)}, res.Env)
 	assert.DirExists(t, mustClaudeInstance(t, workDir, harpA), "the home must exist even when nothing was copied into it")
 	assert.Empty(t, strictness.All())
 }
@@ -309,23 +293,22 @@ func TestInTreeAgentHomeEnv_ApiKeyAuthenticatesAFreshControlledHome(t *testing.T
 //
 // MUTATION TARGET m2: drop the harp from the env contribution (key the instance
 // by project again) and this goes red on the missing harp component.
-func TestInTreeAgentHomeEnv_ContributesTheSessionInstanceShape(t *testing.T) {
+func TestResolveInTreeAgentHome_ContributesTheSessionInstanceShape(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
-	claudeEnv := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "claude-code", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
+	res := ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	requireResolutionInvariant(t, res)
 
 	instance := filepath.Join(workDir, ".ctxloom", "state", harpA, "home")
-	assert.Equal(t, filepath.Join(instance, "claude"), claudeEnv[claude.ConfigDirEnv])
-
-	for _, home := range []string{claudeEnv[claude.ConfigDirEnv]} {
-		assert.Contains(t, home, string(filepath.Separator)+harpA+string(filepath.Separator),
-			"the instance is keyed by SESSION, not by project")
-		assert.NotContains(t, home, filepath.Join(".ctxloom", "cache"))
-		assert.NotContains(t, home, filepath.Join("state", "engines"),
-			"the retired durable per-project engine home must not regrow")
-	}
+	home := res.Env[claude.ConfigDirEnv]
+	assert.Equal(t, filepath.Join(instance, "claude"), home)
+	assert.Contains(t, home, string(filepath.Separator)+harpA+string(filepath.Separator),
+		"the instance is keyed by SESSION, not by project")
+	assert.NotContains(t, home, filepath.Join(".ctxloom", "cache"))
+	assert.NotContains(t, home, filepath.Join("state", "engines"),
+		"the retired durable per-project engine home must not regrow")
 }
 
 // PER SESSION. Two sessions in ONE checkout get two instances, and what one
@@ -334,35 +317,54 @@ func TestInTreeAgentHomeEnv_ContributesTheSessionInstanceShape(t *testing.T) {
 //
 // MUTATION TARGET m1: key the instance by engine instead of by harp and this
 // goes red, because session B would find session A's file.
-func TestInTreeAgentHomeEnv_TwoSessionsGetTwoInstances(t *testing.T) {
+func TestResolveInTreeAgentHome_TwoSessionsGetTwoInstances(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
-	a := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "claude-code", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
-	b := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "claude-code", WorkDir: workDir, Harp: harpB, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
-	require.NotEmpty(t, a)
-	require.NotEmpty(t, b)
-	assert.NotEqual(t, a[claude.ConfigDirEnv], b[claude.ConfigDirEnv], "two sessions must not share one home")
+	a := ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	b := ResolveInTreeAgentHome(projectHome(workDir, harpB))
+	require.NotEmpty(t, a.Env)
+	require.NotEmpty(t, b.Env)
+	assert.NotEqual(t, a.Env[claude.ConfigDirEnv], b.Env[claude.ConfigDirEnv], "two sessions must not share one home")
 
 	// Payload, not just paths: a file session A's agent writes is absent from B.
-	require.NoError(t, os.WriteFile(filepath.Join(a[claude.ConfigDirEnv], "session-a-only.json"), []byte(`{"x":1}`), 0o600))
-	_, err := os.Stat(filepath.Join(b[claude.ConfigDirEnv], "session-a-only.json"))
+	require.NoError(t, os.WriteFile(filepath.Join(a.Env[claude.ConfigDirEnv], "session-a-only.json"), []byte(`{"x":1}`), 0o600))
+	_, err := os.Stat(filepath.Join(b.Env[claude.ConfigDirEnv], "session-a-only.json"))
 	assert.True(t, os.IsNotExist(err), "session B can see session A's engine state")
 }
 
-// EMPTY HARP DECLINES. There is no session-less instance and no shared
-// fallback — a shared fallback is exactly the durable per-project home the
-// model retired. Nothing is contributed and nothing is created.
-func TestInTreeAgentHomeEnv_EmptyHarpContributesNothingAndCreatesNothing(t *testing.T) {
+// EMPTY HARP DECLINES, and says so. There is no session-less instance and no
+// shared fallback — a shared fallback is exactly the durable per-project home
+// the model retired. Nothing is contributed and nothing is created.
+func TestResolveInTreeAgentHome_EmptyHarpIsAbsentAndCreatesNothing(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
-	for _, backend := range []string{"claude-code"} {
-		got := InTreeAgentHomeEnv(InTreeAgentHome{Backend: backend, WorkDir: workDir, Harp: "", ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
-		assert.Nil(t, got, "%s: a run with no session name gets no instance", backend)
-	}
+	res := ResolveInTreeAgentHome(projectHome(workDir, ""))
+	requireResolutionInvariant(t, res)
+	assert.Contains(t, res.Absent, "session", "the reason names the missing session")
 	assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"),
 		"a declined contribution must not leave a directory behind")
+}
+
+// The workspace-trust answer the seed generates names the directory the engine
+// actually RUNS in (Cwd), which is not the project root on a worktree cell:
+// trusting the project root would answer for a directory the run never enters.
+func TestResolveInTreeAgentHome_TrustNamesTheRunCwdNotTheProjectRoot(t *testing.T) {
+	resetEngineHomeStrictness(t)
+	fakeHostHome(t, hostCredentialFixture)
+	workDir := t.TempDir()
+	checkout := t.TempDir()
+
+	in := projectHome(workDir, harpA)
+	in.Cwd = checkout
+	res := ResolveInTreeAgentHome(in)
+	requireResolutionInvariant(t, res)
+
+	cfg, err := os.ReadFile(filepath.Join(res.Root.Host, ".claude.json"))
+	require.NoError(t, err, "the seeded instance config must exist")
+	assert.Contains(t, string(cfg), checkout, "the trust entry names the run's cwd")
+	assert.NotContains(t, string(cfg), workDir+`"`, "the trust entry does not name the project root the run never enters")
 }

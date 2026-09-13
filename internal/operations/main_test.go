@@ -2,85 +2,39 @@ package operations
 
 import (
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestMain isolates the package from the developer's real home directory AND
-// from the package source directory as a working dir.
+// realHOME is the ambient HOME this process started with, captured before
+// TestMain ever overwrites it. A test that must prove nothing reached the
+// developer's genuine ~/.ctxloom needs the pre-sandbox location to inspect.
+var realHOME = os.Getenv("HOME")
+
+// TestMain sandboxes the WHOLE package binary — an isolated HOME and an
+// isolated working directory, installed before a single test runs — via
+// testsupport.SandboxedMain, and pins the package-specific seams around it.
 //
 // HOME isolation: several operations fall back to the home config
-// (config.HomeConfigDir consumers); without it, whatever
-// profiles or remotes the developer has in ~/.ctxloom leak into unit tests and
-// change collection counts and sync statuses. It also makes companion-binary
-// detection deterministic (built-in bundle fragments/hooks/MCP inject only when
-// ltk/taskloom are on PATH); tests opt back in via config.SetLookPathForTesting.
+// (config.HomeConfigDir consumers); without it, whatever profiles or remotes
+// the developer has in ~/.ctxloom leak into unit tests and change collection
+// counts and sync statuses.
 //
 // CWD isolation: getBaseDir falls back to a RELATIVE ".ctxloom" when a Config
 // carries no AppPaths, and getFS(nil) writes to the real OS filesystem — so a
 // test reaching a trust/cache write without AppPaths (or testsupport.Isolate)
-// would write ".ctxloom/..." into the package source dir (cwd during `go test`).
-// We chdir into a throwaway dir so any such relative fallback is discarded, and
-// GUARD the source dir afterward so a future regression fails loudly instead of
-// silently re-appearing and getting committed. (`just test-dirty` junks HOME but
-// not CWD — this closes that half.)
-//
-// realHOME is the ambient HOME this process started with, captured before
-// TestMain ever overwrites it. Tests that shell out to `go` (e.g. to spawn
-// this package's own test binary as a subprocess) need it: inheriting the
-// sandboxed HOME instead would point the child's build phase at a throwaway
-// GOPATH/GOCACHE, filling the sandbox with a full module-cache tree that
-// os.RemoveAll then can't clean up, because the Go module cache marks its
-// directories read-only.
-var realHOME = os.Getenv("HOME")
-
-// HOME and CWD each get their own subdirectory under a single per-process
-// sandbox (see acquireSandbox), rather than two independent MkdirTemp calls,
-// because a panic anywhere in m.Run() crashes the process via tRunner's
-// re-panic before any defer here — including this one — ever runs. A single
-// sandbox directory means the NEXT process's startup reaper only has one
-// thing to find and remove per dead pid instead of two independent ones, and
-// a signal (SIGINT/SIGTERM, unlike a panic, IS catchable) can tear down both
-// halves with one RemoveAll instead of coordinating two.
+// would write ".ctxloom/..." into the package source dir (cwd during `go
+// test`). The sandbox's chdir discards any such relative fallback.
 func TestMain(m *testing.M) {
 	engines.MustRegister()
 	os.Exit(func() int {
-		sandbox, cleanupSandbox := acquireSandbox()
-		defer cleanupSandbox()
-
-		// A panic crashes the process before this defer (or any other) runs,
-		// so it cannot reap its own sandbox — only a LATER process's startup
-		// reaper (acquireSandbox -> reapSandboxes) can, once this pid is dead.
-		// SIGINT/SIGTERM, by contrast, are ordinary signals this process can
-		// catch, so honor them by cleaning up before dying instead of leaving
-		// that to the next reaper.
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		defer signal.Stop(sigCh)
-		go func() {
-			sig, ok := <-sigCh
-			if !ok {
-				return
-			}
-			cleanupSandbox()
-			os.Exit(128 + int(sig.(syscall.Signal))) //nolint:forbidigo // no *testing.T in TestMain
-		}()
-
-		home := filepath.Join(sandbox, "home")
-		if err := os.MkdirAll(home, 0o700); err == nil {
-			// TestMain has no *testing.T, so t.Setenv / testsupport.Isolate are
-			// unavailable here; set the process env directly for the whole package run.
-			os.Setenv("HOME", home) //nolint:forbidigo // no *testing.T in TestMain
-		}
-
 		// Belt and braces: internal/remote's runGit already forces every git
 		// subprocess non-interactive (GIT_TERMINAL_PROMPT=0, cleared askpass), so
 		// nothing in THIS package should ever reach a real credential prompt. Set
@@ -92,18 +46,9 @@ func TestMain(m *testing.M) {
 		os.Setenv("GIT_ASKPASS", "")          //nolint:forbidigo // no *testing.T in TestMain
 		os.Setenv("SSH_ASKPASS", "")          //nolint:forbidigo // no *testing.T in TestMain
 
-		origWD, wdErr := os.Getwd()
-		work := filepath.Join(sandbox, "cwd")
-		if err := os.MkdirAll(work, 0o700); err == nil {
-			if cerr := os.Chdir(work); cerr == nil { //nolint:forbidigo // no *testing.T in TestMain
-				defer func() {
-					if wdErr == nil {
-						_ = os.Chdir(origWD) //nolint:forbidigo // no *testing.T in TestMain
-					}
-				}()
-			}
-		}
-
+		// Companion-binary detection must be deterministic (built-in bundle
+		// fragments/hooks/MCP inject only when ltk/taskloom are on PATH); tests
+		// opt back in via config.SetLookPathForTesting.
 		restore := config.SetLookPathForTesting(func(string) (string, error) {
 			return "", exec.ErrNotFound
 		})
@@ -119,22 +64,29 @@ func TestMain(m *testing.M) {
 		restoreExe := selfexec.SetPathForTesting("ctxloom")
 		defer restoreExe()
 
-		code := m.Run()
+		// testBaseDir is a SYNTHETIC absolute app dir that only ever exists in
+		// an injected memfs — except that an operation reached with no fs
+		// seam falls back to getFS(nil), the real OS filesystem, and a process
+		// with the rights to create the parent (root in a container) then
+		// materializes it for real. Nothing in the sandbox can catch that: it
+		// is an absolute path, so neither the HOME nor the cwd redirect is
+		// consulted. Once it exists, every later test that reads the OS fs at
+		// testBaseDir sees the leaked fixtures, and the package goes red only
+		// on the SECOND run. Guard it here: if the parent was absent before
+		// the run and present after, a test leaked; clean it and fail loudly
+		// so the leak cannot be committed.
+		syntheticRoot := filepath.Dir(testBaseDir)
+		_, preErr := os.Stat(syntheticRoot)
 
-		// A stray relative ".ctxloom" under the package source dir means a test
-		// escaped isolation (wrote via the OS fs with no AppPaths, and the chdir
-		// above didn't catch it — e.g. it failed, or the test used an absolute
-		// source path). Clean it and fail so the leak can't be committed.
-		if wdErr == nil {
-			leak := filepath.Join(origWD, config.AppDirName)
-			if _, statErr := os.Stat(leak); statErr == nil {
-				_ = os.RemoveAll(leak)
-				fmt.Fprintf(os.Stderr,
-					"operations test isolation FAILED: a test wrote %s into the package source dir "+
-						"(missing AppPaths / testsupport.Isolate; see getBaseDir + getFS(nil))\n", leak)
-				if code == 0 {
-					code = 1
-				}
+		code := testsupport.SandboxedMain(m)
+
+		if _, err := os.Stat(syntheticRoot); os.IsNotExist(preErr) && err == nil {
+			_ = os.RemoveAll(syntheticRoot)
+			fmt.Fprintf(os.Stderr,
+				"operations test isolation FAILED: a test wrote %s onto the real filesystem "+
+					"(an operation reached getFS(nil) with a synthetic testBaseDir; inject the memfs)\n", syntheticRoot)
+			if code == 0 {
+				code = 1
 			}
 		}
 		return code

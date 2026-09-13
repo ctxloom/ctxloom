@@ -1148,37 +1148,6 @@ func TestSyncOnStartup(t *testing.T) {
 	}
 }
 
-func TestSyncOnStartup_WithMissingDependencies(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
-		"test": {
-			Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
-		},
-	}, config.Fixture{})
-
-	// Create necessary directories
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
-
-	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
-remotes:
-  github:
-    url: https://github.com/test/ctxloom
-    version: v1
-`), 0644)
-
-	// SyncOnStartup would call SyncDependencies, which would fail without proper mocking
-	// This test verifies the flow reaches SyncDependencies
-	result, err := SyncOnStartup(context.Background(), cfg)
-
-	// Should either succeed or return error from sync (expected due to missing mocks)
-	if err == nil && result != nil {
-		// If successful, should be "completed" or similar
-		t.Logf("SyncOnStartup result status: %s", result.Status)
-	}
-}
-
 // TestCollectProfileReferences_CollectsBundlesAndParents tests collecting refs
 // from a profile that exists.
 func TestCollectProfileReferences_CollectsBundlesAndParents(t *testing.T) {

@@ -66,6 +66,8 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
       | MESSAGE_KIND_USER_CONTROL     |
       | MESSAGE_KIND_EXITED           |
       | MESSAGE_KIND_STEER            |
+      | MESSAGE_KIND_REPORT           |
+      | MESSAGE_KIND_SUMMARIZE        |
     When I read the "agent_recv" tool's result contract
     Then the kind vocabulary it advertises is exactly:
       | MESSAGE_KIND_UNSPECIFIED      |
@@ -78,6 +80,8 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
       | MESSAGE_KIND_USER_CONTROL     |
       | MESSAGE_KIND_EXITED           |
       | MESSAGE_KIND_STEER            |
+      | MESSAGE_KIND_REPORT           |
+      | MESSAGE_KIND_SUMMARIZE        |
 
   # A sender is told, in the schema it reads before choosing an argument, that
   # the coordinator's own kinds are not its to name AND that a wrong value is

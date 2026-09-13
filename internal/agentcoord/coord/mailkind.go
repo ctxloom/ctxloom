@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
 // The mailbox `kind` vocabulary. It is CLOSED and split in two: kinds a SENDER
@@ -61,15 +63,26 @@ const (
 	// the coordinator's own request for a report and is answered by
 	// correlation, so it is not a sender's to mint.
 	KindSummarize = "summarize"
+
+	// KindUserControl is COORDINATOR-RESERVED: a control action taken against
+	// the recipient (pause/resume/...) reported as mail. Nothing produces it
+	// yet; it has a mailbox spelling anyway because the wire enum is the single
+	// vocabulary and every member of it maps here 1:1 — the day a producer
+	// arrives, the frame already renders it as a name from the closed set.
+	KindUserControl = "user_control"
 )
 
-// senderMailKinds is the vocabulary agent_send documents and accepts.
-var senderMailKinds = []string{KindMessage, KindResult, KindError, KindQuestion}
+// senderMailKinds is the vocabulary agent_send documents and accepts — the
+// enum's sender-allowed members in their mailbox spelling. Derived, not
+// listed: the wire enum is the single vocabulary and coord keeps no literal
+// of its own beside it.
+var senderMailKinds = agentcoordpb.LegacySenderKindNames()
 
 // reservedMailKinds are constructed by the coordinator only. Every one of them
 // asks the recipient to trust its provenance, so accepting one from a sender
-// would let the sender borrow the coordinator's authority.
-var reservedMailKinds = []string{KindApprovalRequest, KindUserInjected, KindExited, KindSteer, KindSummarize, KindReport}
+// would let the sender borrow the coordinator's authority. Derived from the
+// enum for the same reason senderMailKinds is.
+var reservedMailKinds = agentcoordpb.LegacyReservedKindNames()
 
 // ErrSenderMailKind rejects a sender-supplied mail kind outside the
 // sender-allowed vocabulary — including an absent one. Typed so the plane-2
@@ -84,9 +97,10 @@ var ErrSenderMailKind = errors.New("agent_send: unusable message kind")
 // sender-allowed vocabulary, which every refusal enumerates so the sender can
 // correct itself without guessing.
 //
-// This is the string-level form of the closed vocabulary; the typed enum whose
-// decode performs the same rejection (messagekind.go's ValidateMessageKind)
-// replaces it, at which point this function has no callers left.
+// This is the string-level form of the closed vocabulary, applied at the
+// peerSend chokepoint AFTER the approval/ask-reply correlation check; the typed
+// guard (agentcoordpb.ValidateMessageKind) refuses the same set at ingress, and
+// both draw their membership from the one enum.
 func SenderMailKind(kind string) error {
 	for _, ok := range senderMailKinds {
 		if kind == ok {
@@ -114,9 +128,8 @@ func SenderMailKind(kind string) error {
 //
 // It exists so a table in another file can be checked for exhaustiveness
 // against the authority instead of against a second hand-kept list — the same
-// reason spool.Dirs() exists. A kind added to senderMailKinds or
-// reservedMailKinds and to nothing else must make the mapping test RED, not
-// quietly travel unmapped.
+// reason spool.Dirs() exists. A member added to the wire enum and to nothing
+// else must make the mapping test RED, not quietly travel unmapped.
 //
 // The empty string is a member of the closed vocabulary, not something
 // ingress can ever produce: SenderMailKind refuses it from a sender, and
@@ -173,6 +186,7 @@ var mailKindToSpool = map[string]string{
 	KindSteer:           KindSteer,
 	KindSummarize:       KindSummarize,
 	KindReport:          KindReport,
+	KindUserControl:     KindUserControl,
 }
 
 // spoolKindToMail inverts mailKindToSpool, built once at init. A collision is

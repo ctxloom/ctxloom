@@ -749,17 +749,13 @@ func frameCoordinatorDelivery(from, kind, body string) string {
 	return b.String()
 }
 
-// frameCoordinatorMessage projects the wire shape onto frameCoordinatorDelivery:
-// the kind rides the sender's structured companion (retired once kind is a typed
-// field), so it is read here and validated there.
+// frameCoordinatorMessage projects the wire shape onto frameCoordinatorDelivery.
+// The kind is PeerMessage.kind, the typed field, spelled back into the mailbox
+// vocabulary the renderer validates against; `structured` is the sender's
+// opaque companion and is never consulted — a "kind" key in it is sender bytes,
+// which is exactly what the header must not be built from.
 func frameCoordinatorMessage(pm *agentcoordpb.PeerMessage) string {
-	kind := ""
-	if s := pm.GetStructured(); s != nil {
-		if v, ok := s.GetFields()["kind"]; ok {
-			kind = v.GetStringValue()
-		}
-	}
-	return frameCoordinatorDelivery(pm.GetFromAgentId(), kind, pm.GetText())
+	return frameCoordinatorDelivery(pm.GetFromAgentId(), agentcoordpb.LegacyKindName(pm.GetKind()), pm.GetText())
 }
 
 // frameHeaderToken reduces one value to characters that cannot alter the

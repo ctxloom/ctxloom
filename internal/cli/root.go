@@ -1,9 +1,9 @@
 package cli
 
 import (
-	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"os"
 	"sync"
 

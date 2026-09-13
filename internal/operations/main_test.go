@@ -1,8 +1,8 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"os"
 	"os/exec"
 	"os/signal"

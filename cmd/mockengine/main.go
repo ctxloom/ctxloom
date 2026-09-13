@@ -16,8 +16,8 @@
 package main
 
 import (
-	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"os"
 	"strings"
 

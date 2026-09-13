@@ -196,7 +196,7 @@ func (d Descriptor) validateProvided() error {
 			return err
 		}
 		if len(h.Vars) != 1 {
-			return errors.New("Home declares more than one home var; the in-tree home derivation reads exactly one home var and no engine needs more yet — lift it when one does")
+			return errors.New("Home.Vars must declare exactly one home var; the in-tree home derivation reads exactly one and no engine needs more yet — lift it when one does")
 		}
 	}
 	if c, ok := d.Container.Get(); ok {

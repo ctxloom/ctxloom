@@ -3,9 +3,9 @@
 package acceptance
 
 import (
-	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/lm/engines"
 	"os"
 	"strings"
 	"sync"

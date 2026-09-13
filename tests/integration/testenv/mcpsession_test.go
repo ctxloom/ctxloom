@@ -1,3 +1,14 @@
+//go:build integration || acceptance
+
+// These tests EXEC the real ctxloom binary as a subprocess, so they carry the
+// same tag as taskloom_acceptance_test.go beside them. Untagged, `just test`
+// runs them against a binary its own recipe has just invalidated: the default
+// group regenerates the protobuf sources AFTER building, leaving the binary a
+// couple of seconds older than annotations.pb.go, and the staleness guard then
+// refuses to measure it — correctly, since the binary is what every assertion
+// here observes. The tagged lanes build immediately before running, so the
+// guard is satisfied there.
+
 package testenv
 
 import (

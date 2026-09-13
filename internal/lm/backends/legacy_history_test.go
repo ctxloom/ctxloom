@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // An engine's NoLegacyHistoryReason and its constructed backend's History()
@@ -40,4 +42,15 @@ func retiredNames(t *testing.T) []string {
 		}
 	}
 	return out
+}
+
+// IsTestOnly is a thin read over the Distribution enum: a double is hidden
+// from every user-facing enumeration by declaring DistributionTestOnly, and
+// nothing else reads as test-only — not an OptIn engine, not an unknown name.
+func TestIsTestOnly_ReadsTheDistributionEnum(t *testing.T) {
+	for _, name := range List() {
+		assert.Equal(t, DistributionFor(name) == agent.DistributionTestOnly, IsTestOnly(name), name)
+	}
+	assert.False(t, IsTestOnly("never-registered"))
+	assert.Equal(t, agent.DistributionUnset, DistributionFor("never-registered"))
 }

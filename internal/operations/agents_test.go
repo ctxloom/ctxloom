@@ -191,7 +191,7 @@ func TestResolveAgent_ConfigHome(t *testing.T) {
 	cases := map[string]agents.ConfigHome{
 		"undeclared": agents.ConfigHomeProject, // MUTATION TARGET m1's unit-layer twin
 		"project":    agents.ConfigHomeProject,
-		"host":       agents.ConfigHomeHost, // the ONLY input that shares the real home
+		"host":       agents.ConfigHomeHost,    // the ONLY input that shares the real home
 		"typo":       agents.ConfigHomeProject, // warn+default, never fatal, never a silent share
 	}
 	for name, want := range cases {

@@ -32,7 +32,7 @@ import (
 // home; "host" below is always a fixture directory.
 
 const (
-	hazardOriginal = `{"token":"original"}`
+	hazardOriginal  = `{"token":"original"}`
 	hazardRefreshed = `{"token":"refreshed"}`
 )
 

@@ -326,6 +326,17 @@ func TestAgentStopHandler_OmittedHarpIsTheBulkForm(t *testing.T) {
 	_, runOut, err := s.handleAgentRun(context.Background(), nil, agentRunInput{Agent: "worker", Prompt: "go"})
 	require.NoError(t, err)
 	waitForChatCapture(t, spawns, 0)
+	// Sweep an IDLE child: a turn still in flight is given the real drain
+	// bound (agent_recv's max wait), which this package cannot shrink — the
+	// bound itself is pinned in coord's own tests.
+	require.Eventually(t, func() bool {
+		for _, e := range c.Roster() {
+			if e.Harp == runOut.Harp && e.State == coord.StateIdle {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 10*time.Millisecond, "the child never reached its turn boundary")
 
 	_, _, err = s.handleAgentStop(context.Background(), nil, agentStopInput{})
 	require.Error(t, err)

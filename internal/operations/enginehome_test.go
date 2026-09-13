@@ -203,36 +203,65 @@ func TestResolveInTreeAgentHome_NeverWritesTheRealHostHome(t *testing.T) {
 	assert.Len(t, entries, 1, "seeding added files to the human's own ~/.claude")
 }
 
-// THE SCOPING RULE. A run with no agent binding at all (ConfigHome == "", the
-// human's own session), an AGENT-BOUND run whose binding never declares
-// config_home (agents.ParseConfigHome's default), and a binding that EXPLICITLY
-// declares host all keep the REAL host home — and each says so. The three are
-// pinned separately: MUTATION TARGET m1 flips agents.ParseConfigHome's default to
-// project (the undeclared case goes red alone); m2 ignores a declared host
-// value (the declared case goes red alone).
-func TestResolveInTreeAgentHome_NotProjectKeepsTheRuntimeHomeAndSaysSo(t *testing.T) {
+// THE SCOPING RULE, declining half. ONLY an EXPLICIT `config_home: host`
+// keeps the REAL host home, and it says so. This is now the sole input that
+// shares the human's engine home; the cases that used to sit beside it here
+// (no binding at all, and an undeclared binding) moved to the granting half
+// below. MUTATION TARGET m2 — ignore a declared host value and this goes red.
+func TestResolveInTreeAgentHome_ExplicitHostKeepsTheRuntimeHomeAndSaysSo(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
+
+	in := projectHome(workDir, harpA)
+	in.ConfigHome = agents.ConfigHomeHost
+	res := ResolveInTreeAgentHome(in)
+	requireResolutionInvariant(t, res)
+	assert.Empty(t, res.Env, "an explicit host declaration must be handed no config-home override")
+	assert.Contains(t, res.Absent, "config_home", "the reason names the policy that declined")
+	assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"),
+		"a declined run must not even create the instance root")
+}
+
+// THE SCOPING RULE, granting half — and the case the whole flip exists for.
+// A run with NO agent binding at all (ConfigHome == "", a plain `ctxloom
+// run`) carries the zero value and never reaches agents.ParseConfigHome; it
+// is gated in ResolveInTreeAgentHome alone. It must get a controlled home,
+// as must an AGENT-BOUND run whose binding never declares config_home.
+// Neither of these says anything about config_home, and that silence is not
+// consent to share the human's ~/.claude.
+//
+// MUTATION TARGET m1 — restore the gate to `!= ConfigHomeProject` and the
+// "no binding" case goes red alone; flip agents.ParseConfigHome's "" arm
+// back to host and "undeclared" goes red alone.
+func TestResolveInTreeAgentHome_UndeclaredAndBindinglessBothGetAPrivateHome(t *testing.T) {
+	resetEngineHomeStrictness(t)
+	fakeHostHome(t, hostCredentialFixture)
 
 	undeclared, err := agents.ParseConfigHome("")
 	require.NoError(t, err)
 
 	cases := map[string]agents.ConfigHome{
-		"no binding":    "",
-		"undeclared":    undeclared,
-		"declared host": agents.ConfigHomeHost,
+		"no binding": "",
+		"undeclared": undeclared,
 	}
 	for name, ch := range cases {
-		in := projectHome(workDir, harpA)
-		in.ConfigHome = ch
-		res := ResolveInTreeAgentHome(in)
-		requireResolutionInvariant(t, res)
-		assert.Empty(t, res.Env, "%s: must be handed no config-home override", name)
-		assert.Contains(t, res.Absent, "config_home", "%s: the reason names the policy that declined", name)
+		t.Run(name, func(t *testing.T) {
+			workDir := t.TempDir()
+			in := projectHome(workDir, harpA)
+			in.ConfigHome = ch
+			res := ResolveInTreeAgentHome(in)
+			requireResolutionInvariant(t, res)
+			assert.Empty(t, res.Absent, "%s: must get a controlled home, not a reason it has none", name)
+			assert.NotEmpty(t, res.Env, "%s: the engine must be pointed at the controlled home", name)
+			assert.DirExists(t, filepath.Join(workDir, ".ctxloom", "state"),
+				"%s: the per-session instance root must exist", name)
+			for _, v := range res.Env {
+				assert.Contains(t, v, filepath.Join(".ctxloom", "state", harpA),
+					"%s: the home var must name THIS session's instance, not the real host home", name)
+			}
+		})
 	}
-	assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"),
-		"a declined run must not even create the instance root")
 }
 
 // An engine that declares no relocatable home cannot be given one, on any

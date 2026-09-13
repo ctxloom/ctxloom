@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -59,6 +60,56 @@ func rooted(start present.Start) error {
 		return ErrUnrootedDelivery
 	}
 	return nil
+}
+
+// ErrUnrootedEngineHome is returned by an approach that writes beneath the
+// ENGINE HOME when that root was never resolved for the run. The same
+// bare-relative-path hazard ErrUnrootedDelivery names applies, and one
+// more: the tempting fallback — the engine's REAL home, ~/.claude and the
+// like — is the user's own, shared across every session, and writing it
+// because a private one was not advised is the shared/dangerous default the
+// seam refuses to take on anyone's behalf. The remedy is in the message,
+// because the refusal is the whole interface for the failure.
+var ErrUnrootedEngineHome = errors.New("delivery: the engine home was never resolved — this approach writes beneath the engine's private config home, which only a run whose agent binding declares config_home: project advises; declare it on the binding, or select a project-file approach for this surface")
+
+// EngineHomeRooted is the entry check for an approach that lands beneath the
+// engine home: the counterpart of rooted for that root. It is exported
+// because the approaches that need it live in the engine packages, and the
+// seam wants them to refuse the same way rather than each inventing its
+// own check.
+func EngineHomeRooted(start present.Start) error {
+	if start.Paths().EngineHome.Host == "" {
+		return ErrUnrootedEngineHome
+	}
+	return nil
+}
+
+// PresentsUnderProjectRoot reports whether a's bytes land beneath the
+// PROJECT ROOT — as a well-known file an engine started in that directory
+// reads — by asking its presenter, against sentinel roots that cannot be
+// confused with one another. It is the ONE answer to "is this delivery a
+// project file?", consulted by the shared-cwd warning here and by the
+// at-rest install route, so the two cannot disagree.
+//
+// It reads the PRESENTATION rather than enumerating marker interfaces
+// (Rider, LaunchOnly) because a marker list is a closed set that a new
+// approach silently falls outside of: a record-backed write beneath the
+// engine home is neither a rider nor launch-only, and by markers alone it
+// would be classed a project file. The presenter already states where the
+// bytes go — "the presenter decides where bytes go; Deliver acts" — so the
+// predicate reads that decision. A Rider presents nothing (no HostPath); a
+// launch-only scratch form presents under Scratch; both are correctly "not
+// a project file" without being named here.
+func PresentsUnderProjectRoot(a Approach) bool {
+	const project = "/ctxloom-probe/project"
+	probe := present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: project},
+		EngineHome:  present.Root{Host: "/ctxloom-probe/engine-home"},
+		CtxloomHome: present.Root{Host: "/ctxloom-probe/ctxloom-home"},
+		Scratch:     present.Root{Host: "/ctxloom-probe/scratch"},
+	}))
+	host := filepath.ToSlash(a.Present(probe).HostPath)
+	return host == project || strings.HasPrefix(host, project+"/")
 }
 
 // SurfaceKind names the CROSS-BACKEND category a delivery surface belongs to —
@@ -537,6 +588,12 @@ func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, start present.S
 	}
 	if o, ok := rs.approach.(OutOfCwd); ok {
 		return o.DeliverIsolated(start)
+	}
+	// An approach that lands OUTSIDE the project root — beneath the engine's
+	// per-session home, say — is not a write into the shared cwd at all, so
+	// there is no race to warn about; only a well-known project file is.
+	if !PresentsUnderProjectRoot(rs.approach) {
+		return rs.approach.Deliver(start)
 	}
 	info := rs.kind.String()
 	if n, ok := rs.approach.(unsafeNamed); ok {

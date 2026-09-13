@@ -444,3 +444,100 @@ func TestDeliverOneShared_UnsafeFileHonoredWithWarning(t *testing.T) {
 	assert.Contains(t, stderr, "warning:", "unsafe-file into a shared cwd is loudly warned")
 	assert.Contains(t, stderr, "engine/context", "the warning names the surface via UnsafeInfo")
 }
+
+// ---- non-project-root approaches ------------------------------------------
+
+// engineHomeStub is an Approach whose bytes land beneath the ENGINE HOME, not
+// the project root — the shape of a record-backed write into the engine's
+// private config home. It has no OutOfCwd form and no marker interface: what
+// distinguishes it from a well-known project file is ONLY what its presenter
+// says.
+type engineHomeStub struct{ got *deliveryCall }
+
+func (engineHomeStub) Present(start present.Start) present.Presentation {
+	return start.UnderEngineHome("settings.json").Build()
+}
+
+func (s engineHomeStub) Deliver(start present.Start) (Delivered, error) {
+	if err := EngineHomeRooted(start); err != nil {
+		return nil, err
+	}
+	if s.got != nil {
+		s.got.called = true
+		s.got.start = start
+	}
+	return stubHandle{}, nil
+}
+
+var _ Approach = engineHomeStub{}
+
+// PresentsUnderProjectRoot asks the PRESENTER where the bytes land rather
+// than enumerating marker interfaces: a Rider presents nothing, a
+// launch-only scratch form presents under Scratch, an engine-home write
+// presents under EngineHome, and only the well-known file presents under the
+// project root. This is the one predicate the shared-cwd warning and the
+// at-rest install route consult, so the four verdicts are pinned together.
+func TestPresentsUnderProjectRoot_ReadsThePresenterNotAMarker(t *testing.T) {
+	cases := []struct {
+		name string
+		a    Approach
+		want bool
+	}{
+		{"well-known project file", recordingDelivery{}, true},
+		{"launch-only scratch form", dualStub{}, false},
+		{"rider presents nothing", riderStub{}, false},
+		{"engine-home record write", engineHomeStub{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, PresentsUnderProjectRoot(tc.a))
+		})
+	}
+}
+
+// A shared-cwd delivery of an approach that lands OUTSIDE the project root
+// is not a write into the shared cwd, so it is not warned as one: the loud
+// line exists for the race a well-known file in a shared directory runs,
+// and a per-session engine home runs no such race. The well-known Deliver
+// still runs, against the advised roots.
+func TestDeliverOneShared_NonProjectRootApproachIsNotWarned(t *testing.T) {
+	resetStrictness(t)
+
+	var call deliveryCall
+	r := &ResolvedSelection{}
+	start := present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: "/live"},
+		EngineHome:  present.Root{Host: "/live/.ctxloom/state/h/home/claude"},
+	}))
+	var (
+		d   Delivered
+		err error
+	)
+	stderr := captureStderr(t, func() {
+		d, err = r.deliverOneShared(resolvedSurface{kind: SurfaceSettings, name: "hew-record", approach: engineHomeStub{got: &call}}, start)
+	})
+	require.NoError(t, err)
+	require.NotNil(t, d)
+	assert.True(t, call.called, "the approach's own Deliver runs")
+	assert.Equal(t, "/live/.ctxloom/state/h/home/claude", call.start.Paths().EngineHome.Host, "the advised engine home reaches the writer")
+	assert.NotContains(t, stderr, "warning:", "a write beneath the engine home is not a write into the shared cwd")
+}
+
+// An engine-home write on a Start whose EngineHome was never resolved is
+// REFUSED with ErrUnrootedEngineHome — never joined into a bare relative
+// path, and never redirected at the user's real home. The refusal names the
+// remedy: the binding must declare a private config home, or select a
+// project-file approach.
+func TestEngineHomeRooted_UnresolvedIsRefusedWithRemedy(t *testing.T) {
+	var call deliveryCall
+	_, err := engineHomeStub{got: &call}.Deliver(present.ProjectOnHost("/live"))
+	require.ErrorIs(t, err, ErrUnrootedEngineHome)
+	assert.False(t, call.called, "nothing is written on an unresolved engine home")
+	assert.Contains(t, err.Error(), "config_home", "the refusal names the remedy")
+
+	resolved := present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: "/live"},
+		EngineHome:  present.Root{Host: "/eh"},
+	}))
+	assert.NoError(t, EngineHomeRooted(resolved))
+}

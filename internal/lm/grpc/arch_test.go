@@ -8,8 +8,10 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -384,7 +386,12 @@ func TestArch_ProtoConverters_EveryPairIsSwept(t *testing.T) {
 	// test. The sweep is over this package's own non-test sources, which is
 	// exactly what the file list below enumerates.
 	fset := token.NewFileSet()
-	entries, err := os.ReadDir(".")
+	// Located from this file, not the working directory: SandboxedMain moves
+	// the cwd to a throwaway root before any test runs.
+	_, self, _, ok := runtime.Caller(0)
+	require.True(t, ok, "runtime.Caller must locate this test file")
+	pkgDir := filepath.Dir(self)
+	entries, err := os.ReadDir(pkgDir)
 	require.NoError(t, err, "read this package's own directory")
 
 	var files []*ast.File
@@ -393,7 +400,7 @@ func TestArch_ProtoConverters_EveryPairIsSwept(t *testing.T) {
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		f, perr := parser.ParseFile(fset, name, nil, 0)
+		f, perr := parser.ParseFile(fset, filepath.Join(pkgDir, name), nil, 0)
 		require.NoError(t, perr, "parse %s", name)
 		files = append(files, f)
 	}
@@ -429,7 +436,7 @@ func TestArch_ProtoConverters_EveryPairIsSwept(t *testing.T) {
 	}
 	require.NotEmpty(t, encoders, "found no converters at all — the source walk is broken, not the package")
 
-	src, err := os.ReadFile("arch_test.go")
+	src, err := os.ReadFile(self)
 	require.NoError(t, err)
 	sweep := string(src)
 	mentioned := func(name string) bool {

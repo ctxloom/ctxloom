@@ -1446,6 +1446,13 @@ func (c *Coordinator) onTurnIdle(role string) {
 	if !rt.ownerRun {
 		c.bridgeTurnResult(rt)
 	}
+	// DRAINING: the boundary is where the drain's exit request is honoured
+	// (drain.go). Checked before the one-shot teardown so the terminal says
+	// drained rather than resumable — under drain nothing resumes it.
+	if c.Draining() {
+		c.drainAtBoundary(rt)
+		return
+	}
 	// ONE-SHOT (Slice 4): a driving:oneshot child that is live-confirmed
 	// resumable tears its engine down at the clean turn boundary instead of
 	// parking it warm. terminateRun (exactly-once) releases the slot, kills
@@ -1506,13 +1513,7 @@ func (c *Coordinator) driveChild(rt *childRt, launch *operations.AgentChatLaunch
 			// endChild, which drains launch.Errs to completion — that only
 			// resolves once Events/Errs close on their own, exactly what we
 			// cannot wait for mid-shutdown.
-			c.mu.Lock()
-			in := rt.in
-			rt.in = nil
-			c.mu.Unlock()
-			if in != nil {
-				close(in)
-			}
+			c.closeChildInput(rt)
 			launch.Close()
 			c.terminateRun(rt.runID, CauseChatClose, "coordinator shutdown")
 			return
@@ -1572,6 +1573,13 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 // an empty mailbox parks the child idle and yields the slot.
 func (c *Coordinator) onTurnBoundary(rt *childRt) {
 	c.bridgeTurnResult(rt)
+	// DRAINING: the boundary is where the drain's exit request is honoured
+	// (drain.go) — before the mailbox is consulted, so queued mail stays
+	// queued for the next run rather than starting a turn under shutdown.
+	if c.Draining() {
+		c.drainAtBoundary(rt)
+		return
+	}
 	// A journal failure here is NOT "the mailbox is empty": parking
 	// the child idle on it strands mail the fold still considers deliverable
 	// and reports the boundary as clean. Fail the child instead — a stalled
@@ -1708,6 +1716,17 @@ func (c *Coordinator) endChild(rt *childRt, launch *operations.AgentChatLaunch) 
 			clidiag.Warn("ctxloom", "agent %s (%s): chat stream ended: %v", rt.harp, rt.agentName, err)
 		}
 	}
+	c.closeChildInput(rt)
+	launch.Close()
+	c.terminateRun(rt.runID, CauseChatClose, streamErr)
+}
+
+// closeChildInput closes a legacy child's input channel exactly once: the
+// engine sees end-of-input, and every later sendTurn finds nil and reports
+// the turn undeliverable instead of panicking on a closed channel. Callers
+// run on the driver goroutine — the channel's only writer — so the close
+// cannot race a send.
+func (c *Coordinator) closeChildInput(rt *childRt) {
 	c.mu.Lock()
 	in := rt.in
 	rt.in = nil
@@ -1715,8 +1734,6 @@ func (c *Coordinator) endChild(rt *childRt, launch *operations.AgentChatLaunch) 
 	if in != nil {
 		close(in)
 	}
-	launch.Close()
-	c.terminateRun(rt.runID, CauseChatClose, streamErr)
 }
 
 // failChild reports a launch failure to the parent's mailbox — the spawn verb
@@ -1744,6 +1761,7 @@ func (c *Coordinator) setState(rt *childRt, state string) {
 		return
 	}
 	c.sampleExecGauge()
+	c.drainWake() // a park or unpark moves a child between the drain's lists
 }
 
 // sampleExecGauge reports the current fold-authoritative count of runs in
@@ -2072,6 +2090,9 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// not) — the pending-mail resume above is async, so the just-ended run is
 	// still this harp's CURRENT run here and is never in the reap set.
 	c.reapEndedRuns()
+	// Last, so a drain that settles on this terminal settles after its
+	// consequences (the parent's notice above included) have landed.
+	c.drainWake()
 }
 
 // reapEndedRuns bounds the live folds' ended-run records (one-shot-resume
@@ -2187,6 +2208,12 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	}
 	if c.launchStopped(harp) {
 		return // an agent_stop landed while this attempt was armed/backing off
+	}
+	if c.Draining() {
+		// A relaunch is a fresh run, and a draining coordinator mints none —
+		// this is the backstop for an attempt armed before the drain began
+		// (relaunchForLeftoverMail and driveQueued refuse to arm one after).
+		return
 	}
 	var rec RunRecord
 	found := false
@@ -2332,10 +2359,19 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	c.driveChild(rt, launch)
 }
 
+// deliveryEndedDraining is driveQueued's observation for an ENDED recipient
+// while the coordinator is draining: the §6a resume is refused (a resume is a
+// fresh run, and a draining coordinator mints none), so the message stays
+// queued. Not a fold state — the run is still StateEnded — but a distinct
+// delivery outcome deliveryDisposition names instead of promising a resume
+// that will not happen.
+const deliveryEndedDraining = "ended-draining"
+
 // driveQueued drives the recipient of an already-enqueued message per its
 // fold state (§6a): resume an ended child or wake an idle one into a new
 // turn; executing/parked/queued children reach the message at their own
-// boundary. Returns the state the delivery observed.
+// boundary. Returns the state the delivery observed (or
+// deliveryEndedDraining for a resume refused under drain).
 func (c *Coordinator) driveQueued(harp string) string {
 	state := ""
 	c.runs.View(func() {
@@ -2345,6 +2381,13 @@ func (c *Coordinator) driveQueued(harp string) string {
 	})
 	switch state {
 	case StateEnded:
+		// Under drain a resume is new work, and the message is not lost by
+		// refusing it: it is already queued, and the next run of this harp
+		// finds it. The disposition must say so (deliveryEndedDraining)
+		// rather than promise the resume below.
+		if c.Draining() {
+			return deliveryEndedDraining
+		}
 		// An EXPLICIT delivery (agent_send / inject) is a fresh ask from a
 		// parent or an operator, so it lifts a prior agent_stop and resets
 		// the consecutive-failure budget — the documented way a stopped or

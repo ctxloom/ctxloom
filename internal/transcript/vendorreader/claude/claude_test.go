@@ -33,14 +33,30 @@ import (
 
 const fixtureHarp = "claude-fixture-harp"
 
-// repoRoot resolves the module root from this test file's own location
+// packageDir is this package's source directory, located from this test
+// file rather than the working directory: TestMain moves the whole binary
+// into a throwaway sandbox cwd, so a relative "testdata/..." resolves to
+// nothing there — and fails as a missing FILE, which reads exactly like a
+// genuine conversion failure.
+func packageDir(t *testing.T) string {
+	t.Helper()
+	_, thisFile, _, ok := runtime.Caller(0)
+	require.True(t, ok, "runtime.Caller failed")
+	return filepath.Dir(thisFile)
+}
+
+// repoRoot resolves the module root from this package's location
 // (internal/transcript/vendorreader/claude/) so the schema-conformance test can
 // reach docs/transcript.schema.json without an embedded copy going stale.
 func repoRoot(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller failed")
-	return filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "..")
+	return filepath.Join(packageDir(t), "..", "..", "..", "..")
+}
+
+// fixturePath is testdata/<name>, anchored at packageDir.
+func fixturePath(t *testing.T, name string) string {
+	t.Helper()
+	return filepath.Join(packageDir(t), "testdata", name)
 }
 
 // runConvert runs the Adapter against testdata/<fixture> into a fresh,
@@ -58,7 +74,7 @@ func runConvert(t *testing.T, fixture string) []transcript.Record {
 	rec, err := transcript.NewRecorder(fixtureHarp, "claude-code")
 	require.NoError(t, err)
 
-	src := filepath.Join("testdata", fixture)
+	src := fixturePath(t, fixture)
 	err = Adapter{}.Convert(context.Background(), rec, src)
 	require.NoError(t, err)
 	require.NoError(t, rec.Close())
@@ -99,7 +115,7 @@ func readRecords(t *testing.T, path string) []transcript.Record {
 // the two are comparable regardless of which wall-clock second either ran on.
 func readGolden(t *testing.T) []transcript.Record {
 	t.Helper()
-	recs := readRecords(t, filepath.Join("testdata", "golden.transcript.acp.jsonl"))
+	recs := readRecords(t, fixturePath(t, "golden.transcript.acp.jsonl"))
 	for i := range recs {
 		recs[i].TS = time.Time{}
 	}
@@ -128,7 +144,7 @@ func TestConvert_ConformsToJSONSchema(t *testing.T) {
 	testsupport.Isolate(t)
 	rec, err := transcript.NewRecorder(fixtureHarp, "claude-code")
 	require.NoError(t, err)
-	require.NoError(t, Adapter{}.Convert(context.Background(), rec, filepath.Join("testdata", "transcript-fixture.jsonl")))
+	require.NoError(t, Adapter{}.Convert(context.Background(), rec, fixturePath(t, "transcript-fixture.jsonl")))
 	require.NoError(t, rec.Close())
 
 	path, err := paths.HarpCanonicalTranscriptPath(fixtureHarp)
@@ -276,7 +292,7 @@ func TestConvert_TurnBoundaryOnMessageIDChange(t *testing.T) {
 	testsupport.Isolate(t)
 	rec, err := transcript.NewRecorder(fixtureHarp, "claude-code")
 	require.NoError(t, err)
-	require.NoError(t, Adapter{}.Convert(context.Background(), rec, filepath.Join("testdata", "turn-boundary-fixture.jsonl")))
+	require.NoError(t, Adapter{}.Convert(context.Background(), rec, fixturePath(t, "turn-boundary-fixture.jsonl")))
 	require.NoError(t, rec.Close())
 
 	path, err := paths.HarpCanonicalTranscriptPath(fixtureHarp)
@@ -340,7 +356,7 @@ func TestConvert_OpenFailure(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
-	err = Adapter{}.Convert(context.Background(), rec, filepath.Join("testdata", "does-not-exist.jsonl"))
+	err = Adapter{}.Convert(context.Background(), rec, fixturePath(t, "does-not-exist.jsonl"))
 	require.Error(t, err)
 }
 
@@ -355,6 +371,6 @@ func TestConvert_ContextCancelled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err = Adapter{}.Convert(ctx, rec, filepath.Join("testdata", "transcript-fixture.jsonl"))
+	err = Adapter{}.Convert(ctx, rec, fixturePath(t, "transcript-fixture.jsonl"))
 	require.ErrorIs(t, err, context.Canceled)
 }

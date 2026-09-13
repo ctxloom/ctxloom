@@ -38,12 +38,15 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 | **command** | A **user-invoked** slash-command template (`/name`): the engine substitutes a prompt. Every engine has this under its own name (claude `.claude/commands/`, codex `$CODEX_HOME/prompts/`, opencode `.opencode/command/`). ctxloom's `command` item-kind and CLI group. | `ctxloom command`; `agent.CommandExport`; bundle `commands:` |
 | **skill** | A **model-invoked** Agent Skill package: a directory containing `SKILL.md` (YAML frontmatter `name`+`description`, instructions body) plus optional bundled `scripts/`/assets, loaded by the engine via progressive disclosure when the description matches the task at hand — never typed by the user. Distinct item-kind from **command**. | `ctxloom skill`; `bundles.BundleSkill`/`SkillPackage`; bundle `skills:`; `agent.SkillExport` |
 | **context** | The model-facing instructions **surface** (the sysprompt / `CLAUDE.md` text). **Narrow** — one surface, never the umbrella (that's the loadout). Matches industry "context" = what's in the model's context window. | assembled context; framed sysprompt; `CLAUDE.md` |
-| **agent** | A **ctxloom actor**: a profile-in-action — the primary you launch *and* each delegated worker (coordinator, finder, programmer, reviewer). What `run --agent` selects and what delegation spawns. **Reserved** — bare "agent" always means this. | the `subagent→agent` rename; `run --agent` |
+| **agent** | A **ctxloom actor**: a profile-in-action — the primary you launch *and* each delegated worker (orchestrator, finder, programmer, reviewer). What `run --agent` selects and what delegation spawns. **Reserved** — bare "agent" always means this. | the `subagent→agent` rename; `run --agent` |
 | **engine agent** | The engine's *own* internal subagent (claude `--agent`, "agent family"). Always qualified; never bare "agent." | claude `--agent` |
 | **session** | A launched ctxloom run (harp-named). Hosts the primary agent and its delegated agents. | `~/.ctxloom/sessions/<harp>`; harp IDs |
 | **profile** | An agent's *definition* (config). `agent` = profile-in-action. | `internal/config` profiles |
 | **runtime coordinator** | The **process/library**: durable CQRS stores (run registry, role mailboxes, interaction journal), credential minting/verification, the agentcoord gRPC server (RunnerChannel/RunChannel), spawn-queue scheduling, and runner-loss synthesis. Hosted by every session-owning process (`ctxloom run`, the `ctxloom mcp serve` fallback). Never an LLM. | `internal/agentcoord/coord` |
-| **coordinating agent** | The **LLM role**: an agent (usually the session's primary) that *uses* the coordination tools — spawning children (`agent_run`), routing their mail (`agent_send`/`agent_recv`), reading the roster, filing reports. Judgment lives here; process facts live in the runtime coordinator. | the parent session's model; the coordinator-ensemble profiles |
+| **orchestrating agent** (*orchestrator*) | The **LLM role**: an agent (usually the session's primary) that *uses* the coordination tools — spawning children (`agent_run`), routing their mail (`agent_send`/`agent_recv`), reading the roster, filing reports. Judgment lives here; process facts live in the runtime coordinator. Formerly "coordinating agent" — renamed 2026-09-12, see the naming decision below. | the `orchestrator` agent binding; the agent-ensemble profiles |
+| **originator** | The process a human launches (`ctxloom run`). It hosts the runtime coordinator, and it is the ONLY process that ever execs a container runtime — every spawn below it is performed here, on a requester's behalf. | `ctxloom run`; `internal/agentcoord/coord` |
+| **executor** | An agent the orchestrator spawns to do work, including HEAVY work. Orchestrators dispatch the full suite, acceptance and mutation to executors and consume the verdict rather than running them — that is what keeps every heavy job countable against `delegation.concurrency`. | the `developer` binding; `delegation.concurrency` |
+| **subagent** | A light agent (find/search) that serves an executor. A PEER of the executors, not below them — same delegation depth. The executor REQUESTS it; the ORCHESTRATOR spawns it. Never spawned by the executor itself — the tree stays flat. | `agent_run`; `Coordinator.AgentRun` |
 
 > Status: the `codex` engine above is implemented and hermetically tested; live operation is untested (no codex account on any dev host).
 
@@ -71,16 +74,103 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
   instructions surface (industry usage), name each deliverable a **surface**, and
   call the composed set a **loadout**. So: surfaces compose into a loadout; context
   is the context surface.
-- **"coordinator" is split, never bare.** The peer-model work made one word
-  carry two natures: the **runtime coordinator** is deterministic
+- **The AGENT is the orchestrator; the COORDINATOR is the runtime.** One word
+  carried two natures: the **runtime coordinator** is deterministic
   infrastructure (journals, credentials, gRPC channels, lifecycle synthesis —
   it must never be confused with a model making judgment calls), while the
-  **coordinating agent** is the LLM role driving delegation through the
-  coordination tools. Self-narration by an agent is never load-bearing:
-  process facts come from the runtime coordinator (runner channels,
-  synthesized terminal records), judgment from the coordinating agent.
-  Qualify every use; bare "coordinator" is ambiguous and reserved for
-  headings where the qualifier is established.
+  LLM role driving delegation is the **orchestrating agent**. Self-narration by
+  an agent is never load-bearing: process facts come from the runtime
+  coordinator (runner channels, synthesized terminal records), judgment from
+  the orchestrating agent.
+
+  WHY A DISTINCT WORD RATHER THAN A QUALIFIER (changed 2026-09-12). This entry
+  previously ruled "qualify every use; bare coordinator is ambiguous". That
+  discipline was tried and did NOT hold, and the evidence is in the tree: the
+  agent binding and `default_agent` were both a bare `coordinator`, the role
+  fragment was titled "Role: Coordinator", and a topology study written on
+  2026-09-12 had to keep saying "where the RUNTIME coordinator sits" to stay
+  unambiguous — its central open question was ambiguous as posed. A rule that
+  needs constant discipline from every writer is not a rule; it is a hope.
+  Two natures now have two words, so no qualifier is needed and none can be
+  forgotten.
+
+  Bare "coordinator" therefore means the RUNTIME component, and `coord.*`
+  symbols keep their names deliberately — they are that component. An agent
+  is never a coordinator.
+
+- **The topology is FOUR LEVELS and does not recurse** (ruled 2026-09-12).
+  originator → orchestrator → executors → subagents.
+
+  THOSE FOUR NAMES ARE ROLES, NOT DEPTHS, and the distinction is load-bearing
+  enough to state: originator and orchestrator describe WHERE A PROCESS RUNS
+  (containment), while executor and subagent describe WHAT AN AGENT IS FOR
+  (role and service). Read as a ladder they mislead, because a subagent does
+  NOT sit below an executor — the executor only REQUESTS it and the orchestrator
+  spawns it, so the two are PEERS.
+
+  There are exactly TWO agent depths, and that is the fact the mechanism uses:
+  the orchestrating agent is depth 0 — containerized or not, since a top-level
+  container run is enqueued at the owner's depth — and executors and subagents
+  are both depth 1, leaves under the default `delegation.depth`. Everything in
+  the section below turns on there being two, so do not infer a third from the
+  names. An orchestrator MAY itself
+  run in a container ("level 2"), and that shape is **2a**: the orchestrating
+  agent is an ordinary depth-1 child cell, while the runtime coordinator stays
+  in the originator. Its container therefore needs no container runtime, no
+  socket, and no nested daemon.
+
+  **2b — a nested `ctxloom run` owning its own runtime coordinator — is OUT OF
+  SCOPE, not merely deferred.** The two readings look identical when written as
+  "a container for the orchestrator", so name the shape, never the phrase.
+
+  WHY TRUE RECURSION IS UNWANTED (ruled 2026-09-12, after a feasibility study
+  and an independent adversarial review of it). Not because it is hard. Because
+  FLATNESS IS LOAD-BEARING: four properties this design relies on are bought by
+  having exactly two agent depths — the orchestrator, and everything it spawns.
+
+  1. POSITION IMPLIES PRIVILEGE. `runnerIsLeaf` decides delegation from depth
+     against `delegation.depth`. That works only while there are two depths. Add
+     recursion and there is an orchestrator at depth n and executors at n+1 for
+     every n, so no global cap can express "orchestrators may delegate,
+     executors may not" — which revives the per-binding flag
+     `agents.RetiredCoordinatorKey` deliberately REMOVED in favour of position.
+     That retirement is correct only because the tree is flat.
+
+  2. ONE CAP SEES EVERYTHING. Heavy work is bounded because a single
+     `Coordinator.slots` observes the whole tree — which is why an orchestrator
+     dispatches gates to executors instead of running them. With a runtime
+     coordinator per level, each caps its own children and nothing holds a
+     global view.
+
+  3. ONE SWEEPER RECLAIMS EVERYTHING. Orphan reclaim is keyed on
+     `ctxloom.owner-pid` plus a liveness check, and PID LIVENESS DOES NOT CROSS
+     A NAMESPACE BOUNDARY: a nested container's owner pid is a pid inside its
+     parent, unevaluable from outside. Every level would need its own sweeper,
+     and a level that dies takes its children's reaper with it. Unreclaimable by
+     construction.
+
+  4. IDENTITY PATH MAPPING STAYS CORRECT, and `renderRunSpec` has no privilege
+     knob at all — no `--device`, no `--security-opt`, no `--privileged`. That
+     absence is a PROPERTY, not a gap: no agent cell can be granted a nested
+     runtime by configuration. Recursion means deliberately reopening it.
+
+  The decisive argument is that properties 2 and 3 are exactly the two failures
+  that have actually occurred here: an OOM took a whole run when five concurrent
+  heavy jobs ran against a cap that could see three, and the same kill stranded
+  three worktrees that only manual recovery found. Recursion makes both
+  structurally worse, in exchange for a capability nothing has yet needed.
+
+  THE TRAP TO WATCH FOR: someone reaching for recursion to solve a problem that
+  a flat tree plus the per-session exchange directory already solves — an
+  executor wanting work done without spending the orchestrator's context does
+  NOT need to spawn anything itself. If recursion is ever revisited, price all
+  four properties above; the full analysis is in the container-topology study.
+
+  Note that delegation privilege is DERIVED, never declared: a per-binding
+  `coordinator: true` flag existed and was deliberately REMOVED
+  (`agents.RetiredCoordinatorKey`) in favour of position in the tree. Any
+  proposal to re-add a per-agent "may delegate" field is reviving something
+  this codebase retired on purpose — read that constant's doc before doing it.
 
 ## Implied code renames (consequences; schedule separately, not blockers)
 

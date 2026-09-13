@@ -90,6 +90,18 @@ const (
 	// (the turn's result was already bridged) and — like every cause except
 	// CauseStopped — it must NOT clear the harp's ACCEPT_FOR_SESSION grants.
 	CauseOneShotBoundary = "oneshot-boundary"
+	// CauseDrained is a child ended by the coordinator's DRAIN at a point
+	// where no work was cut short: at its own turn boundary (the exit the
+	// drain REQUESTED, honoured), between turns, or before it ever started.
+	// Like CauseStopped it is not resumable by leftover mail — drain is
+	// shutdown, not supervision — but unlike it, it is not an operator's
+	// judgement on the child.
+	CauseDrained = "drained"
+	// CauseDrainInterrupted is a child whose turn was still running when the
+	// drain bound elapsed and was FORCED down. The accepted cost of the bound:
+	// a productive turn longer than the bound is interrupted and reported as
+	// interrupted, never as a clean exit.
+	CauseDrainInterrupted = "drain-interrupted"
 )
 
 // runEnqueued is factRunEnqueued's payload.

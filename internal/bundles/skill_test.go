@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -125,8 +126,8 @@ func TestParseSkillPackage_VendorInvalidFrontmatterLoads(t *testing.T) {
 		t.Run(tc.label, func(t *testing.T) {
 			fsys := afero.NewMemMapFs()
 			require.NoError(t, fsys.MkdirAll(tc.dir, 0755))
-			require.NoError(t, afero.WriteFile(fsys, tc.dir+"/SKILL.md",
-				[]byte("---\nname: "+tc.name+"\ndescription: "+tc.description+"\n---\nbody\n"), 0644))
+			testsupport.WriteFileString(t, fsys, tc.dir+"/SKILL.md",
+				"---\nname: "+tc.name+"\ndescription: "+tc.description+"\n---\nbody\n", 0644)
 
 			pkg, err := ParseSkillPackage(fsys, tc.dir, 0)
 			require.NoError(t, err, "vendor constraints are not enforced on load")

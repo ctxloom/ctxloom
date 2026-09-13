@@ -15,15 +15,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// repoRoot resolves the ctxloom module root from this test file's location
+// packageDir is this package's source directory, located from this test
+// file rather than the working directory: TestMain moves the whole binary
+// into a throwaway sandbox cwd, so a relative "testdata/..." resolves to
+// nothing there — and fails as a missing FILE, which reads exactly like a
+// genuine parse failure. It takes no *testing.T because the fixture roster
+// is discovered at package init, before any test runs.
+func packageDir() string {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		panic("runtime.Caller: cannot locate this source file")
+	}
+	return filepath.Dir(thisFile)
+}
+
+// repoRoot resolves the ctxloom module root from this package's location
 // (internal/transcript/) so the fixture tests can reach docs/ without an
 // embedded copy going stale relative to the one true schema file.
 func repoRoot(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller failed")
-	// internal/transcript/fixtures_test.go -> repo root is two levels up.
-	return filepath.Join(filepath.Dir(thisFile), "..", "..")
+	// internal/transcript/ -> repo root is two levels up.
+	return filepath.Join(packageDir(), "..", "..")
+}
+
+// fixturePath is testdata/fixtures/<name>, anchored at packageDir.
+func fixturePath(name string) string {
+	return filepath.Join(packageDir(), "testdata", "fixtures", name)
 }
 
 func compileTranscriptSchema(t *testing.T) *jsonschema.Schema {
@@ -45,7 +62,7 @@ func compileTranscriptSchema(t *testing.T) *jsonschema.Schema {
 // Records (for payload assertions).
 func readFixtureLines(t *testing.T, engine string) ([]string, []Record) {
 	t.Helper()
-	path := filepath.Join("testdata", "fixtures", engine+".transcript.acp.jsonl")
+	path := fixturePath(engine + ".transcript.acp.jsonl")
 	f, err := os.Open(path)
 	require.NoError(t, err, "open fixture for %s", engine)
 	defer f.Close()
@@ -82,7 +99,7 @@ var allFixtureEngines = discoverFixtureEngines()
 
 func discoverFixtureEngines() []string {
 	const suffix = ".transcript.acp.jsonl"
-	matches, err := filepath.Glob(filepath.Join("testdata", "fixtures", "*"+suffix))
+	matches, err := filepath.Glob(fixturePath("*" + suffix))
 	if err != nil {
 		panic("glob fixtures: " + err.Error())
 	}
@@ -208,7 +225,7 @@ func readFixtureManifest(t *testing.T) []string {
 	t.Helper()
 	const suffix = ".transcript.acp.jsonl"
 
-	data, err := os.ReadFile(filepath.Join("testdata", "fixtures", "MANIFEST.json"))
+	data, err := os.ReadFile(fixturePath("MANIFEST.json"))
 	require.NoError(t, err, "read fixture MANIFEST.json")
 
 	var m struct {

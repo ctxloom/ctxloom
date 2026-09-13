@@ -189,6 +189,13 @@ type deliverySpec struct {
 	wantFile string
 	// wantSlot is the sentinel that must appear inside wantFile.
 	wantSlot string
+	// underEngineHome roots wantFile beneath the ENGINE HOME rather than the
+	// project root: the approach writes the engine's private home and refuses
+	// a Start that advises none (agent.EngineHomeRooted). The loop advises
+	// both roots for such a pair and asserts the project root stays EMPTY —
+	// a private-home delivery that also touched the project tree would be
+	// the shared-cwd exposure the approach exists to avoid.
+	underEngineHome bool
 	// alsoFile / alsoSlot pin a SECOND route the same pair delivers (a
 	// hook approach writes both the cache file the hook reads and the native
 	// AGENTS.md). alsoFile may end in "/*" to match one file in that directory.
@@ -236,6 +243,7 @@ var matrixSpecs = map[string]deliverySpec{
 	},
 	"claude-code/mcp/unsafe-file":      {wantFile: ".mcp.json", wantSlot: slotMCPCmd},
 	"claude-code/settings/unsafe-file": {wantFile: ".claude/settings.json", wantSlot: slotHook},
+	"claude-code/settings/hew-record":  {wantFile: "settings.json", wantSlot: slotHook, underEngineHome: true},
 	"claude-code/commands/unsafe-file": {wantFile: ".claude/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
 	"claude-code/skills/unsafe-file":   {wantFile: ".claude/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 
@@ -415,11 +423,24 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 					}
 
 					require.NotNil(t, d, "%s: declared pair resolved to a nil Delivery", key)
-					_, derr := d.Deliver(present.ProjectOnHost(root))
+					start, deliveryRoot := present.ProjectOnHost(root), root
+					if spec.underEngineHome {
+						const home = "/engine-home"
+						start = present.New(present.OnHost(present.Paths{
+							ProjectRoot: present.Root{Host: root},
+							EngineHome:  present.Root{Host: home},
+						}))
+						deliveryRoot = home
+					}
+					_, derr := d.Deliver(start)
 					require.NoError(t, derr, "%s: delivery failed", key)
 
-					tree := matrixTree(t, fs, root)
+					tree := matrixTree(t, fs, deliveryRoot)
 					require.NotEmpty(t, tree, "%s: delivery reported success and wrote ZERO files", key)
+					if spec.underEngineHome {
+						assert.Empty(t, matrixTree(t, fs, root),
+							"%s promises a private-home delivery but wrote into the PROJECT root", key)
+					}
 
 					assertSentinelAt(t, key, tree, spec.wantFile, spec.wantSlot)
 					if spec.alsoFile != "" {

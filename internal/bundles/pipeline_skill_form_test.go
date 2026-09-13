@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -22,7 +23,7 @@ func writeTwoBodySkillBundle(t *testing.T, fsys afero.Fs, bundlesDir string) map
 	t.Helper()
 	files := writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 	dir := skillFixtureDir(t, fsys, bundlesDir)
-	require.NoError(t, afero.WriteFile(fsys, dir+"/SKILL.distilled.md", distilledSkillMD, 0644))
+	testsupport.WriteFile(t, fsys, dir+"/SKILL.distilled.md", distilledSkillMD, 0644)
 	return files
 }
 

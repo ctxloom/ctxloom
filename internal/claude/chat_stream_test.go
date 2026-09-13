@@ -3,6 +3,7 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -10,9 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// fixture reads testdata/streamjson/<name> from THIS FILE's own location
+// rather than the working directory: TestMain moves the whole binary into a
+// throwaway sandbox cwd, so a relative "testdata/..." resolves to nothing
+// there — and fails as a missing FILE, which reads like a broken fixture.
 func fixture(t *testing.T, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", "streamjson", name))
+	_, thisFile, _, ok := runtime.Caller(0)
+	require.True(t, ok, "runtime.Caller failed")
+	b, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "testdata", "streamjson", name))
 	require.NoError(t, err)
 	return b
 }

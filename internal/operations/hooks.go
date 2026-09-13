@@ -714,23 +714,18 @@ func installRoute(decl agent.Declaration, kind agent.SurfaceKind) (name string, 
 // misses it — and otherwise the install retracts it and the check stays
 // quiet about its absence.
 //
-// False for a Rider (it writes nothing of its own) and for a LaunchOnly
-// route (its bytes are announced on argv, which an install has no sink for).
-// An approach's OutOfCwd form is NOT consulted: it is the shared-cwd LAUNCH
-// form of the same approach, and at rest the well-known write still lands
-// under the project root — the settings and MCP files are exactly that.
+// It asks the route's PRESENTER where the bytes land
+// (agent.PresentsUnderProjectRoot) rather than enumerating marker
+// interfaces. A Rider presents nothing; a LaunchOnly route presents under
+// Scratch; a record-backed write presents under the engine home — and every
+// one of those is "not a project file" by the same test, including the ones
+// no marker names. An approach's OutOfCwd form is NOT consulted: it is the
+// shared-cwd LAUNCH form of the same approach, and at rest the well-known
+// write still lands under the project root — the settings and MCP files are
+// exactly that.
 func installedThroughProjectFile(decl agent.Declaration, kind agent.SurfaceKind) bool {
 	_, route, ok := installRoute(decl, kind)
-	if !ok {
-		return false
-	}
-	if _, rider := route.(agent.Rider); rider {
-		return false
-	}
-	if _, launchOnly := route.(agent.LaunchOnly); launchOnly {
-		return false
-	}
-	return true
+	return ok && agent.PresentsUnderProjectRoot(route)
 }
 
 // installedContextFile composes what ApplyHooks writes into a native-file

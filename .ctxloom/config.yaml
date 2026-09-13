@@ -1,9 +1,9 @@
 agents:
-    coordinator:
+    orchestrator:
         llm: claude-code
         permissions: bypass
         profiles:
-            - coordinator
+            - orchestrator
         runtime: host
     default:
         llm: claude-code
@@ -42,7 +42,7 @@ agents:
         runtime: container-rootless
 config:
     use_distilled: true
-default_agent: coordinator
+default_agent: orchestrator
 dirty_tree_handler: commit
 llm:
     configs:

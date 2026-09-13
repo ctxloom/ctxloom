@@ -356,7 +356,20 @@ func (c *Coordinator) nextRelaunch(harp string) (delay time.Duration, ok, exhaus
 // other cause simply stops re-arming (the child is not resumable by
 // retrying, and its mail waits for an explicit delivery).
 func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail string) {
-	if cause == CauseStopped || c.pendingCount(rec.Harp) == 0 {
+	if cause == CauseStopped {
+		return
+	}
+	pending := c.pendingCount(rec.Harp)
+	if pending == 0 {
+		return
+	}
+	if c.Draining() {
+		// Drain is shutdown, not supervision: a child that dies mid-drain
+		// stays dead, whatever it left queued. Said out loud, because a
+		// mailbox nobody is told about is the same blind spot this loop's
+		// own give-up notice exists to close.
+		clidiag.Warn("ctxloom", "coordinator drain: agent %q (session %s) ended (%s) with %d message(s) still queued; not relaunched — they wait for the harp's next run",
+			rec.Agent, rec.Harp, cause, pending)
 		return
 	}
 	delay, ok, exhausted := c.nextRelaunch(rec.Harp)

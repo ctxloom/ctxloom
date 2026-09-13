@@ -433,7 +433,17 @@ cover:
     echo "Running tests with coverage..."
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
-    go test -trimpath -coverprofile="$raw" ./... > /dev/null 2>&1
+    # The test run's output is KEPT on failure. Discarding it reported only
+    # "recipe failed" with no test name, no package and no reason, which is
+    # indistinguishable from a broken toolchain. Quiet on success, because a
+    # passing coverage run is thousands of uninteresting lines.
+    log="$(mktemp coverage.log.XXXXXX)"
+    trap 'rm -f "$raw" "$log"' EXIT
+    if ! go test -trimpath -coverprofile="$raw" ./... > "$log" 2>&1; then
+        echo "cover: the test run FAILED — failures follow:"
+        grep -E '^(FAIL|--- FAIL)|no such file|panic:|cannot ' "$log" | head -30
+        exit 1
+    fi
     just _filter_coverage "$raw" coverage.out
     echo "Coverage (excluding patterns from .coverignore):"
     go tool cover -func=coverage.out | tail -1

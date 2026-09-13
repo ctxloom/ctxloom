@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/claude"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // TestMergeWorkspaceEnv pins mergeWorkspaceEnv's precedence contract: the
@@ -67,73 +66,46 @@ func TestMergeWorkspaceEnv(t *testing.T) {
 	})
 }
 
-// TestTopLevelRunIsolationEnv_WorktreeDeliversConfigHomeEnv is the wiring
-// regression test: `ctxloom run --workspace worktree` at the
-// TOP LEVEL never merged isolation.WorkspaceEnv into the wire
-// RunOptions.Env, so a worktree-isolated claude run silently kept
-// reading the GLOBAL ~/.claude.json instead of the per-agent
-// config-home isolation.Prepare had already resolved and seeded — a silent
-// isolation no-op. This drives the EXACT two calls run.go's built-in-backend
-// branch makes — isolation.Prepare(axes, backend, ...) then
-// isolation.WorkspaceEnv(ws) — against a real git worktree, then runs the
-// result through mergeWorkspaceEnv exactly as run.go does, and asserts the
-// per-engine config-home var actually lands in the final env.
-// (operations/oneshot.go's fan-out path already had
-// equivalent coverage — worktree_managed_integration_test.go,
-// oneshot_isolation_gate_test.go; this is the top-level path's missing twin.)
-func TestTopLevelRunIsolationEnv_WorktreeDeliversConfigHomeEnv(t *testing.T) {
+// TestTopLevelRunIsolationEnv_WorktreeDeliversWorkspaceEnv is the wiring
+// regression test: `ctxloom run --workspace worktree` at the TOP LEVEL once
+// never merged isolation.WorkspaceEnv into the wire RunOptions.Env, so
+// everything the worktree provisioned for the run was silently unused. This
+// drives the EXACT two calls run.go's built-in-backend branch makes —
+// isolation.Prepare(axes, backend, ...) then isolation.WorkspaceEnv(ws) —
+// against a real git worktree, then runs the result through mergeWorkspaceEnv
+// exactly as run.go does, and asserts the workspace's own env lands in the
+// final env. What it must NOT carry is the engine's config home: that is not
+// the workspace's to provide (operations.ResolveInTreeAgentHome decides it
+// off the binding), and a workspace that carried it made a run's home depend
+// on which workspace it picked.
+func TestTopLevelRunIsolationEnv_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH; skipping the worktree isolation-env integration test")
 	}
+	repo := initIsolationTestRepo(t)
+	axes := isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost}
 
-	cases := []struct {
-		backend string
-		envVar  string
-	}{
-		{backend: "claude-code", envVar: "CLAUDE_CONFIG_DIR"},
-	}
+	// The exact call run.go's built-in-backend branch makes.
+	policy, ws := isolation.Prepare(context.Background(), axes, "claude-code", isolation.ImageConfig{}, repo, "agent-claude-code", isolation.SessionState{})
+	t.Cleanup(func() { _ = ws.Cleanup() })
 
-	for _, tc := range cases {
-		t.Run(tc.backend, func(t *testing.T) {
-			// Isolate this run's strictness state: a missing host credential
-			// (claude-code has no ANTHROPIC_API_KEY nor a host ~/.claude on a
-			// bare test runner) is a fail-loudly finding in strict mode — best-
-			// effort for the config-home dir itself (still provisioned, so
-			// Env() still reports it), but it must not leak into or fail on
-			// other tests' global strictness state. --degraded also silences
-			// the credential-seed warning noise for this env-presence check.
-			prevDegraded := strictness.Degraded()
-			strictness.SetDegraded(true)
-			t.Cleanup(func() {
-				strictness.Reset()
-				strictness.SetDegraded(prevDegraded)
-			})
+	require.Equal(t, "worktree", policy.Name(), "a git repo + worktree axis must resolve the Worktree policy, not degrade to none")
+	require.NotEqual(t, repo, ws.Dir(), "the resolved workspace must be a distinct worktree checkout, not the shared project dir")
 
-			repo := initIsolationTestRepo(t)
-			axes := isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost}
+	workspaceEnv := isolation.WorkspaceEnv(ws)
+	require.NotEmpty(t, workspaceEnv, "the worktree workspace must expose the env for what it provisioned")
+	require.Contains(t, workspaceEnv, "TMPDIR", "the per-agent toolchain scratch dir")
+	require.Contains(t, workspaceEnv, "GIT_AUTHOR_NAME", "the per-agent git identity")
+	assert.NotContains(t, workspaceEnv, claude.ConfigDirEnv, "the config home is not the workspace's to carry")
 
-			// The exact call run.go's built-in-backend branch makes.
-			policy, ws := isolation.Prepare(context.Background(), axes, tc.backend, isolation.ImageConfig{}, repo, "agent-"+tc.backend, isolation.SessionState{})
-			t.Cleanup(func() { _ = ws.Cleanup() })
+	// The wiring under test: merge into an already-assembled env exactly
+	// as run.go's top-level path does (session identity survives).
+	existing := map[string]string{"CTXLOOM_SESSION_HARP": "test-harp"}
+	finalEnv := mergeWorkspaceEnv(existing, workspaceEnv)
 
-			require.Equal(t, "worktree", policy.Name(), "a git repo + worktree axis must resolve the Worktree policy, not degrade to none")
-			require.NotEqual(t, repo, ws.Dir(), "the resolved workspace must be a distinct worktree checkout, not the shared project dir")
-
-			workspaceEnv := isolation.WorkspaceEnv(ws)
-			require.NotEmpty(t, workspaceEnv, "%s's worktree workspace must expose a per-engine config-home env", tc.backend)
-			require.Contains(t, workspaceEnv, tc.envVar)
-			assert.NotEmpty(t, workspaceEnv[tc.envVar])
-
-			// The wiring under test: merge into an already-assembled env exactly
-			// as run.go's top-level path does (session identity survives).
-			existing := map[string]string{"CTXLOOM_SESSION_HARP": "test-harp"}
-			finalEnv := mergeWorkspaceEnv(existing, workspaceEnv)
-
-			assert.Equal(t, "test-harp", finalEnv["CTXLOOM_SESSION_HARP"], "the pre-assembled session env must survive the merge")
-			assert.Equal(t, workspaceEnv[tc.envVar], finalEnv[tc.envVar],
-				"the isolation-resolved %s must be delivered into the wire RunOptions.Env — this is the aged-clasp gap", tc.envVar)
-		})
-	}
+	assert.Equal(t, "test-harp", finalEnv["CTXLOOM_SESSION_HARP"], "the pre-assembled session env must survive the merge")
+	assert.Equal(t, workspaceEnv["TMPDIR"], finalEnv["TMPDIR"],
+		"the isolation-resolved workspace env must be delivered into the wire RunOptions.Env — this is the aged-clasp gap")
 }
 
 // TestPrepareWorkspace_InTreeAgentHome drives the REAL prepareWorkspace — the
@@ -277,12 +249,15 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
 	})
 
-	t.Run("the worktree axis' own config home is never overridden", func(t *testing.T) {
+	// THE HOME IS ORTHOGONAL TO THE WORKTREE: a worktree cell with the same
+	// binding gets the SAME session home the live tree gets, hung off the
+	// project root (not the checkout) and keyed by the session — while the
+	// seeded trust answer names the checkout the engine actually runs in.
+	t.Run("a worktree cell gets the same session home as the live tree", func(t *testing.T) {
 		if _, err := exec.LookPath("git"); err != nil {
-			t.Skip("git not on PATH; skipping the worktree precedence case")
+			t.Skip("git not on PATH; skipping the worktree cell case")
 		}
 		resetStrictness(t)
-		strictness.SetDegraded(true) // a bare runner has no host claude credential to seed
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
@@ -292,15 +267,18 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
 
-		require.Equal(t, "worktree", st.policy.Name(), "the worktree axis must not have degraded — the precedence claim needs a real isolation value")
-		got := st.req.Options.Env[claude.ConfigDirEnv]
-		require.NotEmpty(t, got)
-		assert.Equal(t, isolation.WorkspaceEnv(st.ws)[claude.ConfigDirEnv], got,
-			"isolation's per-agent config home must win — the in-tree contribution fills gaps only")
-		inTree, err := claude.SessionConfigDir(repo, "test-harp")
+		require.Equal(t, "worktree", st.policy.Name(), "the worktree axis must not have degraded — the orthogonality claim needs a real worktree")
+		require.NotEqual(t, repo, st.ws.Dir())
+		want, err := claude.SessionConfigDir(repo, "test-harp")
 		require.NoError(t, err)
-		assert.NotEqual(t, inTree, got)
-		assert.NoDirExists(t, filepath.Join(repo, ".ctxloom", "state"), "the losing in-tree arm must not even create its home")
+		assert.Equal(t, want, st.req.Options.Env[claude.ConfigDirEnv],
+			"the worktree cell's home is the session instance under the PROJECT root, exactly as on the live tree")
+		assert.NotContains(t, isolation.WorkspaceEnv(st.ws), claude.ConfigDirEnv,
+			"the workspace itself carries no config-home var — one carrier, not two")
+
+		cfg, err := os.ReadFile(filepath.Join(want, ".claude.json"))
+		require.NoError(t, err)
+		assert.Contains(t, string(cfg), st.ws.Dir(), "the trust answer names the checkout the engine runs in")
 	})
 }
 

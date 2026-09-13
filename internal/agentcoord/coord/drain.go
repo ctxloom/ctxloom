@@ -80,12 +80,14 @@ type drainPolicy struct {
 // shutdownPolicy is BeginDrain's: the coordinator is going away.
 func shutdownPolicy() drainPolicy {
 	return drainPolicy{
-		label:       "coordinator drain",
-		parkIsWait:  true,
-		endCause:    CauseDrained,
-		endDetail:   func(where string) string { return "coordinator drain: ended " + where },
-		forceCause:  CauseDrainInterrupted,
-		forceDetail: func(bound time.Duration) string { return fmt.Sprintf("coordinator drain: turn still running after the %s bound; interrupted", bound) },
+		label:      "coordinator drain",
+		parkIsWait: true,
+		endCause:   CauseDrained,
+		endDetail:  func(where string) string { return "coordinator drain: ended " + where },
+		forceCause: CauseDrainInterrupted,
+		forceDetail: func(bound time.Duration) string {
+			return fmt.Sprintf("coordinator drain: turn still running after the %s bound; interrupted", bound)
+		},
 	}
 }
 
@@ -96,11 +98,13 @@ func shutdownPolicy() drainPolicy {
 func stopPolicy(caller, reason string) drainPolicy {
 	by := fmt.Sprintf("stopped by %s: %s", caller, reason)
 	return drainPolicy{
-		label:       "agent_stop by " + caller,
-		endCause:    CauseStopped,
-		endDetail:   func(where string) string { return by + " (ended " + where + ")" },
-		forceCause:  CauseStopped,
-		forceDetail: func(bound time.Duration) string { return fmt.Sprintf("%s (turn still running after the %s bound; interrupted)", by, bound) },
+		label:      "agent_stop by " + caller,
+		endCause:   CauseStopped,
+		endDetail:  func(where string) string { return by + " (ended " + where + ")" },
+		forceCause: CauseStopped,
+		forceDetail: func(bound time.Duration) string {
+			return fmt.Sprintf("%s (turn still running after the %s bound; interrupted)", by, bound)
+		},
 	}
 }
 

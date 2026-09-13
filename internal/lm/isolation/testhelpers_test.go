@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/claude"
 	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
-	"github.com/ctxloom/ctxloom/internal/lm/enginenames"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -56,10 +55,6 @@ func TestMain(m *testing.M) {
 	// CopyAmbient seeds the host credential VERBATIM, so the refresh half of
 	// the OAuth token would be copied into the instance home and the stripping
 	// assertions would pass by never running the stripper.
-	// The alias table is populated by composition; this binary composes the
-	// lean name root, as ltk and taskloom do, so alias resolution is exercised
-	// here against the same declarations those binaries see.
-	enginenames.MustRegister()
 	RegisterCredentialProjector(claude.EngineName, claude.NewCredentialProjector())
 	// Push claude's REAL credential-seed declaration the same way, for the
 	// same reason: the seed these tests exercise is the one the engine

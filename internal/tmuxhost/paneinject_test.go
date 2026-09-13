@@ -34,13 +34,12 @@ import (
 // restriction" would turn every forgetful caller into a blind paste.
 //
 // The MEASURED-ENGINE-ON-AN-UNMEASURED-SURFACE case is the reason this gate is
-// keyed on a pair at all, and it is not hypothetical: the ACP config in this
-// package is literally {Command: "claude-code-acp", AgentEngine: "claude"}. So
-// an allowlist keyed on the engine name would admit a pane running a JSON-RPC
-// adapter on a measurement taken against the claude TUI, and paste prose into
-// a protocol stream. That subtest is what keeps the surface dimension honest —
-// delete it and the pair collapses back to an engine check that still passes
-// every other case here.
+// keyed on a pair at all: the same engine runs as a TUI and as a JSON-RPC ACP
+// adapter, so an allowlist keyed on the engine name alone would admit a pane
+// running the adapter on a measurement taken against the TUI, and paste prose
+// into a protocol stream. That subtest is what keeps the surface dimension
+// honest — delete it and the pair collapses back to an engine check that
+// still passes every other case here.
 func TestPaneInjector_UnmeasuredTargetIsRefusedWithNothingWritten(t *testing.T) {
 	for _, tc := range []struct {
 		name, harp, engine, wantIn string
@@ -53,13 +52,13 @@ func TestPaneInjector_UnmeasuredTargetIsRefusedWithNothingWritten(t *testing.T) 
 			engine: "", surface: agent.CLISurfaceInteractive,
 			wantIn: `engine ""`},
 		{name: "a measured engine on its ACP surface, which is not a TUI", harp: "xi",
-			engine: "claude", surface: agent.CLISurface("acp"),
+			engine: "claude-code", surface: agent.CLISurface("acp"),
 			wantIn: "acp"},
 		{name: "a measured engine on a surface nobody measured", harp: "omicron",
-			engine: "claude", surface: agent.CLISurfaceOneshot,
+			engine: "claude-code", surface: agent.CLISurfaceOneshot,
 			wantIn: "oneshot"},
 		{name: "the zero-value surface, i.e. a caller that forgot", harp: "pi",
-			engine: "claude", surface: "",
+			engine: "claude-code", surface: "",
 			wantIn: `surface ""`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -147,7 +146,7 @@ func TestPaneInjector_PasteArrivesBracketed(t *testing.T) {
 			`printf '\033[?2004h'; stty raw -echo; printf READY-3f8a; exec cat -v`},
 		// The stand-in enables bracketed paste for real (the printf above),
 		// which is the property that puts claude on the allowlist.
-		Engine: "claude", Surface: agent.CLISurfaceInteractive,
+		Engine: "claude-code", Surface: agent.CLISurfaceInteractive,
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "kappa") })
 
@@ -191,7 +190,7 @@ func TestPaneInjector_PasteLeavesNoBufferBehind(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, h.Start(ctx, "lambda", PaneSpec{
-		Command: "sh", Args: []string{"-c", "exec cat"}, Engine: "claude", Surface: agent.CLISurfaceInteractive,
+		Command: "sh", Args: []string{"-c", "exec cat"}, Engine: "claude-code", Surface: agent.CLISurfaceInteractive,
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "lambda") })
 
@@ -263,7 +262,7 @@ func TestPaneInjector_StagesExactlyTheTextForLoadBuffer(t *testing.T) {
 
 	require.NoError(t, h.Start(ctx, "h1", PaneSpec{
 		Command: "sh",
-		Engine:  "claude", Surface: agent.CLISurfaceInteractive,
+		Engine:  "claude-code", Surface: agent.CLISurfaceInteractive,
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "h1") })
 
@@ -286,7 +285,7 @@ func TestPaneInjector_StagingFileIsRemovedAfterThePaste(t *testing.T) {
 
 	require.NoError(t, h.Start(ctx, "h1", PaneSpec{
 		Command: "sh",
-		Engine:  "claude", Surface: agent.CLISurfaceInteractive,
+		Engine:  "claude-code", Surface: agent.CLISurfaceInteractive,
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "h1") })
 
@@ -300,57 +299,54 @@ func TestPaneInjector_StagingFileIsRemovedAfterThePaste(t *testing.T) {
 	}
 }
 
-// TestPaneInjector_AdmitsTheEngineNameTheLauncherActuallySends pins the
-// allowlist to the spelling that reaches it in production, which is NOT the
-// one the other tests in this file use.
+// TestPaneInjector_AdmitsOnlyTheEngineNameTheLauncherSends pins the allowlist
+// to the spelling that reaches it in production and to nothing else.
 //
 // The chain that decides the key: agent.BaseBackend.run stamps
 // LaunchSpec.Engine from b.name, the claude backend registers that name as
 // "claude-code" (agent.NewBaseBackend("claude-code", ...) in
 // internal/claude/claudecode.go), and backends.launchInPane copies
 // LaunchSpec.Engine into PaneSpec.Engine verbatim. So a real interactive
-// claude run arrives here as "claude-code" — while every other test in this
-// package hands Inject the alias "claude" and is therefore blind to which of
-// the two the allowlist admits.
+// claude run arrives here as "claude-code", and that is the ONE spelling the
+// allowlist admits: an engine has one name and no alias resolves another
+// spelling to it, so "claude" is an unmeasured engine and is refused with
+// nothing written.
 //
-// That blindness is the whole point of this test. An allowlist keyed on the
-// alias alone looks completely healthy under this package's tests and refuses
-// every actual run, because the two spellings only diverge on the production
-// path no unit test was driving. Both must be admitted: they name one engine
-// (agent.CanonicalEngineName resolves "claude" -> "claude-code"), and an
-// allowlist that admits a name depending on how the caller spelled it is not
-// an allowlist over engines.
-//
-// It asserts the EFFECT, not the absence of an error: the program in the pane
-// only echoes once `read` returns, so a refusal — or a paste that never
-// actuated — produces nothing here.
-func TestPaneInjector_AdmitsTheEngineNameTheLauncherActuallySends(t *testing.T) {
-	for _, engine := range []string{"claude-code", "claude"} {
-		t.Run(engine, func(t *testing.T) {
-			h := newPaneHostForTest(t)
-			ctx := context.Background()
+// The admitted case asserts the EFFECT, not the absence of an error: the
+// program in the pane only echoes once `read` returns, so a refusal — or a
+// paste that never actuated — produces nothing here.
+func TestPaneInjector_AdmitsOnlyTheEngineNameTheLauncherSends(t *testing.T) {
+	h := newPaneHostForTest(t)
+	ctx := context.Background()
 
-			require.NoError(t, h.Start(ctx, "canon", PaneSpec{
-				Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"},
-				Engine: engine, Surface: agent.CLISurfaceInteractive,
-			}))
-			t.Cleanup(func() { _ = h.Stop(context.Background(), "canon") })
+	require.NoError(t, h.Start(ctx, "canon", PaneSpec{
+		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"},
+		Engine: "claude-code", Surface: agent.CLISurfaceInteractive,
+	}))
+	t.Cleanup(func() { _ = h.Stop(context.Background(), "canon") })
 
-			var r recorder
-			detach, err := h.Attach("canon", &r)
-			require.NoError(t, err)
-			defer detach()
+	var r recorder
+	detach, err := h.Attach("canon", &r)
+	require.NoError(t, err)
+	defer detach()
 
-			waitFor(t, "the pane must exist before injection", func() bool {
-				_, perr := h.pane("canon")
-				return perr == nil
-			})
+	waitFor(t, "the pane must exist before injection", func() bool {
+		_, perr := h.pane("canon")
+		return perr == nil
+	})
 
-			require.NoError(t, h.Injector().Inject(ctx, "canon", "canon-9f31", true),
-				"engine %q is the measured claude TUI under another spelling and must be admitted", engine)
+	require.NoError(t, h.Injector().Inject(ctx, "canon", "canon-9f31", true),
+		"the launcher's registered spelling is the measured claude TUI and must be admitted")
 
-			waitFor(t, "the injected paste must reach the program AND be submitted",
-				func() bool { return strings.Contains(r.text(), "PASTED-[canon-9f31]") })
-		})
-	}
+	waitFor(t, "the injected paste must reach the program AND be submitted",
+		func() bool { return strings.Contains(r.text(), "PASTED-[canon-9f31]") })
+
+	require.NoError(t, h.Start(ctx, "short", PaneSpec{
+		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"},
+		Engine: "claude", Surface: agent.CLISurfaceInteractive,
+	}))
+	t.Cleanup(func() { _ = h.Stop(context.Background(), "short") })
+	err = h.Injector().Inject(ctx, "short", "short-2c77", true)
+	require.ErrorIs(t, err, ErrPasteUnmeasured, "a retired short spelling is not the measured engine")
+	assert.Contains(t, err.Error(), `engine "claude"`)
 }

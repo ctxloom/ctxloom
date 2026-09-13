@@ -304,7 +304,7 @@ classDiagram
 | `Response` | `engine/engine.go:42` | `{Allow, Reason, Suggest}` is the wire decision; `{Confirmable, ConfirmWindowSeconds, ConfirmDelaySeconds}` is a policy triple that **no `Encode` reads** — it is consumed by `cmd/ltk/evaluate.go:158-167` before encoding |
 | `Response.Message()` | `engine/engine.go:56` | Three-way join of `Reason`+`Suggest`; returns `""` when both are empty, and `EncodeDeny("")` still emits a well-formed deny |
 | `Output` | `engine/engine.go:75` | Protocol is "deny → JSON on Stdout, ExitCode 0; allow → empty". `Stderr` is read but never written; `ExitCode` is only ever literal 0 |
-| `Get` / `Detect` | `engine/engine.go` | `Get` canonicalises the spelling through the shared `agent.CanonicalEngineName` and refuses prefix matching — a typo must error. `Detect` scores each engine and takes the highest with strict `>`, so a tie goes to whoever is first in `engines()` |
+| `Get` / `Detect` | `engine/engine.go` | `Get` matches the registered engine name exactly — no alias, case or prefix resolution; a typo must error. `Detect` scores each engine and takes the highest with strict `>`, so a tie goes to whoever is first in `engines()` |
 | `ClaudeCode` | `engine/claudecode.go:26` | `.claude/` dir → score 2. `Decode` falls back `file_path`→`notebook_path` (`:40-46`). `HookCommand` = `bin + " evaluate"` (+`--config <quoted>`), `:157` |
 
 The shared hooks.json machinery (`mergePreToolUseHook` `claudecode.go:218`,

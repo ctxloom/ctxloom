@@ -8,13 +8,12 @@ import (
 	"testing"
 )
 
-// The companion binaries resolve engine names through the process-wide
-// alias table, which is populated by composition — so each composes the
-// LEAN name root (internal/lm/enginenames), never the descriptor root. The
-// descriptors are typed on the bundle model, which those binaries were kept
-// free of deliberately. This gate holds that line as a checked fact rather
-// than a measurement someone did once: the lean binaries' transitive link set
-// must contain neither the descriptor package nor the bundle model.
+// The companion binaries resolve engine names by exact match against their
+// own lean registries; they never link the descriptor root. The descriptors
+// are typed on the bundle model, which those binaries were kept free of
+// deliberately. This gate holds that line as a checked fact rather than a
+// measurement someone did once: the lean binaries' transitive link set must
+// contain neither the descriptor package nor the bundle model.
 func TestArch_LeanBinaries_DoNotLinkEngineDescriptors(t *testing.T) {
 	forbidden := []string{
 		modulePath + "/internal/lm/engine",
@@ -37,7 +36,7 @@ func TestArch_LeanBinaries_DoNotLinkEngineDescriptors(t *testing.T) {
 			for _, dep := range deps {
 				for _, f := range forbidden {
 					if dep == f {
-						t.Errorf("%s links %s — the lean binaries compose internal/lm/enginenames, never the descriptors or the bundle model they are typed on", bin, dep)
+						t.Errorf("%s links %s — the lean binaries never link the descriptors or the bundle model they are typed on", bin, dep)
 					}
 				}
 			}

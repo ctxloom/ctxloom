@@ -76,13 +76,12 @@ see the divergences below.
 consumes its OWN leading flags first, because ctxloom prepends a config `args:`
 block, and stops at the first non-mock token or `--`:
 
-- `--<engine>` — any spelling `agent.CanonicalEngineName` accepts that resolves
-  to a backend declaring an engine CLI (`--claude`, `--claude-code`, …). The
-  spellings come from the repo-wide alias table and membership
-  from the backend registry (`personalityFromFlag`), so this package names no
-  engine and a newly impersonable backend needs no edit here.
+- `--<engine>` — the registered name of a backend declaring an engine CLI
+  (`--claude-code`), matched exactly. Membership comes from the backend
+  registry (`personalityFromFlag`), so this package names no engine and a
+  newly impersonable backend needs no edit here.
 - `--personality <name>` — the same resolution, as an explicit flag
-- fallback `MOCKENGINE_PERSONALITY` — the clean channel when a config `env:` block installs the mock and the driver owns the argv; also alias-resolved
+- fallback `MOCKENGINE_PERSONALITY` — the clean channel when a config `env:` block installs the mock and the driver owns the argv; the same exact-name resolution
 
 There is no `--surface` flag: the surface is fixed at `CLISurfaceOneshot` in
 `run`. (An earlier revision of this page listed one that never existed.)

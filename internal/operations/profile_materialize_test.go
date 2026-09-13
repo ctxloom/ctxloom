@@ -438,49 +438,41 @@ func TestMaterializeProfile_SurfaceOverrideChangesWhereContextLands(t *testing.T
 	}
 }
 
-// TestResolveMaterializeTarget_ResolvesEveryDeclaredSpellingToTheCanonicalName
-// pins the resolver to agent.CanonicalEngineName rather than to a spelling
-// enumerated here.
-//
-// resolveMaterializeTarget used to carry its own one-entry alias table
-// (`backend == "claude"`), a hand-rolled second copy of the alias table.
-// That copy got the one spelling it named right and every other declared
-// spelling wrong: "claudecode" is a declared alias and "CLAUDE" differs only
-// in case, and both passed backends.Exists (which canonicalizes internally via
-// lookup) and were then returned VERBATIM as the resolved backend — the name
-// the result reports and the CLI prints.
-//
-// The cases below are therefore not a wish-list: each is a spelling
-// agent.CanonicalEngineName already resolves, so any of them coming back
-// unresolved means this resolver is consulting a private alias table again,
-// which is the duplication CanonicalEngineName's own doc exists to prevent
-// ("One table for the whole repo ... two tables drift").
-func TestResolveMaterializeTarget_ResolvesEveryDeclaredSpellingToTheCanonicalName(t *testing.T) {
+// TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName pins the resolver
+// to the registry's exact vocabulary. An engine has one name: the registered
+// spelling resolves and is what the result reports; the retired short
+// spellings and case variants are unknown backends, refused rather than
+// rounded to the engine. resolveMaterializeTarget once carried its own
+// one-entry alias table (`backend == "claude"`) — the second copy that
+// drifts — so the refusals here are what keep one from growing back.
+func TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 
-	for _, spelling := range []string{"claude", "claude-code", "claudecode", "CLAUDE", "Claude-Code"} {
+	got, err := resolveMaterializeTarget(cfg, MaterializeProfileRequest{
+		Target: t.TempDir(), Profiles: []string{"p"}, Backend: "claude-code",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "claude-code", got, "the resolved backend is the registered name the result reports")
+
+	for _, spelling := range []string{"claude", "claudecode", "CLAUDE", "Claude-Code"} {
 		t.Run(spelling, func(t *testing.T) {
-			got, err := resolveMaterializeTarget(cfg, MaterializeProfileRequest{
+			_, err := resolveMaterializeTarget(cfg, MaterializeProfileRequest{
 				Target: t.TempDir(), Profiles: []string{"p"}, Backend: spelling,
 			})
-			require.NoError(t, err, "%q is a declared spelling of a registered backend and must resolve", spelling)
-			assert.Equal(t, agent.CanonicalEngineName(spelling), got,
-				"resolved backend must be the canonical name, not the caller's spelling: "+
-					"it is what the result reports, what the CLI prints, and what every "+
-					"backends.* lookup is keyed on")
+			require.Error(t, err, "%q is not a registered backend name and must be refused", spelling)
+			assert.Contains(t, err.Error(), "unknown backend")
 		})
 	}
 
-	// The empty request still means the default, which must itself be
-	// canonical — a non-canonical default would make every unqualified
+	// The empty request still means the default, which must itself be a
+	// registered name — an unregistered default would make every unqualified
 	// materialize report a name no registry key matches.
-	got, err := resolveMaterializeTarget(cfg, MaterializeProfileRequest{
+	got, err = resolveMaterializeTarget(cfg, MaterializeProfileRequest{
 		Target: t.TempDir(), Profiles: []string{"p"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, DefaultMaterializeBackend, got, "an unspecified backend means the default")
-	assert.Equal(t, agent.CanonicalEngineName(DefaultMaterializeBackend), got,
-		"the default backend constant must itself be canonical")
+	assert.True(t, backends.Exists(DefaultMaterializeBackend), "the default backend constant must itself be a registered name")
 }
 
 // A premise-withheld fragment must be REPORTED, not silently dropped.

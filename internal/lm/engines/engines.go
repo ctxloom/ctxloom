@@ -1,9 +1,7 @@
 // Package engines is the COMPOSITION ROOT for the engines ctxloom ships: the
 // production list that names engine descriptor packages. Adding an engine is
-// creating its package, authoring its descriptor there, adding it to this
-// list, and adding its lean name fact to internal/lm/enginenames (the root
-// the binaries that cannot link descriptors compose; this package's tests
-// hold the two equal) — no shared table anywhere learns its name.
+// creating its package, authoring its descriptor there, and adding it to this
+// list — no shared table anywhere learns its name.
 //
 // Registration is explicit and error-returning, not init-time: a bad
 // declaration is found here, named, and refused by the process that called

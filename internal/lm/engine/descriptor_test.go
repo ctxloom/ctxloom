@@ -22,7 +22,6 @@ func (fixtureConfig) BackendType() string { return "fixture" }
 func validDescriptor() Descriptor {
 	return Descriptor{
 		Name:         "fixture",
-		Aliases:      []string{"fix"},
 		Distribution: agent.DistributionDefault,
 		NewBackend:   func(agent.Launcher) agent.Backend { return nil },
 		NewConfig:    func() agent.BackendConfig { return &fixtureConfig{} },
@@ -78,16 +77,6 @@ func TestValidate_RefusesEmptyOrUppercaseName(t *testing.T) {
 	assert.ErrorContains(t, d.Validate(), "Name")
 	d.Name = "Fixture"
 	assert.ErrorContains(t, d.Validate(), "lowercase")
-}
-
-func TestValidate_RefusesAliasEqualToNameOrUppercase(t *testing.T) {
-	d := validDescriptor()
-	d.Aliases = []string{"fixture"}
-	assert.ErrorContains(t, d.Validate(), "alias")
-	d.Aliases = []string{"Fix"}
-	assert.ErrorContains(t, d.Validate(), "lowercase")
-	d.Aliases = []string{"fix", "fix"}
-	assert.ErrorContains(t, d.Validate(), "twice")
 }
 
 func TestValidate_RefusesMissingConstructors(t *testing.T) {

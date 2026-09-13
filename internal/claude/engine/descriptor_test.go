@@ -16,10 +16,9 @@ func TestDescriptor_Validates(t *testing.T) {
 	require.NoError(t, Descriptor().Validate())
 }
 
-func TestDescriptor_NameAndAliasesAreTheEnginePackagesOwn(t *testing.T) {
+func TestDescriptor_NameIsTheEnginePackagesOwn(t *testing.T) {
 	d := Descriptor()
 	assert.Equal(t, claude.EngineName, d.Name)
-	assert.Equal(t, claude.EngineAliases(), d.Aliases)
 	assert.Equal(t, agent.DistributionDefault, d.Distribution)
 }
 

@@ -1,172 +1,72 @@
 package isolation
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/claude"
 )
 
-// unknownEngineName is a spelling no registry knows and the alias table does
-// not rewrite. It stands for the legitimate miss every table must keep
-// answering: canonicalizing must not round an unknown name to a real engine.
+// unknownEngineName is a spelling no registry knows. It stands for the
+// legitimate miss every engine-keyed table must keep answering.
 const unknownEngineName = "definitely-not-an-engine"
 
-// aliasPairs derives the (canonical, alias) corpus from agent.EngineNameAliases
-// for the given roster, rather than listing spellings. A hand-listed corpus
-// silently stops covering a newly declared alias — this one gains it the moment
-// the alias table does.
-func aliasPairs(t *testing.T, roster []string) [][2]string {
-	t.Helper()
-	require.NotEmpty(t, roster, "roster is empty: the corpus would be vacuous")
-	var pairs [][2]string
-	for _, canonical := range roster {
-		for _, alias := range agent.EngineNameAliases(canonical) {
-			pairs = append(pairs, [2]string{canonical, alias})
-		}
-	}
-	require.NotEmpty(t, pairs, "no declared alias covers any member of %v: the corpus would be vacuous", roster)
-	return pairs
+// nonRegisteredSpellings are spellings of a REAL engine that are not its
+// registered name. An engine has exactly one name; every table here is keyed
+// on it and looked up by exact match, so each of these is a miss — there is
+// no alias, case or prefix resolution to round them to the engine.
+func nonRegisteredSpellings() []string {
+	return []string{"claude", "claudecode", "Claude-Code", "CLAUDE-CODE", "claude-cod"}
 }
 
-// upperSpelling returns name in upper case. Canonicalization has two halves —
-// lowercasing and alias resolution — and a roster whose members declare no
-// alias (the exemption list, whose only entry is "mock") can only be covered
-// through this one. Derived from the roster's own entries, never listed.
-func upperSpelling(t *testing.T, name string) string {
-	t.Helper()
-	upper := strings.ToUpper(name)
-	require.NotEqual(t, name, upper, "fixture: %q must have a distinct upper-case spelling", name)
-	return upper
-}
+// TestCredentialSeedSpecFor_OnlyTheRegisteredNameResolves: the seed table
+// gates credential seeding, and a miss is silent (nothing is seeded). So the
+// registered name must hit, and every other spelling — unknown, alias-shaped
+// or case-variant — must miss rather than be rounded to a real engine.
+func TestCredentialSeedSpecFor_OnlyTheRegisteredNameResolves(t *testing.T) {
+	require.Contains(t, CredentialSeedEngineNames(), claude.EngineName, "fixture: claude must be registered at this seam")
 
-// TestCredentialSeedSpecFor_ResolvesDeclaredAliases is the credential-seed half
-// of the silent no-seed hazard: a lookup keyed by an alias must reach the same
-// descriptor the canonical name does, or an isolated run seeds no credentials
-// and says nothing.
-func TestCredentialSeedSpecFor_ResolvesDeclaredAliases(t *testing.T) {
-	for _, pair := range aliasPairs(t, CredentialSeedEngineNames()) {
-		canonical, alias := pair[0], pair[1]
+	_, ok := credentialSeedDeclared(claude.EngineName)
+	assert.True(t, ok, "the registered name resolves")
 
-		want, ok := credentialSeedDeclared(canonical)
-		require.True(t, ok, "fixture: %q must have a credential-seed declaration", canonical)
-
-		got, ok := credentialSeedDeclared(alias)
-		require.True(t, ok, "alias %q of %q must resolve to a credential-seed declaration", alias, canonical)
-		assert.Equal(t, want, got, "alias %q must reach %q's own declaration", alias, canonical)
-	}
-}
-
-// TestCredentialSeedSpecFor_ResolvesCaseVariants covers the other half of
-// canonicalization: an engine name differing only in case is the same engine.
-func TestCredentialSeedSpecFor_ResolvesCaseVariants(t *testing.T) {
-	roster := CredentialSeedEngineNames()
-	require.NotEmpty(t, roster, "fixture: the credential-seed roster must not be empty")
-	for _, canonical := range roster {
-		upper := upperSpelling(t, canonical)
-		_, ok := credentialSeedDeclared(upper)
-		assert.True(t, ok, "%q must resolve to %q's declaration", upper, canonical)
-	}
-}
-
-// TestCredentialSeedSpecFor_UnknownEngineStillMisses proves the negative: a
-// name nobody registered must keep missing. Trading a silent miss for a silent
-// default would be worse than the bug being fixed.
-func TestCredentialSeedSpecFor_UnknownEngineStillMisses(t *testing.T) {
-	require.NotEmpty(t, CredentialSeedEngineNames(), "fixture: the credential-seed roster must not be empty")
-
-	_, ok := credentialSeedDeclared(unknownEngineName)
+	_, ok = credentialSeedDeclared(unknownEngineName)
 	assert.False(t, ok, "an unregistered engine must not resolve to any declaration")
 	assert.Nil(t, AmbientSet(unknownEngineName), "an unregistered engine has no ambient allow-list")
-
-	// No fuzzy rounding: a near-miss of a real engine name is still a miss.
-	_, ok = credentialSeedDeclared("claude-cod")
-	assert.False(t, ok, "a prefix of a real engine name must not resolve to it")
-}
-
-// TestEngineContainerSpecFor_ResolvesDeclaredAliases is the container half of
-// the same hazard: an aliased engine reaching the fail-closed default arm
-// cannot authenticate at all, and config validation would refuse the binding.
-func TestEngineContainerSpecFor_ResolvesDeclaredAliases(t *testing.T) {
-	for _, pair := range aliasPairs(t, ContainerAuthEngines()) {
-		canonical, alias := pair[0], pair[1]
-
-		require.True(t, HasContainerAuth(canonical), "fixture: %q must have container auth", canonical)
-		assert.True(t, HasContainerAuth(alias), "alias %q of %q must have container auth", alias, canonical)
-		assert.Equal(t, ContainerOverlayDirsFor(canonical), ContainerOverlayDirsFor(alias),
-			"alias %q must reach %q's own overlay dirs", alias, canonical)
-		assert.Equal(t, ContainerTranscriptStoreRelFor(canonical), ContainerTranscriptStoreRelFor(alias),
-			"alias %q must reach %q's own transcript store", alias, canonical)
+	for _, spelling := range nonRegisteredSpellings() {
+		_, ok := credentialSeedDeclared(spelling)
+		assert.False(t, ok, "%q is not the registered name and must miss", spelling)
 	}
 }
 
-// TestEngineContainerSpecFor_UnknownEngineStillFailsClosed proves the container
-// negative: an unmapped engine must still land on the fail-closed default,
-// never inherit another engine's credentials.
-func TestEngineContainerSpecFor_UnknownEngineStillFailsClosed(t *testing.T) {
+// TestEngineContainerSpecFor_OnlyTheRegisteredNameResolves is the container
+// half: an unmapped engine must land on the fail-closed default, never
+// inherit another engine's credentials — and a non-registered spelling of a
+// real engine is unmapped.
+func TestEngineContainerSpecFor_OnlyTheRegisteredNameResolves(t *testing.T) {
 	require.NotEmpty(t, ContainerAuthEngines(), "fixture: the container-auth roster must not be empty")
+	assert.True(t, HasContainerAuth(claude.EngineName), "the registered name resolves")
 
 	assert.False(t, HasContainerAuth(unknownEngineName), "an unmapped engine must reach the fail-closed default")
 	assert.False(t, HasContainerAuth(""), "an empty engine name must reach the fail-closed default")
 	assert.False(t, HasContainerAuth("acp"), "the generic acp backend has no vetted container auth")
+	for _, spelling := range nonRegisteredSpellings() {
+		assert.False(t, HasContainerAuth(spelling), "%q is not the registered name and must miss", spelling)
+	}
 
 	spec := engineContainerSpecFor(unknownEngineName)
 	assert.Equal(t, noContainerAuthHint, spec.authHint, "the default arm's marker hint identifies it")
 	assert.Equal(t, []string{ctxloomCacheOverlayDir}, spec.overlayDirs, "an unmapped engine shadows only ctxloom's own cache dir")
 }
 
-// TestRegisterInstanceConfigWriter_ResolvesAliasesAndRefusesNonCanonicalKeys
-// covers the runtime-populated writer table on both sides: a key the alias
-// table would rewrite is refused at registration, and an aliased lookup reaches
-// the registered writer.
-func TestRegisterInstanceConfigWriter_ResolvesAliasesAndRefusesNonCanonicalKeys(t *testing.T) {
-	pairs := aliasPairs(t, CredentialSeedEngineNames())
-	canonical, alias := pairs[0][0], pairs[0][1]
-
-	writer := &recordingInstanceConfig{}
-	withInstanceConfigWriter(t, canonical, writer)
-
-	require.NotNil(t, instanceConfigWriterFor(canonical), "fixture: the writer must be registered under %q", canonical)
-	assert.NotNil(t, instanceConfigWriterFor(alias), "alias %q must reach %q's registered writer", alias, canonical)
-	assert.Nil(t, instanceConfigWriterFor(unknownEngineName), "an unregistered engine has no writer")
-
-	assert.Panics(t, func() { RegisterInstanceConfigWriter(alias, writer) },
-		"registering under alias %q would install the writer where no lookup can reach it", alias)
-}
-
-// TestRegisterCredentialProjector_ResolvesAliasesAndRefusesNonCanonicalKeys is
-// the projector twin of the writer test above.
-func TestRegisterCredentialProjector_ResolvesAliasesAndRefusesNonCanonicalKeys(t *testing.T) {
-	pairs := aliasPairs(t, CredentialSeedEngineNames())
-	canonical, alias := pairs[0][0], pairs[0][1]
-
-	projector := &fakeCredentialProjector{}
-	withCredentialProjector(t, canonical, projector)
-
-	require.NotNil(t, credentialProjectorFor(canonical), "fixture: the projector must be registered under %q", canonical)
-	assert.NotNil(t, credentialProjectorFor(alias), "alias %q must reach %q's registered projector", alias, canonical)
-	assert.Nil(t, credentialProjectorFor(unknownEngineName), "an unregistered engine has no projector")
-
-	assert.Panics(t, func() { RegisterCredentialProjector(alias, projector) },
-		"registering under alias %q would install the projector where no lookup can reach it", alias)
-}
-
-// TestEngineKeyedTables_HoldCanonicalKeys is the observable form of
-// enginekeys.go's init assertion: a table entry keyed under a spelling the
-// alias table rewrites is unreachable by any lookup.
-func TestEngineKeyedTables_HoldCanonicalKeys(t *testing.T) {
-	rosters := map[string][]string{
-		"credentialSeeds":      CredentialSeedEngineNames(),
-		"ContainerAuthEngines": ContainerAuthEngines(),
-		"composableEngines":    composableEngines(),
-	}
-	for table, names := range rosters {
-		require.NotEmpty(t, names, "fixture: roster %s must not be empty", table)
-		for _, name := range names {
-			assert.Equal(t, agent.CanonicalEngineName(name), name, "%s key %q must be canonical", table, name)
-		}
+// TestInstanceConfigWriterFor_OnlyTheRegisteredNameResolves covers the two
+// runtime-populated tables: a writer or projector registered under a name is
+// reachable under exactly that name.
+func TestInstanceConfigWriterFor_OnlyTheRegisteredNameResolves(t *testing.T) {
+	assert.NotNil(t, credentialProjectorFor(claude.EngineName), "fixture: claude's projector is registered by TestMain")
+	for _, spelling := range append(nonRegisteredSpellings(), unknownEngineName) {
+		assert.Nil(t, instanceConfigWriterFor(spelling), "instanceConfigWriterFor(%q)", spelling)
+		assert.Nil(t, credentialProjectorFor(spelling), "credentialProjectorFor(%q)", spelling)
 	}
 }

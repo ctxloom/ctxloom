@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"reflect"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -75,14 +77,17 @@ func configPayload(v any) (any, error) {
 	return payload, nil
 }
 
-// configGetLong is configGetCmd's Long text.
+// configGetLong is configGetCmd's Long text. It deliberately does not
+// enumerate section names: that list used to be hand-maintained here (and
+// had already drifted — it named "mcp" and "profiles", neither of which was
+// ever a resolvable section) as well as in resolveConfigSection's switch,
+// which drifted the OTHER way (missing delegation, agents, and more). A
+// wrong section name gets the true list from resolveConfigSection itself, and
+// 'config show' renders the whole thing.
 const configGetLong = `Get a specific configuration section.
 
-Available sections:
-  config      Behavioral settings (use_distilled, essence_max_chars)
-  llm         Language model configuration (labeled configs + role map)
-  mcp         MCP server configuration
-  profiles    Profile defaults and definitions`
+Run with an unknown or omitted section to see the available ones, or use
+'ctxloom config show' to see the whole configuration at once.`
 
 var configGetCmd = &cobra.Command{
 	Use:   "get <section>",
@@ -121,18 +126,34 @@ func renderConfigYAML(cfg *config.Config, out io.Writer) error {
 }
 
 // resolveConfigSection returns the named top-level section of cfg, or an
-// error whose message lists the valid section names. The switch is the
-// load-bearing surface — adding a new section here is the only place
-// the `config get <section>` CLI surface changes.
+// error whose message lists the valid section names.
+//
+// The valid sections are not a second, hand-maintained list: they are read
+// off cfg's own MarshalYAML document — the SAME configDoc value `config show`
+// marshals to render the whole configuration (renderConfigYAML calls
+// yaml.Marshal(cfg), which yaml.v3 routes through this exact Marshaler). A
+// field reflected out of that document by its yaml tag is returned as-is, so
+// adding a section to configDoc makes it both showable and gettable in one
+// edit — there is no longer a second place `config get` can fall behind.
 func resolveConfigSection(cfg *config.Config, name string) (any, error) {
-	switch name {
-	case "config":
-		return cfg.GetSettings(), nil
-	case "llm":
-		return cfg.GetLMConfig(), nil
-	default:
-		return nil, fmt.Errorf("unknown section: %s\n\nAvailable: config, llm", name)
+	doc, err := cfg.MarshalYAML()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
+	v := reflect.ValueOf(doc)
+	t := v.Type()
+	available := make([]string, 0, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		tagName, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ",")
+		if tagName == "" || tagName == "-" {
+			continue
+		}
+		if tagName == name {
+			return v.Field(i).Interface(), nil
+		}
+		available = append(available, tagName)
+	}
+	return nil, fmt.Errorf("unknown section: %s\n\nAvailable: %s", name, strings.Join(available, ", "))
 }
 
 // renderConfigSection resolves the named section and writes it to out as

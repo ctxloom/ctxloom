@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -58,6 +59,33 @@ func TestResolveConfigSection_KnownSections(t *testing.T) {
 			require.NoError(t, renderConfigSection(cfg, tc.section, &buf))
 			assert.Contains(t, buf.String(), tc.contains,
 				"%s section's marshaled YAML should mention its sentinel value", tc.section)
+		})
+	}
+}
+
+// TestResolveConfigSection_CoversEveryShowKey walks the SAME document
+// `config show` renders (yaml.Marshal(cfg), which yaml.v3 routes through
+// Config.MarshalYAML — renderConfigYAML's exact call) and asserts `config
+// get` can resolve every top-level key found there. It contains no
+// hand-typed section name: this is the row's own regression case
+// (delegation, dirty_tree_handler, agents, default_agent were all showable
+// but not gettable) generalized so that adding a NEW configDoc field without
+// wiring it into resolveConfigSection fails this test, rather than silently
+// reproducing the same drift under a different key.
+func TestResolveConfigSection_CoversEveryShowKey(t *testing.T) {
+	cfg := fixtureConfig()
+
+	data, err := yaml.Marshal(cfg)
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, yaml.Unmarshal(data, &doc))
+	require.NotEmpty(t, doc, "the fixture config should render at least one top-level key")
+
+	for key := range doc {
+		t.Run(key, func(t *testing.T) {
+			got, err := resolveConfigSection(cfg, key)
+			require.NoError(t, err, "config show rendered %q but config get refused it", key)
+			assert.NotNil(t, got)
 		})
 	}
 }

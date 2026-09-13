@@ -15,11 +15,8 @@ Get a configuration section
 
 Get a specific configuration section.
 
-Available sections:
-  config      Behavioral settings (use_distilled, essence_max_chars)
-  llm         Language model configuration (labeled configs + role map)
-  mcp         MCP server configuration
-  profiles    Profile defaults and definitions
+Run with an unknown or omitted section to see the available ones, or use
+'ctxloom config show' to see the whole configuration at once.
 
 ```
 ctxloom config get <section> [flags]

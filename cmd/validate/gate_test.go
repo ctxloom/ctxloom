@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -84,8 +85,25 @@ func TestDefaultTargets_CoversTheTrackedDocuments(t *testing.T) {
 	}, required, "the gate's required inputs are the tracked config documents")
 }
 
+// packageDir is this package's source directory, located from this test file
+// rather than the working directory: TestMain moves the whole binary into a
+// throwaway sandbox cwd, so a relative "../../resources/..." resolves to
+// nothing there — and fails as a missing FILE, which reads exactly like a
+// document that does not validate.
+func packageDir() string {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		panic("runtime.Caller: cannot locate this source file")
+	}
+	return filepath.Dir(thisFile)
+}
+
+// repoRoot resolves the ctxloom module root from this package's location
+// (cmd/validate/) so the gate can reach the tracked documents it validates.
+func repoRoot() string { return filepath.Join(packageDir(), "..", "..") }
+
 // TestTrackedDocumentsValidate runs the real gate over the repo's real
-// documents (the package's own CWD is cmd/validate, hence ../..) — the check
+// documents, anchored at this test file rather than the cwd — the check
 // that has never actually run in CI.
 func TestTrackedDocumentsValidate(t *testing.T) {
 	var targets []target
@@ -93,7 +111,7 @@ func TestTrackedDocumentsValidate(t *testing.T) {
 		if tg.optional {
 			continue
 		}
-		targets = append(targets, target{path: filepath.Join("..", "..", tg.path)})
+		targets = append(targets, target{path: filepath.Join(repoRoot(), tg.path)})
 	}
 	n, err := validateAll(targets)
 	require.NoError(t, err)

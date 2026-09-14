@@ -202,9 +202,9 @@ type resolvedRunRequest struct {
 	// environment (a delegated child's session harp / bus socket / depth).
 	ExtraEnv map[string]string
 
-	// ConfigHome is the resolved agent binding's EFFECTIVE config-home policy
-	// (operations.ResolvedAgent.ConfigHome — agents.ConfigHomeProject or
-	// agents.ConfigHomeHost) when this run was resolved through an AGENT
+	// HomeMode is the resolved agent binding's EFFECTIVE engine-home policy
+	// (operations.ResolvedAgent.HomeMode — agents.HomeModeSession or
+	// agents.HomeModeHost) when this run was resolved through an AGENT
 	// binding (a delegated child, a fan-out member), or "" when it was not —
 	// a bare-profile oneshot has no agent binding to read one from (the same
 	// fact its Permissions comment already records). It decides ONE thing:
@@ -213,7 +213,7 @@ type resolvedRunRequest struct {
 	// ResolveInTreeAgentHome. RunOneshot leaves it "", since a bare-profile
 	// oneshot has no binding at all, which reads identically to an undeclared
 	// one — both keep the runtime's home.
-	ConfigHome agents.ConfigHome
+	HomeMode agents.HomeMode
 
 	Factory pb.ClientFactory // nil self-invokes the compiled-in backend
 }
@@ -322,7 +322,7 @@ var prepareIsolation = isolation.Prepare
 // REQUESTED and the prepared workspace silently degraded toward a WEAKER
 // posture than asked for. Two distinct cases share this class today: (1) a
 // requested CONTAINER couldn't start and the run fell back to the bare,
-// unsandboxed host; (2) a binding that declared config_home: project has no
+// unsandboxed host; (2) a binding that declared engine_home: session has no
 // credentials to seed and no API-key env, so the engine would launch logged
 // out. Either way, running the member as-is would silently
 // deliver less than what was asked for. In strict mode that fails THE MEMBER
@@ -510,8 +510,8 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 			// ExtraEnv under agent.SessionHarpEnv exactly as the transcript
 			// capture below reads it. NOT req.AgentID: fan-out members of one
 			// session share that session's instance.
-			Harp:       req.ExtraEnv[agent.SessionHarpEnv],
-			ConfigHome: req.ConfigHome,
+			Harp:     req.ExtraEnv[agent.SessionHarpEnv],
+			HomeMode: req.HomeMode,
 		})
 		found := strictness.Since(mark)
 		strictness.Close(mark)

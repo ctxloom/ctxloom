@@ -211,7 +211,7 @@ var approachDegradeMarkers = []approachDegradeMarker{
 //
 //	ctxloom: warning: codex hooks and MCP servers were NOT written: codex
 //	settings/prompts/skills are delivered per-session at launch; no durable
-//	project home exists — see config_home. ... codex's cwd-keyed AGENTS.md
+//	project home exists — see engine_home. ... codex's cwd-keyed AGENTS.md
 //	context is unaffected and was still written.
 //
 // There was no hook. The context arrived by AGENTS.md, which codex reads

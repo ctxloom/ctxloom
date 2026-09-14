@@ -148,16 +148,16 @@ and requires byte identity:
 `TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch`. A path
 assertion could only say where ctxloom *meant* to write.
 
-An agent whose binding declares `config_home: project` does not run against your
+An agent whose binding declares `engine_home: session` does not run against your
 real home. It gets a throwaway **per-session instance** at
 `.ctxloom/state/<harp>/home/<engine-leaf>` (`paths.SessionHomePath`; each engine appends its own
 leaf, distinct by construction so one instance root hosts every engine a
 session runs) — on every isolation cell: a host cell tells the engine that
 path, a container cell mounts it and tells the engine the mount target. No
-binding, an undeclared `config_home`, or an explicit `config_home: host` all
+binding, an undeclared `engine_home`, or an explicit `engine_home: host` all
 mean the engine uses the home its runtime gives it **directly** — your real
 home on the host, a fresh `$HOME` in a container — with no instance and no
-copy-in (`agents.ParseConfigHome`).
+copy-in (`agents.ParseHomeMode`).
 
 Three classes of content live inside an instance:
 
@@ -296,6 +296,6 @@ launch-only reason for exactly that purpose.
   `internal/paths` package: every constant and join, and the invariants over
   them.
 - [architecture/engines/isolation.md](architecture/engines/isolation.md) — the
-  isolation axes, `config_home`, and the per-engine home variables.
+  isolation axes, `engine_home`, and the per-engine home variables.
 - [trust-model.md](trust-model.md) — what `approvals/`, `allowed_signers` and
   the review snapshots under `state/trust/objects` mean.

@@ -204,11 +204,16 @@ func BuildInitialConfig(engine, dirtyTreeHandler string) ([]byte, error) {
 	// the selected engine's primary label so a bare `ctxloom run` launches the same
 	// backend. This replaces the retired profiles.defaults: the default context is
 	// now whatever the default agent composes (Config.DefaultAgentProfiles).
+	//
+	// Runtime and HomeMode are both written OUT even though each equals its
+	// parser's default: the isolation axes a binding declares should be visible
+	// in a fresh config, not inferred from what is missing.
 	f.DefaultAgent = SeedProfileName
 	f.Agents = map[string]agents.Agent{
 		SeedProfileName: {
 			LLM:      primaryLabel,
 			Runtime:  "host",
+			HomeMode: string(agents.HomeModeHost),
 			Profiles: []string{SeedProfileName},
 		},
 	}

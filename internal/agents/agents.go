@@ -80,12 +80,12 @@ type Agent struct {
 	// Runtime is the agent's RUNTIME axis (host | container): where this
 	// agent's engine process executes. Like Engine it is a cost/environment
 	// call that travels with the binding. Empty inherits the project's
-	// `runtime:` default and finally falls back to "host". Deliberately the
-	// ONLY isolation dimension an agent declares — the WORKSPACE axis
-	// (worktree vs shared dir) is a SESSION trait chosen at invocation time
-	// (run/acp `--workspace`, an agent_run spawn's workspace field, project
-	// `workspace:` default), never bound to the agent. Resolution lives in
-	// operations.resolveAgentBinding.
+	// `runtime:` default and finally falls back to "host". One of the two
+	// isolation axes a binding declares, with HomeMode the other — the
+	// WORKSPACE axis (worktree vs shared dir) is a SESSION trait chosen at
+	// invocation time (run/acp `--workspace`, an agent_run spawn's workspace
+	// field, project `workspace:` default), never bound to the agent.
+	// Resolution lives in operations.resolveAgentBinding.
 	Runtime string `yaml:"runtime,omitempty"`
 	// Permissions is the agent's launch-time permission posture
 	// (default|acceptEdits|plan|bypass) — the second safety axis a binding
@@ -114,22 +114,26 @@ type Agent struct {
 	// changes execution semantics, unlike Runtime/Permissions' advisory-only
 	// unknown-value handling, so it does not get their lenient treatment).
 	Driving DrivingMode `yaml:"driving,omitempty"`
-	// ConfigHome is this binding's per-engine config-home POLICY: whether a
-	// run gets a ctxloom-CONTROLLED, PER-SESSION engine config home under
-	// .ctxloom/state/<harp>/home/<leaf> (ConfigHomeProject) or keeps the home
-	// its runtime gives it (ConfigHomeHost — the engine's REAL host home,
-	// which ctxloom never writes, or a container's own fresh $HOME). It is
-	// the single source of truth for operations.ResolveInTreeAgentHome's
+	// HomeMode is this binding's ENGINE-HOME axis: the third isolation axis,
+	// a peer of Runtime (which isolates the PROCESS) and the session's
+	// workspace (which isolates the FILES). It decides WHICH HOME the engine
+	// runs against — the directory holding its credentials, memory, plugins,
+	// personal MCP registrations, global agents and steering: a
+	// ctxloom-CONTROLLED, PER-SESSION home under .ctxloom/state/<harp>/home/
+	// <leaf> (HomeModeSession), or the home its runtime gives it
+	// (HomeModeHost — the engine's REAL host home, which ctxloom never
+	// writes, or a container's own fresh $HOME). It is the single source of
+	// truth for operations.ResolveInTreeAgentHome's
 	// scoping rule, and a DECLARED value wins on every invocation path this
 	// binding resolves through — a bare run under default_agent, `run
 	// --agent`, a delegated child, a oneshot fan member alike. Invocation
 	// never matters for a declared binding; only whether ANY binding is in
 	// play at all does (a run with no agent binding — no --agent, no
-	// default_agent — has no ConfigHome to read and always keeps the real
+	// default_agent — has no HomeMode to read and always keeps the real
 	// host home).
 	//
-	// Empty (undeclared) DEFAULTS TO ConfigHomeHost: nothing gets a
-	// controlled home until a binding explicitly opts in with "project". An
+	// Empty (undeclared) DEFAULTS TO HomeModeHost: nothing gets a
+	// controlled home until a binding explicitly opts in with "session". An
 	// unconfigured binding therefore behaves exactly like no binding at all
 	// on this one axis — the controlled-home behaviour is strictly opt-in,
 	// never assumed.
@@ -140,37 +144,41 @@ type Agent struct {
 	// host, the path itself; in a container, a mount target).
 	//
 	// This is the DECLARED value as written — a raw string, because a
-	// hand-edited config.yaml can hold anything. ParseConfigHome turns it
-	// into the EFFECTIVE ConfigHome: validated against ConfigHomeNames when
+	// hand-edited config.yaml can hold anything. ParseHomeMode turns it
+	// into the EFFECTIVE HomeMode: validated against HomeModeNames when
 	// WRITTEN (operations.SetAgent, same treatment as Surfaces — an unknown
 	// value is refused, naming the two valid ones); a value that fails that
-	// same check at RESOLVE time warns and falls back to ConfigHomeHost
+	// same check at RESOLVE time warns and falls back to HomeModeHost
 	// rather than blocking the launch.
-	ConfigHome string `yaml:"config_home,omitempty"`
+	HomeMode string `yaml:"engine_home,omitempty"`
 }
 
-// ConfigHome is the EFFECTIVE config-home policy a declaration parses to:
-// one of the two constants below. A run with NO agent binding carries the
-// zero value, which reads exactly like ConfigHomeHost everywhere it is
-// consulted — there is no binding through which such a run could opt in.
-type ConfigHome string
+// HomeMode is the EFFECTIVE engine-home policy a declaration parses to: one
+// of the two constants below. A run with NO agent binding carries the zero
+// value, which reads exactly like HomeModeHost everywhere it is consulted —
+// there is no binding through which such a run could opt in.
+//
+// Deliberately NOT named EngineHome: that name is the resolved PATH (the
+// present package's Root, agent.EngineHome and its kin). This is the policy
+// that SELECTS that root, not the root.
+type HomeMode string
 
-// ConfigHomeProject and ConfigHomeHost are Agent.ConfigHome's two accepted
+// HomeModeHost and HomeModeSession are Agent.HomeMode's two accepted
 // values. See that field's doc for the scoping rule they select between.
 const (
-	ConfigHomeProject ConfigHome = "project"
-	ConfigHomeHost    ConfigHome = "host"
+	HomeModeHost    HomeMode = "host"
+	HomeModeSession HomeMode = "session"
 )
 
-// ConfigHomeNames lists the accepted config_home values, for flag help,
+// HomeModeNames lists the accepted engine_home values, for flag help,
 // shell completion, and error messages.
-func ConfigHomeNames() []string {
-	return []string{string(ConfigHomeProject), string(ConfigHomeHost)}
+func HomeModeNames() []string {
+	return []string{string(HomeModeHost), string(HomeModeSession)}
 }
 
-// ParseConfigHome validates and normalizes a binding's DECLARED
-// Agent.ConfigHome into its always-non-empty EFFECTIVE value: the declared
-// value when it is one of ConfigHomeNames, else ConfigHomeHost — undeclared
+// ParseHomeMode validates and normalizes a binding's DECLARED
+// Agent.HomeMode into its always-non-empty EFFECTIVE value: the declared
+// value when it is one of HomeModeNames, else HomeModeHost — undeclared
 // (empty) and unrecognized both default to the runtime's own home, so the
 // controlled home stays strictly opt-in.
 //
@@ -183,15 +191,15 @@ func ConfigHomeNames() []string {
 // value here is not fatal, because by the time a run reaches this call the
 // binding already exists and refusing to launch over it would be a
 // regression, not a safety net.
-func ParseConfigHome(declared string) (ConfigHome, error) {
-	switch ConfigHome(declared) {
+func ParseHomeMode(declared string) (HomeMode, error) {
+	switch HomeMode(declared) {
 	case "":
-		return ConfigHomeHost, nil
-	case ConfigHomeProject, ConfigHomeHost:
-		return ConfigHome(declared), nil
+		return HomeModeHost, nil
+	case HomeModeHost, HomeModeSession:
+		return HomeMode(declared), nil
 	default:
-		return ConfigHomeHost, fmt.Errorf("config_home %q: unknown value (known: %s)",
-			declared, strings.Join(ConfigHomeNames(), ", "))
+		return HomeModeHost, fmt.Errorf("engine_home %q: unknown value (known: %s)",
+			declared, strings.Join(HomeModeNames(), ", "))
 	}
 }
 

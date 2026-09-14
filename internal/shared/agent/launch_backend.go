@@ -135,7 +135,7 @@ func (b *LaunchBackend) SetExecuteEnv(fn func(req *ExecuteRequest) map[string]st
 }
 
 // SetEngineHomeVar names the env var that relocates this engine's config
-// home, so a run that carries it (an agent binding with config_home: project)
+// home, so a run that carries it (an agent binding with engine_home: session)
 // advises its private engine home to every writer. See engineHomeVar.
 func (b *LaunchBackend) SetEngineHomeVar(name string) { b.engineHomeVar = name }
 

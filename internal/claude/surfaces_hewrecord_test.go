@@ -55,7 +55,7 @@ func settingsJSON(t *testing.T, v any) []byte {
 }
 
 // recordStart advises a run whose project root and engine home are both
-// resolved — what setupViaCells advises for a binding with config_home:
+// resolved — what setupViaCells advises for a binding with engine_home:
 // project.
 func recordStart() present.Start {
 	return present.New(present.OnHost(present.Paths{

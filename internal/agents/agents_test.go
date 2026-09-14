@@ -49,5 +49,5 @@ func TestValidateDriving_NamesTheVocabulary(t *testing.T) {
 // but undiscoverable.
 func TestAgentValueVocabulary_IsClosed(t *testing.T) {
 	assert.Equal(t, []string{"conversational", "oneshot"}, DrivingModeNames())
-	assert.Equal(t, []string{string(ConfigHomeProject), string(ConfigHomeHost)}, ConfigHomeNames())
+	assert.Equal(t, []string{"host", "session"}, HomeModeNames())
 }

@@ -55,7 +55,7 @@ type ambientConfigKey struct {
 // nothing else.
 //
 // WHY THESE AND NOTHING ELSE: key names probe-verified against claude 2.1.228
-// and the vendor's own headless fixture inside it. Under `config_home: project` the instance is thrown away at
+// and the vendor's own headless fixture inside it. Under `engine_home: session` the instance is thrown away at
 // session end, so an onboarding answer given inside one dies with it and the
 // dialog re-prompts every interactive session. Copying the host file wholesale
 // would fix that and re-open the leak above; copying these keys by name fixes

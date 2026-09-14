@@ -96,8 +96,8 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		if s.Driving != "" {
 			w.Printf("    driving: %s\n", s.Driving)
 		}
-		if s.ConfigHome != "" {
-			w.Printf("    config_home: %s\n", s.ConfigHome)
+		if s.HomeMode != "" {
+			w.Printf("    engine_home: %s\n", s.HomeMode)
 		}
 		if len(s.Escalation) > 0 {
 			w.Printf("    escalation: %d rung(s)\n", len(s.Escalation))
@@ -202,8 +202,8 @@ func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 	if def.Driving != "" {
 		w.Printf("Driving: %s\n", def.Driving)
 	}
-	if def.ConfigHome != "" {
-		w.Printf("Config home (declared): %s\n", def.ConfigHome)
+	if def.HomeMode != "" {
+		w.Printf("Config home (declared): %s\n", def.HomeMode)
 	}
 	renderAgentEscalation(w, def.Escalation)
 	writeBulletList(w, "Profiles", def.Profiles)
@@ -254,8 +254,8 @@ func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent,
 	if resolved.EffectivePermissions != "" {
 		w.Printf("Resolved permissions: %s\n", resolved.EffectivePermissions)
 	}
-	if resolved.ConfigHome != "" {
-		w.Printf("Resolved config home: %s\n", resolved.ConfigHome)
+	if resolved.HomeMode != "" {
+		w.Printf("Resolved config home: %s\n", resolved.HomeMode)
 	}
 	w.Printf("Composed fragments: %d\n", len(resolved.Fragments))
 	for _, loss := range losses {
@@ -291,7 +291,7 @@ var (
 	agentSetRuntime     string
 	agentSetSurfaces    []string
 	agentSetPermissions string
-	agentSetConfigHome  string
+	agentSetEngineHome  string
 )
 
 // agentWriteLong is the shared body text for `agent create` and `agent edit`:
@@ -311,12 +311,14 @@ dir) is NOT set here — it is a session trait chosen at invocation time
 the per-turn execution axis; omit it to keep the default conversational
 (warm-engine) model. oneshot requires a resume-capable engine and is
 EXPERIMENTAL in this release — executable, but its interfaces and behavior
-may change. Config-home (optional: project|host) decides which engine config
-home this agent's engine runs get on the in-tree (workspace:
-none) axis: "project" points the engine at a ctxloom-controlled, PER-SESSION
-home under .ctxloom/state/<session>/home/, isolated from your own and thrown
-away with the session; "host" (also the default when omitted) keeps the
-engine's real host home, which ctxloom never writes. It wins on every
+may change. Engine-home (optional: host|session) is the third isolation axis,
+alongside runtime (the PROCESS) and workspace (the FILES): it decides WHICH
+HOME this agent's engine runs against — the directory holding its credentials,
+memory, plugins, personal MCP registrations, global agents and steering.
+"host" (the default when omitted) keeps the home the runtime gives the engine
+— its real host home, which ctxloom never writes; "session" points the engine
+at a ctxloom-controlled, PER-SESSION home under .ctxloom/state/<session>/home/,
+isolated from your own and thrown away with the session. It wins on every
 invocation path this binding resolves through — a bare run under
 default_agent, run --agent, a delegated child, a oneshot fan member alike.`
 
@@ -454,8 +456,8 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 	if cmd.Flags().Changed("permissions") {
 		req.Permissions = &agentSetPermissions
 	}
-	if cmd.Flags().Changed("config-home") {
-		req.ConfigHome = &agentSetConfigHome
+	if cmd.Flags().Changed("engine-home") {
+		req.HomeMode = &agentSetEngineHome
 	}
 	return req
 }
@@ -485,8 +487,8 @@ func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool
 	if entry.Driving != "" {
 		w.Printf(", driving: %s", entry.Driving)
 	}
-	if entry.ConfigHome != "" {
-		w.Printf(", config_home: %s", entry.ConfigHome)
+	if entry.HomeMode != "" {
+		w.Printf(", engine_home: %s", entry.HomeMode)
 	}
 	w.Println(")")
 	return w.Err()
@@ -664,16 +666,16 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&agentSetSurfaces, "surface", nil,
 		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
 	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
-	cmd.Flags().StringVar(&agentSetConfigHome, "config-home", "",
-		"Per-engine config-home policy, on every isolation cell: project|host (empty = host, the default — controlled homes are opt-in)")
+	cmd.Flags().StringVar(&agentSetEngineHome, "engine-home", "",
+		"Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (host|session; empty = host, the default — a per-session home is opt-in)")
 	_ = cmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = cmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
 	_ = cmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return isolation.RuntimeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = cmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
-	_ = cmd.RegisterFlagCompletionFunc("config-home", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return agents.ConfigHomeNames(), cobra.ShellCompDirectiveNoFileComp
+	_ = cmd.RegisterFlagCompletionFunc("engine-home", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return agents.HomeModeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 }
 

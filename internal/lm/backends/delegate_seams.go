@@ -131,7 +131,7 @@ type InTreeAgentHomeSpec struct {
 // CheckHookTargetScope above have, and for the same reason.
 //
 // This answers only WHERE, never WHETHER. The scoping rule — controlled homes
-// go to runs whose agent binding declares `config_home: project`, whichever
+// go to runs whose agent binding declares `engine_home: session`, whichever
 // cell they run in — belongs to the caller and lives in ONE place there.
 //
 // harp is REQUIRED. An empty harp resolves nothing and creates nothing: there

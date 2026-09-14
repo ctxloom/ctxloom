@@ -114,28 +114,28 @@ func TestTopLevelRunIsolationEnv_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 // helper's own behaviour is pinned in internal/operations, and what can rot
 // here is the CONDITION prepareWorkspace passes it.
 func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
-	newState := func(t *testing.T, workDir string, agentConfigHome agents.ConfigHome, axes isolation.Axes) *runState {
+	newState := func(t *testing.T, workDir string, agentHomeMode agents.HomeMode, axes isolation.Axes) *runState {
 		t.Helper()
 		return &runState{
-			ctx:             context.Background(),
-			backendName:     "claude-code",
-			workDir:         workDir,
-			activeHarp:      "test-harp",
-			agentConfigHome: agentConfigHome,
-			runAxes:         axes,
-			req:             &pb.RunStart{Options: &pb.RunOptions{Env: map[string]string{"CTXLOOM_SESSION_HARP": "test-harp"}}},
+			ctx:           context.Background(),
+			backendName:   "claude-code",
+			workDir:       workDir,
+			activeHarp:    "test-harp",
+			agentHomeMode: agentHomeMode,
+			runAxes:       axes,
+			req:           &pb.RunStart{Options: &pb.RunOptions{Env: map[string]string{"CTXLOOM_SESSION_HARP": "test-harp"}}},
 		}
 	}
 	hostAxes := isolation.Axes{Workspace: isolation.WorkspaceShared, Runtime: isolation.RuntimeHost}
 
-	t.Run("an agent binding that declares config_home: project gets the controlled home", func(t *testing.T) {
+	t.Run("an agent binding that declares engine_home: session gets the controlled home", func(t *testing.T) {
 		resetStrictness(t)
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test") // authenticates without a host credential fixture
 
 		workDir := t.TempDir()
-		st := newState(t, workDir, agents.ConfigHomeProject, hostAxes)
+		st := newState(t, workDir, agents.HomeModeSession, hostAxes)
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
 
@@ -148,46 +148,46 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 	})
 
 	// MUTATION TARGET m1: invert the "undeclared → host" default so an
-	// agent-bound run with NO declared config_home resolves to project — this
-	// case (agentConfigHome == "project" produced only via agents.ParseConfigHome's
+	// agent-bound run with NO declared engine_home resolves to session — this
+	// case (agentHomeMode == "session" produced only via agents.ParseHomeMode's
 	// own default, exercised in the operations-layer test) is pinned there;
 	// here the headline red is the UNDECLARED-binding case just below, which
 	// this same st.prepareWorkspace call must resolve to the real home.
-	t.Run("an agent binding with an UNDECLARED config_home keeps the real host home", func(t *testing.T) {
+	t.Run("an agent binding with an UNDECLARED engine_home keeps the real host home", func(t *testing.T) {
 		resetStrictness(t)
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 
 		workDir := t.TempDir()
-		// agentConfigHome carries the RESOLVED value a ResolvedAgent would hand
+		// agentHomeMode carries the RESOLVED value a ResolvedAgent would hand
 		// prepareWorkspace — an undeclared binding resolves to
-		// agents.ConfigHomeHost (agents.ParseConfigHome's default), never
+		// agents.HomeModeHost (agents.ParseHomeMode's default), never
 		// the empty string a no-binding run leaves behind.
-		st := newState(t, workDir, agents.ConfigHomeHost, hostAxes)
+		st := newState(t, workDir, agents.HomeModeHost, hostAxes)
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
 
 		assert.NotContains(t, st.req.Options.Env, claude.ConfigDirEnv,
-			"an agent-bound run with an undeclared config_home must keep the real ~/.claude")
+			"an agent-bound run with an undeclared engine_home must keep the real ~/.claude")
 		assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
 	})
 
 	// MUTATION TARGET m2: a bug that ignored a declared "host" value (treating
-	// every resolved agent binding as project) would make this red.
-	t.Run("an agent binding that declares config_home: host keeps the real host home", func(t *testing.T) {
+	// every resolved agent binding as session) would make this red.
+	t.Run("an agent binding that declares engine_home: host keeps the real host home", func(t *testing.T) {
 		resetStrictness(t)
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 
 		workDir := t.TempDir()
-		st := newState(t, workDir, agents.ConfigHomeHost, hostAxes)
+		st := newState(t, workDir, agents.HomeModeHost, hostAxes)
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
 
 		assert.NotContains(t, st.req.Options.Env, claude.ConfigDirEnv,
-			"a binding that DECLARES config_home: host must keep the real ~/.claude")
+			"a binding that DECLARES engine_home: host must keep the real ~/.claude")
 		assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
 	})
 
@@ -219,7 +219,7 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		workDir := t.TempDir()
 		homes := map[string]string{}
 		for _, harp := range []string{"ugly-icy-squid", "brave-warm-otter"} {
-			st := newState(t, workDir, agents.ConfigHomeProject, hostAxes)
+			st := newState(t, workDir, agents.HomeModeSession, hostAxes)
 			st.activeHarp = harp
 			st.prepareWorkspace()
 			t.Cleanup(st.cleanupWorkspace)
@@ -240,7 +240,7 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 
 		workDir := t.TempDir()
-		st := newState(t, workDir, agents.ConfigHomeProject, hostAxes)
+		st := newState(t, workDir, agents.HomeModeSession, hostAxes)
 		st.activeHarp = ""
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
@@ -263,7 +263,7 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 
 		repo := initIsolationTestRepo(t)
-		st := newState(t, repo, agents.ConfigHomeProject, isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost})
+		st := newState(t, repo, agents.HomeModeSession, isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost})
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
 

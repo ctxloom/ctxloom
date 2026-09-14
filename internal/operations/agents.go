@@ -39,10 +39,10 @@ type AgentEntry struct {
 	// derived from Permissions at resolve time (see agents.Agent.Escalation's
 	// doc).
 	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
-	// ConfigHome is the agent's declared per-engine config-home policy
-	// (project|host), as written; empty (undeclared) defaults to host at
-	// resolve time — see agents.Agent.ConfigHome's doc.
-	ConfigHome string `json:"config_home,omitempty"`
+	// HomeMode is the agent's declared per-engine engine-home policy
+	// (session|host), as written; empty (undeclared) defaults to host at
+	// resolve time — see agents.Agent.HomeMode's doc.
+	HomeMode string `json:"engine_home,omitempty"`
 }
 
 // ListAgents returns every locally-defined agent (the `agents:` config key),
@@ -60,7 +60,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Permissions: s.Permissions,
 			Driving:     s.Driving,
 			Escalation:  s.Escalation,
-			ConfigHome:  s.ConfigHome,
+			HomeMode:    s.HomeMode,
 		})
 	}
 	return out
@@ -84,7 +84,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Permissions: sub.Permissions,
 		Driving:     sub.Driving,
 		Escalation:  sub.Escalation,
-		ConfigHome:  sub.ConfigHome,
+		HomeMode:    sub.HomeMode,
 	}, nil
 }
 
@@ -124,12 +124,12 @@ type SetAgentRequest struct {
 	// returns an error, nothing is persisted) rather than warned-and-stored —
 	// see agents.ValidateDriving's doc for why.
 	Driving *string `json:"driving,omitempty"`
-	// ConfigHome sets the binding's per-engine config-home policy
-	// (project|host); empty (undeclared) defaults to host at resolve time.
+	// HomeMode sets the binding's per-engine engine-home policy
+	// (session|host); empty (undeclared) defaults to host at resolve time.
 	// Unlike Runtime/Permissions, an unknown value here is REJECTED (SetAgent
 	// returns an error, nothing is persisted) — the same treatment Surfaces
-	// gets, and for the same reason: see agents.Agent.ConfigHome's doc.
-	ConfigHome *string `json:"config_home,omitempty"`
+	// gets, and for the same reason: see agents.Agent.HomeMode's doc.
+	HomeMode *string `json:"engine_home,omitempty"`
 }
 
 // orKeep dereferences an optional request field: nil means "the caller did not
@@ -247,13 +247,13 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 		return err
 	}
 
-	// config_home breaks rather than degrades: an unknown value here would
+	// engine_home breaks rather than degrades: an unknown value here would
 	// otherwise silently resolve to the host default at launch (fault
 	// tolerance's usual treatment), which for THIS key means silently
 	// dropping the very opt-in the write was trying to make — refused here
 	// instead, before it is ever persisted.
-	if req.ConfigHome != nil && *req.ConfigHome != "" {
-		if _, err := agents.ParseConfigHome(*req.ConfigHome); err != nil {
+	if req.HomeMode != nil && *req.HomeMode != "" {
+		if _, err := agents.ParseHomeMode(*req.HomeMode); err != nil {
 			return fmt.Errorf("agent %q: %w", name, err)
 		}
 	}
@@ -411,7 +411,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		if req.Driving != nil {
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
-		entry.ConfigHome = orKeep(req.ConfigHome, entry.ConfigHome)
+		entry.HomeMode = orKeep(req.HomeMode, entry.HomeMode)
 		d.Agents[name] = entry
 		return nil
 	})
@@ -426,7 +426,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		Permissions: entry.Permissions,
 		Driving:     entry.Driving,
 		Escalation:  entry.Escalation,
-		ConfigHome:  entry.ConfigHome,
+		HomeMode:    entry.HomeMode,
 	}, nil
 }
 
@@ -538,16 +538,16 @@ type ResolvedAgent struct {
 	// coordinator's per-engine resume-capability gate (coord.resolveResumeMode)
 	// consumes this to decide SpawnPlan.ResumeMode.
 	Driving agents.DrivingMode `json:"driving,omitempty"`
-	// ConfigHome is the agent's EFFECTIVE, already-resolved config-home
-	// policy — always agents.ConfigHomeProject or agents.ConfigHomeHost,
-	// never empty, whatever the binding declared (agents.ParseConfigHome's
+	// HomeMode is the agent's EFFECTIVE, already-resolved config-home
+	// policy — always agents.HomeModeSession or agents.HomeModeHost,
+	// never empty, whatever the binding declared (agents.ParseHomeMode's
 	// undeclared/unresolvable → host default already applied). It is the
 	// ONE thing every invocation path (cli/run.go's prepareWorkspace,
 	// operations/delegate.go's bindIsolatedSpawn/startOneshot) threads into
-	// InTreeAgentHome.ConfigHome — a run with NO resolved agent binding at
+	// InTreeAgentHome.HomeMode — a run with NO resolved agent binding at
 	// all never has a ResolvedAgent to read this from, and so falls back to
 	// the real host home by construction, not by this field's value.
-	ConfigHome agents.ConfigHome `json:"config_home,omitempty"`
+	HomeMode agents.HomeMode `json:"engine_home,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an
@@ -659,7 +659,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		clidiag.Warn("ctxloom", "agent %q: %v — using %s's default delivery", name, serr, backend)
 	}
 
-	configHome, cherr := agents.ParseConfigHome(sub.ConfigHome)
+	configHome, cherr := agents.ParseHomeMode(sub.HomeMode)
 	if cherr != nil {
 		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, cherr)
 	}
@@ -693,6 +693,6 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		EffectivePermissions: effectivePerm.String(),
 		Escalation:           sub.Escalation,
 		Driving:              sub.Driving,
-		ConfigHome:           configHome,
+		HomeMode:             configHome,
 	}, nil
 }

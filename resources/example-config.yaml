@@ -35,6 +35,7 @@ version: 6
 #   default:
 #     engine: big          # LLM config label; overrides the profiles' llm
 #     runtime: host        # host | container-rootless | container-rootful
+#     engine_home: host    # host | session: which home the engine runs against
 #     profiles:
 #       - ctxloom-default/go-developer
 #       - ctxloom-default/python-developer

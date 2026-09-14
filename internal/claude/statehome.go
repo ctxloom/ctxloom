@@ -29,7 +29,7 @@ const HomeLeaf = "claude"
 // registrations and settings, and lets it write session state and hook edits
 // back into them.
 //
-// The rule is AGENT runs whose binding declares `config_home: project`: every
+// The rule is AGENT runs whose binding declares `engine_home: session`: every
 // other run — no binding, an undeclared binding, an explicit `host` — keeps the
 // real ~/.claude. See docs/architecture/engines/isolation.md's engine config
 // homes section, and operations.ResolveInTreeAgentHome, which is the one place

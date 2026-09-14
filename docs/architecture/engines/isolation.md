@@ -259,7 +259,7 @@ host login**, silently logging you out of your own machine. This is the fact
 the three claude-credential axes are built around, and it is why they do not
 all handle the credential the same way.
 
-- **A controlled home** (`config_home: project`, on any cell) is **PROVISIONED
+- **A controlled home** (`engine_home: session`, on any cell) is **PROVISIONED
   with the host's own material**, not given a copy of it. claude declares
   `Accept: [Mounted, Replicated]` — shared by **identity** (one inode) where a
   mount is available, else shared by **replication** (two files kept in step
@@ -283,7 +283,7 @@ all handle the credential the same way.
   mounting is impossible is material that cannot renew at all — and
   `DeliveryReplicated` is what keeps the difference visible to whoever debugs
   an auth failure later. A containerized run with
-  `config_home: project` is the RULED exception: the real host
+  `engine_home: session` is the RULED exception: the real host
   `~/.claude/.credentials.json` is bind-mounted read-write OVER the seeded
   copy at `<mounted home>/.credentials.json` (`MountEngineHome`), so the
   container keeps refreshing in place exactly as an unrelocated container
@@ -360,7 +360,7 @@ An engine's **cwd-keyed** surfaces are a different thing entirely and are never
 relocated: `CLAUDE.md` and `.claude/` live at the project root, where the
 engine natively looks.
 
-| Engine | Var | `config_home: project`, host cells (none / worktree) | `config_home: project`, container | undeclared / `host` / no binding, host cells | undeclared / `host` / no binding, container |
+| Engine | Var | `engine_home: session`, host cells (none / worktree) | `engine_home: session`, container | undeclared / `host` / no binding, host cells | undeclared / `host` / no binding, container |
 |---|---|---|---|---|---|
 | claude-code | `CLAUDE_CONFIG_DIR` | `<WorkDir>/.ctxloom/state/<harp>/home/claude` | the same host directory, bind-mounted at `/ctxloom/home/claude` (the fixed instance root + the declared leaf), which is what the engine is told; the real `~/.claude/.credentials.json` is bind-mounted RW over the seeded copy inside it | **real `~/.claude`** | the container's fresh `$HOME/.claude` |
 
@@ -385,32 +385,32 @@ instance. A run with no session name gets no instance at all and keeps the
 engine's real home; there is no session-less fallback, because a shared one
 would be the project-scoped home this model replaced.
 
-### The rule: `config_home: project`, declared, on every cell
+### The rule: `engine_home: session`, declared, on every cell
 
-Each agent binding declares its own policy, `agents.<name>.config_home:
-project|host`:
+Each agent binding declares its own policy, `agents.<name>.engine_home:
+host|session`:
 
 ```yaml
 agents:
   coder:
-    config_home: project   # a per-session instance under .ctxloom/state/<harp>/home/
+    engine_home: session   # a per-session instance under .ctxloom/state/<harp>/home/
     # or: host             # the engine's real host home (also the default)
 ```
 
 **Empty (undeclared) DEFAULTS TO `host`.** The controlled home is strictly
 opt-in — naming an agent, on its own, is *not* enough to relocate its config
 home. A binding that wants its runs kept off the human's real engine home has to
-say `config_home: project` explicitly.
+say `engine_home: session` explicitly.
 
 **A declared value WINS on every invocation path that binding resolves
 through** — a bare `ctxloom run` under `default_agent`, `run --agent`, a
 delegated child, a oneshot fan member, alike. Invocation never matters for a
 declared binding; only whether a binding is in play at all does. A run with
 **no agent binding whatsoever** (no `--agent`, no `default_agent`) has no
-`config_home` to read in the first place, and always keeps the real host
+`engine_home` to read in the first place, and always keeps the real host
 home — there is no binding through which it could even opt in. Decided in
 `operations.ResolveInTreeAgentHome` off the resolved binding's *effective*
-`ConfigHome` (`agents.ParseConfigHome`), the single place the condition
+`HomeMode` (`agents.ParseHomeMode`), the single place the condition
 lives; bound through `operations.BindAgentHome` by every launch path.
 
 **The home is orthogonal to the cell.** Nothing in that decision reads which
@@ -432,7 +432,7 @@ A delegated child, a fan-out member, a `run --agent` — these ARE ctxloom's
 processes, and pointing one at the human's real engine home hands it their
 memory, plugins, personal MCP registrations, global agents and steering, and
 lets it write session state and settings edits back into them. That is the
-pollution `config_home: project` lets a binding opt out of — but nothing takes
+pollution `engine_home: session` lets a binding opt out of — but nothing takes
 it on by default; a project asks for it by name, on the binding that wants it.
 
 **Why the instance is opt-in rather than automatic.** Relocating an engine's
@@ -443,7 +443,7 @@ your own interactive `ctxloom run` — no agent binding at all — handed a
 throwaway home every session would lose its token refreshes, its accumulated
 workspace-trust answers and its session state each time. So no binding, an
 undeclared binding, and an explicit `host` all keep the real home, and only
-`config_home: project` earns an instance. One rule, every engine, decided in
+`engine_home: session` earns an instance. One rule, every engine, decided in
 one place.
 
 **What `host` costs, stated plainly.** ctxloom never writes the real home, so
@@ -451,7 +451,7 @@ any surface an engine reads *only* from its home — hooks, MCP servers, prompts
 skills — is undeliverable to a run that keeps it. claude-code reads those from
 cwd-keyed surfaces (`.claude/`, `.mcp.json`), so it pays nothing here; an
 engine with no cwd-keyed equivalent gets a degraded run, told so out loud with
-the fix (`config_home: project`) named.
+the fix (`engine_home: session`) named.
 
 ### Absent, with the reason, and one fail-loud
 
@@ -459,7 +459,7 @@ The resolution is either present or **absent with a stated reason**
 (`AgentHomeResolution.Absent`) — an empty root with no reason is not a shape
 it can take. It is absent when:
 
-1. **the effective `config_home` is not `project`** — the rule above (this
+1. **the effective `engine_home` is not `session`** — the rule above (this
    covers no binding, an undeclared binding, and an explicit `host`); the
    documented default, recorded but not warned about;
 2. **the run carries no session name**, or **the engine declares no

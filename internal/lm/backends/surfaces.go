@@ -109,7 +109,7 @@ func UncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss 
 // will never materialize. This answers "what can a HARPLESS caller not write" —
 // a fact about the CALLER. Folding this into UncarriedSurfaces would make
 // `agent show` tell a user their codex agent loses its hooks, when an agent
-// declaring `config_home: project` receives every one of them at launch.
+// declaring `engine_home: session` receives every one of them at launch.
 //
 // Same "only when it costs something" rule as its sibling: a surface the inputs
 // do not carry is reported nowhere. Losses come out in a fixed order (settings,

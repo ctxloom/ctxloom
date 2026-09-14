@@ -308,12 +308,12 @@
               "type": "string"
             }
           },
-          "config_home": {
+          "engine_home": {
             "type": "string",
-            "description": "Per-engine config-home policy for this binding's runs, on every isolation cell alike. \"project\" points the engine at a ctxloom-controlled, per-session home under .ctxloom/state/<harp>/home/<engine leaf> \u2014 on the host the engine is told that path; in a container it is mounted and the engine is told the mount target. \"host\" keeps the home the runtime gives the engine: its real host home, or a container's own fresh $HOME. Empty (omitted) DEFAULTS TO \"host\": the controlled home is strictly opt-in. A declared value wins on every invocation path this binding resolves through \u2014 a bare run under default_agent, run --agent, a delegated child, a oneshot fan member alike; only a run with NO agent binding at all (no --agent, no default_agent) has no config_home to read and always keeps the real host home. Validated when written \u2014 an unknown value is refused, naming the two valid ones.",
+            "description": "Engine-home axis for this agent: WHICH HOME its engine runs against. The third isolation axis, a peer of runtime (which isolates the PROCESS) and workspace (which isolates the FILES): this one isolates the engine's config AND identity \u2014 its credentials, memory, plugins, personal MCP registrations, global agents and steering, everything the engine keeps in its home directory. \"host\" (the default, also when omitted) keeps the home the runtime gives the engine: its real host home, or a container's own fresh $HOME. \"session\" points the engine at a ctxloom-controlled, PER-SESSION home under .ctxloom/state/<harp>/home/<engine leaf> \u2014 on the host the engine is told that path; in a container it is mounted and the engine is told the mount target. A declared value wins on every invocation path this binding resolves through \u2014 a bare run under default_agent, run --agent, a delegated child, a oneshot fan member alike; a run with NO agent binding at all (no --agent, no default_agent) has no engine_home to read and keeps the real host home. Validated when written \u2014 an unknown value is refused, naming the two valid ones.",
             "enum": [
-              "project",
-              "host"
+              "host",
+              "session"
             ]
           }
         },

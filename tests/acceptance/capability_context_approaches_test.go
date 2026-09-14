@@ -113,7 +113,7 @@ func TestApproachAssert_RefusesARunThatDegradedOffThePin(t *testing.T) {
 // codex finding false. Kept exactly as production emitted it (captured
 // from the codex hook cell's own run) so the guard is matched against
 // the real thing rather than against a paraphrase of it.
-const codexHookNotWrittenWarning = "ctxloom: warning: codex hooks and MCP servers were NOT written: codex settings/prompts/skills are delivered per-session at launch; no durable project home exists — see config_home. They are delivered into this session's own CODEX_HOME when an agent whose binding declares `config_home: project` launches; there is no durable project file to materialize. codex's cwd-keyed AGENTS.md context is unaffected and was still written.\n"
+const codexHookNotWrittenWarning = "ctxloom: warning: codex hooks and MCP servers were NOT written: codex settings/prompts/skills are delivered per-session at launch; no durable project home exists — see engine_home. They are delivered into this session's own CODEX_HOME when an agent whose binding declares `engine_home: session` launches; there is no durable project file to materialize. codex's cwd-keyed AGENTS.md context is unaffected and was still written.\n"
 
 // TestApproachAssert_RefusesAHookCellWhoseHookWasNeverWritten is the regression
 // test for a false FINDING, which is a rarer and more expensive thing than a

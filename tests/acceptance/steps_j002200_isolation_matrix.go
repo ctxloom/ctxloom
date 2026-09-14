@@ -345,22 +345,22 @@ type isoMatrixState struct {
 	engine string
 	// workspace is the isolation workspace axis the last run requested.
 	workspace string
-	// configHome is the "iso" agent binding's config_home value the next
+	// engineHome is the "iso" agent binding's engine_home value the next
 	// runIsoMatrix call renders into config.yaml — "" (the zero value) means
 	// UNDECLARED, matching a scenario that never calls the
-	// "Alice's agent declares config_home" Given step at all. Set by that
+	// "Alice's agent declares engine_home" Given step at all. Set by that
 	// step, consumed and left untouched by runIsoMatrix (which does not reset
 	// it, so it must not leak state that outlives this file's per-scenario
 	// World anyway).
-	configHome string
-	// configHomeViaCLI switches WHO writes the configHome value above. False
-	// (the default) renders it as a `config_home:` line straight into the
+	engineHome string
+	// engineHomeViaCLI switches WHO writes the engineHome value above. False
+	// (the default) renders it as a `engine_home:` line straight into the
 	// fixture's own config.yaml. True leaves that line OUT and makes
-	// `ctxloom agent edit iso --config-home <value>` the only writer, so the
+	// `ctxloom agent edit iso --engine-home <value>` the only writer, so the
 	// binding under test can only have been written by the CLI flag — which
 	// is what turns this fixture from a test of the config KEY into a test of
 	// the FLAG that sets it.
-	configHomeViaCLI bool
+	engineHomeViaCLI bool
 }
 
 func isoMatrixOf(w *World) *isoMatrixState {
@@ -409,10 +409,10 @@ func installIsoSpy(dir string, names ...string) error {
 }
 
 // isoMatrixConfigYAML renders the PROJECT half of config.yaml for one
-// engine, binding a single agent "iso" to it. configHome renders as the
-// binding's own `config_home:` key when non-empty — "" leaves it OUT of the
+// engine, binding a single agent "iso" to it. engineHome renders as the
+// binding's own `engine_home:` key when non-empty — "" leaves it OUT of the
 // YAML entirely (an undeclared binding), never writes an empty string value,
-// so a scenario that never calls "Alice's agent declares config_home" gets
+// so a scenario that never calls "Alice's agent declares engine_home" gets
 // the true undeclared case, not a declared-empty one. isoMatrixHomeConfigYAML
 // carries env.CTXLOOM_ISOSPY_OUT (the spy's own output path — it flows into
 // agent.LaunchBackend.ExecuteEnv (the request env layer) via
@@ -421,10 +421,10 @@ func installIsoSpy(dir string, names ...string) error {
 // longer survives a real Load from a committed project file. Splitting the
 // label across layers like this is legal (unlike agents.*, llm.configs.*
 // has no atomic-replace merge rule).
-func isoMatrixConfigYAML(engineType, configHome string) string {
-	configHomeLine := ""
-	if configHome != "" {
-		configHomeLine = fmt.Sprintf("    config_home: %s\n", configHome)
+func isoMatrixConfigYAML(engineType, engineHome string) string {
+	engineHomeLine := ""
+	if engineHome != "" {
+		engineHomeLine = fmt.Sprintf("    engine_home: %s\n", engineHome)
 	}
 	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`llm:
   configs:
@@ -437,7 +437,7 @@ agents:
   iso:
     llm: iso
     profiles: []
-%s`, engineType, configHomeLine)
+%s`, engineType, engineHomeLine)
 }
 
 // isoMatrixHomeConfigYAML renders the HOME half — see isoMatrixConfigYAML's
@@ -451,9 +451,9 @@ func isoMatrixHomeConfigYAML(spyOut string) string {
 `, spyOut)
 }
 
-// writeIsoConfigHomeViaCLI makes the CLI FLAG the only writer of the "iso"
-// binding's config_home, by running the real `ctxloom agent edit iso
-// --config-home <value>` against the project the fixture just rendered.
+// writeIsoEngineHomeViaCLI makes the CLI FLAG the only writer of the "iso"
+// binding's engine_home, by running the real `ctxloom agent edit iso
+// --engine-home <value>` against the project the fixture just rendered.
 //
 // It runs HERE — inside runIsoMatrix, between the config write and the git
 // commit — rather than from its own Given step, because runIsoMatrix rewrites
@@ -464,9 +464,9 @@ func isoMatrixHomeConfigYAML(spyOut string) string {
 // A failed edit is returned as the step's own error rather than left for the
 // downstream assertion, so "the flag was rejected" cannot be reported as
 // "the engine was not relocated".
-func writeIsoConfigHomeViaCLI(w *World, value string) error {
-	if err := w.env.Run("agent", "edit", "iso", "--config-home", value); err != nil {
-		return fmt.Errorf("ctxloom agent edit iso --config-home %s: %w; output:\n%s", value, err, w.env.LastOutput())
+func writeIsoEngineHomeViaCLI(w *World, value string) error {
+	if err := w.env.Run("agent", "edit", "iso", "--engine-home", value); err != nil {
+		return fmt.Errorf("ctxloom agent edit iso --engine-home %s: %w; output:\n%s", value, err, w.env.LastOutput())
 	}
 	return nil
 }
@@ -499,19 +499,19 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 
 	// The fixture writes the declaration itself UNLESS the scenario asked for
 	// the CLI to be the writer, in which case the rendered YAML deliberately
-	// carries no config_home at all — see writeIsoConfigHomeViaCLI.
-	renderedConfigHome := j.configHome
-	if j.configHomeViaCLI {
-		renderedConfigHome = ""
+	// carries no engine_home at all — see writeIsoEngineHomeViaCLI.
+	renderedEngineHome := j.engineHome
+	if j.engineHomeViaCLI {
+		renderedEngineHome = ""
 	}
-	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, renderedConfigHome)); err != nil {
+	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, renderedEngineHome)); err != nil {
 		return err
 	}
 	if err := w.env.WriteHomeFile(".ctxloom/config.yaml", isoMatrixHomeConfigYAML(spyOut)); err != nil {
 		return err
 	}
-	if j.configHomeViaCLI {
-		if err := writeIsoConfigHomeViaCLI(w, j.configHome); err != nil {
+	if j.engineHomeViaCLI {
+		if err := writeIsoEngineHomeViaCLI(w, j.engineHome); err != nil {
 			return err
 		}
 	}
@@ -529,12 +529,12 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 //
 // The project declares `default_agent: iso`, so this is not "a run with no
 // agent resolved at all": ctxloom still binds the default agent, exactly as it
-// does for any bare `ctxloom run`. The "iso" binding's config_home is
+// does for any bare `ctxloom run`. The "iso" binding's engine_home is
 // deliberately left UNDECLARED here (never set via the "Alice's agent
-// declares config_home" step), which is the load-bearing fact this scenario
-// proves: config_home wins on EVERY invocation path a binding resolves
+// declares engine_home" step), which is the load-bearing fact this scenario
+// proves: engine_home wins on EVERY invocation path a binding resolves
 // through, including a bare launch under default_agent — an undeclared
-// binding resolves to the host default (agents.ParseConfigHome)
+// binding resolves to the host default (agents.ParseHomeMode)
 // regardless of whether it was reached via `--agent iso` or a bare `ctxloom
 // run`, so Alice's own session keeps her real ~/.claude here for the SAME
 // reason the sibling "undeclared binding" scenario keeps it for an explicit
@@ -564,9 +564,9 @@ func runIsoMatrixOwnerSession(c context.Context, engine string) error {
 	_ = os.Remove(spyOut)
 	j.spyOut = spyOut
 
-	// Deliberately "" (undeclared), NOT j.configHome: this scenario's whole
+	// Deliberately "" (undeclared), NOT j.engineHome: this scenario's whole
 	// point is the undeclared case, and reading scenario-shared state here
-	// would let an earlier "Alice's agent declares config_home" step in some
+	// would let an earlier "Alice's agent declares engine_home" step in some
 	// other ordering silently change what is under test.
 	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, "")+"default_agent: iso\n"); err != nil {
 		return err
@@ -751,32 +751,32 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// THE config_home FIXTURE KNOB. Sets the "iso" agent binding's declared
-	// config_home for the NEXT runIsoMatrix call — never for
+	// THE engine_home FIXTURE KNOB. Sets the "iso" agent binding's declared
+	// engine_home for the NEXT runIsoMatrix call — never for
 	// runIsoMatrixOwnerSession, which deliberately hardcodes "" (undeclared)
 	// regardless of this state, since its whole point is the undeclared case.
 	// A scenario that never calls this step gets an undeclared binding, which
-	// is itself a fixture under test (see the "undeclared config_home"
+	// is itself a fixture under test (see the "undeclared engine_home"
 	// scenario).
-	ctx.Step(`^Alice's agent declares config_home "([^"]*)"$`, func(c context.Context, value string) error {
+	ctx.Step(`^Alice's agent declares engine_home "([^"]*)"$`, func(c context.Context, value string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
-		j.configHome = value
+		j.engineHome = value
 		return nil
 	})
 
 	// THE SAME KNOB, TURNED BY THE CLI. Identical outcome expectations, one
 	// difference in how the binding got its value: `ctxloom agent edit iso
-	// --config-home <value>` writes it, and the fixture's own YAML renders no
-	// config_home line at all. The step only records the intent — the edit
+	// --engine-home <value>` writes it, and the fixture's own YAML renders no
+	// engine_home line at all. The step only records the intent — the edit
 	// itself runs inside runIsoMatrix, because the fixture rewrites config.yaml
 	// and would otherwise overwrite whatever the CLI had already written (see
-	// writeIsoConfigHomeViaCLI).
-	ctx.Step(`^Alice declares config_home "([^"]*)" on her agent with the ctxloom CLI$`, func(c context.Context, value string) error {
+	// writeIsoEngineHomeViaCLI).
+	ctx.Step(`^Alice declares engine_home "([^"]*)" on her agent with the ctxloom CLI$`, func(c context.Context, value string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
-		j.configHome = value
-		j.configHomeViaCLI = true
+		j.engineHome = value
+		j.engineHomeViaCLI = true
 		return nil
 	})
 
@@ -827,7 +827,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		env := isoParseSpyEnv(body)
 		val, ok := env[varName]
 		if !ok || val == "" {
-			return fmt.Errorf("spy %s process's env carries no %s at all — an in-tree AGENT run that declared config_home: project must be handed a ctxloom-controlled config home; full env dump:\n%s", engine, varName, body)
+			return fmt.Errorf("spy %s process's env carries no %s at all — an in-tree AGENT run that declared engine_home: session must be handed a ctxloom-controlled config home; full env dump:\n%s", engine, varName, body)
 		}
 		harp, err := isoInstanceHomeShape(w.env.ProjectDir, engine, val)
 		if err != nil {
@@ -956,7 +956,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		if len(homes) != 0 {
-			return fmt.Errorf("ctxloom-controlled config home(s) exist at %v — a run that did not declare config_home: project must keep its real engine home, not be relocated into the project", homes)
+			return fmt.Errorf("ctxloom-controlled config home(s) exist at %v — a run that did not declare engine_home: session must keep its real engine home, not be relocated into the project", homes)
 		}
 		// The retired durable per-project location too: an implementation that
 		// regrew it would leave this glob empty and still be wrong.

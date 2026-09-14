@@ -387,19 +387,19 @@ func hookProbeConfigYAML(a liveAgent, llmKey, engine, runtime string) string {
 	b.WriteString(a.config)
 	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
 		hookProbeAgent, llmKey, hookProbeAgent)
-	if hookProbeNeedsProjectConfigHome(engine) {
-		b.WriteString("    config_home: project\n")
+	if hookProbeNeedsSessionHome(engine) {
+		b.WriteString("    engine_home: session\n")
 	}
 	b.WriteString(runtimeBindingLine(runtime))
 	return b.String()
 }
 
-// hookProbeNeedsProjectConfigHome reports whether this engine needs the binding
-// to declare `config_home: project` before ctxloom will deliver its hooks AT
+// hookProbeNeedsSessionHome reports whether this engine needs the binding
+// to declare `engine_home: session` before ctxloom will deliver its hooks AT
 // ALL — and it is codex, for a reason measured rather than assumed.
 //
 // MEASURED. codex resolves $CODEX_HOME to the user's REAL ~/.codex
-// for any binding that does not declare `config_home: project` (the D2 ruling,
+// for any binding that does not declare `engine_home: session` (the D2 ruling,
 // registry.go's codex descriptor), and codex's own delivery refuses to write a
 // host-owned home: internal/codex's deliveryHome returns homeIsHostOwned and
 // writes nothing. So a default-bound codex run gets NO ctxloom hooks, no MCP
@@ -414,7 +414,7 @@ func hookProbeConfigYAML(a liveAgent, llmKey, engine, runtime string) string {
 // claude needs nothing here — it writes cwd-keyed or ephemeral
 // per-session surfaces that ctxloom delivers under a default binding, and
 // claude's cell is green on exactly that path.
-func hookProbeNeedsProjectConfigHome(string) bool {
+func hookProbeNeedsSessionHome(string) bool {
 	// No shipped engine needs a project config home today — every one delivers
 	// cwd-keyed or ephemeral per-session surfaces under a default binding.
 	return false

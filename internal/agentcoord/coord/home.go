@@ -1016,6 +1016,15 @@ func (h *Home) crash() {
 	h.cancel()
 	_ = h.conn.Close()
 	h.waitTracked()
+	// The out/ writer closes with the run, mirroring the coordinator closing
+	// its in/ writer with the journals (closePartial). Without this, a write
+	// that loses the race with teardown still lands: the cache outlives every
+	// tracked goroutine, so a late turn result or peer send creates a file in
+	// a spool directory the run has finished with — observed as a test's
+	// TempDir cleanup failing on a directory that filled up under it.
+	// After waitTracked so an in-flight write completes rather than being
+	// refused.
+	h.spoolOut.close()
 }
 
 // Close tears the home down: best-effort final cursor-ack (a CLEAN exit

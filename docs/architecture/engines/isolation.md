@@ -410,7 +410,7 @@ declared binding; only whether a binding is in play at all does. A run with
 `engine_home` to read in the first place, and always keeps the real host
 home — there is no binding through which it could even opt in. Decided in
 `operations.ResolveInTreeAgentHome` off the resolved binding's *effective*
-`ConfigHome` (`agents.ParseConfigHome`), the single place the condition
+`HomeMode` (`agents.ParseHomeMode`), the single place the condition
 lives; bound through `operations.BindAgentHome` by every launch path.
 
 **The home is orthogonal to the cell.** Nothing in that decision reads which

@@ -157,7 +157,7 @@ path, a container cell mounts it and tells the engine the mount target. No
 binding, an undeclared `engine_home`, or an explicit `engine_home: host` all
 mean the engine uses the home its runtime gives it **directly** — your real
 home on the host, a fresh `$HOME` in a container — with no instance and no
-copy-in (`agents.ParseConfigHome`).
+copy-in (`agents.ParseHomeMode`).
 
 Three classes of content live inside an instance:
 

@@ -60,7 +60,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Permissions: s.Permissions,
 			Driving:     s.Driving,
 			Escalation:  s.Escalation,
-			HomeMode:  s.HomeMode,
+			HomeMode:    s.HomeMode,
 		})
 	}
 	return out
@@ -84,7 +84,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Permissions: sub.Permissions,
 		Driving:     sub.Driving,
 		Escalation:  sub.Escalation,
-		HomeMode:  sub.HomeMode,
+		HomeMode:    sub.HomeMode,
 	}, nil
 }
 
@@ -426,7 +426,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		Permissions: entry.Permissions,
 		Driving:     entry.Driving,
 		Escalation:  entry.Escalation,
-		HomeMode:  entry.HomeMode,
+		HomeMode:    entry.HomeMode,
 	}, nil
 }
 
@@ -693,6 +693,6 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		EffectivePermissions: effectivePerm.String(),
 		Escalation:           sub.Escalation,
 		Driving:              sub.Driving,
-		HomeMode:           configHome,
+		HomeMode:             configHome,
 	}, nil
 }

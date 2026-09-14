@@ -196,10 +196,10 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	instances := map[string]string{}
 	for _, backend := range []string{"claude-code"} {
 		res := operations.ResolveInTreeAgentHome(operations.InTreeAgentHome{
-			Backend:    backend,
-			WorkDir:    workDir,
-			Cwd:        workDir,
-			Harp:       harp,
+			Backend:  backend,
+			WorkDir:  workDir,
+			Cwd:      workDir,
+			Harp:     harp,
 			HomeMode: agents.HomeModeSession,
 		})
 		if res.Absent != "" {

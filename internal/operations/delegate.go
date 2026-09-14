@@ -385,7 +385,7 @@ func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.C
 		// runs inside its parent's session and deliberately shares its config
 		// -home instance. It rides p.req.Env under agent.SessionHarpEnv — the
 		// same map isolation.SessionStateFromEnv reads two lines above.
-		Harp:       p.req.Env[agent.SessionHarpEnv],
+		Harp:     p.req.Env[agent.SessionHarpEnv],
 		HomeMode: rs.HomeMode,
 	})
 	found := strictness.Since(mark)

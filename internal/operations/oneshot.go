@@ -510,7 +510,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 			// ExtraEnv under agent.SessionHarpEnv exactly as the transcript
 			// capture below reads it. NOT req.AgentID: fan-out members of one
 			// session share that session's instance.
-			Harp:       req.ExtraEnv[agent.SessionHarpEnv],
+			Harp:     req.ExtraEnv[agent.SessionHarpEnv],
 			HomeMode: req.HomeMode,
 		})
 		found := strictness.Since(mark)

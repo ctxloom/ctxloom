@@ -117,13 +117,13 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 	newState := func(t *testing.T, workDir string, agentHomeMode agents.HomeMode, axes isolation.Axes) *runState {
 		t.Helper()
 		return &runState{
-			ctx:             context.Background(),
-			backendName:     "claude-code",
-			workDir:         workDir,
-			activeHarp:      "test-harp",
+			ctx:           context.Background(),
+			backendName:   "claude-code",
+			workDir:       workDir,
+			activeHarp:    "test-harp",
 			agentHomeMode: agentHomeMode,
-			runAxes:         axes,
-			req:             &pb.RunStart{Options: &pb.RunOptions{Env: map[string]string{"CTXLOOM_SESSION_HARP": "test-harp"}}},
+			runAxes:       axes,
+			req:           &pb.RunStart{Options: &pb.RunOptions{Env: map[string]string{"CTXLOOM_SESSION_HARP": "test-harp"}}},
 		}
 	}
 	hostAxes := isolation.Axes{Workspace: isolation.WorkspaceShared, Runtime: isolation.RuntimeHost}

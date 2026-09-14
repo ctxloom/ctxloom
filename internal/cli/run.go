@@ -1374,7 +1374,7 @@ func (st *runState) prepareWorkspace() {
 		// is what assigns it (and stamps CTXLOOM_SESSION_HARP into runEnv). A
 		// run that reached here with no session name gets no instance and keeps
 		// the engine's own host home.
-		Harp:       st.activeHarp,
+		Harp:     st.activeHarp,
 		HomeMode: st.agentHomeMode,
 	})
 	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, home.Env)

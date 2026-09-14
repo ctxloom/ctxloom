@@ -341,9 +341,9 @@ func TestSetAgent_PersistsHomeMode(t *testing.T) {
 	mgr := managerFor(appDir)
 
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{
-		Name:       "coder",
-		LLM:        ptr("claude-code"),
-		Profiles:   ptr([]string{"default"}),
+		Name:     "coder",
+		LLM:      ptr("claude-code"),
+		Profiles: ptr([]string{"default"}),
 		HomeMode: ptr("session"),
 	})
 	require.NoError(t, err)
@@ -372,9 +372,9 @@ func TestSetAgent_PersistsHomeModeHost(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
-		Name:       "human-adjacent",
-		LLM:        ptr("claude-code"),
-		Profiles:   ptr([]string{"default"}),
+		Name:     "human-adjacent",
+		LLM:      ptr("claude-code"),
+		Profiles: ptr([]string{"default"}),
 		HomeMode: ptr("host"),
 	})
 	require.NoError(t, err)

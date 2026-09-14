@@ -75,10 +75,10 @@ const containerInstanceRoot = "/ctxloom-test/home"
 // declared engine_home: session, on the host (no runtime advice).
 func projectHome(workDir, harp string) InTreeAgentHome {
 	return InTreeAgentHome{
-		Backend:    "claude-code",
-		WorkDir:    workDir,
-		Cwd:        workDir,
-		Harp:       harp,
+		Backend:  "claude-code",
+		WorkDir:  workDir,
+		Cwd:      workDir,
+		Harp:     harp,
 		HomeMode: agents.HomeModeSession,
 	}
 }

@@ -117,7 +117,7 @@ agents:
     runtime: container-rootless
     permissions: bypass
     driving: oneshot
-    config_home: project
+    engine_home: session
     surfaces:
       context: system-prompt
   finder:
@@ -134,7 +134,7 @@ agents:
 
 	dev, ok := cfg.Agent("dev")
 	require.True(t, ok)
-	// Assert the VALUES, not merely that the lookup succeeded: config_home and
+	// Assert the VALUES, not merely that the lookup succeeded: engine_home and
 	// surfaces are the two axes a launch degrades to a default on, so a binding
 	// that resolves while dropping them is the failure worth catching.
 	assert.Equal(t, "claude-code", dev.LLM)
@@ -142,11 +142,11 @@ agents:
 	assert.Equal(t, "container-rootless", dev.Runtime)
 	assert.Equal(t, "bypass", dev.Permissions)
 	assert.Equal(t, agents.DrivingOneshot, dev.Driving)
-	// Binding.ConfigHome stays a RAW string on purpose — a hand-edited
-	// config.yaml can hold anything, and agents.ParseConfigHome is what turns it
+	// Binding.HomeMode stays a RAW string on purpose — a hand-edited
+	// config.yaml can hold anything, and agents.ParseHomeMode is what turns it
 	// into the typed vocabulary. Asserting the typed constant here compares
-	// agents.ConfigHome against string and fails on the type, not the value.
-	assert.Equal(t, "project", dev.HomeMode)
+	// agents.HomeMode against string and fails on the type, not the value.
+	assert.Equal(t, "session", dev.HomeMode)
 	assert.Equal(t, map[string]string{"context": "system-prompt"}, dev.Surfaces)
 
 	_, ok = cfg.Agent("absent")

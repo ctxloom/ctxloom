@@ -72,7 +72,7 @@ const hostCredentialFixture = `{"claudeAiOauth":{"accessToken":"seed-fixture-tok
 const containerInstanceRoot = "/ctxloom-test/home"
 
 // projectHome is the input every case starts from: an agent binding that
-// declared config_home: project, on the host (no runtime advice).
+// declared engine_home: session, on the host (no runtime advice).
 func projectHome(workDir, harp string) InTreeAgentHome {
 	return InTreeAgentHome{
 		Backend:    "claude-code",
@@ -209,11 +209,11 @@ func TestResolveInTreeAgentHome_NeverWritesTheRealHostHome(t *testing.T) {
 	assert.Len(t, entries, 1, "seeding added files to the human's own ~/.claude")
 }
 
-// THE SCOPING RULE. A run with no agent binding at all (ConfigHome == "", the
+// THE SCOPING RULE. A run with no agent binding at all (HomeMode == "", the
 // human's own session), an AGENT-BOUND run whose binding never declares
-// config_home (agents.ParseConfigHome's default), and a binding that EXPLICITLY
+// engine_home (agents.ParseHomeMode's default), and a binding that EXPLICITLY
 // declares host all keep the REAL host home — and each says so. The three are
-// pinned separately: MUTATION TARGET m1 flips agents.ParseConfigHome's default to
+// pinned separately: MUTATION TARGET m1 flips agents.ParseHomeMode's default to
 // project (the undeclared case goes red alone); m2 ignores a declared host
 // value (the declared case goes red alone).
 func TestResolveInTreeAgentHome_NotProjectKeepsTheRuntimeHomeAndSaysSo(t *testing.T) {
@@ -235,7 +235,7 @@ func TestResolveInTreeAgentHome_NotProjectKeepsTheRuntimeHomeAndSaysSo(t *testin
 		res := ResolveInTreeAgentHome(in)
 		requireResolutionInvariant(t, res)
 		assert.Empty(t, res.Env, "%s: must be handed no config-home override", name)
-		assert.Contains(t, res.Absent, "config_home", "%s: the reason names the policy that declined", name)
+		assert.Contains(t, res.Absent, "engine_home", "%s: the reason names the policy that declined", name)
 	}
 	assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"),
 		"a declined run must not even create the instance root")
@@ -243,7 +243,7 @@ func TestResolveInTreeAgentHome_NotProjectKeepsTheRuntimeHomeAndSaysSo(t *testin
 
 // An engine that declares no relocatable home cannot be given one, on any
 // cell. That is no longer silent: the resolution carries the engine's own
-// stated reason, because a binding that asked for `config_home: project` and
+// stated reason, because a binding that asked for `engine_home: session` and
 // got nothing deserves to learn why.
 func TestResolveInTreeAgentHome_EngineWithoutAHomeSaysWhy(t *testing.T) {
 	resetEngineHomeStrictness(t)

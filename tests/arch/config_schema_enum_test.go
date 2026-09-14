@@ -6,7 +6,7 @@
 // enum array in it that mirrors a closed Go vocabulary is therefore a SECOND
 // COPY of that vocabulary's member list, kept in sync by nobody but a human
 // remembering to touch both files. Nothing before this gate ever checked
-// that the two stayed equal — config_home was the one instance a task
+// that the two stayed equal — engine_home was the one instance a task
 // happened to touch; runtime, permissions, driving, and the rest were never
 // looked at.
 //
@@ -128,7 +128,7 @@ var schemaEnumBindings = []schemaEnumBinding{
 	{path: "properties/agents/additionalProperties/properties/runtime", goNames: agentaxis.RuntimeNames},
 	{path: "properties/agents/additionalProperties/properties/permissions", goNames: agentaxis.PermissionModeNames},
 	{path: "properties/agents/additionalProperties/properties/driving", goNames: agents.DrivingModeNames},
-	{path: "properties/agents/additionalProperties/properties/config_home", goNames: agents.HomeModeNames},
+	{path: "properties/agents/additionalProperties/properties/engine_home", goNames: agents.HomeModeNames},
 
 	// Escalation ladder: real Go vocabulary exists but is unexported inside
 	// internal/agentcoord/coord (approvalKindNames, LadderAction), a package

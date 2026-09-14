@@ -223,7 +223,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			//   container            -> isolation.claudeCredentialMountsAt
 			//                           BIND-MOUNTS ~/.claude/.credentials.json
 			//                           into the container's own home
-			//   config_home: project -> isolation.CopyAmbient SEEDS the same
+			//   engine_home: session -> isolation.CopyAmbient SEEDS the same
 			//                           file into the session's controlled
 			//                           home, on whichever cell the run landed
 			//

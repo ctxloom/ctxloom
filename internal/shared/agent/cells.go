@@ -70,7 +70,7 @@ func rooted(start present.Start) error {
 // because a private one was not advised is the shared/dangerous default the
 // seam refuses to take on anyone's behalf. The remedy is in the message,
 // because the refusal is the whole interface for the failure.
-var ErrUnrootedEngineHome = errors.New("delivery: the engine home was never resolved — this approach writes beneath the engine's private config home, which only a run whose agent binding declares config_home: project advises; declare it on the binding, or select a project-file approach for this surface")
+var ErrUnrootedEngineHome = errors.New("delivery: the engine home was never resolved — this approach writes beneath the engine's private config home, which only a run whose agent binding declares engine_home: session advises; declare it on the binding, or select a project-file approach for this surface")
 
 // ErrAbsentSharedSurface is returned when a run on LaunchFormPresent names a
 // surface the session never delivered. "Use the existing surface" has exactly

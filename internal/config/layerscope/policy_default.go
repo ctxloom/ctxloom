@@ -51,7 +51,7 @@ func DefaultPolicy() Policy {
 		// agents.*.permissions already make in this table, and
 		// agentBindingMergeFunc's atomic-replace rule means a home-only value
 		// could never stick to a project-defined binding anyway.
-		{Path: "agents.*.config_home", Scope: ScopeShared, Note: "a pollution/isolation policy decision about this project's agents, not a per-machine fact"},
+		{Path: "agents.*.engine_home", Scope: ScopeShared, Note: "a pollution/isolation policy decision about this project's agents, not a per-machine fact"},
 
 		{Path: "dirty_tree_handler", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},
 		{Path: "workspace", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},

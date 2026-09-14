@@ -357,8 +357,8 @@ type runState struct {
 	// the default agent) — surround-bar identity only.
 	boundAgent string
 	// agentHomeMode is the resolved agent binding's EFFECTIVE config-home
-	// policy (operations.ResolvedAgent.ConfigHome — always
-	// agents.ConfigHomeProject or agents.ConfigHomeHost once a binding
+	// policy (operations.ResolvedAgent.HomeMode — always
+	// agents.HomeModeSession or agents.HomeModeHost once a binding
 	// resolved), or "" when this run has NO agent binding at all: the
 	// -p/-f/-t classic assembly, or a bare launch whose default agent failed
 	// to resolve.
@@ -368,10 +368,10 @@ type runState struct {
 	// operations.BindAgentHome) needs: resolveDefaultAgent sets
 	// boundAgent too, so "boundAgent != \"\"" is true of a plain `ctxloom run`
 	// just as much as `run --agent x` — both bind a real agent, and the
-	// decision reads that agent's OWN declared config_home (always host by
+	// decision reads that agent's OWN declared engine_home (always host by
 	// default), never how it was invoked. Only "was any binding resolved at
 	// all" is invocation-shaped, and that is exactly what an empty
-	// agentHomeMode (vs. a resolved "project"/"host") already answers.
+	// agentHomeMode (vs. a resolved "session"/"host") already answers.
 	agentHomeMode agents.HomeMode
 
 	// prepareRequestInputs: everything the RunStart payload is built from that
@@ -1354,13 +1354,13 @@ func (st *runState) prepareWorkspace() {
 	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, isolation.WorkspaceEnv(st.ws))
 
 	// THE AGENT'S CONFIG HOME, from exactly one place. A run bound to an agent
-	// whose EFFECTIVE config_home is "project" gets this session's controlled
+	// whose EFFECTIVE engine_home is "session" gets this session's controlled
 	// home, whichever cell it landed in — on the host the engine is told the
 	// path itself; in a container the home is mounted and the engine is told
 	// the mount target. Every other run — no binding at all, or a binding
 	// that is undeclared or declares "host" — keeps the home its runtime
 	// gives it. See operations.ResolveInTreeAgentHome for the whole rule, and
-	// st.agentConfigHome for why this reads the resolved agent's OWN declared
+	// st.agentHomeMode for why this reads the resolved agent's OWN declared
 	// policy rather than how it was invoked.
 	//
 	// Merged with the SAME precedence as the workspace env above, so an

@@ -97,7 +97,7 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 			w.Printf("    driving: %s\n", s.Driving)
 		}
 		if s.HomeMode != "" {
-			w.Printf("    config_home: %s\n", s.HomeMode)
+			w.Printf("    engine_home: %s\n", s.HomeMode)
 		}
 		if len(s.Escalation) > 0 {
 			w.Printf("    escalation: %d rung(s)\n", len(s.Escalation))
@@ -454,7 +454,7 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 	if cmd.Flags().Changed("permissions") {
 		req.Permissions = &agentSetPermissions
 	}
-	if cmd.Flags().Changed("config-home") {
+	if cmd.Flags().Changed("engine-home") {
 		req.HomeMode = &agentSetEngineHome
 	}
 	return req
@@ -486,7 +486,7 @@ func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool
 		w.Printf(", driving: %s", entry.Driving)
 	}
 	if entry.HomeMode != "" {
-		w.Printf(", config_home: %s", entry.HomeMode)
+		w.Printf(", engine_home: %s", entry.HomeMode)
 	}
 	w.Println(")")
 	return w.Err()
@@ -664,7 +664,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&agentSetSurfaces, "surface", nil,
 		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
 	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
-	cmd.Flags().StringVar(&agentSetEngineHome, "config-home", "",
+	cmd.Flags().StringVar(&agentSetEngineHome, "engine-home", "",
 		"Per-engine config-home policy, on every isolation cell: project|host (empty = host, the default — controlled homes are opt-in)")
 	_ = cmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = cmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
@@ -672,7 +672,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 		return isolation.RuntimeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = cmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
-	_ = cmd.RegisterFlagCompletionFunc("config-home", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	_ = cmd.RegisterFlagCompletionFunc("engine-home", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return agents.HomeModeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 }

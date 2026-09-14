@@ -42,7 +42,7 @@ import (
 //   - authHint: the degrade diagnostic when resolveAuth finds nothing — names
 //     the engine's trigger var/credential source without leaking values.
 //   - relocatedCredentialMounts: the credential FILE mount a run whose engine
-//     home was RELOCATED (config_home: project — MountEngineHome) needs over
+//     home was RELOCATED (engine_home: session — MountEngineHome) needs over
 //     the copy seeded into that home, so the engine keeps a credential it
 //     can refresh in place. nil for an engine that authenticates against no
 //     vendor or declares no credential files.

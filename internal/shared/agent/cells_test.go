@@ -533,7 +533,7 @@ func TestEngineHomeRooted_UnresolvedIsRefusedWithRemedy(t *testing.T) {
 	_, err := engineHomeStub{got: &call}.Deliver(present.ProjectOnHost("/live"))
 	require.ErrorIs(t, err, ErrUnrootedEngineHome)
 	assert.False(t, call.called, "nothing is written on an unresolved engine home")
-	assert.Contains(t, err.Error(), "config_home", "the refusal names the remedy")
+	assert.Contains(t, err.Error(), "engine_home", "the refusal names the remedy")
 
 	resolved := present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: "/live"},

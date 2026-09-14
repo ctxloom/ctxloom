@@ -326,17 +326,17 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 	assert.False(t, ok, "a rejected SetAgent call must persist nothing")
 }
 
-// TestSetAgent_PersistsConfigHome proves the config-home policy written by
-// `agent set --config-home` survives the config round-trip. UNLIKE
+// TestSetAgent_PersistsHomeMode proves the config-home policy written by
+// `agent set --engine-home` survives the config round-trip. UNLIKE
 // Permissions and LIKE Runtime/Driving/Surfaces, an unknown value is REJECTED
 // outright — SetAgent errors and nothing is persisted, naming the two valid
 // values.
 //
-// MUTATION TARGET m3: with the agents.ParseConfigHome check dropped from
-// validateAgentAxes (or agents.ParseConfigHome itself accepting anything), the
-// "must be rejected" assertion below goes red — an unknown config_home would
+// MUTATION TARGET m3: with the agents.ParseHomeMode check dropped from
+// validateAgentAxes (or agents.ParseHomeMode itself accepting anything), the
+// "must be rejected" assertion below goes red — an unknown engine_home would
 // be written as though it were valid.
-func TestSetAgent_PersistsConfigHome(t *testing.T) {
+func TestSetAgent_PersistsHomeMode(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 	mgr := managerFor(appDir)
 
@@ -344,7 +344,7 @@ func TestSetAgent_PersistsConfigHome(t *testing.T) {
 		Name:       "coder",
 		LLM:        ptr("claude-code"),
 		Profiles:   ptr([]string{"default"}),
-		HomeMode: ptr("project"),
+		HomeMode: ptr("session"),
 	})
 	require.NoError(t, err)
 
@@ -356,9 +356,9 @@ func TestSetAgent_PersistsConfigHome(t *testing.T) {
 
 	// Unknown value: REJECTED — nothing written, naming the two valid values.
 	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", HomeMode: ptr("wildwest")})
-	require.Error(t, err, "unknown config_home must be rejected, not stored")
+	require.Error(t, err, "unknown engine_home must be rejected, not stored")
 	assert.Contains(t, err.Error(), "wildwest")
-	assert.Contains(t, err.Error(), "project", "the refusal must list the valid values")
+	assert.Contains(t, err.Error(), "session", "the refusal must list the valid values")
 	assert.Contains(t, err.Error(), "host", "the refusal must list the valid values")
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -366,9 +366,9 @@ func TestSetAgent_PersistsConfigHome(t *testing.T) {
 	assert.False(t, ok, "a rejected SetAgent call must persist nothing")
 }
 
-// TestSetAgent_PersistsConfigHomeHost is the opt-out half: "host" is just as
-// valid a declared value as "project", and round-trips the same way.
-func TestSetAgent_PersistsConfigHomeHost(t *testing.T) {
+// TestSetAgent_PersistsHomeModeHost is the opt-out half: "host" is just as
+// valid a declared value as "session", and round-trips the same way.
+func TestSetAgent_PersistsHomeModeHost(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
@@ -458,7 +458,7 @@ agents:
     runtime: container-rootless
     permissions: bypass
     driving: oneshot
-    config_home: project
+    engine_home: session
     escalation:
       - action: auto_accept
         kinds: [TOOL_USE]

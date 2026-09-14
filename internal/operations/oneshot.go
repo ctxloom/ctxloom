@@ -203,8 +203,8 @@ type resolvedRunRequest struct {
 	ExtraEnv map[string]string
 
 	// HomeMode is the resolved agent binding's EFFECTIVE config-home policy
-	// (operations.ResolvedAgent.HomeMode — agents.ConfigHomeProject or
-	// agents.ConfigHomeHost) when this run was resolved through an AGENT
+	// (operations.ResolvedAgent.HomeMode — agents.HomeModeSession or
+	// agents.HomeModeHost) when this run was resolved through an AGENT
 	// binding (a delegated child, a fan-out member), or "" when it was not —
 	// a bare-profile oneshot has no agent binding to read one from (the same
 	// fact its Permissions comment already records). It decides ONE thing:
@@ -322,7 +322,7 @@ var prepareIsolation = isolation.Prepare
 // REQUESTED and the prepared workspace silently degraded toward a WEAKER
 // posture than asked for. Two distinct cases share this class today: (1) a
 // requested CONTAINER couldn't start and the run fell back to the bare,
-// unsandboxed host; (2) a binding that declared config_home: project has no
+// unsandboxed host; (2) a binding that declared engine_home: session has no
 // credentials to seed and no API-key env, so the engine would launch logged
 // out. Either way, running the member as-is would silently
 // deliver less than what was asked for. In strict mode that fails THE MEMBER

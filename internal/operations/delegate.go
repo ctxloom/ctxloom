@@ -289,7 +289,7 @@ func warnOnEmptyLeadContext(rs *ResolvedAgent, lead string) {
 // This is a WORKSPACE-axis (file-level) default only. It narrows a delegated
 // child's blast radius on the PROJECT CHECKOUT — it does NOT isolate the
 // engine's global config/credential/conversation store; that is the binding's
-// config_home (ResolveInTreeAgentHome), decided independently of this axis.
+// engine_home (ResolveInTreeAgentHome), decided independently of this axis.
 // Do not read a worktree default as "delegated children are now sandboxed
 // from the user's engine state" — they are not.
 //
@@ -372,8 +372,8 @@ func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.C
 	mark := strictness.Checkpoint()
 	policy, ws := prepareIsolation(ctx, p.axes, rs.Backend, IsolationImageConfig(cfg, rs.Backend), p.req.WorkDir, rs.Name, isolation.SessionStateFromEnv(p.req.Env))
 	// A delegated child is ALWAYS an agent run (p.req.Resolved IS the
-	// binding), so its EFFECTIVE config_home decides, whichever cell it
-	// landed in: only rs.ConfigHome == "project" gets the session's controlled
+	// binding), so its EFFECTIVE engine_home decides, whichever cell it
+	// landed in: only rs.HomeMode == "session" gets the session's controlled
 	// config home rather than the home its runtime gives it — see
 	// ResolveInTreeAgentHome. Resolved inside the checkpoint window so its
 	// fail-loud finding lands in this spawn's own gate below.
@@ -1291,8 +1291,8 @@ func (p *PreparedAgentChat) startOneshot(ctx context.Context) *AgentChatLaunch {
 				ExtraEnv:       p.req.Env,
 				// The oneshot FALLBACK for a delegated child is still a
 				// delegated child: same agent binding, same EFFECTIVE
-				// config_home as the structured-chat path bindIsolatedSpawn
-				// reads (rs.ConfigHome — already resolved/defaulted).
+				// engine_home as the structured-chat path bindIsolatedSpawn
+				// reads (rs.HomeMode — already resolved/defaulted).
 				HomeMode: rs.HomeMode,
 			})
 			if err != nil {

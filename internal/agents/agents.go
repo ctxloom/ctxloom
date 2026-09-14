@@ -116,8 +116,8 @@ type Agent struct {
 	Driving DrivingMode `yaml:"driving,omitempty"`
 	// HomeMode is this binding's per-engine config-home POLICY: whether a
 	// run gets a ctxloom-CONTROLLED, PER-SESSION engine config home under
-	// .ctxloom/state/<harp>/home/<leaf> (ConfigHomeProject) or keeps the home
-	// its runtime gives it (ConfigHomeHost — the engine's REAL host home,
+	// .ctxloom/state/<harp>/home/<leaf> (HomeModeSession) or keeps the home
+	// its runtime gives it (HomeModeHost — the engine's REAL host home,
 	// which ctxloom never writes, or a container's own fresh $HOME). It is
 	// the single source of truth for operations.ResolveInTreeAgentHome's
 	// scoping rule, and a DECLARED value wins on every invocation path this
@@ -128,8 +128,8 @@ type Agent struct {
 	// default_agent — has no HomeMode to read and always keeps the real
 	// host home).
 	//
-	// Empty (undeclared) DEFAULTS TO ConfigHomeHost: nothing gets a
-	// controlled home until a binding explicitly opts in with "project". An
+	// Empty (undeclared) DEFAULTS TO HomeModeHost: nothing gets a
+	// controlled home until a binding explicitly opts in with "session". An
 	// unconfigured binding therefore behaves exactly like no binding at all
 	// on this one axis — the controlled-home behaviour is strictly opt-in,
 	// never assumed.
@@ -140,37 +140,37 @@ type Agent struct {
 	// host, the path itself; in a container, a mount target).
 	//
 	// This is the DECLARED value as written — a raw string, because a
-	// hand-edited config.yaml can hold anything. ParseConfigHome turns it
-	// into the EFFECTIVE HomeMode: validated against ConfigHomeNames when
+	// hand-edited config.yaml can hold anything. ParseHomeMode turns it
+	// into the EFFECTIVE HomeMode: validated against HomeModeNames when
 	// WRITTEN (operations.SetAgent, same treatment as Surfaces — an unknown
 	// value is refused, naming the two valid ones); a value that fails that
-	// same check at RESOLVE time warns and falls back to ConfigHomeHost
+	// same check at RESOLVE time warns and falls back to HomeModeHost
 	// rather than blocking the launch.
-	HomeMode string `yaml:"config_home,omitempty"`
+	HomeMode string `yaml:"engine_home,omitempty"`
 }
 
 // HomeMode is the EFFECTIVE config-home policy a declaration parses to:
 // one of the two constants below. A run with NO agent binding carries the
-// zero value, which reads exactly like ConfigHomeHost everywhere it is
+// zero value, which reads exactly like HomeModeHost everywhere it is
 // consulted — there is no binding through which such a run could opt in.
 type HomeMode string
 
-// HomeModeSession and HomeModeHost are Agent.ConfigHome's two accepted
+// HomeModeSession and HomeModeHost are Agent.HomeMode's two accepted
 // values. See that field's doc for the scoping rule they select between.
 const (
-	HomeModeSession HomeMode = "project"
+	HomeModeSession HomeMode = "session"
 	HomeModeHost    HomeMode = "host"
 )
 
-// HomeModeNames lists the accepted config_home values, for flag help,
+// HomeModeNames lists the accepted engine_home values, for flag help,
 // shell completion, and error messages.
 func HomeModeNames() []string {
 	return []string{string(HomeModeSession), string(HomeModeHost)}
 }
 
 // ParseHomeMode validates and normalizes a binding's DECLARED
-// Agent.ConfigHome into its always-non-empty EFFECTIVE value: the declared
-// value when it is one of ConfigHomeNames, else ConfigHomeHost — undeclared
+// Agent.HomeMode into its always-non-empty EFFECTIVE value: the declared
+// value when it is one of HomeModeNames, else HomeModeHost — undeclared
 // (empty) and unrecognized both default to the runtime's own home, so the
 // controlled home stays strictly opt-in.
 //
@@ -190,7 +190,7 @@ func ParseHomeMode(declared string) (HomeMode, error) {
 	case HomeModeSession, HomeModeHost:
 		return HomeMode(declared), nil
 	default:
-		return HomeModeHost, fmt.Errorf("config_home %q: unknown value (known: %s)",
+		return HomeModeHost, fmt.Errorf("engine_home %q: unknown value (known: %s)",
 			declared, strings.Join(HomeModeNames(), ", "))
 	}
 }

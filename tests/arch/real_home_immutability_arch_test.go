@@ -175,7 +175,7 @@ func launchManaged() *agent.ManagedConfig {
 }
 
 // TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch is the gate.
-// A `config_home: project` run of every home-controlled engine resolves its
+// A `engine_home: session` run of every home-controlled engine resolves its
 // per-session instance and, for codex (the only engine with home-keyed
 // surfaces), performs the full Setup delivery into it. Afterwards every real
 // host home must hash exactly as it did before.
@@ -203,10 +203,10 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 			HomeMode: agents.HomeModeSession,
 		})
 		if res.Absent != "" {
-			t.Fatalf("%s: a config_home: project run must be handed a home, got absent: %s", backend, res.Absent)
+			t.Fatalf("%s: a engine_home: session run must be handed a home, got absent: %s", backend, res.Absent)
 		}
 		if len(res.Env) != 1 {
-			t.Fatalf("%s: a config_home: project run must be handed exactly one config-home var, got %v", backend, res.Env)
+			t.Fatalf("%s: a engine_home: session run must be handed exactly one config-home var, got %v", backend, res.Env)
 		}
 		for _, v := range res.Env {
 			instances[backend] = v

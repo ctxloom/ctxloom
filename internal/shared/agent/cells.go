@@ -17,11 +17,15 @@ import (
 // cells that land a well-known write in a private dir, and the name-keyed
 // SurfaceSelection builder that resolves a caller's named per-surface approach
 // against the engine's Declaration and constructs it. Race-safety is handled
-// by the CELL, not a parallel type hierarchy: an isolated cell's private dir
-// makes any well-known write race-free by construction, and a SHARED-cwd
-// delivery either runs the approach's own OutOfCwd form (claude's scratch
-// conversion) or performs the well-known write with a loud warning — the
-// caller's ApproachUnsafeFile choice IS that warning's acknowledgment.
+// by the CELL and by the APPROACH, not a parallel type hierarchy: an isolated
+// cell's private dir makes any well-known write race-free by construction, and
+// on a SHARED cwd an approach that presents outside the project root is already
+// safe, while a well-known write gets a loud warning — the caller's
+// ApproachUnsafeFile choice IS that warning's acknowledgment.
+//
+// What a shared cwd never does is SUBSTITUTE. A caller that named an approach
+// gets that approach or an error, never a different one reported as success
+// (see deliverOneShared, and agent.OutOfCwd for the one residual conversion).
 //
 // (Delivered — the handle owning a delivery's cleanup — is defined in
 // delivery.go and reused here.)
@@ -620,7 +624,13 @@ type unsafeNamed interface {
 // deliverOneShared delivers ONE resolved surface into the SHARED live cwd —
 // the advised project root. When the approach has an OutOfCwd form it runs
 // THAT against the same advised roots — it writes beneath Scratch —
-// genuinely race-safe, no warning. Otherwise the well-known write lands
+// genuinely race-safe, no warning. That branch is RESIDUE: it applies to
+// settings alone, the last approach with a second form (see agent.OutOfCwd).
+// It is a CONVERSION, and a conversion is exactly what an explicitly named
+// approach must not get, which is why context and MCP no longer reach it —
+// each declares one approach per behaviour, and an approach whose bytes land
+// outside the project root falls through to the plain Deliver below.
+// Otherwise the well-known write lands
 // directly in the shared cwd: loudly warned first, since the selected
 // ApproachUnsafeFile is the caller's acknowledgment that ctxloom does not lock
 // projects — this is also where an explicit context=unsafe-file preference on

@@ -292,7 +292,13 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// honourable: claude, kiro and opencode have always had it, and
 	// codex gained it when its native AGENTS.md route stopped being folded
 	// invisibly into the hook approach.
-	sel := agent.Select(decl).WithEverything().With(agent.SurfaceContext, agent.ApproachUnsafeFile)
+	// Context and MCP are pinned to the engine's native file. A materialized
+	// tree must outlive ctxloom, so it cannot carry a surface whose only form
+	// is a file some future launch names on argv: MCP's declared DEFAULT is now
+	// exactly that, and WithEverything would otherwise take it and refuse here.
+	sel := agent.Select(decl).WithEverything().
+		With(agent.SurfaceContext, agent.ApproachUnsafeFile).
+		With(agent.SurfaceMCP, agent.ApproachUnsafeFile)
 	for kind, approach := range req.Surfaces {
 		sel = sel.With(kind, approach)
 	}

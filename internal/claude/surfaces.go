@@ -98,6 +98,13 @@ func underPrivateRoot(start present.Start, rel string) present.Rooted {
 // write uses.
 func claudeContextWriter(fs afero.Fs) agent.ContextWriter { return &ClaudeCodeHookWriter{FS: fs} }
 
+// newMCPWriter builds the .mcp.json recipe both MCP approaches embed, from the
+// one set of run inputs. It exists so the two constructors cannot come apart
+// on a field: MCPCommandOverride was already once lost that way.
+func newMCPWriter(in agent.SurfaceInputs, fs afero.Fs) mcpWriter {
+	return mcpWriter{bundle: in.BundleMCP, fs: agent.GetFS(fs), commandOverride: in.MCPCommandOverride}
+}
+
 // systemPromptContext is claude's system-prompt context approach.
 //
 // Its out-of-cwd form (DeliverIsolated) writes the framed <hash>.sysprompt.md
@@ -162,51 +169,79 @@ func (s *systemPromptContext) Deliver(start present.Start) (agent.Delivered, err
 // delivery, for empty context, and after a FAILED delivery.
 func (s *systemPromptContext) Path() string { return s.path }
 
-// mcpSurface is claude's MCP approach.
+// ApproachMCPConfig names claude's PRIVATE MCP config file, announced on
+// --mcp-config. It is claude's own name, declared here and nowhere shared, and
+// it is the DEFAULT: a run's MCP set is ctxloom's to deliver, and delivering it
+// by writing the user's project .mcp.json is a shared/dangerous avenue nothing
+// should take by default.
+const ApproachMCPConfig = "mcp-config"
+
+// mcpWriter is the ONE .mcp.json recipe both MCP approaches run: build the
+// reused file-template writer against dir, thread the ctxloom-MCP command
+// override onto it (settingsSurface has no analogous knob, since hooks +
+// statusline carry no stdio command), and write the merged config.
 //
-// Deliver (well-known) writes .mcp.json into the project root via the reused
-// fileTemplateDelivery.DeliverMCP. DeliverIsolated writes the same merged
-// .mcp.json beneath Scratch and exposes its path (Path) for --mcp-config
-// <file> (paired with --strict-mcp-config, which replaces the project
-// .mcp.json rather than merging — a buildArgs concern).
-type mcpSurface struct {
+// The two approaches EMBED it and differ only in where the bytes go and what
+// the engine is told — which is the whole of what distinguishes them. Sharing
+// the writer rather than the type is what keeps "one .mcp.json recipe" true
+// while still letting the two say different things about placement: a single
+// type with two methods is what made the silent conversion expressible in the
+// first place.
+type mcpWriter struct {
 	bundle          map[string]wire.MCPServer
 	fs              afero.Fs
-	path            string // set by DeliverIsolated: the out-of-cwd .mcp.json
 	commandOverride string // see SurfaceInputs.MCPCommandOverride
 }
 
-// Present declares .mcp.json plus the --mcp-config flag its out-of-cwd form
-// is announced with.
-func (s *mcpSurface) Present(start present.Start) present.Presentation {
-	return start.UnderProjectRoot(MCPFileName).AnnounceFlag(flagMCPConfig).Build()
-}
-
-// deliver is the ONE .mcp.json recipe both entry points run: build the reused
-// file-template writer against dir, thread the ctxloom-MCP command override
-// onto it (settingsSurface has no analogous knob, since hooks + statusline
-// carry no stdio command), and write the merged config. Deliver and
-// DeliverIsolated differ only in where dir comes from and whether the resulting
-// path is recorded; that is the whole of what either entry point adds.
+// deliver writes the merged .mcp.json into dir.
 // reprise:accept-drift — shares a three-line shape with settingsSurface.deliver and commandsSurface.Deliver, and that shape IS the whole body: construct the writer, set the one knob this surface owns, call the one delivery it owns. A helper taking both as parameters is longer than what it replaces and hides which knob belongs to which surface; each of the three changes only when its own surface's knob or delivery changes.
-func (s *mcpSurface) deliver(dir string) (agent.Delivered, error) {
-	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
-	d.mcpCommandOverride = s.commandOverride
-	return d.DeliverMCP(s.bundle)
+func (w mcpWriter) deliver(dir string) (agent.Delivered, error) {
+	d := newFileTemplateDelivery(dirPlacement{dir: dir}, w.fs)
+	d.mcpCommandOverride = w.commandOverride
+	return d.DeliverMCP(w.bundle)
 }
 
-// Deliver writes .mcp.json beneath the advised project root via the reused
-// file-template MCP writer.
-func (s *mcpSurface) Deliver(start present.Start) (agent.Delivered, error) {
-	return s.deliver(start.Paths().ProjectRoot.Host)
+// servers exposes the bundle for mcpServerNames, which needs the server set
+// regardless of WHICH approach delivered it.
+func (w mcpWriter) servers() map[string]wire.MCPServer { return w.bundle }
+
+// mcpConfig is claude's DEFAULT MCP approach: the merged .mcp.json beneath the
+// run's private root, announced on --mcp-config <file>. Used WITHOUT
+// --strict-mcp-config, so claude LAYERS ctxloom's servers over the user's own
+// project .mcp.json rather than replacing it (a buildArgs concern).
+//
+// It is LaunchOnly: at rest there is no argv sink for the flag, so DeliverUnder
+// refuses it and the at-rest callers name the project file explicitly.
+//
+// This approach and mcpUnsafeFile used to be two FORMS of one type, and a
+// shared-cwd delivery ran the private form whichever the caller had named —
+// so a caller that explicitly asked for the project .mcp.json got this instead
+// and was told it succeeded. They are separate approaches now: which one runs
+// is the selection, never a conversion applied underneath it.
+type mcpConfig struct {
+	mcpWriter
+	path string // set by Deliver: the private .mcp.json
 }
 
-// DeliverIsolated writes the merged .mcp.json beneath the advised Scratch root
-// and records its path for --mcp-config. A FAILED write clears that path:
-// Path() promises "" for a file that does not exist, and flagArgs must never
-// hand claude --mcp-config naming one.
-func (s *mcpSurface) DeliverIsolated(start present.Start) (agent.Delivered, error) {
-	handle, err := s.deliver(start.Paths().Scratch.Host)
+// LaunchOnly marks the approach as refused at rest.
+func (*mcpConfig) LaunchOnly() {}
+
+// Present declares the private .mcp.json and the flag it is announced with.
+func (s *mcpConfig) Present(start present.Start) present.Presentation {
+	return underPrivateRoot(start, MCPFileName).AnnounceFlag(flagMCPConfig).Build()
+}
+
+// Deliver writes the merged .mcp.json beneath the advised private root and
+// records its path for --mcp-config. An unresolved private root REFUSES
+// (ErrUnrootedScratch) rather than falling back to the project file — the
+// fallback IS the defect. A FAILED write clears the path: Path() promises ""
+// for a file that does not exist, and flagArgs must never hand claude
+// --mcp-config naming one.
+func (s *mcpConfig) Deliver(start present.Start) (agent.Delivered, error) {
+	if err := agent.ScratchRooted(start); err != nil {
+		return nil, err
+	}
+	handle, err := s.deliver(privateRoot(start).Host)
 	if err != nil {
 		s.path = ""
 		return nil, err
@@ -214,13 +249,40 @@ func (s *mcpSurface) DeliverIsolated(start present.Start) (agent.Delivered, erro
 	// The recorded path comes from the DECLARED leaf, not from a second
 	// hand-written join: it is what --mcp-config is pointed at, so a wrong rel
 	// path cannot pass unnoticed.
-	s.path = start.UnderScratch(MCPFileName).Build().HostPath
+	s.path = underPrivateRoot(start, MCPFileName).Build().HostPath
 	return handle, nil
 }
 
-// Path returns the out-of-cwd .mcp.json written by DeliverIsolated (for
-// --mcp-config <file>), or "" before delivery and after a FAILED one.
-func (s *mcpSurface) Path() string { return s.path }
+// Path returns the private .mcp.json written by Deliver (for --mcp-config
+// <file>), or "" before delivery and after a FAILED one.
+func (s *mcpConfig) Path() string { return s.path }
+
+// mcpUnsafeFile is claude's project-file MCP approach: the merged .mcp.json
+// written to the well-known path in the project root, which claude reads
+// directly — so it announces no flag.
+//
+// It is reachable ONLY by naming it. On a SHARED cwd it is warned and
+// performed, exactly as context:unsafe-file is and through the very same path
+// (deliverOneShared's warning), because it is the same decision about the same
+// kind of file: one rule for both surfaces. Into an isolated cell it is simply
+// the native write, race-free by construction.
+type mcpUnsafeFile struct{ mcpWriter }
+
+// Present declares the well-known project .mcp.json. No flag: claude reads
+// this path itself, and announcing it as well would load the same servers
+// twice.
+func (s *mcpUnsafeFile) Present(start present.Start) present.Presentation {
+	return start.UnderProjectRoot(MCPFileName).Build()
+}
+
+// Deliver writes .mcp.json beneath the advised project root.
+func (s *mcpUnsafeFile) Deliver(start present.Start) (agent.Delivered, error) {
+	return s.deliver(start.Paths().ProjectRoot.Host)
+}
+
+// UnsafeInfo returns claude's MCP identity for the shared-cwd warning
+// (deliverOneShared's unsafeNamed check, cells.go).
+func (s *mcpUnsafeFile) UnsafeInfo() string { return "claude/mcp" }
 
 // settingsSurface is claude's settings approach (hooks + statusline; claude
 // keeps them in a single .claude/settings.json).
@@ -359,8 +421,10 @@ var Surfaces = agent.Declaration{
 			return &systemPromptContext{content: in.Context, fs: agent.GetFS(fs)}
 		}).
 		Or(agent.ApproachHook, agent.HookCarriedContext),
-	agent.SurfaceMCP: agent.Presents("claude", agent.SurfaceMCP, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &mcpSurface{bundle: in.BundleMCP, fs: agent.GetFS(fs), commandOverride: in.MCPCommandOverride}
+	agent.SurfaceMCP: agent.Presents("claude", agent.SurfaceMCP, ApproachMCPConfig, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		return &mcpConfig{mcpWriter: newMCPWriter(in, fs)}
+	}).Or(agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		return &mcpUnsafeFile{mcpWriter: newMCPWriter(in, fs)}
 	}),
 	agent.SurfaceSettings: agent.Presents("claude", agent.SurfaceSettings, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 		return &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: agent.GetFS(fs)}
@@ -380,8 +444,9 @@ var Surfaces = agent.Declaration{
 var (
 	_ agent.Approach   = (*systemPromptContext)(nil)
 	_ agent.LaunchOnly = (*systemPromptContext)(nil)
-	_ agent.Approach   = (*mcpSurface)(nil)
-	_ agent.OutOfCwd   = (*mcpSurface)(nil)
+	_ agent.Approach   = (*mcpConfig)(nil)
+	_ agent.LaunchOnly = (*mcpConfig)(nil)
+	_ agent.Approach   = (*mcpUnsafeFile)(nil)
 	_ agent.Approach   = (*settingsSurface)(nil)
 	_ agent.OutOfCwd   = (*settingsSurface)(nil)
 	_ agent.Approach   = (*commandsSurface)(nil)
@@ -436,12 +501,18 @@ func mcpServerNames(resolved *agent.ResolvedSelection) []string {
 		return nil
 	}
 	for _, ra := range resolved.Approaches() {
-		m, ok := ra.Approach.(*mcpSurface)
+		// Matched on the shared writer, not on one concrete approach: the
+		// server set is the same whichever MCP approach delivered it, and
+		// naming a single type here would silently return nil for the other.
+		m, ok := ra.Approach.(interface {
+			servers() map[string]wire.MCPServer
+		})
 		if !ok {
 			continue
 		}
-		out := make([]string, 0, len(m.bundle))
-		for name := range m.bundle {
+		bundle := m.servers()
+		out := make([]string, 0, len(bundle))
+		for name := range bundle {
 			out = append(out, name)
 		}
 		sort.Strings(out)

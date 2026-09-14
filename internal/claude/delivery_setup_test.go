@@ -217,7 +217,7 @@ func TestSetup_SharedCell_MCPOutOfCwd(t *testing.T) {
 // every surface lands as its engine well-known file IN the private working dir
 // (.claude/settings.json, .mcp.json, .claude/commands, CLAUDE.md) and buildArgs
 // adds NONE of the out-of-cwd flags.
-func TestSetup_IsolatedCell_WellKnownFilesNoFlags(t *testing.T) {
+func TestSetup_IsolatedCell_WellKnownFilesAndOnlyTheMCPFlag(t *testing.T) {
 	work := t.TempDir()
 	managed := &agent.ManagedConfig{
 		ManageStatusline: true,
@@ -237,11 +237,17 @@ func TestSetup_IsolatedCell_WellKnownFilesNoFlags(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, entries)
 
-	// No out-of-cwd flags in an isolated cell.
+	// Context and settings keep their well-known form on an isolated cell, so
+	// neither is announced. MCP is announced: its default form is the private
+	// config file on EVERY launch, and on an isolated cell the private root IS
+	// the working dir, so the file lands at the well-known path AND is named on
+	// --mcp-config. The duplication is benign for MCP specifically — claude
+	// merges server sets, and the two sources are the same bytes.
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindDirectoryIsolated})
 	assert.NotContains(t, args, "--append-system-prompt-file")
-	assert.NotContains(t, args, "--mcp-config")
 	assert.NotContains(t, args, "--settings")
+	assert.True(t, argPair(args, "--mcp-config", filepath.Join(work, ".mcp.json")),
+		"the default mcp form is announced on every cell: %v", args)
 
 	// No context scratch leaks into the tree (context is CLAUDE.md, not a sysprompt file).
 	assertNoSyspromptUnder(t, work)

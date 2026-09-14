@@ -2119,20 +2119,30 @@ _run +ARGS:
         # every run).
         cache_mount=()
         if [ -d "$HOME/go/pkg/mod" ]; then cache_mount=(-v "$HOME/go/pkg/mod:/tmp/gomodcache:ro"); fi
-        # Persist Go's BUILD cache on the host as well, so container builds reuse
+        # Persist Go's BUILD cache on the host, so container builds reuse
         # compiled output across `--rm` runs instead of recompiling cold every
-        # time. Shared with the host's own GOCACHE (~/.cache/go-build). Cache
-        # entries are keyed by toolchain version, so host and container reuse
-        # each other's output only when their `go version` matches; mismatched
-        # entries coexist safely as plain cache misses, never wrong builds.
-        gobuild_mount=()
-        # PER-WORKTREE build cache. Every tree used to mount the one host cache
-        # at $HOME/.cache/go-build, so concurrent builds from different
-        # worktrees evicted each other's objects mid-link:
+        # time. Shared with the host's own GOCACHE (see cache-report), with
+        # every other worktree, and with gopls. Cache entries are keyed by
+        # toolchain version, so host and container reuse each other's output
+        # only when their `go version` matches; mismatched entries coexist
+        # safely as plain cache misses, never wrong builds.
+        #
+        #
+        # ONE SHARED CACHE, DELIBERATELY. Do NOT re-split it per worktree, and
+        # do NOT add anything that hand-deletes entries from it. Those two go
+        # together: concurrent builds from different trees read this cache
+        # while others write it, and deleting an entry out from under a live
+        # link fails as
         #     link: cannot reopen /tmp/.gocache/b8/b8421...-d(_x002.o)
-        # which reads exactly like a compile error in whatever you just changed,
-        # and is not. Keyed by worktree path so trees cannot trim each other.
-        gbc="$HOME/.cache/ctxloom-go-build/$(pwd -P | sha256sum | cut -c1-12)"
+        # which reads exactly like a compile error in whatever you just
+        # changed, and is not. Go's own trim is safe here; a sweeper is not.
+        #
+        # A per-worktree cache is also unreapable by construction: keyed by a
+        # hash of an absolute path, it outlives the tree it belonged to, and
+        # Go's trim never runs on it again because trim only happens when a
+        # `go` command targets that cache.
+        gobuild_mount=()
+        gbc="$(go env GOCACHE 2>/dev/null || echo "$HOME/.cache/go-build")"
         if mkdir -p "$gbc" 2>/dev/null; then gobuild_mount=(-v "$gbc:/tmp/.gocache"); fi
         # A LINKED WORKTREE's .git is a gitdir POINTER to <common>/worktrees/<n>,
         # outside the workspace mount, so without <common> present at that exact

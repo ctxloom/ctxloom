@@ -610,17 +610,24 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 // the process while later entries delivered around it, which is the
 // silent-skip this project treats as its characteristic defect.
 func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
+	failSpool("coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
+}
+
+// failSpool moves ref out of its live directory into the failed/ sibling
+// (spool.Fail picks which) and reports the outcome either way — the ONE
+// terminal-state move for a file a reader parsed but could not deliver or
+// route, on both sides and in both directions. A lost race (ErrAlreadyGone)
+// is the other path having won: nothing to strand, nothing to warn about.
+func failSpool(side string, ref spool.Ref, why string, cause error) {
 	if err := spool.Fail(spool.NewHomeMapper(), ref); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
-			// Another pass already moved it; nothing to strand.
 			return
 		}
-		clidiag.Warn("ctxloom", "coordinator: could not route %s's message %s (%v) and could not move it to %s either: %v (it will be re-read, and re-refused, on the next sweep)",
-			role, ref, cause, spool.FailedOutDirName, err)
+		clidiag.Warn("ctxloom", "%s: %s: %v (also could not move %s to its failed/ directory: %v; it will be re-read, and re-refused, on the next sweep)",
+			side, why, cause, ref, err)
 		return
 	}
-	clidiag.Warn("ctxloom", "coordinator: %s's message %s could not be routed (%v); moved to %s and NOT retried",
-		role, ref, cause, spool.FailedOutDirName)
+	clidiag.Warn("ctxloom", "%s: %s: %v (moved %s to its failed/ directory; it will NOT be retried)", side, why, cause, ref)
 }
 
 // replySpoolRefusal tells a child that the message it wrote could not be
@@ -903,17 +910,7 @@ func (h *Home) sweepSpoolIn() {
 // three-way distinction a bare warning-and-retry cannot make.
 func (h *Home) failSpoolEntry(e spool.Entry, why string, cause error) {
 	h.spoolDeliveryCount.failed.Add(1)
-	if err := spool.Fail(spool.NewHomeMapper(), e.Ref); err != nil {
-		if errors.Is(err, spool.ErrAlreadyGone) {
-			// The other path (a withdrawal) already won the race; nothing to
-			// strand and nothing to warn about.
-			return
-		}
-		clidiag.Warn("ctxloom", "runner: %s: %v (also could not move %s to in/failed/: %v; it will be retried, and re-warned about, on the next sweep)",
-			why, cause, e.Ref, err)
-		return
-	}
-	clidiag.Warn("ctxloom", "runner: %s: %v (moved %s to in/failed/; it will NOT be retried)", why, cause, e.Ref)
+	failSpool("runner", e.Ref, why, cause)
 }
 
 // rememberSpoolRef records which file a delivered id came from, so the

@@ -89,7 +89,8 @@ func (c *Coordinator) claimSpoolInbox(role string) ([]Message, bool) {
 	}
 	c.mu.Unlock()
 	for _, f := range failed {
-		c.failSpoolIn(f.entry, f.err)
+		c.spoolDeliveryCount.failed.Add(1)
+		failSpool("coordinator", f.entry.Ref, "refusing an undeliverable message in the owner's in/ spool", f.err)
 	}
 	if len(out) == 0 {
 		return nil, false
@@ -135,20 +136,4 @@ func (c *Coordinator) ackSpoolInbox(role string) {
 	}
 	c.unreserve(role, ids)
 	c.spoolDeliveryCount.consumed.Add(consumed)
-}
-
-// failSpoolIn is the coordinator-side twin of the runner's failSpoolEntry: an
-// in/ entry the owner's reader parsed but cannot deliver leaves in/ for
-// in/failed/, so it is neither retried forever nor mistaken for delivered.
-func (c *Coordinator) failSpoolIn(e spool.Entry, cause error) {
-	c.spoolDeliveryCount.failed.Add(1)
-	if err := spool.Fail(spool.NewHomeMapper(), e.Ref); err != nil {
-		if errors.Is(err, spool.ErrAlreadyGone) {
-			return
-		}
-		clidiag.Warn("ctxloom", "coordinator: refusing an undeliverable message in the owner's in/ spool: %v (also could not move %s to %s: %v; it will be retried, and re-warned about, on the next receive)",
-			cause, e.Ref, spool.FailedDirName, err)
-		return
-	}
-	clidiag.Warn("ctxloom", "coordinator: refusing an undeliverable message in the owner's in/ spool: %v (moved %s to %s; it will NOT be retried)", cause, e.Ref, spool.FailedDirName)
 }

@@ -107,10 +107,10 @@ func newMCPWriter(in agent.SurfaceInputs, fs afero.Fs) mcpWriter {
 
 // systemPromptContext is claude's system-prompt context approach.
 //
-// Its out-of-cwd form (DeliverIsolated) writes the framed <hash>.sysprompt.md
-// beneath the advised Scratch root via the existing appendFlagDelivery and
-// exposes its path (Path) for --append-system-prompt-file. It is LaunchOnly:
-// at rest there is no argv sink for the flag, so DeliverUnder refuses it.
+// It writes the framed <hash>.sysprompt.md beneath the run's private root via
+// the existing appendFlagDelivery and exposes its path (Path) for
+// --append-system-prompt-file. It is LaunchOnly: at rest there is no argv sink
+// for the flag, so DeliverUnder refuses it.
 //
 // It has exactly ONE form, on every cell. It previously had two, and they were
 // named backwards from the cell that ran them: the plain Deliver was the
@@ -297,7 +297,7 @@ type settingsSurface struct {
 	// denyTools is the resolved deny_tools union (SurfaceInputs.DenyTools) —
 	// per-tool identifiers (e.g. "Task") this run's settings.json denies via
 	// permissions.deny. Threaded to fileTemplateDelivery as a RECEIVER field
-	// (below), mirroring mcpSurface.commandOverride, so DeliverSettings's
+	// (below), mirroring mcpWriter.commandOverride, so DeliverSettings's
 	// signature stays unchanged for an engine-specific extra.
 	denyTools []string
 	fs        afero.Fs
@@ -311,7 +311,7 @@ func (s *settingsSurface) Present(start present.Start) present.Presentation {
 }
 
 // deliver is the ONE .claude/settings.json recipe both entry points run (see
-// mcpSurface.deliver for the shape): build the reused file-template writer
+// mcpWriter.deliver for the shape): build the reused file-template writer
 // against dir, thread the resolved deny_tools union onto it, and write the
 // settings JSON including hooks and the statusline policy.
 func (s *settingsSurface) deliver(dir string) (agent.Delivered, error) {
@@ -328,7 +328,7 @@ func (s *settingsSurface) Deliver(start present.Start) (agent.Delivered, error) 
 
 // DeliverIsolated writes the settings JSON (incl. hooks) beneath the advised
 // Scratch root and records its path for --settings. A FAILED write clears
-// that path, for the same reason mcpSurface's does: no --settings flag may
+// that path, for the same reason mcpConfig.Deliver does: no --settings flag may
 // name a file that was not written.
 func (s *settingsSurface) DeliverIsolated(start present.Start) (agent.Delivered, error) {
 	handle, err := s.deliver(start.Paths().Scratch.Host)
@@ -336,7 +336,7 @@ func (s *settingsSurface) DeliverIsolated(start present.Start) (agent.Delivered,
 		s.path = ""
 		return nil, err
 	}
-	// Declared, not re-joined — see mcpSurface.DeliverIsolated.
+	// Declared, not re-joined — see mcpConfig.Deliver.
 	s.path = start.UnderScratch(relSettings).Build().HostPath
 	return handle, nil
 }
@@ -370,7 +370,7 @@ func (s *commandsSurface) Present(start present.Start) present.Presentation {
 // materialize target (a portable, self-contained tree) skips deduping against
 // the delivering machine's ~/.claude/commands — see
 // fileTemplateDelivery.DeliverCommands.
-// reprise:accept-drift — the same deliberate three-line shape as mcpSurface.deliver and settingsSurface.deliver, for the reason recorded there: the shape IS the body, and a helper taking both the knob and the delivery as parameters is longer than what it replaces. Commands has no out-of-cwd variant, so the recipe needs no dir-taking split.
+// reprise:accept-drift — the same deliberate three-line shape as mcpWriter.deliver and settingsSurface.deliver, for the reason recorded there: the shape IS the body, and a helper taking both the knob and the delivery as parameters is longer than what it replaces. Commands has no out-of-cwd variant, so the recipe needs no dir-taking split.
 func (s *commandsSurface) Deliver(start present.Start) (agent.Delivered, error) {
 	d := newFileTemplateDelivery(dirPlacement{dir: start.Paths().ProjectRoot.Host}, s.fs)
 	d.selfContainedCommands = s.selfContainedCommands

@@ -259,6 +259,55 @@ func TestMissingLogStaysSilentWithoutASibling(t *testing.T) {
 	}
 }
 
+// TestListTasksFlagsNewlyMintedIdentity pins ProjectNewlyMinted: the fact
+// that turns an unreachable store's empty answer from a silent no-op into
+// something a caller can act on (sterile-tartar). A live (unpinned)
+// resolution of a directory neither the registry nor an in-tree marker knows
+// yet MUST come back flagged -- an agent-cell resolving a fresh identity
+// because its home is not the one that recorded this project's history reads
+// EXACTLY like this, and today's empty Tasks list alone cannot be told apart
+// from a genuinely brand-new project. The very next call (now registered)
+// must NOT be flagged, and neither must a pinned project-id, which never
+// resolves live at all.
+func TestListTasksFlagsNewlyMintedIdentity(t *testing.T) {
+	taskstest.Isolate(t)
+	proj := t.TempDir()
+	tc := TaskContext{WorkDir: proj} // no ProjectID -> live resolve
+
+	first, err := ListTasks(tc, ListOptions{})
+	if err != nil {
+		t.Fatalf("list (first): %v", err)
+	}
+	if len(first.Tasks) != 0 {
+		t.Fatalf("expected an empty list on first resolve, got %+v", first.Tasks)
+	}
+	if !first.ProjectNewlyMinted {
+		t.Fatal("expected ProjectNewlyMinted=true on a directory's first-ever resolution -- this is exactly what an unreachable store's live fallback looks like")
+	}
+	if first.ProjectID == "" {
+		t.Fatal("expected a minted project id")
+	}
+
+	second, err := ListTasks(tc, ListOptions{})
+	if err != nil {
+		t.Fatalf("list (second): %v", err)
+	}
+	if second.ProjectNewlyMinted {
+		t.Fatal("expected ProjectNewlyMinted=false once the directory is registered -- must not cry wolf on ordinary repeat use")
+	}
+	if second.ProjectID != first.ProjectID {
+		t.Fatalf("identity changed across calls: %q then %q", first.ProjectID, second.ProjectID)
+	}
+
+	pinned, err := ListTasks(TaskContext{WorkDir: t.TempDir(), ProjectID: "explicitly-pinned"}, ListOptions{})
+	if err != nil {
+		t.Fatalf("list (pinned): %v", err)
+	}
+	if pinned.ProjectNewlyMinted {
+		t.Fatal("expected ProjectNewlyMinted=false for a pinned project-id -- no live resolution happens at all")
+	}
+}
+
 // TestAddTaskWithTagsThenListTagQuery covers the whole tag-query wiring at
 // the layer both the CLI and MCP surfaces call into: AddTaskWithTags stamps
 // initial tags, TagTask adds/removes on an existing task, and

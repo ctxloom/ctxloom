@@ -256,6 +256,19 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s *agentcoor
 	}
 	c.audit("agent_report", harp, map[string]string{"scope": s.GetScope().String()})
 	c.notifyParentOfFinalReport(harp, s)
+	// FINAL IS A COMPLETION CONTRACT, SO ACT ON IT: the child has said it is
+	// finished, and the coordinator ends its run rather than leaving it idle
+	// holding a container. The end is REQUESTED here and taken at the child's
+	// own turn boundary (endOnFinalReport); everything behind that — slot
+	// release, credential revocation, the container kill, the parent's exit
+	// notice, session-end accounting — is terminateRun's, unchanged.
+	//
+	// STRICTLY AFTER notifyParentOfFinalReport, and that ordering is the
+	// contract: the report is queued to the parent BEFORE the run can end, so
+	// a parent can never receive EXITED before the report that explains it.
+	if s.GetScope() == agentcoordpb.Summary_SCOPE_FINAL {
+		c.endOnFinalReport(harp)
+	}
 	// D4: a SCOPE_CHECKPOINT report is the natural compaction point — see
 	// checkpoint.go.
 	c.maybeCheckpointOnSummary(s)

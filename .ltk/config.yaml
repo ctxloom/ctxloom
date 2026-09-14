@@ -43,6 +43,26 @@ rules:
     match: { command: [go, run] }
     message: "Run through the task runner, not `go run` directly, so the binary matches a real build."
     suggest: "just run -- <args>"
+  # A detached background job fires NO harness task notification, so the session
+  # ends its turn waiting for a wake-up that structurally cannot arrive. Measured
+  # 2026-09-13: an acceptance run finished green at 19:52 and the merge that
+  # depended on it happened at 21:36 — 1h44m of dead time on work already passing.
+  #
+  # Scope, stated because it is PARTIAL: this matches the command head, so it
+  # catches `nohup`/`setsid`/`disown` and not a bare trailing `&`, which is what
+  # actually backgrounds a job. It guards the spelling an agent reaches for
+  # first, not the whole class.
+  #
+  # `nohup` remains right for fire-and-forget work nothing waits on; the test is
+  # not "is this long" but "does the next step depend on knowing it finished".
+  - id: background-via-harness
+    match: { command: [nohup] }
+    message: "A detached job sends no completion notification, so a turn that waits on it never wakes. Use the Bash tool's run_in_background instead, which registers the task and delivers the result."
+    suggest: "run the same command with run_in_background: true"
+  - id: background-via-harness-setsid
+    match: { command: [setsid] }
+    message: "A detached job sends no completion notification, so a turn that waits on it never wakes. Use the Bash tool's run_in_background instead."
+    suggest: "run the same command with run_in_background: true"
   - id: complexity-via-just
     match: { command: [lizard] }
     message: "Complexity is reported through the task runner, which carries the project's thresholds and baseline."

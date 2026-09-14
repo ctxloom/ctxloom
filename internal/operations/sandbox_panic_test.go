@@ -50,15 +50,20 @@ func pkgDir(t *testing.T) string {
 // inherited testsupport.SandboxRootEnv as "already inside a sandbox" and
 // adopts it instead of minting its own — the right call for a re-exec'd
 // child, and exactly wrong here, where the child's own sandbox is the thing
-// under observation. HOME is left as the parent's sandbox home on purpose:
-// SandboxedMain pins the go toolchain's cache directories explicitly, so a
-// child's `go test` build phase does not need the real HOME to find them.
+// under observation. The parent's own TMPDIR is stripped for the same reason
+// the pin exists: exec.Cmd keeps the LAST value of a duplicated key, so an
+// inherited TMPDIR appended after the pin would silently win and land the
+// child's sandbox where these assertions never look. HOME is left as the
+// parent's sandbox home on purpose: SandboxedMain pins the go toolchain's
+// cache directories explicitly, so a child's `go test` build phase does not
+// need the real HOME to find them.
 func freshSandboxEnv(tmpDir string, extraEnv map[string]string) []string {
 	env := []string{"TMPDIR=" + tmpDir}
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, testsupport.SandboxRootEnv+"=") {
-			env = append(env, kv)
+		if strings.HasPrefix(kv, testsupport.SandboxRootEnv+"=") || strings.HasPrefix(kv, "TMPDIR=") {
+			continue
 		}
+		env = append(env, kv)
 	}
 	for k, v := range extraEnv {
 		env = append(env, k+"="+v)

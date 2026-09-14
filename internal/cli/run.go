@@ -1149,6 +1149,33 @@ func (st *runState) hostCoordinator() func() {
 	// while the journal is still open to accept the write.
 	ownerToken := coordEnv[coord.EnvCoordCred]
 	return func() {
+		// DRAIN, WAIT, THEN CLOSE -- the sequence the coordinator documents and
+		// that nothing used to perform. Close() is the HARD teardown: it cancels
+		// baseCtx, closes every attachment and the gRPC server, and only then
+		// joins its goroutines under a BOUND it is willing to give up on. Going
+		// straight there dismantled a still-finishing child's delivery path
+		// underneath it, so its terminal notice had nowhere to go -- the parent
+		// "always learns of a child death" invariant was decided by a race.
+		//
+		// BeginDrain closes admission at the verbs that mint new work and leaves
+		// the transport alone, so children keep reporting while they wind down.
+		// It is bounded per child (drainBound), so this cannot hang an exit.
+		d := sc.BeginDrain()
+		<-d.Done()
+		// A PARKED child is deliberately not waited on: it keeps its turn, its
+		// slot and its session lock. Naming it here is the whole reason the
+		// outcome carries it -- an unattended park that nobody is told about is
+		// indistinguishable from a child that finished.
+		if o := d.Outcome(); len(o.Parked) > 0 || len(o.Interrupted) > 0 {
+			if len(o.Parked) > 0 {
+				clidiag.Warn("ctxloom", "session exit: %d child(ren) left PARKED on a human and were not waited for: %s",
+					len(o.Parked), strings.Join(o.Parked, ", "))
+			}
+			if len(o.Interrupted) > 0 {
+				clidiag.Warn("ctxloom", "session exit: %d child(ren) were still running at the drain bound and were forced: %s",
+					len(o.Interrupted), strings.Join(o.Interrupted, ", "))
+			}
+		}
 		sc.RevokeSessionOwner(ownerToken)
 		sc.Close()
 	}

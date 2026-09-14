@@ -86,6 +86,13 @@ func mockDescriptor(name string, ctor func() *Mock, newConfig func() agent.Backe
 		// touches disk. This is a NAMED, verified exemption from home
 		// isolation — a real engine that keeps state declares a Home.
 		Home: agent.Absent[agent.EngineHome](name + " keeps no engine-global config or credential state: a bare echo that never touches disk"),
+		// Nothing to provision, for the same reason mock declares no Home and
+		// no credential projector: it authenticates against nothing, so there
+		// is no material whose delivery mechanism could matter. Declared
+		// ABSENT rather than left blank so a test engine cannot be the
+		// undeclared hole in the middle of the gate that closes them.
+		Provisioning: agent.Absent[agent.ProvisioningPolicy](
+			name + " has no credential material to provision: it authenticates against nothing and keeps no engine-global state"),
 		Container: agent.Provide(agent.EngineContainer{
 			// mock installs NO vendor CLI: its engine is the ctxloom binary
 			// itself, which composeAgentContainerfile copies in after every

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // Selecting a Provisioner.
@@ -31,23 +33,16 @@ import (
 // itself, not by reading this file.
 
 // ProvisioningPolicy is what an ENGINE DECLARES it will accept, in preference
-// order. Declaring it at the engine is what makes a fallback reviewable rather
-// than silent: the descriptor states the chain and this code only walks it,
-// which is the difference between a degrade that was agreed and one that
-// merely happened.
+// order, and it is an ALIAS of agent.ProvisioningPolicy for the reason stated
+// on Delivery in provisioner.go: the descriptor slot an engine writes and the
+// policy this file walks must be the same value, not two that agree.
 //
 // This names the instance, not the pattern. If and when the pattern is
 // extracted to cover SelectRuntime too, the concept is closer to ACCEPTANCE
 // than to policy — what a component will accept, in order, with substitution
 // forbidden — and it should be named for that invariant rather than for the
 // fallback it happens to permit.
-type ProvisioningPolicy struct {
-	// Accept is the deliveries this engine will take, best first. An EMPTY
-	// Accept is refused rather than defaulted: an engine that never said what
-	// it would accept has not declared a policy, and picking one for it is the
-	// silent decision this whole type exists to prevent.
-	Accept []Delivery
-}
+type ProvisioningPolicy = agent.ProvisioningPolicy
 
 // CandidateRejection records one candidate Select tried and could not use.
 type CandidateRejection struct {

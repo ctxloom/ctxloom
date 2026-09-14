@@ -67,6 +67,25 @@ func Descriptor() engine.Descriptor {
 				Files:      []agent.SeedFile{{HostRelHome: credentialRelHome, DestName: claude.CredentialsFileName, Required: true}},
 			}),
 		}),
+		// Claude's OAuth refresh token is SINGLE-USE and rotating: whichever
+		// holder refreshes consumes the token and receives its successor. A
+		// mount is therefore the only arrangement with no failure mode at all
+		// — one inode, one refresh path, host and instance provably in step.
+		// Replication is accepted BELOW it, not beside it: two files kept in
+		// step by a watcher leave a window in which an instance can present a
+		// token another instance already spent, and the SERVER rejects it. It
+		// is still the right second answer, because the alternative where
+		// mounting is impossible is material that cannot renew at all.
+		//
+		// A stripped COPY is deliberately NOT accepted, at any position. It is
+		// not a weaker sharing mode, it is a different product with a fuse on
+		// it: the copy has the refresh token stripped, so it authenticates
+		// until the access token expires and then that instance is stuck with
+		// no way back. Accepting it as a last resort would convert a loud
+		// launch refusal into a run that dies hours later, far from its cause.
+		Provisioning: agent.Provide(agent.ProvisioningPolicy{
+			Accept: []agent.MaterialDelivery{agent.MaterialDeliveryMounted, agent.MaterialDeliveryReplicated},
+		}),
 		Container: agent.Provide(agent.EngineContainer{
 			// No official image: ghcr.io/anthropics/claude-code appears in
 			// docs but does not resolve publicly, so the composed install

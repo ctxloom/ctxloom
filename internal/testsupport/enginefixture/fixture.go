@@ -32,9 +32,11 @@ func Descriptor(name string) engine.Descriptor {
 		HookGlobalScope:     agent.Absent[engine.HookGlobalScope](name + " (fixture) has no global settings path"),
 		VersionCommand:      agent.Absent[engineversion.Command](name + " (fixture) has no binary to ask"),
 		Home:                agent.Absent[agent.EngineHome](name + " (fixture) keeps no global state"),
-		Container:           agent.Absent[agent.EngineContainer](name + " (fixture) has no container story"),
-		TranscriptReaders:   agent.Absent[[]vendorreader.VersionedAdapter](name + " (fixture) keeps no transcripts"),
-		Distribution:        agent.DistributionTestOnly,
+		Provisioning: agent.Absent[agent.ProvisioningPolicy](
+			name + " (fixture) has no credential material to provision"),
+		Container:         agent.Absent[agent.EngineContainer](name + " (fixture) has no container story"),
+		TranscriptReaders: agent.Absent[[]vendorreader.VersionedAdapter](name + " (fixture) keeps no transcripts"),
+		Distribution:      agent.DistributionTestOnly,
 	}
 }
 

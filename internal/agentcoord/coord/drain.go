@@ -108,6 +108,33 @@ func stopPolicy(caller, reason string) drainPolicy {
 	}
 }
 
+// finalPolicy is endOnFinalReport's: this child filed the COMPLETION
+// CONTRACT, so its run ends. It is neither a shutdown nor an operator's
+// judgement — it is the child's OWN declaration that it is done — so both the
+// clean end and the forced one record CauseFinalReported (as stopPolicy does
+// with CauseStopped), and only the detail says which.
+//
+// A PARK IS NOT A WAIT HERE, and that is the whole point. A child that files
+// FINAL and then blocks in agent_recv waiting for a parent that will never
+// send again is StateParked, and it is exactly the leak this policy closes:
+// leaving it parked leaves its turn open, its session lock held and its
+// CONTAINER up — with the worktree that container bind-mounts pinned under
+// it. The shutdown drain can afford to leave a park for the morning because
+// its operator is right there deciding; nothing is watching this one.
+func finalPolicy() drainPolicy {
+	return drainPolicy{
+		label:     "final report",
+		endCause:  CauseFinalReported,
+		endDetail: func(where string) string { return "filed a FINAL report (ended " + where + ")" },
+		// A turn still running a whole bound after its own FINAL is stuck, not
+		// productive: the child said it was finished.
+		forceCause: CauseFinalReported,
+		forceDetail: func(bound time.Duration) string {
+			return fmt.Sprintf("filed a FINAL report (turn still running after the %s bound; interrupted)", bound)
+		},
+	}
+}
+
 // Done closes when the drain has settled.
 func (d *Drain) Done() <-chan struct{} { return d.done }
 
@@ -440,6 +467,104 @@ func (c *Coordinator) StopChildren(ctx context.Context, caller Identity, reason 
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Harp < out[j].Harp })
 	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+// FINAL's completion contract, honoured.
+// ---------------------------------------------------------------------------
+
+// endsItselfAtBoundary reports whether r's next turn boundary ALREADY tears
+// its engine down with no drain involved — the one-shot teardown. It is
+// oneShotReady's three conditions read off the run record instead of the
+// runtime attachment, which is what endOnFinalReport has in hand.
+//
+// A one-shot child that files FINAL must not be armed for a drain: onTurnIdle
+// checks the drain's exit request BEFORE the one-shot branch, so arming one
+// would repaint an expected, per-turn, notice-suppressed CauseOneShotBoundary
+// terminal as a CauseFinalReported one and queue the parent an "exited" it is
+// documented never to receive. The run ends either way; only the terminal
+// vocabulary would change, for no gain — the leak cannot happen to a child
+// that already ends every turn.
+//
+// The live half (Resumable / HarnessSessionID) may not be journaled yet at the
+// instant FINAL is filed even though it will be by the boundary. That race
+// costs one extra exited notice and never a leak, which is the right way round:
+// a statically-one-shot child whose engine never live-confirmed falls back to
+// the warm-engine model and MUST be drained like any other, or it leaks exactly
+// as before.
+func endsItselfAtBoundary(r *RunRecord) bool {
+	return r.OneShot && r.Resumable && r.HarnessSessionID != ""
+}
+
+// endOnFinalReport ends harp's current run because it filed a SCOPE_FINAL
+// report — the missing connection between the completion contract and the
+// teardown that already exists behind it.
+//
+// FINAL is the contract an agent files before finishing, and until this
+// nothing acted on it: the run stayed live. On 2026-09-12 nine agents sat idle
+// after filing FINAL, two holding containers nine hours old whose bind-mount
+// sources pointed at worktrees that had since been deleted; they were released
+// only because a human asked for a close-out. Nothing else would have noticed.
+//
+// IT ENDS THE RUN, NOT THE SESSION — the same distinction agent_stop draws.
+// terminateRun releases the slot, revokes and severs the credential, kills the
+// engine (and with it the container) and queues the parent's exited notice, but
+// THE RECORD STAYS: a later agent_send lands on driveQueued's StateEnded branch
+// and resumes the harp as a FRESH run by its native session key. Unlike
+// StopChildren this deliberately does NOT markStopped the harp — that flag
+// exists to stop an operator's stop being undone by an armed relaunch, and
+// setting it here would strand a message that raced the FINAL (§6a's
+// leftover-mail rule is the right answer for one: it resumes the harp, which
+// is a fresh container and a new run in the journal, and reads better than a
+// silent wait).
+//
+// IT ENDS AT THE TURN BOUNDARY, not here. A child files FINAL as a tool call
+// and its turn continues — its closing message is still being written — so
+// runDrain only REQUESTS the exit and drainAtBoundary honours it once the turn
+// completes. Terminating inline would truncate the child's own last words. The
+// caller must therefore have already queued the report (recordSummary does:
+// notifyParentOfFinalReport runs first), or a parent could receive EXITED
+// before the report that explains it.
+//
+// Returns nil when there is nothing to end — no live run, a run that already
+// ends itself at its boundary, a parentless or owner-owned top-level run, or a
+// coordinator already draining. Otherwise the drain handle, so a caller (a
+// test) can wait for it to settle; production fires and forgets, because
+// startDrain runs the drain on its own goroutine and the terminal is
+// exactly-once however many times FINAL is filed.
+func (c *Coordinator) endOnFinalReport(harp string) *Drain {
+	// The shutdown drain already covers every child, and exitRequested gives
+	// its policy precedence over any per-run mark, so a second drain here
+	// would be a goroutine that changes nothing.
+	if c.Draining() {
+		return nil
+	}
+	tracked := c.drainTracked(func(r *RunRecord) bool {
+		switch {
+		case r.Harp != harp:
+			return false
+		// A TOP-LEVEL RUN IS NEVER ENDED BY ITS OWN REPORT. A plugin-hosted
+		// session has no parent at all; an owner-owned run (StartOwnedRun) is
+		// `ctxloom run`'s own foreground session and journals ParentHarp as its
+		// OWN harp — the self-loop owner_run.go names. Either way there is no
+		// delegating parent whose contract this FINAL completes, and ending it
+		// would tear down the session the human is sitting in front of.
+		case r.ParentHarp == "" || r.ParentHarp == r.Harp:
+			return false
+		case endsItselfAtBoundary(r):
+			return false
+		}
+		return true
+	})
+	if len(tracked) == 0 {
+		return nil
+	}
+	for _, ch := range tracked {
+		c.audit("final_report_end", ch.harp, map[string]string{"harp": ch.harp, "run_id": ch.runID})
+	}
+	d := newDrain(finalPolicy(), tracked)
+	c.startDrain(d)
+	return d
 }
 
 func sortedCopy(in []string) []string {

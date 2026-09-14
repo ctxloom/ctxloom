@@ -427,6 +427,25 @@ func trustStoreFindingsError(mark strictness.Mark) error {
 // Uninstall does NOT share this default — see manageBackendNames, which is
 // exhaustive so a narrow install cannot strand managed hooks in an engine
 // nothing will clean up.
+//
+// The empty-default sweep is for EXPLICIT, whole-project operations only
+// (`manage hooks install` with no --engine, post-sync hook refresh, a trust
+// review's re-apply) — never for a call representing one engine's own
+// initialisation. engaging-nutmeg (2026-09-10, ruled: "config/materialization
+// should be on engine init") is about exactly that distinction: a project
+// that configures several engines and starts (or otherwise materializes) ONE
+// of them must write THAT engine's file and no other's, which here means
+// passing backend explicitly rather than "". `ctxloom run`'s own per-engine
+// write already does this correctly — it never reaches hookBackendNames at
+// all, composing and delivering its ONE launched backend's config straight
+// through backends.AssembleManagedConfig / the engine's own Setup (see
+// docs/design/engine-delivery-seam.design.md) — so this function's contract
+// only needs to hold for callers that DO reach it, which today are the
+// explicit sweeps listed above. See
+// TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched for the
+// regression this pins: a named apply must never also write a sibling
+// configured engine's file.
+//
 // An unknown NAME is an error, never a one-element list: every layer below
 // reads an unregistered backend as a permitted no-op, so a typo would report
 // success having applied nothing. manageBackendNames guards the removal door

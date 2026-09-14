@@ -390,11 +390,17 @@ func TestRunChannel_ReportDurability(t *testing.T) {
 	require.NoError(t, child.Report(context.Background(), &agentcoordpb.Summary{
 		Scope: agentcoordpb.Summary_SCOPE_CHECKPOINT, Text: "cp1",
 	}, []*agentcoordpb.ArtifactProduced{art(1)}))
+	// SCOPE, HERE, IS JUST A CARRIER. What this test is about — Ack-gated
+	// durability and coordinator-assigned revisions — is the same whatever
+	// scope the report has, and these two were FINAL only incidentally. They
+	// cannot be: FINAL is the completion contract, so the first one now ENDS
+	// THE RUN (drain.go, endOnFinalReport), and the run whose channel this
+	// reports over is severed before the second could land.
 	require.NoError(t, child.Report(context.Background(), &agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_FINAL, Text: "done",
+		Scope: agentcoordpb.Summary_SCOPE_PROGRESS, Text: "done",
 	}, []*agentcoordpb.ArtifactProduced{art(1)})) // unchanged content
 	require.NoError(t, child.Report(context.Background(), &agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_FINAL, Text: "done v2",
+		Scope: agentcoordpb.Summary_SCOPE_PROGRESS, Text: "done v2",
 	}, []*agentcoordpb.ArtifactProduced{art(2)})) // changed content
 
 	assert.Contains(t, c.LatestReport(out.Harp), "done v2")

@@ -387,6 +387,75 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 	assert.ElementsMatch(t, want, result.Backends)
 }
 
+// TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched pins
+// engaging-nutmeg's settling criterion: a project that configures MORE THAN
+// ONE engine (here claude-code via the default agent, and mock via a second
+// agent) still writes exactly ONE engine's settings file when the caller
+// names that one engine — the shape a per-engine "launch"/init write must
+// have. TestApplyHooks_DefaultBackend already pins the OTHER half (an
+// unqualified apply legitimately sweeps every configured engine); nothing
+// before this test exercised a project with TWO configured engines to prove
+// a NAMED apply does not also catch the second one — a regression here would
+// mean a one-engine apply started writing (or, worse, silently dropped) a
+// sibling engine's file.
+func TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	tmpDir := "/project"
+
+	mockConfigLoader := func() (*config.Config, error) {
+		return cfgWithProfileHooks(t, fs, "/project/.ctxloom", wire.HooksConfig{Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "echo hello", Type: "command"}},
+		}}, config.Fixture{
+			DefaultAgent: "default",
+			Agents: map[string]agents.Agent{
+				// Two agents, two DIFFERENT engines: default resolves to
+				// claude-code via the project's primary label; helper is
+				// explicitly bound to mock. ConfiguredEngines(cfg) must
+				// therefore report both.
+				"default": {Profiles: []string{"hooked"}},
+				"helper":  {Profiles: []string{"hooked"}, LLM: "backup"},
+			},
+			LM: config.LMConfig{
+				Configs: map[string]config.LLMConfig{
+					"claude": {Type: config.BackendClaudeCode},
+					"backup": {Type: config.BackendMock},
+				},
+				// Explicit, so PrimaryLabel doesn't fall back to "the only
+				// entry" (which would be "backup"/mock with two configs
+				// present, or ambiguous with more) — the default agent must
+				// resolve to claude-code unambiguously.
+				Defaults: config.RoleDefaults{Primary: "claude"},
+			},
+		}), nil
+	}
+
+	cfg, cerr := mockConfigLoader()
+	require.NoError(t, cerr)
+	require.ElementsMatch(t, []string{config.BackendClaudeCode, config.BackendMock}, ConfiguredEngines(cfg),
+		"fixture must configure BOTH engines, or this test proves nothing")
+
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+		Backend:      config.BackendClaudeCode,
+		FS:           fs,
+		ConfigLoader: mockConfigLoader,
+		WorkDir:      tmpDir,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{config.BackendClaudeCode}, result.Backends,
+		"a named apply must report exactly the one backend it targeted")
+
+	claudeExists, err := afero.Exists(fs, "/project/.claude/settings.json")
+	require.NoError(t, err)
+	assert.True(t, claudeExists, "the named engine's settings file must be written")
+
+	// The defect engaging-nutmeg describes: an ahead-of-time sweep would have
+	// written mock's settings too, even though nothing is launching (or
+	// otherwise asking to materialize) mock in this call.
+	mockExists, err := afero.Exists(fs, "/project/.mock/settings.json")
+	require.NoError(t, err)
+	assert.False(t, mockExists, "a named apply must leave OTHER configured engines' files untouched")
+}
+
 // TestApplyHooks_ConfigLoadError tests error handling when config load fails.
 func TestApplyHooks_ConfigLoadError(t *testing.T) {
 	fs := afero.NewMemMapFs()

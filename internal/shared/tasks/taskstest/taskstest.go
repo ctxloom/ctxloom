@@ -118,6 +118,16 @@ var EnvKeys = []string{
 	"GITHUB_TOKEN",
 	"GH_TOKEN",
 	"CODEX_HOME",
+	// The mount-namespace shim's own protocol. mountns re-execs THIS BINARY
+	// with these set, so a test that inherited one from an ambient environment
+	// would take the shim path on startup instead of running the test —
+	// silently, and only on a machine where they happened to be exported.
+	"CTXLOOM_MOUNTNS_SHIM",
+	"CTXLOOM_MOUNTNS_BINDS",
+	"CTXLOOM_MOUNTNS_ARGV",
+	"CTXLOOM_MOUNTNS_PROBING",
+	"CTXLOOM_MOUNTNS_PROBE_WRITE",
+	"CTXLOOM_MOUNTNS_READBACK",
 	"EDITOR",
 	"VISUAL",
 	"PAGER",

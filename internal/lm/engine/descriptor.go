@@ -69,6 +69,13 @@ type Descriptor struct {
 	// Home is how the engine's global config/credential home relocates per
 	// agent. Absent = the engine keeps no engine-global state to isolate.
 	Home agent.Declared[agent.EngineHome]
+	// Provisioning is what the engine will accept as the way its credential
+	// material reaches a per-session instance home, in preference order.
+	// Absent = the engine keeps no material that needs provisioning, with the
+	// reason. It is a DECLARATION only: nothing in the launch path reads it
+	// yet, and it is declared first so that when something does, no engine is
+	// silently given a mechanism nobody chose for it.
+	Provisioning agent.Declared[agent.ProvisioningPolicy]
 	// Container is how a containerized run of the engine is built and
 	// authenticated. Absent = no container story; a `runtime: container`
 	// binding is refused and a run fails closed.
@@ -193,6 +200,11 @@ func (d Descriptor) validateProvided() error {
 		}
 		if len(h.Vars) != 1 {
 			return errors.New("Home.Vars must declare exactly one home var; the in-tree home derivation reads exactly one and no engine needs more yet — lift it when one does")
+		}
+	}
+	if p, ok := d.Provisioning.Get(); ok {
+		if err := p.Validate(); err != nil {
+			return err
 		}
 	}
 	if c, ok := d.Container.Get(); ok {

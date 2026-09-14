@@ -1,5 +1,7 @@
 package isolation
 
+import "github.com/ctxloom/ctxloom/internal/shared/agent"
+
 // Instance-home MATERIAL provisioning.
 //
 // An instance home is a private per-session engine home. Something has to put
@@ -68,45 +70,31 @@ func (s Sharing) String() string {
 
 // Delivery is what the caller ACTUALLY GOT.
 //
-// It is a separate type from Sharing, not a restatement of it, because
-// shared-by-identity and shared-by-replication are BOTH "shared" and they FAIL
-// DIFFERENTLY — see the rotation window in this file's header. One enum value
-// cannot cover both without hiding exactly the difference a failure
-// investigation turns on.
-type Delivery int
+// It is an ALIAS of the engine-facing agent.MaterialDelivery, not a second enum: the
+// value an engine DECLARES it will accept and the value a provisioner reports
+// having delivered are the same fact read from two ends, and two enums would
+// need a conversion whose job is to be the identity — the exact place a
+// mismatch hides. The vocabulary lives in internal/shared/agent because an
+// engine package must be able to author its own facts without linking this
+// machinery; the machinery (Provisioner, Select, the candidates) lives here.
+type Delivery = agent.MaterialDelivery
 
 const (
-	// DeliveryUnset is a Result nobody filled in. Like SharingUnset it is the
-	// zero value so that an omission is loud rather than plausible.
-	DeliveryUnset Delivery = iota
-	// DeliveryMounted is shared BY IDENTITY: the instance and the host see one
-	// inode, so there is nothing to synchronise and no window in which they
-	// disagree. Both discrete mount implementations report this — a caller
+	// DeliveryUnset is a Result nobody filled in.
+	DeliveryUnset = agent.MaterialDeliveryUnset
+	// DeliveryMounted is shared BY IDENTITY: one inode, nothing to
+	// synchronise. Both discrete mount implementations report this — a caller
 	// cares that it got identity, not which kernel caller established it.
-	DeliveryMounted
+	DeliveryMounted = agent.MaterialDeliveryMounted
 	// DeliveryReplicated is shared BY REPLICATION: two files kept in step by a
 	// watcher, under a cross-process lock. Eventual, and with the rotation
 	// window this file's header describes.
-	DeliveryReplicated
+	DeliveryReplicated = agent.MaterialDeliveryReplicated
 	// DeliveryAbsent is a declared absence: the engine keeps no material that
 	// needs provisioning at all, with a reason. Distinct from DeliveryUnset,
 	// which is nobody having said anything.
-	DeliveryAbsent
+	DeliveryAbsent = agent.MaterialDeliveryAbsent
 )
-
-// String names the delivery for a diagnostic.
-func (d Delivery) String() string {
-	switch d {
-	case DeliveryMounted:
-		return "mounted"
-	case DeliveryReplicated:
-		return "replicated"
-	case DeliveryAbsent:
-		return "absent"
-	default:
-		return "unset"
-	}
-}
 
 // Material is one thing that must appear inside an instance home.
 type Material struct {

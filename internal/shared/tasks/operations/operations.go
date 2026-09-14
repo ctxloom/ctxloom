@@ -107,6 +107,25 @@ type TaskListResult struct {
 	// counts stay the FULL uncapped counts even when Tasks itself was
 	// truncated (see listTasks).
 	OmittedByLimit int
+
+	// ProjectNewlyMinted is true when THIS call's live project-id resolution
+	// (no CTXLOOM_PROJECT_ID/--project pin) just MINTED a brand-new identity
+	// for the working directory — projectid.Resolve's ActionNewProject,
+	// meaning neither the registry nor the tree's own marker knew this
+	// project here. It stays false when a project-id was pinned (no live
+	// resolution happens at all) or resolution found an EXISTING identity.
+	//
+	// A genuinely brand-new project and an established one whose home
+	// (~/.ctxloom, e.g. an unmounted container cell) this process cannot
+	// see are INDISTINGUISHABLE at this layer — both mint fresh here, both
+	// then read back a truthful, empty task list. That ambiguity cannot be
+	// resolved locally (see ADR 0025's Resolution.Warning contract, which
+	// deliberately says nothing for ActionNewProject), so this field does
+	// not claim to resolve it either — it only names WHAT HAPPENED, so a
+	// caller that expected history for this directory has a concrete fact
+	// ("this project id did not exist a moment ago") instead of a bare,
+	// equally-honest-looking empty list.
+	ProjectNewlyMinted bool
 }
 
 // TaskResult is the result of a single-task mutation.
@@ -259,7 +278,8 @@ func ListTasks(tc TaskContext, opts ListOptions) (*TaskListResult, error) {
 		list = list[:limit]
 	}
 	out := &TaskListResult{Path: store.Path(), Tasks: list, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir,
-		HiddenCompleted: hiddenCompleted, HiddenDeferred: hiddenDeferred, OmittedByLimit: omittedByLimit}
+		HiddenCompleted: hiddenCompleted, HiddenDeferred: hiddenDeferred, OmittedByLimit: omittedByLimit,
+		ProjectNewlyMinted: proj.New}
 	if includeSummary {
 		sum, err := store.Summarize()
 		if err != nil {
@@ -891,6 +911,12 @@ func RepairStore(tc TaskContext) error {
 type projectIdentity struct {
 	ID  string
 	Dir string // registered project root; empty when not registered
+
+	// New is true when this identity was just minted by a live resolution
+	// (projectid.ActionNewProject) — see TaskListResult.ProjectNewlyMinted's
+	// doc for why this is a fact ("nothing knew this project before now"),
+	// not a verdict on whether the working directory is genuinely new.
+	New bool
 }
 
 // taskResult is the one shape every single-task mutation returns. Every field
@@ -960,6 +986,7 @@ func resolveProjectFor(tc TaskContext, pm *projectid.Manager, pmErr error) (proj
 			return proj, "", fmt.Errorf("resolve project id: %w", rerr)
 		}
 		proj.ID = res.ProjectID
+		proj.New = res.Action == projectid.ActionNewProject
 		warning = res.Warning
 	}
 	if pmErr != nil {

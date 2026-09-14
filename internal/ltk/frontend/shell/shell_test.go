@@ -112,13 +112,58 @@ func TestProcessSubstitutionNested(t *testing.T) {
 }
 
 func TestBackgroundAndSequence(t *testing.T) {
-	// ir.Pipeline.Background was dropped: it had no reader outside
-	// this now-removed assertion, and Match.matches never consulted it. What
-	// still matters here — and is what this test pins — is that `&`
-	// sequencing produces two distinct commands, both visible to the matcher.
+	// `&` sequencing produces two distinct commands, both visible to the
+	// matcher — true regardless of whether backgrounding itself is tracked.
 	s := parse(t, ir.ShellBash, "go test & echo done")
 	if got := programs(s); !reflect.DeepEqual(got, []string{"go", "echo"}) {
 		t.Errorf("programs = %v, want [go echo]", got)
+	}
+	// SimpleCommand.Background (re-added for rules.Match.Backgrounded, see
+	// ir.SimpleCommand's doc) marks only the backgrounded statement's own
+	// command: `go test` was launched with a trailing `&` and detaches from
+	// the caller; `echo done` runs afterward in the foreground, ordinarily.
+	cmds := s.Commands()
+	if !cmds[0].Background {
+		t.Errorf("`go test &` should be marked Background, got %+v", cmds[0])
+	}
+	if cmds[1].Background {
+		t.Errorf("`echo done` (no trailing &) should not be marked Background, got %+v", cmds[1])
+	}
+}
+
+// TestBackgroundMarksAWholeAndOrChain proves the outer-statement bias
+// documented on markBackground: a trailing `&` on an `&&`/`||` chain
+// backgrounds the WHOLE job as one unit, not just its last stage, so every
+// command produced from it is marked — consistent with the "widen what a
+// guard can see" bias frontend.ExpandWrappers already documents elsewhere.
+func TestBackgroundMarksAWholeAndOrChain(t *testing.T) {
+	s := parse(t, ir.ShellBash, "go build && go test &")
+	cmds := s.Commands()
+	if len(cmds) != 2 {
+		t.Fatalf("expected 2 commands, got %d: %+v", len(cmds), cmds)
+	}
+	for i, c := range cmds {
+		if !c.Background {
+			t.Errorf("command %d (%v) in a backgrounded && chain should be marked Background", i, c.Argv)
+		}
+	}
+}
+
+// TestBackgroundDoesNotLeakToTheNextStatement is the negative twin of
+// TestBackgroundAndSequence: a command with NO trailing `&` of its own must
+// never be marked Background merely because an earlier, unrelated statement
+// in the same script was.
+func TestBackgroundDoesNotLeakToTheNextStatement(t *testing.T) {
+	s := parse(t, ir.ShellBash, "nohup sleep 1 & go build")
+	cmds := s.Commands()
+	if len(cmds) != 2 {
+		t.Fatalf("expected 2 commands, got %d: %+v", len(cmds), cmds)
+	}
+	if !cmds[0].Background {
+		t.Error("`nohup sleep 1 &` should be marked Background")
+	}
+	if cmds[1].Background {
+		t.Error("`go build` (a separate, un-backgrounded statement) should not be marked Background")
 	}
 }
 

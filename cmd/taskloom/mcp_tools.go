@@ -83,6 +83,33 @@ type taskListResult struct {
 	// anything instead of trusting a fully-populated but empty ranking. Empty
 	// when sort wasn't "priority", or the ranking was fine.
 	PriorityWarning string `json:"priority_warning,omitempty"`
+
+	// Warning carries the project-resolution notice from
+	// operations.TaskListResult (a moved/forked identity, a pinned project
+	// disagreeing with the working directory, or a project whose own log
+	// doesn't exist yet while a sibling registration at the same path does)
+	// — the SAME notice the CLI's `list` prints via warnTask, but stderr
+	// never reaches an MCP caller (that's the server process's own stderr,
+	// not the client's), so this field is the only channel this tool has for
+	// it. Empty when Global is true (the notice is per-project; a global
+	// aggregation spans many) or there was nothing to say. THIS is the field
+	// that turns "the store may not be reachable" from a silent empty list
+	// into something a caller can act on.
+	Warning string `json:"warning,omitempty"`
+
+	// ProjectNewlyMinted is true when THIS call's own project-id resolution
+	// (no CTXLOOM_PROJECT_ID/--project pin reached this process) just minted
+	// ProjectID moments ago — nothing, neither the registry nor an in-tree
+	// marker, knew this project before this call. A genuinely brand-new
+	// project and an established one whose task-store home this process
+	// cannot see (e.g. an agent cell whose ~/.ctxloom isn't the one that
+	// recorded its history) are INDISTINGUISHABLE here — both mint fresh,
+	// both then read back a truthful, empty task list. This field cannot
+	// resolve that ambiguity; it only names the fact, so an empty Tasks list
+	// alongside project_newly_minted=true means "verify before assuming this
+	// backlog is really empty", never a silent "there is no work". Always
+	// false when Global is true or a pin was honored.
+	ProjectNewlyMinted bool `json:"project_newly_minted,omitempty"`
 }
 
 type taskAddInput struct {
@@ -265,17 +292,19 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 	}
 
 	out := &taskListResult{
-		Global:          r.Global,
-		ProjectCount:    r.ProjectCount,
-		Notice:          r.Notice,
-		Path:            r.Path,
-		ProjectID:       r.ProjectID,
-		ProjectDir:      r.ProjectDir,
-		Summary:         r.Summary,
-		HiddenCompleted: r.HiddenCompleted,
-		HiddenDeferred:  r.HiddenDeferred,
-		OmittedByLimit:  r.OmittedByLimit,
-		PriorityWarning: r.PriorityWarning,
+		Global:             r.Global,
+		ProjectCount:       r.ProjectCount,
+		Notice:             r.Notice,
+		Path:               r.Path,
+		ProjectID:          r.ProjectID,
+		ProjectDir:         r.ProjectDir,
+		Summary:            r.Summary,
+		HiddenCompleted:    r.HiddenCompleted,
+		HiddenDeferred:     r.HiddenDeferred,
+		OmittedByLimit:     r.OmittedByLimit,
+		PriorityWarning:    r.PriorityWarning,
+		Warning:            r.Warning,
+		ProjectNewlyMinted: r.ProjectNewlyMinted,
 	}
 	if in.Compact {
 		out.CompactTasks = compactRows(r.Rows)

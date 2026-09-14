@@ -301,7 +301,11 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	// Setup ever runs in it.
 	scratch := b.WorkDir()
 	if req.CellKind == CellKindShared {
-		scratch = sharedScratchDir(req.Env[SessionHarpEnv])
+		s, err := sharedScratchDir(req.Env[SessionHarpEnv])
+		if err != nil {
+			return err
+		}
+		scratch = s
 	}
 	//
 	// EngineHome is the engine's PRIVATE config home for this run, read from
@@ -322,18 +326,48 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	return b.deliverSet(inputs, req, start)
 }
 
+// ErrSharedScratchNoHarp is returned by sharedScratchDir when it has no harp
+// (or an unresolvable one) to derive a private scratch dir from.
+//
+// RULED 2026-09-12: an empty or unresolvable harp reaching sharedScratchDir is
+// a PROGRAMMING ERROR, not a case to absorb. This function used to fall back
+// to os.TempDir() — a silent substitution of a world-readable shared location
+// for the session's private ephemeral dir, which is exactly the shape the
+// project's no-degradation delivery rule forbids (the private engine home is
+// the root; a shared/world-readable location is used only when explicitly
+// selected, never reached by accident). Keeping the fallback "documented" was
+// considered and struck: it would carve a permanent exception into a rule the
+// project states absolutely, and exceptions to no-degradation rules get cited
+// as precedent. See taskloom row urgent-staunch.
+//
+// The audit behind this ruling (same row) found exactly one production path
+// to this function (setupViaCells, gated on req.CellKind == CellKindShared)
+// and confirmed every caller that can reach it with CellKind resolved to
+// Shared also carries a non-empty harp by construction: `ctxloom run`
+// (cli/run.go) stamps CTXLOOM_SESSION_HARP into its env before Setup ever
+// runs; the init discovery launch (cli/init_launch.go's discoveryRunRequest)
+// documents its harp as "never \"\" on a real launch"; and the oneshot
+// fan-out's CellKindForPolicy ties CellKind==Shared to isolation.Policy=None,
+// which is exactly the branch that also keeps SkipSetup=true (so Setup, and
+// this function, never run at all) — covering even the harp-less auth-ping
+// probe. No caller today relies on the struck fallback.
+var ErrSharedScratchNoHarp = errors.New("delivery: sharedScratchDir has no harp to derive a private scratch dir from — this is a programming error in the caller, not a case to fall back from; CellKindShared delivery must carry a resolvable CTXLOOM_SESSION_HARP")
+
 // sharedScratchDir is where a SharedCell's race-safe surfaces land: the
 // session's regenerable ephemeral directory (paths.HarpEphemeralDir), which is
-// PRIVATE to the run and out of the shared cwd. When harp is empty or that
-// directory cannot be resolved it falls back to the OS temp dir, so a
-// file-writing approach always has a writable root.
-func sharedScratchDir(harp string) string {
-	if harp != "" {
-		if dir, err := paths.HarpEphemeralDir(harp); err == nil {
-			return dir
-		}
+// PRIVATE to the run and out of the shared cwd. An empty or unresolvable harp
+// refuses loudly (ErrSharedScratchNoHarp) rather than silently substituting
+// the OS temp dir — see ErrSharedScratchNoHarp's doc for the ruling and the
+// caller audit behind it.
+func sharedScratchDir(harp string) (string, error) {
+	if harp == "" {
+		return "", ErrSharedScratchNoHarp
 	}
-	return os.TempDir()
+	dir, err := paths.HarpEphemeralDir(harp)
+	if err != nil {
+		return "", fmt.Errorf("%w: resolving harp %q: %v", ErrSharedScratchNoHarp, harp, err)
+	}
+	return dir, nil
 }
 
 // assembleSurfaceContext assembles the context a surface-delivering backend

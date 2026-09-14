@@ -59,11 +59,17 @@ import (
 // is the wake. They were previously the same thing only in the sense that
 // neither reached a waiting parent.
 //
-// Mail to the session owner's own in-process mailbox, and to a FROZEN legacy
-// go-plugin child, still stays on the mailbox — neither has a runner sweeping a
-// spool, so a file written for them would sit in a directory nothing ever
-// reads. That applies to the report notice too: a FINAL report from a top-level
-// child reaches the session owner by mailbox, never by file.
+// THE SESSION OWNER is a spool recipient too, and its reader is THIS PROCESS:
+// the owner has no runner, so its in/ is drained by AgentRecv itself
+// (claimSpoolInbox / ackSpoolInbox in mailbox.go), with the same park/wake,
+// consume-on-next-recv ack and burst settle the mailbox gave it. The owner is
+// identified by DECLARATION (Options.OwnerHarp), never by a run record — a
+// host/stdio owner has none, and keying on one is what left every
+// child->parent message on the mailbox at full cutover.
+//
+// Only a FROZEN legacy go-plugin child still stays on the mailbox: it has no
+// runner sweeping a spool, so a file written for it would sit in a directory
+// nothing ever reads.
 //
 // FLAG OFF means byte-identical pre-spool behaviour: no branch below is
 // entered, no reactor runs, and no directory is created.
@@ -351,16 +357,26 @@ func (c *Coordinator) spoolPosture() spoolPosture {
 func (c *Coordinator) SpoolDeliveryEnabled() bool { return c.spoolDelivery }
 
 // spoolDeliverTo reports whether mail for role is delivered by FILE rather
-// than by mailbox.
+// than by mailbox — whether there is a spool READER on the other end.
 //
-// Two conditions beyond the flag, and both are about there being a reader on
-// the other end. The recipient must be a run this coordinator tracks, and it
-// must be a MIGRATED (StartRun) run — one with a ctxloom runner that sweeps
-// its own spool. The session owner's own mailbox is drained in this process by
-// AgentRecv, and a frozen legacy go-plugin child has no runner at all; writing
-// a file for either would be a message delivered to a directory nobody reads,
-// with every signal green.
+// Two recipient classes have one:
+//
+//   - THE OWNER, drained in-process: this session's own harp, whose in/ is
+//     read by AgentRecv (ownerSpool). It is a class of its own because it is
+//     identified by declaration, not by a run record.
+//   - A MIGRATED CHILD, drained by its runner: a run this coordinator tracks
+//     that rides StartRun and so has a ctxloom runner sweeping its own spool.
+//     The class is fixed at ENQUEUE (childRt.viaStartRun), so mail written
+//     while the child waits on the execution cap is already a file its
+//     runner's startup sweep will find.
+//
+// A frozen legacy go-plugin child is neither: it has no runner at all, and a
+// file written for it would be a message delivered to a directory nobody
+// reads, with every signal green.
 func (c *Coordinator) spoolDeliverTo(role string) bool {
+	if c.ownerSpool(role) {
+		return true
+	}
 	if !c.spoolDelivery || role == "" {
 		return false
 	}
@@ -373,6 +389,15 @@ func (c *Coordinator) spoolDeliverTo(role string) bool {
 	tracked := false
 	c.runs.View(func() { tracked = c.runsF.currentRun(role) != nil })
 	return tracked
+}
+
+// ownerSpool reports whether role's inbox is a spool THIS PROCESS reads: the
+// declared session owner, under the cutover. It is narrower than
+// spoolDeliverTo on purpose — a migrated child's in/ is also a spool, but its
+// reader is the child's runner, and the recv-side substrate switch must never
+// drain a directory another process owns.
+func (c *Coordinator) ownerSpool(role string) bool {
+	return c.spoolDelivery && role != "" && role == c.ownerHarp
 }
 
 // deliverMailViaSpool IS the delivery: it writes msg as the single copy in the

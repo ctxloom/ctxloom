@@ -23,7 +23,7 @@ func TestTerminateRun_QueueMailFailure_ParkedParentIsUnblocked(t *testing.T) {
 	parent := ownerIdentity()
 	// enqueueRun alone gives us a live, non-ended RunRecord whose ParentHarp is
 	// the owner — no launch, no engine, so the terminal is the only event.
-	rt, _, err := c.enqueueRun(parent, &SpawnPlan{AgentName: "worker"}, "child-x", "task", false, make(chan struct{}), 1)
+	rt, _, err := c.enqueueRun(parent, &SpawnPlan{AgentName: "worker"}, "child-x", "task", false, make(chan struct{}), 1, false)
 	require.NoError(t, err)
 
 	type recvResult struct {

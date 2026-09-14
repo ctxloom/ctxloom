@@ -269,6 +269,10 @@ type Coordinator struct {
 	// ownerHarp is Options.OwnerHarp: the recipient class "the owner, drained
 	// in-process" (spoolDeliverTo). Read-only after New.
 	ownerHarp string
+	// spoolRefs maps a message id the owner's reader has DELIVERED but not yet
+	// acked to the file it came from, so the consume-rename can find it at
+	// the acknowledgement moment (spoolowner.go). Guarded by mu.
+	spoolRefs map[string]spool.Ref
 	// spoolIn lends the per-child in/ writers. Non-nil ONLY when the spool is
 	// switched on at all (tee or delivery): constructing it is what would
 	// create spool directories, and "both flags are off" has to mean nothing
@@ -435,6 +439,11 @@ type Coordinator struct {
 // orchestration core. Listeners come up separately via Serve (httpserver.go)
 // so tests can run the core without ports.
 func New(opts Options) (*Coordinator, error) {
+	// Refused before any state exists: an options contradiction, not a
+	// standup failure.
+	if opts.SpoolDelivery && opts.OwnerHarp == "" {
+		return nil, ErrCutoverNeedsOwner
+	}
 	claim, err := acquireStateDir(opts)
 	if err != nil {
 		return nil, err

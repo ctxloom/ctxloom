@@ -102,7 +102,7 @@ CLI, and nothing else:
 
 | Engine | Adapter | Shape |
 |---|---|---|
-| `claude-code` | `renderClaudeOneshot` (`oneshot_claude.go:71`) | Plain text, or the `{result, modelUsage}` JSON envelope when `--output-format json` is present (`oneshotWantsJSON`, `:53` — which names claude's SkipSetup signal). Mirrored by `claudeJSONEnvelope`/`claudeModelToks` (`:41`, `:46`) — the one place a mock-side restatement of a vendor fact is justified, because a process boundary sits between them, and the file argues the case explicitly |
+| `claude-code` | `renderClaudeOneshot` (`oneshot_claude.go:71`) | Plain text, or the `{result, modelUsage}` JSON envelope when `--output-format json` is present (`oneshotWantsJSON`, `:53` — which names claude's JSON-envelope signal). Mirrored by `claudeJSONEnvelope`/`claudeModelToks` (`:41`, `:46`) — the one place a mock-side restatement of a vendor fact is justified, because a process boundary sits between them, and the file argues the case explicitly |
 | anything else | — | **LOUD error**, explicitly rather than falling through to claude's shape (`oneshot.go:44-45`) |
 
 A backend that does not implement `agent.EngineCLIProvider` cannot be
@@ -114,7 +114,7 @@ consulted.
 | Test | Location |
 |---|---|
 | `TestMockEngineContainer_DiscoversDeliveredSurfaces` | `container_docker_integration_test.go:118` (claude; `--print --output-format json --model`, prompt on stdin) |
-| `TestRuntime_OneshotJSONEnvelopeUnderSkipSetup` | `runtime_test.go:72` |
+| `TestRuntime_OneshotJSONEnvelopeOnTheMinimalForm` | `runtime_test.go:72` |
 | `TestRuntime_OneshotPlainWithoutJSONFlag` | `runtime_test.go:93` |
 | `TestRuntime_FailSentinelExitsNonzero` | `runtime_test.go:224` |
 | `TestRuntime_PromptHashMatchesReceivedBytes` | `runtime_test.go:238` |
@@ -181,7 +181,7 @@ everything the instrument certifies.
 - **An intentionally EMPTY response cannot be requested** — `if v := getenv(EnvResponse); v != ""` (`sentinel.go:65-67`) makes "set to empty" indistinguishable from unset, and `Dispatch` always seeds `"mock-engine: ok"` (`:55`). The one knob that would let a test prove ctxloom surfaces a zero-byte reply is unreachable, in the codebase whose characteristic bug **is** the zero-byte reply.
 - **Two env readers with opposite nil policies**: `Runtime.getenv` falls back to `os.Getenv` (`runtime.go:36-41`) while `Resolver.getenv` returns `""` (`discovery.go:26-31`). A `Runtime` built with a nil `Res.Getenv` probes the `$HOME` fallback while the sentinel knobs read the real process env — from one struct literal, with no error.
 - **The interactive surface is unreachable dead weight** while its comment advertises a "deferred" capability; `render`'s `default` arm silently echoes for ANY unknown surface (`runtime.go:112-114`) — the exact fall-through `renderOneshotWire` explicitly refuses.
-- **The container test hand-writes the vendor argv** (`container_docker_integration_test.go:136`, `:299`) under the comment "the argv mirrors what claude's buildArgs emits under SkipSetup", so the mock constrains the **declaration**, not the **driver** — the very drift the package doc says a fake must never permit. `rg buildArgs internal/mockengine` → 0 hits.
+- **The container test hand-writes the vendor argv** (`container_docker_integration_test.go:136`, `:299`) under the comment "the argv mirrors what claude's buildArgs emits on the minimal form", so the mock constrains the **declaration**, not the **driver** — the very drift the package doc says a fake must never permit. `rg buildArgs internal/mockengine` → 0 hits.
 - **Report-emission failure does not affect the exit code** (`runtime.go:87-99`, `:53`) — the instrument can exit 0 having delivered zero evidence. Both current readers do fail loudly, so this is latent.
 - **`ExtractReport`'s doc names a caller that does not exist** (`report.go:174-177`): it claims the container test shares it, but that test reads `report.json` and unmarshals directly (`:159-166`), so the marker channel is never exercised in a container.
 - **`head` is documented as a "printable prefix" but does no printability filtering and slices at a fixed byte offset** (`report.go:104-110`), so it can split a UTF-8 rune and carry raw control bytes; `json.Marshal` substitutes U+FFFD, making the corruption silent.

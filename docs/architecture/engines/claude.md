@@ -50,7 +50,7 @@ Two native CLI surfaces.
 
 - **Oneshot**: `claude --print`, **prompt on stdin** (`agent.PromptStdin`, `enginecli.go:182`; `promptStdin`, `claudecode.go:350`). Argv delivery was moved to stdin after it hit `E2BIG` on `ctxloom weave`.
 - **Interactive**: prompt as a trailing argv positional (`enginecli.go:194`; `claudecode.go:338-342`), plus `--name <harp>` from `CTXLOOM_SESSION_HARP` (`claudecode.go:223`, `:273`) — interactive only, since `/rename` cannot be injected.
-- **SkipSetup / distill argv** (`claudecode.go:314-330`): `--output-format json --tools "" --disable-slash-commands --no-session-persistence --strict-mcp-config --system-prompt "" --settings <inline JSON>`.
+- **Minimal-form / distill argv** (`minimalModeArgs`, declared via `MinimalLaunch` and resolved by `Setup`): `--output-format json --tools "" --disable-slash-commands --no-session-persistence --strict-mcp-config --system-prompt "" --settings <inline JSON>`.
 
 The declared flag vocabulary (`enginecli.go:79-95`) is 15 flags, all verified
 against installed `claude 2.1.220`: `--dangerously-skip-permissions`,

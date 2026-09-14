@@ -4,8 +4,7 @@ How assembled profile context actually reaches the model. Fragments are joined a
 
 ```mermaid
 flowchart TD
-    F["[]*Fragment"] --> AC["AssembleContext<br/>base.go:169"]
-    F --> ADC["assembleDedupedContext<br/>contextfile.go:84<br/>(sha256 dedup + >16KB warn)"]
+    F["[]*Fragment"] --> ADC["AssembleContext =<br/>assembleDedupedContext<br/>(sha256 dedup + >16KB warn)"]
     ADC --> WCF["WriteContextFile → hash<br/>contextfile.go:137"]
     WCF --> FILE[(".ctxloom/cache/context/&lt;hash&gt;.md")]
     FILE --> RCF["ReadContextFile<br/>contextfile.go:169"]
@@ -15,8 +14,8 @@ flowchart TD
     CC -->|"len &gt; 1"| HN["N ordered chunk hooks<br/>NewContextInjectionChunkHook :37"]
     HN --> AT["AwaitTurn (flock)<br/>rendezvous.go:57"]
     AT --> INJ["cli/hook_inject_context.go"]
-    AC --> FPC["FrameProjectContext<br/>context_framing.go:34"]
-    FPC --> SP["--append-system-prompt-file /<br/>SkipSetup prompt smuggling"]
+    ADC --> FPC["FrameProjectContext<br/>context_framing.go:34"]
+    FPC --> SP["--append-system-prompt-file /<br/>the minimal form's prompt channel"]
     MHC["MergeHooksConfig<br/>context_hooks.go:90"] --> NCIH
 ```
 
@@ -72,7 +71,7 @@ flowchart TD
 ## Invariants and contracts
 
 - **`WriteContextFile` is the only writer of `.ctxloom/cache/context/<hash>.md`.** `BaseContextProvider.GetContextFilePath` independently re-derives that path from the hash rather than asking the writer, so the naming scheme exists in two places.
-- **Two assemblers produce "the assembled context" and they diverge.** `assembleDedupedContext` deduplicates by content hash and emits the oversize warning; `AssembleContext` does neither. The doc at `contextfile.go:78-80` states the raw context file must not diverge from `AssembleContext`'s output — it does. The divergent output reaches production at `internal/lm/grpc/server.go:189` (the SkipSetup prompt-smuggling path) and `internal/lm/backends/mock.go:77`.
+- **There is exactly ONE assembler.** `agent.AssembleContext` IS `assembleDedupedContext` under the exported name: it deduplicates on `(Name, content)` and emits the oversize warning, and every path that needs "the assembled context" goes through it. This used to be two implementations that diverged — only one of them warned — so a run could deliver an oversize context in silence by taking the route that could not warn. The invariant `contextfile.go` states about itself now holds by construction rather than by inspection (U100-F13, resolved by `footless-swimming`).
 - **`WriteContextFile` returns `("", nil)` when the assembled content is empty** — a hash of `""` then means "no context" everywhere downstream, so `MergeManaged` skips the injection hook and `CTXLOOM_CONTEXT_FILE` is never set. Nothing distinguishes "no context configured" from "context assembly produced nothing".
 - **`ReadContextFile` maps a missing file to `("", nil)`**, so a reaped or never-written cache file is indistinguishable from "no context configured".
 - **`NewContextInjectionHooks` swallows the read error** (`content, _ := ReadContextFile(...)` at `context_hooks.go:65`). Any read failure yields `len(chunks) <= 1` and therefore a single whole-content hook — reintroducing exactly the harness truncation that chunking exists to prevent.

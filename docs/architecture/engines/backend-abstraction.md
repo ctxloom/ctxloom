@@ -74,7 +74,7 @@ type's own doc comment).
 | `ExecutionMode` | `internal/shared/agent/backend.go:29` | `ModeInteractive` (0) / `ModeOneshot` (1). |
 | `SetupRequest` | `internal/shared/agent/backend.go:324-339` | WorkDir, Fragments, Env, Verbosity, `Managed *ManagedConfig`, `CellKind`. |
 | `ManagedConfig` | `internal/shared/agent/backend.go:348-363` | Host-assembled config/bundle payload. **7 fields.** See [the plugin wire](grpc-wire.md). |
-| `ExecuteRequest` | `internal/shared/agent/backend.go:366-397` | Prompt, WorkDir, Mode, Model, Env, DryRun, `Permissions`, Temperature, `SkipSetup`, `CellKind`, Stdin, Resize. |
+| `ExecuteRequest` | `internal/shared/agent/backend.go:366-397` | Prompt, WorkDir, Mode, Model, Env, DryRun, `Permissions`, Temperature, `CellKind`, Stdin, Resize. No launch form: where surfaces land is resolved by `Setup`, and Execute emits what Setup resolved. |
 | `ExecuteResult` | `internal/shared/agent/backend.go:400-403` | ExitCode + ModelInfo. |
 | `SessionHistory` | `internal/shared/agent/backend.go:95-116` | Transcript reading + `/clear` recovery. Returned by `Backend.History()`. |
 | `Session` / `SessionEntry` | `internal/shared/agent/backend.go:119`, `:153` | The normalized transcript IR (see [transcript IR](#the-transcript-ir)). |

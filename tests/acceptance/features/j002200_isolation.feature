@@ -45,7 +45,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #      the value isolation.Prepare actually resolved and threaded through
   #      RunOptions.WorkDir — THAT is the honest signal this journey reads.
   #   2. Per-engine config-home isolation (CLAUDE_CONFIG_DIR) is decided off
-  #      the agent binding's config_home, for every cell alike
+  #      the agent binding's engine_home, for every cell alike
   #      (operations.ResolveInTreeAgentHome), and the built-in "mock" backend
   #      declares no relocatable home at all — hermetically true for every
   #      workspace axis. This journey therefore proves the WORKSPACE boundary
@@ -263,12 +263,12 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #
   # Alice types `ctxloom run` and names no agent; the project's default agent
   # is bound for her, but the session is hers, and — in this fixture — the
-  # bound agent's config_home is UNDECLARED, which resolves to the real host
-  # home by default (config_home is strictly opt-in: see the sibling
+  # bound agent's engine_home is UNDECLARED, which resolves to the real host
+  # home by default (engine_home is strictly opt-in: see the sibling
   # "An in-tree AGENT run gets a ctxloom-controlled config home" scenario,
   # which is the positive control for every absence asserted here — it uses
   # the SAME fixture with the ONE addition of an explicit
-  # `config_home: project` declaration on the binding, and gets the opposite
+  # `engine_home: session` declaration on the binding, and gets the opposite
   # outcome). The two must be read together, or "nothing was created"
   # degenerates into "nothing happens in this fixture at all".
   #
@@ -291,7 +291,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # THE OTHER HALF, and the positive control the scenario above depends on: the
   # SAME project, the SAME none axis, the SAME engine — but Alice names an
-  # agent WHOSE BINDING DECLARES config_home: project, so the run gets a
+  # agent WHOSE BINDING DECLARES engine_home: session, so the run gets a
   # controlled home instead of hers. A ctxloom agent that opts in this way is
   # not entitled to her memory, plugins, personal MCP registrations, global
   # agents or steering, and must not write its session state into them, so it is
@@ -300,8 +300,8 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # copied into one way from her real home, and disposable.
   #
   # THE DECLARATION IS LOAD-BEARING, and it did not used to be: naming an agent
-  # used to be enough on its own. Now config_home is strictly opt-in (undeclared
-  # defaults to the real host home — see the sibling "undeclared config_home"
+  # used to be enough on its own. Now engine_home is strictly opt-in (undeclared
+  # defaults to the real host home — see the sibling "undeclared engine_home"
   # scenario below, which uses this exact fixture MINUS the declaration and
   # proves the opposite outcome), so this scenario's own premise depends on the
   # Given line declaring it.
@@ -315,7 +315,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   Scenario Outline: An in-tree AGENT run gets a per-session config-home instance instead of Alice's own home
     Given Alice has a git-backed project
     And Alice has whatever host credentials "<engine>" needs to authenticate
-    And Alice's agent declares config_home "project"
+    And Alice's agent declares engine_home "session"
     When Alice runs the isolated "<engine>" agent under workspace "none"
     Then the run reports no isolation finding
     And the spy "<engine>" process's "<var>" env var points at this session's config-home instance
@@ -325,9 +325,9 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | engine      | var               |
       | claude-code | CLAUDE_CONFIG_DIR |
 
-  # UNDECLARED config_home — the headline behaviour move. This is the SAME
+  # UNDECLARED engine_home — the headline behaviour move. This is the SAME
   # fixture as the scenario above with ONE difference: the "iso" binding never
-  # declares config_home at all. Phase 1 gave every agent-bound run on this
+  # declares engine_home at all. Phase 1 gave every agent-bound run on this
   # axis a controlled home unconditionally; that is now FALSE by design — an
   # undeclared binding keeps the real host home exactly like a run with no
   # binding at all, and opting in requires the declaration above. This is the
@@ -335,7 +335,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # agent-bound run gets a controlled home) this scenario fails, because the
   # spy would report a project-scoped CLAUDE_CONFIG_DIR that must not
   # exist here.
-  Scenario Outline: An in-tree AGENT run with an undeclared config_home keeps Alice's own real home
+  Scenario Outline: An in-tree AGENT run with an undeclared engine_home keeps Alice's own real home
     Given Alice has a git-backed project
     And Alice has whatever host credentials "<engine>" needs to authenticate
     When Alice runs the isolated "<engine>" agent under workspace "none"
@@ -346,7 +346,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | engine      |
       | claude-code |
 
-  # THE EXPLICIT OPT-OUT. config_home: host reads IDENTICALLY to the undeclared
+  # THE EXPLICIT OPT-OUT. engine_home: host reads IDENTICALLY to the undeclared
   # scenario above on outcome — both keep the real host home — but the two pin
   # DIFFERENT config paths: this one proves a binding that NAMES "host" gets
   # exactly what it asked for, not merely what it forgot to ask for otherwise. A
@@ -354,10 +354,10 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # binding as project regardless of what it declared) would make this scenario
   # red while the undeclared one stayed green, since only THIS one exercises the
   # declared-but-not-project branch.
-  Scenario Outline: An in-tree AGENT run that declares config_home: host keeps Alice's own real home
+  Scenario Outline: An in-tree AGENT run that declares engine_home: host keeps Alice's own real home
     Given Alice has a git-backed project
     And Alice has whatever host credentials "<engine>" needs to authenticate
-    And Alice's agent declares config_home "host"
+    And Alice's agent declares engine_home "host"
     When Alice runs the isolated "<engine>" agent under workspace "none"
     Then the run reports no isolation finding
     And no ctxloom-controlled config home exists for "<engine>" in the project
@@ -387,7 +387,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   Scenario: An in-tree AGENT run's instance credential is whole and can renew, and the host's own copy is untouched
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
-    And Alice's agent declares config_home "project"
+    And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "none"
     Then the isolated "claude-code" credential is whole and can renew
     And the host "claude-code" credential file was never modified
@@ -411,7 +411,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
     And Alice has a personal claude config carrying her own MCP servers
-    And Alice's agent declares config_home "project"
+    And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "none"
     Then the run reports no isolation finding
     And the instance's claude config carries the generated trust answer and none of Alice's own config
@@ -422,18 +422,18 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # cannot authenticate against — the same ClassIsolation mechanism the worktree
   # axis uses, and degradable the same way. The failure names the run's own
   # escape hatch, and it happens BEFORE any engine is spawned. Needs
-  # config_home: project declared: an undeclared binding never reaches the
+  # engine_home: session declared: an undeclared binding never reaches the
   # credential-seed attempt at all on this axis (it keeps the real home
   # instead), so this scenario's premise depends on opting in.
   Scenario: An in-tree AGENT run refuses a controlled home it cannot authenticate
     Given Alice has a git-backed project
     And Alice has no "claude-code" credentials or API key on the host
-    And Alice's agent declares config_home "project"
+    And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "none"
     Then the run aborts with an isolation finding naming "no ANTHROPIC_API_KEY and no host ~/.claude/.credentials.json"
 
   # LOCKED — the safety net grave-prize exists to guarantee: a run that
-  # declared config_home: project, on the WORKTREE cell this time, for an
+  # declared engine_home: session, on the WORKTREE cell this time, for an
   # engine that DOES relocate credentials with its config-home var refuses to
   # start rather than silently handing the engine an empty, logged-out
   # config-home. The home is orthogonal to the worktree: the SAME resolver
@@ -444,7 +444,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   Scenario Outline: A worktree run refuses to start an engine it cannot authenticate, rather than silently sharing the host's global credentials
     Given Alice has a git-backed project
     And Alice has no "<engine>" credentials or API key on the host
-    And Alice's agent declares config_home "project"
+    And Alice's agent declares engine_home "session"
     When Alice runs the isolated "<engine>" agent under workspace "worktree"
     Then the run aborts with an isolation finding naming "<needle>"
 
@@ -469,7 +469,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Given Alice has a git-backed project
     And Alice has no "<engine>" credentials on the host
     And Alice has set the "<engine>" API key in the environment
-    And Alice's agent declares config_home "project"
+    And Alice's agent declares engine_home "session"
     When Alice runs the isolated "<engine>" agent under workspace "worktree"
     Then the run reports no isolation finding
     And the spy "<engine>" process's "<var>" env var points at this session's config-home instance
@@ -505,7 +505,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   Scenario: A worktree claude run's isolated config-home credential is whole and can renew, and never touches the host's own copy
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
-    And Alice's agent declares config_home "project"
+    And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "worktree"
     Then the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points at this session's config-home instance
     And the isolated "claude-code" credential is whole and can renew

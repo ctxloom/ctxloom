@@ -54,7 +54,7 @@ func TestDeliveries_ResolvedSelectionMaterializesEverySurface(t *testing.T) {
 				"%s: WithEverything must resolve one delivery per advertised kind", name)
 
 			for _, kd := range deliveries {
-				_, err := kd.Deliver(present.ProjectOnHost(root))
+				_, err := kd.Deliver(isolatedCellRoots(root))
 				require.NoError(t, err, "%s: %s failed to deliver", name, kd.Kind())
 			}
 
@@ -104,4 +104,17 @@ func treeOf(t *testing.T, fs afero.Fs, root string) map[string]string {
 		return nil
 	}))
 	return out
+}
+
+// isolatedCellRoots advises the roots an ISOLATED cell resolves: the private
+// checkout is both the project root and this run's scratch. present.ProjectOnHost
+// advises only the first, which is right for the at-rest callers it exists for
+// but not for a cell — an approach whose one form is private refuses an
+// unadvised scratch rather than falling back to the project file, so a
+// one-root Start under-describes the cell and fails for the wrong reason.
+func isolatedCellRoots(dir string) present.Start {
+	return present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: dir},
+		Scratch:     present.Root{Host: dir},
+	}))
 }

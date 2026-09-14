@@ -88,6 +88,14 @@ type LaunchBackend struct {
 	// delivered accumulates the handles Setup materialized through the delivery
 	// seam, in delivery order. Cleanup reverses them LIFO.
 	delivered []Delivered
+	// minimal is the engine's declared MINIMAL launch posture (MinimalLaunch),
+	// registered at construction. nil for an engine that declares none.
+	minimal MinimalLaunch
+	// minimalArgs is that posture RESOLVED for this run — non-nil only after a
+	// Setup on LaunchFormMinimal. It is what makes the minimal run's argv a
+	// thing Setup decided rather than a branch every argv site takes on a
+	// request flag.
+	minimalArgs []string
 }
 
 // InitLaunch wires the constructed capabilities into the base. Call it from the
@@ -105,6 +113,18 @@ func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, ctxProvider Hashe
 // run, or nil before Setup ran (or when it delivered nothing). An engine reads
 // it to learn what its own approaches recorded — never to deliver again.
 func (b *LaunchBackend) Resolved() *ResolvedSelection { return b.resolved }
+
+// SetMinimalLaunch registers the engine's declared minimal launch posture —
+// the argv that strips it back to a bare model call for a headless run. Call it
+// from the concrete constructor, beside InitLaunch. An engine that declares
+// none launches bare on LaunchFormMinimal.
+func (b *LaunchBackend) SetMinimalLaunch(m MinimalLaunch) { b.minimal = m }
+
+// MinimalArgs returns the minimal launch posture Setup RESOLVED for this run,
+// or nil on every other form (and before Setup). An engine appends it to its
+// argv unconditionally: it is empty unless this run declared LaunchFormMinimal,
+// so there is nothing left for buildArgs to decide.
+func (b *LaunchBackend) MinimalArgs() []string { return b.minimalArgs }
 
 // SetExecuteEnv registers a per-backend child-env contributor merged into
 // ExecuteEnv. A cell-aware backend (codex) uses it to inject cell-scoped env
@@ -241,6 +261,21 @@ func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 // surface) is installed by deliverSet once the selection is known, on every
 // cell, so there is no pre-step here and nothing for one to get wrong.
 func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
+	// LaunchFormMinimal declares NO managed surfaces: a headless run
+	// (distillation, compaction, triage) is a bare model call. Setup still
+	// runs — this is a resolved form, not a bypass — and what it resolves is
+	// the engine's declared minimal posture, which Execute then emits like any
+	// other resolved argv. Nothing is delivered, so nothing is recorded for
+	// Cleanup, and req.Managed is not consulted at all: a minimal run carries
+	// none, and that absence is a DECLARATION here rather than the failed-config
+	// nil the check below answers.
+	if req.Form == LaunchFormMinimal {
+		if b.minimal != nil {
+			b.minimalArgs = b.minimal.MinimalArgs(req.Model)
+		}
+		return nil
+	}
+
 	// A NIL payload means the config failed to load and the run degraded
 	// through, so this returns without touching any surface — deliver nothing,
 	// retract nothing. An EMPTY payload is a different fact and deliberately
@@ -474,6 +509,16 @@ func (b *LaunchBackend) deliverSet(in SurfaceInputs, req *SetupRequest, start pr
 	}
 	b.resolved = resolved
 
+	// LaunchFormPresent: this run rides a session another run set up. The
+	// selection is built identically — same inputs, same preference, same
+	// approaches — so each surface resolves to the same place it would have
+	// been delivered; what changes is that this run NAMES those places instead
+	// of writing them. See presentExisting for the one rule that decides which
+	// is which, and why a missing surface refuses rather than falling back.
+	if req.Form == LaunchFormPresent {
+		return b.presentExisting(resolved, start)
+	}
+
 	// installHook: a resolved context approach that RIDES the hooks surface
 	// carries nothing itself — the launch installs the hook it rides on. Same
 	// on every cell.
@@ -607,4 +652,50 @@ func (b *LaunchBackend) Cleanup(ctx context.Context) error {
 	}
 	b.delivered = nil
 	return errors.Join(errs...)
+}
+
+// presentExisting is LaunchFormPresent's delivery: leave on disk the files this
+// run will NAME on argv, without taking ownership of anything another run owns.
+//
+// ONE RULE, and it is a property of the approach rather than of this caller. An
+// approach implements Existing when its out-of-cwd form can be located without
+// being written; how it then satisfies the rule follows from how its file is
+// NAMED, which is the approach's own decision:
+//
+//	FIXED NAME       (settings.json, .mcp.json beneath the session scratch) —
+//	                 owned by whichever run wrote it, and every run in the
+//	                 session reads that one copy. The only non-clobbering way to
+//	                 satisfy the rule is to REQUIRE it: present it when it is
+//	                 there, and REFUSE (ErrAbsentSharedSurface) when it is not.
+//	                 Writing it would clobber the session's; re-injecting its
+//	                 content by a second route is the silent degrade this form
+//	                 exists to remove. There is no third option, and that is the
+//	                 point.
+//	NAMED BY BYTES   (the framed context file, <sha256-prefix>.sysprompt.md) —
+//	                 owned by nobody. Two different contents are two different
+//	                 files, identical content is identical bytes, so writing it
+//	                 can neither clobber another run's nor degrade this one's.
+//	                 It satisfies the rule by writing.
+//
+// An approach that does NOT implement Existing contributes nothing: it has no
+// out-of-cwd form to name, its well-known file is the session's own, and this
+// run neither writes it nor announces it. So emission and writing never drift
+// apart — a surface this run did not put on disk is a surface it does not put
+// on argv.
+//
+// No handle is recorded on any path. Either the file was already there, or it
+// is content-addressed and shared by every run with the same bytes; retracting
+// a surface the session still needs is the one failure worse than not having
+// presented it.
+func (b *LaunchBackend) presentExisting(resolved *ResolvedSelection, start present.Start) error {
+	for _, rs := range resolved.surfaces {
+		e, ok := rs.approach.(Existing)
+		if !ok {
+			continue
+		}
+		if _, err := e.PresentExisting(start); err != nil {
+			return fmt.Errorf("failed to present the session's %s surface: %w", rs.kind, err)
+		}
+	}
+	return nil
 }

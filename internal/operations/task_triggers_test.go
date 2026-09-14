@@ -197,7 +197,8 @@ func TestEvaluateTriggers_HappyPath(t *testing.T) {
 	// The fast label's model rode through.
 	assert.Equal(t, "haiku", client.gotReqs[0].Options.Model)
 	assert.Equal(t, pb.ExecutionMode_ONESHOT, client.gotReqs[0].Options.Mode)
-	assert.True(t, client.gotReqs[0].Options.SkipSetup)
+	assert.Equal(t, pb.LaunchForm_LAUNCH_FORM_MINIMAL, client.gotReqs[0].Options.LaunchForm,
+		"headless triage declares no managed surfaces")
 }
 
 // TestEvaluateTriggers_RepoStateReachesThePrompt is the regression for a

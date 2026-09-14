@@ -124,12 +124,14 @@ func TestRunTurn_MockDeliversContextSurfaceDuringTheTurn(t *testing.T) {
 		"the surviving surface must still sit inside the ctxloom-managed markers")
 }
 
-// TestRunTurn_MockSkipSetup_DeliversNothing is the negative control. A
-// skip-setup turn (headless distill, the shared-cwd oneshot member path) runs no
-// Setup at all, so nothing may be written into the workspace. Without it, the
-// test above could pass for a backend that delivered from somewhere other than
-// the turn's Setup.
-func TestRunTurn_MockSkipSetup_DeliversNothing(t *testing.T) {
+// TestRunTurn_MockMinimalForm_DeliversNothing is the negative control. A
+// LaunchFormMinimal turn (headless distill, triage) declares no managed
+// surfaces, so nothing may be written into the workspace — even though Setup is
+// now CALLED on this form, which is exactly what makes the control worth
+// keeping: "Setup ran" and "something was delivered" are different facts, and
+// only the second one is forbidden here. Without it, the test above could pass
+// for a backend that delivered from somewhere other than the turn's Setup.
+func TestRunTurn_MockMinimalForm_DeliversNothing(t *testing.T) {
 	dir := t.TempDir()
 
 	var seen []os.DirEntry
@@ -142,11 +144,11 @@ func TestRunTurn_MockSkipSetup_DeliversNothing(t *testing.T) {
 	_, err := pb.RunTurn(context.Background(), backends.NewMock(), &pb.RunStart{
 		Fragments: []*pb.Fragment{{Content: "NEVER-DELIVERED-2f7c"}},
 		Options: &pb.RunOptions{
-			WorkDir:   dir,
-			Mode:      pb.ExecutionMode_INTERACTIVE,
-			SkipSetup: true,
-			CellKind:  pb.CellKindToProto(agent.CellKindShared),
-			Env:       map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"},
+			WorkDir:    dir,
+			Mode:       pb.ExecutionMode_INTERACTIVE,
+			LaunchForm: pb.LaunchFormToProto(agent.LaunchFormMinimal),
+			CellKind:   pb.CellKindToProto(agent.CellKindShared),
+			Env:        map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"},
 		},
 		ManagedConfig: pb.ManagedConfigToProto(&agent.ManagedConfig{Hooks: &wire.HooksConfig{}}),
 	}, stdin, nil, &out, &out, nil, nil)

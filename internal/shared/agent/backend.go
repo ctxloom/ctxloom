@@ -407,16 +407,29 @@ type SetupRequest struct {
 	// installed hooks BECAUSE their config was unreadable — destroying state
 	// on the strength of config we just admitted we could not read.
 	//
-	// It is NOT the skip_setup channel, though it used to be documented as
-	// one. skip_setup has its own wire field and RunOptions.GetSkipSetup is
-	// answered in runTurnSetup before a SetupRequest is built, so a distill
-	// run never reaches here at all.
+	// It is NOT the "this run declares no surfaces" channel, though it used to
+	// be documented as one. That is LaunchFormMinimal, which Setup answers by
+	// resolving the engine's minimal posture; a headless run reaches Setup like
+	// any other and simply resolves no surfaces. nil Managed remains one thing
+	// only: config we could not read.
 	Managed *ManagedConfig
 	// CellKind is the resolved isolation cell this run executes in, decided
-	// host-side (isolation.Prepare) and carried over the wire. Setup does not
-	// consume it yet (plan S4b); it is plumbed here so a later slice can switch
-	// delivery on the cell instead of inferring it from WorkDir.
+	// host-side (isolation.Prepare) and carried over the wire. Setup reads it
+	// for the run's roots: a shared cell's race-safe surfaces land in the
+	// session's private out-of-cwd scratch, while an isolated cell's own
+	// working dir is its scratch.
 	CellKind CellKind
+	// Form is the DECLARED form this run's managed surfaces take — deliver its
+	// own, present the session's existing ones, or declare none at all. It is
+	// resolved host-side by the caller that knows the run's shape and arrives
+	// here already decided; Setup constructs from it and never re-derives it.
+	// The zero value is LaunchFormDeliver, which is what a run that says
+	// nothing has always done.
+	Form LaunchForm
+	// Model is the model this run will execute with, needed here because the
+	// minimal launch posture Setup resolves for LaunchFormMinimal names it
+	// (claude's --settings JSON pins the model). Empty means unset.
+	Model string
 }
 
 // ManagedConfig is the host-assembled setup payload: ctxloom config, profile,
@@ -472,14 +485,14 @@ type ExecuteRequest struct {
 	DryRun      bool
 	Permissions PermissionMode
 	Temperature float32
-	SkipSetup   bool // Minimal mode - skip hooks/commands/context in backend
 	// CellKind is the resolved isolation cell this run executes in, decided
-	// host-side (isolation.Prepare) and carried over the wire alongside SetupRequest.
-	// A backend's buildArgs switches on it directly rather than inferring the
-	// cell from WorkDir: claude gates its out-of-cwd launch flags
-	// (--append-system-prompt-file / --mcp-config / --settings) on
-	// CellKindShared, since an isolated cell reads the engine's well-known
-	// files in its private cwd instead.
+	// host-side (isolation.Prepare) and carried over the wire alongside
+	// SetupRequest. It is carried for diagnostics and for the env a cell-aware
+	// backend computes (codex's cell-scoped CODEX_HOME); it is NOT what an argv
+	// site switches on. Where a surface lands, and therefore what the engine is
+	// told about it, is decided ONCE host-side as a LaunchForm and resolved by
+	// Setup — buildArgs emits what Setup resolved rather than re-deriving it
+	// from the cell.
 	CellKind CellKind
 
 	// Stdin and Resize carry the frontend's terminal input into an interactive

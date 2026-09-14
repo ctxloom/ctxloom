@@ -26,9 +26,9 @@ type DistillConfig struct {
 	// Model selects the model within the plugin (e.g. "haiku", "sonnet").
 	Model string
 	// Env is the resolved LLM label's config-declared environment
-	// (llm.configs.<label>.env). SkipSetup in Distill makes the request the
-	// only channel that can carry it: Setup, which would otherwise deliver
-	// configuration, is bypassed.
+	// (llm.configs.<label>.env). Distill declares LaunchFormMinimal, which
+	// states that this run has NO managed surfaces at all, so the request is the
+	// only channel that can carry it.
 	Env map[string]string
 	// ClientFactory creates the plugin client (default:
 	// pb.DefaultClientFactory()). It is the stochastic boundary: a test
@@ -59,11 +59,14 @@ func Distill(ctx context.Context, cfg DistillConfig, systemPrompt, payload strin
 	}
 	defer client.Kill()
 
-	// SkipSetup=true keeps the call minimal (no hooks/commands/context), but
-	// the server delivers req.Fragments to the backend only via Setup — which
-	// SkipSetup bypasses. So the instructions must travel in the prompt itself,
-	// ahead of the payload; sent as a Fragment they'd be silently dropped and
-	// the model would just answer the payload conversationally.
+	// LaunchFormMinimal DECLARES that this run has no managed surfaces: no
+	// hooks, no commands, no context file — a distill is a bare model call. The
+	// instructions therefore travel in the prompt itself, ahead of the payload,
+	// because on this form the prompt is the run's only channel and that is a
+	// stated property of the form rather than a consequence of skipping the
+	// machinery. Sent as a Fragment they would reach the model the same way
+	// (turnPromptContent frames them), but leading the prompt keeps the order
+	// explicit here.
 	req := &pb.RunStart{
 		Prompt: &pb.Fragment{
 			Content: fmt.Sprintf("%s\n\n%s", systemPrompt, payload),
@@ -73,7 +76,7 @@ func Distill(ctx context.Context, cfg DistillConfig, systemPrompt, payload strin
 			Mode:           pb.ExecutionMode_ONESHOT,
 			Model:          cfg.Model,
 			Env:            cfg.Env,
-			SkipSetup:      true,
+			LaunchForm:     pb.LaunchFormToProto(agent.LaunchFormMinimal),
 		},
 	}
 

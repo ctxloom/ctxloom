@@ -116,7 +116,7 @@ func TestGRPCClient_RunWithModelInfo_FiniteStdinHalfClosesTheSendDirection(t *te
 	client := &GRPCClient{client: NewLLMClient(conn)}
 	req := &RunStart{
 		Prompt:  &Fragment{Content: "hi"},
-		Options: &RunOptions{SkipSetup: true},
+		Options: &RunOptions{LaunchForm: LaunchForm_LAUNCH_FORM_MINIMAL},
 	}
 
 	type outcome struct {

@@ -70,9 +70,10 @@ func TestAllEngines_LaunchNativeTUI(t *testing.T) {
 
 			workDir := t.TempDir()
 			_, err := b.Execute(context.Background(), &agent.ExecuteRequest{
-				Mode:      agent.ModeInteractive,
-				WorkDir:   workDir,
-				SkipSetup: true, // mirrors a real run: Setup never ran, only Execute's own launch path is under test
+				Mode:    agent.ModeInteractive,
+				WorkDir: workDir,
+				// Setup never ran, so nothing is resolved and only Execute's own
+				// launch path is under test — which is what this case is for.
 			}, io.Discard, io.Discard)
 			require.NoError(t, err, "%s: interactive Execute must not error before ever reaching the launcher", name)
 

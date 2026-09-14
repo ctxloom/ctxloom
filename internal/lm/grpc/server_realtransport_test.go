@@ -91,7 +91,7 @@ func TestGRPCServer_Run_RealTransport_ConcurrentSends(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, stream.Send(&RunInput{Input: &RunInput_Start{Start: &RunStart{
 		Prompt:  &Fragment{Content: "hi"},
-		Options: &RunOptions{SkipSetup: true},
+		Options: &RunOptions{LaunchForm: LaunchForm_LAUNCH_FORM_MINIMAL},
 	}}}))
 	require.NoError(t, stream.CloseSend())
 

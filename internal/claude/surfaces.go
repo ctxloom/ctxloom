@@ -114,6 +114,25 @@ func (s *systemPromptContext) DeliverIsolated(start present.Start) (agent.Delive
 	return handle, err
 }
 
+// PresentExisting satisfies LaunchFormPresent by WRITING, and that is not the
+// fallback the form forbids. The file is named <sha256-prefix>.sysprompt.md
+// over the framed bytes, so it is owned by nobody: a run whose context differs
+// lands at a different path and clobbers nothing, and a run whose context is
+// identical writes identical bytes over identical bytes. There is no shared
+// copy here to preserve and nothing to refuse about — the surface this run
+// names IS this run's content, by construction.
+//
+// The handle DeliverIsolated returns is deliberately dropped rather than
+// recorded: under this form the run does not own the session's scratch, and a
+// Cleanup that removed this file would take it out from under any sibling
+// delivering the same context.
+func (s *systemPromptContext) PresentExisting(start present.Start) (string, error) {
+	if _, err := s.DeliverIsolated(start); err != nil {
+		return "", err
+	}
+	return s.path, nil
+}
+
 // Path returns the framed <hash>.sysprompt.md written by DeliverIsolated (for
 // --append-system-prompt-file), or "" whenever no file stands behind it: before
 // delivery, for empty context, and after a FAILED delivery.
@@ -175,6 +194,28 @@ func (s *mcpSurface) DeliverIsolated(start present.Start) (agent.Delivered, erro
 	return handle, nil
 }
 
+// PresentExisting names the session's out-of-cwd .mcp.json without writing it:
+// the leaf is FIXED, so the copy already there is the one every run in this
+// session reads and a second write would clobber it. An empty bundle means this
+// run has no MCP surface to name at all — "" and no error, so no --mcp-config
+// flag is emitted; anything else must be on disk or the run refuses.
+//
+// The path comes from the DECLARED leaf, exactly as DeliverIsolated records it,
+// so the two cannot drift into naming different files.
+func (s *mcpSurface) PresentExisting(start present.Start) (string, error) {
+	if len(s.bundle) == 0 {
+		s.path = ""
+		return "", nil
+	}
+	p := start.UnderScratch(MCPFileName).Build().HostPath
+	if err := agent.RequireDelivered(s.fs, agent.SurfaceMCP, p); err != nil {
+		s.path = ""
+		return "", err
+	}
+	s.path = p
+	return p, nil
+}
+
 // Path returns the out-of-cwd .mcp.json written by DeliverIsolated (for
 // --mcp-config <file>), or "" before delivery and after a FAILED one.
 func (s *mcpSurface) Path() string { return s.path }
@@ -234,6 +275,21 @@ func (s *settingsSurface) DeliverIsolated(start present.Start) (agent.Delivered,
 	// Declared, not re-joined — see mcpSurface.DeliverIsolated.
 	s.path = start.UnderScratch(relSettings).Build().HostPath
 	return handle, nil
+}
+
+// PresentExisting names the session's out-of-cwd settings.json without writing
+// it. Same reasoning as mcpSurface's: the leaf is FIXED, so this run reads the
+// copy the session delivered and refuses when there is none. There is no
+// "empty" case to skip — a settings surface always has hooks or a statusline
+// policy to state, even when that state is "nothing configured".
+func (s *settingsSurface) PresentExisting(start present.Start) (string, error) {
+	p := start.UnderScratch(relSettings).Build().HostPath
+	if err := agent.RequireDelivered(s.fs, agent.SurfaceSettings, p); err != nil {
+		s.path = ""
+		return "", err
+	}
+	s.path = p
+	return p, nil
 }
 
 // Path returns the out-of-cwd settings.json written by DeliverIsolated (for
@@ -337,11 +393,14 @@ var Surfaces = agent.Declaration{
 var (
 	_ agent.Approach   = (*systemPromptContext)(nil)
 	_ agent.OutOfCwd   = (*systemPromptContext)(nil)
+	_ agent.Existing   = (*systemPromptContext)(nil)
 	_ agent.LaunchOnly = (*systemPromptContext)(nil)
 	_ agent.Approach   = (*mcpSurface)(nil)
 	_ agent.OutOfCwd   = (*mcpSurface)(nil)
+	_ agent.Existing   = (*mcpSurface)(nil)
 	_ agent.Approach   = (*settingsSurface)(nil)
 	_ agent.OutOfCwd   = (*settingsSurface)(nil)
+	_ agent.Existing   = (*settingsSurface)(nil)
 	_ agent.Approach   = (*commandsSurface)(nil)
 	_ placement        = dirPlacement{}
 )

@@ -151,11 +151,15 @@ func TestResolveInTreeAgentHome_HostCellEngineSeesTheHostPath(t *testing.T) {
 
 // t1 — an in-tree AGENT run for claude-code is handed CLAUDE_CONFIG_DIR at the
 // project-scoped state home, and the host credential is really there,
-// owner-only — but ACCESS-TOKEN-ONLY (easiest-stomp): claude's projector strips
-// the single-use rotating refresh token as it seeds, so a disposable home can
-// never rotate and invalidate the human's own login. The env var alone would be
-// a half-truth: a controlled home claude cannot authenticate against is worse
-// than no relocation at all.
+// owner-only, WHOLE. The refresh token survives, and that is the point: a
+// credential stripped of it works until the access token expires and then that
+// instance is stuck, which is the defect the provisioner replaced. Material now
+// reaches the home by a delivery the engine DECLARED it accepts — mounted or
+// replicated — and both can renew.
+//
+// The env var alone would be a half-truth: a controlled home claude cannot
+// authenticate against is worse than no relocation at all. A home whose
+// credential cannot RENEW is the same half-truth on a timer.
 func TestResolveInTreeAgentHome_ClaudeGetsASeededControlledHome(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
@@ -171,8 +175,10 @@ func TestResolveInTreeAgentHome_ClaudeGetsASeededControlledHome(t *testing.T) {
 	require.NoError(t, err, "the controlled home must actually carry the seeded credential")
 	require.NotEmpty(t, seeded, "empty-source guard: the fixture must carry bytes")
 	assert.Contains(t, string(seeded), "seed-fixture-token", "the access token is seeded so the home authenticates")
-	assert.NotContains(t, string(seeded), "seed-fixture-refresh", "the single-use refresh token is stripped from the copy")
-	assert.NotContains(t, string(seeded), "refreshToken", "no refresh-token field survives into the copy")
+	assert.Contains(t, string(seeded), "seed-fixture-refresh",
+		"the refresh token SURVIVES: a delivered credential must be able to renew, and stripping it was the defect the copy path carried")
+	assert.Contains(t, string(seeded), "refreshToken",
+		"the refresh-token field is present; nothing projects it away any more")
 
 	info, err := os.Stat(filepath.Join(want, ".credentials.json"))
 	require.NoError(t, err)

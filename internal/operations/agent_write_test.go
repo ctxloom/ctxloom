@@ -326,7 +326,7 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 	assert.False(t, ok, "a rejected SetAgent call must persist nothing")
 }
 
-// TestSetAgent_PersistsHomeMode proves the config-home policy written by
+// TestSetAgent_PersistsHomeMode proves the engine-home policy written by
 // `agent set --engine-home` survives the config round-trip. UNLIKE
 // Permissions and LIKE Runtime/Driving/Surfaces, an unknown value is REJECTED
 // outright — SetAgent errors and nothing is persisted, naming the two valid

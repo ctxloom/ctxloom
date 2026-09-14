@@ -39,7 +39,7 @@ type AgentEntry struct {
 	// derived from Permissions at resolve time (see agents.Agent.Escalation's
 	// doc).
 	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
-	// HomeMode is the agent's declared per-engine config-home policy
+	// HomeMode is the agent's declared per-engine engine-home policy
 	// (session|host), as written; empty (undeclared) defaults to host at
 	// resolve time — see agents.Agent.HomeMode's doc.
 	HomeMode string `json:"engine_home,omitempty"`
@@ -124,7 +124,7 @@ type SetAgentRequest struct {
 	// returns an error, nothing is persisted) rather than warned-and-stored —
 	// see agents.ValidateDriving's doc for why.
 	Driving *string `json:"driving,omitempty"`
-	// HomeMode sets the binding's per-engine config-home policy
+	// HomeMode sets the binding's per-engine engine-home policy
 	// (session|host); empty (undeclared) defaults to host at resolve time.
 	// Unlike Runtime/Permissions, an unknown value here is REJECTED (SetAgent
 	// returns an error, nothing is persisted) — the same treatment Surfaces

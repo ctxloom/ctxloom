@@ -645,7 +645,7 @@ below, and deliberately does not on the one axis where the home is yours:
 
 | Binding | Home | Lifetime | Answer generated? |
 |------|------|----------|-------------------|
-| `config_home: project`, any cell | `<WorkDir>/.ctxloom/state/<harp>/home/<engine leaf>` (mounted into a container at `/ctxloom/home/<engine leaf>`) | one session | yes — naming the directory the engine actually runs in (a worktree's checkout, not the project root) |
+| `engine_home: session`, any cell | `<WorkDir>/.ctxloom/state/<harp>/home/<engine leaf>` (mounted into a container at `/ctxloom/home/<engine leaf>`) | one session | yes — naming the directory the engine actually runs in (a worktree's checkout, not the project root) |
 | undeclared / `host` / no binding, container cell | the container's own fresh `$HOME` | one run | **no** — the container receives only the credential mount, no generated config |
 | undeclared / `host` / no binding, host cell | your real engine home | yours, durable | **no** |
 
@@ -668,11 +668,11 @@ The scope is deliberate and narrow:
   off; ctxloom does not pass any engine's bypass-trust or bypass-permissions
   flag to get past a prompt.
 
-The last row is the point of the table. A run without `config_home: project`
+The last row is the point of the table. A run without `engine_home: session`
 uses your own home, which already carries whatever trust answers you have given
 the engine yourself — so there is nothing to carry over, and writing one there
 would be ctxloom answering on your behalf in a file it does not own. If you
-would rather answer for yourself everywhere, leave `config_home` undeclared
+would rather answer for yourself everywhere, leave `engine_home` undeclared
 (the default) or run the engine directly.
 
 ### What is generated, and what is deliberately not copied

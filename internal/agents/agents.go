@@ -80,12 +80,12 @@ type Agent struct {
 	// Runtime is the agent's RUNTIME axis (host | container): where this
 	// agent's engine process executes. Like Engine it is a cost/environment
 	// call that travels with the binding. Empty inherits the project's
-	// `runtime:` default and finally falls back to "host". Deliberately the
-	// ONLY isolation dimension an agent declares — the WORKSPACE axis
-	// (worktree vs shared dir) is a SESSION trait chosen at invocation time
-	// (run/acp `--workspace`, an agent_run spawn's workspace field, project
-	// `workspace:` default), never bound to the agent. Resolution lives in
-	// operations.resolveAgentBinding.
+	// `runtime:` default and finally falls back to "host". One of the two
+	// isolation axes a binding declares, with HomeMode the other — the
+	// WORKSPACE axis (worktree vs shared dir) is a SESSION trait chosen at
+	// invocation time (run/acp `--workspace`, an agent_run spawn's workspace
+	// field, project `workspace:` default), never bound to the agent.
+	// Resolution lives in operations.resolveAgentBinding.
 	Runtime string `yaml:"runtime,omitempty"`
 	// Permissions is the agent's launch-time permission posture
 	// (default|acceptEdits|plan|bypass) — the second safety axis a binding
@@ -114,12 +114,16 @@ type Agent struct {
 	// changes execution semantics, unlike Runtime/Permissions' advisory-only
 	// unknown-value handling, so it does not get their lenient treatment).
 	Driving DrivingMode `yaml:"driving,omitempty"`
-	// HomeMode is this binding's per-engine config-home POLICY: whether a
-	// run gets a ctxloom-CONTROLLED, PER-SESSION engine config home under
-	// .ctxloom/state/<harp>/home/<leaf> (HomeModeSession) or keeps the home
-	// its runtime gives it (HomeModeHost — the engine's REAL host home,
-	// which ctxloom never writes, or a container's own fresh $HOME). It is
-	// the single source of truth for operations.ResolveInTreeAgentHome's
+	// HomeMode is this binding's ENGINE-HOME axis: the third isolation axis,
+	// a peer of Runtime (which isolates the PROCESS) and the session's
+	// workspace (which isolates the FILES). It decides WHICH HOME the engine
+	// runs against — the directory holding its credentials, memory, plugins,
+	// personal MCP registrations, global agents and steering: a
+	// ctxloom-CONTROLLED, PER-SESSION home under .ctxloom/state/<harp>/home/
+	// <leaf> (HomeModeSession), or the home its runtime gives it
+	// (HomeModeHost — the engine's REAL host home, which ctxloom never
+	// writes, or a container's own fresh $HOME). It is the single source of
+	// truth for operations.ResolveInTreeAgentHome's
 	// scoping rule, and a DECLARED value wins on every invocation path this
 	// binding resolves through — a bare run under default_agent, `run
 	// --agent`, a delegated child, a oneshot fan member alike. Invocation
@@ -149,23 +153,27 @@ type Agent struct {
 	HomeMode string `yaml:"engine_home,omitempty"`
 }
 
-// HomeMode is the EFFECTIVE config-home policy a declaration parses to:
-// one of the two constants below. A run with NO agent binding carries the
-// zero value, which reads exactly like HomeModeHost everywhere it is
-// consulted — there is no binding through which such a run could opt in.
+// HomeMode is the EFFECTIVE engine-home policy a declaration parses to: one
+// of the two constants below. A run with NO agent binding carries the zero
+// value, which reads exactly like HomeModeHost everywhere it is consulted —
+// there is no binding through which such a run could opt in.
+//
+// Deliberately NOT named EngineHome: that name is the resolved PATH (the
+// present package's Root, agent.EngineHome and its kin). This is the policy
+// that SELECTS that root, not the root.
 type HomeMode string
 
-// HomeModeSession and HomeModeHost are Agent.HomeMode's two accepted
+// HomeModeHost and HomeModeSession are Agent.HomeMode's two accepted
 // values. See that field's doc for the scoping rule they select between.
 const (
-	HomeModeSession HomeMode = "session"
 	HomeModeHost    HomeMode = "host"
+	HomeModeSession HomeMode = "session"
 )
 
 // HomeModeNames lists the accepted engine_home values, for flag help,
 // shell completion, and error messages.
 func HomeModeNames() []string {
-	return []string{string(HomeModeSession), string(HomeModeHost)}
+	return []string{string(HomeModeHost), string(HomeModeSession)}
 }
 
 // ParseHomeMode validates and normalizes a binding's DECLARED
@@ -187,7 +195,7 @@ func ParseHomeMode(declared string) (HomeMode, error) {
 	switch HomeMode(declared) {
 	case "":
 		return HomeModeHost, nil
-	case HomeModeSession, HomeModeHost:
+	case HomeModeHost, HomeModeSession:
 		return HomeMode(declared), nil
 	default:
 		return HomeModeHost, fmt.Errorf("engine_home %q: unknown value (known: %s)",

@@ -202,7 +202,7 @@ type resolvedRunRequest struct {
 	// environment (a delegated child's session harp / bus socket / depth).
 	ExtraEnv map[string]string
 
-	// HomeMode is the resolved agent binding's EFFECTIVE config-home policy
+	// HomeMode is the resolved agent binding's EFFECTIVE engine-home policy
 	// (operations.ResolvedAgent.HomeMode — agents.HomeModeSession or
 	// agents.HomeModeHost) when this run was resolved through an AGENT
 	// binding (a delegated child, a fan-out member), or "" when it was not —

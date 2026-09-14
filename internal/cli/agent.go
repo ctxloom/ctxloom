@@ -311,12 +311,14 @@ dir) is NOT set here — it is a session trait chosen at invocation time
 the per-turn execution axis; omit it to keep the default conversational
 (warm-engine) model. oneshot requires a resume-capable engine and is
 EXPERIMENTAL in this release — executable, but its interfaces and behavior
-may change. Config-home (optional: project|host) decides which engine config
-home this agent's engine runs get on the in-tree (workspace:
-none) axis: "project" points the engine at a ctxloom-controlled, PER-SESSION
-home under .ctxloom/state/<session>/home/, isolated from your own and thrown
-away with the session; "host" (also the default when omitted) keeps the
-engine's real host home, which ctxloom never writes. It wins on every
+may change. Engine-home (optional: host|session) is the third isolation axis,
+alongside runtime (the PROCESS) and workspace (the FILES): it decides WHICH
+HOME this agent's engine runs against — the directory holding its credentials,
+memory, plugins, personal MCP registrations, global agents and steering.
+"host" (the default when omitted) keeps the home the runtime gives the engine
+— its real host home, which ctxloom never writes; "session" points the engine
+at a ctxloom-controlled, PER-SESSION home under .ctxloom/state/<session>/home/,
+isolated from your own and thrown away with the session. It wins on every
 invocation path this binding resolves through — a bare run under
 default_agent, run --agent, a delegated child, a oneshot fan member alike.`
 
@@ -665,7 +667,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
 	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
 	cmd.Flags().StringVar(&agentSetEngineHome, "engine-home", "",
-		"Per-engine config-home policy, on every isolation cell: project|host (empty = host, the default — controlled homes are opt-in)")
+		"Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (host|session; empty = host, the default — a per-session home is opt-in)")
 	_ = cmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = cmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
 	_ = cmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {

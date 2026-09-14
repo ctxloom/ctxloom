@@ -32,10 +32,11 @@ func TestParseHomeMode_AcceptsBothDeclaredValues(t *testing.T) {
 // for the CALLER to warn with, but the returned value is still the safe
 // default (host) so a hand-edited config.yaml never blocks a launch over this.
 func TestParseHomeMode_UnknownValueWarnsAndDefaultsToHost(t *testing.T) {
-	got, err := ParseHomeMode("sessionn")
+	// The typo must not CONTAIN a valid value, or the "names the valid values"
+	// assertion below is satisfied by the echo of the input alone.
+	got, err := ParseHomeMode("project")
 	require.Error(t, err, "an unknown engine_home must be reported")
-	assert.Contains(t, err.Error(), "sessionn")
-	assert.Contains(t, err.Error(), "session", "the error must name the valid values")
-	assert.Contains(t, err.Error(), "host", "the error must name the valid values")
+	assert.Contains(t, err.Error(), `"project"`, "the error must echo the rejected value")
+	assert.Contains(t, err.Error(), "known: host, session", "the error must name the valid values")
 	assert.Equal(t, HomeModeHost, got, "even on error, the safe default is returned")
 }

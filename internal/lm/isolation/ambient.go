@@ -101,7 +101,9 @@ type AmbientRequest struct {
 
 // AmbientCopyReport is what one CopyAmbient call did.
 type AmbientCopyReport struct {
-	// Copied counts the ambient files whose bytes landed in the instance.
+	// Copied counts the ambient files that reached the instance. Not
+	// necessarily by copying — see Delivery for what the transfer actually
+	// was; this is the count of declared files the host had to give.
 	Copied int
 	// MissingOptional counts allow-listed, non-Required files absent from the
 	// host.
@@ -121,6 +123,22 @@ type AmbientCopyReport struct {
 	// naming only fixes that work (authenticate the engine, or set its API-key
 	// var). Empty unless NoSource.
 	NoSourceReason string
+	// Delivery is HOW the credential material was placed — shared by IDENTITY
+	// (a mount) or by REPLICATION (two files kept in step). It is reported
+	// because the two FAIL DIFFERENTLY: replication has a rotation window a
+	// mount does not, and whoever debugs a rejected refresh a year from now
+	// needs to know which one this run got. DeliveryUnset when nothing was
+	// placed (SkippedEnv, NoSource, or a declared-absent seed).
+	Delivery Delivery
+	// Mechanism names the implementation that placed it ("container-mount",
+	// "namespace-mount", "replication") — Delivery answers "what guarantees do
+	// I have?", this answers "which code do I go read?".
+	Mechanism string
+	// provisioned holds whatever the provisioning left RUNNING, so Close can
+	// stop it. Unexported: the only thing a caller may do with it is close it,
+	// and an exported Result invites a second caller to re-read the delivery
+	// from a field that is already reported above.
+	provisioned Result
 	// Generated lists the paths the ENGINE's own instance-config writer wrote
 	// (claude's .claude.json, for instance). Empty for an engine
 	// with a declared-empty contribution.
@@ -130,6 +148,16 @@ type AmbientCopyReport struct {
 	// they are also returned so a test can assert on them.
 	Warnings []string
 }
+
+// Close stops whatever the provisioning left running — a replicator's
+// watchers and their goroutines. Safe on a zero report and safe to call twice.
+//
+// A caller that wants the credential to keep propagating for the life of the
+// run must NOT call it: closing stops the replication, after which the
+// engine's refreshes stay inside the instance and the host's token goes stale.
+// It exists for callers with a bounded scope (a test, a probe) and for the day
+// a run gains an explicit teardown to hang it on.
+func (r AmbientCopyReport) Close() error { return r.provisioned.Close() }
 
 // instanceConfigWriters is the engine-owned instance-config generator per
 // registered backend, populated once at init by internal/lm/backends — the one
@@ -166,42 +194,6 @@ func instanceConfigWriterFor(engine string) agent.InstanceConfigWriter {
 	instanceConfigMu.RLock()
 	defer instanceConfigMu.RUnlock()
 	return instanceConfigWriters[engine]
-}
-
-// credentialProjectors is the engine-owned ambient-credential projector per
-// registered backend, populated once at init by internal/lm/backends alongside
-// instanceConfigWriters — for the identical name-keyed-indirection reason (this
-// package cannot import the engine packages, and CopyAmbient is handed a
-// backend NAME with no engine value in hand). An engine with no registered
-// projector has its ambient credential files copied byte-for-byte; only claude
-// registers one today (to strip its single-use refresh token — see
-// agent.CredentialProjector and internal/claude.NewCredentialProjector).
-var (
-	credentialProjectorMu sync.RWMutex
-	credentialProjectors  = map[string]agent.CredentialProjector{}
-)
-
-// RegisterCredentialProjector installs engine's ambient-credential projector.
-// Called from internal/lm/backends' init, once per backend that declares one;
-// re-registering a name replaces it, and a nil projector deletes the entry (so
-// a test can restore the pre-existing registration). An engine with no
-// registration copies its ambient credential files verbatim.
-func RegisterCredentialProjector(engine string, p agent.CredentialProjector) {
-	credentialProjectorMu.Lock()
-	defer credentialProjectorMu.Unlock()
-	if p == nil {
-		delete(credentialProjectors, engine)
-		return
-	}
-	credentialProjectors[engine] = p
-}
-
-// credentialProjectorFor returns engine's registered projector, or nil — a
-// miss means the engine's ambient credentials are copied verbatim.
-func credentialProjectorFor(engine string) agent.CredentialProjector {
-	credentialProjectorMu.RLock()
-	defer credentialProjectorMu.RUnlock()
-	return credentialProjectors[engine]
 }
 
 // CopyAmbient performs THE ambient copy-in — the one one-way transfer from the
@@ -254,10 +246,12 @@ func copyAmbientLocked(engine string, declared agent.Declared[agent.CredentialSe
 	var rep AmbientCopyReport
 
 	if seed, ok := declared.Get(); ok {
-		result, err := hostCredentialSeed(engine, seed, req.InstanceHome, credentialProjectorFor(engine))
+		result, provisioned, err := hostCredentialSeed(engine, seed, req.InstanceHome)
 		if err != nil {
 			return rep, err
 		}
+		rep.provisioned = provisioned
+		rep.Delivery, rep.Mechanism = provisioned.Delivery, provisioned.Mechanism
 		switch result {
 		case seedSkippedEnv:
 			rep.SkippedEnv = true

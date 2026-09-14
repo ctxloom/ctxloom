@@ -114,6 +114,15 @@ type namespaceMountProvisioner struct{}
 // never a property of GOOS, so an unusable mechanism must fail while it is
 // being built rather than mid-run with a live engine attached.
 func newNamespaceMountProvisioner(ctx context.Context, cfg *provisionConfig) (Provisioner, error) {
+	// APPLICABILITY before CAPABILITY, and in that order on purpose. The probe
+	// below answers whether this HOST permits the namespace; this answers
+	// whether this RUN has anything that would perform the binds once emitted.
+	// A run with no performer gets a truthful rejection instead of a
+	// successful probe followed by empty mount targets the engine reads as an
+	// empty credential.
+	if !cfg.namespaceBindsPerformed {
+		return nil, errors.New("nothing in this run would perform the binds: this caller does not launch the engine through the mount shim, so the mount targets would be left empty and the engine would start logged out behind them")
+	}
 	if err := cfg.namespaceProbe(ctx, cfg.scratch); err != nil {
 		return nil, err
 	}

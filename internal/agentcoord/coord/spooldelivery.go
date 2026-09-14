@@ -1061,3 +1061,9 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 func spoolSendErr(code codes.Code, msg string) *agentcoordpb.CoordinatorResponse {
 	return &agentcoordpb.CoordinatorResponse{Status: statusErr(code, msg)}
 }
+
+// ErrCutoverNeedsOwner refuses a cutover coordinator that was not told whose
+// inbox it drains (Options.OwnerHarp): under the cutover every child->parent
+// message is a file in the owner's in/, and an owner nobody declared is a
+// directory nobody reads.
+var ErrCutoverNeedsOwner = errors.New("coord: delegation.spool_delivery needs the session owner's harp (Options.OwnerHarp): the owner's inbox is a spool and this process is its reader")

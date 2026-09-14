@@ -383,7 +383,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	stateDir := t.TempDir()
 
 	sp := cutoverSpawner(0)
-	first, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, SpoolDelivery: true})
+	first, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, SpoolDelivery: true, OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, first.Serve())
 	out, _ := awaitCutoverChild(t, first, sp, "first task")
@@ -402,7 +402,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	second, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), SpoolDelivery: true})
+	second, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), SpoolDelivery: true, OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, second.Serve())
 	t.Cleanup(second.Close)

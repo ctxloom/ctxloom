@@ -41,6 +41,7 @@ func newCutoverCoordinator(t *testing.T, sp Spawner, sweep time.Duration) *Coord
 		StateDir:           t.TempDir(),
 		Spawner:            sp,
 		SpoolDelivery:      true,
+		OwnerHarp:          ownerIdentity().Harp,
 		SpoolSweepInterval: sweep,
 	})
 	require.NoError(t, err, "new cutover coordinator")
@@ -455,7 +456,7 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 
 	sp := cutoverSpawner(0)
 	first, err := New(Options{
-		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, SpoolDelivery: true,
+		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, SpoolDelivery: true, OwnerHarp: ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, first.Serve())
@@ -473,7 +474,7 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 	// A fresh coordinator on the same state: adopt() replays the run
 	// records, then the startup sweep finds the file.
 	second, err := New(Options{
-		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), SpoolDelivery: true,
+		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), SpoolDelivery: true, OwnerHarp: ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, second.Serve())

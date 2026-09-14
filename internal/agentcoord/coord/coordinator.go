@@ -129,6 +129,15 @@ type Options struct {
 	// (EnvRunSpoolDelivery), because a run cut over on one side only delivers
 	// nothing at all.
 	SpoolDelivery bool
+	// OwnerHarp is the SESSION OWNER's harp: the one recipient whose inbox is
+	// drained IN THIS PROCESS (AgentRecv) rather than by a runner. Under the
+	// cutover the owner is a spool recipient like any migrated child, and it
+	// is identified by this declaration alone — never by holding a run
+	// record, because a host/stdio owner has none. Required when
+	// SpoolDelivery is set: a cutover coordinator that did not know whose
+	// inbox it drains would write every child->parent message into a
+	// directory nothing reads.
+	OwnerHarp string
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval). Exposed for tests, which must be able to
 	// prove that a DROPPED doorbell is still delivered by the sweep without
@@ -257,6 +266,9 @@ type Coordinator struct {
 	// spoolTee is: a delivery half-cut across a flip would be a message with
 	// no reader.
 	spoolDelivery bool
+	// ownerHarp is Options.OwnerHarp: the recipient class "the owner, drained
+	// in-process" (spoolDeliverTo). Read-only after New.
+	ownerHarp string
 	// spoolIn lends the per-child in/ writers. Non-nil ONLY when the spool is
 	// switched on at all (tee or delivery): constructing it is what would
 	// create spool directories, and "both flags are off" has to mean nothing
@@ -460,6 +472,7 @@ func New(opts Options) (*Coordinator, error) {
 		launches:           make(map[string]*launchState),
 		spoolTee:           opts.SpoolTee,
 		spoolDelivery:      opts.SpoolDelivery,
+		ownerHarp:          opts.OwnerHarp,
 		spoolSweepInterval: opts.SpoolSweepInterval,
 	}
 	if c.spoolTee || c.spoolDelivery {

@@ -2119,20 +2119,32 @@ _run +ARGS:
         # every run).
         cache_mount=()
         if [ -d "$HOME/go/pkg/mod" ]; then cache_mount=(-v "$HOME/go/pkg/mod:/tmp/gomodcache:ro"); fi
-        # Persist Go's BUILD cache on the host as well, so container builds reuse
+        # Persist Go's BUILD cache on the host, so container builds reuse
         # compiled output across `--rm` runs instead of recompiling cold every
-        # time. Shared with the host's own GOCACHE (~/.cache/go-build). Cache
-        # entries are keyed by toolchain version, so host and container reuse
-        # each other's output only when their `go version` matches; mismatched
-        # entries coexist safely as plain cache misses, never wrong builds.
-        gobuild_mount=()
-        # PER-WORKTREE build cache. Every tree used to mount the one host cache
-        # at $HOME/.cache/go-build, so concurrent builds from different
-        # worktrees evicted each other's objects mid-link:
+        # time. Shared with the host's own GOCACHE (see cache-report), with
+        # every other worktree, and with gopls. Cache entries are keyed by
+        # toolchain version, so host and container reuse each other's output
+        # only when their `go version` matches; mismatched entries coexist
+        # safely as plain cache misses, never wrong builds.
+        #
+        # This was briefly split into a per-worktree directory (keyed by a
+        # sha256 of the worktree's absolute path) to stop concurrent builds
+        # from different worktrees evicting each other's objects mid-link:
         #     link: cannot reopen /tmp/.gocache/b8/b8421...-d(_x002.o)
-        # which reads exactly like a compile error in whatever you just changed,
-        # and is not. Keyed by worktree path so trees cannot trim each other.
-        gbc="$HOME/.cache/ctxloom-go-build/$(pwd -P | sha256sum | cut -c1-12)"
+        # which read exactly like a compile error in whatever you just
+        # changed, and was not. The real cause was `_sweep-cache` hand-
+        # deleting <hash>-a/-d files from the shared cache after builds (note
+        # the `-d` in the error above); that recipe was removed ("Stop
+        # hand-deleting from the shared build cache") and nothing hand-deletes
+        # from any build cache today, so the split's threat is gone. Nothing
+        # ever reaped the split cache on worktree teardown either: it was
+        # keyed by a one-way hash of a path that no longer exists once the
+        # tree is gone, so every ephemeral worktree stranded its directory
+        # permanently. Go's own build-cache trim never ran on it, because
+        # trim only happens when a `go` command targets that cache, and none
+        # ever would again.
+        gobuild_mount=()
+        gbc="$(go env GOCACHE 2>/dev/null || echo "$HOME/.cache/go-build")"
         if mkdir -p "$gbc" 2>/dev/null; then gobuild_mount=(-v "$gbc:/tmp/.gocache"); fi
         # A LINKED WORKTREE's .git is a gitdir POINTER to <common>/worktrees/<n>,
         # outside the workspace mount, so without <common> present at that exact

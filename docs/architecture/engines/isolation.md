@@ -338,18 +338,21 @@ What an opted-in agent run gets instead is a **per-session INSTANCE**,
 and disposable. Three content classes live in it: ctxloom-generated content
 (context, prompts, skills, config fragments) regenerated at each launch;
 engine-specific scaffolding synthesized by the engine package; and **ambient**
-content whose origin is your
-real host home (credentials today), **copied in one way** at instance time. For
-claude that copy is **access-token-only** — the single-use refresh token is
-stripped so the instance can never rotate the host's token (see [Single-use
-refresh tokens](#single-use-refresh-tokens-why-the-three-axes-differ)).
+content whose origin is your real host home (credentials today), **provisioned**
+at instance time.
 
-**There is no sync-back, ever.** Two accepted costs follow, and they are
-deliberate: an instance's stripped credential does not refresh in place — the
-run re-launches to pick up a fresh copy once its access token expires — and
-trust/onboarding answers given inside an instance die with it (re-prompted next
-session unless the engine's own answer already lives in the real home and rides
-the next copy-in). The **container** axis is the deliberate exception: it mounts
+Credentials are **not copied**. The instance receives them by a mechanism the
+engine DECLARES it accepts — mounted (one inode, shared with the host file) or
+replicated (kept in step with it) — and the credential it holds is **whole**, so
+it can refresh. If no declared mechanism can be honoured on this machine, the run
+REFUSES and names each one it tried and why (see [Single-use refresh
+tokens](#single-use-refresh-tokens-why-the-three-axes-differ)).
+
+One accepted cost remains, and it is deliberate: trust/onboarding answers given
+inside an instance die with it (re-prompted next session unless the engine's own
+answer already lives in the real home).
+
+The **container** axis is the deliberate exception: it mounts
 the real credential read-write and so *does* refresh in place, because a mount —
 unlike a copy — shares the host's one rotating token rather than forking it.
 

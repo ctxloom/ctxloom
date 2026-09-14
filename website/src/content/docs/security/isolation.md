@@ -143,14 +143,23 @@ three isolation axes. A Claude Code subscription login stores an OAuth **refresh
 that token is **single-use and rotating**: whenever any holder refreshes, the provider mints a
 replacement and invalidates the one just spent. So a *copy* of `.credentials.json` that ever
 refreshes rotates the live token out from under every other holder — **including your host
-login**, silently logging you out of your own machine. ctxloom resolves this two ways. The
-**worktree** and **in-tree instance** homes get an **access-token-only** copy: the refresh
-token is stripped on the way in, so the copy can never refresh and can never rotate the host's
-token — the trade is that such a run re-launches once its access token expires rather than
-refreshing in place. The **container** does the opposite: it bind-mounts the *real*
-`~/.claude/.credentials.json` read-write, no copy at all, so the container's refresh lands in
-the one real file the host also holds and nothing desyncs — a container keeps refresh with no
-re-launch. The full three-axis model, and why each axis makes the trade it does, is documented
+login**, silently logging you out of your own machine. ctxloom resolves this by **not copying
+the credential at all**. A run's engine home receives its credential material by a mechanism
+the engine itself *declares* it accepts, and every such mechanism preserves the one real
+credential rather than duplicating it. A **container** bind-mounts the real
+`~/.claude/.credentials.json` read-write, so a refresh inside the container lands in the file
+the host also holds and nothing desyncs. On a **host** run, the material is kept in step with
+that same file. Either way the credential a run holds is whole and can refresh, and a refresh
+is not a divergence because there is only ever one credential.
+
+ctxloom previously stripped the refresh token from a copied home so the copy could never rotate
+the host's token. That worked, and its cost was that such a run could not renew at all: it ran
+until its access token expired and then it was stuck. A run whose credential cannot renew is a
+half-truth on a timer, so the copy was removed rather than kept alongside.
+
+If none of the mechanisms an engine declares can be honoured on a given machine, the run
+**refuses and says which ones it tried and why each failed**. It does not fall back to a copy,
+because a credential that cannot renew is the failure mode being removed. The full three-axis model, and why each axis makes the trade it does, is documented
 in the engine isolation reference in the repository (`docs/architecture/engines/isolation.md`,
 "Single-use refresh tokens").
 

@@ -47,6 +47,7 @@ func TestSetup_PresentForm_NamesWithoutWriting(t *testing.T) {
 		WorkDir:   t.TempDir(),
 		Fragments: []*Fragment{{Content: "project rules"}},
 		CellKind:  CellKindShared,
+		Env:       map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		Form:      LaunchFormPresent,
 		Managed: &ManagedConfig{
 			Hooks: &wire.HooksConfig{},
@@ -78,6 +79,7 @@ func TestSetup_PresentForm_AbsentSurfaceRefuses(t *testing.T) {
 	err := b.Setup(context.Background(), &SetupRequest{
 		WorkDir:  t.TempDir(),
 		CellKind: CellKindShared,
+		Env:      map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		Form:     LaunchFormPresent,
 		Managed:  &ManagedConfig{Hooks: &wire.HooksConfig{}},
 	})

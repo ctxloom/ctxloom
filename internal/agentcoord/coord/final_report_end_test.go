@@ -188,35 +188,41 @@ func TestProgressReport_DoesNotEndTheRun(t *testing.T) {
 // that makes the ending legible. Both messages reach the parent, and the
 // report must come FIRST: a parent that receives EXITED before the report has
 // been told its child is gone with no explanation, and the report that
-// explains it then arrives after the news.
+// explains it then arrives after the news. This is why endOnFinalReport is
+// called strictly after notifyParentOfFinalReport.
 //
-// This is why endOnFinalReport is called strictly after
-// notifyParentOfFinalReport, and the ordering is the reason, not an accident
-// of statement order.
+// THE SEPARATION IS DRIVEN, NOT SAMPLED. Comparing the two messages' positions
+// in one drained batch would only observe whichever won a race, and would pass
+// just as happily against a coordinator that queued them the other way round
+// and got lucky. Holding the child mid-turn puts a wall-clock event the test
+// controls between the two: the report must be in the parent's mailbox while
+// the run is still demonstrably LIVE, and the exit notice cannot exist until
+// the gate releases the turn.
 func TestFinalReport_ParentGetsTheReportBeforeTheExitNotice(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	gate := make(chan struct{})
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
-
-	// Clear the automatic turn-result bridge so the mailbox holds only what
-	// this FINAL causes.
-	_ = collectOwnerMail(t, c, 200*time.Millisecond)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateExecuting }, conformanceWait, 10*time.Millisecond)
 
 	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the finding"))
 
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
-	msgs := collectOwnerMail(t, c, time.Second)
+	// FIRST: the report, while the child is still running. Nothing can have
+	// ended the run yet, so nothing can have queued an exit notice yet.
+	msgs := collectOwnerMail(t, c, 500*time.Millisecond)
+	require.GreaterOrEqual(t, firstIndexOfKind(msgs, KindReport), 0,
+		"the parent must receive the FINAL report as soon as it is filed")
+	require.Equal(t, -1, firstIndexOfKind(msgs, KindExited),
+		"no exit notice may exist yet — the child has not reached its boundary")
+	require.NotEqual(t, StateEnded, rosterState(c, out.Harp), "the run must still be live at this point")
 
-	report := firstIndexOfKind(msgs, KindReport)
-	exited := firstIndexOfKind(msgs, KindExited)
-	require.GreaterOrEqual(t, report, 0, "the parent must receive the FINAL report")
-	require.GreaterOrEqual(t, exited, 0, "the parent must also learn the child then exited")
-	assert.Less(t, report, exited,
-		"the report must reach the parent BEFORE the exit notice — otherwise the parent is told its child died before being told why")
+	// THEN: the boundary, the end, and only now the exit notice.
+	close(gate)
+	require.NotEmpty(t, recvKind(t, c, KindExited, conformanceWait),
+		"the parent must also learn the child then exited")
 }
 
 // TestFinalReport_SessionStaysResumableAfterTheRunEnds is the hazard this

@@ -238,12 +238,14 @@ down to *set* variables only — **names only cross the boundary**.
 | mock | none needed | none | a `Vendorless` declaration — the one plan that never fails to resolve: mock authenticates against no vendor |
 | **unmapped/empty backend** | — | — | `noContainerAuth` — **fails closed**; the containerized run aborts at `PrepareWorkspace`'s auth gate rather than inheriting any other engine's credentials |
 
-Controlled-home seeding is `hostCredentialSeed` + `copyCredentialFile` (writes
-at 0600), reached through `isolation.CopyAmbient` by
-`operations.ResolveInTreeAgentHome` (below) to populate a per-session instance
-home on whichever cell the run landed. The destination is created at
-instance time and thrown away at session end — the copy is one-way, from the
-real host home in, never back.
+Controlled-home provisioning is `hostCredentialSeed` + `isolation.Select`,
+reached through `isolation.CopyAmbient` by `operations.ResolveInTreeAgentHome`
+(below) to populate a per-session instance home on whichever cell the run
+landed. It does **not** copy: the engine declares, on its descriptor, which
+deliveries it accepts (`ProvisioningPolicy`), `Select` constructs the first one
+this host and this run can actually honour, and a platform that can honour none
+of them **refuses**, naming every mechanism tried and why each was rejected.
+The destination is created at instance time and thrown away at session end.
 
 ### Single-use refresh tokens: why the three axes differ
 
@@ -257,17 +259,30 @@ host login**, silently logging you out of your own machine. This is the fact
 the three claude-credential axes are built around, and it is why they do not
 all handle the credential the same way.
 
-- **A controlled home** (`config_home: project`, on any cell) **COPIES** the
-  credential into the per-session instance, and the copy is
-  **access-token-ONLY**: the refresh
-  token is **stripped** as the bytes cross (`copyCredentialFile`'s projector →
-  claude's `ProjectAmbientCredential`). A stripped copy *cannot* refresh, so it
-  can never rotate the host's single-use token. The deliberate trade: such a
-  run authenticates only until its access token expires, then must be
-  **re-launched** to pick up a fresh copy — it does not refresh in place, so a
-  long session pays a re-launch at expiry. A controlled home exists to keep
-  the child off the host config in the first place, so a stripped, copied
-  credential is coherent with what it is for. A containerized run with
+- **A controlled home** (`config_home: project`, on any cell) is **PROVISIONED
+  with the host's own material**, not given a copy of it. claude declares
+  `Accept: [Mounted, Replicated]` — shared by **identity** (one inode) where a
+  mount is available, else shared by **replication** (two files kept in step
+  under a cross-process lock). Either way there is **one rotating token**: a
+  refresh the engine performs inside the instance is a refresh the host has
+  too, so the run **keeps refreshing** and never needs a re-launch at expiry.
+
+  This REPLACED a stripped copy, and the replacement is the point. The copy had
+  its refresh token removed so it could not rotate the host's single-use token,
+  which meant it authenticated until its access token expired and then that
+  instance was **stuck with no way back** — not a weaker sharing mode, a
+  different product with a fuse on it. A stripped copy is now declined by
+  claude's descriptor **at every position**, including as a last resort:
+  accepting it there would convert a loud launch refusal into a run that dies
+  hours later, far from its cause.
+
+  Replication is accepted **below** a mount rather than beside it. Two files
+  kept in step leave a **rotation window** in which one instance can present a
+  token another already spent, and the server rejects it; a mount has no such
+  window. It is still the right second answer, because the alternative where
+  mounting is impossible is material that cannot renew at all — and
+  `DeliveryReplicated` is what keeps the difference visible to whoever debugs
+  an auth failure later. A containerized run with
   `config_home: project` is the RULED exception: the real host
   `~/.claude/.credentials.json` is bind-mounted read-write OVER the seeded
   copy at `<mounted home>/.credentials.json` (`MountEngineHome`), so the
@@ -290,12 +305,22 @@ all handle the credential the same way.
   non-containerized run. ctxloom itself never opens the real credential for
   writing.
 
-The two host axes were switched to access-token-only stripping in the same
-change that established the single-use-rotation model by live experiment; the
-container axis was switched to the real-home mount immediately after. All three
-are now coherent: **no copy of the credential that can refresh exists anywhere**
-— the only thing that refreshes is either the real file (container) or nothing
-at all (stripped host copies).
+All three axes are now coherent, and they converged from opposite directions.
+The container axis went to a real-home mount as soon as live experiment
+established the single-use-rotation model. The two host axes went to
+access-token-only stripping in that same change — which made the policy run
+**backwards**: the more isolated runtime got the less isolated credential,
+while the host run got one that provably could not renew. That was the
+evidence the stripping was a local patch for the copy path rather than a
+coherent posture, and the copy path has since been deleted outright.
+
+The invariant is now the same everywhere: **no copy of the credential exists
+at all**. What the engine holds is the host's own material, reached by
+identity or kept in step, so the only thing that ever refreshes is the one
+real token. **`ctxloom-never-writes-real-home`** still holds throughout:
+ctxloom declares the mount or runs the replication; the bytes that reach the
+real file are the **engine's own refresh**, exactly as on a run with no
+instance home at all.
 
 ## Engine config homes
 

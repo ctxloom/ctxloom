@@ -812,10 +812,18 @@ func (c *Coordinator) Draining() bool {
 // a goroutine still mid-launch may not have published rt.close yet — that is
 // exactly what the wg join below catches) → srv.close (Stop the gRPC server
 // — this is what actually unblocks the RunChannel/RunnerChannel pump
-// goroutines, which key off the STREAM's own context, not baseCtx) →
-// wg.Wait (bounded escape) → close journals → remove an ephemeral state
-// dir. This guarantees no tracked goroutine touches the state dir after
-// Close() returns (barring the logged bounded-escape case).
+// goroutines, which key off the STREAM's own context, not baseCtx) → close
+// the spool writers → wg.Wait (bounded escape) → close journals → remove an
+// ephemeral state dir. This guarantees no tracked goroutine touches the state
+// dir after Close() returns (barring the logged bounded-escape case).
+//
+// The spool writers close BEFORE the join and the journals AFTER it, and the
+// asymmetry is the point: the join is BOUNDED, so "no writes after Close" is
+// only guaranteed for what is closed before it. The spool is the one store
+// whose path is resolved from the ambient $HOME at WRITE time, so a write that
+// escapes the bound does not land in this run's own tree — it lands wherever
+// $HOME points by then. That store therefore refuses first; the journals, whose
+// paths were fixed at construction, can wait for the join.
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
 		c.tracked.seal()
@@ -883,7 +891,7 @@ func (c *Coordinator) closePartial() {
 	shut("mailbox.jsonl", c.mail)
 	shut("items.jsonl", c.items)
 	shut("interactions.jsonl", c.auditJ)
-	c.spoolIn.close() // the mailbox's replacement closes with the mailbox
+	c.spoolIn.close() // idempotent: Close already closed it before the join
 	if len(errs) > 0 {
 		clidiag.Warn("ctxloom", "coordinator: closing journals under %s: %v", c.stateDir, errors.Join(errs...))
 	}

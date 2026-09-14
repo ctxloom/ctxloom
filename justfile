@@ -2077,9 +2077,24 @@ devcontainer_tag := `t=$(sha256sum .devcontainer/tool-versions.env 2>/dev/null |
 # the same file into that action's build-args input instead of this recipe —
 # see that workflow. internal/buildpins' drift-gate test fails if either
 # consumer's build-args stop matching this file.
+#
+# Guarded on the same DEVCONTAINER/CI/GITHUB_ACTIONS check _run uses below.
+# Every root recipe that touches the devcontainer (build, proto, lint, ...)
+# lists dev-image as a PREREQUISITE, and a prerequisite runs before the
+# recipe body gets a chance to decide anything -- so _run's dispatch logic
+# was already correct but unreachable: the docker build below failed on the
+# missing socket first. Inside a container cell the cell already IS the dev
+# environment (and inside CI, .github/workflows/ci.yml's build-container job
+# builds this same Dockerfile separately), so a second build here would be
+# redundant and would need a docker daemon the cell has no business holding.
+# This is a no-op, not a skip of the host path: on a bare host the condition
+# is false and the build below still runs exactly as before.
 dev-image:
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ -n "${DEVCONTAINER:-}" ] || [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+        exit 0
+    fi
     build_args=()
     while IFS= read -r line; do
         [[ -z "$line" || "$line" == \#* ]] && continue

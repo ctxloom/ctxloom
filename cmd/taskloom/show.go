@@ -59,6 +59,13 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if len(missing) > 0 {
 		return missingTasksError(missing)
 	}
+	// warnTask surfaces the SAME project-resolution notice `taskloom list`
+	// prints (moved/forked/newly-minted identity, a pin disagreeing with the
+	// working directory, ...) — dropped here previously: `show` builds its
+	// candidate set via operations.ListTasks exactly like `list` does, but
+	// never looked at res.Warning, so a caller resolving the WRONG (or an
+	// unreachable) store via `show` got a bare "not found" with no clue why.
+	warnTask(res.Warning)
 	noteTaskProject(res.ProjectDir, res.ProjectID)
 	cfg := hideConfigFor(tc)
 	// A GROUP serializes as a list and a SINGLE value as an object. The choice

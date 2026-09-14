@@ -89,8 +89,24 @@ func (m *Manager) Resolve(projectDir string) (Resolution, error) {
 		return Resolution{}, err
 	}
 	if marker == "" {
-		// 4. No marker, no registry entry: a brand-new project.
-		return m.mintInto(projectDir, ActionNewProject)
+		// 4. No marker, no registry entry: a brand-new project. This is the
+		// overwhelmingly common, entirely legitimate case (a project's very
+		// first resolution, ever) -- but it is ALSO exactly what a genuinely
+		// known project looks like when resolved against a registry that
+		// cannot see its history (e.g. a container cell whose HOME is not
+		// the one that recorded it): nothing here can tell the two apart, so
+		// say what happened rather than staying silent. Once minted, the
+		// fast path (registry-by-path) resolves silently on every later
+		// call -- this fires at most once per directory, so it does not cry
+		// wolf on ordinary use.
+		res, err := m.mintInto(projectDir, ActionNewProject)
+		if err != nil {
+			return Resolution{}, err
+		}
+		res.Warning = fmt.Sprintf(
+			"no existing project identity found for %s; minted new project %s here -- if %s should already have recorded tasks, this environment's task store may not be the one that recorded them rather than genuinely having none",
+			projectDir, res.ProjectID, projectDir)
+		return res, nil
 	}
 
 	// Marker present: resolve the id it names.
@@ -100,12 +116,19 @@ func (m *Manager) Resolve(projectDir string) (Resolution, error) {
 	}
 	if e == nil {
 		// The marker's id is unknown here (fresh machine / lost registry).
-		// Adopt it at this path rather than mint a new identity.
+		// Adopt it at this path rather than mint a new identity. Same
+		// ambiguity as the no-marker case above: a genuinely fresh machine
+		// legitimately adopting its first sight of this id looks identical
+		// to a known project's registry being unreachable from here (its
+		// task log parked under an id this registry has simply never seen)
+		// -- surface it instead of adopting silently.
 		ad, err := m.Adopt(marker, projectDir)
 		if err != nil {
 			return Resolution{}, err
 		}
-		return Resolution{ProjectID: ad.ProjectID, Action: ActionNormal}, nil
+		return Resolution{ProjectID: ad.ProjectID, Action: ActionNormal, Warning: fmt.Sprintf(
+			"%s carries project marker %s, but this machine's task registry has no record of it; adopted it here as a fresh entry -- if %s previously had task history recorded elsewhere, it may not be reachable from this environment",
+			projectDir, marker, marker)}, nil
 	}
 	if cleanPath(e.Path) == cleanPath(projectDir) {
 		// Registry/path skew (path lookup missed but the id maps here). Heal silently.

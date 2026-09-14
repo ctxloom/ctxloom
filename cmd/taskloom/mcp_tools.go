@@ -83,6 +83,19 @@ type taskListResult struct {
 	// anything instead of trusting a fully-populated but empty ranking. Empty
 	// when sort wasn't "priority", or the ranking was fine.
 	PriorityWarning string `json:"priority_warning,omitempty"`
+
+	// Warning carries the project-resolution notice from
+	// operations.TaskListResult (a moved/forked/newly-minted identity, a
+	// pinned project disagreeing with the working directory, or a project
+	// whose own log doesn't exist yet while a sibling registration at the
+	// same path does) — the SAME notice the CLI's `list` prints via
+	// warnTask, but stderr never reaches an MCP caller (that's the server
+	// process's own stderr, not the client's), so this field is the only
+	// channel this tool has for it. Empty when Global is true (the notice is
+	// per-project; a global aggregation spans many) or there was nothing to
+	// say. THIS is the field that turns "the store may not be reachable"
+	// from a silent empty list into something a caller can act on.
+	Warning string `json:"warning,omitempty"`
 }
 
 type taskAddInput struct {
@@ -276,6 +289,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		HiddenDeferred:  r.HiddenDeferred,
 		OmittedByLimit:  r.OmittedByLimit,
 		PriorityWarning: r.PriorityWarning,
+		Warning:         r.Warning,
 	}
 	if in.Compact {
 		out.CompactTasks = compactRows(r.Rows)

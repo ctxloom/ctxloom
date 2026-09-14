@@ -26,12 +26,11 @@ func Descriptor(name string) engine.Descriptor {
 			name + " (fixture) writes no settings"),
 		InstanceConfig: agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter](
 			name + " (fixture) generates no instance config"),
-		CredentialProjector: agent.Absent[func() agent.CredentialProjector](name + " (fixture) has no credentials"),
-		CommandExports:      agent.Absent[func([]*bundles.LoadedContent) []agent.CommandExport](name + " (fixture) exports no commands"),
-		SkillExports:        agent.Absent[func([]*bundles.LoadedSkill) []agent.SkillExport](name + " (fixture) exports no skills"),
-		HookGlobalScope:     agent.Absent[engine.HookGlobalScope](name + " (fixture) has no global settings path"),
-		VersionCommand:      agent.Absent[engineversion.Command](name + " (fixture) has no binary to ask"),
-		Home:                agent.Absent[agent.EngineHome](name + " (fixture) keeps no global state"),
+		CommandExports:  agent.Absent[func([]*bundles.LoadedContent) []agent.CommandExport](name + " (fixture) exports no commands"),
+		SkillExports:    agent.Absent[func([]*bundles.LoadedSkill) []agent.SkillExport](name + " (fixture) exports no skills"),
+		HookGlobalScope: agent.Absent[engine.HookGlobalScope](name + " (fixture) has no global settings path"),
+		VersionCommand:  agent.Absent[engineversion.Command](name + " (fixture) has no binary to ask"),
+		Home:            agent.Absent[agent.EngineHome](name + " (fixture) keeps no global state"),
 		Provisioning: agent.Absent[agent.ProvisioningPolicy](
 			name + " (fixture) has no credential material to provision"),
 		Container:         agent.Absent[agent.EngineContainer](name + " (fixture) has no container story"),

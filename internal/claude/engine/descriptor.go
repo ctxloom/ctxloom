@@ -33,13 +33,12 @@ func Descriptor() engine.Descriptor {
 			b.SetLauncher(launch)
 			return b
 		},
-		NewConfig:           func() agent.BackendConfig { return &claude.ClaudeConfig{} },
-		Surfaces:            claude.Surfaces,
-		SettingsWriter:      agent.Provide(claude.NewWriter),
-		InstanceConfig:      agent.Provide(claude.NewInstanceConfigWriter),
-		CredentialProjector: agent.Provide(claude.NewCredentialProjector),
-		CommandExports:      agent.Provide(CommandExports),
-		SkillExports:        agent.Provide(SkillExports),
+		NewConfig:      func() agent.BackendConfig { return &claude.ClaudeConfig{} },
+		Surfaces:       claude.Surfaces,
+		SettingsWriter: agent.Provide(claude.NewWriter),
+		InstanceConfig: agent.Provide(claude.NewInstanceConfigWriter),
+		CommandExports: agent.Provide(CommandExports),
+		SkillExports:   agent.Provide(SkillExports),
 		// claude's project settings.json collapses onto its user-global one
 		// exactly when workDir == $HOME — found live (`manage hooks install`
 		// run from $HOME silently went global).

@@ -52,26 +52,24 @@ func TestMain(m *testing.M) {
 	companionLookPath = noCompanionsOnPath
 	// SandboxedMain closes config.findAppDir's walk-up from the working
 	// directory for every test in this binary; a temp HOME alone does not.
-	// Install the REAL claude credential projector. Registration became
-	// explicit (no init), and this package CANNOT compose the registry the way
-	// other test binaries do: backends imports isolation (delegate_seams.go),
-	// so importing backends or engines from here is an import cycle. Calling
-	// the same seam backends calls, with the same constructor the descriptor
-	// supplies, keeps the end-to-end projector under test without the cycle.
-	//
-	// It is load-bearing, not setup noise: with no projector registered
-	// CopyAmbient seeds the host credential VERBATIM, so the refresh half of
-	// the OAuth token would be copied into the instance home and the stripping
-	// assertions would pass by never running the stripper.
-	RegisterCredentialProjector(claude.EngineName, claude.NewCredentialProjector())
-	// Push claude's REAL credential-seed declaration the same way, for the
-	// same reason: the seed these tests exercise is the one the engine
-	// authors on its descriptor, not a fixture that mirrors it and drifts.
+	// Push claude's REAL credential-seed declaration through the same seam
+	// backends uses. Registration became explicit (no init), and this package
+	// CANNOT compose the registry the way other test binaries do: backends
+	// imports isolation (delegate_seams.go), so importing backends or engines
+	// from here is an import cycle. Calling the seam directly keeps the seed
+	// these tests exercise the one the engine authors on its descriptor,
+	// rather than a fixture that mirrors it and drifts.
 	claudeHome, ok := claudeengine.Descriptor().Home.Get()
 	if !ok {
 		panic("isolation tests: claude's descriptor declares no Home; the seed tests have nothing to exercise")
 	}
 	RegisterCredentialSeed(claude.EngineName, claudeHome.Credentials)
+	// And its provisioning policy, which is LOAD-BEARING rather than setup
+	// noise: it is the declaration Select walks to decide how the credential
+	// reaches the instance. With it unregistered every seed would refuse, and
+	// with a fixture standing in for it the tests would exercise an acceptance
+	// order claude never declared.
+	RegisterProvisioningPolicy(claude.EngineName, claudeengine.Descriptor().Provisioning)
 	// And its container story with its shipping policy, for the same reason:
 	// the spec the container tests build is the one claude declares.
 	claudeDesc := claudeengine.Descriptor()

@@ -61,12 +61,14 @@ func TestEngineContainerSpecFor_OnlyTheRegisteredNameResolves(t *testing.T) {
 }
 
 // TestInstanceConfigWriterFor_OnlyTheRegisteredNameResolves covers the two
-// runtime-populated tables: a writer or projector registered under a name is
-// reachable under exactly that name.
+// runtime-populated tables: a writer or a provisioning policy registered under
+// a name is reachable under exactly that name.
 func TestInstanceConfigWriterFor_OnlyTheRegisteredNameResolves(t *testing.T) {
-	assert.NotNil(t, credentialProjectorFor(claude.EngineName), "fixture: claude's projector is registered by TestMain")
+	_, ok := provisioningPolicyDeclared(claude.EngineName)
+	assert.True(t, ok, "fixture: claude's provisioning policy is registered by TestMain")
 	for _, spelling := range append(nonRegisteredSpellings(), unknownEngineName) {
 		assert.Nil(t, instanceConfigWriterFor(spelling), "instanceConfigWriterFor(%q)", spelling)
-		assert.Nil(t, credentialProjectorFor(spelling), "credentialProjectorFor(%q)", spelling)
+		_, ok := provisioningPolicyDeclared(spelling)
+		assert.False(t, ok, "provisioningPolicyDeclared(%q)", spelling)
 	}
 }

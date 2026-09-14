@@ -214,6 +214,9 @@ func hostCredentialSeed(engine string, seed agent.CredentialSeed, configHome str
 	if err := prepareSeedDir(engine, destDir); err != nil {
 		return seedNoSource, Result{}, err
 	}
+	if err := tightenSeedDestinations(engine, destDir, files); err != nil {
+		return seedNoSource, Result{}, err
+	}
 	return provisionSeedFiles(engine, seed, files, configHome)
 }
 
@@ -288,7 +291,40 @@ func selectSeedProvisioner(engine string) (Provisioner, Delivery, error) {
 // launch the engine, so nothing here would PERFORM the imperative binds a
 // namespace mount emits — declaring otherwise would stand up empty mount
 // targets and start the engine logged out behind them.
-func seedProvisionOptions() []ProvisionOption { return nil }
+//
+// It is a var for ONE reason: the refusal is the contract that replaced the
+// stripped copy, and a refusal that cannot be provoked is a claim nobody has
+// checked. Production never replaces it.
+var seedProvisionOptions = func() []ProvisionOption { return nil }
+
+// tightenSeedDestinations restates owner-only on any destination that ALREADY
+// EXISTS, before live credential bytes are placed into it.
+//
+// It is the file-level twin of prepareSeedDir's restated 0700, and it is not
+// redundant: an in-place write sets the mode only on a file it CREATED, so a
+// destination left behind by an earlier run at a looser mode would keep that
+// mode while holding a live token. Every doc and every caller believes the
+// owner-only guarantee holds unconditionally, so it is made to.
+//
+// It chmods ONLY regular files, decided by Lstat. A path-based chmod follows a
+// symlink, so chmodding one would reach through to whatever it points at —
+// the user's real credential, in the case the write itself refuses — and
+// changing the mode of a file in the real host home is a write to the home
+// this package never writes. A non-regular destination is left exactly as it
+// is for the placement to refuse.
+func tightenSeedDestinations(engine, destDir string, files []seedFile) error {
+	for _, f := range files {
+		dst := filepath.Join(destDir, f.destName)
+		info, err := os.Lstat(dst)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if err := os.Chmod(dst, 0o600); err != nil {
+			return fmt.Errorf("restrict %s credential destination %q: %w", engine, f.destName, err)
+		}
+	}
+	return nil
+}
 
 // hostSeedSources resolves seed's host source files against the host HOME and
 // reports whether there is anything seedable at all. ok=false is the

@@ -48,6 +48,7 @@ func TestSelect_RefusesNamingEveryCandidateAndItsReason(t *testing.T) {
 	_, delivery, err := Select(context.Background(),
 		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted, DeliveryReplicated}},
 		SharingShared,
+		WithNamespaceBindsPerformed(),
 		WithNamespaceProbe(refusingProbe("userns denied by apparmor")),
 		WithReplicationProbe(refusingProbe("inotify instance limit reached")),
 		WithProvisionScratch(t.TempDir()),
@@ -77,6 +78,7 @@ func TestSelect_RefusesRatherThanSubstitutingAWrongSharing(t *testing.T) {
 	_, _, err := Select(context.Background(),
 		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted, DeliveryReplicated}},
 		SharingPrivate,
+		WithNamespaceBindsPerformed(),
 		WithNamespaceProbe(permittingProbe()),
 		WithReplicationProbe(permittingProbe()),
 		WithContainerHome("/root"),
@@ -116,6 +118,7 @@ func TestSelect_HonoursDeclaredPreferenceOrder(t *testing.T) {
 		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted, DeliveryReplicated}},
 		SharingShared,
 		WithContainerHome("/root"),
+		WithNamespaceBindsPerformed(),
 		WithNamespaceProbe(permittingProbe()),
 		WithProvisionScratch(t.TempDir()),
 	)
@@ -133,6 +136,7 @@ func TestSelect_NeverUsesAnUndeclaredDelivery(t *testing.T) {
 		ProvisioningPolicy{Accept: []Delivery{DeliveryReplicated}},
 		SharingShared,
 		WithContainerHome("/root"),
+		WithNamespaceBindsPerformed(),
 		WithNamespaceProbe(permittingProbe()),
 		WithProvisionScratch(t.TempDir()),
 	)
@@ -148,6 +152,7 @@ func TestSelect_UsesTheRealProbesWhenNoneAreInjected(t *testing.T) {
 	scratch := t.TempDir()
 	p, delivery, err := Select(context.Background(),
 		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted}}, SharingShared,
+		WithNamespaceBindsPerformed(),
 		WithProvisionScratch(scratch))
 	if err != nil {
 		var refusal *SelectionRefusal
@@ -159,4 +164,24 @@ func TestSelect_UsesTheRealProbesWhenNoneAreInjected(t *testing.T) {
 	assert.Equal(t, DeliveryMounted, delivery)
 	assert.Equal(t, namespaceMountMechanism, p.Mechanism(),
 		"no container home was given, so the only mount candidate left is the real namespace one")
+}
+
+// TestSelect_RejectsANamespaceMountNobodyWouldPerform pins the APPLICABILITY
+// gate, which is a different question from the capability probe beside it.
+//
+// A namespace mount is emitted as binds someone else must perform. A caller
+// that does not launch the engine through the mount shim would take the
+// Result, perform nothing, and leave the empty mount targets Provision stood
+// up — and an empty credential file is not a failure the engine reports, it is
+// an engine that starts logged out. The rejection says so in those words, and
+// the permitting probe here proves the host was never the reason.
+func TestSelect_RejectsANamespaceMountNobodyWouldPerform(t *testing.T) {
+	_, _, err := Select(context.Background(),
+		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted}}, SharingShared,
+		WithNamespaceProbe(permittingProbe()),
+		WithProvisionScratch(t.TempDir()),
+	)
+	require.Error(t, err, "a mount nobody performs must not be selected just because the host permits it")
+	assert.Contains(t, err.Error(), "nothing in this run would perform the binds")
+	assert.Contains(t, err.Error(), "start logged out")
 }

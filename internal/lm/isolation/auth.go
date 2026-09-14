@@ -1,7 +1,6 @@
 package isolation
 
 import (
-	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -170,10 +169,11 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 // holder, including the host's own login. Mounting the ONE real file means the
 // container's refresh lands in the single source of truth. An engine whose
 // non-interactive mode never refreshes declares its file ReadOnly instead.
-// This is deliberately UNLIKE the host+worktree axes, which copy an
-// ACCESS-TOKEN-ONLY credential (refresh stripped, see hostCredentialSeed and
-// copyCredentialFile's projector) precisely because a copy THERE could rotate
-// the host's single-use token. See docs/architecture/engines/isolation.md.
+// The host+worktree axes now reach the SAME conclusion by a different
+// mechanism: hostCredentialSeed provisions the instance home with the host's
+// own material — mounted, or kept in step by replication — rather than the
+// access-token-only copy it used to write. There is one rotating token on
+// every axis. See docs/architecture/engines/isolation.md.
 //
 // The ctxloom-never-writes-real-home invariant HOLDS: ctxloom only DECLARES
 // the bind mount; the engine binary writes through it exactly as it writes
@@ -224,48 +224,4 @@ func credentialFileMounts(files []agent.CredentialFile, containerHome string) ([
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
-}
-
-// copyCredentialFile copies src to dst at 0600 (owner-only). Reads the whole
-// file into memory rather than streaming: credential files are tiny (a JSON
-// token/account record, never a large blob), so the simplicity of
-// read-then-write outweighs any streaming benefit, and it keeps the write
-// atomic-enough for this use (no partial dst on a read failure).
-//
-// project, when non-nil, is the ENGINE's ambient-credential projection applied
-// to the bytes AFTER reading src and BEFORE writing dst — claude strips its
-// single-use refresh token here so a copied home cannot rotate the host's. src
-// is only ever READ; the projection lands solely in dst. A projection error
-// fails the copy loud (no dst is written) rather than falling back to the
-// unprojected bytes, which for a security-motivated strip would be worse than
-// not copying at all.
-func copyCredentialFile(src, dst string, project func([]byte) ([]byte, error)) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	if project != nil {
-		data, err = project(data)
-		if err != nil {
-			return err
-		}
-	}
-	// os.WriteFile follows a symlink at the destination (it is
-	// OpenFile(dst, O_WRONLY|O_CREATE|O_TRUNC, perm) under the hood), so an
-	// unvalidated destination — e.g. a repo-tracked `.claude/.credentials.json`
-	// symlink pointing at the real `~/.claude/.credentials.json` — turns this seed into an
-	// arbitrary-file overwrite of the user's own credential. Refuse a
-	// pre-existing symlink destination outright rather than writing through
-	// it; a fresh (non-symlink, non-existent) destination is unaffected.
-	if fi, err := os.Lstat(dst); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("credential seed destination %q is a symlink; refusing to write through it", dst)
-	}
-	if err := os.WriteFile(dst, data, 0o600); err != nil {
-		return err
-	}
-	// os.WriteFile applies its perm argument only when it CREATES the file: a
-	// destination that already existed keeps its own mode, so the 0600 above is
-	// not a guarantee on its own. Restate it on the file that now holds live
-	// credential bytes.
-	return os.Chmod(dst, 0o600)
 }

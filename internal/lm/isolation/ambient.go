@@ -16,9 +16,15 @@ import (
 )
 
 // AmbientFile is one file whose ORIGIN is the user's real host home and which
-// is COPIED INTO an instance config home at instance time. ONE WAY, ALWAYS:
-// nothing ctxloom writes ever goes back to the real home, which stays the
-// durable truth of the user's engine configuration.
+// is PLACED INTO an instance config home at instance time.
+//
+// It is no longer one-way for CREDENTIAL material, and the change is
+// deliberate: a one-way copy could not renew, so its refresh token had to be
+// stripped and the instance expired. The provisioner delivers the host's own
+// material instead, so a refresh the engine performs inside the instance is a
+// refresh the host has too. ctxloom itself still never writes the real home;
+// what reaches it is the ENGINE's own refresh, through a mount or a
+// replication, exactly as on a run with no instance home at all.
 //
 // The set of these per engine is an ALLOW-LIST, never a deny-list — see
 // AmbientSet.
@@ -31,7 +37,7 @@ type AmbientFile struct {
 	// ".claude/.credentials.json"), so one instance root hosts every engine without
 	// collision.
 	DestRel string
-	// Mode is the mode the COPY is written at — 0600 for credential material,
+	// Mode is the mode the placement is written at — 0600 for credential material,
 	// regardless of the source file's own mode. Never widened.
 	Mode fs.FileMode
 	// Required reports whether this file's absence means "there is nothing to
@@ -71,10 +77,11 @@ func AmbientSet(engine string) []AmbientFile {
 	return out
 }
 
-// ambientCredentialMode is the mode every copied ambient file lands at:
+// ambientCredentialMode is the mode every placed ambient file lands at:
 // owner-only. The destination holds live credential bytes even when the source
-// file's own mode is laxer, so this is restated on the copy rather than
-// inherited — see copyCredentialFile, which enforces it.
+// file's own mode is laxer, so this is restated on placement rather than
+// inherited — see tightenSeedDestinations, which enforces it on a destination
+// that already existed, and the provisioners, which create at this mode.
 const ambientCredentialMode fs.FileMode = 0o600
 
 // AmbientEngineNames returns the backend names with an EXPLICIT ambient

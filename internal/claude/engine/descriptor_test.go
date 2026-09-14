@@ -78,14 +78,14 @@ func TestDescriptor_ContainerAuthPrefersEnvAndMountsTheRealCredentialReadWrite(t
 func TestDescriptor_EveryCapabilityClaudeCarriesIsProvided(t *testing.T) {
 	d := Descriptor()
 	for name, decided := range map[string]bool{
-		"SettingsWriter":      d.SettingsWriter.Decided() && d.SettingsWriter.AbsentReason() == "",
-		"InstanceConfig":      d.InstanceConfig.Decided() && d.InstanceConfig.AbsentReason() == "",
-		"CredentialProjector": d.CredentialProjector.Decided() && d.CredentialProjector.AbsentReason() == "",
-		"CommandExports":      d.CommandExports.Decided() && d.CommandExports.AbsentReason() == "",
-		"SkillExports":        d.SkillExports.Decided() && d.SkillExports.AbsentReason() == "",
-		"HookGlobalScope":     d.HookGlobalScope.Decided() && d.HookGlobalScope.AbsentReason() == "",
-		"VersionCommand":      d.VersionCommand.Decided() && d.VersionCommand.AbsentReason() == "",
-		"TranscriptReaders":   d.TranscriptReaders.Decided() && d.TranscriptReaders.AbsentReason() == "",
+		"SettingsWriter":    d.SettingsWriter.Decided() && d.SettingsWriter.AbsentReason() == "",
+		"InstanceConfig":    d.InstanceConfig.Decided() && d.InstanceConfig.AbsentReason() == "",
+		"Provisioning":      d.Provisioning.Decided() && d.Provisioning.AbsentReason() == "",
+		"CommandExports":    d.CommandExports.Decided() && d.CommandExports.AbsentReason() == "",
+		"SkillExports":      d.SkillExports.Decided() && d.SkillExports.AbsentReason() == "",
+		"HookGlobalScope":   d.HookGlobalScope.Decided() && d.HookGlobalScope.AbsentReason() == "",
+		"VersionCommand":    d.VersionCommand.Decided() && d.VersionCommand.AbsentReason() == "",
+		"TranscriptReaders": d.TranscriptReaders.Decided() && d.TranscriptReaders.AbsentReason() == "",
 	} {
 		assert.True(t, decided, "%s must be provided for claude", name)
 	}

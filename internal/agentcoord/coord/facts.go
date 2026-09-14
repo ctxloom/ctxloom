@@ -102,6 +102,20 @@ const (
 	// a productive turn longer than the bound is interrupted and reported as
 	// interrupted, never as a clean exit.
 	CauseDrainInterrupted = "drain-interrupted"
+	// CauseFinalReported is a child ended because it filed the COMPLETION
+	// CONTRACT — a SCOPE_FINAL report — and therefore has nothing left to do
+	// (drain.go, endOnFinalReport). Before this, nothing acted on FINAL: the
+	// run stayed live, and idle children sat holding their containers (and the
+	// worktrees those containers bind-mount) until a human happened to look.
+	//
+	// It ends the RUN, not the SESSION. Like every cause except CauseStopped
+	// it leaves the harp RESUMABLE — leftover mail resumes it (terminateRun's
+	// own tail) and a later agent_send resumes it as a fresh run by native
+	// session key, exactly as after a one-shot boundary. Unlike
+	// CauseOneShotBoundary it DOES queue the parent's "exited" notice: this
+	// fires once per agent, not once per turn, and the notice is the parent's
+	// signal that the report it just received was the last word.
+	CauseFinalReported = "final-reported"
 )
 
 // runEnqueued is factRunEnqueued's payload.

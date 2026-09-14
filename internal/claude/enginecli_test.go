@@ -15,18 +15,42 @@ import (
 
 // argvCase is one point in the buildArgs matrix, carrying a label the failure
 // output can name.
+// matrixModel is the model every matrix case runs with. It is a single
+// constant because the minimal posture pins the model into its --settings JSON
+// at SETUP time while --model is emitted at Execute time: a matrix that let the
+// two drift would be testing a request no caller can make.
+const matrixModel = "claude-opus-4-8"
+
 type argvCase struct {
 	label   string
 	surface agent.CLISurface
 	req     *agent.ExecuteRequest
+	// minimal selects the BACKEND this case runs against: one whose Setup
+	// resolved the minimal launch posture, or one that delivered surfaces.
+	minimal bool
 }
 
-// buildArgsMatrix enumerates EVERY combination buildArgs branches on —
-// permission posture × mode × SkipSetup × CellKind — with a harp in the env
+// argvFor builds this case's argv against the backend its form calls for.
+// delivered is the surface-delivering backend the matrix shares.
+func (c argvCase) argvFor(t *testing.T, delivered *ClaudeCode) []string {
+	t.Helper()
+	if c.minimal {
+		return minimalBackend(t, matrixModel).buildArgs(c.req)
+	}
+	return delivered.buildArgs(c.req)
+}
+
+// buildArgsMatrix enumerates EVERY argv shape the driver can produce —
+// permission posture × mode × launch form × CellKind — with a harp in the env
 // (so the interactive --name arm fires) and a prompt (so the positional arm
-// fires). That is the full space of argv shapes the driver can produce, modulo
-// the opaque ClaudeConfig.Args passthrough, which is user-supplied and
-// undeclarable by construction (left empty here).
+// fires). Modulo the opaque ClaudeConfig.Args passthrough, which is
+// user-supplied and undeclarable by construction (left empty here).
+//
+// The form dimension is carried as `minimal` rather than as a request field
+// because buildArgs no longer BRANCHES on any of this: the minimal posture is
+// resolved by Setup and emitted unconditionally, so the two arms of that
+// dimension are two BACKENDS, not two requests. The matrix still covers both —
+// what changed is where the difference lives.
 func buildArgsMatrix() []argvCase {
 	perms := []struct {
 		name string
@@ -56,17 +80,17 @@ func buildArgsMatrix() []argvCase {
 	var out []argvCase
 	for _, perm := range perms {
 		for _, mode := range modes {
-			for _, skip := range []bool{false, true} {
+			for _, minimal := range []bool{false, true} {
 				for _, cell := range cells {
 					out = append(out, argvCase{
-						label:   fmt.Sprintf("%s/%s/skipSetup=%v/%s", perm.name, mode.name, skip, cell.name),
+						label:   fmt.Sprintf("%s/%s/minimal=%v/%s", perm.name, mode.name, minimal, cell.name),
 						surface: mode.surface,
+						minimal: minimal,
 						req: &agent.ExecuteRequest{
 							Mode:        mode.m,
 							Permissions: perm.p,
-							SkipSetup:   skip,
 							CellKind:    cell.k,
-							Model:       "claude-opus-4-8",
+							Model:       matrixModel,
 							Env:         map[string]string{sessionHarpEnv: "perky-same-chevy"},
 							Prompt:      &agent.Fragment{Content: "do the thing"},
 						},
@@ -109,8 +133,8 @@ func setupBackendForMatrix(t *testing.T) *ClaudeCode {
 }
 
 // TestEngineCLI_BuildArgsFlagsAreDeclared is the ANTI-DRIFT GATE. Every flag
-// buildArgs can emit, across the full permission × mode × SkipSetup × CellKind
-// matrix, must parse against the declared engine CLI grammar. A flag added to
+// buildArgs can emit, across the full permission × mode × launch form ×
+// CellKind matrix, must parse against the declared engine CLI grammar. A flag added to
 // the driver without a declaration fails HERE, at the driver, instead of
 // silently going missing from a stand-in binary that would keep reporting green.
 //
@@ -127,7 +151,7 @@ func TestEngineCLI_BuildArgsFlagsAreDeclared(t *testing.T) {
 			require.True(t, ok, "no declaration for surface %s", c.surface)
 			require.NoError(t, cli.Validate())
 
-			args := b.buildArgs(c.req)
+			args := c.argvFor(t, b)
 			_, err := cli.ParseArgv(args)
 			require.NoError(t, err, "buildArgs emitted argv the contract cannot read: %v", args)
 		})
@@ -148,7 +172,7 @@ func TestEngineCLI_EveryDeclaredFlagIsEmitted(t *testing.T) {
 		if emitted[c.surface] == nil {
 			emitted[c.surface] = map[string]bool{}
 		}
-		for _, a := range b.buildArgs(c.req) {
+		for _, a := range c.argvFor(t, b) {
 			emitted[c.surface][a] = true
 		}
 	}
@@ -221,7 +245,7 @@ func TestEngineCLI_PromptDeliveryMatchesDriver(t *testing.T) {
 
 // TestEngineCLI_SettingsValueShapeCoversBothForms pins the trap: --settings
 // takes a FILE PATH on the normal delivery path and a LITERAL inline JSON
-// object under SkipSetup. A grammar declaring "path" would be wrong half the
+// object on the minimal form. A grammar declaring "path" would be wrong half the
 // time, so the declaration says path-or-json and both driver forms are proved.
 func TestEngineCLI_SettingsValueShapeCoversBothForms(t *testing.T) {
 	b := setupBackendForMatrix(t)
@@ -239,12 +263,12 @@ func TestEngineCLI_SettingsValueShapeCoversBothForms(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, filepath.IsAbs(v), "normal delivery passes a file PATH, got %q", v)
 
-	minArgs := b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true})
+	minArgs := minimalBackend(t, matrixModel).buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot})
 	minimal, err := oneshot.ParseArgv(minArgs)
 	require.NoError(t, err)
 	v, ok = minimal.Value(flagSettings)
 	require.True(t, ok)
-	assert.Equal(t, byte('{'), v[0], "SkipSetup passes an inline JSON OBJECT, got %q", v)
+	assert.Equal(t, byte('{'), v[0], "the minimal posture passes an inline JSON OBJECT, got %q", v)
 }
 
 // TestEngineCLI_EmptyStringValuesStayTheirOwnToken pins claude's two empty-string
@@ -256,7 +280,7 @@ func TestEngineCLI_EmptyStringValuesStayTheirOwnToken(t *testing.T) {
 	clis := b.EngineCLIs()
 	oneshot, _ := agent.EngineCLIFor(clis, agent.CLISurfaceOneshot)
 
-	parsed, err := oneshot.ParseArgv(b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true}))
+	parsed, err := oneshot.ParseArgv(minimalBackend(t, matrixModel).buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot}))
 	require.NoError(t, err)
 	for _, name := range []string{flagTools, flagSystemPrompt} {
 		v, ok := parsed.Value(name)

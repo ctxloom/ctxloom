@@ -269,7 +269,7 @@ func TestClaudeCode_BuildArgs_NativeContextFlag(t *testing.T) {
 	assert.True(t, argPair(args, "--append-system-prompt-file", framed),
 		"a normal run loads ctxloom context via --append-system-prompt-file")
 
-	minArgs := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true})
+	minArgs := minimalBackend(t, "").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot})
 	assert.NotContains(t, minArgs, "--append-system-prompt-file",
 		"minimal/distill mode must not load ctxloom context")
 }
@@ -315,13 +315,7 @@ func TestClaudeCode_PromptStdin_NilWhenNoPrompt(t *testing.T) {
 // oneshot mode (distillation/compaction) requests the JSON envelope so Execute
 // can read the resolved model id instead of guessing.
 func TestClaudeCode_BuildArgs_MinimalOneshotRequestsJSON(t *testing.T) {
-	backend := NewClaudeCode()
-
-	req := &agent.ExecuteRequest{
-		Mode:      agent.ModeOneshot,
-		SkipSetup: true,
-	}
-	args := backend.buildArgs(req)
+	args := minimalBackend(t, "").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot})
 
 	assert.Contains(t, args, "--print")
 	assert.True(t, argPair(args, "--output-format", "json"),
@@ -332,9 +326,7 @@ func TestClaudeCode_BuildArgs_MinimalOneshotRequestsJSON(t *testing.T) {
 // mode with no explicit model adds no --model flag: the model is resolved by
 // the caller from the fast role's labeled config, not defaulted in the backend.
 func TestClaudeCode_BuildArgs_MinimalModeNoModelByDefault(t *testing.T) {
-	backend := NewClaudeCode()
-
-	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true})
+	args := minimalBackend(t, "").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot})
 
 	assert.NotContains(t, args, "--model",
 		"minimal mode must not default a model; the caller supplies it")
@@ -343,9 +335,7 @@ func TestClaudeCode_BuildArgs_MinimalModeNoModelByDefault(t *testing.T) {
 // TestClaudeCode_BuildArgs_ExplicitModelWinsInMinimalMode verifies that a
 // configured fast model (passed as req.Model) overrides the backend default.
 func TestClaudeCode_BuildArgs_ExplicitModelWinsInMinimalMode(t *testing.T) {
-	backend := NewClaudeCode()
-
-	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, Model: "sonnet"})
+	args := minimalBackend(t, "sonnet").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Model: "sonnet"})
 
 	assert.True(t, argPair(args, "--model", "sonnet"))
 }
@@ -356,9 +346,7 @@ func TestClaudeCode_BuildArgs_ExplicitModelWinsInMinimalMode(t *testing.T) {
 // "" (an empty source list drops the model config and routes generation to the
 // CLI's fast model regardless of --model).
 func TestClaudeCode_BuildArgs_MinimalModeIsolatesViaSettings(t *testing.T) {
-	backend := NewClaudeCode()
-
-	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, Model: "claude-opus-4-8"})
+	args := minimalBackend(t, "claude-opus-4-8").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Model: "claude-opus-4-8"})
 
 	assert.NotContains(t, args, "--setting-sources",
 		"empty --setting-sources drops model routing; isolate via --settings instead")
@@ -384,10 +372,11 @@ func TestMinimalSettings(t *testing.T) {
 	assert.Contains(t, noModel, "\"hooks\":{}")
 }
 
-// TestClaudeCode_BuildArgs_OneshotWithoutSkipSetupNoJSON verifies that an
-// ordinary oneshot (e.g. `ctxloom run --print`) keeps streaming text output and
-// does not switch to the JSON envelope.
-func TestClaudeCode_BuildArgs_OneshotWithoutSkipSetupNoJSON(t *testing.T) {
+// TestClaudeCode_BuildArgs_OrdinaryOneshotNoJSON verifies that an ordinary
+// oneshot (e.g. `ctxloom run --print`) keeps streaming text output and does not
+// switch to the JSON envelope. The backend here ran no minimal Setup, which is
+// what "ordinary" now means.
+func TestClaudeCode_BuildArgs_OrdinaryOneshotNoJSON(t *testing.T) {
 	backend := NewClaudeCode()
 
 	req := &agent.ExecuteRequest{
@@ -442,14 +431,10 @@ func TestClaudeCode_BuildArgs_NoHarpNoName(t *testing.T) {
 // TestClaudeCode_BuildArgs_MinimalModeNoName verifies that throwaway minimal
 // oneshot runs are not named even when a harp is present in env.
 func TestClaudeCode_BuildArgs_MinimalModeNoName(t *testing.T) {
-	backend := NewClaudeCode()
-
-	req := &agent.ExecuteRequest{
-		Mode:      agent.ModeOneshot,
-		SkipSetup: true,
-		Env:       map[string]string{sessionHarpEnv: "fair-pushy-cable"},
-	}
-	args := backend.buildArgs(req)
+	args := minimalBackend(t, "").buildArgs(&agent.ExecuteRequest{
+		Mode: agent.ModeOneshot,
+		Env:  map[string]string{sessionHarpEnv: "fair-pushy-cable"},
+	})
 
 	assert.NotContains(t, args, "--name",
 		"throwaway oneshot runs must not be named")
@@ -572,7 +557,7 @@ func TestClaudeCode_MinimalOneshot_NoOutput_IsAnError(t *testing.T) {
 		{"envelope parsed with only whitespace", `{"result":"   \n","modelUsage":{}}`, "no output"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			b := NewClaudeCode()
+			b := minimalBackend(t, "")
 			b.SetLauncher(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, stdout, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
 				_, _ = io.WriteString(stdout, tc.emit)
 				return 0, nil
@@ -580,9 +565,8 @@ func TestClaudeCode_MinimalOneshot_NoOutput_IsAnError(t *testing.T) {
 
 			var out, errBuf bytes.Buffer
 			res, err := b.Execute(context.Background(), &agent.ExecuteRequest{
-				Mode:      agent.ModeOneshot,
-				SkipSetup: true,
-				Prompt:    &agent.Fragment{Content: "summarize this"},
+				Mode:   agent.ModeOneshot,
+				Prompt: &agent.Fragment{Content: "summarize this"},
 			}, &out, &errBuf)
 
 			require.Error(t, err, "a oneshot that produced no output must not report success")
@@ -597,7 +581,7 @@ func TestClaudeCode_MinimalOneshot_NoOutput_IsAnError(t *testing.T) {
 // Real output must still succeed, and must still reach stdout — the guard
 // must not turn a working distill into a failure.
 func TestClaudeCode_MinimalOneshot_WithOutput_StillSucceeds(t *testing.T) {
-	b := NewClaudeCode()
+	b := minimalBackend(t, "")
 	b.SetLauncher(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, stdout, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
 		_, _ = io.WriteString(stdout, `{"result":"the summary","modelUsage":{"claude-x":{"outputTokens":5}}}`)
 		return 0, nil
@@ -605,7 +589,7 @@ func TestClaudeCode_MinimalOneshot_WithOutput_StillSucceeds(t *testing.T) {
 
 	var out, errBuf bytes.Buffer
 	res, err := b.Execute(context.Background(), &agent.ExecuteRequest{
-		Mode: agent.ModeOneshot, SkipSetup: true, Prompt: &agent.Fragment{Content: "summarize this"},
+		Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: "summarize this"},
 	}, &out, &errBuf)
 
 	require.NoError(t, err)
@@ -618,7 +602,7 @@ func TestClaudeCode_MinimalOneshot_WithOutput_StillSucceeds(t *testing.T) {
 // A NON-ZERO exit with no output keeps the CLI's own exit code and error —
 // the guard must not mask a real failure with a synthesized one.
 func TestClaudeCode_MinimalOneshot_FailedRun_KeepsItsOwnExitCode(t *testing.T) {
-	b := NewClaudeCode()
+	b := minimalBackend(t, "")
 	b.SetLauncher(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, _, stderr io.Writer, _ <-chan agent.WindowSize) (int32, error) {
 		_, _ = io.WriteString(stderr, "boom")
 		return 3, nil
@@ -626,7 +610,7 @@ func TestClaudeCode_MinimalOneshot_FailedRun_KeepsItsOwnExitCode(t *testing.T) {
 
 	var out, errBuf bytes.Buffer
 	res, err := b.Execute(context.Background(), &agent.ExecuteRequest{
-		Mode: agent.ModeOneshot, SkipSetup: true, Prompt: &agent.Fragment{Content: "summarize this"},
+		Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: "summarize this"},
 	}, &out, &errBuf)
 
 	require.Error(t, err)
@@ -676,11 +660,15 @@ func TestClaudeCode_BuildArgs_NoTerminatorWithoutPrompt(t *testing.T) {
 	for _, req := range []*agent.ExecuteRequest{
 		{Mode: agent.ModeInteractive},
 		{Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: "off argv"}},
-		{Mode: agent.ModeOneshot, SkipSetup: true},
 	} {
 		assert.NotContains(t, backend.buildArgs(req), "--",
 			"no prompt positional means no terminator")
 	}
+	// The minimal posture ends in a VARIADIC-adjacent flag set, so it is the
+	// shape most likely to grow a trailing token — assert it separately rather
+	// than dropping it with the flag that used to select it.
+	assert.NotContains(t, minimalBackend(t, "").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot}), "--",
+		"no prompt positional means no terminator")
 }
 
 // Anti-drift: whatever else buildArgs learns to emit, EVERY interactive shape

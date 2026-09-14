@@ -1,13 +1,30 @@
 package claude
 
-// argPair reports whether args contains flag immediately followed by value.
-func argPair(args []string, flag, value string) bool {
-	for i, a := range args {
-		if a == flag && i+1 < len(args) && args[i+1] == value {
-			return true
-		}
-	}
-	return false
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+)
+
+// minimalBackend returns a claude backend whose Setup has RESOLVED the minimal
+// launch posture for model. This is how a headless run acquires that argv now:
+// the form is declared host-side (LaunchFormMinimal), Setup resolves the
+// engine's declared posture from it, and buildArgs emits what Setup resolved.
+// There is no request flag left for a test — or for production — to set.
+//
+// A backend without this Setup is a backend with no minimal posture, which is
+// the honest way to write "an ordinary run" in these tests.
+func minimalBackend(t *testing.T, model string) *ClaudeCode {
+	t.Helper()
+	b := NewClaudeCode()
+	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
+		Form:  agent.LaunchFormMinimal,
+		Model: model,
+	}))
+	return b
 }
 
 // argValue returns the value following flag in args, or "" if the flag is

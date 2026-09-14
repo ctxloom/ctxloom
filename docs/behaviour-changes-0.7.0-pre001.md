@@ -45,7 +45,7 @@ the fix.
 | `ctxloom hook inject-context` with a missing context file | silent | warns; **exit code unchanged** |
 | `session/set_mode` over a zero-byte assembly | ok, lead context blanked | RPC error |
 | A kiro or antigravity run whose context hash cannot be resolved | exit 0, steering file **removed** / AGENTS.md section **stripped**, launched with zero context | non-zero; the previous delivery is left intact |
-| A minimal (`--skip-setup`) claude oneshot — the distill/compaction path — that produced no output | exit 0, nil error, **zero bytes** written | non-zero, "claude produced no output (exit N)"; a non-zero CLI exit keeps its own code |
+| A minimal-form claude oneshot — the distill/compaction path — that produced no output | exit 0, nil error, **zero bytes** written | non-zero, "claude produced no output (exit N)"; a non-zero CLI exit keeps its own code |
 | A `session_end` hook configured while running codex | written nowhere, said nothing | still written nowhere (codex has no such event) — now **warns** naming engine and kind; **exit code unchanged** |
 | `ctxloom run` on a run that ended **cancelled**, **timed out**, **over budget**, or with **no status at all** | exit 0 — success | exit 1, naming the terminal status |
 

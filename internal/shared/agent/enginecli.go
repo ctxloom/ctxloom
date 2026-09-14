@@ -35,8 +35,8 @@ import (
 //     --dangerously-skip-permissions vs plan → --permission-mode plan
 //     --disallowedTools ...), and codex's sandbox tier table;
 //   - the ORDER flags are emitted in;
-//   - the CONDITIONS gating a flag (SkipSetup, CellKind, a non-empty surface
-//     path, a harp in the env).
+//   - the CONDITIONS gating a flag (a non-empty surface path, a harp in the
+//     env, the launch form Setup resolved).
 //
 // A descriptor with an escape hatch for each of those would be worse than
 // either option. The declaration answers "does this flag exist on this
@@ -65,7 +65,7 @@ const (
 
 // ValueShape declares what an argv flag's value token IS. It is not decoration:
 // claude's --settings takes EITHER a file path (the normal delivery path) or a
-// LITERAL JSON object (the SkipSetup minimal-mode override), and a grammar that
+// LITERAL JSON object (the minimal form's inline override), and a grammar that
 // said "path" would be wrong half the time — a fake would stat a JSON document
 // and report the settings surface as absent while the real CLI applied it.
 type ValueShape string
@@ -82,7 +82,7 @@ const (
 	// ValueJSON is a literal JSON document carried inline in argv.
 	ValueJSON ValueShape = "json"
 	// ValuePathOrJSON is claude's --settings: a path on the normal path, an
-	// inline JSON object under SkipSetup. A consumer must discriminate on the
+	// inline JSON object on the minimal form. A consumer must discriminate on the
 	// token (a leading '{' means literal), never assume.
 	ValuePathOrJSON ValueShape = "path-or-json"
 )
@@ -118,7 +118,7 @@ type CLIFlag struct {
 	// coin toss.
 	ConflictsWith []string
 	// Note carries verification provenance for a non-obvious entry ("empty
-	// string is a separate argv token", "value is inline JSON under SkipSetup").
+	// string is a separate argv token", "value is inline JSON on the minimal form").
 	Note string
 }
 

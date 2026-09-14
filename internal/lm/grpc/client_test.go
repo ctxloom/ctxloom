@@ -378,7 +378,7 @@ func TestRunnerFromConn_HappyPath(t *testing.T) {
 // TestRunnerFromConn_VersionMismatchTriggersKill pins exposable-rental unit
 // 1's daemon-staleness gate: a daemon reporting a DIFFERENT ctxloom build
 // stamp than this process's own must be refused outright, not silently
-// used — the whole point of the handshake. Flip the SkipSetup-equivalent
+// used — the whole point of the handshake. Flip the launch-form-equivalent
 // gate here (checkDaemonVersion's `!=` comparison) and this goes red.
 func TestRunnerFromConn_VersionMismatchTriggersKill(t *testing.T) {
 	orig := version.Version

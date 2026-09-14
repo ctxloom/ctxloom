@@ -72,6 +72,30 @@ func rooted(start present.Start) error {
 // because the refusal is the whole interface for the failure.
 var ErrUnrootedEngineHome = errors.New("delivery: the engine home was never resolved — this approach writes beneath the engine's private config home, which only a run whose agent binding declares config_home: project advises; declare it on the binding, or select a project-file approach for this surface")
 
+// ErrAbsentSharedSurface is returned when a run on LaunchFormPresent names a
+// surface the session never delivered. "Use the existing surface" has exactly
+// one honest failure: there is no existing surface. Writing one instead would
+// clobber the shared cwd this form exists to protect, and re-injecting the
+// content down a second route is the silent degrade the form exists to remove —
+// so this refuses, naming what is missing.
+var ErrAbsentSharedSurface = errors.New("launch: this run presents the session's existing surfaces and writes none of its own, but one of them is not there — the session it rides was never set up, or its scratch was cleared; run the session's own setup first, or give this run an isolated cell so it delivers its own")
+
+// RequireDelivered is the entry check for LaunchFormPresent: it is exported
+// because the approaches that implement PresentExisting live in the engine
+// packages, and the seam wants them to refuse the same way rather than each
+// inventing its own stat. kind and path name what is missing, so the refusal
+// says which surface and where it was looked for.
+func RequireDelivered(fs afero.Fs, kind SurfaceKind, path string) error {
+	ok, err := afero.Exists(GetFS(fs), path)
+	if err != nil {
+		return fmt.Errorf("%w: checking the %s surface at %s: %w", ErrAbsentSharedSurface, kind, path, err)
+	}
+	if !ok {
+		return fmt.Errorf("%w: the %s surface is not at %s", ErrAbsentSharedSurface, kind, path)
+	}
+	return nil
+}
+
 // EngineHomeRooted is the entry check for an approach that lands beneath the
 // engine home: the counterpart of rooted for that root. It is exported
 // because the approaches that need it live in the engine packages, and the

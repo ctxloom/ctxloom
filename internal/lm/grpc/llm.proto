@@ -458,7 +458,7 @@ message RunStart {
   RunOptions options = 1;
   repeated Fragment fragments = 2;       // Context fragments with metadata
   Fragment prompt = 3;                   // The user prompt as a fragment
-  ManagedConfig managed_config = 4;      // Host-assembled config/bundle setup payload (nil for skip_setup)
+  ManagedConfig managed_config = 4;      // Host-assembled config/bundle setup payload (nil on the minimal launch form)
 }
 
 // ManagedConfig is the host-assembled setup payload that rides over Run so the
@@ -624,13 +624,36 @@ message RunOptions {
   string model = 7;       // Model to use (e.g., "opus", "gpt-4", "claude-3-sonnet")
   float temperature = 8;  // Creativity level 0.0-1.0 (0=deterministic)
   uint32 max_tokens = 9;  // Maximum response tokens (0=default)
-  bool skip_setup = 10;   // Skip context/hooks/commands setup (for distillation)
+  // Field 10 was the retired bool skip_setup, which was not a mode but a
+  // BYPASS: it skipped Setup outright so nothing was delivered and nothing
+  // presented, and the context had to reach the engine by a second route with
+  // its own assembler. launch_form (12) replaces it with the DECLARED form the
+  // run's surfaces take. Removing a field rather than repurposing its number is
+  // safe here for the same reason field 2's auto_approve change was: host and
+  // plugin are always built and launched together and RunOptions is never
+  // persisted across versions.
+  reserved 10;
   // Resolved isolation CELL for this run, decided host-side by isolation.Prepare
   // and carried to the plugin so Setup/buildArgs know which cell they run in
   // (the host resolves it; the plugin can't infer it from WorkDir alone). Shared
   // is the user's live cwd; DirectoryIsolated a per-agent worktree;
   // ProcessIsolated a container. Unspecified decodes to Shared at the server.
   CellKind cell_kind = 11;
+  // The DECLARED form this run's managed surfaces take, resolved host-side by
+  // the caller that knows the run's shape and carried already decided. The
+  // plugin's Setup constructs from it; no argv site re-derives it. Unspecified
+  // decodes to Deliver at the server — what a run that says nothing has always
+  // done.
+  LaunchForm launch_form = 12;
+}
+
+// LaunchForm is the declared form a run's managed surfaces take, mirrored by
+// agent.LaunchForm on the plugin side, where the full rationale lives.
+enum LaunchForm {
+  LAUNCH_FORM_UNSPECIFIED = 0;  // decodes to DELIVER
+  LAUNCH_FORM_DELIVER = 1;      // write this run's own surfaces into its own cell
+  LAUNCH_FORM_PRESENT = 2;      // name the session's existing surfaces; write none
+  LAUNCH_FORM_MINIMAL = 3;      // declare no managed surfaces at all (headless)
 }
 
 // CellKind is the resolved isolation cell for a run, mapped host-side from the

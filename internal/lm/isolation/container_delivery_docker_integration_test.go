@@ -324,7 +324,7 @@ func containerTurnRequest(workDir string) *pb.RunStart {
 			CellKind: pb.CellKindToProto(agent.CellKindProcessIsolated),
 			Env:      map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"},
 		},
-		// The host ships a managed config on every non-skip-setup run; the
+		// The host ships a managed config on every run that declares surfaces; the
 		// cells seam short-circuits on a nil one and would deliver nothing.
 		ManagedConfig: pb.ManagedConfigToProto(&agent.ManagedConfig{
 			Hooks: &wire.HooksConfig{},

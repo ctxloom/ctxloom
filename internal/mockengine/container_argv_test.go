@@ -18,7 +18,7 @@ import (
 const containerPrompt = "summarize the project rules"
 
 // claudeContainerVendorArgv mirrors what claude's buildArgs emits under
-// SkipSetup. The mock's own personality selector is NOT part of it — main.go
+// the minimal form. The mock's own personality selector is NOT part of it — main.go
 // consumes the leading --claude before this reaches ParseArgv.
 func claudeContainerVendorArgv() []string {
 	return []string{"--print", "--output-format", "json", "--model", "mock-model"}

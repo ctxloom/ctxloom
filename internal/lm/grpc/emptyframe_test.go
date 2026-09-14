@@ -45,8 +45,12 @@ func TestRunOptions_EmptyFrameCharacterization(t *testing.T) {
 
 	// The fields where absence IS the permissive answer.
 	assert.False(t, exec.DryRun, "an absent dry_run means EXECUTE, not validate")
-	assert.False(t, exec.SkipSetup, "an absent skip_setup means full setup runs")
 	assert.Empty(t, exec.WorkDir, "an absent work_dir is empty, not a resolved default")
+	// The launch form rides the SetupRequest, not the ExecuteRequest — argv is
+	// built from what Setup RESOLVED, so there is nothing on the Execute side
+	// for an absent field to mean. What absence means is decided at the decode.
+	assert.Equal(t, agent.LaunchFormDeliver, launchFormFromProto(LaunchForm_LAUNCH_FORM_UNSPECIFIED),
+		"an absent launch_form means this run delivers its own surfaces — a caller that says nothing must not silently get the form that writes none")
 
 	// The one combination that does auto-approve requires an EXPLICIT non-zero
 	// field, so a truncated frame cannot reach it: the headless floor upgrades a

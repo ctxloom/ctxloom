@@ -72,10 +72,16 @@ type recordSet struct {
 	built  int
 	inputs SurfaceInputs
 
-	// deliverStarts / realizeStarts record the advised roots each well-known
-	// Deliver / each out-of-cwd form received, in delivery order.
+	// deliverStarts / realizeStarts / presentStarts record the advised roots
+	// each well-known Deliver / each out-of-cwd form / each PresentExisting
+	// received, in delivery order. Keeping them apart is the whole assertion for
+	// the launch forms: a form that PRESENTS must leave the first two empty.
 	deliverStarts []present.Start
 	realizeStarts []present.Start
+	presentStarts []present.Start
+	// presentErr forces PresentExisting to refuse, standing in for a session
+	// surface that is not on disk.
+	presentErr error
 }
 
 // construct returns the Construct for one fake surface, capturing the inputs.
@@ -136,6 +142,16 @@ func (s *recordSurface) DeliverIsolated(start present.Start) (Delivered, error) 
 		return nil, s.set.mcpErr
 	}
 	return s.set.handle(s.label), nil
+}
+
+// PresentExisting records that this surface was NAMED rather than written, and
+// returns a path without touching the filesystem — the Existing form.
+func (s *recordSurface) PresentExisting(start present.Start) (string, error) {
+	s.set.presentStarts = append(s.set.presentStarts, start)
+	if s.set.presentErr != nil {
+		return "", s.set.presentErr
+	}
+	return start.UnderScratch(s.label).Build().HostPath, nil
 }
 
 // noContextDeclaration is recordDeclaration WITHOUT a context kind —

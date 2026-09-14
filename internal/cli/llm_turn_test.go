@@ -118,7 +118,7 @@ func TestWriteRunStartHandoff_EmptyPayloadErrors(t *testing.T) {
 // of the empty-payload floor, and the reason the guard tests the WHOLE
 // message rather than any single field: an interactive turn legitimately
 // carries no prompt and no fragments (the user types into the engine's own
-// TTY), and skip_setup runs carry no managed config. Only a RunStart with
+// TTY), and minimal-form runs carry no managed config. Only a RunStart with
 // nothing at all set is rejected.
 func TestRunStartHandoff_MinimalOptionsOnlyPayloadIsAccepted(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

@@ -42,7 +42,7 @@ func launchSetupRequest(workDir string, fragments []*agent.Fragment, managed *ag
 }
 
 // hostManagedConfig is the minimal non-nil payload backends.AssembleManagedConfig
-// ships on every non-skip-setup run. Its CONTENTS are irrelevant to the context
+// ships on every run that declares surfaces. Its CONTENTS are irrelevant to the context
 // surface; its non-nil-ness is not (see setupViaCells' documented "nothing
 // managed → no surfaces to deliver" short-circuit, pinned below).
 func hostManagedConfig() *agent.ManagedConfig {
@@ -104,7 +104,7 @@ func TestMock_Cleanup_LeavesTheLaunchDeliveryInPlace(t *testing.T) {
 // RawContext false, so with a nil Managed there is no pre-step either and Setup
 // legitimately writes zero bytes.
 //
-// This is NOT hypothetical bookkeeping: the skip-setup callers
+// This is NOT hypothetical bookkeeping: the minimal-form callers
 // (bundle_distill.go, operations/oneshot.go's shared-cwd member path) send no
 // managed payload at all. It is pinned as a TEST rather than left implicit so
 // that "mock delivered nothing" is a stated, reviewed contract with a named

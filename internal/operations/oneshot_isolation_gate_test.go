@@ -34,8 +34,8 @@ func (w stubWorkspace) Cleanup() error { return nil }
 // stubPolicy is a minimal isolation.Policy whose SpawnClient mints a canned
 // pb.Client per spawn — so a member that PASSES the gate still never spawns a
 // real plugin subprocess (and parallel members never share one client). Name
-// reports "none" so runResolvedAgent stays on the SkipSetup/lead-fragment path
-// (no managed-config assembly).
+// reports "none" so runResolvedAgent resolves the SHARED cell, and with it the
+// form that presents the session's surfaces rather than writing its own.
 type stubPolicy struct{ mk func() pb.Client }
 
 func (stubPolicy) Name() string { return isolation.None{}.Name() }

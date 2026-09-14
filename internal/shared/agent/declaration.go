@@ -76,6 +76,57 @@ type OutOfCwd interface {
 	DeliverIsolated(start present.Start) (Delivered, error)
 }
 
+// Existing is implemented by an Approach whose out-of-cwd form can be NAMED
+// without being written, because where it lands is a function of the run's
+// content alone (a content-addressed leaf, or a well-known name beneath the
+// advised Scratch root).
+//
+// It is the seam LaunchFormPresent runs. A member sharing the project cwd must
+// not rewrite the session's one surface set, but it still has to tell the
+// engine where those surfaces are — and telling requires naming them. Present
+// is already documented as pure with respect to the filesystem and as composing
+// "how the engine is told about them (argv / env)", so naming is its job;
+// PresentExisting is the half that needs the run's own roots to resolve a path
+// and the run's own filesystem to insist the path is real.
+//
+// Omitting it is the safe direction: an approach without it contributes no argv
+// under LaunchFormPresent, exactly as an approach that delivered nothing
+// contributes none under LaunchFormDeliver. Silence about a surface is never
+// the same as a flag naming a file that is not there.
+type Existing interface {
+	// PresentExisting records and returns the path this approach's out-of-cwd
+	// form occupies — the same path DeliverIsolated would have written — having
+	// written nothing itself.
+	//
+	// "" with a nil error means this approach has no bytes this run (empty
+	// context, an empty MCP set) and so nothing to present; the caller emits no
+	// flag for it. A path that does NOT exist is an error wrapping
+	// ErrAbsentSharedSurface — never a fallback to writing it.
+	PresentExisting(start present.Start) (string, error)
+}
+
+// MinimalLaunch is implemented by an engine that declares a MINIMAL launch
+// posture: the argv that strips it back to a bare model call — no hooks, no
+// slash commands, no project memory, no session persistence — for a headless
+// run that delivers no managed surfaces at all (LaunchFormMinimal).
+//
+// It is a DECLARATION resolved by Setup into the run's launch argv, not a
+// branch Execute takes on a request flag. The engine says what its minimal
+// posture IS, once; every argv site then emits what Setup resolved. An engine
+// that has no such posture does not implement it and a minimal run launches it
+// bare.
+type MinimalLaunch interface {
+	MinimalArgs(model string) []string
+}
+
+// MinimalArgsFunc adapts a plain function to MinimalLaunch, so an engine can
+// register its posture without declaring a type whose only purpose is to hold
+// one method.
+type MinimalArgsFunc func(model string) []string
+
+// MinimalArgs implements MinimalLaunch.
+func (f MinimalArgsFunc) MinimalArgs(model string) []string { return f(model) }
+
 // LaunchOnly is implemented by an Approach whose bytes reach the engine only
 // through a launch — its out-of-cwd form is announced on argv, and an at-rest
 // delivery (materialize, apply, remove) has no argv sink to hand that flag to.

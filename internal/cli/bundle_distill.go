@@ -476,16 +476,13 @@ func buildDistillMessage(distillPrompt, siblingCtx, name, content string) string
 
 // distillWithLLM sends content through the LLM and returns distilled content and model ID.
 func distillWithLLM(ctx context.Context, llmName, llmLabel, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
-	// buildDistillMessage already leads with distillPrompt (see its own doc):
-	// SkipSetup below means Setup never runs, and Setup is the ONLY path that
-	// delivers RunStart.Fragments to the backend (internal/lm/grpc/server.go's
-	// Run handler only converts+delivers req.Fragments inside the
-	// !opts.GetSkipSetup() branch) — a Fragments entry here would be silently
-	// dropped, never reaching the model. SILENT NO-OP: this
-	// caller used to also set Fragments:[{Content: distillPrompt}] alongside
-	// the already-smuggled message, which did nothing but read as if the
-	// instructions had a second, redundant delivery path. Removed; the prompt
-	// body is the ONLY delivery path for a SkipSetup run, by design.
+	// buildDistillMessage already leads with distillPrompt (see its own doc).
+	// LaunchFormMinimal below DECLARES that this run has no managed surfaces at
+	// all, so the prompt body is its only delivery path — a property of the
+	// form, stated. SILENT NO-OP: this caller used to also set
+	// Fragments:[{Content: distillPrompt}] alongside the already-smuggled
+	// message, which did nothing but read as if the instructions had a second,
+	// redundant delivery path. Removed.
 	message := buildDistillMessage(distillPrompt, siblingCtx, name, content)
 
 	// Create plugin client. The label rides along so serve configures the exact
@@ -521,7 +518,8 @@ func distillWithLLM(ctx context.Context, llmName, llmLabel, model string, env ma
 			Mode:           pb.ExecutionMode_ONESHOT,
 			Model:          model, // explicit override; empty → backend's lightweight model
 			Env:            env,
-			SkipSetup:      true, // Headless distill: no hooks/commands/context writes
+			// Headless distill declares no managed surfaces.
+			LaunchForm: pb.LaunchFormToProto(agent.LaunchFormMinimal),
 		},
 	}
 

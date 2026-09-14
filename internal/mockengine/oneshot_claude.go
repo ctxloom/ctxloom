@@ -16,7 +16,7 @@ import (
 // claude-specific. See oneshot.go for the engine dispatch.
 //
 //   - Normal oneshot: the result is plain text on stdout.
-//   - Under SkipSetup the driver adds `--output-format json` and then PARSES
+//   - On the minimal form the driver adds `--output-format json` and then PARSES
 //     stdout as {"result": ..., "modelUsage": {"<model>": {"inputTokens": N,
 //     "outputTokens": N}}}, attributing the result to the model with the most
 //     output tokens (parseClaudeJSONResult). So when that flag is present the
@@ -49,7 +49,7 @@ type claudeModelToks struct {
 }
 
 // oneshotWantsJSON reports whether this argv asked for the JSON envelope — the
-// SkipSetup path.
+// minimal-form path.
 func oneshotWantsJSON(argv agent.ParsedArgv) bool {
 	v, ok := argv.Value(oneshotOutputFormatFlag)
 	return ok && v == oneshotJSONValue

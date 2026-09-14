@@ -182,7 +182,7 @@ func readRunStartHandoff(path string) (*pb.RunStart, error) {
 //
 // The test is over the WHOLE message rather than any single field because each
 // field alone is legitimately absent: an interactive turn carries no prompt and
-// no fragments (the user types on the engine's own TTY), and a skip_setup run
+// no fragments (the user types on the engine's own TTY), and a minimal-form run
 // carries no managed config. Only a wholly empty RunStart is a defect, and it
 // is one the production writer cannot produce (stampHostTerminalEnv always
 // stamps Options) — which is exactly why it read as success.

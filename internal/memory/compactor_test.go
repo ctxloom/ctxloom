@@ -747,12 +747,13 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 	}
 }
 
-// TestCompact_DeliversSystemPromptUnderSkipSetup pins the fragment-delivery
-// fix: distillation runs with SkipSetup, and the server only hands req.Fragments
-// to the backend through Setup — which SkipSetup bypasses. So the distill
+// TestCompact_DeliversSystemPromptOnTheMinimalForm pins the fragment-delivery
+// fix: distillation declares LaunchFormMinimal, which states it has no managed
+// surfaces, and the server hands req.Fragments to a backend through a delivered
+// context surface — which this form declares away. So the distill
 // instructions must ride in the prompt itself, or the model never sees them and
 // just answers the transcript conversationally (no frontmatter, no Open Items).
-func TestCompact_DeliversSystemPromptUnderSkipSetup(t *testing.T) {
+func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
@@ -784,7 +785,7 @@ func TestCompact_DeliversSystemPromptUnderSkipSetup(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, sawPrompt, sessionDistillPrompt,
-		"the distill system prompt must reach the model in the prompt, since SkipSetup drops req.Fragments")
+		"the distill system prompt must reach the model in the prompt, since the minimal form delivers no context surface")
 	assert.Contains(t, sawPrompt, "hello", "the transcript must still be in the prompt")
 }
 
@@ -1539,7 +1540,8 @@ func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
 
 	require.NotNil(t, sawOpts, "the pin is worthless unless the request actually reached the client")
 	assert.Equal(t, pb.ExecutionMode_ONESHOT, sawOpts.Mode)
-	assert.True(t, sawOpts.SkipSetup, "distillation must stay in minimal mode")
+	assert.Equal(t, pb.LaunchForm_LAUNCH_FORM_MINIMAL, sawOpts.LaunchForm,
+		"distillation must declare the minimal form: no hooks, no commands, no context surface")
 	mode, ok := agent.ParsePermissionMode(sawOpts.PermissionMode)
 	require.True(t, ok, "the request must name a parseable permission posture, got %q", sawOpts.PermissionMode)
 	assert.True(t, mode.SafeHeadless(),
@@ -1549,14 +1551,14 @@ func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
 // TestRunDistill_ForwardsConfiguredEnvOntoTheRequest pins the channel by which
 // a distillation subprocess receives the credentials its config declares.
 //
-// runDistill built its RunOptions with PermissionMode, Mode, Model and
-// SkipSetup and NO Env at all, while every other RunStart-issuing caller
+// runDistill built its RunOptions with PermissionMode, Mode, Model and the
+// launch form and NO Env at all, while every other RunStart-issuing caller
 // forwards the resolved label's env (internal/cli/run.go's llmEnvFor ->
 // st.runEnv). Since llm.configs.<label>.env is the documented home for a
 // backend's API key, a distiller whose key lived there ran unconfigured — and
 // an unconfigured backend does not error, it just behaves as though nothing
-// was set. SkipSetup makes this the ONLY channel: it bypasses Setup, which is
-// what would otherwise deliver configuration.
+// was set. LaunchFormMinimal makes this the ONLY channel: the form declares
+// that this run has no managed surfaces to carry configuration.
 //
 // Asserting the request's Env rather than any observable downstream effect is
 // deliberate: the effect of a missing credential is a backend quietly doing

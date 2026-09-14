@@ -28,7 +28,7 @@ func TestCellKind_ProtoRoundTrip(t *testing.T) {
 
 // TestGRPCServer_Run_ThreadsCellKind proves the resolved cell flows host→plugin:
 // the wire CellKind on RunOptions lands as the mapped agent.CellKind on BOTH the
-// SetupRequest and the ExecuteRequest the server builds. SkipSetup is left false
+// SetupRequest and the ExecuteRequest the server builds. The launch form is left
 // so Setup runs and its cell is captured too.
 func TestGRPCServer_Run_ThreadsCellKind(t *testing.T) {
 	cases := []struct {

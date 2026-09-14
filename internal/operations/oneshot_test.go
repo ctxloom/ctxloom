@@ -113,15 +113,15 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 	require.NotEmpty(t, stub.gotReq.Fragments)
 	assert.Contains(t, stub.gotReq.Fragments[0].Content, "Go Patterns")
 	assert.Equal(t, pb.ExecutionMode_ONESHOT, stub.gotReq.Options.Mode)
-	// dire-petal: this is exactly the SkipSetup:true + non-empty Fragments
-	// combination the "none"-isolation oneshot member path sends —
-	// asserted here so a future change that flips this default silently
-	// can't slip past without also exercising the grpc-server delivery fix
-	// (internal/lm/grpc.server_test.go's
-	// TestGRPCServer_Run_SkipSetupDeliversFragmentsViaPrompt) that combination
-	// depends on.
-	assert.True(t, stub.gotReq.Options.SkipSetup,
-		"a none-isolation member's RunStart must be SkipSetup — this is the exact request shape dire-petal's fragments-under-SkipSetup fix targets")
+	// A none-isolation member shares the project cwd, so it declares the form
+	// that NAMES the session's surfaces and writes none of its own. This used to
+	// be SkipSetup:true — a bypass of the whole delivery machinery, which is why
+	// the member's composed context had to travel by a second route and was
+	// silently discarded when that route was not wired up (dire-petal). The form
+	// is selected from the cell, so asserting it here is asserting that the
+	// selection actually happened.
+	assert.Equal(t, pb.LaunchForm_LAUNCH_FORM_PRESENT, stub.gotReq.Options.LaunchForm,
+		"a shared-cell member must PRESENT the session's surfaces, never write per-member config into the one shared cwd")
 }
 
 // TestRunOneshot_ResolvesHeadlessPosture pins fix C as it now reads: a

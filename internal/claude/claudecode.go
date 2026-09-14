@@ -91,6 +91,11 @@ func NewClaudeCode() *ClaudeCode {
 	// settings write (surfaces_hewrecord.go) lands beneath; a run without one
 	// advises no engine home and that write refuses.
 	b.SetEngineHomeVar(ConfigDirEnv)
+	// claude's DECLARED minimal launch posture. Registering it here is what
+	// makes it a declaration: Setup resolves it for a LaunchFormMinimal run and
+	// buildArgs emits what Setup resolved, so no argv site reads a request flag
+	// to decide whether this run is a headless one.
+	b.SetMinimalLaunch(agent.MinimalArgsFunc(minimalModeArgs))
 	return b
 }
 
@@ -131,8 +136,14 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 	// The branch bypasses the shared tail's routing, so it assembles its own
 	// trace/env from the same helpers; dry-run still short-circuits first
 	// (inside ExecuteCLI for the common path, here for this one).
-	if !req.DryRun && req.Mode == agent.ModeOneshot && req.SkipSetup {
-		args := b.buildArgs(req)
+	//
+	// The test is on the argv THIS RUN ACTUALLY BUILT, not on a request flag
+	// that separately implies it. Decoding a JSON envelope is only correct when
+	// --output-format json was emitted, so asking the argv is asking the one
+	// thing that can answer; a flag read here would be a second decision site
+	// for a fact buildArgs already settled, free to disagree with it.
+	args := b.buildArgs(req)
+	if !req.DryRun && req.Mode == agent.ModeOneshot && wantsJSONEnvelope(args) {
 		b.TraceArgs(req.Verbosity, args, stderr)
 		env := b.ExecuteEnv(req)
 		var raw bytes.Buffer
@@ -170,7 +181,7 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 	if req.Mode == agent.ModeOneshot {
 		oneshotStdin = promptStdin(req)
 	}
-	return b.ExecuteCLI(ctx, req, b.buildArgs(req), oneshotStdin, modelInfo, stdout, stderr)
+	return b.ExecuteCLI(ctx, req, args, oneshotStdin, modelInfo, stdout, stderr)
 }
 
 // claudeJSONResult is the subset of the `claude --output-format json` envelope
@@ -365,6 +376,16 @@ func permissionArgs(mode agent.PermissionMode, mcpServers []string) []string {
 	return nil
 }
 
+// wantsJSONEnvelope reports whether argv asks the CLI for the JSON result
+// envelope, which is the only condition under which Execute may decode one. It
+// reads the argv THIS RUN BUILT rather than any request flag that implies it,
+// so the decode cannot get out of step with the emission: the mock engine
+// discriminates the same way, off the same token, at the other end of the
+// process boundary (mockengine.oneshotWantsJSON).
+func wantsJSONEnvelope(args []string) bool {
+	return argPair(args, flagOutputFormat, "json")
+}
+
 // minimalModeArgs is the distill/compaction posture: skip every unnecessary
 // startup path while keeping the requested model in force.
 func minimalModeArgs(model string) []string {
@@ -413,28 +434,29 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 		args = append(args, flagPrint)
 	}
 
-	// Cell-aware native delivery. In a SharedCell (the user's live cwd) Setup
-	// delivered context/MCP/settings as out-of-cwd scratch files, so point claude's
-	// own launch flags at them — --append-system-prompt-file for the framed context
-	// (in place of a SessionStart injection hook), --mcp-config for the managed MCP
-	// set, and --settings for the managed hooks/statusline. --mcp-config is used
-	// WITHOUT --strict-mcp-config so claude LAYERS ctxloom's out-of-cwd servers on
-	// top of (i.e. merges them with) the user's project .mcp.json rather than
-	// replacing it — ctxloom stays out of the cwd while the user's own servers still
-	// load. (--settings likewise layers over the user's .claude/settings.json.) Each
-	// Path() is "" when that surface delivered nothing (empty context/MCP/hooks) or
-	// when context fell back to the injection hook, so buildArgs then adds no flag.
-	// In an isolated cell the surfaces are the engine's well-known files in cwd, so
-	// no flags are needed. Skipped in minimal/distill mode (SkipSetup), which drops
-	// context and supplies its own --settings/--strict-mcp-config below.
-	if !req.SkipSetup && req.CellKind == agent.CellKindShared {
-		args = append(args, flagArgs(b.Resolved())...)
-	}
-
-	// Minimal mode for distillation/compaction - skip all unnecessary startup.
-	if req.SkipSetup {
-		args = append(args, minimalModeArgs(req.Model)...)
-	}
+	// The launch argv Setup RESOLVED for this run, emitted unconditionally.
+	// There is nothing to decide here: both halves are empty unless Setup put
+	// something in them, and the form that fills one never fills the other.
+	//
+	// flagArgs names the out-of-cwd files the surfaces recorded —
+	// --append-system-prompt-file for the framed context (in place of a
+	// SessionStart injection hook), --mcp-config for the managed MCP set,
+	// --settings for the managed hooks/statusline. --mcp-config is used WITHOUT
+	// --strict-mcp-config so claude LAYERS ctxloom's out-of-cwd servers on top
+	// of the user's project .mcp.json rather than replacing it — ctxloom stays
+	// out of the cwd while the user's own servers still load. (--settings
+	// likewise layers over the user's .claude/settings.json.) A surface's
+	// Path() is "" when nothing stands behind it — empty context/MCP/hooks, a
+	// context that fell back to the injection hook, an isolated cell whose
+	// surfaces are the well-known files in cwd, a failed write — and
+	// contributes no flag, so claude is never handed a flag naming a file that
+	// was not written.
+	//
+	// MinimalArgs is the engine's declared headless posture, non-nil only after
+	// a Setup on LaunchFormMinimal; that form resolves no surfaces, so
+	// flagArgs is empty whenever this is not.
+	args = append(args, flagArgs(b.Resolved())...)
+	args = append(args, b.MinimalArgs()...)
 
 	// Interactive delivers the initial prompt as an argv positional (it's short —
 	// a human typed it). Oneshot pipes the task on stdin instead (see promptStdin /

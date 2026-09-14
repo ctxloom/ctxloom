@@ -134,7 +134,7 @@ func probeOne(order int, p agent.CLIProbe, cli agent.EngineCLI, argv agent.Parse
 // flag's argv value. The flag being ABSENT is a first-class observation
 // (present:false), because that is what "the driver did not deliver this
 // surface on this run" looks like. When the flag's declared shape allows inline
-// JSON (claude's --settings under SkipSetup) and the value begins with '{', the
+// JSON (claude's --settings on the minimal form) and the value begins with '{', the
 // value IS the content — hashed directly, never statted as a path.
 func probeFlagValue(rec ProbeRecord, p agent.CLIProbe, cli agent.EngineCLI, argv agent.ParsedArgv) ProbeRecord {
 	rec.Root = "flag:" + p.Flag

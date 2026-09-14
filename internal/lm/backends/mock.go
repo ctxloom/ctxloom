@@ -45,7 +45,7 @@ type Mock struct {
 	// managed is the host-assembled setup payload from the last Setup call —
 	// stashed so Execute's recordMockInput can prove fields like DenyTools/
 	// Skills actually survived the wire (the launch-flow regression guard).
-	// nil is a legitimate value (skip_setup/distill paths send none).
+	// nil is a legitimate value (the minimal/distill form sends none).
 	managed *agent.ManagedConfig
 }
 

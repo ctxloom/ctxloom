@@ -229,11 +229,11 @@ func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Re
 		defer release()
 	}
 
-	// Make cwd reach the child on EVERY path. Setup calls SetWorkDir, but the
-	// SkipSetup oneshot path (run --print, delegated agent_run's oneshot
-	// fallback) skips Setup — so without this the
-	// passed WorkDir is dropped and the engine runs in the plugin's inherited
-	// "." (the isolation-blocking cwd bug). SetWorkDir lives on BaseBackend
+	// Make cwd reach the child on EVERY path. Setup calls SetWorkDir, but it
+	// does so only on the forms that reach the delivery machinery — a minimal
+	// run resolves its posture and returns — so without this the passed WorkDir
+	// would be dropped and the engine would run in the plugin's inherited "."
+	// (the isolation-blocking cwd bug). SetWorkDir lives on BaseBackend
 	// (every real backend embeds it) but not the Backend interface, and a
 	// bare test fake may lack it, so apply it by capability check. Idempotent
 	// with Setup's own SetWorkDir on the non-skip path (same value).
@@ -268,26 +268,27 @@ func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Re
 }
 
 // turnPromptContent is the prompt text Execute will receive: the sent prompt,
-// prefixed with this turn's Fragments when Setup is being skipped.
+// prefixed with this turn's Fragments on LaunchFormMinimal.
 //
-// dire-petal (SILENT NO-OP, fixed at the seam): Fragments are converted and
-// delivered to the backend by Setup — the SkipSetup Execute path carries no
-// Fragments field at all. Confirmed live: operations/oneshot.go's
-// runResolvedAgent (the "none"-isolation oneshot member path) sets BOTH
-// SkipSetup:true and Fragments:[{Content: composedContext}] so the shared
-// project cwd is never touched with per-member config — and that composed
-// context was silently discarded: the member ran context-free, reported exit 0,
-// and produced plausible output with zero context delivered.
+// This used to be a SECOND DELIVERY ROUTE, and that was the defect: SkipSetup
+// bypassed Setup on a path that still had context to deliver, so the fragments
+// had to be smuggled here, and a run's context reached the engine by whichever
+// of two routes its flags happened to select. Those routes had two assemblers
+// and only one of them warned about an oversize context.
 //
-// The fragments are smuggled into the prompt itself — the one channel a
-// SkipSetup run still has — framed with the EXACT SAME envelope
-// (agent.FrameProjectContext) claude's --append-system-prompt-file delivery
-// already uses for a full-setup run, so a SkipSetup run's content reads
-// identically to what a full-setup run would have written. A caller that only
-// ever meant the bare prompt never sets Fragments in the first place.
+// On LaunchFormMinimal it is not a second route but the ONLY one, and that is a
+// declaration rather than an accident: the form states that this run has no
+// managed surfaces — no settings, no MCP, no context file — because it is a
+// bare model call. A headless distill's instructions have nowhere else to go.
+// The framing is agent.FrameProjectContext and the assembly is
+// agent.AssembleContext, the same envelope and the SAME ASSEMBLER a delivered
+// context goes through, so the bytes do not depend on the form.
+//
+// Every other form delivers its context through Setup and returns the prompt
+// untouched.
 func turnPromptContent(req *RunStart) string {
 	content := req.GetPrompt().GetContent()
-	if !req.GetOptions().GetSkipSetup() {
+	if launchFormFromProto(req.GetOptions().GetLaunchForm()) != agent.LaunchFormMinimal {
 		return content
 	}
 	if framed := agent.FrameProjectContext(agent.AssembleContext(convertFragments(req.Fragments))); framed != "" {
@@ -308,21 +309,25 @@ func turnPromptContent(req *RunStart) string {
 // initialized"). It is therefore not an error the caller can act on.
 func runTurnSetup(ctx context.Context, impl agent.Backend, req *RunStart, env map[string]string) {
 	opts := req.GetOptions()
-	if opts.GetSkipSetup() {
-		return
-	}
 	setupReq := &agent.SetupRequest{
 		WorkDir:   opts.GetWorkDir(),
 		Fragments: convertFragments(req.Fragments),
 		Env:       env,
 		Verbosity: opts.GetVerbosity(),
-		// Host-assembled config/bundle setup payload (nil when the host
-		// sent none, e.g. skip_setup). Converted from proto back to the
-		// wire-typed Go form the agent's Setup consumes.
+		// Host-assembled config/bundle setup payload (nil when the host sent
+		// none). Converted from proto back to the wire-typed Go form the
+		// agent's Setup consumes.
 		Managed: managedConfigFromProto(req.GetManagedConfig()),
-		// Resolved isolation cell, decided host-side and carried on the wire.
-		// Setup does not consume it yet (plan S4b) — plumbed for a later slice.
+		// Resolved isolation cell, decided host-side and carried on the wire:
+		// it is where the run's roots come from (a shared cell's race-safe
+		// surfaces land in the session's private scratch).
 		CellKind: cellKindFromProto(opts.GetCellKind()),
+		// The DECLARED form, resolved host-side. Setup ALWAYS runs now — there
+		// is no turn that skips it — because "deliver nothing" is one of the
+		// forms rather than a reason to not call. That is what keeps a headless
+		// run inside the machinery instead of beside it.
+		Form:  launchFormFromProto(opts.GetLaunchForm()),
+		Model: opts.GetModel(),
 	}
 	if err := impl.Setup(ctx, setupReq); err != nil {
 		clidiag.Warn("ctxloom", "backend setup failed (launching anyway): %v", err)
@@ -357,7 +362,6 @@ func turnExecuteRequest(req *RunStart, promptContent string, env map[string]stri
 		DryRun:      opts.GetDryRun(),
 		Permissions: agent.WireMode(opts.GetPermissionMode()),
 		Temperature: opts.GetTemperature(),
-		SkipSetup:   opts.GetSkipSetup(),
 		CellKind:    cellKindFromProto(opts.GetCellKind()),
 		Stdin:       stdin,
 		Resize:      resize,
@@ -403,6 +407,36 @@ func cellKindFromProto(k CellKind) agent.CellKind {
 		return agent.CellKindProcessIsolated
 	default: // CELL_KIND_UNSPECIFIED, CELL_KIND_SHARED
 		return agent.CellKindShared
+	}
+}
+
+// LaunchFormToProto maps a host-side agent.LaunchForm to the wire enum. It is
+// exported for the host callers that resolve a run's form (operations, memory,
+// cli) — the same shape as CellKindToProto and for the same reason: the mapping
+// belongs beside the decode it must stay consistent with.
+func LaunchFormToProto(f agent.LaunchForm) LaunchForm {
+	switch f {
+	case agent.LaunchFormPresent:
+		return LaunchForm_LAUNCH_FORM_PRESENT
+	case agent.LaunchFormMinimal:
+		return LaunchForm_LAUNCH_FORM_MINIMAL
+	default:
+		return LaunchForm_LAUNCH_FORM_DELIVER
+	}
+}
+
+// launchFormFromProto decodes the wire enum to the plugin-side form.
+// Unspecified decodes to Deliver: a caller that says nothing about the form
+// gets the one that writes its own surfaces, which is what every run did before
+// the form was declared at all.
+func launchFormFromProto(f LaunchForm) agent.LaunchForm {
+	switch f {
+	case LaunchForm_LAUNCH_FORM_PRESENT:
+		return agent.LaunchFormPresent
+	case LaunchForm_LAUNCH_FORM_MINIMAL:
+		return agent.LaunchFormMinimal
+	default: // LAUNCH_FORM_UNSPECIFIED, LAUNCH_FORM_DELIVER
+		return agent.LaunchFormDeliver
 	}
 }
 

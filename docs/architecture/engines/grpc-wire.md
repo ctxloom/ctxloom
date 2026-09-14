@@ -220,7 +220,7 @@ cross, only `content` is ever read downstream
 ### `RunOptions` — 11 fields (`llm.proto:518-542`)
 
 `work_dir=1, permission_mode=2, mode=3, env=4, dry_run=5, verbosity=6, model=7,
-temperature=8, max_tokens=9, skip_setup=10, cell_kind=11`. Decoded wholesale at
+temperature=8, max_tokens=9, cell_kind=11, launch_form=12` (10 is reserved — the retired `skip_setup`). Decoded wholesale at
 `server.go:157-160` and `:233-247`.
 
 - `max_tokens` is **dead end to end** — zero hits outside the generated file, and no mirror field on the Go side.
@@ -249,7 +249,7 @@ Values **added or defaulted on decode**, none of which the caller sent:
 - **`CELL_KIND_UNSPECIFIED` → `agent.CellKindShared`** (`server.go:314-319` `default:` arm) — the *least*-isolated cell. Pinned by test.
 - Empty `permission_mode` → `PermissionDefault` via `agent.WireMode` (`server.go:241`).
 - **ONESHOT + a posture that is not `SafeHeadless()` → `PermissionBypass`** (`server.go:253-255`) — the headless floor, so a oneshot cannot hang on an engine approval prompt.
-- `SkipSetup` + non-empty fragments → fragments are **smuggled into the prompt**, framed with `agent.FrameProjectContext(agent.AssembleContext(...))` (`server.go:187-192`). This is how context reaches a run whose `Setup` never executes.
+- `LAUNCH_FORM_MINIMAL` + non-empty fragments → fragments are **carried in the prompt**, framed with `agent.FrameProjectContext(agent.AssembleContext(...))` (`turnPromptContent`). On that form it is not a second route but the run's ONLY declared channel: the form states there are no managed surfaces. Every other form delivers context through `Setup` and leaves the prompt untouched.
 - `ExecutionMode` is converted by **raw numeric cast in both directions** (`server.go:49`, `server.go:236`) — no mapping function and no pinning test, unlike its `CellKind` neighbour.
 
 ## Invariants

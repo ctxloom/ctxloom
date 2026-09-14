@@ -140,6 +140,10 @@ type fakeBackend struct {
 	// prove cell_kind flows onto BOTH.
 	capturedSetupCell   agent.CellKind
 	capturedExecuteCell agent.CellKind
+	// capturedSetupForm is the LaunchForm the server decoded onto the
+	// SetupRequest — the whole of what a turn tells the backend about where its
+	// surfaces go.
+	capturedSetupForm agent.LaunchForm
 }
 
 func (f *fakeBackend) Name() string                          { return f.name }
@@ -150,6 +154,7 @@ func (f *fakeBackend) History() agent.SessionHistory         { return f.history 
 func (f *fakeBackend) Setup(ctx context.Context, req *agent.SetupRequest) error {
 	f.setupCalled = true
 	f.capturedSetupCell = req.CellKind
+	f.capturedSetupForm = req.Form
 	return f.setupErr
 }
 
@@ -271,31 +276,39 @@ func TestGRPCServer_Run_HeadlessFloorsWouldBlockPosture(t *testing.T) {
 	}
 }
 
-func TestGRPCServer_Run_SkipSetup(t *testing.T) {
+// TestGRPCServer_Run_MinimalFormStillCallsSetup pins the move that removed the
+// bypass: a headless run declares LaunchFormMinimal and Setup is STILL called,
+// carrying that form. "Deliver nothing" is one of the forms, not a reason to
+// skip the machinery — which is what keeps the minimal posture something Setup
+// RESOLVES rather than something every argv site re-derives from a flag.
+func TestGRPCServer_Run_MinimalFormStillCallsSetup(t *testing.T) {
 	backend := &fakeBackend{executeResult: &agent.ExecuteResult{ExitCode: 0}}
 	srv := &GRPCServer{Impl: backend}
 	stream := newFakeRunServer()
 
 	stream.recv = []*RunInput{runStartInput(&RunStart{
-		Options: &RunOptions{SkipSetup: true},
+		Options: &RunOptions{LaunchForm: LaunchForm_LAUNCH_FORM_MINIMAL},
 	})}
 	err := srv.Run(stream)
 	require.NoError(t, err)
-	assert.False(t, backend.setupCalled, "SkipSetup must skip Setup")
+	assert.True(t, backend.setupCalled, "Setup runs on every form — there is no turn that skips it")
+	assert.Equal(t, agent.LaunchFormMinimal, backend.capturedSetupForm,
+		"the declared form must reach Setup; it is the only thing that tells the backend to deliver nothing")
 	assert.True(t, backend.cleanupCalled, "Cleanup runs regardless")
 }
 
-// TestGRPCServer_Run_SkipSetupDeliversFragmentsViaPrompt is the regression for
-// dire-petal (SILENT NO-OP): the oneshot "none"-isolation member path
-// (operations/oneshot.go's runResolvedAgent) sets BOTH SkipSetup:true and
-// Fragments:[{Content: composedContext}] — SkipSetup skips Setup, and Setup was
-// the ONLY path that ever converted+delivered req.Fragments to the backend, so
-// the composed context used to be silently discarded: the member ran
-// context-free, reported exit 0, and produced plausible-looking output with
-// zero context delivered. A sentinel string planted in Fragments (something the
-// backend could not otherwise produce) must reach Execute's Prompt — the one
-// channel a SkipSetup run still has — proving delivery, not just non-crash.
-func TestGRPCServer_Run_SkipSetupDeliversFragmentsViaPrompt(t *testing.T) {
+// TestGRPCServer_Run_MinimalFormDeliversFragmentsViaPrompt is the regression
+// for dire-petal (SILENT NO-OP): a run that delivers no surfaces still has
+// Fragments, and Setup used to be the ONLY path that ever converted+delivered
+// them, so the composed context was silently discarded — the run reported exit
+// 0 and produced plausible-looking output with zero context delivered.
+//
+// On LaunchFormMinimal the prompt is not a smuggling route but the run's ONLY
+// declared channel, because the form states there are no managed surfaces. A
+// sentinel planted in Fragments (something the backend could not otherwise
+// produce) must reach Execute's Prompt, proving delivery rather than
+// non-crash.
+func TestGRPCServer_Run_MinimalFormDeliversFragmentsViaPrompt(t *testing.T) {
 	const sentinel = "CTXLOOM-DIRE-PETAL-SENTINEL-7f3ac1"
 	backend := &fakeBackend{executeResult: &agent.ExecuteResult{ExitCode: 0}}
 	srv := &GRPCServer{Impl: backend}
@@ -304,15 +317,35 @@ func TestGRPCServer_Run_SkipSetupDeliversFragmentsViaPrompt(t *testing.T) {
 	stream.recv = []*RunInput{runStartInput(&RunStart{
 		Prompt:    &Fragment{Content: "do the task"},
 		Fragments: []*Fragment{{Content: sentinel}},
-		Options:   &RunOptions{SkipSetup: true},
+		Options:   &RunOptions{LaunchForm: LaunchForm_LAUNCH_FORM_MINIMAL},
 	})}
 	err := srv.Run(stream)
 	require.NoError(t, err)
-	assert.False(t, backend.setupCalled, "SkipSetup must still skip Setup — this is not a route back to the full setup path")
 	assert.Contains(t, backend.capturedPrompt, sentinel,
-		"a SkipSetup run's Fragments must reach the backend somehow (smuggled into the prompt) instead of being silently dropped")
+		"a minimal run's Fragments must reach the backend through its one declared channel instead of being silently dropped")
 	assert.Contains(t, backend.capturedPrompt, "do the task",
-		"smuggling the fragment content must not clobber the original task prompt")
+		"carrying the fragment content must not clobber the original task prompt")
+}
+
+// TestGRPCServer_Run_DeliveringFormLeavesThePromptAlone is the other half: on
+// any form that HAS surfaces, the context goes through Setup and the prompt is
+// returned untouched. This is what makes the prompt channel a property of the
+// minimal form rather than a second delivery route available to everyone.
+func TestGRPCServer_Run_DeliveringFormLeavesThePromptAlone(t *testing.T) {
+	const sentinel = "CTXLOOM-DIRE-PETAL-SENTINEL-7f3ac1"
+	backend := &fakeBackend{executeResult: &agent.ExecuteResult{ExitCode: 0}}
+	srv := &GRPCServer{Impl: backend}
+	stream := newFakeRunServer()
+
+	stream.recv = []*RunInput{runStartInput(&RunStart{
+		Prompt:    &Fragment{Content: "do the task"},
+		Fragments: []*Fragment{{Content: sentinel}},
+		Options:   &RunOptions{LaunchForm: LaunchForm_LAUNCH_FORM_DELIVER},
+	})}
+	require.NoError(t, srv.Run(stream))
+	assert.True(t, backend.setupCalled, "a delivering form reaches Setup, which is where its fragments go")
+	assert.Equal(t, "do the task", backend.capturedPrompt,
+		"a delivering form's context travels as a delivered surface, never also in the prompt")
 }
 
 func TestGRPCServer_Run_ExecuteErrorPropagates(t *testing.T) {
@@ -379,7 +412,7 @@ func TestGRPCServer_Run_ResizeStillFlowsAfterStdinPipeCloses(t *testing.T) {
 	stream := newFakeRunServer()
 
 	stream.recv = []*RunInput{
-		runStartInput(&RunStart{Options: &RunOptions{SkipSetup: true}}),
+		runStartInput(&RunStart{Options: &RunOptions{LaunchForm: LaunchForm_LAUNCH_FORM_MINIMAL}}),
 		{Input: &RunInput_Stdin{Stdin: []byte("a")}}, // consumed by Execute, which then closes the pipe
 		{Input: &RunInput_Stdin{Stdin: []byte("b")}}, // hits the closed pipe → ErrClosedPipe, not a parked Write
 		{Input: &RunInput_Resize{Resize: &WindowSize{Rows: 50, Cols: 120}}},
@@ -433,25 +466,26 @@ func (b *launchCapturingBackend) Execute(ctx context.Context, req *agent.Execute
 	return &agent.ExecuteResult{ExitCode: code}, err
 }
 
-// TestGRPCServer_Run_SkipSetupHonorsWorkDir is the regression for the SkipSetup
-// cwd gap: on the oneshot SkipSetup path Setup is skipped, so its
-// SetWorkDir never runs; the passed WorkDir must still reach the child (the
-// engine's cwd) instead of defaulting to the plugin's inherited "." — otherwise
-// per-agent isolation can never set a workspace. Before the fix the captured
+// TestGRPCServer_Run_MinimalFormHonorsWorkDir is the regression for the cwd
+// gap: a minimal run resolves its posture and returns without reaching the
+// delivery machinery, so a backend whose SetWorkDir rides delivery never sees
+// the cwd. The passed WorkDir must still reach the child (the engine's cwd)
+// instead of defaulting to the plugin's inherited "." — otherwise per-agent
+// isolation can never set a workspace. Before the fix the captured
 // spec.WorkDir was ".".
-func TestGRPCServer_Run_SkipSetupHonorsWorkDir(t *testing.T) {
+func TestGRPCServer_Run_MinimalFormHonorsWorkDir(t *testing.T) {
 	backend := newLaunchCapturingBackend()
 	srv := &GRPCServer{Impl: backend}
 	stream := newFakeRunServer()
 
 	stream.recv = []*RunInput{runStartInput(&RunStart{
 		Prompt:  &Fragment{Content: "hi"},
-		Options: &RunOptions{WorkDir: "/tmp/agent-workspace", Mode: ExecutionMode_ONESHOT, SkipSetup: true},
+		Options: &RunOptions{WorkDir: "/tmp/agent-workspace", Mode: ExecutionMode_ONESHOT, LaunchForm: LaunchForm_LAUNCH_FORM_MINIMAL},
 	})}
 	err := srv.Run(stream)
 	require.NoError(t, err)
 	assert.Equal(t, "/tmp/agent-workspace", backend.captured.WorkDir,
-		"SkipSetup run must exec in the passed WorkDir, not the plugin's inherited cwd")
+		"a minimal run must exec in the passed WorkDir, not the plugin's inherited cwd")
 }
 
 // Silence unused import in case bytes goes unused after a future edit.

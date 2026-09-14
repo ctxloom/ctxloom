@@ -66,8 +66,8 @@ type RunOneshotResult struct {
 // profile's declared llm → primary role), and runs the backend once in ONESHOT
 // mode with stdout captured. It mirrors memory/compactor's distillation run: the
 // client factory abstracts backend construction, the model rides in RunOptions,
-// and SkipSetup keeps startup minimal (no hooks/MCP/statusline) — the profile's
-// assembled context is the only specialization.
+// and the member's declared launch form decides where its config lands — the
+// profile's assembled context is the only specialization.
 func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) (*RunOneshotResult, error) {
 	ctxResult, err := AssembleContext(ctx, cfg, AssembleContextRequest{
 		Profile:  req.Profile,
@@ -468,12 +468,6 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	factory := req.Factory
 	workDir := req.WorkDir
 	var workspaceEnv map[string]string
-	// A none member (or the injected-Factory test path) keeps the pre-P3 delivery:
-	// SkipSetup:true, no managed write, context as the lead fragment. An ISOLATED
-	// member flips to SkipSetup:false + a per-member ManagedConfig written into its
-	// isolated cwd (set below).
-	skipSetup := true
-	var managed *pb.ManagedConfig
 	// Resolved isolation cell stamped onto RunOptions below so the plugin knows
 	// which cell it runs in. Defaults to Shared: the injected-Factory test path
 	// (and a none member) share the live cwd; the isolation branch overwrites it
@@ -541,25 +535,40 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		factory = isolation.FactoryForWorkspace(policy, ws, nil)
 		// Stamp the resolved cell (none→Shared, worktree→DirectoryIsolated,
 		// container→ProcessIsolated) — set unconditionally from the actual policy,
-		// not gated on Isolated, so a none member is explicitly Shared too. This
-		// complements the SkipSetup-as-proxy below (which S4b will supersede).
+		// not gated on Isolated, so a none member is explicitly Shared too. It is
+		// what selects the member's launch form below.
 		cellKind = CellKindForPolicy(policy)
 
-		// P3 write-enable: an ISOLATED member gets per-member NATIVE config written
-		// into its isolated cwd (the point of the worktree, plan §2b). Assemble it
-		// exactly as the top-level run does (backends.AssembleManagedConfig with the
-		// SAME workDir/gate/profiles) so the plugin's Setup materializes the
-		// engine's config surfaces into ws.Dir() and delivers context ONCE
-		// from the lead fragment — mirroring run.go's SkipSetup:false delivery. A
-		// none member (Isolated == false, incl. a worktree that degraded to none)
-		// shares the project cwd, so it stays on the SkipSetup:true / lead-fragment
-		// path: writing per-member config there would clobber the one shared surface.
-		if isolation.Isolated(policy) {
-			skipSetup = false
-			managed = pb.ManagedConfigToProto(
-				backends.AssembleManagedConfig(req.Backend, workDir, req.Gate, req.Profiles))
-		}
 	}
+
+	// The member's managed payload, assembled exactly as the top-level run does
+	// (backends.AssembleManagedConfig with the SAME gate/profiles, against the
+	// workDir the member actually landed in) — for EVERY cell, and on the
+	// injected-Factory seam too: that seam decides where the plugin is spawned,
+	// never whether the member has config. It is what the member's Setup
+	// resolves its surfaces from, and the shared form needs it just as much as
+	// the isolated one — a member that PRESENTS the session's surfaces still has
+	// to resolve which surfaces those are before it can name them.
+	managed := pb.ManagedConfigToProto(
+		backends.AssembleManagedConfig(req.Backend, workDir, req.Gate, req.Profiles))
+
+	// The member's DECLARED form, selected from the cell it actually landed in
+	// and resolved HERE, once. What differs between cells is the form, not
+	// whether the member has config:
+	//
+	//	ISOLATED  the member has a private cwd, so its own native config is
+	//	          written into it — the point of the worktree (plan §2b).
+	//	SHARED    the member sits in the project cwd alongside the session, so it
+	//	          NAMES the surfaces the session already delivered and writes
+	//	          none. Writing per-member config there would clobber the one
+	//	          shared surface, which is exactly why this used to bypass
+	//	          delivery altogether — and bypassing it is what made the
+	//	          member's context travel by a second route, silently discarded
+	//	          when that route was not wired up (dire-petal).
+	//
+	// Everything downstream — the plugin's Setup, the engine's argv — receives
+	// this decision already made, never the inputs it was made from.
+	form := agent.LaunchFormForCell(cellKind)
 
 	env := workspaceEnv
 	if len(req.ExtraEnv) > 0 {
@@ -579,7 +588,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 			Mode:           pb.ExecutionMode_ONESHOT,
 			Model:          req.Model,
 			Verbosity:      agent.WireVerbosity(req.Verbosity),
-			SkipSetup:      skipSetup,
+			LaunchForm:     pb.LaunchFormToProto(form),
 			CellKind:       pb.CellKindToProto(cellKind),
 		},
 		ManagedConfig: managed,

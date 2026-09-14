@@ -128,6 +128,12 @@ func (f *parityFiller) fill(v reflect.Value, path string, depth int) {
 		// Enum with a documented default; pick a non-default member.
 		v.Set(reflect.ValueOf(agent.CellKindDirectoryIsolated))
 		return
+	case reflect.TypeOf(agent.LaunchForm(0)):
+		// Enum with a documented default (Deliver); pick a non-default member,
+		// so a converter that dropped the field on the floor and returned the
+		// default would still fail here.
+		v.Set(reflect.ValueOf(agent.LaunchFormPresent))
+		return
 	case reflect.TypeOf(os.FileMode(0)):
 		// The exec bit is load-bearing for skill packages (scripts/).
 		v.Set(reflect.ValueOf(os.FileMode(0o755)))
@@ -337,8 +343,9 @@ func TestArch_ProtoConverters_MirrorEveryStructField(t *testing.T) {
 	checkParity(t, hits, "agent.Session", sessionToProto, sessionFromProto)
 	checkParity(t, hits, "agent.SessionMeta", sessionMetaToProto, sessionMetaFromProto)
 
-	// --- server.go: the isolation-cell enum ---
+	// --- server.go: the isolation-cell enum and the launch-form enum ---
 	checkParity(t, hits, "agent.CellKind", CellKindToProto, cellKindFromProto)
+	checkParity(t, hits, "agent.LaunchForm", LaunchFormToProto, launchFormFromProto)
 
 	// --- chat.go: the structured-chat transport ---
 	checkParity(t, hits, "agent.ChatRequest", chatStartToProto, chatStartFromProtoParity(t))

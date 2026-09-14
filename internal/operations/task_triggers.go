@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/git"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	tasksops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/triggers"
@@ -461,7 +462,7 @@ func runTriageWithRetry(ctx context.Context, factory pb.ClientFactory, backendNa
 }
 
 // runTriageCall makes one batch-triage LLM call: a fresh plugin client, run
-// once in ONESHOT/SkipSetup mode with the whole prompt as the lead fragment.
+// once in ONESHOT on LaunchFormMinimal, with the whole prompt as the lead fragment.
 // This mirrors internal/memory/compactor.go's runDistill — the established
 // prompt-in/text-out seam for a headless, minimal-mode LLM call — rather than
 // inventing a new transport.
@@ -483,8 +484,10 @@ func runTriageCall(ctx context.Context, factory pb.ClientFactory, backendName, l
 			// backend whose credentials live in llm.configs.<label>.env runs
 			// unconfigured, which does not error: the model just answers
 			// badly, and every trigger degrades to cannot-determine.
-			Env:       env,
-			SkipSetup: true, // headless triage: no hooks/commands/context writes
+			Env: env,
+			// Headless triage declares no managed surfaces: no hooks, no
+			// commands, no context writes.
+			LaunchForm: pb.LaunchFormToProto(agent.LaunchFormMinimal),
 		},
 	}
 	var stdout, stderr bytes.Buffer

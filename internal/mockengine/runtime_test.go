@@ -54,7 +54,7 @@ func runOneshot(t *testing.T, cwd string, vendorArgv []string, prompt string, en
 
 // envelope mirrors parseClaudeJSONResult's read (internal/claude): the driver
 // picks the model with the most outputTokens and returns result. This test
-// asserts the mock emits exactly what that decode expects under SkipSetup.
+// asserts the mock emits exactly what that decode expects on the minimal form.
 type envelope struct {
 	Result     string `json:"result"`
 	ModelUsage map[string]struct {
@@ -63,12 +63,12 @@ type envelope struct {
 	} `json:"modelUsage"`
 }
 
-// TestRuntime_OneshotJSONEnvelopeUnderSkipSetup proves that when the argv
-// carries --output-format json (the SkipSetup signal the driver keys its json
+// TestRuntime_OneshotJSONEnvelopeOnTheMinimalForm proves that when the argv
+// carries --output-format json (the signal the driver keys its json
 // decode on), stdout is the {result, modelUsage} envelope, attributed to the
 // --model value — not plain text, which would make the driver's decode fail on
 // a run it believed succeeded.
-func TestRuntime_OneshotJSONEnvelopeUnderSkipSetup(t *testing.T) {
+func TestRuntime_OneshotJSONEnvelopeOnTheMinimalForm(t *testing.T) {
 	cwd := t.TempDir()
 	argv := []string{"--print", "--output-format", "json", "--model", "claude-sonnet-4-6"}
 	stdout, _, code := runOneshot(t, cwd, argv, "review this diff", nil)

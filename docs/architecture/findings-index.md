@@ -123,8 +123,9 @@ Fragment.Installation deleted, the five wire-backed siblings escalated),
 1 REFUTED (U102-F05 — SettingsStatus.Wired is a conformance-suite contract
 predicate, not dead code, and deleting it is net-POSITIVE LOC), 3 ESCALATED
 (U055-F05 and U102-F07 are wire/interface-backed; U100-F13's two assemblers
-cannot be collapsed without changing the bytes the SkipSetup path delivers
-into a live session). 3 of the 13 RESOLVED (U029-F02, U032-F07, U055-F04)
+could not be collapsed without changing the bytes the bypass path delivered
+into a live session — since RESOLVED by `footless-swimming`, which deleted the
+bypass itself: there is one assembler and the parity test is un-skipped). 3 of the 13 RESOLVED (U029-F02, U032-F07, U055-F04)
 were ALREADY FIXED at `758c200e`, which deleted the whole ContentCommands
 wiring but never named their IDs in a subject — verified in code, not from
 the commit message. Three rows turned out to hide LIVE defects the census had

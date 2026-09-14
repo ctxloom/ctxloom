@@ -202,6 +202,7 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 	}
 	noteHidden(errw, r.HiddenCompleted, r.HiddenDeferred, r.Filtered)
 	noteOmittedByLimit(errw, r.OmittedByLimit)
+	noteProjectNewlyMinted(errw, r.ProjectID, r.ProjectNewlyMinted)
 
 	if r.Global {
 		return renderGlobalListing(out, r, opts)
@@ -453,6 +454,21 @@ func noteOmittedByLimit(w io.Writer, omitted int) {
 		return
 	}
 	fmt.Fprintf(w, "taskloom: %d more task(s) omitted by --limit — raise or drop --limit to see them (status/summary counts are unaffected)\n", omitted)
+}
+
+// noteProjectNewlyMinted prints when this call's own live project-id
+// resolution just minted projectID moments ago (operations.TaskListResult.
+// ProjectNewlyMinted) — see that field's doc. An empty result immediately
+// following this notice may mean "genuinely no tasks yet" OR "this
+// directory's real task history lives under a project-id this environment
+// cannot see" (e.g. a container cell whose ~/.ctxloom isn't the one that
+// recorded it) — those look identical from here, so this says what is known
+// (the id did not exist a moment ago) rather than staying silent.
+func noteProjectNewlyMinted(w io.Writer, projectID string, minted bool) {
+	if !minted {
+		return
+	}
+	fmt.Fprintf(w, "taskloom: project %s did not exist until this call minted it just now — if this directory should already have task history, this environment's task store may not be the one that recorded it, rather than genuinely having none\n", projectID)
 }
 
 var (

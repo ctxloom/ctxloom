@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -250,6 +249,7 @@ func TestSetup_EmptyDeclaration_MergesNoFiles(t *testing.T) {
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   t.TempDir(),
+		Env:       map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		Fragments: []*Fragment{{Content: "project rules"}},
 		Managed:   &ManagedConfig{},
 	}))
@@ -283,13 +283,38 @@ func TestSetup_NoDeclaration_ErrorsRatherThanPanicking(t *testing.T) {
 
 // TestSharedScratchDir pins where a SharedCell's race-safe surfaces land: a
 // valid harp resolves to that harp's ephemeral directory, and an empty harp
-// falls back to the OS temp dir.
+// refuses loudly (ErrSharedScratchNoHarp) rather than silently falling back to
+// the OS temp dir — see ErrSharedScratchNoHarp's doc (taskloom urgent-staunch).
 func TestSharedScratchDir(t *testing.T) {
 	want, err := paths.HarpEphemeralDir("perky-same-chevy")
 	require.NoError(t, err)
-	assert.Equal(t, want, sharedScratchDir("perky-same-chevy"))
+	got, err := sharedScratchDir("perky-same-chevy")
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
 
-	assert.Equal(t, os.TempDir(), sharedScratchDir(""))
+	_, err = sharedScratchDir("")
+	require.Error(t, err, "an empty harp is a programming error, not a case to absorb into a shared temp dir")
+	assert.ErrorIs(t, err, ErrSharedScratchNoHarp)
+}
+
+// TestSetup_SharedCell_EmptyHarpRefusesLoudly proves the refusal reaches
+// Setup itself: a SharedCell run whose Env carries no CTXLOOM_SESSION_HARP
+// must fail Setup with ErrSharedScratchNoHarp rather than silently landing
+// its race-safe surfaces in the OS temp dir.
+func TestSetup_SharedCell_EmptyHarpRefusesLoudly(t *testing.T) {
+	var order []string
+	set := &recordSet{order: &order}
+	b := newCellBackend(set)
+
+	err := b.Setup(context.Background(), &SetupRequest{
+		WorkDir:   t.TempDir(),
+		Fragments: []*Fragment{{Content: "project rules"}},
+		CellKind:  CellKindShared,
+		Managed:   &ManagedConfig{},
+	})
+	require.Error(t, err, "a SharedCell run with no harp in Env must refuse rather than fall back to the OS temp dir")
+	assert.ErrorIs(t, err, ErrSharedScratchNoHarp)
+	assert.Empty(t, b.delivered, "no surface may be delivered once the run's scratch root could not be resolved")
 }
 
 // ---- cell path: shared cell (claude-like, RawContext=false) -----------------
@@ -481,6 +506,7 @@ func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
 	work := t.TempDir()
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   work,
+		Env:       map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		Fragments: []*Fragment{{Content: "project rules"}},
 		CellKind:  CellKindShared,
 		Managed:   &ManagedConfig{},
@@ -520,6 +546,7 @@ func TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface(t *testing.T) {
 
 	err := b.Setup(context.Background(), &SetupRequest{
 		WorkDir:  t.TempDir(),
+		Env:      map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		CellKind: CellKindShared,
 		Managed:  &ManagedConfig{},
 	})
@@ -547,6 +574,7 @@ func TestSetup_SharedCell_ContextFailureWarningNamesCause(t *testing.T) {
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   t.TempDir(),
+		Env:       map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		Fragments: []*Fragment{{Content: "project rules"}},
 		CellKind:  CellKindShared,
 		Managed:   &ManagedConfig{},
@@ -591,6 +619,7 @@ func TestCleanup_RunsDeliveredHandlesLIFO(t *testing.T) {
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   t.TempDir(),
+		Env:       map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		Fragments: []*Fragment{{Content: "rules"}},
 		CellKind:  CellKindShared,
 		Managed:   &ManagedConfig{},
@@ -683,6 +712,7 @@ func TestSetup_SurfaceContext_NoFragmentsStillSetsUp(t *testing.T) {
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:  t.TempDir(),
+		Env:      map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		Managed:  &ManagedConfig{},
 		CellKind: CellKindShared,
 	}))

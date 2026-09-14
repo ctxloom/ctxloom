@@ -58,11 +58,13 @@ type Script struct {
 
 // Pipeline is one or more simple commands joined by "|".
 //
-// Background/Negated were dropped: frontend/shell was the only
-// writer and, past a single test-only reader inside that same package, they
-// had no reader anywhere in the repo. Match.matches only ever consulted
-// Commands (rules match on Argv), so the two flags never influenced a
-// decision — they were pure decoration with a real lowering cost.
+// Negated was dropped: frontend/shell was the only writer and, past a single
+// test-only reader inside that same package, it had no reader anywhere in the
+// repo. Match.matches only ever consulted Commands (rules match on Argv), so
+// the flag never influenced a decision — it was pure decoration with a real
+// lowering cost. Background was dropped for the same reason and has since
+// been re-added, denormalized onto SimpleCommand rather than restored here —
+// see SimpleCommand.Background for why and for its real consumer.
 type Pipeline struct {
 	Connector Connector
 	Commands  []SimpleCommand
@@ -82,6 +84,18 @@ type SimpleCommand struct {
 	Argv        []string     // program + args, best-effort literal resolution
 	Redirects   []Redirect
 	Nested      []*Script // scripts embedded via $(...), `...`, <(...), ( ... )
+	// Background reports whether this command runs detached from the
+	// invoking session because its statement ended in a trailing `&` (POSIX
+	// job control). It lives here rather than on Pipeline — where an
+	// earlier, unused version of this signal briefly lived before being
+	// dropped — because Script.Walk (what rules.Evaluate matches against)
+	// hands the matcher a SimpleCommand, never the owning Pipeline; putting
+	// the flag on Pipeline again would need a Walk signature change to reach
+	// it. The frontend sets it on every command belonging to a backgrounded
+	// statement (a bare call, both sides of a pipe, or every command inside a
+	// backgrounded `&&`/`||`/subshell chain), since the whole job is detached
+	// as one unit. Its consumer is rules.Match.Backgrounded.
+	Background bool
 }
 
 // Program returns argv[0], or "" if the command has no words.

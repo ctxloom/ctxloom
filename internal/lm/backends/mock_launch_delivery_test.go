@@ -34,6 +34,7 @@ import (
 func launchSetupRequest(workDir string, fragments []*agent.Fragment, managed *agent.ManagedConfig) *agent.SetupRequest {
 	return &agent.SetupRequest{
 		WorkDir:   workDir,
+		Env:       map[string]string{agent.SessionHarpEnv: "perky-same-chevy"},
 		Fragments: fragments,
 		Managed:   managed,
 		CellKind:  agent.CellKindShared,

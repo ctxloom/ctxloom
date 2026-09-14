@@ -247,8 +247,14 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	// gate does not cover it.
 	b := claude.NewClaudeCode()
 	if err := b.Setup(context.Background(), &agent.SetupRequest{
-		WorkDir:   workDir,
-		Env:       map[string]string{claude.ConfigDirEnv: instances["claude-code"]},
+		WorkDir: workDir,
+		Env: map[string]string{
+			claude.ConfigDirEnv: instances["claude-code"],
+			// CellKindShared's Setup now refuses loudly without a resolvable
+			// harp (ErrSharedScratchNoHarp) instead of silently falling back
+			// to the OS temp dir — see taskloom urgent-staunch.
+			agent.SessionHarpEnv: "perky-same-chevy",
+		},
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		CellKind:  agent.CellKindShared,
 		Managed:   launchManaged(),

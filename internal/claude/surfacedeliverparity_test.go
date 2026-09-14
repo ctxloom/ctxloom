@@ -30,10 +30,11 @@ import (
 // Path for the launch flag.
 func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 	const (
-		wellKnownDir = "/well-known"
-		isolatedDir  = "/isolated"
+		wellKnownDir  = "/well-known"
+		isolatedDir   = "/isolated"
+		engineHomeDir = "/engine-home"
 	)
-	roots := runRoots(wellKnownDir, isolatedDir)
+	roots := runRoots(wellKnownDir, isolatedDir, engineHomeDir)
 
 	build := func(t *testing.T, fs afero.Fs) builtSurfaces {
 		t.Helper()
@@ -43,25 +44,28 @@ func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 	}
 
 	cases := []struct {
-		name     string
-		deliver  func(builtSurfaces) (agent.Delivered, error)
-		isolated func(builtSurfaces) (agent.Delivered, error)
-		path     func(builtSurfaces) string
-		relPath  string
+		name       string
+		deliver    func(builtSurfaces) (agent.Delivered, error)
+		isolated   func(builtSurfaces) (agent.Delivered, error)
+		path       func(builtSurfaces) string
+		privateDir string // the root the private write lands under
+		relPath    string
 	}{
 		{
-			name:     "mcp",
-			deliver:  func(s builtSurfaces) (agent.Delivered, error) { return s.MCPUnsafe.Deliver(roots) },
-			isolated: func(s builtSurfaces) (agent.Delivered, error) { return s.MCP.Deliver(roots) },
-			path:     func(s builtSurfaces) string { return s.MCP.Path() },
-			relPath:  ".mcp.json",
+			name:       "mcp",
+			deliver:    func(s builtSurfaces) (agent.Delivered, error) { return s.MCPUnsafe.Deliver(roots) },
+			isolated:   func(s builtSurfaces) (agent.Delivered, error) { return s.MCP.Deliver(roots) },
+			path:       func(s builtSurfaces) string { return s.MCP.Path() },
+			privateDir: engineHomeDir,
+			relPath:    ".mcp.json",
 		},
 		{
-			name:     "settings",
-			deliver:  func(s builtSurfaces) (agent.Delivered, error) { return s.Settings.Deliver(roots) },
-			isolated: func(s builtSurfaces) (agent.Delivered, error) { return s.Settings.DeliverIsolated(roots) },
-			path:     func(s builtSurfaces) string { return s.Settings.Path() },
-			relPath:  filepath.Join(".claude", "settings.json"),
+			name:       "settings",
+			deliver:    func(s builtSurfaces) (agent.Delivered, error) { return s.Settings.Deliver(roots) },
+			isolated:   func(s builtSurfaces) (agent.Delivered, error) { return s.Settings.DeliverIsolated(roots) },
+			path:       func(s builtSurfaces) string { return s.Settings.Path() },
+			privateDir: isolatedDir,
+			relPath:    filepath.Join(".claude", "settings.json"),
 		},
 	}
 
@@ -84,16 +88,16 @@ func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 
 			wellKnown, err := afero.ReadFile(fs, filepath.Join(wellKnownDir, tc.relPath))
 			require.NoError(t, err, "the well-known write must land at %s", tc.relPath)
-			isolated, err := afero.ReadFile(fs, filepath.Join(isolatedDir, tc.relPath))
-			require.NoError(t, err, "the isolated write must land at %s", tc.relPath)
+			isolated, err := afero.ReadFile(fs, filepath.Join(tc.privateDir, tc.relPath))
+			require.NoError(t, err, "the private write must land at %s beneath %s", tc.relPath, tc.privateDir)
 
 			require.NotEmpty(t, wellKnown, "a zero-byte comparison proves nothing")
 			assert.Equal(t, string(wellKnown), string(isolated),
 				"%s: the two delivery bodies must apply the SAME recipe — differing bytes mean one body "+
 					"gained a step the other did not", tc.name)
 
-			assert.Equal(t, filepath.Join(isolatedDir, tc.relPath), tc.path(s),
-				"DeliverIsolated must record the out-of-cwd path for the launch flag")
+			assert.Equal(t, filepath.Join(tc.privateDir, tc.relPath), tc.path(s),
+				"the private write must record its path for the launch flag")
 		})
 	}
 }

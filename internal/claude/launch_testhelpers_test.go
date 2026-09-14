@@ -37,3 +37,13 @@ func argValue(args []string, flag string) string {
 	}
 	return ""
 }
+
+// sessionEnv is the run env a Setup reads its roots from: the session harp,
+// from which the shared-cell Scratch derives, and the relocated engine home
+// on claude's declared home var — the PRIVATE root the system-prompt and
+// default mcp approaches land under. A run whose env carries no home advises
+// no private root, and those approaches refuse rather than fall back; a test
+// that wants that refusal builds its env without the var.
+func sessionEnv(harp, home string) map[string]string {
+	return map[string]string{sessionHarpEnv: harp, ConfigDirEnv: home}
+}

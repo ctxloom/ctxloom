@@ -30,7 +30,7 @@ func TestDeclared_Claude_CarriesMCPCommandOverride(t *testing.T) {
 	const override = "/usr/local/bin/ctxloom"
 
 	fs := afero.NewMemMapFs()
-	dir := "/cell"
+	dir, home := "/cell", "/engine-home"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	resolved, err := agent.Select(Declared("claude-code")).WithEverything().Build(agent.SurfaceInputs{
@@ -41,12 +41,12 @@ func TestDeclared_Claude_CarriesMCPCommandOverride(t *testing.T) {
 	}, fs)
 	require.NoError(t, err)
 	for _, kd := range resolved.Deliveries() {
-		_, err := kd.Deliver(isolatedCellRoots(dir))
+		_, err := kd.Deliver(isolatedCellRoots(dir, home))
 		require.NoError(t, err, "%s failed to deliver", kd.Kind())
 	}
 
-	raw, err := afero.ReadFile(fs, filepath.Join(dir, ".mcp.json"))
-	require.NoError(t, err, "claude's MCP surface must have written .mcp.json")
+	raw, err := afero.ReadFile(fs, filepath.Join(home, ".mcp.json"))
+	require.NoError(t, err, "claude's default MCP surface must have written the private .mcp.json beneath the engine home")
 
 	var doc struct {
 		Servers map[string]struct {

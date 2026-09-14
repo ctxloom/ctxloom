@@ -53,8 +53,8 @@ type placement interface {
 // dirPlacement is a trivial placement whose Dir() returns a fixed directory.
 // It adapts a root read from the advised Start into the placement the reused
 // writers construct against — the project root for the well-known Delivery,
-// the Scratch root for the out-of-cwd forms; both arrive at call time, never
-// at construction.
+// the private or Scratch root for the out-of-cwd forms; all arrive at call
+// time, never at construction.
 type dirPlacement struct{ dir string }
 
 // Dir returns the fixed directory this placement wraps.
@@ -67,21 +67,20 @@ func (p dirPlacement) Dir() string { return p.dir }
 // choice is made once and cannot drift between two surfaces that are supposed
 // to obey one rule.
 //
-// It is Scratch TODAY, and that is a placement decision with a known cost, not
-// the final one. The ruled destination is the run-specific RELOCATED ENGINE
-// HOME — configuration is a property of the run, mounted into the container
-// and inited against — but only a run whose binding advises that home resolves
-// EngineHome at all: a container cell and a default shared `ctxloom run`
-// currently advise none, so rooting here at EngineHome would turn those into
-// refusals rather than deliveries. Scratch is advised on all three cell kinds,
-// so it is the root that keeps this decision honest until every cell has a
-// relocated home; when one does, this function is the only thing that changes.
+// It is the run's RELOCATED ENGINE HOME: configuration is a property of the
+// run, mounted into the container and inited against, and the home is
+// resolved off the agent binding alone — orthogonal to the cell, so every
+// cell kind reaches the same root. It is NOT Scratch, and that is not a
+// preference: on an isolated cell Scratch IS the working directory, so a
+// "private" file rooted there lands in the checkout — and for a container
+// with workspace: none the checkout is the live project mount.
 //
-// KNOWN COST, recorded so it is not rediscovered: on an ISOLATED cell Scratch
-// IS the working directory, so the framed file lands in the checkout root for
-// the life of the run (the Delivered handle removes it). It is private there —
-// the checkout is per-agent — so it races nothing; it is merely visible.
-func privateRoot(start present.Start) present.Root { return start.Paths().Scratch }
+// Only a binding that relocates the home (engine_home: session) advises this
+// root at all. A run without one is REFUSED by every approach beneath it
+// (privateRooted) rather than served from the user's real home, which is
+// shared across every session and exactly the file these approaches exist to
+// stay out of.
+func privateRoot(start present.Start) present.Root { return start.Paths().EngineHome }
 
 // underPrivateRoot roots a PRESENTATION at rel beneath the same root
 // privateRoot names. It sits here, adjacent to privateRoot and nowhere else,
@@ -90,7 +89,7 @@ func privateRoot(start present.Start) present.Root { return start.Paths().Scratc
 // would announce a path nothing was written to. They are checked against each
 // other by TestSurfaces_PresentedPathIsWhereTheApproachWrites.
 func underPrivateRoot(start present.Start, rel string) present.Rooted {
-	return start.UnderScratch(rel)
+	return start.UnderEngineHome(rel)
 }
 
 // privateRooted is the entry refusal for an approach that lands beneath
@@ -99,7 +98,7 @@ func underPrivateRoot(start present.Start, rel string) present.Rooted {
 // own sentinel naming its own remedy — so a flip that moved the placement and
 // left the check on the old root would refuse runs that HAVE the new root and
 // serve runs that lack it, with a bare relative path.
-func privateRooted(start present.Start) error { return agent.ScratchRooted(start) }
+func privateRooted(start present.Start) error { return agent.EngineHomeRooted(start) }
 
 // claudeContextWriter is the ContextWriter the native-file context approach
 // merges through — the same core WriteContext (claude.go) every CLAUDE.md
@@ -133,7 +132,7 @@ func newMCPWriter(in agent.SurfaceInputs, fs afero.Fs) mcpWriter {
 // wrong place to decide one: the system prompt does not know what it would be
 // degrading to, or whether the caller would have accepted CLAUDE.md instead.
 // That is the engine declaration's job. A run that cannot serve this approach
-// gets ErrUnrootedScratch and writes nothing.
+// gets ErrUnrootedEngineHome and writes nothing.
 type systemPromptContext struct {
 	content string
 	fs      afero.Fs
@@ -143,7 +142,7 @@ type systemPromptContext struct {
 // LaunchOnly marks the approach as refused at rest.
 func (*systemPromptContext) LaunchOnly() {}
 
-// Present declares the out-of-cwd form's flag. It roots at the Scratch dir
+// Present declares the out-of-cwd form's flag. It roots at the private root
 // ITSELF rather than at a filename, and that is a statement about what is
 // knowable: appendFlagDelivery names the file <hash>.sysprompt.md where <hash>
 // is a sha256 prefix over the FRAMED BYTES, so the leaf is paired from Path()
@@ -159,7 +158,7 @@ func (s *systemPromptContext) Present(start present.Start) present.Presentation 
 // reaches it — an isolated launch that selected system-prompt now gets the
 // system prompt.
 //
-// An unresolved private root REFUSES (ErrUnrootedScratch) rather than writing
+// An unresolved private root REFUSES (ErrUnrootedEngineHome) rather than writing
 // the well-known file instead; see the type doc. A FAILED write leaves Path ""
 // (the writer's own contract): no flag may name a file that was not written.
 func (s *systemPromptContext) Deliver(start present.Start) (agent.Delivered, error) {
@@ -260,7 +259,7 @@ func (s *mcpConfig) Present(start present.Start) present.Presentation {
 
 // Deliver writes the merged .mcp.json beneath the advised private root and
 // records its path for --mcp-config. An unresolved private root REFUSES
-// (ErrUnrootedScratch) rather than falling back to the project file — the
+// (ErrUnrootedEngineHome) rather than falling back to the project file — the
 // fallback IS the defect. A FAILED write clears the path: Path() promises ""
 // for a file that does not exist, and flagArgs must never hand claude
 // --mcp-config naming one.

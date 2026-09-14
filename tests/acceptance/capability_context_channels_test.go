@@ -100,37 +100,36 @@ func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 // structural basis for the side-channel judgement recorded against every P1
 // cell.
 //
-// A workspace=none cell is a SHARED cell, and a shared delivery does not use
-// the well-known write when the approach has an out-of-cwd form
-// (agent.OutOfCwd) — it runs that form — and only falls back to the loud
-// native write when there is none. So "does this cell's DELIVERY put nonce
-// bytes where a workspace search can reach them" is answered here, per
-// (engine, approach), and nowhere else.
+// A workspace=none cell is a SHARED cell, and a shared delivery consults ONE
+// predicate to decide whether an approach may run there unwarned:
+// agent.SafeInSharedCwd — the approach's bytes land outside the project root,
+// or it writes none. A well-known project file is the loud native write. So
+// "does this cell's DELIVERY put nonce bytes where a workspace search can
+// reach them" is answered here, per (engine, approach), and nowhere else.
 //
 // The answer is lopsided, and the asymmetry is exactly which of claude's cells
 // can be argued side-channel-controlled:
 //
-//	claude  context/system-prompt -> HAS an out-of-cwd form (the scratch)
-//	claude  context/unsafe-file   -> none: the caller asked for CLAUDE.md
-//	claude  context/hook          -> none: it is a no-op anyway
+//	claude  context/system-prompt -> lands beneath the run's PRIVATE root, never the project
+//	claude  context/unsafe-file   -> the project file: the caller asked for CLAUDE.md
+//	claude  context/hook          -> writes nothing: it is a no-op anyway
 //
-// An approach with no out-of-cwd form writes its context INTO the working
-// directory by construction. For a tool-using engine that is a channel,
-// whatever the approach nominally is.
+// An approach that presents under the project root writes its context INTO
+// the working directory by construction. For a tool-using engine that is a
+// channel, whatever the approach nominally is.
 func TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	converts := func(engine, approach string) bool {
+	safe := func(engine, approach string) bool {
 		a, ok := backends.Declared(engine).Construct(agent.SurfaceContext, approach, agent.SurfaceInputs{Context: channelProbeHarp}, fs)
 		require.True(t, ok, "%s must declare context=%s", engine, approach)
-		_, ok = a.(agent.OutOfCwd)
-		return ok
+		return agent.SafeInSharedCwd(a)
 	}
 
-	require.True(t, converts("claude-code", claude.ApproachSystemPrompt),
-		"claude's system-prompt approach must keep its out-of-cwd form: it is the ONE context delivery in the ladder that puts no nonce bytes in the workspace, and P1's side-channel argument for that cell rests entirely on it")
+	require.True(t, safe("claude-code", claude.ApproachSystemPrompt),
+		"claude's system-prompt approach must stay out of the project root: it is the ONE context delivery in the ladder that puts no nonce bytes in the workspace, and P1's side-channel argument for that cell rests entirely on it")
 
-	require.False(t, converts("claude-code", agent.ApproachUnsafeFile),
-		"unsafe-file is the caller's explicit request for the native in-workspace write; an out-of-cwd form here would silently convert it and make the two claude cells measure the same thing")
+	require.False(t, safe("claude-code", agent.ApproachUnsafeFile),
+		"unsafe-file is the caller's explicit request for the native in-workspace write; a shared launch must warn on it rather than treat it as safe, or the two claude cells measure the same thing")
 }
 
 func keysOf(m map[string]string) []string {

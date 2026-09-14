@@ -22,56 +22,68 @@ type dirPlace struct{ dir string }
 
 func (p dirPlace) Dir() string { return p.dir }
 
+// sharedRoots is what setupClaudeInTempHome hands back: the two out-of-cwd
+// roots a shared-cell Setup writes under, so a test can assert which one a
+// surface landed beneath.
+type sharedRoots struct {
+	ephem string // the harp's ephemeral dir — the shared cell's Scratch (settings)
+	home  string // the relocated engine home — the private root (context, mcp)
+}
+
 // setupClaudeInTempHome runs a claude Setup in a SharedCell (the default cell)
 // for the given harp/work with the managed payload, keeping HarpEphemeralDir
-// under a temp home so the out-of-cwd scratch never touches the real ~/.ctxloom.
-// Returns the ephemeral dir.
-func setupClaudeInTempHome(t *testing.T, work, harp string, managed *agent.ManagedConfig) (*ClaudeCode, string) {
+// under a temp home so the out-of-cwd scratch never touches the real ~/.ctxloom,
+// and advising a temp relocated engine home as the private root.
+func setupClaudeInTempHome(t *testing.T, work, harp string, managed *agent.ManagedConfig) (*ClaudeCode, sharedRoots) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
 	backend := NewClaudeCode()
 	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
-		Env:       map[string]string{sessionHarpEnv: harp},
+		Env:       sessionEnv(harp, home),
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		Managed:   managed,
 		CellKind:  agent.CellKindShared,
 	}))
 	ephem, err := paths.HarpEphemeralDir(harp)
 	require.NoError(t, err)
-	return backend, ephem
+	return backend, sharedRoots{ephem: ephem, home: home}
 }
 
 // setupClaudeIsolated runs a claude Setup in an isolated cell (worktree), where
-// every surface lands as a well-known file inside the private working dir and no
-// out-of-cwd launch flag is used.
-func setupClaudeIsolated(t *testing.T, work string, managed *agent.ManagedConfig) *ClaudeCode {
+// the project-file surfaces land as well-known files inside the private
+// working dir and the private-root ones beneath the returned engine home.
+func setupClaudeIsolated(t *testing.T, work string, managed *agent.ManagedConfig) (*ClaudeCode, string) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
 	backend := NewClaudeCode()
 	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
+		Env:       map[string]string{ConfigDirEnv: home},
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		Managed:   managed,
 		CellKind:  agent.CellKindDirectoryIsolated,
 	}))
-	return backend
+	return backend, home
 }
 
-// TestSetup_ContextScratchUnderEphemeralDir_ProjectTreeClean pins the relocation:
-// the framed context file lands under the harp's PRIVATE ephemeral dir, NOT under
-// the project tree's .ctxloom/cache/context, and no framed sysprompt file leaks
-// into the working directory.
-func TestSetup_ContextScratchUnderEphemeralDir_ProjectTreeClean(t *testing.T) {
+// TestSetup_ContextUnderEngineHome_ProjectTreeClean pins the relocation: the
+// framed context file lands under the run's PRIVATE engine home, NOT under the
+// project tree's .ctxloom/cache/context and not under the harp's scratch, and
+// no framed sysprompt file leaks into the working directory.
+func TestSetup_ContextUnderEngineHome_ProjectTreeClean(t *testing.T) {
 	work := t.TempDir()
-	backend, ephem := setupClaudeInTempHome(t, work, "perky-same-chevy", &agent.ManagedConfig{})
+	backend, roots := setupClaudeInTempHome(t, work, "perky-same-chevy", &agent.ManagedConfig{})
 
 	framed := contextPathOf(backend)
 	require.NotEmpty(t, framed, "Setup must materialize the framed context file")
 
 	// Lands under the harp ephemeral dir.
-	assert.True(t, strings.HasPrefix(framed, ephem),
-		"framed context must land under HarpEphemeralDir: got %q, want prefix %q", framed, ephem)
+	assert.True(t, strings.HasPrefix(framed, roots.home),
+		"framed context must land under the engine home: got %q, want prefix %q", framed, roots.home)
+	assertNoSyspromptUnder(t, roots.ephem)
 	data, err := os.ReadFile(framed)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "project rules")
@@ -113,7 +125,7 @@ func TestSetup_SharedCell_SettingsOutOfCwd(t *testing.T) {
 			SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
 		}},
 	}
-	backend, ephem := setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
+	backend, roots := setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
 
 	// The live cwd stays clean: no .claude/settings.json written there.
 	assert.NoFileExists(t, filepath.Join(work, ".claude", "settings.json"),
@@ -123,7 +135,7 @@ func TestSetup_SharedCell_SettingsOutOfCwd(t *testing.T) {
 	// --settings at them.
 	settingsPath := settingsPathOf(backend)
 	require.NotEmpty(t, settingsPath, "Setup must materialize the out-of-cwd settings file")
-	assert.True(t, strings.HasPrefix(settingsPath, ephem),
+	assert.True(t, strings.HasPrefix(settingsPath, roots.ephem),
 		"settings scratch must live under the harp ephemeral dir: %q", settingsPath)
 	data, err := os.ReadFile(settingsPath)
 	require.NoError(t, err)
@@ -146,7 +158,7 @@ func TestSetup_SharedCell_SettingsOutOfCwd(t *testing.T) {
 func TestSetup_SharedCell_DenyToolsInSettings(t *testing.T) {
 	work := t.TempDir()
 	managed := &agent.ManagedConfig{DenyTools: []string{"Task"}}
-	backend, ephem := setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
+	backend, roots := setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
 
 	// The live cwd stays clean — same SharedCell invariant as the hooks case.
 	assert.NoFileExists(t, filepath.Join(work, ".claude", "settings.json"),
@@ -154,7 +166,7 @@ func TestSetup_SharedCell_DenyToolsInSettings(t *testing.T) {
 
 	settingsPath := settingsPathOf(backend)
 	require.NotEmpty(t, settingsPath, "Setup must materialize the out-of-cwd settings file")
-	assert.True(t, strings.HasPrefix(settingsPath, ephem),
+	assert.True(t, strings.HasPrefix(settingsPath, roots.ephem),
 		"settings scratch must live under the harp ephemeral dir: %q", settingsPath)
 
 	data, err := os.ReadFile(settingsPath)
@@ -188,15 +200,17 @@ func TestSetup_SharedCell_MCPOutOfCwd(t *testing.T) {
 			"srv": {Command: "run-srv"},
 		},
 	}
-	backend, ephem := setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
+	backend, roots := setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
 
 	assert.NoFileExists(t, filepath.Join(work, ".mcp.json"),
 		"SharedCell must NOT write .mcp.json into the live cwd")
 
 	mcpPath := mcpPathOf(backend)
 	require.NotEmpty(t, mcpPath, "Setup must materialize the out-of-cwd MCP file")
-	assert.True(t, strings.HasPrefix(mcpPath, ephem),
-		"MCP scratch must live under the harp ephemeral dir: %q", mcpPath)
+	assert.True(t, strings.HasPrefix(mcpPath, roots.home),
+		"the private MCP file must live under the engine home: %q", mcpPath)
+	assert.NoFileExists(t, filepath.Join(roots.ephem, ".mcp.json"),
+		"the private root is the engine home, not the harp's scratch")
 	mcpData, err := os.ReadFile(mcpPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(mcpData), "srv", "the managed MCP server must be written")
@@ -213,10 +227,11 @@ func TestSetup_SharedCell_MCPOutOfCwd(t *testing.T) {
 		"--mcp-config is NOT strict — ctxloom's servers merge with the user's project .mcp.json")
 }
 
-// TestSetup_IsolatedCell_WellKnownFilesNoFlags proves the isolated-cell path:
-// every surface lands as its engine well-known file IN the private working dir
-// (.claude/settings.json, .mcp.json, .claude/commands, CLAUDE.md) and buildArgs
-// adds NONE of the out-of-cwd flags.
+// TestSetup_IsolatedCell_WellKnownFilesAndOnlyTheMCPFlag proves the
+// isolated-cell path: the project-file surfaces land as their engine
+// well-known files IN the private working dir (.claude/settings.json,
+// .claude/commands, CLAUDE.md), the default mcp form lands beneath the engine
+// home and is the ONLY surface announced on argv.
 func TestSetup_IsolatedCell_WellKnownFilesAndOnlyTheMCPFlag(t *testing.T) {
 	work := t.TempDir()
 	managed := &agent.ManagedConfig{
@@ -227,26 +242,27 @@ func TestSetup_IsolatedCell_WellKnownFilesAndOnlyTheMCPFlag(t *testing.T) {
 		}},
 		BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}},
 	}
-	backend := setupClaudeIsolated(t, work, managed)
+	backend, home := setupClaudeIsolated(t, work, managed)
 
-	// Well-known files in the private cwd.
+	// Well-known files in the private cwd; the private MCP file beneath the
+	// engine home and NOT in the checkout — for a container with workspace:
+	// none the checkout is the live project mount.
 	require.FileExists(t, filepath.Join(work, ".claude", "settings.json"))
-	require.FileExists(t, filepath.Join(work, ".mcp.json"))
 	require.FileExists(t, filepath.Join(work, "CLAUDE.md"))
+	require.FileExists(t, filepath.Join(home, ".mcp.json"))
+	assert.NoFileExists(t, filepath.Join(work, ".mcp.json"),
+		"the default mcp form must not land in an isolated cell's checkout")
 	entries, err := os.ReadDir(filepath.Join(work, ".claude", "commands"))
 	require.NoError(t, err)
 	assert.NotEmpty(t, entries)
 
 	// Context and settings keep their well-known form on an isolated cell, so
 	// neither is announced. MCP is announced: its default form is the private
-	// config file on EVERY launch, and on an isolated cell the private root IS
-	// the working dir, so the file lands at the well-known path AND is named on
-	// --mcp-config. The duplication is benign for MCP specifically — claude
-	// merges server sets, and the two sources are the same bytes.
+	// config file on EVERY launch.
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindDirectoryIsolated})
 	assert.NotContains(t, args, "--append-system-prompt-file")
 	assert.NotContains(t, args, "--settings")
-	assert.True(t, argPair(args, "--mcp-config", filepath.Join(work, ".mcp.json")),
+	assert.True(t, argPair(args, "--mcp-config", filepath.Join(home, ".mcp.json")),
 		"the default mcp form is announced on every cell: %v", args)
 
 	// No context scratch leaks into the tree (context is CLAUDE.md, not a sysprompt file).
@@ -262,7 +278,7 @@ func TestSetup_IsolatedCell_WellKnownFilesAndOnlyTheMCPFlag(t *testing.T) {
 func TestSetup_IsolatedCell_DenyToolsInSettings(t *testing.T) {
 	work := t.TempDir()
 	managed := &agent.ManagedConfig{DenyTools: []string{"Task"}}
-	backend := setupClaudeIsolated(t, work, managed)
+	backend, _ := setupClaudeIsolated(t, work, managed)
 
 	settingsPath := filepath.Join(work, ".claude", "settings.json")
 	require.FileExists(t, settingsPath)
@@ -366,7 +382,7 @@ func TestSetup_FragmentsAssemblingToNothingIsLoud(t *testing.T) {
 	backend := NewClaudeCode()
 	err := backend.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
-		Env:       map[string]string{sessionHarpEnv: "witty-plain-crate"},
+		Env:       sessionEnv("witty-plain-crate", t.TempDir()),
 		Fragments: []*agent.Fragment{{Name: "rules", Content: ""}, {Name: "style", Content: "   \n\t "}},
 		Managed:   &agent.ManagedConfig{},
 		CellKind:  agent.CellKindShared,
@@ -378,6 +394,34 @@ func TestSetup_FragmentsAssemblingToNothingIsLoud(t *testing.T) {
 	assertNoSyspromptUnder(t, work)
 }
 
+// TestSetup_SharedCell_NoEngineHome_RefusesThePrivateDefault is the refusal
+// at the launch seam: a shared-cell Setup whose run env carries no relocated
+// engine home cannot serve the DEFAULT mcp approach, and says so — wrapping
+// ErrUnrootedEngineHome, whose message names the remedy (declare
+// engine_home: session on the binding, or select the project-file approach).
+// Nothing is written in its place: not the project .mcp.json, and not one
+// beneath the harp's scratch.
+func TestSetup_SharedCell_NoEngineHome_RefusesThePrivateDefault(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	work := t.TempDir()
+	const harp = "perky-same-chevy"
+	backend := NewClaudeCode()
+	err := backend.Setup(context.Background(), &agent.SetupRequest{
+		WorkDir:   work,
+		Env:       map[string]string{sessionHarpEnv: harp},
+		Fragments: []*agent.Fragment{{Content: "project rules"}},
+		Managed:   &agent.ManagedConfig{BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}}},
+		CellKind:  agent.CellKindShared,
+	})
+	require.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+
+	assert.Empty(t, mcpPathOf(backend), "a refused delivery records no path for --mcp-config")
+	assert.NoFileExists(t, filepath.Join(work, ".mcp.json"), "no fallback to the project file")
+	ephem, err := paths.HarpEphemeralDir(harp)
+	require.NoError(t, err)
+	assert.NoFileExists(t, filepath.Join(ephem, ".mcp.json"), "no fallback to the harp's scratch")
+}
+
 // TestSetup_NoFragmentsIsNotAnError keeps the guard above from becoming a new
 // failure mode of its own: a project that legitimately configures NO context
 // still sets up cleanly and simply emits no context flag.
@@ -386,7 +430,7 @@ func TestSetup_NoFragmentsIsNotAnError(t *testing.T) {
 	backend := NewClaudeCode()
 	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   t.TempDir(),
-		Env:       map[string]string{sessionHarpEnv: "witty-plain-crate"},
+		Env:       sessionEnv("witty-plain-crate", t.TempDir()),
 		Fragments: nil,
 		Managed:   &agent.ManagedConfig{},
 		CellKind:  agent.CellKindShared,
@@ -420,6 +464,7 @@ func setupClaudeIsolatedSelecting(t *testing.T, work string, surfaces map[agent.
 	backend := NewClaudeCode()
 	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
+		Env:       map[string]string{ConfigDirEnv: t.TempDir()},
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		Managed:   &agent.ManagedConfig{Surfaces: surfaces},
 		CellKind:  agent.CellKindDirectoryIsolated,

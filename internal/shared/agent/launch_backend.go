@@ -704,7 +704,8 @@ func (b *LaunchBackend) Cleanup(ctx context.Context) error {
 // being written; how it then satisfies the rule follows from how its file is
 // NAMED, which is the approach's own decision:
 //
-//	FIXED NAME       (settings.json, .mcp.json beneath the session scratch) —
+//	FIXED NAME       (settings.json beneath the session scratch, .mcp.json
+//	                 beneath the session's engine home) —
 //	                 owned by whichever run wrote it, and every run in the
 //	                 session reads that one copy. The only non-clobbering way to
 //	                 satisfy the rule is to REQUIRE it: present it when it is

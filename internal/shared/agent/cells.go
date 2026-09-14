@@ -112,31 +112,6 @@ func EngineHomeRooted(start present.Start) error {
 	return nil
 }
 
-// ErrUnrootedScratch is returned by an approach whose ONLY form writes beneath
-// the run's private scratch root when that root was never resolved. It is the
-// third of the same family as ErrUnrootedDelivery and ErrUnrootedEngineHome,
-// and it exists for the reason those two do: a "" root joined into a leaf name
-// yields a BARE RELATIVE path that lands wherever the process happens to be.
-//
-// It is a REFUSAL and never a fallback. An approach with one form has nothing
-// to fall back TO, and that is deliberate: a surface does not know what it
-// would be degrading to, or whether the caller would have accepted it — "the
-// engine declaration's job", not the surface's. A selection this run cannot
-// serve is reported to the caller, who can pick another approach, rather than
-// quietly served as a different one.
-var ErrUnrootedScratch = errors.New("delivery: this run's private scratch root was never resolved — this approach writes beneath it and is announced to the engine by a launch flag; it has no well-known-file form to fall back to")
-
-// ScratchRooted is the entry check for an approach that lands beneath the
-// run's private scratch root: the counterpart of rooted and EngineHomeRooted
-// for that root, exported for the same reason — the approaches that need it
-// live in the engine packages and must refuse identically.
-func ScratchRooted(start present.Start) error {
-	if start.Paths().Scratch.Host == "" {
-		return ErrUnrootedScratch
-	}
-	return nil
-}
-
 // PresentsUnderProjectRoot reports whether a's bytes land beneath the
 // PROJECT ROOT — as a well-known file an engine started in that directory
 // reads — by asking its presenter, against sentinel roots that cannot be

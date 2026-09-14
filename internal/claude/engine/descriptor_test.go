@@ -121,3 +121,29 @@ func TestSkillExports_ReadsTheClaudeCodeEnablement(t *testing.T) {
 	assert.True(t, ex[0].Enabled)
 	assert.False(t, ex[1].Enabled)
 }
+
+// Claude's refresh token is single-use and rotating, so the ORDER is the
+// declaration: a mount has one inode and one refresh path, replication has a
+// window in which an instance can present a token another already spent.
+// Asserting the order, not the set, is what keeps a later edit from quietly
+// preferring the mechanism with the failure mode.
+func TestDescriptor_AcceptsMountedBeforeReplicated(t *testing.T) {
+	p, ok := Descriptor().Provisioning.Get()
+	require.True(t, ok, "claude has credential material, so it declares a policy rather than absence")
+	require.NoError(t, p.Validate())
+	assert.Equal(t, []agent.MaterialDelivery{agent.MaterialDeliveryMounted, agent.MaterialDeliveryReplicated}, p.Accept)
+}
+
+// A stripped copy is refused at every position. It is not a weaker sharing
+// mode: the copy has the single-use refresh token removed, so it works until
+// the access token expires and then that instance is stuck with no way back.
+// Accepting it as a last resort would turn a loud launch-time refusal into a
+// run that dies hours later, far from its cause.
+func TestDescriptor_AcceptsNoDeliveryThatCannotRenew(t *testing.T) {
+	p, ok := Descriptor().Provisioning.Get()
+	require.True(t, ok)
+	for _, d := range p.Accept {
+		assert.NotEqual(t, agent.MaterialDeliveryAbsent, d)
+		assert.True(t, d.Decided(), "every accepted delivery must be a decided one")
+	}
+}

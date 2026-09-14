@@ -38,6 +38,7 @@ func validDescriptor() Descriptor {
 		Home:                agent.Absent[agent.EngineHome]("fixture keeps no global state"),
 		Container:           agent.Absent[agent.EngineContainer]("fixture has no container story"),
 		TranscriptReaders:   agent.Absent[[]vendorreader.VersionedAdapter]("fixture keeps no transcripts"),
+		Provisioning:        agent.Absent[agent.ProvisioningPolicy]("fixture has no material to provision"),
 	}
 }
 

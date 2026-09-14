@@ -1190,7 +1190,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^the isolated "([^"]*)" credential is access-token-only \(refresh token stripped\)$`, func(c context.Context, engine string) error {
+	ctx.Step(`^the isolated "([^"]*)" credential is whole and can renew$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
 		body, err := isoReadSpyOut(j)
@@ -1202,16 +1202,19 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		got := isoParseSpySection(body, marker)
-		// The access token stays (the copy must still authenticate); the
-		// single-use rotating refresh token is stripped, so a refresh in this
-		// disposable home can never invalidate Alice's real ~/.claude login.
+		// The credential arrives WHOLE. Stripping the rotating refresh token
+		// was what a COPY needed to avoid invalidating the host's single-use
+		// login — and it made the instance unable to renew, so it worked until
+		// the access token expired and then that run was stuck. There is no
+		// copy now: material is delivered by a mechanism the engine DECLARED it
+		// accepts, and both mounted and replicated can refresh.
 		if !strings.Contains(got, isoFixtureAccessMarker) {
-			return fmt.Errorf("isolated %s credential lost its access token; the copy must still authenticate. spy read:\n%s", engine, got)
+			return fmt.Errorf("isolated %s credential lost its access token; it must still authenticate. spy read:\n%s", engine, got)
 		}
-		if strings.Contains(got, isoFixtureRefreshMarker) || strings.Contains(got, "refreshToken") {
-			return fmt.Errorf("isolated %s credential STILL carries the refresh token; a copied home that can refresh rotates and invalidates the host's single-use token. spy read:\n%s", engine, got)
+		if !strings.Contains(got, isoFixtureRefreshMarker) {
+			return fmt.Errorf("isolated %s credential is MISSING its refresh token; a delivered credential that cannot renew is stuck the moment its access token expires — that is the defect the copy path carried. spy read:\n%s", engine, got)
 		}
-		w.docStepMaterialized = fmt.Sprintf("isolated %s credential (read from inside the spy process, via %s) — access-token-only, refresh token stripped:\n%s", engine, marker, got)
+		w.docStepMaterialized = fmt.Sprintf("isolated %s credential (read from inside the spy process, via %s) — whole, refresh token intact:\n%s", engine, marker, got)
 		return nil
 	})
 

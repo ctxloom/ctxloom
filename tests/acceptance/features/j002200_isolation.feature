@@ -384,12 +384,12 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # it. An instance holds a COPY of Alice's live credential inside her project
   # tree, so its removal is a security requirement rather than tidiness, and
   # this is the only place outside Go tests that proves it happens.
-  Scenario: An in-tree AGENT run copies an access-token-only credential into its instance, and leaves the host's own copy alone
+  Scenario: An in-tree AGENT run's instance credential is whole and can renew, and the host's own copy is untouched
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
     And Alice's agent declares config_home "project"
     When Alice runs the isolated "claude-code" agent under workspace "none"
-    Then the isolated "claude-code" credential is access-token-only (refresh token stripped)
+    Then the isolated "claude-code" credential is whole and can renew
     And the host "claude-code" credential file was never modified
     And the copied "claude-code" credential was owner-only inside the run
     And the "claude-code" config-home instance is gone once the session ends
@@ -502,13 +502,13 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # the worktree — so the worktree exposure closes here too: the isolated copy
   # authenticates but cannot rotate the host's single-use refresh token, and
   # the host's own file keeps its refresh token in full.
-  Scenario: A worktree claude run copies an access-token-only credential into the isolated config-home, and never touches the host's own copy
+  Scenario: A worktree claude run's isolated config-home credential is whole and can renew, and never touches the host's own copy
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
     And Alice's agent declares config_home "project"
     When Alice runs the isolated "claude-code" agent under workspace "worktree"
     Then the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points at this session's config-home instance
-    And the isolated "claude-code" credential is access-token-only (refresh token stripped)
+    And the isolated "claude-code" credential is whole and can renew
     And the host "claude-code" credential file was never modified
 
   # ARGV/STDIN VISIBILITY (U161-F01) — the spy previously dumped only its own

@@ -13,6 +13,7 @@ import (
 	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/mountns"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -32,6 +33,13 @@ const testStampDirty = testStamp + "-dirty"
 // staleness gate underneath every test that exercises it, which is a false
 // green rather than a missing one.
 func TestMain(m *testing.M) {
+	// FIRST, before any other setup. This package's provisioner probe re-execs
+	// os.Executable() to become a mount shim, and under `go test` that is THIS
+	// binary. Without this line the shim re-runs the whole suite instead of
+	// performing the mounts — which both breaks the probe and, because the
+	// suite probes again, forks exponentially. Measured: the run never
+	// terminated.
+	mountns.RunChildIfRequested()
 	SetBinaryVersion(testStamp)
 	// The provenance key also covers the STAGED COMPANIONS' versions
 	// (companionVersionKey), which would otherwise exec whatever taskloom /

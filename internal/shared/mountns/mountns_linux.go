@@ -29,11 +29,14 @@ const (
 	envArgv     = "CTXLOOM_MOUNTNS_ARGV"
 	envProbePut = "CTXLOOM_MOUNTNS_PROBE_WRITE"
 	envReadback = "CTXLOOM_MOUNTNS_READBACK"
+	// envProbing marks that a probe is already in flight somewhere up this
+	// process tree. See Supported for what it defends against.
+	envProbing = "CTXLOOM_MOUNTNS_PROBING"
 )
 
 // shimEnvKeys is every marker this package plants. Listed once so scrubbing
 // cannot fall out of step with planting.
-var shimEnvKeys = []string{envShim, envBinds, envArgv, envProbePut, envReadback}
+var shimEnvKeys = []string{envShim, envBinds, envArgv, envProbePut, envReadback, envProbing}
 
 // Command builds the process that runs argv inside a fresh user+mount
 // namespace with binds established. It re-execs THIS binary as a shim (see
@@ -96,6 +99,17 @@ func sysProcAttr() *syscall.SysProcAttr {
 // falls back to when rename(2) over a mount returns EBUSY), and the mount
 // SURVIVES THE SHIM'S OWN EXEC so the process that actually matters sees it.
 func Supported(ctx context.Context, scratch string) error {
+	// RECURSION GUARD, and it is not theoretical: the probe re-execs
+	// os.Executable(), so a binary that does NOT call RunChildIfRequested at
+	// the top of main runs its ordinary startup instead of becoming a shim. If
+	// that startup probes too — a test binary whose suite exercises this, for
+	// one — each probe spawns a whole program that spawns more, and the fork
+	// bomb is exponential. Observed, not imagined. The correct fix is for
+	// every re-execable binary to honour the marker, and this is the bound
+	// that holds while one does not.
+	if os.Getenv(envProbing) != "" {
+		return fmt.Errorf("%w: refusing to probe recursively; this process was spawned by a probe, which means the binary being re-exec'd does not call RunChildIfRequested at the top of main", ErrUnsupported)
+	}
 	dir, err := os.MkdirTemp(scratch, "mountns-probe-")
 	if err != nil {
 		return fmt.Errorf("mountns: probe scratch: %w", err)
@@ -124,7 +138,7 @@ func Supported(ctx context.Context, scratch string) error {
 	if err != nil {
 		return err
 	}
-	cmd.Env = append(cmd.Env, envProbePut+"="+payload)
+	cmd.Env = append(cmd.Env, envProbePut+"="+payload, envProbing+"=1")
 	out, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("%w: %w%s", ErrUnsupported, err, stderrOf(err))

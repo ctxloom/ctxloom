@@ -94,6 +94,15 @@ type scopedListResult struct {
 	Summary    *tasks.Summary
 	Warning    string
 
+	// ProjectNewlyMinted mirrors operations.TaskListResult.ProjectNewlyMinted
+	// (meaningful only when !Global): true when this call's own live
+	// project-id resolution just minted ProjectID moments ago, rather than
+	// finding an existing identity. See that field's doc for why this is a
+	// fact worth surfacing rather than a verdict — a genuinely new project
+	// and an established one whose home this process cannot see look
+	// identical here.
+	ProjectNewlyMinted bool
+
 	// Rows carries per-row project attribution and is populated for both
 	// scopes; Tasks is the unattributed view, single-project only.
 	Rows  []taskRow
@@ -194,17 +203,18 @@ func listOneProjectScoped(tc operations.TaskContext, opts listOptions) (*scopedL
 	}
 	warnTask(res.Warning)
 	out := &scopedListResult{
-		Path:            res.Path,
-		ProjectID:       res.ProjectID,
-		ProjectDir:      res.ProjectDir,
-		Summary:         res.Summary,
-		Warning:         res.Warning,
-		Tasks:           res.Tasks,
-		HiddenCompleted: res.HiddenCompleted,
-		HiddenDeferred:  res.HiddenDeferred,
-		OmittedByLimit:  res.OmittedByLimit,
-		Filtered:        opts.Term != "" || opts.TagQuery != "",
-		TC:              tc,
+		Path:               res.Path,
+		ProjectID:          res.ProjectID,
+		ProjectDir:         res.ProjectDir,
+		Summary:            res.Summary,
+		Warning:            res.Warning,
+		ProjectNewlyMinted: res.ProjectNewlyMinted,
+		Tasks:              res.Tasks,
+		HiddenCompleted:    res.HiddenCompleted,
+		HiddenDeferred:     res.HiddenDeferred,
+		OmittedByLimit:     res.OmittedByLimit,
+		Filtered:           opts.Term != "" || opts.TagQuery != "",
+		TC:                 tc,
 	}
 	if opts.Sort == sortPriority {
 		results, diag, perr := operations.ComputeTaskPriorities(tc, time.Now())

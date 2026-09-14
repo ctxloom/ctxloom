@@ -66,6 +66,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 	// never looked at res.Warning, so a caller resolving the WRONG (or an
 	// unreachable) store via `show` got a bare "not found" with no clue why.
 	warnTask(res.Warning)
+	noteProjectNewlyMinted(cmd.ErrOrStderr(), res.ProjectID, res.ProjectNewlyMinted)
 	noteTaskProject(res.ProjectDir, res.ProjectID)
 	cfg := hideConfigFor(tc)
 	// A GROUP serializes as a list and a SINGLE value as an object. The choice

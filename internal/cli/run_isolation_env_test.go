@@ -147,21 +147,23 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		assert.Equal(t, "test-harp", st.req.Options.Env["CTXLOOM_SESSION_HARP"], "the pre-assembled session env must survive")
 	})
 
-	// An UNDECLARED binding no longer reaches this layer as "host" — it
-	// resolves to project (agents.ParseConfigHome's default, pinned in
-	// internal/agents), so the undeclared case is now covered by the
-	// project subtest above. What remains worth pinning here is the value
-	// that DOES still keep the real home, whatever produced it.
-	t.Run("the resolved host value keeps the real host home", func(t *testing.T) {
+	// MUTATION TARGET m1: invert the "undeclared → host" default so an
+	// agent-bound run with NO declared config_home resolves to project — this
+	// case (agentConfigHome == "project" produced only via agents.ParseConfigHome's
+	// own default, exercised in the operations-layer test) is pinned there;
+	// here the headline red is the UNDECLARED-binding case just below, which
+	// this same st.prepareWorkspace call must resolve to the real home.
+	t.Run("an agent binding with an UNDECLARED config_home keeps the real host home", func(t *testing.T) {
 		resetStrictness(t)
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 
 		workDir := t.TempDir()
-		// agentConfigHome carries the RESOLVED value a ResolvedAgent would
-		// hand prepareWorkspace. Only an explicitly declared
-		// `config_home: host` produces agents.ConfigHomeHost now.
+		// agentConfigHome carries the RESOLVED value a ResolvedAgent would hand
+		// prepareWorkspace — an undeclared binding resolves to
+		// agents.ConfigHomeHost (agents.ParseConfigHome's default), never
+		// the empty string a no-binding run leaves behind.
 		st := newState(t, workDir, agents.ConfigHomeHost, hostAxes)
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
@@ -189,16 +191,7 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
 	})
 
-	// THE HEADLINE CASE, at the wiring layer. A plain `ctxloom run` — no
-	// --agent, no default_agent — leaves agentConfigHome EMPTY. That zero
-	// value never reaches agents.ParseConfigHome, so prepareWorkspace is the
-	// only thing standing between the commonest run shape there is and the
-	// human's real ~/.claude. It must come out PRIVATE.
-	//
-	// MUTATION TARGET m1 — restore ResolveInTreeAgentHome's gate to
-	// `!= ConfigHomeProject` and this goes red on its own, while every other
-	// case in this function stays green.
-	t.Run("a run with NO agent binding at all still gets the controlled home", func(t *testing.T) {
+	t.Run("a run with NO agent binding at all keeps the real host home", func(t *testing.T) {
 		resetStrictness(t)
 		home := t.TempDir()
 		t.Setenv("HOME", home)
@@ -209,11 +202,9 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
 
-		want, err := claude.SessionConfigDir(workDir, "test-harp")
-		require.NoError(t, err)
-		assert.Equal(t, want, st.req.Options.Env[claude.ConfigDirEnv],
-			"a bindingless run must be pointed at THIS session's instance, not the human's own ~/.claude")
-		assert.DirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
+		assert.NotContains(t, st.req.Options.Env, claude.ConfigDirEnv,
+			"a run with no agent binding at all must keep the human's own ~/.claude")
+		assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
 	})
 
 	// The instance is PER SESSION, and prepareWorkspace is where the harp

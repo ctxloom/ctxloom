@@ -172,11 +172,10 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 }
 
 // TestResolveAgent_ConfigHome proves the resolve-time treatment of
-// ResolvedAgent.ConfigHome: undeclared and unresolvable both default to
-// agents.ConfigHomeProject (the unresolvable one also warns, and neither is
-// ever fatal — a hand-edited config.yaml must not block a launch over this),
-// a declared "project" or "host" round-trips unchanged, and the field is
-// NEVER empty once an agent resolved at all —
+// ResolvedAgent.ConfigHome: undeclared and unresolvable both warn-and-default
+// to agents.ConfigHomeHost (never fatal — a hand-edited config.yaml must not
+// block a launch over this), a declared "project" or "host" round-trips
+// unchanged, and the field is NEVER empty once an agent resolved at all —
 // that emptiness is reserved for "no agent binding was resolved", a state
 // this function (which always resolves SOME binding) can never produce.
 func TestResolveAgent_ConfigHome(t *testing.T) {
@@ -189,10 +188,10 @@ func TestResolveAgent_ConfigHome(t *testing.T) {
 		"typo":       {LLM: "fast", Profiles: []string{"p1"}, ConfigHome: "projectt"},
 	})
 	cases := map[string]agents.ConfigHome{
-		"undeclared": agents.ConfigHomeProject, // MUTATION TARGET m1's unit-layer twin
+		"undeclared": agents.ConfigHomeHost, // MUTATION TARGET m1's unit-layer twin
 		"project":    agents.ConfigHomeProject,
-		"host":       agents.ConfigHomeHost,    // the ONLY input that shares the real home
-		"typo":       agents.ConfigHomeProject, // warn+default, never fatal, never a silent share
+		"host":       agents.ConfigHomeHost,
+		"typo":       agents.ConfigHomeHost, // warn+default, never fatal
 	}
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {

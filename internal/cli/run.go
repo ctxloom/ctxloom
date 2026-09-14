@@ -368,13 +368,10 @@ type runState struct {
 	// operations.BindAgentHome) needs: resolveDefaultAgent sets
 	// boundAgent too, so "boundAgent != \"\"" is true of a plain `ctxloom run`
 	// just as much as `run --agent x` — both bind a real agent, and the
-	// decision reads that agent's OWN declared config_home (project unless
-	// it explicitly declares host), never how it was invoked. Only "was any
-	// binding resolved at all" is invocation-shaped, and that is exactly
-	// what an empty agentConfigHome (vs. a resolved "project"/"host")
-	// already answers — though the two now resolve the SAME way, since the
-	// empty value also gets a controlled home
-	// (operations.ResolveInTreeAgentHome).
+	// decision reads that agent's OWN declared config_home (always host by
+	// default), never how it was invoked. Only "was any binding resolved at
+	// all" is invocation-shaped, and that is exactly what an empty
+	// agentConfigHome (vs. a resolved "project"/"host") already answers.
 	agentConfigHome agents.ConfigHome
 
 	// prepareRequestInputs: everything the RunStart payload is built from that

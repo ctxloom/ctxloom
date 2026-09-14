@@ -45,14 +45,10 @@ type InTreeAgentHome struct {
 	// policy — agents.ConfigHomeProject or agents.ConfigHomeHost when a
 	// binding was resolved (operations.ResolvedAgent.ConfigHome, already
 	// defaulted), or "" when this run has NO agent binding at all. It is THE
-	// scoping condition; see ResolveInTreeAgentHome's doc.
-	//
-	// Only agents.ConfigHomeHost declines the home. Both
-	// agents.ConfigHomeProject and "" (no binding at all) get one, which is
-	// why the gate below tests for HOST rather than for project: the zero
-	// value must land on the private side, and a gate written the other way
-	// round would quietly send every bindingless run — the most common shape
-	// there is, a plain `ctxloom run` — into the human's real engine home.
+	// scoping condition; see ResolveInTreeAgentHome's doc. Only
+	// agents.ConfigHomeProject gets a home — "" (no binding) and
+	// agents.ConfigHomeHost (an undeclared or explicitly host-declared
+	// binding) both mean "keep the home the runtime gives you".
 	ConfigHome agents.ConfigHome
 	// ContainerHome is the runtime axis's half: the FIXED in-container root a
 	// relocated home is mounted under when the engine runs in a container
@@ -103,32 +99,33 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 // effect, so a present result always names a directory that exists and (for
 // an engine with copyable credentials) can authenticate.
 //
-// THE SCOPING RULE, and the reason it is not a per-binding opt-in:
+// THE SCOPING RULE, and the reason this is not simply "every agent run":
 //
-//	Every run gets a controlled home EXCEPT one whose resolved binding
-//	explicitly declares config_home: host. No binding at all, a binding that
-//	never mentions config_home, and a binding whose config_home is a typo all
-//	get the controlled home. Only the explicit declaration keeps the home the
+//	A run resolved through an agent binding whose EFFECTIVE config_home is
+//	"project" gets a controlled home. Every other run — no binding at all, an
+//	undeclared binding, or one that declares "host" — keeps the home its
 //	runtime gives it: the REAL host home on the host, a fresh $HOME in a
 //	container.
 //
-// PRIVATE IS THE DEFAULT because the two mistakes do not cost the same. A run
-// wrongly given a controlled home costs a re-login in that instance and
-// nothing else. A run wrongly pointed at the human's ~/.claude reads their
-// memory, plugins, personal MCP registrations, global agents and steering,
-// and writes session state and settings edits back into them — and does it
-// silently, since nothing about a shared home announces itself. A delegated
-// child, a fan-out member, a `run --agent` and a bare `ctxloom run` are all
-// ctxloom's processes; none of them acquires the right to that directory by
-// omitting a field.
+// The controlled-home behaviour is strictly OPT-IN: a binding that never
+// mentions config_home resolves to agents.ConfigHomeHost
+// (agents.ParseConfigHome), so declaring the binding at all is not
+// enough on its own — an agent that wants its runs kept off the human's real
+// ~/.claude must say `config_home: project`. A delegated child, a fan-out
+// member, a `run --agent` — these ARE ctxloom's processes, and pointing an
+// unopted one at the human's ~/.claude hands it the human's memory, plugins,
+// personal MCP registrations, global agents and steering, and lets it write
+// session state and settings edits back into them; that is the pollution
+// `config_home: project` exists to let a binding opt out of. But nothing takes
+// that on by default — a project that wants it asks for it by name, on the
+// binding that wants it.
 //
-// THE BINDINGLESS RUN IS THE CASE THAT MATTERS. A plain `ctxloom run` — no
-// --agent, no default_agent — resolves no binding and so carries the ZERO
-// value, which never reaches agents.ParseConfigHome at all. It is gated here
-// and nowhere else, so this gate tests for ConfigHomeHost rather than for
-// ConfigHomeProject; inverting that test would leave the commonest run shape
-// on the shared home while every declared binding moved private, which is
-// exactly the half-done flip this rule exists to prevent.
+// The human's own interactive session (no agent binding resolved at all —
+// no --agent, no default_agent) has no ConfigHome to read in the first
+// place and always keeps the real home: relocating a human's own working
+// environment out from under their interactive session would be a
+// regression dressed as isolation, and there is no binding through which
+// they could even opt in.
 //
 // THE HOME IS ORTHOGONAL TO THE CELL. Nothing here reads which workspace or
 // runtime the run chose: a host run, a worktree run and a container run with
@@ -148,8 +145,8 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 // which inherits the harp on req.Env) deliberately share one instance.
 //
 // ABSENT is never silent about a home that was ASKED for. When ConfigHome is
-// an explicit "host" the reason is recorded and nothing else happens — that
-// is the declared opt-out. When a home WAS due and the run still gets none
+// not "project" the reason is recorded and nothing else happens — that is the
+// documented default. When it IS "project" and the run still gets no home
 // (no session name, an engine with no relocatable home, an instance that
 // cannot be created), the reason is also said out loud, and an engine whose
 // credentials cannot be seeded (no API key and no host credential file) is
@@ -158,12 +155,8 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 // run for a mysterious 401; falling back to the runtime's home is what
 // --degraded then actually does.
 func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
-	// Only an EXPLICIT host declaration shares the real home. The zero value
-	// (this run resolved no agent binding at all) falls through to a
-	// controlled home along with every undeclared binding — see the field
-	// doc: absence of a declaration is not consent to share.
-	if in.ConfigHome == agents.ConfigHomeHost {
-		return absent("config_home is %q: the engine keeps the home its runtime gives it", agents.ConfigHomeHost)
+	if in.ConfigHome != agents.ConfigHomeProject {
+		return absent("config_home is %q, not %q: the engine keeps the home its runtime gives it", in.ConfigHome, agents.ConfigHomeProject)
 	}
 	if in.Harp == "" {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: this run carries no session name and a config-home instance is per-session; using the runtime's own config home instead", in.Backend)

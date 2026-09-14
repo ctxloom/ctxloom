@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -17,10 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
-
-// errAssertProjector is the sentinel a fakeCredentialProjector returns to prove
-// a projection failure fails the copy.
-var errAssertProjector = errors.New("projector refused this credential")
 
 // recordingInstanceConfig is a stand-in engine config writer: it records every
 // request it is handed so a test can prove the ENGINE was actually reached with
@@ -82,133 +79,6 @@ func withInstanceConfigWriter(t *testing.T, engine string, w agent.InstanceConfi
 		}
 		RegisterInstanceConfigWriter(engine, nil)
 	})
-}
-
-// fakeCredentialProjector records what it was handed and returns a fixed
-// replacement (or an error), so a test can prove CopyAmbient routes the
-// credential copy THROUGH the engine's projector rather than writing the host
-// bytes raw.
-type fakeCredentialProjector struct {
-	mu            sync.Mutex
-	seenDestNames []string
-	seenBytes     [][]byte
-	replaceWith   []byte
-	err           error
-}
-
-func (f *fakeCredentialProjector) ProjectAmbientCredential(destName string, hostBytes []byte) ([]byte, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.seenDestNames = append(f.seenDestNames, destName)
-	f.seenBytes = append(f.seenBytes, append([]byte(nil), hostBytes...))
-	if f.err != nil {
-		return nil, f.err
-	}
-	if f.replaceWith != nil {
-		return f.replaceWith, nil
-	}
-	return hostBytes, nil
-}
-
-// withCredentialProjector installs p as engine's projector for the test and
-// restores whatever was registered before (backends registers claude's real
-// one at init, so a test that replaced it and left it would reshape later ones).
-func withCredentialProjector(t *testing.T, engine string, p agent.CredentialProjector) {
-	t.Helper()
-	credentialProjectorMu.Lock()
-	prev, had := credentialProjectors[engine]
-	credentialProjectorMu.Unlock()
-	RegisterCredentialProjector(engine, p)
-	t.Cleanup(func() {
-		if had {
-			RegisterCredentialProjector(engine, prev)
-			return
-		}
-		RegisterCredentialProjector(engine, nil)
-	})
-}
-
-// TestCopyAmbient_RoutesCredentialThroughTheEngineProjector pins the seam: the
-// ambient credential copy passes the host bytes through the ENGINE's projector
-// (claude's refresh-token strip) and writes the PROJECTED result, never the host
-// bytes raw. The projector is keyed by the engine's own destName.
-func TestCopyAmbient_RoutesCredentialThroughTheEngineProjector(t *testing.T) {
-	home := withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"),
-		[]byte(`{"claudeAiOauth":{"accessToken":"a","refreshToken":"r"}}`), 0o600))
-
-	proj := &fakeCredentialProjector{replaceWith: []byte(`{"projected":true}`)}
-	withCredentialProjector(t, "claude-code", proj)
-	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
-
-	instance := t.TempDir()
-	_, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
-	require.NoError(t, err)
-
-	require.Equal(t, []string{".credentials.json"}, proj.seenDestNames, "the projector is keyed by the engine's own leaf")
-	require.Len(t, proj.seenBytes, 1)
-	assert.Contains(t, string(proj.seenBytes[0]), "refreshToken", "the projector is handed the FULL host bytes to project")
-
-	seeded, err := os.ReadFile(filepath.Join(instance, "claude", ".credentials.json"))
-	require.NoError(t, err)
-	assert.Equal(t, `{"projected":true}`, string(seeded), "the PROJECTED bytes are written, not the host bytes")
-}
-
-// TestCopyAmbient_ProjectorErrorFailsTheCopy: a projector that cannot sanitize
-// the credential fails the whole copy loud rather than falling back to the
-// unprojected host bytes — for claude that fallback would be the refresh-token
-// leak the strip exists to prevent.
-func TestCopyAmbient_ProjectorErrorFailsTheCopy(t *testing.T) {
-	home := withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	writeCreds(t, home, false)
-
-	proj := &fakeCredentialProjector{err: errAssertProjector}
-	withCredentialProjector(t, "claude-code", proj)
-	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
-
-	instance := t.TempDir()
-	_, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
-	require.Error(t, err, "a projection failure must fail the copy, not write the raw credential")
-
-	_, statErr := os.Stat(filepath.Join(instance, "claude", ".credentials.json"))
-	assert.True(t, os.IsNotExist(statErr), "no credential is written when projection fails")
-}
-
-// TestCopyAmbient_ClaudeStripsRefreshTokenEndToEnd exercises the REAL claude
-// projector (registered by backends at init, linked into this test binary) all
-// the way through CopyAmbient: the seeded copy is access-token-only.
-//
-// MUTATION TARGET (m1): don't strip refreshToken in internal/claude and this
-// goes red — the seeded copy would still carry the host's single-use token.
-func TestCopyAmbient_ClaudeStripsRefreshTokenEndToEnd(t *testing.T) {
-	home := withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"),
-		[]byte(`{"claudeAiOauth":{"accessToken":"acc","refreshToken":"ref","expiresAt":1,"refreshTokenExpiresAt":2,"subscriptionType":"max"}}`), 0o600))
-	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
-
-	instance := t.TempDir()
-	_, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
-	require.NoError(t, err)
-
-	seeded, err := os.ReadFile(filepath.Join(instance, "claude", ".credentials.json"))
-	require.NoError(t, err)
-	var cfg map[string]any
-	require.NoError(t, json.Unmarshal(seeded, &cfg))
-	oauth := cfg["claudeAiOauth"].(map[string]any)
-	assert.NotContains(t, oauth, "refreshToken", "the seeded copy must be access-token-only")
-	assert.NotContains(t, oauth, "refreshTokenExpiresAt")
-	assert.Equal(t, "acc", oauth["accessToken"], "the access token still authenticates the run")
-	assert.Equal(t, "max", oauth["subscriptionType"])
-
-	// The host credential is UNTOUCHED — it still carries its refresh token.
-	hostBytes, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
-	require.NoError(t, err)
-	assert.Contains(t, string(hostBytes), "ref", "the real host credential must keep its refresh token")
 }
 
 // TestAmbientSet_IsAnExplicitAllowListPerEngine is the roster guard the plan
@@ -365,4 +235,114 @@ func TestCopyAmbient_SerializesTwoRunsSharingOneInstance(t *testing.T) {
 	require.Len(t, rec.seen(), 2, "both runs must have prepared the shared instance")
 	assert.Equal(t, int32(1), rec.maxInFlight.Load(),
 		"two runs sharing one session instance must serialize; %d were generating at once", rec.maxInFlight.Load())
+}
+
+// TestCopyAmbient_InstanceCredentialKeepsItsRefreshToken is the INVERSE of the
+// stripping test it replaces, and the inversion is the whole point of this
+// work.
+//
+// The old seed removed the refresh half of claude's OAuth token on the way
+// into the instance, because a COPY that refreshed would consume the host's
+// single-use token and invalidate the user's own login. The price was that the
+// instance could authenticate until its access token expired and then had no
+// way back — a credential that provably could not renew.
+//
+// The instance's credential is no longer a copy: it is the host's material,
+// delivered by a mechanism that keeps the two in step. So the refresh token
+// must be THERE, because refreshing is now the correct thing for the instance
+// to do.
+//
+// MUTATION TARGET: reintroduce any projection of the credential bytes and this
+// goes red.
+func TestCopyAmbient_InstanceCredentialKeepsItsRefreshToken(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
+	hostBytes := []byte(`{"claudeAiOauth":{"accessToken":"acc","refreshToken":"ref","refreshTokenExpiresAt":2,"subscriptionType":"max"}}`)
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), hostBytes, 0o600))
+	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
+
+	instance := t.TempDir()
+	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = report.Close() })
+
+	placed, err := os.ReadFile(filepath.Join(instance, "claude", ".credentials.json"))
+	require.NoError(t, err)
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(placed, &cfg))
+	oauth := cfg["claudeAiOauth"].(map[string]any)
+	assert.Equal(t, "ref", oauth["refreshToken"], "the instance must be able to RENEW; a stripped copy provably cannot")
+	assert.Equal(t, float64(2), oauth["refreshTokenExpiresAt"])
+	assert.Equal(t, "acc", oauth["accessToken"])
+	assert.Equal(t, hostBytes, placed, "the instance gets the host's material, unprojected")
+}
+
+// TestCopyAmbient_ReportsTheDeliveryItGot pins that the delivery reaches the
+// caller. Mounted and replicated FAIL DIFFERENTLY — replication has a rotation
+// window a mount does not — so "which one did this run get?" has to be
+// answerable without reading the selection code.
+func TestCopyAmbient_ReportsTheDeliveryItGot(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	writeCreds(t, home, false)
+	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
+
+	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = report.Close() })
+
+	policy, ok := provisioningPolicyDeclared("claude-code")
+	require.True(t, ok)
+	accepted, ok := policy.Get()
+	require.True(t, ok)
+	assert.Contains(t, accepted.Accept, report.Delivery,
+		"the delivery must be one the engine DECLARED it accepts, never one it was handed")
+	assert.NotEmpty(t, report.Mechanism, "the implementation that placed it must be nameable")
+}
+
+// TestCopyAmbient_RefusesWhenNoDeclaredDeliveryCanBeHonoured is the fail-loud
+// contract, and the reason there is no fallback left to catch it.
+//
+// A platform honouring none of the declared acceptances must REFUSE, naming
+// every mechanism it tried and why each was rejected — never quietly hand back
+// something the engine did not agree to. The stripped copy that used to be the
+// silent last resort is gone, and this is what stands in its place.
+func TestCopyAmbient_RefusesWhenNoDeclaredDeliveryCanBeHonoured(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	writeCreds(t, home, false)
+	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
+
+	// Force the failure rather than hunt for a host that has it: the probes
+	// are injectable precisely so the "nothing works here" path is reachable.
+	// A capability probe that can only ever answer YES gets believed.
+	restore := seedProvisionOptions
+	seedProvisionOptions = func() []ProvisionOption {
+		return []ProvisionOption{
+			WithNamespaceBindsPerformed(),
+			WithNamespaceProbe(func(context.Context, string) error {
+				return errors.New("unprivileged user namespaces are disabled by policy on this host")
+			}),
+			WithReplicationProbe(func(context.Context, string) error {
+				return errors.New("the inotify instance limit is exhausted")
+			}),
+		}
+	}
+	t.Cleanup(func() { seedProvisionOptions = restore })
+
+	instance := t.TempDir()
+	_, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	require.Error(t, err, "a run that cannot get its declared delivery must refuse, not degrade")
+
+	msg := err.Error()
+	assert.Contains(t, msg, "no declared provisioner can deliver shared material")
+	assert.Contains(t, msg, "container-mount", "every candidate tried must be named")
+	assert.Contains(t, msg, "namespace-mount")
+	assert.Contains(t, msg, "replication")
+	assert.Contains(t, msg, "disabled by policy", "…each with the reason it was rejected")
+	assert.Contains(t, msg, "inotify instance limit")
+
+	assert.NoFileExists(t, filepath.Join(instance, "claude", ".credentials.json"),
+		"a refused run leaves no material behind to be mistaken for a working credential")
 }

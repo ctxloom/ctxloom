@@ -30,15 +30,14 @@ func validDescriptor() Descriptor {
 			"fixture writes no settings"),
 		InstanceConfig: agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter](
 			"fixture generates no instance config"),
-		CredentialProjector: agent.Absent[func() agent.CredentialProjector]("fixture has no credentials"),
-		CommandExports:      agent.Absent[func([]*bundles.LoadedContent) []agent.CommandExport]("fixture exports no commands"),
-		SkillExports:        agent.Absent[func([]*bundles.LoadedSkill) []agent.SkillExport]("fixture exports no skills"),
-		HookGlobalScope:     agent.Absent[HookGlobalScope]("fixture's global path never collapses onto its project path"),
-		VersionCommand:      agent.Absent[engineversion.Command]("fixture has no binary to ask"),
-		Home:                agent.Absent[agent.EngineHome]("fixture keeps no global state"),
-		Container:           agent.Absent[agent.EngineContainer]("fixture has no container story"),
-		TranscriptReaders:   agent.Absent[[]vendorreader.VersionedAdapter]("fixture keeps no transcripts"),
-		Provisioning:        agent.Absent[agent.ProvisioningPolicy]("fixture has no material to provision"),
+		CommandExports:    agent.Absent[func([]*bundles.LoadedContent) []agent.CommandExport]("fixture exports no commands"),
+		SkillExports:      agent.Absent[func([]*bundles.LoadedSkill) []agent.SkillExport]("fixture exports no skills"),
+		HookGlobalScope:   agent.Absent[HookGlobalScope]("fixture's global path never collapses onto its project path"),
+		VersionCommand:    agent.Absent[engineversion.Command]("fixture has no binary to ask"),
+		Home:              agent.Absent[agent.EngineHome]("fixture keeps no global state"),
+		Container:         agent.Absent[agent.EngineContainer]("fixture has no container story"),
+		TranscriptReaders: agent.Absent[[]vendorreader.VersionedAdapter]("fixture keeps no transcripts"),
+		Provisioning:      agent.Absent[agent.ProvisioningPolicy]("fixture has no material to provision"),
 	}
 }
 
@@ -99,8 +98,8 @@ func TestValidate_RefusesProvidedNilFunc(t *testing.T) {
 	d.SettingsWriter = agent.Provide[func(agent.SettingsOptions) agent.SettingsWriter](nil)
 	assert.ErrorContains(t, d.Validate(), "SettingsWriter")
 	d = validDescriptor()
-	d.CredentialProjector = agent.Provide[func() agent.CredentialProjector](nil)
-	assert.ErrorContains(t, d.Validate(), "CredentialProjector")
+	d.InstanceConfig = agent.Provide[func(agent.SettingsOptions) agent.InstanceConfigWriter](nil)
+	assert.ErrorContains(t, d.Validate(), "InstanceConfig")
 }
 
 func TestValidate_RefusesIncompleteProvidedVersionCommand(t *testing.T) {

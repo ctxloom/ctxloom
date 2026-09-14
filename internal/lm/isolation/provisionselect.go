@@ -108,6 +108,16 @@ type provisionConfig struct {
 	// requires making every candidate fail, and one that cannot be made to
 	// fail cannot appear in that test.
 	replicationProbe func(ctx context.Context, scratch string) error
+	// namespaceBindsPerformed is the caller DECLARING that something in this
+	// run will perform the imperative binds a namespace mount emits — wrapping
+	// the engine's own exec through mountns.Command — before the engine
+	// starts. It is the exact twin of containerHome's question: not "can this
+	// host do it?" (that is the probe) but "is there a performer in this run
+	// at all?". Default false, and the default is the honest one: a caller
+	// that emits NamespaceBinds nobody performs leaves empty mount targets in
+	// the instance home and starts the engine logged out behind them, which is
+	// worse than the refusal.
+	namespaceBindsPerformed bool
 	// containerHome is the path an engine's home has INSIDE the container, and
 	// its presence is what says this run is containerised at all. Empty means
 	// there is no container to emit mount descriptors for, which is a
@@ -133,6 +143,14 @@ func WithNamespaceProbe(probe func(ctx context.Context, scratch string) error) P
 // negative-control reason as WithNamespaceProbe.
 func WithReplicationProbe(probe func(ctx context.Context, scratch string) error) ProvisionOption {
 	return func(c *provisionConfig) { c.replicationProbe = probe }
+}
+
+// WithNamespaceBindsPerformed declares that this run will hand the Result's
+// NamespaceBinds to a performer before the engine is exec'd. Without it the
+// host-namespace-mount candidate is rejected with that as its reason — see
+// provisionConfig.namespaceBindsPerformed for why silence is the safe default.
+func WithNamespaceBindsPerformed() ProvisionOption {
+	return func(c *provisionConfig) { c.namespaceBindsPerformed = true }
 }
 
 // WithContainerHome declares that this run is containerised and where the

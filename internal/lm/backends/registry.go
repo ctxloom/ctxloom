@@ -84,12 +84,10 @@ func Register(descs ...engine.Descriptor) error {
 		// container story is a declaration it can read back, not a lookup
 		// miss.
 		isolation.RegisterCredentialSeed(d.Name, credentialSeedOf(&d))
+		isolation.RegisterProvisioningPolicy(d.Name, d.Provisioning)
 		isolation.RegisterEngineContainer(d.Name, d.Container, d.Distribution)
 		if w, ok := d.InstanceConfig.Get(); ok {
 			isolation.RegisterInstanceConfigWriter(d.Name, w(agent.SettingsOptions{}))
-		}
-		if p, ok := d.CredentialProjector.Get(); ok {
-			isolation.RegisterCredentialProjector(d.Name, p())
 		}
 	}
 	return nil

@@ -71,8 +71,6 @@ func mockDescriptor(name string, ctor func() *Mock, newConfig func() agent.Backe
 		SettingsWriter: agent.Provide(NewMockSettingsWriter),
 		InstanceConfig: agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter](
 			name + " generates no instance config: it has no config file of its own"),
-		CredentialProjector: agent.Absent[func() agent.CredentialProjector](
-			name + " has no credentials to project: it authenticates against nothing"),
 		// Every prompt and skill is ENABLED: mock has no per-engine export
 		// block in a bundle's LLM section, and a mock that silently exported
 		// nothing would be a surface that reports success and writes zero

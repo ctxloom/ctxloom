@@ -22,48 +22,44 @@ func TestPresentEnvKeys_OnlyKnownSetVars(t *testing.T) {
 	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, out, "only set, known auth var NAMES cross (no value; empty + unknown dropped)")
 }
 
-// TestCopyCredentialFile_RefusesSymlinkDestination pins that
-// copyCredentialFile used to os.WriteFile straight at dst, which FOLLOWS a
-// symlink there — a seed then writes through to whatever the link points at.
-// Live in this repo's own working copy: `.codex/auth.json` can be a symlink
-// to the real `~/.codex/auth.json`, turning a routine credential seed into an
-// arbitrary-file overwrite of the user's own OAuth token. Refuse a
-// pre-existing symlink destination outright.
-func TestCopyCredentialFile_RefusesSymlinkDestination(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src.json")
-	require.NoError(t, os.WriteFile(src, []byte("seed-content"), 0o600))
+// TestHostCredentialSeed_RefusesSymlinkedDestination is the SECURITY pin that
+// outlived the copy path it was written against.
+//
+// The old seed wrote with os.WriteFile, which FOLLOWS a symlink at the
+// destination, so a repo-tracked `.credentials.json` link pointing at the real
+// `~/.claude/.credentials.json` turned a routine seed into an arbitrary-file
+// overwrite of the user's own OAuth token. Copying is gone; the hazard is not,
+// because every placement still opens a destination inside an instance home
+// nobody validated.
+//
+// It is refused at the OPEN SYSCALL now (iox.WriteFileInPlace's O_NOFOLLOW),
+// which is strictly better than the Lstat-then-write it replaces: there is no
+// window between the check and the write for a link to be swapped in. This
+// test drives the REAL production path rather than the primitive, so it fails
+// if any future placement reaches the filesystem some other way.
+func TestHostCredentialSeed_RefusesSymlinkedDestination(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	writeCreds(t, home, false)
 
-	victim := filepath.Join(dir, "victim.json")
+	// The victim stands in for the user's REAL credential. Nothing in this
+	// test may touch a real one, so it is an ordinary temp file the seed is
+	// lured at through a link inside the instance home.
+	dest := t.TempDir()
+	victim := filepath.Join(dest, "victim.json")
 	require.NoError(t, os.WriteFile(victim, []byte("do-not-touch"), 0o600))
-	dst := filepath.Join(dir, "auth.json")
-	require.NoError(t, os.Symlink(victim, dst))
+	seedDir := filepath.Join(dest, "claude")
+	require.NoError(t, os.MkdirAll(seedDir, 0o700))
+	require.NoError(t, os.Symlink(victim, filepath.Join(seedDir, ".credentials.json")))
 
-	err := copyCredentialFile(src, dst, nil)
-	require.Error(t, err, "must refuse to write through a symlinked destination")
-	assert.Contains(t, err.Error(), "symlink")
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	t.Cleanup(func() { _ = provisioned.Close() })
+	require.Error(t, err, "must refuse to place credential bytes through a symlinked destination")
+	assert.Equal(t, seedNoSource, result, "a refused placement never reports success")
 
 	victimContent, readErr := os.ReadFile(victim)
 	require.NoError(t, readErr)
 	assert.Equal(t, "do-not-touch", string(victimContent), "the symlink target must be untouched")
-}
-
-// TestCopyCredentialFile_PlainDestinationStillWorks: the guard must not
-// regress the common case — a fresh (non-symlink) destination copies
-// verbatim at 0600, exactly as before.
-func TestCopyCredentialFile_PlainDestinationStillWorks(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src.json")
-	require.NoError(t, os.WriteFile(src, []byte("seed-content"), 0o600))
-	dst := filepath.Join(dir, "auth.json")
-
-	require.NoError(t, copyCredentialFile(src, dst, nil))
-	content, err := os.ReadFile(dst)
-	require.NoError(t, err)
-	assert.Equal(t, "seed-content", string(content))
-	info, err := os.Stat(dst)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
 // withFakeHome points hostHomeDir at a temp dir for hermetic credential tests.
@@ -242,7 +238,8 @@ func TestHostCredentialSeed_SkipsWhenEnvTriggerSet(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedSkippedEnv, result)
 	assert.NoDirExists(t, filepath.Join(dest, "claude"), "no seed dir is created when the env trigger covers auth")
@@ -265,7 +262,8 @@ func TestHostCredentialSeed_CopiesCredentialFileWhenPresent(t *testing.T) {
 	writeCreds(t, home, true) // withDotClaude=true: host ALSO has ~/.claude.json — must not be seeded
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 
@@ -292,7 +290,8 @@ func TestHostCredentialSeed_OnlyCredentialFileRequired(t *testing.T) {
 	writeCreds(t, home, false)
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 	assert.FileExists(t, filepath.Join(dest, "claude", ".credentials.json"))
@@ -308,7 +307,8 @@ func TestHostCredentialSeed_NoSourceReturnsNoSourceNotError(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err, "nothing seedable is a DECISION, not an I/O error")
 	assert.Equal(t, seedNoSource, result)
 	assert.NoDirExists(t, filepath.Join(dest, "claude"), "no half-built seed dir is left behind")
@@ -325,7 +325,8 @@ func TestHostCredentialSeed_UnresolvableHostHome(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result)
 }
@@ -483,7 +484,8 @@ func TestHostCredentialSeed_NeverLeaksPersonalMCPConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), []byte(realisticDotClaudeJSON), 0o600))
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 
@@ -513,29 +515,37 @@ func TestFileExists(t *testing.T) {
 	assert.False(t, fileExists(filepath.Join(dir, "absent.json")), "a missing path does not exist")
 }
 
-// TestCopyCredentialFile_TightensAPreExistingDestination pins a
-// regression. copyCredentialFile documents "copies src to dst at 0600
-// (owner-only)", but os.WriteFile applies its perm argument ONLY when it creates
-// the file — writing over a destination that already exists keeps whatever mode
-// that destination had. The seed then lands live credential bytes in a
-// group/world-readable file while every doc and every caller believes the
-// owner-only guarantee holds.
-func TestCopyCredentialFile_TightensAPreExistingDestination(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src")
-	dst := filepath.Join(dir, "dst")
-	require.NoError(t, os.WriteFile(src, []byte(`{"token":"secret"}`), 0o600))
-	require.NoError(t, os.WriteFile(dst, []byte("stale"), 0o644))
+// TestHostCredentialSeed_TightensAPreExistingDestination pins the owner-only
+// guarantee on a destination that ALREADY EXISTED.
+//
+// It survives the copy path's deletion because the hazard survives it: an
+// in-place write sets the mode only on a file it CREATED, so a stale
+// destination left at a looser mode by an earlier run would keep that mode
+// while holding a live token — the same trap os.WriteFile's create-only perm
+// argument laid, reached by a different route.
+func TestHostCredentialSeed_TightensAPreExistingDestination(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	writeCreds(t, home, false)
 
-	require.NoError(t, copyCredentialFile(src, dst, nil))
+	dest := t.TempDir()
+	seedDir := filepath.Join(dest, "claude")
+	require.NoError(t, os.MkdirAll(seedDir, 0o700))
+	stale := filepath.Join(seedDir, ".credentials.json")
+	require.NoError(t, os.WriteFile(stale, []byte("stale"), 0o644))
 
-	info, err := os.Stat(dst)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	t.Cleanup(func() { _ = provisioned.Close() })
+	require.NoError(t, err)
+	assert.Equal(t, seedOK, result)
+
+	info, err := os.Stat(stale)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
 		"the owner-only guarantee must hold on a destination that already existed")
-	got, err := os.ReadFile(dst)
+	got, err := os.ReadFile(stale)
 	require.NoError(t, err)
-	assert.Equal(t, `{"token":"secret"}`, string(got))
+	assert.Equal(t, "{}", string(got), "the stale bytes are replaced by the host's")
 }
 
 // TestHostCredentialSeed_TightensAPreExistingSeedDir is the other half of the
@@ -551,7 +561,8 @@ func TestHostCredentialSeed_TightensAPreExistingSeedDir(t *testing.T) {
 	seedDir := filepath.Join(dest, claudeSeed(t).Subdir)
 	require.NoError(t, os.MkdirAll(seedDir, 0o755))
 
-	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, nil)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	require.Equal(t, seedOK, result)
 
@@ -578,7 +589,8 @@ func TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	done := captureStderr(t)
-	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), t.TempDir(), nil)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), t.TempDir())
+	t.Cleanup(func() { _ = provisioned.Close() })
 	stderr := done()
 
 	require.NoError(t, err)
@@ -620,7 +632,8 @@ func TestHostCredentialSeed_SeedDirUncreatable(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
 
-	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), notADir, nil)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), notADir)
+	t.Cleanup(func() { _ = provisioned.Close() })
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credential seed dir")
 	assert.Equal(t, seedNoSource, result)
@@ -640,9 +653,10 @@ func TestHostCredentialSeed_UnreadableSourceIsAnError(t *testing.T) {
 	require.NoError(t, os.Chmod(src, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(src, 0o600) })
 
-	result, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), t.TempDir(), nil)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), t.TempDir())
+	t.Cleanup(func() { _ = provisioned.Close() })
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "seed claude-code credential")
+	assert.Contains(t, err.Error(), "provision claude-code credential material")
 	assert.Equal(t, seedNoSource, result)
 }
 
@@ -658,8 +672,9 @@ func TestHostCredentialSeed_AllOptionalAndNonePresent(t *testing.T) {
 	}
 
 	dest := t.TempDir()
-	result, err := hostCredentialSeed("phantom", seed, dest, nil)
+	result, provisioned, err := hostCredentialSeed("phantom", seed, dest)
+	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
-	assert.Equal(t, seedNoSource, result, "copying nothing is never seedOK")
+	assert.Equal(t, seedNoSource, result, "placing nothing is never seedOK")
 	assert.NoFileExists(t, filepath.Join(dest, "phantom", "nope"))
 }

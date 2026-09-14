@@ -220,20 +220,30 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	}
 	credential, err := os.ReadFile(filepath.Join(instances["claude-code"], ".credentials.json"))
 	if err != nil || len(credential) == 0 {
-		t.Fatalf("claude's credential was not copied into the instance (%v); the copy-in must have happened for this gate to mean anything", err)
+		t.Fatalf("claude's credential never reached the instance (%v); the provisioning must have happened for this gate to mean anything", err)
 	}
 
-	// ACCESS-TOKEN-ONLY (easiest-stomp): the copy is a STRICT SUBSET of the host
-	// credential — the access token authenticates it, the single-use rotating
-	// refresh token is stripped so a refresh in this disposable home can never
-	// invalidate the human's real ~/.claude login. The byte-identity gate below
-	// already proves the real home was untouched; this proves the COPY is the
-	// safe subset rather than a verbatim clone.
-	if s := string(credential); strings.Contains(s, "refreshToken") || strings.Contains(s, "host-refresh") {
-		t.Errorf("claude's instance credential still carries the refresh token; a copied home that can refresh rotates and invalidates the host's single-use token.\ncopy: %s", s)
+	// RENEWABLE, which is the INVERSE of the rule this assertion used to hold.
+	//
+	// The instance credential was once a strict subset of the host's, with the
+	// single-use refresh token stripped out, because it was a COPY and a copy
+	// that refreshed would consume the host's token and invalidate the human's
+	// own login. The price was a credential that could authenticate until its
+	// access token expired and then had no way back.
+	//
+	// It is not a copy any more. The provisioner delivers the host's own
+	// material — mounted, or kept in step by replication — so there is ONE
+	// rotating token and a refresh performed in the instance is a refresh the
+	// host has. The refresh half must therefore be PRESENT: its absence would
+	// mean something projected the bytes again and reintroduced the expiry.
+	//
+	// The byte-identity gate below is what still holds the other half honest:
+	// ctxloom itself writes nothing into the real home.
+	if s := string(credential); !strings.Contains(s, "host-refresh") {
+		t.Errorf("claude's instance credential lost its refresh token; a credential that cannot renew is the stripped copy this work deleted.\nplaced: %s", s)
 	}
 	if !strings.Contains(string(credential), "host-token") {
-		t.Errorf("claude's instance credential lost its access token; the copy must still authenticate.\ncopy: %s", string(credential))
+		t.Errorf("claude's instance credential lost its access token; it must still authenticate.\nplaced: %s", string(credential))
 	}
 
 	// Drive a real Setup against the instance the contribution just named, so

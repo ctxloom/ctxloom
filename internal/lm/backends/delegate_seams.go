@@ -88,12 +88,10 @@ func CheckHookTargetScope(name, workDir string, force bool) error {
 func UnregisterForTesting(name string) {
 	if d, ok := descriptors[name]; ok {
 		isolation.RegisterCredentialSeed(name, agent.Declared[agent.CredentialSeed]{})
+		isolation.RegisterProvisioningPolicy(name, agent.Declared[agent.ProvisioningPolicy]{})
 		isolation.RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, agent.DistributionUnset)
 		if _, had := d.InstanceConfig.Get(); had {
 			isolation.RegisterInstanceConfigWriter(name, nil)
-		}
-		if _, had := d.CredentialProjector.Get(); had {
-			isolation.RegisterCredentialProjector(name, nil)
 		}
 	}
 	delete(descriptors, name)

@@ -49,10 +49,6 @@ type Descriptor struct {
 	// InstanceConfig constructs the engine-owned generator of its own
 	// top-level config file inside a config home ctxloom provisioned.
 	InstanceConfig agent.Declared[func(agent.SettingsOptions) agent.InstanceConfigWriter]
-	// CredentialProjector constructs the transform applied to a COPY of one
-	// host credential file as it crosses into an instance home. Absent =
-	// copied verbatim.
-	CredentialProjector agent.Declared[func() agent.CredentialProjector]
 	// CommandExports maps loaded bundle content to this engine's slash-command
 	// exports, resolving per-prompt enablement and metadata.
 	CommandExports agent.Declared[func([]*bundles.LoadedContent) []agent.CommandExport]
@@ -175,9 +171,6 @@ func (d Descriptor) validateProvided() error {
 	}
 	if f, ok := d.InstanceConfig.Get(); ok && f == nil {
 		return errors.New("InstanceConfig is provided as nil")
-	}
-	if f, ok := d.CredentialProjector.Get(); ok && f == nil {
-		return errors.New("CredentialProjector is provided as nil")
 	}
 	if f, ok := d.CommandExports.Get(); ok && f == nil {
 		return errors.New("CommandExports is provided as nil")

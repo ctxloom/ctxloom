@@ -65,7 +65,7 @@ func TestComposeChatMCPServers_ExistingNameWins(t *testing.T) {
 }
 
 // TestComposeChatMCPServers_NoManagedPayload: a nil bundle set means no managed
-// payload was assembled (skip-setup / failed config load) — nothing is
+// payload was assembled (the minimal form / a failed config load) — nothing is
 // injected, mirroring the lifecycle Flush no-op.
 func TestComposeChatMCPServers_NoManagedPayload(t *testing.T) {
 	assert.Nil(t, ComposeChatMCPServers("", nil, nil))
@@ -162,7 +162,7 @@ func TestManagedConfigChatMCPServers(t *testing.T) {
 }
 
 // TestBaseLifecycle_ChatMCPServers: the lifecycle composes from its merged
-// managed payload; one that never saw MergeManaged (skip-setup) yields nil.
+// managed payload; one that never saw MergeManaged (the minimal form) yields nil.
 func TestBaseLifecycle_ChatMCPServers(t *testing.T) {
 	l := NewBaseLifecycle("acp")
 	assert.Nil(t, l.ChatMCPServers(""), "no managed payload merged → nothing to inject")

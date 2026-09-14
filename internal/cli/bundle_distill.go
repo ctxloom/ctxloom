@@ -519,7 +519,7 @@ func distillWithLLM(ctx context.Context, llmName, llmLabel, model string, env ma
 			Model:          model, // explicit override; empty → backend's lightweight model
 			Env:            env,
 			// Headless distill declares no managed surfaces.
-			LaunchForm:     pb.LaunchFormToProto(agent.LaunchFormMinimal),
+			LaunchForm: pb.LaunchFormToProto(agent.LaunchFormMinimal),
 		},
 	}
 

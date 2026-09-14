@@ -27,8 +27,9 @@ import (
 //   - EMISSION ORDER. claude's argv order is significant (the config
 //     passthrough leads, the prompt positional trails) and is a property of the
 //     line, not of any one flag.
-//   - the GATES: SkipSetup, CellKind == CellKindShared, a non-empty delivered
-//     surface path, a harp in the env.
+//   - the GATES: a non-empty delivered surface path, a harp in the env, and the
+//     RESOLVED launch form (which no longer gates anything here — Setup resolves
+//     the argv and buildArgs emits it).
 //
 // The test applied is "is there exactly one place that knows this fact", not
 // "is it a struct literal".
@@ -121,9 +122,11 @@ const (
 )
 
 // commonFlags are the flags claude's driver can emit on BOTH surfaces. The
-// SkipSetup (minimal/distill) set is here rather than on oneshot alone because
-// buildArgs applies SkipSetup without consulting the mode — an interactive
-// SkipSetup run emits them too.
+// minimal/distill set is here rather than on oneshot alone because the minimal
+// posture is resolved by Setup from the run's declared form, which is
+// orthogonal to the mode: an interactive run on LaunchFormMinimal emits them
+// too. This used to read as a warning that buildArgs and the mode DISAGREED —
+// two decision sites for one fact. There is one site now, and it is Setup.
 func commonFlags() []agent.CLIFlag {
 	return []agent.CLIFlag{
 		{Name: flagSkipPermissions, Value: agent.ValueNone,
@@ -140,16 +143,16 @@ func commonFlags() []agent.CLIFlag {
 		{Name: flagMCPConfig, Value: agent.ValuePath,
 			Note: "layers over the project .mcp.json unless --strict-mcp-config is also present"},
 		{Name: flagSettings, Value: agent.ValuePathOrJSON,
-			Note: "a FILE PATH on the normal delivery path, a LITERAL inline JSON object under SkipSetup (minimalSettings); mutually exclusive within one argv"},
+			Note: "a FILE PATH on a delivering form, a LITERAL inline JSON object on the minimal one (minimalSettings); mutually exclusive within one argv"},
 		{Name: flagOutputFormat, Value: agent.ValueString,
-			Note: "SkipSetup only: json, so Execute can read the resolved model id"},
+			Note: "minimal form only: json, so Execute can read the resolved model id"},
 		{Name: flagTools, Value: agent.ValueString,
-			Note: `SkipSetup only; the value is an EMPTY STRING passed as its own argv token`},
-		{Name: flagNoSlashCommands, Value: agent.ValueNone, Note: "SkipSetup only"},
-		{Name: flagNoSessionPersist, Value: agent.ValueNone, Note: "SkipSetup only"},
-		{Name: flagStrictMCPConfig, Value: agent.ValueNone, Note: "SkipSetup only"},
+			Note: `minimal form only; the value is an EMPTY STRING passed as its own argv token`},
+		{Name: flagNoSlashCommands, Value: agent.ValueNone, Note: "minimal form only"},
+		{Name: flagNoSessionPersist, Value: agent.ValueNone, Note: "minimal form only"},
+		{Name: flagStrictMCPConfig, Value: agent.ValueNone, Note: "minimal form only"},
 		{Name: flagSystemPrompt, Value: agent.ValueString,
-			Note: `SkipSetup only; the value is an EMPTY STRING passed as its own argv token, dropping CLAUDE.md/memory`},
+			Note: `minimal form only; the value is an EMPTY STRING passed as its own argv token, dropping CLAUDE.md/memory`},
 	}
 }
 
@@ -167,7 +170,7 @@ func probes() []agent.CLIProbe {
 			Note: "layers on top of the cwd .mcp.json rather than replacing it, unless --strict-mcp-config"},
 		{Kind: agent.ProbeKindMCP, Scope: agent.ScopeCwd, Rel: MCPFileName},
 		{Kind: agent.ProbeKindSettings, Scope: agent.ScopeFlagValue, Flag: flagSettings,
-			Note: "value may be an inline JSON object rather than a path (SkipSetup)"},
+			Note: "value may be an inline JSON object rather than a path (the minimal form)"},
 		{Kind: agent.ProbeKindSettings, Scope: agent.ScopeCwd, Rel: relSettings,
 			Note: "claude folds hooks + statusline + permission denies into this one file"},
 		{Kind: agent.ProbeKindCommands, Scope: agent.ScopeCwd, Rel: relCommands, Dir: true,

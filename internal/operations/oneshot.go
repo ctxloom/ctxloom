@@ -66,8 +66,8 @@ type RunOneshotResult struct {
 // profile's declared llm → primary role), and runs the backend once in ONESHOT
 // mode with stdout captured. It mirrors memory/compactor's distillation run: the
 // client factory abstracts backend construction, the model rides in RunOptions,
-// and SkipSetup keeps startup minimal (no hooks/MCP/statusline) — the profile's
-// assembled context is the only specialization.
+// and the member's declared launch form decides where its config lands — the
+// profile's assembled context is the only specialization.
 func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) (*RunOneshotResult, error) {
 	ctxResult, err := AssembleContext(ctx, cfg, AssembleContextRequest{
 		Profile:  req.Profile,
@@ -535,8 +535,8 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		factory = isolation.FactoryForWorkspace(policy, ws, nil)
 		// Stamp the resolved cell (none→Shared, worktree→DirectoryIsolated,
 		// container→ProcessIsolated) — set unconditionally from the actual policy,
-		// not gated on Isolated, so a none member is explicitly Shared too. This
-		// complements the SkipSetup-as-proxy below (which S4b will supersede).
+		// not gated on Isolated, so a none member is explicitly Shared too. It is
+		// what selects the member's launch form below.
 		cellKind = CellKindForPolicy(policy)
 
 	}

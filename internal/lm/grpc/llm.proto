@@ -458,7 +458,7 @@ message RunStart {
   RunOptions options = 1;
   repeated Fragment fragments = 2;       // Context fragments with metadata
   Fragment prompt = 3;                   // The user prompt as a fragment
-  ManagedConfig managed_config = 4;      // Host-assembled config/bundle setup payload (nil for skip_setup)
+  ManagedConfig managed_config = 4;      // Host-assembled config/bundle setup payload (nil on the minimal launch form)
 }
 
 // ManagedConfig is the host-assembled setup payload that rides over Run so the

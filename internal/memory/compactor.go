@@ -402,7 +402,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 // via agent.MainThreadEntries, so this is the post-filter count). Zero
 // entries is the bright line, not a byte/token floor: a genuinely tiny but
 // real exchange — a single "hello" with no reply (TestCompact_
-// DeliversSystemPromptUnderSkipSetup), or a two-line "Hello, how are you?" /
+// DeliversSystemPromptOnTheMinimalForm), or a two-line "Hello, how are you?" /
 // "I'm doing well" round trip (TestCompact_WithMockClient) — renders to well
 // under 20 estimated tokens, so any threshold generous enough to spare those
 // real conversations would spare essentially everything; it would not be a

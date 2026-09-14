@@ -245,7 +245,7 @@ func TestEngineCLI_PromptDeliveryMatchesDriver(t *testing.T) {
 
 // TestEngineCLI_SettingsValueShapeCoversBothForms pins the trap: --settings
 // takes a FILE PATH on the normal delivery path and a LITERAL inline JSON
-// object under SkipSetup. A grammar declaring "path" would be wrong half the
+// object on the minimal form. A grammar declaring "path" would be wrong half the
 // time, so the declaration says path-or-json and both driver forms are proved.
 func TestEngineCLI_SettingsValueShapeCoversBothForms(t *testing.T) {
 	b := setupBackendForMatrix(t)

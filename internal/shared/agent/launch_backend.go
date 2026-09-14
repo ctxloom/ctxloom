@@ -641,8 +641,9 @@ func (b *LaunchBackend) mergedState() (hooks *wire.HooksConfig, bundleMCP map[st
 // and joins every failure into the returned error (it used to keep only the
 // first, silently discarding the rest even though every handle was still
 // attempted) — errors.Is/As still find any individual cause. A backend
-// that delivered nothing (the legacy lifecycle path, or a skip-setup run)
-// holds no handles, so this is a no-op there.
+// that delivered nothing (the legacy lifecycle path, the minimal form, or a
+// run presenting the session's surfaces) holds no handles, so this is a no-op
+// there.
 func (b *LaunchBackend) Cleanup(ctx context.Context) error {
 	var errs []error
 	for i := len(b.delivered) - 1; i >= 0; i-- {

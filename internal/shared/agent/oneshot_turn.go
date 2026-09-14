@@ -22,8 +22,7 @@ import (
 // outright.
 //
 // Callers apply this ONLY for an internal, non-user-initiated invocation
-// (ExecuteRequest.SkipSetup — distillation/compaction is the only caller
-// today). A real delegated child (agent_run) or an interactive session must
+// (LaunchFormMinimal — distillation/compaction is the only caller today). A real delegated child (agent_run) or an interactive session must
 // keep its own harp reaching the engine, so this must never run
 // unconditionally on the Chat path. env is never mutated; the returned map
 // is a fresh copy so the caller's own map (often shared, e.g. req.Env) is

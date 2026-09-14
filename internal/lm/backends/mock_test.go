@@ -103,7 +103,7 @@ func TestRecordMockInput_CapturesDenyToolsAndSkills(t *testing.T) {
 }
 
 // TestRecordMockInput_NilManaged_RecordsEmptySections is the companion
-// negative case: a nil Managed (skip_setup/distill paths) must not panic and
+// negative case: a nil Managed (the minimal/distill form) must not panic and
 // must record the sections empty rather than omitting them, so a scenario can
 // assert absence as confidently as presence.
 func TestRecordMockInput_NilManaged_RecordsEmptySections(t *testing.T) {

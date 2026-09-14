@@ -90,7 +90,7 @@ func TestRunTurn_MockDeliversContextSurfaceDuringTheTurn(t *testing.T) {
 			// what holds the turn open across the observation above.
 			Env: map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"},
 		},
-		// The host ships this on every non-skip-setup run
+		// The host ships this on every run that declares surfaces
 		// (backends.AssembleManagedConfig, via cli/run.go's buildRunRequest);
 		// the cells seam short-circuits on a nil one.
 		ManagedConfig: pb.ManagedConfigToProto(&agent.ManagedConfig{Hooks: &wire.HooksConfig{}}),
@@ -155,5 +155,5 @@ func TestRunTurn_MockMinimalForm_DeliversNothing(t *testing.T) {
 	require.NoError(t, err)
 
 	require.True(t, stdin.ran, "the observation never ran; the assertion below would be vacuous")
-	assert.Empty(t, seen, "a skip-setup turn must write nothing into the workspace")
+	assert.Empty(t, seen, "a minimal-form turn must write nothing into the workspace")
 }

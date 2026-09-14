@@ -484,7 +484,7 @@ func runTriageCall(ctx context.Context, factory pb.ClientFactory, backendName, l
 			// backend whose credentials live in llm.configs.<label>.env runs
 			// unconfigured, which does not error: the model just answers
 			// badly, and every trigger degrades to cannot-determine.
-			Env:       env,
+			Env: env,
 			// Headless triage declares no managed surfaces: no hooks, no
 			// commands, no context writes.
 			LaunchForm: pb.LaunchFormToProto(agent.LaunchFormMinimal),

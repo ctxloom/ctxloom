@@ -473,10 +473,11 @@ type ExecuteRequest struct {
 	Prompt *Fragment
 	// WorkDir is the working directory the run executes in (the child engine's
 	// cwd). It makes cwd a first-class Execute input, decoupled from Setup: the
-	// runner applies it before Execute on EVERY path — including the SkipSetup
-	// oneshot path, where Setup (and its SetWorkDir) never runs — so
-	// the passed workspace always reaches the child instead of defaulting to the
-	// plugin's inherited ".". Empty means "unset" (BaseBackend.WorkDir → ".").
+	// runner applies it before Execute on EVERY path — including the minimal
+	// form, which resolves its posture and returns without reaching the delivery
+	// machinery a backend's SetWorkDir may ride — so the passed workspace always
+	// reaches the child instead of defaulting to the plugin's inherited ".".
+	// Empty means "unset" (BaseBackend.WorkDir → ".").
 	WorkDir     string
 	Mode        ExecutionMode
 	Model       string

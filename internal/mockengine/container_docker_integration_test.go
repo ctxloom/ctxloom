@@ -128,7 +128,7 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 
 	// Run the mock AS claude oneshot, inside the container, over the
 	// materialized workspace. The argv mirrors what claude's buildArgs emits
-	// under SkipSetup (--print --output-format json --model). The prompt goes on
+	// on the minimal form (--print --output-format json --model). The prompt goes on
 	// stdin, exactly as L1 declares for claude oneshot. The report is written to
 	// a file in the mounted workspace so we read it back host-side.
 	//
@@ -150,7 +150,7 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 	}
 
 	// The oneshot JSON envelope on stdout — proof the mock ran AS the engine and
-	// the driver's SkipSetup decode would have succeeded.
+	// the driver's JSON-envelope decode would have succeeded.
 	var env struct {
 		Result     string                    `json:"result"`
 		ModelUsage map[string]map[string]int `json:"modelUsage"`

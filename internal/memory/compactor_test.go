@@ -747,12 +747,13 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 	}
 }
 
-// TestCompact_DeliversSystemPromptUnderSkipSetup pins the fragment-delivery
-// fix: distillation runs with SkipSetup, and the server only hands req.Fragments
-// to the backend through Setup — which SkipSetup bypasses. So the distill
+// TestCompact_DeliversSystemPromptOnTheMinimalForm pins the fragment-delivery
+// fix: distillation declares LaunchFormMinimal, which states it has no managed
+// surfaces, and the server hands req.Fragments to a backend through a delivered
+// context surface — which this form declares away. So the distill
 // instructions must ride in the prompt itself, or the model never sees them and
 // just answers the transcript conversationally (no frontmatter, no Open Items).
-func TestCompact_DeliversSystemPromptUnderSkipSetup(t *testing.T) {
+func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
@@ -784,7 +785,7 @@ func TestCompact_DeliversSystemPromptUnderSkipSetup(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, sawPrompt, sessionDistillPrompt,
-		"the distill system prompt must reach the model in the prompt, since SkipSetup drops req.Fragments")
+		"the distill system prompt must reach the model in the prompt, since the minimal form delivers no context surface")
 	assert.Contains(t, sawPrompt, "hello", "the transcript must still be in the prompt")
 }
 

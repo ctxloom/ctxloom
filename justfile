@@ -2127,22 +2127,20 @@ _run +ARGS:
         # only when their `go version` matches; mismatched entries coexist
         # safely as plain cache misses, never wrong builds.
         #
-        # This was briefly split into a per-worktree directory (keyed by a
-        # sha256 of the worktree's absolute path) to stop concurrent builds
-        # from different worktrees evicting each other's objects mid-link:
+        #
+        # ONE SHARED CACHE, DELIBERATELY. Do NOT re-split it per worktree, and
+        # do NOT add anything that hand-deletes entries from it. Those two go
+        # together: concurrent builds from different trees read this cache
+        # while others write it, and deleting an entry out from under a live
+        # link fails as
         #     link: cannot reopen /tmp/.gocache/b8/b8421...-d(_x002.o)
-        # which read exactly like a compile error in whatever you just
-        # changed, and was not. The real cause was `_sweep-cache` hand-
-        # deleting <hash>-a/-d files from the shared cache after builds (note
-        # the `-d` in the error above); that recipe was removed ("Stop
-        # hand-deleting from the shared build cache") and nothing hand-deletes
-        # from any build cache today, so the split's threat is gone. Nothing
-        # ever reaped the split cache on worktree teardown either: it was
-        # keyed by a one-way hash of a path that no longer exists once the
-        # tree is gone, so every ephemeral worktree stranded its directory
-        # permanently. Go's own build-cache trim never ran on it, because
-        # trim only happens when a `go` command targets that cache, and none
-        # ever would again.
+        # which reads exactly like a compile error in whatever you just
+        # changed, and is not. Go's own trim is safe here; a sweeper is not.
+        #
+        # A per-worktree cache is also unreapable by construction: keyed by a
+        # hash of an absolute path, it outlives the tree it belonged to, and
+        # Go's trim never runs on it again because trim only happens when a
+        # `go` command targets that cache.
         gobuild_mount=()
         gbc="$(go env GOCACHE 2>/dev/null || echo "$HOME/.cache/go-build")"
         if mkdir -p "$gbc" 2>/dev/null; then gobuild_mount=(-v "$gbc:/tmp/.gocache"); fi

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"path/filepath"
 	"testing"
 
@@ -793,32 +794,49 @@ func TestExecuteCLI_NonInteractiveCarriesNoStdinCleanup(t *testing.T) {
 // home (SetEngineHomeVar), and setupViaCells reads THAT run's value of it.
 // A run with no such var set — no controlled home — advises no EngineHome at
 // all, so an approach that needs one refuses rather than guessing.
+//
+// Every cell kind, because the home is a property of the RUN and not of the
+// cell: a shared cell's writers root at the same relocated home an isolated
+// cell's do, and the only thing the cell decides is where Scratch lands. The
+// shared case is the one delivery flips onto for a plain `ctxloom run`, and
+// it must not depend on which branch of setupViaCells resolved Scratch.
 func TestSetup_EngineHomeRoot_ResolvesFromTheDeclaredVar(t *testing.T) {
 	const homeVar = "TEST_ENGINE_HOME"
-	for _, tc := range []struct {
-		name string
-		env  map[string]string
-		want string
-	}{
-		{"declared and set", map[string]string{homeVar: "/proj/.ctxloom/state/h/home/test"}, "/proj/.ctxloom/state/h/home/test"},
-		{"declared but unset", map[string]string{}, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			set := &recordSet{}
-			b := newCellBackend(set)
-			b.SetEngineHomeVar(homeVar)
-			require.NoError(t, b.Setup(context.Background(), &SetupRequest{
-				WorkDir:   t.TempDir(),
-				Fragments: []*Fragment{{Content: "rules"}},
-				Env:       tc.env,
-				CellKind:  CellKindDirectoryIsolated,
-				Managed:   &ManagedConfig{},
-			}))
-			require.Len(t, set.deliverStarts, 5)
-			for _, start := range set.deliverStarts {
-				assert.Equal(t, tc.want, start.Paths().EngineHome.Host)
-			}
-		})
+	for _, cell := range []CellKind{CellKindShared, CellKindDirectoryIsolated, CellKindProcessIsolated} {
+		for _, tc := range []struct {
+			name string
+			env  map[string]string
+			want string
+		}{
+			{"declared and set", map[string]string{homeVar: "/proj/.ctxloom/state/h/home/test"}, "/proj/.ctxloom/state/h/home/test"},
+			{"declared but unset", map[string]string{}, ""},
+		} {
+			t.Run(cell.String()+"/"+tc.name, func(t *testing.T) {
+				set := &recordSet{}
+				b := newCellBackend(set)
+				b.SetEngineHomeVar(homeVar)
+				// The shared cell derives Scratch from the session harp; the
+				// isolated cells ignore it. Present on every case so the
+				// three differ in CellKind alone.
+				env := map[string]string{SessionHarpEnv: "perky-same-chevy"}
+				maps.Copy(env, tc.env)
+				require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+					WorkDir:   t.TempDir(),
+					Fragments: []*Fragment{{Content: "rules"}},
+					Env:       env,
+					CellKind:  cell,
+					Managed:   &ManagedConfig{},
+				}))
+				// A shared cell runs each surface's out-of-cwd form and an
+				// isolated cell its well-known write; the root under test
+				// must reach the writer down either route.
+				starts := append(append([]present.Start{}, set.deliverStarts...), set.realizeStarts...)
+				require.Len(t, starts, 5)
+				for _, start := range starts {
+					assert.Equal(t, tc.want, start.Paths().EngineHome.Host)
+				}
+			})
+		}
 	}
 }
 

@@ -102,7 +102,7 @@ func newAgentDelegation(cfg *config.Config) (*agentDelegation, error) {
 		cwd = "."
 	}
 	self := selfIdentityFromEnv(cwd)
-	c, err := NewHostedCoordinator(cfg, cwd)
+	c, err := NewHostedCoordinator(cfg, cwd, self.Harp)
 	if err != nil {
 		return nil, err
 	}

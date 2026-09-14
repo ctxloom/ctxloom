@@ -867,6 +867,7 @@ func (c *Coordinator) closePartial() {
 	shut("mailbox.jsonl", c.mail)
 	shut("items.jsonl", c.items)
 	shut("interactions.jsonl", c.auditJ)
+	c.spoolIn.close() // the mailbox's replacement closes with the mailbox
 	if len(errs) > 0 {
 		clidiag.Warn("ctxloom", "coordinator: closing journals under %s: %v", c.stateDir, errors.Join(errs...))
 	}

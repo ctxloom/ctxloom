@@ -2,6 +2,7 @@ package coord
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -98,7 +99,17 @@ type spoolWriterCache struct {
 
 	mu      sync.Mutex
 	writers map[string]*spool.Writer
+	// closed is set by close: the coordinator has torn down, and a write
+	// after that point — a terminal notice from a child dying because Close
+	// killed it — must be refused the way the closed journals refuse it.
+	// The spool is the mailbox's replacement, and "closed means nothing is
+	// written" is a property the tests (and a TempDir teardown) rely on.
+	closed bool
 }
+
+// errSpoolClosed answers writerFor on a closed cache — the spool's twin of
+// errStoreClosed.
+var errSpoolClosed = errors.New("coord: spool closed")
 
 func newSpoolWriterCache(m spool.PathMapper, dir spool.Dir, writerID string) *spoolWriterCache {
 	return &spoolWriterCache{mapper: m, dir: dir, id: writerID, writers: map[string]*spool.Writer{}}
@@ -112,6 +123,9 @@ func newSpoolWriterCache(m spool.PathMapper, dir spool.Dir, writerID string) *sp
 func (c *spoolWriterCache) writerFor(harp string) (*spool.Writer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.closed {
+		return nil, errSpoolClosed
+	}
 	if w, ok := c.writers[harp]; ok {
 		return w, nil
 	}
@@ -121,6 +135,17 @@ func (c *spoolWriterCache) writerFor(harp string) (*spool.Writer, error) {
 	}
 	c.writers[harp] = w
 	return w, nil
+}
+
+// close refuses every later writerFor. Cached writers are plain handles with
+// nothing to flush; the point is the refusal, not a release.
+func (c *spoolWriterCache) close() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
 }
 
 // spoolMessageForMail projects one mailbox Message onto its spool.Message.

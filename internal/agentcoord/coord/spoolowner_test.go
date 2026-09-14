@@ -19,12 +19,6 @@ import (
 // report lands there — so every test below asserts the CONTENT arrived, never
 // that a call returned true.
 
-// ownerInbox lists what currently sits in the owner's in/ spool.
-func ownerInbox(t *testing.T) []spool.Entry {
-	t.Helper()
-	return spoolEntries(t, ownerIdentity().Harp, spool.DirIn)
-}
-
 // recvNothing performs one bounded owner receive and asserts it returned no
 // message whose body is body.
 func recvNothing(t *testing.T, c *Coordinator, body string) {

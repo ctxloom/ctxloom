@@ -3,9 +3,6 @@ package coord
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -85,33 +82,26 @@ func TestSpoolTurnResult_RidesTheFileWithTheBridgesOwnPayload(t *testing.T) {
 		"the report must have travelled as a file in the child's own out/ spool")
 }
 
-// queuedResultsFrom reads the mailbox JOURNAL off disk and returns every
-// result-kind message queued from harp, oldest first.
+// ownerResultsFrom reads the owner's SPOOL off disk — in/ and in/consumed/
+// together — and returns every result-kind message routed to it from harp.
 //
-// The journal rather than the fold, because the fold forgets: a queued message
-// that was consumed leaves `pending` empty and `seen` holding only its id, so
-// neither can answer "how many reports were there". The durable fact can.
-func queuedResultsFrom(t *testing.T, c *Coordinator, harp string) []mailQueued {
+// Both directories, because a file is in exactly one of them: delivered but
+// unacked, or acked. Neither alone can answer "how many reports were there",
+// and the owner's in/ is the durable record of what reached it, the way the
+// mailbox journal was before the owner became a spool recipient.
+func ownerResultsFrom(t *testing.T, harp string) []Message {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(c.stateDir, "mailbox.jsonl"))
-	if os.IsNotExist(err) {
-		return nil
-	}
-	require.NoError(t, err)
-	var out []mailQueued
-	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-		if line == "" {
-			continue
-		}
-		var f Fact
-		require.NoError(t, json.Unmarshal([]byte(line), &f))
-		if f.Kind != factMailQueued {
-			continue
-		}
-		var q mailQueued
-		require.NoError(t, json.Unmarshal(f.Data, &q))
-		if q.From == harp && q.Kind == KindResult {
-			out = append(out, q)
+	var out []Message
+	for _, dir := range []spool.Dir{spool.DirIn, spool.DirInConsumed} {
+		for _, e := range spoolEntries(t, ownerIdentity().Harp, dir) {
+			if e.Message.FromHarp != harp {
+				continue
+			}
+			m, err := mailFromSpool(e, e.Message.FromHarp)
+			require.NoError(t, err)
+			if m.Kind == KindResult {
+				out = append(out, m)
+			}
 		}
 	}
 	return out
@@ -171,17 +161,17 @@ func TestSpoolTurnResult_ExactlyOnceFileXorBridge(t *testing.T) {
 	first := bridgedResultFor(t, c, conformanceWait)
 	require.NotEmpty(t, first.Body)
 
-	// EXACTLY ONE REPORT, read off the DURABLE JOURNAL rather than the live
-	// fold: a message that was queued and then consumed leaves the fold's
-	// pending list empty, so a test that read that would call a double
+	// EXACTLY ONE REPORT, read off the owner's spool on DISK rather than
+	// through a receive: a message that was delivered and then acked is gone
+	// from a receive's view, so a test that read that would call a double
 	// delivery a success.
 	//
-	// Both carriers end as owner-mailbox mail — the owner is not itself a
-	// spool run, so the routing hop converts the file into mail for it — and
-	// what separates them is the marker. So the assertion is "one report, and
-	// it is the runner's": a bridge that also fired would add an unmarked
-	// second one.
-	reports := queuedResultsFrom(t, c, out.Harp)
+	// Both carriers end as a file in the owner's in/ — the routing hop turns
+	// the runner's out/ file into mail for the owner, and a bridge would queue
+	// mail for the owner too — and what separates them is the marker. So the
+	// assertion is "one report, and it is the runner's": a bridge that also
+	// fired would add an unmarked second one.
+	reports := ownerResultsFrom(t, out.Harp)
 	require.Len(t, reports, 1,
 		"the coordinator must not ALSO bridge a cut-over child's turn: the parent would read the same turn twice")
 	assert.True(t, isAutoReport(reports[0].Structured),

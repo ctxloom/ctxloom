@@ -837,6 +837,22 @@ func (c *Coordinator) Close() {
 		if srv := c.srv.Load(); srv != nil {
 			srv.close()
 		}
+		// The spool writers close BEFORE the join, not after it. waitTracked is
+		// BOUNDED (closeJoinBudget) and says so when it gives up — "a leaked
+		// goroutine may still touch the state dir" — so a child teardown that
+		// outruns the budget is expected, not exceptional. Closing the writers
+		// first makes such a write REFUSE (errSpoolClosed) instead of landing:
+		// the spool root is resolved from the ambient $HOME at write time, so a
+		// write that escapes teardown does not land harmlessly in this run's own
+		// tree, it lands in whatever $HOME names by then.
+		//
+		// Refusing an in-flight terminal notice is the DESIGNED fallback, not a
+		// new loss: queueMail's caller already handles a failed durable queue by
+		// completing a parked parent's poll directly.
+		//
+		// Raising closeJoinBudget instead would be tuning a threshold until a
+		// gate goes quiet, which measures nothing.
+		c.spoolIn.close()
 		c.waitTracked()
 		c.closePartial()
 		if c.ephemeral {

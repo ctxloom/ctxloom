@@ -383,3 +383,57 @@ func TestParseErrorDenyPolicy(t *testing.T) {
 		t.Error("unparseable command should be denied under on_parse_error: deny")
 	}
 }
+
+// backgroundedCfg carries a `backgrounded: true` deny rule and nothing else —
+// the config-expressible predicate for a detached command (see
+// rules.Match.Backgrounded), on its own default on_parse_error: allow.
+const backgroundedCfg = `
+version: 1
+rules:
+  - id: background-via-harness
+    match: { backgrounded: true }
+    message: "detached jobs fire no completion notification"
+    suggest: "run the same command with run_in_background: true"
+`
+
+// TestBackgroundedRuleEndToEnd exercises the predicate through the real
+// parser (frontend/shell), not a hand-built IR: `just test-acceptance &`
+// (a bare trailing `&`, the form the old command-head rule missed) and
+// `nohup just test` are both denied; a plain `just test` is allowed.
+func TestBackgroundedRuleEndToEnd(t *testing.T) {
+	a := newApp(t, backgroundedCfg)
+
+	deny := []string{
+		"just test-acceptance &",
+		"nohup just test",
+		"setsid just test",
+	}
+	for _, c := range deny {
+		if decide(a, c).Allow {
+			t.Errorf("%q should be denied by the backgrounded rule", c)
+		}
+	}
+
+	if !decide(a, "just test").Allow {
+		t.Error("`just test` (no trailing &, no detach wrapper) should be allowed")
+	}
+}
+
+// TestUnparseableCommandPassesThroughWithBackgroundedRule is the fail-open
+// property the task set out to preserve: a `backgrounded: true` rule is a
+// PREDICATE on the parsed command, and a command ltk cannot parse at all must
+// still be allowed under the default on_parse_error: allow — the same
+// guarantee TestUnparseableCommandPassesThrough pins for an ordinary
+// command-head rule, now re-proven with a config whose only rule is the new
+// field, so a parse failure can never be silently reinterpreted as "detached,
+// therefore deny" just because backgrounded-ness happens to be unknown.
+func TestUnparseableCommandPassesThroughWithBackgroundedRule(t *testing.T) {
+	a := newApp(t, backgroundedCfg) // defaults: on_parse_error = allow
+	r := a.Decide(context.Background(), engine.Request{Command: "echo $(", Shell: "bash"})
+	if !r.Allow {
+		t.Error("unparseable command should pass through under on_parse_error: allow, even with a backgrounded rule present")
+	}
+	if !r.Unanalyzed {
+		t.Error("the pass-through must still be flagged Unanalyzed, not indistinguishable from a clean allow")
+	}
+}

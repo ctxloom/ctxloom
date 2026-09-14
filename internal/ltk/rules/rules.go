@@ -295,6 +295,33 @@ type Match struct {
 	// A glob cannot do this job: Go's path.Match (what Path uses) stops `*` at
 	// `/`, so no pattern spans a module path like golang.org/x/tools/gopls@v1.
 	UnlessArgContains []string `yaml:"unless_arg_contains"`
+	// Backgrounded matches a command DETACHED from the invoking session,
+	// rather than one identified by its own spelling. The bug this exists to
+	// close: a rule written as `command: [nohup]` / `command: [setsid]`
+	// catches those two spellings and nothing else — a bare trailing `&`,
+	// which is what actually backgrounds a job (`just test-acceptance &`),
+	// sails through untouched, because the command's own program is `just`,
+	// not a name any command-head pattern could list. `unless`/
+	// `unless_arg_contains` are exception carve-outs on top of a Command
+	// match; there is no existing field that is itself a positive match on
+	// "this job is detached", so it needs its own predicate rather than
+	// composing from what is already here.
+	//
+	// True when the command runs detached from the caller: SimpleCommand.
+	// Background (its statement ended in a trailing `&`) OR the command's own
+	// program is nohup, setsid, or disown — three ways to hand a job off
+	// without leaving anything for the caller to wait on. All three have the
+	// same practical effect this field exists to catch: a harness that only
+	// gets notified when a foreground child exits never learns this one
+	// finished.
+	//
+	// Like the other boolean-shaped conditions this Match could grow, false
+	// (the zero value, and so also an explicit `backgrounded: false`) means
+	// "no constraint from this field" — the same "absent = no constraint"
+	// convention every other Match field already uses (an empty Unless or
+	// ArgsAny does not narrow anything either). It only ever narrows a match
+	// when written `true`.
+	Backgrounded bool `yaml:"backgrounded"`
 	// Shells restricts the rule to these shells.
 	Shells []ir.Shell `yaml:"shells"`
 	// Path makes this a FILE-EDIT rule instead of a command rule: it matches when
@@ -328,13 +355,13 @@ func (m Match) isPathRule() bool { return len(m.Path) > 0 }
 // conditions, which is a config error: a rule is one kind or the other.
 func (m Match) mixesCommandAndPath() bool {
 	return m.isPathRule() && (len(m.Command) > 0 || len(m.ArgsAny) > 0 ||
-		len(m.ArgsAll) > 0 || len(m.Unless) > 0 || len(m.Shells) > 0)
+		len(m.ArgsAll) > 0 || len(m.Unless) > 0 || len(m.Shells) > 0 || m.Backgrounded)
 }
 
 func (m Match) hasConstraint() bool {
 	return len(m.Command) > 0 || len(m.ArgsAny) > 0 ||
 		len(m.ArgsAll) > 0 || len(m.Unless) > 0 || len(m.Shells) > 0 ||
-		len(m.UnlessArgContains) > 0 || len(m.Path) > 0
+		len(m.UnlessArgContains) > 0 || len(m.Path) > 0 || m.Backgrounded
 }
 
 // matchesPath reports whether a file-edit of file is caught by this path rule.
@@ -449,10 +476,38 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 	if s := shellForProgram(c.Program()); s != "" {
 		argShell = s
 	}
+	if m.Backgrounded && !isBackgrounded(c, argShell) {
+		return false
+	}
 	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, argShell, strictPrefix) {
 		return false
 	}
 	return m.matchesArgs(expandShortClusters(c.Args(), argShell))
+}
+
+// detachedPrograms names commands whose own effect is to hand a job off
+// without leaving anything for the caller to wait on — the same detachment a
+// trailing `&` produces structurally, just spelled as a program instead of a
+// job-control operator. Kept here (a short, rules-owned list) rather than
+// read from frontend.prefixWrapperRules: that table answers a different
+// question — "strip this program off so the command it WRAPS can still be
+// matched" — and importing it would also invert the package layering (rules
+// is a peer of frontend, evaluated against the IR frontend produces; frontend
+// does not depend on rules, and rules must not start depending on frontend).
+// disown has no entry in that table at all — it does not prepend to another
+// command, so there was never anything for a wrapper-stripping rule to do
+// with it — but it belongs here for the same reason nohup/setsid do: running
+// it is itself the detaching act.
+var detachedPrograms = []string{"nohup", "setsid", "disown"}
+
+// isBackgrounded reports whether c is detached from the invoking session:
+// SimpleCommand.Background (the frontend's record of a trailing `&` on this
+// command's statement) or an explicit nohup/setsid/disown invocation.
+func isBackgrounded(c ir.SimpleCommand, argShell ir.Shell) bool {
+	if c.Background {
+		return true
+	}
+	return slices.Contains(detachedPrograms, programBasename(c.Program(), argShell))
 }
 
 // matchesArgs applies the program-agnostic argument conditions — args_all,

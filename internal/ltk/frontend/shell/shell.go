@@ -116,7 +116,28 @@ func (l *lowerer) lowerStmt(st *syntax.Stmt, conn ir.Connector) []ir.Pipeline {
 	if st == nil {
 		return nil
 	}
-	return l.lowerCmd(st.Cmd, st, conn)
+	pipelines := l.lowerCmd(st.Cmd, st, conn)
+	if st.Background {
+		markBackground(pipelines)
+	}
+	return pipelines
+}
+
+// markBackground marks every command in pipelines as detached (SimpleCommand.
+// Background). It is called once, at the *syntax.Stmt whose trailing `&`
+// actually backgrounds the job — never at the recursive lowerStmt calls
+// lowerBinary makes for an AndStmt/OrStmt's two sides, whose own Stmt.Background
+// is separately false in that case. All of it applies uniformly regardless of
+// shape: a bare call, both sides of a pipe, and every command inside an
+// `&&`/`||` chain or a `(...)`/`{...}` group are one job once `&` follows it,
+// so every command produced gets marked — the same "widen what a guard can
+// see" bias frontend.ExpandWrappers documents for wrapper stripping.
+func markBackground(pipelines []ir.Pipeline) {
+	for pi := range pipelines {
+		for ci := range pipelines[pi].Commands {
+			pipelines[pi].Commands[ci].Background = true
+		}
+	}
 }
 
 // lowerCmd lowers one statement's command. Every case nil-checks its node: the

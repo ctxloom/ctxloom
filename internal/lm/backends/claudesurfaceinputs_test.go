@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -41,7 +42,7 @@ func TestDeclared_Claude_CarriesMCPCommandOverride(t *testing.T) {
 	}, fs)
 	require.NoError(t, err)
 	for _, kd := range resolved.Deliveries() {
-		_, err := kd.Deliver(isolatedCellRoots(dir))
+		_, err := kd.Deliver(present.ProjectOnHost(dir))
 		require.NoError(t, err, "%s failed to deliver", kd.Kind())
 	}
 

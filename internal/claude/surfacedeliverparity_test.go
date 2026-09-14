@@ -14,20 +14,19 @@ import (
 // TestDeliverAndDeliverIsolated_WriteIdenticalBytes is the parity gate between
 // a surface's two delivery entry points.
 //
-// Without a shared recipe, each surface carries TWO near-identical delivery
+// Without a shared recipe, mcpSurface and settingsSurface each carry TWO
+// near-identical delivery bodies: Deliver and DeliverIsolated. Four
 // bodies whose only real differences are where `dir` comes from and whether the
 // resulting path is recorded — so the delivery recipe (which writer, which
 // receiver fields get threaded onto it, which arguments) has to be edited twice
 // per surface, with nothing holding the two halves to each other.
 // MCPCommandOverride is the exact shape of the hazard: it is threaded onto the
-// writer in BOTH MCP bodies and, per the settings out-of-cwd comment,
+// writer in BOTH mcpSurface bodies and, per DeliverIsolated's own comment,
 // deliberately in NEITHER settings body.
 //
-// MCP now reaches its two writes through two APPROACHES sharing one embedded
-// mcpWriter, and settings still through one type's two forms. The invariant is
-// the same either way, and is what this pins: the project-file write and the
-// private write produce the SAME bytes, and only the private one records a
-// Path for the launch flag.
+// This pins the invariant the shared recipe preserves: for a given surface, the
+// well-known write and the isolated write produce the SAME bytes, and only the
+// isolated one records a Path.
 func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 	const (
 		wellKnownDir = "/well-known"
@@ -51,8 +50,8 @@ func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 	}{
 		{
 			name:     "mcp",
-			deliver:  func(s builtSurfaces) (agent.Delivered, error) { return s.MCPUnsafe.Deliver(roots) },
-			isolated: func(s builtSurfaces) (agent.Delivered, error) { return s.MCP.Deliver(roots) },
+			deliver:  func(s builtSurfaces) (agent.Delivered, error) { return s.MCP.Deliver(roots) },
+			isolated: func(s builtSurfaces) (agent.Delivered, error) { return s.MCP.DeliverIsolated(roots) },
 			path:     func(s builtSurfaces) string { return s.MCP.Path() },
 			relPath:  ".mcp.json",
 		},

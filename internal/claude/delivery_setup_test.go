@@ -217,7 +217,7 @@ func TestSetup_SharedCell_MCPOutOfCwd(t *testing.T) {
 // every surface lands as its engine well-known file IN the private working dir
 // (.claude/settings.json, .mcp.json, .claude/commands, CLAUDE.md) and buildArgs
 // adds NONE of the out-of-cwd flags.
-func TestSetup_IsolatedCell_WellKnownFilesAndOnlyTheMCPFlag(t *testing.T) {
+func TestSetup_IsolatedCell_WellKnownFilesNoFlags(t *testing.T) {
 	work := t.TempDir()
 	managed := &agent.ManagedConfig{
 		ManageStatusline: true,
@@ -237,17 +237,11 @@ func TestSetup_IsolatedCell_WellKnownFilesAndOnlyTheMCPFlag(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, entries)
 
-	// Context and settings keep their well-known form on an isolated cell, so
-	// neither is announced. MCP is announced: its default form is the private
-	// config file on EVERY launch, and on an isolated cell the private root IS
-	// the working dir, so the file lands at the well-known path AND is named on
-	// --mcp-config. The duplication is benign for MCP specifically — claude
-	// merges server sets, and the two sources are the same bytes.
+	// No out-of-cwd flags in an isolated cell.
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindDirectoryIsolated})
 	assert.NotContains(t, args, "--append-system-prompt-file")
+	assert.NotContains(t, args, "--mcp-config")
 	assert.NotContains(t, args, "--settings")
-	assert.True(t, argPair(args, "--mcp-config", filepath.Join(work, ".mcp.json")),
-		"the default mcp form is announced on every cell: %v", args)
 
 	// No context scratch leaks into the tree (context is CLAUDE.md, not a sysprompt file).
 	assertNoSyspromptUnder(t, work)
@@ -409,49 +403,4 @@ func TestSetup_ContextPayloadStillReachesTheLaunchFlag(t *testing.T) {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "project rules", "the fragment's own bytes must be in the delivered file")
-}
-
-// setupClaudeIsolatedSelecting runs an isolated-cell (worktree) Setup with an
-// EXPLICIT per-surface approach selection, which is the only way to reach the
-// approach a shared launch would otherwise derive for itself.
-func setupClaudeIsolatedSelecting(t *testing.T, work string, surfaces map[agent.SurfaceKind]string) *ClaudeCode {
-	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	backend := NewClaudeCode()
-	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
-		WorkDir:   work,
-		Fragments: []*agent.Fragment{{Content: "project rules"}},
-		Managed:   &agent.ManagedConfig{Surfaces: surfaces},
-		CellKind:  agent.CellKindDirectoryIsolated,
-	}))
-	return backend
-}
-
-// TestSetup_IsolatedCell_SystemPromptIsHonouredNotConvertedToCLAUDEmd is
-// feeble-sway's settle condition: an ISOLATED launch that selected
-// context:system-prompt gets the framed sysprompt file and its launch flag —
-// NOT a CLAUDE.md. Before the one-form change the isolated arm ran the
-// approach's plain Deliver, which WAS the CLAUDE.md write, so a worktree or
-// container launch silently received project memory instead of the system
-// prompt it asked for.
-func TestSetup_IsolatedCell_SystemPromptIsHonouredNotConvertedToCLAUDEmd(t *testing.T) {
-	work := t.TempDir()
-	backend := setupClaudeIsolatedSelecting(t, work, map[agent.SurfaceKind]string{
-		agent.SurfaceContext: ApproachSystemPrompt,
-	})
-
-	framed := contextPathOf(backend)
-	require.NotEmpty(t, framed, "selecting system-prompt must materialize the framed context file")
-	assert.True(t, strings.HasSuffix(framed, agent.SCMFramedContextSuffix),
-		"the delivered file must be the framed sysprompt, got %q", framed)
-	data, err := os.ReadFile(framed)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "project rules")
-
-	assert.NoFileExists(t, filepath.Join(work, ContextFileName),
-		"selecting system-prompt must NOT be converted into a CLAUDE.md write")
-
-	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindDirectoryIsolated})
-	assert.True(t, argPair(args, flagAppendSystemFile, framed),
-		"the selected approach's file must be announced on argv, else the content never reaches the engine: %v", args)
 }

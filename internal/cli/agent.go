@@ -96,8 +96,8 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		if s.Driving != "" {
 			w.Printf("    driving: %s\n", s.Driving)
 		}
-		if s.ConfigHome != "" {
-			w.Printf("    config_home: %s\n", s.ConfigHome)
+		if s.HomeMode != "" {
+			w.Printf("    config_home: %s\n", s.HomeMode)
 		}
 		if len(s.Escalation) > 0 {
 			w.Printf("    escalation: %d rung(s)\n", len(s.Escalation))
@@ -202,8 +202,8 @@ func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 	if def.Driving != "" {
 		w.Printf("Driving: %s\n", def.Driving)
 	}
-	if def.ConfigHome != "" {
-		w.Printf("Config home (declared): %s\n", def.ConfigHome)
+	if def.HomeMode != "" {
+		w.Printf("Config home (declared): %s\n", def.HomeMode)
 	}
 	renderAgentEscalation(w, def.Escalation)
 	writeBulletList(w, "Profiles", def.Profiles)
@@ -254,8 +254,8 @@ func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent,
 	if resolved.EffectivePermissions != "" {
 		w.Printf("Resolved permissions: %s\n", resolved.EffectivePermissions)
 	}
-	if resolved.ConfigHome != "" {
-		w.Printf("Resolved config home: %s\n", resolved.ConfigHome)
+	if resolved.HomeMode != "" {
+		w.Printf("Resolved config home: %s\n", resolved.HomeMode)
 	}
 	w.Printf("Composed fragments: %d\n", len(resolved.Fragments))
 	for _, loss := range losses {
@@ -291,7 +291,7 @@ var (
 	agentSetRuntime     string
 	agentSetSurfaces    []string
 	agentSetPermissions string
-	agentSetConfigHome  string
+	agentSetEngineHome  string
 )
 
 // agentWriteLong is the shared body text for `agent create` and `agent edit`:
@@ -455,7 +455,7 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 		req.Permissions = &agentSetPermissions
 	}
 	if cmd.Flags().Changed("config-home") {
-		req.ConfigHome = &agentSetConfigHome
+		req.HomeMode = &agentSetEngineHome
 	}
 	return req
 }
@@ -485,8 +485,8 @@ func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool
 	if entry.Driving != "" {
 		w.Printf(", driving: %s", entry.Driving)
 	}
-	if entry.ConfigHome != "" {
-		w.Printf(", config_home: %s", entry.ConfigHome)
+	if entry.HomeMode != "" {
+		w.Printf(", config_home: %s", entry.HomeMode)
 	}
 	w.Println(")")
 	return w.Err()
@@ -664,7 +664,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&agentSetSurfaces, "surface", nil,
 		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
 	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
-	cmd.Flags().StringVar(&agentSetConfigHome, "config-home", "",
+	cmd.Flags().StringVar(&agentSetEngineHome, "config-home", "",
 		"Per-engine config-home policy, on every isolation cell: project|host (empty = host, the default — controlled homes are opt-in)")
 	_ = cmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = cmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
@@ -673,7 +673,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 	})
 	_ = cmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
 	_ = cmd.RegisterFlagCompletionFunc("config-home", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return agents.ConfigHomeNames(), cobra.ShellCompDirectiveNoFileComp
+		return agents.HomeModeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 }
 

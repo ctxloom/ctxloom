@@ -146,7 +146,7 @@ agents:
 	// config.yaml can hold anything, and agents.ParseConfigHome is what turns it
 	// into the typed vocabulary. Asserting the typed constant here compares
 	// agents.ConfigHome against string and fails on the type, not the value.
-	assert.Equal(t, "project", dev.ConfigHome)
+	assert.Equal(t, "project", dev.HomeMode)
 	assert.Equal(t, map[string]string{"context": "system-prompt"}, dev.Surfaces)
 
 	_, ok = cfg.Agent("absent")

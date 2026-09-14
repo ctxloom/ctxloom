@@ -386,7 +386,7 @@ func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.C
 		// -home instance. It rides p.req.Env under agent.SessionHarpEnv — the
 		// same map isolation.SessionStateFromEnv reads two lines above.
 		Harp:       p.req.Env[agent.SessionHarpEnv],
-		ConfigHome: rs.ConfigHome,
+		HomeMode: rs.HomeMode,
 	})
 	found := strictness.Since(mark)
 	strictness.Close(mark)
@@ -1293,7 +1293,7 @@ func (p *PreparedAgentChat) startOneshot(ctx context.Context) *AgentChatLaunch {
 				// delegated child: same agent binding, same EFFECTIVE
 				// config_home as the structured-chat path bindIsolatedSpawn
 				// reads (rs.ConfigHome — already resolved/defaulted).
-				ConfigHome: rs.ConfigHome,
+				HomeMode: rs.HomeMode,
 			})
 			if err != nil {
 				events <- agent.ChatEvent{Entry: &agent.SessionEntry{

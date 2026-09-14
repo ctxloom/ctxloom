@@ -262,8 +262,8 @@ agents:
 	err = v.ValidateBytes([]byte(yaml))
 	require.Error(t, err, "an unknown config_home value must be refused at load")
 	assert.Contains(t, err.Error(), "config_home")
-	assert.Contains(t, err.Error(), agents.ConfigHomeProject)
-	assert.Contains(t, err.Error(), agents.ConfigHomeHost)
+	assert.Contains(t, err.Error(), agents.HomeModeSession)
+	assert.Contains(t, err.Error(), agents.HomeModeHost)
 }
 
 // TestConfigValidator_ConfigHome_LegalValuesLoadCleanly is the control for
@@ -274,7 +274,7 @@ func TestConfigValidator_ConfigHome_LegalValuesLoadCleanly(t *testing.T) {
 	v, err := NewConfigValidator()
 	require.NoError(t, err)
 
-	names := agents.ConfigHomeNames()
+	names := agents.HomeModeNames()
 	require.Len(t, names, 2, "fixture sanity: config_home has exactly two legal values")
 
 	for _, name := range names {
@@ -313,7 +313,7 @@ func TestConfigSchema_ConfigHomeEnumMatchesGoNames(t *testing.T) {
 	require.NotEmpty(t, schemaEnum, "fixture sanity: config_home enum must be present in the schema at all")
 	sort.Strings(schemaEnum)
 
-	want := append([]string(nil), agents.ConfigHomeNames()...)
+	want := append([]string(nil), agents.HomeModeNames()...)
 	sort.Strings(want)
 
 	assert.Equal(t, want, schemaEnum, "schema config_home enum must match agents.ConfigHomeNames() exactly")

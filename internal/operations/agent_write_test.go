@@ -344,7 +344,7 @@ func TestSetAgent_PersistsConfigHome(t *testing.T) {
 		Name:       "coder",
 		LLM:        ptr("claude-code"),
 		Profiles:   ptr([]string{"default"}),
-		ConfigHome: ptr("project"),
+		HomeMode: ptr("project"),
 	})
 	require.NoError(t, err)
 
@@ -352,10 +352,10 @@ func TestSetAgent_PersistsConfigHome(t *testing.T) {
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("coder")
 	require.True(t, ok)
-	assert.Equal(t, string(agents.ConfigHomeProject), sub.ConfigHome)
+	assert.Equal(t, string(agents.HomeModeSession), sub.HomeMode)
 
 	// Unknown value: REJECTED — nothing written, naming the two valid values.
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", ConfigHome: ptr("wildwest")})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", HomeMode: ptr("wildwest")})
 	require.Error(t, err, "unknown config_home must be rejected, not stored")
 	assert.Contains(t, err.Error(), "wildwest")
 	assert.Contains(t, err.Error(), "project", "the refusal must list the valid values")
@@ -375,7 +375,7 @@ func TestSetAgent_PersistsConfigHomeHost(t *testing.T) {
 		Name:       "human-adjacent",
 		LLM:        ptr("claude-code"),
 		Profiles:   ptr([]string{"default"}),
-		ConfigHome: ptr("host"),
+		HomeMode: ptr("host"),
 	})
 	require.NoError(t, err)
 
@@ -383,7 +383,7 @@ func TestSetAgent_PersistsConfigHomeHost(t *testing.T) {
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("human-adjacent")
 	require.True(t, ok)
-	assert.Equal(t, string(agents.ConfigHomeHost), sub.ConfigHome)
+	assert.Equal(t, string(agents.HomeModeHost), sub.HomeMode)
 }
 
 // TestSetAgent_UpdatesExisting proves a second set with the same name REPLACES
@@ -477,7 +477,7 @@ agents:
 			assert.Equal(t, "container-rootless", got.Runtime)
 			assert.Equal(t, "bypass", got.Permissions)
 			assert.Equal(t, agents.DrivingOneshot, got.Driving)
-			assert.Equal(t, string(agents.ConfigHomeProject), got.ConfigHome)
+			assert.Equal(t, string(agents.HomeModeSession), got.HomeMode)
 			require.Len(t, got.Escalation, 1)
 			assert.Equal(t, "auto_accept", got.Escalation[0].Action)
 		})

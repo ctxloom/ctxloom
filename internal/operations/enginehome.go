@@ -41,15 +41,15 @@ type InTreeAgentHome struct {
 	// instance, and falling back to a project-wide path would recreate the
 	// durable per-project engine home the per-session model retired.
 	Harp string
-	// ConfigHome is the run's resolved agent binding's EFFECTIVE config-home
+	// HomeMode is the run's resolved agent binding's EFFECTIVE config-home
 	// policy — agents.ConfigHomeProject or agents.ConfigHomeHost when a
-	// binding was resolved (operations.ResolvedAgent.ConfigHome, already
+	// binding was resolved (operations.ResolvedAgent.HomeMode, already
 	// defaulted), or "" when this run has NO agent binding at all. It is THE
 	// scoping condition; see ResolveInTreeAgentHome's doc. Only
 	// agents.ConfigHomeProject gets a home — "" (no binding) and
 	// agents.ConfigHomeHost (an undeclared or explicitly host-declared
 	// binding) both mean "keep the home the runtime gives you".
-	ConfigHome agents.ConfigHome
+	HomeMode agents.HomeMode
 	// ContainerHome is the runtime axis's half: the FIXED in-container root a
 	// relocated home is mounted under when the engine runs in a container
 	// (isolation.ContainerInstanceHome), or "" when it runs on the host and
@@ -155,8 +155,8 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 // run for a mysterious 401; falling back to the runtime's home is what
 // --degraded then actually does.
 func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
-	if in.ConfigHome != agents.ConfigHomeProject {
-		return absent("config_home is %q, not %q: the engine keeps the home its runtime gives it", in.ConfigHome, agents.ConfigHomeProject)
+	if in.HomeMode != agents.HomeModeSession {
+		return absent("config_home is %q, not %q: the engine keeps the home its runtime gives it", in.HomeMode, agents.HomeModeSession)
 	}
 	if in.Harp == "" {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: this run carries no session name and a config-home instance is per-session; using the runtime's own config home instead", in.Backend)
@@ -164,7 +164,7 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 	}
 	spec, ok := backends.InTreeAgentHomeFor(in.Backend, in.WorkDir, in.Harp)
 	if !ok {
-		clidiag.Warn("ctxloom", "in-tree agent home for %s: config_home is %q but %s declares no relocatable config home; using the runtime's own config home instead", in.Backend, agents.ConfigHomeProject, in.Backend)
+		clidiag.Warn("ctxloom", "in-tree agent home for %s: config_home is %q but %s declares no relocatable config home; using the runtime's own config home instead", in.Backend, agents.HomeModeSession, in.Backend)
 		return absent("%s declares no relocatable config home", in.Backend)
 	}
 

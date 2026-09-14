@@ -356,7 +356,7 @@ type runState struct {
 	// boundAgent names the agent binding this run launched under (--agent or
 	// the default agent) — surround-bar identity only.
 	boundAgent string
-	// agentConfigHome is the resolved agent binding's EFFECTIVE config-home
+	// agentHomeMode is the resolved agent binding's EFFECTIVE config-home
 	// policy (operations.ResolvedAgent.ConfigHome — always
 	// agents.ConfigHomeProject or agents.ConfigHomeHost once a binding
 	// resolved), or "" when this run has NO agent binding at all: the
@@ -371,8 +371,8 @@ type runState struct {
 	// decision reads that agent's OWN declared config_home (always host by
 	// default), never how it was invoked. Only "was any binding resolved at
 	// all" is invocation-shaped, and that is exactly what an empty
-	// agentConfigHome (vs. a resolved "project"/"host") already answers.
-	agentConfigHome agents.ConfigHome
+	// agentHomeMode (vs. a resolved "project"/"host") already answers.
+	agentHomeMode agents.HomeMode
 
 	// prepareRequestInputs: everything the RunStart payload is built from that
 	// does not depend on the session having been opened.
@@ -730,7 +730,7 @@ func (st *runState) applyResolvedAgent(rs *operations.ResolvedAgent, name string
 	st.agentPermissions = rs.Permissions
 	st.agentSurfaces = rs.Surfaces
 	st.boundAgent = name
-	st.agentConfigHome = rs.ConfigHome
+	st.agentHomeMode = rs.HomeMode
 }
 
 // resolveNamedAgent is the --agent arm. An unknown name is a HARD error: an
@@ -1375,7 +1375,7 @@ func (st *runState) prepareWorkspace() {
 		// run that reached here with no session name gets no instance and keeps
 		// the engine's own host home.
 		Harp:       st.activeHarp,
-		ConfigHome: st.agentConfigHome,
+		HomeMode: st.agentHomeMode,
 	})
 	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, home.Env)
 }

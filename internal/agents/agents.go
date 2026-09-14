@@ -114,7 +114,7 @@ type Agent struct {
 	// changes execution semantics, unlike Runtime/Permissions' advisory-only
 	// unknown-value handling, so it does not get their lenient treatment).
 	Driving DrivingMode `yaml:"driving,omitempty"`
-	// ConfigHome is this binding's per-engine config-home POLICY: whether a
+	// HomeMode is this binding's per-engine config-home POLICY: whether a
 	// run gets a ctxloom-CONTROLLED, PER-SESSION engine config home under
 	// .ctxloom/state/<harp>/home/<leaf> (ConfigHomeProject) or keeps the home
 	// its runtime gives it (ConfigHomeHost — the engine's REAL host home,
@@ -125,7 +125,7 @@ type Agent struct {
 	// --agent`, a delegated child, a oneshot fan member alike. Invocation
 	// never matters for a declared binding; only whether ANY binding is in
 	// play at all does (a run with no agent binding — no --agent, no
-	// default_agent — has no ConfigHome to read and always keeps the real
+	// default_agent — has no HomeMode to read and always keeps the real
 	// host home).
 	//
 	// Empty (undeclared) DEFAULTS TO ConfigHomeHost: nothing gets a
@@ -141,34 +141,34 @@ type Agent struct {
 	//
 	// This is the DECLARED value as written — a raw string, because a
 	// hand-edited config.yaml can hold anything. ParseConfigHome turns it
-	// into the EFFECTIVE ConfigHome: validated against ConfigHomeNames when
+	// into the EFFECTIVE HomeMode: validated against ConfigHomeNames when
 	// WRITTEN (operations.SetAgent, same treatment as Surfaces — an unknown
 	// value is refused, naming the two valid ones); a value that fails that
 	// same check at RESOLVE time warns and falls back to ConfigHomeHost
 	// rather than blocking the launch.
-	ConfigHome string `yaml:"config_home,omitempty"`
+	HomeMode string `yaml:"config_home,omitempty"`
 }
 
-// ConfigHome is the EFFECTIVE config-home policy a declaration parses to:
+// HomeMode is the EFFECTIVE config-home policy a declaration parses to:
 // one of the two constants below. A run with NO agent binding carries the
 // zero value, which reads exactly like ConfigHomeHost everywhere it is
 // consulted — there is no binding through which such a run could opt in.
-type ConfigHome string
+type HomeMode string
 
-// ConfigHomeProject and ConfigHomeHost are Agent.ConfigHome's two accepted
+// HomeModeSession and HomeModeHost are Agent.ConfigHome's two accepted
 // values. See that field's doc for the scoping rule they select between.
 const (
-	ConfigHomeProject ConfigHome = "project"
-	ConfigHomeHost    ConfigHome = "host"
+	HomeModeSession HomeMode = "project"
+	HomeModeHost    HomeMode = "host"
 )
 
-// ConfigHomeNames lists the accepted config_home values, for flag help,
+// HomeModeNames lists the accepted config_home values, for flag help,
 // shell completion, and error messages.
-func ConfigHomeNames() []string {
-	return []string{string(ConfigHomeProject), string(ConfigHomeHost)}
+func HomeModeNames() []string {
+	return []string{string(HomeModeSession), string(HomeModeHost)}
 }
 
-// ParseConfigHome validates and normalizes a binding's DECLARED
+// ParseHomeMode validates and normalizes a binding's DECLARED
 // Agent.ConfigHome into its always-non-empty EFFECTIVE value: the declared
 // value when it is one of ConfigHomeNames, else ConfigHomeHost — undeclared
 // (empty) and unrecognized both default to the runtime's own home, so the
@@ -183,15 +183,15 @@ func ConfigHomeNames() []string {
 // value here is not fatal, because by the time a run reaches this call the
 // binding already exists and refusing to launch over it would be a
 // regression, not a safety net.
-func ParseConfigHome(declared string) (ConfigHome, error) {
-	switch ConfigHome(declared) {
+func ParseHomeMode(declared string) (HomeMode, error) {
+	switch HomeMode(declared) {
 	case "":
-		return ConfigHomeHost, nil
-	case ConfigHomeProject, ConfigHomeHost:
-		return ConfigHome(declared), nil
+		return HomeModeHost, nil
+	case HomeModeSession, HomeModeHost:
+		return HomeMode(declared), nil
 	default:
-		return ConfigHomeHost, fmt.Errorf("config_home %q: unknown value (known: %s)",
-			declared, strings.Join(ConfigHomeNames(), ", "))
+		return HomeModeHost, fmt.Errorf("config_home %q: unknown value (known: %s)",
+			declared, strings.Join(HomeModeNames(), ", "))
 	}
 }
 

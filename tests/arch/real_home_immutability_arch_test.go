@@ -200,7 +200,7 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 			WorkDir:    workDir,
 			Cwd:        workDir,
 			Harp:       harp,
-			ConfigHome: agents.ConfigHomeProject,
+			HomeMode: agents.HomeModeSession,
 		})
 		if res.Absent != "" {
 			t.Fatalf("%s: a config_home: project run must be handed a home, got absent: %s", backend, res.Absent)

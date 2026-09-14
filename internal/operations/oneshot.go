@@ -202,8 +202,8 @@ type resolvedRunRequest struct {
 	// environment (a delegated child's session harp / bus socket / depth).
 	ExtraEnv map[string]string
 
-	// ConfigHome is the resolved agent binding's EFFECTIVE config-home policy
-	// (operations.ResolvedAgent.ConfigHome — agents.ConfigHomeProject or
+	// HomeMode is the resolved agent binding's EFFECTIVE config-home policy
+	// (operations.ResolvedAgent.HomeMode — agents.ConfigHomeProject or
 	// agents.ConfigHomeHost) when this run was resolved through an AGENT
 	// binding (a delegated child, a fan-out member), or "" when it was not —
 	// a bare-profile oneshot has no agent binding to read one from (the same
@@ -213,7 +213,7 @@ type resolvedRunRequest struct {
 	// ResolveInTreeAgentHome. RunOneshot leaves it "", since a bare-profile
 	// oneshot has no binding at all, which reads identically to an undeclared
 	// one — both keep the runtime's home.
-	ConfigHome agents.ConfigHome
+	HomeMode agents.HomeMode
 
 	Factory pb.ClientFactory // nil self-invokes the compiled-in backend
 }
@@ -511,7 +511,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 			// capture below reads it. NOT req.AgentID: fan-out members of one
 			// session share that session's instance.
 			Harp:       req.ExtraEnv[agent.SessionHarpEnv],
-			ConfigHome: req.ConfigHome,
+			HomeMode: req.HomeMode,
 		})
 		found := strictness.Since(mark)
 		strictness.Close(mark)

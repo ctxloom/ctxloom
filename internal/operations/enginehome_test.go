@@ -79,7 +79,7 @@ func projectHome(workDir, harp string) InTreeAgentHome {
 		WorkDir:    workDir,
 		Cwd:        workDir,
 		Harp:       harp,
-		ConfigHome: agents.ConfigHomeProject,
+		HomeMode: agents.HomeModeSession,
 	}
 }
 
@@ -221,17 +221,17 @@ func TestResolveInTreeAgentHome_NotProjectKeepsTheRuntimeHomeAndSaysSo(t *testin
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
-	undeclared, err := agents.ParseConfigHome("")
+	undeclared, err := agents.ParseHomeMode("")
 	require.NoError(t, err)
 
-	cases := map[string]agents.ConfigHome{
+	cases := map[string]agents.HomeMode{
 		"no binding":    "",
 		"undeclared":    undeclared,
-		"declared host": agents.ConfigHomeHost,
+		"declared host": agents.HomeModeHost,
 	}
 	for name, ch := range cases {
 		in := projectHome(workDir, harpA)
-		in.ConfigHome = ch
+		in.HomeMode = ch
 		res := ResolveInTreeAgentHome(in)
 		requireResolutionInvariant(t, res)
 		assert.Empty(t, res.Env, "%s: must be handed no config-home override", name)

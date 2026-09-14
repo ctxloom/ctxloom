@@ -11,17 +11,17 @@ import (
 // directly: MUTATION TARGET m1 — flip it to ConfigHomeProject and this
 // goes red.
 func TestParseConfigHome_UndeclaredDefaultsToHost(t *testing.T) {
-	got, err := ParseConfigHome("")
+	got, err := ParseHomeMode("")
 	require.NoError(t, err)
-	assert.Equal(t, ConfigHomeHost, got)
+	assert.Equal(t, HomeModeHost, got)
 }
 
 // TestParseConfigHome_AcceptsBothDeclaredValues proves "project" and "host"
 // both round-trip unchanged and with no error — the opt-in and the explicit
 // opt-out are equally valid declarations.
 func TestParseConfigHome_AcceptsBothDeclaredValues(t *testing.T) {
-	for _, want := range []ConfigHome{ConfigHomeProject, ConfigHomeHost} {
-		got, err := ParseConfigHome(string(want))
+	for _, want := range []HomeMode{HomeModeSession, HomeModeHost} {
+		got, err := ParseHomeMode(string(want))
 		require.NoError(t, err)
 		assert.Equal(t, want, got)
 	}
@@ -32,10 +32,10 @@ func TestParseConfigHome_AcceptsBothDeclaredValues(t *testing.T) {
 // for the CALLER to warn with, but the returned value is still the safe
 // default (host) so a hand-edited config.yaml never blocks a launch over this.
 func TestParseConfigHome_UnknownValueWarnsAndDefaultsToHost(t *testing.T) {
-	got, err := ParseConfigHome("projectt")
+	got, err := ParseHomeMode("projectt")
 	require.Error(t, err, "an unknown config_home must be reported")
 	assert.Contains(t, err.Error(), "projectt")
 	assert.Contains(t, err.Error(), "project", "the error must name the valid values")
 	assert.Contains(t, err.Error(), "host", "the error must name the valid values")
-	assert.Equal(t, ConfigHomeHost, got, "even on error, the safe default is returned")
+	assert.Equal(t, HomeModeHost, got, "even on error, the safe default is returned")
 }

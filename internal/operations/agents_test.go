@@ -183,21 +183,21 @@ func TestResolveAgent_ConfigHome(t *testing.T) {
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfig(root, map[string]agents.Agent{
 		"undeclared": {LLM: "fast", Profiles: []string{"p1"}},
-		"project":    {LLM: "fast", Profiles: []string{"p1"}, ConfigHome: "project"},
-		"host":       {LLM: "fast", Profiles: []string{"p1"}, ConfigHome: "host"},
-		"typo":       {LLM: "fast", Profiles: []string{"p1"}, ConfigHome: "projectt"},
+		"project":    {LLM: "fast", Profiles: []string{"p1"}, HomeMode: "project"},
+		"host":       {LLM: "fast", Profiles: []string{"p1"}, HomeMode: "host"},
+		"typo":       {LLM: "fast", Profiles: []string{"p1"}, HomeMode: "projectt"},
 	})
-	cases := map[string]agents.ConfigHome{
-		"undeclared": agents.ConfigHomeHost, // MUTATION TARGET m1's unit-layer twin
-		"project":    agents.ConfigHomeProject,
-		"host":       agents.ConfigHomeHost,
-		"typo":       agents.ConfigHomeHost, // warn+default, never fatal
+	cases := map[string]agents.HomeMode{
+		"undeclared": agents.HomeModeHost, // MUTATION TARGET m1's unit-layer twin
+		"project":    agents.HomeModeSession,
+		"host":       agents.HomeModeHost,
+		"typo":       agents.HomeModeHost, // warn+default, never fatal
 	}
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {
 			res, err := ResolveAgent(context.Background(), cfg, name, "")
 			require.NoError(t, err, "an unresolvable config_home must warn, not fail the resolve")
-			assert.Equal(t, want, res.ConfigHome)
+			assert.Equal(t, want, res.HomeMode)
 		})
 	}
 }

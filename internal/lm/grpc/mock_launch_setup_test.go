@@ -87,8 +87,14 @@ func TestRunTurn_MockDeliversContextSurfaceDuringTheTurn(t *testing.T) {
 			Mode:     pb.ExecutionMode_INTERACTIVE,
 			CellKind: pb.CellKindToProto(agent.CellKindShared),
 			// The mock's interactive echo mode: it blocks on stdin, which is
-			// what holds the turn open across the observation above.
-			Env: map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"},
+			// what holds the turn open across the observation above. The harp
+			// is required now that a CellKindShared Setup refuses loudly
+			// (ErrSharedScratchNoHarp) instead of silently falling back to the
+			// OS temp dir — see taskloom urgent-staunch.
+			Env: map[string]string{
+				"CTXLOOM_MOCK_ECHO_STDIN": "1",
+				agent.SessionHarpEnv:      "perky-same-chevy",
+			},
 		},
 		// The host ships this on every non-skip-setup run
 		// (backends.AssembleManagedConfig, via cli/run.go's buildRunRequest);

@@ -60,9 +60,9 @@ func TestSendMailTurn_UndeliveredMessageComesBack(t *testing.T) {
 		c := newTestCoordinatorCap(t, sp, nil, 1)
 		plan, err := sp.Resolve(context.Background(), "worker")
 		require.NoError(t, err)
-		_, _, err = c.enqueueRun(ownerIdentity(), plan, "child-slot-holder", "brief", false, make(chan struct{}), 1)
+		_, _, err = c.enqueueRun(ownerIdentity(), plan, "child-slot-holder", "brief", false, make(chan struct{}), 1, false)
 		require.NoError(t, err)
-		rt, _, err := c.enqueueRun(ownerIdentity(), plan, role, "brief", false, make(chan struct{}), 1)
+		rt, _, err := c.enqueueRun(ownerIdentity(), plan, role, "brief", false, make(chan struct{}), 1, false)
 		require.NoError(t, err)
 		require.Equal(t, slotFree, rt.slot, "the cap is full, so this run holds no slot")
 

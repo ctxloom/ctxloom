@@ -22,7 +22,10 @@ import (
 // (review R12f).
 
 // NewHostedCoordinator builds and serves the coordinator for projectDir.
-func NewHostedCoordinator(cfg *config.Config, projectDir string) (*coord.Coordinator, error) {
+// ownerHarp is the session owner's harp — the inbox this process drains
+// (coord.Options.OwnerHarp); every hosting site knows it before standing the
+// coordinator up.
+func NewHostedCoordinator(cfg *config.Config, projectDir, ownerHarp string) (*coord.Coordinator, error) {
 	key := ""
 	if pid, _, err := taskops.ResolveProjectIdentity(projectDir); err == nil {
 		key = pid
@@ -46,6 +49,7 @@ func NewHostedCoordinator(cfg *config.Config, projectDir string) (*coord.Coordin
 		// The spool CUTOVER — off unless the project asks for it. See
 		// config.DelegationConfig.SpoolDelivery.
 		SpoolDelivery: cfg.GetDelegationSpoolDelivery(),
+		OwnerHarp:     ownerHarp,
 	})
 	if err != nil {
 		return nil, err
@@ -138,7 +142,7 @@ func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context
 // the error for the caller's fail-loud gate; the caller decides degraded
 // behavior.
 func HostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp string, runtimeAxis agent.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
-	c, err := NewHostedCoordinator(cfg, projectDir)
+	c, err := NewHostedCoordinator(cfg, projectDir, ownerHarp)
 	if err != nil {
 		return nil, nil, err
 	}

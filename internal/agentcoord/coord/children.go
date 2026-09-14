@@ -350,7 +350,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		return nil, err
 	}
 
-	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false, make(chan struct{}), caller.Depth+1)
+	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false, make(chan struct{}), caller.Depth+1, migratedLaunch(plan, url))
 	if err != nil {
 		c.releaseAssignedHarp(harp, err)
 		return nil, err
@@ -487,7 +487,15 @@ func callerLabel(caller Identity) string {
 // env stamp (EnvRunDepth, via runnerEnv) and the server-side recursion guard
 // (AgentRun's caller.Depth, read back from this same fact via Identify) never
 // diverge.
-func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool, attached chan struct{}, depth int) (*childRt, string, error) {
+// migrated is whether this run rides StartRun (spawner.go's viaStartRunBackends
+// AND a reach-back URL the runner can dial). It is decided HERE, at enqueue,
+// and not at launch: the recipient class of the run's mail follows from it
+// (spoolDeliverTo), and mail can arrive from the moment the harp is published
+// — a child parked on the execution cap is addressable long before it
+// launches. A class decided at launch left that window on the mailbox, and
+// under the cutover the post-launch standup drain counts the SPOOL, so a
+// message journaled in the window was never delivered.
+func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool, attached chan struct{}, depth int, migrated bool) (*childRt, string, error) {
 	runID := newRunID()
 	token, credHash, err := mintToken()
 	if err != nil {
@@ -542,6 +550,7 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 		parentRunID: caller.RunID,
 		depth:       depth,
 		plan:        plan,
+		viaStartRun: migrated,
 		wake:        make(chan struct{}, 1),
 		attached:    attached,
 	}
@@ -797,6 +806,14 @@ func (c *Coordinator) spawnReachURL(harp string, runtimeAxis agent.RuntimeAxis) 
 	return "", fmt.Errorf("agent_run: no coordinator endpoint reachable from runtime %q: %v — check the container runtime's bridge network, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch the child without coordinator reach-back", runtimeAxis, err)
 }
 
+// migratedLaunch is the ONE spelling of "this run rides StartRun": an
+// allowlisted backend (plan.ViaStartRun) with a reach-back URL the runner can
+// dial. A degraded spawn without reach-back (url == "") keeps the frozen legacy
+// dial — the runner could never dial home.
+func migratedLaunch(plan *SpawnPlan, url string) bool {
+	return plan.ViaStartRun && url != ""
+}
+
 // runChild is a spawned child's driver goroutine: wait for an execution slot
 // (D4), launch the engine with the agent's intents honored, deliver the
 // briefing as the first turn, then drive turns from mailbox deliveries.
@@ -839,10 +856,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	rt.launchCancel = lcancel
 	c.mu.Unlock()
 
-	if rt.plan.ViaStartRun && url != "" {
-		c.mu.Lock()
-		rt.viaStartRun = true
-		c.mu.Unlock()
+	if rt.viaStartRun {
 		c.runChildViaStartRun(lctx, rt, prompt, token, url, "", rt.plan.Context)
 		return
 	}
@@ -2305,11 +2319,22 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	if c.launchStopped(harp) {
 		return
 	}
+	// Resolved BEFORE enqueue for the same reason AgentRun resolves it there:
+	// the reach-back decides whether the resumed run is migrated, and that
+	// class must be known from the moment the fresh run is addressable.
+	url, uerr := c.spawnReachURL(harp, plan.Runtime)
+	if uerr != nil {
+		clidiag.Warn("ctxloom", "agent resume %s: %v", harp, uerr)
+		if _, _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, uerr)); qerr != nil {
+			clidiag.Warn("ctxloom", "agent %s: queue resume failure: %v", harp, qerr)
+		}
+		return
+	}
 	// A resume keeps the SAME run identity, not a new generation: pass the
 	// ended run's own recorded depth straight through rather than deriving
 	// it from caller.Depth+1 (which would need caller.Depth = rec.Depth-1,
 	// the exact reconstruction this explicit depth parameter replaces).
-	rt, token, err := c.enqueueRun(caller, plan, harp, "", true, attached, rec.Depth)
+	rt, token, err := c.enqueueRun(caller, plan, harp, "", true, attached, rec.Depth, migratedLaunch(plan, url))
 	if errors.Is(err, errResumeLost) {
 		return // a concurrent resume claimed it; the winner delivers
 	}
@@ -2335,12 +2360,6 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	}
 	c.setState(rt, StateExecuting)
 
-	url, uerr := c.spawnReachURL(harp, plan.Runtime)
-	if uerr != nil {
-		c.failChild(rt, uerr)
-		return
-	}
-
 	// resumeKeyFor is NOT used here: it reads the harp's CURRENT run, but
 	// enqueueRun (above) already minted the fresh one for this very resume,
 	// whose HarnessSessionID is necessarily still empty (not yet reported).
@@ -2355,10 +2374,7 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	// run that never reported a session id falls back to the rendered-
 	// history context prime, still over StartRun. Queued mail is pushed as
 	// turns once the engine attaches (runChildViaStartRun's drain).
-	if plan.ViaStartRun && url != "" {
-		c.mu.Lock()
-		rt.viaStartRun = true
-		c.mu.Unlock()
+	if rt.viaStartRun {
 		contextText := ""
 		if !haveResumeKey {
 			contextText = c.spawner.ResumeContext(lctx, plan, harp)

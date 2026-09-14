@@ -212,6 +212,11 @@ func (c *Coordinator) deliverToPoll(role string) bool {
 // now: either genuinely no mail, or another claim already won the race (a
 // second wake for the same delivery, or an overlapping recv).
 func (c *Coordinator) tryClaimDeliverable(role string) ([]Message, bool) {
+	// THE OWNER HOP of the cutover (spoolowner.go): the owner's store is its
+	// in/ spool, not the fold. Same reservation ledger, different substrate.
+	if c.ownerSpool(role) {
+		return c.claimSpoolInbox(role)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	msgs := c.undeliveredLocked(role)
@@ -393,6 +398,12 @@ func (c *Coordinator) unreserve(role string, ids []string) {
 // to role — the cursor-ack a SUBSEQUENT recv carries (consume
 // facts append only then; a crash before the ack re-delivers, at-least-once).
 func (c *Coordinator) ackDelivered(role string) error {
+	// THE OWNER HOP of the cutover (spoolowner.go): the ack is a
+	// consume-rename, not a journaled fact.
+	if c.ownerSpool(role) {
+		c.ackSpoolInbox(role)
+		return nil
+	}
 	c.mu.Lock()
 	ids := append([]string(nil), c.delivered[role]...)
 	c.mu.Unlock()

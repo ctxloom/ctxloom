@@ -129,6 +129,15 @@ type Options struct {
 	// (EnvRunSpoolDelivery), because a run cut over on one side only delivers
 	// nothing at all.
 	SpoolDelivery bool
+	// OwnerHarp is the SESSION OWNER's harp: the one recipient whose inbox is
+	// drained IN THIS PROCESS (AgentRecv) rather than by a runner. Under the
+	// cutover the owner is a spool recipient like any migrated child, and it
+	// is identified by this declaration alone — never by holding a run
+	// record, because a host/stdio owner has none. Required when
+	// SpoolDelivery is set: a cutover coordinator that did not know whose
+	// inbox it drains would write every child->parent message into a
+	// directory nothing reads.
+	OwnerHarp string
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval). Exposed for tests, which must be able to
 	// prove that a DROPPED doorbell is still delivered by the sweep without
@@ -257,6 +266,13 @@ type Coordinator struct {
 	// spoolTee is: a delivery half-cut across a flip would be a message with
 	// no reader.
 	spoolDelivery bool
+	// ownerHarp is Options.OwnerHarp: the recipient class "the owner, drained
+	// in-process" (spoolDeliverTo). Read-only after New.
+	ownerHarp string
+	// spoolRefs maps a message id the owner's reader has DELIVERED but not yet
+	// acked to the file it came from, so the consume-rename can find it at
+	// the acknowledgement moment (spoolowner.go). Guarded by mu.
+	spoolRefs map[string]spool.Ref
 	// spoolIn lends the per-child in/ writers. Non-nil ONLY when the spool is
 	// switched on at all (tee or delivery): constructing it is what would
 	// create spool directories, and "both flags are off" has to mean nothing
@@ -423,6 +439,11 @@ type Coordinator struct {
 // orchestration core. Listeners come up separately via Serve (httpserver.go)
 // so tests can run the core without ports.
 func New(opts Options) (*Coordinator, error) {
+	// Refused before any state exists: an options contradiction, not a
+	// standup failure.
+	if opts.SpoolDelivery && opts.OwnerHarp == "" {
+		return nil, ErrCutoverNeedsOwner
+	}
 	claim, err := acquireStateDir(opts)
 	if err != nil {
 		return nil, err
@@ -460,6 +481,7 @@ func New(opts Options) (*Coordinator, error) {
 		launches:           make(map[string]*launchState),
 		spoolTee:           opts.SpoolTee,
 		spoolDelivery:      opts.SpoolDelivery,
+		ownerHarp:          opts.OwnerHarp,
 		spoolSweepInterval: opts.SpoolSweepInterval,
 	}
 	if c.spoolTee || c.spoolDelivery {
@@ -845,6 +867,7 @@ func (c *Coordinator) closePartial() {
 	shut("mailbox.jsonl", c.mail)
 	shut("items.jsonl", c.items)
 	shut("interactions.jsonl", c.auditJ)
+	c.spoolIn.close() // the mailbox's replacement closes with the mailbox
 	if len(errs) > 0 {
 		clidiag.Warn("ctxloom", "coordinator: closing journals under %s: %v", c.stateDir, errors.Join(errs...))
 	}

@@ -148,12 +148,11 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// misrouting a call the owned run's OWN engine made about ITSELF
 	// (childSend's ParentHarp resolution hit the self-loop below; AgentStop
 	// and roster both explicitly refuse an IsChild() caller).
-	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}), owner.Depth)
+	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}), owner.Depth, true)
 	if err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
-	rt.viaStartRun = true
 	rt.ownerRun = true
 	rt.oneshot = spec.Oneshot
 	c.mu.Unlock()

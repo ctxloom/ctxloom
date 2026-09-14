@@ -59,11 +59,17 @@ import (
 // is the wake. They were previously the same thing only in the sense that
 // neither reached a waiting parent.
 //
-// Mail to the session owner's own in-process mailbox, and to a FROZEN legacy
-// go-plugin child, still stays on the mailbox — neither has a runner sweeping a
-// spool, so a file written for them would sit in a directory nothing ever
-// reads. That applies to the report notice too: a FINAL report from a top-level
-// child reaches the session owner by mailbox, never by file.
+// THE SESSION OWNER is a spool recipient too, and its reader is THIS PROCESS:
+// the owner has no runner, so its in/ is drained by AgentRecv itself
+// (claimSpoolInbox / ackSpoolInbox in mailbox.go), with the same park/wake,
+// consume-on-next-recv ack and burst settle the mailbox gave it. The owner is
+// identified by DECLARATION (Options.OwnerHarp), never by a run record — a
+// host/stdio owner has none, and keying on one is what left every
+// child->parent message on the mailbox at full cutover.
+//
+// Only a FROZEN legacy go-plugin child still stays on the mailbox: it has no
+// runner sweeping a spool, so a file written for it would sit in a directory
+// nothing ever reads.
 //
 // FLAG OFF means byte-identical pre-spool behaviour: no branch below is
 // entered, no reactor runs, and no directory is created.
@@ -351,16 +357,26 @@ func (c *Coordinator) spoolPosture() spoolPosture {
 func (c *Coordinator) SpoolDeliveryEnabled() bool { return c.spoolDelivery }
 
 // spoolDeliverTo reports whether mail for role is delivered by FILE rather
-// than by mailbox.
+// than by mailbox — whether there is a spool READER on the other end.
 //
-// Two conditions beyond the flag, and both are about there being a reader on
-// the other end. The recipient must be a run this coordinator tracks, and it
-// must be a MIGRATED (StartRun) run — one with a ctxloom runner that sweeps
-// its own spool. The session owner's own mailbox is drained in this process by
-// AgentRecv, and a frozen legacy go-plugin child has no runner at all; writing
-// a file for either would be a message delivered to a directory nobody reads,
-// with every signal green.
+// Two recipient classes have one:
+//
+//   - THE OWNER, drained in-process: this session's own harp, whose in/ is
+//     read by AgentRecv (ownerSpool). It is a class of its own because it is
+//     identified by declaration, not by a run record.
+//   - A MIGRATED CHILD, drained by its runner: a run this coordinator tracks
+//     that rides StartRun and so has a ctxloom runner sweeping its own spool.
+//     The class is fixed at ENQUEUE (childRt.viaStartRun), so mail written
+//     while the child waits on the execution cap is already a file its
+//     runner's startup sweep will find.
+//
+// A frozen legacy go-plugin child is neither: it has no runner at all, and a
+// file written for it would be a message delivered to a directory nobody
+// reads, with every signal green.
 func (c *Coordinator) spoolDeliverTo(role string) bool {
+	if c.ownerSpool(role) {
+		return true
+	}
 	if !c.spoolDelivery || role == "" {
 		return false
 	}
@@ -373,6 +389,15 @@ func (c *Coordinator) spoolDeliverTo(role string) bool {
 	tracked := false
 	c.runs.View(func() { tracked = c.runsF.currentRun(role) != nil })
 	return tracked
+}
+
+// ownerSpool reports whether role's inbox is a spool THIS PROCESS reads: the
+// declared session owner, under the cutover. It is narrower than
+// spoolDeliverTo on purpose — a migrated child's in/ is also a spool, but its
+// reader is the child's runner, and the recv-side substrate switch must never
+// drain a directory another process owns.
+func (c *Coordinator) ownerSpool(role string) bool {
+	return c.spoolDelivery && role != "" && role == c.ownerHarp
 }
 
 // deliverMailViaSpool IS the delivery: it writes msg as the single copy in the
@@ -585,17 +610,24 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 // the process while later entries delivered around it, which is the
 // silent-skip this project treats as its characteristic defect.
 func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
+	failSpool("coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
+}
+
+// failSpool moves ref out of its live directory into the failed/ sibling
+// (spool.Fail picks which) and reports the outcome either way — the ONE
+// terminal-state move for a file a reader parsed but could not deliver or
+// route, on both sides and in both directions. A lost race (ErrAlreadyGone)
+// is the other path having won: nothing to strand, nothing to warn about.
+func failSpool(side string, ref spool.Ref, why string, cause error) {
 	if err := spool.Fail(spool.NewHomeMapper(), ref); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
-			// Another pass already moved it; nothing to strand.
 			return
 		}
-		clidiag.Warn("ctxloom", "coordinator: could not route %s's message %s (%v) and could not move it to %s either: %v (it will be re-read, and re-refused, on the next sweep)",
-			role, ref, cause, spool.FailedOutDirName, err)
+		clidiag.Warn("ctxloom", "%s: %s: %v (also could not move %s to its failed/ directory: %v; it will be re-read, and re-refused, on the next sweep)",
+			side, why, cause, ref, err)
 		return
 	}
-	clidiag.Warn("ctxloom", "coordinator: %s's message %s could not be routed (%v); moved to %s and NOT retried",
-		role, ref, cause, spool.FailedOutDirName)
+	clidiag.Warn("ctxloom", "%s: %s: %v (moved %s to its failed/ directory; it will NOT be retried)", side, why, cause, ref)
 }
 
 // replySpoolRefusal tells a child that the message it wrote could not be
@@ -878,17 +910,7 @@ func (h *Home) sweepSpoolIn() {
 // three-way distinction a bare warning-and-retry cannot make.
 func (h *Home) failSpoolEntry(e spool.Entry, why string, cause error) {
 	h.spoolDeliveryCount.failed.Add(1)
-	if err := spool.Fail(spool.NewHomeMapper(), e.Ref); err != nil {
-		if errors.Is(err, spool.ErrAlreadyGone) {
-			// The other path (a withdrawal) already won the race; nothing to
-			// strand and nothing to warn about.
-			return
-		}
-		clidiag.Warn("ctxloom", "runner: %s: %v (also could not move %s to in/failed/: %v; it will be retried, and re-warned about, on the next sweep)",
-			why, cause, e.Ref, err)
-		return
-	}
-	clidiag.Warn("ctxloom", "runner: %s: %v (moved %s to in/failed/; it will NOT be retried)", why, cause, e.Ref)
+	failSpool("runner", e.Ref, why, cause)
 }
 
 // rememberSpoolRef records which file a delivered id came from, so the
@@ -1061,3 +1083,9 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 func spoolSendErr(code codes.Code, msg string) *agentcoordpb.CoordinatorResponse {
 	return &agentcoordpb.CoordinatorResponse{Status: statusErr(code, msg)}
 }
+
+// ErrCutoverNeedsOwner refuses a cutover coordinator that was not told whose
+// inbox it drains (Options.OwnerHarp): under the cutover every child->parent
+// message is a file in the owner's in/, and an owner nobody declared is a
+// directory nobody reads.
+var ErrCutoverNeedsOwner = errors.New("coord: delegation.spool_delivery needs the session owner's harp (Options.OwnerHarp): the owner's inbox is a spool and this process is its reader")

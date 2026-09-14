@@ -194,6 +194,17 @@ func (c *Coordinator) ringSpool(role string, ref spool.Ref) error {
 	ch := c.chans[role]
 	c.mu.Unlock()
 	if ch == nil {
+		// The owner's reader is this process, so its doorbell is delivered
+		// in-process: the file is already on disk (the courier rings only
+		// after the write), and the whole job of the bell is to complete a
+		// parked agent_recv — which then reads the directory itself. A
+		// wake sent to nobody costs nothing; the next receive sweeps anyway.
+		// An owner that DOES have a channel (a container-hosted owner run)
+		// is rung over the wire like any runner, and never reaches here.
+		if c.ownerSpool(role) {
+			c.deliverToPoll(role)
+			return nil
+		}
 		c.noteSpoolDrop(role, ref, "no live run channel")
 		return nil
 	}

@@ -123,16 +123,20 @@ type Agent struct {
 	// scoping rule, and a DECLARED value wins on every invocation path this
 	// binding resolves through — a bare run under default_agent, `run
 	// --agent`, a delegated child, a oneshot fan member alike. Invocation
-	// never matters for a declared binding; only whether ANY binding is in
-	// play at all does (a run with no agent binding — no --agent, no
-	// default_agent — has no ConfigHome to read and always keeps the real
-	// host home).
+	// never matters for a declared binding; nor does whether a binding is in
+	// play at all — a run with no agent binding (no --agent, no
+	// default_agent) carries the zero value and gets a controlled home just
+	// the same.
 	//
-	// Empty (undeclared) DEFAULTS TO ConfigHomeHost: nothing gets a
-	// controlled home until a binding explicitly opts in with "project". An
-	// unconfigured binding therefore behaves exactly like no binding at all
-	// on this one axis — the controlled-home behaviour is strictly opt-in,
-	// never assumed.
+	// Empty (undeclared) MEANS ConfigHomeProject: a run gets a controlled,
+	// per-session home unless something explicitly asks for the real one.
+	// Sharing the human's actual engine home is the OPT-IN, spelled
+	// `config_home: host`, and it is the only way to get it. The default
+	// direction is private because the cost of the two mistakes is not
+	// symmetric: an unwanted private home costs a re-login, while an
+	// unwanted shared one hands a ctxloom process the human's memory,
+	// plugins, personal MCP registrations, global agents and steering, and
+	// lets it write session state and settings edits back into them.
 	//
 	// The policy is ORTHOGONAL to the run's isolation cell: whether a run has
 	// a controlled home is decided here alone, and which workspace or runtime
@@ -144,15 +148,17 @@ type Agent struct {
 	// into the EFFECTIVE ConfigHome: validated against ConfigHomeNames when
 	// WRITTEN (operations.SetAgent, same treatment as Surfaces — an unknown
 	// value is refused, naming the two valid ones); a value that fails that
-	// same check at RESOLVE time warns and falls back to ConfigHomeHost
-	// rather than blocking the launch.
+	// same check at RESOLVE time warns and falls back to ConfigHomeProject
+	// rather than blocking the launch — a typo must not be a silent share.
 	ConfigHome string `yaml:"config_home,omitempty"`
 }
 
 // ConfigHome is the EFFECTIVE config-home policy a declaration parses to:
 // one of the two constants below. A run with NO agent binding carries the
-// zero value, which reads exactly like ConfigHomeHost everywhere it is
-// consulted — there is no binding through which such a run could opt in.
+// zero value, which reads as ConfigHomeProject everywhere it is consulted —
+// the controlled home is what a run gets when nothing says otherwise, so the
+// absence of a binding is not a reason to reach for the human's real home.
+// Only an explicit ConfigHomeHost shares it.
 type ConfigHome string
 
 // ConfigHomeProject and ConfigHomeHost are Agent.ConfigHome's two accepted
@@ -170,27 +176,32 @@ func ConfigHomeNames() []string {
 
 // ParseConfigHome validates and normalizes a binding's DECLARED
 // Agent.ConfigHome into its always-non-empty EFFECTIVE value: the declared
-// value when it is one of ConfigHomeNames, else ConfigHomeHost — undeclared
-// (empty) and unrecognized both default to the runtime's own home, so the
-// controlled home stays strictly opt-in.
+// value when it is one of ConfigHomeNames, else ConfigHomeProject —
+// undeclared (empty) and unrecognized both resolve to the controlled,
+// per-session home, so sharing the real host home requires saying so.
 //
 // One function, two callers, deliberately — the SAME shape ValidateDriving
 // has for the same reason. The agent WRITE path (operations.SetAgent) calls
 // it so a typo is refused by the command that set it and nothing is
 // persisted; the RESOLVE path (operations.resolveAgentBinding) calls it so a
-// hand-edited config.yaml degrades to the safe default (host) with a warning
-// rather than blocking the launch — unlike the write path, an unresolvable
-// value here is not fatal, because by the time a run reaches this call the
-// binding already exists and refusing to launch over it would be a
-// regression, not a safety net.
+// hand-edited config.yaml degrades with a warning rather than blocking the
+// launch — unlike the write path, an unresolvable value here is not fatal,
+// because by the time a run reaches this call the binding already exists and
+// refusing to launch over it would be a regression, not a safety net.
+//
+// An unrecognized value degrades to ConfigHomeProject, not ConfigHomeHost,
+// and the direction is the whole point: the user visibly MEANT to say
+// something here and got it wrong. Reading a typo as permission to share the
+// real home would make the least-recoverable outcome the one a mistake
+// lands on.
 func ParseConfigHome(declared string) (ConfigHome, error) {
 	switch ConfigHome(declared) {
 	case "":
-		return ConfigHomeHost, nil
+		return ConfigHomeProject, nil
 	case ConfigHomeProject, ConfigHomeHost:
 		return ConfigHome(declared), nil
 	default:
-		return ConfigHomeHost, fmt.Errorf("config_home %q: unknown value (known: %s)",
+		return ConfigHomeProject, fmt.Errorf("config_home %q: unknown value (known: %s)",
 			declared, strings.Join(ConfigHomeNames(), ", "))
 	}
 }

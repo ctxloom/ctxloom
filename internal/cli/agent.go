@@ -665,7 +665,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
 	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
 	cmd.Flags().StringVar(&agentSetConfigHome, "config-home", "",
-		"Per-engine config-home policy, on every isolation cell: project|host (empty = host, the default — controlled homes are opt-in)")
+		"Per-engine config-home policy, on every isolation cell: project|host (empty = project, the default — sharing the real engine home is opt-in, via host)")
 	_ = cmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = cmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
 	_ = cmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {

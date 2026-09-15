@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -87,6 +88,44 @@ func TestDegradedNeverBypassesIsolation(t *testing.T) {
 		// --degraded has stopped being useful for the faults it exists for.
 		assert.Empty(t, strictness.All(),
 			"the workspace axis is a convenience, not a boundary — it must keep degrading")
+	})
+
+	t.Run("a DECLARED build base that cannot be used refuses", func(t *testing.T) {
+		// A different class from everything above, and the rule statement in
+		// isolation.go says so explicitly: this one does NOT follow from "does
+		// launching cause the harm?" — nothing is exposed, the container still
+		// runs and still drops privileges. It refuses because ctxloom cannot
+		// READ the Containerfile, so it cannot know the substitution was safe;
+		// making it silently is the program asserting knowledge it lacks.
+		// Ruled 2026-09-15.
+		for _, tc := range []struct {
+			name string
+			src  buildSource
+		}{
+			{"user-configured base Containerfile", buildSource{desc: "d", base: &baseStage{kind: baseStageKindUser}}},
+			{"auto-detected project devcontainer", buildSource{desc: "d", base: &baseStage{kind: baseStageKindDevcontainer}}},
+		} {
+			resetStrictness(t)
+			strictness.SetDegraded(true)
+			recordBuildSourceFailure(tc.src, errors.New("build failed"))
+			assertRefusesUnderDegraded(t, "a declared base ctxloom cannot use must not be silently substituted: "+tc.name)
+		}
+	})
+
+	t.Run("an UNDECLARED build base still falls through quietly", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+
+		// The negative half of the rule above, and the reason it is about
+		// DECLARATION rather than about build failures in general. ctxloom's
+		// own embedded default base was chosen by nobody, so falling past it
+		// substitutes nothing the project asked for and must stay a warning.
+		// Without this case the rule could be "satisfied" by refusing every
+		// failed build, which would break first-run image composition outright.
+		recordBuildSourceFailure(buildSource{desc: "embedded default base"}, errors.New("build failed"))
+
+		assert.Empty(t, strictness.All(),
+			"nothing was declared about the default base, so nothing is being substituted")
 	})
 
 	t.Run("the container argv never carries the run-as-root escape hatch", func(t *testing.T) {

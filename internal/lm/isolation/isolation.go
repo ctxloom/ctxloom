@@ -45,15 +45,23 @@ import (
 // launch IS the exposure.
 //
 // So, concretely, in this package:
-//   - Skipping optional work, losing context, substituting a BUILD base, or
-//     picking the conservative side of an undecidable probe → strictness.Fail
-//     (degradable). dockerIsRootless is the worked example: on an unreadable
-//     probe it assumes ROOTFUL, which is the safe direction, and degrades.
+//   - Skipping optional work, losing context, or picking the conservative side
+//     of an undecidable probe → strictness.Fail (degradable). dockerIsRootless
+//     is the worked example: on an unreadable probe it assumes ROOTFUL, which
+//     is the safe direction, and degrades.
 //   - Dropping a REQUESTED container boundary, running an image that can start
 //     as root, or consenting to elevated privilege → strictness.FailAlways
 //     (non-degradable). --degraded must not reach these, and a new one must
 //     not be added as a plain Fail. TestDegradedNeverBypassesIsolation in
 //     isolation_degrade_guard_test.go fails if one is.
+//   - Substituting a DECLARED BUILD BASE → also FailAlways, and this one does
+//     NOT follow from the launch test, so do not try to re-derive it. Nothing
+//     is exposed: the container still runs, still drops privileges, nothing is
+//     lost. It refuses because ctxloom CANNOT READ THE CONTAINERFILE and so
+//     cannot know whether what the project declared mattered; substituting it
+//     silently is the program asserting knowledge it does not have. Ruled
+//     2026-09-15; see recordBuildSourceFailure for the full reasoning and the
+//     accepted cost.
 //
 // Do NOT branch on strictness.Degraded() to express any of this. The mode is
 // consulted in exactly one place (strictness.Actionable); a site that tests it

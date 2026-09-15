@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -920,9 +921,8 @@ func (c *Config) FastLabel() string {
 }
 
 // ResolveLLM looks a config label up in the registry and returns the backend
-// type and model it specifies. A missing label or empty type degrades to the
-// built-in default backend with no model (backend default). The model is read
-// only from the entry's own body — never by branching on the backend name.
+// type and model it specifies. The model is read only from the entry's own body
+// — never by branching on the backend name.
 //
 // An empty label means "no label was named" (a bare invocation, e.g.
 // `container check` with no backend argument) and is resolved through
@@ -931,13 +931,44 @@ func (c *Config) FastLabel() string {
 // built-in default backend instead of the project's configured primary
 // (unsent-refinish). This is a single substitution, not a loop: PrimaryLabel()
 // itself may also return "" (no defaults.primary and not exactly one
-// configured label), in which case the lookup below simply misses as before.
+// configured label), in which case the lookup below simply misses.
+//
+// A NAMED LABEL THAT MISSES IS A FINDING, not a silent substitution. This used
+// to return DefaultLLM for any miss with no warning of any kind — not a
+// degrade, because it never consulted the mode and said nothing in EITHER
+// mode. A retired alias (`claude` once resolved through the alias table) or a
+// plain typo therefore routed the run to a different engine than the one named,
+// which is a substitution the user cannot see and did not ask for.
+//
+// WHY THIS STAYS DEGRADABLE (strictness.Fail, not FailAlways). The audit's test
+// is "does LAUNCHING cause the harm?" — and here it does not: the harm is the
+// substitution being invisible, not the run proceeding. Substituting a working
+// default when the user has said --degraded is exactly the case the standing
+// promise in cli/version_gate.go protects: --degraded reaches a working LLM
+// wherever doing so damages nothing. So strict mode refuses and names the
+// known labels; --degraded still gets an LLM.
+//
+// NO ERROR CHANNEL, deliberately. Threading (backend, model, error) through
+// here would cascade to 16 call sites across 7 files, and would buy nothing
+// this does not: the finding is already collected by the startup choke that
+// aborts the launch. The cascade was priced and then not spent.
+//
+// An EMPTY resolved label is NOT a miss and stays silent: a project with no
+// defaults.primary and no single configured label never named anything, so
+// there is nothing to refuse and a finding there would fire on every
+// well-formed project that just has not picked a primary.
 func (c *Config) ResolveLLM(label string) (backend, model string) {
 	if label == "" {
 		label = c.PrimaryLabel()
 	}
 	entry, ok := c.lm.Configs[label]
 	if !ok {
+		if label != "" {
+			strictness.FailOnce(strictness.ClassConfig,
+				fmt.Sprintf("add an `llm:` entry for %q in .ctxloom/config.yaml, or name one of the configured labels (%s)", label, c.knownLLMLabels()),
+				"llm label %q is not configured (known: %s); this run would silently use the built-in default backend %q instead of the engine you named",
+				label, c.knownLLMLabels(), DefaultLLM)
+		}
 		return DefaultLLM, ""
 	}
 	backend = entry.EffectiveType()
@@ -947,17 +978,26 @@ func (c *Config) ResolveLLM(label string) (backend, model string) {
 	return backend, model
 }
 
+// knownLLMLabels renders the configured label set for a fix-it line, sorted so
+// the sentence is stable across runs (map order would otherwise reshuffle it
+// and make two identical faults read as two different ones — and FailOnce
+// dedups on the rendered message, so an unstable list would defeat the dedup).
+func (c *Config) knownLLMLabels() string {
+	if len(c.lm.Configs) == 0 {
+		return "none configured"
+	}
+	names := make([]string, 0, len(c.lm.Configs))
+	for name := range c.lm.Configs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
 // GetDefaultLLM returns the backend type for the primary role's label.
 func (c *Config) GetDefaultLLM() string {
 	backend, _ := c.ResolveLLM(c.PrimaryLabel())
 	return backend
-}
-
-// GetDefaultLLMModel returns the model for the primary role's label.
-// Empty means the backend uses its own default.
-func (c *Config) GetDefaultLLMModel() string {
-	_, model := c.ResolveLLM(c.PrimaryLabel())
-	return model
 }
 
 // GetCompactionLLM returns the backend type for the fast (compression) role.

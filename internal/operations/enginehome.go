@@ -90,7 +90,11 @@ func absent(format string, args ...any) AgentHomeResolution {
 // names authentication rather than a runtime, and it names --degraded
 // truthfully: under --degraded nothing is contributed, so the run falls back
 // to the home its runtime gives it.
-const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude login`) or set its API-key env var, or pass --degraded (env CTXLOOM_DEGRADED=1) to run this agent against the runtime's own config home"
+// It names no flag: the finding is non-degradable (see ResolveInTreeAgentHome),
+// because the fallback it used to offer is the SHARED host config home — the
+// one thing a per-session engine home exists to avoid. Both routes named here
+// end with the private home actually working.
+const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude login`) or set its API-key env var so the per-session home has credentials to seed, or set `engine_home:` to something other than `session` if this agent should share the runtime's own config home"
 
 // ResolveInTreeAgentHome decides ONE run's controlled engine config home —
 // CLAUDE_CONFIG_DIR and its kin pointed at THIS SESSION's ctxloom-controlled
@@ -171,8 +175,14 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 	home := spec.Dir
 	if spec.Prepare != nil {
 		if err := spec.Prepare(in.Cwd); err != nil {
-			strictness.Fail(strictness.ClassIsolation, inTreeAgentHomeFixIt,
-				"in-tree agent home for %s: %v — refusing to point %s at an unauthenticated %s; this run uses the runtime's own config home instead",
+			// NON-DEGRADABLE. The fallback is not "less isolation", it is the
+			// SHARED host config home — the agent would read and write the
+			// user's real engine credentials and state, which is the precise
+			// thing `engine_home: session` was asked for to prevent. Delivery
+			// never degrades to a shared home: private is the root, and sharing
+			// is only ever something a user selects explicitly.
+			strictness.FailAlways(strictness.ClassIsolation, inTreeAgentHomeFixIt,
+				"in-tree agent home for %s: %v — refusing to point %s at an unauthenticated %s, and refusing to substitute the SHARED host config home for the per-session one this agent asked for",
 				in.Backend, err, spec.EnvVar, home)
 			return absent("refusing to point %s at an unauthenticated %s: %v", spec.EnvVar, home, err)
 		}

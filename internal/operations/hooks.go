@@ -382,8 +382,24 @@ func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, work
 }
 
 // trustStoreFindingsError renders the TRUST-CLASS findings recorded since mark
-// as one error, or nil when there are none (or the process is degraded, where
-// every class warns and continues by contract).
+// as one error, or nil when there are none.
+//
+// IT DOES NOT DEGRADE, and that is a deliberate exception worth reading before
+// relaxing it. Everywhere else --degraded means "deliver less"; here it meant
+// "deliver something FALSE". An unreadable trust store denies every item, so
+// ApplyHooks goes on to write a managed context surface with the whole set
+// stripped and then reports success — the caller, and the user, are told a set
+// of verdicts was applied when what actually happened is that no verdict could
+// be read at all. Writing that surface is the harm, and it is done BY
+// proceeding, so the audit's test ("does LAUNCHING cause the harm?") puts this
+// on the refusing side in both modes.
+//
+// This is expressed as an unconditional gate rather than by raising the
+// underlying findings non-degradably, because the raise sites are CORRECT as
+// they stand: a corrupt approvals store denying everything is fail-CLOSED and
+// perfectly safe in isolation. The damage appears only when this particular
+// caller turns that denial into written bytes. The refusal therefore belongs
+// here, at the writer, not at the detector.
 //
 // It is deliberately NARROWER than strictness.FindingsError, which renders
 // EVERY class: ApplyHooks reports a per-backend apply failure as partial
@@ -394,9 +410,6 @@ func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, work
 // only class for which a written-and-stripped context surface is a lie about a
 // verdict rather than a report of one.
 func trustStoreFindingsError(mark strictness.Mark) error {
-	if strictness.Degraded() {
-		return nil
-	}
 	var msgs []string
 	for _, f := range strictness.Since(mark) {
 		if f.Class != strictness.ClassTrust {

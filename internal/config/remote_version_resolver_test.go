@@ -99,13 +99,19 @@ func remoteTreeContentRepo(t *testing.T) (repoDir, rev1, rev2 string) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools", paths.BundleManifestName)
-	commit := func(body, msg string) string {
-		full := filepath.Join(repoDir, rel)
-		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
-		require.NoError(t, os.WriteFile(full, []byte(body), 0o644))
-		_, err := wt.Add(filepath.ToSlash(rel))
-		require.NoError(t, err)
+	bundleDir := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools")
+	// A PUBLISHABLE tree: bundle.yaml carries envelope keys only and each item
+	// is a file beside it. An inline `fragments:` key here is the one shape
+	// bundles.readEnvelope refuses outright, so a fixture carrying one asserts
+	// against a bundle no publisher can publish.
+	commit := func(files map[string]string, msg string) string {
+		for rel, body := range files {
+			full := filepath.Join(repoDir, filepath.FromSlash(rel))
+			require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+			require.NoError(t, os.WriteFile(full, []byte(body), 0o644))
+			_, err := wt.Add(filepath.ToSlash(rel))
+			require.NoError(t, err)
+		}
 		h, err := wt.Commit(msg, &git.CommitOptions{
 			Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()},
 		})
@@ -113,8 +119,10 @@ func remoteTreeContentRepo(t *testing.T) (repoDir, rev1, rev2 string) {
 		return h.String()
 	}
 
-	rev1 = commit("description: v1\nfragments:\n  fmt:\n    content: T1-BODY\n", "v1")
-	rev2 = commit("description: v2\nfragments:\n  fmt:\n    content: T2-BODY\n", "v2")
+	manifest := filepath.Join(bundleDir, paths.BundleManifestName)
+	fragment := filepath.Join(bundleDir, "fragments", "fmt.md")
+	rev1 = commit(map[string]string{manifest: "description: v1\n", fragment: "T1-BODY"}, "v1")
+	rev2 = commit(map[string]string{manifest: "description: v2\n", fragment: "T2-BODY"}, "v2")
 	return repoDir, rev1, rev2
 }
 

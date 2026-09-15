@@ -92,9 +92,21 @@ func setupRemoteParent(t *testing.T) (baseDir, src, parentBundleID, bundleID str
 	// remote bundle-profile parent (depWalker.recurseBundleProfile) therefore
 	// exercises FetchRefBytes's tree fallback — authoring these as documents
 	// tested a shape no repository can publish any more.
+	// Both bundles are authored as PUBLISHABLE trees: bundle.yaml carries
+	// envelope keys ONLY, and every item is a file beside it. bundles.ReadTree
+	// refuses both halves of any other shape — an envelope that also declares
+	// items inline ("two answers for one item"), and a tree with no item files
+	// at all ("declares no items") — so demo needs a real item of its own even
+	// though the test only ever asks whether it was PINNED.
 	initLocalRepoWithFile(t, src, repoV2("demo")+"/bundle.yaml", "name: demo\n")
-	// The parent bundle ships a bundle profile `parent` that composes demo.
-	addFileToLocalRepo(t, src, repoV2("kit")+"/bundle.yaml", "version: 1.0.0\nprofiles:\n  parent:\n    bundles:\n      - "+bundleID+"\n")
+	addFileToLocalRepo(t, src, repoV2("demo")+"/fragments/note.md", "demo fragment body\n")
+	// The parent bundle ships a bundle profile `parent` that composes demo, as
+	// a TREE ITEM FILE — profiles/<name>.yaml, whose body is the profile def
+	// and whose name is the filename. This is what convert.Convert emits and
+	// the only shape a publisher can publish; an inline `profiles:` key here
+	// would be refused by readEnvelope.
+	addFileToLocalRepo(t, src, repoV2("kit")+"/bundle.yaml", "version: 1.0.0\n")
+	addFileToLocalRepo(t, src, repoV2("kit")+"/profiles/parent.yaml", "bundles:\n  - "+bundleID+"\n")
 
 	writeLocalProfile(t, baseDir, "default", "parents:\n  - "+parentBundleID+"#profiles/parent\n")
 	return baseDir, src, parentBundleID, bundleID

@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -200,12 +201,12 @@ func printMCPList(w io.Writer, result *operations.ListMCPServersResult) error {
 
 	fmt.Fprintln(w, "MCP Servers:")
 	for _, srv := range result.Servers {
-		fmt.Fprintf(w, "  %s\n", srv.Name)
-		fmt.Fprintf(w, "    Command: %s\n", srv.Command)
+		fmt.Fprintf(w, "  %s\n", termsafe.Field(srv.Name))
+		fmt.Fprintf(w, "    Command: %s\n", termsafe.Field(srv.Command))
 		if len(srv.Args) > 0 {
-			fmt.Fprintf(w, "    Args: %s\n", strings.Join(srv.Args, " "))
+			fmt.Fprintf(w, "    Args: %s\n", termsafe.Field(strings.Join(srv.Args, " ")))
 		}
-		fmt.Fprintf(w, "    Bundle: %s\n", srv.Source)
+		fmt.Fprintf(w, "    Bundle: %s\n", termsafe.Field(srv.Source))
 	}
 	return nil
 }
@@ -254,17 +255,21 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 
 // printMCPServerEntry writes one MCP server entry's bundle, command, args, and
 // env to w.
+// printMCPServerEntry is the text rendering of one server. Every field is
+// bundle-authored and is the executable surface — command, args, env — so each
+// goes through termsafe.Field. The JSON form of the same entry does not: a
+// structured consumer is owed the raw bytes.
 func printMCPServerEntry(w io.Writer, e operations.MCPServerEntry) {
-	fmt.Fprintf(w, "MCP Server: %s\n", e.Name)
-	fmt.Fprintf(w, "Bundle: %s\n", e.Source)
-	fmt.Fprintf(w, "Command: %s\n", e.Command)
+	fmt.Fprintf(w, "MCP Server: %s\n", termsafe.Field(e.Name))
+	fmt.Fprintf(w, "Bundle: %s\n", termsafe.Field(e.Source))
+	fmt.Fprintf(w, "Command: %s\n", termsafe.Field(e.Command))
 	if len(e.Args) > 0 {
-		fmt.Fprintf(w, "Args: %s\n", strings.Join(e.Args, " "))
+		fmt.Fprintf(w, "Args: %s\n", termsafe.Field(strings.Join(e.Args, " ")))
 	}
 	if len(e.Env) > 0 {
 		fmt.Fprintln(w, "Environment:")
 		for k, v := range e.Env {
-			fmt.Fprintf(w, "  %s=%s\n", k, v)
+			fmt.Fprintf(w, "  %s=%s\n", termsafe.Field(k), termsafe.Field(v))
 		}
 	}
 }

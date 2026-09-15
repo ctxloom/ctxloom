@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -141,10 +142,14 @@ func confirmSignerAdd(cmd *cobra.Command, principal string, key operations.Signe
 // and the most consequential text in the product had nothing asserting it is
 // shown at all. It writes to cmd.ErrOrStderr() rather than
 // os.Stderr for the same reason; in production those are the same descriptor.
+//
+// The principal goes through termsafe.Field: it is supplied by the entity
+// seeking trust, and this is the line the operator reads to decide whether to
+// grant it. A control byte there could rewrite that line while it is read.
 func promptSignerAdd(cmd *cobra.Command, principal string, key operations.SignerKeyInfo, namespaces []string) bool {
 	consequence := signerConsequenceText(namespaces)
 	fmt.Fprintf(cmd.ErrOrStderr(), "\nTrust %s as a %s?\n\n  %s  (%s)\n\n  %s\n  Verify this fingerprint out of band before you continue.\n\n",
-		principal, signerRoleWord(namespaces), key.Fingerprint, key.PublicKey.Type(), consequence)
+		termsafe.Field(principal), signerRoleWord(namespaces), key.Fingerprint, key.PublicKey.Type(), consequence)
 	yes, err := promptYesNo("  [y/N] ")
 	return err == nil && yes
 }
@@ -219,7 +224,7 @@ func printSignerListings(w io.Writer, listings []operations.SignerListing) error
 			// Not an entry — a line in this store that could not be read.
 			// Shown rather than omitted so the listing cannot pass a
 			// silently-shortened trust root off as the whole one.
-			if _, err := fmt.Fprintf(w, "%-40s %-10s %s\n", "(unreadable)", l.Source, l.Unreadable); err != nil {
+			if _, err := fmt.Fprintf(w, "%-40s %-10s %s\n", "(unreadable)", l.Source, termsafe.Field(l.Unreadable)); err != nil {
 				return err
 			}
 			continue
@@ -235,8 +240,11 @@ func printSignerListings(w io.Writer, listings []operations.SignerListing) error
 				ns = "no namespaces (untrusted for everything)"
 			}
 		}
+		// Principal and namespaces are bytes from an allowed_signers file a
+		// remote or an embedded root authored; the fingerprint is derived
+		// from the key and Source is ctxloom's own word.
 		if _, err := fmt.Fprintf(w, "%-40s %-10s %-45s %s%s\n",
-			principal, l.Source, ns, l.Fingerprint, embeddedAnnotation(l)); err != nil {
+			termsafe.Field(principal), l.Source, termsafe.Field(ns), l.Fingerprint, embeddedAnnotation(l)); err != nil {
 			return err
 		}
 	}

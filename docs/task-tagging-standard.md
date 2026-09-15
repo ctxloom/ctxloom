@@ -282,6 +282,93 @@ useful signal that something keeps being admitted and keeps not landing.
 
 ---
 
+## Why a task needs a PERSON — `human:`
+
+`queue:` says a row was ADMITTED. `human:` says it was WITHHELD, and names why.
+They are complements, and a row can carry both — admitted on one night, found
+human-gated on another.
+
+    human:decision      human:voice         human:authority
+    human:verify        human:prerequisite  human:action
+
+The flat `human` tag it replaces recorded only WHERE a row went — "the one queue
+a person actually works from" — never why. That omission has a measured cost. On
+2026-09-10 a sweep stripped `human` from 28 rows by asking "does this row need a
+DECISION from a person", which is a reasonable test and the wrong one: the tag's
+net is wider than decisions. The removal was reverted within the hour and 16 of
+those rows still carry the account of it. A tag that states its own test cannot
+be stripped that way, because the test is no longer something a reader has to
+infer.
+
+An earlier attempt at the same split, `needs-decision`, reached 39 rows and zero
+survivors. It failed for the reason this one is shaped to avoid: it carved off
+only the largest category and left everything else under the undifferentiated
+tag, so the ambiguity it was meant to remove stayed exactly where it was.
+
+### What each one means
+
+`human:decision` — a ruling only a person can make. Architecture, a public
+contract, a wire or on-disk format, a security posture, an accepted risk, a
+choice between designs. If the answer would be written in a design doc rather
+than a diff, it is this.
+
+`human:voice` — prose in the human's voice. Prompts, system messages, skills,
+fragments, profile text, release notes. An agent may establish that such text is
+WRONG, and should; it must not author the replacement.
+
+`human:authority` — an act that carries the human's identity rather than their
+judgment. Signing, publishing, pushing, cutting a release, granting trust. The
+distinction from `human:action` is not capability: an agent can run the command.
+It is that the act asserts who authorised it.
+
+`human:verify` — the only evidence is a person looking. A rendering, an
+interaction, a live multi-process run, a flake that reproduces only under real
+load. The work may be entirely mechanical; what cannot be delegated is the
+watching.
+
+`human:prerequisite` — the work is ordinary, and something it needs is absent.
+Another operating system, a credential, a published artifact, a CI lane that
+does not exist yet, a row that has not landed. Unlike the others this one can be
+DISCHARGED by the world changing, which makes it the natural companion to a
+`Deferred` status and a revive trigger.
+
+`human:action` — a person must do it, for none of the above reasons.
+Deliberately residual and deliberately last. If it starts collecting rows, the
+other five are not carving real joints and the vocabulary needs revisiting.
+
+### Repeatable, and PROSE not enforced
+
+A row may carry several. That is not an edge case: measured across the 52 open
+rows on 2026-09-15, 24 of them — 46% — were human-gated for two or more
+independent reasons, and several spanned exactly the boundaries above. A bundle
+edit is `human:voice` AND `human:authority`, because the words are the human's
+and the re-signature is theirs too.
+
+So `human:` is REPEATABLE, and declaring it scalar would be actively harmful
+rather than merely useless: taskloom's write seam collapses a scalar re-tag with
+newest-wins, so the second reason would silently displace the first.
+
+The value vocabulary is PROSE, not enforced, and the reason is the same one
+recorded for `repo:` above — see that section. A misspelling stores cleanly and
+is then reachable by no query. `taskloom tags` is the check: a value with a
+count of one, sitting beside a near-identical spelling, is the tell.
+
+### Where the authority lives
+
+This section describes the vocabulary. It does not define what makes work
+human-gated — that is the stop conditions in the `unattended` skill, and the
+additional withholding reasons in `admit`. Read them there. They are not
+restated here, because a rule kept in two places drifts and the stale copy goes
+on being enforced while it lies.
+
+Note also that the stop conditions are NOT a taxonomy of work and must not be
+converted into one. Several of them — destructive git, another session's
+worktree, system and toolchain changes, leaving daemons — are prohibitions on
+how an AGENT BEHAVES. They never produce a tagged row, and a value set derived
+mechanically from that list would carry permanently empty members.
+
+---
+
 ## Work that has LANDED but is not merged — `landed:`
 
 There is a state between "still to do" and "done", and it is where most work

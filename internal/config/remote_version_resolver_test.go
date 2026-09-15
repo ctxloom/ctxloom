@@ -63,13 +63,26 @@ func remoteContentRepo(t *testing.T) (repoDir, rev1, rev2 string) {
 	return repoDir, rev1, rev2
 }
 
-// TestRemoteRev_ResolvesHistoricalVersionThroughParse proves the remote arm of
-// bundleVersionResolver serves the bytes committed AT THAT COMMIT — a different
-// rev is a different body — and that those bytes reached the bundle through
-// ParseBundle: the legacy `prompts:` key arrives as a command.
-func TestRemoteRev_ResolvesHistoricalVersionThroughParse(t *testing.T) {
+// TestRemoteRev_DocumentFormIsRefused pins what became of this test's subject.
+//
+// It used to prove the remote arm of bundleVersionResolver served a DOCUMENT's
+// bytes at a historical commit, and that they reached the bundle through
+// ParseBundle — a legacy `prompts:` key arriving as a command. The document form
+// is no longer readable remotely, so that is no longer a thing to prove; what
+// has to be proved instead is that its absence is LOUD.
+//
+// A repository still holding a single-file bundle is the realistic case here —
+// it is what every publisher had before the tree migration — so the refusal has
+// to name the shape and the remedy rather than failing as "not found", which
+// would send a publisher hunting a path problem they do not have.
+//
+// NOTHING WAS LOST WITH IT. The legacy `prompts:` upgrade is a property of
+// ParseBundle, pinned directly in bundles' own upgrade and strict tests, and it
+// still runs on every LOCAL versioned read, which is still a document.
+// Historical resolution of a remote bundle is pinned by the tree test below.
+func TestRemoteRev_DocumentFormIsRefused(t *testing.T) {
 	testsupport.Isolate(t)
-	repoDir, rev1, rev2 := remoteContentRepo(t)
+	repoDir, rev1, _ := remoteContentRepo(t)
 	appDir := filepath.Join(t.TempDir(), "consumer", ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
@@ -79,17 +92,13 @@ func TestRemoteRev_ResolvesHistoricalVersionThroughParse(t *testing.T) {
 
 	canonical := "file://" + filepath.ToSlash(repoDir) + "@bundles/go-tools"
 
-	b1, err := resolve(canonical, rev1)
-	require.NoError(t, err)
-	assert.Equal(t, "R1-BODY", b1.Fragments["fmt"].Content,
-		"the pinned rev serves the bytes committed at that rev")
-	assert.Equal(t, "RP1-BODY", b1.Commands["review"].Content,
-		"the fetched bytes reached the bundle through ParseBundle: a legacy prompts: key arrives as a command")
-
-	b2, err := resolve(canonical, rev2)
-	require.NoError(t, err)
-	assert.Equal(t, "R2-BODY", b2.Fragments["fmt"].Content, "a different rev is its own version")
-	assert.Equal(t, "RP2-BODY", b2.Commands["review"].Content)
+	b, err := resolve(canonical, rev1)
+	require.Error(t, err, "a single-file remote bundle must not resolve")
+	assert.Nil(t, b, "and nothing may come back alongside the refusal")
+	assert.Contains(t, err.Error(), "document form is no longer readable",
+		"the refusal must name the SHAPE — 'not found' would send a publisher hunting a path problem")
+	assert.Contains(t, err.Error(), "republish it as a tree",
+		"and it must name the remedy, since the publisher is the only one who can apply it")
 }
 
 // remoteTreeContentRepo is remoteContentRepo's DIRECTORY-form twin: it publishes

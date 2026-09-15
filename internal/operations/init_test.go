@@ -267,7 +267,9 @@ func TestBuildInitialConfig(t *testing.T) {
 			assert.Equal(t, tt.wantBackend, be)
 			assert.Equal(t, tt.wantModel, model)
 			assert.Equal(t, tt.wantBackend, cfg.GetDefaultLLM())
-			assert.Equal(t, tt.wantModel, cfg.GetDefaultLLMModel())
+			// The GetDefaultLLMModel assertion that sat here was redundant with
+			// the ResolveLLM model check three lines above, and the accessor
+			// itself was deleted as uncalled by the degradation audit.
 
 			assert.Equal(t, tt.wantFastBE, cfg.GetCompactionLLM())
 			assert.Equal(t, tt.wantFastMod, cfg.GetCompactionModel())

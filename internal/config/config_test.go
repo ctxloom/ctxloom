@@ -1623,18 +1623,27 @@ llm:
 // =============================================================================
 // Compaction settings control how session logs are compressed for memory.
 
-func TestGetDefaultLLMModel(t *testing.T) {
+// TestPrimaryLabelModel covers what the deleted GetDefaultLLMModel accessor
+// used to: the primary role's model, read through ResolveLLM directly.
+//
+// The accessor itself was removed by the degradation audit — it had zero
+// production callers, so threading ResolveLLM's new behaviour through it would
+// have been maintaining a function nothing calls. The BEHAVIOUR it asserted is
+// real and still covered here.
+func TestPrimaryLabelModel(t *testing.T) {
 	t.Run("returns the primary label's model", func(t *testing.T) {
 		cfg := &Config{lm: LMConfig{
 			Configs:  map[string]LLMConfig{"big": {Type: "claude-code", Body: map[string]interface{}{"model": "sonnet"}}},
 			Defaults: RoleDefaults{Primary: "big"},
 		}}
-		assert.Equal(t, "sonnet", cfg.GetDefaultLLMModel())
+		_, model := cfg.ResolveLLM(cfg.PrimaryLabel())
+		assert.Equal(t, "sonnet", model)
 	})
 
 	t.Run("returns empty when the primary label has no model", func(t *testing.T) {
 		cfg := &Config{}
-		assert.Empty(t, cfg.GetDefaultLLMModel())
+		_, model := cfg.ResolveLLM(cfg.PrimaryLabel())
+		assert.Empty(t, model)
 	})
 }
 

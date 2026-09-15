@@ -514,6 +514,44 @@ survive a query.
 
 ---
 
+## Retired vocabulary — what these tags were, and what replaced them
+
+`taskloom tags` lists every tag ever used, with active and total counts. A tag
+with a live total and zero active rows is not necessarily dead — it may just be
+between uses — so the ones below are named explicitly. NOTHING IS STRIPPED: the
+rows that carried them keep them, because a closed row's tags are part of its
+record and rewriting them would edit history a later reader may want.
+
+    needs-decision      ->  human:decision
+    low-priority        ->  triage:level=4 or =5
+    deferred            ->  the Deferred STATUS, which is real mechanism
+    for-review, review  ->  code-review
+    sdk1-blocked        ->  (obsolete; the SDK-1 work is finished)
+    publish-blocker     ->  triage:blocks-release=
+
+`needs-decision` deserves its own note, because it is the most likely to be
+re-invented. It reached 39 rows and zero survivors. It was an earlier attempt at
+the same split `human:` now makes, and it failed by carving off only the largest
+category and leaving everything else under an undifferentiated `human` tag — so
+the ambiguity it existed to remove stayed exactly where it was. It is also
+defined in no file: it was convention, never standard, which is part of why it
+could die without anyone noticing.
+
+`deferred` is worth a second look too. It duplicated a STATUS, and a tag that
+shadows real mechanism is worse than a redundant one: the status is what queries
+and reports actually read, so a row could carry the tag and not the status and
+look parked to a human while reading as live to every tool.
+
+### Three spellings of one gate
+
+`for-review`, `review` and `code-review` all mean the same thing and all exist.
+That is the hazard the tags reference names directly — running `taskloom tags`
+before coining a word is how you notice that a near-identical spelling is
+already in use. Prefer `code-review`; it has the most rows and the clearest
+name. The other two are left in place on the rows that carry them.
+
+---
+
 ## Linking one task to another — `relates:`
 
 `relates:<harp-id>`, on BOTH rows. Repeatable.

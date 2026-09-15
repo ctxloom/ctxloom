@@ -93,21 +93,31 @@ func TestDockerRootful_PassesIdentityEnv(t *testing.T) {
 	assert.NotContains(t, joined, "--user", "the entrypoint, not --user, sets identity")
 }
 
-// TestIdentityEnvArgs_DegradedAllowsRootFallback: the entrypoint refuses to
-// run the engine as root when it cannot BECOME the PUID identity; degraded
-// mode — the one warn-and-continue home — must let that container launch
-// anyway, so the runtime passes the entrypoint's escape hatch there and ONLY
-// there (in strict mode the refusal stands and fails the launch loudly).
-func TestIdentityEnvArgs_DegradedAllowsRootFallback(t *testing.T) {
+// TestIdentityEnvArgs_NeverAllowsRoot: the image entrypoint refuses to run the
+// engine as root when it cannot BECOME the PUID identity, and NOTHING ctxloom
+// passes may downgrade that refusal — in either mode.
+//
+// INVERTED from TestIdentityEnvArgs_DegradedAllowsRootFallback by the
+// degradation audit (obstinate-judiciary). That test asserted --degraded
+// CARRIES `-e CTXLOOM_ALLOW_ROOT=1`, which made the bypass the specification:
+// the flag told the entrypoint to run the engine as root with the user's
+// project bind-mounted, so every file the run touched came back root-owned on
+// the host. --degraded means "I accept a thinner run", never "I accept running
+// as root", and there is no caller for whom root is the right answer — so the
+// argv no longer carries the hatch under any mode.
+//
+// Kept here as well as in the guard test because this one exercises the REAL
+// RunArgs of both runtimes, not identityEnvArgs in isolation: the hatch would
+// come back just as easily via a runtime's own argv head.
+func TestIdentityEnvArgs_NeverAllowsRoot(t *testing.T) {
 	resetStrictness(t)
-	joined := strings.Join(Docker{}.RunArgs(sampleSpec()), " ")
-	assert.NotContains(t, joined, "CTXLOOM_ALLOW_ROOT", "strict: the root-refusal must stand")
-
-	strictness.SetDegraded(true)
-	assert.Contains(t, strings.Join(Docker{}.RunArgs(sampleSpec()), " "),
-		"-e CTXLOOM_ALLOW_ROOT=1", "degraded docker run carries the escape hatch")
-	assert.Contains(t, strings.Join(Podman{rootless: true}.RunArgs(sampleSpec()), " "),
-		"-e CTXLOOM_ALLOW_ROOT=1", "degraded podman run carries the escape hatch")
+	for _, mode := range []bool{false, true} {
+		strictness.SetDegraded(mode)
+		assert.NotContains(t, strings.Join(Docker{}.RunArgs(sampleSpec()), " "),
+			"CTXLOOM_ALLOW_ROOT", "docker run must never carry the root escape hatch (degraded=%v)", mode)
+		assert.NotContains(t, strings.Join(Podman{rootless: true}.RunArgs(sampleSpec()), " "),
+			"CTXLOOM_ALLOW_ROOT", "podman run must never carry the root escape hatch (degraded=%v)", mode)
+	}
 }
 
 // TestDockerIsRootless_ProbeErrorRoutesAFinding: the daemon's rootless-ness

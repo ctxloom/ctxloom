@@ -32,12 +32,55 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
+// THE RULE, stated here because this is the file an author reaches for a
+// fallback in: DEGRADING MAY REDUCE WHAT A RUN DELIVERS. IT MAY NEVER DAMAGE
+// ANYTHING AND MAY NEVER GRANT A SECURITY BYPASS.
+//
+// The test is not "is this fault serious?" and not "does it fail silently?" —
+// strictness.Fail always streams its warning, so nothing here is ever silent
+// and that question separates nothing. The test is strictness.FailAlways's:
+// DOES LAUNCHING CAUSE THE HARM? A profile that fails to parse is serious and
+// still degradable — the user gets a working LLM with less context. A
+// requested container boundary that cannot be provided is not, because the
+// launch IS the exposure.
+//
+// So, concretely, in this package:
+//   - Skipping optional work, losing context, or picking the conservative side
+//     of an undecidable probe → strictness.Fail (degradable). dockerIsRootless
+//     is the worked example: on an unreadable probe it assumes ROOTFUL, which
+//     is the safe direction, and degrades.
+//   - Dropping a REQUESTED container boundary, running an image that can start
+//     as root, or consenting to elevated privilege → strictness.FailAlways
+//     (non-degradable). --degraded must not reach these, and a new one must
+//     not be added as a plain Fail. TestDegradedNeverBypassesIsolation in
+//     isolation_degrade_guard_test.go fails if one is.
+//   - Substituting a DECLARED BUILD BASE → also FailAlways, and this one does
+//     NOT follow from the launch test, so do not try to re-derive it. Nothing
+//     is exposed: the container still runs, still drops privileges, nothing is
+//     lost. It refuses because ctxloom CANNOT READ THE CONTAINERFILE and so
+//     cannot know whether what the project declared mattered; substituting it
+//     silently is the program asserting knowledge it does not have. Ruled
+//     2026-09-15; see recordBuildSourceFailure for the full reasoning and the
+//     accepted cost.
+//
+// Do NOT branch on strictness.Degraded() to express any of this. The mode is
+// consulted in exactly one place (strictness.Actionable); a site that tests it
+// itself is how the two halves of this rule drifted apart in the first place —
+// chainFor refused to substitute the other OWNERSHIP mode "in strict mode or
+// under --degraded" while, ten lines on, --degraded dropped the whole
+// container and ran on the host.
+
 // isolationFixIt is the fix-it hint attached to every requested-container
-// degrade finding (ClassIsolation): the three ways to restore the boundary
-// plus the escape hatch. Shared by the no-runtime site (chainFor) and the
+// finding (ClassIsolation): how to restore the boundary, and how to ask for a
+// host run ON PURPOSE. Shared by the no-runtime site (chainFor) and the
 // image/probe/auth site (prepareChain) so the abort listing reads the same
 // regardless of which stage dropped the container.
-const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox"
+//
+// It deliberately does NOT offer --degraded. These findings are raised
+// non-degradably, so naming the flag would hand the user a remedy that does
+// not work — which is worse than naming none. The remedy is to declare the
+// host axis, because that is the request the user actually has to make.
+const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or ask for a host run deliberately with `runtime: host` (the agent's runtime trait, the project `runtime:` default, or --runtime host)"
 
 // Workspace is the per-agent directory a run executes in (the child engine's
 // cwd) plus its teardown. none → the live project dir (noop cleanup); worktree →
@@ -88,9 +131,10 @@ type Policy interface {
 	// will see what it wrote. A policy that cannot materialize its workspace
 	// warns and returns an error so the caller degrades down the chain; the run
 	// always gets a workspace (None never fails). Dropping a requested CONTAINER
-	// boundary is additionally a fatal finding (ClassIsolation) the choke owner
-	// aborts on unless --degraded; a workspace-axis degrade (worktree→None)
-	// stays a silent fallback.
+	// boundary is additionally a NON-DEGRADABLE finding (ClassIsolation) the
+	// choke owner aborts on in BOTH modes — the workspace still resolves, but
+	// the run does not proceed; a workspace-axis degrade (worktree→None) stays
+	// a plain warn-and-continue fallback.
 	//
 	// The container gate (runtime reachable / image present / engine auth
 	// resolvable) runs HERE rather than in Mount, so a degrade is decided before
@@ -541,20 +585,24 @@ func noRuntimeHint() string {
 //   - An unrecognized WORKSPACE value degrades to the shared project dir — a
 //     convenience axis, never a security boundary (a lost worktree degrades
 //     gracefully everywhere else too), so it stays a plain warn-and-continue.
-//   - An unrecognized RUNTIME value degrades to the HOST. The user typed a
+//   - An unrecognized RUNTIME value would degrade to the HOST. The user typed a
 //     non-empty runtime, so they asked for SOMETHING other than the default;
-//     silently landing UNSANDBOXED on the host when they may have meant
-//     `container` is the exact silent security downgrade fail-loudly exists to
-//     stop. It is a fatal ClassIsolation finding the choke owner aborts on
-//     unless --degraded downgrades it back to the host degrade.
+//     landing UNSANDBOXED on the host when they may have meant `container` is
+//     the exact security downgrade fail-loudly exists to stop. NON-DEGRADABLE:
+//     a typo must not be able to remove the boundary, and --degraded is not a
+//     way to spell one. The remedy names the known values AND `runtime: host`,
+//     so a user who genuinely wants the host can say so in one edit.
+//
+// The asymmetry is the rule above in miniature: the workspace axis is a
+// convenience and degrades, the runtime axis is a boundary and refuses.
 func warnUnknownAxes(a Axes) {
 	if a.Workspace != "" && a.Workspace != WorkspaceShared && a.Workspace != WorkspaceWorktree {
 		clidiag.Warn("ctxloom", "unknown workspace axis %q (known: %s); treating as %q", a.Workspace, strings.Join(WorkspaceNames(), "|"), WorkspaceShared)
 	}
 	if a.Runtime != "" && a.Runtime != RuntimeHost && !IsContainerRuntimeAxis(a.Runtime) {
-		strictness.Fail(strictness.ClassIsolation,
-			"set the runtime axis to one of "+strings.Join(RuntimeNames(), "|")+" (fix the config/flag typo), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox",
-			"unknown runtime axis %q (known: %s); this run would land on the HOST without a container boundary (NOT sandboxed) — treating as %q", a.Runtime, strings.Join(RuntimeNames(), "|"), RuntimeHost)
+		strictness.FailAlways(strictness.ClassIsolation,
+			"set the runtime axis to one of "+strings.Join(RuntimeNames(), "|")+" (fix the config/flag typo), or `runtime: host` if this run really should have no sandbox",
+			"unknown runtime axis %q (known: %s); refusing to run: an unrecognised runtime would land this session on the HOST without a container boundary (NOT sandboxed), and a typo must not be able to drop it", a.Runtime, strings.Join(RuntimeNames(), "|"))
 	}
 }
 
@@ -628,20 +676,31 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 			}
 			return []Policy{containerFor(rt, backend, img), None{}}
 		}
-		// Runtime axis degrades alone: the workspace request below is untouched.
 		// A container was EXPLICITLY requested (WantsContainer) but no runtime
 		// providing the demanded ownership is reachable, so this run would land
-		// UNSANDBOXED on the host — a fail-loudly finding (ClassIsolation) the
-		// choke owner aborts on unless --degraded downgrades it back to the
-		// warn-and-continue degrade. --degraded falls back to the HOST, never
-		// to the other ownership mode: that would be the same silent
-		// substitution wearing a flag.
+		// UNSANDBOXED on the host. NON-DEGRADABLE: the launch IS the exposure.
+		//
+		// This is the site the whole audit turned on, and the inconsistency is
+		// worth keeping written down. The ownership rule above has always said
+		// substituting the other mode is "never an option, in strict mode or
+		// under --degraded" — yet the code here then permitted the STRICTLY
+		// LARGER substitution, dropping the container altogether and running on
+		// the host, for no reason beyond a flag whose documented job is
+		// suppressing STARTUP-FAULT fatality. One flag cannot mean "I accept a
+		// thinner context" and "I accept no sandbox" at once. It now means only
+		// the first.
+		//
+		// The chain below is still built and still returned: refusing is the
+		// GATE's job (strictness.Actionable keeps a NonDegradable finding under
+		// --degraded, so phaseGates.close and isolationGateErr both abort
+		// pre-launch). Returning an error here instead would make the caller
+		// degrade DOWN THE CHAIN — the exact host fallback being refused.
 		if axes.WantsWorktree() {
-			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
-				"runtime: %s requested but no container runtime is available with that ownership; keeping the worktree on the host%s", axes.Runtime, noRuntimeHint())
+			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
+				"runtime: %s requested but no container runtime is available with that ownership; refusing to keep the worktree on the HOST without the container boundary that was asked for%s", axes.Runtime, noRuntimeHint())
 		} else {
-			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
-				"runtime: %s requested but no container runtime is available with that ownership; running on the host%s", axes.Runtime, noRuntimeHint())
+			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
+				"runtime: %s requested but no container runtime is available with that ownership; refusing to run on the HOST without the container boundary that was asked for%s", axes.Runtime, noRuntimeHint())
 		}
 	}
 	if axes.WantsWorktree() {
@@ -778,17 +837,19 @@ func prepareChain(ctx context.Context, chain []Policy, projectDir, agentID strin
 		// unresolvable-auth remain unverified in both directions; do not treat
 		// either as demonstrated. Naming an unreached reason here is what let
 		// the paired feature claim coverage it did not have (uninvited-maternity). The warning still streams to stderr in both modes
-		// (strictness.Fail wraps clidiag.Warn), so a failed or denied container
-		// start can't be mistaken for a normal host run; in strict mode the choke
-		// owner additionally aborts on it before the unsandboxed engine launches,
-		// while --degraded records the finding but acts on none of it, and the chain
-		// falls back to the host as before. The runtime-unreachable reason is recorded earlier in chainFor;
+		// (strictness.FailAlways wraps clidiag.Warn), so a failed or denied
+		// container start can't be mistaken for a normal host run, and the choke
+		// owner aborts on it before the unsandboxed engine launches in BOTH
+		// modes. --degraded no longer walks this chain out to the host: a
+		// requested boundary that cannot be provided is refused, because the
+		// launch is the exposure. The runtime-unreachable reason is recorded earlier in chainFor;
 		// the handshake-timeout reason surfaces as a fatal SpawnClient error at the
-		// choke owner. The `continue` is unchanged — the chain still walks to None
-		// so a degraded run gets a workspace.
+		// choke owner. The `continue` is unchanged — the chain still walks to
+		// None so the WORKSPACE resolution has an answer to return; what stops
+		// the run is the non-degradable finding, not a missing workspace.
 		if IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next) {
-			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
-				"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", agentID, err)
+			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
+				"container isolation was requested but could not start — refusing to run %q on the HOST without the container boundary that was asked for (this session would NOT be sandboxed): %v", agentID, err)
 			continue
 		}
 		clidiag.Warn("ctxloom", "isolation %q unavailable for member %q (%v); degrading to %q", p.Name(), agentID, err, next)

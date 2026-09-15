@@ -4,9 +4,10 @@
 **where its engine process executes**, prepares that workspace, and hands back
 either a `pb.Client` (go-plugin transport) or a transport-free `RunnerHandle`. It
 owns an **ordered degrade chain whose floor is always the host**, and the rule that
-every drop of an explicitly-requested boundary is *reported* — a
-`strictness.Fail(ClassIsolation, …)` finding that aborts unless `--degraded`, never
-a silently weaker cell. It also owns the agent container image lifecycle and the
+every drop of an explicitly-requested boundary is *refused* — a
+`strictness.FailAlways(ClassIsolation, …)` finding that aborts in **both** modes,
+never a weaker cell. `--degraded` does not reach these: it means "deliver less",
+not "drop the sandbox". It also owns the agent container image lifecycle and the
 host-side half of credential delivery.
 
 It deliberately does **not** import `internal/lm/backends` or `internal/operations`.
@@ -78,10 +79,11 @@ requested worktree is never dropped because the container failed.
   rootful request never lands on a rootless daemon and vice versa. A mismatch
   and "no runtime at all" both return `Host{}` from `SelectRuntime` and take the
   same fatal path — **an ownership mismatch is never a substitution, only ever a
-  fatal `ClassIsolation` finding** (the exit-code-3 fatal-findings path). `
-  --degraded` falls back to the **HOST**, never to the other ownership mode:
-  silently satisfying a rootful request with a rootless container (or the
-  reverse) is the identical substitution wearing a flag.
+  fatal `ClassIsolation` finding** (the exit-code-3 fatal-findings path). Neither mode
+  falls back to the HOST any more, and neither ever substituted the other
+  ownership mode: satisfying a rootful request with a rootless container (or the
+  reverse) is the identical substitution wearing a flag, and dropping the
+  container altogether was the strictly larger one.
 - `prepareChain` classifies any **container → non-container** transition as
   fatal (`IsContainerPolicyName`).
 - A **worktree → None** transition is `clidiag.Warn` only — deliberate.
@@ -197,9 +199,12 @@ a bare `NAME` (value read by the runtime from the launcher's own
 
 **Uid remap / entrypoint**: the image `ENTRYPOINT` is
 `/usr/local/bin/ctxloom-entrypoint`; `identityEnvArgs` passes `-e
-PUID=<getuid> -e PGID=<getgid>` and — only under `strictness.Degraded()` —
-`CTXLOOM_ALLOW_ROOT=1`. **The entrypoint otherwise refuses to run the engine as
-root.** Rootless podman additionally gets `--userns=keep-id`.
+PUID=<getuid> -e PGID=<getgid>` and nothing else. **The entrypoint refuses to
+run the engine as root, and ctxloom passes no way to override that** — the
+`CTXLOOM_ALLOW_ROOT=1` escape hatch, previously sent under
+`strictness.Degraded()`, was removed: `--degraded` means "a thinner run", never
+"run as root with the project mounted". Rootless podman additionally gets
+`--userns=keep-id`.
 
 **Network**: nothing in the package sets any `--network` flag; no network isolation
 is applied or claimed. Host reach-back is by **unix-socket bind mount**, not TCP —
@@ -480,9 +485,11 @@ recorded per engine.
 
 When claude's credentials cannot be seeded (no `ANTHROPIC_API_KEY`, no host
 `~/.claude/.credentials.json`), ctxloom records a `ClassIsolation` finding and
-contributes **nothing** — the run aborts at the choke gate, or under `--degraded`
-falls back to the host's own home. Handing the engine a controlled home it cannot
-authenticate against would trade a working run for a mysterious 401.
+contributes **nothing** — the run aborts at the choke gate in both modes.
+Handing the engine a controlled home it cannot authenticate against would trade a
+working run for a mysterious 401; falling back to the host's own home (which
+`--degraded` used to do) would instead hand the agent the user's real
+credentials, so neither is offered.
 
 ## Per-engine container specs
 
@@ -569,8 +576,8 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 ## Invariants
 
 1. **Degrade drops one axis at a time** (`chainFor`).
-2. **Every lost container boundary is a finding** — `strictness.Fail(ClassIsolation)` in `chainFor`, and a fatal container→non-container transition in `prepareChain`. Aborts unless `--degraded`.
-3. **An ownership mismatch is fatal, never a substitution** — `SelectRuntime` returns `Host{}` (not the other ownership's runtime) when the demanded ownership is unreachable, and `--degraded` falls back to the HOST, never to the other ownership mode.
+2. **Every lost container boundary is a refusal** — `strictness.FailAlways(ClassIsolation)` in `chainFor`, and a non-degradable container→non-container transition in `prepareChain`. Aborts in both modes.
+3. **An ownership mismatch is fatal, never a substitution** — `SelectRuntime` returns `Host{}` (not the other ownership's runtime) when the demanded ownership is unreachable, and the run then refuses rather than landing on the HOST.
 4. **The chain always terminates in a workspace**; `Prepare` never errors.
 5. **Unknown runtime axis is fail-closed; unknown workspace axis warns** (`warnUnknownAxes`).
 6. **Auth env values never enter argv** — `envPassthrough` carries names only, because `/proc/<pid>/cmdline` is world-readable.
@@ -578,7 +585,7 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 8. **No implicit pull** — an absent image is built from a known source or the policy degrades.
 9. **An unverifiable image *identity* fails loud; an unverifiable *label* reads as stale and triggers a rebuild** — opposite directions, both deliberate (`imageIdentityConfig` errors; `imageLabels` returns nil).
 10. **A user-owned (run-as-is) image must satisfy the identity contract** — a ctxloom-governed entrypoint or a non-root user, else `ClassIsolation` (`Container.checkRunAsIsIdentity`).
-11. **The engine never runs as root in a governed image** unless `--degraded` sets `CTXLOOM_ALLOW_ROOT=1`; the build itself fails without a privilege-drop path (`overlayUserGate`).
+11. **The engine never runs as root in a governed image** — there is no override, in either mode; the build itself fails without a privilege-drop path (`overlayUserGate`).
 12. **The build gates that the engine is runnable**, not merely installed.
 13. **An agent image is content-keyed** — base content and the ONE engine are both in the tag.
 14. **Identical-path bind mounts are verified, not assumed**; an empty root set is an error, not an "ok".

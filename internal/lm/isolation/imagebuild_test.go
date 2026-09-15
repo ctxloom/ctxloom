@@ -523,7 +523,8 @@ func TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding(t *testing.T)
 	require.Len(t, findings, 1, "a stale image that cannot even be rebuilt from this binary must record exactly one fatal finding")
 	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
 	assert.Contains(t, findings[0].Message, "STALE")
-	assert.Contains(t, findings[0].FixIt, "--degraded")
+	assert.True(t, findings[0].NonDegradable, "a stale image can start as ROOT: refused in both modes")
+	assert.NotContains(t, findings[0].FixIt, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
 }
 
 // TestComposableBuildSources_EmptyEnginesFailsLoud pins that
@@ -824,7 +825,7 @@ func TestEnsureImage_UnverifiableProvenanceIsNotCurrent(t *testing.T) {
 	require.Len(t, findings, 1,
 		"a present image whose provenance cannot be computed must not pass silently as current")
 	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-	assert.Contains(t, findings[0].FixIt, "--degraded")
+	assert.NotContains(t, findings[0].FixIt, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
 }
 
 // TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded pins that a PRESENT
@@ -860,25 +861,39 @@ func TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded(t *testing.T) {
 		require.Len(t, findings, 1, "a stale image whose rebuild failed is exactly one fatal finding")
 		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
 		assert.Contains(t, findings[0].Message, "STALE", "the finding must flag the stale image")
-		assert.Contains(t, findings[0].FixIt, "--degraded", "the fix-it must name the escape hatch")
+		assert.True(t, findings[0].NonDegradable, "a stale pre-entrypoint image can run as ROOT")
+		assert.NotContains(t, findings[0].FixIt, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
 	})
 
-	t.Run("degraded: runs the stale image with no finding", func(t *testing.T) {
+	// Renamed and strengthened by the degradation audit. --degraded no longer
+	// runs the stale image: ensureImage still returns nil (an error would make
+	// the caller degrade to the unsandboxed HOST, which is worse), but the
+	// finding is non-degradable, so the choke owner refuses the launch.
+	t.Run("degraded: the finding survives, so the stale image still does not run", func(t *testing.T) {
 		resetStrictness(t)
 		strictness.SetDegraded(true)
 		c := setup(t)
 		require.NoError(t, c.ensureImage(context.Background()))
-		assert.NotEmpty(t, strictness.All(),
-			"--degraded keeps the finding (fatality is what it suppresses) and still runs the stale image")
+		findings := strictness.All()
+		require.NotEmpty(t, findings, "--degraded suppresses fatality, not recording")
+		assert.NotEmpty(t, strictness.Actionable(findings),
+			"the finding must remain ACTIONABLE under --degraded, or the stale image launches anyway")
 	})
 }
 
-// TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded pins that a failed
-// build from an EXPLICITLY-configured base Containerfile
-// (isolation_base_containerfile) records a fatal ClassIsolation finding instead
-// of silently falling through to a DIFFERENT base. The fallback sources still
-// only warn; --degraded records nothing.
-func TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded(t *testing.T) {
+// TestEnsureImage_UserBaseBuildFail_RefusesInBothModes pins that a failed build
+// from an EXPLICITLY-configured base Containerfile (isolation_base_containerfile)
+// REFUSES rather than silently falling through to a DIFFERENT base. The fallback
+// sources still only warn — nothing was declared about them, so nothing is being
+// substituted.
+//
+// RENAMED from _FatalUnlessDegraded, and its degraded arm inverted (ruled
+// 2026-09-15). The old arm was named "degraded: no finding — falls through to
+// the next source as before" while asserting only that SOMETHING was recorded,
+// so it passed both before and after the contract changed: a test that could
+// not fail either way. It now asserts the property that actually distinguishes
+// them — the finding survives strictness.Actionable under --degraded.
+func TestEnsureImage_UserBaseBuildFail_RefusesInBothModes(t *testing.T) {
 	setup := func(t *testing.T) Container {
 		withFakeSelfExe(t)
 		t.Setenv("PATH", t.TempDir())
@@ -907,16 +922,24 @@ func TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded(t *testing.T) {
 		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
 		assert.Contains(t, findings[0].Message, "configured base Containerfile",
 			"the finding must name the user-configured base that failed")
+		assert.True(t, findings[0].NonDegradable,
+			"a declared base ctxloom cannot use is refused in both modes: it cannot read the Containerfile to know the substitution was safe")
 		assert.Contains(t, findings[0].FixIt, "isolation_base_containerfile")
+		assert.NotContains(t, findings[0].FixIt, "--degraded",
+			"a non-degradable refusal must not offer --degraded as its remedy")
+		assert.Contains(t, findings[0].FixIt, "deliberately",
+			"it must name the way to ACCEPT ctxloom's own base on purpose — dropping the declaration")
 	})
 
-	t.Run("degraded: no finding — falls through to the next source as before", func(t *testing.T) {
+	t.Run("degraded: the finding survives Actionable, so the substitution still does not happen", func(t *testing.T) {
 		resetStrictness(t)
 		strictness.SetDegraded(true)
 		c := setup(t)
 		_ = c.ensureImage(context.Background())
-		assert.NotEmpty(t, strictness.All(),
-			"the fall-through is the accepted outcome; the finding is still recorded")
+		findings := strictness.All()
+		require.NotEmpty(t, findings, "--degraded suppresses fatality, not recording")
+		assert.NotEmpty(t, strictness.Actionable(findings),
+			"--degraded must NOT be a way to build on a base the project did not declare")
 	})
 }
 

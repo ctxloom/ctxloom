@@ -751,7 +751,31 @@ func (st *runState) resolveNamedAgent() error {
 // retired). Unlike --agent (a HARD error on an unknown name), a
 // missing/empty/unresolvable default_agent must NEVER block startup: warn and
 // continue with empty context at the project-default label + runtime (CLAUDE.md
-// fault tolerance).
+// fault tolerance). That promise is kept — with one carve-out, below, for the
+// case where keeping it would silently drop a SECURITY declaration.
+//
+// WHY THE CARVE-OUT (the degradation audit's fourth bypass, and the one no
+// isolation-side fix reaches). applyResolvedAgent sets BOTH st.agentRuntime and
+// st.agentPermissions from the resolved agent. This fallback sets the runtime
+// from the PROJECT default and never sets permissions at all, so an agent that
+// failed to resolve silently loses both of its declarations:
+//
+//   - a declared `runtime: container` becomes the project default. By the time
+//     isolation.chainFor runs, WantsContainer() is already false, so NO
+//     ClassIsolation finding is ever raised — the boundary is gone with no
+//     finding of any kind, degradable or not. Refusing at chainFor cannot catch
+//     this; it has to be caught here.
+//   - a declared `permissions: plan` becomes "", which agent.ResolveDefault
+//     skips as "declares nothing", letting a lower source answer. On
+//     claude-code the bottom of that chain is PermissionBypass — so a
+//     resolution failure could WIDEN a run from plan to bypass, the same silent
+//     escalation ResolveDefault itself was fixed to stop one layer down.
+//
+// The declaration is read from raw config (cfg.Agent), which still parses fine
+// — ResolveAgent fails on profiles/bundles, not on the agent's own axes. So the
+// refusal is narrow: it fires only when something was actually declared and is
+// actually about to be dropped. An absent, empty, or axis-free default agent
+// still warns and continues exactly as before.
 func (st *runState) resolveDefaultAgent() error {
 	rs, rerr := operations.ResolveAgent(st.ctx, st.cfg, st.cfg.GetDefaultAgent(), runLLM)
 	if rerr == nil {
@@ -759,7 +783,36 @@ func (st *runState) resolveDefaultAgent() error {
 		return nil
 	}
 
-	strictness.Fail(strictness.ClassRef, "set a default agent (ctxloom agent default <name>) or pass --degraded to launch anyway", "default agent %q unavailable; continuing with empty context: %v", st.cfg.GetDefaultAgent(), rerr)
+	name := st.cfg.GetDefaultAgent()
+	var dropped []string
+	if decl, ok := st.cfg.Agent(name); ok {
+		// Any declared non-host runtime counts, not just a recognised container
+		// value. An UNRECOGNISED one (a typo) is refused here for the same
+		// reason warnUnknownAxes refuses it on the resolved path: the user
+		// asked for something other than the host, and a typo must not be the
+		// thing that silently puts them on it. Only an explicit `host` — or no
+		// declaration at all — is safe to drop, because dropping it can only
+		// ever move the run toward MORE isolation, never less.
+		if r := strings.TrimSpace(decl.Runtime); r != "" && r != string(agent.RuntimeHost) {
+			dropped = append(dropped, fmt.Sprintf("runtime: %s (this run would fall back to the project default and may NOT be sandboxed)", r))
+		}
+		if strings.TrimSpace(decl.Permissions) != "" {
+			dropped = append(dropped, fmt.Sprintf("permissions: %s (this run would fall back to the engine's own default, which on claude-code is bypass)", decl.Permissions))
+		}
+	}
+	if len(dropped) > 0 {
+		strictness.FailAlways(strictness.ClassRef,
+			fmt.Sprintf("repair default agent %q (the error above says why — usually `ctxloom deps pull` for missing profiles/bundles), or pass an explicit --runtime/--permissions if you meant to run without its declarations", name),
+			"refusing to launch: default agent %q could not be resolved (%v), and continuing would silently drop what it declares — %s",
+			name, rerr, strings.Join(dropped, "; "))
+	} else {
+		strictness.Fail(strictness.ClassRef, "set a default agent (ctxloom agent default <name>) or pass --degraded to launch anyway", "default agent %q unavailable; continuing with empty context: %v", name, rerr)
+	}
+	// Fall through either way: the run state must stay consistent (an
+	// uninitialised ctxResult/label would fault later on a path that should
+	// have aborted cleanly). Refusing is the GATE's job — the non-degradable
+	// finding above stops the launch; this only keeps the object coherent
+	// until it does.
 	st.ctxResult = &operations.AssembleContextResult{}
 	var lerr error
 	// resolveRunLLM: --llm override, else the project primary label.
@@ -1116,6 +1169,36 @@ func (st *runState) markSessionEnded() {
 // own runner in every topology, so a headless coordinator brief (the echo
 // smoke) exercises the same runner-terminated path as an interactive session —
 // the bare-mcp shim fallback is for externally-launched harnesses only.
+// recordCoordinatorStartupFinding raises the finding for a coordinator that
+// could not stand up, at the fatality this project's mail transport earns. It
+// is the owner-side twin of coord.Coordinator.spawnReachURL's conditional
+// refusal (the degradation audit's item #4) and splits on the same switch for
+// the same reason — see that function for why it is spool_DELIVERY and never
+// spool_tee.
+//
+// Delivery ON: children reach the owner through the file spool, so an owner
+// coordinator that never stood up costs reach-back but loses no work —
+// degradable, and --degraded still launches. OFF: delegation has no route home
+// at all, every child this session spawns is stranded, and the work they
+// produce is unrecoverable — so it refuses in both modes.
+//
+// Split out of hostCoordinator as its own function purely so both arms are
+// TESTABLE: the call site needs a live session, a state dir and a real
+// listener stand-up to reach this branch, which would have left the permitting
+// arm — the one that must not silently regress into a refusal for projects
+// that spool — asserted by nothing.
+func recordCoordinatorStartupFinding(spoolDelivery bool, cerr error) {
+	if spoolDelivery {
+		strictness.Fail(strictness.ClassApply,
+			"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation reach-back",
+			"agent coordinator startup failed: %v — delegation.spool_delivery is on, so children still reach you by file spool", cerr)
+		return
+	}
+	strictness.FailAlways(strictness.ClassApply,
+		"check the coordinator listeners/state dir, or set delegation.spool_delivery: true so children reach you by file spool instead of the mailbox",
+		"agent coordinator startup failed: %v — with delegation.spool_delivery off, every child this session spawns would be stranded and the work it produces unrecoverable", cerr)
+}
+
 func (st *runState) hostCoordinator() func() {
 	if st.activeHarp == "" {
 		return func() {}
@@ -1123,9 +1206,7 @@ func (st *runState) hostCoordinator() func() {
 
 	sc, coordEnv, cerr := mcp.HostCoordinatorForSession(st.cfg, st.workDir, st.activeHarp, st.agentRuntime)
 	if cerr != nil {
-		strictness.Fail(strictness.ClassApply,
-			"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation reach-back",
-			"agent coordinator startup failed: %v", cerr)
+		recordCoordinatorStartupFinding(st.cfg.GetDelegationSpoolDelivery(), cerr)
 		return func() {}
 	}
 

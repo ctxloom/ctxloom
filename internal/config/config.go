@@ -920,9 +920,8 @@ func (c *Config) FastLabel() string {
 }
 
 // ResolveLLM looks a config label up in the registry and returns the backend
-// type and model it specifies. A missing label or empty type degrades to the
-// built-in default backend with no model (backend default). The model is read
-// only from the entry's own body — never by branching on the backend name.
+// type and model it specifies. The model is read only from the entry's own body
+// — never by branching on the backend name.
 //
 // An empty label means "no label was named" (a bare invocation, e.g.
 // `container check` with no backend argument) and is resolved through
@@ -931,7 +930,22 @@ func (c *Config) FastLabel() string {
 // built-in default backend instead of the project's configured primary
 // (unsent-refinish). This is a single substitution, not a loop: PrimaryLabel()
 // itself may also return "" (no defaults.primary and not exactly one
-// configured label), in which case the lookup below simply misses as before.
+// configured label), in which case the lookup below simply misses.
+//
+// A MISS RETURNS DefaultLLM AND RAISES NOTHING HERE, and the reason is worth
+// keeping: this function cannot tell a broken label from a legitimate one.
+//
+// A label that is not an `llm:` entry but IS a known BACKEND NAME is fully
+// supported — operations.ResolveBackend resolves `llm: mock` to the mock
+// backend with no config entry at all. That fact lives in the backend
+// registry, which this package does not (and must not) import, so a refusal
+// raised here fires on a correct configuration. The degradation audit did
+// exactly that for one commit, and the coord spawner suite caught it.
+//
+// The check therefore lives ONE LAYER UP, in operations.ResolveBackend, which
+// is the only place that knows BOTH halves — not an llm entry AND not a known
+// backend — and is therefore the only place where "this label names nothing"
+// is actually decidable. See that function for the refusal and its reasoning.
 func (c *Config) ResolveLLM(label string) (backend, model string) {
 	if label == "" {
 		label = c.PrimaryLabel()
@@ -951,13 +965,6 @@ func (c *Config) ResolveLLM(label string) (backend, model string) {
 func (c *Config) GetDefaultLLM() string {
 	backend, _ := c.ResolveLLM(c.PrimaryLabel())
 	return backend
-}
-
-// GetDefaultLLMModel returns the model for the primary role's label.
-// Empty means the backend uses its own default.
-func (c *Config) GetDefaultLLMModel() string {
-	_, model := c.ResolveLLM(c.PrimaryLabel())
-	return model
 }
 
 // GetCompactionLLM returns the backend type for the fast (compression) role.

@@ -252,9 +252,22 @@ func (s buildSource) fromDevcontainerBase() bool {
 // could not be resolved to a base at all (malformed JSON, an unresolvable
 // dockerComposeFile).
 const (
-	staleRebuildFixIt          = "check the build output above and reinstall/rebuild the agent image (`ctxloom container build`), or pass --degraded (env CTXLOOM_DEGRADED=1) to run the existing STALE image anyway"
-	userBaseBuildFixIt         = "fix the configured base Containerfile (isolation_base_containerfile) so it builds, or pass --degraded (env CTXLOOM_DEGRADED=1) to fall back to another build source"
-	devcontainerBaseBuildFixIt = "fix the project .devcontainer/devcontainer.json (or its build.dockerfile) so it builds, or pass --degraded (env CTXLOOM_DEGRADED=1) to fall back to another build source, or opt out with isolation_devcontainer_base: false"
+	// staleRebuildFixIt names no flag: running the stale image anyway is
+	// exactly what is being refused (a pre-entrypoint image can start as
+	// ROOT), so --degraded is no longer a way through. `runtime: host` is
+	// offered as the deliberate, stated alternative for a user who would
+	// rather run unsandboxed than fix the image — said out loud instead of
+	// arrived at by a flag that means something else.
+	staleRebuildFixIt = "check the build output above and reinstall/rebuild the agent image (`ctxloom container build`), or ask for a host run deliberately with `runtime: host`"
+	// userBaseBuildFixIt / devcontainerBaseBuildFixIt name no flag. Falling
+	// back to another build source is exactly what is being refused, so
+	// --degraded is no longer a way through; each instead offers the way to
+	// accept ctxloom's own base DELIBERATELY, by dropping the declaration.
+	// That is the point of the ruling: the substitution may happen, but only
+	// because the user said so, never because a flag about startup faults
+	// happened to be set.
+	userBaseBuildFixIt         = "fix the configured base Containerfile (isolation_base_containerfile) so it builds, or remove that setting to accept ctxloom's own base deliberately"
+	devcontainerBaseBuildFixIt = "fix the project .devcontainer/devcontainer.json (or its build.dockerfile) so it builds, or opt out with isolation_devcontainer_base: false to accept ctxloom's own base deliberately"
 	devcontainerDetectFixIt    = "fix the project .devcontainer/devcontainer.json (malformed JSON, or a dockerComposeFile with no resolvable service — set isolation_devcontainer_service), or opt out with isolation_devcontainer_base: false / --no-devcontainer-base"
 	// noComposableEnginesFixIt is attached when isolation_engines resolves to
 	// an empty set: every configured name was unknown or
@@ -753,9 +766,12 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 			// stale, possibly pre-entrypoint (root-running) image. Route the
 			// same fail-loud finding the parallel "rebuild attempted and
 			// failed" branch below already uses for the identical outcome.
-			strictness.Fail(strictness.ClassIsolation, staleRebuildFixIt,
-				"container image %q is STALE and cannot be rebuilt from this binary (%v); the existing image would run as-is", c.image, err)
-			return nil // stale but unbuildable from this binary — run what exists
+			strictness.FailAlways(strictness.ClassIsolation, staleRebuildFixIt,
+				"refusing to run container image %q: it is STALE and cannot be rebuilt from this binary (%v), and a stale image predating the identity entrypoint can start as ROOT", c.image, err)
+			// Still nil, NOT an error: an error here makes the caller degrade
+			// down the chain to the HOST, which is the bypass this audit
+			// removed. The non-degradable finding above is what stops the run.
+			return nil
 		}
 		return fmt.Errorf("container image %q is not present and cannot be built from this binary: %w", c.image, err)
 	}
@@ -767,29 +783,37 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 	if devErr != nil {
 		// The project's own .devcontainer/devcontainer.json was auto-adopted
 		// but could not be resolved to a base (malformed JSON, an
-		// unresolvable dockerComposeFile) — building without it silently
-		// produces a DIFFERENT environment than the human develops in, the
-		// exact failure the devcontainer-base feature exists to prevent.
-		// Record a finding (the choke owner aborts in strict mode) rather
-		// than degrade quietly — --degraded proceeds with the remaining
-		// sources (explicit base Containerfile, or the embedded default).
-		strictness.Fail(strictness.ClassIsolation, devcontainerDetectFixIt,
-			"project devcontainer auto-detection failed (%v); building without it", devErr)
+		// unresolvable dockerComposeFile). Building without it produces a
+		// DIFFERENT environment than the human develops in — the exact failure
+		// the devcontainer-base feature exists to prevent.
+		//
+		// NON-DEGRADABLE, on the same ruling as recordBuildSourceFailure: a
+		// devcontainer this project ships is a DECLARATION, and ctxloom cannot
+		// read it to find out whether what it declares matters. A
+		// devcontainer.json that is PRESENT but unreadable is refused on the
+		// same terms as one that fails to build — "I could not parse it" is not
+		// evidence that it was unimportant. A project with no devcontainer at
+		// all declares nothing and never reaches here.
+		strictness.FailAlways(strictness.ClassIsolation, devcontainerDetectFixIt,
+			"refusing to build the agent image without this project's own devcontainer: auto-detection failed (%v), and ctxloom cannot read it to know what it provides", devErr)
 	}
 	lastErr := c.buildFirstWorkingSource(ctx, sources, selfExe, wantProvenance)
 	if lastErr == nil {
 		return nil
 	}
 	if present {
-		// The stale image still runs, so a failed refresh must not take the
-		// container axis down with it — in DEGRADED mode the chain launches the
-		// existing stale image (return nil). But a stale, pre-entrypoint image can
-		// run as ROOT, so silently shipping it is a security-relevant downgrade of
-		// the requested isolation: record a fatal ClassIsolation finding the choke
-		// owner aborts on in strict mode (before the stale image spawns), while
-		// --degraded records nothing and runs the stale image exactly as before.
-		strictness.Fail(strictness.ClassIsolation, staleRebuildFixIt,
-			"rebuild of stale image %q failed (%v); the existing image is STALE (its baked ctxloom/companion binaries or base config are outdated) and would run as-is", c.image, lastErr)
+		// A stale, pre-entrypoint image can run as ROOT, so shipping it is a
+		// security-relevant downgrade of the requested isolation. Refused in
+		// BOTH modes: the harm is done by launching it, and --degraded means "a
+		// thinner run", never "a container that might not confine anything".
+		//
+		// Returns nil rather than an error for the same reason as the
+		// unbuildable arm above: an error makes the caller degrade down the
+		// chain to the unsandboxed HOST, which is strictly worse than the stale
+		// image. The non-degradable finding is what stops the run; the return
+		// value only decides WHICH wrong thing we would otherwise fall to.
+		strictness.FailAlways(strictness.ClassIsolation, staleRebuildFixIt,
+			"refusing to run container image %q: its rebuild failed (%v) and the existing image is STALE (its baked ctxloom/companion binaries or base config are outdated), and a stale image predating the identity entrypoint can start as ROOT", c.image, lastErr)
 		return nil
 	}
 	return fmt.Errorf("local build of container image %q failed: %w", c.image, lastErr)
@@ -839,20 +863,45 @@ func (c Container) buildFirstWorkingSource(ctx context.Context, sources []buildS
 }
 
 // recordBuildSourceFailure reports one failed build source at the severity its
-// PROVENANCE earns. A base the user configured explicitly, or the project's own
-// auto-detected devcontainer, is an explicit request: falling through to another
-// base silently ships an image they never asked for — a different environment
-// than the one they develop in — so those record a fatal ClassIsolation finding
-// the choke owner aborts on in strict mode, while --degraded still falls through
-// to the next source. Every other source is a plain warn-and-continue.
+// PROVENANCE earns. A base the user CONFIGURED, or the project's own
+// auto-detected devcontainer, is a DECLARATION, not a preference — so a build
+// that cannot use it refuses in BOTH modes rather than shipping an image built
+// on some other base. Every other source (ctxloom's own embedded default) is a
+// plain warn-and-continue: nothing was declared, so nothing is being
+// substituted.
+//
+// WHY THIS REFUSES, given that nothing here is a security boundary (ruled
+// 2026-09-15). The audit's usual test — does LAUNCHING cause the harm? — comes
+// back NO for this site: the container is still built, still runs the ctxloom
+// entrypoint, still drops privileges, and nothing is lost. The ruling turns on
+// a different point. CTXLOOM CANNOT READ THE CONTAINERFILE. It cannot know
+// whether the declared base carries a hardened user, a pinned toolchain, a
+// seccomp profile, or nothing at all — so substituting it silently is the
+// program asserting knowledge it does not have. That is what is refused: not a
+// measured harm, but an unmeasurable one being treated as absent.
+//
+// It is therefore UNCONDITIONAL, unlike the reach-back refusal in
+// coord.spawnReachURL. That one reads delegation.spool_delivery because the
+// harm there genuinely varies with a fact ctxloom can read. Here the deciding
+// fact lives in bytes ctxloom cannot interpret, so there is no predicate to
+// condition on — which is precisely why this is the simplest conversion of the
+// set rather than the hardest.
+//
+// Accepted cost, recorded: a project whose configured base is genuinely a
+// nice-to-have now fails a --degraded run that previously worked. The remedy is
+// one line of config (drop the declaration), and it is named in the fix-it.
+//
+// The build loop still walks to the next source — the finding is what stops the
+// run, exactly as in runEnsureImage's stale arms. Returning early here would
+// only change WHICH wrong thing we would fall to if the gate were ever removed.
 func recordBuildSourceFailure(src buildSource, err error) {
 	switch {
 	case src.fromUserBase():
-		strictness.Fail(strictness.ClassIsolation, userBaseBuildFixIt,
-			"agent image build from the configured base Containerfile (%s) failed: %v", src.desc, err)
+		strictness.FailAlways(strictness.ClassIsolation, userBaseBuildFixIt,
+			"refusing to build the agent image on a base you did not declare: the configured base Containerfile (%s) failed to build (%v), and ctxloom cannot know what that base provides, so it will not silently substitute another", src.desc, err)
 	case src.fromDevcontainerBase():
-		strictness.Fail(strictness.ClassIsolation, devcontainerBaseBuildFixIt,
-			"agent image build from the auto-detected project devcontainer (%s) failed: %v", src.desc, err)
+		strictness.FailAlways(strictness.ClassIsolation, devcontainerBaseBuildFixIt,
+			"refusing to build the agent image on a base this project did not declare: the auto-detected project devcontainer (%s) failed to build (%v), and substituting another would give this agent a different environment than the one you develop in", src.desc, err)
 	default:
 		clidiag.Warn("ctxloom", "agent image build (%s) failed: %v", src.desc, err)
 	}

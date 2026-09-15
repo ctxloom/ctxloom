@@ -35,8 +35,28 @@ const versionStampFixIt = "build through the task runner: `just build` applies t
 // boundary and still refuses under `--degraded`. It is a deliberate widening of
 // that exception to cover "cannot identify itself", and it is recorded here so
 // the next reader does not mistake it for a mis-classified ordinary finding and
-// quietly relax it. Do NOT copy this pattern for other findings: the standing
-// promise is that `--degraded` reaches a working LLM.
+// quietly relax it.
+//
+// THE STANDING PROMISE, as narrowed on 2026-09-14 by the degradation audit
+// (obstinate-judiciary): `--degraded` reaches a working LLM WHEREVER REACHING
+// ONE DAMAGES NOTHING. It never reaches one by dropping a requested isolation
+// boundary, by running an image that can start as root, or by consenting to
+// any other elevated privilege — those REFUSE in both modes, and the refusal
+// names what to do instead.
+//
+// The promise was absolute until that audit. It was narrowed rather than
+// deleted, and the cost is recorded: a conditional promise is weaker guidance
+// than an absolute one. It was taken deliberately, because the absolute had
+// just become false, and a false absolute keeps all of its authority while
+// lying — the next author reads it, reaches for a host fallback, and ships the
+// bypass believing the codebase told them to.
+//
+// So the guidance this comment exists to give is unchanged in the case that
+// matters: do NOT copy the non-degradable pattern for an ORDINARY finding. A
+// profile that will not parse, a bundle that will not load, a sync that fails
+// — all still degrade, and a user who passes `--degraded` still gets a working
+// LLM with less context. The test for the other side is strictness.FailAlways's
+// own: does LAUNCHING cause the harm?
 //
 // The remedy above is followable in both modes — build through the task runner
 // so the stamp is applied — which is what makes refusing in both modes fair

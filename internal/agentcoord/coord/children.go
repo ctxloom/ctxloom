@@ -790,20 +790,39 @@ func (c *Coordinator) OwnerRunnerEnv(harp, token, url string) map[string]string 
 
 // spawnReachURL resolves the coordinator URL a child on runtimeAxis can dial,
 // widening the listeners for a container child. A container child without
-// reach-back is exactly a stranding bug, so an unresolvable
-// endpoint is a fatal finding (fail-loud) — degraded mode downgrades it and
-// the child launches with no coordinator env (a local, message-less
-// orchestrator, today's broken-but-running posture).
+// reach-back is exactly a stranding bug.
+//
+// CONDITIONAL REFUSAL (the degradation audit's item #4, ruled 2026-09-15).
+// Whether losing reach-back DAMAGES anything is the one question in this audit
+// whose answer genuinely depends on project config, so this is the one site
+// that reads config to decide its own fatality. That coupling is more than any
+// other converted site carries and is justified only by that fact:
+//
+//   - delegation.spool_delivery ON — coordinator<->child mail is delivered from
+//     the FILE SPOOL rather than the mailbox, so a child that cannot dial home
+//     still reaches its parent. The degrade provably costs nothing, and
+//     --degraded proceeds exactly as before.
+//   - OFF — the child's agent_send has no route at all. It runs, spends real
+//     quota and produces work nobody ever receives. That is lost work, so the
+//     spawn is refused in BOTH modes and the message names both ways out.
+//
+// It reads spool_DELIVERY and deliberately NOT spool_tee, and the difference is
+// load-bearing rather than pedantic: the tee is a SHADOW of the mailbox path
+// ("an un-teed run loses shadow coverage, never mail" — EnvRunSpoolTee's own
+// doc). It mirrors the very path a missing URL breaks, so a teed-but-not-
+// delivered run strands its mail exactly as an un-teed one does. Treating the
+// two switches as interchangeable would have re-admitted the damage in every
+// tee-only project while looking like a fix.
 func (c *Coordinator) spawnReachURL(harp string, runtimeAxis agent.RuntimeAxis) (string, error) {
 	url, err := c.ReachURL(runtimeAxis)
 	if err == nil {
 		return url, nil
 	}
-	if strictness.Degraded() {
-		clidiag.Warn("ctxloom", "agent child %s: no coordinator endpoint reachable from runtime %q (%v); launching WITHOUT coordinator reach-back — its agent_send cannot reach you", harp, runtimeAxis, err)
+	if strictness.Degraded() && c.SpoolDeliveryEnabled() {
+		clidiag.Warn("ctxloom", "agent child %s: no coordinator endpoint reachable from runtime %q (%v); launching WITHOUT coordinator reach-back — its mail rides the file spool (delegation.spool_delivery), so nothing it sends is lost", harp, runtimeAxis, err)
 		return "", nil
 	}
-	return "", fmt.Errorf("agent_run: no coordinator endpoint reachable from runtime %q: %v — check the container runtime's bridge network, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch the child without coordinator reach-back", runtimeAxis, err)
+	return "", fmt.Errorf("agent_run: no coordinator endpoint reachable from runtime %q: %v — this child could not send anything back, and with delegation.spool_delivery off its work would be lost; check the container runtime's bridge network, or set delegation.spool_delivery: true so its mail rides the file spool instead", runtimeAxis, err)
 }
 
 // migratedLaunch is the ONE spelling of "this run rides StartRun": an

@@ -125,11 +125,22 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Then none of the per-agent worktree config artifacts appear in the project's git status
     And the shared git exclude file carries the ctxloom per-agent worktree config block
 
-  # LOCKED — the runtime axis's fail-loud/degrade contract: an EXPLICITLY-
-  # requested container that cannot launch here is a fatal ClassIsolation
-  # finding that aborts the run (exit 3) rather than silently landing
-  # unsandboxed on the host; --degraded downgrades that to a warned, working
-  # host run.
+  # LOCKED — the runtime axis's REFUSAL contract: an EXPLICITLY-requested
+  # container that cannot launch here is a NON-DEGRADABLE ClassIsolation
+  # finding that aborts the run (exit 3) rather than landing unsandboxed on the
+  # host. --degraded does NOT downgrade it, and this row is what proves that.
+  #
+  # INVERTED 2026-09-15 by the degradation audit (obstinate-judiciary). The
+  # --degraded row used to expect a warned, working HOST run, and the human
+  # ruled that break deliberately: "it BREAKS currently-documented behaviour —
+  # an explicitly requested container falling back to the host under
+  # --degraded. That break is the point, not a side effect." One flag cannot
+  # mean both "I accept a thinner context" and "I accept no sandbox".
+  #
+  # The two rows now differ only in the FLAG, not the outcome, and that is the
+  # assertion: the flag must make no difference here. Deliberately kept as two
+  # rows rather than collapsed to one — a single row could not tell "--degraded
+  # is ignored" from "--degraded was never passed".
   #
   # WHAT THIS SCENARIO ACTUALLY REACHES: isolation.chainFor, via the
   # NO-REACHABLE-DAEMON reason only. It does NOT reach isolation.prepareChain's
@@ -145,14 +156,14 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # PrepareWorkspace fails — are UNCOVERED here. Covering them needs a scenario
   # that reaches a reachable-runtime-but-failing-prepare state; see
   # uninvited-maternity. Do not read this scenario as proof of that path.
-  Scenario Outline: Requesting a container with no runtime fails loud, or degrades under --degraded
+  Scenario Outline: Requesting a container with no runtime REFUSES, and --degraded does not rescue it
     When Alice runs the container-bound agent with flags "<flags>"
-    Then the run <outcome>
+    Then the run aborts with an isolation finding
 
     Examples:
-      | flags      | outcome                           |
-      |            | aborts with an isolation finding  |
-      | --degraded | runs on the host                  |
+      | flags      |
+      |            |
+      | --degraded |
 
   # LOCKED — isolation.prepareChain's container-to-host DOWNGRADE: the sibling
   # gate the row above deliberately EXCLUDES. There a container is never
@@ -169,21 +180,34 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # `IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next)` guards the
   # finding that says the session is NOT sandboxed. Both operands of that
   # condition could be replaced with `true` with the suite staying green.
-  Scenario Outline: A container that was selected and cannot start fails loud, or degrades
+  # INVERTED 2026-09-15 with its sibling above, and for the same ruling. The
+  # --degraded row expected a host run; a selected-then-unstartable container
+  # is now refused in both modes.
+  #
+  # It keeps its OWN outcome step ("aborts at the container START gate"), which
+  # asserts prepareChain's finding and asserts the runtime-gate finding is
+  # ABSENT. Both scenarios now exit 3, so that per-gate wording is the only
+  # thing still telling these two failure modes apart — collapsing them onto
+  # one shared step would silently let either gate satisfy both rows, which is
+  # a confusion this feature has already paid for once.
+  Scenario Outline: A container that was selected and cannot start REFUSES, and --degraded does not rescue it
     When Alice runs a container-bound agent whose image cannot be produced, with flags "<flags>"
-    Then the run <outcome>
+    Then the run aborts at the container START gate
 
     Examples:
-      | flags      | outcome                            |
-      |            | aborts at the container START gate  |
-      | --degraded | runs on the host                    |
+      | flags      |
+      |            |
+      | --degraded |
 
   # THE BOUNDARY THAT WAS ACCEPTED AND THEN LOST, which is a different fault
   # from every gate above and the only one that is NOT degradable.
   #
-  # The rows above cover a container that could never be BUILT or SELECTED:
-  # nothing was promised, so --degraded warns and lands on the host, and that
-  # is the sanctioned outcome. Here the runtime is reachable, the ownership
+  # The rows above cover a container that could never be BUILT or SELECTED.
+  # They too now refuse in both modes (the degradation audit removed the host
+  # fallback), so this row is no longer distinguished by BEING fatal under
+  # --degraded — it is distinguished by WHERE the boundary is lost: there the
+  # container never existed, here it was accepted and then died. Here the
+  # runtime is reachable, the ownership
   # matches, the image is present, and the daemon ACCEPTS the run — then the
   # container never reaches running. The session was already told it had a
   # boundary. Falling back now would run on the host something that believes

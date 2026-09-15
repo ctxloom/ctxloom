@@ -163,8 +163,24 @@ func formatFindings(p Phase, findings []strictness.Finding) string {
 	if len(findings) == 0 {
 		return ""
 	}
+	// The header must not offer an escape hatch that will not work. When every
+	// listed finding is NonDegradable, --degraded changes nothing about this
+	// abort, and naming it would send the user round a loop that ends back
+	// here — the "refusal that relocates the dead end" the audit was fixing.
+	// Each finding's own fix: line carries the real remedy.
+	allNonDegradable := true
+	for _, f := range findings {
+		if !f.NonDegradable {
+			allNonDegradable = false
+			break
+		}
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "ctxloom: aborting %s: %d fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) to launch anyway:", p, len(findings))
+	if allNonDegradable {
+		fmt.Fprintf(&b, "ctxloom: aborting %s: %d fatal finding(s); --degraded does NOT bypass these — fix them as described:", p, len(findings))
+	} else {
+		fmt.Fprintf(&b, "ctxloom: aborting %s: %d fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) to launch anyway:", p, len(findings))
+	}
 	for _, f := range findings {
 		fmt.Fprintf(&b, "\n  - [%s] %s", f.Class, f.Message)
 		if f.FixIt != "" {

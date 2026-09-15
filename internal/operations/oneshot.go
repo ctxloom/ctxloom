@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
@@ -325,25 +326,32 @@ var prepareIsolation = isolation.Prepare
 // unsandboxed host; (2) a binding that declared engine_home: session has no
 // credentials to seed and no API-key env, so the engine would launch logged
 // out. Either way, running the member as-is would silently
-// deliver less than what was asked for. In strict mode that fails THE MEMBER
+// deliver less than what was asked for. That fails THE MEMBER
 // (an error Part in the fan; other members continue — partial success is
-// still success), never the whole call. Returns nil in degraded mode
-// (findings ARE recorded there now — degraded suppresses fatality, not
-// recording — so this early return, not an empty slice, is what keeps a
-// degraded fan running) or when no ClassIsolation finding was collected. The finding's own Message fully
+// still success), never the whole call. The finding's own Message fully
 // describes WHICH case fired — this wrapper adds no case-specific wording, so
 // it never misdescribes one case using the other's vocabulary.
+//
+// MODE HANDLING: this gate no longer tests strictness.Degraded() itself. It
+// filters to its own class and passes the result through strictness.Actionable,
+// the ONE place the mode is consulted — so under --degraded a DEGRADABLE
+// isolation finding still lets the fan run, while a NON-DEGRADABLE one (a
+// requested container boundary that could not be provided, an image that can
+// start as root) fails the member in both modes.
+//
+// The `if Degraded() { return nil }` this replaces was the amplifier for every
+// bypass the degradation audit found: it switched the whole gate off, so
+// converting the raise sites without converting this would have changed
+// nothing at all. A class-filtered gate must filter and then defer to
+// Actionable — never short-circuit on the mode.
 func isolationGateErr(found []strictness.Finding) error {
-	if strictness.Degraded() {
-		return nil
-	}
 	var iso []strictness.Finding
 	for _, f := range found {
 		if f.Class == strictness.ClassIsolation {
 			iso = append(iso, f)
 		}
 	}
-	if len(iso) == 0 {
+	if iso = strictness.Actionable(iso); len(iso) == 0 {
 		return nil
 	}
 	var b strings.Builder
@@ -664,12 +672,55 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 // tables, which resolve engines by exact name. An engine has one spelling, so
 // the name leaves here as the registry holds it: the ad-hoc arm admits only a
 // registered name, and a configured entry's type is validated on write.
+// A LABEL THAT NAMES NOTHING IS A FINDING, raised here and nowhere else. It
+// used to resolve to the built-in default backend with no warning in EITHER
+// mode — not a degrade at all, since nothing consulted the mode — so a retired
+// alias (`claude` once resolved through an alias table) or a plain typo routed
+// the run to a different engine than the one named, invisibly.
+//
+// THIS is the layer that can tell that apart from the legitimate form: a label
+// with no `llm:` entry that names a known BACKEND is supported and common
+// (`llm: mock` with no config block at all). Only once BOTH halves are false
+// does the label name nothing, and only then is refusing correct.
+// config.ResolveLLM cannot make that call — it has no backend registry — and an
+// earlier cut of this audit raised the finding there and fired it on correct
+// configurations.
+//
+// DEGRADABLE (Fail, not FailAlways) on the audit's own test: does LAUNCHING
+// cause the harm? It does not — the harm is the substitution being invisible,
+// not the run proceeding. Falling back to a working default under --degraded is
+// precisely what the standing promise in cli/version_gate.go protects. An empty
+// label is exempt: nothing was named, so there is nothing to refuse.
 func ResolveBackend(cfg *config.Config, label string) (backend, model string) {
 	backend, model = cfg.ResolveLLM(label)
-	if _, configured := cfg.GetLLMEntry(label); !configured && backends.Exists(label) {
-		backend, model = label, ""
+	_, configured := cfg.GetLLMEntry(label)
+	if !configured && backends.Exists(label) {
+		return label, ""
+	}
+	if !configured && label != "" {
+		strictness.Fail(strictness.ClassConfig,
+			fmt.Sprintf("add an `llm:` entry for %q in .ctxloom/config.yaml, or name one of the configured labels (%s) or a known engine (%s)",
+				label, knownLLMLabels(cfg), strings.Join(backends.List(), ", ")),
+			"llm label %q names neither a configured `llm:` entry nor a known engine; this run would silently use the built-in default backend %q instead of the engine you named",
+			label, backend)
 	}
 	return backend, model
+}
+
+// knownLLMLabels renders the configured label set for a fix-it line, sorted so
+// the sentence is stable across runs — map order would otherwise reshuffle it
+// and make one recurring fault read as several different ones.
+func knownLLMLabels(cfg *config.Config) string {
+	entries := cfg.GetLMConfig().Configs
+	if len(entries) == 0 {
+		return "none configured"
+	}
+	names := make([]string, 0, len(entries))
+	for name := range entries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // resolveOneshotLabel picks the config label for a oneshot run: an explicit

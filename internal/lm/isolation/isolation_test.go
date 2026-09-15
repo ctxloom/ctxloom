@@ -126,9 +126,9 @@ func TestResolve_DefaultsAndDegrades(t *testing.T) {
 }
 
 // TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign pins the per-axis severity
-// split: a typo'd RUNTIME value would silently land the run UNSANDBOXED on the
-// host, so it is a fatal ClassIsolation finding the choke owner aborts on unless
-// --degraded; a typo'd WORKSPACE value degrades to the shared project dir (a
+// split: a typo'd RUNTIME value would land the run UNSANDBOXED on the host, so
+// it is a NON-DEGRADABLE ClassIsolation finding the choke owner aborts on in
+// both modes; a typo'd WORKSPACE value degrades to the shared project dir (a
 // convenience axis, never a boundary), so it stays a plain warn-and-continue.
 func TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign(t *testing.T) {
 	t.Run("strict: an unknown RUNTIME axis is one fatal isolation finding", func(t *testing.T) {
@@ -139,7 +139,9 @@ func TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign(t *testing.T) {
 		require.Len(t, findings, 1, "a typo'd runtime that would land on the host is fatal")
 		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
 		assert.Contains(t, findings[0].Message, "NOT sandboxed", "the finding must flag the silent downgrade")
-		assert.Contains(t, findings[0].FixIt, "--degraded", "the fix-it must name the escape hatch")
+		assert.True(t, findings[0].NonDegradable, "a typo must not be able to drop the boundary")
+		assert.NotContains(t, findings[0].FixIt, "--degraded",
+			"a non-degradable refusal must not offer --degraded as its remedy")
 	})
 
 	t.Run("strict: an unknown WORKSPACE axis warns but records nothing", func(t *testing.T) {
@@ -149,12 +151,18 @@ func TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign(t *testing.T) {
 			"a typo'd workspace axis degrades to the shared dir — benign, never fatal")
 	})
 
-	t.Run("degraded: an unknown RUNTIME axis records nothing", func(t *testing.T) {
+	// Renamed from "degraded: an unknown RUNTIME axis records nothing", whose
+	// title contradicted its own assertion even before the audit. --degraded is
+	// no longer a route to the host for a typo'd runtime: the finding is
+	// non-degradable and survives Actionable, so the choke owner still aborts.
+	t.Run("degraded: an unknown RUNTIME axis still refuses", func(t *testing.T) {
 		resetStrictness(t)
 		strictness.SetDegraded(true)
 		warnUnknownAxes(Axes{Runtime: "hyperdrive"})
-		assert.NotEmpty(t, strictness.All(),
-			"--degraded is the escape hatch: warn, RECORD, then host — it suppresses fatality, not recording")
+		all := strictness.All()
+		require.NotEmpty(t, all, "--degraded suppresses fatality, not recording")
+		assert.NotEmpty(t, strictness.Actionable(all),
+			"a typo must not reach the host via --degraded either")
 	})
 
 	t.Run("recognized and empty axis values are silent", func(t *testing.T) {
@@ -192,9 +200,18 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 		findings := strictness.All()
 		require.Len(t, findings, 1, "a requested container that can't launch is exactly one fatal finding")
 		assert.Equal(t, strictness.ClassIsolation, findings[0].Class, "classified so the abort reads [isolation]")
-		assert.Contains(t, findings[0].Message, "NOT sandboxed", "the message must flag the lost boundary")
+		assert.Contains(t, findings[0].Message, "NOT be sandboxed", "the message must flag the lost boundary")
+		assert.True(t, findings[0].NonDegradable,
+			"dropping a REQUESTED container boundary is refused in both modes: the launch is the exposure")
 		require.NotEmpty(t, findings[0].FixIt, "the finding must carry a fix-it hint")
-		assert.Contains(t, findings[0].FixIt, "--degraded", "the fix-it must name the escape hatch")
+		// Inverted deliberately (obstinate-judiciary). The fix-it used to be
+		// required to NAME --degraded; now it is required NOT to. The finding is
+		// non-degradable, so naming the flag would hand the user a remedy that
+		// does not work — a refusal that only relocates the dead end.
+		assert.NotContains(t, findings[0].FixIt, "--degraded",
+			"a non-degradable finding must not offer --degraded as the way through")
+		assert.Contains(t, findings[0].FixIt, "runtime: host",
+			"it must instead name the deliberate way to ask for an unsandboxed run")
 
 		// The finding lands inside the window a choke owner's post-Prepare gate
 		// scans (strictness.Since(mark)). The class→exit-code-3 ABORT mapping
@@ -222,18 +239,29 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 		findings := strictness.All()
 		require.Len(t, findings, 1, "dropping the container half of container-worktree is exactly one fatal finding")
 		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, "NOT sandboxed", "the message must flag the lost boundary")
+		assert.Contains(t, findings[0].Message, "NOT be sandboxed", "the message must flag the lost boundary")
+		assert.True(t, findings[0].NonDegradable, "a lost container boundary refuses in both modes")
 	})
 
-	t.Run("degraded: records nothing — the host degrade is the accepted outcome", func(t *testing.T) {
+	// Renamed and inverted from "degraded: records nothing — the host degrade is
+	// the accepted outcome". The host degrade is NO LONGER an accepted outcome
+	// for a REQUESTED container (obstinate-judiciary): --degraded means "deliver
+	// less", never "drop the sandbox". The chain still walks to None so the
+	// workspace resolution has an answer; what stops the run is the finding
+	// surviving strictness.Actionable.
+	t.Run("degraded: the finding survives Actionable, so the run still refuses", func(t *testing.T) {
 		resetStrictness(t)
 		strictness.SetDegraded(true)
 
 		policy, ws := prepareChain(context.Background(), containerChain, "/project", "agent-a")
 		require.NotNil(t, ws)
-		assert.IsType(t, None{}, policy)
-		assert.NotEmpty(t, strictness.All(),
-			"--degraded still records the finding; what it declines to do is abort on it")
+		assert.IsType(t, None{}, policy, "the chain still resolves a workspace; the GATE is what refuses")
+
+		all := strictness.All()
+		require.Len(t, all, 1, "--degraded suppresses fatality, not recording")
+		assert.True(t, all[0].NonDegradable)
+		assert.NotEmpty(t, strictness.Actionable(all),
+			"the whole point: under --degraded this finding is STILL actionable, so the choke owner aborts")
 	})
 
 	t.Run("a workspace-axis degrade (worktree→none) is not an isolation finding", func(t *testing.T) {
@@ -303,7 +331,10 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 		assert.Contains(t, findings[0].Message, "no container runtime is available with that ownership")
 		assert.Contains(t, findings[0].Message, string(RuntimeContainerRootless),
 			"the finding must name the runtime axis that was actually demanded")
-		assert.Contains(t, findings[0].FixIt, "--degraded", "the fix-it must name the escape hatch")
+		assert.True(t, findings[0].NonDegradable,
+			"a requested container that cannot be provided refuses in both modes")
+		assert.NotContains(t, findings[0].FixIt, "--degraded",
+			"a non-degradable refusal must not offer --degraded as its remedy")
 	})
 
 	t.Run("strict {worktree,container}: the finding fires but the worktree survives", func(t *testing.T) {
@@ -317,19 +348,25 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 		findings := strictness.All()
 		require.Len(t, findings, 1)
 		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, "keeping the worktree", "the message must say the worktree survived")
+		assert.Contains(t, findings[0].Message, "refusing to keep the worktree", "the message must say the worktree survived")
 	})
 
-	t.Run("degraded: no finding — the host degrade is the accepted outcome", func(t *testing.T) {
+	// Renamed and inverted by the degradation audit (obstinate-judiciary): the
+	// host degrade is NO LONGER an accepted outcome for a requested container.
+	// The chain still resolves to None so the workspace has an answer; what
+	// stops the run is the finding surviving Actionable under --degraded.
+	t.Run("degraded: the finding survives Actionable, so the run still refuses", func(t *testing.T) {
 		resetStrictness(t)
 		strictness.SetDegraded(true)
 		stubRuntimeProbe(t, Host{})
 
 		chain := chainFor(Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 		require.Len(t, chain, 1)
-		assert.IsType(t, None{}, chain[0])
-		assert.NotEmpty(t, strictness.All(),
-			"the host degrade is the accepted outcome; the finding is still recorded")
+		assert.IsType(t, None{}, chain[0], "the chain still resolves a workspace; the GATE refuses")
+		all := strictness.All()
+		require.NotEmpty(t, all, "--degraded suppresses fatality, not recording")
+		assert.NotEmpty(t, strictness.Actionable(all),
+			"--degraded must NOT be a route to the unsandboxed host")
 	})
 }
 

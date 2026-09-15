@@ -161,6 +161,55 @@ func New(ctx context.Context, f remote.Fetcher, spec Spec) (*content.FSStore, er
 	return content.NewFSStore(tfs, content.Provenance{RepoURL: spec.RepoURL})
 }
 
+// OpenFetchedBundle serves an ALREADY-FETCHED one-bundle tree as a
+// content.Bundle, without going back to the forge.
+//
+// # Why this is not New
+//
+// New owns the whole round trip and its Spec.Root is a CONTENT root — the
+// directory whose immediate subdirectories are bundles. The pull seam's root is
+// a different thing with the same name: remote.TreeFetchFunc is handed ONE
+// bundle's directory, so the map it returns is keyed relative to that bundle
+// ("bundle.yaml", "profiles/parent.yaml") rather than to a root above it. The
+// two key spaces differ by exactly one segment, and that is the whole of the
+// reconciliation.
+//
+// It takes a fetched tree rather than fetching one because the caller that
+// needs this ALREADY HAS the bytes: remote.FetchRef probes the candidate roots
+// and fetches the tree that answers, so re-fetching here would double every
+// pull's network cost to rediscover a root the probe just established. Keeping
+// the probe where the candidates are generated (remote, from the ref's own file
+// path) and the composition here is what lets neither side duplicate the other.
+//
+// It verifies NOTHING, exactly as the rest of this package does not: layer 0
+// knows only where bytes live. Whether a signature over them holds is layer 2's
+// question, asked by bundles.ReadRemoteRef before it interprets a single item.
+func OpenFetchedBundle(ctx context.Context, id string, files map[string]remote.TreeFile, repoURL string) (content.Bundle, error) {
+	if len(files) == 0 {
+		// Same refusal New makes, for the same reason: a store that enumerates
+		// zero items reports success and delivers nothing.
+		return nil, fmt.Errorf("%w: %s", ErrEmptyTree, id)
+	}
+	if repoURL == "" {
+		return nil, errors.New("content/remotetree: no repo URL, so this tree's content would claim no origin")
+	}
+	// Re-key under the bundle's own id, which is the segment content.FSStore
+	// resolves a BundleID against.
+	nested := make(map[string][]byte, len(files))
+	for rel, f := range files {
+		nested[path.Join(id, rel)] = f.Data
+	}
+	tfs, err := content.NewMapTreeFS(nested)
+	if err != nil {
+		return nil, err
+	}
+	store, err := content.NewFSStore(tfs, content.Provenance{RepoURL: repoURL})
+	if err != nil {
+		return nil, err
+	}
+	return store.Open(ctx, content.BundleID(id))
+}
+
 // FetchFiles is Fetch with executability attached: what the tree DECLARES, and
 // separately what git recorded.
 //

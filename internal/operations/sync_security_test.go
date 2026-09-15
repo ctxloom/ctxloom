@@ -7,12 +7,18 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
@@ -80,6 +86,16 @@ func TestLockDependencies_DefaultLockAppliesFirstInstalls(t *testing.T) {
 // bundle profile now, so its closure is discovered through the parent bundle.)
 func setupRemoteParent(t *testing.T) (baseDir, src, parentBundleID, bundleID string) {
 	t.Helper()
+	return setupRemoteParentSigned(t, true)
+}
+
+// setupRemoteParentSigned is setupRemoteParent with the publisher's signature
+// made optional, so the trust gate can be exercised from both sides by ONE
+// fixture. A second fixture that drifted from this one would let the signed and
+// unsigned cases stop being the same bundle, which is the only thing that makes
+// comparing their outcomes meaningful.
+func setupRemoteParentSigned(t *testing.T, signed bool) (baseDir, src, parentBundleID, bundleID string) {
+	t.Helper()
 	tmp := t.TempDir()
 	baseDir = filepath.Join(tmp, ".ctxloom")
 	src = filepath.Join(tmp, "src")
@@ -90,14 +106,70 @@ func setupRemoteParent(t *testing.T) (baseDir, src, parentBundleID, bundleID str
 	// TREE form, which is the only form published since the v1 removal: a
 	// bundle is a DIRECTORY whose bundle.yaml is its manifest. Expanding a
 	// remote bundle-profile parent (depWalker.recurseBundleProfile) therefore
-	// exercises FetchRefBytes's tree fallback — authoring these as documents
-	// tested a shape no repository can publish any more.
+	// goes through bundles.ReadRemoteRef's tree path — authoring these as
+	// documents tested a shape no repository can publish any more.
+	// Both bundles are authored as PUBLISHABLE trees: bundle.yaml carries
+	// envelope keys ONLY, and every item is a file beside it. bundles.ReadTree
+	// refuses both halves of any other shape — an envelope that also declares
+	// items inline ("two answers for one item"), and a tree with no item files
+	// at all ("declares no items") — so demo needs a real item of its own even
+	// though the test only ever asks whether it was PINNED.
 	initLocalRepoWithFile(t, src, repoV2("demo")+"/bundle.yaml", "name: demo\n")
-	// The parent bundle ships a bundle profile `parent` that composes demo.
-	addFileToLocalRepo(t, src, repoV2("kit")+"/bundle.yaml", "version: 1.0.0\nprofiles:\n  parent:\n    bundles:\n      - "+bundleID+"\n")
+	addFileToLocalRepo(t, src, repoV2("demo")+"/fragments/note.md", "demo fragment body\n")
+	// The parent bundle ships a bundle profile `parent` that composes demo, as
+	// a TREE ITEM FILE — profiles/<name>.yaml, whose body is the profile def
+	// and whose name is the filename. This is what convert.Convert emits and
+	// the only shape a publisher can publish; an inline `profiles:` key here
+	// would be refused by readEnvelope.
+	addFileToLocalRepo(t, src, repoV2("kit")+"/bundle.yaml", "version: 1.0.0\n")
+	addFileToLocalRepo(t, src, repoV2("kit")+"/profiles/parent.yaml", "bundles:\n  - "+bundleID+"\n")
+
+	// Both trees are SIGNED, and the publisher is trusted. Reading a remote
+	// tree's item files means interpreting publisher-supplied bytes, so
+	// bundles.ReadRemoteRef verifies the whole bundle before ReadTree — an
+	// unsigned tree is refused rather than half-read. Signing goes through the
+	// production attest.SignBundle so the fixture proves the real publish path
+	// produces something the real read path accepts.
+	if signed {
+		signer := testSigner(t)
+		signTreeAndCommit(t, src, "demo", signer)
+		signTreeAndCommit(t, src, "kit", signer)
+		trustPublisher(t, baseDir, signer)
+	}
 
 	writeLocalProfile(t, baseDir, "default", "parents:\n  - "+parentBundleID+"#profiles/parent\n")
 	return baseDir, src, parentBundleID, bundleID
+}
+
+// signTreeAndCommit signs the tree bundle named bundleName inside the repo's
+// bundles root with signer, then commits every file signing produced (the
+// SHA256SUMS manifest and the signature store beside it) and returns the
+// resulting commit SHA.
+//
+// It signs through content.TreeStore + attest.SignBundle — the same objects the
+// consumer verifies through — rather than writing manifest and signature paths
+// by hand. A fixture that hand-rolled those paths would be asserting against
+// this test's idea of the on-disk layout instead of the product's.
+func signTreeAndCommit(t *testing.T, repoDir, bundleName string, signer ssh.Signer) string {
+	t.Helper()
+	ctx := context.Background()
+	bundlesRoot := filepath.Join(repoDir, filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)))
+	store, err := content.NewTreeStore(afero.NewOsFs(), bundlesRoot, content.Provenance{IsLocal: true})
+	require.NoError(t, err)
+	tree, err := store.Open(ctx, content.BundleID(bundleName))
+	require.NoError(t, err)
+	require.NoError(t, attest.SignBundle(ctx, store, tree, signer))
+
+	repo, err := git.PlainOpen(repoDir)
+	require.NoError(t, err)
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	require.NoError(t, wt.AddWithOptions(&git.AddOptions{All: true}))
+	sha, err := wt.Commit("sign "+bundleName, &git.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+	return sha.String()
 }
 
 // TestLockDependencies_TreeFormParentExpandsTheClosure pins the capability
@@ -105,7 +177,7 @@ func setupRemoteParent(t *testing.T) (baseDir, src, parentBundleID, bundleID str
 // that is published as a DIRECTORY. `demo` is reachable ONLY through the
 // `parent` profile shipped inside the `kit` bundle, so its presence in the
 // lockfile is proof the walk read kit's manifest out of the tree and followed
-// what it composes. Without a tree fallback in remote.FetchRefBytes the walk
+// what it composes. Without a whole-tree read the walk
 // degrades to markUnexpanded plus a warning and the command still reports
 // success — a silently INCOMPLETE closure, which is the failure this asserts
 // against.
@@ -127,6 +199,54 @@ func TestLockDependencies_TreeFormParentExpandsTheClosure(t *testing.T) {
 	_, okB := active.GetEntry(remote.ItemTypeBundle, bundleID)
 	require.True(t, okB,
 		"the bundle composed by the parent's profile is discoverable ONLY by reading that profile out of the tree")
+}
+
+// TestLockDependencies_UnsignedTreeParentIsRefusedNotSilentlyExpanded is the
+// other half of the gate its signed twin above proves fires: the SAME fixture,
+// unsigned, must be REFUSED — and must say so.
+//
+// It exists because this defect's whole history is a gate nobody watched fire.
+// The verification added to the remote read path would be indistinguishable
+// from no verification at all if only the passing case were pinned: a check
+// that silently admitted everything would keep the twin above green.
+//
+// WHAT IT ASSERTS, and why each half is needed:
+//
+//   - The refusal names TRUST. The failure this replaced said "bundle has no
+//     profile", which blamed a publisher for shipping a correct bundle and sent
+//     the reader to re-author a file that was never wrong. A refusal an operator
+//     cannot act on is barely better than the silence it replaced.
+//   - The closure is INCOMPLETE rather than quietly complete. What was reachable
+//     only through the unverified parent must not be pinned — that is the
+//     content the gate exists to keep out.
+//
+// The parent BUNDLE itself still pins, and that is not an oversight: the walk
+// records it before it reads it, so the pin reflects what the profile declared,
+// not what the tree turned out to contain. Asserting it here keeps that ordering
+// visible rather than letting a future change quietly alter it.
+func TestLockDependencies_UnsignedTreeParentIsRefusedNotSilentlyExpanded(t *testing.T) {
+	baseDir, _, parentBundleID, bundleID := setupRemoteParentSigned(t, false)
+	cfg := testConfigWithSCMPath(baseDir)
+
+	stderr := captureStderr(t, func() {
+		result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+		require.NoError(t, err)
+		assert.Equal(t, "generated", result.Status)
+	})
+
+	assert.Contains(t, stderr, "could not expand remote parent profile",
+		"an unverifiable parent must be REPORTED, not silently skipped")
+	assert.Contains(t, stderr, "unattested",
+		"the diagnosis must name the TRUST failure — the reader has to know a signature is missing, not a profile")
+	assert.NotContains(t, stderr, "bundle has no profile",
+		"blaming the publisher for a correct bundle is the misdiagnosis this whole path was rebuilt to remove")
+
+	active := mustLoadActive(t, baseDir)
+	_, okP := active.GetEntry(remote.ItemTypeBundle, parentBundleID)
+	assert.True(t, okP, "the parent bundle is recorded before it is read, so its own pin still lands")
+	_, okB := active.GetEntry(remote.ItemTypeBundle, bundleID)
+	assert.False(t, okB,
+		"a bundle reachable ONLY through an unverified parent's profile must not be pinned — admitting it is exactly what the gate exists to prevent")
 }
 
 // TestLockDependencies_UnreachableParentPreservesEntries pins the data-loss

@@ -121,10 +121,10 @@ func TestLoadTreeBundle_ReadsTheInstalledTreeIntoABundle(t *testing.T) {
 	require.Len(t, b.Hooks.PostFileEdit, 2)
 	assert.Equal(t, "echo stamp", b.Hooks.PostFileEdit[0].Command)
 
-	// A DIRECTORY-form (tree-form) bundle's typed source ref: the repoFSReader
-	// call site this covers (readTreeForm) is separate from the single-file
-	// readDocument path internal/bundles' own reader tests exercise, and
-	// nothing else in the suite reaches it.
+	// A DIRECTORY-form (tree-form) bundle's typed source ref. It is the only
+	// shape a repoFSReader reads at all now — the single-document path it used
+	// to fall back to is gone — and nothing else in the suite reaches this call
+	// site (readTreeForm).
 	wantTyped, err := trust.GitRef("github.com", "/acme/ctx", "atelier")
 	require.NoError(t, err)
 	assert.Equal(t, wantTyped, read.SourceRef(),

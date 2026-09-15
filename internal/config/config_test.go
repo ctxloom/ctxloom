@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/convert"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/schema"
@@ -1236,11 +1238,23 @@ func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
 	// Pinned remote content reaches the loader through a repofs reader over the
 	// bytes at its pinned revision — the same path the lockfile takes — so the
 	// test cannot mint a provenance no reader would have produced.
-	tree, err := content.NewMapTreeFS(map[string][]byte{
-		"sequential.yaml": []byte("version: \"1.0\"\nmcp:\n  sequential-thinking:\n    command: npx\n    args: [\"-y\", \"server\"]\n"),
-	})
+	// A TREE, staged through the production converter: the MCP entry is a file
+	// beside the envelope, which is the only shape a remote bundle has.
+	const root = "/pinned"
+	fsys := afero.NewMemMapFs()
+	require.NoError(t, fsys.MkdirAll(root, 0o755))
+	st, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
 	require.NoError(t, err)
-	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, ref))
+	require.NoError(t, convert.Convert(context.Background(), st, content.BundleID("sequential-thinking"),
+		&bundles.Bundle{
+			Version: "1.0",
+			MCP: map[string]bundles.BundleMCP{
+				"sequential-thinking": {Command: "npx", Args: []string{"-y", "server"}},
+			},
+		}, convert.Options{}))
+	tree, err := content.NewAferoTreeFS(fsys, root)
+	require.NoError(t, err)
+	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, ref, bundles.WithRepoURL("https://example.test/repo")))
 
 	result := loadMCPFromBundleRef(ref, loader.Catalog(), bundles.AdmitAll())
 	assert.Contains(t, result, "sequential-thinking",

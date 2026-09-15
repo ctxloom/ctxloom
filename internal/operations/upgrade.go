@@ -107,7 +107,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (UpgradeResult
 	// the newest commit its constraint allows; held entries stay put. Conflicts
 	// abort before anything is written.
 	resolve := newConstraintResolver(ctx, active, factory, auth, true)
-	proposed, conflicts, unexpanded := flattenRootsWith(ctx, loader, factory, auth, roots, resolve)
+	proposed, conflicts, unexpanded := flattenRootsWith(ctx, loader, factory, auth, cfg.TrustRoot(), roots, resolve)
 	if len(conflicts) > 0 {
 		return result, ConflictError(conflicts)
 	}

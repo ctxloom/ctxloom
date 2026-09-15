@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // A bundle's fragment/command/mcp/hook/skill NAMES are bundle-authored — a
@@ -34,38 +35,58 @@ func TestPendingReview_MaliciousItemNameCannotReachDisplay(t *testing.T) {
 	const evilName = "solid\nEVIL-INJECTED-LINE"
 	const cleanName = "solidEVIL-INJECTED-LINE"
 
+	// A HOSTILE PUBLISHER, not our own writer. content/convert refuses to write
+	// a path with a newline in it — correctly, since SHA256SUMS cannot encode
+	// one unescaped — so the malicious name has to be written straight into the
+	// tree, which is exactly how it would arrive from a repository nobody here
+	// controls.
 	b := &bundles.Bundle{
 		Version: "1.0",
 		Fragments: map[string]bundles.BundleFragment{
-			evilName: {
-				ItemBody: bundles.ItemBody{
-					Content: "body",
-				},
-			},
+			"decoy": {ItemBody: bundles.ItemBody{Content: "body"}},
 		},
 	}
+	tree := seedHostileTree(t, reviewSeedKey, b, map[string][]byte{
+		"fragments/" + evilName + ".md": []byte("body\n"),
+	})
+	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, reviewSeedKey,
+		bundles.WithRepoURL(seedRepoURL(t, reviewSeedKey))))
+
 	fx := newTrustFixture(t)
+	var warnings strings.Builder
+	restore := clidiag.SetSink(&warnings)
 	res, err := PendingReview(nil, PendingReviewRequest{
 		UserStore: fx.user, Root: fx.root,
 		Registry: newRegistry(t, remoteSpec{name: "acme", url: trustRepo}),
-		Loader:   reviewLoader(t, b),
+		Loader:   loader,
 		FS:       afero.NewMemMapFs(),
 	})
+	restore()
 	require.NoError(t, err)
-	require.Len(t, res.Bundles, 1)
-	require.Len(t, res.Bundles[0].Items, 1)
 
-	item := res.Bundles[0].Items[0]
-	assert.Equal(t, cleanName, item.Name, "the control character must not reach the review display name")
-	assert.NotContains(t, item.Name, "\n")
-	assert.NotContains(t, item.Ref, "\n")
-	assert.Equal(t, seedItemRef(t, reviewSeedKey, "fragments/"+cleanName), item.Ref)
+	// TWO INDEPENDENT DEFENCES FIRE, and asserting both is what keeps this
+	// honest — either alone would let the other rot unnoticed.
+	//
+	// FIRST, the name is sanitised where a reference is minted, and the forge
+	// attempt is NAMED rather than quietly cleaned. This is the defence the
+	// test was originally written for, and it is still reached.
+	assert.Contains(t, warnings.String(), "control characters",
+		"a reference carrying control characters must be reported, not silently cleaned")
+	assert.Contains(t, warnings.String(), cleanName,
+		"and the cleaned form is what any display would use")
 
-	// The displayed Ref must be the SAME identity the trust decision was made
-	// against — round-tripping it through the parser the CLI's trust/reject
-	// actions use must yield the clean name, not a second, different parse of
-	// the raw bytes.
-	ask, err := bundles.ParseItemAsk(item.Ref)
+	// SECOND, the tree never becomes reviewable content at all: SHA256SUMS
+	// cannot encode such a path, so verification refuses the whole bundle. The
+	// malicious name therefore cannot reach a display even if the sanitiser
+	// above were removed.
+	assert.Empty(t, res.Bundles, "a tree carrying an unencodable path must not reach the review surface")
+	assert.NotContains(t, warnings.String(), "\nEVIL-INJECTED-LINE",
+		"no raw control character may reach the operator's terminal")
+
+	// The identity a trust decision is made against is the CLEAN one, and it
+	// round-trips through the parser the CLI's trust/reject actions use. This
+	// holds independently of any fixture, which is why it is asserted directly.
+	ask, err := bundles.ParseItemAsk(seedItemRef(t, reviewSeedKey, "fragments/"+cleanName))
 	require.NoError(t, err)
 	assert.Equal(t, cleanName, ask.Item)
 	assert.False(t, strings.ContainsAny(ask.Item, "\n\r"))

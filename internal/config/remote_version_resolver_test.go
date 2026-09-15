@@ -5,6 +5,7 @@
 package config
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,10 +13,15 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -57,13 +63,26 @@ func remoteContentRepo(t *testing.T) (repoDir, rev1, rev2 string) {
 	return repoDir, rev1, rev2
 }
 
-// TestRemoteRev_ResolvesHistoricalVersionThroughParse proves the remote arm of
-// bundleVersionResolver serves the bytes committed AT THAT COMMIT — a different
-// rev is a different body — and that those bytes reached the bundle through
-// ParseBundle: the legacy `prompts:` key arrives as a command.
-func TestRemoteRev_ResolvesHistoricalVersionThroughParse(t *testing.T) {
+// TestRemoteRev_DocumentFormIsRefused pins what became of this test's subject.
+//
+// It used to prove the remote arm of bundleVersionResolver served a DOCUMENT's
+// bytes at a historical commit, and that they reached the bundle through
+// ParseBundle — a legacy `prompts:` key arriving as a command. The document form
+// is no longer readable remotely, so that is no longer a thing to prove; what
+// has to be proved instead is that its absence is LOUD.
+//
+// A repository still holding a single-file bundle is the realistic case here —
+// it is what every publisher had before the tree migration — so the refusal has
+// to name the shape and the remedy rather than failing as "not found", which
+// would send a publisher hunting a path problem they do not have.
+//
+// NOTHING WAS LOST WITH IT. The legacy `prompts:` upgrade is a property of
+// ParseBundle, pinned directly in bundles' own upgrade and strict tests, and it
+// still runs on every LOCAL versioned read, which is still a document.
+// Historical resolution of a remote bundle is pinned by the tree test below.
+func TestRemoteRev_DocumentFormIsRefused(t *testing.T) {
 	testsupport.Isolate(t)
-	repoDir, rev1, rev2 := remoteContentRepo(t)
+	repoDir, rev1, _ := remoteContentRepo(t)
 	appDir := filepath.Join(t.TempDir(), "consumer", ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
@@ -73,17 +92,13 @@ func TestRemoteRev_ResolvesHistoricalVersionThroughParse(t *testing.T) {
 
 	canonical := "file://" + filepath.ToSlash(repoDir) + "@bundles/go-tools"
 
-	b1, err := resolve(canonical, rev1)
-	require.NoError(t, err)
-	assert.Equal(t, "R1-BODY", b1.Fragments["fmt"].Content,
-		"the pinned rev serves the bytes committed at that rev")
-	assert.Equal(t, "RP1-BODY", b1.Commands["review"].Content,
-		"the fetched bytes reached the bundle through ParseBundle: a legacy prompts: key arrives as a command")
-
-	b2, err := resolve(canonical, rev2)
-	require.NoError(t, err)
-	assert.Equal(t, "R2-BODY", b2.Fragments["fmt"].Content, "a different rev is its own version")
-	assert.Equal(t, "RP2-BODY", b2.Commands["review"].Content)
+	b, err := resolve(canonical, rev1)
+	require.Error(t, err, "a single-file remote bundle must not resolve")
+	assert.Nil(t, b, "and nothing may come back alongside the refusal")
+	assert.Contains(t, err.Error(), "document form is no longer readable",
+		"the refusal must name the SHAPE — 'not found' would send a publisher hunting a path problem")
+	assert.Contains(t, err.Error(), "republish it as a tree",
+		"and it must name the remedy, since the publisher is the only one who can apply it")
 }
 
 // remoteTreeContentRepo is remoteContentRepo's DIRECTORY-form twin: it publishes
@@ -91,7 +106,8 @@ func TestRemoteRev_ResolvesHistoricalVersionThroughParse(t *testing.T) {
 // the only shape a publisher can produce since the v1 single-file format was
 // removed. It commits a v1 then a v2 and returns the repo directory plus both
 // commit SHAs.
-func remoteTreeContentRepo(t *testing.T) (repoDir, rev1, rev2 string) {
+func remoteTreeContentRepo(t *testing.T) (repoDir, rev1, rev2 string, pub ssh.PublicKey) {
+	var signer ssh.Signer
 	t.Helper()
 	repoDir = filepath.Join(t.TempDir(), "tree-publisher")
 	repo, err := git.PlainInit(repoDir, false)
@@ -99,13 +115,33 @@ func remoteTreeContentRepo(t *testing.T) (repoDir, rev1, rev2 string) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools", paths.BundleManifestName)
-	commit := func(body, msg string) string {
-		full := filepath.Join(repoDir, rel)
-		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
-		require.NoError(t, os.WriteFile(full, []byte(body), 0o644))
-		_, err := wt.Add(filepath.ToSlash(rel))
+	bundleDir := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools")
+	// A PUBLISHABLE tree: bundle.yaml carries envelope keys only and each item
+	// is a file beside it. An inline `fragments:` key here is the one shape
+	// bundles.readEnvelope refuses outright, so a fixture carrying one asserts
+	// against a bundle no publisher can publish.
+	// Each rev is SIGNED before it is committed, so every commit carries a
+	// manifest and signature covering its own bytes. Reading a remote tree's
+	// item files means interpreting publisher-supplied bytes, so the resolver
+	// verifies the whole bundle before ReadTree and refuses an unsigned one.
+	signer, pub = treeTestSigner(t)
+	bundlesRoot := filepath.Join(repoDir, filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)))
+	commit := func(files map[string]string, msg string) string {
+		for rel, body := range files {
+			full := filepath.Join(repoDir, filepath.FromSlash(rel))
+			require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+			require.NoError(t, os.WriteFile(full, []byte(body), 0o644))
+		}
+		// Sign through content.TreeStore + attest.SignBundle, the same objects
+		// the consumer verifies through, rather than writing the manifest and
+		// signature paths by hand.
+		store, err := content.NewTreeStore(afero.NewOsFs(), bundlesRoot, content.Provenance{IsLocal: true})
 		require.NoError(t, err)
+		tree, err := store.Open(context.Background(), content.BundleID("go-tools"))
+		require.NoError(t, err)
+		require.NoError(t, attest.SignBundle(context.Background(), store, tree, signer))
+
+		require.NoError(t, wt.AddWithOptions(&git.AddOptions{All: true}))
 		h, err := wt.Commit(msg, &git.CommitOptions{
 			Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()},
 		})
@@ -113,23 +149,33 @@ func remoteTreeContentRepo(t *testing.T) (repoDir, rev1, rev2 string) {
 		return h.String()
 	}
 
-	rev1 = commit("description: v1\nfragments:\n  fmt:\n    content: T1-BODY\n", "v1")
-	rev2 = commit("description: v2\nfragments:\n  fmt:\n    content: T2-BODY\n", "v2")
-	return repoDir, rev1, rev2
+	manifest := filepath.Join(bundleDir, paths.BundleManifestName)
+	fragment := filepath.Join(bundleDir, "fragments", "fmt.md")
+	// The envelope carries a version: with its items in files beside it, a
+	// manifest declaring neither version nor items is refused as an empty
+	// bundle — the tree form makes `version:` the envelope's real payload.
+	rev1 = commit(map[string]string{manifest: "version: 1.0.0\ndescription: v1\n", fragment: "T1-BODY"}, "v1")
+	rev2 = commit(map[string]string{manifest: "version: 2.0.0\ndescription: v2\n", fragment: "T2-BODY"}, "v2")
+	return repoDir, rev1, rev2, pub
 }
 
 // TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle pins the capability
 // childlike-failing named as dead: resolving a version constraint against a
-// DIRECTORY-form bundle at an arbitrary historical commit. remote.FetchRefBytes
-// builds a single file path from the ref, and since the v1 removal that file
-// does not exist for any published bundle — without a tree fallback this fails
-// closed and the caller withholds the item, so no tree bundle can carry a
-// version constraint at all.
+// DIRECTORY-form bundle at an arbitrary historical commit. The ref names a
+// single file path that, since the v1 removal, exists for no published bundle;
+// without the tree read this fails closed and the caller withholds the item, so
+// no tree bundle could carry a version constraint at all.
 func TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle(t *testing.T) {
 	testsupport.Isolate(t)
-	repoDir, rev1, rev2 := remoteTreeContentRepo(t)
+	repoDir, rev1, rev2, pub := remoteTreeContentRepo(t)
 	appDir := filepath.Join(t.TempDir(), "consumer", ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	// The consumer trusts the publisher to PUBLISH. Without this the tree is
+	// merely "unsigned to you" and the resolver refuses it before ReadTree,
+	// so the item bytes under test are never reached.
+	require.NoError(t, os.WriteFile(paths.AllowedSignersPath(appDir),
+		[]byte("publisher@example.com namespaces=\""+signing.NamespacePublish+"\" "+
+			string(ssh.MarshalAuthorizedKey(pub))), 0o644))
 
 	cfg := &Config{appPaths: []string{appDir}}
 	resolve := cfg.bundleVersionResolver()

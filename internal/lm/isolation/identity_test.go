@@ -101,7 +101,11 @@ func TestCheckRunAsIsIdentity_UngovernedIsAFinding(t *testing.T) {
 	require.Len(t, found, 1, "wrong identity that STARTS must be a collected finding")
 	assert.Equal(t, strictness.ClassIsolation, found[0].Class)
 	assert.Contains(t, found[0].Message, "user/own:img")
-	assert.Contains(t, found[0].FixIt, "--degraded", "the fix-it names the escape hatch")
+	// Inverted by the degradation audit: this finding is non-degradable, so a
+	// fix-it naming --degraded would be a remedy that does not work.
+	assert.True(t, found[0].NonDegradable, "a wrong-identity image writes root-owned files: refused in both modes")
+	assert.NotContains(t, found[0].FixIt, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
+	assert.Contains(t, found[0].FixIt, "ctxloom container build", "it must name a route that actually fixes the identity")
 	assert.Contains(t, stderr, "user/own:img", "the warning streams in strict mode too")
 }
 
@@ -125,7 +129,7 @@ func TestCheckRunAsIsIdentity_UninspectableIsAFinding(t *testing.T) {
 	found := strictness.All()
 	require.Len(t, found, 1)
 	assert.Equal(t, strictness.ClassIsolation, found[0].Class)
-	assert.Contains(t, found[0].Message, "cannot verify")
+	assert.Contains(t, found[0].Message, "cannot be verified")
 }
 
 // TestCheckRunAsIsIdentity_DegradedWarnsAndProceeds: --degraded is the one

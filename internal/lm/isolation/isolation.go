@@ -72,7 +72,7 @@ import (
 // non-degradably, so naming the flag would hand the user a remedy that does
 // not work — which is worse than naming none. The remedy is to declare the
 // host axis, because that is the request the user actually has to make.
-const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or ask for a host run deliberately with `runtime: host` (the agent's runtime trait, the project `runtime:` default, or --runtime host). --degraded does NOT drop a requested container boundary"
+const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or ask for a host run deliberately with `runtime: host` (the agent's runtime trait, the project `runtime:` default, or --runtime host)"
 
 // Workspace is the per-agent directory a run executes in (the child engine's
 // cwd) plus its teardown. none → the live project dir (noop cleanup); worktree →
@@ -123,9 +123,10 @@ type Policy interface {
 	// will see what it wrote. A policy that cannot materialize its workspace
 	// warns and returns an error so the caller degrades down the chain; the run
 	// always gets a workspace (None never fails). Dropping a requested CONTAINER
-	// boundary is additionally a fatal finding (ClassIsolation) the choke owner
-	// aborts on unless --degraded; a workspace-axis degrade (worktree→None)
-	// stays a silent fallback.
+	// boundary is additionally a NON-DEGRADABLE finding (ClassIsolation) the
+	// choke owner aborts on in BOTH modes — the workspace still resolves, but
+	// the run does not proceed; a workspace-axis degrade (worktree→None) stays
+	// a plain warn-and-continue fallback.
 	//
 	// The container gate (runtime reachable / image present / engine auth
 	// resolvable) runs HERE rather than in Mount, so a degrade is decided before

@@ -14,8 +14,11 @@ import (
 )
 
 // ReadRemoteRef reads the WHOLE bundle a canonical remote ref names at a pinned
-// commit — both published shapes, and for a tree every item file, not just the
-// manifest.
+// commit: every item file, not just the manifest.
+//
+// It is the ONE remote read path, and it is always verified. A bundle is a
+// TREE — the document form is refused rather than read — so there is no shape
+// that reaches a session without attest.VerifyBundle having covered its bytes.
 //
 // # The loss it exists to remove
 //
@@ -57,10 +60,19 @@ func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remo
 		return nil, err
 	}
 	if !c.IsTree() {
-		// A single-file bundle IS its document: the bytes are the whole bundle,
-		// and its publisher signature is the detached sibling the fetch path
-		// already accounts for.
-		return ParseBundle(c.Data)
+		// The document form is no longer readable, and refusing it here is what
+		// makes "verify before interpret" literally true rather than true with
+		// an exception. A document has no manifest and no item files, so there
+		// is nothing for attest.VerifyBundle to cover; reading one would be the
+		// single remaining remote path that interpreted publisher bytes without
+		// establishing who signed them.
+		//
+		// Nothing can produce this shape any more — PushBundle refuses to
+		// publish it — so a ref that still resolves to one is a repository left
+		// behind by the tree migration, and the remedy is to republish.
+		return nil, fmt.Errorf("bundles: refusing to read %s at %s: it resolves to a single %d-byte document, "+
+			"and the document form is no longer readable — republish it as a tree",
+			ref.String(), sha, len(c.Data))
 	}
 
 	// The bundle id is the tree root's last segment, the same rule openTreeAt
@@ -95,6 +107,15 @@ func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remo
 // content_hash is an INDEX and never an authority, so verifying the manifest
 // alone would assert nothing about the item bytes this read newly exposes.
 func verifyRemoteTree(ctx context.Context, tree content.Bundle, root signing.TrustRoot, treeRoot, sha string) error {
+	// A nil trust root can decide nothing, so it must refuse BY NAME rather
+	// than be handed to attest. Today it would survive by accident — an
+	// unsigned tree is refused before resolvePublisher is ever reached — which
+	// means the first SIGNED tree read through a nil root would be the thing
+	// that discovered the gap, as a nil-interface panic rather than a verdict.
+	if root == nil {
+		return fmt.Errorf("bundles: refusing to read remote tree bundle %s at %s: no trust root was supplied, "+
+			"so nothing can say whether its publisher is trusted", treeRoot, sha)
+	}
 	verdict, err := attest.VerifyBundle(ctx, tree, root, time.Now())
 	if err != nil {
 		return fmt.Errorf("bundles: refusing to read remote tree bundle %s at %s: it could not be checked against its manifest: %w", treeRoot, sha, err)

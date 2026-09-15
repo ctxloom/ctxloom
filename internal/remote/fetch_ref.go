@@ -115,27 +115,3 @@ func FetchRef(ctx context.Context, factory FetcherFactory, auth AuthConfig, ref 
 	}
 	return RefContent{Tree: tree, Root: treeRoot}, nil
 }
-
-// FetchRefBytes fetches the MANIFEST bytes for a canonical ref at a specific
-// commit sha: the single file at the ref's own path, or a directory-form
-// bundle's bundle.yaml.
-//
-// SCOPE, and it is narrow: for a TREE this returns the manifest ALONE. A tree's
-// items are files beside that manifest and none of them are in the bytes
-// returned here, so a caller that parses these bytes into a bundle gets an
-// envelope with every item map empty. That is a correct answer only for a
-// caller that genuinely wants the manifest — a publisher signature covering
-// bundle.yaml, say. Anything that wants the BUNDLE must call
-// bundles.ReadRemoteRef instead, which reads the whole tree.
-func FetchRefBytes(ctx context.Context, factory FetcherFactory, auth AuthConfig, ref *Reference, sha string, treeFetch TreeFetchFunc) ([]byte, error) {
-	c, err := FetchRef(ctx, factory, auth, ref, sha, treeFetch)
-	if err != nil {
-		return nil, err
-	}
-	if !c.IsTree() {
-		return c.Data, nil
-	}
-	// FetchRef has already refused a tree with no manifest, so this cannot fail.
-	manifest, _ := TreeManifest(c.Tree)
-	return manifest, nil
-}

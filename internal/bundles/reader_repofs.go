@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -58,13 +57,17 @@ type repoFSReader struct {
 // asked for local-context content would be a trust bypass with a struct literal
 // for a weapon.
 //
-// It reads BOTH bundle forms, dispatching on what the tree IS rather than
-// guessing: a tree whose root holds bundle.yaml alongside item directories is
-// directory-form and is verified through its signed manifest (attest.
-// VerifyBundle, which checks the tree against the manifest in both directions);
-// anything else is a single YAML document verified against its detached `.sig`.
-// This is not a dual-format fallback — nothing is retried as the other form —
-// it is one entry read as the thing it is.
+// It reads ONE bundle form, because there is only one: a tree whose root holds
+// bundle.yaml alongside item directories, verified through its signed manifest
+// (attest.VerifyBundle, which checks the tree against the manifest in both
+// directions). Anything else is REFUSED rather than read as a document.
+//
+// The single-document form it used to fall back to is gone. It could not be
+// published (PushBundle refuses it) and nothing served one, so the fallback
+// only widened what could be interpreted: a document has no manifest, so the
+// verification this reader exists to perform had nothing to cover. Deleting it
+// loses no verification — a document's detached `.sig` was checked before any
+// parse — it removes the last shape that could arrive without one.
 func NewRepoFSReader(tree TreeFS, ref string, opts ...ReaderOption) Reader {
 	return &repoFSReader{tree: tree, ref: ref, cfg: newReaderConfig(opts)}
 }
@@ -82,12 +85,17 @@ func (r *repoFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 	if err != nil {
 		return nil, err
 	}
-	var read BundleRead
-	if treeForm {
-		read, err = r.readTreeForm(ctx)
-	} else {
-		read, err = r.readDocument()
+	if !treeForm {
+		// A bundle is a TREE. The document form can no longer be published
+		// (PushBundle refuses it), nothing serves one, and reading one was the
+		// last path on which remote bytes were interpreted without a manifest
+		// to verify them against. Refusing names the shape so a repository left
+		// behind by the migration is diagnosable rather than silently empty.
+		return nil, fmt.Errorf("bundles: refusing to read %q: the pinned tree holds no %q directory, "+
+			"so it is not a tree-form bundle — the single-document form is no longer readable, and it must be republished as a tree",
+			r.ref, r.leaf())
 	}
+	read, err := r.readTreeForm(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +117,7 @@ func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
 // canonicalBundleRefTyped mints the structured trust.BundleRef for a canonical
 // resolution ref of the "<url>@bundles/<path>" / bare-local-name shape —
 // the ONE grammar shared by a pinned tree's own ref (repoFSReader.
-// sourceRefTyped, both single-file and tree form) and a version-pinned read's
+// sourceRefTyped) and a version-pinned read's
 // version-less canonical ref (loader_version.go's bundleAtVersion, whose
 // commit-addressed reads carry the SAME identity as their unpinned twin). It
 // is the SAME Ref -> BundleRef bridge (trust.Ref.AsBundleRef) every other
@@ -146,8 +154,7 @@ func canonicalBundleRefTyped(canonical string) (trust.BundleRef, error) {
 }
 
 // leaf is the last segment of the ref — the name the bundle answers to inside
-// the tree it was handed, whether that is a document ("<leaf>.yaml") or a
-// directory-form bundle's own directory ("<leaf>/").
+// the tree it was handed, which is its own directory ("<leaf>/").
 func (r *repoFSReader) leaf() string { return path.Base(strings.TrimSuffix(r.ref, "/")) }
 
 // isTreeForm reports whether the tree holds this ref as a DIRECTORY, which is
@@ -168,89 +175,17 @@ func (r *repoFSReader) isTreeForm() (bool, error) {
 	return false, nil
 }
 
-// readDocument reads a single-file bundle document out of the tree and
-// verifies its detached signature over the exact file bytes, before any parse.
-func (r *repoFSReader) readDocument() (BundleRead, error) {
-	docPath, err := r.documentPath()
-	if err != nil {
-		return BundleRead{}, err
-	}
-	data, err := r.tree.ReadFile(docPath)
-	if err != nil {
-		return BundleRead{}, fmt.Errorf("bundles: reading %s for %q: %w", docPath, r.ref, err)
-	}
-	// A missing sibling `.sig` is UNSIGNED, the ordinary case — not an error.
-	sig, sigErr := r.tree.ReadFile(docPath + SigSuffix)
-	if sigErr != nil {
-		sig = nil
-	}
-	facts := readSignatureFacts(data, sig, r.cfg.root)
-
-	b, err := ParseBundle(data)
-	if err != nil {
-		return BundleRead{}, fmt.Errorf("bundles: parsing %s for %q: %w", docPath, r.ref, err)
-	}
-	// Canonical is the sole RESOLUTION identity for pinned content: profiles
-	// author canonical refs and resolve straight to this bundle, so sourceRef
-	// and the read's ref are the canonical ref unconditionally. Name is the
-	// bundle's DECLARED identity and the ref is only its fallback, so a
-	// document that named itself keeps that name.
-	if b.Name == "" {
-		b.Name = r.ref
-	}
-	b.sourceRef = r.sourceRefTyped()
-	b.sourceRefSet = true
-	// A document in a pinned tree has no directory of its own, so Path is the
-	// synthetic sentinel FSDir refuses rather than a filesystem path it would
-	// resolve against the process working directory.
-	b.Path = r.syntheticPath()
-	facts.stamp(b)
-	return newRead(r.ref, b, ProvenanceRemote, TrustCtxRemote, facts), nil
-}
-
 // syntheticPath names the bundle's origin in the one field callers look at for
 // it, WITHOUT handing them a path they could walk: the ref, and the revision
 // its bytes were pinned at when the caller supplied one. FSDir refuses it (see
-// nonFilesystemPathPrefixes), which is the point — a remote document has no
-// directory, and guessing one resolves against the process working directory.
+// nonFilesystemPathPrefixes), which is the point — a tree read without an
+// install directory has nothing on a filesystem to point at, and guessing one
+// resolves against the process working directory.
 func (r *repoFSReader) syntheticPath() string {
 	if r.cfg.revision == "" {
 		return remotePathSentinel + r.ref
 	}
 	return remotePathSentinel + r.ref + "@" + r.cfg.revision
-}
-
-// documentPath finds the single bundle document at the tree root. More than
-// one is refused rather than guessed at: this reader was pointed at ONE ref,
-// and picking a file to answer to that name is exactly the kind of quiet
-// decision a read must not make.
-func (r *repoFSReader) documentPath() (string, error) {
-	entries, err := r.tree.ReadDir(".")
-	if err != nil {
-		return "", fmt.Errorf("bundles: listing the pinned tree for %q: %w", r.ref, err)
-	}
-	var docs []string
-	for _, e := range entries {
-		if e.IsDir || !strings.HasSuffix(e.Name, ".yaml") {
-			continue
-		}
-		// The ref's own leaf answers to the ref, always. Anything else is only
-		// a candidate when the tree holds exactly one document.
-		if e.Name == r.leaf()+".yaml" {
-			return e.Name, nil
-		}
-		docs = append(docs, e.Name)
-	}
-	sort.Strings(docs)
-	switch len(docs) {
-	case 0:
-		return "", fmt.Errorf("bundles: the pinned tree for %q holds no bundle document", r.ref)
-	case 1:
-		return docs[0], nil
-	default:
-		return "", fmt.Errorf("bundles: the pinned tree for %q holds %d bundle documents (%s); one ref names one bundle",
-			r.ref, len(docs), strings.Join(docs, ", "))
-	}
 }
 
 // readTreeForm reads a directory-form bundle and resolves its publisher
@@ -276,7 +211,7 @@ func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
 		return BundleRead{}, fmt.Errorf("bundles: reading the pinned tree for %q: %w", r.ref, err)
 	}
 	// A declared name wins; the canonical ref is only the fallback identity for
-	// a tree that named nothing (see readDocument).
+	// a tree that named nothing.
 	if b.Name == "" {
 		b.Name = r.ref
 	}

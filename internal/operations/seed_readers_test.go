@@ -187,11 +187,16 @@ func signAs(t *testing.T, data []byte, principal string) ([]byte, signing.TrustR
 //
 // A tree read opens a content store, and content.Provenance REFUSES to default
 // a remote origin, so this is required rather than decorative.
-func seedRepoURL(t *testing.T, ref string) string {
-	t.Helper()
-	url, _, found := strings.Cut(ref, "@")
-	require.True(t, found, "seed key %q is not a canonical remote ref, so it has no repo URL to claim", ref)
-	return url
+func seedRepoURL(_ *testing.T, ref string) string {
+	// A ref with no "@" is not canonical, and at least one fixture seeds one
+	// DELIBERATELY — the unmintable-source characterization tests hand the gate
+	// a ref nothing can address, and the reader must still be constructible for
+	// them to observe what it does with it. The whole ref is the honest origin
+	// to claim there: it is all the fixture said.
+	if url, _, found := strings.Cut(ref, "@"); found {
+		return url
+	}
+	return ref
 }
 
 // seedTree stages b as the TREE a repofs reader now requires, and serves it
@@ -242,6 +247,34 @@ func stageSeedTree(t *testing.T, ref string, b *bundles.Bundle, signer ssh.Signe
 	return fsys, root, id
 }
 
+// signedTreeFiles stages b as a signed tree and returns it in the shape a
+// remote.TreeFetchFunc hands back: bundle-root-relative paths to file bytes.
+//
+// It is the bridge between the two seams. Staging goes through the production
+// converter and signer, so what the walk verifies is a real signed tree; the
+// map it returns is what the fetch seam would have produced, so a test can
+// exercise the walk without standing up a forge double that can serve a
+// directory listing.
+func signedTreeFiles(t *testing.T, id string, b *bundles.Bundle, signer ssh.Signer) map[string]remote.TreeFile {
+	t.Helper()
+	fsys, root, bid := stageSeedTree(t, id, b, signer)
+	dir := path.Join(root, string(bid))
+	out := map[string]remote.TreeFile{}
+	require.NoError(t, afero.Walk(fsys, dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		rel, rerr := filepath.Rel(dir, p)
+		require.NoError(t, rerr)
+		data, rerr := afero.ReadFile(fsys, p)
+		require.NoError(t, rerr)
+		out[filepath.ToSlash(rel)] = remote.TreeFile{Data: data}
+		return nil
+	}))
+	require.NotEmpty(t, out, "the staged tree must have produced files")
+	return out
+}
+
 // seedSkillFiles supplies a seeded skill's package files to the converter.
 //
 // A seed declares its skill as a MANIFEST — per-file sha256 and mode, which is
@@ -266,6 +299,20 @@ func seedSkillFiles(b *bundles.Bundle) func(string) ([]content.SkillFile, error)
 		paths := make([]string, 0, len(skill.Files))
 		for p := range skill.Files {
 			paths = append(paths, p)
+		}
+		if len(paths) == 0 {
+			// A skill declaring no files is a fixture asking for an UNREADABLE
+			// skill, and a tree expresses that as a package with no SKILL.md
+			// rather than as no package at all — Convert refuses to write an
+			// empty one, correctly, since an empty skill delivers nothing.
+			// A package whose only file is not SKILL.md reproduces exactly the
+			// state under test: it exists, and nothing can read a manifest out
+			// of it.
+			return []content.SkillFile{{
+				Path:  "notes.txt",
+				Mode:  content.ModeRegular,
+				Bytes: []byte("seeded " + name + " with no SKILL.md\n"),
+			}}, nil
 		}
 		sort.Strings(paths) // deterministic: a package's digest must not depend on map order
 		files := make([]content.SkillFile, 0, len(paths))

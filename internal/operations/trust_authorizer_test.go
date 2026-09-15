@@ -3,6 +3,7 @@ package operations
 import (
 	"bytes"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -53,93 +54,141 @@ func admitFragment(t *testing.T, g *contentGate, read bundles.BundleRead, ref st
 	return bundles.Decide(g, read, ref, []byte(body), bundles.FormRaw)
 }
 
-// --- remote | invalid: TAMPER, never degraded to unsigned ------------------
-
-// A trusted key's signature that does not cover these bytes is TAMPER. It must
-// be withheld and it must be REPORTED as tampered — degrading it to
-// unsigned/pending is the spec §10.2 downgrade: an attacker corrupts a `.sig`,
-// signed content becomes merely reviewable, and a human approves it.
-func TestAuthorizer_RemoteInvalidSignatureIsTampered_NotDegradedToUnsigned(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
-	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
-
-	v := admitFragment(t, g, read, authorizerItemRef, "KEEPER-PAYLOAD")
-
-	assert.False(t, v.Allow, "tampered remote content must be withheld")
-	assert.Equal(t, bundles.ReasonTampered, v.Reason,
-		"and reported as TAMPERED — 'unsigned' is the downgrade this row exists to close")
-	assert.NotEmpty(t, v.Detail, "the signature failure has to be nameable")
-	assert.NotEqual(t, bundles.ReasonUnsigned, v.Reason)
-}
-
-// A HUMAN'S APPROVAL OVERRIDES A BROKEN PUBLISHER SIGNATURE. Human decision,
-// 2026-08-17; this test previously asserted the exact opposite and is inverted
-// deliberately rather than deleted, so the reversal is visible in history.
+// --- remote tamper: REFUSED AT THE READ, never gated -----------------------
 //
-// A countersignature covers the BYTES, so it is a complete attestation on its
-// own — it does not need the publisher's to be intact, or to exist. Refusing to
-// let it stand meant someone who had personally reviewed these exact bytes still
-// could not use them and had no local remedy at all.
+// These four tests used to drive the AUTHORIZER with a tampered remote read.
+// They cannot any more, and the reason is the point rather than an obstacle: a
+// remote bundle is a TREE, verified against its signed manifest at the read
+// (repoFSReader.verifyTree), so content whose bytes no longer match what was
+// signed never becomes a read and never reaches a gate. The property they
+// pinned — tampered remote content must never reach a session — is unchanged;
+// the place that enforces it moved earlier, so they assert it there.
 //
-// WHAT THIS TRADES AWAY, so nobody rediscovers it as a surprise: spec §10.2's
-// downgrade is now reachable. Corrupting a publisher's `.sig` in the clone cache
-// turns signed content into content a human may accept, and the acceptance
-// prompt is where that attack lands. The mitigations that remain are that the
-// acceptance is bound to those exact bytes and re-pends the moment they change,
-// and that rejection and retraction still outrank everything.
-func TestAuthorizer_ApprovalOverridesRemoteInvalidSignature(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	fx := newTrustFixture(t)
-	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
-	itemRef := authorizerItemRef
-	tRef := mustParseProducerRef(t, itemRef)
-	fx.approve(tRef, signing.FormRaw, []byte("KEEPER-PAYLOAD"))
+// THIS REVERSES A DELIBERATE TRADE, and it should be read as the headline here
+// rather than as a side effect. The approval-override test below carried this
+// warning: "spec §10.2's downgrade is now reachable. Corrupting a publisher's
+// .sig in the clone cache turns signed content into content a human may accept,
+// and the acceptance prompt is where that attack lands." That attack no longer
+// has a prompt to land on. The acceptance prompt is downstream of a read, and a
+// tampered tree produces none.
 
-	g := &contentGate{cfg: cfg, records: fx.records()}
-	v := admitFragment(t, g, read, itemRef, "KEEPER-PAYLOAD")
-
-	assert.True(t, v.Allow,
-		"a countersignature covers the bytes, so it stands on its own: a publisher signature that no "+
-			"longer covers them must not veto a human's acceptance of exactly these bytes")
+// tamperedRemoteLoad drives a tampered remote tree through the loader and
+// returns what the operator is told. No read comes back, so the diagnostic IS
+// the observable.
+func tamperedRemoteLoad(t *testing.T, ref string, b *bundles.Bundle) (*bundles.Loader, string) {
+	t.Helper()
+	var warnings strings.Builder
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+	l := seedTampered(t, ref, "publisher@example.test", b)
+	l.Reads() // force the read, which is where the refusal happens
+	return l, warnings.String()
 }
 
-// WITHOUT an approval, tampered content is still withheld AND still named as
-// tampered. Moving the tamper rule below the allow changed which decisions it
-// can override; it did not make tamper quieter, and degrading it to a plain
-// "pending" would lose the one fact worth alarming about.
-func TestAuthorizer_RemoteInvalidSignatureWithoutApprovalIsStillTampered(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	fx := newTrustFixture(t)
-	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
-	itemRef := authorizerItemRef
+// The core property, at its new home: a tree whose files no longer match the
+// manifest its publisher signed does not become content.
+func TestRemoteTamperedTree_NeverBecomesAReadableBundle(t *testing.T) {
+	l, warnings := tamperedRemoteLoad(t, authorizerRemoteRef, authorizerBundle())
 
-	g := &contentGate{cfg: cfg, records: fx.records()}
-	v := admitFragment(t, g, read, itemRef, "KEEPER-PAYLOAD")
+	assert.Empty(t, l.Reads(), "tampered remote content must never become a readable bundle")
+	_, err := l.Read(authorizerRemoteRef)
+	require.Error(t, err, "and nothing may resolve it")
 
-	assert.False(t, v.Allow, "nothing justified exposure, so it stays withheld")
-	assert.Equal(t, bundles.ReasonTampered, v.Reason,
-		"the most specific true thing about it is that a signature does not cover its bytes")
-	assert.NotEqual(t, bundles.ReasonUnsigned, v.Reason,
-		"a broken signature is not a missing one")
+	assert.Contains(t, warnings, "does not match what was signed",
+		"the operator must be told the content disagrees with the signature")
+	assert.NotContains(t, warnings, "unattested",
+		"a broken signature is not a missing one — collapsing the two IS the spec 10.2 downgrade")
 }
 
-// Rejection is STEP 1 and stays above the tamper rule: both withhold, and the
-// user is told the more specific, actionable thing — their own decision.
-func TestAuthorizer_RejectionOutranksTamper(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+// AN APPROVAL CANNOT RESCUE IT, which INVERTS the decision this test used to
+// carry. A human's countersignature over exact bytes was allowed to stand above
+// a publisher signature that no longer covered them, knowingly making the
+// §10.2 downgrade reachable. A tampered tree now fails before any of that: there
+// is no read to approve, so the approval has nothing to attach to.
+//
+// The human decision that approval covers BYTES is untouched — it still stands
+// for every bundle that reads. What changed is that a tree which disagrees with
+// its own signed manifest is no longer among them.
+func TestRemoteTamperedTree_IsNotRescuedByAnApproval(t *testing.T) {
 	fx := newTrustFixture(t)
-	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
-	itemRef := authorizerItemRef
-	tRef := mustParseProducerRef(t, itemRef)
-	fx.rejectRef(tRef)
+	fx.approve(mustParseProducerRef(t, authorizerItemRef), signing.FormRaw, []byte("KEEPER-PAYLOAD"))
 
-	g := &contentGate{cfg: cfg, records: fx.records()}
-	v := admitFragment(t, g, read, itemRef, "KEEPER-PAYLOAD")
+	l, _ := tamperedRemoteLoad(t, authorizerRemoteRef, authorizerBundle())
 
-	assert.False(t, v.Allow)
-	assert.Equal(t, bundles.ReasonRejected, v.Reason,
-		"rejection is step 1; a user who rejected this must be told THAT, not a signature diagnosis")
+	assert.Empty(t, l.Reads(),
+		"an approval of exactly these bytes must not resurrect a tree that disagrees with its signed manifest")
+	_, err := l.Read(authorizerRemoteRef)
+	require.Error(t, err)
+}
+
+// A REJECTION reaches the same outcome by a shorter route, and the ordering it
+// pinned is now moot: rejection outranked tamper because both produced a read
+// and something had to name the more actionable one. Neither produces a read
+// now, so the user's own decision cannot be contradicted by a signature
+// diagnosis — there is no diagnosis to contradict it with.
+func TestRemoteTamperedTree_RejectionNeedsNoOrderingAgainstTamper(t *testing.T) {
+	fx := newTrustFixture(t)
+	fx.rejectRef(mustParseProducerRef(t, authorizerItemRef))
+
+	l, _ := tamperedRemoteLoad(t, authorizerRemoteRef, authorizerBundle())
+
+	assert.Empty(t, l.Reads(), "withheld either way; the precedence question no longer arises")
+	_, err := l.Read(authorizerRemoteRef)
+	require.Error(t, err)
+}
+
+// TestRemoteRead_CanNeverCarryAnInvalidSignature pins the CALLER INVARIANT that
+// two removed branches rest on, which DECISIONS.md P12 requires before either
+// may be removed: "removing a defensive branch whose unreachability rests on a
+// caller invariant now requires a test pinning that invariant."
+//
+// The branches are bundles.PublisherOf's remote-tampered arm and
+// operations.pendingReason's SignatureInvalid arm. Both answered the question
+// "what do we say about a REMOTE read whose signature does not cover its
+// bytes?", and both are gone because no such read can be produced: a remote
+// bundle is a tree, and a tree that disagrees with its signed manifest is
+// refused at the read.
+//
+// Without this test the removal is just a deletion. With it, a change that
+// reintroduces remote SignatureInvalid — a new reader, or a relaxation of
+// verifyTree — fails HERE, naming the invariant, instead of silently restoring
+// a state whose handling no longer exists.
+//
+// It enumerates every outcome a remote read can reach, so it cannot pass by
+// testing only the easy ones.
+func TestRemoteRead_CanNeverCarryAnInvalidSignature(t *testing.T) {
+	const ref = authorizerRemoteRef
+
+	assertRemoteNotInvalid := func(t *testing.T, l *bundles.Loader, wantSig bundles.Signature) {
+		t.Helper()
+		read := readOf(t, l, ref)
+		require.Equal(t, bundles.TrustCtxRemote, read.TrustCtx(), "the fixture must actually be remote")
+		assert.NotEqual(t, bundles.SignatureInvalid, read.Signature(),
+			"a REMOTE read must never carry SignatureInvalid: the branches that handled that state are gone")
+		assert.Equal(t, wantSig, read.Signature())
+	}
+
+	t.Run("unsigned tree is none, not invalid", func(t *testing.T) {
+		assertRemoteNotInvalid(t, seedLoader(t, map[string]*bundles.Bundle{ref: authorizerBundle()}), bundles.SignatureNone)
+	})
+
+	t.Run("signed by an untrusted key is valid, not invalid", func(t *testing.T) {
+		l, _ := seedUntrustedSigned(t, ref, authorizerBundle())
+		assertRemoteNotInvalid(t, l, bundles.SignatureValid)
+	})
+
+	t.Run("signed by a trusted key is valid", func(t *testing.T) {
+		assertRemoteNotInvalid(t, seedTrustedSigned(t, ref, "publisher@example.test", authorizerBundle()), bundles.SignatureValid)
+	})
+
+	// The fourth outcome is the one that used to be SignatureInvalid, and the
+	// whole invariant rests on it: signed-then-altered yields NO READ, so there
+	// is no signature fact for anything downstream to mishandle.
+	t.Run("signed then altered yields no read at all", func(t *testing.T) {
+		l, _ := tamperedRemoteLoad(t, ref, authorizerBundle())
+		assert.Empty(t, l.Reads(),
+			"if this ever returns a read, SignatureInvalid is reachable again and the removed branches must come back")
+	})
 }
 
 // --- rejection reaches every exemption -------------------------------------

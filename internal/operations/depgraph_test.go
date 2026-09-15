@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
@@ -77,11 +78,22 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 		urlX = "https://github.com/x/repo"
 		urlA = "https://github.com/a/repo"
 	)
-	bundleA := "version: \"1.0.0\"\nprofiles:\n  a:\n    bundles:\n      - " + urlX + "@bundles/x@h2222222\n"
-	fetcher := remote.NewMockFetcher().
-		WithFile(repoV2("akit"), []byte(bundleA))
+	// The parent is a SIGNED TREE, which is the only form a bundle-profile
+	// parent can be published in: its profile is a file beside the envelope,
+	// and the walk verifies the tree before reading it.
+	signer, trustRoot := seedSignerAs(t, "publisher@example.test")
+	files := signedTreeFiles(t, "akit", &bundles.Bundle{
+		Version: "1.0.0",
+		Profiles: map[string]bundles.BundleProfile{
+			"a": {Bundles: []string{urlX + "@bundles/x@h2222222"}},
+		},
+	}, signer)
 
-	w := newTestWalker(fetcher)
+	w := newTestWalker(remote.NewMockFetcher())
+	w.trustRoot = trustRoot
+	w.treeFetch = func(context.Context, remote.Fetcher, string, string, string, string, string) (map[string]remote.TreeFile, error) {
+		return files, nil
+	}
 	root := &profiles.Profile{
 		Name:    "local",
 		Bundles: []string{urlX + "@bundles/x@h1111111"},

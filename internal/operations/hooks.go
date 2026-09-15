@@ -891,6 +891,20 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []config.B
 	// Ingested AFTER the loader-resolved fragments so a builtin that was also
 	// selected by ref collapses into the selection, not the reverse.
 	for _, bf := range cfg.ResolveBuiltinBundleFragments(pipe.Authorizer()) {
+		// The SAME premise filter the loader-resolved loop above applies, for
+		// the same reason ingestBuiltinFragments applies it on the pull path:
+		// "always-on" describes not being profile-selected, never immunity
+		// from a premise. Without this a premised fragment was withheld from
+		// what AssembleContext returns and written into the SessionStart
+		// context file anyway — delivered twice, which is precisely the one
+		// coupling the pull and push layers must never break.
+		//
+		// nil body, as above: this path never sets onWithheld, and the index
+		// it builds has nowhere to go — regenerateContext returns a content
+		// hash for a file, not the structured offer AssembleContext returns.
+		if premises.withhold(bf.Name, bf.Premise, nil) {
+			continue
+		}
 		ingest.add(ingestedFragment{Ref: bf.Name, Name: bf.Name, Content: bf.Content})
 	}
 

@@ -2379,8 +2379,8 @@ type companionSeedState struct {
 // a bundle at a specific commit and parses the bytes into a Bundle. It dispatches
 // by the ref's SOURCE — the loader's multi-version coexistence backed end to end:
 //
-//   - remote/canonical ref → the FetchItem primitive over the local git clone
-//     cache (remote.FetchRefBytes), exactly as before;
+//   - remote/canonical ref → the whole pinned TREE out of the local git clone
+//     cache (bundles.ReadRemoteRef), verified before it is interpreted;
 //   - ctxloom:local ref → the file's bytes as of <commit> in the PROJECT'S OWN
 //     git history (the committed .ctxloom/content/ tree), via the local working-copy
 //     VCS — `git show <commit>:<path>` semantics. The unversioned local path is
@@ -2436,8 +2436,8 @@ func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
 			cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
 			factory = remote.NewCachedFetcherFactory(cache)
 		})
-		// ReadRemoteRef, not FetchRefBytes: a tree bundle's fragments, commands
-		// and skills are FILES beside its bundle.yaml, so parsing the manifest
+		// The WHOLE tree, not its manifest: a tree bundle's fragments, commands
+		// and skills are FILES beside its bundle.yaml, so reading the manifest
 		// alone resolved every @<commit>-pinned tree bundle to a bundle with
 		// zero items — the real product bundle, silently empty.
 		return bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, c.TrustRoot())

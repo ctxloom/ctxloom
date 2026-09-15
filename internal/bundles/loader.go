@@ -57,8 +57,8 @@ type Loader struct {
 // bundle, identified by its version-less CANONICAL ref ("<url>@bundles/<path>")
 // and an opaque commit revision, returning the parsed bundle as it existed at
 // that commit. It backs the loader's per-version resolution: production wires it
-// to the remote FetchItem primitive (remote.FetchRefBytes over the local clone
-// cache); tests inject a fake. A non-nil error withholds that version
+// to the remote tree read (bundles.ReadRemoteRef over the local clone cache);
+// tests inject a fake. A non-nil error withholds that version
 // (fail-closed) — the loader never falls back to a different version on failure.
 type BundleVersionResolver func(canonicalRef, commit string) (*Bundle, error)
 

@@ -177,7 +177,7 @@ func signTreeAndCommit(t *testing.T, repoDir, bundleName string, signer ssh.Sign
 // that is published as a DIRECTORY. `demo` is reachable ONLY through the
 // `parent` profile shipped inside the `kit` bundle, so its presence in the
 // lockfile is proof the walk read kit's manifest out of the tree and followed
-// what it composes. Without a tree fallback in remote.FetchRefBytes the walk
+// what it composes. Without a whole-tree read the walk
 // degrades to markUnexpanded plus a warning and the command still reports
 // success — a silently INCOMPLETE closure, which is the failure this asserts
 // against.

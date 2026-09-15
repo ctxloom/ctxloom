@@ -54,7 +54,7 @@ func TestGitCloneFetcher_OwnerAndRepoAreInert_Characterization(t *testing.T) {
 	t.Run("every production caller derives them from the fetcher's OWN url", func(t *testing.T) {
 		// The consequence half of the row -- "a caller that believes it scoped
 		// a read to a repository did not" -- has no live instance, and this is
-		// why. BundleReader.fetchAtLockedSHA and FetchRefBytes both build the
+		// why. BundleReader.fetchAtLockedSHA and FetchRef both build the
 		// fetcher from a URL and then parse that SAME URL for owner/repo, so
 		// the arguments cannot disagree with the binding.
 		owner, repo, err := ParseOwnerRepo("https://github.com/alice/ctxloom")

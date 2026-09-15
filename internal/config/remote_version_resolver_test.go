@@ -161,11 +161,10 @@ func remoteTreeContentRepo(t *testing.T) (repoDir, rev1, rev2 string, pub ssh.Pu
 
 // TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle pins the capability
 // childlike-failing named as dead: resolving a version constraint against a
-// DIRECTORY-form bundle at an arbitrary historical commit. remote.FetchRefBytes
-// builds a single file path from the ref, and since the v1 removal that file
-// does not exist for any published bundle — without a tree fallback this fails
-// closed and the caller withholds the item, so no tree bundle can carry a
-// version constraint at all.
+// DIRECTORY-form bundle at an arbitrary historical commit. The ref names a
+// single file path that, since the v1 removal, exists for no published bundle;
+// without the tree read this fails closed and the caller withholds the item, so
+// no tree bundle could carry a version constraint at all.
 func TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle(t *testing.T) {
 	testsupport.Isolate(t)
 	repoDir, rev1, rev2, pub := remoteTreeContentRepo(t)

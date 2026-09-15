@@ -28,8 +28,8 @@ import (
 // entry, hook or profile: parsing it yields an envelope with every item map
 // empty. A caller that fetched a whole tree and then parsed only its manifest
 // got a bundle that loaded, assembled and delivered nothing, with no error
-// anywhere — which is what remote.FetchRefBytes hands back and why anything
-// wanting the bundle must come here instead.
+// anywhere. Reading a tree's manifest alone is what this function exists to
+// stop being possible.
 //
 // # Why it lives in this package and not beside the fetch
 //

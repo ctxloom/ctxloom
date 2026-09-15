@@ -384,7 +384,7 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 	}
 	w.visited[guard] = struct{}{}
 
-	// ReadRemoteRef, not FetchRefBytes: a tree bundle's profiles are FILES
+	// The WHOLE tree, not its manifest: a tree bundle's profiles are FILES
 	// beside its bundle.yaml, so the manifest alone can never carry the profile
 	// looked up below — the lookup failed structurally for every tree-form
 	// parent, which is every published bundle.

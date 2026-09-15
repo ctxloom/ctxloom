@@ -103,10 +103,13 @@ func verifyRemoteTree(ctx context.Context, tree content.Bundle, root signing.Tru
 		return fmt.Errorf("bundles: refusing to read remote tree bundle %s at %s: its files no longer match %s: %w",
 			treeRoot, sha, content.ManifestPath, verdict.Contents)
 	}
+	// verdict.Verdict.OK(), not verdict.OK(): BundleVerdict.OK() folds in the
+	// Contents check already reported above, and collapsing the two would send
+	// a tree/manifest disagreement to the "nobody trusts this key" sentence.
 	if !verdict.Verdict.OK() {
 		return fmt.Errorf("bundles: refusing to read remote tree bundle %s at %s: %s — %s "+
 			"(its item files would otherwise reach a session unverified; trust the publisher's key, or pin a commit they signed)",
-			treeRoot, sha, verdict.Verdict.Status, verdict.Verdict.Detail)
+			treeRoot, sha, verdict.Status, verdict.Detail)
 	}
 	return nil
 }

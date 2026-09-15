@@ -8,7 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
@@ -88,4 +92,33 @@ func TestWatch_StopReturnsPromptlyWhenTheOperationFinishesFirst(t *testing.T) {
 	stop()
 	require.Less(t, time.Since(start), lockwait.After,
 		"stop() must return well before the watchdog's own timer, or it is not actually standing the goroutine down")
+}
+
+// TestWatch_AWaitPastItsBudgetLeavesAStructuredRecord is the durable half of
+// the contract. The stderr line above reaches an operator who is watching;
+// on a runner whose stderr is an unread pty it reaches nobody, and after the
+// process exits there is nothing left to read. The structured log is the
+// channel that outlives the process, so a wait past After must also land
+// there — as a record with a level, a message and the label as a field, not
+// as text to be scraped.
+//
+// The observer replaces the process-wide logger for the duration, so nothing
+// here depends on a log file or on stderr at all.
+func TestWatch_AWaitPastItsBudgetLeavesAStructuredRecord(t *testing.T) {
+	core, logs := observer.New(zapcore.WarnLevel)
+	restore := zap.ReplaceGlobals(zap.New(core))
+	defer restore()
+
+	stop := lockwait.Watch("a call parked past its budget")
+	defer stop()
+
+	require.Eventually(t, func() bool { return logs.Len() > 0 },
+		lockwait.After+10*time.Second, 50*time.Millisecond,
+		"a wait past After left no structured record; only the stderr line exists, and that dies with the process")
+
+	entries := logs.FilterMessage(lockwait.LogWaitExceeded).All()
+	require.Len(t, entries, 1, "exactly one record per watched wait; got %v", logs.All())
+	assert.Equal(t, zapcore.WarnLevel, entries[0].Level, "a wait past budget is a warning, not information")
+	assert.Equal(t, "a call parked past its budget", entries[0].ContextMap()["path"],
+		"the record names WHAT was waited on, or it cannot be matched to a stall afterwards")
 }

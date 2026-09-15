@@ -9,6 +9,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -237,4 +240,52 @@ func (s *signallingSink) Write(p []byte) (int, error) {
 	default:
 	}
 	return len(p), nil
+}
+
+// TestAgentRun_ASpawnStillPreparingLeavesAStructuredRecord is the third leg
+// of the pending-spawn notice. The clidiag warning reaches an operator who is
+// watching; the audit fact survives in the coordinator's own journal; but the
+// project's post-mortem channel is the structured log, and a package that
+// never writes there leaves a stall invisible to anyone reading ctxloom.log
+// after the fact. The record is asserted by level, message and fields, never
+// by scraping text.
+func TestAgentRun_ASpawnStillPreparingLeavesAStructuredRecord(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp.resolveEntered = make(chan string, 1)
+	sp.resolveGate = make(chan struct{})
+	c := newTestCoordinator(t, sp, nil)
+	c.spawnNoticeAfter = time.Millisecond
+
+	core, logs := observer.New(zapcore.WarnLevel)
+	restoreLogger := zap.ReplaceGlobals(zap.New(core))
+	defer restoreLogger()
+	// The clidiag line still prints; route it somewhere a parallel test
+	// cannot see it and this test does not read it.
+	restore := clidiag.SetSink(&signallingSink{seen: make(chan string, 4)})
+	defer restore()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+		done <- err
+	}()
+
+	require.Eventually(t, func() bool { return logs.FilterMessage(logSpawnPending).Len() == 1 },
+		conformanceWait, 5*time.Millisecond,
+		"a spawn parked past its notice budget wrote no structured record; nothing on disk outlives the stderr line. Records seen: %v", logs.All())
+	entry := logs.FilterMessage(logSpawnPending).All()[0]
+	assert.Equal(t, zapcore.WarnLevel, entry.Level, "a spawn past budget is a warning")
+	fields := entry.ContextMap()
+	assert.Equal(t, ownerIdentity().Harp, fields["caller"], "the record names the caller")
+	assert.Equal(t, "worker", fields["agent"], "…and the agent being spawned")
+	assert.Equal(t, c.spawnNoticeAfter, fields["after"], "…and the budget it outran")
+
+	close(sp.resolveGate)
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(conformanceWait):
+		t.Fatal("AgentRun never returned")
+	}
 }

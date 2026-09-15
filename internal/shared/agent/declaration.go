@@ -63,15 +63,19 @@ type Construct func(in SurfaceInputs, fs afero.Fs) Approach
 // Deliver, without the race warning; a shared launch with no stated
 // preference prefers an approach that has one over the at-rest default.
 //
-// It is a second FORM of one approach rather than a separate approach because
-// that is what keeps two observable behaviours exactly as they are: a
-// well-known-file approach pinned on a shared launch is converted to its
-// out-of-cwd form, and the same approach on an isolated cell lands as the
-// well-known file — an isolated cell's private directory makes that write
-// race-free, so nothing needs converting there.
+// It is RESIDUE, and settings is the last approach that has one. Being a second
+// FORM rather than a separate approach is what made the conversion invisible:
+// a caller that named the well-known file got the private one instead, on a
+// shared launch, and was told it succeeded — while the SAME selection on an
+// isolated cell got the well-known file. One name, two behaviours, neither of
+// them the caller's choice. Context and MCP were split into separate approaches
+// for that reason; settings cannot be split while an isolated cell's scratch IS
+// its checkout, because a private --settings file would land at the well-known
+// path AND be announced on the flag, registering claude's hooks twice.
 //
 // Omitting it is the safe direction: an approach without it is warned and not
-// preferred, never silently treated as race-free.
+// preferred, never silently treated as race-free. Prefer declaring one
+// single-form approach per behaviour over adding a second form here.
 type OutOfCwd interface {
 	DeliverIsolated(start present.Start) (Delivered, error)
 }

@@ -33,8 +33,8 @@ type fileTemplateDelivery struct {
 	selfContainedCommands bool
 	// mcpCommandOverride, when non-empty, replaces agent.CtxloomCommand() as
 	// the ctxloom-managed .mcp.json entry's command (see
-	// agent.ResolveMCPCommand). Only mcpSurface.Deliver/DeliverIsolated set
-	// this (from SurfaceInputs.MCPCommandOverride) — irrelevant to
+	// agent.ResolveMCPCommand). Only mcpWriter.deliver sets this, for both MCP
+	// approaches (from SurfaceInputs.MCPCommandOverride) — irrelevant to
 	// DeliverCommands/DeliverSettings and left "" everywhere else.
 	mcpCommandOverride string
 	// denyTools, when non-empty, is unioned into the settings surface's

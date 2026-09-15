@@ -220,7 +220,9 @@ func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Re
 	}
 
 	promptContent := turnPromptContent(req)
-	runTurnSetup(ctx, impl, req, env)
+	if err := runTurnSetup(ctx, impl, req, env); err != nil {
+		return nil, err
+	}
 	execReq := turnExecuteRequest(req, promptContent, env, stdin, stdinCleanup, resize)
 	if wrapStreams != nil && execReq.Mode == agent.ModeInteractive && execReq.Stdin != nil {
 		wrappedStdin, wrappedStdout, release := wrapStreams(execReq.Stdin, stdout)
@@ -300,14 +302,15 @@ func turnPromptContent(req *RunStart) string {
 // runTurnSetup runs the backend's Setup for this turn, unless the turn asked to
 // skip it (distillation/minimal mode).
 //
-// Fault tolerance (CLAUDE.md): the user must reach their LLM "even through most
-// misconfigurations." Setup does load-bearing-but-non-essential work — context
-// provision, command registration, settings + hook flush — any of which can
-// fail on a bad write without making the agent unlaunchable. A failure is
-// warned and the turn proceeds to Execute, matching the documented startup
-// sequence ("apply hooks: warn on errors, continue" / "always respond with
-// initialized"). It is therefore not an error the caller can act on.
-func runTurnSetup(ctx context.Context, impl agent.Backend, req *RunStart, env map[string]string) {
+// A Setup failure STOPS the turn. Setup is what delivers the run's context, its
+// MCP servers and its hooks; a turn that launches without them is not a
+// degraded version of the run the user asked for, it is a different run that
+// reports success. This used to warn "launching anyway" and proceed, on the
+// reasoning that the user should reach their LLM through a misconfiguration —
+// but the cost of that reasoning is a launch with no context and exit 0, which
+// is precisely the silent no-op this project refuses. The error reaches the
+// caller so the launch can fail with it and name the remedy.
+func runTurnSetup(ctx context.Context, impl agent.Backend, req *RunStart, env map[string]string) error {
 	opts := req.GetOptions()
 	setupReq := &agent.SetupRequest{
 		WorkDir:   opts.GetWorkDir(),
@@ -330,8 +333,9 @@ func runTurnSetup(ctx context.Context, impl agent.Backend, req *RunStart, env ma
 		Model: opts.GetModel(),
 	}
 	if err := impl.Setup(ctx, setupReq); err != nil {
-		clidiag.Warn("ctxloom", "backend setup failed (launching anyway): %v", err)
+		return fmt.Errorf("backend setup failed, so the turn was not launched: %w", err)
 	}
+	return nil
 }
 
 // turnExecuteRequest decodes a RunStart into the backend's ExecuteRequest. It

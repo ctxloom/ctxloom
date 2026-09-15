@@ -32,7 +32,7 @@ func TestDeliveries_ResolvedSelectionMaterializesEverySurface(t *testing.T) {
 	for _, name := range nativeSurfaceBackends(t) {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
-			root := "/cell"
+			root, home := "/cell", "/engine-home"
 			require.NoError(t, fs.MkdirAll(root, 0o755))
 
 			decl := Declared(name)
@@ -54,7 +54,7 @@ func TestDeliveries_ResolvedSelectionMaterializesEverySurface(t *testing.T) {
 				"%s: WithEverything must resolve one delivery per advertised kind", name)
 
 			for _, kd := range deliveries {
-				_, err := kd.Deliver(present.ProjectOnHost(root))
+				_, err := kd.Deliver(isolatedCellRoots(root, home))
 				require.NoError(t, err, "%s: %s failed to deliver", name, kd.Kind())
 			}
 
@@ -104,4 +104,19 @@ func treeOf(t *testing.T, fs afero.Fs, root string) map[string]string {
 		return nil
 	}))
 	return out
+}
+
+// isolatedCellRoots advises the roots an ISOLATED cell resolves: the private
+// checkout is both the project root and this run's scratch, and home is the
+// run's relocated engine home. present.ProjectOnHost advises only the first,
+// which is right for the at-rest callers it exists for but not for a cell —
+// an approach whose one form lands beneath the engine home refuses an
+// unadvised one rather than falling back to the project file, so a one-root
+// Start under-describes the cell and fails for the wrong reason.
+func isolatedCellRoots(dir, home string) present.Start {
+	return present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: dir},
+		Scratch:     present.Root{Host: dir},
+		EngineHome:  present.Root{Host: home},
+	}))
 }

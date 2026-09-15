@@ -20,11 +20,14 @@ import (
 // TestWorktreeMember_ManagedConfigLandsInWorktree is the P3 write-enable
 // integration gate (real git repo + the worktree policy + a real backend Setup):
 // an ISOLATED member's per-member managed config is materialized into the WORKTREE
-// cwd, the shared project dir working tree is left untouched, and the worktree's
-// common-dir info/exclude carries the artifact patterns (§3.1). It exercises the
-// same two load-bearing pieces the fan-out composes — the worktree Workspace and
-// the plugin Setup writing the host-assembled ManagedConfig into ws.Dir() — without
-// spawning a subprocess. Skips cleanly when git is unavailable.
+// cwd (the project-file surfaces) and beneath the member's relocated engine home
+// (the private default .mcp.json — never the checkout, which for a container
+// with workspace: none is the live project mount), the shared project dir
+// working tree is left untouched, and the worktree's common-dir info/exclude
+// carries the artifact patterns (§3.1). It exercises the same two load-bearing
+// pieces the fan-out composes — the worktree Workspace and the plugin Setup
+// writing the host-assembled ManagedConfig into ws.Dir() — without spawning a
+// subprocess. Skips cleanly when git is unavailable.
 func TestWorktreeMember_ManagedConfigLandsInWorktree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH; skipping the worktree managed-config integration test")
@@ -75,18 +78,25 @@ func TestWorktreeMember_ManagedConfigLandsInWorktree(t *testing.T) {
 	// Drive the SAME Setup the plugin runs, targeting the worktree cwd. An ISOLATED
 	// member runs in a DirectoryIsolated cell (as the host maps the worktree policy
 	// via operations.CellKindForPolicy), so a real claude backend writes its
-	// well-known files — .mcp.json / .claude/ / CLAUDE.md — into the private WorkDir.
+	// well-known files — .claude/ / CLAUDE.md — into the private WorkDir, and the
+	// default private .mcp.json beneath the engine home the run env advises on
+	// claude's declared home var (what BindAgentHome contributes for a binding
+	// that declares engine_home: session).
+	engineHome := t.TempDir()
 	backend := claude.NewClaudeCode()
 	require.NoError(t, backend.Setup(ctx, &agent.SetupRequest{
 		WorkDir:   ws.Dir(),
+		Env:       map[string]string{claude.ConfigDirEnv: engineHome},
 		Fragments: []*agent.Fragment{{Content: "PER-MEMBER CONTEXT BODY"}},
 		Managed:   managed,
 		CellKind:  agent.CellKindDirectoryIsolated,
 	}))
 
-	// Managed config landed in the WORKTREE, not the project dir.
-	assert.FileExists(t, filepath.Join(ws.Dir(), ".mcp.json"), "managed .mcp.json is written into the worktree cwd")
+	// Project-file config landed in the WORKTREE, the private MCP file beneath
+	// the engine home, and neither in the project dir.
 	assert.DirExists(t, filepath.Join(ws.Dir(), ".claude"), "managed .claude/ is written into the worktree cwd")
+	assert.FileExists(t, filepath.Join(engineHome, ".mcp.json"), "the default managed .mcp.json is written beneath the engine home")
+	assert.NoFileExists(t, filepath.Join(ws.Dir(), ".mcp.json"), "the private .mcp.json never lands in the checkout")
 
 	// The shared project dir working tree is untouched (no per-member config leaks).
 	assert.NoFileExists(t, filepath.Join(repo, ".mcp.json"), "the project dir keeps no per-member .mcp.json")

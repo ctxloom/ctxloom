@@ -113,6 +113,26 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 		return callTool(c, name, args)
 	})
 
+	// The server loads its config ONCE, at startup (loadStartupConfig), and
+	// the mock engine's reply rides that config's llm.configs.mock.env — so a
+	// "the mock LLM responds" step taken AFTER the first tool call changes
+	// nothing the running server can see. Restarting is what makes a
+	// re-pointed mock reach the server, and it is also the production shape:
+	// the session that loads an essence is rarely the one that compacted it.
+	// The next tool call starts a fresh server under the same isolated env,
+	// CTXLOOM_SESSION_HARP included, so the caller's identity survives.
+	ctx.Step(`^the MCP server is restarted$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if w.mcp == nil {
+			return fmt.Errorf("no MCP server is running to restart: a restart only means something after a tool call has started one")
+		}
+		if err := w.mcp.Close(); err != nil {
+			return fmt.Errorf("stop mcp server for restart: %w", err)
+		}
+		w.mcp = nil
+		return nil
+	})
+
 	ctx.Step(`^the tool call succeeds$`, func(c context.Context) error {
 		return assertToolCallSucceeds(worldFrom(c))
 	})
@@ -161,6 +181,26 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 		}
 		if !strings.Contains(string(innerJSON), want) {
 			return fmt.Errorf("tool result does not contain %q; unwrapped result:\n%s", want, innerJSON)
+		}
+		return nil
+	})
+
+	// The negative half of "the tool result contains", and it only means
+	// anything PAIRED with the positive one: a scenario proves the tool
+	// answered X INSTEAD OF Y, never merely that Y is absent. Matches the
+	// same unwrapped payload, and fails loud on an envelope that could not be
+	// unwrapped rather than finding Y vacuously absent from nothing.
+	ctx.Step(`^the tool result does not contain "([^"]*)"$`, func(c context.Context, unwanted string) error {
+		w := worldFrom(c)
+		if w.lastInnerErr != nil {
+			return fmt.Errorf("tool result envelope could not be unwrapped: %v; result:\n%s", w.lastInnerErr, w.lastTool.JSON())
+		}
+		innerJSON, err := json.Marshal(w.lastInner)
+		if err != nil {
+			return fmt.Errorf("re-marshal unwrapped tool result: %w; result:\n%s", err, w.lastTool.JSON())
+		}
+		if strings.Contains(string(innerJSON), unwanted) {
+			return fmt.Errorf("tool result contains %q and must not; unwrapped result:\n%s", unwanted, innerJSON)
 		}
 		return nil
 	})

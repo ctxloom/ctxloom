@@ -234,6 +234,58 @@ Feature: MCP tools
     And the tool result field "was_cached" equals "true"
     And the tool result field "session_id" equals "seeded-quiet-ember-drift"
 
+  # THE READ-BACK. Every scenario above proves what compact_session WRITES and
+  # that a second compact_session finds it. None proves that the tools a
+  # caller actually reaches for afterwards — load_session, recover_session —
+  # read that essence rather than quietly distilling the transcript again.
+  # Both answer through loadOrDistillSession, whose cache lookup is keyed by
+  # a DIFFERENT path (segments/<session_id>.md via memory.LoadDistilledSession)
+  # than the one compact_session checks (ReadHarpEssence), so agreement
+  # between the two is a property to prove, not a given.
+  #
+  # Only a payload DIFFERENTIAL can tell the two apart: a regenerated essence
+  # is a well-formed, loaded=true, correct-looking answer, and every field a
+  # read-back would carry, a regeneration carries too. So the mock is
+  # re-pointed BETWEEN the compaction and the load. A read-back still carries
+  # the FIRST reply, because that is what is on disk. A regeneration never
+  # does, whatever its body turns out to be — the re-pointed reply, or the
+  # transcript echoed back — which is why the FIRST assertion is the one that
+  # kills a regeneration and the SECOND assertion is the one that names it.
+  # The server is restarted between the two because it loads config once, at
+  # startup — the re-pointed mock cannot reach a running server — and because
+  # that is the production shape anyway: the session that loads is not the
+  # one that compacted.
+  #
+  # Same two-harp discipline as above: the caller is host-caller-thistle and
+  # the session it compacts and then loads is quiet-ember-drift, addressed by
+  # its backend-native id, so a read-back keyed off the caller's own harp
+  # finds nothing and falls through to a regeneration that this catches.
+  Scenario: load_session reads back a compacted essence rather than distilling it again
+    Given an initialized ctxloom project
+    And the session harp is "host-caller-thistle"
+    And a captured session "quiet-ember-drift" bound to a backend-native session id
+    And the mock LLM responds "FIRST-DISTILLATION-ON-DISK"
+    When the agent calls tool "compact_session" with:
+      | session_id | seeded-quiet-ember-drift |
+    Then the tool call succeeds
+    And the essence the tool reports writing contains "FIRST-DISTILLATION-ON-DISK"
+    Given the mock LLM responds "SECOND-DISTILLATION-MUST-NOT-RUN"
+    And the MCP server is restarted
+    When the agent calls tool "load_session" with:
+      | session_id | seeded-quiet-ember-drift |
+    Then the tool call succeeds
+    And the tool result field "loaded" equals "true"
+    And the tool result field "was_cached" equals "true"
+    And the tool result contains "FIRST-DISTILLATION-ON-DISK"
+    And the tool result does not contain "SECOND-DISTILLATION-MUST-NOT-RUN"
+    When the agent calls tool "recover_session" with:
+      | session_id | seeded-quiet-ember-drift |
+    Then the tool call succeeds
+    And the tool result field "loaded" equals "true"
+    And the tool result field "was_cached" equals "true"
+    And the tool result contains "FIRST-DISTILLATION-ON-DISK"
+    And the tool result does not contain "SECOND-DISTILLATION-MUST-NOT-RUN"
+
   # THE OTHER LEG of the same resolution, and a genuinely different line of
   # code. session_id is whatever the caller has to hand, and the two forms it
   # accepts do not share a lookup: operations.GetSession matches on HarpName

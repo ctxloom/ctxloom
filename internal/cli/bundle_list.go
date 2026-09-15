@@ -195,10 +195,11 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// TR4 interactive trust review: render per-item effective trust and offer a
-	// per-hook trust/blacklist action. TTY-gated and json-suppressed so the bundle
-	// body above (and `--format json`) is byte-for-byte unchanged; all trust UI
-	// goes to stderr. Viewing never trusts.
-	if bundleShowInteractive && outputFormatOf(cmd) != formatJSON && isInteractiveTerminal() {
+	// per-hook trust/blacklist action. TTY-gated and suppressed for every
+	// structured format so the bundle body above is byte-for-byte unchanged and
+	// a machine caller is never parked on a prompt; all trust UI goes to
+	// stderr. Viewing never trusts.
+	if bundleShowInteractive && !wantsStructuredOutput(cmd) && isInteractiveTerminal() {
 		return offerBundleTrust(cmd, cfg, name, bundle)
 	}
 	return nil

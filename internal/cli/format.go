@@ -88,6 +88,22 @@ func reviewWantsListing(cmd *cobra.Command, listFlag, interactive bool) bool {
 	return err != nil || format != clifmt.FormatText
 }
 
+// wantsStructuredOutput reports whether this invocation's --format is one a
+// script parses (clifmt.Format.Structured: json, yaml, toml). It is the
+// predicate for a decision made AROUND rendering — stamping a field only a
+// machine reads, or withholding a prompt from a caller that cannot answer one
+// — and it must never narrow to "exactly json": the structured formats share
+// one contract, and a value stamped for one of them and zero-valued for the
+// others is a wrong answer, not a missing one. An unparsable --format reads
+// as not structured; emit() is where that failure is reported.
+//
+// This deliberately does NOT mark formatWasHonored: the proof of honoring is
+// emit() actually rendering, which every caller here also does.
+func wantsStructuredOutput(cmd *cobra.Command) bool {
+	format, err := cliemit.Resolve(cmd)
+	return err == nil && format.Structured()
+}
+
 // formatWasHonored is the runtime guard against --format being registered
 // globally but honoured opt-in, with nothing binding the two — so it would
 // otherwise be accepted and silently ignored on dozens of commands. --format

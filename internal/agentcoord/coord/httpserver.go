@@ -259,17 +259,25 @@ func (s *coordServing) ensureWide() (string, error) {
 	// candidate set fails loudly at the spawn verb.
 	candidates := containerReachIPs()
 	if len(candidates) == 0 {
-		return "", errors.New("no container-reachable host interface found (no bridge gateway, no primary outbound IP)")
+		return "", errors.New("no container-reachable host interface found: no container runtime bridge gateway was reported, " +
+			"and primaryOutboundIP() came back empty, which means this host has NO DEFAULT ROUTE " +
+			"(the UDP probe it uses cannot pick a source address without one). A container cannot reach " +
+			"the coordinator until the host has a route or a runtime bridge.")
 	}
 	port := s.widePort // recorded port first (stable re-bindable endpoint)
 	var bound []net.Listener
 	var boundIPs []string
+	// The per-candidate errors are kept because the failure below needs a route
+	// flap to reproduce and the candidate list alone says neither WHICH address
+	// refused nor why, which sends the reader to inspect interfaces by hand.
+	var bindErrs []string
 	for attempt := 0; attempt < 2; attempt++ {
-		bound, boundIPs = nil, nil
+		bound, boundIPs, bindErrs = nil, nil, nil
 		for _, ip := range candidates {
 			addr := net.JoinHostPort(ip, fmt.Sprint(port))
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
+				bindErrs = append(bindErrs, fmt.Sprintf("%s: %v", addr, err))
 				continue
 			}
 			if port == 0 {
@@ -287,7 +295,8 @@ func (s *coordServing) ensureWide() (string, error) {
 		port = 0 // recorded port unavailable on every candidate: re-pick
 	}
 	if len(bound) == 0 {
-		return "", fmt.Errorf("could not bind a container-reachable listener on any of %v", candidates)
+		return "", fmt.Errorf("could not bind a container-reachable listener on any candidate; each was tried and refused: %s",
+			strings.Join(bindErrs, "; "))
 	}
 	for _, ln := range bound {
 		go func(l net.Listener) { _ = s.httpSrv.Serve(l) }(ln)

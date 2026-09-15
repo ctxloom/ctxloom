@@ -155,11 +155,37 @@ func TestPendingReview_ContentAndRendering(t *testing.T) {
 	skill := byRef[seedItemRef(t, reviewSeedKey, "skills/humanize")]
 	assert.False(t, skill.Executable, "a skill is a reviewable TREE, not an opaque executable surface")
 	assert.Contains(t, skill.CurrentContent, "SKILL.md")
-	assert.Contains(t, skill.CurrentContent, "sha256:skillmd1")
 	assert.Contains(t, skill.CurrentContent, "mode:0644")
 	assert.Contains(t, skill.CurrentContent, "scripts/run.sh")
-	assert.Contains(t, skill.CurrentContent, "sha256:script1")
 	assert.Contains(t, skill.CurrentContent, "mode:0755")
+
+	// The hashes are asserted by SHAPE, not by value, and that is a
+	// strengthening rather than a retreat. They used to be fixture literals
+	// ("sha256:skillmd1") that nothing computed — an assertion that would pass
+	// just as happily over a fabricated digest. A tree holds the skill's files,
+	// so the manifest is generated from the bytes actually present: what is
+	// checked now is that EVERY listed file carries a real, full-length digest.
+	for _, line := range strings.Split(strings.TrimSpace(skill.CurrentContent), "\n") {
+		_, rest, ok := strings.Cut(line, "sha256:")
+		require.True(t, ok, "every manifest line names a digest: %q", line)
+		digest, _, _ := strings.Cut(rest, " ")
+		assert.Len(t, digest, 64, "a real SHA-256 is 64 hex characters, not a fixture string: %q", line)
+	}
+}
+
+// skillManifestLines indexes a rendered skill manifest by file path, so a test
+// can compare one file's line across two renderings without naming a digest no
+// fixture can know in advance.
+func skillManifestLines(t *testing.T, rendered string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(rendered), "\n") {
+		path, _, ok := strings.Cut(line, "  ")
+		require.True(t, ok, "every manifest line is %q-separated: %q", "  ", line)
+		out[path] = line
+	}
+	require.NotEmpty(t, out, "a rendered skill manifest must list its files")
+	return out
 }
 
 // TestPendingReview_DecidedAndExemptExcluded: approved-at-current-bytes,
@@ -328,15 +354,22 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 			}
 		}
 		assert.Equal(t, ReviewStatusUpdate, item.Status, "editing any one file in the tree must re-trigger review")
-		assert.Contains(t, item.PreviousContent, "sha256:script1")
 		assert.Contains(t, item.PreviousContent, "mode:0755")
-		assert.Contains(t, item.CurrentContent, "sha256:script2-tampered")
 		assert.Contains(t, item.CurrentContent, "mode:0644")
-		// The untouched SKILL.md line is identical in both — a per-file diff
-		// (not a "the whole skill changed" bookkeeping bit) is what lets a
-		// human see exactly which file moved.
-		assert.Contains(t, item.PreviousContent, "SKILL.md  sha256:skillmd1  mode:0644")
-		assert.Contains(t, item.CurrentContent, "SKILL.md  sha256:skillmd1  mode:0644")
+
+		// A PER-FILE diff, asserted by comparing the two renderings line by
+		// line rather than against literal digests. A tree generates its
+		// manifest from the bytes present, so the digests are real and no
+		// fixture can state them up front — but what this test is about was
+		// never a particular hash. It is that the edited file's line MOVED
+		// while the untouched file's line did NOT, which is what lets a human
+		// see exactly which file changed instead of "the skill changed".
+		prev := skillManifestLines(t, item.PreviousContent)
+		cur := skillManifestLines(t, item.CurrentContent)
+		assert.Equal(t, prev["SKILL.md"], cur["SKILL.md"],
+			"the untouched file's line must be byte-identical across the diff")
+		assert.NotEqual(t, prev["scripts/run.sh"], cur["scripts/run.sh"],
+			"the edited file's line must differ — otherwise nothing re-triggered review")
 	})
 
 	t.Run("missing snapshot degrades to full content, never an error", func(t *testing.T) {
@@ -501,29 +534,36 @@ func TestPendingReview_DualFormExposesBothForms(t *testing.T) {
 // treatment for consistency but have no failure this suite can force.
 func TestPendingReview_UnreadableSkillIsWarned(t *testing.T) {
 	fx := newTrustFixture(t)
+
+	// A HOSTILE PUBLISHER again: content.Writer refuses to write a skill
+	// package with no SKILL.md ("wrong surface type"), which is right for
+	// anyone publishing through ctxloom and useless for a fixture about a
+	// package that arrived broken. So the directory is written straight into
+	// the tree, holding a file that is not a SKILL.md.
 	b := &bundles.Bundle{
-		Version: "1.0",
-		Path:    "seed/broken-skills.yaml", // gives FSDir() a real directory
-		Skills: map[string]bundles.BundleSkill{
-			"ghost": {}, // manifest-less: no Files, and no SKILL.md on the fs below
-		},
+		Version:   "1.0",
+		Fragments: map[string]bundles.BundleFragment{"decoy": {ItemBody: bundles.ItemBody{Content: "body"}}},
 	}
+	tree := seedHostileTree(t, reviewSeedKey, b, map[string][]byte{
+		"skills/ghost/notes.txt": []byte("no SKILL.md here\n"),
+	})
+	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, reviewSeedKey,
+		bundles.WithRepoURL(seedRepoURL(t, reviewSeedKey))))
 
 	var buf strings.Builder
 	restore := clidiag.SetSink(&buf)
-	defer restore()
-
 	res, err := PendingReview(nil, PendingReviewRequest{
 		UserStore: fx.user, Root: fx.root,
 		Registry: newRegistry(t),
-		Loader:   reviewLoader(t, b),
-		FS:       afero.NewMemMapFs(), // empty: no SKILL.md anywhere
+		Loader:   loader,
+		FS:       afero.NewMemMapFs(),
 	})
+	restore()
 	require.NoError(t, err)
 
-	assert.Empty(t, pendingRefs(res), "an unparseable skill must still be withheld from review")
+	assert.Empty(t, pendingRefs(res), "an unreadable skill must still be withheld from review")
 	assert.Contains(t, buf.String(), "ghost",
-		"an EffectiveManifest failure must be warned like classify's structurally identical case, not silently dropped")
+		"the unreadable package must be NAMED — a silently dropped skill is the failure this guards")
 }
 
 // TestRenderMCPSurface_EmptyServerShowsMarker is a regression guard: an MCP
@@ -567,7 +607,7 @@ func TestRenderHookSurface_NoCommandOrPromptShowsMarker(t *testing.T) {
 // signature that failed to verify read as no signature.
 const reviewPubRef = "https://example.test/repo@bundles/pub"
 
-func TestReviewPublisherOf_FourStates(t *testing.T) {
+func TestReviewPublisherOf_ThreeReachableStates(t *testing.T) {
 	b := &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
 		ItemBody: bundles.ItemBody{
 			Content: "x",
@@ -592,14 +632,21 @@ func TestReviewPublisherOf_FourStates(t *testing.T) {
 	assert.Equal(t, "runbooks@acme.example", principal)
 	assert.Empty(t, fingerprint, "a verified bundle shows its identity, never a fingerprint to compare")
 
-	// The state the old vocabulary could not spell. A trusted key's signature
-	// that no longer covers these bytes is TAMPER, and reporting it as
-	// "unsigned" is the §10.2 downgrade told to a human.
+	// THERE IS NO FOURTH STATE ANY MORE, and this is where that shows.
+	//
+	// A trusted key's signature that no longer covers these bytes used to be a
+	// state this function had to spell, because reporting it as "unsigned"
+	// would be the §10.2 downgrade told to a human. A remote bundle is now a
+	// tree verified against its signed manifest at the read, so those bytes
+	// never reach a reviewer to be described — there is no read, and nothing to
+	// offer. The vocabulary did not lose a word; the state stopped existing.
+	//
+	// TestRemoteRead_CanNeverCarryAnInvalidSignature pins that, and
+	// TestPendingReview_TamperedRemoteIsNotOfferedForReview pins that such a
+	// bundle reaches no review queue.
 	tamperedLoader := seedTampered(t, reviewPubRef, "runbooks@acme.example", b)
-	state, principal, fingerprint = reviewPublisherOf(readOf(t, tamperedLoader, reviewPubRef))
-	assert.Equal(t, bundles.ReasonTampered, state)
-	assert.Empty(t, principal, "tampered bytes carry no verified identity")
-	assert.Empty(t, fingerprint)
+	_, err := tamperedLoader.Read(reviewPubRef)
+	require.Error(t, err, "a tampered tree must not resolve to a reviewable read")
 }
 
 // The synthetic builtin token is not a key and must never be reported as a
@@ -607,7 +654,11 @@ func TestReviewPublisherOf_FourStates(t *testing.T) {
 // makes, for the same reason: "shipped inside this binary" is not "a publisher
 // you verified".
 func TestReviewPublisherOf_BuiltinIsNotATrustedPublisher(t *testing.T) {
-	b := &bundles.Bundle{Version: "1.0"}
+	// One real item: a tree with no items is not a bundle, so the converter
+	// writes nothing and there would be no read to ask about.
+	b := &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
+		ItemBody: bundles.ItemBody{Content: "x"},
+	}}}
 	b.StampSigner(trust.BuiltinSigner)
 	loader := seedTrustedSigned(t, reviewPubRef, "runbooks@acme.example", b)
 	read := readOf(t, loader, reviewPubRef)

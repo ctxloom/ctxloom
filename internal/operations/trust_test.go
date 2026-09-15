@@ -527,16 +527,21 @@ func seededMCPPayload() []byte {
 // seededSkillPayload is the "reviewer" skill's canonical manifest preimage —
 // the bytes the decision function is fed for that item, mirroring
 // seededMCPPayload.
-func seededSkillPayload() []byte {
-	skill := bundles.BundleSkill{Files: map[string]bundles.SkillFileMeta{
-		"SKILL.md": {SHA256: "sha256:abc123", Mode: "0644"},
-	}}
-	// An authored manifest is present, so the preimage never consults the
-	// filesystem (BundleSkill.EffectiveManifest short-circuits).
+func seededSkillPayload(t *testing.T, loader *bundles.Loader) []byte {
+	t.Helper()
+	// Taken from the LOADED bundle rather than written out here. A tree holds
+	// the skill's files, so its per-file manifest is generated from the bytes
+	// actually present; a hand-written preimage would be approving a manifest
+	// no bundle has, and the approval would simply never match.
+	//
+	// This is the stronger fixture for what the test asserts — that the EXACT
+	// approved manifest bytes resolve ALLOW — because the bytes are now the
+	// real ones rather than a literal that nothing computed.
+	read := readOf(t, loader, seededBundleKey)
+	skill, ok := read.Bundle.Skills["reviewer"]
+	require.True(t, ok, "the seeded bundle must carry the skill under review")
 	payload, err := skill.ContentPayload(nil, "", "reviewer")
-	if err != nil {
-		panic(err)
-	}
+	require.NoError(t, err)
 	return payload
 }
 
@@ -582,7 +587,7 @@ func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
 	ref := seedItemRef(t, seededBundleKey, "skills/reviewer")
 
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindSkill, Name: "reviewer"}
-	skillPayload := seededSkillPayload()
+	skillPayload := seededSkillPayload(t, loader)
 
 	// Before review: an unsigned remote skill is pending, exactly like an
 	// unsigned remote command/fragment/mcp (mirrors "unsigned remote item is

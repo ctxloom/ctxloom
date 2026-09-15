@@ -275,6 +275,28 @@ func signedTreeFiles(t *testing.T, id string, b *bundles.Bundle, signer ssh.Sign
 	return out
 }
 
+// seedHostileTree stages b as a tree and then writes extra files into it
+// DIRECTLY, bypassing the converter.
+//
+// That bypass is the point, not a shortcut. content/convert and content.Writer
+// refuse to write a malformed package — a path with a newline in it, a skill
+// with no SKILL.md — which is exactly right for a publisher using ctxloom, and
+// exactly wrong for a fixture about a publisher who does NOT. A hostile tree is
+// bytes in a repository, not the output of our own writer, so it has to be
+// written the way an attacker would: straight onto the filesystem.
+func seedHostileTree(t *testing.T, ref string, b *bundles.Bundle, extra map[string][]byte) bundles.TreeFS {
+	t.Helper()
+	fsys, root, id := stageSeedTree(t, ref, b, nil)
+	for rel, data := range extra {
+		full := filepath.Join(root, string(id), filepath.FromSlash(rel))
+		require.NoError(t, fsys.MkdirAll(filepath.Dir(full), 0o755))
+		require.NoError(t, afero.WriteFile(fsys, full, data, 0o644))
+	}
+	tfs, err := content.NewAferoTreeFS(fsys, root)
+	require.NoError(t, err)
+	return tfs
+}
+
 // seedSkillFiles supplies a seeded skill's package files to the converter.
 //
 // A seed declares its skill as a MANIFEST — per-file sha256 and mode, which is
@@ -321,10 +343,16 @@ func seedSkillFiles(b *bundles.Bundle) func(string) ([]content.SkillFile, error)
 			if skill.Files[p].Mode == "0755" {
 				mode = content.ModeExecutable
 			}
+			// The declared SHA256 is folded into the BYTES, which is what makes
+			// a fixture's "this file changed" land as a real change. A seed
+			// signals an edit by writing a different digest string; a tree
+			// regenerates digests from content, so unless the content moves
+			// too, an edited fixture would render identically and a per-file
+			// diff test would silently assert nothing.
 			files = append(files, content.SkillFile{
 				Path:  p,
 				Mode:  mode,
-				Bytes: []byte("seeded " + name + " " + p + "\n"),
+				Bytes: []byte("seeded " + name + " " + p + " " + skill.Files[p].SHA256 + "\n"),
 			})
 		}
 		return files, nil

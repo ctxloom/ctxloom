@@ -316,6 +316,14 @@ than a diff, it is this.
 fragments, profile text, release notes. An agent may establish that such text is
 WRONG, and should; it must not author the replacement.
 
+The tag follows the PROSE, not the FILE. A profile or skill file also holds
+structure — a ref, a list order, a key rename — and changing that shapes no
+model's behaviour; it points at a different file. Those edits carry no voice
+gate. The question to ask is "would a model read this and behave differently?",
+which is a harder test than checking a path and a better one: gating every
+mechanical edit to a voice file is how a human queue becomes unreadable, which
+is the failure this vocabulary exists to undo.
+
 `human:authority` — an act that carries the human's identity rather than their
 judgment. Signing, publishing, pushing, cutting a release, granting trust. The
 distinction from `human:action` is not capability: an agent can run the command.

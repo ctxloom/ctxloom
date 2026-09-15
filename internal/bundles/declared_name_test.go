@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -74,11 +73,9 @@ func TestProjectReader_UndeclaredNameFallsBackToPath(t *testing.T) {
 // the test asserts the ref is unmoved while the declared name lands.
 func TestNewRepoFSReader_DeclaredNameWinsOverTheCanonicalRef(t *testing.T) {
 	const ref = "https://example.test/repo@bundles/kit"
-	doc := []byte("version: \"1.0\"\nname: declared\n")
-	tree, err := content.NewMapTreeFS(map[string][]byte{"kit.yaml": doc})
-	require.NoError(t, err)
+	tree := repoTree(t, "kit", "version: \"1.0\"\nname: declared\n", map[string]string{"keeper": "KEEPER-PAYLOAD"}, nil)
 
-	reads, err := NewRepoFSReader(tree, ref).Read(context.Background())
+	reads, err := NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL)).Read(context.Background())
 	require.NoError(t, err)
 	require.Len(t, reads, 1)
 
@@ -90,10 +87,9 @@ func TestNewRepoFSReader_DeclaredNameWinsOverTheCanonicalRef(t *testing.T) {
 // nothing that declares no name changes behaviour.
 func TestNewRepoFSReader_UndeclaredNameFallsBackToTheCanonicalRef(t *testing.T) {
 	const ref = "https://example.test/repo@bundles/kit"
-	tree, err := content.NewMapTreeFS(map[string][]byte{"kit.yaml": readerBundleYAML})
-	require.NoError(t, err)
+	tree := repoTree(t, "kit", readerTreeEnvelope, readerTreeFragments, nil)
 
-	reads, err := NewRepoFSReader(tree, ref).Read(context.Background())
+	reads, err := NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL)).Read(context.Background())
 	require.NoError(t, err)
 	require.Len(t, reads, 1)
 

@@ -324,10 +324,20 @@ Feature: MCP tools
   # else), so a canned reply in the essence is proof the env crossed, and its
   # absence — an essence echoing the prompt back instead — is proof it did
   # not. The scenario takes NO position on which session a self-compaction
-  # ought to pick up, because that is the open question: the ruling is whether
-  # this branch routes through operations.CompactEntry like its sibling (one
-  # path, one behaviour) or keeps its own Env plumbing (two paths, kept
-  # distinct), and the two answers differ in what a self-compaction IS.
+  # ought to pick up.
+  #
+  # THE FORK THIS COMMENT USED TO STATE IS SUPERSEDED. It said the open ruling
+  # was whether this branch routes through operations.CompactEntry like its
+  # sibling (one path) or keeps its own Env plumbing (two paths). That question
+  # was ruled THE WRONG QUESTION on 2026-09-10: "both paths are wrong in the
+  # same way, and unifying them would standardise the defect." Do not answer it.
+  #
+  # What is actually wrong is role-to-agent resolution: the distiller's label,
+  # env and runtime are taken from code (cfg.FastLabel()) rather than from the
+  # configured distiller agent, which also declares runtime: container-rootless
+  # that nothing reads. Tracked on selective-passing, which carries both
+  # un-enved construction sites. This scenario stays skipped until that seam
+  # exists.
   #
   # Unskip with the fix. Do not weaken it to green.
   @wip

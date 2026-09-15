@@ -22,25 +22,7 @@ bundles:
     # morning report and holding the decision queue are this role's job, not a
     # leaf's.
     #
-    # LOCAL COPY, not the remote ref, and that is NOT a preference — but the
-    # reason is NOT the one this comment used to give. It claimed the fetcher
-    # resolves a ref to `<name>.yaml` so directory-form bundles cannot be
-    # FETCHED. Tested 2026-09-03: false. The fetch and install both work; the
-    # bytes land complete under .ctxloom/cache/bundles/. What fails is LOADING
-    # — resolution returns errs.ErrBundleNotFound and no skill resolves. See
-    # task unrevised-backspace.
-    #
-    # So this copy is a WORKAROUND for that defect, not a ruling. ctxloom-
-    # personal owns the bundle and carries the same content, pushed; this repo
-    # cannot even sign its copy honestly, since git config here points at the
-    # personal key rather than the ctxloom project key, so the signature
-    # verifies via an allowed_signers entry asserting one as the other.
-    # (That file was UNTRACKED when this was written; it is committed as of
-    # 2026-09-04, so the assertion now travels with the repo rather than
-    # living only on one machine. The key mismatch it papers over is
-    # unchanged.) When unrevised-backspace is fixed, this line becomes the
-    # remote ref and this local copy is deleted.
-    - unattended
+    - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/unattended
 # NOTE (2026-07-22): deny_tools deliberately does NOT list Task. Task is
 # claude-code's internal coordination mechanism and stays available. The
 # coordinator-persona leak it exposes (in-process sub-agents inheriting the

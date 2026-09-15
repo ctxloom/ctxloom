@@ -27,9 +27,11 @@ package acceptance
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
@@ -96,16 +98,79 @@ func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 		"claude's context surface at ApproachHook is documented as a no-op. If it has started writing something, P1's red cell must be re-measured rather than assumed: got %v", keysOf(files))
 }
 
+// deliverContextAcrossRoots builds engine's REAL surface set over an in-memory
+// filesystem and delivers its context surface at approach, with the project
+// root and the engine home advised as DISTINCT directories so that an
+// assertion about one cannot be satisfied by a write to the other. It returns
+// every file that landed, partitioned by whether it is beneath the project
+// root, keyed by absolute path.
+//
+// It advises four separate roots rather than the single one ProjectOnHost
+// gives, because the question here is precisely WHICH root the bytes chose.
+func deliverContextAcrossRoots(t *testing.T, engine, approach string) (inProject, outsideProject map[string]string) {
+	t.Helper()
+	const (
+		projectRoot = "/probe/project"
+		engineHome  = "/probe/engine-home"
+		ctxloomHome = "/probe/ctxloom-home"
+		scratch     = "/probe/scratch"
+	)
+	fs := afero.NewMemMapFs()
+	for _, d := range []string{projectRoot, engineHome, ctxloomHome, scratch} {
+		require.NoError(t, fs.MkdirAll(d, 0o755))
+	}
+
+	body := "The nonce for this session is " + channelProbeHarp
+	delivery, ok := backends.Declared(engine).Construct(agent.SurfaceContext, approach, agent.SurfaceInputs{
+		Context:   body,
+		Fragments: []*agent.Fragment{{Name: "nonce", Content: body}},
+	}, fs)
+	require.True(t, ok, "%s must construct its context surface at %s — the P1 cell that pins it depends on this call succeeding", engine, approach)
+	require.NotNil(t, delivery)
+
+	_, err := delivery.Deliver(present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: projectRoot},
+		EngineHome:  present.Root{Host: engineHome},
+		CtxloomHome: present.Root{Host: ctxloomHome},
+		Scratch:     present.Root{Host: scratch},
+	})))
+	require.NoError(t, err, "%s context=%s must deliver when every root is advised", engine, approach)
+
+	inProject, outsideProject = map[string]string{}, map[string]string{}
+	require.NoError(t, afero.Walk(fs, "/", func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return err
+		}
+		b, rerr := afero.ReadFile(fs, path)
+		if rerr != nil {
+			return rerr
+		}
+		if path == projectRoot || strings.HasPrefix(path, projectRoot+"/") {
+			inProject[path] = string(b)
+			return nil
+		}
+		outsideProject[path] = string(b)
+		return nil
+	}))
+	return inProject, outsideProject
+}
+
 // TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace is the
 // structural basis for the side-channel judgement recorded against every P1
 // cell.
 //
-// A workspace=none cell is a SHARED cell, and a shared delivery consults ONE
-// predicate to decide whether an approach may run there unwarned:
-// agent.SafeInSharedCwd — the approach's bytes land outside the project root,
-// or it writes none. A well-known project file is the loud native write. So
-// "does this cell's DELIVERY put nonce bytes where a workspace search can
-// reach them" is answered here, per (engine, approach), and nowhere else.
+// A workspace=none cell is a SHARED cell, so "does this cell's DELIVERY put
+// nonce bytes where a workspace search can reach them" has to be answered
+// about the BYTES, per (engine, approach), and nowhere else.
+//
+// It is answered here by delivering for real against a filesystem whose
+// project root and engine home are different directories, and then looking at
+// what landed in each. It deliberately does NOT ask the predicate a shared
+// launch derives its preference from: that predicate is a disjunction of
+// reasons an approach MAY avoid the cwd — two of its arms are type assertions,
+// which establish that a type declares a form, not that this delivery used it.
+// A test calling it would agree with the rule even when the rule is wrong, and
+// could only ever catch a change in what Construct returns.
 //
 // The answer is lopsided, and the asymmetry is exactly which of claude's cells
 // can be argued side-channel-controlled:
@@ -114,22 +179,48 @@ func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 //	claude  context/unsafe-file   -> the project file: the caller asked for CLAUDE.md
 //	claude  context/hook          -> writes nothing: it is a no-op anyway
 //
-// An approach that presents under the project root writes its context INTO
-// the working directory by construction. For a tool-using engine that is a
-// channel, whatever the approach nominally is.
+// BOTH halves of the system-prompt claim are asserted. The negative alone —
+// "nothing under the project root" — is satisfied by a delivery that writes
+// nothing at all anywhere, which is this codebase's signature failure (exit 0,
+// a success message, zero bytes). So the positive half pins that the context
+// really did materialize, with its nonce in it, outside the workspace.
 func TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	safe := func(engine, approach string) bool {
-		a, ok := backends.Declared(engine).Construct(agent.SurfaceContext, approach, agent.SurfaceInputs{Context: channelProbeHarp}, fs)
-		require.True(t, ok, "%s must declare context=%s", engine, approach)
-		return agent.SafeInSharedCwd(a)
+	inProject, outside := deliverContextAcrossRoots(t, "claude-code", claude.ApproachSystemPrompt)
+
+	// POSITIVE: the framed system prompt really landed, carrying the nonce,
+	// somewhere that is not the project root.
+	var framed string
+	for path, content := range outside {
+		if strings.HasSuffix(path, agent.SCMFramedContextSuffix) {
+			framed = path
+			assert.Contains(t, content, channelProbeHarp,
+				"the framed system prompt at %s must actually carry the session's context; an empty or stale file would make the cell measure nothing", path)
+			assert.Contains(t, content, agent.ProjectContextHeader,
+				"the framed system prompt must carry the ctxloom framing")
+		}
 	}
+	require.NotEmpty(t, framed,
+		"claude's system-prompt delivery must WRITE the framed context outside the project root. Nothing matching %q landed anywhere: a delivery that writes nothing would satisfy the out-of-workspace half of this test while giving the model no context at all. Wrote outside: %v",
+		agent.SCMFramedContextSuffix, keysOf(outside))
 
-	require.True(t, safe("claude-code", claude.ApproachSystemPrompt),
-		"claude's system-prompt approach must stay out of the project root: it is the ONE context delivery in the ladder that puts no nonce bytes in the workspace, and P1's side-channel argument for that cell rests entirely on it")
+	// NEGATIVE: and it put nothing at all where a workspace search could reach.
+	assert.Empty(t, inProject,
+		"claude's system-prompt approach must leave the project root untouched: it is the ONE context delivery in the ladder that puts no nonce bytes in the workspace, and P1's side-channel argument for that cell rests entirely on it. Leaked: %v", keysOf(inProject))
 
-	require.False(t, safe("claude-code", agent.ApproachUnsafeFile),
-		"unsafe-file is the caller's explicit request for the native in-workspace write; a shared launch must warn on it rather than treat it as safe, or the two claude cells measure the same thing")
+	// THE CONTRAST: unsafe-file is the caller's explicit request for the native
+	// in-workspace write. If it stopped landing in the project root the two
+	// claude cells would be measuring the same thing.
+	unsafeInProject, _ := deliverContextAcrossRoots(t, "claude-code", agent.ApproachUnsafeFile)
+	require.NotEmpty(t, unsafeInProject,
+		"unsafe-file must write its context INTO the project root — that is the whole of what the caller asked for, and the contrast that makes the system-prompt cell meaningful")
+	var wroteNonce bool
+	for _, content := range unsafeInProject {
+		if strings.Contains(content, channelProbeHarp) {
+			wroteNonce = true
+		}
+	}
+	assert.True(t, wroteNonce,
+		"unsafe-file's in-workspace file must carry the nonce, or it is not the reachable side channel this cell is contrasted against: wrote %v", keysOf(unsafeInProject))
 }
 
 func keysOf(m map[string]string) []string {

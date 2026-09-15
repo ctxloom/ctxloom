@@ -130,13 +130,16 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 //   - TrustCtx comes from the ref. A ctxloom:local pin reads the PROJECT'S OWN
 //     git history, so it is local exactly as its unpinned twin is; anything else
 //     crossed a forge and is remote.
-//   - Signature/Signer are none/none, because no detached signature accompanied
-//     the fetch — the resolver asks for the document and nothing else. This is
-//     not a claim that the publisher did not sign; it is the claim that nothing
-//     here verified one, which is why a historical remote version is never
-//     admitted as trusted-signer. It reaches review like any unsigned remote
-//     content, which is exactly what it did before the readers existed
-//     (Bundle.Signer() was never stamped on this path either).
+//   - Signature/Signer are none/none, and that is now an UNDERSTATEMENT on one
+//     of the two arms rather than a description of both. A remote tree at
+//     @<commit> IS verified before it is interpreted — the resolver routes
+//     through bundles.ReadRemoteRef, which runs attest.VerifyBundle over the
+//     fetched tree — but this read does not stamp that result, so verified
+//     content still reaches review as unsigned. That is over-cautious, not
+//     unsafe, and it is the remaining gap on this path. The ctxloom:local arm
+//     genuinely verifies nothing: it is `git show <commit>:<path>` against the
+//     project's own history, where locality already answered the trust
+//     question. Neither arm is a claim that the publisher did not sign.
 //
 // It is unexported and takes the resolver's own output, so it cannot be used to
 // mint a posture for anything else.

@@ -2454,9 +2454,12 @@ func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
 // A WITHHELD tree is reported differently, and deliberately: its bytes are on
 // disk and re-pulling would fetch the same ones, so the default fix cannot fix
 // it. It is also not a delivery problem at all — the content disagrees with what
-// its publisher signed — so it is classed as a trust failure, like the
-// single-file tamper branch it mirrors. A fix line that cannot fix the thing it
-// is attached to is worse than no fix line at all.
+// its publisher signed — so it is classed as a trust failure rather than a
+// delivery one. It no longer mirrors anything: the single-file tamper branch it
+// was written against is gone, because single-file bundles are no longer read at
+// all, so this is now the only path on which installed remote bytes can be
+// refused for disagreeing with their signature. A fix line that cannot fix the
+// thing it is attached to is worse than no fix line at all.
 func reportBundleLoadFailures(failures map[string]error) {
 	for name, err := range failures {
 		if errors.Is(err, bundles.ErrTreeBundleWithheld) {

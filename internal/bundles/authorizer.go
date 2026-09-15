@@ -244,10 +244,17 @@ func (r Reason) NeedsReview() bool {
 // value for a signature that failed to verify, so that state would read as
 // indistinguishable from no signature at all — precisely the state a reviewer
 // most needs named.
+//
+// THERE IS NO REMOTE-TAMPERED ARM, and its absence is load-bearing rather than
+// an omission. A remote bundle is a TREE, and a tree is verified against its
+// signed manifest at the READ (bundles.ReadRemoteRef, repoFSReader.verifyTree):
+// bytes that moved are refused with ErrTreeBundleWithheld, so no read carrying
+// SignatureInvalid ever reaches this function with a remote trust context.
+// Keeping an arm for it would be a branch nothing can enter, asserting a state
+// the read path makes impossible (DECISIONS.md P12). SignatureInvalid here is
+// therefore LOCAL by construction — an author who edited and did not re-sign.
 func PublisherOf(read BundleRead) Reason {
 	switch {
-	case read.Signature() == SignatureInvalid && read.TrustCtx() == TrustCtxRemote:
-		return ReasonTampered
 	case read.Signature() == SignatureInvalid:
 		return ReasonStaleLocalSignature
 	case read.Signature() == SignatureValid && read.Signer() == SignerTrusted:

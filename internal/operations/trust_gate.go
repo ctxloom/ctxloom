@@ -158,19 +158,11 @@ func (g *contentGate) verdictFor(e bundles.Exposure, res EffectiveTrustResult) b
 	// Nothing justified exposure. Tamper is now a REASON for withholding rather
 	// than an override of the allow — the decision belongs entirely to
 	// EffectiveTrust, and this only names it.
-	return g.record(e, bundles.Verdict{
-		Reason: pendingReason(e.Read),
-		Detail: pendingDetail(e.Read),
-	})
-}
-
-// pendingDetail carries the reader's own explanation for a withheld item, which
-// today only a broken signature has.
-func pendingDetail(read bundles.BundleRead) string {
-	if pendingReason(read) == bundles.ReasonTampered {
-		return read.SignatureDetail()
-	}
-	return ""
+	// No Detail: the only withheld item that ever carried one was the tampered
+	// remote read, and that no longer reaches this point — the tree read
+	// refuses it, with a diagnostic naming the file that moved, which is
+	// strictly more than SignatureDetail() ever said here.
+	return g.record(e, bundles.Verdict{Reason: pendingReason(e.Read)})
 }
 
 // admitReason names WHICH rule allowed an exposure. The stale-local-signature
@@ -223,13 +215,13 @@ func pendingReason(read bundles.BundleRead) bundles.Reason {
 	if read.TrustCtx() != bundles.TrustCtxRemote {
 		return bundles.ReasonPending
 	}
+	// THERE IS NO TAMPERED ARM. Every read reaching here is REMOTE (the guard
+	// above returns for anything else), and a remote bundle is a tree verified
+	// against its signed manifest at the READ — bytes that moved are refused
+	// with ErrTreeBundleWithheld and never become a read at all. So
+	// SignatureInvalid cannot occur in this switch, and an arm for it would
+	// assert a state the read path makes impossible (DECISIONS.md P12).
 	switch {
-	// Tampered is named HERE now, rather than short-circuiting ahead of the
-	// allow. It is still the most specific and most alarming thing that can be
-	// said about a withheld remote item — a signature exists and does not cover
-	// these bytes — it simply no longer decides the outcome on its own.
-	case read.Signature() == bundles.SignatureInvalid:
-		return bundles.ReasonTampered
 	case read.Signature() == bundles.SignatureNone:
 		return bundles.ReasonUnsigned
 	case read.Signer() == bundles.SignerUntrusted:

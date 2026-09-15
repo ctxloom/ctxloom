@@ -14,7 +14,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,7 +60,7 @@ func (noAccessorLifecycle) MergeManaged(*ManagedConfig, string, string) {}
 // cleanup into a shared order slice so a test can assert LIFO teardown. It
 // records which form (well-known vs out-of-cwd) the cell used and the roots
 // it targeted. contextErr forces the context surface to fail its delivery,
-// exercising the injection-hook fallback.
+// exercising the launch's refusal.
 type recordSet struct {
 	order      *[]string
 	contextErr error
@@ -158,12 +157,13 @@ func (s *recordSurface) PresentExisting(start present.Start) (string, error) {
 // noContextDeclaration is recordDeclaration WITHOUT a context kind —
 // mirroring a backend with no distinct context surface (its context rides
 // another surface entirely) — so Build skips SurfaceContext and the resolved
-// surface list's first entry is something else (MCP). It is the double this
-// regression test needs: the shared-cwd delivery loop identified the context
-// surface by INDEX 0 rather than by KIND, so on a backend shaped like this an
-// MCP delivery failure was misidentified as a context failure and silently
+// surface list's first entry is something else (MCP). It was built for the
+// regression where the shared-cwd delivery loop identified the context surface
+// by INDEX 0 rather than by KIND, so on a backend shaped like this an MCP
+// delivery failure was misidentified as a context failure and silently
 // "recovered" via the context-injection-hook fallback instead of returning an
-// error.
+// error. That fallback is gone; the double stays because it is the only
+// declaration here with no context surface at all.
 func noContextDeclaration(s *recordSet) Declaration {
 	d := recordDeclaration(s)
 	delete(d, SurfaceContext)
@@ -491,55 +491,62 @@ func TestSetup_ManagedEmpty_ReachesTheWriters(t *testing.T) {
 	require.Len(t, b.delivered, 5, "every surface delivers — that is what retracts last round's install")
 }
 
-// ---- cell path: context-delivery fallback (item 6) --------------------------
+// ---- cell path: context-delivery refusal ------------------------------------
 
-// TestSetup_SharedCell_ContextFailureFallsBackToHook proves the CLAUDE.md fault
-// tolerance for a flag-context backend: a SharedCell context DeliverIsolated error
-// keeps context alive via the legacy hook — Provide the raw cache file and append
-// the injection hook onto the shared merged hooks (which the settings surface then
-// writes) — while the failed context handle is skipped and the remaining surfaces
-// still deliver.
-func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
+// TestSetup_SharedCell_ContextFailureRefusesTheLaunch is the guard on
+// feeble-sway's ruling: a context-delivery failure REFUSES, and must never be
+// converted into a different delivery mechanism.
+//
+// This test used to be TestSetup_SharedCell_ContextFailureFallsBackToHook and
+// asserted the exact opposite — that a SharedCell context failure silently
+// installed the SessionStart injection hook and let Setup report success. That
+// is the cross-approach fallback the design forbids: the run received its
+// context through a channel its isolation argument was never made against, and
+// nothing in the exit code said so.
+//
+// The negative assertion is the load-bearing one. Asserting only that Setup
+// errors would still pass if the hook were installed on the way out, which is
+// the very leak being closed, so the hook's ABSENCE is asserted directly.
+func TestSetup_SharedCell_ContextFailureRefusesTheLaunch(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order, contextErr: errors.New("disk full")}
 	b := newCellBackend(set)
 
-	work := t.TempDir()
-	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
-		WorkDir:   work,
+	err := b.Setup(context.Background(), &SetupRequest{
+		WorkDir:   t.TempDir(),
 		Env:       map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		Fragments: []*Fragment{{Content: "project rules"}},
 		CellKind:  CellKindShared,
 		Managed:   &ManagedConfig{},
-	}))
+	})
+	require.Error(t, err, "a context-delivery failure must refuse the launch, never report success having quietly delivered context another way")
 
-	hash := b.context.GetContextHash()
-	assert.NotEmpty(t, hash, "the fallback materializes the raw cache file and keeps its hash")
-	// The injection hook was appended onto the shared merged hooks (the settings
-	// surface's own *wire.HooksConfig).
+	// No injection hook was appended onto the shared merged hooks: the failure
+	// did not reroute the context through the hook surface.
 	hooks, _, ok := b.mergedState()
 	require.True(t, ok)
 	require.NotNil(t, hooks)
-	var injected bool
 	for _, h := range hooks.Unified.SessionStart {
-		if h.ContextHash == hash {
-			injected = true
-		}
+		assert.Empty(t, h.ContextHash,
+			"a failed context delivery must not install the SessionStart injection hook: that is the cross-approach fallback the refusal exists to prevent")
 	}
-	assert.True(t, injected, "the SessionStart injection hook is re-appended to the merged hooks")
-	// The failed context handle is not recorded, but the remaining surfaces are.
-	assert.Len(t, b.delivered, 4, "context handle skipped; mcp/settings/commands/skills still delivered")
 }
 
-// TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface pins the fix: the
-// context-recovery fallback used to fire whenever the FIRST resolved surface
-// failed (`i == 0`), coupling launch_backend.go to cells.go's surfaceOrder by
-// position rather than by the surface's actual kind. For a backend with no
-// distinct context surface (noContextRecordSet — cells.go's Build() skips a
-// kind with no supported approaches), the first resolved surface is MCP, not
-// context. An MCP delivery failure must be reported as a real failure, not
-// silently swallowed by a fallback meant only for the context surface.
-func TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface(t *testing.T) {
+// TestSetup_SharedCell_NonContextSurfaceFailureRefuses guards a delivery
+// failure on a surface that is NOT context. It outlives the fallback whose
+// aim it was originally written to correct: that fallback fired whenever the
+// FIRST resolved surface failed (`i == 0`), coupling launch_backend.go to
+// cells.go's surfaceOrder by POSITION rather than by the surface's actual
+// kind, so for a backend with no distinct context surface (cells.go's Build()
+// skips a kind with no supported approaches) an MCP failure was swallowed by
+// recovery meant only for context.
+//
+// With the fallback deleted there is no kind-dispatch left to get wrong, and
+// the case it covered — a non-context surface failing on a shared cell —
+// still has to refuse. It is kept as the guard on that, not retired with the
+// bug, because nothing else in this file exercises the no-context-surface
+// declaration.
+func TestSetup_SharedCell_NonContextSurfaceFailureRefuses(t *testing.T) {
 	var order []string
 	inner := &recordSet{order: &order, mcpErr: fmt.Errorf("mcp write failed")}
 
@@ -551,38 +558,37 @@ func TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface(t *testing.T) {
 		CellKind: CellKindShared,
 		Managed:  &ManagedConfig{},
 	})
-	require.Error(t, err, "an MCP delivery failure on a backend with no context surface must not be swallowed by the context-recovery fallback")
+	require.Error(t, err, "an MCP delivery failure on a shared cell must refuse the launch; no surface's failure is recoverable by substituting another mechanism")
 }
 
-// TestSetup_SharedCell_ContextFailureWarningNamesCause pins the fix: the
-// context-recovery warning used to go straight to os.Stderr with
-// fmt.Fprintf(os.Stderr, ...) — bypassing this package's own Warn/clidiag
-// sink (the seam every other warning in this package, and the mechanism a
-// session that owns the terminal uses to redirect warnings away from a
-// live TUI frame it is painting) — and named no cause at all, a fixed
-// string regardless of WHY the context delivery failed. clidiag.SetSink
-// redirects Warn's destination; if the warning still bypasses it, this
-// buffer stays empty.
-func TestSetup_SharedCell_ContextFailureWarningNamesCause(t *testing.T) {
+// TestSetup_SharedCell_ContextFailureErrorNamesCause keeps the property the
+// old warning-sink test guarded — that the operator learns WHY the context
+// delivery failed, not just that something did — now that the refusal carries
+// it instead of a warning.
+//
+// The cause travels by wrapping, so errors.Is still finds it: a caller that
+// wants to branch on the underlying failure can, and a caller that only prints
+// gets the reason in the text. Before, the message was a fixed string on
+// os.Stderr naming no cause at all.
+func TestSetup_SharedCell_ContextFailureErrorNamesCause(t *testing.T) {
 	var order []string
 	cause := errors.New("disk full")
 	set := &recordSet{order: &order, contextErr: cause}
 	b := newCellBackend(set)
 
-	var buf bytes.Buffer
-	restore := clidiag.SetSink(&buf)
-	defer restore()
-
-	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+	err := b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   t.TempDir(),
 		Env:       map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		Fragments: []*Fragment{{Content: "project rules"}},
 		CellKind:  CellKindShared,
 		Managed:   &ManagedConfig{},
-	}))
+	})
 
-	assert.Contains(t, buf.String(), "disk full",
-		"the recovery warning must route through the package's Warn sink and name the triggering error")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cause,
+		"the refusal must wrap the triggering error, so a caller can still branch on the underlying cause")
+	assert.Contains(t, err.Error(), "disk full",
+		"the refusal must name why the context delivery failed, not merely that it did")
 }
 
 // TestSetup_LifecycleWithoutAccessors_ErrorsRatherThanWritingEmpty pins the

@@ -176,6 +176,9 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
     # (agent.LaunchBackend.installContextInjectionHook, factored out of
     # recoverContextViaHook) whenever a SharedCell resolves SurfaceContext at
     # ApproachHook, whether or not the surface write itself errored.
+    # SINCE: recoverContextViaHook is deleted (feeble-sway). A failed delivery
+    # refuses the launch instead of rerouting context through the hook, so
+    # installContextInjectionHook now has this one deliberate caller only.
     #
     # A CORRECTION TO THE ORIGINAL READING ABOVE, folded in 2026-08-16 after a
     # re-run against the still-broken code measured a fourth shape:

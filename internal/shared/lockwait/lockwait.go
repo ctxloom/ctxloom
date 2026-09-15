@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // After is how long an acquisition may block before it is reported as still
@@ -26,9 +28,16 @@ import (
 // and is watching it sit there gets the notice while still watching.
 const After = 3 * time.Second
 
-// Watch starts a watchdog goroutine that writes "still waiting for lock on
-// <label>" to stderr if the operation it guards has not finished within
-// After. Call the returned stop function when the operation completes; it
+// LogWaitExceeded is the structured-log message a wait past After leaves
+// behind. Exported so a test asserts on the record, not on scraped text.
+const LogWaitExceeded = "lock_wait_exceeded"
+
+// Watch starts a watchdog goroutine that reports the wait if the operation
+// it guards has not finished within After: "still waiting for lock on
+// <label>" on stderr for whoever is watching the terminal, and a
+// LogWaitExceeded record in the structured log for whoever reads the stall
+// after the process is gone. Call the returned stop function when the
+// operation completes; it
 // blocks until the watchdog goroutine has settled, so no notice can print
 // after Watch's caller has already returned.
 //
@@ -45,6 +54,7 @@ func Watch(label string) (stop func()) {
 		case <-settled:
 		case <-timer.C:
 			fmt.Fprintf(os.Stderr, "still waiting for lock on %s\n", label)
+			zap.L().Warn(LogWaitExceeded, zap.String("path", label))
 		}
 	}()
 	return func() {

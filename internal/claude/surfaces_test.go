@@ -91,13 +91,14 @@ func sampleInputs() agent.SurfaceInputs {
 // Context is the system-prompt one, which writes the SAME CLAUDE.md through
 // Deliver and the out-of-cwd scratch through DeliverIsolated.
 type builtSurfaces struct {
-	Native   agent.Approach
-	Context  *systemPromptContext
-	Hook     agent.Approach
-	MCP      *mcpSurface
-	Settings *settingsSurface
-	Commands *commandsSurface
-	Skills   agent.Approach
+	Native    agent.Approach
+	Context   *systemPromptContext
+	Hook      agent.Approach
+	MCP       *mcpConfig
+	MCPUnsafe *mcpUnsafeFile
+	Settings  *settingsSurface
+	Commands  *commandsSurface
+	Skills    agent.Approach
 }
 
 // newSurfaces constructs every claude approach from in through the
@@ -112,20 +113,22 @@ func newSurfaces(in agent.SurfaceInputs, fs afero.Fs) builtSurfaces {
 		return a
 	}
 	return builtSurfaces{
-		Native:   must(agent.SurfaceContext, agent.ApproachUnsafeFile),
-		Context:  must(agent.SurfaceContext, ApproachSystemPrompt).(*systemPromptContext),
-		Hook:     must(agent.SurfaceContext, agent.ApproachHook),
-		MCP:      must(agent.SurfaceMCP, agent.ApproachUnsafeFile).(*mcpSurface),
-		Settings: must(agent.SurfaceSettings, agent.ApproachUnsafeFile).(*settingsSurface),
-		Commands: must(agent.SurfaceCommands, agent.ApproachUnsafeFile).(*commandsSurface),
-		Skills:   must(agent.SurfaceSkills, agent.ApproachUnsafeFile),
+		Native:    must(agent.SurfaceContext, agent.ApproachUnsafeFile),
+		Context:   must(agent.SurfaceContext, ApproachSystemPrompt).(*systemPromptContext),
+		Hook:      must(agent.SurfaceContext, agent.ApproachHook),
+		MCP:       must(agent.SurfaceMCP, ApproachMCPConfig).(*mcpConfig),
+		MCPUnsafe: must(agent.SurfaceMCP, agent.ApproachUnsafeFile).(*mcpUnsafeFile),
+		Settings:  must(agent.SurfaceSettings, agent.ApproachUnsafeFile).(*settingsSurface),
+		Commands:  must(agent.SurfaceCommands, agent.ApproachUnsafeFile).(*commandsSurface),
+		Skills:    must(agent.SurfaceSkills, agent.ApproachUnsafeFile),
 	}
 }
 
 // ---- context surface -------------------------------------------------------
 
-// context Delivery writes CLAUDE.md (the ContextWriter core) into the target
-// dir, in the ctxloom-managed section, and the file SURVIVES Cleanup: a
+// The NATIVE-FILE context approach writes CLAUDE.md (the ContextWriter core)
+// into the target dir, in the ctxloom-managed section, and the file SURVIVES
+// Cleanup: a
 // project surface outlives the run that delivered it
 // (agent.SurfacePersistsAfterExit), so the handle reverses nothing. Teardown
 // belongs to per-session scratch, which this is not.
@@ -133,7 +136,7 @@ func TestContextSurface_DeliverWritesCLAUDEmd(t *testing.T) {
 	dir := t.TempDir()
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Context.Deliver(present.ProjectOnHost(dir))
+	handle, err := s.Native.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
@@ -155,7 +158,7 @@ func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Team conventions\nalways use tabs\n"), 0644))
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Context.Deliver(present.ProjectOnHost(dir))
+	handle, err := s.Native.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
@@ -170,14 +173,15 @@ func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
 	assert.Contains(t, string(got), sampleInputs().Context, "the managed section survives Cleanup: a project surface persists")
 }
 
-// context DeliverIsolated writes the framed <hash>.sysprompt.md into the
-// out-of-cwd placement (via appendFlagDelivery) and exposes it via Path() — and
-// does NOT touch the well-known CLAUDE.md.
-func TestContextSurface_DeliverIsolated_WritesSyspromptAndExposesPath(t *testing.T) {
+// The system-prompt approach's ONE form writes the framed <hash>.sysprompt.md
+// beneath the private root (via appendFlagDelivery) and exposes it via Path()
+// — and does NOT touch the well-known CLAUDE.md. Every cell reaches this form;
+// there is no second one for a cell to pick instead.
+func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
 	isolated := t.TempDir()
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Context.DeliverIsolated(runRoots(t.TempDir(), isolated))
+	handle, err := s.Context.Deliver(runRoots(t.TempDir(), isolated))
 	require.NoError(t, err)
 
 	path := s.Context.Path()
@@ -205,7 +209,7 @@ func TestMCPSurface_DeliverWritesMCPJSON(t *testing.T) {
 	dir := t.TempDir()
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.MCP.Deliver(present.ProjectOnHost(dir))
+	handle, err := s.MCPUnsafe.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	servers := mcpServersOf(t, dir)
@@ -218,14 +222,14 @@ func TestMCPSurface_DeliverWritesMCPJSON(t *testing.T) {
 	assert.NotContains(t, servers, AppMCPServerName, "cleanup reverts ctxloom servers")
 }
 
-// MCP DeliverIsolated writes .mcp.json into the OUT-OF-CWD placement and exposes
-// that path for --mcp-config; the well-known cwd is left untouched.
-func TestMCPSurface_DeliverIsolated_OutOfCwd(t *testing.T) {
+// The DEFAULT mcp approach writes .mcp.json beneath the private root and
+// exposes that path for --mcp-config; the shared cwd is left untouched.
+func TestMCPSurface_DeliverWritesPrivateConfig(t *testing.T) {
 	cwd := t.TempDir()      // the "shared cwd" — must stay clean
 	isolated := t.TempDir() // the out-of-cwd per-run location
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.MCP.DeliverIsolated(runRoots(cwd, isolated))
+	handle, err := s.MCP.Deliver(runRoots(cwd, isolated))
 	require.NoError(t, err)
 
 	assert.Equal(t, filepath.Join(isolated, ".mcp.json"), s.MCP.Path(),
@@ -427,7 +431,10 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 	ds := resolved.Deliveries()
 	require.Len(t, ds, 5, "context, MCP, settings, commands, skills")
 
-	cell := agent.NewIsolatedCell(present.ProjectOnHost(dir))
+	// On an isolated cell the private root IS the working dir, so the default
+	// mcp form's file lands at the same well-known path the project-file form
+	// would have used — and is additionally announced on --mcp-config.
+	cell := agent.NewIsolatedCell(runRoots(dir, dir))
 	for _, surface := range ds {
 		d, err := cell.Deliver(surface)
 		require.NoError(t, err)
@@ -444,18 +451,31 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 // ---- the declaration ---------------------------------------------------------
 
 // Surfaces pins claude's per-surface declaration: context offers all three
-// approaches (native file, out-of-cwd system prompt, settings-carried hook);
-// settings offers the project file and the engine-home record write;
-// mcp/commands/skills offer only the native file; and the default
-// everywhere is the native file — named, not positional.
-func TestSurfaces_DeclaresContextThreeWaysSettingsTwoAndTheRestOnce(t *testing.T) {
+// approaches (native file, system prompt, settings-carried hook); settings
+// offers the project file and the engine-home record write; MCP offers the
+// private config file and the project file; commands/skills offer only the
+// native file.
+//
+// The DEFAULTS are the load-bearing half. MCP's is the PRIVATE form, and it is
+// the one surface whose default is not the native file: delivering ctxloom's
+// MCP set by writing the user's project .mcp.json is a shared/dangerous avenue,
+// so it must be asked for by name. Context's default stays the native file —
+// a shared launch derives the system prompt instead, which is a preference, not
+// a declaration.
+func TestSurfaces_DeclaresContextThreeWaysMCPTwoSettingsTwoAndTheRestOnce(t *testing.T) {
 	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt, agent.ApproachHook},
 		Surfaces.Names(agent.SurfaceContext))
 	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachHewRecord}, Surfaces.Names(agent.SurfaceSettings))
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceMCP, agent.SurfaceCommands, agent.SurfaceSkills} {
+	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachMCPConfig}, Surfaces.Names(agent.SurfaceMCP))
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceCommands, agent.SurfaceSkills} {
 		assert.Equal(t, []string{agent.ApproachUnsafeFile}, Surfaces.Names(kind), "%s", kind)
 	}
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
+
+	mcpDef, ok := Surfaces.Default(agent.SurfaceMCP)
+	require.True(t, ok)
+	assert.Equal(t, ApproachMCPConfig, mcpDef,
+		"the project .mcp.json must never be the default — it is reachable only by name")
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		def, ok := Surfaces.Default(kind)
 		require.True(t, ok, "%s has a default approach", kind)
 		assert.Equal(t, agent.ApproachUnsafeFile, def)
@@ -478,26 +498,44 @@ func TestSurfaces_ContextHookIsANoOpRider(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, "CLAUDE.md"), "no native file when context rides the hook")
 }
 
-// Which approaches convert on a shared cwd is a property of each VALUE: the
-// native-file context has no out-of-cwd form (an explicit unsafe-file request
-// is honoured, warned); the system prompt, MCP and settings have one; commands
-// and skills have none. The system prompt alone is LaunchOnly — it is refused
-// at rest, where nothing can sink its flag.
-func TestSurfaces_OutOfCwdFormsAndLaunchOnly(t *testing.T) {
+// Whether an approach is safe in a shared cwd is a property of each VALUE, and
+// it is asserted on the BEHAVIOUR — where the bytes land — not on the marker
+// interface that used to carry it. The distinction is the point of this test:
+// the system prompt's safety was previously readable only as "it implements
+// OutOfCwd, so a shared launch converts it", and that same marker was what
+// silently converted an ISOLATED launch's selection into a CLAUDE.md. The
+// property that actually matters survives the marker's removal — the system
+// prompt's bytes never land in the workspace, on ANY cell.
+//
+// The native-file context is deliberately NOT safe: an explicit unsafe-file
+// request is honoured, and warned. commands and skills have no private form at
+// all. The system prompt alone is LaunchOnly — refused at rest, where nothing
+// can sink its flag.
+func TestSurfaces_SharedCwdSafetyAndLaunchOnly(t *testing.T) {
 	s := newSurfaces(sampleInputs(), nil)
-	converts := func(a agent.Approach) bool { _, ok := a.(agent.OutOfCwd); return ok }
 	launchOnly := func(a agent.Approach) bool { _, ok := a.(agent.LaunchOnly); return ok }
 
-	assert.False(t, converts(s.Native), "context unsafe-file: honoured natively, never converted")
-	assert.True(t, converts(s.Context), "context system-prompt converts to the scratch")
-	assert.False(t, converts(s.Hook))
-	assert.True(t, converts(s.MCP))
-	assert.True(t, converts(s.Settings))
-	assert.False(t, converts(s.Commands))
-	assert.False(t, converts(s.Skills))
+	assert.False(t, agent.SafeInSharedCwd(s.Native), "context unsafe-file: honoured natively, never converted")
+	assert.True(t, agent.SafeInSharedCwd(s.Context), "the system prompt stays out of the workspace")
+	assert.True(t, agent.SafeInSharedCwd(s.Hook), "a rider writes no bytes of its own")
+	assert.True(t, agent.SafeInSharedCwd(s.MCP), "the private mcp config stays out of the workspace")
+	assert.False(t, agent.SafeInSharedCwd(s.MCPUnsafe), "mcp:unsafe-file is the project file — honoured, and warned")
+	assert.True(t, agent.SafeInSharedCwd(s.Settings))
+	assert.False(t, agent.SafeInSharedCwd(s.Commands))
+	assert.False(t, agent.SafeInSharedCwd(s.Skills))
+
+	// The system prompt's safety is STRUCTURAL, not a conversion a cell opts
+	// into: its presentation is outside the project root, so the property holds
+	// on an isolated cell too — which is exactly what the silent conversion
+	// used to break.
+	assert.False(t, agent.PresentsUnderProjectRoot(s.Context),
+		"the framed system prompt must never present as a project file")
+	assert.True(t, agent.PresentsUnderProjectRoot(s.Native),
+		"CLAUDE.md is a project file — that is what makes unsafe-file unsafe")
 
 	assert.True(t, launchOnly(s.Context), "system-prompt has no argv sink at rest")
-	for _, a := range []agent.Approach{s.Native, s.Hook, s.MCP, s.Settings, s.Commands, s.Skills} {
+	assert.True(t, launchOnly(s.MCP), "the private mcp config is announced on a flag, so it has no argv sink at rest")
+	for _, a := range []agent.Approach{s.Native, s.Hook, s.MCPUnsafe, s.Settings, s.Commands, s.Skills} {
 		assert.False(t, launchOnly(a))
 	}
 }
@@ -556,7 +594,7 @@ func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
 		"SelfContainedCommands must reach the commands writer — otherwise a portable target silently loses "+
 			"every command that happens to exist in the delivering machine's home")
 
-	_, err = s.MCP.Deliver(present.ProjectOnHost(dir))
+	_, err = s.MCPUnsafe.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	mcpData, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
 	require.NoError(t, err)
@@ -658,7 +696,7 @@ func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
 		switch a := ra.Approach.(type) {
 		case *systemPromptContext:
 			s.Context = a
-		case *mcpSurface:
+		case *mcpConfig:
 			s.MCP = a
 		case *settingsSurface:
 			s.Settings = a
@@ -674,9 +712,9 @@ func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
 		deliver func(present.Start) (agent.Delivered, error)
 		path    func() string
 	}{
-		{"mcp", s.MCP.DeliverIsolated, s.MCP.Path},
+		{"mcp", s.MCP.Deliver, s.MCP.Path},
 		{"settings", s.Settings.DeliverIsolated, s.Settings.Path},
-		{"context", s.Context.DeliverIsolated, s.Context.Path},
+		{"context", s.Context.Deliver, s.Context.Path},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			armed = false
@@ -712,7 +750,10 @@ func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
 			a, ok := Surfaces.Construct(kind, def, sampleInputs(), nil)
 			require.True(t, ok)
 
-			start := present.ProjectOnHost(dir)
+			// Both roots advised: a default approach may root under either,
+			// and one that roots privately REFUSES an unadvised root rather
+			// than falling back to the project file.
+			start := runRoots(dir, dir)
 			_, err := a.Deliver(start)
 			require.NoError(t, err)
 
@@ -744,7 +785,7 @@ func TestSurfaces_RootsBindPerLaunchNotAtConstruction(t *testing.T) {
 // resolved selection buildArgs reads (LaunchBackend.Resolved). "" when the
 // approach was not selected or wrote nothing, matching Path()'s own contract.
 func contextPathOf(b *ClaudeCode) string  { return resolvedPath[*systemPromptContext](b) }
-func mcpPathOf(b *ClaudeCode) string      { return resolvedPath[*mcpSurface](b) }
+func mcpPathOf(b *ClaudeCode) string      { return resolvedPath[*mcpConfig](b) }
 func settingsPathOf(b *ClaudeCode) string { return resolvedPath[*settingsSurface](b) }
 
 func resolvedPath[T pathed](b *ClaudeCode) string {
@@ -758,4 +799,61 @@ func resolvedPath[T pathed](b *ClaudeCode) string {
 		}
 	}
 	return ""
+}
+
+// TestMCPSurface_UnsafeFile_IsHonouredAndWarned is unread-retail's settle
+// condition for the EXPLICIT selection. A caller that names mcp:unsafe-file on
+// a shared cwd gets the project .mcp.json it asked for, with the SAME warning
+// context:unsafe-file already emits — not a silent conversion to the private
+// form, which "succeeded" without doing the thing that was asked.
+func TestMCPSurface_UnsafeFile_IsHonouredAndWarned(t *testing.T) {
+	cwd := t.TempDir()
+
+	r, err := agent.Select(Surfaces).With(agent.SurfaceMCP, agent.ApproachUnsafeFile).Build(sampleInputs(), nil)
+	require.NoError(t, err)
+
+	var delivered []agent.Delivered
+	stderr := captureStderr(t, func() {
+		var errs []error
+		delivered, _, errs = r.DeliverShared(present.ProjectOnHost(cwd))
+		require.Empty(t, errs)
+	})
+	require.Len(t, delivered, 1)
+
+	assert.Contains(t, stderr, "warning:", "an explicit unsafe-file selection is warned, exactly as context's is")
+	assert.Contains(t, stderr, "shared cwd")
+	assert.Contains(t, stderr, "races concurrent agents")
+
+	// It was HONOURED: the well-known project file is what landed.
+	assert.FileExists(t, filepath.Join(cwd, MCPFileName),
+		"an explicit mcp:unsafe-file must write the project .mcp.json it named")
+	// And it announces no flag — the project file is read by claude directly.
+	assert.Empty(t, flagArgs(r), "the project-file form is not announced on argv")
+}
+
+// TestMCPSurface_DefaultIsThePrivateConfigFileOnEveryCell is the other half:
+// with NO stated preference the default form writes NOTHING into the project
+// and announces --mcp-config beneath the run's private root. "Every launch"
+// is the point — this used to be a shared-cwd conversion, so an isolated cell
+// took the project file instead.
+func TestMCPSurface_DefaultIsThePrivateConfigFileOnEveryCell(t *testing.T) {
+	project, private := t.TempDir(), t.TempDir()
+
+	def, ok := Surfaces.Default(agent.SurfaceMCP)
+	require.True(t, ok)
+	r, err := agent.Select(Surfaces).With(agent.SurfaceMCP, def).Build(sampleInputs(), nil)
+	require.NoError(t, err)
+
+	stderr := captureStderr(t, func() {
+		_, _, errs := r.DeliverShared(runRoots(project, private))
+		require.Empty(t, errs)
+	})
+	assert.NotContains(t, stderr, "warning:", "the private form races nothing, so it is not warned")
+
+	assert.NoFileExists(t, filepath.Join(project, MCPFileName),
+		"the DEFAULT mcp form must never write into the project")
+	assert.FileExists(t, filepath.Join(private, MCPFileName),
+		"the default mcp form lands beneath the run's private root")
+	assert.True(t, argPair(flagArgs(r), flagMCPConfig, filepath.Join(private, MCPFileName)),
+		"the private file is announced on --mcp-config: %v", flagArgs(r))
 }

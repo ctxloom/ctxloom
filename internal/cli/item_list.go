@@ -237,9 +237,9 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 			}
 		}
 	}
-	// Stamp effective trust only for the machine (json) surface: it materializes
+	// Stamp effective trust only for the machine surfaces: it materializes
 	// and hashes each item, so the cheaper ref-only human listing stays unchanged.
-	if outputFormatOf(cmd) == formatJSON {
+	if wantsStructuredOutput(cmd) {
 		stampItemTrust(cfg, itemType, filtered)
 	}
 	return emit(cmd, filtered, func() error {

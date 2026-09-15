@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
 
 func testSignerKeyLine(t *testing.T) string {
@@ -417,6 +418,64 @@ func TestPrintSignerListings_EmptyReportsNone(t *testing.T) {
 	var buf strings.Builder
 	require.NoError(t, printSignerListings(&buf, nil))
 	assert.Contains(t, buf.String(), "no trusted signers")
+}
+
+// hostilePrincipal is a signer principal carrying the bytes a terminal would
+// obey: a cursor-up + erase-line pair (rewrites the line above), a carriage
+// return (overwrites the current line from column 0) and a backspace. The
+// escaped form is what the reader must see instead — caret notation, so no
+// byte is lost and the forgery attempt is itself visible.
+const (
+	hostilePrincipal        = "evil@example.com\x1b[1A\x1b[2K\rtrusted@acme.com\x08"
+	hostilePrincipalEscaped = "evil@example.com^[[1A^[[2K^Mtrusted@acme.com^H"
+)
+
+// TestPromptSignerAdd_PrincipalControlBytesAreEscaped covers the sharpest
+// display path in the product: the "Trust X as a PUBLISHER?" line, where X is
+// supplied by the entity seeking trust. Control bytes reaching the terminal
+// here can rewrite the very line the operator is reading to decide.
+func TestPromptSignerAdd_PrincipalControlBytesAreEscaped(t *testing.T) {
+	key := testSignerKeyInfo(t)
+	feedPromptStdin(t, "n\n")
+	cmd, _ := testCmd()
+	var errBuf bytes.Buffer
+	cmd.SetErr(&errBuf)
+
+	promptSignerAdd(cmd, hostilePrincipal, key, []string{signing.NamespacePublish})
+
+	out := errBuf.String()
+	assert.Contains(t, out, "Trust "+hostilePrincipalEscaped+" as a PUBLISHER?",
+		"the principal must render in caret form, on its own line, losing no bytes")
+	assert.NotContains(t, out, "\x1b", "no raw ESC may reach the terminal")
+	assert.NotContains(t, out, "\r", "no raw CR may reach the terminal")
+	assert.NotContains(t, out, "\x08", "no raw backspace may reach the terminal")
+}
+
+// TestPrintSignerListings_PublisherFieldsAreEscaped covers the listing: the
+// principal and namespaces come from an allowed_signers file that a pulled
+// remote or an embedded root can have authored, and an unreadable line is
+// echoed verbatim by design. All three must reach the terminal inert.
+func TestPrintSignerListings_PublisherFieldsAreEscaped(t *testing.T) {
+	var buf strings.Builder
+	require.NoError(t, printSignerListings(&buf, []operations.SignerListing{
+		{
+			Entry: allowedsigners.Entry{
+				Principals: []string{hostilePrincipal},
+				Namespaces: []string{"ctxloom-publish\x1b[2K"},
+			},
+			Source:      "user",
+			Fingerprint: "SHA256:abc",
+		},
+		{Unreadable: "line 3: bad key\x1b[1A", Source: "project"},
+	}))
+
+	out := buf.String()
+	assert.Contains(t, out, hostilePrincipalEscaped)
+	assert.Contains(t, out, "ctxloom-publish^[[2K")
+	assert.Contains(t, out, "line 3: bad key^[[1A")
+	assert.NotContains(t, out, "\x1b", "no raw ESC may reach the terminal")
+	assert.NotContains(t, out, "\r")
+	assert.NotContains(t, out, "\x08")
 }
 
 // TestSignerConsequenceText_PublishWinsInAMixedGrant completes the pin on the

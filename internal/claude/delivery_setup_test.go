@@ -394,32 +394,53 @@ func TestSetup_FragmentsAssemblingToNothingIsLoud(t *testing.T) {
 	assertNoSyspromptUnder(t, work)
 }
 
-// TestSetup_SharedCell_NoEngineHome_RefusesThePrivateDefault is the refusal
-// at the launch seam: a shared-cell Setup whose run env carries no relocated
-// engine home cannot serve the DEFAULT mcp approach, and says so — wrapping
-// ErrUnrootedEngineHome, whose message names the remedy (declare
-// engine_home: session on the binding, or select the project-file approach).
-// Nothing is written in its place: not the project .mcp.json, and not one
-// beneath the harp's scratch.
-func TestSetup_SharedCell_NoEngineHome_RefusesThePrivateDefault(t *testing.T) {
+// TestSetup_SharedCell_NoEngineHome_SelectsTheProjectFile is a DELIBERATE
+// REVERSAL, recorded as one.
+//
+// This test was TestSetup_SharedCell_NoEngineHome_RefusesThePrivateDefault and
+// required the opposite: a shared-cell Setup carrying no relocated engine home
+// had to fail with ErrUnrootedEngineHome and write nothing, explicitly
+// asserting "no fallback to the project file".
+//
+// That refusal shipped and immediately fired on runs that are specified to
+// succeed — an ordinary `ctxloom run`, and an agent run declaring
+// engine_home: host, which is an explicit OPT-OUT of a controlled home. The
+// row carried a revisit clause for exactly that symptom ("if the refusal fires
+// on ordinary runs with no isolation intent, the SCOPING CONDITION, not the
+// root, is wrong"), and the human ruled on it: selection promotes a surface to
+// a private-root approach ONLY when the run actually advised such a root.
+//
+// So this is no longer a fallback. Nothing is being degraded at delivery time:
+// the run never selects the private approach in the first place, because it is
+// not an approach this run can deliver. The project file is what the engine
+// reads when there is no private home to read from, and it is what
+// ErrUnrootedEngineHome's own message told a human to pick by hand.
+//
+// The harp-scratch assertion is KEPT and is the one that still guards
+// something: rerouting to a THIRD location nobody named would be the silent
+// substitution the no-degradation rule forbids.
+func TestSetup_SharedCell_NoEngineHome_SelectsTheProjectFile(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	work := t.TempDir()
 	const harp = "perky-same-chevy"
 	backend := NewClaudeCode()
-	err := backend.Setup(context.Background(), &agent.SetupRequest{
+	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
 		Env:       map[string]string{sessionHarpEnv: harp},
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		Managed:   &agent.ManagedConfig{BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}}},
 		CellKind:  agent.CellKindShared,
-	})
-	require.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+	}), "a run advising no engine home must still launch: it selects the approach it CAN deliver rather than refusing one it cannot")
 
-	assert.Empty(t, mcpPathOf(backend), "a refused delivery records no path for --mcp-config")
-	assert.NoFileExists(t, filepath.Join(work, ".mcp.json"), "no fallback to the project file")
+	// It really delivered, and it delivered the project file.
+	assert.FileExists(t, filepath.Join(work, ".mcp.json"),
+		"with no private root advised, the MCP surface lands in the project file — the approach the engine reads when it has no relocated home")
+
+	// And nowhere else. A third location nobody named is the silent
+	// substitution this whole delivery rule exists to forbid.
 	ephem, err := paths.HarpEphemeralDir(harp)
 	require.NoError(t, err)
-	assert.NoFileExists(t, filepath.Join(ephem, ".mcp.json"), "no fallback to the harp's scratch")
+	assert.NoFileExists(t, filepath.Join(ephem, ".mcp.json"), "no reroute to the harp's scratch")
 }
 
 // TestSetup_NoFragmentsIsNotAnError keeps the guard above from becoming a new

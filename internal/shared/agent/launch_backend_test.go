@@ -485,7 +485,11 @@ func TestSetup_ManagedEmpty_ReachesTheWriters(t *testing.T) {
 		Managed:  &ManagedConfig{},
 	}))
 
-	assert.Equal(t, 5, set.built, "every declared approach is constructed from the empty payload")
+	// 10 = 5 kinds x 2 constructions each. Selection probes each kind's current
+	// approach once to ask whether THIS RUN can root it (ensureRootable), then
+	// Build constructs the approach it settled on. It was 5 before that probe
+	// existed; the doubling is the probe, not a second delivery.
+	assert.Equal(t, 10, set.built, "every declared approach is constructed from the empty payload")
 	assert.Empty(t, set.inputs.Commands)
 	assert.Empty(t, set.inputs.BundleMCP)
 	require.Len(t, b.delivered, 5, "every surface delivers — that is what retracts last round's install")

@@ -46,11 +46,14 @@ func captureStderr(t *testing.T, fn func()) string {
 }
 
 // runRoots advises a run rooted at project with its out-of-cwd scratch at
-// scratch, on the host — the two roots a shared-cwd claude delivery reads.
-func runRoots(project, scratch string) present.Start {
+// scratch and its relocated engine home at engineHome, on the host — the
+// three roots a shared-cwd claude delivery reads. They are distinct so a test
+// can tell which root a surface landed under.
+func runRoots(project, scratch, engineHome string) present.Start {
 	return present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: project},
 		Scratch:     present.Root{Host: scratch},
+		EngineHome:  present.Root{Host: engineHome},
 	}))
 }
 
@@ -125,12 +128,13 @@ func TestDeliverUnder_RejectsSystemPrompt(t *testing.T) {
 func TestDeliverShared_ClaudeContextRawBuilderResolvesTableDefault_U100F05(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	isolated := "/isolated-scratch"
+	engineHome := "/engine-home"
 	sharedCwd := "/live/project"
 	r, err := agent.Select(claude.Surfaces).WithEverything().Build(agent.SurfaceInputs{Context: "project rules"}, fs)
 	require.NoError(t, err)
 
 	stderr := captureStderr(t, func() {
-		delivered, _, errs := r.DeliverShared(runRoots(sharedCwd, isolated))
+		delivered, _, errs := r.DeliverShared(runRoots(sharedCwd, isolated, engineHome))
 		require.Empty(t, errs)
 		assert.Len(t, delivered, 5, "context, mcp, settings, commands, and skills all deliver (context via the well-known write, not a realization)")
 	})
@@ -141,7 +145,7 @@ func TestDeliverShared_ClaudeContextRawBuilderResolvesTableDefault_U100F05(t *te
 	assert.Contains(t, stderr, "commands", "commands has no realization and must warn")
 	assert.Contains(t, stderr, "skills", "skills has no realization and must warn")
 	assert.Equal(t, 3, strings.Count(stderr, "warning:"),
-		"context, commands, and skills all warn; only mcp/settings convert silently via their out-of-cwd form (their sole approach IS the one that has it)")
+		"context, commands, and skills all warn; mcp's default is already the private file and settings converts silently via its out-of-cwd form")
 }
 
 // An approach with NO out-of-cwd form (only claude's have one) falls back to

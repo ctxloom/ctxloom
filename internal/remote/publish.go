@@ -538,7 +538,7 @@ func (pm *PublishManager) publishViaPR(ctx context.Context, prep *publishPrep, o
 // keyed by its path relative to the bundle's own directory ("bundle.yaml",
 // "skills/greet/SKILL.md") — lands as ONE commit under opts.RemotePath, the
 // tree's root directory (computed by the caller with
-// PublishPath(itemType, name, true)).
+// PublishPath(itemType, name)).
 //
 // There is no separate signature-sibling write here, unlike Publish.
 // opts.SignPayload is ignored: a tree's own signature (a "<manifest>.sig"
@@ -556,7 +556,7 @@ func (pm *PublishManager) PublishTree(ctx context.Context, files map[string][]by
 		return nil, fmt.Errorf("refusing to publish an empty tree: there is nothing to write")
 	}
 	if opts.RemotePath == "" {
-		return nil, fmt.Errorf("refusing to publish a tree: PublishOptions.RemotePath is empty (compute it with remote.PublishPath(itemType, name, true) so the path reported and the path written are the same value)")
+		return nil, fmt.Errorf("refusing to publish a tree: PublishOptions.RemotePath is empty (compute it with remote.PublishPath(itemType, name) so the path reported and the path written are the same value)")
 	}
 
 	rt, err := pm.resolveTarget(remoteName)
@@ -723,12 +723,12 @@ func buildPRBody(msgBody, fullTitleIfOverflow string, itemType ItemType, itemNam
 // so the reported path and the written path are the same string rather than
 // two expressions that happen to match.
 //
-// tree selects the SHAPE, not the format root: false is the single-file
-// document "<prefix>/<name>.yaml"; true is a directory's OWN root,
-// "<prefix>/<name>" — no ".yaml", because what lands there is a tree of
-// files (the manifest plus its item files), not one document. The caller
-// (operations.PushBundle) decides which shape a given local bundle is,
-// exactly as ExportBundle already does for export.
+// There is ONE shape: a directory's own root, "<prefix>/<name>" with no
+// ".yaml", because what lands there is a tree of files (the manifest plus
+// its item files) rather than one document. A single-file bundle has no
+// publishable form at all — operations.PushBundle refuses it, because pull
+// materializes nothing for a document and the bytes would be permanently
+// unreachable. So there is no shape for a caller to select.
 //
 // The prefix comes from RepoItemPrefix — the one place the remote bundle layout
 // is decided — so publish, fetch and listing move together when it moves.

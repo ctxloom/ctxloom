@@ -1242,11 +1242,11 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
             esac
             if [ "$has_run" -eq 0 ]; then
                 echo "error: $pkg -tags acceptance without a -run filter drives the ENTIRE godog suite" >&2
-                echo "       (515 scenarios; 179s on an idle box, ~1200s under load). This recipe is the" >&2
+                echo "       (every scenario; many minutes, and longer under load). This recipe is the" >&2
                 echo "       narrow iteration loop and does not carry that timeout." >&2
                 echo "fix:  just test-pkg $pkg -tags acceptance -run '<TestName>'" >&2
-                echo "  or: just test-acceptance          # the whole suite, with the 30m budget it needs" >&2
-                echo "  or: just test-acceptance-features # a named slice of feature files" >&2
+                echo "  or: just test-acceptance                       # the whole suite, with the 30m budget it needs" >&2
+                echo "  or: just test-acceptance-focus <PATHS> [TAGS]  # a named slice of feature files" >&2
                 exit 1
             fi
             ;;

@@ -29,7 +29,7 @@ flowchart TD
   WITH --> BUILD["Build(inputs)"]
   BUILD -->|"CellKind isolated"| CELL["NewIsolatedCell(start).Deliver"]
   BUILD -->|"CellKind shared"| SHARED["deliverOneShared"]
-  SHARED -->|"context surface failed"| REC["recoverContextViaHook"]
+  SHARED -->|"any surface failed"| REFUSE["refuse the launch"]
   BUILD -->|"context approach is a Rider"| HOOK["installContextInjectionHook"]
   CELL --> HANDLES[("b.delivered []Delivered")]
   SHARED --> HANDLES
@@ -66,8 +66,7 @@ flowchart TD
 | `LaunchBackend.setupViaCells` | `MergeManaged` → read the merged state → assemble the surface context → advise the run's roots ONCE → `deliverSet`. |
 | `LaunchBackend.deliverSet` | Selects from the `Declaration`, applies the shared-launch preference and the caller's explicit per-kind names, builds, delivers through the cell named by `req.CellKind`, installs the injection hook for a `Rider` context approach, and records every non-nil handle. |
 | `SurfaceSelection.preferOutOfCwd` | The shared-cell default derivation: with no explicit preference for a kind, prefer the declared approach that implements `OutOfCwd`; if several do and none is the default, error — the declaration must say which it prefers. Decided from the CAPABILITY, never from a name. |
-| `LaunchBackend.installContextInjectionHook` | Materializes the raw context cache file and appends the SessionStart injection hook onto the merged hooks the not-yet-delivered settings surface then writes. Both the failure fallback and a deliberately selected `ApproachHook` context route through here. |
-| `LaunchBackend.recoverContextViaHook` | Failure fallback on a shared launch: when the context surface's delivery fails, install the injection hook rather than launch a context-less session. |
+| `LaunchBackend.installContextInjectionHook` | Materializes the raw context cache file and appends the SessionStart injection hook onto the merged hooks the not-yet-delivered settings surface then writes. Reached on ONE path: a deliberately selected `ApproachHook` context. Never as a fallback from another approach's failure. |
 | `LaunchBackend.mergedState` | Capability-probes the lifecycle for the merged hooks + bundle MCP, returning `(hooks, mcp, ok)`. |
 | `LaunchBackend.Cleanup` | LIFO teardown of every recorded handle. |
 | `AwaitTurn` (`rendezvous.go`) | flock rendezvous so N chunk-injection hooks emit in order (see the context-delivery page). |
@@ -115,15 +114,17 @@ flowchart TD
   itself writes nothing; the launch installs the hook it rides on. Selecting
   it without the settings surface is refused at `Build`.
 - **A nil `Delivered` holds no cleanup handle and is not recorded.**
-- **`recoverContextViaHook` returns a `bool`, not an `error`.** The cause is
-  warned through the shared `Warn` and then discarded; the caller learns only
-  whether the hook was installed.
+- **A failed delivery REFUSES; it never substitutes another mechanism.** A
+  shared-cell context failure used to install the injection hook and carry on
+  (`recoverContextViaHook`), which delivered the run its context through a
+  channel its isolation argument was never made against and still reported
+  success. `deliverSet` now returns the error, wrapping the cause.
 - **`Cleanup` is LIFO, attempts every handle, and joins every failure**
   (`errors.Join`), so one bad handle does not hide the others.
 - **`LaunchBackend` is two types on one struct.** Exec half: `{BaseBackend,
   extraEnv}` ← `ExecuteCLI`/`TraceArgs`/`ExecuteEnv`. Setup half:
   `{lifecycle, surfaces, resolved, delivered}` ← `Setup`/`setupViaCells`/
-  `deliverSet`/`recoverContextViaHook`/`mergedState`/`Cleanup`. Only `context`
+  `deliverSet`/`mergedState`/`Cleanup`. Only `context`
   is shared, and the exec half uses it for a path string while the setup half
   uses it to write the cache file; `history` belongs to neither.
 - **`ApplyLocalCLIConfig`** (`localcli.go`) applies the local-CLI overrides

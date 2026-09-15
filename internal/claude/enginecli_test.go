@@ -113,7 +113,7 @@ func setupBackendForMatrix(t *testing.T) *ClaudeCode {
 	b := NewClaudeCode()
 	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   t.TempDir(),
-		Env:       map[string]string{sessionHarpEnv: "perky-same-chevy"},
+		Env:       sessionEnv("perky-same-chevy", t.TempDir()),
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		CellKind:  agent.CellKindShared,
 		Managed: &agent.ManagedConfig{

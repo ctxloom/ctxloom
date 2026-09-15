@@ -17,11 +17,15 @@ import (
 // cells that land a well-known write in a private dir, and the name-keyed
 // SurfaceSelection builder that resolves a caller's named per-surface approach
 // against the engine's Declaration and constructs it. Race-safety is handled
-// by the CELL, not a parallel type hierarchy: an isolated cell's private dir
-// makes any well-known write race-free by construction, and a SHARED-cwd
-// delivery either runs the approach's own OutOfCwd form (claude's scratch
-// conversion) or performs the well-known write with a loud warning — the
-// caller's ApproachUnsafeFile choice IS that warning's acknowledgment.
+// by the CELL and by the APPROACH, not a parallel type hierarchy: an isolated
+// cell's private dir makes any well-known write race-free by construction, and
+// on a SHARED cwd an approach that presents outside the project root is already
+// safe, while a well-known write gets a loud warning — the caller's
+// ApproachUnsafeFile choice IS that warning's acknowledgment.
+//
+// What a shared cwd never does is SUBSTITUTE. A caller that named an approach
+// gets that approach or an error, never a different one reported as success
+// (see deliverOneShared, and agent.OutOfCwd for the one residual conversion).
 //
 // (Delivered — the handle owning a delivery's cleanup — is defined in
 // delivery.go and reused here.)
@@ -134,6 +138,36 @@ func PresentsUnderProjectRoot(a Approach) bool {
 	}))
 	host := filepath.ToSlash(a.Present(probe).HostPath)
 	return host == project || strings.HasPrefix(host, project+"/")
+}
+
+// SafeInSharedCwd reports whether delivering a through a SHARED-cwd launch
+// races a concurrent session using the same project. It is the predicate a
+// shared launch derives its preference from, and it reads the APPROACH rather
+// than a name, so an engine's naming decides nothing.
+//
+// A Rider writes no bytes of its own; an approach whose presentation lands
+// outside the project root (the framed system prompt, the default .mcp.json)
+// is not a write into the shared cwd at all. Both are safe. A well-known
+// project file is not, and choosing it anyway is the caller's acknowledged
+// race — deliverOneShared warns and proceeds.
+//
+// The OutOfCwd disjunct is RESIDUE, and is the reason this is not simply
+// !Rider && !PresentsUnderProjectRoot. Settings is the last approach carrying
+// a second form: it presents as a project file but converts to a private one
+// when a shared launch delivers it. Splitting it the way MCP and the system
+// prompt were split is unsafe while an isolated cell's scratch IS its checkout
+// — a private --settings file would land at the well-known path AND be
+// announced on the flag, registering claude's hooks twice. When settings gains
+// its one form this disjunct goes, and the predicate reduces to the two terms
+// above.
+func SafeInSharedCwd(a Approach) bool {
+	if _, rider := a.(Rider); rider {
+		return true
+	}
+	if _, converts := a.(OutOfCwd); converts {
+		return true
+	}
+	return !PresentsUnderProjectRoot(a)
 }
 
 // SurfaceKind names the CROSS-BACKEND category a delivery surface belongs to —
@@ -589,7 +623,13 @@ type unsafeNamed interface {
 // deliverOneShared delivers ONE resolved surface into the SHARED live cwd —
 // the advised project root. When the approach has an OutOfCwd form it runs
 // THAT against the same advised roots — it writes beneath Scratch —
-// genuinely race-safe, no warning. Otherwise the well-known write lands
+// genuinely race-safe, no warning. That branch is RESIDUE: it applies to
+// settings alone, the last approach with a second form (see agent.OutOfCwd).
+// It is a CONVERSION, and a conversion is exactly what an explicitly named
+// approach must not get, which is why context and MCP no longer reach it —
+// each declares one approach per behaviour, and an approach whose bytes land
+// outside the project root falls through to the plain Deliver below.
+// Otherwise the well-known write lands
 // directly in the shared cwd: loudly warned first, since the selected
 // ApproachUnsafeFile is the caller's acknowledgment that ctxloom does not lock
 // projects — this is also where an explicit context=unsafe-file preference on

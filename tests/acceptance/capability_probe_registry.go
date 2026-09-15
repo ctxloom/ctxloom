@@ -753,7 +753,10 @@ func p0Cells() []probeCell {
 // mechanism selected, the context composed, the hook fired (S4's P3 probe),
 // and still nothing reached the model, exactly as measured. Fixed by
 // factoring the hash-materialize-and-append-hook logic into
-// installContextInjectionHook and calling it from deliverSet whenever a
+// installContextInjectionHook (recoverContextViaHook, its other caller at the
+// time, has since been deleted: a failed delivery now refuses the launch
+// rather than rerouting through the hook) and calling it from deliverSet
+// whenever a
 // SharedCell resolves SurfaceContext at ApproachHook, mirroring the existing
 // failure-triggered fallback. Measured: green with nonce harp
 // "obese-hilly-gusto" echoed exactly; mutation-confirmed by reverting the fix

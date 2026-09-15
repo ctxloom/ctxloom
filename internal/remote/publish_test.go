@@ -444,12 +444,10 @@ func TestPublishPath(t *testing.T) {
 // after their `bundle.yaml` manifest: they published as "bundle" and so were
 // reachable only under that name, if at all.
 //
-// This asserts the agreement for the MANIFEST'S single-file address —
-// PublishPath(...) — which is what a fetch's BuildFilePath always
-// resolves to (a Reference names a bundle, not a shape). A directory-form
-// bundle's tree root (PublishPath(..., true)) is a DIFFERENT, wider write —
-// see PublishPath's own doc — and BundleTreeRoots is fetch's answer to
-// finding it, not BuildFilePath.
+// This asserts the agreement for the address PublishPath yields, which is
+// what a fetch's BuildFilePath always resolves to (a Reference names a
+// bundle, not a shape). BundleTreeRoots is fetch's answer to enumerating
+// the roots a tree may sit under, not BuildFilePath.
 func TestPublishPath_MatchesFetchSideRefResolution(t *testing.T) {
 	for _, name := range []string{"security", "dir-form", "lang/go/testing"} {
 		t.Run(name, func(t *testing.T) {

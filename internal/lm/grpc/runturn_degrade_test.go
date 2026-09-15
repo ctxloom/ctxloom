@@ -19,28 +19,44 @@ func (b *nilResultBackend) Execute(context.Context, *agent.ExecuteRequest, io.Wr
 	return nil, nil
 }
 
-// RunTurn degrades on three faults rather than aborting the turn. All three are
-// stated invariants (fault tolerance, CLAUDE.md) and none of them was pinned:
-// Setup is load-bearing but non-essential, so a failure warns and the engine
-// still launches; a teardown hiccup must not mask a completed run; and a
-// backend that returns (nil, nil) must not nil-dereference the serving
-// goroutine.
+// TestRunTurn_RefusesASetupFailure is the inversion of what this file used to
+// assert. The subtest here was "a Setup failure still launches the engine", and
+// it required RunTurn to return no error and run Execute anyway.
+//
+// feeble-sway ruled that behaviour out. Setup is what delivers the run's
+// context, its MCP servers and its hooks; a turn that launches without them is
+// not a degraded version of the run the user asked for, it is a different run
+// reporting success at exit 0 — the silent no-op this project refuses. So the
+// error now reaches the caller and Execute never runs.
+//
+// The two genuine degradations kept their old home below: this one moved out
+// because it is no longer a degradation at all, and leaving it in a test named
+// "DegradesInsteadOfAborting" would have left that name asserting the contract
+// the ruling removed.
+func TestRunTurn_RefusesASetupFailure(t *testing.T) {
+	fb := &fakeBackend{name: "mock", setupErr: assert.AnError, captureStdout: "engine ran"}
+	var out strings.Builder
+
+	result, err := RunTurn(context.Background(), fb, &RunStart{
+		Prompt:  &Fragment{Content: "go"},
+		Options: &RunOptions{WorkDir: "/work"},
+	}, nil, nil, &out, &out, nil, nil)
+
+	require.Error(t, err, "a Setup failure must abort the turn rather than launch an engine that was never given its context, MCP servers or hooks")
+	assert.ErrorIs(t, err, assert.AnError, "the refusal must wrap the underlying Setup error so a caller can still branch on the cause")
+	assert.Nil(t, result, "a refused turn yields no result")
+	assert.True(t, fb.setupCalled, "Setup must actually have been attempted")
+	assert.NotContains(t, out.String(), "engine ran",
+		"Execute must NOT run after a failed Setup: launching here is exactly the silent no-op — an engine with none of its surfaces delivered, reporting success")
+}
+
+// RunTurn degrades on two faults rather than aborting the turn: a teardown
+// hiccup must not mask a completed run, and a backend that returns (nil, nil)
+// must not nil-dereference the serving goroutine. Neither was pinned before
+// this test.
+//
+// A Setup failure is NOT among them — see TestRunTurn_RefusesASetupFailure.
 func TestRunTurn_DegradesInsteadOfAborting(t *testing.T) {
-	t.Run("a Setup failure still launches the engine", func(t *testing.T) {
-		fb := &fakeBackend{name: "mock", setupErr: assert.AnError, captureStdout: "engine ran"}
-		var out strings.Builder
-
-		result, err := RunTurn(context.Background(), fb, &RunStart{
-			Prompt:  &Fragment{Content: "go"},
-			Options: &RunOptions{WorkDir: "/work"},
-		}, nil, nil, &out, &out, nil, nil)
-
-		require.NoError(t, err, "a Setup failure must not abort the turn")
-		require.NotNil(t, result)
-		assert.True(t, fb.setupCalled)
-		assert.Contains(t, out.String(), "engine ran", "Execute ran anyway")
-	})
-
 	t.Run("a Cleanup failure does not mask a successful run", func(t *testing.T) {
 		fb := &fakeBackend{
 			name:          "mock",

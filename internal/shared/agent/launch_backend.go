@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -385,7 +386,20 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 // fan-out's CellKindForPolicy ties CellKind==Shared to isolation.Policy=None,
 // which is exactly the branch that also keeps SkipSetup=true (so Setup, and
 // this function, never run at all) — covering even the harp-less auth-ping
-// probe. No caller today relies on the struck fallback.
+// probe.
+//
+// THAT LAST LEG IS NO LONGER TRUE, and it is the one the auth-ping probe
+// rested on. SkipSetup does not exist any more: launchform.go replaced it
+// ("not a mode but a BYPASS"), and Setup now runs on every turn, so
+// cli/init_launch.go's pingEngineAuth — a throwaway liveness probe that
+// passes no ExtraEnv and therefore no harp — reaches this function and
+// refuses. It was invisible while a Setup failure was downgraded to a warning
+// and the turn launched anyway; feeble-sway made that refusal real and the
+// probe started failing loudly. The probe's honest form is LaunchFormMinimal
+// (a bare model call, delivering nothing), which returns before any root is
+// resolved; it cannot declare one today because RunOneshotRequest carries no
+// form. Tracked separately — do not paper over it here with a synthesised
+// harp, which is what this whole doc exists to forbid.
 var ErrSharedScratchNoHarp = errors.New("delivery: sharedScratchDir has no harp to derive a private scratch dir from — this is a programming error in the caller, not a case to fall back from; CellKindShared delivery must carry a resolvable CTXLOOM_SESSION_HARP")
 
 // sharedScratchDir is where a SharedCell's race-safe surfaces land: the
@@ -440,7 +454,15 @@ func assembleSurfaceContext(fragments []*Fragment) (string, error) {
 // default wins if it is one of them, otherwise the launch is refused naming
 // both — a declaration that rich has to say which it prefers. No registered
 // engine reaches that arm (TestApproachDispatch_SharedPreferenceIsUnambiguous).
-func (s *SurfaceSelection) preferOutOfCwd(kind SurfaceKind, in SurfaceInputs) error {
+//
+// A candidate must ALSO be one this run can root (rootedInThisRun). Race-safety
+// is a property of the approach; being deliverable is a property of the RUN,
+// and this step used to read only the first. That is what let it hand Deliver
+// a private-root approach on a run advising no private root, which then
+// refused — the defect feeble-sway's acceptance failures were: an ordinary
+// `ctxloom run`, and an agent run declaring engine_home: host, both stopped
+// launching. keepOrReroot covers the case where nothing race-safe is rootable.
+func (s *SurfaceSelection) preferOutOfCwd(kind SurfaceKind, in SurfaceInputs, start present.Start) error {
 	cur, ok := s.names[kind]
 	if !ok {
 		return nil
@@ -450,23 +472,38 @@ func (s *SurfaceSelection) preferOutOfCwd(kind SurfaceKind, in SurfaceInputs) er
 		return nil
 	}
 	if a, ok := p.Construct(cur, in, nil); ok {
-		if _, converts := a.(OutOfCwd); converts {
+		// BOTH conditions, and the second is why this is not just
+		// SafeInSharedCwd: an approach that is race-safe but roots at a root
+		// THIS RUN never advised cannot be delivered at all. Keeping it here
+		// is what left delivery refusing a choice selection had made for it.
+		if SafeInSharedCwd(a) && rootedInThisRun(a, start) {
 			return nil
 		}
 	}
-	var candidates []string
+	var candidates, rootable []string
 	for _, name := range p.Names() {
 		a, ok := p.Construct(name, in, nil)
 		if !ok {
 			continue
 		}
-		if _, converts := a.(OutOfCwd); converts {
+		// A Rider is race-safe but is not a SUBSTITUTE: it writes nothing of
+		// its own, so deriving it here would silently move the surface onto a
+		// different carrier the caller never named. Only an approach that
+		// delivers its own bytes outside the project root is a candidate.
+		if _, rider := a.(Rider); rider {
+			continue
+		}
+		if !rootedInThisRun(a, start) {
+			continue
+		}
+		rootable = append(rootable, name)
+		if SafeInSharedCwd(a) {
 			candidates = append(candidates, name)
 		}
 	}
 	switch len(candidates) {
 	case 0:
-		return nil
+		return s.keepOrReroot(kind, p, cur, in, start, rootable)
 	case 1:
 		s.names[kind] = candidates[0]
 		return nil
@@ -478,6 +515,126 @@ func (s *SurfaceSelection) preferOutOfCwd(kind SurfaceKind, in SurfaceInputs) er
 			}
 		}
 		return fmt.Errorf("surface %s: %s declares more than one out-of-cwd approach (%s) and none of them is its default — the declaration must name the preferred one", kind, p.Engine(), strings.Join(candidates, ", "))
+	}
+}
+
+// rootedInThisRun reports whether a's presentation lands beneath a root THIS
+// RUN actually advised. It is the question selection was missing: preferOutOfCwd
+// knew which approaches are race-safe in a shared cwd, but not which ones this
+// particular run is equipped to deliver, so it promoted a surface to a
+// private-root approach on a run that advised no private root and left Deliver
+// to refuse the choice selection had just made (ErrUnrootedEngineHome on an
+// ordinary `ctxloom run` — feeble-sway).
+//
+// It reads the PRESENTATION rather than a declared list of required roots,
+// for the same reason PresentsUnderProjectRoot does: the presenter already
+// states where the bytes go, and a marker list is a closed set a new approach
+// silently falls outside of.
+//
+// Absolute-vs-relative is the whole test, and it is exact rather than a
+// heuristic. Every root a run advises carries an ABSOLUTE host dir; a root it
+// does not advise is the zero present.Root, whose Host is "". present.under
+// joins the leaf onto that, so an approach built from an unadvised root yields
+// a bare relative leaf (or "" when it roots at the root itself). There is no
+// other way to reach a relative HostPath here.
+func rootedInThisRun(a Approach, start present.Start) bool {
+	host := a.Present(start).HostPath
+	return host != "" && filepath.IsAbs(host)
+}
+
+// keepOrReroot runs when no race-safe approach can be rooted by this run.
+//
+// The historical behaviour was simply to keep the current selection, and that
+// stays RIGHT whenever the current selection is one this run can deliver: a
+// host run whose context surface is already the native project file keeps it,
+// exactly as before.
+//
+// What is new is the other case. A kind whose DECLARED DEFAULT is itself a
+// private-root approach (claude's MCP surface defaults to the private
+// .mcp.json on every cell) would otherwise be kept on a run that cannot root
+// it, and refuse at Deliver. Rerooting to an approach the run CAN deliver is
+// what ErrUnrootedEngineHome's own message already advises a human to do by
+// hand — "declare it on the binding, or select a project-file approach for
+// this surface" — and there is no reason selection cannot do it.
+//
+// This is a change in WHICH approach a rootless run selects, never a
+// degradation of one that was selected: a run that advises the private root
+// still gets the private approach, which is what keeps the engine_home:
+// session behaviour intact.
+func (s *SurfaceSelection) keepOrReroot(kind SurfaceKind, p Presentations, cur string, in SurfaceInputs, start present.Start, rootable []string) error {
+	if a, ok := p.Construct(cur, in, nil); ok && rootedInThisRun(a, start) {
+		return nil
+	}
+	s.reroot(kind, p, rootable)
+	return nil
+}
+
+// ensureRootable is the root-awareness that applies on EVERY cell, not just a
+// shared one.
+//
+// preferOutOfCwd is a shared-cwd concern and is gated to CellKindShared, but
+// "can this run deliver the approach it selected" is not about the cwd at all.
+// An ISOLATED cell never runs the preference step, so it keeps each kind's
+// DECLARED DEFAULT — and claude's MCP surface defaults to the private
+// .mcp.json on every cell. A worktree run that advises no engine home
+// therefore kept an approach it could not deliver and refused, with the engine
+// never launching (the j002200 spy scenario, which runs under workspace
+// "worktree").
+//
+// Rerouting to the well-known project file is not a loss of isolation here:
+// an isolated cell's project root IS its private checkout, so the file lands
+// inside the cell either way. That is the same reasoning the flip itself
+// used — on an isolated cell a "private" root and the checkout are the same
+// place — read in the other direction.
+func (s *SurfaceSelection) ensureRootable(kind SurfaceKind, in SurfaceInputs, start present.Start) {
+	p, ok := s.decl[kind]
+	if !ok {
+		return
+	}
+	cur, ok := s.names[kind]
+	if !ok {
+		return
+	}
+	if a, ok := p.Construct(cur, in, nil); ok && rootedInThisRun(a, start) {
+		return
+	}
+	var rootable []string
+	for _, name := range p.Names() {
+		a, ok := p.Construct(name, in, nil)
+		if !ok {
+			continue
+		}
+		// Same reason preferOutOfCwd skips it: a Rider writes nothing of its
+		// own, so choosing one here would move the surface onto a carrier the
+		// caller never named.
+		if _, rider := a.(Rider); rider {
+			continue
+		}
+		if rootedInThisRun(a, start) {
+			rootable = append(rootable, name)
+		}
+	}
+	s.reroot(kind, p, rootable)
+}
+
+// reroot picks among the approaches this run CAN root, preferring the kind's
+// declared default. An empty list leaves the selection alone: nothing here can
+// be delivered, so Deliver refuses with its own root-specific remedy naming
+// the missing root, and inventing a choice would only obscure that.
+func (s *SurfaceSelection) reroot(kind SurfaceKind, p Presentations, rootable []string) {
+	switch len(rootable) {
+	case 0:
+		return
+	case 1:
+		s.names[kind] = rootable[0]
+	default:
+		for _, name := range rootable {
+			if name == p.Default() {
+				s.names[kind] = name
+				return
+			}
+		}
+		s.names[kind] = rootable[0]
 	}
 }
 
@@ -497,12 +654,11 @@ func (s *SurfaceSelection) preferOutOfCwd(kind SurfaceKind, in SurfaceInputs) er
 // container launch pinned to the hook approach wrote the hook nowhere and
 // launched a context-less session while Setup reported success.
 //
-// Fault tolerance (CLAUDE.md, item 6): for a flag-context backend (claude) the
-// context surface is FIRST, and its out-of-cwd scratch write is the one delivery
-// whose loss would strand the user's context. If it fails, fall back to the
-// SessionStart injection hook — Provide the raw cache file and append the
-// injection hook to the shared merged hooks, which the not-yet-delivered
-// settings surface then writes — rather than launching a context-less session.
+// A failed delivery REFUSES and names the surface; it is never converted into
+// a different mechanism. This used to fall back to the SessionStart injection
+// hook when the context surface failed, which delivered the run its context
+// through a channel its isolation argument was never made against and still
+// reported success (feeble-sway).
 // req is NON-NIL: the sole caller has already dereferenced it.
 func (b *LaunchBackend) deliverSet(in SurfaceInputs, req *SetupRequest, start present.Start) error {
 	// Launch delivers the WHOLE surface set, so it drives the builder over the same
@@ -514,20 +670,28 @@ func (b *LaunchBackend) deliverSet(in SurfaceInputs, req *SetupRequest, start pr
 	for kind := range req.Managed.Surfaces {
 		explicit[kind] = true
 	}
-	// Restricted to CellKindShared (an isolated cell's well-known write is
-	// already race-free by construction — see Deliveries' doc — so there is
-	// nothing to prefer) and skipped for any kind the caller named explicitly
+	// The shared-cwd PREFERENCE is restricted to CellKindShared (an isolated
+	// cell's well-known write is already race-free by construction — see
+	// Deliveries' doc — so there is nothing to prefer). ROOT-AWARENESS is not:
+	// "can this run deliver what it selected" is true of every cell, and an
+	// isolated cell that never runs the preference step keeps each kind's
+	// declared default — which for claude's MCP surface is the private
+	// .mcp.json, unrootable on a run advising no engine home.
+	//
+	// Both are skipped for any kind the caller named explicitly
 	// (req.Managed.Surfaces, applied below): an explicit context=unsafe-file
 	// preference must be HONORED, not silently converted back to the scratch.
-	if req.CellKind == CellKindShared {
-		for kind := range sel.names {
-			if explicit[kind] {
-				continue
-			}
-			if err := sel.preferOutOfCwd(kind, in); err != nil {
+	for kind := range sel.names {
+		if explicit[kind] {
+			continue
+		}
+		if req.CellKind == CellKindShared {
+			if err := sel.preferOutOfCwd(kind, in, start); err != nil {
 				return err
 			}
+			continue
 		}
+		sel.ensureRootable(kind, in, start)
 	}
 	// The agent binding's preference, applied where it is actually valid: a
 	// launch has the argv sink a flag-announced approach needs, which is
@@ -573,11 +737,12 @@ func (b *LaunchBackend) deliverSet(in SurfaceInputs, req *SetupRequest, start pr
 		for _, rs := range resolved.surfaces {
 			d, err := resolved.deliverOneShared(rs, start)
 			if err != nil {
-				// Matched by KIND, not by index: a backend with no distinct
-				// context surface has resolved.surfaces[0] be something else.
-				if rs.kind == SurfaceContext && b.recoverContextViaHook(req, err) {
-					continue
-				}
+				// A failed context delivery is a REFUSAL, not an invitation to
+				// try a different approach. Silently switching to the injection
+				// hook here delivered context the run never asked for, through a
+				// mechanism its isolation argument was not made against — the
+				// cross-approach fallback the design forbids. The run stops and
+				// says which surface failed instead.
 				return fmt.Errorf("failed to deliver surface into shared cwd: %w", err)
 			}
 			if err := installHook(rs); err != nil {
@@ -611,10 +776,11 @@ func (b *LaunchBackend) deliverSet(in SurfaceInputs, req *SetupRequest, start pr
 // directly onto the shared merged hooks — the very *wire.HooksConfig the
 // settings surface (delivered next in the same SharedCell loop) will write.
 // It is the one mechanism that actually gets hook-carried context to a
-// flag-context backend (claude): both recoverContextViaHook's failure
-// fallback and a deliberately-selected ApproachHook context surface (a
-// documented no-op WRITE — the Rider, HookCarriedContext — that otherwise installs
-// nothing at all) route through here. It appends ONLY the injection hook
+// flag-context backend (claude), and it runs on ONE path only: a
+// deliberately-selected ApproachHook context surface (a documented no-op WRITE
+// — the Rider, HookCarriedContext — that otherwise installs nothing at all).
+// It is never reached as a fallback from another approach's failure; a failed
+// delivery refuses the launch. It appends ONLY the injection hook
 // (never re-runs MergeManaged, which would clobber the statusline state).
 // Reports whether the install took hold.
 func (b *LaunchBackend) installContextInjectionHook(req *SetupRequest) bool {
@@ -634,21 +800,6 @@ func (b *LaunchBackend) installContextInjectionHook(req *SetupRequest) bool {
 	hooks.Unified.SessionStart = append(hooks.Unified.SessionStart,
 		NewContextInjectionHooks(hash, b.WorkDir())...)
 	return true
-}
-
-// recoverContextViaHook is the SharedCell context-delivery fallback for a
-// flag-context backend (claude): when the out-of-cwd context surface fails to
-// write its scratch file, fall back to installContextInjectionHook instead of
-// losing the user's context to a scratch-write hiccup. Reports whether the
-// fallback took hold (the caller then skips the failed context handle and
-// continues delivering the remaining surfaces). cause is the error that
-// triggered the fallback — it used to be discarded, and the warning went
-// straight to os.Stderr rather than this package's own Warn/clidiag sink —
-// the mechanism a session that owns the terminal uses to keep a warning from
-// corrupting a live TUI frame it is painting.
-func (b *LaunchBackend) recoverContextViaHook(req *SetupRequest, cause error) bool {
-	Warn("context delivery failed (%v); keeping the injection hook", cause)
-	return b.installContextInjectionHook(req)
 }
 
 // mergedState reads the lifecycle's merged hooks + MCP so the delivery seam can
@@ -697,7 +848,8 @@ func (b *LaunchBackend) Cleanup(ctx context.Context) error {
 // being written; how it then satisfies the rule follows from how its file is
 // NAMED, which is the approach's own decision:
 //
-//	FIXED NAME       (settings.json, .mcp.json beneath the session scratch) —
+//	FIXED NAME       (settings.json beneath the session scratch, .mcp.json
+//	                 beneath the session's engine home) —
 //	                 owned by whichever run wrote it, and every run in the
 //	                 session reads that one copy. The only non-clobbering way to
 //	                 satisfy the rule is to REQUIRE it: present it when it is

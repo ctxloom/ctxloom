@@ -258,7 +258,7 @@ func TestClaudeCode_BuildArgs_NativeContextFlag(t *testing.T) {
 
 	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
-		Env:       map[string]string{sessionHarpEnv: "perky-same-chevy"},
+		Env:       sessionEnv("perky-same-chevy", t.TempDir()),
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		Managed:   &agent.ManagedConfig{},
 	}))

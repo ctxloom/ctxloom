@@ -627,7 +627,13 @@ func applyHooksToBackend(backendName string, p hookApplyParams) (retracted []str
 		DenyTools:        backends.AssembleManagedDenyTools(p.freshCfg, nil),
 	}
 
-	sel := agent.Select(decl).With(agent.SurfaceSettings, agent.ApproachUnsafeFile).With(agent.SurfaceMCP, agent.ApproachUnsafeFile)
+	// Settings and MCP install through the route installRoute resolves — the
+	// same one `manage check` reads — rather than a hand-named approach beside
+	// it. Hand-naming is what let the writer and the check disagree before.
+	sel := agent.Select(decl).With(agent.SurfaceSettings, agent.ApproachUnsafeFile)
+	if name, _, ok := installRoute(decl, agent.SurfaceMCP); ok {
+		sel = sel.With(agent.SurfaceMCP, name)
+	}
 	// skipContext omits WithContext entirely rather than selecting
 	// it with empty content — Select's opt-in model means an unselected
 	// surface is never delivered at all (cells.go), so this is a true no-op:
@@ -731,12 +737,37 @@ func installRoute(decl agent.Declaration, kind agent.SurfaceKind) (name string, 
 			return n, a, true
 		}
 	}
-	def, ok := decl.Default(kind)
-	if !ok {
-		return "", nil, false
+	// The route must be deliverable AT REST. A LaunchOnly approach is announced
+	// to the engine on argv and DeliverUnder refuses it, so it can never be
+	// what an at-rest caller writes through — even when the engine declares it
+	// the DEFAULT, which claude's MCP surface now does: its default is the
+	// private config file a launch names on --mcp-config, and the project
+	// .mcp.json is the only form that can be installed.
+	//
+	// Without this, the two sides of the managed surfaces come apart exactly as
+	// they once did over hand-named kinds: the install writes the project file
+	// while `manage check` reads the default and reports the surface is not a
+	// project file at all.
+	if def, ok := decl.Default(kind); ok {
+		if a, built := decl.Construct(kind, def, agent.SurfaceInputs{}, nil); built && !launchOnly(a) {
+			return def, a, true
+		}
 	}
-	a, ok := decl.Construct(kind, def, agent.SurfaceInputs{}, nil)
-	return def, a, ok
+	for _, n := range decl.Names(kind) {
+		a, built := decl.Construct(kind, n, agent.SurfaceInputs{}, nil)
+		if !built || launchOnly(a) {
+			continue
+		}
+		return n, a, true
+	}
+	return "", nil, false
+}
+
+// launchOnly reports whether a is announced to the engine on argv and so has
+// no at-rest form.
+func launchOnly(a agent.Approach) bool {
+	_, ok := a.(agent.LaunchOnly)
+	return ok
 }
 
 // installedThroughProjectFile is the ONE predicate both sides of the managed

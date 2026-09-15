@@ -18,11 +18,12 @@ import (
 // form, so a presenting run resolves against EXACTLY the state a delivering run
 // resolved against. That sameness is the premise of the whole form: the member
 // can only name the session's files if it computes the same paths from the same
-// inputs, and a test that varied the inputs would prove nothing.
-func setupRequestForForm(workDir string, form agent.LaunchForm) *agent.SetupRequest {
+// inputs, and a test that varied the inputs would prove nothing. home is the
+// session's relocated engine home, shared by every run within the session.
+func setupRequestForForm(workDir, home string, form agent.LaunchForm) *agent.SetupRequest {
 	return &agent.SetupRequest{
 		WorkDir:   workDir,
-		Env:       map[string]string{sessionHarpEnv: "perky-same-chevy"},
+		Env:       sessionEnv("perky-same-chevy", home),
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		CellKind:  agent.CellKindShared,
 		Form:      form,
@@ -43,14 +44,14 @@ func setupRequestForForm(workDir string, form agent.LaunchForm) *agent.SetupRequ
 // refusal below turns into a failure rather than a silent context-free launch.
 func TestPresentForm_NamesTheSessionsSurfaces(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	workDir := t.TempDir()
+	workDir, home := t.TempDir(), t.TempDir()
 
 	session := NewClaudeCode()
-	require.NoError(t, session.Setup(context.Background(), setupRequestForForm(workDir, agent.LaunchFormDeliver)))
+	require.NoError(t, session.Setup(context.Background(), setupRequestForForm(workDir, home, agent.LaunchFormDeliver)))
 	require.NotEmpty(t, settingsPathOf(session), "the session must actually have delivered, or the member has nothing to present")
 
 	member := NewClaudeCode()
-	require.NoError(t, member.Setup(context.Background(), setupRequestForForm(workDir, agent.LaunchFormPresent)))
+	require.NoError(t, member.Setup(context.Background(), setupRequestForForm(workDir, home, agent.LaunchFormPresent)))
 
 	assert.Equal(t, settingsPathOf(session), settingsPathOf(member),
 		"the member names the session's settings file, not one of its own")
@@ -73,7 +74,7 @@ func TestPresentForm_RefusesWhenTheSessionNeverSetUp(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	member := NewClaudeCode()
-	err := member.Setup(context.Background(), setupRequestForForm(t.TempDir(), agent.LaunchFormPresent))
+	err := member.Setup(context.Background(), setupRequestForForm(t.TempDir(), t.TempDir(), agent.LaunchFormPresent))
 
 	require.Error(t, err, "presenting a surface nobody delivered must refuse, not degrade")
 	assert.ErrorIs(t, err, agent.ErrAbsentSharedSurface)
@@ -87,10 +88,10 @@ func TestPresentForm_RefusesWhenTheSessionNeverSetUp(t *testing.T) {
 // AND must not turn the absence into a refusal.
 func TestPresentForm_EmitsNoFlagForASurfaceItCannotName(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	workDir := t.TempDir()
+	workDir, home := t.TempDir(), t.TempDir()
 
 	noMCP := func(form agent.LaunchForm) *agent.SetupRequest {
-		req := setupRequestForForm(workDir, form)
+		req := setupRequestForForm(workDir, home, form)
 		req.Managed.BundleMCP = nil
 		return req
 	}
@@ -115,10 +116,10 @@ func TestPresentForm_EmitsNoFlagForASurfaceItCannotName(t *testing.T) {
 // make that write.
 func TestPresentForm_WritesNothingIntoTheProjectCwd(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	workDir := t.TempDir()
+	workDir, home := t.TempDir(), t.TempDir()
 
 	withCommands := func(form agent.LaunchForm) *agent.SetupRequest {
-		req := setupRequestForForm(workDir, form)
+		req := setupRequestForForm(workDir, home, form)
 		req.Managed.Commands = []agent.CommandExport{{Name: "demo", Content: "do the demo"}}
 		return req
 	}

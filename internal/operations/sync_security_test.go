@@ -7,12 +7,18 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
@@ -108,8 +114,50 @@ func setupRemoteParent(t *testing.T) (baseDir, src, parentBundleID, bundleID str
 	addFileToLocalRepo(t, src, repoV2("kit")+"/bundle.yaml", "version: 1.0.0\n")
 	addFileToLocalRepo(t, src, repoV2("kit")+"/profiles/parent.yaml", "bundles:\n  - "+bundleID+"\n")
 
+	// Both trees are SIGNED, and the publisher is trusted. Reading a remote
+	// tree's item files means interpreting publisher-supplied bytes, so
+	// bundles.ReadRemoteRef verifies the whole bundle before ReadTree — an
+	// unsigned tree is refused rather than half-read. Signing goes through the
+	// production attest.SignBundle so the fixture proves the real publish path
+	// produces something the real read path accepts.
+	signer := testSigner(t)
+	signTreeAndCommit(t, src, "demo", signer)
+	signTreeAndCommit(t, src, "kit", signer)
+	trustPublisher(t, baseDir, signer)
+
 	writeLocalProfile(t, baseDir, "default", "parents:\n  - "+parentBundleID+"#profiles/parent\n")
 	return baseDir, src, parentBundleID, bundleID
+}
+
+// signTreeAndCommit signs the tree bundle named bundleName inside the repo's
+// bundles root with signer, then commits every file signing produced (the
+// SHA256SUMS manifest and the signature store beside it) and returns the
+// resulting commit SHA.
+//
+// It signs through content.TreeStore + attest.SignBundle — the same objects the
+// consumer verifies through — rather than writing manifest and signature paths
+// by hand. A fixture that hand-rolled those paths would be asserting against
+// this test's idea of the on-disk layout instead of the product's.
+func signTreeAndCommit(t *testing.T, repoDir, bundleName string, signer ssh.Signer) string {
+	t.Helper()
+	ctx := context.Background()
+	bundlesRoot := filepath.Join(repoDir, filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)))
+	store, err := content.NewTreeStore(afero.NewOsFs(), bundlesRoot, content.Provenance{IsLocal: true})
+	require.NoError(t, err)
+	tree, err := store.Open(ctx, content.BundleID(bundleName))
+	require.NoError(t, err)
+	require.NoError(t, attest.SignBundle(ctx, store, tree, signer))
+
+	repo, err := git.PlainOpen(repoDir)
+	require.NoError(t, err)
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	require.NoError(t, wt.AddWithOptions(&git.AddOptions{All: true}))
+	sha, err := wt.Commit("sign "+bundleName, &git.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+	return sha.String()
 }
 
 // TestLockDependencies_TreeFormParentExpandsTheClosure pins the capability

@@ -284,6 +284,28 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 // takes, so a reader can never look somewhere the installer did not write —
 // including during a format migration, when the tree the installer found under
 // one format root has moved to the next.
+//
+// # It returns the MANIFEST ONLY, and that is deliberate — do not "fix" it
+//
+// This looks like the truncation that made remote profile inheritance lose
+// every item file (see bundles.ReadRemoteRef), and it is the same shape, but it
+// is not the same defect: all three of this method's consumers genuinely want
+// manifest bytes, none of them parses them expecting items, and one of them
+// depends on getting exactly these bytes and no others.
+//
+//   - operations.isInstalled discards the bytes entirely and reads only whether
+//     the read succeeded.
+//   - the upgrade verification path feeds them to signing.VerifyPublisher
+//     against the detached sibling ".sig", which covers bundle.yaml AND NOTHING
+//     ELSE. Widening this to the whole tree would hand that check a payload its
+//     signature was never computed over, and the signature would stop verifying
+//     for every correctly published bundle.
+//   - config's treeBundleReaders path refuses every entry it is handed by
+//     design, resolving instead off the INSTALLED tree through readTreeForm ->
+//     bundles.ReadTree, which reads item files properly.
+//
+// A caller that wants the BUNDLE rather than its manifest must not come here at
+// all; bundles.ReadRemoteRef is that path.
 func (r *BundleReader) readFromTree(ctx context.Context, fetcher Fetcher, owner, repo, repoURL, bundleName, filePath, sha, suffix string) ([]byte, error) {
 	tree, root, err := ProbeBundleTreeRoots(filePath, func(root string) (map[string]TreeFile, error) {
 		return r.treeFetch(ctx, fetcher, owner, repo, root, sha, repoURL)

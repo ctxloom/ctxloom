@@ -2436,11 +2436,11 @@ func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
 			cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
 			factory = remote.NewCachedFetcherFactory(cache)
 		})
-		data, err := remote.FetchRefBytes(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher)
-		if err != nil {
-			return nil, err
-		}
-		return bundles.ParseBundle(data)
+		// ReadRemoteRef, not FetchRefBytes: a tree bundle's fragments, commands
+		// and skills are FILES beside its bundle.yaml, so parsing the manifest
+		// alone resolved every @<commit>-pinned tree bundle to a bundle with
+		// zero items — the real product bundle, silently empty.
+		return bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, c.TrustRoot())
 	}
 }
 

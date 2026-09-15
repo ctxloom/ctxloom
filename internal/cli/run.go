@@ -1169,6 +1169,36 @@ func (st *runState) markSessionEnded() {
 // own runner in every topology, so a headless coordinator brief (the echo
 // smoke) exercises the same runner-terminated path as an interactive session —
 // the bare-mcp shim fallback is for externally-launched harnesses only.
+// recordCoordinatorStartupFinding raises the finding for a coordinator that
+// could not stand up, at the fatality this project's mail transport earns. It
+// is the owner-side twin of coord.Coordinator.spawnReachURL's conditional
+// refusal (the degradation audit's item #4) and splits on the same switch for
+// the same reason — see that function for why it is spool_DELIVERY and never
+// spool_tee.
+//
+// Delivery ON: children reach the owner through the file spool, so an owner
+// coordinator that never stood up costs reach-back but loses no work —
+// degradable, and --degraded still launches. OFF: delegation has no route home
+// at all, every child this session spawns is stranded, and the work they
+// produce is unrecoverable — so it refuses in both modes.
+//
+// Split out of hostCoordinator as its own function purely so both arms are
+// TESTABLE: the call site needs a live session, a state dir and a real
+// listener stand-up to reach this branch, which would have left the permitting
+// arm — the one that must not silently regress into a refusal for projects
+// that spool — asserted by nothing.
+func recordCoordinatorStartupFinding(spoolDelivery bool, cerr error) {
+	if spoolDelivery {
+		strictness.Fail(strictness.ClassApply,
+			"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation reach-back",
+			"agent coordinator startup failed: %v — delegation.spool_delivery is on, so children still reach you by file spool", cerr)
+		return
+	}
+	strictness.FailAlways(strictness.ClassApply,
+		"check the coordinator listeners/state dir, or set delegation.spool_delivery: true so children reach you by file spool instead of the mailbox",
+		"agent coordinator startup failed: %v — with delegation.spool_delivery off, every child this session spawns would be stranded and the work it produces unrecoverable", cerr)
+}
+
 func (st *runState) hostCoordinator() func() {
 	if st.activeHarp == "" {
 		return func() {}
@@ -1176,9 +1206,7 @@ func (st *runState) hostCoordinator() func() {
 
 	sc, coordEnv, cerr := mcp.HostCoordinatorForSession(st.cfg, st.workDir, st.activeHarp, st.agentRuntime)
 	if cerr != nil {
-		strictness.Fail(strictness.ClassApply,
-			"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation reach-back",
-			"agent coordinator startup failed: %v", cerr)
+		recordCoordinatorStartupFinding(st.cfg.GetDelegationSpoolDelivery(), cerr)
 		return func() {}
 	}
 

@@ -476,8 +476,15 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(out, class) {
 			return fmt.Errorf("output does not classify the abort as %s; output:\n%s", class, out)
 		}
-		if !strings.Contains(out, "--degraded") {
-			return fmt.Errorf("output does not carry the --degraded escape hatch; output:\n%s", out)
+		// INVERTED by the degradation audit. This used to require the output to
+		// "carry the --degraded escape hatch" — an assertion that outlived the
+		// hatch itself: the finding is now non-degradable, so the abort must
+		// say the flag does NOT get past it. Left as a bare Contains("--degraded")
+		// the check would still have passed, because the new header names the
+		// flag in order to deny it — a vacuous green exactly where the contract
+		// changed.
+		if !strings.Contains(out, "--degraded does NOT bypass") {
+			return fmt.Errorf("output does not tell the user --degraded will not bypass this refusal; output:\n%s", out)
 		}
 		return nil
 	})

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
@@ -671,12 +672,55 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 // tables, which resolve engines by exact name. An engine has one spelling, so
 // the name leaves here as the registry holds it: the ad-hoc arm admits only a
 // registered name, and a configured entry's type is validated on write.
+// A LABEL THAT NAMES NOTHING IS A FINDING, raised here and nowhere else. It
+// used to resolve to the built-in default backend with no warning in EITHER
+// mode — not a degrade at all, since nothing consulted the mode — so a retired
+// alias (`claude` once resolved through an alias table) or a plain typo routed
+// the run to a different engine than the one named, invisibly.
+//
+// THIS is the layer that can tell that apart from the legitimate form: a label
+// with no `llm:` entry that names a known BACKEND is supported and common
+// (`llm: mock` with no config block at all). Only once BOTH halves are false
+// does the label name nothing, and only then is refusing correct.
+// config.ResolveLLM cannot make that call — it has no backend registry — and an
+// earlier cut of this audit raised the finding there and fired it on correct
+// configurations.
+//
+// DEGRADABLE (Fail, not FailAlways) on the audit's own test: does LAUNCHING
+// cause the harm? It does not — the harm is the substitution being invisible,
+// not the run proceeding. Falling back to a working default under --degraded is
+// precisely what the standing promise in cli/version_gate.go protects. An empty
+// label is exempt: nothing was named, so there is nothing to refuse.
 func ResolveBackend(cfg *config.Config, label string) (backend, model string) {
 	backend, model = cfg.ResolveLLM(label)
-	if _, configured := cfg.GetLLMEntry(label); !configured && backends.Exists(label) {
-		backend, model = label, ""
+	_, configured := cfg.GetLLMEntry(label)
+	if !configured && backends.Exists(label) {
+		return label, ""
+	}
+	if !configured && label != "" {
+		strictness.Fail(strictness.ClassConfig,
+			fmt.Sprintf("add an `llm:` entry for %q in .ctxloom/config.yaml, or name one of the configured labels (%s) or a known engine (%s)",
+				label, knownLLMLabels(cfg), strings.Join(backends.List(), ", ")),
+			"llm label %q names neither a configured `llm:` entry nor a known engine; this run would silently use the built-in default backend %q instead of the engine you named",
+			label, backend)
 	}
 	return backend, model
+}
+
+// knownLLMLabels renders the configured label set for a fix-it line, sorted so
+// the sentence is stable across runs — map order would otherwise reshuffle it
+// and make one recurring fault read as several different ones.
+func knownLLMLabels(cfg *config.Config) string {
+	entries := cfg.GetLMConfig().Configs
+	if len(entries) == 0 {
+		return "none configured"
+	}
+	names := make([]string, 0, len(entries))
+	for name := range entries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // resolveOneshotLabel picks the config label for a oneshot run: an explicit

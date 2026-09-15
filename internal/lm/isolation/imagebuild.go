@@ -252,7 +252,13 @@ func (s buildSource) fromDevcontainerBase() bool {
 // could not be resolved to a base at all (malformed JSON, an unresolvable
 // dockerComposeFile).
 const (
-	staleRebuildFixIt          = "check the build output above and reinstall/rebuild the agent image (`ctxloom container build`), or pass --degraded (env CTXLOOM_DEGRADED=1) to run the existing STALE image anyway"
+	// staleRebuildFixIt names no flag: running the stale image anyway is
+	// exactly what is being refused (a pre-entrypoint image can start as
+	// ROOT), so --degraded is no longer a way through. `runtime: host` is
+	// offered as the deliberate, stated alternative for a user who would
+	// rather run unsandboxed than fix the image — said out loud instead of
+	// arrived at by a flag that means something else.
+	staleRebuildFixIt          = "check the build output above and reinstall/rebuild the agent image (`ctxloom container build`), or ask for a host run deliberately with `runtime: host`"
 	userBaseBuildFixIt         = "fix the configured base Containerfile (isolation_base_containerfile) so it builds, or pass --degraded (env CTXLOOM_DEGRADED=1) to fall back to another build source"
 	devcontainerBaseBuildFixIt = "fix the project .devcontainer/devcontainer.json (or its build.dockerfile) so it builds, or pass --degraded (env CTXLOOM_DEGRADED=1) to fall back to another build source, or opt out with isolation_devcontainer_base: false"
 	devcontainerDetectFixIt    = "fix the project .devcontainer/devcontainer.json (malformed JSON, or a dockerComposeFile with no resolvable service — set isolation_devcontainer_service), or opt out with isolation_devcontainer_base: false / --no-devcontainer-base"
@@ -753,9 +759,12 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 			// stale, possibly pre-entrypoint (root-running) image. Route the
 			// same fail-loud finding the parallel "rebuild attempted and
 			// failed" branch below already uses for the identical outcome.
-			strictness.Fail(strictness.ClassIsolation, staleRebuildFixIt,
-				"container image %q is STALE and cannot be rebuilt from this binary (%v); the existing image would run as-is", c.image, err)
-			return nil // stale but unbuildable from this binary — run what exists
+			strictness.FailAlways(strictness.ClassIsolation, staleRebuildFixIt,
+				"refusing to run container image %q: it is STALE and cannot be rebuilt from this binary (%v), and a stale image predating the identity entrypoint can start as ROOT", c.image, err)
+			// Still nil, NOT an error: an error here makes the caller degrade
+			// down the chain to the HOST, which is the bypass this audit
+			// removed. The non-degradable finding above is what stops the run.
+			return nil
 		}
 		return fmt.Errorf("container image %q is not present and cannot be built from this binary: %w", c.image, err)
 	}
@@ -781,15 +790,18 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		return nil
 	}
 	if present {
-		// The stale image still runs, so a failed refresh must not take the
-		// container axis down with it — in DEGRADED mode the chain launches the
-		// existing stale image (return nil). But a stale, pre-entrypoint image can
-		// run as ROOT, so silently shipping it is a security-relevant downgrade of
-		// the requested isolation: record a fatal ClassIsolation finding the choke
-		// owner aborts on in strict mode (before the stale image spawns), while
-		// --degraded records nothing and runs the stale image exactly as before.
-		strictness.Fail(strictness.ClassIsolation, staleRebuildFixIt,
-			"rebuild of stale image %q failed (%v); the existing image is STALE (its baked ctxloom/companion binaries or base config are outdated) and would run as-is", c.image, lastErr)
+		// A stale, pre-entrypoint image can run as ROOT, so shipping it is a
+		// security-relevant downgrade of the requested isolation. Refused in
+		// BOTH modes: the harm is done by launching it, and --degraded means "a
+		// thinner run", never "a container that might not confine anything".
+		//
+		// Returns nil rather than an error for the same reason as the
+		// unbuildable arm above: an error makes the caller degrade down the
+		// chain to the unsandboxed HOST, which is strictly worse than the stale
+		// image. The non-degradable finding is what stops the run; the return
+		// value only decides WHICH wrong thing we would otherwise fall to.
+		strictness.FailAlways(strictness.ClassIsolation, staleRebuildFixIt,
+			"refusing to run container image %q: its rebuild failed (%v) and the existing image is STALE (its baked ctxloom/companion binaries or base config are outdated), and a stale image predating the identity entrypoint can start as ROOT", c.image, lastErr)
 		return nil
 	}
 	return fmt.Errorf("local build of container image %q failed: %w", c.image, lastErr)

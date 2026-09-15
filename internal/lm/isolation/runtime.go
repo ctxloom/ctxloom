@@ -458,20 +458,24 @@ func (d Docker) Enumerate(ctx context.Context, namePrefix string) ([]ContainerIn
 // identityEnvArgs renders the PUID/PGID env that tells the agent image's
 // entrypoint to remap its generic ctxloom user to the launching uid/gid and
 // drop privileges to it.
+// CTXLOOM_ALLOW_ROOT IS DELIBERATELY NEVER PASSED. It used to be appended here
+// under strictness.Degraded(), and that was a security bypass wearing a
+// convenience flag: the agent image's entrypoint REFUSES to run the engine as
+// root when it cannot become the PUID identity (no usable gosu/setpriv), and
+// this handed it the escape hatch that downgrades its own refusal to
+// warn-and-run-as-root — inside a container with the user's project bind-
+// mounted, so everything the run touched came back root-owned on the host.
+//
+// --degraded means "I accept a thinner run", never "I accept running as root".
+// There is no caller for whom the right answer is root, so there is no flag:
+// an image that cannot drop privileges is a broken image, and the fix is to
+// repair or replace it (see runAsIs/overrideIdentityFixIt). Do not reintroduce
+// this; TestDegradedNeverBypassesIsolation asserts the argv never carries it.
 func identityEnvArgs() []string {
-	args := []string{
+	return []string{
 		"-e", fmt.Sprintf("PUID=%d", os.Getuid()),
 		"-e", fmt.Sprintf("PGID=%d", os.Getgid()),
 	}
-	if strictness.Degraded() {
-		// The entrypoint REFUSES to run the engine as root when it cannot
-		// become the PUID identity (no usable gosu/setpriv) — in strict mode
-		// that refusal fails the launch loudly. Degraded mode is the one
-		// warn-and-continue home (CLAUDE.md), so it alone passes the escape
-		// hatch that downgrades the refusal to warn-and-run-as-root.
-		args = append(args, "-e", "CTXLOOM_ALLOW_ROOT=1")
-	}
-	return args
 }
 
 // Podman launches containers via the podman CLI. podman's run/rm argv is

@@ -325,25 +325,32 @@ var prepareIsolation = isolation.Prepare
 // unsandboxed host; (2) a binding that declared engine_home: session has no
 // credentials to seed and no API-key env, so the engine would launch logged
 // out. Either way, running the member as-is would silently
-// deliver less than what was asked for. In strict mode that fails THE MEMBER
+// deliver less than what was asked for. That fails THE MEMBER
 // (an error Part in the fan; other members continue — partial success is
-// still success), never the whole call. Returns nil in degraded mode
-// (findings ARE recorded there now — degraded suppresses fatality, not
-// recording — so this early return, not an empty slice, is what keeps a
-// degraded fan running) or when no ClassIsolation finding was collected. The finding's own Message fully
+// still success), never the whole call. The finding's own Message fully
 // describes WHICH case fired — this wrapper adds no case-specific wording, so
 // it never misdescribes one case using the other's vocabulary.
+//
+// MODE HANDLING: this gate no longer tests strictness.Degraded() itself. It
+// filters to its own class and passes the result through strictness.Actionable,
+// the ONE place the mode is consulted — so under --degraded a DEGRADABLE
+// isolation finding still lets the fan run, while a NON-DEGRADABLE one (a
+// requested container boundary that could not be provided, an image that can
+// start as root) fails the member in both modes.
+//
+// The `if Degraded() { return nil }` this replaces was the amplifier for every
+// bypass the degradation audit found: it switched the whole gate off, so
+// converting the raise sites without converting this would have changed
+// nothing at all. A class-filtered gate must filter and then defer to
+// Actionable — never short-circuit on the mode.
 func isolationGateErr(found []strictness.Finding) error {
-	if strictness.Degraded() {
-		return nil
-	}
 	var iso []strictness.Finding
 	for _, f := range found {
 		if f.Class == strictness.ClassIsolation {
 			iso = append(iso, f)
 		}
 	}
-	if len(iso) == 0 {
+	if iso = strictness.Actionable(iso); len(iso) == 0 {
 		return nil
 	}
 	var b strings.Builder

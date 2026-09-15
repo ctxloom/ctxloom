@@ -995,7 +995,11 @@ func (c Container) imagePresent(ctx context.Context) bool {
 // overrideIdentityFixIt names the ways out when a user-supplied image cannot
 // satisfy the identity contract: make the image entrypoint-governed, or accept
 // the image's own identity via degraded mode.
-const overrideIdentityFixIt = "base the isolation_images override on a ctxloom-built agent image (or install ctxloom-entrypoint as its ENTRYPOINT — see `ctxloom container build`), or pass --degraded to run it with the image's own identity"
+// It names no flag on purpose: this finding is non-degradable (see
+// checkRunAsIsIdentity), so offering --degraded would hand the user a remedy
+// that does not work. Both routes here are followable and both end with a run
+// that owns its files correctly.
+const overrideIdentityFixIt = "base the isolation_images override on a ctxloom-built agent image (or install ctxloom-entrypoint as its ENTRYPOINT — see `ctxloom container build`), or drop the isolation_images override so ctxloom builds the agent image itself"
 
 // runAsIs reports whether this policy runs a USER-OWNED image as-is (an
 // isolation_images override, or an explicit image on a spec with no local
@@ -1053,25 +1057,31 @@ func runAsIsIdentityProblem(rt Runtime, id imageIdentity) string {
 }
 
 // checkRunAsIsIdentity gates a run-as-is (user-owned) image on the identity
-// contract. A violation — or an unverifiable config — routes a ClassIsolation
-// finding: in strict mode the choke owner aborts on it BEFORE SpawnClient
-// (never a silent wrong-identity start), while --degraded records nothing and
-// the run proceeds on the image's own identity with the streamed warning.
-// Locally-built images bake the entrypoint, so the contract holds by
+// contract. A violation — or an unverifiable config — routes a NON-DEGRADABLE
+// ClassIsolation finding, so the choke owner aborts BEFORE SpawnClient in both
+// modes. Locally-built images bake the entrypoint, so the contract holds by
 // construction and no inspect runs.
+//
+// Non-degradable because the harm is done BY launching and cannot be undone
+// afterwards: the run writes root-owned (or otherwise foreign-owned) files into
+// the user's own project tree, and no later flag un-owns them. That is damage,
+// not a thinner run, so --degraded does not reach it. An UNVERIFIABLE image is
+// refused on the same terms as a known-bad one: "I could not check" is not
+// evidence of safety, and the whole point of a user-supplied image is that
+// ctxloom did not build it.
 func (c Container) checkRunAsIsIdentity(ctx context.Context) {
 	if !c.runAsIs() {
 		return
 	}
 	id, err := c.imageIdentityConfig(ctx)
 	if err != nil {
-		strictness.Fail(strictness.ClassIsolation, overrideIdentityFixIt,
-			"cannot verify the identity contract of user-supplied container image %q (%v); it may start with the wrong identity and write wrongly-owned files into the project", c.image, err)
+		strictness.FailAlways(strictness.ClassIsolation, overrideIdentityFixIt,
+			"refusing to run user-supplied container image %q: its identity contract cannot be verified (%v), so it may start with the wrong identity and write wrongly-owned files into your project", c.image, err)
 		return
 	}
 	if problem := runAsIsIdentityProblem(c.runtime, id); problem != "" {
-		strictness.Fail(strictness.ClassIsolation, overrideIdentityFixIt,
-			"user-supplied container image %q would start with the WRONG identity on %s: %s — files it writes into the mounted project would not be owned by you (e.g. root-owned)", c.image, runtimeName(c.runtime), problem)
+		strictness.FailAlways(strictness.ClassIsolation, overrideIdentityFixIt,
+			"refusing to run user-supplied container image %q: it would start with the WRONG identity on %s: %s — files it writes into the mounted project would not be owned by you (e.g. root-owned)", c.image, runtimeName(c.runtime), problem)
 	}
 }
 

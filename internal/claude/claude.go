@@ -124,20 +124,6 @@ type claudeCodePermissions struct {
 	Other map[string]json.RawMessage `json:"-"`
 }
 
-// claudeCodeMCPConfig represents the structure of .mcp.json
-// This file supports ${CLAUDE_PROJECT_DIR} variable expansion.
-type claudeCodeMCPConfig struct {
-	MCPServers map[string]claudeCodeMCPServer `json:"mcpServers,omitempty"`
-}
-
-// claudeCodeMCPServer represents an MCP server configuration in Claude Code format.
-type claudeCodeMCPServer struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"` // Environment variables for the server
-	Cwd     string            `json:"cwd,omitempty"` // Working directory for the server
-}
-
 // claudeCodeHookMatcher represents a hook matcher entry in Claude Code format.
 type claudeCodeHookMatcher struct {
 	Matcher string           `json:"matcher,omitempty"`
@@ -561,11 +547,11 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, bundleMCP map[s
 	// without ctxloom ever asking the user's file which entries are its own.
 	//
 	// That question is what the old code asked, by marker and by command
-	// inspection, and it was the wrong question: the round trip through
-	// claudeCodeMCPConfig it required models one field whose values model five,
-	// so a hand-authored remote server ({"type","url","headers"}) came back as
-	// {"command": ""} — every unmodelled field destroyed and an invalid empty
-	// command invented, on a success path with a success message.
+	// inspection, and it was the wrong question: the round trip through a
+	// typed document it required modelled one field whose values modelled
+	// five, so a hand-authored remote server ({"type","url","headers"}) came
+	// back as {"command": ""} — every unmodelled field destroyed and an
+	// invalid empty command invented, on a success path with a success message.
 	desired, err := w.desiredMCPServers(bundleMCP)
 	if err != nil {
 		return err
@@ -574,19 +560,22 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, bundleMCP map[s
 }
 
 // desiredMCPServers is the set of servers ctxloom wants present, as generic
-// values. It reuses addMCPServersToConfig against an EMPTY config so the
-// desired set is computed exactly once, in one place, from the same code that
-// always computed it — the user's own servers are never part of it.
+// values — the user's own servers are never part of it. Each entry is spelled
+// by the shared agent.ChatMCPConfigEntryOf, so a remote server lands here as
+// type/url/headers exactly as the chat scratch file spells it, and a
+// targetless one is refused by name.
 //
-// The JSON round trip is what honours claudeCodeMCPServer's json tags,
-// including omitempty: hew encodes whatever Go value it is handed, and handing
-// it the struct directly would spell the keys by their Go field names.
+// The JSON round trip is what honours the entry's json tags, including
+// omitempty: hew encodes whatever Go value it is handed, and handing it the
+// struct directly would spell the keys by their Go field names.
 func (w *ClaudeCodeHookWriter) desiredMCPServers(bundleMCP map[string]wire.MCPServer) (map[string]any, error) {
-	empty := &claudeCodeMCPConfig{MCPServers: map[string]claudeCodeMCPServer{}}
-	w.addMCPServersToConfig(empty, bundleMCP)
+	entries, err := w.mcpEntries(bundleMCP)
+	if err != nil {
+		return nil, err
+	}
 
-	out := make(map[string]any, len(empty.MCPServers))
-	for name, server := range empty.MCPServers {
+	out := make(map[string]any, len(entries))
+	for name, server := range entries {
 		raw, err := json.Marshal(server)
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode MCP server %q: %w", name, err)
@@ -658,7 +647,7 @@ func (w *ClaudeCodeHookWriter) applyMCP(mcpPath string, desired map[string]any) 
 		// guarantees nothing is destroyed — the backup is what makes the
 		// original recoverable if the user cannot see what broke it.
 		if data, rerr := afero.ReadFile(w.getFS(), mcpPath); rerr == nil {
-			var probe claudeCodeMCPConfig
+			var probe agent.ChatMCPConfigDoc
 			if jerr := json.Unmarshal(data, &probe); jerr != nil {
 				return w.corruptSettings(mcpPath, data, MCPFileName, jerr,
 					"to avoid deleting the MCP servers already in it")
@@ -1007,22 +996,25 @@ const AppMCPServerName = agent.MCPServerName
 // never diverge from the binary that materialized it, and additionally carries
 // cwd so it runs in the project directory where findAppDir works — the one
 // field no bundle can express.
-func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPConfig, bundleMCP map[string]wire.MCPServer) {
-	if mcpConfig.MCPServers == nil {
-		mcpConfig.MCPServers = make(map[string]claudeCodeMCPServer)
-	}
-
+// mcpEntries renders the managed server set as .mcp.json entries. The
+// ctxloom entry alone gets a cwd: .mcp.json (not settings.json) is where
+// ${CLAUDE_PROJECT_DIR} expands, see MCPConfigPath.
+func (w *ClaudeCodeHookWriter) mcpEntries(bundleMCP map[string]wire.MCPServer) (map[string]agent.ChatMCPConfigEntry, error) {
+	out := make(map[string]agent.ChatMCPConfigEntry)
 	for name, server := range agent.ResolveManagedMCPServers(bundleMCP, w.mcpCommandOverride) {
-		entry := claudeCodeMCPServer{
-			Command: server.Command,
-			Args:    server.Args,
-			Env:     server.Env,
+		if err := server.Validate(); err != nil {
+			return nil, fmt.Errorf("mcp server %q: %w", name, err)
+		}
+		entry, err := agent.ChatMCPConfigEntryOf(agent.ChatMCPServerFromWire(name, server))
+		if err != nil {
+			return nil, err
 		}
 		if name == AppMCPServerName {
 			entry.Cwd = "${CLAUDE_PROJECT_DIR}"
 		}
-		mcpConfig.MCPServers[name] = entry
+		out[name] = entry
 	}
+	return out, nil
 }
 
 // configExists answers "is this config file there?" without guessing.

@@ -24,33 +24,12 @@ package config
 
 import (
 	"reflect"
+	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
-
-// --- clone helpers -----------------------------------------------------
-
-func cloneStrings(s []string) []string {
-	if s == nil {
-		return nil
-	}
-	out := make([]string, len(s))
-	copy(out, s)
-	return out
-}
-
-func cloneStringMap(m map[string]string) map[string]string {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
-}
 
 func cloneBoolPtr(b *bool) *bool {
 	if b == nil {
@@ -70,11 +49,11 @@ func cloneWarnings(w []Warning) []Warning {
 }
 
 func cloneAgent(a agents.Agent) agents.Agent {
-	a.Profiles = cloneStrings(a.Profiles)
+	a.Profiles = slices.Clone(a.Profiles)
 	if a.Escalation != nil {
 		out := make([]agents.EscalationRung, len(a.Escalation))
 		for i, r := range a.Escalation {
-			r.Kinds = cloneStrings(r.Kinds)
+			r.Kinds = slices.Clone(r.Kinds)
 			out[i] = r
 		}
 		a.Escalation = out
@@ -130,7 +109,7 @@ func cloneUIConfig(u UIConfig) UIConfig {
 }
 
 func cloneEditor(e EditorConfig) EditorConfig {
-	e.Args = cloneStrings(e.Args)
+	e.Args = slices.Clone(e.Args)
 	return e
 }
 
@@ -138,7 +117,7 @@ func cloneEditor(e EditorConfig) EditorConfig {
 
 // GetAppPaths returns a copy of the resolved .ctxloom directory path(s) (at
 // most one today).
-func (c *Config) GetAppPaths() []string { return cloneStrings(c.appPaths) }
+func (c *Config) GetAppPaths() []string { return slices.Clone(c.appPaths) }
 
 // GetAppDir returns the full path to the resolved .ctxloom directory.
 func (c *Config) GetAppDir() string { return c.appDir }
@@ -334,4 +313,4 @@ func (c *Config) GetIsolationDevcontainerService() string { return c.isolationDe
 
 // GetIsolationEngines returns a copy of the engine fragment selection for the
 // shared multi-engine agent image.
-func (c *Config) GetIsolationEngines() []string { return cloneStrings(c.isolationEngines) }
+func (c *Config) GetIsolationEngines() []string { return slices.Clone(c.isolationEngines) }

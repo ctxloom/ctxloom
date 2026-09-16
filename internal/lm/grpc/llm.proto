@@ -586,7 +586,8 @@ message HooksConfig {
   map<string, BackendHooks> plugins = 2;
 }
 
-// MCPServer mirrors wire.MCPServer.
+// MCPServer mirrors wire.MCPServer: a stdio server (command/args/env) or a
+// network-hosted one (url/headers), exactly one of the two.
 message MCPServer {
   string command = 1;
   repeated string args = 2;
@@ -594,6 +595,8 @@ message MCPServer {
   string notes = 4;
   string installation = 5;
   string scm = 6;
+  string url = 7;
+  map<string, string> headers = 8;
 }
 
 // Fragment represents a context fragment or prompt with metadata.

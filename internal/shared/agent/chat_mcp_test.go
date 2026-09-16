@@ -35,6 +35,28 @@ func TestComposeChatMCPServers_ManagedSet(t *testing.T) {
 	assert.Equal(t, ChatMCPServer{Name: "tools", Command: "/bin/tools", Args: []string{"serve"}, Env: map[string]string{"A": "1"}}, got[2])
 }
 
+// TestComposeChatMCPServers_RemoteServer: a URL-bearing wire entry composes
+// as an http-transport chat server — the discriminator is DERIVED from the
+// URL here, never stored on the wire type — carrying URL and Headers and no
+// command. The stdio arm is unaffected.
+func TestComposeChatMCPServers_RemoteServer(t *testing.T) {
+	bundle := map[string]wire.MCPServer{
+		"remote": {URL: "https://mcp.example.com/v1", Headers: map[string]string{"Authorization": "Bearer t"}},
+		"stdio":  {Command: "cmd", Args: []string{"a"}},
+	}
+
+	got := ComposeChatMCPServers("", bundle, nil)
+
+	require.Len(t, got, 2)
+	assert.Equal(t, ChatMCPServer{
+		Name:      "remote",
+		Transport: MCPTransportHTTP,
+		URL:       "https://mcp.example.com/v1",
+		Headers:   map[string]string{"Authorization": "Bearer t"},
+	}, got[0])
+	assert.Equal(t, ChatMCPServer{Name: "stdio", Command: "cmd", Args: []string{"a"}}, got[1])
+}
+
 // TestComposeChatMCPServers_CtxloomWithheld: a resolved set that carries no
 // ctxloom entry — the builtin bundle's server withheld by a profile's
 // exclude_mcp or by rejection — composes without one, exactly like the

@@ -48,15 +48,6 @@ type MCPFileConfig struct {
 // for every engine this reconciler serves.
 const mcpFileServersKey = "mcpServers"
 
-// mcpFileServer is the stdio server shape ctxloom writes. Remote servers
-// (url/serverUrl) are user-authored and pass through raw. Unexported: it
-// had no users outside this file.
-type mcpFileServer struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-}
-
 // mcpFile is the loaded registry: the server map plus every other top-level
 // field kept raw so fields ctxloom doesn't model survive a rewrite.
 type mcpFile struct {
@@ -112,7 +103,7 @@ func (c MCPFileConfig) WriteServers(bundleMCP map[string]wire.MCPServer) error {
 			if !arb.Claim(name) {
 				continue
 			}
-			c.setServer(mf, name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
+			c.setServer(mf, name, server)
 		}
 
 		if err := c.save(mf); err != nil {
@@ -225,8 +216,22 @@ func (c MCPFileConfig) reconcileLedger(mf *mcpFile, ledgerNames []string) (handD
 }
 
 // setServer marshals a typed stdio server entry into the raw server map.
-func (c MCPFileConfig) setServer(mf *mcpFile, name string, s mcpFileServer) {
-	data, err := json.Marshal(s)
+// setServer writes one server through the shared entry shape
+// (ChatMCPConfigEntryOf) so a remote entry spells type/url/headers here
+// exactly as it does in every other "mcpServers" table. A server that cannot
+// be rendered is warned about BY NAME and left out, never written as an
+// empty command.
+func (c MCPFileConfig) setServer(mf *mcpFile, name string, s wire.MCPServer) {
+	if err := s.Validate(); err != nil {
+		c.Warn("skipping MCP server %q: %v", name, err)
+		return
+	}
+	entry, err := ChatMCPConfigEntryOf(ChatMCPServerFromWire(name, s))
+	if err != nil {
+		c.Warn("skipping MCP server %q: %v", name, err)
+		return
+	}
+	data, err := json.Marshal(entry)
 	if err != nil {
 		c.Warn("failed to marshal MCP server %q: %v", name, err)
 		return

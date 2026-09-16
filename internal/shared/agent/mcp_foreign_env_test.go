@@ -51,12 +51,12 @@ func thirdPartyEntry() wire.MCPServer {
 // and returns its mcpServers map, decoded. Asserting on the FILE is the point:
 // the resolver's return value alone is satisfied by any later layer
 // re-introducing the field, and setServer is the layer that used to.
-func decodeWrittenServers(t *testing.T, fs afero.Fs, path string) map[string]mcpFileServer {
+func decodeWrittenServers(t *testing.T, fs afero.Fs, path string) map[string]ChatMCPConfigEntry {
 	t.Helper()
 	data, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
 	var file struct {
-		Servers map[string]mcpFileServer `json:"mcpServers"`
+		Servers map[string]ChatMCPConfigEntry `json:"mcpServers"`
 	}
 	require.NoError(t, json.Unmarshal(data, &file))
 	return file.Servers

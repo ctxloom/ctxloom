@@ -566,38 +566,28 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 	}
 }
 
-// TestClaudeCodeHookWriter_MCPCommandOverride pins the fix at claude's own
-// .mcp.json writer: a zero-value writer (mcpCommandOverride
-// unset — every cell but an isolated container) emits EXACTLY
-// agent.CtxloomCommand()'s host self-exec-absolute path; a writer with the
-// override set (the container-cell path, surfacedelivery.go's DeliverMCP)
-// emits the override instead.
-func TestClaudeCodeHookWriter_MCPCommandOverride(t *testing.T) {
-	readCommand := func(t *testing.T, dir string) string {
-		t.Helper()
-		data, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
-		require.NoError(t, err)
-		var cfg map[string]interface{}
-		require.NoError(t, json.Unmarshal(data, &cfg))
-		servers := cfg["mcpServers"].(map[string]interface{})
-		ctxloomServer := servers["ctxloom"].(map[string]interface{})
-		return ctxloomServer["command"].(string)
-	}
+// TestClaudeCodeHookWriter_MCPCommandIsBare pins the portability invariant at
+// claude's own .mcp.json writer: the ctxloom entry's command is the BARE
+// executable, looked up on PATH wherever the file is read. .mcp.json is a
+// tracked, shareable file and is additionally read from inside a container,
+// where a host path names nothing.
+//
+// MUTATION — write an absolute path (a self-exec path, a container path) as
+// the command; this must go RED.
+func TestClaudeCodeHookWriter_MCPCommandIsBare(t *testing.T) {
+	tmpDir := t.TempDir()
+	writer := &ClaudeCodeHookWriter{}
+	require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), tmpDir))
 
-	t.Run("host-unchanged: no override writes CtxloomCommand()", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		writer := &ClaudeCodeHookWriter{}
-		require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), tmpDir))
-		assert.Equal(t, agent.CtxloomCommand(), readCommand(t, tmpDir))
-	})
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".mcp.json"))
+	require.NoError(t, err)
+	var cfg map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	servers := cfg["mcpServers"].(map[string]interface{})
+	command := servers["ctxloom"].(map[string]interface{})["command"].(string)
 
-	t.Run("container cell: override wins", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		const containerBin = "/usr/local/bin/ctxloom"
-		writer := &ClaudeCodeHookWriter{mcpCommandOverride: containerBin}
-		require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), tmpDir))
-		assert.Equal(t, containerBin, readCommand(t, tmpDir))
-	})
+	assert.Equal(t, agent.CtxloomBinary, command)
+	assert.NotContains(t, command, "/", "no path component may reach a materialized .mcp.json")
 }
 
 func TestClaudeCodeHookWriter_MCPServerEnvPreserved(t *testing.T) {

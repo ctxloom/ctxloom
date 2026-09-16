@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -12,17 +11,19 @@ import (
 const ContextInjectionTimeout = 60
 
 // NewContextInjectionHook creates the SessionStart hook that injects
-// assembled context into the agent. The Command names the self-exec
-// absolute path (CtxloomCommand) — see its doc for the staged-vs-installed
-// invariant this upholds — shell-quoted like the project path, since both
-// are interpolated into one /bin/sh command string.
+// assembled context into the agent. The Command names the bare ctxloom
+// executable (CtxloomCommand) and carries NO project path.
 //
-// workDir is the project directory where the context file lives.
-// Resolved to an absolute path because Claude Code can launch the
-// hook from a different cwd.
-func NewContextInjectionHook(hash, workDir string) wire.Hook {
+// INVARIANT: neither half of this command is a fact about the machine that
+// wrote it. The generated settings file is tracked, so an absolute path in it
+// is one developer's path that no other clone can satisfy — their hooks then
+// succeed at doing nothing. The project is resolved at FIRE time instead, by
+// cli.resolveInjectContextWorkDir: CTXLOOM_ROOT, else the git root containing
+// cwd. The hook's own --project flag stays available for a human invoking it
+// by hand; it is simply never emitted here.
+func NewContextInjectionHook(hash string) wire.Hook {
 	return wire.Hook{
-		Command:     fmt.Sprintf("%s hook inject-context --project %s %s", shellSingleQuote(CtxloomCommand()), shellSingleQuote(absOrSelf(workDir)), hash),
+		Command:     fmt.Sprintf("%s hook inject-context %s", shellSingleQuote(CtxloomCommand()), hash),
 		Type:        "command",
 		Timeout:     ContextInjectionTimeout,
 		ContextHash: hash,
@@ -34,10 +35,10 @@ func NewContextInjectionHook(hash, workDir string) wire.Hook {
 // flock rendezvous (AwaitTurn) to complete in order, so the harness — which
 // injects parallel hook output in completion order — sees the chunks in
 // sequence. See NewContextInjectionHooks for when chunking kicks in.
-func NewContextInjectionChunkHook(hash, workDir string, part, total int) wire.Hook {
+func NewContextInjectionChunkHook(hash string, part, total int) wire.Hook {
 	return wire.Hook{
-		Command: fmt.Sprintf("%s hook inject-context --project %s --part %d --of %d %s",
-			shellSingleQuote(CtxloomCommand()), shellSingleQuote(absOrSelf(workDir)), part, total, hash),
+		Command: fmt.Sprintf("%s hook inject-context --part %d --of %d %s",
+			shellSingleQuote(CtxloomCommand()), part, total, hash),
 		Type:        "command",
 		Timeout:     ContextInjectionTimeout,
 		ContextHash: hash,
@@ -122,15 +123,6 @@ func NewNextStepHook() wire.Hook {
 	}
 }
 
-// absOrSelf resolves workDir to an absolute path (Claude Code may launch the
-// hook from a different cwd), falling back to the input on error.
-func absOrSelf(workDir string) string {
-	if abs, err := filepath.Abs(workDir); err == nil {
-		return abs
-	}
-	return workDir
-}
-
 // NewContextInjectionHooks returns the SessionStart context-injection hook(s)
 // for the given content hash. It reads the (content-addressed, immutable)
 // context file to decide the split: content that fits in one sub-cap chunk —
@@ -152,11 +144,11 @@ func NewContextInjectionHooks(hash, workDir string) []wire.Hook {
 	}
 	chunks := ChunkContext(content)
 	if len(chunks) <= 1 {
-		return []wire.Hook{NewContextInjectionHook(hash, workDir)}
+		return []wire.Hook{NewContextInjectionHook(hash)}
 	}
 	hooks := make([]wire.Hook, 0, len(chunks))
 	for k := 1; k <= len(chunks); k++ {
-		hooks = append(hooks, NewContextInjectionChunkHook(hash, workDir, k, len(chunks)))
+		hooks = append(hooks, NewContextInjectionChunkHook(hash, k, len(chunks)))
 	}
 	return hooks
 }

@@ -1,6 +1,6 @@
 # agent — managed-file writers and reconcilers
 
-Every byte ctxloom puts into a user's engine config directory goes through one of the reconcilers on this page. They share one discipline: ctxloom owns a *marked* or *manifest-tracked* subset of a file or tree, and each write removes exactly the previous ctxloom-owned set before laying down the new one, so uninstall is always possible and foreign content survives. `AtomicWriteFile` is the single low-level write primitive; `CtxloomCommand`/`ResolveMCPCommand` are the single policy point for what binary path lands in a generated config.
+Every byte ctxloom puts into a user's engine config directory goes through one of the reconcilers on this page. They share one discipline: ctxloom owns a *marked* or *manifest-tracked* subset of a file or tree, and each write removes exactly the previous ctxloom-owned set before laying down the new one, so uninstall is always possible and foreign content survives. `AtomicWriteFile` is the single low-level write primitive; `CtxloomCommand` is the single policy point for what command lands in a generated config.
 
 References below are by **symbol** (`Type.Method` or bare function name), not `file:line` — a line number drifts on any edit above it and silently points at the wrong thing; a symbol fails loud when it goes stale (`grep` finds nothing) instead of misleading.
 
@@ -11,8 +11,7 @@ flowchart TD
     WFL["WithFileLock(fs, target, fn)"]
     GFS["GetFS(fs) — nil → OsFs"]
     WRN["Warn(fmt, ...) → clidiag"]
-    CC["CtxloomCommand() = selfexec.Path()"]
-    RMC["ResolveMCPCommand(override)"]
+    CC["CtxloomCommand() = CtxloomBinary"]
     HASH["ComputeHookHash / ComputeMCPServerHash / ComputeCommandDigest"]
     RC["RefuseCorrupt(fs, path, data, ...)"]
   end
@@ -76,8 +75,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | `WithFileLock` | The `SettingsWriter`/R6 family's one lock idiom: `fn` runs as the WHOLE read-modify-write cycle under a lock at `paths.HomePathFor(target)` (a real OS home-rooted lock directory, not a sidecar beside `target`). Skipped when `fs` is not OS-backed (a test double has no other process to exclude). Fail-closed on acquisition failure. |
 | `GetFS` | nil → `afero.NewOsFs()`; the single defaulting point every writer in this package and its engine callers uses. |
 | `Warn` | `clidiag.Warn("ctxloom", …)`; binds the program name once. |
-| `CtxloomCommand` | Returns `selfexec.Path()` — the absolute path of the running ctxloom binary, so a materialized surface can never diverge between a staged and an installed binary. |
-| `ResolveMCPCommand` | Override-or-default; the container-override policy chokepoint (`isolation.Container.MCPCommandOverride`). |
+| `CtxloomCommand` | Returns `CtxloomBinary` — the bare executable name, so a materialized surface resolves against `PATH` at fire time and carries no fact about the machine that wrote it. |
 | `ComputeHookHash` / `ComputeMCPServerHash` / `ComputeCommandDigest` | sha256-derived short identifiers used as ownership markers (hooks, MCP server entries, the statusline command) — the `SCM` field claude carries on each managed entry, and the digests the ledger records for the same purpose elsewhere. |
 | `SettingsOptions` | `{FS afero.Fs}` — filesystem seam only. Per-engine policy (which surfaces are managed) rides the surfaces × cells seam elsewhere, not this struct. |
 | `RefuseCorrupt` | The one refusal shape for "part of this user-owned file will not parse": backs the original bytes up to `<path>.corrupt-<unix>` and returns an error so the caller aborts *before* touching the file. Every backend that round-trips a user-editable settings/hooks/MCP file routes partial-parse failures here. |
@@ -134,7 +132,7 @@ Consumers: `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`), and `
 | Symbol | Purpose |
 |---|---|
 | `GetExecutablePath` | `os.Executable` + `EvalSymlinks`, memoized in a package global. |
-| `WarnOnCtxloomPathSkew` | Warns when the `ctxloom` on `PATH` differs from the running binary — a surface materialized before the `CtxloomCommand` self-exec-absolute fix still carries the bare name `ctxloom` until the next apply re-materializes it, and this is what catches that. Called from the MCP server's startup path. |
+| `WarnOnCtxloomPathSkew` | Warns when the `ctxloom` on `PATH` differs from the running binary. Every materialized surface names the bare `ctxloom` (`CtxloomCommand`), so this is the only signal that a surface will fire a different build than the one running. Called from the MCP server's startup path. |
 
 ## Invariants and contracts
 
@@ -142,7 +140,7 @@ Consumers: `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`), and `
 - **The temp file name is unique per write** (`afero.TempFile` with a `.`+base+`.*.tmp` pattern), not a fixed suffix — two concurrent writers of the same settings file can never clobber each other's in-flight temp file the way a fixed name could.
 - **A rename failure is returned, never papered over**, and there is no cross-device fallback: the temp file lives in the destination directory by construction, so cross-device rename cannot occur, and every internal failure branch best-effort removes the orphaned temp file before returning the error.
 - **`AtomicWriteFile` refuses a zero-byte write over an existing file** unless the caller opts in via `AllowEmptyWrite()` — for an encoder that renders an emptied managed set as literally zero bytes. No writer in the tree opts in today; the option stays for the next one that must.
-- **`CtxloomCommand` is the binary-path policy for materialized surfaces**, and `ResolveMCPCommand` is the resolver every MCP-surface writer uses, with the container-override seam substituting an in-container path when the surface will be read from inside an isolated cell.
+- **`CtxloomCommand` is the command policy for materialized surfaces**, and every writer — hooks, statusline, MCP registry — resolves through it. It returns the BARE name: several materialized surfaces (`.claude/settings.json`, `.mcp.json`) are tracked files shared across machines, and one is read from inside a container where a host path names nothing. The accepted cost is that a surface can fire a different build than the one that wrote it; `WarnOnCtxloomPathSkew` is the only thing that reports it.
 - **`WriteManagedContext` preserves user content in position**, not merely byte-for-byte: content that sat below the end marker used to be hoisted above the re-appended managed section on every rewrite; it is now reinserted at the same offset the old section occupied.
 - **`WriteManagedContext` with empty content deletes the file** — the intended uninstall semantics and the terminus of the empty-context chain.
 - **`WriteManagedPackageFiles` removes the previously-tracked set BEFORE rendering.** Every per-item failure warns and continues, and the function returns `nil` when nothing was written — so a total render failure wipes the prior delivery and reports success. The manifest is the only record of what ctxloom owns in that tree, and (see R6 above) this function is not itself under `WithFileLock` — a known, deferred gap, not a fixed one.
@@ -152,4 +150,4 @@ Consumers: `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`), and `
 - **A user-owned settings or registry file that fails to parse is refused, not replaced — at every level of the document.** `claude.ClaudeCodeHookWriter.loadSettings` routes a failed top-level decode through `corruptSettings` to `RefuseCorrupt`, and so does every nested block it splits out (`hooks`, and `parseStatusLine`/`parsePermissions` for `statusLine`/`permissions`/`permissions.deny`). "I could not read it" is not "it was empty": each of those paths once warned and continued, and the delete-then-re-emit-from-the-typed-field shape behind the warning meant the user's own hooks, statusline and allow/ask rules were dropped from the file on a success path. A warning is not a guard — the routing exists so no future field can be added with a warn-and-continue branch. `InstallMCPServerJSON` takes the same stance on a present-but-wrong-type `mcpServers` value.
 - **A preserved field is re-emitted as its ORIGINAL bytes, never decoded-and-reencoded.** `claude.ClaudeCodeHookWriter.saveSettings` and `claude.permissionsOutput` decode each preserved key only as a *gate* (`preserveFailure` refuses the write when a value cannot be carried through) and emit the raw bytes; handing the decoded value to `CanonicalJSON` instead would round every number past `float64`'s exact range — `1234567890123456789` comes back `1234567890123456800`, a rewrite of the user's own file that no warning or exit code reports.
 - **`MCPRegistrar` has two facets with different natures**: `{Name, Present, ConfigPath}` vary per agent; `{Install, Uninstall, Installed}` are delegated verbatim to this package's shared JSON functions by the JSON-shaped implementors; a registrar over a different document model would have to reimplement the same contract.
-- **`WarnOnCtxloomPathSkew` exists only for surfaces materialized before the `CtxloomCommand` self-exec fix** — those still carry the bare name `ctxloom` until the next apply re-materializes them.
+- **`WarnOnCtxloomPathSkew` is the guard on bare-name resolution** — every materialized surface carries the bare name `ctxloom`, so a stale build earlier on `PATH` serves them silently unless this warns.

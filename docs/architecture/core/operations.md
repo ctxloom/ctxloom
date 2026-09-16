@@ -247,7 +247,7 @@ flowchart LR
 | `runResolvedAgent` | `oneshot.go:315` | **The single choke point** for delegated child turns and `run --one-shot`: prepare isolation, gate it, assemble the per-member managed config, floor the headless posture, run the plugin once, capture stdout, record the one-shot transcript. |
 | `resolvedRunRequest` | `oneshot.go:122` | The already-resolved run; `Factory == nil` selects the isolating path. |
 | `ResolveBackend` / `resolveOneshotLabel` | `oneshot.go:490,502` | Label → (backend, model); three-level precedence: override → profile LLM → primary role. |
-| `IsolationImageConfig` / `CellKindForPolicy` / `MCPCommandOverrideForPolicy` / `RuntimeForPolicy` / `ContainerPersistDirForPolicy` | `oneshot.go:178,199,228,247,257` | Capability probes over `isolation.Policy`, declared here so `internal/lm/isolation` need not import `agent`. |
+| `IsolationImageConfig` / `CellKindForPolicy` / `RuntimeForPolicy` / `ContainerPersistDirForPolicy` | `oneshot.go` | Capability probes over `isolation.Policy`, declared here so `internal/lm/isolation` need not import `agent`. |
 | `isolationGateErr` | `oneshot.go:286` | Turns `ClassIsolation` strictness findings into a member-fatal error unless degraded — the fail-loud isolation gate. |
 | `PrepareAgentChat` | `delegate.go:167` | Resolves the workspace axis, handles a dirty parent tree (commit / copy-snapshot / fail), prepares isolation, and picks the chat vs one-shot path. Callers: `coord/spawner.go:410,458`. |
 | `handleDirtyParentTree` / `commitDirtyTree` / `applyCopySnapshot` | `delegate.go:494,581,652` | The dirty-tree policy: a detached HEAD or a missing acknowledgement refuses to auto-commit; `copySnapshot` captures patch + untracked list once so there is no drift window. |

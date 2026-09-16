@@ -14,14 +14,19 @@ import (
 // (claude/codex) call directly. They moved here from the host backends
 // package along with the helpers themselves.
 
-// TestResolveMCPCommand pins the fix at its narrowest seam: an empty
-// override (every cell but an isolated container) returns EXACTLY
-// CtxloomCommand()'s value — the host self-exec-absolute invariant is
-// byte-for-byte unchanged — while a non-empty override (populated ONLY on the
-// container axis, see isolation.Container.MCPCommandOverride) wins outright.
-func TestResolveMCPCommand(t *testing.T) {
-	assert.Equal(t, CtxloomCommand(), ResolveMCPCommand(""), "empty override must not perturb the host self-exec-absolute default")
-	assert.Equal(t, "/usr/local/bin/ctxloom", ResolveMCPCommand("/usr/local/bin/ctxloom"), "a non-empty override wins outright")
+// TestCtxloomCommand_IsBareName pins the portability invariant at its source.
+// Every materialized surface — a hook command, a statusline, an .mcp.json
+// stdio entry — takes its command from here, and several of those files are
+// TRACKED, so anything machine-specific written here is committed and every
+// other clone inherits a command it cannot run. The failure is silent: the
+// hook exits non-zero and the session carries on with no context.
+//
+// MUTATION — return selfexec.Path() (or any absolute path) here; both
+// assertions must go RED.
+func TestCtxloomCommand_IsBareName(t *testing.T) {
+	got := CtxloomCommand()
+	assert.Equal(t, "ctxloom", got, "a materialized surface names the bare executable, resolved on PATH at fire time")
+	assert.NotContains(t, got, string(os.PathSeparator), "no path component may reach a materialized surface")
 }
 
 func TestComputeHookHash(t *testing.T) {

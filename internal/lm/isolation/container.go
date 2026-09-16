@@ -489,30 +489,11 @@ func (c Container) ExecSpec(ws Workspace, command []string, extraEnv []string, e
 	}, nil
 }
 
-// MCPCommandOverride returns the in-container ctxloom binary path
-// (defaultContainerBinary, threaded as c.binaryPath — the container axis's
-// single source of truth) that a container cell's MCP-surface writer should
-// stamp into the ctxloom-managed stdio command instead of the host self-exec
-// path (agent.CtxloomCommand). This is dire-five's fix: the engine inside the
-// container reads its bind-mounted, identical-path .mcp.json, but the process
-// that MATERIALIZED that surface is not necessarily the one running inside
-// the container — relying on self-exec resolution to "just happen" to agree
-// is fragile, so the container policy states its binary path explicitly.
-//
-// Exposed as a narrow capability (not a Policy interface method, probed via
-// operations.MCPCommandOverrideForPolicy) rather than a Policy method so
-// None/Worktree need no method at all: their absence IS "no override",
-// which is exactly what preserves the host self-exec-absolute invariant
-// (CtxloomCommand's doc: staged/installed divergence) on every non-container
-// cell. A leak of this override onto a non-container cell would reintroduce
-// that exact divergence bug — see the host-unchanged unit test pinning it.
-func (c Container) MCPCommandOverride() string { return c.binaryPath }
-
 // Runtime returns the container's launch runtime (docker/podman) — the seam the
 // docker-exec vpio.Launcher needs to render `exec -it` for an interactive
 // top-level container turn (Phase 2a-A). Exposed as a narrow accessor probed
-// via operations.RuntimeForPolicy, like MCPCommandOverride, so None/Worktree
-// (which carry no runtime) need no method.
+// via operations.RuntimeForPolicy rather than as an isolation.Policy method,
+// so None/Worktree (which carry no runtime) need no method.
 func (c Container) Runtime() Runtime { return c.runtime }
 
 // ContainerPersistDir returns the IN-CONTAINER path the host's session persist

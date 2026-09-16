@@ -79,10 +79,9 @@ func resolveListConfig(cfg *config.Config) (*config.Config, error) {
 // carrying the command that actually reaches a surface rather than the bare
 // name its bundle declares (agent.ResolveManagedMCPServers). A listing that
 // showed the bundle's literal would disagree with every engine's settings file
-// and with `ctxloom doctor`'s MCP-invocation check. The override is empty: a
-// listing is not a cell, so it reports the host resolution.
+// and with `ctxloom doctor`'s MCP-invocation check.
 func registeredMCPServers(cfg *config.Config) map[string]wire.MCPServer {
-	return agent.ResolveManagedMCPServers(cfg.ResolveBundleMCPServers(nil), "")
+	return agent.ResolveManagedMCPServers(cfg.ResolveBundleMCPServers(nil))
 }
 
 // mcpServerMatches reports whether a server matches the (already lower-cased)

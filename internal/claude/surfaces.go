@@ -107,9 +107,9 @@ func claudeContextWriter(fs afero.Fs) agent.ContextWriter { return &ClaudeCodeHo
 
 // newMCPWriter builds the .mcp.json recipe both MCP approaches embed, from the
 // one set of run inputs. It exists so the two constructors cannot come apart
-// on a field: MCPCommandOverride was already once lost that way.
+// on a field.
 func newMCPWriter(in agent.SurfaceInputs, fs afero.Fs) mcpWriter {
-	return mcpWriter{bundle: in.BundleMCP, fs: agent.GetFS(fs), commandOverride: in.MCPCommandOverride}
+	return mcpWriter{bundle: in.BundleMCP, fs: agent.GetFS(fs)}
 }
 
 // systemPromptContext is claude's system-prompt context approach.
@@ -214,17 +214,13 @@ const ApproachMCPConfig = "mcp-config"
 // type with two methods is what made the silent conversion expressible in the
 // first place.
 type mcpWriter struct {
-	bundle          map[string]wire.MCPServer
-	fs              afero.Fs
-	commandOverride string // see SurfaceInputs.MCPCommandOverride
+	bundle map[string]wire.MCPServer
+	fs     afero.Fs
 }
 
 // deliver writes the merged .mcp.json into dir.
-// reprise:accept-drift — shares a three-line shape with settingsSurface.deliver and commandsSurface.Deliver, and that shape IS the whole body: construct the writer, set the one knob this surface owns, call the one delivery it owns. A helper taking both as parameters is longer than what it replaces and hides which knob belongs to which surface; each of the three changes only when its own surface's knob or delivery changes.
 func (w mcpWriter) deliver(dir string) (agent.Delivered, error) {
-	d := newFileTemplateDelivery(dirPlacement{dir: dir}, w.fs)
-	d.mcpCommandOverride = w.commandOverride
-	return d.DeliverMCP(w.bundle)
+	return newFileTemplateDelivery(dirPlacement{dir: dir}, w.fs).DeliverMCP(w.bundle)
 }
 
 // servers exposes the bundle for mcpServerNames, which needs the server set
@@ -352,8 +348,8 @@ type settingsSurface struct {
 	// denyTools is the resolved deny_tools union (SurfaceInputs.DenyTools) —
 	// per-tool identifiers (e.g. "Task") this run's settings.json denies via
 	// permissions.deny. Threaded to fileTemplateDelivery as a RECEIVER field
-	// (below), mirroring mcpWriter.commandOverride, so DeliverSettings's
-	// signature stays unchanged for an engine-specific extra.
+	// (below) so DeliverSettings's signature stays unchanged for an
+	// engine-specific extra.
 	denyTools []string
 	fs        afero.Fs
 	path      string // set by DeliverIsolated: the out-of-cwd settings.json
@@ -481,9 +477,8 @@ func newSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 // "supported" and "constructible" cannot disagree — which is the whole reason
 // this replaced a capability list beside a construction map. Every
 // constructor takes the SHARED agent.SurfaceInputs directly rather than a
-// local copy: two hand-maintained field-by-field mappers drift apart, as they
-// once did on MCPCommandOverride. claude simply ignores the fields it has no
-// use for (Fragments, AgentName).
+// local copy: two hand-maintained field-by-field mappers drift apart. claude
+// simply ignores the fields it has no use for (Fragments, AgentName).
 var Surfaces = agent.Declaration{
 	agent.SurfaceContext: agent.Presents("claude", agent.SurfaceContext, agent.ApproachUnsafeFile,
 		agent.NativeContextFile("claude/context", ContextFileName, claudeContextWriter)).

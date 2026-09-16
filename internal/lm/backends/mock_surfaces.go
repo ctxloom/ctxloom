@@ -179,9 +179,8 @@ func mockCommandsPath(dir string) string {
 // FORMAT shared — which is the part that could drift — while honouring mock's
 // own fs seam.
 type mockMCPSurface struct {
-	bundle   map[string]wire.MCPServer
-	override string
-	fs       afero.Fs
+	bundle map[string]wire.MCPServer
+	fs     afero.Fs
 }
 
 // Present declares .mock/mcp.json beneath the advised project root. No flag:
@@ -195,7 +194,7 @@ func (s *mockMCPSurface) Deliver(start present.Start) (agent.Delivered, error) {
 	fs := agent.GetFS(s.fs)
 	path := mockSurfacePath(agent.SurfaceMCP, start)
 
-	data, err := agent.MarshalChatMCPConfig(agent.ComposeChatMCPServers(s.override, s.bundle, nil))
+	data, err := agent.MarshalChatMCPConfig(agent.ComposeChatMCPServers(s.bundle, nil))
 	if err != nil {
 		return nil, fmt.Errorf("mock: marshal mcp config: %w", err)
 	}
@@ -359,7 +358,7 @@ func mockDeclaration(name string) agent.Declaration {
 		agent.SurfaceContext: agent.Presents(name, agent.SurfaceContext, agent.ApproachUnsafeFile, newMockContext),
 		agent.SurfaceSkills:  agent.Presents(name, agent.SurfaceSkills, agent.ApproachUnsafeFile, newMockSkillsSurface),
 		agent.SurfaceMCP: agent.Presents(name, agent.SurfaceMCP, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-			return &mockMCPSurface{bundle: in.BundleMCP, override: in.MCPCommandOverride, fs: agent.GetFS(fs)}
+			return &mockMCPSurface{bundle: in.BundleMCP, fs: agent.GetFS(fs)}
 		}),
 		agent.SurfaceSettings: agent.Presents(name, agent.SurfaceSettings, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 			return &mockSettingsSurface{hooks: stripUnsupportedHookKinds(name, in.Hooks), fs: agent.GetFS(fs)}

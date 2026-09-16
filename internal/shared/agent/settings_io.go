@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -19,10 +18,8 @@ import (
 )
 
 // CtxloomBinary is the bare executable name "ctxloom" — the PATH lookup
-// target WarnOnCtxloomPathSkew compares against, and the last-resort value
-// selfexec.Path (and so CtxloomCommand) falls back to when self-lookup
-// fails. Do NOT use it to materialize a command into a surface (.mcp.json,
-// a hook, a statusline) — use CtxloomCommand for that; see its doc for why.
+// target WarnOnCtxloomPathSkew compares against, and the command every
+// materialized surface names (see CtxloomCommand).
 // MCPServerName is the key for the auto-registered ctxloom MCP server, and
 // CtxloomMCPArgs its args.
 const (
@@ -44,50 +41,34 @@ var CtxloomMCPArgs = []string{"mcp", "serve"}
 // (an .mcp.json/config.toml MCP entry, a statusline command, a
 // context-injection or hook command) that invokes ctxloom.
 //
-// INVARIANT: a surface names the absolute path of the binary that
-// materialized it, so a staged and an installed binary can never diverge
-// within one session. This is load-bearing: a bare "ctxloom" re-resolves
-// against PATH at fire time, which is a DIFFERENT resolution than the one
-// the process materializing the surface used — an engine harness could
-// silently run the installed binary while the user was running a staged
-// one (the staged-binary divergence bug this fixes). Falls back to the
-// bare name "ctxloom" only if self-lookup fails; see selfexec.Path.
+// INVARIANT: a surface names the BARE executable name and nothing else, so
+// it resolves against PATH at fire time, wherever it fires. This is
+// load-bearing in two directions. A materialized surface is often a TRACKED
+// file (.claude/settings.json, .mcp.json), and an absolute path in one is a
+// fact about one developer's machine that every other clone inherits and
+// cannot satisfy — their hooks then fail silently. And a surface written on
+// the host is read inside a container, where a host path does not exist at
+// all.
+//
+// ACCEPTED COST: the binary that fires a surface need not be the binary that
+// materialized it. A different ctxloom earlier on PATH, or none, resolves
+// instead. Do not reintroduce an absolute path, a guard or an override to
+// close that gap.
 func CtxloomCommand() string {
-	return selfexec.Path()
-}
-
-// ResolveMCPCommand returns override when non-empty, else CtxloomCommand()'s
-// self-exec-absolute default. Every MCP-surface writer's ctxloom stdio entry
-// resolves through this one function, so a caller that never sets an override
-// (every cell but an isolated CONTAINER) gets byte-for-byte the old
-// CtxloomCommand() behavior — the host self-exec-absolute invariant stays
-// untouched. The container axis is the ONLY populated caller (see
-// isolation.Container.MCPCommandOverride / MCPCommandOverrideEnv): a
-// container cell's engine reads its own bind-mounted, identical-path
-// .mcp.json, but the binary that materialized the surface may not be the
-// binary INSIDE the container — the override substitutes the
-// known in-container path (e.g. /usr/local/bin/ctxloom) so the ctxloom MCP
-// stdio command is one the container can actually exec.
-func ResolveMCPCommand(override string) string {
-	if override != "" {
-		return override
-	}
-	return CtxloomCommand()
+	return CtxloomBinary
 }
 
 // ResolveManagedMCPServers returns servers with ctxloom's OWN entry — the one
 // the builtin ctxloom bundle contributes under MCPServerName — carrying the
-// command and args a materialized surface must name: the self-exec absolute
-// path of the binary writing the surface (or override's in-container path, see
-// ResolveMCPCommand) and the `mcp serve` leaf (CtxloomMCPArgs).
+// command and args a materialized surface must name: the bare ctxloom
+// executable (CtxloomCommand) and the `mcp serve` leaf (CtxloomMCPArgs).
 //
 // INVARIANT: a bundle declares WHETHER ctxloom's own server is registered;
-// this function fixes WHAT is written, because neither value is knowable when
-// a bundle is authored — the absolute path is a fact about the running
-// process, and the in-container path a fact about the cell. A server set
-// carrying no ctxloom entry is returned unchanged, which is how withholding
-// the builtin bundle's item (a profile's exclude_mcp, or rejecting it) turns
-// ctxloom's own server off.
+// this function fixes WHAT is written, because the invocation is not knowable
+// when a bundle is authored — it is ctxloom's own business, not the declaring
+// bundle's. A server set carrying no ctxloom entry is returned unchanged,
+// which is how withholding the builtin bundle's item (a profile's
+// exclude_mcp, or rejecting it) turns ctxloom's own server off.
 //
 // The ctxloom entry is CONSTRUCTED, not copied: see ctxloomOwnMCPServer for
 // which fields the source may contribute and why Env is not among them. Every
@@ -95,15 +76,15 @@ func ResolveMCPCommand(override string) string {
 // env is that server's own business and reaches its process verbatim.
 //
 // servers is never mutated: one resolved bundle set is shared across engines
-// and cells, and only some of them carry a container override.
-func ResolveManagedMCPServers(servers map[string]wire.MCPServer, override string) map[string]wire.MCPServer {
+// and cells.
+func ResolveManagedMCPServers(servers map[string]wire.MCPServer) map[string]wire.MCPServer {
 	src, ok := servers[MCPServerName]
 	if !ok {
 		return servers
 	}
 	out := make(map[string]wire.MCPServer, len(servers))
 	maps.Copy(out, servers)
-	out[MCPServerName] = ctxloomOwnMCPServer(src, override)
+	out[MCPServerName] = ctxloomOwnMCPServer(src)
 	return out
 }
 
@@ -139,7 +120,7 @@ func ResolveManagedMCPServers(servers map[string]wire.MCPServer, override string
 // abort a launch (or a read-only `ctxloom mcp` listing) over our own shipped
 // content. It is still never silent: a discarded Env is warned about, because
 // an operator who wrote one is entitled to know it did nothing.
-func ctxloomOwnMCPServer(src wire.MCPServer, override string) wire.MCPServer {
+func ctxloomOwnMCPServer(src wire.MCPServer) wire.MCPServer {
 	if len(src.Env) > 0 {
 		clidiag.WarnOnce(CtxloomBinary,
 			"ignoring the env declared for the %q MCP server (%s): ctxloom's own MCP server runs with the environment ctxloom gives it, never one supplied by whatever declared the entry",
@@ -151,7 +132,7 @@ func ctxloomOwnMCPServer(src wire.MCPServer, override string) wire.MCPServer {
 			MCPServerName, src.URL)
 	}
 	return wire.MCPServer{
-		Command:      ResolveMCPCommand(override),
+		Command:      CtxloomCommand(),
 		Args:         slices.Clone(CtxloomMCPArgs),
 		Notes:        src.Notes,
 		Installation: src.Installation,

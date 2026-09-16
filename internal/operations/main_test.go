@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/engines"
-	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -53,16 +52,6 @@ func TestMain(m *testing.M) {
 			return "", exec.ErrNotFound
 		})
 		defer restore()
-
-		// Pin the self-exec command (agent.CtxloomCommand → selfexec.Path) to
-		// the literal "ctxloom": in production the running binary IS named
-		// ctxloom, so a materialized command's exec token always matches
-		// agent.IsManaged's hardcoded "ctxloom" bin; under `go test`, Path's
-		// natural answer is this test binary's own path, which would make
-		// every managed-detection/removal test in this package see an
-		// unrecognized command.
-		restoreExe := selfexec.SetPathForTesting("ctxloom")
-		defer restoreExe()
 
 		// testBaseDir is a SYNTHETIC absolute app dir that only ever exists in
 		// an injected memfs — except that an operation reached with no fs

@@ -302,14 +302,6 @@ type SurfaceInputs struct {
 	// true for a portable `profile materialize --target` artifact, false (the
 	// default) for a live/apply/container delivery that shares this host.
 	SelfContainedSkills bool
-	// MCPCommandOverride, when non-empty, replaces CtxloomCommand() as the
-	// ctxloom-managed MCP server's stdio command (see ResolveMCPCommand).
-	// setupViaCells fills it from req.Env[MCPCommandOverrideEnv],
-	// which is populated ONLY for an isolated-container cell (see
-	// isolation.Container.MCPCommandOverride via
-	// operations.MCPCommandOverrideForPolicy); every other cell leaves it "",
-	// so the host self-exec-absolute invariant is untouched.
-	MCPCommandOverride string
 	// DenyTools carries ManagedConfig.DenyTools through to the backend's
 	// settings surface — see its doc for the deny-tools semantics.
 	DenyTools []string

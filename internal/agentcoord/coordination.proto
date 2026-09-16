@@ -915,14 +915,7 @@ message PeerSendRequest {
   }];
   google.protobuf.Struct structured = 4 [(field_schema) = {
     doc: "Optional structured companion, carried opaque alongside the body. A `kind` key here is NOT the message kind: name the kind in the `kind` field.",
-    example: "{\"decision\": \"DECISION_ACCEPT\"}",
-    property: [
-      {
-        name: "decision",
-        doc: "Your answer to an approval this coordinator relayed to you, set on a reply whose in_reply_to names that request. \"DECISION_ACCEPT\" allows the parked item once; \"DECISION_ACCEPT_FOR_SESSION\" also pre-approves like-kind requests for the rest of the run; \"DECISION_DECLINE\" refuses the item and lets the sender continue; \"DECISION_CANCEL\" refuses it AND cancels the parked parent item. OMIT this key on a message that is not answering an approval.",
-        enum_values: ["DECISION_ACCEPT", "DECISION_ACCEPT_FOR_SESSION", "DECISION_DECLINE", "DECISION_CANCEL"]
-      }
-    ]
+    example: "{\"decision\": \"DECISION_ACCEPT\"}"
   }];
   // The message's kind, from the closed MessageKind vocabulary. Only the
   // sender-allowed values are accepted here; a coordinator-reserved value (or

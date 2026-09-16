@@ -40,18 +40,6 @@
             "decision": "DECISION_ACCEPT"
           }
         ],
-        "properties": {
-          "decision": {
-            "description": "Your answer to an approval this coordinator relayed to you, set on a reply whose in_reply_to names that request. \"DECISION_ACCEPT\" allows the parked item once; \"DECISION_ACCEPT_FOR_SESSION\" also pre-approves like-kind requests for the rest of the run; \"DECISION_DECLINE\" refuses the item and lets the sender continue; \"DECISION_CANCEL\" refuses it AND cancels the parked parent item. OMIT this key on a message that is not answering an approval.",
-            "enum": [
-              "DECISION_ACCEPT",
-              "DECISION_ACCEPT_FOR_SESSION",
-              "DECISION_DECLINE",
-              "DECISION_CANCEL"
-            ],
-            "type": "string"
-          }
-        },
         "type": "object"
       },
       "text": {

@@ -10,8 +10,8 @@ import (
 )
 
 // PluginChildrenOf snapshots the live direct children of ppid that look like
-// a ctxloom LLM plugin subprocess (argv contains "llm" "serve" — the exact
-// shape internal/lm/grpc's NewSelfInvokingClientForLabelEnv self-execs,
+// a ctxloom LLM plugin subprocess (argv carries "llm" immediately followed by
+// "serve" — the exact shape internal/lm/grpc's NewSelfInvokingClientForLabelEnv self-execs,
 // e.g. "ctxloom llm serve mock"). Deliberately scoped to descendants of ONE
 // process this harness itself spawned and is about to hard-kill — never a
 // broad process-name sweep across the whole machine, which would risk
@@ -83,22 +83,28 @@ func procPPID(pid int) int {
 // invocation, read from /proc/<pid>/cmdline (NUL-separated argv). Best
 // effort: an unreadable/vanished cmdline (process exited between the
 // readdir and this read) is "not a match", not an error.
+//
+// "serve" must IMMEDIATELY follow "llm": that is the subcommand path, and it
+// is the shape internal/lm/grpc's NewSelfInvokingClientForLabelEnv builds
+// (argv "llm", "serve", <backend>, optionally "--label", <label>). Matching
+// the two tokens independently would match any argv carrying both anywhere —
+// a shell wrapper, a flag value, a path component — and this result selects
+// SIGKILL targets, so a loose match kills the wrong process. Adjacency rather
+// than a fixed index keeps the match correct if a global flag ever precedes
+// the subcommand; a silent non-match would leak the very process this exists
+// to reap.
+//
+// This is a SHAPE test, never an identity one: it cannot tell this session's
+// plugin from another run's. Every caller must independently establish
+// ownership of the pid — PluginChildrenOf does so by ppid. Reusing this for a
+// wider scan than one known parent's direct children would kill a concurrent
+// suite's fixtures.
 func looksLikeLLMServe(pid int) bool {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
 	if err != nil || len(data) == 0 {
 		return false
 	}
-	args := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
-	hasLLM, hasServe := false, false
-	for _, a := range args {
-		switch a {
-		case "llm":
-			hasLLM = true
-		case "serve":
-			hasServe = true
-		}
-	}
-	return hasLLM && hasServe
+	return argvIsLLMServe(strings.Split(strings.TrimRight(string(data), "\x00"), "\x00"))
 }
 
 // KillPids SIGKILLs exactly the pids given — captured by PluginChildrenOf
@@ -109,4 +115,15 @@ func KillPids(pids []int) {
 	for _, pid := range pids {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
+}
+
+// argvIsLLMServe is looksLikeLLMServe's matching rule over an already-read
+// argv, split out so the rule is testable without a live process.
+func argvIsLLMServe(args []string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "llm" && args[i+1] == "serve" {
+			return true
+		}
+	}
+	return false
 }

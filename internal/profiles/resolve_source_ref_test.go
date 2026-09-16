@@ -3,6 +3,7 @@ package profiles
 import (
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,7 +60,7 @@ func TestResolveProfile_SourceRef_BundleShippedLocal(t *testing.T) {
 // auto-allowed after the fix, exactly as before it.
 func TestResolveProfile_SourceRef_GenuinelyLocalIsEmpty(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/profiles/dev.yaml", []byte("description: local dev profile\n"), 0644))
+	testsupport.WriteFileString(t, fs, "/profiles/dev.yaml", "description: local dev profile\n", 0644)
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
 
 	resolved, err := loader.ResolveProfile("dev", nil)
@@ -81,8 +82,9 @@ func TestResolveProfile_SourceRef_ChildNeverInheritsParentSource(t *testing.T) {
 		parentKey: {Name: parentKey, Path: SeededProfilePathPrefix + parentKey, Signer: "vendor@example.com"},
 	}
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/profiles/child.yaml",
-		[]byte("parents:\n  - "+parentKey+"\ndescription: local child\n"), 0644))
+	testsupport.WriteFileString(t, fs, "/profiles/child.yaml",
+		"parents:\n  - "+parentKey+"\ndescription: local child\n", 0644)
+
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs), WithSeededProfiles(seed))
 
 	resolved, err := loader.ResolveProfile("child", nil)

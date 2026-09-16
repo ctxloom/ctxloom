@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // denyStatFs makes Stat fail with a chosen error for named paths, leaving
@@ -66,9 +67,9 @@ func TestGitForgeVCS_ListItems_MissingKindDirIsEmpty(t *testing.T) {
 func TestFSVCS_ListItems_WorkingSet(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	root := "/proj/.ctxloom/content"
-	require.NoError(t, afero.WriteFile(fs, root+"/bundles/foo.yaml", []byte("x"), 0o644))
-	require.NoError(t, afero.WriteFile(fs, root+"/bundles/team/standards.yaml", []byte("x"), 0o644))
-	require.NoError(t, afero.WriteFile(fs, root+"/bundles/notes.txt", []byte("x"), 0o644))
+	testsupport.WriteFileString(t, fs, root+"/bundles/foo.yaml", "x", 0o644)
+	testsupport.WriteFileString(t, fs, root+"/bundles/team/standards.yaml", "x", 0o644)
+	testsupport.WriteFileString(t, fs, root+"/bundles/notes.txt", "x", 0o644)
 
 	vcs := &fsVCS{fs: fs, root: root}
 
@@ -87,7 +88,7 @@ func TestFSVCS_ListItems_WorkingSet(t *testing.T) {
 func TestFSVCS_ListItems_UnreadableDirIsAnError(t *testing.T) {
 	base := afero.NewMemMapFs()
 	root := "/proj/.ctxloom/content"
-	require.NoError(t, afero.WriteFile(base, root+"/bundles/foo.yaml", []byte("x"), 0o644))
+	testsupport.WriteFileString(t, base, root+"/bundles/foo.yaml", "x", 0o644)
 
 	fs := denyStatFs{Fs: base, deny: map[string]error{root + "/bundles": os.ErrPermission}}
 	vcs := &fsVCS{fs: fs, root: root}
@@ -161,7 +162,7 @@ func TestRemoteRefFetcher_ListItems_NotMaterializedWarns(t *testing.T) {
 func TestLocalRefFetcher_ListItems_LocalRefs(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	root := "/proj/.ctxloom/content"
-	require.NoError(t, afero.WriteFile(fs, root+"/bundles/foo.yaml", []byte("x"), 0o644))
+	testsupport.WriteFileString(t, fs, root+"/bundles/foo.yaml", "x", 0o644)
 
 	f := NewLocalRefFetcher(FSVCSFactory(fs), root)
 	refs, err := f.ListItems(context.Background(), ItemTypeBundle)
@@ -194,7 +195,7 @@ func TestResolver_ListDeleted_RemoteScheme(t *testing.T) {
 func TestResolver_List_FansOutAcrossSchemes(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	localRoot := "/proj/.ctxloom/content"
-	require.NoError(t, afero.WriteFile(fs, localRoot+"/bundles/localbun.yaml", []byte("x"), 0o644))
+	testsupport.WriteFileString(t, fs, localRoot+"/bundles/localbun.yaml", "x", 0o644)
 
 	url := "https://github.com/alice/ctxloom"
 	mf := NewMockFetcher().WithDir(".ctxloom/content/bundles", []DirEntry{{Name: "remotebun.yaml"}})

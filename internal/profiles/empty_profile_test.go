@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // Save used to accept a profile with no content and write "{}\n",
@@ -48,7 +49,7 @@ func TestLoad_EmptyProfileFileIsReported(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
-			require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/profiles/hollow.yaml", []byte(body), 0o644))
+			testsupport.WriteFileString(t, fs, "/proj/.ctxloom/profiles/hollow.yaml", body, 0o644)
 			l := NewLoader([]string{"/proj/.ctxloom/profiles"}, WithFS(fs))
 
 			strictness.Reset()

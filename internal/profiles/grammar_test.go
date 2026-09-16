@@ -134,8 +134,8 @@ func TestValidateProfileName_HashReserved(t *testing.T) {
 func TestResolveProfile_AliasParent(t *testing.T) {
 	loader := grammarLoader(t)
 	fs := loader.fs
-	require.NoError(t, afero.WriteFile(fs, "/profiles/dev.yaml",
-		[]byte("parents:\n  - myrem/ai-developer#profiles/developer\nbundles:\n  - own-bundle\n"), 0644))
+	testsupport.WriteFileString(t, fs, "/profiles/dev.yaml",
+		"parents:\n  - myrem/ai-developer#profiles/developer\nbundles:\n  - own-bundle\n", 0644)
 
 	resolved, err := loader.ResolveProfile("dev", nil)
 	require.NoError(t, err)

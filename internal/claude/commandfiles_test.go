@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func TestTransformMustacheToPositional(t *testing.T) {
@@ -293,7 +294,7 @@ func (f failRemoveAllFs) RemoveAll(path string) error {
 func TestWriteCommandFiles_LegacyDirRemovalErrorIsLoud(t *testing.T) {
 	legacy := filepath.Join("/project", ".claude", "commands", "ctxloom")
 	base := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(base, filepath.Join(legacy, "save.md"), []byte("old"), 0644))
+	testsupport.WriteFileString(t, base, filepath.Join(legacy, "save.md"), "old", 0644)
 	fs := failRemoveAllFs{Fs: base, failFor: legacy, err: os.ErrPermission}
 
 	err := WriteCommandFiles("/project", []agent.CommandExport{

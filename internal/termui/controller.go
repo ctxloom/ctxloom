@@ -143,14 +143,14 @@ func New(opts Options) *Controller {
 	// goroutine starts.
 	c.sur.lastEngineWrite = c.gate.LastWriteNanos
 	c.sur.paintSafe = guard.SafeForPaint
-	// Erase the primary screen once at terminal takeover. The session picker and
+	// Erase the primary screen once at terminal takeover. The session banner and
 	// startup lines render as plain text on the primary screen; the surround's
 	// DECSTBM (emitted by SetSize below) homes the cursor but erases nothing, and
 	// the child engine then paints its onboarding prompts with cursor-addressed
-	// writes that leave the picker's characters in the cells they don't touch —
+	// writes that leave those characters in the cells they don't touch —
 	// producing a cell-level interleave. Clear here, before the bar is painted, so
 	// the surround and child both draw onto a clean screen. ED 2 (not 3) keeps the
-	// picker output in scrollback rather than nuking it.
+	// that output in scrollback rather than nuking it.
 	_, _ = io.WriteString(opts.TTY, "\x1b[H\x1b[2J")
 	c.rt = newResizeTranslator(opts.Resize, c.sur.reserve, c.sur.SetSize)
 	c.ic = newInterceptor(opts.Stdin, opts.Prefix, InterceptorCallbacks{

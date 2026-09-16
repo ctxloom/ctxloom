@@ -14,8 +14,7 @@ by `fitToBudget` — oldest content compressed hardest, the tail left intact —
 chunks whose separate summaries are merged by a pass that never sees the source.
 
 `internal/cli` is the only internal consumer: `cli/memory.go` (`ctxloom memory
-compact|show|list`), `cli/session_cmd.go` (`compactEntry`, the `session distill` / resume-picker
-path), `mcp/mcp_tools_memory.go` (`compact_session`, `load_session`, `get_previous_session`), and
+compact|show|list`), `cli/session_cmd.go` (`compactEntry`, the `session distill` path), `mcp/mcp_tools_memory.go` (`compact_session`, `load_session`, `get_previous_session`), and
 `cli/hook_stamp_plan.go` (the PostToolUse plan-stamping hook).
 
 **The package does not have one responsibility.** `compactor.go` carries five separable concerns
@@ -60,8 +59,8 @@ flowchart TD
   PFM --> FIN["finishDistill<br/>compactor.go:326"]
   DUMP --> FIN
   AB --> FIN
-  FIN --> DS["deriveSummary<br/>compactor.go:921"]
-  FIN --> BPD["buildPickerDetail<br/>compactor.go:633<br/>leading bullets of ### Open Items"]
+  FIN --> DS["deriveSummary"]
+  FIN --> BPD["buildPickerDetail<br/>leading bullets of ### Open Items"]
   FIN --> SD["saveDistilled → saveEssence<br/>compactor.go:960,1010"]
   FIN --> USI["updateSessionIndex<br/>compactor.go:561"] --> IDX
   TS["transcriptSize<br/>compactor.go:592"] --> IDX
@@ -100,7 +99,7 @@ flowchart TD
 | `runDistill` | `compactor.go:825` | One-shot plugin subprocess; returns trimmed stdout. **Non-zero exit → error with stderr; exit 0 with empty stdout → `("", nil)`** |
 | `sessionToText` / `appendEntryText` | `compactor.go:667`, `:698` | Renders entries to markdown. `appendEntryText` has **no `default` case**, so a thinking-only or unrecognized-type entry contributes zero bytes |
 | `parseLLMFrontmatter` | `compactor.go:896` | Peels the LLM's leading YAML block; returns the original on any parse failure — a correct non-destructive degrade |
-| `deriveSummary` / `buildPickerDetail` | `compactor.go:921`, `:633` | Frontmatter summary else first non-heading prose line; ≤4 bullets, ≤80 bytes, from `### Open Items` |
+| `deriveSummary` / `buildPickerDetail` | `compactor.go` | Frontmatter summary else first non-heading prose line; ≤4 bullets, ≤80 bytes, from `### Open Items` |
 | `assembleBody` | `compactor.go` | Body + rendered artifacts + rendered plans, owning the spacing invariant |
 | `collectArtifacts` / `RenderArtifacts` | `selection.go` | Deterministic touched-file index, capped at `maxArtifacts` and reporting what the cap dropped |
 | `distillPrompt` | `compactor.go` | The prompt plus the injected essence budget; loads from `PromptDir` when set, failing rather than falling back |

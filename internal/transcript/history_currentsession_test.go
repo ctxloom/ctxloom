@@ -22,8 +22,8 @@ import (
 // unreadable entry — a file corrupted mid-write, a schema version this build
 // refuses, a permissions change — made "current session" fail outright, while
 // ListSessions over the identical store cheerfully returned every other
-// session. Same data, two answers, and the failing one is the path a resume
-// picker and the memory compactor take.
+// session. Same data, two answers, and the failing one is the path
+// get_previous_session and the memory compactor take.
 func TestCurrentSession_SkipsAnUnreadableCandidate(t *testing.T) {
 	testsupport.Isolate(t)
 	ctx := context.Background()

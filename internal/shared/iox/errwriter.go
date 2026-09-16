@@ -14,8 +14,8 @@ import (
 // session/tasks render helpers rely on — they emit many lines to a
 // single writer and propagate any failure up to the cobra RunE.
 //
-// Best-effort callers (fault-tolerant warning printers, the interactive
-// session picker) write through an ErrWriter too and simply skip the
+// Best-effort callers (fault-tolerant warning printers) write through an
+// ErrWriter too and simply skip the
 // Err() check; the internal assignment to err keeps errcheck satisfied
 // without scattering `_, _ =` across call sites. Those sites carry a
 // comment explaining why the error is intentionally dropped.

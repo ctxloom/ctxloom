@@ -8,7 +8,7 @@ the storage port (`Store`) that abstracts it and two adapters (a flock-protected
 **The contract it owns.** *A harp is minted before launch and is the stable identity everything
 else keys on.* `ctxloom run` mints one pre-launch (`AssignHarp`); the spawned engine's
 SessionStart hook binds the backend session ID (`BindSession`); the compactor stamps a summary
-and a staleness fingerprint (`SetSummary`); the resume picker, `session list`, and the MCP memory
+and a staleness fingerprint (`SetSummary`); `session list` and the MCP memory
 tools read through `Find` / `ListForProject` / `ListAll` / `Reconcile`.
 
 Dependency direction is clean: this package depends on `internal/paths`, `internal/shared/{harp,
@@ -72,7 +72,7 @@ flowchart LR
   RUN["ctxloom run"] -->|AssignHarp| IDX[("index.yaml")]
   HOOK["SessionStart hook"] -->|BindSession| IDX
   COMP["internal/memory compactor"] -->|SetSummary| IDX
-  IDX -->|Find / ListForProject / ListAll| READ["resume picker · session list ·<br/>MCP memory tools · transcript.CanonicalHistory"]
+  IDX -->|Find / ListForProject / ListAll| READ["session list · MCP memory tools ·<br/>transcript.CanonicalHistory"]
   IDX -->|Reconcile isDead| REAP["operations.isUnrecoverable"]
   IDX -->|"linkEngineTranscript"| LINK[("&lt;harp&gt;/engine-transcript-&lt;engine&gt;-&lt;session-id&gt;.jsonl<br/>→ symlink to the engine's native transcript,<br/>one PER vendor log, immutable once created")]
 ```
@@ -83,7 +83,7 @@ flowchart LR
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `Entry` | `index.go:38` | Three field groups: the **binding** (`HarpName`, `SessionID`, `Backend`, `ProjectDir`, `StartedAt`, `EndedAt`, `TranscriptPath`), the **picker cache** (`Summary`, `Detail`, `SourceSize`), and **read-time enrichment** (`LastActivity`, `CanonicalTranscriptPath`, both `yaml:"-"`) |
+| `Entry` | `index.go:38` | Three field groups: the **binding** (`HarpName`, `SessionID`, `Backend`, `ProjectDir`, `StartedAt`, `EndedAt`, `TranscriptPath`), the **summary cache** (`Summary`, `Detail`, `SourceSize`), and **read-time enrichment** (`LastActivity`, `CanonicalTranscriptPath`, both `yaml:"-"`) |
 | `Entry.SourceStale` | `index.go:588` | Picks canonical-over-legacy path, delegates to `TranscriptStale` |
 | `Index` | `index.go:95` | `{Sessions []Entry}` — a one-field wrapper so the YAML has a named `sessions:` key. Marshalled directly as the `ctxloom://sessions/all` MCP resource (`internal/mcp/mcp_resources.go`, `ctxServer.handleResourceSessionsAll`) |
 | `Store` | `store.go:19` | The storage port; twelve methods, deliberately narrower than `*Manager` (`Path` and `SetSummary` stay off it). Compile-time assertions at `store.go:35-38` |
@@ -174,7 +174,7 @@ flowchart LR
   prompt offered".
 - **An unparseable timestamp degrades to `time.Now()`** (`index_upgrade.go:71-78`). Because the
   upgrade runs in memory on **every load** and persists only on `CommitUpgrade`, such an entry
-  gets a different value each invocation: its picker sort position drifts and `pendingUpgrade` is
+  gets a different value each invocation: its `session list` sort position drifts and `pendingUpgrade` is
   permanently non-nil.
 - **`Entry.Distilled` and `Entry.EssencePath` are written by nothing, anywhere.** `Distilled` also
   carries `json:"distilled"` with no `omitempty`, so it is a constant `false` on any JSON marshal.

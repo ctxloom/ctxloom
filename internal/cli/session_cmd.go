@@ -331,15 +331,14 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	// self-situated — it derives the agent's store path (e.g. claude-code's
 	// ~/.claude/projects/<mangled-cwd>/) from the ambient cwd, not from the
 	// session id. So distilling a harp whose project dir differs from where we
-	// were launched (the resume picker's `d<N>` shells out inheriting `ctxloom
-	// run`'s cwd; a subdir or another project is enough) would look for the
-	// transcript under the wrong dir and fail with "no such file". chdir is safe:
+	// were launched (being run from a subdir or another project is enough) would
+	// look for the transcript under the wrong dir and fail with "no such file". chdir is safe:
 	// `session distill` is a short-lived process that exits after this call.
 	if entry.ProjectDir != "" {
 		if cwd, _ := os.Getwd(); cwd != entry.ProjectDir {
 			if cerr := os.Chdir(entry.ProjectDir); cerr != nil {
 				// Don't hard-fail: the ambient cwd may still resolve (same project),
-				// and a usable "couldn't distill" beats blocking the picker (CLAUDE.md).
+				// and a usable "couldn't distill" beats blocking the caller (CLAUDE.md).
 				clidiag.Warn("ctxloom", "could not enter project dir %q for %s: %v", entry.ProjectDir, harpName, cerr)
 			}
 		}

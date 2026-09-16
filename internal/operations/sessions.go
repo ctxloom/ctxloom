@@ -131,8 +131,8 @@ func ListSessions() ([]sessions.Entry, error) {
 
 // ListSessionsForProject returns the entries whose project dir matches,
 // most-recent-first, after reconciling the index so unrecoverable sessions are
-// silently dropped here too (the resume picker and the VSCode companion both
-// arrive through this path).
+// silently dropped here too (`session list`, the MCP memory tools and the
+// VSCode companion all arrive through this path).
 func ListSessionsForProject(projectDir string) ([]sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {

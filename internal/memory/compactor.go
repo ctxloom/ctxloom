@@ -377,7 +377,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	result.TotalTokensOut = tokens.Estimate(combined)
 
 	// Pull the LLM-emitted YAML frontmatter (Phase 3.5.2). If it's
-	// missing/malformed, fall through with empty summary: the picker
+	// missing/malformed, fall through with empty summary: `session list`
 	// shows "(no summary)" and the user can re-run distill on demand.
 	summary, cleanedBody, hadFM := parseLLMFrontmatter(strings.TrimSpace(combined))
 	if !hadFM {
@@ -442,7 +442,7 @@ const emptySessionPlaceholder = "_(empty session — no conversation content to 
 // persists a trivial but valid
 // essence (any plan files still re-attached verbatim) via the same
 // saveDistilled/updateSessionIndex plumbing normal distillation uses, so a
-// later `session list` / resume picker sees a well-formed entry rather than
+// later `session list` sees a well-formed entry rather than
 // a hole. Returns success: an empty session is not a failure, just nothing
 // to compact.
 func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, sourceEntries int, app appendices, result *CompactionResult, start time.Time) (*CompactionResult, error) {
@@ -518,17 +518,17 @@ func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 	return "", false
 }
 
-// finishDistill assembles the picker summary + Open-Items detail, re-attaches
+// finishDistill assembles the index summary + Open-Items detail, re-attaches
 // plan blocks, and persists the distilled artifact plus session-index entry.
 // Shared by the normal compaction path (cleanedBody is the LLM's combined,
 // possibly-reduced output) and dumpEmptySession (cleanedBody is the trivial
 // placeholder) so both produce an identically-shaped on-disk essence.
 func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourceEntries int, app appendices, result *CompactionResult, frontmatterSummary, cleanedBody string, start time.Time) (*CompactionResult, error) {
 	// Fall back to the first prose line when there's no frontmatter summary,
-	// so a distilled session never renders as "(no summary)" in the picker.
+	// so a distilled session never renders as "(no summary)" in `session list`.
 	summary := deriveSummary(frontmatterSummary, cleanedBody)
 
-	// Extra picker lines: the leading Open Items, so a resume row shows "what +
+	// Extra detail lines: the leading Open Items, so a session row shows "what +
 	// what's left" instead of a lone subject. Derived from the body before
 	// plan blocks are re-attached.
 	detail := buildPickerDetail(cleanedBody)
@@ -809,7 +809,7 @@ func splitEntryBlocks(text string) []string {
 	return blocks
 }
 
-// resolveHarpName returns the harp name keying picker/index entries: the config
+// resolveHarpName returns the harp name keying index entries: the config
 // field wins over the CTXLOOM_SESSION_HARP env var so `ctxloom session distill
 // <harp>` can override without mutating process env.
 func (c *Compactor) resolveHarpName() string {
@@ -867,7 +867,7 @@ func (c *Compactor) identityBoundSessionID() string {
 
 // updateSessionIndex best-effort records the session ID against the harp (so a
 // later `ctxloom session distill <harp>` finds the transcript) and updates the
-// picker summary, detail lines, and source-size staleness fingerprint. No-op
+// index summary, detail lines, and source-size staleness fingerprint. No-op
 // without a harp name; all failures warn, never fatal.
 func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, detail []string, sourceEntries int) {
 	if harpName == "" {
@@ -912,8 +912,8 @@ func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, deta
 // transcriptEntryCount returns the ENTRY COUNT of the harp's bound transcript,
 // or 0 when it can't be determined (no harp, no bound path, or unreadable).
 // This is the staleness fingerprint stamped into the essence and index:
-// `session list`, the resume picker, and loadOrDistillSession count the same
-// transcript and flag the essence out of date once more entries have arrived.
+// `session list` and loadOrDistillSession count the same transcript and flag
+// the essence out of date once more entries have arrived.
 // Best-effort and read-only per the fault-tolerance philosophy — an
 // unresolvable path degrades to "no fingerprint", never an error.
 func transcriptEntryCount(harpName string) int {
@@ -955,14 +955,13 @@ func transcriptEntryCount(harpName string) int {
 	return count
 }
 
-// maxPickerDetailLines caps the Open Items shown under a picker row. With the
-// subject line that's up to 5 lines per session, enough to disambiguate a
-// resume target without the picker growing unwieldy.
+// maxPickerDetailLines caps the Open Items shown under a session row. With the
+// subject line that's up to 5 lines per session, enough to tell two sessions
+// apart without the listing growing unwieldy.
 const maxPickerDetailLines = 4
 
 // buildPickerDetail extracts the leading bullets of the body's "### Open Items"
-// section as extra picker lines (the "what's left to do" the resume picker cares
-// about most). Each returned line is normalized to a single line capped at 80
+// section as the entry's detail lines — the "what's left to do". Each returned line is normalized to a single line capped at 80
 // bytes; the "- " bullet marker is preserved for readability. Returns nil when
 // the body has no Open Items section.
 func buildPickerDetail(body string) []string {
@@ -1166,7 +1165,7 @@ func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string
 
 // distilledMeta is the YAML front-matter stored at the top of every
 // distilled session .md file. Programmatic readers (e.g. the rectifier's
-// staleness check, the resume picker) consume these fields without
+// staleness check, `session list`) consume these fields without
 // parsing the body.
 type distilledMeta struct {
 	SessionID   string    `yaml:"session_id"`
@@ -1174,8 +1173,8 @@ type distilledMeta struct {
 	DistilledAt time.Time `yaml:"distilled_at"`
 	// EntryCount is the number of entries this essence was distilled from, and
 	// doubles as the STALENESS FINGERPRINT: loadOrDistillSession counts the
-	// live transcript's entries and re-distills once more have arrived; the
-	// resume picker badges the row "out of date".
+	// live transcript's entries and re-distills once more have arrived;
+	// `session list` badges the row "out of date".
 	//
 	// It replaced a separate byte-size fingerprint, which was justified by
 	// "append-only transcripts only grow" — false for a CONVERTED transcript,
@@ -1189,7 +1188,7 @@ type distilledMeta struct {
 	PlanBlocks int `yaml:"plan_blocks"`
 	// Summary is the one-line essence emitted by the LLM in its own YAML
 	// frontmatter; see parseLLMFrontmatter. Empty when distillation produced
-	// no valid frontmatter (graceful degrade: picker shows "no summary").
+	// no valid frontmatter (graceful degrade: `session list` shows "no summary").
 	Summary string `yaml:"summary,omitempty"`
 }
 
@@ -1219,7 +1218,7 @@ func parseLLMFrontmatter(out string) (summary, body string, ok bool) {
 	return firstLineSummary(parsed.Summary), bodyText, true
 }
 
-// deriveSummary returns the picker one-liner for a distillation: the LLM's
+// deriveSummary returns the index one-liner for a distillation: the LLM's
 // frontmatter summary when present, otherwise the first non-empty, non-heading
 // line of the body. Both are reduced to a single line capped at 80 bytes so a
 // session with any content never renders as "(no summary)".
@@ -1238,7 +1237,7 @@ func deriveSummary(frontmatterSummary, body string) string {
 }
 
 // firstLineSummary trims s to its first non-empty line and caps it at 80 bytes,
-// matching the picker-summary spec.
+// matching the index-summary spec.
 func firstLineSummary(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
@@ -1309,7 +1308,7 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 // segments/<sessionID>.md, returning the current essence's path.
 //
 // The harp-dir write is no longer allowed to degrade. It used to warn and fall
-// back to a project-rooted copy, which meant the file the picker and the
+// back to a project-rooted copy, which meant the file `session list` and the
 // SessionStart hook actually read could silently not exist while the command
 // still reported success. There is nowhere else to file a harp's essence, so a
 // failure here is the whole operation failing.

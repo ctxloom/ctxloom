@@ -4,8 +4,8 @@
 // first MCP initialize call from the spawned LLM) and to the project
 // directory the session ran in.
 //
-// The index is the source of truth for the pre-launch resume picker and
-// the load_session-by-harp-name path. Backend-native session transcripts
+// The index is the source of truth for `ctxloom session list`, the MCP
+// memory tools, and the load_session-by-harp-name path. Backend-native session transcripts
 // are still produced by the backend (Claude Code, Codex, etc.); this
 // package only adds a cross-cutting harp-keyed layer on top.
 package sessions
@@ -67,15 +67,15 @@ type Entry struct {
 	StartedAt      time.Time  `yaml:"started_at" json:"started_at"`
 	EndedAt        *time.Time `yaml:"ended_at,omitempty" json:"ended_at,omitempty"`
 	TranscriptPath string     `yaml:"transcript_path,omitempty" json:"transcript_path,omitempty"`
-	Summary        string     `yaml:"summary,omitempty" json:"summary,omitempty"` // mirror of essence.md frontmatter, for fast picker render
-	// Detail holds extra picker lines (the distilled Open Items) shown under the
-	// summary. Kept separate from Summary so the single-line consumers (session
-	// list table, MCP resource) stay one line while the picker can render more.
+	Summary        string     `yaml:"summary,omitempty" json:"summary,omitempty"` // mirror of essence.md frontmatter, for a fast one-line render
+	// Detail holds the distilled Open Items. Kept separate from Summary so the
+	// single-line consumers (session list table, MCP resource) stay one line
+	// while a multi-line renderer can show more.
 	Detail []string `yaml:"detail,omitempty" json:"detail,omitempty"`
 	// SourceEntries is the transcript's ENTRY COUNT at the moment this session
-	// was last distilled — the staleness fingerprint. `session list` and the
-	// resume picker count the live transcript's entries and flag the row "out
-	// of date" once more have arrived.
+	// was last distilled — the staleness fingerprint. `session list` counts the
+	// live transcript's entries and flags the row "out of date" once more have
+	// arrived.
 	//
 	// It counts PROGRESS, not bytes, and that distinction is load-bearing. The
 	// previous fingerprint was byte size, justified by "append-only transcripts
@@ -96,7 +96,7 @@ type Entry struct {
 	// Zero when never distilled; omitempty keeps those rows clean.
 	SourceEntries int `yaml:"source_entries,omitempty" json:"source_entries,omitempty"`
 
-	// LastActivity is the last-worked time used to order the resume picker:
+	// LastActivity is the last-worked time used to order `session list`:
 	// most-recent-first by actual activity, not by session creation. Computed
 	// on read (see ActivityTime) from the transcript's mtime when available,
 	// falling back to StartedAt for a session that has no transcript yet or
@@ -855,7 +855,7 @@ func (m *Manager) FindBySessionID(sessionID string) (*Entry, error) {
 	return nil, nil
 }
 
-// ActivityTime returns e's last-worked time for resume-picker ordering: the
+// ActivityTime returns e's last-worked time for `session list` ordering: the
 // transcript's mtime (canonical transcript preferred over the legacy
 // TranscriptPath — see the body) when set and stat succeeds, falling back to
 // StartedAt for a never-worked session (no transcript bound/located yet) or
@@ -893,7 +893,7 @@ func ActivityTime(e Entry) time.Time {
 // most-recent-first by last-worked time (transcript mtime, falling back to
 // StartedAt — see ActivityTime), not by creation time. A session that keeps
 // getting resumed and worked must stay above a newer-CREATED-but-untouched
-// one. Used by the picker.
+// one.
 func (m *Manager) ListForProject(projectDir string) ([]Entry, error) {
 	idx, err := m.Load()
 	if err != nil {
@@ -1015,7 +1015,7 @@ const transcriptEntryKind = "entry"
 
 // SourceStale reports whether this entry's distilled essence is out of date
 // relative to its source transcript, and whether that could be determined (see
-// TranscriptStale). The picker and `session list` use it to badge stale rows.
+// TranscriptStale). `session list` uses it to badge stale rows.
 //
 // Prefers CanonicalTranscriptPath over TranscriptPath (S4): once a
 // harp has a captured canonical transcript, that IS the file the compactor
@@ -1279,8 +1279,7 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 
 // SetSummary updates the cached summary, detail lines, and source-size
 // fingerprint on the index entry. summary mirrors the `summary:` line from the
-// compacted essence.md frontmatter; detail holds the extra picker lines (Open
-// Items); sourceEntries is the transcript ENTRY COUNT the essence was distilled from,
+// compacted essence.md frontmatter; detail holds the distilled Open Items; sourceEntries is the transcript ENTRY COUNT the essence was distilled from,
 // used for staleness detection (see TranscriptStale). Passing nil detail clears
 // it; a zero sourceEntries leaves the fingerprint unset (no staleness badge).
 //

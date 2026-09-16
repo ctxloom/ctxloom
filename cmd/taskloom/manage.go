@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/confpatch"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/taskloom/engine"
 )
 
@@ -20,6 +20,36 @@ import (
 // taskloom's standalone path, no ctxloom required. ctxloom users get the same
 // registration from the embedded taskloom bundle instead; the two never fight
 // because both write the same entry under the same key.
+//
+// Every write goes through confpatch: the engine patches only the taskloom
+// member of the user's config and RECORDS what it wrote, so uninstall reverses
+// taskloom's own prior entry instead of asking the user's file which entries
+// are taskloom's — ownership is recorded, not inferred.
+
+// recordsSubdir is where taskloom's application records live, under the
+// home-rooted records directory ctxloom's own live in. A SUBDIRECTORY, and
+// that is load-bearing: a confpatch store keys records by target alone, so
+// taskloom sharing ctxloom's store on a .mcp.json both write would reverse
+// ctxloom's servers out of the file as "its own" prior application. Each
+// writer's store is its own memory.
+const recordsSubdir = "taskloom"
+
+// recordStoreDir is the directory taskloom's application records live in.
+func recordStoreDir() (string, error) {
+	dir, err := paths.HomeRecordsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, recordsSubdir), nil
+}
+
+func recordStore(fs afero.Fs) (*confpatch.Store, error) {
+	dir, err := recordStoreDir()
+	if err != nil {
+		return nil, err
+	}
+	return confpatch.NewStore(fs, dir, engine.TaskloomCommand)
+}
 
 var (
 	manageEngine    string
@@ -106,40 +136,33 @@ func manageInstall(name, dir string, global, printOnly bool, errOut io.Writer) e
 	if err := engine.VerifyCommandResolvable(); err != nil {
 		fmt.Fprintf(errOut, "taskloom: warning: %v\n  the registered MCP entry runs %q, which the agent resolves against ITS OWN PATH at startup; install taskloom somewhere on that PATH or the server will not start\n", err, engine.TaskloomCommand)
 	}
+	fs := afero.NewOsFs()
+	store, err := recordStore(fs)
+	if err != nil {
+		return err
+	}
 	for _, e := range engines {
 		path, err := e.ConfigPath(dir, global)
 		if err != nil {
 			return err
 		}
-		// The read-modify-write against path (readIfExists through
-		// writeConfig) runs under agent.WithFileLock, closing lively-skillet:
-		// `taskloom manage install` writes the SAME engine config files
-		// ctxloom's own SettingsWriter family locks via the identical
-		// helper — an unlocked taskloom was the other companion binary
-		// racing that lock from outside it. One lock per engine's own path,
-		// since each engine in this loop targets a DIFFERENT file.
-		err = agent.WithFileLock(afero.NewOsFs(), path, func() error {
-			existing, err := readIfExists(path)
-			if err != nil {
-				return err
-			}
-			merged, err := e.Install(existing, engine.TaskloomName, server)
-			if err != nil {
-				return fmt.Errorf("%s: %w", e.Name(), err)
-			}
-			if printOnly {
-				fmt.Fprintf(errOut, "# %s → %s\n%s", e.Name(), path, merged)
-				return nil
-			}
-			if err := writeConfig(path, merged); err != nil {
-				return fmt.Errorf("%s: %w", e.Name(), err)
-			}
-			fmt.Fprintf(errOut, "taskloom: registered MCP server for %s\n  config: %s\n", e.Name(), path)
-			return nil
-		})
-		if err != nil {
-			return err
+		// The whole read-modify-write runs under the file lock confpatch
+		// takes, the same lock ctxloom's SettingsWriter family holds — an
+		// unlocked taskloom was the other companion binary racing that lock
+		// from outside it.
+		var opts []confpatch.ApplyOption
+		if printOnly {
+			opts = append(opts, confpatch.DryRun())
 		}
+		res, err := e.Register(fs, store, path, engine.TaskloomName, &server, opts...)
+		if err != nil {
+			return fmt.Errorf("%s: %w", e.Name(), err)
+		}
+		if printOnly {
+			fmt.Fprintf(errOut, "# %s → %s\n%s", e.Name(), path, res.After)
+			continue
+		}
+		fmt.Fprintf(errOut, "taskloom: registered MCP server for %s\n  config: %s\n", e.Name(), path)
 	}
 	return nil
 }
@@ -157,45 +180,31 @@ func manageUninstall(name, dir string, global bool, errOut io.Writer) error {
 		fmt.Fprintln(errOut, "taskloom: nothing to remove (no agent backends detected; name one with --engine)")
 		return nil
 	}
+	fs := afero.NewOsFs()
+	store, err := recordStore(fs)
+	if err != nil {
+		return err
+	}
 	for _, e := range engines {
 		path, err := e.ConfigPath(dir, global)
 		if err != nil {
 			return err
 		}
-		// Same locked-span reasoning as manageInstall's loop above.
-		err = agent.WithFileLock(afero.NewOsFs(), path, func() error {
-			existing, err := readIfExists(path)
-			if err != nil {
-				return err
-			}
-			if existing == nil {
-				return nil
-			}
-			// Only a config that actually carries the entry is rewritten. Without
-			// this, "removed MCP server from <engine>" is printed for a backend
-			// that never had it — a success message for a no-op — and the user's
-			// config is reformatted by a write that changes nothing.
-			installed, err := e.Installed(existing, engine.TaskloomName)
-			if err != nil {
-				return fmt.Errorf("%s: %w", e.Name(), err)
-			}
-			if !installed {
-				fmt.Fprintf(errOut, "taskloom: not registered with %s, nothing to remove\n  config: %s\n", e.Name(), path)
-				return nil
-			}
-			cleaned, err := e.Uninstall(existing, engine.TaskloomName)
-			if err != nil {
-				return fmt.Errorf("%s: %w", e.Name(), err)
-			}
-			if err := writeConfig(path, cleaned); err != nil {
-				return fmt.Errorf("%s: %w", e.Name(), err)
-			}
-			fmt.Fprintf(errOut, "taskloom: removed MCP server from %s\n  config: %s\n", e.Name(), path)
-			return nil
-		})
+		// A nil server is the uninstall: the reversal of taskloom's prior
+		// entry runs, and an entry with no record comes out only if it is
+		// provably taskloom's own.
+		res, err := e.Register(fs, store, path, engine.TaskloomName, nil)
 		if err != nil {
-			return err
+			return fmt.Errorf("%s: %w", e.Name(), err)
 		}
+		// Only a config that actually carried the entry is rewritten, and
+		// only a rewrite is reported. "removed MCP server from <engine>" for
+		// a backend that never had it is a success message for a no-op.
+		if !res.Changed {
+			fmt.Fprintf(errOut, "taskloom: not registered with %s, nothing to remove\n  config: %s\n", e.Name(), path)
+			continue
+		}
+		fmt.Fprintf(errOut, "taskloom: removed MCP server from %s\n  config: %s\n", e.Name(), path)
 	}
 	return nil
 }
@@ -249,23 +258,6 @@ func readIfExists(path string) ([]byte, error) {
 		return nil, nil
 	}
 	return raw, err
-}
-
-func writeConfig(path string, data []byte) error {
-	// The payload comes from engine code outside this package. An empty one
-	// can only be a bug up there, and committing it would atomically truncate
-	// the user's real backend config — durably, and reported as success.
-	if len(data) == 0 {
-		return fmt.Errorf("refusing to write an empty config to %s (the backend produced no content)", path)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	// Atomic temp-then-rename (shared family convention): manage rewrites the
-	// user's real backend config files, so a crash/power loss mid-write must not
-	// leave a truncated config. MkdirAll above satisfies the parent-exists
-	// precondition of iox.WriteFileAtomic.
-	return iox.WriteFileAtomic(path, data, 0o644)
 }
 
 func init() {

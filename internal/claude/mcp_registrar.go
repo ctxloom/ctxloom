@@ -4,17 +4,18 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/confpatch"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// MCPRegistrar implements agent.MCPRegistrar for Claude Code: project-scope
-// servers live in `.mcp.json` at the project root (where variable expansion
-// works), user-scope servers in `~/.claude.json` — both in the JSON
-// "mcpServers" table shape.
+// MCPRegistrar is taskloom's registrar for Claude Code: project-scope servers
+// live in `.mcp.json` at the project root (where variable expansion works),
+// user-scope servers in `~/.claude.json` — both in the JSON "mcpServers" table
+// shape. It is the engine.Engine implementation taskloom's registry holds.
 type MCPRegistrar struct{}
-
-var _ agent.MCPRegistrar = MCPRegistrar{}
 
 // Name returns the agent identifier.
 func (MCPRegistrar) Name() string { return EngineName }
@@ -43,15 +44,22 @@ func (MCPRegistrar) ConfigPath(dir string, global bool) (string, error) {
 	return filepath.Join(dir, ".mcp.json"), nil
 }
 
-// Install merges the named server into the config bytes. Idempotent; foreign
-// keys (including provenance fields like _ctxloom and cwd) are preserved.
-func (MCPRegistrar) Install(config []byte, name string, server wire.MCPServer) ([]byte, error) {
-	return agent.InstallMCPServerJSON(config, name, server)
-}
-
-// Uninstall removes the named server from the config bytes.
-func (MCPRegistrar) Uninstall(config []byte, name string) ([]byte, error) {
-	return agent.UninstallMCPServerJSON(config, name)
+// Register writes the named server into the config at path through store, by
+// the same byte-preserving patch ClaudeCodeHookWriter uses for ctxloom's own
+// servers; a nil server is the uninstall. The name is always an owned path:
+// with no record to reverse, an entry already there is taken out only if it
+// runs the store owner's executable — a user's own server parked under the
+// same name is left exactly where it is.
+func (MCPRegistrar) Register(fs afero.Fs, store *confpatch.Store, path, name string, server *wire.MCPServer, opts ...confpatch.ApplyOption) (confpatch.Result, error) {
+	desired := map[string]any{}
+	if server != nil {
+		entry, err := agent.MCPServerJSONEntry(name, *server)
+		if err != nil {
+			return confpatch.Result{}, err
+		}
+		desired[name] = entry
+	}
+	return applyMCPServers(fs, store, path, desired, []string{name}, opts...)
 }
 
 // Installed reports whether the named server is present in the config.

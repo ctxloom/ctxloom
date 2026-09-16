@@ -65,9 +65,14 @@ func recordNothing() Build {
 func newStore(t *testing.T) (*Store, afero.Fs) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	s, err := NewStore(fs, "/home/u/.ctxloom/records")
+	s, err := NewStore(fs, "/home/u/.ctxloom/records", "ctxloom")
 	require.NoError(t, err)
 	return s, fs
+}
+
+func TestNewStoreRefusesAnEmptyOwner(t *testing.T) {
+	_, err := NewStore(afero.NewMemMapFs(), "/home/u/.ctxloom/records", " ")
+	require.Error(t, err, "a store with no owner cannot prove any recordless entry is its own")
 }
 
 func TestApplyPreservesForeignContent(t *testing.T) {
@@ -775,4 +780,49 @@ func TestAUserEditToAManagedNonCtxloomEntryStillRefuses(t *testing.T) {
 	require.Error(t, err, "an entry the user changed is theirs, whatever it runs")
 	assert.Equal(t, edited, mustRead(t, fs, target),
 		"a refused write leaves the user's file exactly as they left it")
+}
+
+// The owner is the writer's identity, and it decides adoption: a store owned
+// by taskloom adopts a recordless entry that RUNS taskloom, and leaves one that
+// runs ctxloom exactly where it is — that entry is another writer's, whatever
+// path it sits at.
+func TestAdoptionIsProvedAgainstTheStoresOwner(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	s, err := NewStore(fs, "/home/u/.ctxloom/records/taskloom", "taskloom")
+	require.NoError(t, err)
+	const target = "/proj/mcp.json"
+	testsupport.WriteFileString(t, fs, target, strings.Replace(indentedWithCtxloom,
+		`"user-server": {`, `"taskloom": {"command": "/old/taskloom", "args": ["mcp"]},
+    "user-server": {`, 1), 0o644)
+
+	res, err := s.Apply(fs, target, recordNothing(),
+		WithOwnedPaths("/mcpServers/taskloom", "/mcpServers/ctxloom"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/mcpServers/taskloom"}, res.AdoptedPaths,
+		"only the entry running the owner's executable is the owner's")
+
+	got := mustRead(t, fs, target)
+	assert.NotContains(t, got, "/old/taskloom", "taskloom's own leftover is taken out")
+	assert.Contains(t, got, "/old/path/ctxloom", "ctxloom's entry is not taskloom's to remove")
+	assert.Contains(t, got, "/usr/bin/user-mcp")
+}
+
+// A dry run reports the document a real run would write and writes nothing:
+// not the target, not a record.
+func TestDryRunComputesButWritesNothing(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
+
+	res, err := s.Apply(fs, target,
+		setServer("ctxloom", map[string]any{"command": "ctxloom"}), DryRun())
+	require.NoError(t, err)
+	assert.True(t, res.Changed)
+	assert.Contains(t, string(res.After), `"ctxloom"`, "the would-be document is reported")
+	assert.Empty(t, res.RecordPath, "no record was written")
+
+	assert.Equal(t, foreign, mustRead(t, fs, target), "the target is untouched")
+	_, found, err := s.Last(target)
+	require.NoError(t, err)
+	assert.False(t, found, "no record exists for a write that did not happen")
 }

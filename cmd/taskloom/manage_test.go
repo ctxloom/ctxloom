@@ -78,23 +78,6 @@ func TestManageUninstall_NoBackendsSaysSoAndSucceeds(t *testing.T) {
 		"a silent exit 0 reads as a successful removal")
 }
 
-// An engine returning empty bytes must never be made durable over the user's
-// real backend config: iox.WriteFileAtomic would faithfully commit the
-// truncation.
-func TestWriteConfig_RefusesToTruncateToZeroBytes(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "mcp.json")
-	original := `{"mcpServers":{"other":{"command":"x"}}}`
-	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
-
-	for _, empty := range [][]byte{nil, {}} {
-		require.Error(t, writeConfig(path, empty), "an empty payload must be refused")
-		got, err := os.ReadFile(path)
-		require.NoError(t, err)
-		assert.Equal(t, original, string(got), "the user's config must survive intact")
-	}
-}
-
 // Uninstalling from a config that never carried the taskloom entry is a
 // no-op, and must not be reported as a removal — nor rewrite the user's
 // config file. "removed MCP server from claude-code" for a backend that was

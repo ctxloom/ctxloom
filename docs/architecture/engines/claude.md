@@ -33,7 +33,7 @@ the one place claude's surface membership is stated.
 | `WriteSettings` / `RemoveSettings` / `Status` | `claude.go:161` / `:744` / `:798` | The `SettingsWriter` trio. `WriteSettings` has **zero production callers for claude** — live only via the conformance suite |
 | `WriteContext` | `claude.go:243` | Marker-merge into `CLAUDE.md` |
 | `ProjectSettingsPath` / `GlobalSettingsPath` / `GlobalCommandsDir` / `SettingsPath` / `MCPConfigPath` | `claude.go:48` / `:54` / `:67` / `:76` / `:83` | Path vocabulary consumed by `internal/operations/hooks.go:272,277` and `internal/ltk/engine/claudecode.go:151,153` |
-| `MCPRegistrar` | `mcp_registrar.go:15` | `agent.MCPRegistrar` for taskloom |
+| `MCPRegistrar` | `mcp_registrar.go` | taskloom's `engine.Engine`; `Register` patches one `mcpServers` member through a taskloom-owned `confpatch.Store` via the same `applyMCPServers` as `writeMCPConfig` |
 | `WriteCommandFiles` / `TransformToClaudeCommand` | `commandfiles.go:18` / `:44` | `.claude/commands/*.md` manifest write + renderer |
 | `WriteSkillFiles` | `skillfiles.go:21` | `.claude/skills/<name>/**` manifest write |
 | `Surfaces` | `surfaces.go` | claude's `agent.Declaration`: per surface kind, the approaches claude can construct and its default. Every approach wraps an existing claude writer verbatim |

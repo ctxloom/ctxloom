@@ -192,7 +192,7 @@ func TestSettingsRecord_Deliver_PatchesEngineHomeSettingsAndWritesTheRecord(t *t
 	require.NoError(t, err)
 	require.NotEmpty(t, seeded, "comparing two empty reads would be trivially identical")
 	assert.Equal(t, string(seeded), string(restored), "cleanup restores the user's bytes exactly")
-	store, err := confpatch.NewStore(fs, recordsDir)
+	store, err := confpatch.NewStore(fs, recordsDir, "ctxloom")
 	require.NoError(t, err)
 	last, found, err := store.Last(target)
 	require.NoError(t, err)

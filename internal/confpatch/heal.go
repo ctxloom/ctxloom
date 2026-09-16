@@ -20,13 +20,6 @@ type ownedCandidate struct {
 	Recorded *yamlv3.Node
 }
 
-// ctxloomBin is the executable basename that marks an entry as ctxloom's own.
-// It is a BASENAME on purpose: agent.IsManaged compares exec tokens that way,
-// so the same entry is recognized whether it was written by the copy on PATH
-// or one built in a working tree. That is the whole point here — the two write
-// different absolute paths and neither is foreign.
-const ctxloomBin = "ctxloom"
-
 // healOwnedDrift rebuilds the RESTORED document when the recorded reversal no
 // longer applies, for the single case where refusing is the wrong answer.
 //
@@ -49,12 +42,12 @@ const ctxloomBin = "ctxloom"
 //
 // It returns the restored bytes, the paths it took back out (for the caller's
 // warning), and whether the heal applies at all.
-func healOwnedDrift(binding hew.Binding, format hew.FormatID, target string, before []byte, prev Record) ([]byte, []string, bool) {
+func healOwnedDrift(binding hew.Binding, format hew.FormatID, target string, before []byte, prev Record, owner string) ([]byte, []string, bool) {
 	created := createdPaths(prev, target)
 	if len(created) == 0 {
 		return nil, nil, false
 	}
-	out, removed, unowned, err := ownedRemovals(binding, format, target, before, created)
+	out, removed, unowned, err := ownedRemovals(binding, format, target, before, created, owner)
 	if err != nil || len(unowned) > 0 {
 		// A path ctxloom created now holds something it cannot prove is its
 		// own: that IS the user edit the refusal exists for.
@@ -66,16 +59,16 @@ func healOwnedDrift(binding hew.Binding, format hew.FormatID, target string, bef
 	return out, removed, true
 }
 
-// ownedRemovals removes, from doc, each pointer whose CURRENT content ctxloom
-// can prove is its own, and reports both what it took out and which pointers
-// held something else.
+// ownedRemovals removes, from doc, each pointer whose CURRENT content the
+// writer (owner, an executable basename) can prove is its own, and reports both
+// what it took out and which pointers held something else.
 //
 // Splitting "what is mine here?" from "what should I do about it?" is what lets
 // the two callers differ where they must: reversing a recorded application
 // REFUSES when a path is not ctxloom's (the user edited it), while re-applying
 // over an entry with no record simply LEAVES it and overwrites in place, which
 // is what ctxloom has always done to a name it manages.
-func ownedRemovals(binding hew.Binding, format hew.FormatID, target string, doc []byte, candidates []ownedCandidate) (out []byte, removed, unowned []string, err error) {
+func ownedRemovals(binding hew.Binding, format hew.FormatID, target string, doc []byte, candidates []ownedCandidate, owner string) (out []byte, removed, unowned []string, err error) {
 	cur, err := binding.Document(target, doc)
 	if err != nil {
 		return nil, nil, nil, err
@@ -91,7 +84,7 @@ func ownedRemovals(binding hew.Binding, format hew.FormatID, target string, doc 
 			// Already gone: nothing of ctxloom's left to take out here.
 			continue
 		}
-		if !ctxloomWrote(node, c.Recorded) && !ctxloomOwns(node) {
+		if !ctxloomWrote(node, c.Recorded) && !ownedBy(node, owner) {
 			unowned = append(unowned, ptr)
 			continue
 		}
@@ -165,23 +158,24 @@ func unescapePointer(seg string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(seg, "~1", "/"), "~0", "~")
 }
 
-// ctxloomOwns reports whether node is an entry ctxloom wrote: an object whose
-// `command` invokes the ctxloom binary, or the command string itself.
+// ownedBy reports whether node is an entry the writer whose executable basename
+// is owner wrote: an object whose `command` invokes that binary, or the command
+// string itself.
 //
 // It proves ownership from the EXECUTABLE the entry runs, not from the entry's
-// name. A name proves nothing — a user may keep an "ctxloom" key pointing at
+// name. A name proves nothing — a user may keep a "ctxloom" key pointing at
 // their own wrapper, and taking that out would be the clobber this whole
 // package exists to prevent.
-func ctxloomOwns(node hew.Node) bool {
+func ownedBy(node hew.Node, owner string) bool {
 	switch node.Kind() {
 	case hew.KindScalar:
-		return agent.IsManaged(scalarString(node), ctxloomBin)
+		return agent.IsManaged(scalarString(node), owner)
 	case hew.KindMap:
 		cmd, ok := node.Member("command")
 		if !ok || cmd.Kind() != hew.KindScalar {
 			return false
 		}
-		return agent.IsManaged(scalarString(cmd), ctxloomBin)
+		return agent.IsManaged(scalarString(cmd), owner)
 	default:
 		return false
 	}

@@ -44,21 +44,48 @@ import (
 // paths.HomeRecordsDir) for the same reason HomePathFor's lock sidecars are: the
 // target file is FOREIGN, ctxloom does not own it, and so must never leave its
 // own state beside it.
+//
+// A Store is ONE writer's memory. Records are keyed by target alone, so two
+// writers sharing a store on one target would each reverse the other's last
+// application on the way in; a writer that shares a file with another (taskloom
+// manage and ctxloom both write .mcp.json) keeps its own store.
 type Store struct {
 	fs  afero.Fs
 	dir string
+	// owner is the executable basename that proves an entry is this writer's
+	// own when no record accounts for it (see WithOwnedPaths and heal.go). A
+	// BASENAME on purpose: agent.IsManaged compares exec tokens that way, so
+	// the same entry is recognized whether it was written by the copy on PATH
+	// or one built in a working tree — the two write different absolute
+	// paths and neither is foreign.
+	owner string
 }
 
-// NewStore opens the record store at dir on fs. dir is created lazily, on the
-// first record written, so merely constructing a Store touches no disk.
-func NewStore(recordFS afero.Fs, dir string) (*Store, error) {
+// NewStore opens the record store at dir on fs for the writer whose executable
+// basename is owner. dir is created lazily, on the first record written, so
+// merely constructing a Store touches no disk.
+//
+// AN ACCEPTABLY SMALL DUPLICATION, KEPT DELIBERATELY: removing it would
+// produce MORE code than it deleted. The two-guard-then-construct shape this
+// shares with content.NewAferoTreeFS is a constructor idiom, not extractable
+// duplication. Each guard's entire value is its package-specific message —
+// "confpatch: empty record directory" against "content: empty store root" —
+// and the owner guard states a reason no generic validator could. A shared
+// helper would have to take the package name and the noun as parameters to
+// preserve those messages, so it would be longer than the few lines it
+// replaced, and it would couple two unrelated packages to do it.
+// reprise:accept-drift
+func NewStore(recordFS afero.Fs, dir, owner string) (*Store, error) {
 	if recordFS == nil {
 		return nil, errors.New("confpatch: nil record filesystem")
 	}
 	if strings.TrimSpace(dir) == "" {
 		return nil, errors.New("confpatch: empty record directory")
 	}
-	return &Store{fs: recordFS, dir: dir}, nil
+	if strings.TrimSpace(owner) == "" {
+		return nil, errors.New("confpatch: empty owner; the store cannot prove which recordless entries are its writer's own")
+	}
+	return &Store{fs: recordFS, dir: dir, owner: owner}, nil
 }
 
 // Result reports what one Apply did.
@@ -111,7 +138,19 @@ type Build func(doc *hew.Doc, cur hew.Document) (recorded int, err error)
 // ApplyOption configures one Apply.
 type ApplyOption func(*applyConfig)
 
-type applyConfig struct{ ownedPaths []string }
+type applyConfig struct {
+	ownedPaths []string
+	dryRun     bool
+}
+
+// DryRun computes everything Apply would do — the reversal of the prior
+// application, the new set, the proof that the new reversal round-trips — and
+// writes NEITHER the target nor a record. Result.After is the document a real
+// run would have written. A dry run that skipped the proof would show a
+// document the real run then refuses, so the proof is kept.
+func DryRun() ApplyOption {
+	return func(c *applyConfig) { c.dryRun = true }
+}
 
 // WithOwnedPaths names the pointers the caller manages in this target.
 //
@@ -207,7 +246,7 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 				// ctxloom manages. Refusing is right when that someone is the
 				// user. It is wrong when it was another ctxloom, which happens
 				// routinely and is not an edit anyone made: see healOwnedDrift.
-				healed, healedPaths, ok := healOwnedDrift(binding, format, target, before, prev)
+				healed, healedPaths, ok := healOwnedDrift(binding, format, target, before, prev, s.owner)
 				if !ok {
 					return fmt.Errorf("confpatch: %s has drifted since ctxloom last wrote it, so the previous application could not be reversed; refusing to write rather than clobber the change: %w", target, err)
 				}
@@ -227,7 +266,7 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 			for _, ptr := range cfg.ownedPaths {
 				candidates = append(candidates, ownedCandidate{Pointer: ptr})
 			}
-			cleaned, removed, _, cerr := ownedRemovals(binding, format, target, restored, candidates)
+			cleaned, removed, _, cerr := ownedRemovals(binding, format, target, restored, candidates, s.owner)
 			if cerr == nil && len(removed) > 0 {
 				restored = cleaned
 				res.AdoptedPaths = removed
@@ -334,6 +373,10 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 				// reversal rendered from this document.
 				return fmt.Errorf("confpatch: the reversal computed for %s applies but does not restore the document it was derived from byte for byte, so ctxloom's entries could not be taken back out cleanly; refusing to write rather than store an undo that does not undo (the content is usually correct: compare the two images for a change of member ORDER or of LAYOUT, such as an edited container re-rendered onto one line)", target)
 			}
+		}
+
+		if cfg.dryRun {
+			return nil
 		}
 
 		recordPath, err := s.write(target, format, want, restored, after, reversal)

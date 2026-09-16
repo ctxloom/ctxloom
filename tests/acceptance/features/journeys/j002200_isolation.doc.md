@@ -106,7 +106,7 @@ it, and what would go red if it closed.
   credential, no network call, no docker): every backend x workspace
   {none, worktree} x runtime host — every row of the two tables above except
   the entire runtime:container column, confirmed green via
-  `ACCEPTANCE_PATHS=features/j002200_isolation.feature`.
+  `ACCEPTANCE_PATHS=features/journeys/j002200_isolation.feature`.
 - **NOT EXECUTED by cucumber, pinned at the Go level instead**:
   - opencode's exact spawned-env payload (the `XDG_DATA_HOME` vs.
     `XDG_DATA_HOME/opencode` nesting subtlety) — opencode's real launch path

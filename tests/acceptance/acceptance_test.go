@@ -85,7 +85,7 @@ func TestAcceptance(t *testing.T) {
 	}
 	paths := []string{"features"}
 	// ACCEPTANCE_PATHS narrows the run to specific feature files for fast local
-	// iteration (comma-separated, e.g. "features/j000200_setup.feature"); unset runs
+	// iteration (comma-separated, e.g. "features/journeys/j000200_setup.feature"); unset runs
 	// the whole suite, exactly as before this existed.
 	if p := os.Getenv("ACCEPTANCE_PATHS"); p != "" {
 		paths = strings.Split(p, ",")

@@ -672,9 +672,9 @@ test-acceptance: build _ensure-gotmpdir
 # just had no recipe, and a raw `go test` is blocked, so the seam was reachable
 # only from the recipes that hard-code their own paths.
 #
-#   just test-acceptance-focus features/j001400_bundle_distribution.feature
-#   just test-acceptance-focus features/j000200_setup.feature,features/j000700_team.feature
-#   just test-acceptance-focus features/j002200_isolation.feature "@container"
+#   just test-acceptance-focus features/journeys/j001400_bundle_distribution.feature
+#   just test-acceptance-focus features/journeys/j000200_setup.feature,features/journeys/j000700_team_authoring.feature
+#   just test-acceptance-focus features/journeys/j002200_isolation.feature "@container"
 #
 # PATHS is comma-separated and relative to tests/acceptance/.
 #
@@ -898,7 +898,7 @@ test-coverage-gate PROFILE="":
 # machine without one has nothing to say about it. The longer timeout is the
 # image build, not a slow test.
 test-acceptance-container: build _ensure-gotmpdir
-    ACCEPTANCE_PATHS=features/journeys/j002400_container.feature,features/j001400_bundle_distribution.feature,features/j002200_isolation.feature \
+    ACCEPTANCE_PATHS=features/journeys/j002400_container.feature,features/journeys/j001400_bundle_distribution.feature,features/journeys/j002200_isolation.feature \
     ACCEPTANCE_TAGS="@container" \
     GOTMPDIR="{{go_tmp}}" \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
@@ -1086,7 +1086,7 @@ isolation-probe ENGINE AXIS: build
 # harness fault rather than the engine being slow.
 live-delegation ENGINE: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" \
-    ACCEPTANCE_PATHS=features/j002300_cross_engine_delegation.feature \
+    ACCEPTANCE_PATHS=features/journeys/j002300_cross_engine_delegation.feature \
     ACCEPTANCE_TAGS="@live && @delegation && @{{ENGINE}}" \
     CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -trimpath -v -timeout 20m -tags "acceptance integration" -count=1 ./tests/acceptance/...

@@ -107,6 +107,6 @@ Feature: Isolation probe — live proof against real vendor engines
 
 
 
-  # Back to: tests/acceptance/features/j002200_isolation.feature (the hermetic layer
+  # Back to: tests/acceptance/features/journeys/j002200_isolation.feature (the hermetic layer
   # this feature complements) · website/src/content/docs/security/isolation.md
   # (the narrative account of what these engines actually do).

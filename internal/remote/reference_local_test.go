@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -93,7 +94,7 @@ func TestLocalRefFetcher_FetchItem_FilesystemBackend(t *testing.T) {
 	ctx := context.Background()
 	root := "/proj/.ctxloom/content"
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, root+"/bundles/v2/foo", []byte("name: foo"), 0o644))
+	testsupport.WriteFileString(t, fs, root+"/bundles/v2/foo", "name: foo", 0o644)
 
 	f := NewLocalRefFetcher(FSVCSFactory(fs), root)
 	ref, err := ParseReference("ctxloom:local@bundles/foo")
@@ -123,7 +124,7 @@ func TestLocalRefFetcher_PinnedAgainstFilesystemErrors(t *testing.T) {
 	ctx := context.Background()
 	root := "/proj/.ctxloom/content"
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, root+"/bundles/v2/foo", []byte("name: foo"), 0o644))
+	testsupport.WriteFileString(t, fs, root+"/bundles/v2/foo", "name: foo", 0o644)
 
 	f := NewLocalRefFetcher(FSVCSFactory(fs), root)
 	ref, err := ParseReference("ctxloom:local@bundles/foo@somerev")
@@ -138,7 +139,7 @@ func TestResolver_DispatchesLocalAndRemote(t *testing.T) {
 	ctx := context.Background()
 	root := "/proj/.ctxloom/content"
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, root+"/bundles/v2/foo", []byte("local-bytes"), 0o644))
+	testsupport.WriteFileString(t, fs, root+"/bundles/v2/foo", "local-bytes", 0o644)
 
 	mf := NewMockFetcher().WithFile(".ctxloom/content/bundles/v2/core", []byte("remote-bytes"))
 	resolver := NewResolver(

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestClaudeCodeHookWriter_WriteContext exercises the ContextWriter facet
@@ -36,7 +37,7 @@ func TestClaudeCodeHookWriter_WriteContext_PreservesHandWrittenContent(t *testin
 	fs := afero.NewMemMapFs()
 	writer := &ClaudeCodeHookWriter{FS: fs}
 	handWritten := "# Team conventions\nalways use tabs, never spaces\n"
-	require.NoError(t, afero.WriteFile(fs, "/project/CLAUDE.md", []byte(handWritten), 0644))
+	testsupport.WriteFileString(t, fs, "/project/CLAUDE.md", handWritten, 0644)
 
 	report, err := writer.WriteContext(agent.ContextWriteRequest{ProjectDir: "/project", Context: "the secret color is vermilion"})
 	require.NoError(t, err)

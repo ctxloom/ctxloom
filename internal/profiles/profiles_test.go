@@ -29,6 +29,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -766,7 +767,7 @@ func TestAppendUnique(t *testing.T) {
 func TestWithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/profiles", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/profiles/test.yaml", []byte("description: test"), 0644))
+	testsupport.WriteFileString(t, fs, "/profiles/test.yaml", "description: test", 0644)
 
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
 
@@ -796,9 +797,9 @@ func TestLoader_ResolveProfile_LocalParents(t *testing.T) {
 	localParent := `bundles:
   - local-tools
 `
-	require.NoError(t, afero.WriteFile(fs,
+	testsupport.WriteFileString(t, fs,
 		"/project/.ctxloom/persistent/profiles/local-base.yaml",
-		[]byte(localParent), 0644))
+		localParent, 0644)
 
 	// Child with a local parent
 	childProfile := `parents:
@@ -806,9 +807,9 @@ func TestLoader_ResolveProfile_LocalParents(t *testing.T) {
 bundles:
   - child-tools
 `
-	require.NoError(t, afero.WriteFile(fs,
+	testsupport.WriteFileString(t, fs,
 		"/project/.ctxloom/persistent/profiles/mixed.yaml",
-		[]byte(childProfile), 0644))
+		childProfile, 0644)
 
 	loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"}, WithFS(fs))
 

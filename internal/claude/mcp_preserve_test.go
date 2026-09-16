@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,7 @@ func TestWriteMCPConfig_PreservesForeignTopLevelKeys(t *testing.T) {
   "$schema": "https://example.com/mcp.schema.json",
   "mcpServers": {}
 }`
-	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0o644))
+	testsupport.WriteFileString(t, fs, path, original, 0o644)
 
 	w := &ClaudeCodeHookWriter{FS: fs}
 	require.NoError(t, w.writeMCPConfig(dir, nil))
@@ -61,7 +62,7 @@ func TestWriteMCPConfig_PreservesUnmodelledServerFields(t *testing.T) {
     }
   }
 }`
-	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0o644))
+	testsupport.WriteFileString(t, fs, path, original, 0o644)
 
 	w := &ClaudeCodeHookWriter{FS: fs}
 	require.NoError(t, w.writeMCPConfig(dir, nil))

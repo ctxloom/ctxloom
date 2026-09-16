@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 )
 
@@ -76,9 +77,7 @@ func TestLockfile_RefusesTheRetiredPinnedKey(t *testing.T) {
 		"    sha: abc1234\n" +
 		"    url: https://github.com/alice/ctxloom\n" +
 		"    pinned: true\n"
-	if err := afero.WriteFile(fs, manager.Path(), []byte(legacy), 0644); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	testsupport.WriteFileString(t, fs, manager.Path(), legacy, 0o644)
 
 	_, err := manager.Load()
 	if err == nil {
@@ -103,9 +102,7 @@ func TestLockfile_LoadsWhenPinnedIsMerelyMentioned(t *testing.T) {
 		"    sha: abc1234\n" +
 		"    url: https://github.com/alice/pinned\n" +
 		"    retracted_reason: the author pinned the wrong commit\n"
-	if err := afero.WriteFile(fs, manager.Path(), []byte(mention), 0644); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	testsupport.WriteFileString(t, fs, manager.Path(), mention, 0o644)
 
 	loaded, err := manager.Load()
 	if err != nil {

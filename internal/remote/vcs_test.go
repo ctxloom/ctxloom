@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,7 @@ func TestGitForgeVCSFactory_InvalidURL(t *testing.T) {
 func TestFSVCS_ReadFile_Current(t *testing.T) {
 	ctx := context.Background()
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/local/ctxloom/bundles/foo.yaml", []byte("name: foo"), 0o644))
+	testsupport.WriteFileString(t, fs, "/proj/.ctxloom/local/ctxloom/bundles/foo.yaml", "name: foo", 0o644)
 
 	vcs, err := FSVCSFactory(fs)("/proj/.ctxloom/local")
 	require.NoError(t, err)
@@ -78,7 +79,7 @@ func TestFSVCS_IsNotVersioned(t *testing.T) {
 func TestReadItemAt_VersionlessReadsCurrent(t *testing.T) {
 	ctx := context.Background()
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/root/ctxloom/bundles/foo.yaml", []byte("cur"), 0o644))
+	testsupport.WriteFileString(t, fs, "/root/ctxloom/bundles/foo.yaml", "cur", 0o644)
 	vcs, _ := FSVCSFactory(fs)("/root")
 
 	data, err := readItemAt(ctx, vcs, "ctxloom/bundles/foo.yaml", "")

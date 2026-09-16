@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestPromptSelectorUpgrade_MigratesSelectors pins the prompt→command selector
@@ -246,9 +247,9 @@ func TestFindBundleProfileKey(t *testing.T) {
 // recorded as pending for the consented on-disk migration.
 func TestLoad_RewritesRetiredParentViaSeed(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs,
+	testsupport.WriteFileString(t, fs,
 		"/profiles/dev.yaml",
-		[]byte("parents:\n  - "+defaultURL+"@profiles/developer\n"), 0644))
+		"parents:\n  - "+defaultURL+"@profiles/developer\n", 0644)
 
 	loader := NewLoader([]string{"/profiles"},
 		WithFS(fs),
@@ -267,10 +268,10 @@ func TestLoad_RewritesRetiredParentViaSeed(t *testing.T) {
 // prompt.
 func TestLoad_CanonicalizesShortBundlesViaResolver(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs,
+	testsupport.WriteFileString(t, fs,
 		"/profiles/personal/go-developer.yaml",
-		[]byte("description: test\nbundles:\n  - core-practices\n  - ctxloom-default/git\n"),
-		0o644))
+		"description: test\nbundles:\n  - core-practices\n  - ctxloom-default/git\n",
+		0o644)
 
 	resolver := func(name string) string {
 		if name == "personal/go-developer" {
@@ -298,10 +299,10 @@ func TestLoad_CanonicalizesShortBundlesViaResolver(t *testing.T) {
 // no remote (a local project profile) is loaded verbatim with no pending upgrade.
 func TestLoad_LocalProfileKeepsBareBundles(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs,
+	testsupport.WriteFileString(t, fs,
 		"/profiles/go-developer.yaml",
-		[]byte("bundles:\n  - local-bundle\n"),
-		0o644))
+		"bundles:\n  - local-bundle\n",
+		0o644)
 
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs),
 		WithRemoteResolver(func(string) string { return "" }),
@@ -319,8 +320,9 @@ func TestLoad_LocalProfileKeepsBareBundles(t *testing.T) {
 func TestCommitUpgrade_WritesCanonicalFileAndClearsPending(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	path := "/profiles/personal/go-developer.yaml"
-	require.NoError(t, afero.WriteFile(fs, path,
-		[]byte("bundles:\n  - core-practices\n"), 0o644))
+	testsupport.WriteFileString(t, fs, path,
+		"bundles:\n  - core-practices\n", 0o644)
+
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs),
 		WithRemoteResolver(func(string) string { return "personal" }),
 		WithRemoteURLResolver(testAliasToURL))
@@ -388,10 +390,10 @@ func TestParentCanonicalize_AlreadyCanonicalUntouched(t *testing.T) {
 // resolvers behaves exactly as before — bare refs untouched, no panics.
 func TestLoad_NoResolverIsNoOp(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs,
+	testsupport.WriteFileString(t, fs,
 		"/profiles/personal/go-developer.yaml",
-		[]byte("bundles:\n  - core-practices\n"),
-		0o644))
+		"bundles:\n  - core-practices\n",
+		0o644)
 
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
 
@@ -410,8 +412,8 @@ func TestLoad_NoResolverIsNoOp(t *testing.T) {
 func TestUpgradeLedger_IsWiredToStorageAndToTheSeed(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const path = "/profiles/dev.yaml"
-	require.NoError(t, afero.WriteFile(fs, path,
-		[]byte("parents:\n  - "+defaultURL+"@profiles/developer\n"), 0o644))
+	testsupport.WriteFileString(t, fs, path,
+		"parents:\n  - "+defaultURL+"@profiles/developer\n", 0o644)
 
 	loader := NewLoader([]string{"/profiles"},
 		WithFS(fs),

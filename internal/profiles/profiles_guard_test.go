@@ -3,6 +3,7 @@ package profiles
 import (
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,7 +69,7 @@ func TestLoad_RejectsTraversalNames(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/profiles", 0o755))
 	// A target OUTSIDE the profiles dir that a traversal name would reach.
-	require.NoError(t, afero.WriteFile(fs, "/secret.yaml", []byte("description: outside\n"), 0o644))
+	testsupport.WriteFileString(t, fs, "/secret.yaml", "description: outside\n", 0o644)
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
 
 	for _, name := range []string{"../secret", "../../secret", "/secret"} {
@@ -89,7 +90,7 @@ func TestLoad_RejectsTraversalNames(t *testing.T) {
 func TestDelete_RejectsTraversalNames(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/profiles", 0o755))
-	require.NoError(t, afero.WriteFile(fs, "/secret.yaml", []byte("description: outside\n"), 0o644))
+	testsupport.WriteFileString(t, fs, "/secret.yaml", "description: outside\n", 0o644)
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
 
 	err := loader.Delete("../secret")
@@ -118,10 +119,10 @@ func TestLoad_RemoteRefsStillPassValidation(t *testing.T) {
 // pending upgrade, not one consent prompt per load.
 func TestLoadFile_DedupesPendingUpgradesByPath(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs,
+	testsupport.WriteFileString(t, fs,
 		"/profiles/personal/legacy.yaml",
-		[]byte("bundles:\n  - core-practices\n"),
-		0o644))
+		"bundles:\n  - core-practices\n",
+		0o644)
 
 	resolver := func(name string) string { return "personal" }
 	urlResolver := func(alias string) string {
@@ -151,8 +152,8 @@ func TestLoadFile_DedupesPendingUpgradesByPath(t *testing.T) {
 // caller cannot discover it by corrupting the seed.
 func TestLoad_SeededProfileIsSharedAndFsProfileIsNot(t *testing.T) {
 	loader, seeded, fs := seedTestProfile(t)
-	require.NoError(t, afero.WriteFile(fs, "/profiles/local.yaml",
-		[]byte("bundles:\n  - go-development\n"), 0o644))
+	testsupport.WriteFileString(t, fs, "/profiles/local.yaml",
+		"bundles:\n  - go-development\n", 0o644)
 
 	firstSeeded, err := loader.Load(seeded.Name)
 	require.NoError(t, err)

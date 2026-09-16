@@ -138,7 +138,7 @@ func TestPublishManager_Publish(t *testing.T) {
 		// Create local bundle file
 		bundleContent := "description: Test bundle\nfragments:\n  test:\n    content: hello\n"
 		require.NoError(t, fs.MkdirAll("/local", 0755))
-		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte(bundleContent), 0644))
+		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", bundleContent, 0644)
 
 		// Create registry with remote
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
@@ -174,7 +174,7 @@ func TestPublishManager_Publish(t *testing.T) {
 	t.Run("creates PR when requested", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll("/local", 0755))
-		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0644)
 
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
 		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
@@ -205,7 +205,7 @@ func TestPublishManager_Publish(t *testing.T) {
 	t.Run("returns error for missing remote", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll("/local", 0755))
-		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("test\n"), 0644))
+		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "test\n", 0644)
 
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
 		pm := NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs))
@@ -466,7 +466,7 @@ func publishOnce(t *testing.T, content string, opts ...func(*PublishOptions)) []
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/local", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte(content), 0644))
+	testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", content, 0644)
 
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
@@ -636,7 +636,7 @@ func TestSplitTitleBody(t *testing.T) {
 func TestPublishManager_Publish_SignPayloadWritesSiblingSig(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/local", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+	testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0644)
 
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
@@ -676,7 +676,7 @@ func TestPublishManager_Publish_SignPayloadWritesSiblingSig(t *testing.T) {
 func TestPublishManager_Publish_SignPayloadFailureAbortsBeforeAnyWrite(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/local", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+	testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0644)
 
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
@@ -707,7 +707,7 @@ func TestPublishManager_Publish_SignPayloadFailureAbortsBeforeAnyWrite(t *testin
 func TestPublishManager_Publish_NoSignPayloadMeansNoSigWritten(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/local", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+	testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0644)
 
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))

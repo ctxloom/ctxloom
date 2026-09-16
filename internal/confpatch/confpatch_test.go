@@ -73,7 +73,7 @@ func newStore(t *testing.T) (*Store, afero.Fs) {
 func TestApplyPreservesForeignContent(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	tl := setServer("ctxloom", map[string]any{"command": "ctxloom", "args": []any{"mcp", "serve"}})
 	res, err := s.Apply(fs, target, tl)
@@ -101,7 +101,7 @@ func TestApplyPreservesForeignContent(t *testing.T) {
 func TestSecondApplyReversesTheFirst(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	first, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "old-binary"}))
 	require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestSecondApplyReversesTheFirst(t *testing.T) {
 func TestReversalRestoresTheUsersBytesExactly(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestReversalRestoresTheUsersBytesExactly(t *testing.T) {
 func TestApplyWritesOneRecordCarryingAParseableReversal(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	res, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestApplyWritesOneRecordCarryingAParseableReversal(t *testing.T) {
 func TestDriftRefusesAndLeavesTheTargetUntouched(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)
@@ -191,7 +191,7 @@ func TestDriftRefusesAndLeavesTheTargetUntouched(t *testing.T) {
 	// The user edits ctxloom's entry by hand.
 	edited := strings.Replace(mustRead(t, fs, target), `"command": "x"`, `"command": "MINE"`, 1)
 	require.Contains(t, edited, "MINE", "the fixture must actually have been edited")
-	require.NoError(t, afero.WriteFile(fs, target, []byte(edited), 0o644))
+	testsupport.WriteFileString(t, fs, target, edited, 0o644)
 
 	_, err = s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "z"}))
 	require.Error(t, err, "a drifted target must be refused")
@@ -225,7 +225,7 @@ func TestApplyCreatesAMissingTarget(t *testing.T) {
 func TestEmptyDesiredSetRemovesCtxloomAndRestoresTheUser(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)
@@ -243,7 +243,7 @@ func TestEmptyDesiredSetRemovesCtxloomAndRestoresTheUser(t *testing.T) {
 func TestUnchangedApplyWritesNoNewRecord(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)
@@ -272,7 +272,7 @@ func TestUnchangedApplyWritesNoNewRecord(t *testing.T) {
 func TestApplyRecreatesATargetDeletedSinceTheRecordWasWritten(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)
@@ -301,7 +301,7 @@ func TestApplyRecreatesATargetDeletedSinceTheRecordWasWritten(t *testing.T) {
 func TestRecordRoundTripsAnArrayValued(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	// Seed the server, so the NEXT apply changes fields in place rather than
 	// adding a whole mapping. That distinction is the whole bug: an inverse
@@ -365,7 +365,7 @@ func TestRecordRoundTripsAnArrayValued(t *testing.T) {
 func TestRecordCarriesTheAddPolicy(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	// setServer uses Sel.Set — OP-03 upsert, add + on_conflict: replace.
 	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
@@ -415,7 +415,7 @@ func mustRead(t *testing.T, fs afero.Fs, path string) string {
 func TestForeignEditDoesNotRefuseAndSurvivesTheWrite(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)
@@ -424,7 +424,7 @@ func TestForeignEditDoesNotRefuseAndSurvivesTheWrite(t *testing.T) {
 	const edit = "https://mcp.example.com/v2-EDITED"
 	edited := strings.Replace(mustRead(t, fs, target), "https://mcp.example.com/v1", edit, 1)
 	require.Contains(t, edited, edit, "the fixture must actually have been edited")
-	require.NoError(t, afero.WriteFile(fs, target, []byte(edited), 0o644))
+	testsupport.WriteFileString(t, fs, target, edited, 0o644)
 
 	res, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "z"}))
 	require.NoError(t, err, "an edit to content ctxloom does not own must not refuse the write")
@@ -453,7 +453,7 @@ func TestForeignEditDoesNotRefuseAndSurvivesTheWrite(t *testing.T) {
 func TestTheStoredReversalAssertsOnlyCtxloomsOwnEntry(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"
-	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+	testsupport.WriteFileString(t, fs, target, foreign, 0o644)
 
 	res, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)

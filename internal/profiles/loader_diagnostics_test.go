@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestLoad_RemoteSchemeRefsReportNoLockfileEntry pins the SEAM above the
@@ -51,8 +52,8 @@ func TestLoad_RemoteSchemeRefsReportNoLockfileEntry(t *testing.T) {
 // user's file was gone.
 func TestExists_ReportsPresenceNotLoadability(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/profiles/broken.yaml", []byte("bundles: [unclosed\n"), 0o644))
-	require.NoError(t, afero.WriteFile(fs, "/profiles/good.yaml", []byte("bundles:\n  - go-development\n"), 0o644))
+	testsupport.WriteFileString(t, fs, "/profiles/broken.yaml", "bundles: [unclosed\n", 0o644)
+	testsupport.WriteFileString(t, fs, "/profiles/good.yaml", "bundles:\n  - go-development\n", 0o644)
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
 
 	// The broken profile genuinely does not load...
@@ -130,8 +131,8 @@ func TestList_WarnsWhenAProfileDirectoryCannotBeRead(t *testing.T) {
 func TestList_WarnsWhenASubdirectoryCannotBeWalked(t *testing.T) {
 	base := afero.NewMemMapFs()
 	require.NoError(t, base.MkdirAll("/profiles/team", 0o755))
-	require.NoError(t, afero.WriteFile(base, "/profiles/solo.yaml", []byte("bundles:\n  - go\n"), 0o644))
-	require.NoError(t, afero.WriteFile(base, "/profiles/team/shared.yaml", []byte("bundles:\n  - go\n"), 0o644))
+	testsupport.WriteFileString(t, base, "/profiles/solo.yaml", "bundles:\n  - go\n", 0o644)
+	testsupport.WriteFileString(t, base, "/profiles/team/shared.yaml", "bundles:\n  - go\n", 0o644)
 	fs := &faultyFs{Fs: base, openErr: map[string]error{"/profiles/team": errors.New("permission denied")}}
 
 	var warnings bytes.Buffer
@@ -158,8 +159,8 @@ func TestList_WarnsWhenASubdirectoryCannotBeWalked(t *testing.T) {
 func TestList_NamesAreDirRelativeAndNeverEmpty(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/profiles/team", 0o755))
-	require.NoError(t, afero.WriteFile(fs, "/profiles/solo.yaml", []byte("bundles:\n  - go\n"), 0o644))
-	require.NoError(t, afero.WriteFile(fs, "/profiles/team/shared.yml", []byte("bundles:\n  - go\n"), 0o644))
+	testsupport.WriteFileString(t, fs, "/profiles/solo.yaml", "bundles:\n  - go\n", 0o644)
+	testsupport.WriteFileString(t, fs, "/profiles/team/shared.yml", "bundles:\n  - go\n", 0o644)
 
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
 	list, err := loader.List()
@@ -182,7 +183,7 @@ func TestCommitUpgrade_RefusesNothingToWrite(t *testing.T) {
 	const authored = "bundles:\n  - go-development\n"
 
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/profiles/p.yaml", []byte(authored), 0o644))
+	testsupport.WriteFileString(t, fs, "/profiles/p.yaml", authored, 0o644)
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
 
 	require.Error(t, loader.CommitUpgrade(nil), "a nil pending upgrade is not a successful write")

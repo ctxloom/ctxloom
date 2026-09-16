@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func TestLockfileManager_LoadEmpty(t *testing.T) {
@@ -92,9 +93,7 @@ func TestLockfileManager_LoadSelfHealsLegacyCtxloomVersion(t *testing.T) {
 		"    sha: abc1234\n" +
 		"    url: https://github.com/alice/ctxloom\n" +
 		"    ctxloom_version: v1\n"
-	if err := afero.WriteFile(fs, path, []byte(legacy), 0644); err != nil {
-		t.Fatalf("seed legacy lockfile: %v", err)
-	}
+	testsupport.WriteFileString(t, fs, path, legacy, 0o644)
 
 	loaded, err := manager.Load()
 	if err != nil {
@@ -140,7 +139,7 @@ func TestLockfileManager_LoadDoesNotRewriteOnAMereMention(t *testing.T) {
 		"    sha: abc1234\n" +
 		"    url: https://github.com/alice/repo\n" +
 		"    retracted_reason: the ctxloom_version field was dropped\n"
-	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0644))
+	testsupport.WriteFileString(t, fs, path, original, 0644)
 
 	loaded, err := manager.Load()
 	require.NoError(t, err)
@@ -351,8 +350,7 @@ func TestWithLockfileFS(t *testing.T) {
 // erroring rather than guessing when the name matches more than one entry.
 func TestLockfileManager_Load_InvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	_ = fs.MkdirAll("/test", 0755)
-	_ = afero.WriteFile(fs, "/test/"+paths.LockFileName+".yaml", []byte("invalid: ["), 0644)
+	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", "invalid: [", 0o644)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 	_, err := manager.Load()
@@ -365,8 +363,7 @@ func TestLockfileManager_Load_NilMaps(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	// Write a lockfile without a bundles map
 	content := "version: 1\n"
-	_ = fs.MkdirAll("/test", 0755)
-	_ = afero.WriteFile(fs, "/test/"+paths.LockFileName+".yaml", []byte(content), 0644)
+	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", content, 0o644)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 	lockfile, err := manager.Load()
@@ -391,8 +388,7 @@ func TestLockfileManager_Load_NilMaps(t *testing.T) {
 // diagnostic at all.
 func TestLockfileManager_Load_PresentButEmptyFileIsRefused(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	_ = fs.MkdirAll("/test", 0755)
-	_ = afero.WriteFile(fs, "/test/"+paths.LockFileName+".yaml", []byte(""), 0644)
+	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", "", 0o644)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 	_, err := manager.Load()
@@ -403,8 +399,7 @@ func TestLockfileManager_Load_PresentButEmptyFileIsRefused(t *testing.T) {
 
 func TestLockfileManager_Load_WhitespaceOnlyFileIsRefused(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	_ = fs.MkdirAll("/test", 0755)
-	_ = afero.WriteFile(fs, "/test/"+paths.LockFileName+".yaml", []byte("   \n\n"), 0644)
+	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", "   \n\n", 0o644)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 	_, err := manager.Load()
@@ -417,8 +412,7 @@ func TestLockfileManager_Load_ReadError(t *testing.T) {
 	// Create a scenario where the file exists but cannot be read
 	// Use a read-only filesystem with a file that exists
 	baseFs := afero.NewMemMapFs()
-	_ = baseFs.MkdirAll("/test", 0755)
-	_ = afero.WriteFile(baseFs, "/test/"+paths.LockFileName+".yaml", []byte("version: 1\n"), 0000)
+	testsupport.WriteFileString(t, baseFs, "/test/"+paths.LockFileName+".yaml", "version: 1\n", 0o000)
 	fs := afero.NewReadOnlyFs(baseFs)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))

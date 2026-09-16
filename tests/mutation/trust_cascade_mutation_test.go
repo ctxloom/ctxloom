@@ -277,7 +277,7 @@ var mutationTargets = []mutationTarget{
 		// report success over zero bytes.
 		Name:          "bundle_sign",
 		SourceRelPath: "internal/operations/sign.go",
-		Judge:         acceptanceJudge{Features: []string{"features/j001600_signing.feature"}},
+		Judge:         acceptanceJudge{Features: []string{"features/journeys/j001600_signing.feature"}},
 	},
 	{
 		// `ctxloom signer trust|show|list|delete`: AddSigner,
@@ -300,7 +300,7 @@ var mutationTargets = []mutationTarget{
 		// means the two runs cost the same suite per mutant.
 		Name:          "signer_store",
 		SourceRelPath: "internal/operations/signer.go",
-		Judge:         acceptanceJudge{Features: []string{"features/j001600_signing.feature"}},
+		Judge:         acceptanceJudge{Features: []string{"features/journeys/j001600_signing.feature"}},
 	},
 	{
 		// Workspace/runtime AXIS RESOLUTION: Axes, WantsWorktree,
@@ -326,7 +326,7 @@ var mutationTargets = []mutationTarget{
 		// acceptance suite's reach, which is the measurement.
 		Name:          "isolation_axes",
 		SourceRelPath: "internal/lm/isolation/isolation.go",
-		Judge:         acceptanceJudge{Features: []string{"features/j002200_isolation.feature"}},
+		Judge:         acceptanceJudge{Features: []string{"features/journeys/j002200_isolation.feature"}},
 	},
 	{
 		// The remote REGISTRY: Add, Update, Remove, Get, List, SetDefault,

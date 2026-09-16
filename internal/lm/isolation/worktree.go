@@ -426,7 +426,7 @@ func teardownWorktree(ctx context.Context, g git.Git, repoDir, target string) {
 	// NOT auto-retiring the shared config-exclude block here.
 	// A first draft called gitignore.RetireWorktreeConfigBlock once no
 	// linked worktree remained, and it regressed a live, currently-passing
-	// acceptance contract — tests/acceptance/features/j002200_isolation.feature's
+	// acceptance contract — tests/acceptance/features/journeys/j002200_isolation.feature's
 	// "A worktree run leaves the project tree clean" asserts the shared
 	// common-dir info/exclude STILL carries the ctxloom worktree-config
 	// block immediately after a single worktree's teardown (the scenario's

@@ -55,7 +55,7 @@
 //
 // RE-VERIFIED: an earlier review claimed "the Examples table still
 // lists opencode alongside four engines whose payload is checked" — re-checked
-// against features/j002200_isolation.feature as it stands today and that is no
+// against features/journeys/j002200_isolation.feature as it stands today and that is no
 // longer true. The ONE Examples table that asserts on spy payload ("A
 // worktree run copies the host credential ...") lists only claude-code and
 // codex; opencode appears only in the two pre-spawn-only outlines named

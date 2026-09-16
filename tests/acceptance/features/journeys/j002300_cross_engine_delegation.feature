@@ -440,5 +440,5 @@ Feature: Cross-engine delegation — different engines, different context, a rea
       | engine      | runtime            | workspace | marker                                   |
       | claude-code | container-rootless | none      | P6-WAKE-MARKER-CLAUDE-CODE-CTRNONE-b82a4 |
 
-  # Back to: tests/acceptance/features/j002100_delegation.feature (the privilege
+  # Back to: tests/acceptance/features/journeys/j002100_delegation.feature (the privilege
   # half of delegation this journey complements).

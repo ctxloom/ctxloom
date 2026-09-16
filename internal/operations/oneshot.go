@@ -44,6 +44,14 @@ type RunOneshotRequest struct {
 	// field existed.
 	Permissions string
 
+	// Harp is the session this oneshot runs INSIDE, on the same env key every
+	// other consumer of session identity reads (agent.SessionHarpEnv). A run
+	// whose surfaces land in a shared cwd derives its private scratch from the
+	// harp and derives NOTHING without one, refusing rather than falling back to
+	// a world-readable location — so a caller that shares a cwd must name its
+	// session here. Empty is for a run that genuinely belongs to no session.
+	Harp string
+
 	// Pipeline is an optional pre-configured process stage (test seam).
 	Pipeline *bundles.Pipeline
 	// Factory builds the plugin client; nil self-invokes the compiled-in
@@ -69,6 +77,19 @@ type RunOneshotResult struct {
 // client factory abstracts backend construction, the model rides in RunOptions,
 // and the member's declared launch form decides where its config lands — the
 // profile's assembled context is the only specialization.
+// harpEnv carries a session harp to the engine on agent.SessionHarpEnv, or
+// nothing at all when the run belongs to no session. A nil map is not the same
+// as one holding an empty harp: an empty value reaching sharedScratchDir is
+// refused as a programming error, which is correct for a caller that meant to
+// name a session and failed, and wrong for one that never had a session to
+// name.
+func harpEnv(harp string) map[string]string {
+	if harp == "" {
+		return nil
+	}
+	return map[string]string{agent.SessionHarpEnv: harp}
+}
+
 func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) (*RunOneshotResult, error) {
 	ctxResult, err := AssembleContext(ctx, cfg, AssembleContextRequest{
 		Profile:  req.Profile,
@@ -137,6 +158,10 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		// caller's explicit override if it gave one, else the engine label's
 		// configured permissions (if any) — resolved for headless below.
 		Permissions: permissions,
+		// Carried on the same key the delegated-child path uses (delegate.go
+		// passes the child's whole Env), so session identity reaches Setup by one
+		// route rather than two.
+		ExtraEnv: harpEnv(req.Harp),
 		// AgentID scopes a per-agent workspace by the profile name.
 		Axes:           axes,
 		IsolationImage: IsolationImageConfig(cfg, backendName),

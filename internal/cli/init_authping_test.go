@@ -16,6 +16,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
+// pingTestHarp is any non-empty harp: these tests exercise the ping's own
+// branching, not session naming, but the probe now runs inside a named
+// session and an EMPTY harp is a refusal (ErrSharedScratchNoHarp), not a
+// neutral default.
+const pingTestHarp = "testy-pingy-probe"
+
 // authPingTestConfig is a minimal, isolated config for pingEngineAuth tests:
 // AppPaths points at an empty temp dir, so context assembly's default-profile
 // fallback finds nothing to resolve (fault-tolerant no-op) rather than
@@ -69,7 +75,7 @@ func TestPingEngineAuth_Succeeds(t *testing.T) {
 	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
 	t.Cleanup(func() { authPingFactory = orig })
 
-	err := pingEngineAuth(context.Background(), authPingTestConfig(t), "claude-code", t.TempDir())
+	err := pingEngineAuth(context.Background(), authPingTestConfig(t), "claude-code", t.TempDir(), pingTestHarp)
 	require.NoError(t, err)
 
 	// The smallest possible prompt actually reached the engine.
@@ -96,7 +102,7 @@ func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
 	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
 	t.Cleanup(func() { authPingFactory = orig })
 
-	err := pingEngineAuth(context.Background(), authPingTestConfig(t), "claude-code", t.TempDir())
+	err := pingEngineAuth(context.Background(), authPingTestConfig(t), "claude-code", t.TempDir(), pingTestHarp)
 	require.NoError(t, err)
 
 	require.NotNil(t, stub.gotReq)
@@ -288,7 +294,7 @@ func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
 			authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
 			t.Cleanup(func() { authPingFactory = orig })
 
-			err := pingEngineAuth(context.Background(), authPingTestConfig(t), engine, t.TempDir())
+			err := pingEngineAuth(context.Background(), authPingTestConfig(t), engine, t.TempDir(), pingTestHarp)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), engine, "error must name the engine that failed")
 			assert.Contains(t, err.Error(), engineAuthFixHint(engine),
@@ -306,7 +312,7 @@ func TestPingEngineAuth_UnlistedEngine_GetsGenericFix(t *testing.T) {
 	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
 	t.Cleanup(func() { authPingFactory = orig })
 
-	err := pingEngineAuth(context.Background(), authPingTestConfig(t), "some-future-engine", t.TempDir())
+	err := pingEngineAuth(context.Background(), authPingTestConfig(t), "some-future-engine", t.TempDir(), pingTestHarp)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "authenticate the engine")
 }
@@ -324,7 +330,7 @@ func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, string, string) error {
+	launchEngineWithPromptFn = func(context.Context, string, string, string) error {
 		launchCalled = true
 		return nil
 	}
@@ -351,7 +357,7 @@ func TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint(t *testing.
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, string, string) error {
+	launchEngineWithPromptFn = func(context.Context, string, string, string) error {
 		launchCalled = true
 		return nil
 	}
@@ -408,7 +414,7 @@ func TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag(t *tes
 		t.Cleanup(func() { authPingFactory = origFactory })
 
 		origLaunch := launchEngineWithPromptFn
-		launchEngineWithPromptFn = func(context.Context, string, string) error {
+		launchEngineWithPromptFn = func(context.Context, string, string, string) error {
 			return assert.AnError
 		}
 		t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
@@ -459,7 +465,7 @@ func TestLaunchDiscovery_NonInteractive_SkipsPingAndLaunch(t *testing.T) {
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, string, string) error {
+	launchEngineWithPromptFn = func(context.Context, string, string, string) error {
 		launchCalled = true
 		return nil
 	}

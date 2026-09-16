@@ -246,7 +246,7 @@ var matrixSpecs = map[string]deliverySpec{
 	// beneath the run's private root for --mcp-config, never the user's project
 	// file. An unresolved private root refuses (ErrUnrootedEngineHome) rather
 	// than falling back to the project file — the fallback IS the defect.
-	"claude-code/mcp/mcp-config": {wantFile: ".mcp.json", wantSlot: slotMCPCmd, underEngineHome: true},
+	"claude-code/mcp/mcp-config":       {wantFile: ".mcp.json", wantSlot: slotMCPCmd, underEngineHome: true},
 	"claude-code/settings/unsafe-file": {wantFile: ".claude/settings.json", wantSlot: slotHook},
 	"claude-code/settings/hew-record":  {wantFile: "settings.json", wantSlot: slotHook, underEngineHome: true},
 	"claude-code/commands/unsafe-file": {wantFile: ".claude/commands/ctxsentinelcmd.md", wantSlot: slotCommand},

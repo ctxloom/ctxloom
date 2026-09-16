@@ -1,58 +1,61 @@
 package agent
 
 import (
-	"encoding/json"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// TestInstallMCPServerJSON_AbsentMcpServersCreatesMap proves the legitimate
-// case is unchanged: no "mcpServers" key at all is a fresh install, not an
-// error.
-func TestInstallMCPServerJSON_AbsentMcpServersCreatesMap(t *testing.T) {
-	out, err := InstallMCPServerJSON([]byte(`{"other":"kept"}`), "ctxloom", wire.MCPServer{Command: "ctxloom"})
-	require.NoError(t, err)
-	assert.Contains(t, string(out), `"mcpServers"`)
-	assert.Contains(t, string(out), `"other": "kept"`)
-}
-
-// TestInstallMCPServerJSON_WrongTypeMcpServersRefuses pins the fix:
-// InstallMCPServerJSON used to silently REPLACE a present-but-wrong-type
-// "mcpServers" value (e.g. a string or array, however it got there) with a
-// fresh empty map — destroying whatever the user had under that key with no
-// signal. A type mismatch must be reported, not overwritten.
-func TestInstallMCPServerJSON_WrongTypeMcpServersRefuses(t *testing.T) {
-	original := []byte(`{"mcpServers":"not an object"}`)
-	_, err := InstallMCPServerJSON(original, "ctxloom", wire.MCPServer{Command: "ctxloom"})
-	require.Error(t, err, "a present-but-wrong-type mcpServers value must be reported, not silently replaced")
-}
-
-// A remote server registers as the spec's type/url/headers entry and never
-// as {"command": ""}: an external registrar handing this helper a URL entry
-// must get a server the engine can dial, not an invalid empty command.
-func TestInstallMCPServerJSON_RemoteServerWritesTypeURLHeaders(t *testing.T) {
-	out, err := InstallMCPServerJSON(nil, "remote", wire.MCPServer{
+// A remote server renders as the spec's type/url/headers entry and never as
+// {"command": ""}: an external registrar handing this helper a URL entry must
+// get a server the engine can dial, not an invalid empty command.
+func TestMCPServerJSONEntry_RemoteServerWritesTypeURLHeaders(t *testing.T) {
+	entry, err := MCPServerJSONEntry("remote", wire.MCPServer{
 		URL:     "https://mcp.example.com/v1",
 		Headers: map[string]string{"Authorization": "Bearer t"},
 	})
 	require.NoError(t, err)
-
-	var doc map[string]map[string]map[string]any
-	require.NoError(t, json.Unmarshal(out, &doc))
-	entry := doc["mcpServers"]["remote"]
 	assert.Equal(t, "http", entry["type"])
 	assert.Equal(t, "https://mcp.example.com/v1", entry["url"])
 	assert.Equal(t, map[string]any{"Authorization": "Bearer t"}, entry["headers"])
 	assert.NotContains(t, entry, "command")
 }
 
+// A stdio entry spells only what it carries: omitempty is honoured through the
+// JSON round trip, so no empty "url"/"env" members are invented.
+func TestMCPServerJSONEntry_StdioOmitsEmptyMembers(t *testing.T) {
+	entry, err := MCPServerJSONEntry("taskloom", wire.MCPServer{Command: "taskloom", Args: []string{"mcp"}})
+	require.NoError(t, err)
+	assert.Equal(t, "taskloom", entry["command"])
+	assert.Equal(t, []any{"mcp"}, entry["args"])
+	assert.NotContains(t, entry, "url")
+	assert.NotContains(t, entry, "env")
+}
+
 // A wire entry that is neither stdio nor remote is refused by name, not
-// registered as an empty command.
-func TestInstallMCPServerJSON_NoTargetRefused(t *testing.T) {
-	_, err := InstallMCPServerJSON(nil, "broken", wire.MCPServer{Args: []string{"a"}})
+// rendered as an empty command.
+func TestMCPServerJSONEntry_NoTargetRefused(t *testing.T) {
+	_, err := MCPServerJSONEntry("broken", wire.MCPServer{Args: []string{"a"}})
 	require.ErrorIs(t, err, wire.ErrMCPServerNoTarget)
 	assert.Contains(t, err.Error(), "broken")
+}
+
+func TestMCPServerInstalledJSON(t *testing.T) {
+	ok, err := MCPServerInstalledJSON([]byte(`{"mcpServers":{"taskloom":{"command":"taskloom"}}}`), "taskloom")
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	ok, err = MCPServerInstalledJSON([]byte(`{"mcpServers":{}}`), "taskloom")
+	require.NoError(t, err)
+	assert.False(t, ok)
+
+	ok, err = MCPServerInstalledJSON(nil, "taskloom")
+	require.NoError(t, err)
+	assert.False(t, ok, "an empty document holds nothing")
+
+	_, err = MCPServerInstalledJSON([]byte(`{not json`), "taskloom")
+	require.Error(t, err, "an unparseable document is an error, not 'not installed'")
 }

@@ -569,14 +569,10 @@ func (w *ClaudeCodeHookWriter) desiredMCPServers(bundleMCP map[string]wire.MCPSe
 	}
 
 	out := make(map[string]any, len(entries))
-	for name, server := range entries {
-		raw, err := json.Marshal(server)
+	for name, entry := range entries {
+		generic, err := agent.GenericMCPEntry(name, entry)
 		if err != nil {
-			return nil, fmt.Errorf("failed to encode MCP server %q: %w", name, err)
-		}
-		var generic map[string]any
-		if err := json.Unmarshal(raw, &generic); err != nil {
-			return nil, fmt.Errorf("failed to encode MCP server %q: %w", name, err)
+			return nil, err
 		}
 		out[name] = generic
 	}
@@ -591,26 +587,45 @@ func (w *ClaudeCodeHookWriter) applyMCP(mcpPath string, desired map[string]any) 
 	if err != nil {
 		return err
 	}
-	// Name the servers ctxloom manages, so an entry ctxloom itself wrote that
-	// no record covers is taken back out rather than replaced in place — see
-	// confpatch.WithOwnedPaths.
-	owned := make([]string, 0, len(desired))
-	for _, name := range collections.SortedKeys(desired) {
-		owned = append(owned, "/"+mcpServersKey+"/"+name)
+	_, err = applyMCPServers(w.getFS(), store, mcpPath, desired, collections.SortedKeys(desired))
+	return err
+}
+
+// applyMCPServers is the one write into a "mcpServers" table: it puts desired
+// there through store, taking back out what the store's writer put there last
+// time, and records what it wrote. Both of this package's writers — ctxloom's
+// own hook writer and taskloom's registrar — go through it, so the two never
+// disagree about how the table is patched.
+//
+// owned names the servers the caller manages, so an entry the caller itself
+// wrote that no record covers is taken back out rather than replaced in place
+// — see confpatch.WithOwnedPaths.
+func applyMCPServers(fs afero.Fs, store *confpatch.Store, mcpPath string, desired map[string]any, owned []string, opts ...confpatch.ApplyOption) (confpatch.Result, error) {
+	ownedPaths := make([]string, 0, len(owned))
+	for _, name := range owned {
+		ownedPaths = append(ownedPaths, "/"+mcpServersKey+"/"+name)
 	}
-	res, err := store.Apply(w.getFS(), mcpPath, func(doc *hew.Doc, cur hew.Document) (int, error) {
+	opts = append(opts, confpatch.WithOwnedPaths(ownedPaths...))
+	res, err := store.Apply(fs, mcpPath, func(doc *hew.Doc, cur hew.Document) (int, error) {
 		if len(desired) == 0 {
 			return 0, nil
 		}
 		// Addressing /mcpServers/<name> against a file that has no mcpServers
 		// is HEW013 no-match, so state the container whole when it is absent.
-		if _, ok := cur.Root().Member(mcpServersKey); !ok {
+		container, ok := cur.Root().Member(mcpServersKey)
+		if !ok {
 			p, perr := hew.ParsePathIn(doc.Format(), "/"+mcpServersKey)
 			if perr != nil {
 				return 0, perr
 			}
 			doc.AtPath(p).Set(desired)
 			return 1, nil
+		}
+		// A PRESENT value of the wrong type (a string, an array) is the
+		// user's, however it got there: writing members into it would
+		// destroy it, so it is reported rather than overwritten.
+		if container.Kind() != hew.KindMap {
+			return 0, fmt.Errorf("%s is not an object — refusing to overwrite it", mcpServersKey)
 		}
 		recorded := 0
 		for _, name := range collections.SortedKeys(desired) { // stable order: a deterministic record
@@ -622,34 +637,34 @@ func (w *ClaudeCodeHookWriter) applyMCP(mcpPath string, desired map[string]any) 
 			recorded++
 		}
 		return recorded, nil
-	}, confpatch.WithOwnedPaths(owned...))
+	}, opts...)
 	if len(res.HealedPaths) > 0 {
-		// Say it. The entry was rewritten by a DIFFERENT ctxloom (the copy on
-		// PATH versus one built in a working tree, which write different
-		// absolute paths), and ctxloom has just taken the other one's entry
-		// out. That is not an error and must not read as one, but a file
-		// changing under the user for a reason nothing else names is worth a
-		// line — it is also the signal that two ctxlooms are managing one
-		// project.
-		clidiag.Warn("ctxloom", "%s: took over %s, which a different ctxloom binary had written; if that is unexpected, check which ctxloom you are running",
+		// Say it. The entry was rewritten by a DIFFERENT copy of the writer
+		// (the binary on PATH versus one built in a working tree, which write
+		// different absolute paths), and this one has just taken the other's
+		// entry out. That is not an error and must not read as one, but a
+		// file changing under the user for a reason nothing else names is
+		// worth a line — it is also the signal that two copies are managing
+		// one project.
+		clidiag.Warn("ctxloom", "%s: took over %s, which a different binary had written; if that is unexpected, check which binary you are running",
 			mcpPath, strings.Join(res.HealedPaths, ", "))
 	}
 	if err != nil {
 		// An unparseable .mcp.json reaches here as a hew open failure, and the
 		// user is owed more than a refusal: the file is BACKED UP before
-		// ctxloom declines, exactly as the pre-hew loader did. Refusing already
+		// declining, exactly as the pre-hew loader did. Refusing already
 		// guarantees nothing is destroyed — the backup is what makes the
 		// original recoverable if the user cannot see what broke it.
-		if data, rerr := afero.ReadFile(w.getFS(), mcpPath); rerr == nil {
+		if data, rerr := afero.ReadFile(fs, mcpPath); rerr == nil {
 			var probe agent.ChatMCPConfigDoc
 			if jerr := json.Unmarshal(data, &probe); jerr != nil {
-				return w.corruptSettings(mcpPath, data, MCPFileName, jerr,
+				return res, agent.RefuseCorrupt(fs, mcpPath, data, MCPFileName, jerr,
 					"to avoid deleting the MCP servers already in it")
 			}
 		}
-		return fmt.Errorf("failed to write %s: %w", mcpPath, err)
+		return res, fmt.Errorf("failed to write %s: %w", mcpPath, err)
 	}
-	return nil
+	return res, nil
 }
 
 // recordStore is the home-rooted §9.7 record store this writer applies through.
@@ -658,7 +673,7 @@ func (w *ClaudeCodeHookWriter) recordStore() (*confpatch.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return confpatch.NewStore(w.getFS(), dir)
+	return confpatch.NewStore(w.getFS(), dir, "ctxloom")
 }
 
 // mcpServersKey is the one container ctxloom writes into in .mcp.json.

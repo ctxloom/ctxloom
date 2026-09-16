@@ -1,8 +1,8 @@
 // Package engine is taskloom's registry of agent MCP registrars, so
 // `taskloom manage` can register the `taskloom mcp` server without ctxloom.
-// The implementations are the agent modules' own agent.MCPRegistrar types
-// — engine-specific details (config paths,
-// on-disk format) live entirely in each agent's module, never here.
+// The implementations are the agent modules' own registrar types —
+// engine-specific details (config paths, on-disk format, the container the
+// servers live in) live entirely in each agent's module, never here.
 package engine
 
 import (
@@ -10,14 +10,41 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/confpatch"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// Engine is the per-agent MCP registration contract, defined in shared/agent
-// and implemented by each agent module.
-type Engine = agent.MCPRegistrar
+// Engine is the MCP-registration facet of an agent: where its MCP config lives
+// per scope and how one named server is written into / taken out of that file.
+// It is deliberately separate from agent.SettingsWriter — the writer reconciles
+// the ctxloom-managed server set against whole files, while a registrar gives
+// an external tool (taskloom manage) single-server registration.
+//
+// It lives here rather than in shared/agent because a registrar writes through
+// confpatch, and confpatch depends on shared/agent.
+type Engine interface {
+	// Name is the agent identifier (e.g. "claude-code").
+	Name() string
+	// Present reports whether this agent appears to be in use for the given
+	// scope: its config file or well-known directory exists. Auto-registration
+	// only touches agents that are present; an explicit selection overrides.
+	Present(dir string, global bool) bool
+	// ConfigPath returns the agent's MCP config file for the given scope:
+	// global (user-level, under the home dir) or project (under dir). Agents
+	// without a usable scope return an error for it.
+	ConfigPath(dir string, global bool) (string, error)
+	// Register writes the named server into the config at path through store,
+	// patching only that member and recording what it wrote so the next
+	// Register can take it back out; a nil server is the uninstall. Foreign
+	// keys and servers survive byte for byte. Idempotent: a Register that
+	// changes nothing writes nothing and leaves no record.
+	Register(fs afero.Fs, store *confpatch.Store, path, name string, server *wire.MCPServer, opts ...confpatch.ApplyOption) (confpatch.Result, error)
+	// Installed reports whether the named server is present in the config.
+	Installed(config []byte, name string) (bool, error)
+}
 
 // TaskloomName is the key the registration installs under.
 const TaskloomName = "taskloom"

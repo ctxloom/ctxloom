@@ -2,12 +2,15 @@ package engine
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/confpatch"
 )
 
 // Fixtures modeled on real backend configs: each holds a foreign server and
@@ -31,10 +34,29 @@ func jsonServers(t *testing.T, config []byte) map[string]any {
 	return servers
 }
 
-func TestEngines_InstallIntoEmpty_CreatesEntry(t *testing.T) {
+// registrar is one engine with a fresh record store and an in-memory config
+// at path, so each test starts from the bytes it names.
+func registrar(t *testing.T, e Engine, config string) (afero.Fs, *confpatch.Store, string) {
+	t.Helper()
+	fs := afero.NewMemMapFs()
+	store, err := confpatch.NewStore(fs, "/home/u/.ctxloom/records/taskloom", TaskloomCommand)
+	require.NoError(t, err)
+	path := "/proj/" + strings.TrimPrefix(e.Name(), "claude-code") + ".mcp.json"
+	if config != "" {
+		require.NoError(t, afero.WriteFile(fs, path, []byte(config), 0o644))
+	}
+	return fs, store, path
+}
+
+func TestEngines_RegisterIntoAbsentConfig_CreatesEntry(t *testing.T) {
+	server := TaskloomServer()
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
-			out, err := e.Install(nil, TaskloomName, TaskloomServer())
+			fs, store, path := registrar(t, e, "")
+			res, err := e.Register(fs, store, path, TaskloomName, &server)
+			require.NoError(t, err)
+			assert.True(t, res.Changed)
+			out, err := afero.ReadFile(fs, path)
 			require.NoError(t, err)
 			ok, err := e.Installed(out, TaskloomName)
 			require.NoError(t, err)
@@ -43,18 +65,21 @@ func TestEngines_InstallIntoEmpty_CreatesEntry(t *testing.T) {
 	}
 }
 
-func TestEngines_Install_PreservesForeignContent(t *testing.T) {
+func TestEngines_Register_PreservesForeignContent(t *testing.T) {
 	fixtures := map[string]string{
 		"claude-code": claudeFixture,
 	}
+	server := TaskloomServer()
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
-			out, err := e.Install([]byte(fixtures[e.Name()]), TaskloomName, TaskloomServer())
+			fs, store, path := registrar(t, e, fixtures[e.Name()])
+			_, err := e.Register(fs, store, path, TaskloomName, &server)
+			require.NoError(t, err)
+			out, err := afero.ReadFile(fs, path)
 			require.NoError(t, err)
 			ok, err := e.Installed(out, TaskloomName)
 			require.NoError(t, err)
 			assert.True(t, ok)
-			// The foreign ctxloom server must survive the merge.
 			foreign, err := e.Installed(out, "ctxloom")
 			require.NoError(t, err)
 			assert.True(t, foreign, "foreign server must be preserved")
@@ -62,44 +87,60 @@ func TestEngines_Install_PreservesForeignContent(t *testing.T) {
 	}
 }
 
-func TestClaudeCode_Install_PreservesProvenanceKeys(t *testing.T) {
-	out, err := (claude.MCPRegistrar{}).Install([]byte(claudeFixture), TaskloomName, TaskloomServer())
+func TestClaudeCode_Register_PreservesProvenanceKeysByteForByte(t *testing.T) {
+	e := claude.MCPRegistrar{}
+	server := TaskloomServer()
+	fs, store, path := registrar(t, e, claudeFixture)
+	_, err := e.Register(fs, store, path, TaskloomName, &server)
+	require.NoError(t, err)
+	out, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
 	servers := jsonServers(t, out)
 	ctx, ok := servers["ctxloom"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "ctxloom-auto", ctx["_ctxloom"], "foreign provenance keys must survive")
 	assert.Equal(t, "${CLAUDE_PROJECT_DIR}", ctx["cwd"])
+	// Not merely present but UNTOUCHED: the foreign entry's own lines, in
+	// the fixture's order and layout, are still in the file.
+	assert.Contains(t, string(out), "\"_ctxloom\": \"ctxloom-auto\",\n      \"args\": [\"mcp\"],\n      \"command\": \"ctxloom\",\n      \"cwd\": \"${CLAUDE_PROJECT_DIR}\"")
 }
 
-func TestEngines_Install_Idempotent(t *testing.T) {
+func TestEngines_Register_Idempotent(t *testing.T) {
+	server := TaskloomServer()
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
-			once, err := e.Install(nil, TaskloomName, TaskloomServer())
+			fs, store, path := registrar(t, e, "")
+			_, err := e.Register(fs, store, path, TaskloomName, &server)
 			require.NoError(t, err)
-			twice, err := e.Install(once, TaskloomName, TaskloomServer())
+			once, err := afero.ReadFile(fs, path)
 			require.NoError(t, err)
-			assert.Equal(t, string(once), string(twice), "re-install must be a no-op")
+			res, err := e.Register(fs, store, path, TaskloomName, &server)
+			require.NoError(t, err)
+			assert.False(t, res.Changed, "re-install must be a no-op")
+			twice, err := afero.ReadFile(fs, path)
+			require.NoError(t, err)
+			assert.Equal(t, string(once), string(twice))
 		})
 	}
 }
 
-func TestEngines_Uninstall_RemovesOnlyOurs(t *testing.T) {
+func TestEngines_Uninstall_RestoresTheFixtureExactly(t *testing.T) {
 	fixtures := map[string]string{
 		"claude-code": claudeFixture,
 	}
+	server := TaskloomServer()
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
-			installed, err := e.Install([]byte(fixtures[e.Name()]), TaskloomName, TaskloomServer())
+			fs, store, path := registrar(t, e, fixtures[e.Name()])
+			_, err := e.Register(fs, store, path, TaskloomName, &server)
 			require.NoError(t, err)
-			out, err := e.Uninstall(installed, TaskloomName)
+			res, err := e.Register(fs, store, path, TaskloomName, nil)
 			require.NoError(t, err)
-			gone, err := e.Installed(out, TaskloomName)
+			assert.True(t, res.Changed, "the entry was there to remove")
+			out, err := afero.ReadFile(fs, path)
 			require.NoError(t, err)
-			assert.False(t, gone, "uninstall must remove the taskloom entry")
-			foreign, err := e.Installed(out, "ctxloom")
-			require.NoError(t, err)
-			assert.True(t, foreign, "uninstall must not touch foreign servers")
+			assert.Equal(t, fixtures[e.Name()], string(out),
+				"uninstall must hand back the user's bytes, not a re-encoding with the entry removed")
 		})
 	}
 }
@@ -107,11 +148,31 @@ func TestEngines_Uninstall_RemovesOnlyOurs(t *testing.T) {
 func TestEngines_Uninstall_AbsentIsNoop(t *testing.T) {
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
-			out, err := e.Uninstall(nil, TaskloomName)
+			fs, store, path := registrar(t, e, "")
+			res, err := e.Register(fs, store, path, TaskloomName, nil)
 			require.NoError(t, err)
-			ok, err := e.Installed(out, TaskloomName)
+			assert.False(t, res.Changed)
+			exists, err := afero.Exists(fs, path)
 			require.NoError(t, err)
-			assert.False(t, ok)
+			assert.False(t, exists, "uninstalling from an absent config must not conjure one")
+		})
+	}
+}
+
+// A PRESENT "mcpServers" of the wrong type (a string, an array) is the user's,
+// however it got there. Writing members into it would destroy it, so the
+// registrar reports it instead — and the file is not touched.
+func TestEngines_Register_WrongTypeMcpServersRefuses(t *testing.T) {
+	const original = `{"mcpServers": "not an object"}`
+	server := TaskloomServer()
+	for _, e := range All() {
+		t.Run(e.Name(), func(t *testing.T) {
+			fs, store, path := registrar(t, e, original)
+			_, err := e.Register(fs, store, path, TaskloomName, &server)
+			require.Error(t, err, "a present-but-wrong-type mcpServers value must be reported, not silently replaced")
+			out, err := afero.ReadFile(fs, path)
+			require.NoError(t, err)
+			assert.Equal(t, original, string(out))
 		})
 	}
 }

@@ -164,8 +164,8 @@ Feature: deps — the installed dependency closure, and everything that moves it
         """
       Then the command succeeds
       And the output contains "Skipped (kept at their locked commit)"
-      And the output contains "may have upstream changes"
-      And the output contains "ctxloom deps upgrade"
+      And the output contains "ctxloom deps check"
+      And the output does not contain "ctxloom deps upgrade"
       And the output does not contain "already installed"
       When I run "ctxloom profile materialize dev --target out"
       Then the command succeeds
@@ -289,6 +289,25 @@ Feature: deps — the installed dependency closure, and everything that moves it
         """
       Then the command succeeds
       And the output contains "Advanced"
+
+    # `deps pull` is offline by design: it cannot observe whether upstream has
+    # moved, so it must not assert that it has. The entry was advanced one
+    # command ago; telling the user to advance it again is advice the tool has
+    # no evidence for.
+    Scenario: A pull right after an upgrade does not tell the user to upgrade again
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom deps pull"
+      And the remote "origin" advances its bundle
+      And I run "ctxloom deps upgrade"
+      When Alice pulls immediately after advancing her pins:
+        """
+        ctxloom deps pull
+        """
+      Then the command succeeds
+      And the output does not contain "ctxloom deps upgrade"
 
   Rule: A hold freezes one dependency, even against a forced re-resolve
 

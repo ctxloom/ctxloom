@@ -109,13 +109,14 @@ func pullResultErr(result *operations.SyncDependenciesResult) error {
 
 // renderPullSummary prints a completed pull.
 //
-// The skipped line deliberately does NOT say "already installed".
-// Pull installs exactly the PINNED set; moving an existing pin is `deps
-// upgrade`'s job. So an item whose upstream content has changed is skipped, and
-// "already installed" reads as "you are current" when you are not: upstream
-// moved and you are still served the old content. A human (or an agent)
-// reasonably concludes there is nothing to do. The line says what is actually
-// true — the pin was honored — and names the command that moves it.
+// The skipped line deliberately does NOT say "already installed", and it
+// deliberately does NOT say "run deps upgrade". Pull installs exactly the
+// PINNED set and never reaches upstream, so it can observe neither that
+// upstream has moved nor that it has not: "already installed" claims currency
+// pull cannot establish, and "run upgrade" claims drift it cannot establish —
+// a pin the user advanced one command ago gets told to advance again. The line
+// says the one thing pull does know — the pin was honored — and names the
+// command that can actually answer the question (`deps check`).
 func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 	if result.Total == 0 {
 		fmt.Fprintln(w, "No remote dependencies to pull.")
@@ -131,8 +132,8 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 	}
 	if len(result.Skipped) > 0 {
 		fmt.Fprintf(w, "  Skipped (kept at their locked commit): %d\n", len(result.Skipped))
-		fmt.Fprintln(w, "    Pull never moves an existing pin, so these may have upstream changes.")
-		fmt.Fprintln(w, "    Run 'ctxloom deps upgrade' to advance them.")
+		fmt.Fprintln(w, "    Pull never moves an existing pin and does not ask upstream whether one could move.")
+		fmt.Fprintln(w, "    Run 'ctxloom deps check' to find out.")
 	}
 	if len(result.Retracted) > 0 {
 		fmt.Fprintf(w, "  Retracted: %d\n", len(result.Retracted))

@@ -27,8 +27,9 @@ func TestRenderPullSummary_SkippedDoesNotClaimCurrency(t *testing.T) {
 	assert.NotContains(t, text, "already installed",
 		`"already installed" reads as "you are current" when upstream may have moved`)
 	assert.Contains(t, text, "locked commit", "say what is actually true: the pin was honored")
-	assert.Contains(t, text, "upstream changes", "name the thing the user actually cares about")
-	assert.Contains(t, text, "ctxloom deps upgrade", "name the command that moves the pin")
+	assert.Contains(t, text, "ctxloom deps check", "name the command that can actually see upstream")
+	assert.NotContains(t, text, "ctxloom deps upgrade",
+		"pull is offline: it cannot know a pin is behind, so it must not advise advancing it")
 }
 
 // TestRenderPullSummary_NothingToPull keeps the empty case intact.

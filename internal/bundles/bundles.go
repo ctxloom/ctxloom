@@ -649,43 +649,36 @@ func resolveEffective(preferDistilled bool, content, distilled string, noDistill
 	return content, FormRaw
 }
 
-// ContentForms is EVERY form of a distillable item the store holds: the
-// authored body, its distillation when one exists, and the author's refusal of
-// the distilled form. It is what a READ reports — the read stage has no form
-// preference and picks nothing (docs/design/engine-delivery-seam.design.md,
-// "ALL processing lives in the middle"); the process stage looks at this and
-// decides.
+// ItemSurface is one resolution of a distillable item for a form preference:
+// the bytes the process stage SERVES, the layout form they were selected in,
+// and the bytes the trust gate DECIDES on. All three come from a single call
+// on the item, which is what keeps "served" and "gated" from drifting: the
+// gate cannot be handed bytes the agent will not see, and the agent cannot be
+// handed bytes the gate did not cover.
 //
-// The absence of a distilled form is itself information the caller can see
-// (Distilled == ""), which is why this is a struct of forms rather than one
-// pre-picked body: "there is no distilled form" and "the distilled form was not
-// preferred" are different facts about an item and only the first is a read
-// fact.
-type ContentForms struct {
-	Raw       string // the authored body; always present
-	Distilled string // the distillation, or "" when the store holds none
-	NoDistill bool   // the author forbade serving the distilled form
+// For a command Body and Preimage are the same bytes. For a fragment they are
+// not: the preimage is the framed FragmentSurface (premise included) while the
+// body is what the agent is served — the premise reaches it separately, via
+// the index, and is covered because it is inside the frame.
+type ItemSurface struct {
+	Body     []byte      // the bytes served to the agent
+	Form     ContentForm // the layout form Body was selected in
+	Preimage []byte      // the bytes the trust gate decides on: this kind's ContentPayload
 }
 
-// Select picks the bytes to serve for a form preference and reports the LAYOUT
-// form they were selected in. It routes through resolveEffective — the SAME
-// single compute primitive ContentPayload and EffectiveContentHash use — so
-// what the process stage selects and what the trust preimage covers cannot
-// drift. It only ever PREFERS: an item with no distilled form, or one that
-// forbids distillation, still serves raw.
-func (f ContentForms) Select(preferDistilled bool) ([]byte, ContentForm) {
-	content, form := resolveEffective(preferDistilled, f.Raw, f.Distilled, f.NoDistill)
-	return []byte(content), form
+// Resolve is the process-stage resolution of this fragment: it only ever
+// PREFERS — a fragment with no distilled form, or one that forbids
+// distillation, still serves raw.
+func (f *BundleFragment) Resolve(preferDistilled bool) ItemSurface {
+	s := f.Surface(preferDistilled)
+	return ItemSurface{Body: []byte(s.Body()), Form: s.Form(), Preimage: s.Preimage()}
 }
 
-// Forms reports every form of this fragment the store holds.
-func (f *BundleFragment) Forms() ContentForms {
-	return ContentForms{Raw: f.Content, Distilled: f.Distilled, NoDistill: f.NoDistill}
-}
-
-// Forms reports every form of this command the store holds.
-func (p *BundleCommand) Forms() ContentForms {
-	return ContentForms{Raw: p.Content, Distilled: p.Distilled, NoDistill: p.NoDistill}
+// Resolve is the process-stage resolution of this command. A command's gated
+// bytes ARE its served bytes: it carries no second presented value.
+func (p *BundleCommand) Resolve(preferDistilled bool) ItemSurface {
+	payload, form := p.ContentPayload(preferDistilled)
+	return ItemSurface{Body: payload, Form: form, Preimage: payload}
 }
 
 // staleDistill is the one shared compare primitive: it reports whether a
@@ -740,9 +733,8 @@ type FragmentSurface struct {
 }
 
 // Surface resolves what the agent is shown of this fragment for a form
-// preference. It routes through resolveEffective — the same single compute
-// primitive ContentForms.Select uses — so the body here is exactly the body
-// the process stage serves.
+// preference. Resolve (the process stage's entry point) is built on it, so the
+// body here is exactly the body the pipeline serves.
 func (f *BundleFragment) Surface(preferDistilled bool) FragmentSurface {
 	body, form := resolveEffective(preferDistilled, f.Content, f.Distilled, f.NoDistill)
 	return FragmentSurface{premise: f.Premise, body: body, form: form}

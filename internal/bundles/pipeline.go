@@ -51,8 +51,8 @@ type Pipeline struct {
 	authorizer Authorizer
 
 	// preferDistilled is the caller's raw-vs-distilled choice, held HERE
-	// because form selection is processing: the read stage reports every form
-	// the store holds (ItemRead.Forms) and this stage picks one. It only ever
+	// because form selection is processing: the read stage carries every form
+	// the store holds (ItemRead.Resolve) and this stage picks one. It only ever
 	// PREFERS — an item with no distilled form, or one whose author forbade
 	// distillation, still serves raw.
 	preferDistilled bool
@@ -145,20 +145,23 @@ func (p *Pipeline) recordWithheld(ref string) {
 	p.withheldMu.Unlock()
 }
 
-// deliver is the process stage in one function: SELECT a form from everything
-// the read reported, then decide whether those exact bytes may be exposed.
-// Returns nil when they may not.
+// deliver is the process stage in one function: RESOLVE a form from everything
+// the read reported, then decide whether that resolution may be exposed.
+// Returns nil when it may not.
 //
-// The two steps are here, in this order, and nowhere else. Selecting first is
+// The two steps are here, in this order, and nowhere else. Resolving first is
 // what makes the gate's decision cover the bytes actually served — a grant
 // binds the PAIR (bytes, form), so a raw-form approval must never validate a
-// distilled exposure.
+// distilled exposure. The gate is handed the resolution's PREIMAGE, not its
+// body: for a fragment those differ (the preimage frames the premise too), and
+// a gate that saw only the body would let the premise reach the agent
+// unsigned.
 func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 	if r == nil {
 		return nil
 	}
-	payload, form := r.Forms.Select(p.preferDistilled)
-	if !p.admit(r.Read, r.TrustRef, payload, form) {
+	s := r.Resolve(p.preferDistilled)
+	if !p.admit(r.Read, r.TrustRef, s.Preimage, s.Form) {
 		return nil
 	}
 	return &LoadedContent{
@@ -167,15 +170,15 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 		Item:         r.Item,
 		Version:      r.Version,
 		Tags:         r.Tags,
-		Content:      string(payload),
+		Content:      string(s.Body),
 		Installation: r.Installation,
-		// From the form Select actually chose, never re-derived: a
+		// From the form Resolve actually chose, never re-derived: a
 		// re-derivation drops terms (no_distill) and describes bytes that were
 		// never served.
-		IsDistilled: form == FormDistilled,
+		IsDistilled: s.Form == FormDistilled,
 		DistilledBy: r.DistilledBy,
 		LLM:         r.LLM,
-		Form:        form,
+		Form:        s.Form,
 		TrustRef:    r.TrustRef,
 		Signer:      r.Signer,
 		Premise:     r.Premise,
@@ -203,7 +206,7 @@ func (p *Pipeline) admitSkill(ls *LoadedSkill) bool {
 // command, where the selected bytes ARE the preimage and selection must
 // therefore precede the gate (deliver).
 //
-// Selection only PREFERS, like ContentForms.Select: a package with no
+// Selection only PREFERS, like BundleFragment.Resolve: a package with no
 // distilled body serves raw. What it never does is deliver both bodies or an
 // engine-side file for the unselected one; the materialization it applies
 // (content.SkillMaterialization) is the same rule the content store's

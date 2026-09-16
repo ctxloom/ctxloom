@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // =============================================================================
@@ -370,9 +371,10 @@ func TestBundleFragment_EffectiveContentHash(t *testing.T) {
 	rawHash, rawForm := frag.EffectiveContentHash(false)
 	distHash, distForm := frag.EffectiveContentHash(true)
 
-	// Hashes cover exactly the bytes EffectiveContent would serve.
-	assert.Equal(t, hashContent([]byte("RAW-BYTES")), rawHash)
-	assert.Equal(t, hashContent([]byte("DISTILLED-BYTES")), distHash)
+	// Hashes cover the framed surface over exactly the bytes EffectiveContent
+	// would serve.
+	assert.Equal(t, hashContent(signing.FragmentPreimage("", []byte("RAW-BYTES"))), rawHash)
+	assert.Equal(t, hashContent(signing.FragmentPreimage("", []byte("DISTILLED-BYTES"))), distHash)
 	assert.Equal(t, FormRaw, rawForm)
 	assert.Equal(t, FormDistilled, distForm)
 
@@ -391,7 +393,7 @@ func TestBundleFragment_EffectiveContentHash(t *testing.T) {
 		},
 	}
 	h, form := noDistill.EffectiveContentHash(true)
-	assert.Equal(t, hashContent([]byte("RAW-BYTES")), h)
+	assert.Equal(t, hashContent(signing.FragmentPreimage("", []byte("RAW-BYTES"))), h)
 	assert.Equal(t, FormRaw, form)
 
 	// The recorded ContentHash field is irrelevant to the effective hash — a
@@ -403,7 +405,7 @@ func TestBundleFragment_EffectiveContentHash(t *testing.T) {
 		},
 	}
 	fh, _ := forged.EffectiveContentHash(false)
-	assert.Equal(t, hashContent([]byte("RAW-BYTES")), fh)
+	assert.Equal(t, hashContent(signing.FragmentPreimage("", []byte("RAW-BYTES"))), fh)
 }
 
 func TestBundleCommand_EffectiveContentHash(t *testing.T) {
@@ -485,32 +487,6 @@ func TestBundleMCP_ComputeContentHash(t *testing.T) {
 // countersignature built over ContentPayload's output and a hash computed by
 // these methods can never drift apart.
 // =============================================================================
-
-func TestBundleFragment_ContentPayload_IsHashPreimage(t *testing.T) {
-	frag := BundleFragment{
-		ItemBody: ItemBody{
-			Content:   "RAW-BYTES",
-			Distilled: "DISTILLED-BYTES",
-		},
-	}
-
-	rawPayload, rawForm := frag.ContentPayload(false)
-	distPayload, distForm := frag.ContentPayload(true)
-
-	assert.Equal(t, []byte("RAW-BYTES"), rawPayload)
-	assert.Equal(t, FormRaw, rawForm)
-	assert.Equal(t, []byte("DISTILLED-BYTES"), distPayload)
-	assert.Equal(t, FormDistilled, distForm)
-
-	// EffectiveContentHash must hash exactly these bytes — same function,
-	// not a re-derivation.
-	rawHash, rawHashForm := frag.EffectiveContentHash(false)
-	distHash, distHashForm := frag.EffectiveContentHash(true)
-	assert.Equal(t, hashContent(rawPayload), rawHash)
-	assert.Equal(t, rawForm, rawHashForm)
-	assert.Equal(t, hashContent(distPayload), distHash)
-	assert.Equal(t, distForm, distHashForm)
-}
 
 func TestBundleCommand_ContentPayload_IsHashPreimage(t *testing.T) {
 	cmd := BundleCommand{
@@ -2109,7 +2085,7 @@ func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
 	for _, preferDistilled := range []bool{false, true} {
 		fragPayload, _ := frag.ContentPayload(preferDistilled)
 		assert.NotContains(t, string(fragPayload), secretish)
-		assert.Equal(t, "fragment body", string(fragPayload))
+		assert.Equal(t, signing.FragmentPreimage("", []byte("fragment body")), fragPayload)
 
 		cmdPayload, _ := cmd.ContentPayload(preferDistilled)
 		assert.NotContains(t, string(cmdPayload), secretish)

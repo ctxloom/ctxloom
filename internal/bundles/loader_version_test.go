@@ -21,6 +21,18 @@ func effHash(body string) string {
 	return h
 }
 
+// effCmdHash is effHash for a COMMAND. The two kinds no longer share a
+// preimage — a fragment's is framed, a command's is bare — so a command
+// fixture must derive its grant from the command shape.
+func effCmdHash(body string) string {
+	h, _ := (&BundleCommand{
+		ItemBody: ItemBody{
+			Content: body,
+		},
+	}).EffectiveContentHash(true)
+	return h
+}
+
 // hashGate allows only items whose effective-content hash is in allowed,
 // recording every ref it denies. It mirrors the real per-(ref, content_hash)
 // cascade: a single version-less ref can have one version trusted (its hash in
@@ -333,7 +345,7 @@ func TestMultiVersion_Prompt(t *testing.T) {
 			},
 		}}},
 	}
-	gate := hashGate(map[string]bool{effHash("v1 review"): true})
+	gate := hashGate(map[string]bool{effCmdHash("v1 review"): true})
 	l := versionedLoader(t, cqRef, def, versions, gate)
 
 	v1, err := l.GetPromptAtVersion(promptRef, "c1")

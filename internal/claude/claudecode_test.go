@@ -74,23 +74,6 @@ func TestClaudeCode_Configure_Args(t *testing.T) {
 	assert.Equal(t, []string{"--no-telemetry", "--config", "/custom/config"}, backend.Args)
 }
 
-// TestClaudeCode_Configure_Env verifies that environment variables are
-// merged into the backend's environment.
-func TestClaudeCode_Configure_Env(t *testing.T) {
-	backend := NewClaudeCode()
-
-	cfg := &ClaudeConfig{
-		Env: map[string]string{
-			"ANTHROPIC_API_KEY": "test-key",
-			"CUSTOM_VAR":        "custom-value",
-		},
-	}
-	backend.Configure(cfg)
-
-	assert.Equal(t, "test-key", backend.Env["ANTHROPIC_API_KEY"])
-	assert.Equal(t, "custom-value", backend.Env["CUSTOM_VAR"])
-}
-
 // TestClaudeCode_Configure_RequiresNonNil documents that Configure expects
 // a non-nil config. Callers should check for nil before calling Configure.
 // ApplyLLMConfig in registry.go handles the nil check.

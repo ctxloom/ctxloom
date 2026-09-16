@@ -34,8 +34,9 @@ type PremiseAuthorConfig struct {
 	LLM string
 	// Model selects the model within the plugin (e.g. "haiku", "sonnet").
 	Model string
-	// Env is the resolved LLM label's config-declared environment
-	// (llm.configs.<label>.env).
+	// Env is the resolved LLM label's request-borne environment (the mock's
+	// test-control map, MockControlFor; a real engine's environment is
+	// ambient).
 	Env map[string]string
 	// ClientFactory creates the plugin client; nil uses the real one. It is
 	// the stochastic boundary: a test supplies pb.MockClientFactory and both

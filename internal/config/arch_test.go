@@ -106,7 +106,7 @@ var intentionalOpenSchemaMaps = map[string]bool{
 	"agents":           true, // agents: user-named agent bindings
 	"definitions":      true, // profiles.definitions: user-named profiles
 	"isolation_images": true, // isolation_images: user-named image labels
-	"env":              true, // *.env: arbitrary environment variable maps
+	"mock_control":     true, // llm.configs.*.mock_control: the mock engine's arbitrary test-control map
 	"servers":          true, // mcp.servers: user-named MCP server labels
 	"plugins":          true, // hooks.plugins: user-named plugin labels
 }

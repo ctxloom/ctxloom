@@ -283,8 +283,8 @@ func stampFlat(m map[string]any) string {
 // case the user typed on the command line, which is therefore trustworthy
 // enough to CREATE a brand-new case-sensitive key with — e.g. `--config-set
 // agents.MyCoder.runtime=container` can mint a fresh `agents.MyCoder` entry,
-// or `--config-set llm.configs.big.env.GEMINI_API_KEY=...` a fresh
-// case-sensitive `GEMINI_API_KEY` inside an LLM backend's env passthrough —
+// or `--config-set profiles.definitions.go-developer.variables.TargetPackage=...`
+// a fresh case-sensitive `TargetPackage` inside a profile's variables —
 // something no env var could ever do, since the var's OWN name has already
 // lost that information before this package sees it. Case 3
 // (schema-known-but-unset) is unaffected either way: a schema field name has

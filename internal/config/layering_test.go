@@ -121,7 +121,7 @@ func TestResolveConfigLayerPaths_DedupsWhenHomeEqualsProject(t *testing.T) {
 
 // TestLoad_ExplicitAppDirEqualToHome_ResolvesSourceHome is what makes a
 // Manager targeting home directly able to persist a ScopeMachine value
-// (llm.configs.*.env, credentials) at all: saveLocked's layerscope filter
+// (llm.configs.*.binary_path) at all: saveLocked's layerscope filter
 // strips ScopeMachine values whenever cfg.source == SourceProject, on the
 // theory that the project file is committed and visible to every clone. An
 // explicit WithAppDir used to ALWAYS set SourceProject — even when the
@@ -159,11 +159,11 @@ func TestLoad_ExplicitAppDirDifferentFromHome_StaysSourceProject(t *testing.T) {
 
 // TestManagerUpdate_TargetingHomeDirectly_PersistsScopeMachineValues is the
 // practical consequence proven end to end: a Manager pointed straight at
-// ~/.ctxloom can actually WRITE a ScopeMachine value (llm.configs.*.env
+// ~/.ctxloom can actually WRITE a ScopeMachine value (llm.configs.*.binary_path
 // here) and have it survive a reload. Before the SourceHome fix above,
 // saveLocked's layerscope filter treated this write as landing in "the
-// project layer" and silently stripped it — a credential written, reported
-// as saved, and gone.
+// project layer" and silently stripped it — a value written, reported as
+// saved, and gone.
 func TestManagerUpdate_TargetingHomeDirectly_PersistsScopeMachineValues(t *testing.T) {
 	home := testsupport.Isolate(t)
 	homeAppDir := filepath.Join(home, AppDirName)
@@ -177,7 +177,7 @@ func TestManagerUpdate_TargetingHomeDirectly_PersistsScopeMachineValues(t *testi
 		}
 		entry := d.LM.Configs["big"]
 		entry.Type = "mock"
-		entry.Body = map[string]any{"env": map[string]any{"OPENAI_API_KEY": "sk-secret"}}
+		entry.Body = map[string]any{"binary_path": "/opt/engines/mock"}
 		d.LM.Configs["big"] = entry
 		return nil
 	})
@@ -185,6 +185,8 @@ func TestManagerUpdate_TargetingHomeDirectly_PersistsScopeMachineValues(t *testi
 
 	reloaded, err := Load(WithAppDir(homeAppDir))
 	require.NoError(t, err)
-	assert.Equal(t, "sk-secret", reloaded.LabelEnv("big")["OPENAI_API_KEY"],
+	got, ok := reloaded.GetLLMEntry("big")
+	require.True(t, ok)
+	assert.Equal(t, "/opt/engines/mock", got.Body["binary_path"],
 		"a ScopeMachine value written straight to home must survive the save, not be silently stripped")
 }

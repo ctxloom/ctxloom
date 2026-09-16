@@ -32,7 +32,8 @@ import (
 // fragments/managed before delegating, and delivery is additive to the echo,
 // never a replacement for it.
 //
-// Environment variables for test control:
+// Environment variables for test control — they reach Execute through the run
+// request's env, which a label's `mock_control:` map feeds (MockConfig):
 //   - CTXLOOM_MOCK_RESPONSE: Custom response text to output. SET TO EMPTY is a
 //     request for an empty reply, and is distinct from leaving it unset
 //   - CTXLOOM_MOCK_EXIT_CODE: Exit code to return (default: 0)
@@ -64,12 +65,16 @@ type Mock struct {
 // two mock halves cannot drift to different markers.
 const MockFailPrefix = "FAIL"
 
-// MockConfig is the test backend's typed LLM config. Env carries the
-// CTXLOOM_MOCK_* knobs (response, exit code, record file) through to Execute via
-// the run request, mirroring the other backends' env passthrough.
+// MockConfig is the test backend's typed LLM config. Control carries the
+// CTXLOOM_MOCK_* knobs (response, exit code, record file) through to Execute
+// via the run request's env. It is TEST CONTROL, not credentials, and its key
+// says so: `mock_control`, not the retired `env` (config.RetiredLLMEnvKey) —
+// no real engine carries an environment map in its config, so the mock is
+// the only label body with one, and it must not read as the place a
+// credential goes.
 type MockConfig struct {
-	Model string            `mapstructure:"model"`
-	Env   map[string]string `mapstructure:"env"`
+	Model   string            `mapstructure:"model"`
+	Control map[string]string `mapstructure:"mock_control"`
 }
 
 // BackendType identifies the backend this config drives.
@@ -82,27 +87,29 @@ func (MockConfig) BackendType() string { return config.BackendMock }
 // and a shared type would have reported "mock" for both — the exact
 // two-things-one-name confusion the registry invariant is there to prevent.
 type MockLossyConfig struct {
-	Model string            `mapstructure:"model"`
-	Env   map[string]string `mapstructure:"env"`
+	Model   string            `mapstructure:"model"`
+	Control map[string]string `mapstructure:"mock_control"`
 }
 
 // MockNoSkillsConfig is the no-skills double's config body.
 type MockNoSkillsConfig struct {
-	Model string            `mapstructure:"model"`
-	Env   map[string]string `mapstructure:"env"`
+	Model   string            `mapstructure:"model"`
+	Control map[string]string `mapstructure:"mock_control"`
 }
 
 // BackendType identifies the backend this config drives.
 func (MockNoSkillsConfig) BackendType() string { return config.BackendMockNoSkills }
 
-// GetEnv returns the labeled entry's env map, the same way MockConfig does.
-func (c MockNoSkillsConfig) GetEnv() map[string]string { return c.Env }
+// MockControl returns the labeled entry's test-control map, the same way
+// MockConfig does.
+func (c MockNoSkillsConfig) MockControl() map[string]string { return c.Control }
 
 // BackendType identifies the backend this config drives.
 func (MockLossyConfig) BackendType() string { return config.BackendMockLossy }
 
-// GetEnv returns the labeled entry's env map, the same way MockConfig does.
-func (c MockLossyConfig) GetEnv() map[string]string { return c.Env }
+// MockControl returns the labeled entry's test-control map, the same way
+// MockConfig does.
+func (c MockLossyConfig) MockControl() map[string]string { return c.Control }
 
 // MockLaunchConfig is the launch-delivered double's config. It carries the same
 // fields as MockConfig and exists for the same reason MockLossyConfig does: the
@@ -111,24 +118,23 @@ func (c MockLossyConfig) GetEnv() map[string]string { return c.Env }
 // decoded config to report the backend it was registered under, and a shared
 // type would report "mock" for all three.
 type MockLaunchConfig struct {
-	Model string            `mapstructure:"model"`
-	Env   map[string]string `mapstructure:"env"`
+	Model   string            `mapstructure:"model"`
+	Control map[string]string `mapstructure:"mock_control"`
 }
 
 // BackendType identifies the backend this config drives.
 func (MockLaunchConfig) BackendType() string { return config.BackendMockLaunch }
 
-// GetEnv returns the labeled entry's env map, the same way MockConfig does.
-func (c MockLaunchConfig) GetEnv() map[string]string { return c.Env }
+// MockControl returns the labeled entry's test-control map, the same way
+// MockConfig does.
+func (c MockLaunchConfig) MockControl() map[string]string { return c.Control }
 
-// GetEnv returns the labeled entry's env map. Lets shared code (see
-// operations.LLMEnvFor) reach a decoded config's Env through an interface
-// assertion instead of a concrete-type switch — internal/operations may not
-// import engine plugin packages directly (ADR-0026), and MockConfig lives in
-// internal/lm/backends itself (the injected seam), not an engine plugin, but
-// keeps the same accessor shape as ClaudeConfig for one uniform
-// call in LLMEnvFor.
-func (c MockConfig) GetEnv() map[string]string { return c.Env }
+// MockControl returns the labeled entry's test-control map. Shared code (see
+// operations.MockControlFor) reaches it through an interface assertion rather
+// than a concrete-type switch: internal/operations must not branch on a
+// backend's identity (ADR-0026), and the four mock doubles each carry their
+// own config type, so one structural accessor serves them all.
+func (c MockConfig) MockControl() map[string]string { return c.Control }
 
 // NewMock creates a new Mock backend.
 //

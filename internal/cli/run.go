@@ -898,7 +898,7 @@ func (st *runState) gateStartup() error {
 // axis, the assembled context (including a full resume folded into it), the
 // execution mode, the prompt fragment, and the work directory.
 func (st *runState) prepareRequestInputs() {
-	st.llmEnv = operations.LLMEnvFor(st.cfg, st.label)
+	st.llmEnv = operations.MockControlFor(st.cfg, st.label)
 
 	// The session's WORKSPACE axis: the invocation flag wins, else the
 	// project `workspace:` default. A session trait — never read from the

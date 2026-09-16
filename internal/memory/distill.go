@@ -25,8 +25,9 @@ type DistillConfig struct {
 	LLM string
 	// Model selects the model within the plugin (e.g. "haiku", "sonnet").
 	Model string
-	// Env is the resolved LLM label's config-declared environment
-	// (llm.configs.<label>.env). Distill declares LaunchFormMinimal, which
+	// Env is the resolved LLM label's request-borne environment (the mock's
+	// test-control map, operations.MockControlFor; a real engine's
+	// environment is ambient). Distill declares LaunchFormMinimal, which
 	// states that this run has NO managed surfaces at all, so the request is the
 	// only channel that can carry it.
 	Env map[string]string

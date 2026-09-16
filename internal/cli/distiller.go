@@ -63,7 +63,7 @@ func newLLMDistillerForLabel(cfg *config.Config, label string) (operations.Disti
 	return &llmDistiller{
 		llmName:  backend,
 		llmLabel: label,
-		llmEnv:   operations.LLMEnvFor(cfg, label),
+		llmEnv:   operations.MockControlFor(cfg, label),
 		model:    model,
 		prompt:   prompt,
 	}, nil

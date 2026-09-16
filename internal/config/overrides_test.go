@@ -115,36 +115,23 @@ func TestOverrides_WithOverridesTestSeamDoesNotMutateProcessState(t *testing.T) 
 	assert.Equal(t, confload.Overrides{}, currentOverrides())
 }
 
-// TestConfig_EnvMapKeyCasePreserved is the end-to-end guard for the package's
-// ABSOLUTE CONSTRAINT: viper must never decode a config file, because it
-// lowercases every map key -- which would corrupt a case-sensitive
-// pass-through map like an LLM backend's `env` block (see ctxloom commit
-// 26f96c7: a backend's `env: {GEMINI_API_KEY: ...}` reached the launched
-// process as `gemini_api_key`, so the engine never saw its credential). This
-// exercises the FULL four-layer load (file + env-override resolution +
-// remarshal/unmarshal into cfg) to prove the constraint holds end to end, not
-// just in isolated unit tests of the file-reading step.
-func TestConfig_EnvMapKeyCasePreserved(t *testing.T) {
-	// llm.configs.*.env is ScopeMachine (internal/config/layerscope):
-	// credential passthrough, where a value living in the COMMITTED,
-	// multi-author project file is a leaked secret. So this now has to live
-	// in the HOME layer to be honored at all -- writeProjectConfig's
-	// isolated $HOME (via testsupport.ProjectDir) is where it's written.
-	writeProjectConfig(t, "version: 6\n")
-
-	home, err := os.UserHomeDir()
-	require.NoError(t, err)
-	homeAppDir := filepath.Join(home, AppDirName)
-	require.NoError(t, os.MkdirAll(homeAppDir, 0o755))
-	require.NoError(t, os.WriteFile(paths.ConfigPath(homeAppDir), []byte(`version: 6
+// TestConfig_BodyMapKeyCasePreserved pins the invariant that the config load
+// path never routes the document through a decoder that lowercases map keys
+// -- which would corrupt a case-sensitive pass-through map in an LLM label's
+// Body (the mock's control map today; once a backend's credential block,
+// which reached the launched process lower-cased so the engine never saw
+// it). This exercises the FULL four-layer load (file + env-override
+// resolution + remarshal/unmarshal into cfg) to prove the constraint holds
+// end to end, not just in isolated unit tests of the file-reading step.
+func TestConfig_BodyMapKeyCasePreserved(t *testing.T) {
+	writeProjectConfig(t, `version: 6
 llm:
   configs:
-    big:
-      type: claude-code
-      model: opus
-      env:
-        GEMINI_API_KEY: secret
-`), 0o644))
+    m:
+      type: mock
+      mock_control:
+        CTXLOOM_MOCK_RESPONSE: canned
+`)
 
 	// An unrelated env override elsewhere in the tree must not perturb the
 	// case-sensitive map -- exercising the override resolution path
@@ -158,10 +145,10 @@ llm:
 	cfg, err := Load()
 	require.NoError(t, err)
 
-	entry, ok := cfg.lm.Configs["big"]
+	entry, ok := cfg.lm.Configs["m"]
 	require.True(t, ok)
-	assert.Equal(t, "secret", entry.Body["env"].(map[string]any)["GEMINI_API_KEY"],
-		"GEMINI_API_KEY must survive the full load with its exact casing -- viper must never have touched this map")
+	assert.Equal(t, "canned", entry.Body["mock_control"].(map[string]any)["CTXLOOM_MOCK_RESPONSE"],
+		"CTXLOOM_MOCK_RESPONSE must survive the full load with its exact casing -- viper must never have touched this map")
 	assert.Equal(t, "alpha", cfg.editor.Command)
 }
 

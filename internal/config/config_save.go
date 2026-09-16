@@ -107,7 +107,7 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	// c is the FULLY MERGED view Manager.Update's loadUncached produced (home <
 	// project < env < flag), so applyConfigSections wrote every section it
 	// carries regardless of which layer contributed it — a Machine-scoped value
-	// set ONLY in home (editor.command, llm.configs.*.env, ...) included. Writing
+	// set ONLY in home (editor.command, llm.configs.*.binary_path, ...) included. Writing
 	// that into configPath is exactly the leak internal/config/layerscope closes:
 	// the file being written IS the project layer whenever a separate home layer
 	// also exists (c.source == SourceProject), and Scope.Allows(LayerProject)

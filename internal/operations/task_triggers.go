@@ -255,7 +255,7 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 		// run with bounded concurrency — rather than one call for the whole
 		// miss set. See defaultTriageChunkSize for why: a big-enough single
 		// call makes the model silently drop tasks from its JSON response.
-		chunkResults := runTriageChunks(ctx, chunkMissTasks(missTasks, missInputs, chunkSize), batch, factory, backendName, label, model, cfg.LabelEnv(label))
+		chunkResults := runTriageChunks(ctx, chunkMissTasks(missTasks, missInputs, chunkSize), batch, factory, backendName, label, model, MockControlFor(cfg, label))
 
 		// A verdict is cacheable once it is a GENUINE model answer — anything
 		// the model actually returned this round, including a
@@ -296,7 +296,7 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 			backendName:    backendName,
 			label:          label,
 			model:          model,
-			env:            cfg.LabelEnv(label),
+			env:            MockControlFor(cfg, label),
 			gitClient:      gitClient,
 			repoDir:        req.RepoDir,
 			otherByHarp:    allByHarp,
@@ -478,12 +478,12 @@ func runTriageCall(ctx context.Context, factory pb.ClientFactory, backendName, l
 		Options: &pb.RunOptions{
 			Mode:  pb.ExecutionMode_ONESHOT,
 			Model: model,
-			// The label's declared environment, which this call omitted
-			// entirely while claiming to mirror runDistill — it copied that
-			// seam's shape from BEFORE runDistill was fixed. Without it a
-			// backend whose credentials live in llm.configs.<label>.env runs
-			// unconfigured, which does not error: the model just answers
-			// badly, and every trigger degrades to cannot-determine.
+			// The label's request-borne environment (MockControlFor), which
+			// this call omitted entirely while claiming to mirror runDistill —
+			// it copied that seam's shape from BEFORE runDistill was fixed.
+			// Without it the mock runs without its knobs, which does not
+			// error: the model just answers badly, and every trigger degrades
+			// to cannot-determine.
 			Env: env,
 			// Headless triage declares no managed surfaces: no hooks, no
 			// commands, no context writes.

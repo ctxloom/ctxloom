@@ -19,10 +19,6 @@ Remove a labeled LLM engine config from the 'llm.configs' key of
 Bare invocation reports what would be removed and removes nothing (exit 0).
 Pass --yes to apply it.
 
-This does NOT touch any credential recorded for the label in your home
-config (~/.ctxloom/config.yaml, llm.configs.<label>.env — machine-scoped,
-and potentially still used by another project binding the same label).
-
 ```
 ctxloom llm remove <label> [flags]
 ```

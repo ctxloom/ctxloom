@@ -50,9 +50,9 @@ type Agent struct {
 	Name string `yaml:"-"`
 
 	// LLM is the llm.configs LABEL this binding selects; overrides the
-	// profiles' llm. It is not an engine: a label names an engine AND a model
-	// AND its credentials, and GLOSSARY.md reserves "engine" for what the
-	// runner drives. `--llm` is the flag that sets it.
+	// profiles' llm. It is not an engine: a label names an engine AND a
+	// model, and GLOSSARY.md reserves "engine" for what the runner drives.
+	// `--llm` is the flag that sets it.
 	//
 	// The retired spelling `engine` is REFUSED at load rather than ignored —
 	// see RetiredLLMKey.
@@ -298,7 +298,7 @@ const RetiredLLMKey = "engine"
 // people guessing has moved the cost rather than paid it.
 var ErrRetiredLLMKey = errors.New(
 	"agent uses the retired key 'engine:'; it is now 'llm:' — it selects an llm.configs label " +
-		"(engine + model + credentials), not an engine")
+		"(engine + model), not an engine")
 
 // RetiredCoordinatorKey is the REMOVED per-agent delegation-privilege flag.
 //

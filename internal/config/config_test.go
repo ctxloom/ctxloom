@@ -98,6 +98,57 @@ func TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored(t *testing.T) {
 	assert.Contains(t, found.Text, "delegation.concurrency", "the warning must name the CURRENT key, not just reject the old one")
 }
 
+// TestLoad_RetiredLLMEnvKeyRefusedNotIgnored pins the retirement of
+// llm.configs.<label>.env: ctxloom no longer carries an engine's environment
+// or credentials in its config at all (every engine authenticates itself
+// from the ambient environment, and the launched process inherits it), so a
+// config still spelling the key must FAIL LOUD and name the replacement —
+// never decode into a dead Body key that nothing reads, which would leave a
+// user believing their variable reached the engine.
+//
+// Same contract as TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored: Load()
+// records the refusal as a fatal-class Warning naming both the retired key
+// and its replacement; ParseConfig (the init path, which returns decode
+// errors outright) surfaces the sentinel itself.
+func TestLoad_RetiredLLMEnvKeyRefusedNotIgnored(t *testing.T) {
+	const doc = "version: 6\nllm:\n  configs:\n    big:\n      type: claude-code\n      env:\n        ANTHROPIC_API_KEY: sk-secret\n"
+
+	t.Run("Load records a fatal-class warning naming the key, the label and the replacement", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		testsupport.WriteFileString(t, fs, "/proj/.ctxloom/config.yaml", doc, 0644)
+
+		cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+
+		var found *Warning
+		for _, w := range cfg.GetWarnings() {
+			if strings.Contains(w.Text, ErrRetiredLLMEnvKey.Error()) {
+				found = &w
+			}
+		}
+		require.NotNil(t, found, "a config carrying llm.configs.<label>.env must record the refusal, not silently ignore it: %+v", cfg.GetWarnings())
+		assert.Contains(t, found.Text, `"big"`, "the refusal must name the label carrying the key")
+		assert.Contains(t, found.Text, "ambient environment", "the refusal must name the replacement, not just reject the key")
+		_, decoded := cfg.GetLLMEntry("big")
+		assert.False(t, decoded, "a refused document must not half-decode into a label whose env silently went nowhere")
+	})
+
+	t.Run("ParseConfig returns the sentinel", func(t *testing.T) {
+		_, err := ParseConfig([]byte(doc))
+		require.ErrorIs(t, err, ErrRetiredLLMEnvKey)
+	})
+
+	t.Run("the mock's control channel is not the retired key", func(t *testing.T) {
+		const mockDoc = "version: 6\nllm:\n  configs:\n    m:\n      type: mock\n      mock_control:\n        CTXLOOM_MOCK_RESPONSE: canned\n"
+		cfg, err := ParseConfig([]byte(mockDoc))
+		require.NoError(t, err)
+		entry, ok := cfg.GetLLMEntry("m")
+		require.True(t, ok)
+		assert.Equal(t, map[string]any{"CTXLOOM_MOCK_RESPONSE": "canned"}, entry.Body["mock_control"])
+	})
+}
+
 // =============================================================================
 // Default Plugin Tests
 // =============================================================================
@@ -552,47 +603,37 @@ agents:
 	assert.Equal(t, SourceProject, cfg.source)
 }
 
-// TestLoad_PreservesEnvKeyCase is a regression guard: the Load path must not
-// lowercase case-sensitive keys inside a backend's polymorphic Body. The previous
-// decoder (viper) lowercased every key, so `env: {SOME_API_KEY: ...}` reached the
-// launched process as `some_api_key` and the engine never saw its credential.
-// ParseConfig (init) was always correct, which masked the divergence.
-//
-// llm.configs.*.env is ScopeMachine (internal/config/layerscope): credential
-// passthrough, where a committed PROJECT-file value is a leaked secret. So
-// this fixture now lives in the HOME layer — $HOME is pinned to a fixed path
-// on the SAME memfs so Load's home-layer resolution is deterministic.
-func TestLoad_PreservesEnvKeyCase(t *testing.T) {
-	t.Setenv("HOME", "/home/u")
+// TestLoad_PreservesBodyMapKeyCase is a regression guard: the Load path must
+// not lowercase case-sensitive keys inside a backend's polymorphic Body. The
+// previous decoder (viper) lowercased every key, so a `SOME_KEY` inside a
+// label's map reached the launched process as `some_key` and the engine never
+// saw it. ParseConfig (init) was always correct, which masked the divergence.
+// The mock's control map is the case-sensitive Body map that survives today.
+func TestLoad_PreservesBodyMapKeyCase(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 3\n"), 0644))
-
-	homeAppDir := "/home/u/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(homeAppDir, 0755))
 	configContent := `
 version: 3
 llm:
   configs:
-    agy:
-      type: antigravity
-      env:
-        SOME_API_KEY: secret
+    m:
+      type: mock
+      mock_control:
+        CTXLOOM_MOCK_RESPONSE: canned
         Mixed_Case: x
   defaults:
-    primary: agy
+    primary: m
 `
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir), []byte(configContent), 0644))
+	testsupport.WriteFileString(t, fs, paths.ConfigPath(appDir), configContent, 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 
-	env, ok := cfg.lm.Configs["agy"].Body["env"].(map[string]any)
-	require.True(t, ok, "env should decode into Body as a map, got %#v", cfg.lm.Configs["agy"].Body["env"])
-	assert.Equal(t, "secret", env["SOME_API_KEY"], "uppercase env key must be preserved verbatim")
-	assert.Contains(t, env, "Mixed_Case")
-	assert.NotContains(t, env, "some_api_key", "env key must not be lowercased")
+	control, ok := cfg.lm.Configs["m"].Body["mock_control"].(map[string]any)
+	require.True(t, ok, "mock_control should decode into Body as a map, got %#v", cfg.lm.Configs["m"].Body["mock_control"])
+	assert.Equal(t, "canned", control["CTXLOOM_MOCK_RESPONSE"], "uppercase key must be preserved verbatim")
+	assert.Contains(t, control, "Mixed_Case")
+	assert.NotContains(t, control, "ctxloom_mock_response", "key must not be lowercased")
 }
 
 func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {

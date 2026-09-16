@@ -22,16 +22,9 @@ existing one with 'ctxloom llm edit'.
 omit it to keep claude-code's default. --model sets the model string. --permissions
 sets the launch-time posture (default|acceptEdits|plan|bypass).
 
-CREDENTIALS ARE WITHHELD. --env-file reads KEY=VALUE lines (one per line;
-blank lines and #-comment lines are skipped) from a file, or from stdin with
-"-", and REPLACES the entry's entire declared env block — there is no
---env flag, and no other way to set one: a credential must never travel
-through argv, where it would reach shell history, the process table, and
-any CI log capturing the command line. The values themselves are written
-straight to your PER-MACHINE user config (~/.ctxloom/config.yaml, never a
-committed project file — llm.configs.*.env is machine-scoped by design).
-'llm list' and this command's own confirmation report only which keys are
-declared, never their values.
+An entry carries NO credentials and no environment: the engine authenticates
+itself and reads its environment from the shell that runs ctxloom, so export
+a variable there — ctxloom's config is not where it goes.
 
 Examples:
   ctxloom llm create big --type claude-code --model claude-opus-4-8
@@ -44,7 +37,6 @@ ctxloom llm create <label> [flags]
 ### Options
 
 ```
-      --env-file string      read KEY=VALUE env/credential lines from this file ('-' for stdin); REPLACES the entry's whole env block
       --model string         model string
       --permissions string   permission posture: default|acceptEdits|plan|bypass
       --type string          backend discriminator: claude-code (empty = claude-code)

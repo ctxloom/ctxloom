@@ -147,9 +147,9 @@ func TestSetBlacklist_ContentRejectWriteFailure_NotFalselyReported(t *testing.T)
 		"the distilled content-reject write failed and must NOT be reported as recorded — inverting the error check would report it anyway")
 
 	// Prove it from the store itself, not just the report.
-	_, rawOK := store.VerifiedContentReject(signing.AttestFragmentRaw, []byte("raw body"), fx.root, time.Now())
+	_, rawOK := store.VerifiedContentReject(signing.AttestFragmentRaw, fragmentBytes("raw body"), fx.root, time.Now())
 	assert.True(t, rawOK, "the raw content-reject that succeeded must actually verify from the store")
-	_, distilledOK := store.VerifiedContentReject(signing.AttestFragmentDistilled, []byte("distilled body"), fx.root, time.Now())
+	_, distilledOK := store.VerifiedContentReject(signing.AttestFragmentDistilled, fragmentBytes("distilled body"), fx.root, time.Now())
 	assert.False(t, distilledOK, "the distilled content-reject write failed and must not verify as recorded")
 
 	// The sticky ref-level block itself is unaffected by the later content

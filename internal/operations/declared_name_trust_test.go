@@ -201,7 +201,7 @@ func TestDeclaredName_ContentRejectionSurvivesADeclaredRename(t *testing.T) {
 	gate, fx := declaredNameGate(t)
 
 	// The bytes are rejected by CONTENT, with no ref component at all.
-	fx.rejectContent(trust.KindFragment, signing.FormRaw, []byte(rejectedBody))
+	fx.rejectContent(trust.KindFragment, signing.FormRaw, fragmentBytes(rejectedBody))
 
 	// A project bundle declaring a name unrelated to anything the rejection
 	// mentioned, shipping those exact bytes.
@@ -305,5 +305,5 @@ func TestDeclaredName_SelfRenameDoesNotEscapeAnExistingRejection(t *testing.T) {
 // keeper fragment at the ref the loader derives for it.
 func approveRemoteKeeper(t *testing.T, fx *trustFixture, body string) {
 	t.Helper()
-	fx.approve(pipelineItemRef(t, impostorRemoteRef+"#fragments/keeper"), signing.FormRaw, []byte(body))
+	fx.approve(pipelineItemRef(t, impostorRemoteRef+"#fragments/keeper"), signing.FormRaw, fragmentBytes(body))
 }

@@ -26,7 +26,18 @@ import (
 // EffectiveContentHash primitives the gate's preimage is defined by.
 
 // Fixture bodies. Kept as constants so the digests below can be verified by
-// hand (`printf '%s' "<body>" | sha256sum`) without running Go.
+// hand without running Go. A COMMAND's preimage is its bare body:
+//
+//	printf '%s' "<body>" | sha256sum
+//
+// A FRAGMENT's preimage is signing.FragmentPreimage over (premise, body) —
+// these fixtures carry no premise, so:
+//
+//	printf 'ctxloom-fragment/1\npremise-len: 0\ncontent-len: %d\n\n\n%s' "${#body}" "$body" | sha256sum
+//
+// The fragment digests moved ONCE, deliberately, when the premise entered the
+// preimage under that contract string; the command digests did not move, which
+// is what shows commands were untouched by it.
 const (
 	charFragRaw       = "raw fragment body"
 	charFragDistilled = "distilled fragment body"
@@ -41,10 +52,10 @@ const (
 
 // Independently computed sha256 digests of the bodies above.
 const (
-	hashFragRaw       = "sha256:d9278a245677b35d9603d6d76105be3a4b2d6da61c9f9acbd945321353c47081"
-	hashFragDistilled = "sha256:c92ed50f90a39675a8ce929db96c9cc377891b13c084b1fd24c318b1976bdb13"
-	hashFragPlain     = "sha256:f04ae31f7a1394e4bd03dd3eef8b8cd24d947a225352dccf83c1e12afb7aef5b"
-	hashFragNoDistill = "sha256:2cb30dc9731a83d9da26c7f20a91e81ef5445354e49fa7286a1256220fe665d4"
+	hashFragRaw       = "sha256:80db856affbc3ee7c0ed656cad590673ed2416867bd307a1a023d034a22042a9"
+	hashFragDistilled = "sha256:b697beba57b970d5e92f5dc08bf6581dcefb367f0f430bb1ff4e966b8f089606"
+	hashFragPlain     = "sha256:d495f54e8c396f53225661e480da5fe6c697262cd6cdced12a910526a0334029"
+	hashFragNoDistill = "sha256:a4bb261976ae0804d8fc8ac58982c084586df5b406b3ed576161394e6215914f"
 
 	hashCmdRaw       = "sha256:84ec2a0a544d3f810cdefd65b3a326a644bade59cb91b222bb6682cbfb0b111c"
 	hashCmdDistilled = "sha256:1a8000f368488ce188bd3d59e069640a3e93a43785c17436aef6da0683dacb47"

@@ -334,8 +334,8 @@ signatures that will never verify:
 
 | item kind (`trust.ItemKind`) | layout form | `form:` field | `payload_bytes` | preimage builder |
 |---|---|---|---|---|
-| `fragment` | raw | `fragment/raw` | the fragment's authored content | `BundleFragment.ContentPayload` |
-| `fragment` | distilled | `fragment/distilled` | the fragment's distilled rewrite | `BundleFragment.ContentPayload` |
+| `fragment` | raw | `fragment/raw` | `signing.FragmentPreimage` over (premise, authored content) — §3.3.3 | `BundleFragment.ContentPayload` |
+| `fragment` | distilled | `fragment/distilled` | `signing.FragmentPreimage` over (premise, distilled rewrite) — §3.3.3 | `BundleFragment.ContentPayload` |
 | `prompt` (a command) | raw | `command/raw` | the command's authored content | `BundleCommand.ContentPayload` |
 | `prompt` (a command) | distilled | `command/distilled` | the command's distilled rewrite | `BundleCommand.ContentPayload` |
 | `mcp` | raw (its only form) | `exec/mcp` | `BundleMCP` canonical JSON (Command, Args, Env, Installation) | `BundleMCP.ContentPayload` |
@@ -346,17 +346,20 @@ A ref-reject binds no content, so its `form:` field is empty (§5.3).
 
 **Why the form is composite, and why this is security-load-bearing.** An approval
 attests bytes IN A ROLE, and the role is not recoverable from the bytes. A
-fragment's and a command's payloads are BARE content bytes — no tag, no length
-prefix, no delimiter — while exec and skill payloads are deterministic JSON with
-every field always emitted. So a publisher can ship a FRAGMENT whose body is
-literally an MCP server's preimage alongside the matching MCP server: byte
-EQUALITY, no collision search. A reviewer is shown that fragment as TEXT
-(fragments render as content; executables render as "what they run") and approves
+command's payload is BARE content bytes — no tag, no length prefix, no delimiter
+— while exec and skill payloads are deterministic JSON with every field always
+emitted, and a fragment's is a framed preimage (§3.3.3) whose body is carried
+verbatim. So a publisher can ship a COMMAND whose body is literally an MCP
+server's preimage alongside the matching MCP server: byte EQUALITY, no collision
+search. A reviewer is shown that command as TEXT
+(text items render as content; executables render as "what they run") and approves
 it. If the two shared an approval key, the executable would then be trusted having
 NEVER been displayed as an executable — the dangerous rendering is exactly the step
 skipped for an already-approved item. Folding the role into the signed form value
 makes them different signed bytes, so no such transfer is possible. The same holds
-one axis over, for fragment vs command, which are otherwise indistinguishable.
+one axis over, for fragment vs command: the fragment frame makes their bytes
+differ today, but the role is bound in the form so that this never has to be
+relied on.
 
 **Routing never reads this value.** What an item IS, and how it is rendered and
 dispatched, comes from the surface-type registry. A registry name with no
@@ -370,7 +373,7 @@ There is **exactly one** definition of "the bytes of item X in form F": the
 function's output, and the signer signs precisely that function's output. Two
 definitions is the bug.
 
-### 3.3 The two honest caveats — do not paper over these
+### 3.3 The honest caveats — do not paper over these
 
 1. **The countersignature payload for text items is parser-dependent.** It is the
    YAML scalar *after* `yaml.v3` decodes block scalars, escapes, and line endings.
@@ -392,6 +395,17 @@ definitions is the bug.
    safe (fail-closed) but is a nasty surprise. Therefore the exec preimage is
    **versioned** — see §3.3.2. This is the one place the "no canonicalization" rule
    cannot be honored, and it must be called out in the implementer brief.
+3. **The fragment payload is a FRAMING over two raw byte strings, not the bare
+   body.** A fragment has two presented surfaces: the body the agent receives and
+   the premise the agent selects on (the premise index). Signing the body alone
+   leaves the selection key unsigned, and that is not an injection hole but a
+   SUPPRESSION one: rewrite a guardrail's premise to a condition that never
+   holds, leave its body byte-identical, and every approval still verifies while
+   the guardrail silently never enters context. So the fragment payload binds
+   both — see §3.3.3. It is a framing in exactly the sense §3.2 is (declared
+   lengths, closed preamble, no canonicalization of either field), and it is
+   versioned for the same reason the exec preimage is: adding a presented field
+   must be an announced invalidation, never a silent one.
 
 #### 3.3.2 The versioned exec preimage — `ctxloom-exec/1`
 
@@ -410,6 +424,55 @@ would satisfy an order-insensitive compare and still be wrong.
 
 The constant is `signing.ExecPreimageContract`. Third parties depend on this string;
 it is a public contract (§12), not an implementation detail.
+
+#### 3.3.3 The framed fragment preimage — `ctxloom-fragment/1`
+
+`payload_bytes` for a fragment, in either layout form, is `signing.FragmentPreimage`:
+
+```
+"ctxloom-fragment/1\n"
+"premise-len: " <decimal byte length of premise> "\n"
+"content-len: " <decimal byte length of content> "\n"
+"\n"
+<premise> "\n"
+<content>
+```
+
+where `content` is the body in the attested layout form (authored for
+`fragment/raw`, distilled rewrite for `fragment/distilled`) and `premise` is the
+fragment's applicability condition, empty for an unconditional fragment. Every
+fragment is framed this way; there is no bare-bytes arm for the premise-less
+case, because a second shape for the common case would be a second definition of
+"the bytes of this fragment".
+
+**The invariant this serves: the signed preimage is exactly what is presented.**
+Both directions are failures. Presented but not signed is the suppression attack
+in §3.3 caveat 3. Signed but never presented is a spurious invalidation — an
+edit to a human-only field (`notes`, `installation`) re-gating a fragment the
+agent sees unchanged — which trains reviewers to re-approve reflexively, and a
+re-approval habit is how real tampering gets waved through. The frame therefore
+covers the two presented values and nothing else; `bundles.FragmentSurface` is
+the model of "presented", the preimage is computed from it, and a reflective
+test refuses any `BundleFragment` field that is neither on that surface nor
+explicitly classified as non-presented.
+
+**This is a framing, not a canonicalization.** Neither field is normalised,
+re-encoded or re-ordered; both are carried verbatim and their lengths are
+declared up front, so no byte inside either can move the boundary and two
+distinct (premise, content) pairs never frame to the same bytes. The parser
+caveat in §3.3 item 1 applies unchanged — both strings are `yaml.v3` scalars.
+
+**It is versioned, and position is part of the contract**, for the reason in
+§3.3.2: the next presented field must arrive as a bump of
+`signing.FragmentPreimageContract`, which turns a silent mass invalidation of
+every fragment approval into an announced one. Introducing the frame was itself
+that event: every fragment approval and content-reject recorded over bare bytes
+stopped matching and returned to pending (fail-closed; ref-rejects, publisher
+signatures and every other kind were unaffected).
+
+`ctxloom review` shows a fragment as these exact bytes — the same rule as the
+exec kinds, which render their preimage — so the premise a reviewer approves is
+on the screen and a premise edit appears in the diff.
 
 ---
 

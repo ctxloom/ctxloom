@@ -70,9 +70,12 @@ type ItemRead struct {
 	// Commands never carry one. See BundleFragment.Premise.
 	Premise string
 
-	// Forms is every form of this item the store holds — the read's answer to
-	// "what have you got", with nothing picked.
-	Forms ContentForms
+	// Resolve is the item's own process-stage resolution (BundleFragment /
+	// BundleCommand.Resolve), carried from the read UNCALLED: the read has no
+	// form preference and picks nothing. The process stage calls it once and
+	// gets served bytes, form and gate preimage from that single call — never
+	// re-deriving "the bytes of this item" from separate fields.
+	Resolve func(preferDistilled bool) ItemSurface
 
 	// TrustRef is the ref the trust gate keys this item by: the canonical
 	// bundle-reference grammar's item selector (ItemRefFor,
@@ -254,8 +257,8 @@ func (c Catalog) ListAllCommands() ([]ContentInfo, error) {
 // "I do not have this" is a read fact. "You may not see this" is not, and this
 // method never says it.
 //
-// It carries NO form preference. What comes back holds every form the store has
-// for the item (ItemRead.Forms); the process stage picks.
+// It carries NO form preference. What comes back can resolve every form the
+// store has for the item (ItemRead.Resolve); the process stage picks.
 func (c Catalog) ReadFragment(name string) ([]*ItemRead, error) {
 	ask, err := ParseItemAsk(name)
 	if err != nil {
@@ -341,7 +344,7 @@ func fragmentRead(read BundleRead, fragName string, frag BundleFragment) (*ItemR
 		Installation: frag.Installation,
 		DistilledBy:  frag.DistilledBy,
 		Premise:      frag.Premise,
-		Forms:        frag.Forms(),
+		Resolve:      frag.Resolve,
 		TrustRef:     trustRef,
 		Signer:       bundle.Signer(),
 		Read:         read,
@@ -474,7 +477,7 @@ func commandRead(read BundleRead, promptName string, prompt BundleCommand) (*Ite
 		Installation: prompt.Installation,
 		DistilledBy:  prompt.DistilledBy,
 		LLM:          prompt.LLM,
-		Forms:        prompt.Forms(),
+		Resolve:      prompt.Resolve,
 		TrustRef:     trustRef,
 		Signer:       bundle.Signer(),
 		Read:         read,

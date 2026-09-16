@@ -231,7 +231,7 @@ func TestSameNamedBundles_ContentRejectStillFollowsIdenticalBytes(t *testing.T) 
 	require.True(t, containsFragmentRef(cfg.ResolveBuiltinBundleFragments(gate), builtinIsolationFragmentRef))
 
 	// No ref anywhere in this write: bytes only.
-	fx.rejectContent(trust.KindFragment, signing.FormRaw, []byte(body))
+	fx.rejectContent(trust.KindFragment, signing.FormRaw, fragmentBytes(body))
 
 	_, err = pipe.GetFragment(projectFragmentRef)
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld),

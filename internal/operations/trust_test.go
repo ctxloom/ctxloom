@@ -673,7 +673,7 @@ func TestSetBlacklist_WritesBothComponents(t *testing.T) {
 
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
 	// The exact rejected bytes (the "solid" fragment body from seededLoader).
-	rejectedPayload := []byte("always raw fragment body")
+	rejectedPayload := fragmentBytes("always raw fragment body")
 
 	// Same bytes → denied via the rejected step, even from a TRUSTED publisher.
 	got, _ := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: rejectedPayload, Form: rawForm, Signer: trustedPublisher, Records: fx.records()})
@@ -707,9 +707,9 @@ func TestSetBlacklist_RejectsBothForms(t *testing.T) {
 
 	// Both forms verify as content-rejected — content-reject is deliberately
 	// ref-omitted, so it is never queried under a ref at all.
-	_, ok := fx.user.VerifiedContentReject(signing.AttestFragmentRaw, []byte("raw body"), fx.root, time.Now())
+	_, ok := fx.user.VerifiedContentReject(signing.AttestFragmentRaw, fragmentBytes("raw body"), fx.root, time.Now())
 	assert.True(t, ok)
-	_, ok = fx.user.VerifiedContentReject(signing.AttestFragmentDistilled, []byte("distilled body"), fx.root, time.Now())
+	_, ok = fx.user.VerifiedContentReject(signing.AttestFragmentDistilled, fragmentBytes("distilled body"), fx.root, time.Now())
 	assert.True(t, ok)
 }
 

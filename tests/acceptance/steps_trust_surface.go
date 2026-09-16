@@ -142,15 +142,17 @@ func tsDualFormTreeItems() map[string]string {
 }
 
 // tsCollisionTreeItems builds the item-file map for the text->exec collision
-// fixture: a fragment whose body is byte-for-byte execPayload (the MCP server's
+// fixture: a command whose body is byte-for-byte execPayload (the MCP server's
 // executable preimage) and the MCP server itself. execPayload rides through
 // as raw bytes — not %q, not wrapped in front-matter — because the whole
-// point of the fixture is that the fragment's stored payload equals the exec
-// preimage exactly.
+// point of the fixture is that the command's stored payload equals the exec
+// preimage exactly. It is a command rather than a fragment because a
+// fragment's payload is its framed surface (signing.FragmentPreimage) and can
+// never equal an exec preimage.
 func tsCollisionTreeItems(execPayload []byte) map[string]string {
 	return map[string]string{
-		"fragments/context.md": string(execPayload),
-		"mcp/toolserver.yaml":  fmt.Sprintf("command: %q\nargs: [%q]\n", tsCollisionMCP().Command, tsMCPMarker),
+		"prompts/guide.md":    string(execPayload),
+		"mcp/toolserver.yaml": fmt.Sprintf("command: %q\nargs: [%q]\n", tsCollisionMCP().Command, tsMCPMarker),
 	}
 }
 
@@ -1093,13 +1095,13 @@ func tsCountersignRef(cliRef string) (string, error) {
 //
 // The scenario's delivered-surface half CANNOT fail: an approval is keyed by
 // ref AND form, trust.Ref.Key bakes the item KIND into the ref, and the fixture's
-// two items are #fragments/context and #mcp/toolserver — so the ref component
+// two items are #commands/guide and #mcp/toolserver — so the ref component
 // alone already separates them and the role plays no part (audit
 // irate-catfish, F4). This reads the ROLE out of the store instead, over the
 // one payload both items share.
 //
 // Before the executable has been approved (mcpApproved=false) the text's
-// approval must exist under fragment/raw and NOTHING may cover those bytes as
+// approval must exist under command/raw and NOTHING may cover those bytes as
 // exec/mcp. After it has, BOTH roles must be on record, each under its own ref
 // — and neither may have been written under the other's form, which is exactly
 // what a collapsed form mapping would produce.
@@ -1109,7 +1111,7 @@ func tsAssertCollisionRoles(w *World, mcpApproved bool) error {
 	if err != nil {
 		return fmt.Errorf("build the mcp executable preimage: %w", err)
 	}
-	fragRef, err := tsCountersignRef(tsRef(w, "fragments/context"))
+	textRef, err := tsCountersignRef(tsRef(w, "commands/guide"))
 	if err != nil {
 		return err
 	}
@@ -1121,21 +1123,21 @@ func tsAssertCollisionRoles(w *World, mcpApproved bool) error {
 
 	// The text's decision, in the text's role. True in both phases: approving
 	// the executable must not disturb or absorb it.
-	if !store.HasUnsignedApprove(fragRef, signing.AttestFragmentRaw, payload) {
+	if !store.HasUnsignedApprove(textRef, signing.AttestCommandRaw, payload) {
 		return fmt.Errorf("no approval of %s is on record under %q over the %d shared bytes — Alice approved the fragment, "+
-			"so this is the decision she actually made", fragRef, signing.AttestFragmentRaw, len(payload))
+			"so this is the decision she actually made", textRef, signing.AttestCommandRaw, len(payload))
 	}
 	// A decision may never be recorded under the OTHER item's role. Under a
 	// collapsed mapping (exec/mcp folded onto fragment/raw) the executable's
 	// approval lands here.
-	if store.HasUnsignedApprove(mcpRef, signing.AttestFragmentRaw, payload) {
+	if store.HasUnsignedApprove(mcpRef, signing.AttestCommandRaw, payload) {
 		return fmt.Errorf("an approval of the EXECUTABLE %s is on record under the TEXT role %q: the two roles share a key, "+
-			"so approving a fragment and approving the executable whose bytes it copies are the same decision",
-			mcpRef, signing.AttestFragmentRaw)
+			"so approving a command and approving the executable whose bytes it copies are the same decision",
+			mcpRef, signing.AttestCommandRaw)
 	}
-	if store.HasUnsignedApprove(fragRef, signing.AttestExecMCP, payload) {
-		return fmt.Errorf("an approval of the TEXT %s is on record under the EXECUTABLE role %q — approving a fragment "+
-			"must never attest its bytes as something that runs", fragRef, signing.AttestExecMCP)
+	if store.HasUnsignedApprove(textRef, signing.AttestExecMCP, payload) {
+		return fmt.Errorf("an approval of the TEXT %s is on record under the EXECUTABLE role %q — approving a command "+
+			"must never attest its bytes as something that runs", textRef, signing.AttestExecMCP)
 	}
 
 	execOnRecord := store.HasUnsignedApprove(mcpRef, signing.AttestExecMCP, payload)
@@ -1149,12 +1151,12 @@ func tsAssertCollisionRoles(w *World, mcpApproved bool) error {
 			"the text expanded to cover the thing that runs", mcpRef, signing.AttestExecMCP)
 	}
 	w.docStepMaterialized = fmt.Sprintf("countersign store over the %d shared bytes:\n  %s → %s: on record\n  %s → %s: %v",
-		len(payload), fragRef, signing.AttestFragmentRaw, mcpRef, signing.AttestExecMCP, execOnRecord)
+		len(payload), textRef, signing.AttestCommandRaw, mcpRef, signing.AttestExecMCP, execOnRecord)
 	return nil
 }
 
 func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
-	ctx.Step(`^a bundle from an unsigned, never-reviewed publisher ships a fragment whose body is byte-identical to its MCP server's executable preimage$`, func(c context.Context) error {
+	ctx.Step(`^a bundle from an unsigned, never-reviewed publisher ships a command whose body is byte-identical to its MCP server's executable preimage$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
 			return err
@@ -1165,16 +1167,16 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("build the mcp executable preimage: %w", err)
 		}
 		// The collision, verified through the two PRODUCTION preimage builders:
-		// the fragment the reviewer will be shown as text and the executable the
+		// the command the reviewer will be shown as text and the executable the
 		// gate will ask about resolve to identical bytes.
-		frag := bundles.BundleFragment{
+		cmd := bundles.BundleCommand{
 			ItemBody: bundles.ItemBody{
 				Content: string(execPayload),
 			},
 		}
-		fragPayload, _ := frag.ContentPayload(false)
-		if !bytes.Equal(fragPayload, execPayload) {
-			return fmt.Errorf("fixture does not actually collide: fragment payload %q != mcp preimage %q", fragPayload, execPayload)
+		cmdPayload, _ := cmd.ContentPayload(false)
+		if !bytes.Equal(cmdPayload, execPayload) {
+			return fmt.Errorf("fixture does not actually collide: command payload %q != mcp preimage %q", cmdPayload, execPayload)
 		}
 		ts := tsOf(w)
 		root := remoteSingleFilePublishPath(ts.bundleName)
@@ -1191,13 +1193,13 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the copied preimage is present in her assistant's delivered surface as text$`, func(c context.Context) error {
 		w := worldFrom(c)
-		rel := filepath.Join("out", "CLAUDE.md")
+		rel := filepath.Join("out", ".claude", "commands", "trustdemo-guide.md")
 		body, err := w.env.ReadFile(rel)
 		if err != nil {
-			return fmt.Errorf("read materialized %s (materialize output:\n%s): %w", rel, w.env.LastOutput(), err)
+			return fmt.Errorf("read exported command %s (materialize output:\n%s): %w", rel, w.env.LastOutput(), err)
 		}
 		if !strings.Contains(body, tsMCPMarker) {
-			return fmt.Errorf("%s does not carry the approved fragment's body; the approval Alice actually made must be honoured, or this scenario proves nothing:\n%s", rel, body)
+			return fmt.Errorf("%s does not carry the approved command's body; the approval Alice actually made must be honoured, or this scenario proves nothing:\n%s", rel, body)
 		}
 		w.docStepMaterialized = j000400Excerpt(body, tsMCPMarker, 1)
 		return nil

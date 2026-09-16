@@ -479,15 +479,55 @@ type BundleMCP struct {
 // BundleMCP deliberately does NOT embed this: it shares three field names but
 // carries no Content and no distillation, so folding it in would mean a type
 // whose fields are meaningless for a third of its users.
+//
+// Every field is either PRESENTED to the agent — and therefore inside the
+// fragment's trust preimage via FragmentSurface — or carries a `surface:` tag
+// classifying why it never reaches the agent. TestEveryFieldIsClassified
+// reflects over the struct and fails on a field that is neither, so adding a
+// field forces that decision rather than defaulting to unsigned. The tag is
+// what makes "not sent to AI" a checked fact instead of a comment.
 type ItemBody struct {
-	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags)
-	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
+	Tags         []string `yaml:"tags,omitempty" surface:"selection"`     // Additional tags (merged with bundle tags); host-evaluated routing, never shown
+	Notes        string   `yaml:"notes,omitempty" surface:"human"`        // Human-readable notes, not sent to AI
+	Installation string   `yaml:"installation,omitempty" surface:"human"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
 	Content      string   `yaml:"content"`
-	ContentHash  string   `yaml:"content_hash,omitempty"`
+	ContentHash  string   `yaml:"content_hash,omitempty" surface:"derived"` // recorded hash of Content; circular to sign
 	Distilled    string   `yaml:"distilled,omitempty"`
-	DistilledBy  string   `yaml:"distilled_by,omitempty"`
+	DistilledBy  string   `yaml:"distilled_by,omitempty" surface:"provenance"` // which model produced Distilled
 	NoDistill    bool     `yaml:"no_distill,omitempty"`
+}
+
+// surfaceTagKey is the struct tag that classifies a field as NOT presented to
+// the agent. Its value is one of the NonPresented constants; any other value,
+// and any tagged field that nonetheless moves the preimage, fails
+// TestEveryFieldIsClassified.
+const surfaceTagKey = "surface"
+
+// NonPresented names WHY a field never reaches the agent. The reason is the
+// classification: a field with no reason to be outside the surface belongs
+// inside it.
+type NonPresented string
+
+const (
+	// NonPresentedHuman: written for a person to judge — notes, installation
+	// instructions. Editing it changes nothing the agent was shown, so it
+	// must not invalidate an approval.
+	NonPresentedHuman NonPresented = "human"
+	// NonPresentedDerived: computed from presented fields; signing it would be
+	// circular, and a forged value is ignored by every trust path anyway.
+	NonPresentedDerived NonPresented = "derived"
+	// NonPresentedProvenance: records who or what produced a form, never the
+	// form itself.
+	NonPresentedProvenance NonPresented = "provenance"
+	// NonPresentedSelection: routing metadata the HOST evaluates to pick
+	// fragments; the agent never sees it. Contrast Premise, which the AGENT
+	// evaluates and which is therefore presented.
+	NonPresentedSelection NonPresented = "selection"
+)
+
+// surfaceClassifications is the closed vocabulary a `surface:` tag may carry.
+func surfaceClassifications() []NonPresented {
+	return []NonPresented{NonPresentedHuman, NonPresentedDerived, NonPresentedProvenance, NonPresentedSelection}
 }
 
 // BundleFragment defines a fragment within a bundle.
@@ -505,11 +545,14 @@ type BundleFragment struct {
 	// anywhere assembles exactly as it did before. A fragment is opted OUT of
 	// unconditional loading only by being given a premise, never by omission.
 	//
-	// Deliberately NOT part of any content preimage: ContentPayload is the
-	// single definition of "the bytes of this fragment" and a premise is
-	// metadata about when to serve them, not part of them. Adding a premise
-	// therefore leaves an item's content hash, its distillation staleness and
-	// its trust grants untouched.
+	// It is PRESENTED — the premise index puts it in front of the agent — and
+	// so it is inside the trust preimage (FragmentSurface): the premise is the
+	// selection key that decides whether the body is ever seen, and a body
+	// signed under an unsigned premise can be suppressed without breaking its
+	// approval. Adding or editing a premise therefore invalidates the item's
+	// per-item approvals, exactly as editing the body does. It stays outside
+	// the RECORDED content hash (ComputeContentHash), which drives
+	// re-distillation of the body alone.
 	Premise string `yaml:"premise,omitempty"`
 }
 
@@ -597,8 +640,8 @@ func HashPayload(payload []byte) string {
 // resolveEffective is the one shared compute primitive for the distillable item
 // shape. Fragments and prompts carry the same Content/Distilled/NoDistill fields,
 // so this picks the bytes to expose AND reports their form from the same
-// predicate — guaranteeing a hash taken over the result covers exactly the served
-// bytes, with no raw fallback once distilled is chosen.
+// predicate — guaranteeing a preimage built over the result covers exactly the
+// served body, with no raw fallback once distilled is chosen.
 func resolveEffective(preferDistilled bool, content, distilled string, noDistill bool) (string, ContentForm) {
 	if preferDistilled && distilled != "" && !noDistill {
 		return distilled, FormDistilled
@@ -606,43 +649,36 @@ func resolveEffective(preferDistilled bool, content, distilled string, noDistill
 	return content, FormRaw
 }
 
-// ContentForms is EVERY form of a distillable item the store holds: the
-// authored body, its distillation when one exists, and the author's refusal of
-// the distilled form. It is what a READ reports — the read stage has no form
-// preference and picks nothing (docs/design/engine-delivery-seam.design.md,
-// "ALL processing lives in the middle"); the process stage looks at this and
-// decides.
+// ItemSurface is one resolution of a distillable item for a form preference:
+// the bytes the process stage SERVES, the layout form they were selected in,
+// and the bytes the trust gate DECIDES on. All three come from a single call
+// on the item, which is what keeps "served" and "gated" from drifting: the
+// gate cannot be handed bytes the agent will not see, and the agent cannot be
+// handed bytes the gate did not cover.
 //
-// The absence of a distilled form is itself information the caller can see
-// (Distilled == ""), which is why this is a struct of forms rather than one
-// pre-picked body: "there is no distilled form" and "the distilled form was not
-// preferred" are different facts about an item and only the first is a read
-// fact.
-type ContentForms struct {
-	Raw       string // the authored body; always present
-	Distilled string // the distillation, or "" when the store holds none
-	NoDistill bool   // the author forbade serving the distilled form
+// For a command Body and Preimage are the same bytes. For a fragment they are
+// not: the preimage is the framed FragmentSurface (premise included) while the
+// body is what the agent is served — the premise reaches it separately, via
+// the index, and is covered because it is inside the frame.
+type ItemSurface struct {
+	Body     []byte      // the bytes served to the agent
+	Form     ContentForm // the layout form Body was selected in
+	Preimage []byte      // the bytes the trust gate decides on: this kind's ContentPayload
 }
 
-// Select picks the bytes to serve for a form preference and reports the LAYOUT
-// form they were selected in. It routes through resolveEffective — the SAME
-// single compute primitive ContentPayload and EffectiveContentHash use — so
-// what the process stage selects and what the trust preimage covers cannot
-// drift. It only ever PREFERS: an item with no distilled form, or one that
-// forbids distillation, still serves raw.
-func (f ContentForms) Select(preferDistilled bool) ([]byte, ContentForm) {
-	content, form := resolveEffective(preferDistilled, f.Raw, f.Distilled, f.NoDistill)
-	return []byte(content), form
+// Resolve is the process-stage resolution of this fragment: it only ever
+// PREFERS — a fragment with no distilled form, or one that forbids
+// distillation, still serves raw.
+func (f *BundleFragment) Resolve(preferDistilled bool) ItemSurface {
+	s := f.Surface(preferDistilled)
+	return ItemSurface{Body: []byte(s.Body()), Form: s.Form(), Preimage: s.Preimage()}
 }
 
-// Forms reports every form of this fragment the store holds.
-func (f *BundleFragment) Forms() ContentForms {
-	return ContentForms{Raw: f.Content, Distilled: f.Distilled, NoDistill: f.NoDistill}
-}
-
-// Forms reports every form of this command the store holds.
-func (p *BundleCommand) Forms() ContentForms {
-	return ContentForms{Raw: p.Content, Distilled: p.Distilled, NoDistill: p.NoDistill}
+// Resolve is the process-stage resolution of this command. A command's gated
+// bytes ARE its served bytes: it carries no second presented value.
+func (p *BundleCommand) Resolve(preferDistilled bool) ItemSurface {
+	payload, form := p.ContentPayload(preferDistilled)
+	return ItemSurface{Body: payload, Form: form, Preimage: payload}
 }
 
 // staleDistill is the one shared compare primitive: it reports whether a
@@ -675,30 +711,80 @@ func (f *BundleFragment) NeedsDistill() bool {
 	return staleDistill(f.NoDistill, f.Distilled, f.ContentHash, f.Content)
 }
 
+// FragmentSurface is the MODEL of what an agent is shown of a fragment: the
+// premise it selects on and the body it receives, in the form the body was
+// selected in. The trust preimage is computed FROM this model (Preimage), so
+// "presented" and "signed" are the same set by construction rather than by two
+// functions agreeing — a field reaches the agent only by being on the surface,
+// and being on the surface is what puts it in the signed bytes.
+//
+// Its fields are unexported and read through getters so a delivery path
+// cannot reach a human-only field (Notes, Installation) through the agent-
+// surface API: the boundary "not sent to AI" is then a property of the type,
+// not a comment on the field.
+//
+// Membership is checked, not promised: TestEveryFieldIsClassified fails on any
+// BundleFragment field that neither moves Preimage nor carries a `surface:`
+// classification.
+type FragmentSurface struct {
+	premise string
+	body    string
+	form    ContentForm
+}
+
+// Surface resolves what the agent is shown of this fragment for a form
+// preference. Resolve (the process stage's entry point) is built on it, so the
+// body here is exactly the body the pipeline serves.
+func (f *BundleFragment) Surface(preferDistilled bool) FragmentSurface {
+	body, form := resolveEffective(preferDistilled, f.Content, f.Distilled, f.NoDistill)
+	return FragmentSurface{premise: f.Premise, body: body, form: form}
+}
+
+// Premise is the applicability condition the agent evaluates; "" means the
+// fragment loads unconditionally.
+func (s FragmentSurface) Premise() string { return s.premise }
+
+// Body is the text the agent receives, in Form.
+func (s FragmentSurface) Body() string { return s.body }
+
+// Form reports which materialization Body is.
+func (s FragmentSurface) Form() ContentForm { return s.form }
+
+// Preimage is the bytes a countersignature over this surface covers:
+// signing.FragmentPreimage over exactly the two presented values, opened by
+// signing.FragmentPreimageContract. Nothing else in the codebase — including
+// a future countersignature (signature envelope spec §3.2) — is permitted to
+// define "the bytes of this fragment" any other way. Two definitions is the
+// bug.
+func (s FragmentSurface) Preimage() []byte {
+	return signing.FragmentPreimage(s.premise, []byte(s.body))
+}
+
 // EffectiveContent returns distilled content if available and preferred.
 // Falls back to original content if distilled is empty or NoDistill is true.
 func (f *BundleFragment) EffectiveContent(preferDistilled bool) string {
-	content, _ := resolveEffective(preferDistilled, f.Content, f.Distilled, f.NoDistill)
-	return content
+	return f.Surface(preferDistilled).Body()
 }
 
-// ContentPayload returns the exact bytes EffectiveContent(preferDistilled)
-// would serve, and the form they were exposed in. This is the SINGLE preimage
-// builder for a fragment: EffectiveContentHash below hashes exactly this
-// function's output, and nothing else in the codebase — including a future
-// countersignature (signature envelope spec §3.2) — is permitted to define
-// "the bytes of this fragment" any other way. Two definitions is the bug.
+// ContentPayload is the SINGLE preimage builder for a fragment, the same shape
+// every other kind exposes: FragmentSurface.Preimage for the surface selected
+// by preferDistilled, and the form it was selected in. EffectiveContentHash
+// below hashes exactly this function's output.
+//
+// Unlike a command's payload this is NOT the bare served bytes — it is the
+// framed surface, premise included — because a fragment has two presented
+// values and the frame is what binds them under one signature.
 func (f *BundleFragment) ContentPayload(preferDistilled bool) ([]byte, ContentForm) {
-	content, form := resolveEffective(preferDistilled, f.Content, f.Distilled, f.NoDistill)
-	return []byte(content), form
+	s := f.Surface(preferDistilled)
+	return s.Preimage(), s.Form()
 }
 
-// EffectiveContentHash hashes EXACTLY the bytes EffectiveContent(preferDistilled)
-// returns, and reports their form. This is the hash the per-item trust gate binds
-// to (trust rework, TR0): it covers the bytes actually exposed to the agent —
-// never a raw fallback once distilled is served, and never the author-supplied
-// ContentHash field. The form is provenance so a raw-form grant cannot validate a
-// distilled exposure.
+// EffectiveContentHash hashes EXACTLY ContentPayload(preferDistilled) — the
+// framed surface whose body is what EffectiveContent returns — and reports its
+// form. This is the hash the per-item trust gate binds to: it covers what is
+// actually presented to the agent, body and premise, never a raw fallback once
+// distilled is served, and never the author-supplied ContentHash field. The form
+// is provenance so a raw-form grant cannot validate a distilled exposure.
 func (f *BundleFragment) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
 	payload, form := f.ContentPayload(preferDistilled)
 	return hashContent(payload), form

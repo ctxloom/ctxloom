@@ -208,17 +208,6 @@ type deliverySpec struct {
 	// promises one destination and the code delivers another. The case is
 	// SKIPPED (never quietly reconciled) so the disagreement stays visible.
 	disagreement string
-	// elsewhere records that this pair's promised payload is REAL and covered
-	// — just not by this test's generic Construct(kind, approach).Deliver(present.ProjectOnHost(root))
-	// mechanism. claude's (context, system-prompt) is the one case: the declaration
-	// resolves the SAME dual-capable object unsafe-file does (its well-known
-	// Deliver always writes the native file — that is what the approach value decides,
-	// not what approach was named), so the out-of-cwd scratch this approach
-	// actually promises is reachable only through its OutOfCwd form
-	// (DeliverIsolated), which this generic loop never calls. Named test covers
-	// the real payload with the right mechanism; unlike disagreement, this is
-	// not an open mismatch to reconcile.
-	elsewhere string
 }
 
 // matrixSpecs is the expected destination for every DECLARED pair.
@@ -354,9 +343,9 @@ func TestDeliveryApproach_DeclaredPairsAreExhaustive(t *testing.T) {
 
 	for key, s := range matrixSpecs {
 		if s.wantFile == "" {
-			assert.True(t, s.noOp != "" || s.disagreement != "" || s.elsewhere != "",
+			assert.True(t, s.noOp != "" || s.disagreement != "",
 				"%s expects NO delivered file via this loop's mechanism but records no noOp, "+
-					"disagreement, or elsewhere reason — an unexplained zero-byte expectation is "+
+					"or a disagreement reason — an unexplained zero-byte expectation is "+
 					"exactly the silent-no-op shape these tests exist to catch", key)
 		}
 	}
@@ -404,9 +393,6 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 					require.True(t, ok, "%s is declared but has no expected destination", key)
 					if spec.disagreement != "" {
 						t.Skipf("DECLARATION vs BEHAVIOUR disagreement (not reconciled here, reported instead): %s", spec.disagreement)
-					}
-					if spec.elsewhere != "" {
-						t.Skipf("payload covered by a dedicated harness, not this loop's generic mechanism: %s", spec.elsewhere)
 					}
 
 					fs := afero.NewMemMapFs()

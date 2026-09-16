@@ -27,7 +27,7 @@ The contract it owns: one `*Config` value that every other package reads, whose 
 - Signature verification, trust decisions and grant records — `internal/signing` and `internal/trust`, see `./trust.md`. This package assembles the trust root and calls `signing.VerifyPublisher`; it does not decide.
 - Printing warnings and arming the strict gate — `internal/cli` (`printConfigWarnings`, `failOnFindings`) and `internal/shared/strictness`.
 - Applying resolved config to a launched engine (settings files, hooks, MCP wiring) — `internal/lm/backends` and `internal/operations`, see `./operations.md`.
-- Path construction — `internal/paths` owns every `.ctxloom` subpath except `HomeConfigDir` (`home.go:17`).
+- Path construction — `internal/paths` owns every `.ctxloom` subpath, including the home root (`paths.HomeConfigDir`).
 
 ## Data flow
 

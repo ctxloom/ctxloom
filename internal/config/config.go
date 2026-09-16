@@ -1477,7 +1477,7 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 		// "write home" API) must not have that write silently stripped
 		// because it happened to arrive via an explicit option instead of
 		// findAppDir's own home fallback.
-		if homeAppDir, herr := HomeConfigDir(); herr == nil && filepath.Clean(appPath) == filepath.Clean(homeAppDir) {
+		if homeAppDir, herr := paths.HomeConfigDir(); herr == nil && filepath.Clean(appPath) == filepath.Clean(homeAppDir) {
 			source = SourceHome
 		}
 	} else {
@@ -1625,7 +1625,7 @@ func resolveConfigLayerPaths(appPath string, source ConfigSource) (projectConfig
 	if source != SourceProject {
 		return projectConfigPath, ""
 	}
-	homeAppDir, err := HomeConfigDir()
+	homeAppDir, err := paths.HomeConfigDir()
 	if err != nil {
 		return projectConfigPath, ""
 	}

@@ -354,6 +354,23 @@ const (
 // that holds the session index and per-harp session dirs. This is the
 // single source of truth for the sessions root; both the task store and the
 // memory compactor resolve harp paths through it so they cannot diverge.
+// HomeConfigDir returns the user's home ctxloom directory (~/.ctxloom).
+//
+// This is the STAGE-1 bootstrap primitive for the HOME side of value
+// layering (home < project < env < CLI — see internal/shared/confload):
+// config.resolveConfigLayerPaths calls it to find home's config.yaml so
+// loadLayeredConfig can read it as the lower-precedence layer underneath
+// whatever project config.yaml findAppDir resolved. It does no filesystem
+// I/O itself (a pure path join, like the Home* helpers below) — callers
+// decide whether/how to read what's there.
+func HomeConfigDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, AppDirName), nil
+}
+
 // homeUnderErrFormat is the shape EVERY Home*/cache accessor's resolution
 // failure takes, and the store descriptions below are the only part that
 // varies. Both are constants for one reason: a test asserting this text must

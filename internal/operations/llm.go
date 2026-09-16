@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -275,13 +276,13 @@ func SetLLM(mgr *config.Manager, req SetLLMRequest) (*LLMEntry, error) {
 // (layerscope/policy_default.go: "credential passthrough; a committed value
 // is a leaked secret"), and saveLocked's layerscope filter strips any
 // ScopeMachine value the moment a write resolves as the PROJECT layer. A
-// Manager built with WithAppDir(HomeConfigDir()) resolves as SourceHome
+// Manager built with WithAppDir(paths.HomeConfigDir()) resolves as SourceHome
 // (config.go's loadUncached: an explicit appDir naming home exactly is
 // recognized as home, not an arbitrary project — see
 // TestLoad_ExplicitAppDirEqualToHome_ResolvesSourceHome), so this write is
 // never filtered. An empty env map clears the block entirely.
 func setLLMHomeEnv(label string, env map[string]string) error {
-	homeDir, err := config.HomeConfigDir()
+	homeDir, err := paths.HomeConfigDir()
 	if err != nil {
 		return fmt.Errorf("resolve home directory: %w", err)
 	}

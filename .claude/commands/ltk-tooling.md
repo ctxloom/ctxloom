@@ -1,8 +1,3 @@
----
-name: "ltk-tooling"
-description: "ltk/tooling"
----
-
 This bundle's guidance assumes the ltk hook can actually run, so
 agent environments (the agent container image) need the binary:
 

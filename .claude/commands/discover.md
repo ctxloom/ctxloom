@@ -1,6 +1,5 @@
 ---
-name: "discover"
-description: "discover"
+description: Discover and install profiles, bundles, and fragments
 ---
 
 

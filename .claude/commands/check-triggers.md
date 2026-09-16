@@ -1,6 +1,5 @@
 ---
-name: "check-triggers"
-description: "check-triggers"
+description: Review Deferred tasks and surface any whose revive trigger has fired
 ---
 
 

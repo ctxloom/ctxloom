@@ -1,10 +1,6 @@
-Feature: Shell completion
-  Smoke coverage for the always-scriptable utility command that has no noun of
-  its own.
-
-  The version surface that used to share this file moved to
-  cli/version.feature, where all three of its spellings are cross-checked
-  against each other.
+Feature: completion — the always-scriptable utility command with no noun of its own
+  Smoke coverage: the completion script must generate for a supported shell
+  and actually contain a completion directive, not just exit zero.
 
   Scenario: Generate a shell completion script
     Given an initialized ctxloom project

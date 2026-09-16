@@ -456,7 +456,7 @@ var probeRegistry = []probeSpec{
 		// naming cells the registry does not declare. That red is CORRECT — it
 		// means two probes have come to share a table shape — and the fix is a
 		// column rename or a separate feature file, never deleting the check.
-		Feature: "j002300_cross_engine_delegation.feature",
+		Feature: "journeys/j002300_cross_engine_delegation.feature",
 		Paid:    true,
 		Cells: []probeCell{
 			hostCell("claude-code", probeLiveVerified,

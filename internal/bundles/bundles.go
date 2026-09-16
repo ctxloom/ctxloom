@@ -640,8 +640,8 @@ func HashPayload(payload []byte) string {
 // resolveEffective is the one shared compute primitive for the distillable item
 // shape. Fragments and prompts carry the same Content/Distilled/NoDistill fields,
 // so this picks the bytes to expose AND reports their form from the same
-// predicate — guaranteeing a hash taken over the result covers exactly the served
-// bytes, with no raw fallback once distilled is chosen.
+// predicate — guaranteeing a preimage built over the result covers exactly the
+// served body, with no raw fallback once distilled is chosen.
 func resolveEffective(preferDistilled bool, content, distilled string, noDistill bool) (string, ContentForm) {
 	if preferDistilled && distilled != "" && !noDistill {
 		return distilled, FormDistilled
@@ -779,12 +779,12 @@ func (f *BundleFragment) ContentPayload(preferDistilled bool) ([]byte, ContentFo
 	return s.Preimage(), s.Form()
 }
 
-// EffectiveContentHash hashes EXACTLY the bytes EffectiveContent(preferDistilled)
-// returns, and reports their form. This is the hash the per-item trust gate binds
-// to (trust rework, TR0): it covers the bytes actually exposed to the agent —
-// never a raw fallback once distilled is served, and never the author-supplied
-// ContentHash field. The form is provenance so a raw-form grant cannot validate a
-// distilled exposure.
+// EffectiveContentHash hashes EXACTLY ContentPayload(preferDistilled) — the
+// framed surface whose body is what EffectiveContent returns — and reports its
+// form. This is the hash the per-item trust gate binds to: it covers what is
+// actually presented to the agent, body and premise, never a raw fallback once
+// distilled is served, and never the author-supplied ContentHash field. The form
+// is provenance so a raw-form grant cannot validate a distilled exposure.
 func (f *BundleFragment) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
 	payload, form := f.ContentPayload(preferDistilled)
 	return hashContent(payload), form

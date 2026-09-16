@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // ctxloomOwnHooks is every hook ctxloom constructs for ITSELF — the ones that
@@ -173,4 +174,35 @@ func TestRemoveSettings_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), userStatus,
 		"a statusline ctxloom never recorded writing is the user's and survives uninstall")
+}
+
+// TestTrackedLedger_NamesExactlyWhatTrackedSettingsCarry checks THIS REPO's own
+// .claude/.ctxloom-managed against its own .claude/settings.json. Both are
+// tracked, and the ledger was once committed from before a regeneration of the
+// settings: it named three of the thirteen hooks in the file and ten that were
+// no longer there, so a fresh clone's uninstall left ctxloom's own hooks behind
+// as user content. Nothing checked the pair; this does.
+//
+// It reads the files where they are rather than the committed blobs: the pair
+// is written together by one writer, so a rematerialized worktree still holds
+// a consistent pair, and a drifted pair on disk is what would be committed.
+func TestTrackedLedger_NamesExactlyWhatTrackedSettingsCarry(t *testing.T) {
+	root := sourcedir.MustRepoRoot()
+	w := &ClaudeCodeHookWriter{}
+	settings, err := w.loadSettings(w.SettingsPath(root))
+	require.NoError(t, err, "the repo's tracked .claude/settings.json must load")
+
+	recorded, err := hooksLedger(root).Read(ledger.SurfaceHooks)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, digestsOf(hookCommands(t, root)), recorded,
+		"the tracked ledger must name exactly the hooks the tracked settings.json carries; regenerate the pair together")
+
+	var wantStatus []string
+	if settings.StatusLine != nil {
+		wantStatus = []string{agent.ComputeCommandDigest(settings.StatusLine.Command)}
+	}
+	status, err := hooksLedger(root).Read(ledger.SurfaceStatusLine)
+	require.NoError(t, err)
+	assert.Equal(t, wantStatus, status,
+		"the tracked ledger must claim the statusline the tracked settings.json carries, and no other")
 }

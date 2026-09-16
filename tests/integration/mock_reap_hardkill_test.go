@@ -93,6 +93,19 @@ func TestMockPluginReapedOnHardKilledParent(t *testing.T) {
 	// registered via t.Cleanup so it always runs, but strictly AFTER the
 	// require.Eventually below has already independently observed whether the
 	// mechanism under test (PR_SET_PDEATHSIG) worked on its own.
+	//
+	// THE INVARIANT this registration keeps, and the one every cleanup in
+	// tests/integration must keep: a cleanup that releases a resource is
+	// registered at the moment the resource exists, unconditionally, with
+	// nothing between the acquisition and the registration that can end the
+	// test. Neither a flag consulted inside the cleanup body nor a require
+	// sitting above it may decide whether the release happens. Get that
+	// ordering wrong and the release is skipped on precisely the failure it
+	// exists to clean up after: the only run that leaks is the run that
+	// failed, which is also the run nobody is watching.
+	//
+	// A cleanup may branch on t.Failed() only to EMIT DIAGNOSTICS, as the
+	// next one does — never to decide whether to release something.
 	t.Cleanup(sess.Close)
 	t.Cleanup(func() {
 		if t.Failed() {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -41,10 +42,10 @@ type ctxServer struct {
 	// the credential on the coordinator's HTTP surface, from env on stdio.
 	self coord.Identity
 	// agents is the coordinator-backed delegation state behind the agent_*
-	// tools: pre-bound on identity servers (the runner's relay), and nil on
-	// a bare stdio server — which then refuses the tools (delegation())
-	// rather than hosting a coordinator of its own.
-	agents *agentDelegation
+	// tools; nil until first use on a bare stdio server (lazy standup in
+	// delegation()), pre-bound on identity servers.
+	agents   *agentDelegation
+	agentsMu sync.Mutex
 	// distill collapses concurrent distillations of the SAME session into one
 	// run. It is SHARED across ctxServer instances (the coordinator builds a
 	// fresh one per relayed call), so it is injected, never owned here. Nil

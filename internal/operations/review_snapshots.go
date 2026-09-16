@@ -262,14 +262,14 @@ func itemContentPair(bundleFS afero.Fs, bundle *bundles.Bundle, tRef trust.Ref) 
 		if !found {
 			return "", "", false
 		}
-		raw, distilled = formPair(frag.EffectiveContent)
+		raw, distilled = formPair(frag.ContentPayload)
 		return raw, distilled, true
 	case trust.KindPrompt:
 		command, found := bundle.Commands[tRef.Name]
 		if !found {
 			return "", "", false
 		}
-		raw, distilled = formPair(command.EffectiveContent)
+		raw, distilled = formPair(command.ContentPayload)
 		return raw, distilled, true
 	case trust.KindSkill:
 		skill, found := bundle.Skills[tRef.Name]
@@ -296,14 +296,23 @@ func itemContentPair(bundleFS afero.Fs, bundle *bundles.Bundle, tRef trust.Ref) 
 	}
 }
 
-// formPair extracts (raw, distilled) text from the shared EffectiveContent
-// primitive: preferDistilled=false always yields the raw form;
+// formPair extracts (raw, distilled) text from an item's ContentPayload
+// builder: preferDistilled=false always yields the raw form;
 // preferDistilled=true yields the distilled form exactly when one exists
 // (identical output means there is none).
-func formPair(effective func(bool) string) (raw, distilled string) {
-	raw = effective(false)
-	if d := effective(true); d != raw {
-		return raw, d
+//
+// It snapshots the PAYLOAD, not the served body, because the snapshot is the
+// diff base review shows against ReviewItem.CurrentContent, and that is the
+// payload too. For a command the two are the same bytes; for a fragment the
+// payload is the framed surface (premise included), and a snapshot of the bare
+// body would diff against it as a spurious full change on every update — and
+// could never show a premise edit, which is the one edit the frame exists to
+// make reviewable.
+func formPair(payload func(bool) ([]byte, bundles.ContentForm)) (raw, distilled string) {
+	rawBytes, _ := payload(false)
+	raw = string(rawBytes)
+	if d, _ := payload(true); string(d) != raw {
+		return raw, string(d)
 	}
 	return raw, ""
 }

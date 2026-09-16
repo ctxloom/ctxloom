@@ -425,7 +425,9 @@ func TestSnapshotRoundTrip(t *testing.T) {
 }
 
 // TestSetItemTrust_WritesSnapshots proves the plumbing approval path writes
-// BOTH form snapshots, keyed by the payload hash of each form's bytes.
+// BOTH form snapshots, keyed by the payload hash of each form's bytes and
+// holding those same payload bytes — for a fragment, the framed surface that
+// review displays and diffs against, not the bare body.
 func TestSetItemTrust_WritesSnapshots(t *testing.T) {
 	fx := newTrustFixture(t)
 	fs := afero.NewMemMapFs()
@@ -433,16 +435,16 @@ func TestSetItemTrust_WritesSnapshots(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "approved", res.Status)
 
-	rawHash := bundles.HashPayload([]byte("dual raw body"))
-	distilledHash := bundles.HashPayload([]byte("dual distilled body"))
+	rawPayload := signing.FragmentPreimage("", []byte("dual raw body"))
+	distilledPayload := signing.FragmentPreimage("", []byte("dual distilled body"))
 
-	raw, ok := readTrustSnapshot(fs, ".ctxloom", rawHash)
+	raw, ok := readTrustSnapshot(fs, ".ctxloom", bundles.HashPayload(rawPayload))
 	require.True(t, ok, "raw snapshot must exist under the raw payload hash")
-	assert.Equal(t, "dual raw body", raw)
+	assert.Equal(t, string(rawPayload), raw)
 
-	distilled, ok := readTrustSnapshot(fs, ".ctxloom", distilledHash)
+	distilled, ok := readTrustSnapshot(fs, ".ctxloom", bundles.HashPayload(distilledPayload))
 	require.True(t, ok, "distilled snapshot must exist under the distilled payload hash")
-	assert.Equal(t, "dual distilled body", distilled)
+	assert.Equal(t, string(distilledPayload), distilled)
 }
 
 // TestSetItemTrust_NoSnapshotForExecutables: executables are never snapshotted

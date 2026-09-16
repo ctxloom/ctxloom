@@ -759,8 +759,11 @@ func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, src tru
 	sort.Strings(fragNames)
 	for _, fragName := range fragNames {
 		frag := b.Fragments[fragName]
-		content := frag.EffectiveContent(preferDistilled)
-		if strings.TrimSpace(content) == "" {
+		// ONE resolution of the surface feeds the gate AND the delivery below,
+		// so what is presented (body + premise) and what is hashed cannot be
+		// two different reads of the same struct.
+		surface := frag.Surface(preferDistilled)
+		if strings.TrimSpace(surface.Body()) == "" {
 			continue
 		}
 		ref, rerr := bundles.ItemRefFor(src, trust.KindFragment, fragName)
@@ -770,15 +773,14 @@ func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, src tru
 			clidiag.Warn("ctxloom", "%v — withheld", rerr)
 			continue
 		}
-		payload, form := frag.ContentPayload(preferDistilled)
-		if !bundles.Decide(gate, read, ref, payload, form).Allow {
+		if !bundles.Decide(gate, read, ref, surface.Preimage(), surface.Form()).Allow {
 			continue // withheld by the trust gate (e.g. rejected, or pending)
 		}
 		out = append(out, BuiltinFragment{
 			Name:         ref,
-			Content:      content,
+			Content:      surface.Body(),
 			Installation: frag.Installation,
-			Premise:      frag.Premise,
+			Premise:      surface.Premise(),
 		})
 	}
 	return out

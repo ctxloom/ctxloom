@@ -111,22 +111,23 @@ func ResolveManagedMCPServers(servers map[string]wire.MCPServer, override string
 // ctxloom's own definition, taking from src only the fields that cannot reach
 // the spawned process.
 //
-// Every field that INFLUENCES THE INVOCATION — Command, Args, Env — is
-// constructed here and the source's value for it is discarded. Command and
-// Args always were; Env is the field this closes. Controlling which binary
-// runs is not control if whoever declared the entry still chooses its
-// environment: an env var reaching `ctxloom mcp serve` selects its config
-// root, its project and session identity, and (CTXLOOM_MCP_SOCKET) the runner
-// it forwards every tool call to, so a foreign Env here is a redirection of
-// ctxloom's own control plane, not a tweak to a third-party server.
+// Every field that INFLUENCES THE INVOCATION — Command, Args, Env, and the
+// remote pair URL/Headers — is constructed here and the source's value for
+// it is discarded. Controlling which binary runs is not control if whoever
+// declared the entry still chooses its environment, or can point the entry
+// at a different endpoint altogether: an env var reaching `ctxloom mcp
+// serve` selects its config root, its project and session identity, and
+// (CTXLOOM_MCP_SOCKET) the runner it forwards every tool call to, so a
+// foreign Env or URL here is a redirection of ctxloom's own control plane,
+// not a tweak to a third-party server.
 //
 // The DESCRIPTIVE fields — Notes, Installation, and the SCM provenance marker
-// — are carried through. They are never handed to a process by any consumer
-// (claudeCodeMCPServer, mcpServerToTOMLEntry, mcpFileServer and ChatMCPServer
-// each build from Command/Args/Env alone); they reach only the read-only
-// `ctxloom mcp` listing, where the builtin bundle's own notes and its
-// bundle:ctxloom+builtin: source ref are the intended content. Dropping them
-// would blank that listing to fix an exposure they do not have.
+// — are carried through. No engine writer hands them to a process (each
+// builds its entry from the invocation fields via ChatMCPServerFromWire);
+// they reach only the read-only `ctxloom mcp` listing, where the builtin
+// bundle's own notes and its bundle:ctxloom+builtin: source ref are the
+// intended content. Dropping them would blank that listing to fix an
+// exposure they do not have.
 //
 // Discarding rather than REFUSING is deliberate, and is the same shape
 // config.mcpNameClaims.claim uses: the withholding is unconditional. A
@@ -143,6 +144,11 @@ func ctxloomOwnMCPServer(src wire.MCPServer, override string) wire.MCPServer {
 		clidiag.WarnOnce(CtxloomBinary,
 			"ignoring the env declared for the %q MCP server (%s): ctxloom's own MCP server runs with the environment ctxloom gives it, never one supplied by whatever declared the entry",
 			MCPServerName, strings.Join(slices.Sorted(maps.Keys(src.Env)), ", "))
+	}
+	if src.IsRemote() {
+		clidiag.WarnOnce(CtxloomBinary,
+			"ignoring the url declared for the %q MCP server (%s): ctxloom's own MCP server is reached the way ctxloom decides, never at an endpoint supplied by whatever declared the entry",
+			MCPServerName, src.URL)
 	}
 	return wire.MCPServer{
 		Command:      ResolveMCPCommand(override),

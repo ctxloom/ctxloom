@@ -42,6 +42,19 @@ func TestLeafMarshalBytesArePinned(t *testing.T) {
 			want: `{"command":"cmd"}`,
 		},
 		{
+			name: "MCPServer_remote",
+			val:  MCPServer{URL: "https://mcp.example.com/v1", Headers: map[string]string{"Authorization": "Bearer t"}},
+			want: `{"url":"https://mcp.example.com/v1","headers":{"Authorization":"Bearer t"}}`,
+		},
+		{
+			// Command is omitempty because a remote entry has none. That is a
+			// serialization change to an existing field: a zero value used to
+			// spell {"command":""}, and now spells nothing.
+			name: "MCPServer_zero",
+			val:  MCPServer{},
+			want: `{}`,
+		},
+		{
 			name: "Hook",
 			val: Hook{
 				Matcher:         "Bash",

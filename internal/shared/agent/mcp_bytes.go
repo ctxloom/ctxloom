@@ -37,23 +37,35 @@ func InstallMCPServerJSON(config []byte, name string, server wire.MCPServer) ([]
 		servers = map[string]any{}
 		doc["mcpServers"] = servers
 	}
-	entry := map[string]any{"command": server.Command}
-	if len(server.Args) > 0 {
-		args := make([]any, len(server.Args))
-		for i, a := range server.Args {
-			args[i] = a
-		}
-		entry["args"] = args
-	}
-	if len(server.Env) > 0 {
-		env := make(map[string]any, len(server.Env))
-		for k, v := range server.Env {
-			env[k] = v
-		}
-		entry["env"] = env
+	entry, err := mcpJSONEntry(name, server)
+	if err != nil {
+		return nil, err
 	}
 	servers[name] = entry
 	return mcpJSONRender(doc)
+}
+
+// mcpJSONEntry renders server as the generic map an "mcpServers" table holds,
+// through the shared entry shape so stdio and remote spell identically to
+// every other writer. The JSON round trip is what honours the entry's tags
+// (omitempty in particular) when the caller merges into an untyped document.
+func mcpJSONEntry(name string, server wire.MCPServer) (map[string]any, error) {
+	if err := server.Validate(); err != nil {
+		return nil, fmt.Errorf("mcp server %q: %w", name, err)
+	}
+	entry, err := ChatMCPConfigEntryOf(ChatMCPServerFromWire(name, server))
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		return nil, fmt.Errorf("encode mcp server %q: %w", name, err)
+	}
+	var generic map[string]any
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		return nil, fmt.Errorf("encode mcp server %q: %w", name, err)
+	}
+	return generic, nil
 }
 
 // UninstallMCPServerJSON removes the named server, preserving everything

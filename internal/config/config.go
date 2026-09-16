@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -384,11 +386,11 @@ func (c *Config) toDoc() configDoc {
 		Runtime:                      c.runtime,
 		Permissions:                  c.permissions,
 		Delegation:                   c.delegation,
-		IsolationImages:              cloneStringMap(c.isolationImages),
+		IsolationImages:              maps.Clone(c.isolationImages),
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
 		IsolationDevcontainerBase:    cloneBoolPtr(c.isolationDevcontainerBase),
 		IsolationDevcontainerService: c.isolationDevcontainerService,
-		IsolationEngines:             cloneStrings(c.isolationEngines),
+		IsolationEngines:             slices.Clone(c.isolationEngines),
 		UI:                           cloneUIConfig(c.ui),
 	}
 }

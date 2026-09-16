@@ -1,6 +1,9 @@
 package config
 
 import (
+	"maps"
+	"slices"
+
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
@@ -79,13 +82,13 @@ func (c *Config) ToFixture() Fixture {
 		Runtime:                      c.runtime,
 		Permissions:                  c.permissions,
 		Delegation:                   c.delegation,
-		IsolationImages:              cloneStringMap(c.isolationImages),
+		IsolationImages:              maps.Clone(c.isolationImages),
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
 		IsolationDevcontainerBase:    cloneBoolPtr(c.isolationDevcontainerBase),
 		IsolationDevcontainerService: c.isolationDevcontainerService,
-		IsolationEngines:             cloneStrings(c.isolationEngines),
+		IsolationEngines:             slices.Clone(c.isolationEngines),
 		UI:                           cloneUIConfig(c.ui),
-		AppPaths:                     cloneStrings(c.appPaths),
+		AppPaths:                     slices.Clone(c.appPaths),
 		AppRoot:                      c.appRoot,
 		AppDir:                       c.appDir,
 		Source:                       c.source,
@@ -126,13 +129,13 @@ func NewFixture(f Fixture) *Config {
 		runtime:                      f.Runtime,
 		permissions:                  f.Permissions,
 		delegation:                   f.Delegation,
-		isolationImages:              cloneStringMap(f.IsolationImages),
+		isolationImages:              maps.Clone(f.IsolationImages),
 		isolationBaseContainerfile:   f.IsolationBaseContainerfile,
 		isolationDevcontainerBase:    cloneBoolPtr(f.IsolationDevcontainerBase),
 		isolationDevcontainerService: f.IsolationDevcontainerService,
-		isolationEngines:             cloneStrings(f.IsolationEngines),
+		isolationEngines:             slices.Clone(f.IsolationEngines),
 		ui:                           cloneUIConfig(f.UI),
-		appPaths:                     cloneStrings(f.AppPaths),
+		appPaths:                     slices.Clone(f.AppPaths),
 		appRoot:                      f.AppRoot,
 		appDir:                       f.AppDir,
 		source:                       f.Source,

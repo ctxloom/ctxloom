@@ -33,6 +33,23 @@ func TestManagedConfig_ProtoRoundTrip_PreservesBundleMCP(t *testing.T) {
 	assert.Equal(t, "bundle:builtin:taskloom", got.BundleMCP["taskloom"].SCM)
 }
 
+// A network-hosted server has no command: its URL and Headers ARE the
+// invocation. If either is dropped at this boundary the plugin registers a
+// server with no target, on a success path.
+func TestManagedConfig_ProtoRoundTrip_PreservesRemoteMCP(t *testing.T) {
+	in := &agent.ManagedConfig{
+		BundleMCP: map[string]wire.MCPServer{
+			"remote": {URL: "https://mcp.example.com/v1", Headers: map[string]string{"Authorization": "Bearer t"}},
+		},
+	}
+
+	got := managedConfigFromProto(ManagedConfigToProto(in))
+
+	require.NotNil(t, got)
+	require.Contains(t, got.BundleMCP, "remote")
+	assert.Equal(t, in.BundleMCP["remote"], got.BundleMCP["remote"])
+}
+
 // Protobuf cannot distinguish an EMPTY repeated field from an ABSENT one: both
 // serialize to no bytes and decode back to nil. So "empty" and "nil" are the
 // same fact at this boundary, and every converter here must answer it the same

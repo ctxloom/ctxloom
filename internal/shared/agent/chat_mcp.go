@@ -33,7 +33,7 @@ func ComposeChatMCPServers(override string, bundleMCP map[string]wire.MCPServer,
 
 	merged := make(map[string]ChatMCPServer)
 	for name, s := range ResolveManagedMCPServers(bundleMCP, override) {
-		merged[name] = ChatMCPServer{Name: name, Command: s.Command, Args: s.Args, Env: s.Env}
+		merged[name] = ChatMCPServerFromWire(name, s)
 	}
 
 	for _, e := range existing {
@@ -47,6 +47,23 @@ func ComposeChatMCPServers(override string, bundleMCP map[string]wire.MCPServer,
 		out = append(out, merged[name])
 	}
 	return out
+}
+
+// ChatMCPServerFromWire is the one conversion from ctxloom's engine-neutral
+// server (wire.MCPServer) to the chat/engine-file shape, and therefore the one
+// place the transport discriminator is DERIVED. wire.MCPServer deliberately
+// stores no transport — the URL is the transport — so a URL entry becomes an
+// http-transport server (Streamable HTTP; every scheme Validate admits is
+// that protocol) carrying URL and Headers, and anything else is a stdio
+// command. It does not validate: callers that can fail loud
+// (InstallMCPServerJSON, the settings writers) run wire.MCPServer.Validate
+// first, so a targetless entry is refused by name rather than dialled as
+// nothing.
+func ChatMCPServerFromWire(name string, s wire.MCPServer) ChatMCPServer {
+	if s.IsRemote() {
+		return ChatMCPServer{Name: name, Transport: MCPTransportHTTP, URL: s.URL, Headers: s.Headers}
+	}
+	return ChatMCPServer{Name: name, Command: s.Command, Args: s.Args, Env: s.Env}
 }
 
 // PatchManagedCommand rewrites the ctxloom entry's Command in an ALREADY-composed

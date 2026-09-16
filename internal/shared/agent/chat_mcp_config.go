@@ -24,13 +24,34 @@ type ChatMCPConfigDoc struct {
 // Command/Args/Env absent). MCPTransport's own string values ("", "http",
 // "sse") are this wire vocabulary's own `type` values, so they pass straight
 // through.
+//
+// Cwd is claude's per-server working directory; only the settings writer sets
+// it (on ctxloom's own entry), a chat scratch file never does.
 type ChatMCPConfigEntry struct {
 	Type    string            `json:"type,omitempty"`
 	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	Cwd     string            `json:"cwd,omitempty"`
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// ChatMCPConfigEntryOf renders one server as its table entry: a stdio
+// command or a typed remote endpoint. It is the ONE place the entry shape is
+// spelled, shared by the chat scratch file, the settings writers and the
+// byte-level registrar, so a remote server cannot come out as {"command":""}
+// in one of them and correctly in another.
+func ChatMCPConfigEntryOf(s ChatMCPServer) (ChatMCPConfigEntry, error) {
+	switch s.Transport {
+	case MCPTransportStdio:
+		return ChatMCPConfigEntry{Command: s.Command, Args: s.Args, Env: s.Env}, nil
+	case MCPTransportHTTP, MCPTransportSSE:
+		return ChatMCPConfigEntry{Type: string(s.Transport), URL: s.URL, Headers: s.Headers}, nil
+	default:
+		return ChatMCPConfigEntry{}, fmt.Errorf("%w %q for server %q (supported: stdio, http, sse)",
+			ErrChatMCPConfigTransportUnsupported, s.Transport, s.Name)
+	}
 }
 
 // ErrChatMCPConfigTransportUnsupported is returned by MarshalChatMCPConfig
@@ -54,15 +75,9 @@ var ErrChatMCPConfigTransportUnsupported = errors.New("mcp config: unsupported M
 func MarshalChatMCPConfig(servers []ChatMCPServer) ([]byte, error) {
 	doc := ChatMCPConfigDoc{MCPServers: make(map[string]ChatMCPConfigEntry, len(servers))}
 	for _, s := range servers {
-		var entry ChatMCPConfigEntry
-		switch s.Transport {
-		case MCPTransportStdio:
-			entry = ChatMCPConfigEntry{Command: s.Command, Args: s.Args, Env: s.Env}
-		case MCPTransportHTTP, MCPTransportSSE:
-			entry = ChatMCPConfigEntry{Type: string(s.Transport), URL: s.URL, Headers: s.Headers}
-		default:
-			return nil, fmt.Errorf("%w %q for server %q (supported: stdio, http, sse)",
-				ErrChatMCPConfigTransportUnsupported, s.Transport, s.Name)
+		entry, err := ChatMCPConfigEntryOf(s)
+		if err != nil {
+			return nil, err
 		}
 		doc.MCPServers[s.Name] = entry
 	}

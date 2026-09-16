@@ -22,7 +22,7 @@ import (
 // nobody can read is the defect.
 func TestClaimOwner_UnstampableLockIsRemovedAndTheClaimDeclined(t *testing.T) {
 	dir := t.TempDir()
-	lock := filepath.Join(dir, "owner.pid")
+	lock := filepath.Join(dir, OwnerLockFileName)
 
 	prev := writeOwnerPID
 	writeOwnerPID = func(f *os.File, _ int) error {
@@ -46,7 +46,7 @@ func TestClaimOwner_UnstampableLockIsRemovedAndTheClaimDeclined(t *testing.T) {
 // zero-byte lock can now only be crash debris.
 func TestClaimOwner_UnreadableLeftoverLockIsTreatedAsStale(t *testing.T) {
 	dir := t.TempDir()
-	lock := filepath.Join(dir, "owner.pid")
+	lock := filepath.Join(dir, OwnerLockFileName)
 	require.NoError(t, os.WriteFile(lock, nil, 0o600))
 
 	release, err := claimOwner(dir)
@@ -63,7 +63,7 @@ func TestClaimOwner_UnreadableLeftoverLockIsTreatedAsStale(t *testing.T) {
 // removes the lock.
 func TestClaimOwner_StampsPidAndReleasesLock(t *testing.T) {
 	dir := t.TempDir()
-	lock := filepath.Join(dir, "owner.pid")
+	lock := filepath.Join(dir, OwnerLockFileName)
 
 	release, err := claimOwner(dir)
 	require.NoError(t, err)

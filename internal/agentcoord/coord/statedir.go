@@ -35,6 +35,12 @@ import (
 // package doc), globs this same directory via paths.HomeCoordDir.
 const coordDirName = paths.CoordDirName
 
+// OwnerLockFileName is the exclusive-owner lock's file name inside a project
+// state dir. Its presence on disk IS the evidence that a process claimed the
+// project as coordinator — the gate that proves an MCP shim never becomes one
+// looks for exactly this file, so the name is exported rather than repeated.
+const OwnerLockFileName = "owner.pid"
+
 // stateDirForProject resolves the coordinator state dir, keyed by project
 // (plan: durability first, keyed by project — a fresh `ctxloom run` adopts
 // orphaned state from disk). projectKey should be the stable project id when
@@ -137,7 +143,7 @@ var writeOwnerPID = func(f *os.File, pid int) error {
 // costs this session adoption; leaving an unstamped lock costs the journal its
 // single writer.
 func claimOwner(dir string) (release func(), err error) {
-	lock := filepath.Join(dir, "owner.pid")
+	lock := filepath.Join(dir, OwnerLockFileName)
 	for range 2 {
 		f, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {

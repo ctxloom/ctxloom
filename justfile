@@ -141,8 +141,16 @@ release-snapshot: dev-image
     just _run release-snapshot
 
 # Build the main binary with all features (delegates to devcontainer)
+#
+# bin/archlint is built here, and that is not a convenience: lefthook's
+# pre-commit step REFUSES to commit when bin/archlint is missing or older than
+# the rules in internal/archlint. A gate that cannot pass by not running is the
+# correct design, but it leaves a fresh checkout one `--no-verify` away from
+# never running the architectural rules at all. Building it on the path everyone
+# already takes is what keeps the gate armed by default rather than on purpose.
 build: dev-image
     just _run build
+    just _run build-archlint
     just sign-binary ctxloom
 
 # Compress binary with UPX (delegates to devcontainer)

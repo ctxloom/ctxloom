@@ -612,21 +612,19 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		// that never advances a pin never reaches the attestation boundary at
 		// all.
 		//
-		// MEASURED, and the reason this line exists: bare `remote
-		// update` is a DRY CHECK that ends in "Run with --apply to update all
-		// items", and `deps pull` answers "Skipped (kept at their locked
-		// commit): 1 — Pull never moves an existing pin. Run 'ctxloom remote
-		// upgrade' to advance them." With only those two the lockfile stayed
-		// at Friday's commit, so every "the revision never arrived" assertion
-		// in this journey passed because NOTHING WAS EVER SYNCED — not because
-		// anything was withheld. Two independent checks confirmed it: making
-		// the fixture re-sign properly changed no outcome, and gutting
-		// signing.VerifyPublisher so an invalid signature verifies changed no
-		// outcome either. The signature gate was never consulted.
+		// MEASURED, and the reason this line exists: `deps check` is a DRY
+		// CHECK, and `deps pull` keeps an existing pin at its locked commit.
+		// With only those two the lockfile stayed at Friday's commit, so every
+		// "the revision never arrived" assertion in this journey passed
+		// because NOTHING WAS EVER SYNCED — not because anything was withheld.
+		// Two independent checks confirmed it: making the fixture re-sign
+		// properly changed no outcome, and gutting signing.VerifyPublisher so
+		// an invalid signature verifies changed no outcome either. The
+		// signature gate was never consulted.
 		//
-		// `deps upgrade` is what the product's own pull output tells the user
-		// to run, so it is the ordinary sync a person actually performs when
-		// they want Monday's content.
+		// `deps upgrade` is the ordinary sync a person actually performs when
+		// they want Monday's content: it is the one command that advances a
+		// pin.
 		_ = w.env.Run("deps", "check")
 		_ = w.env.Run("deps", "pull")
 		// Read the pin BEFORE the command that would move it, so the

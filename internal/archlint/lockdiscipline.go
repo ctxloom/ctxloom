@@ -35,8 +35,6 @@ var lockWritePrimitives = map[string]bool{
 	"WriteManagedContext":      true,
 	"WriteManagedPackageFiles": true,
 	"WriteManagedCommandFiles": true,
-	"WriteServers":             true,
-	"RemoveServers":            true,
 }
 
 // LockDisciplineAnalyzer enforces that a read-then-write over an engine's

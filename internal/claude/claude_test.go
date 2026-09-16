@@ -566,9 +566,8 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 	}
 }
 
-// TestClaudeCodeHookWriter_MCPCommandOverride pins the fix at claude's
-// own writer (which does NOT ride the shared agent.MCPFileConfig reconciler —
-// claude has its own .mcp.json shape): a zero-value writer (mcpCommandOverride
+// TestClaudeCodeHookWriter_MCPCommandOverride pins the fix at claude's own
+// .mcp.json writer: a zero-value writer (mcpCommandOverride
 // unset — every cell but an isolated container) emits EXACTLY
 // agent.CtxloomCommand()'s host self-exec-absolute path; a writer with the
 // override set (the container-cell path, surfacedelivery.go's DeliverMCP)

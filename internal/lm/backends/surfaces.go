@@ -142,17 +142,6 @@ func LaunchOnlySurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss
 	return losses
 }
 
-// LaunchOnlySettingsReason returns the named backend's declared launch-only
-// clause, or "" when it has none. It is the read for a caller that wants the
-// SENTENCE without assembling any inputs — doctor's codex-home report.
-func LaunchOnlySettingsReason(name string) string {
-	d, ok := lookup(name)
-	if !ok {
-		return ""
-	}
-	return d.LaunchOnlySettingsReason
-}
-
 // managedMCPDetail counts the MCP servers a delivery would have registered:
 // every server the resolved bundles ship, ctxloom's own (the builtin ctxloom
 // bundle's, whose absence costs the user every ctxloom tool) included. "" when

@@ -938,8 +938,8 @@ Node kinds: object, array, string, number, boolean, null.
 ```
 
 Byte preservation: JSON has no comments, but it has indentation, key order, and **numeric
-literal form**. A backend MUST NOT round-trip numbers through float64 (the `MCPFileConfig`
-lesson: foreign large integers must be re-emitted as their original bytes). Untouched members
+literal form**. A backend MUST NOT round-trip numbers through float64: a foreign large integer
+must be re-emitted as its original bytes, or it silently changes value. Untouched members
 keep their exact source bytes.
 
 ### 8.2 JSONC — comment anchoring

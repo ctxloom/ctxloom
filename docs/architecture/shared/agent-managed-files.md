@@ -36,11 +36,10 @@ flowchart TD
     SKE["SkillExport"]
   end
   subgraph mcp["MCP registries"]
-    MFC["MCPFileConfig (mcpfile.go)"]
-    LEDGER[(".ctxloom-managed — internal/shared/ledger")]
     MB["InstallMCPServerJSON / Uninstall / Installed"]
     REG["MCPRegistrar (interface)"]
   end
+  LEDGER[(".ctxloom-managed — internal/shared/ledger")]
   CJ["CanonicalJSON (marshal.go)"]
   SYM["symlink.go — WarnOnCtxloomPathSkew"]
 
@@ -51,12 +50,11 @@ flowchart TD
   WMPF --> SCRP
   WMPF --> PED
   EYS --> YDQ
-  MFC --> WFL
-  MFC --> CJ --> AWF
-  MFC --> LEDGER
+  CJ --> AWF
+  WMPF --> LEDGER
   MB --> CJ
   REG --> MB
-  CC --> RMC --> MFC
+  CC --> RMC
 ```
 
 ## R6: exclusively-owned files inside a foreign engine's directory (ruled 2026-08-14)
@@ -119,12 +117,6 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 
 | Symbol | Purpose |
 |---|---|
-| `MCPFileConfig` | Shared reconciler for the `{"mcpServers": {...}}` JSON registry shape (claude's `.mcp.json`/`.claude.json`). Value receiver throughout, so it is safely copyable. Its own `WriteServers`/`RemoveServers` wrap the whole read-modify-write-and-ledger cycle in `WithFileLock`. |
-| `MCPFileConfig.WriteServers` | Drop previously-managed names (read from the ledger, plus the well-known `ctxloom` name for pre-ledger files), re-add the current set, rewrite the ledger. A hand-authored name the ledger never claimed is left alone (warned, not overwritten) rather than clobbered — a single collision does not block the rest of the reconcile. |
-| `MCPFileConfig.RemoveServers` | Drop managed names and clear the ledger. |
-| `MCPFileConfig.load` | Reads the registry. A **fully unparseable** top-level document is refused (`RefuseCorrupt`'s posture: "I could not read it" is not "it was empty") — the writer that used to warn and silently replace an unparseable registry with one containing only ctxloom's own servers destroyed every user-authored entry on a success path. A `mcpServers` sub-object that fails to parse *within* an otherwise-valid document still warns and degrades to empty for that one field, not a full refusal. |
-| `MCPFileConfig.save` | Canonical atomic rewrite via `CanonicalJSON` + `AtomicWriteFile`; re-emits every preserved field as its **original bytes**, not a decoded-and-reencoded value, so a large integer is not rounded through `float64`. |
-| `MCPFileConfig.ledger` / `.readLedger` / `.writeLedger` | Wraps `internal/shared/ledger.Ledger`, scoped to `ledger.SurfaceMCP`. This package used to keep its own private `<Path>.ledger` read/write pair, duplicated per engine; `internal/shared/ledger` is now the one shared implementation (see that package's doc for the co-location invariant that made a single marker filename, with surface-typed entries, the right shape). A read error from the ledger is **propagated**, not flattened to "nothing managed" — a writer that mistook an unreadable ledger for an empty one would orphan every entry it wrote last time. |
 | `InstallMCPServerJSON` | Merges one server into `mcpServers`, preserving foreign top-level keys. A **present-but-wrong-type** `mcpServers` value (a string, an array) is **refused**, not silently replaced with a fresh empty map — the failure mode that used to destroy whatever the user had under that key. |
 | `UninstallMCPServerJSON` | Removes one server; absent is a no-op by contract. |
 | `MCPRegistrar` | The facet an external tool (`taskloom manage`) uses to register a server without learning per-agent paths: `{Name, Present, ConfigPath, Install, Uninstall, Installed}`. `claude.MCPRegistrar` implements it over the shared JSON `InstallMCPServerJSON`, which refuses a present-but-wrong-type `mcpServers` value rather than silently replacing it. |
@@ -135,7 +127,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 
 `ledger.Ledger.Read` returns `(nil, nil)` for a missing marker (the legitimate "nothing managed yet" case) but propagates any other read error — never flattens it to empty. `ledger.Ledger.Write` rewrites the marker atomically (`iox.WriteFileAtomicFs`), in a stable sorted order (so an unchanged managed set produces byte-identical output), and removes the marker file only when **every** surface is empty.
 
-Consumers: `MCPFileConfig` (`SurfaceMCP`), `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`), and `claude.ClaudeCodeHookWriter.writeSettingsFile` (`SurfaceHooks`/`SurfacePermissions`/`SurfaceStatusLine`).
+Consumers: `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`), and `claude.ClaudeCodeHookWriter.writeSettingsFile` / `removeSettingsFile` (`SurfaceHooks`/`SurfacePermissions`/`SurfaceStatusLine`).
 
 ## Binary-path skew warning — `symlink.go`
 
@@ -156,7 +148,8 @@ Consumers: `MCPFileConfig` (`SurfaceMCP`), `WriteManagedPackageFiles` (`SurfaceC
 - **`WriteManagedPackageFiles` removes the previously-tracked set BEFORE rendering.** Every per-item failure warns and continues, and the function returns `nil` when nothing was written — so a total render failure wipes the prior delivery and reports success. The manifest is the only record of what ctxloom owns in that tree, and (see R6 above) this function is not itself under `WithFileLock` — a known, deferred gap, not a fixed one.
 - **`SafeCommandRelPath` must gate every bundle-supplied name** before it becomes a path. Bundle content is remote content.
 - **The sidecar ledger (`internal/shared/ledger`, marker `.ctxloom-managed`) is the record of managed names** for every surface that uses it — not a per-engine `<Path>.ledger` file. Written sorted and atomically, removed only when every co-located surface is empty.
-- **A ledger read error is propagated, not flattened.** `ledger.Ledger.Read` and `MCPFileConfig.readLedger` both return a real error rather than degrading to "nothing managed" — the failure mode the old per-engine implementations had, which orphaned every managed entry a permissions or I/O failure hit.
-- **A registry that fails to parse at the top level is refused, not replaced.** `MCPFileConfig.load` returns an error (backed by the same `RefuseCorrupt` posture used elsewhere) rather than warning and returning an empty structure for the caller to write straight back over the user's file. A nested `mcpServers` sub-object that fails to parse within an otherwise-valid document is the one remaining warn-and-degrade case, scoped to that field.
+- **A ledger read error is propagated, not flattened.** `ledger.Ledger.Read` returns a real error rather than degrading to "nothing managed" — a writer that mistakes an unreadable ledger for an empty one concludes it manages nothing and orphans every entry it wrote last time. A missing marker is the one legitimate empty case, and it alone returns `(nil, nil)`.
+- **A user-owned settings or registry file that fails to parse is refused, not replaced — at every level of the document.** `claude.ClaudeCodeHookWriter.loadSettings` routes a failed top-level decode through `corruptSettings` to `RefuseCorrupt`, and so does every nested block it splits out (`hooks`, and `parseStatusLine`/`parsePermissions` for `statusLine`/`permissions`/`permissions.deny`). "I could not read it" is not "it was empty": each of those paths once warned and continued, and the delete-then-re-emit-from-the-typed-field shape behind the warning meant the user's own hooks, statusline and allow/ask rules were dropped from the file on a success path. A warning is not a guard — the routing exists so no future field can be added with a warn-and-continue branch. `InstallMCPServerJSON` takes the same stance on a present-but-wrong-type `mcpServers` value.
+- **A preserved field is re-emitted as its ORIGINAL bytes, never decoded-and-reencoded.** `claude.ClaudeCodeHookWriter.saveSettings` and `claude.permissionsOutput` decode each preserved key only as a *gate* (`preserveFailure` refuses the write when a value cannot be carried through) and emit the raw bytes; handing the decoded value to `CanonicalJSON` instead would round every number past `float64`'s exact range — `1234567890123456789` comes back `1234567890123456800`, a rewrite of the user's own file that no warning or exit code reports.
 - **`MCPRegistrar` has two facets with different natures**: `{Name, Present, ConfigPath}` vary per agent; `{Install, Uninstall, Installed}` are delegated verbatim to this package's shared JSON functions by the JSON-shaped implementors; a registrar over a different document model would have to reimplement the same contract.
 - **`WarnOnCtxloomPathSkew` exists only for surfaces materialized before the `CtxloomCommand` self-exec fix** — those still carry the bare name `ctxloom` until the next apply re-materializes them.

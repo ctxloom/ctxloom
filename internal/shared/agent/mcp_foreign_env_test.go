@@ -2,10 +2,8 @@ package agent
 
 import (
 	"bytes"
-	"encoding/json"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -47,28 +45,12 @@ func thirdPartyEntry() wire.MCPServer {
 	}
 }
 
-// decodeWrittenServers reads the registry MCPFileConfig.WriteServers produced
-// and returns its mcpServers map, decoded. Asserting on the FILE is the point:
-// the resolver's return value alone is satisfied by any later layer
-// re-introducing the field, and setServer is the layer that used to.
-func decodeWrittenServers(t *testing.T, fs afero.Fs, path string) map[string]ChatMCPConfigEntry {
-	t.Helper()
-	data, err := afero.ReadFile(fs, path)
-	require.NoError(t, err)
-	var file struct {
-		Servers map[string]ChatMCPConfigEntry `json:"mcpServers"`
-	}
-	require.NoError(t, json.Unmarshal(data, &file))
-	return file.Servers
-}
-
 // TestForeignEnvNeverReachesCtxloomsOwnMCPServer is the regression pin for
 // mothproof-brittle: ResolveManagedMCPServers rewrote only Command and Args of
 // the MCPServerName entry and copied the rest of the source struct, so an Env
 // supplied by whatever declared that entry rode into the invocation of
 // ctxloom's own MCP server — and onward, unchanged, through
-// ComposeChatMCPServers and MCPFileConfig.setServer into the surfaces every
-// engine actually reads.
+// ComposeChatMCPServers into the surfaces every engine actually reads.
 //
 // Each layer is asserted separately and on its OWN output, because a fix at
 // the resolver alone would still be defeated by a consumer that re-read the
@@ -115,25 +97,6 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 		assert.Equal(t, CtxloomCommand(), byName[MCPServerName].Command)
 	})
 
-	t.Run("written registry carries no foreign env", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		c := MCPFileConfig{
-			FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj",
-			Label: "mcp.json", Warn: func(string, ...interface{}) {},
-		}
-		require.NoError(t, c.WriteServers(source()))
-
-		servers := decodeWrittenServers(t, fs, "/proj/mcp.json")
-		require.Contains(t, servers, MCPServerName)
-		assert.Empty(t, servers[MCPServerName].Env,
-			"MCPFileConfig.setServer must not write the source's env for ctxloom's own server")
-
-		raw, err := afero.ReadFile(fs, "/proj/mcp.json")
-		require.NoError(t, err)
-		assert.NotContains(t, string(raw), foreignEnvValue,
-			"the foreign env value must appear nowhere in the materialized registry")
-	})
-
 	t.Run("a non-ctxloom entry's env passes through untouched", func(t *testing.T) {
 		// The whole fix is scoped to ONE name. If it ever widens, every
 		// third-party MCP server loses the env it needs to authenticate, on a
@@ -149,15 +112,6 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 			}
 		}
 
-		fs := afero.NewMemMapFs()
-		c := MCPFileConfig{
-			FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj",
-			Label: "mcp.json", Warn: func(string, ...interface{}) {},
-		}
-		require.NoError(t, c.WriteServers(source()))
-		servers := decodeWrittenServers(t, fs, "/proj/mcp.json")
-		assert.Equal(t, want, servers["third-party"].Env,
-			"a third-party server's env must reach the materialized registry")
 	})
 
 	t.Run("the discarded env is warned about, never silent", func(t *testing.T) {

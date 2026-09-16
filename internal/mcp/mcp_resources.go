@@ -188,8 +188,8 @@ func (s *ctxServer) resourceProjectDir() (string, error) {
 }
 
 // sessionsRecentCap bounds the recent-sessions body so a project with
-// thousands of sessions doesn't blow the client's context. 25 mirrors the
-// picker's max-after-`m` rough expansion; "recent" is by definition truncated.
+// thousands of sessions doesn't blow the client's context; "recent" is by
+// definition truncated.
 const sessionsRecentCap = 25
 
 func (s *ctxServer) handleResourceSessionsRecent(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {

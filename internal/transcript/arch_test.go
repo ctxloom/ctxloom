@@ -103,7 +103,7 @@ func TestArch_TranscriptPayload_BoolFieldsLandDistinctly(t *testing.T) {
 // perfectly correct and simply never hands them back. Every write-side
 // assertion still passes; the data is lost anyway, at read time, for every
 // consumer of the canonical transcript (memory distillation, session-load
-// replay, `session list`, the resume picker).
+// replay, `session list`).
 //
 // This is the same defect class that produced two real drops on the
 // write side, and it has exactly one honest assertion: fill an agent value

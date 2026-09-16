@@ -9,7 +9,7 @@ import (
 
 // TestNormalizeTimestampNode_UnparseableDegradesToRecent is a regression guard:
 // an unparseable timestamp must degrade to ~now, not the zero time. The zero time
-// (year 1) sorts a session to the bottom of the picker and falls before its
+// (year 1) sorts a session to the bottom of `session list` and falls before its
 // day-horizon cutoff, making the session silently invisible — the opposite of the
 // fault tolerance the normalization is meant to provide.
 func TestNormalizeTimestampNode_UnparseableDegradesToRecent(t *testing.T) {

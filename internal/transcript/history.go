@@ -140,7 +140,7 @@ func (h *CanonicalHistory) GetSession(_ context.Context, harpName string) (*agen
 // recovery, or an evolved schema version this build doesn't know — see
 // ParseTranscriptFile) is skipped with a warning rather than failing the
 // whole listing: one bad session must not hide every other project session
-// from `session list`/the resume picker. GetSession, by contrast, is a
+// from `session list`. GetSession, by contrast, is a
 // direct request for exactly that harp and surfaces the same failure as a
 // hard error — see its doc comment.
 func (h *CanonicalHistory) ListSessions(_ context.Context) ([]agent.SessionMeta, error) {

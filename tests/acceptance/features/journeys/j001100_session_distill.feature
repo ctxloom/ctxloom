@@ -4,8 +4,8 @@ Feature: Plain `session distill` drives a real transcript through the distiller 
   A session ends. Its transcript sits on disk, and nothing about it is
   searchable, summarizable, or resumable until something reads it and writes
   down what happened. `ctxloom session distill <harp>` is that something: the
-  plain, no-flag form of the command a developer runs by hand, or the resume
-  picker runs on their behalf, to turn a raw transcript into the essence.md
+  plain, no-flag form of the command a developer runs by hand, to turn a raw
+  transcript into the essence.md
   that `session show`, `session search`, and `run --session --distill` all
   read from afterward (see j001200_recall.feature, which owns that recall half).
   Without a working `distill`, none of recall's payoff exists — there is
@@ -24,7 +24,7 @@ Feature: Plain `session distill` drives a real transcript through the distiller 
   # extracting reusable lessons into a bundle (j001300_closeout.feature's @wip
   # rows) — that surface does not exist yet and is out of scope here. This
   # journey covers only the flagless command every other distillation path
-  # (list --distill, the resume picker, --skill extraction once it lands)
+  # (list --distill, --skill extraction once it lands)
   # ultimately funnels through: internal/cli/session_distill.go's
   # compactEntry -> internal/memory/compactor.go's Compact.
   #

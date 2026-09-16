@@ -160,7 +160,7 @@ version is `transcript.SchemaVersion`.
 
 `transcript.CanonicalHistory` is the harp-keyed read view, implementing both
 `agent.SessionHistory` and `internal/lm/grpc`'s `SessionSource`. It is the live read path behind
-compaction, the MCP memory tools, `ctxloom session` and the resume picker.
+compaction, the MCP memory tools and `ctxloom session`.
 
 No reader validates a line against `docs/transcript.schema.json` at runtime;
 the schema is enforced by the `internal/transcript` tests, which validate

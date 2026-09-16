@@ -60,7 +60,7 @@ hooks:
     # path in the JSON payload. ctxloom hook session-bind reads those,
     # looks up CTXLOOM_SESSION_HARP from env, and records the mapping in
     # ~/.ctxloom/sessions/index.yaml. This is the primary bind path —
-    # `ctxloom session distill` and the resume picker rely on the
+    # `ctxloom session distill` and `ctxloom session list` rely on the
     # resulting index entry. The compactor's forward-bind at compact
     # time remains as defense in depth.
     #

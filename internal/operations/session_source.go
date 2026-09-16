@@ -118,10 +118,7 @@ func ResolveAndHeal(ctx context.Context, harp string, live Liveness) (ResolvedSo
 }
 
 // EssenceCurrent is the ONE staleness predicate every distillation path's
-// cache check funnels through, folding together what were three separate
-// implementations (sessions.Entry.SourceStale, the MCP recover path's direct
-// sessions.TranscriptStale + MaxEssenceChars bound, and cli's resume picker's
-// "essence file simply absent" check):
+// cache check funnels through:
 //
 //   - an empty or over-MaxEssenceChars cached body is never current, and that
 //     is always KNOWN (an oversized essence from an older binary — the size

@@ -159,7 +159,7 @@ var (
 //
 // "Is this session distilled?" is answered by whether essence.md exists on
 // disk under the harp directory — NOT by entry.Summary. The session index
-// always carries a Summary once anything has synced a picker line for it
+// always carries a Summary once anything has synced a summary line for it
 // (harp rename, a resume pass, this journey's own fixture), so Summary != ""
 // is true long before a real essence has ever been written; using it here
 // would let --everything sail through the one session it exists to protect.

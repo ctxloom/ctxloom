@@ -25,7 +25,7 @@ type SessionReader struct {
 
 // SessionSource is the host's read view of an agent's transcripts: materialize a
 // session by id, list the store, or fetch the most-recent. Consumers (memory
-// CLI, MCP load, compactor, resume picker) depend on this rather than an
+// CLI, MCP load, compactor) depend on this rather than an
 // in-process SessionHistory, so the same code path serves a remote agent.
 // *SessionReader is the production implementation (over gRPC).
 type SessionSource interface {

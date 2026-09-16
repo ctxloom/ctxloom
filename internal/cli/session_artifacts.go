@@ -90,7 +90,7 @@ func runSessionArtifactsList(cmd *cobra.Command, args []string) error {
 
 // newSessionArtifactRow answers "has this been distilled, and how big is the
 // result" for one harp, from the FILE rather than from the index's Summary.
-// The index carries a Summary as soon as anything syncs a picker line, which
+// The index carries a Summary as soon as anything syncs a summary line, which
 // happens long before a real essence is ever written — reading that instead
 // would report sessions as distilled that have nothing to show.
 func newSessionArtifactRow(harp string) sessionArtifactRow {

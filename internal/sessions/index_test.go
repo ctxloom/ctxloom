@@ -276,7 +276,7 @@ func TestListForProject_FiltersAndSorts(t *testing.T) {
 	assert.Equal(t, a.HarpName, list[1].HarpName)
 }
 
-// TestListForProject_OrdersByLastActivityNotStartedAt pins the resume-picker
+// TestListForProject_OrdersByLastActivityNotStartedAt pins the `session list`
 // ordering bug fix: a session that was CREATED earlier but has been RESUMED
 // and WORKED since (newer transcript mtime) must rank above a session that
 // was created more recently but never touched (StartedAt newer, but no
@@ -736,7 +736,7 @@ func TestSave_NormalizesLegacyTimestampsToRFC3339(t *testing.T) {
 func TestLoad_UnparseableTimestampDoesNotBlockLoad(t *testing.T) {
 	// Fault tolerance: one unrecognized timestamp must not fail the whole load,
 	// and it must degrade to ~now (recent), NOT the zero time — zero sorts the
-	// session below the picker's day-horizon and hides it, the opposite of what
+	// session below `session list`'s day-horizon and hides it, the opposite of what
 	// graceful degradation should do.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "index.yaml")

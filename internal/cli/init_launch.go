@@ -153,7 +153,7 @@ func printDiscoveryPostureHint(cfg *config.Config) {
 // by default rather than swallowing them — there is no relaunch loop or
 // review offer to gate on a clean return anymore (both deleted — init hands
 // off once and is done).
-func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
+func launchEngineWithPrompt(ctx context.Context, engine, workDir, harp string) error {
 	client, err := pb.NewSelfInvokingClientForLabel(engine, "", 0)
 	if err != nil {
 		return fmt.Errorf("failed to launch %s: %w", engine, err)
@@ -166,22 +166,7 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	// which discoverySessionPrompt already degrades to the built-in body for.
 	cfg, _ := GetConfig()
 
-	// Mint this session's harp via the SAME primitive `ctxloom run`'s
-	// openSession uses (operations.AssignSession), rather than proceeding
-	// with an unnamed session: an empty harp reaches panelaunch's pane-hosted
-	// launch and refuses outright ("interactive launch requires a named
-	// session"), which is exactly the bug this closes — the discovery launch
-	// used to build its request with no harp at all. Unlike openSession,
-	// this does NOT degrade to an unharped run on failure: a pane-hosted
-	// launch cannot proceed without one anyway (no ptyrunner fallback), so
-	// warning and continuing here would only defer the same failure one
-	// level deeper with a worse diagnosis.
-	entry, err := operations.AssignSession(ctx, workDir, engine)
-	if err != nil {
-		return fmt.Errorf("failed to name the setup session: %w", err)
-	}
-
-	req := discoveryRunRequest(cfg, workDir, entry.HarpName)
+	req := discoveryRunRequest(cfg, workDir, harp)
 
 	// The discovery session is interactive, so the frontend must own the
 	// terminal exactly as `ctxloom run` does: raw-mode keystrokes and resize
@@ -270,11 +255,18 @@ var authPingFactory pb.ClientFactory
 // subscription token, a real backend error) fails loud, naming the fix for
 // THIS engine; auth itself stays ambient — this is a liveness gate, not a
 // login flow.
-func pingEngineAuth(ctx context.Context, cfg *config.Config, engine, workDir string) error {
+func pingEngineAuth(ctx context.Context, cfg *config.Config, engine, workDir, harp string) error {
 	_, err := operations.RunOneshot(ctx, cfg, operations.RunOneshotRequest{
 		Task:    authPingTask,
 		LLM:     engine,
 		WorkDir: workDir,
+		// The probe runs INSIDE the setup session, under the harp init already
+		// minted, on the same env key every other consumer of session identity
+		// reads. A run whose surfaces land in a shared cwd derives its private
+		// scratch from this harp, and derives nothing without one: harpless, the
+		// probe refuses (ErrSharedScratchNoHarp) rather than writing the
+		// session's private files somewhere world-readable.
+		Harp: harp,
 		// The ping is a throwaway auth-liveness probe with a fixed trivial
 		// prompt — it wants no permission gating at all, regardless of
 		// whatever posture the chosen engine's llm label declares (or
@@ -324,7 +316,28 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 	if c, cerr := GetConfig(); cerr == nil {
 		cfg = c
 	}
-	if err := pingEngineAuth(cmd.Context(), cfg, engine, workDir); err != nil {
+	// Mint this session's harp via the SAME primitive `ctxloom run`'s openSession
+	// uses (operations.AssignSession), BEFORE the probe rather than inside the
+	// launch below. init and run then differ in what they run, not in whether a
+	// session exists: the probe and the setup session are two turns of ONE named
+	// session, exactly as a run's turns are.
+	//
+	// Minting it later is what broke the probe. Setup runs on every turn, so a
+	// harpless probe reached sharedScratchDir and was refused
+	// (ErrSharedScratchNoHarp) — correctly, since a shared-cwd delivery derives
+	// its private scratch from the harp and must never fall back to a
+	// world-readable location.
+	//
+	// This does NOT degrade to an unnamed session on failure: a pane-hosted
+	// launch refuses an empty harp anyway ("interactive launch requires a named
+	// session"), so continuing would defer the same failure with a worse
+	// diagnosis.
+	entry, err := operations.AssignSession(cmd.Context(), workDir, engine)
+	if err != nil {
+		return fmt.Errorf("failed to name the setup session: %w", err)
+	}
+
+	if err := pingEngineAuth(cmd.Context(), cfg, engine, workDir, entry.HarpName); err != nil {
 		return err
 	}
 
@@ -337,7 +350,7 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 	printDiscoveryPostureHint(cfg)
 	fmt.Println()
 
-	if launchErr := launchEngineWithPromptFn(cmd.Context(), engine, workDir); launchErr != nil {
+	if launchErr := launchEngineWithPromptFn(cmd.Context(), engine, workDir, entry.HarpName); launchErr != nil {
 		// A setup session that failed to launch (or start) is init's own
 		// working outcome not happening, so it must not exit clean — that
 		// is the exit-0-success-message-nothing-happened shape CLAUDE.md

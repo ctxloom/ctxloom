@@ -2,8 +2,9 @@
 
 `internal/mcp` builds and serves **five different MCP surfaces**: the
 runner-terminated HTTP-on-unix server that a real session's harness actually
-talks to, the stdio shim that forwards onto it, the legacy standalone stdio
-server that stands a coordinator up itself, the read-only `ctxloom://` resource
+talks to, the stdio shim that forwards onto it, the bare standalone stdio
+server (which refuses the agent tools rather than hosting a coordinator — a
+coordinator is hosted only by a runner), the read-only `ctxloom://` resource
 surface, and a handler-free clone of the whole thing for docs generation. This
 is the boundary where an external MCP client meets `internal/operations`
 (content), `internal/agentcoord/coord` (delegation), and
@@ -106,8 +107,8 @@ fail-loud, and one of the better patterns in the package.
 
 | Type | file:line | Role |
 |---|---|---|
-| `ctxServer` | `mcp_server.go:32` | Shared handler state: `cfg`, `self coord.Identity`, `agents *agentDelegation` + `agentsMu`, `distill *singleflight.Group`. Four disjoint field partitions; on the runner path `agents`/`agentsMu`/`distill` stay nil and `self` is unread by resource handlers. |
-| `agentDelegation` | `mcp_tools_agents.go:39` | `{self, c *coord.Coordinator}` behind the standalone stdio `agent_*` tools. |
+| `ctxServer` | `mcp_server.go:32` | Shared handler state: `cfg`, `self coord.Identity`, `agents *agentDelegation`, `distill *singleflight.Group`. Four disjoint field partitions; on the runner path `agents`/`distill` stay nil and `self` is unread by resource handlers. |
+| `agentDelegation` | `mcp_tools_agents.go` | `{self, c *coord.Coordinator}` behind the `agent_*` tools; bound only on the runner's relay servers — a bare stdio server never builds one. |
 | `RunnerMCP` | `mcp_runner.go:56` | `{SocketPath, httpSrv, cleanup}` — one runner's live endpoint handle. |
 | `socketKind` | `mcp_runner.go:140` | Three-tier enum: container / host-runtime / private-temp. `socketKindPrivateTemp` means "no marker is publishable", encoded only in prose at `:152-156`. |
 | `artifactStamper` / `artifactCandidate` | `mcp_runner.go:637`, `:623` | Per-run upload dedupe (artifact_id → last sha256) and the candidate shape. `seen` is committed only after a successful upload. |

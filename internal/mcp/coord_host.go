@@ -13,19 +13,21 @@ import (
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
-// Coordinator hosting: every session-owning process — `ctxloom run` and the
-// bare `ctxloom mcp` fallback — stands the runtime
-// coordinator up as a LIBRARY. Since the B1.6 surface shrink the gRPC
+// Coordinator hosting: the session-owning process — `ctxloom run` — stands
+// the runtime coordinator up as a LIBRARY, and it is the ONLY process that
+// does. An MCP server (stdio shim or runner) is a client of that coordinator,
+// never a host: the constructor below is private so no other entry point in
+// this package can build one. Since the B1.6 surface shrink the gRPC
 // channels are the ONLY agent ingress (tool surfaces live at each runner's
 // local socket); this process keeps the host-relay handlers, each bound to
 // the CALLER's credential-derived identity — never the host process's env
 // (review R12f).
 
-// NewHostedCoordinator builds and serves the coordinator for projectDir.
+// newHostedCoordinator builds and serves the coordinator for projectDir.
 // ownerHarp is the session owner's harp — the inbox this process drains
-// (coord.Options.OwnerHarp); every hosting site knows it before standing the
+// (coord.Options.OwnerHarp); the hosting site knows it before standing the
 // coordinator up.
-func NewHostedCoordinator(cfg *config.Config, projectDir, ownerHarp string) (*coord.Coordinator, error) {
+func newHostedCoordinator(cfg *config.Config, projectDir, ownerHarp string) (*coord.Coordinator, error) {
 	key := ""
 	if pid, _, err := taskops.ResolveProjectIdentity(projectDir); err == nil {
 		key = pid
@@ -142,7 +144,7 @@ func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context
 // the error for the caller's fail-loud gate; the caller decides degraded
 // behavior.
 func HostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp string, runtimeAxis agent.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
-	c, err := NewHostedCoordinator(cfg, projectDir, ownerHarp)
+	c, err := newHostedCoordinator(cfg, projectDir, ownerHarp)
 	if err != nil {
 		return nil, nil, err
 	}

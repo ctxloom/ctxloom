@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"sort"
 	"strings"
@@ -575,6 +576,9 @@ func (c Catalog) Scoped(classes ...ProvenanceClass) Catalog {
 	out := c
 	out.reads, out.candidates = nil, nil
 	out.byKey = make(map[trust.BundleKey]BundleRead)
+	// A value copy shares the map; a view must own its failures snapshot.
+	// fs and warnOut stay shared on purpose: they are injected collaborators.
+	out.failures = maps.Clone(c.failures)
 	for _, read := range c.reads {
 		if !keep[read.Provenance] {
 			continue

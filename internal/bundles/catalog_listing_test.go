@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -219,4 +220,30 @@ func listingNamesFor(t *testing.T, infos []*BundleInfo) []string {
 	labels := ListingNames(infos)
 	require.Len(t, labels, len(infos), "ListingNames must answer once per row, in order")
 	return labels
+}
+
+// TestCatalogScoped_ViewDoesNotShareFailuresWithParent pins that Scoped hands
+// out an INDEPENDENT view: Catalog is copied by value, and a value copy shares
+// every map and slice's backing store, so each owned reference field Scoped
+// does not rebuild is aliased between parent and view. reads, candidates and
+// byKey are rebuilt; failures is the one that survived by reference.
+//
+// fs and warnOut are deliberately NOT covered and must not be copied: they
+// are injected collaborators (a filesystem, a diagnostics sink), not state
+// the Catalog owns, and every view is meant to read through the same
+// filesystem and warn to the same writer as its parent.
+//
+// The test writes through the view in both directions — an insert and a
+// delete — because a fresh-but-empty map would pass an insert-only check
+// while still losing the parent's entries.
+func TestCatalogScoped_ViewDoesNotShareFailuresWithParent(t *testing.T) {
+	errBroken := errors.New("unparseable")
+	parent := Catalog{failures: map[string]error{"broken": errBroken}}
+
+	view := parent.Scoped(ProvenanceProject)
+	view.failures["injected"] = errors.New("written through the view")
+	delete(view.failures, "broken")
+
+	assert.NotContains(t, parent.failures, "injected", "a write through the view must not appear in the parent")
+	assert.Equal(t, map[string]error{"broken": errBroken}, parent.failures, "a delete through the view must not remove the parent's entry")
 }

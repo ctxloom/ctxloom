@@ -161,7 +161,8 @@ func TestEngines_Uninstall_AbsentIsNoop(t *testing.T) {
 
 // A PRESENT "mcpServers" of the wrong type (a string, an array) is the user's,
 // however it got there. Writing members into it would destroy it, so the
-// registrar reports it instead — and the file is not touched.
+// registrar refuses, names the member, and leaves the file untouched — the
+// same refusal a file that will not parse gets, backup included.
 func TestEngines_Register_WrongTypeMcpServersRefuses(t *testing.T) {
 	const original = `{"mcpServers": "not an object"}`
 	server := TaskloomServer()
@@ -170,6 +171,7 @@ func TestEngines_Register_WrongTypeMcpServersRefuses(t *testing.T) {
 			fs, store, path := registrar(t, e, original)
 			_, err := e.Register(fs, store, path, TaskloomName, &server)
 			require.Error(t, err, "a present-but-wrong-type mcpServers value must be reported, not silently replaced")
+			assert.Contains(t, err.Error(), "mcpServers", "the refusal names the member that is wrong")
 			out, err := afero.ReadFile(fs, path)
 			require.NoError(t, err)
 			assert.Equal(t, original, string(out))

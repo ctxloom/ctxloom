@@ -612,20 +612,13 @@ func applyMCPServers(fs afero.Fs, store *confpatch.Store, mcpPath string, desire
 		}
 		// Addressing /mcpServers/<name> against a file that has no mcpServers
 		// is HEW013 no-match, so state the container whole when it is absent.
-		container, ok := cur.Root().Member(mcpServersKey)
-		if !ok {
+		if _, ok := cur.Root().Member(mcpServersKey); !ok {
 			p, perr := hew.ParsePathIn(doc.Format(), "/"+mcpServersKey)
 			if perr != nil {
 				return 0, perr
 			}
 			doc.AtPath(p).Set(desired)
 			return 1, nil
-		}
-		// A PRESENT value of the wrong type (a string, an array) is the
-		// user's, however it got there: writing members into it would
-		// destroy it, so it is reported rather than overwritten.
-		if container.Kind() != hew.KindMap {
-			return 0, fmt.Errorf("%s is not an object — refusing to overwrite it", mcpServersKey)
 		}
 		recorded := 0
 		for _, name := range collections.SortedKeys(desired) { // stable order: a deterministic record

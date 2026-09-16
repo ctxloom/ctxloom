@@ -80,13 +80,17 @@ func TestManageInstall_PreservesForeignBytesAndRecordsOnce(t *testing.T) {
 		"the user's own entry must survive byte for byte, member order and one-line layout included")
 	assert.Less(t, strings.Index(got, `"zeta"`), strings.Index(got, `"mcpServers"`),
 		"the user's key order must survive; a sorting encoder would move zeta after mcpServers")
-	assert.Len(t, taskloomRecords(t), 1, "one write, one record")
+	records := taskloomRecords(t)
+	assert.Len(t, records, 1, "one write, one record")
 
-	// Registering again changes nothing and leaves no second record: a
-	// re-install that reformats the file or grows the audit trail is churn.
+	// Registering again changes nothing and touches no record: a re-install
+	// that reformats the file, or replaces the record with an identical
+	// one under a new name, is churn. The record's NAME is the assertion
+	// because the store prunes superseded records, so a count of one
+	// cannot tell one-record-per-write from one-record-total.
 	require.NoError(t, manageInstall("claude-code", proj, false, false, &errOut))
 	assert.Equal(t, got, readFile(t, path), "a repeat install must not rewrite the file")
-	assert.Len(t, taskloomRecords(t), 1, "a no-op write must not add a record")
+	assert.Equal(t, records, taskloomRecords(t), "a no-op write must not write a record")
 }
 
 func TestManageUninstall_RestoresTheUsersBytesExactly(t *testing.T) {

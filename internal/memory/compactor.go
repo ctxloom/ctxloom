@@ -75,15 +75,16 @@ const (
 type CompactionConfig struct {
 	LLM   string // LLM plugin to use for distillation (default: claude-code)
 	Model string // Model to use within the plugin (e.g., "haiku", "sonnet")
-	// Env is the resolved LLM label's config-declared environment
-	// (llm.configs.<label>.env), forwarded onto every distillation request.
+	// Env is the resolved LLM label's request-borne environment — today the
+	// mock's test-control map (operations.MockControlFor; a real engine's
+	// environment is ambient, never config-declared) — forwarded onto every
+	// distillation request.
 	//
 	// It exists because it was MISSING: runDistill built its RunOptions with no
 	// Env at all, while every other RunStart caller forwards it (internal/cli/
-	// run.go's llmEnvFor -> st.runEnv). llm.configs.<label>.env is the
-	// documented home for a backend's credentials, so a distiller whose key
-	// lived there ran unconfigured and behaved as though nothing was set —
-	// silently, since an unconfigured backend does not error.
+	// run.go -> st.runEnv), so a distillation ran with none of what the label
+	// carried and behaved as though nothing was set — silently, since an
+	// unconfigured backend does not error.
 	Env             map[string]string
 	Backend         string           // Backend name to read session from (e.g., "claude-code")
 	SessionID       string           // Session to compact (empty = most recent)

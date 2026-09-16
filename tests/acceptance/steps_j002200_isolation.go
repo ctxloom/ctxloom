@@ -78,14 +78,9 @@ func j002200Of(w *World) *j002200State {
 // authoring rather than the MockLM helper, which does not preserve an
 // "agents:" section).
 //
-// llm.configs.fast.env used to live HERE, in the project file, alongside
-// type. It moved to the HOME half (j002200HomeConfigYAML): llm.configs.*.env is
-// ScopeMachine (internal/config/layerscope) — credential passthrough, where
-// a committed project-file value is a leaked secret — so a project-declared
-// env block no longer survives a real Load at all. Splitting the "fast"
-// label across layers like this is legal (unlike agents.*, llm.configs.*
-// has no atomic-replace merge rule), so the project's own `type: mock` and
-// home's `env` deep-merge into one usable entry.
+// Splitting the "fast" label across layers like this is legal (unlike
+// agents.*, llm.configs.* has no atomic-replace merge rule), so the project's
+// own `type: mock` and home's `mock_control` deep-merge into one usable entry.
 func j002200ConfigYAML() string {
 	return fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
@@ -106,14 +101,14 @@ agents:
 }
 
 // j002200HomeConfigYAML renders the HOME half of config.yaml for J002200's fixture:
-// llm.configs.fast.env, pointed at recordFile. Rewritten before EVERY run
-// with a fresh recordFile so sequential runs never clobber each other's
-// evidence — see j002200ConfigYAML's doc for why this piece lives in HOME.
+// llm.configs.fast.mock_control, pointed at recordFile. Rewritten before
+// EVERY run with a fresh recordFile so sequential runs never clobber each
+// other's evidence, while the project half stays static and committed.
 func j002200HomeConfigYAML(recordFile string) string {
 	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`llm:
   configs:
     fast:
-      env:
+      mock_control:
         CTXLOOM_MOCK_RECORD_FILE: %q
 `, recordFile)
 }

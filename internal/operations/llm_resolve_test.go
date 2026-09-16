@@ -94,3 +94,26 @@ func TestDecodeBackendConfig_RemovedBackendHintRidesTheDiagnosticChannel(t *test
 	}
 	assert.True(t, sawHint, "the removed-backend hint must survive on the structured channel")
 }
+
+// TestMockControlFor_ReadsTheMockLabelsControlMapAndNothingElse pins the
+// surviving request-env channel: the mock's `mock_control` map reaches the
+// run request through its own key, while a real engine's label yields
+// nothing — a real engine's environment is ambient, never config-declared
+// (config.RetiredLLMEnvKey), so there is no map on its config to read.
+func TestMockControlFor_ReadsTheMockLabelsControlMapAndNothingElse(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{
+		LM: config.LMConfig{
+			Configs: map[string]config.LLMConfig{
+				"m": {Type: config.BackendMock, Body: map[string]interface{}{
+					"mock_control": map[string]interface{}{"CTXLOOM_MOCK_RESPONSE": "canned-7f3a"},
+				}},
+				"big": {Type: "claude-code", Body: map[string]interface{}{"model": "opus"}},
+			},
+		},
+	})
+
+	assert.Equal(t, map[string]string{"CTXLOOM_MOCK_RESPONSE": "canned-7f3a"}, MockControlFor(cfg, "m"),
+		"the mock label's mock_control map must reach the request env verbatim")
+	assert.Nil(t, MockControlFor(cfg, "big"), "a real engine's label carries no request env map")
+	assert.Nil(t, MockControlFor(cfg, "absent"), "an unset label carries none either")
+}

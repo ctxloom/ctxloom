@@ -118,7 +118,7 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 		// The compaction label is the FAST role (config.FastLabel), not the
 		// primary — resolve its env from the same label the LLM above came
 		// from, or the distiller gets a different backend's credentials.
-		Env:              LLMEnvFor(cfg, cfg.FastLabel()),
+		Env:              MockControlFor(cfg, cfg.FastLabel()),
 		Backend:          backendName,
 		EssenceMaxChars:  cfg.GetEssenceMaxChars(),
 		SessionID:        sessionID,

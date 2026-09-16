@@ -18,7 +18,6 @@ func TestNewMock(t *testing.T) {
 	assert.Equal(t, "mock", mock.Name())
 	assert.Equal(t, "1.0.0", mock.Version())
 	assert.NotNil(t, mock.Args)
-	assert.NotNil(t, mock.Env)
 }
 
 func TestMock_Setup(t *testing.T) {

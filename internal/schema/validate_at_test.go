@@ -65,8 +65,8 @@ func TestValidateAt_AcceptsLegitimateValues(t *testing.T) {
 // TestValidateAt_SilentWhereItHasNoAnswer pins the two non-answers, both of
 // which must stay non-answers rather than become errors: a path the schema does
 // not name at all is diagnosed by the unknown-key machinery in its own
-// vocabulary, and a location under `additionalProperties: true` (an LLM
-// backend's env passthrough) names every key and constrains none. A nil
+// vocabulary, and a location under `additionalProperties: true` (the mock
+// label's test-control map) names every key and constrains none. A nil
 // receiver degrades rather than panicking, matching the rest of this package.
 func TestValidateAt_SilentWhereItHasNoAnswer(t *testing.T) {
 	v, err := NewConfigValidator()
@@ -75,9 +75,9 @@ func TestValidateAt_SilentWhereItHasNoAnswer(t *testing.T) {
 	require.False(t, v.KnownPath([]string{"not_a_config_key"}), "fixture check: this path really is unknown")
 	assert.NoError(t, v.ValidateAt([]string{"not_a_config_key"}, "whatever"), "an unknown path is not this gate's diagnosis")
 
-	envPath := []string{"llm", "configs", "big", "env", "ANY_NAME"}
-	require.True(t, v.KnownPath(envPath), "fixture check: the passthrough IS a known location, so this row is not vacuous")
-	assert.NoError(t, v.ValidateAt(envPath, "a,b"), "a free-form passthrough constrains nothing")
+	controlPath := []string{"llm", "configs", "m", "mock_control", "ANY_NAME"}
+	require.True(t, v.KnownPath(controlPath), "fixture check: the passthrough IS a known location, so this row is not vacuous")
+	assert.NoError(t, v.ValidateAt(controlPath, "a,b"), "a free-form passthrough constrains nothing")
 	assert.NoError(t, v.ValidateAt(nil, "whatever"), "an empty path names nothing")
 
 	var nilV *ConfigValidator

@@ -270,41 +270,25 @@ func j000700SetupTeamProject(w *World) error {
 // j000700SetupDistillProject scaffolds Carol's checkout with a "mock" LLM entry
 // wired as both the primary and (via FastLabel's fallback) the fast/distill
 // role, its response pinned to j000700FragDistilledMarker via the labeled config's
-// own env map (mirrors testenv/mock_lm.go's WriteConfig) — so `fragment
-// distill` genuinely invokes the plugin/self-invoking-client machinery
-// hermetically, and the saved "distilled" bytes are exactly this marker.
-// use_distilled is set explicitly (even though true is already the default)
-// so the scenario's "with distilled context enabled" precondition is honest
-// about what it depends on.
-//
-// llm.configs.mock.env lives in HOME (w.env.WriteHomeFile below), not the
-// project file j000700SetupProject writes: llm.configs.*.env is ScopeMachine
-// (internal/config/layerscope) — credential passthrough, where a committed
-// project-file value is a leaked secret — so it no longer survives a real
-// Load from the project layer. Splitting the "mock" label across layers like
-// this is legal (unlike agents.*, llm.configs.* has no atomic-replace merge
-// rule), so the project's own `type: mock` and home's `env` deep-merge into
-// one usable entry.
+// own mock_control map (mirrors testenv/mock_lm.go's WriteConfig) — so
+// `fragment distill` genuinely invokes the plugin/self-invoking-client
+// machinery hermetically, and the saved "distilled" bytes are exactly this
+// marker. use_distilled is set explicitly (even though true is already the
+// default) so the scenario's "with distilled context enabled" precondition
+// is honest about what it depends on.
 func j000700SetupDistillProject(w *World) error {
 	cfg := fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) +
 		"llm:\n" +
 		"  configs:\n" +
 		"    mock:\n" +
 		"      type: mock\n" +
+		"      mock_control:\n" +
+		fmt.Sprintf("        CTXLOOM_MOCK_RESPONSE: %q\n", j000700FragDistilledMarker) +
 		"  defaults:\n" +
 		"    primary: mock\n" +
 		"config:\n" +
 		"  use_distilled: true\n"
-	if err := j000700SetupProject(w, cfg); err != nil {
-		return err
-	}
-	homeCfg := fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) +
-		"llm:\n" +
-		"  configs:\n" +
-		"    mock:\n" +
-		"      env:\n" +
-		fmt.Sprintf("        CTXLOOM_MOCK_RESPONSE: %q\n", j000700FragDistilledMarker)
-	return w.env.WriteHomeFile(".ctxloom/config.yaml", homeCfg)
+	return j000700SetupProject(w, cfg)
 }
 
 // j000700SetupProject is the shared scaffold behind j000700SetupTeamProject/

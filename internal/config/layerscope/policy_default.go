@@ -96,7 +96,6 @@ func DefaultPolicy() Policy {
 
 		{Path: "llm.configs.*", Scope: ScopePreference, Note: "which model a person likes; harmless in either file"},
 		{Path: "llm.configs.*.binary_path", Scope: ScopeMachine, Note: "an absolute path on this filesystem"},
-		{Path: "llm.configs.*.env", Scope: ScopeMachine, Note: "credential passthrough; a committed value is a leaked secret"},
 		{Path: "llm.configs.*.permissions", Scope: ScopeShared, Note: "a privilege grant; a team may decide it, but a user's home config must never fill it in for a project"},
 		{Path: "llm.defaults.*", Scope: ScopePreference, Note: "which label plays which role"},
 

@@ -51,7 +51,7 @@ Schema for ctxloom config.yaml files
 | `driving` | string | Per-turn execution axis: conversational (persistent engine process across turns, the default and today's only behavior) or oneshot (engine process ends at each turn boundary; resumed by native session key — requires a resume-capable engine). Allowed values: `conversational`, `oneshot`. |
 | `engine_home` | string | Engine-home axis for this agent: WHICH HOME its engine runs against. The third isolation axis, a peer of runtime (which isolates the PROCESS) and workspace (which isolates the FILES): this one isolates the engine's config AND identity — its credentials, memory, plugins, personal MCP registrations, global agents and steering, everything the engine keeps in its home directory. "host" (the default, also when omitted) keeps the home the runtime gives the engine: its real host home, or a container's own fresh $HOME. "session" points the engine at a ctxloom-controlled, PER-SESSION home under .ctxloom/state/<harp>/home/<engine leaf> — on the host the engine is told that path; in a container it is mounted and the engine is told the mount target. A declared value wins on every invocation path this binding resolves through — a bare run under default_agent, run --agent, a delegated child, a oneshot fan member alike; a run with NO agent binding at all (no --agent, no default_agent) has no engine_home to read and keeps the real host home. Validated when written — an unknown value is refused, naming the two valid ones. Allowed values: `host`, `session`. |
 | `escalation` | object[] | The agent's approval-request escalation ladder: an ORDERED list of rungs, each naming which ApprovalRequest kinds it answers and how. Empty derives the ladder from `permissions` (the degenerate two-rung preset: bypass accepts everything; plan declines mutating kinds and relays the rest to the parent). A non-empty list REPLACES the preset entirely — no merge. |
-| `llm` | string | llm.configs label hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend). A label names an engine AND a model AND its credentials — it is not an engine, and the retired spelling 'engine' is refused at load |
+| `llm` | string | llm.configs label hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend). A label names an engine AND a model — it is not an engine, and it carries no credentials (an engine reads those from the ambient environment; the retired key 'env' is refused at load). The retired spelling 'engine' is refused at load |
 | `permissions` | string | Launch-time permission posture for this agent; empty inherits the engine label's default, then the built-in default. Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `profiles` | string[] | Profiles composed into one assembled context (later wins / union). Members may be local, top-level remote, or bundle profiles (<bundle>#profiles/<name>). |
 | `runtime` | string | Runtime axis for this agent: where its engine process executes. The two container values name WHO OWNS the container runtime daemon and are not interchangeable — see the top-level `runtime` default for why there is no bare 'container'. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/acp --workspace, or an agent_run spawn's workspace field), never declared on an agent. Allowed values: `host`, `container-rootless`, `container-rootful`. |
@@ -184,7 +184,6 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 |-------|------|-------------|
 | `args` | string[] |  |
 | `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
-| `env` | map → string |  |
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
@@ -197,7 +196,6 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 |-------|------|-------------|
 | `args` | string[] |  |
 | `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
-| `env` | map → string |  |
 | `model` | string |  |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
@@ -212,7 +210,6 @@ opencode driven over its first-party `opencode acp` mode (host-only chat spine).
 |-------|------|-------------|
 | `args` | string[] |  |
 | `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
-| `env` | map → string |  |
 | `model` | string | opencode model string (provider/model); written into the run's opencode.json. Examples: `openrouter/meta-llama/llama-3.3-70b-instruct:free`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
@@ -223,7 +220,7 @@ opencode driven over its first-party `opencode acp` mode (host-only chat spine).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `env` | map → string |  |
+| `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment, and the retired key 'env' is refused at load. |
 | `model` | string |  |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |

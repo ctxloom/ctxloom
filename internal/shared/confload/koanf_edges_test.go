@@ -119,12 +119,12 @@ func TestKoanf_ExplicitZeroBeatsInheritance(t *testing.T) {
 
 // TestKoanf_CaseSensitiveKeysPreserved is the whole reason koanf was chosen
 // over viper (see confload.go's package doc): viper's case-insensitivity is
-// hardcoded (no configuration hook), which silently lowercased a real
-// backend's `env: {GEMINI_API_KEY: ...}` map key in production (ctxloom
-// commit 26f96c7). koanf is case-sensitive by design. This exercises three
-// distinct case-sensitive shapes ctxloom's schema legitimately carries: an
-// agent label (MyCoder), an env-passthrough var name (GEMINI_API_KEY), and a
-// mixed-case template variable -- all surviving an ordinary Merge untouched.
+// hardcoded (no configuration hook), which once silently lowercased a real
+// label-body map key in production so the engine never saw its variable.
+// koanf is case-sensitive by design. This exercises three distinct
+// case-sensitive shapes ctxloom's schema legitimately carries: an agent
+// label (MyCoder), a mock test-control var name (CTXLOOM_MOCK_RESPONSE), and
+// a mixed-case template variable -- all surviving an ordinary Merge untouched.
 func TestKoanf_CaseSensitiveKeysPreserved(t *testing.T) {
 	home := map[string]any{
 		"agents": map[string]any{
@@ -135,7 +135,7 @@ func TestKoanf_CaseSensitiveKeysPreserved(t *testing.T) {
 		"llm": map[string]any{
 			"configs": map[string]any{
 				"big": map[string]any{
-					"env": map[string]any{"GEMINI_API_KEY": "secret"},
+					"mock_control": map[string]any{"CTXLOOM_MOCK_RESPONSE": "canned"},
 				},
 			},
 		},
@@ -157,10 +157,10 @@ func TestKoanf_CaseSensitiveKeysPreserved(t *testing.T) {
 	_, hasLowercased := agents["mycoder"]
 	assert.False(t, hasLowercased, "must not gain a lower-cased sibling")
 
-	envMap := merged["llm"].(map[string]any)["configs"].(map[string]any)["big"].(map[string]any)["env"].(map[string]any)
-	assert.Equal(t, "secret", envMap["GEMINI_API_KEY"])
-	_, hasLoweredEnvKey := envMap["gemini_api_key"]
-	assert.False(t, hasLoweredEnvKey, "GEMINI_API_KEY must not be lower-cased")
+	control := merged["llm"].(map[string]any)["configs"].(map[string]any)["big"].(map[string]any)["mock_control"].(map[string]any)
+	assert.Equal(t, "canned", control["CTXLOOM_MOCK_RESPONSE"])
+	_, hasLoweredKey := control["ctxloom_mock_response"]
+	assert.False(t, hasLoweredKey, "CTXLOOM_MOCK_RESPONSE must not be lower-cased")
 
 	vars := merged["profiles"].(map[string]any)["definitions"].(map[string]any)["go-developer"].(map[string]any)["variables"].(map[string]any)
 	assert.Equal(t, "internal/config", vars["TargetPackage"])

@@ -132,9 +132,8 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 	})
 
 	// The home counterpart of `the file X does not contain Y`, and the
-	// per-machine half of every "this landed in the OTHER store" assertion —
-	// `signer trust`'s project-vs-user default, `llm --env-file`'s
-	// project-vs-machine credential split. It deliberately READS the file
+	// per-machine half of every "this landed in the OTHER store" assertion
+	// (`signer trust`'s project-vs-user default). It deliberately READS the file
 	// rather than checking it away: `the home file X does not exist` passes
 	// against a harness that could never see a home file at all, so a scenario
 	// that has just written something ELSE into that same file and then

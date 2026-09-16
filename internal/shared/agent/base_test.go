@@ -23,9 +23,7 @@ func TestNewBaseBackend(t *testing.T) {
 	assert.Equal(t, "test-backend", backend.name)
 	assert.Equal(t, "1.0.0", backend.version)
 	assert.NotNil(t, backend.Args)
-	assert.NotNil(t, backend.Env)
 	assert.Empty(t, backend.Args)
-	assert.Empty(t, backend.Env)
 }
 
 func TestBaseBackend_Name(t *testing.T) {
@@ -67,40 +65,18 @@ func TestBaseBackend_WorkDir(t *testing.T) {
 // =============================================================================
 // Environment Building Tests
 // =============================================================================
-// Environment merging combines backend defaults with per-request overrides,
-// enabling context injection and backend-specific configuration.
+// The launched process sees the ambient environment plus the request's own
+// entries: that is how a request's context injection reaches the engine, and
+// how the engine's own credentials do (ctxloom carries none).
 
 func TestBaseBackend_BuildEnv(t *testing.T) {
 	backend := NewBaseBackend("backend", "1.0")
-	backend.Env = map[string]string{
-		"BACKEND_VAR": "backend_value",
-	}
+	t.Setenv("AMBIENT_VAR", "ambient_value")
 
-	reqEnv := map[string]string{
-		"REQUEST_VAR": "request_value",
-	}
+	env := backend.BuildEnv(map[string]string{"REQUEST_VAR": "request_value"})
 
-	env := backend.BuildEnv(reqEnv)
-
-	// Backend env vars persist across all requests
-	found := false
-	for _, e := range env {
-		if e == "BACKEND_VAR=backend_value" {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "Backend env var should be included")
-
-	// Request env vars customize individual invocations
-	found = false
-	for _, e := range env {
-		if e == "REQUEST_VAR=request_value" {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "Request env var should be included")
+	assert.Contains(t, env, "AMBIENT_VAR=ambient_value", "the ambient environment must reach the process")
+	assert.Contains(t, env, "REQUEST_VAR=request_value", "the request's entries must reach the process")
 }
 
 // =============================================================================

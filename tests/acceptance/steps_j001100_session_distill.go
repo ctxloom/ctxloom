@@ -46,9 +46,9 @@ const (
 func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 	// A dedicated Given rather than reusing steps_fixture.go's shared
 	// "the mock LLM responds" step: that step (testenv.MockLM.WriteConfig)
-	// only ever writes CTXLOOM_MOCK_* into llm.configs.mock.env in the HOME
-	// config.yaml, which reaches the mock backend for `ctxloom run` (whose
-	// caller resolves the label's config env via llmEnvFor and forwards it
+	// only ever writes CTXLOOM_MOCK_* into llm.configs.mock.mock_control in
+	// the project config.yaml, which reaches the mock backend for `ctxloom
+	// run` (whose caller resolves the label's map via MockControlFor and forwards it
 	// on RunOptions.Env — internal/cli/run.go's st.llmEnv/runEnv) but NOT for
 	// this journey's command: internal/memory/compactor.go's runDistill
 	// builds its own bare pb.RunOptions{} with no Env field at all, so
@@ -56,7 +56,7 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 	// mock" subprocess it spawns. Confirmed by hand: pointing only the
 	// The mock's knobs are set as PROCESS env, not via the config env.
 	//
-	// The config-env path (llm.configs.<label>.env) is now forwarded correctly
+	// The config path (llm.configs.<label>.mock_control) is now forwarded correctly
 	// — CompactionConfig.Env -> RunOptions.Env, which was missing entirely —
 	// and that forwarding is pinned directly by
 	// TestRunDistill_ForwardsConfiguredEnvOntoTheRequest in internal/memory.

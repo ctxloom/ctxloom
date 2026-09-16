@@ -80,7 +80,6 @@ type BaseBackend struct {
 	version    string
 	BinaryPath string
 	Args       []string
-	Env        map[string]string
 	workDir    string
 	launcher   Launcher
 }
@@ -97,7 +96,6 @@ func NewBaseBackend(name, version string) BaseBackend {
 		name:    name,
 		version: version,
 		Args:    []string{},
-		Env:     make(map[string]string),
 	}
 }
 
@@ -136,12 +134,11 @@ func (b *BaseBackend) SetWorkDir(dir string) {
 	b.workDir = dir
 }
 
-// BuildEnv constructs environment variables from backend and request.
+// BuildEnv constructs the launched process's environment: the ambient
+// environment (which is how an engine's own credentials reach it — ctxloom
+// carries none) plus the request's own entries.
 func (b *BaseBackend) BuildEnv(reqEnv map[string]string) []string {
 	env := os.Environ()
-	for k, v := range b.Env {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
-	}
 	for k, v := range reqEnv {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}

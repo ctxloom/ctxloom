@@ -99,54 +99,6 @@ func TestSetLLM_EditOnlyChangesNamedFields(t *testing.T) {
 	assert.Equal(t, "plan", entry.Permissions)
 }
 
-// TestSetLLM_EnvReplacesWholeBlock proves Env is a full-replace, not a
-// per-key merge: cli/llm_write.go's --env-file always supplies the entry's
-// complete desired env set, so SetLLM must not silently keep a key the
-// caller's file no longer lists.
-func TestSetLLM_EnvReplacesWholeBlock(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\n")
-	mgr := managerFor(appDir)
-
-	_, err := SetLLM(mgr, SetLLMRequest{
-		Label: "big",
-		Type:  ptr("mock"),
-		Env:   map[string]string{"A": "1", "B": "2"},
-	})
-	require.NoError(t, err)
-
-	entry, err := SetLLM(mgr, SetLLMRequest{Label: "big", Env: map[string]string{"C": "3"}})
-	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"C"}, entry.EnvKeys, "a fresh --env-file must REPLACE the old set, not merge into it")
-}
-
-// TestSetLLM_EnvKeysNeverCarryValues is the credential-withholding contract at
-// its source: LLMEntry.EnvKeys reports which keys are declared, never their
-// values, no matter what secret was actually stored. This is what
-// cli.renderLLMWritten (and `llm list`) render from, so a leak anywhere
-// downstream is structurally impossible if this holds.
-func TestSetLLM_EnvKeysNeverCarryValues(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\n")
-	mgr := managerFor(appDir)
-
-	const secret = "sk-TOTALLY-SECRET-abc123"
-	entry, err := SetLLM(mgr, SetLLMRequest{
-		Label: "big",
-		Type:  ptr("mock"),
-		Env:   map[string]string{"OPENAI_API_KEY": secret},
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"OPENAI_API_KEY"}, entry.EnvKeys)
-	for _, k := range entry.EnvKeys {
-		assert.NotEqual(t, secret, k)
-	}
-	// LabelEnv is the ONE sanctioned path back to the real value (used to
-	// actually launch the engine), and it is not what EnvEntry reports.
-	reloaded, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	assert.Equal(t, secret, reloaded.LabelEnv("big")["OPENAI_API_KEY"], "the real value must still be recorded for launch to use")
-}
-
 // TestRemoveLLM_DeletesAndPersists proves the removal round-trips.
 func TestRemoveLLM_DeletesAndPersists(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")

@@ -34,28 +34,29 @@ func DecodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 	return bc
 }
 
-// envConfig is implemented by every BackendConfig that carries a labeled
-// entry's env map (ClaudeConfig, CodexConfig, MockConfig today). It is a
-// structural interface local to this package, not part of agent.BackendConfig
-// itself, so LLMEnvFor can reach a decoded config's Env without a
-// concrete-type switch — internal/operations (the ADR-0026 core) must not
-// import engine plugin packages directly (see
-// tests/arch/engine_identity_arch_test.go's
-// TestArch_Operations_DoesNotImportEnginePlugins), which a
-// *claude.ClaudeConfig/*codex.CodexConfig type switch would violate. This is
-// exactly the dispatch shape agent.BackendConfig's own doc already prescribes:
-// "shared code carries the interface and never type-switches on the backend."
-type envConfig interface {
-	GetEnv() map[string]string
+// mockControlConfig is implemented by the mock doubles' BackendConfig types
+// (backends.MockConfig and its siblings), the only label bodies that carry a
+// map of variables for the launched process: the CTXLOOM_MOCK_* test-control
+// knobs. No real engine's config carries one — an engine's credentials and
+// environment are ambient, never ctxloom's (config.RetiredLLMEnvKey). It is a
+// structural interface local to this package, not part of
+// agent.BackendConfig, so MockControlFor reaches the map without a
+// concrete-type switch: internal/operations (the ADR-0026 core) must not
+// branch on a backend's identity — the dispatch shape agent.BackendConfig's
+// own doc prescribes: "shared code carries the interface and never
+// type-switches on the backend."
+type mockControlConfig interface {
+	MockControl() map[string]string
 }
 
-// LLMEnvFor returns the env map a labeled entry carries, for callers that pass
-// env through the run request. Empty when the label is unset, carries none, or
-// its decoded config type does not implement envConfig.
-func LLMEnvFor(cfg *config.Config, label string) map[string]string {
+// MockControlFor returns the test-control map a labeled entry carries, for
+// callers that pass env through the run request. Empty when the label is
+// unset, carries none, or its decoded config type does not implement
+// mockControlConfig — every real engine.
+func MockControlFor(cfg *config.Config, label string) map[string]string {
 	bc := DecodeBackendConfig(cfg, label)
-	if ec, ok := bc.(envConfig); ok {
-		return ec.GetEnv()
+	if mc, ok := bc.(mockControlConfig); ok {
+		return mc.MockControl()
 	}
 	return nil
 }

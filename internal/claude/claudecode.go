@@ -23,9 +23,8 @@ type ClaudeConfig struct {
 	// (entry.Body["model"].(string)) — mapstructure would silently accept an
 	// unknown "model" key even without a matching field, so a typed field
 	// here would just be a second, dead reader of the same key.
-	BinaryPath string            `mapstructure:"binary_path"`
-	Args       []string          `mapstructure:"args"`
-	Env        map[string]string `mapstructure:"env"`
+	BinaryPath string   `mapstructure:"binary_path"`
+	Args       []string `mapstructure:"args"`
 	// Thinking is the normalized reasoning/thinking-budget level
 	// (off|low|medium|high — agent.ThinkingLevel). Empty or unrecognized
 	// defaults to "medium". See chat.go's translation to claude's
@@ -37,12 +36,6 @@ type ClaudeConfig struct {
 
 // BackendType identifies the backend this config drives.
 func (ClaudeConfig) BackendType() string { return EngineName }
-
-// GetEnv returns the labeled entry's env map. Lets shared code (see
-// operations.LLMEnvFor) reach a decoded config's Env through an interface
-// assertion instead of a concrete-type switch — internal/operations may not
-// import engine plugin packages directly (ADR-0026).
-func (c ClaudeConfig) GetEnv() map[string]string { return c.Env }
 
 // ClaudeCode implements the Backend interface for Claude Code CLI. The shared
 // launch core (capability wiring, accessors, Setup/Cleanup) lives in the embedded
@@ -102,7 +95,7 @@ func NewClaudeCode() *ClaudeCode {
 // Configure applies a decoded claude-code config to this backend.
 func (b *ClaudeCode) Configure(cfg agent.BackendConfig) {
 	if c, ok := cfg.(*ClaudeConfig); ok {
-		agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args, c.Env)
+		agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args)
 		// An unrecognized (but non-empty) value still resolves to the
 		// documented medium default (ParseThinkingLevel's ok=false path) —
 		// advisory validation, matching agents.SetAgentRequest's tolerance for

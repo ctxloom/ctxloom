@@ -408,19 +408,20 @@ func installIsoSpy(dir string, names ...string) error {
 	return nil
 }
 
-// isoMatrixConfigYAML renders the PROJECT half of config.yaml for one
-// engine, binding a single agent "iso" to it. engineHome renders as the
-// binding's own `engine_home:` key when non-empty — "" leaves it OUT of the
-// YAML entirely (an undeclared binding), never writes an empty string value,
-// so a scenario that never calls "Alice's agent declares engine_home" gets
-// the true undeclared case, not a declared-empty one. isoMatrixHomeConfigYAML
-// carries env.CTXLOOM_ISOSPY_OUT (the spy's own output path — it flows into
-// agent.LaunchBackend.ExecuteEnv (the request env layer) via
-// ApplyLocalCLIConfig, exactly like j002200's own CTXLOOM_MOCK_RECORD_FILE):
-// llm.configs.*.env is ScopeMachine (internal/config/layerscope), so it no
-// longer survives a real Load from a committed project file. Splitting the
-// label across layers like this is legal (unlike agents.*, llm.configs.*
-// has no atomic-replace merge rule).
+// isoMatrixConfigYAML renders the project config.yaml for one engine, binding
+// a single agent "iso" to it. engineHome renders as the binding's own
+// `engine_home:` key when non-empty — "" leaves it OUT of the YAML entirely
+// (an undeclared binding), never writes an empty string value, so a scenario
+// that never calls "Alice's agent declares engine_home" gets the true
+// undeclared case, not a declared-empty one.
+//
+// The spy's own output path (CTXLOOM_ISOSPY_OUT) is NOT in here: it reaches
+// the spy the way any variable reaches an engine — exported in the
+// environment ctxloom runs in, which the launched process inherits. The
+// config carries no environment for an engine at all (the retired `env` key
+// is refused at load, config.RetiredLLMEnvKey), and every scenario that
+// reaches the spy runs it on the host, where the ambient environment is the
+// engine's environment.
 func isoMatrixConfigYAML(engineType, engineHome string) string {
 	engineHomeLine := ""
 	if engineHome != "" {
@@ -438,17 +439,6 @@ agents:
     llm: iso
     profiles: []
 %s`, engineType, engineHomeLine)
-}
-
-// isoMatrixHomeConfigYAML renders the HOME half — see isoMatrixConfigYAML's
-// doc for why env lives here.
-func isoMatrixHomeConfigYAML(spyOut string) string {
-	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`llm:
-  configs:
-    iso:
-      env:
-        CTXLOOM_ISOSPY_OUT: %q
-`, spyOut)
 }
 
 // writeIsoEngineHomeViaCLI makes the CLI FLAG the only writer of the "iso"
@@ -496,6 +486,7 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 	spyOut := filepath.Join(w.env.Root, "iso-spy-out.txt")
 	_ = os.Remove(spyOut)
 	j.spyOut = spyOut
+	w.env.SetEnv("CTXLOOM_ISOSPY_OUT", spyOut)
 
 	// The fixture writes the declaration itself UNLESS the scenario asked for
 	// the CLI to be the writer, in which case the rendered YAML deliberately
@@ -505,9 +496,6 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 		renderedEngineHome = ""
 	}
 	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, renderedEngineHome)); err != nil {
-		return err
-	}
-	if err := w.env.WriteHomeFile(".ctxloom/config.yaml", isoMatrixHomeConfigYAML(spyOut)); err != nil {
 		return err
 	}
 	if j.engineHomeViaCLI {
@@ -563,15 +551,13 @@ func runIsoMatrixOwnerSession(c context.Context, engine string) error {
 	spyOut := filepath.Join(w.env.Root, "iso-spy-out.txt")
 	_ = os.Remove(spyOut)
 	j.spyOut = spyOut
+	w.env.SetEnv("CTXLOOM_ISOSPY_OUT", spyOut)
 
 	// Deliberately "" (undeclared), NOT j.engineHome: this scenario's whole
 	// point is the undeclared case, and reading scenario-shared state here
 	// would let an earlier "Alice's agent declares engine_home" step in some
 	// other ordering silently change what is under test.
 	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, "")+"default_agent: iso\n"); err != nil {
-		return err
-	}
-	if err := w.env.WriteHomeFile(".ctxloom/config.yaml", isoMatrixHomeConfigYAML(spyOut)); err != nil {
 		return err
 	}
 	if err := w.env.GitCommit("iso matrix config for " + engine); err != nil {

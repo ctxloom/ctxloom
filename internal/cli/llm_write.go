@@ -1,11 +1,8 @@
 package cli
 
 import (
-	"bufio"
 	"fmt"
 	"io"
-	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -24,7 +21,6 @@ var (
 	llmSetType        string
 	llmSetModel       string
 	llmSetPermissions string
-	llmSetEnvFile     string
 )
 
 // llmWriteLong is the shared body for `llm create`/`llm edit`: the fields an
@@ -40,16 +36,9 @@ func llmWriteLong() string {
 omit it to keep claude-code's default. --model sets the model string. --permissions
 sets the launch-time posture (default|acceptEdits|plan|bypass).
 
-CREDENTIALS ARE WITHHELD. --env-file reads KEY=VALUE lines (one per line;
-blank lines and #-comment lines are skipped) from a file, or from stdin with
-"-", and REPLACES the entry's entire declared env block — there is no
---env flag, and no other way to set one: a credential must never travel
-through argv, where it would reach shell history, the process table, and
-any CI log capturing the command line. The values themselves are written
-straight to your PER-MACHINE user config (~/.ctxloom/config.yaml, never a
-committed project file — llm.configs.*.env is machine-scoped by design).
-'llm list' and this command's own confirmation report only which keys are
-declared, never their values.`
+An entry carries NO credentials and no environment: the engine authenticates
+itself and reads its environment from the shell that runs ctxloom, so export
+a variable there — ctxloom's config is not where it goes.`
 }
 
 var llmCreateCmd = &cobra.Command{
@@ -134,68 +123,11 @@ func buildSetLLMRequest(cmd *cobra.Command, label string) (operations.SetLLMRequ
 	if cmd.Flags().Changed("permissions") {
 		req.Permissions = &llmSetPermissions
 	}
-	if cmd.Flags().Changed("env-file") {
-		env, err := readLLMEnvFile(cmd, llmSetEnvFile)
-		if err != nil {
-			return operations.SetLLMRequest{}, err
-		}
-		req.Env = env
-	}
 	return req, nil
 }
 
-// readLLMEnvFile reads KEY=VALUE lines from path, or from cmd's stdin when
-// path is "-" — signer trust's "-" convention for keeping a secret out of
-// argv. This is llm create/edit's ONLY way to set an entry's env block.
-func readLLMEnvFile(cmd *cobra.Command, path string) (map[string]string, error) {
-	var r io.Reader
-	if path == "-" {
-		r = cmd.InOrStdin()
-	} else {
-		f, err := os.Open(path) //nolint:gosec // an operator-supplied --env-file path
-		if err != nil {
-			return nil, fmt.Errorf("--env-file %s: %w", path, err)
-		}
-		defer func() { _ = f.Close() }()
-		r = f
-	}
-	env, err := parseEnvFile(r)
-	if err != nil {
-		return nil, fmt.Errorf("--env-file %s: %w", path, err)
-	}
-	return env, nil
-}
-
-// parseEnvFile parses dotenv-shaped KEY=VALUE lines: blank lines and lines
-// starting with "#" are skipped; every other line must contain "=" (the
-// first "=" splits key from value, so a value may itself contain "=", e.g.
-// a base64-encoded secret). Leading/trailing whitespace around the key and
-// value is trimmed.
-func parseEnvFile(r io.Reader) (map[string]string, error) {
-	env := map[string]string{}
-	sc := bufio.NewScanner(r)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			return nil, fmt.Errorf("invalid line %q (want KEY=VALUE)", line)
-		}
-		env[strings.TrimSpace(k)] = strings.TrimSpace(v)
-	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
-	return env, nil
-}
-
 // renderLLMWritten writes the one-line confirmation for a created/edited
-// llm, naming which of the two happened. EnvKeys — key NAMES only, never
-// values, see operations.LLMEntry's doc — is the only env-related thing
-// this ever prints: a credential's presence is confirmed, its value never
-// is.
+// llm, naming which of the two happened.
 func renderLLMWritten(out io.Writer, entry *operations.LLMEntry, edited bool) error {
 	w := iox.NewErrWriter(out)
 	verb := "Created"
@@ -212,9 +144,6 @@ func renderLLMWritten(out io.Writer, entry *operations.LLMEntry, edited bool) er
 	}
 	if entry.Permissions != "" {
 		w.Printf(", permissions: %s", entry.Permissions)
-	}
-	if len(entry.EnvKeys) > 0 {
-		w.Printf(", env: %s", strings.Join(entry.EnvKeys, ", "))
 	}
 	w.Println(")")
 	return w.Err()
@@ -235,7 +164,6 @@ func registerLLMWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&llmSetType, "type", "", "backend discriminator (empty = claude-code)")
 	cmd.Flags().StringVar(&llmSetModel, "model", "", "model string")
 	cmd.Flags().StringVar(&llmSetPermissions, "permissions", "", "permission posture: default|acceptEdits|plan|bypass")
-	cmd.Flags().StringVar(&llmSetEnvFile, "env-file", "", "read KEY=VALUE env/credential lines from this file ('-' for stdin); REPLACES the entry's whole env block")
 	_ = cmd.RegisterFlagCompletionFunc("type", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return backends.List(), cobra.ShellCompDirectiveNoFileComp
 	})
@@ -274,7 +202,7 @@ value.
 
 Examples:
   ctxloom llm edit big --model o1-pro
-  ctxloom llm edit big --env-file secrets.env`
+  ctxloom llm edit big --permissions plan`
 
 	for _, c := range []*cobra.Command{llmCreateCmd, llmEditCmd} {
 		if f := c.Flags().Lookup("type"); f != nil {

@@ -469,6 +469,9 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	if mappingValue(node, retiredAgentTurnCapKey) != nil {
 		return errRetiredAgentTurnCapKey
 	}
+	if label, found := findRetiredEntryKey(mappingValue(mappingValue(node, "llm"), "configs"), RetiredLLMEnvKey); found {
+		return fmt.Errorf("llm config %q: %w", label, ErrRetiredLLMEnvKey)
+	}
 	doc := c.toDoc()
 	if err := node.Decode(&doc); err != nil {
 		return err
@@ -494,6 +497,31 @@ var errRetiredAgentTurnCapKey = errors.New(
 	"config uses the retired key 'agent_turn_cap:'; it is now 'delegation.concurrency:' — " +
 		"same resource ceiling (concurrently EXECUTING delegated child turns), correctly named and grouped under 'delegation:'")
 
+// RetiredLLMEnvKey is the REMOVED per-label environment map,
+// llm.configs.<label>.env. A removal, not a rename: ctxloom no longer carries
+// an engine's environment or credentials in its config at all. Every engine
+// authenticates itself, and the process ctxloom launches inherits the ambient
+// environment (an isolated run forwards it across the boundary), so a
+// variable exported in the shell that runs ctxloom reaches the engine with
+// ctxloom neither seeing nor storing it. The key was retired because its only
+// documented use was credentials, and the project config file it invited
+// them into is committed.
+//
+// Refused at load for the same reason agents.RetiredLLMKey is: this decode
+// path is lenient, so an untouched `env:` would decode into a Body key that
+// nothing reads, and a user would believe their variable reached the engine.
+// The mock's test-control knobs, which once rode this key, live under their
+// own key (see backends.MockConfig.Control).
+const RetiredLLMEnvKey = "env"
+
+// ErrRetiredLLMEnvKey says what replaced the key rather than only that it is
+// gone, since "unknown key" leaves the reader to guess where their variable
+// should go instead.
+var ErrRetiredLLMEnvKey = errors.New(
+	"llm config uses the removed key 'env:'; ctxloom no longer carries engine credentials or environment " +
+		"in its config — the engine reads them from the ambient environment, so export the variable in the " +
+		"shell that runs ctxloom and delete the key")
+
 // findRetiredAgentKey returns the first agent carrying the named retired key,
 // and whether one was found. It walks the NODE rather than the decoded value
 // because the decode is what loses the information: this path does not set
@@ -505,15 +533,21 @@ var errRetiredAgentTurnCapKey = errors.New(
 // Walking the tree is also what separates a KEY from the same word appearing
 // as a profile name, a model string, or prose.
 func findRetiredAgentKey(node *yaml.Node, key string) (string, bool) {
-	agentsNode := mappingValue(node, "agents")
-	if agentsNode == nil {
+	return findRetiredEntryKey(mappingValue(node, "agents"), key)
+}
+
+// findRetiredEntryKey returns the first entry of a name-keyed section
+// (agents.<name>, llm.configs.<label>) whose mapping carries key, and whether
+// one was found. A nil or non-mapping section finds nothing.
+func findRetiredEntryKey(section *yaml.Node, key string) (string, bool) {
+	if section == nil || section.Kind != yaml.MappingNode {
 		return "", false
 	}
-	// Content pairs as [key, value, key, value, ...]; agents are already in
+	// Content pairs as [key, value, key, value, ...]; entries are already in
 	// document order, so the name reported is stable across runs.
-	for i := 0; i+1 < len(agentsNode.Content); i += 2 {
-		name := agentsNode.Content[i].Value
-		if mappingValue(agentsNode.Content[i+1], key) != nil {
+	for i := 0; i+1 < len(section.Content); i += 2 {
+		name := section.Content[i].Value
+		if mappingValue(section.Content[i+1], key) != nil {
 			return name, true
 		}
 	}
@@ -1471,8 +1505,8 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 		// already treats this exact case specially on the READ side (its
 		// home/project dedup collapses to a single file). The WRITE side
 		// must agree: saveLocked's layerscope filter strips ScopeMachine
-		// values (llm.configs.*.env, credentials — "a committed value is a
-		// leaked secret") whenever source is SourceProject, on the theory
+		// values (llm.configs.*.binary_path, "an absolute path on this
+		// filesystem") whenever source is SourceProject, on the theory
 		// that the file is a committed project file every clone shares. A
 		// caller that deliberately targets ~/.ctxloom (the only way today to
 		// write a ScopeMachine value at all, since there is no separate
@@ -1687,7 +1721,7 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 	// alone (cfg.source == SourceHome — findAppDir fell all the way back to
 	// home, or an explicit WithAppDir named ~/.ctxloom directly): tagging it
 	// LayerProject would make dropLayerScopeViolations strip every
-	// ScopeMachine value (llm.configs.*.env, credentials) from a file that
+	// ScopeMachine value (llm.configs.*.binary_path, say) from a file that
 	// was never a committed project file to begin with. The home==project
 	// DEDUP case (resolveConfigLayerPaths' other homeConfigPath=="" arm,
 	// cfg.source == SourceProject) is unaffected — that file really is being
@@ -1784,9 +1818,9 @@ func decodeMergedLayers(cfg *Config, layers []map[string]any, product confload.P
 
 	// Parse with yaml directly, NOT viper. Viper lowercases every key it decodes,
 	// which corrupts the case-sensitive keys captured by LLMConfig.Body's
-	// `,remain`/`,inline` map: a backend `env: {GEMINI_API_KEY: ...}` would reach
-	// the launched process as `gemini_api_key`, so the engine never sees its
-	// credential. yaml.Unmarshal preserves key case and matches ParseConfig (the
+	// `,remain`/`,inline` map: the mock's `mock_control: {CTXLOOM_MOCK_RESPONSE:
+	// ...}` would reach the launched process as `ctxloom_mock_response`, so the
+	// engine never sees it. yaml.Unmarshal preserves key case and matches ParseConfig (the
 	// init path), so both entry points decode a config identically. This is
 	// also why overrides above are resolved into a plain map first (via
 	// confload, backed by yaml.Unmarshal file reads) rather than any

@@ -169,7 +169,6 @@ reflected.)
 | `agent_turn_cap` | `ScopeMachine` | a resource ceiling; its own doc calls it "a deliberately finite number well below the process-count load this project has measured pain at" — a fact about the box |
 | `llm.configs.*` (label, `type`, `model`, `role`, `args`, `thinking`) | `ScopePreference` | which model a person likes; harmless in either file |
 | `llm.configs.*.binary_path` | `ScopeMachine` | an absolute path on this filesystem |
-| `llm.configs.*.env` | `ScopeMachine` | credential passthrough; a committed value is a leaked secret |
 | `llm.defaults.primary`, `llm.defaults.fast` | `ScopePreference` | which label plays which role |
 | `profiles.definitions.*` | `ScopeShared` | authored content |
 | `mcp.servers.*`, `mcp.plugins.*` | `ScopeShared` | what the team wires in |

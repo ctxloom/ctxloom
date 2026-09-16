@@ -364,16 +364,17 @@ Feature: MCP tools
   # index entry yet (an ambient backend with no BindSession behind it).
   #
   # That branch builds its memory.NewCompactor with no Env at all, so the
-  # distillation subprocess is handed none of llm.configs.<label>.env — the
-  # documented home for a backend's credentials. The named-session path plumbs
-  # it (operations.CompactEntry -> LLMEnvFor(cfg, cfg.FastLabel())); this one
-  # never did. An unconfigured backend does not error, so what a user gets is
-  # a distillation that ran against no credentials and reported success.
+  # distillation subprocess is handed none of what the label carries for the
+  # request env. The named-session path plumbs it (operations.CompactEntry ->
+  # MockControlFor(cfg, cfg.FastLabel())); this one never did. An
+  # unconfigured backend does not error, so what a user gets is a
+  # distillation that ran without it and reported success.
   #
   # The claim is exactly the env and nothing else. The mock honours
-  # CTXLOOM_MOCK_RESPONSE only when it arrives through the config'd LLM's env
-  # (tests/integration/testenv writes it to llm.configs.mock.env and nowhere
-  # else), so a canned reply in the essence is proof the env crossed, and its
+  # CTXLOOM_MOCK_RESPONSE only when it arrives through the config'd LLM's
+  # request env (tests/integration/testenv writes it to
+  # llm.configs.mock.mock_control and nowhere else), so a canned reply in the
+  # essence is proof the env crossed, and its
   # absence — an essence echoing the prompt back instead — is proof it did
   # not. The scenario takes NO position on which session a self-compaction
   # ought to pick up.

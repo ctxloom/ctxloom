@@ -1549,15 +1549,14 @@ func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
 }
 
 // TestRunDistill_ForwardsConfiguredEnvOntoTheRequest pins the channel by which
-// a distillation subprocess receives the credentials its config declares.
+// a distillation subprocess receives the env its label carries.
 //
 // runDistill built its RunOptions with PermissionMode, Mode, Model and the
 // launch form and NO Env at all, while every other RunStart-issuing caller
-// forwards the resolved label's env (internal/cli/run.go's llmEnvFor ->
-// st.runEnv). Since llm.configs.<label>.env is the documented home for a
-// backend's API key, a distiller whose key lived there ran unconfigured — and
-// an unconfigured backend does not error, it just behaves as though nothing
-// was set. LaunchFormMinimal makes this the ONLY channel: the form declares
+// forwards the resolved label's env (internal/cli/run.go -> st.runEnv), so a
+// distiller ran without it — and an unconfigured backend does not error, it
+// just behaves as though nothing was set. LaunchFormMinimal makes this the
+// ONLY channel: the form declares
 // that this run has no managed surfaces to carry configuration.
 //
 // Asserting the request's Env rather than any observable downstream effect is

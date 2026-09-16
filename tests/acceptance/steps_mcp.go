@@ -114,7 +114,7 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 	})
 
 	// The server loads its config ONCE, at startup (loadStartupConfig), and
-	// the mock engine's reply rides that config's llm.configs.mock.env — so a
+	// the mock engine's reply rides that config's llm.configs.mock.mock_control — so a
 	// "the mock LLM responds" step taken AFTER the first tool call changes
 	// nothing the running server can see. Restarting is what makes a
 	// re-pointed mock reach the server, and it is also the production shape:

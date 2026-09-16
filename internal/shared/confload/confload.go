@@ -55,8 +55,8 @@
 // which IS meaningful and lets --config-set do something env fundamentally
 // cannot: mint a brand-new case-sensitive key, e.g. `--config-set
 // agents.MyCoder.runtime=container` creating an `agents.MyCoder` entry, or
-// `--config-set llm.configs.big.env.GEMINI_API_KEY=...` a case-sensitive
-// `GEMINI_API_KEY` inside an LLM backend's env passthrough. See
+// `--config-set profiles.definitions.go-developer.variables.TargetPackage=...`
+// a case-sensitive `TargetPackage` inside a profile's variables. See
 // resolvePath's preserveTypedCase parameter for the mechanics.
 //
 // This case-matching POLICY is entirely ours — koanf has no opinion on it,
@@ -89,12 +89,12 @@
 // This package (and internal/config's own file-layer loading) reads config
 // FILES with yaml.Unmarshal only, never viper: viper lowercases every map
 // key it decodes (confirmed empirically — MyCoder becomes mycoder,
-// GEMINI_API_KEY becomes gemini_api_key), which is silently catastrophic for
-// a case-sensitive pass-through map like an LLM backend's `env` block (see
-// ctxloom commit 26f96c7, the regression this constraint exists to prevent: a
-// backend's `env: {GEMINI_API_KEY: ...}` reached the launched process as
-// `gemini_api_key` and the engine never saw its credential).
-// TestConfig_EnvMapKeyCasePreserved (internal/config) is the end-to-end guard
+// CTXLOOM_MOCK_RESPONSE becomes ctxloom_mock_response), which is silently
+// catastrophic for a case-sensitive pass-through map like the mock's
+// `mock_control` block: the lower-cased key reaches the launched process and
+// the engine never sees the variable it was given. That regression shipped
+// once, against the map that carried an engine's credentials at the time.
+// TestConfig_BodyMapKeyCasePreserved (internal/config) is the end-to-end guard
 // for this on ctxloom's own adoption of this package. koanf (github.com/
 // knadh/koanf/v2) is deliberately CASE-SENSITIVE by design — its own docs
 // state `app.server.port` and `APP.SERVER.port` are different keys — which

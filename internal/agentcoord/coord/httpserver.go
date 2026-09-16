@@ -262,7 +262,7 @@ func (s *coordServing) ensureWide() (string, error) {
 		return "", errors.New("no container-reachable host interface found: no container runtime bridge gateway was reported, " +
 			"and primaryOutboundIP() came back empty, which means this host has NO DEFAULT ROUTE " +
 			"(the UDP probe it uses cannot pick a source address without one). A container cannot reach " +
-			"the coordinator until the host has a route or a runtime bridge.")
+			"the coordinator until the host has a route or a runtime bridge")
 	}
 	port := s.widePort // recorded port first (stable re-bindable endpoint)
 	var bound []net.Listener

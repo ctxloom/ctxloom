@@ -60,7 +60,8 @@ func isOSBackedFs(fs afero.Fs) bool {
 // fs is the caller's OWN filesystem seam — the SAME value a caller's getFS()
 // resolves from (nil meaning "real OS filesystem"; see GetFS) — and NOT
 // necessarily nil by the time it reaches here, since some callers (e.g.
-// agent.MCPFileConfig) already default-resolve before constructing.
+// claude.ClaudeCodeHookWriter.writeSettingsFile) already default-resolve
+// before calling.
 // Locking is skipped entirely when fs is not OS-backed (isOSBackedFs):
 // locking exists to exclude OTHER PROCESSES, which a test double
 // (afero.MemMapFs and friends) has none of, and composing a lock path from

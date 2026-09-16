@@ -11,8 +11,8 @@ import (
 // caller-supplied chat servers (ChatRequest.MCPServers → session/new
 // mcpServers) for the structured paths, which never run backend Setup and so
 // never get its settings-file write. The source is the one
-// MCPFileConfig.WriteServers reconciles into an engine's settings file:
-// bundle-shipped servers (config.ResolveBundleMCPServers — the builtin
+// claude.ClaudeCodeHookWriter.writeMCPConfig reconciles into an engine's MCP
+// registry file: bundle-shipped servers (config.ResolveBundleMCPServers — the builtin
 // bundles, each discovered companion's own loadout, and the profile→bundle
 // cascade), so the two delivery paths cannot diverge. A name already present
 // in existing is dropped: the caller's explicit entry wins, so a

@@ -178,7 +178,7 @@ func TestWithFileLock_RemovesLegacyBesideFileSidecar(t *testing.T) {
 }
 
 // TestWithFileLock_SkipsLockingForNonOSBackedFs pins the guard that keeps
-// every existing MCPFileConfig/claude/codex/opencode unit test green: a
+// every existing claude/codex/opencode unit test green: a
 // test double (afero.MemMapFs and friends) has no cross-process reader to
 // exclude, and composing a lock path from one of its often-bogus absolute
 // addresses and asking the REAL OS to create and flock it would touch

@@ -130,9 +130,12 @@ func TestPendingReview_ContentAndRendering(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, "dual distilled body", byRef[seedItemRef(t, reviewSeedKey, "fragments/dual")].CurrentContent,
-		"review must show the effective (distilled-preferred) form — the bytes that would be exposed")
-	assert.Equal(t, "solid raw body", byRef[seedItemRef(t, reviewSeedKey, "fragments/solid")].CurrentContent)
+	// Review shows the COUNTERSIGNED bytes: for a fragment that is the framed
+	// surface over the effective (distilled-preferred) body, so the premise a
+	// reviewer approves is on the screen and a premise edit diffs.
+	assert.Equal(t, string(fragmentBytes("dual distilled body")), byRef[seedItemRef(t, reviewSeedKey, "fragments/dual")].CurrentContent,
+		"review must show the effective (distilled-preferred) form — the bytes that are countersigned")
+	assert.Equal(t, string(fragmentBytes("solid raw body")), byRef[seedItemRef(t, reviewSeedKey, "fragments/solid")].CurrentContent)
 
 	mcp := byRef[seedItemRef(t, reviewSeedKey, "mcp/pg")]
 	assert.True(t, mcp.Executable)
@@ -220,7 +223,7 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 		// Content-reject "solid"'s bytes under an UNRELATED ref — the
 		// rejection is deliberately ref-omitted (spec §5.3), so it must
 		// still deny "solid" wherever those exact bytes appear.
-		fx.rejectContent(trust.KindFragment, signing.FormRaw, []byte("solid raw body"))
+		fx.rejectContent(trust.KindFragment, signing.FormRaw, fragmentBytes("solid raw body"))
 
 		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, b), FS: afero.NewMemMapFs()})
 		require.NoError(t, err)
@@ -294,9 +297,9 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 				}
 			}
 		}
-		assert.Equal(t, "dual distilled body", item.PreviousContent,
-			"the diff base must be the previously approved DISTILLED text (the effective form)")
-		assert.Equal(t, "dual distilled body v2", item.CurrentContent)
+		assert.Equal(t, string(fragmentBytes("dual distilled body")), item.PreviousContent,
+			"the diff base must be the previously approved DISTILLED payload (the effective form)")
+		assert.Equal(t, string(fragmentBytes("dual distilled body v2")), item.CurrentContent)
 	})
 
 	t.Run("raw-form item diffs against the approved raw text", func(t *testing.T) {
@@ -317,7 +320,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 			for _, it := range b.Items {
 				if it.Ref == seedItemRef(t, reviewSeedKey, "fragments/solid") {
 					assert.Equal(t, ReviewStatusUpdate, it.Status)
-					assert.Equal(t, "solid raw body", it.PreviousContent)
+					assert.Equal(t, string(fragmentBytes("solid raw body")), it.PreviousContent)
 				}
 			}
 		}
@@ -396,7 +399,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 			for _, it := range b.Items {
 				if it.Ref == seedItemRef(t, reviewSeedKey, "fragments/solid") {
 					assert.Empty(t, it.PreviousContent, "no snapshot → empty diff base (full-content display)")
-					assert.Equal(t, "solid raw body v2", it.CurrentContent)
+					assert.Equal(t, string(fragmentBytes("solid raw body v2")), it.CurrentContent)
 				}
 			}
 		}
@@ -510,14 +513,14 @@ func TestPendingReview_DualFormExposesBothForms(t *testing.T) {
 	}
 
 	dual := byRef[seedItemRef(t, reviewSeedKey, "fragments/dual")]
-	assert.Equal(t, "dual distilled body", dual.CurrentContent)
+	assert.Equal(t, string(fragmentBytes("dual distilled body")), dual.CurrentContent)
 	assert.Equal(t, string(bundles.FormDistilled), dual.CurrentForm)
-	assert.Equal(t, "dual raw body", dual.AlternateContent,
+	assert.Equal(t, string(fragmentBytes("dual raw body")), dual.AlternateContent,
 		"the raw form is countersigned by the same approval, so it must be shown too")
 	assert.Equal(t, string(bundles.FormRaw), dual.AlternateForm)
 
 	solid := byRef[seedItemRef(t, reviewSeedKey, "fragments/solid")]
-	assert.Equal(t, "solid raw body", solid.CurrentContent)
+	assert.Equal(t, string(fragmentBytes("solid raw body")), solid.CurrentContent)
 	assert.Empty(t, solid.AlternateContent, "a single-form item has no second countersigned form")
 }
 

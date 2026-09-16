@@ -42,7 +42,7 @@ func solidState(t *testing.T, fx *trustFixture) trust.State {
 	t.Helper()
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref:     forgetSolidRef(),
-		Payload: []byte(solidRawBody),
+		Payload: fragmentBytes(solidRawBody),
 		Form:    rawForm,
 		Records: fx.records(),
 	})
@@ -97,7 +97,7 @@ func TestForgetItemDecision_ClearsARejectionInBothComponents(t *testing.T) {
 	// The content block is ref-omitted, so it denies these bytes under a
 	// COMPLETELY DIFFERENT ref. That is the component this asserts on.
 	elsewhere := trust.Ref{RepoURL: trustRepo, Bundle: "other", Kind: trust.KindFragment, Name: "copy"}
-	rejectedElsewhere := func() bool { return fx.records().Rejected(elsewhere, []byte(solidRawBody)) }
+	rejectedElsewhere := func() bool { return fx.records().Rejected(elsewhere, fragmentBytes(solidRawBody)) }
 	require.True(t, rejectedElsewhere(), "a moved copy of the rejected bytes must be rejected too, or there is no content block to clear")
 
 	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{Ref: ref, UserStore: fx.user, Root: fx.root, Loader: loader, FS: fs})

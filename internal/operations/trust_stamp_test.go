@@ -78,7 +78,7 @@ func TestTrustStamper_ForRef_Cascade(t *testing.T) {
 	fx.rejectRef(trust.Ref{RepoURL: trustRepo, Bundle: "banned", Kind: trust.KindFragment, Name: "bad"})
 	// content-rejecting some other ref's bytes; the renamed clone (identical
 	// "danger body") must then stay rejected by content match.
-	fx.rejectItem(trust.Ref{RepoURL: trustRepo, Bundle: "old", Kind: trust.KindFragment, Name: "orig"}, signing.FormRaw, []byte("danger body"))
+	fx.rejectItem(trust.Ref{RepoURL: trustRepo, Bundle: "old", Kind: trust.KindFragment, Name: "orig"}, signing.FormRaw, fragmentBytes("danger body"))
 
 	stamper := NewTrustStamper(nil,
 		WithStampLoader(loader), WithStampRecords(fx.records()))
@@ -175,7 +175,7 @@ func TestTrustStamper_ForRef_DistilledFormSelection(t *testing.T) {
 	fx := newTrustFixture(t)
 	// Approve ONLY the raw form's bytes — the item had no distilled form at
 	// review time.
-	fx.approve(ref, signing.FormRaw, []byte("raw body"))
+	fx.approve(ref, signing.FormRaw, fragmentBytes("raw body"))
 
 	preferDistilled := true
 	cfgDistilled := config.NewFixture(config.Fixture{Settings: config.SettingsConfig{UseDistilled: &preferDistilled}})

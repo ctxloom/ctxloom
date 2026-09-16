@@ -106,12 +106,21 @@ func (f *trustFixture) rejectContent(kind trust.ItemKind, form signing.Form, pay
 	require.NoError(f.t, f.user.WriteContentReject(attested, payload, f.signer))
 }
 
+// fragmentBytes is the countersigned payload of an UNPREMISED fragment whose
+// body is rawBody: the framed surface (bundles.FragmentSurface.Preimage), not
+// the bare body. A fixture that countersigned the bare body would record an
+// approval no gate can ever match, and every "approved fragment is exposed"
+// test would then be asserting a withhold.
+func fragmentBytes(rawBody string) []byte {
+	return signing.FragmentPreimage("", []byte(rawBody))
+}
+
 // approveFragment/approvePrompt are approve() convenience wrappers for the
 // overwhelmingly common test shape: a single-form (raw) approval of a
 // trustRepo-hosted fragment/prompt by (bundle, name, body).
 func (f *trustFixture) approveFragment(bundle, name, rawBody string) {
 	f.t.Helper()
-	f.approve(trust.Ref{RepoURL: trustRepo, Bundle: bundle, Kind: trust.KindFragment, Name: name}, signing.FormRaw, []byte(rawBody))
+	f.approve(trust.Ref{RepoURL: trustRepo, Bundle: bundle, Kind: trust.KindFragment, Name: name}, signing.FormRaw, fragmentBytes(rawBody))
 }
 
 func (f *trustFixture) approvePrompt(bundle, name, rawBody string) {
@@ -128,7 +137,7 @@ func (f *trustFixture) rejectFragment(bundle, name, rawBody string) {
 	f.t.Helper()
 	f.rejectRef(trust.Ref{RepoURL: trustRepo, Bundle: bundle, Kind: trust.KindFragment, Name: name})
 	if rawBody != "" {
-		f.rejectContent(trust.KindFragment, signing.FormRaw, []byte(rawBody))
+		f.rejectContent(trust.KindFragment, signing.FormRaw, fragmentBytes(rawBody))
 	}
 }
 

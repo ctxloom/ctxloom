@@ -1522,7 +1522,7 @@ func TestWriteSettings_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
 // TestWriteSettings_CompanionHookIsWithdrawnWhenNoLongerDeclared is the test
 // that gives the hooks ledger its reason to exist, and it was missing: a
 // mutation that wrote the ledger EMPTY passed the whole suite, because every
-// other hook test happens to use one of ctxloom's four machine callbacks, which
+// other hook test happens to use one of ctxloom's own machine callbacks, which
 // the name-based fallback reclaims with or without a record.
 //
 // A COMPANION hook (`ltk evaluate`) is the case only the ledger can handle. Its

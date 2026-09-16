@@ -815,7 +815,13 @@ func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, deny
 // callbacks by name is bounded and safe; reclaiming ANY command that merely
 // invokes the ctxloom binary — which is what this used to do — is not, because
 // the user is equally entitled to invoke it.
-var ctxloomMachineCallbacks = []string{"inject-context", "session-bind", "stamp-plan", "hud"}
+//
+// This list must name EVERY hook verb ctxloom installs for itself, or the
+// fallback is partial: two verbs missing from it survived an uninstall of a
+// stale-ledger checkout as if a user had written them.
+// TestRemoveSettings_WithoutALedger_ReclaimsEveryHookCtxloomConstructs walks the
+// constructors and fails when one is not recognised here.
+var ctxloomMachineCallbacks = []string{"inject-context", "session-bind", "stamp-plan", "tool-reflect", "next-step", "hud"}
 
 func isCtxloomMachineCallback(command string) bool {
 	if !agent.IsManaged(command, "ctxloom") {
@@ -1063,16 +1069,32 @@ func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 			return err
 		}
 		w.removeCtxloomHooks(settings, owned)
-		if settings.StatusLine != nil && agent.IsManaged(settings.StatusLine.Command, "ctxloom") {
-			settings.StatusLine = nil
+		// The statusline goes by the same rule the write side (ensureStatusLine)
+		// installs it under: ctxloom's recorded claim, or its own canonical
+		// command for a checkout with no record. Keying on the executable token,
+		// as this used to, removed a statusline the USER pointed at the ctxloom
+		// binary — ownership inferred from the file rather than recorded.
+		prevStatus, err := led.Read(ledger.SurfaceStatusLine)
+		if err != nil {
+			return err
+		}
+		if settings.StatusLine != nil {
+			cmd := settings.StatusLine.Command
+			claimed := len(prevStatus) > 0 && prevStatus[0] == agent.ComputeCommandDigest(cmd)
+			if claimed || cmd == ctxloomStatusLineCommand() {
+				settings.StatusLine = nil
+			}
 		}
 		if err := w.saveSettings(settingsPath, settings); err != nil {
 			return err
 		}
-		// Nothing of ctxloom's remains, so the claim must go too — a ledger naming
-		// hooks that are gone would make the next reconcile delete whatever a user
-		// later wrote under those commands.
-		return led.Write(ledger.SurfaceHooks, nil)
+		// Nothing of ctxloom's remains, so the claims must go too — a ledger
+		// naming entries that are gone would make the next reconcile delete
+		// whatever a user later wrote under those commands.
+		if err := led.Write(ledger.SurfaceHooks, nil); err != nil {
+			return err
+		}
+		return led.Write(ledger.SurfaceStatusLine, nil)
 	})
 }
 

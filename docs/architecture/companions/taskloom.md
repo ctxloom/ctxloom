@@ -123,7 +123,7 @@ detail (config paths, on-disk format, merge semantics) lives in each agent modul
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `Engine` | `engine.go:22` | `= agent.MCPRegistrar` — a type **alias**, not a definition |
+| `Engine` | `engine.go` | The registrar interface, defined here (its only consumer) because it is `confpatch`-shaped and `confpatch` depends on `shared/agent`; `Register` with a nil server is the uninstall |
 | `TaskloomName` | `engine.go:25` | `"taskloom"`, the registration key |
 | `TaskloomServer` | `engine.go:29` | `wire.MCPServer{Command: "taskloom", Args: ["mcp"]}` — the one place the command line is named |
 | `All` | `engine.go` | The registry — one `MCPRegistrar` per backend that has one |

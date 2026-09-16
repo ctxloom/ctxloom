@@ -228,20 +228,25 @@ type deliverySpec struct {
 var matrixSpecs = map[string]deliverySpec{
 	// ---- claude-code -------------------------------------------------------
 	"claude-code/context/unsafe-file": {wantFile: "CLAUDE.md", wantSlot: slotContext},
-	"claude-code/context/system-prompt": {
-		elsewhere: "TestDeliveryApproach_ClaudeSystemPromptScratchPlacement — the out-of-cwd form " +
-			"is now keyed on (kind, approach) (U100-F05), so this pair's out-of-cwd " +
-			"<hash>.sysprompt.md scratch is real; it is reached through SharedRealization " +
-			"(DeliverIsolated), never through the generic Construct+Deliver(root) this " +
-			"loop uses for every other cell.",
-	},
+	// ONE form, on every cell: Deliver writes the framed <hash>.sysprompt.md
+	// beneath the private root, and an unrooted run REFUSES rather than
+	// writing CLAUDE.md instead. The leaf is a sha256 prefix over the framed
+	// bytes, so it is matched by glob rather than named;
+	// TestDeliveryApproach_ClaudeSystemPromptScratchPlacement pins the
+	// framing and the leaf shape this glob cannot express.
+	"claude-code/context/system-prompt": {wantFile: "./*", wantSlot: slotContext, underEngineHome: true},
 	"claude-code/context/hook": {
 		noOp: "claude's hook arm resolves to a documented no-op (a static CLAUDE.md " +
 			"alongside the hook would double the context); the payload rides the " +
 			"settings surface's SessionStart hook + the context cache file. Covered " +
 			"end to end by TestDeliveryApproach_HookPayloadReachesInjectedContext.",
 	},
-	"claude-code/mcp/unsafe-file":      {wantFile: ".mcp.json", wantSlot: slotMCPCmd},
+	"claude-code/mcp/unsafe-file": {wantFile: ".mcp.json", wantSlot: slotMCPCmd},
+	// The DEFAULT MCP approach, and it is private: the merged .mcp.json lands
+	// beneath the run's private root for --mcp-config, never the user's project
+	// file. An unresolved private root refuses (ErrUnrootedEngineHome) rather
+	// than falling back to the project file — the fallback IS the defect.
+	"claude-code/mcp/mcp-config":       {wantFile: ".mcp.json", wantSlot: slotMCPCmd, underEngineHome: true},
 	"claude-code/settings/unsafe-file": {wantFile: ".claude/settings.json", wantSlot: slotHook},
 	"claude-code/settings/hew-record":  {wantFile: "settings.json", wantSlot: slotHook, underEngineHome: true},
 	"claude-code/commands/unsafe-file": {wantFile: ".claude/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
@@ -636,81 +641,93 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 			"at-rest system-prompt delivery must be refused, naming the missing argv sink")
 		assert.Empty(t, matrixTree(t, fs, "/cell"), "a refused delivery must write zero files")
 
-		// (b) Through the approach's raw well-known Deliver: it writes the
-		// NATIVE file — the system-prompt approach's Deliver IS the CLAUDE.md
-		// write (the form an isolated cell runs for it, preserved as it was).
-		// The real out-of-cwd destination this pair promises is reached only
-		// through its OutOfCwd form (DeliverIsolated), which this raw call
-		// never invokes.
+		// (b) Through the approach's raw well-known Deliver, with no private root
+		// advised: it REFUSES. It used to write the NATIVE CLAUDE.md here — the
+		// dual-capable object every context approach shared — which is exactly how
+		// an isolated launch that selected system-prompt was handed project memory
+		// under a different name. The substitution is gone rather than redirected,
+		// so the assertion is that nothing is written at all.
 		d, ok := claude.Surfaces.Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
 		require.True(t, ok)
 		_, err = d.Deliver(present.ProjectOnHost("/raw"))
-		require.NoError(t, err)
-		rawTree := matrixTree(t, fs, "/raw")
-		assert.Equal(t, []string{"CLAUDE.md"}, findSentinel(rawTree, slotContext))
-		for p := range rawTree {
-			assert.False(t, strings.HasSuffix(p, agent.SCMFramedContextSuffix),
-				"no sysprompt file is produced by the raw Delivery — only the out-of-cwd form writes it (%s)", p)
-		}
+		require.Error(t, err, "an unrooted raw Deliver must refuse, not substitute the native file")
+		assert.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+		assert.Empty(t, findSentinel(matrixTree(t, fs, "/raw"), slotContext),
+			"the removed CLAUDE.md substitution must not come back")
 	})
 }
 
-// TestDeliveryApproach_ClaudeSystemPromptScratchPlacement is the
-// scratch-placement-aware variant matrixSpecs' "elsewhere" entry for
-// claude-code/context/system-prompt promises, now un-skipped. Unlike every
-// other matrix cell, this pair's payload is not reached through
-// Construct(kind, approach).Deliver(present.ProjectOnHost(root)) — that resolves to the SAME
-// dual-capable contextSurface every context approach shares, whose well-known
-// Deliver always writes CLAUDE.md regardless of which approach was named (see
-// TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05's second
-// half). The out-of-cwd scratch this approach promises is reached through
-// SharedRealization(context, system-prompt) — the exact call
-// agent.ResolvedSelection.deliverOneShared makes for a real shared-cwd
-// launch — which the pair-keyed re-key makes trustworthy to assert
-// on here: it fires ONLY for this pair, never for unsafe-file.
-func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	root := "/cell"
-	scratch := "/isolated"
-	require.NoError(t, fs.MkdirAll(root, 0o755))
-	require.NoError(t, fs.MkdirAll(scratch, 0o755))
-
-	a, ok := claude.Surfaces.Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
-	require.True(t, ok)
-	outOfCwd, ok := a.(agent.OutOfCwd)
-	require.True(t, ok, "claude-code/context/system-prompt must have an out-of-cwd form")
-
-	handle, err := outOfCwd.DeliverIsolated(runRoots(root, scratch))
-	require.NoError(t, err)
-	require.NotNil(t, handle)
-
-	// root — the shared cwd this cell's launch-flag scratch exists to spare —
-	// stays completely empty.
-	assert.Empty(t, matrixTree(t, fs, root), "system-prompt must not touch the shared cwd")
-
-	scratchTree := matrixTree(t, fs, scratch)
-	hits := findSentinel(scratchTree, slotContext)
-	require.Len(t, hits, 1,
-		"the system-prompt scratch file must carry the context sentinel (scratch tree: %v)",
-		collections.SortedKeys(scratchTree))
-	assert.True(t, strings.HasSuffix(hits[0], agent.SCMFramedContextSuffix),
-		"the framed file must be named <hash>%s, got %s", agent.SCMFramedContextSuffix, hits[0])
-	assert.Contains(t, scratchTree[hits[0]], agent.FrameProjectContext(slotContext),
-		"the scratch file must carry the FRAMED envelope, not the bare context")
-
-	assert.Equal(t, filepath.Join(scratch, hits[0]), a.(interface{ Path() string }).Path(),
-		"Path() (the --append-system-prompt-file argument) must name the written file")
-}
-
 // runRoots advises a run rooted at project with its out-of-cwd scratch at
-// scratch, on the host — the launch path's per-run roots, modelled here so the
-// system-prompt destination is a real directory rather than an unresolved
-// root.
+// scratch, on the host — the launch path's per-run roots, modelled here so a
+// shared-cwd delivery is asserted against real directories rather than
+// unresolved roots.
 func runRoots(project, scratch string) present.Start {
 	return present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: project},
 		Scratch:     present.Root{Host: scratch},
 	}))
+}
+
+// TestDeliveryApproach_ClaudeSystemPromptScratchPlacement pins the two facts
+// the matrix loop's glob cannot express for claude-code/context/system-prompt:
+// that the framed <hash>.sysprompt.md leaf is named from a hash over the FRAMED
+// bytes, and that the payload carries the framed envelope rather than the bare
+// context.
+//
+// The approach has exactly ONE form now. It previously had two, named backwards
+// from the cell that ran them — the plain Deliver was the CLAUDE.md write, so an
+// ISOLATED launch that selected system-prompt was silently handed project memory
+// instead. This test therefore asserts the ordinary Deliver, not a separate
+// out-of-cwd form: there is no longer one to call, and its absence is the fix.
+func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	root := "/cell"
+	private := "/engine-home"
+	require.NoError(t, fs.MkdirAll(root, 0o755))
+	require.NoError(t, fs.MkdirAll(private, 0o755))
+
+	a, ok := claude.Surfaces.Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+	require.True(t, ok)
+
+	handle, err := a.Deliver(present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: root},
+		EngineHome:  present.Root{Host: private},
+	})))
+	require.NoError(t, err)
+	require.NotNil(t, handle)
+
+	// The project tree — the shared cwd this approach's private file exists to
+	// spare — stays completely empty.
+	assert.Empty(t, matrixTree(t, fs, root), "system-prompt must not touch the project root")
+
+	privateTree := matrixTree(t, fs, private)
+	hits := findSentinel(privateTree, slotContext)
+	require.Len(t, hits, 1,
+		"the system-prompt file must carry the context sentinel (private tree: %v)",
+		collections.SortedKeys(privateTree))
+	assert.True(t, strings.HasSuffix(hits[0], agent.SCMFramedContextSuffix),
+		"the framed file must be named <hash>%s, got %s", agent.SCMFramedContextSuffix, hits[0])
+	assert.Contains(t, privateTree[hits[0]], agent.FrameProjectContext(slotContext),
+		"the file must carry the FRAMED envelope, not the bare context")
+}
+
+// TestDeliveryApproach_SystemPromptRefusesAnUnrootedRun is the other half of the
+// one-form fix: with no engine home advised there is nowhere private to write,
+// and the approach REFUSES instead of falling back to the well-known CLAUDE.md.
+// The fallback is what silently converted an isolated launch's system prompt
+// into project memory, so its absence is asserted, not just described.
+func TestDeliveryApproach_SystemPromptRefusesAnUnrootedRun(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	root := "/cell"
+	require.NoError(t, fs.MkdirAll(root, 0o755))
+
+	a, ok := claude.Surfaces.Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+	require.True(t, ok)
+
+	_, err := a.Deliver(present.ProjectOnHost(root))
+	require.Error(t, err, "an unrooted run must be refused, never served the project file")
+	assert.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+	assert.Empty(t, matrixTree(t, fs, root), "a refused delivery must write zero files")
 }
 
 // TestDeliveryApproach_HookCarriageMatchesDeclaration is the drift guard on the
@@ -739,7 +756,14 @@ func TestDeliveryApproach_HookCarriageMatchesDeclaration(t *testing.T) {
 
 			inputs := matrixSentinelInputs()
 			_, _, errs := agent.Select(backends.Declared(name)).WithEverything().DeliverUnder(inputs, fs, present.ProjectOnHost(root))
-			require.Empty(t, errs)
+			// A LaunchOnly approach has no argv sink at rest, so DeliverUnder
+			// REFUSES it — that refusal is the declared behaviour this loop is
+			// checking the loss report against, not a failure of it. Anything
+			// else still fails loudly.
+			for _, err := range errs {
+				assert.ErrorIs(t, err, agent.ErrNoArgvSinkAtRest,
+					"%s: unexpected at-rest delivery error", name)
+			}
 
 			hookFiles := findSentinel(matrixTree(t, fs, root), slotHook)
 			declaredLoss := append(backends.UncarriedSurfaces(name, inputs),

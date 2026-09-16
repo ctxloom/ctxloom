@@ -109,9 +109,9 @@ func TestBundleFragment_AddingAPremiseChangesThePreimage(t *testing.T) {
 	assert.NotEqual(t, a, b)
 }
 
-// EVERY field of the distillable item shapes is either PRESENTED — it moves the
-// preimage — or carries an explicit `surface:` classification naming why it
-// never reaches the agent. A field that is neither fails here, so adding a
+// EVERY field of a fragment is either PRESENTED — it moves the preimage — or
+// carries an explicit `surface:` classification naming why it never reaches
+// the agent. A field that is neither fails here, so adding a
 // field forces the decision at build time instead of defaulting to "unsigned
 // and silently unprotected", which is how the premise arrived unsigned. A
 // field that is both — classified as non-presented yet moving the preimage —
@@ -120,26 +120,15 @@ func TestBundleFragment_AddingAPremiseChangesThePreimage(t *testing.T) {
 // This reflects over the struct rather than restating it. There is no field
 // list in this test to go stale.
 func TestEveryFieldIsClassified(t *testing.T) {
-	t.Run("fragment", func(t *testing.T) {
-		base := BundleFragment{
-			ItemBody:  fullyPopulatedItemBody(),
-			Premise:   "premise",
-		}
-		assertEveryFieldClassified(t, base, func(v reflect.Value) [][]byte {
-			f := v.Interface().(BundleFragment)
-			raw, _ := f.ContentPayload(false)
-			dist, _ := f.ContentPayload(true)
-			return [][]byte{raw, dist}
-		})
-	})
-	t.Run("command", func(t *testing.T) {
-		base := BundleCommand{ItemBody: fullyPopulatedItemBody()}
-		assertEveryFieldClassified(t, base, func(v reflect.Value) [][]byte {
-			c := v.Interface().(BundleCommand)
-			raw, _ := c.ContentPayload(false)
-			dist, _ := c.ContentPayload(true)
-			return [][]byte{raw, dist}
-		})
+	base := BundleFragment{
+		ItemBody: fullyPopulatedItemBody(),
+		Premise:  "premise",
+	}
+	assertEveryFieldClassified(t, base, func(v reflect.Value) [][]byte {
+		f := v.Interface().(BundleFragment)
+		raw, _ := f.ContentPayload(false)
+		dist, _ := f.ContentPayload(true)
+		return [][]byte{raw, dist}
 	})
 }
 

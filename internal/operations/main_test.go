@@ -23,7 +23,7 @@ var realHOME = os.Getenv("HOME")
 // testsupport.SandboxedMain, and pins the package-specific seams around it.
 //
 // HOME isolation: several operations fall back to the home config
-// (config.HomeConfigDir consumers); without it, whatever profiles or remotes
+// (paths.HomeConfigDir consumers); without it, whatever profiles or remotes
 // the developer has in ~/.ctxloom leak into unit tests and change collection
 // counts and sync statuses.
 //

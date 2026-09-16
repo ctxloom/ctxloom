@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/confpatch"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func TestMCPRegistrar_Name(t *testing.T) {
@@ -38,7 +39,7 @@ func TestMCPRegistrar_RegisterPreservesForeignBytesAndUninstallRestoresThem(t *t
 	store, err := confpatch.NewStore(fs, "/home/u/.ctxloom/records/taskloom", "taskloom")
 	require.NoError(t, err)
 	const path = "/proj/.mcp.json"
-	require.NoError(t, afero.WriteFile(fs, path, []byte(existing), 0o644))
+	testsupport.WriteFileString(t, fs, path, existing, 0o644)
 	r := MCPRegistrar{}
 	server := wire.MCPServer{Command: "taskloom", Args: []string{"mcp"}}
 

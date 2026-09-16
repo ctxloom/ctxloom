@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/confpatch"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // Fixtures modeled on real backend configs: each holds a foreign server and
@@ -43,7 +44,7 @@ func registrar(t *testing.T, e Engine, config string) (afero.Fs, *confpatch.Stor
 	require.NoError(t, err)
 	path := "/proj/" + strings.TrimPrefix(e.Name(), "claude-code") + ".mcp.json"
 	if config != "" {
-		require.NoError(t, afero.WriteFile(fs, path, []byte(config), 0o644))
+		testsupport.WriteFileString(t, fs, path, config, 0o644)
 	}
 	return fs, store, path
 }

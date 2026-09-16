@@ -19,6 +19,7 @@ package discover
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -73,6 +74,35 @@ func LoopbackURL(port int) string {
 type Endpoint struct {
 	URL  string
 	Cred string
+}
+
+// redactedCred stands in for Cred wherever an Endpoint is rendered
+// generically. It is a fixed marker, not a length or prefix: the credential
+// is a bearer token, and any fragment of one is a fragment too many.
+const redactedCred = "<redacted>"
+
+// String renders the endpoint with its credential withheld. Value receiver on
+// purpose: that puts it in the method set of both Endpoint and *Endpoint, so
+// fmt's %v, %+v and %s redact whichever form a caller happens to hold. The
+// URL stays legible because it is the one thing a log line about an endpoint
+// is for.
+func (e Endpoint) String() string {
+	return fmt.Sprintf("{URL:%s Cred:%s}", e.URL, redactedCred)
+}
+
+// GoString covers %#v, the one fmt verb that bypasses Stringer and would
+// otherwise print the struct literal, credential included.
+func (e Endpoint) GoString() string {
+	return fmt.Sprintf("discover.Endpoint{URL:%q, Cred:%q}", e.URL, redactedCred)
+}
+
+// LogValue is the slog counterpart of String: a structured record keeps the
+// URL queryable while the credential never reaches a handler.
+func (e Endpoint) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("url", e.URL),
+		slog.String("cred", redactedCred),
+	)
 }
 
 // List returns every project's coordinator endpoint this host user can

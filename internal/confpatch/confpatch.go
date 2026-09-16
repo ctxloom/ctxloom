@@ -64,6 +64,17 @@ type Store struct {
 // NewStore opens the record store at dir on fs for the writer whose executable
 // basename is owner. dir is created lazily, on the first record written, so
 // merely constructing a Store touches no disk.
+//
+// AN ACCEPTABLY SMALL DUPLICATION, KEPT DELIBERATELY: removing it would
+// produce MORE code than it deleted. The two-guard-then-construct shape this
+// shares with content.NewAferoTreeFS is a constructor idiom, not extractable
+// duplication. Each guard's entire value is its package-specific message —
+// "confpatch: empty record directory" against "content: empty store root" —
+// and the owner guard states a reason no generic validator could. A shared
+// helper would have to take the package name and the noun as parameters to
+// preserve those messages, so it would be longer than the few lines it
+// replaced, and it would couple two unrelated packages to do it.
+// reprise:accept-drift
 func NewStore(recordFS afero.Fs, dir, owner string) (*Store, error) {
 	if recordFS == nil {
 		return nil, errors.New("confpatch: nil record filesystem")

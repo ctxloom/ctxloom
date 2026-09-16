@@ -153,14 +153,16 @@ const builtinBundleSetRef = "ctxloom builtin bundles"
 // user did not create; and in strict mode the finding aborts the launch
 // anyway, so nothing runs on the composed set either way.
 //
-// This is the sibling of agent.MCPNameArbiter and deliberately NOT the same
-// type. That one arbitrates ctxloom-vs-USER inside one engine's registry file:
-// its predicate is a boolean "is this name already present", its verdict is a
-// warning that by contract never fails the write, and its output is the claim
-// ORDER a writer records in its ledger. This one arbitrates
-// ctxloom-vs-ctxloom: its predicate is ref IDENTITY (the same ref must win
-// twice, which a presence check would refuse), its verdict is a fatal finding,
-// and it keeps no ledger because nothing downstream removes by claim order.
+// This arbitrates ctxloom-vs-ctxloom, and every part of its shape follows from
+// that: its predicate is ref IDENTITY rather than mere presence (the same ref
+// must be allowed to win twice, which a presence check would refuse), its
+// verdict is a fatal finding rather than a warning, and it keeps no ledger
+// because nothing downstream removes by claim order.
+//
+// There is deliberately no ctxloom-vs-USER counterpart any more. A writer no
+// longer asks an engine's registry which entries are its own — confpatch
+// reverses what ctxloom wrote last time before writing what it wants now, so
+// ownership is recorded rather than inferred.
 type mcpNameClaims struct {
 	// claimedBy records the source ref that first claimed each name.
 	claimedBy map[string]string

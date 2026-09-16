@@ -76,6 +76,14 @@ func rooted(start present.Start) error {
 // because the refusal is the whole interface for the failure.
 var ErrUnrootedEngineHome = errors.New("delivery: the engine home was never resolved — this approach writes beneath the engine's private config home, which only a run whose agent binding declares engine_home: session advises; declare it on the binding, or select a project-file approach for this surface")
 
+// ErrNoArgvSinkAtRest is returned for a LaunchOnly approach asked to deliver AT
+// REST. Such an approach announces its payload on a launch flag, and at rest
+// there is no argv to carry one — so the delivery would write a file nothing
+// ever points the engine at. Refusing is the declared behaviour, not a failure
+// of the run: callers that legitimately deliver the whole surface set at rest
+// match on this sentinel rather than on the message text.
+var ErrNoArgvSinkAtRest = errors.New("delivery has no argv sink at rest")
+
 // ErrAbsentSharedSurface is returned when a run on LaunchFormPresent names a
 // surface the session never delivered. "Use the existing surface" has exactly
 // one honest failure: there is no existing surface. Writing one instead would
@@ -571,7 +579,7 @@ func (r *ResolvedSelection) DeliverUnder(start present.Start) (delivered []Deliv
 	cell := NewIsolatedCell(start)
 	for _, rs := range r.surfaces {
 		if _, launchOnly := rs.approach.(LaunchOnly); launchOnly {
-			errs = append(errs, fmt.Errorf("surface %s: %s delivery has no argv sink at rest (dir %s)", rs.kind, rs.name, start.Paths().ProjectRoot.Host))
+			errs = append(errs, fmt.Errorf("surface %s: %s %w (dir %s)", rs.kind, rs.name, ErrNoArgvSinkAtRest, start.Paths().ProjectRoot.Host))
 			continue
 		}
 		handle, err := cell.Deliver(rs.approach)

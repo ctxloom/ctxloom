@@ -13,10 +13,16 @@
 //     directly. See spec §3.1.
 //
 //  2. A COUNTERSIGNATURE (a human approval or rejection) covers the exposed
-//     ITEM bytes — the same bytes ComputeContentHash/EffectiveContentHash in
-//     package bundles already hash — wrapped in a small fixed-shape ASCII
-//     header that binds {contract, assertion, ref, form, len}. See
-//     spec §3.2, and CountersignPayload below.
+//     ITEM bytes — whatever that kind's ContentPayload builder in package
+//     bundles produces, which EffectiveContentHash hashes — wrapped in a small
+//     fixed-shape ASCII header that binds {contract, assertion, ref, form,
+//     len}. See spec §3.2, and CountersignPayload below.
+//
+// Two of those item payloads are themselves framed here rather than being raw
+// bytes: the exec preimage (ExecPreimageContract, built in package bundles)
+// and the fragment preimage (FragmentPreimage below). Each carries its own
+// contract version INSIDE the signed bytes for the reason stated on
+// ExecPreimageContract.
 package signing
 
 import (
@@ -65,6 +71,68 @@ const CountersignContract = "ctxloom-countersign/2"
 // gains nothing by naming a version. It is defensive against US: it makes an
 // accidental, unannounced field addition impossible to ship quietly.
 const ExecPreimageContract = "ctxloom-exec/1"
+
+// FragmentPreimageContract is the contract-version string that opens every
+// fragment preimage (FragmentPreimage below). It exists for the same reason
+// ExecPreimageContract does: a fragment's countersigned bytes are no longer the
+// bare authored text but a framing over EVERYTHING the agent is shown of the
+// fragment — its selection premise and its body — and any change to that
+// presented field set must bump this string so the mass re-review it causes is
+// announced rather than discovered.
+//
+// The premise is inside the signed bytes because it decides whether the body is
+// ever seen. Signing the body while leaving the premise unsigned defends against
+// injection and not against SUPPRESSION: rewrite a guardrail's premise to a
+// condition that never holds, leave its body byte-identical, and every existing
+// approval keeps verifying while the guardrail silently never enters context.
+// The invariant is that the signed preimage is exactly what is presented, in
+// both directions — presented-but-unsigned is that attack, and
+// signed-but-never-presented is a spurious invalidation that trains reviewers
+// to re-approve reflexively.
+const FragmentPreimageContract = "ctxloom-fragment/1"
+
+// FragmentPreimage builds the exact byte sequence a fragment countersignature
+// is taken over — the item payload that CountersignPayload then frames:
+//
+//	"ctxloom-fragment/1\n"
+//	"premise-len: " <decimal byte length of premise> "\n"
+//	"content-len: " <decimal byte length of content> "\n"
+//	"\n"
+//	<premise> "\n"
+//	<content>
+//
+// This is a FRAMING, not a canonicalization, in exactly the sense
+// CountersignPayload is: a fixed LF-delimited ASCII preamble with a closed field
+// set and declared lengths, so no byte inside either field can move the
+// boundary between them and two distinct (premise, content) pairs never frame
+// to the same bytes (TestFragmentPreimage_IsInjectiveOverTheSplit). The
+// single LF between premise and content carries no information — the lengths
+// already fix the split — and is there so a reviewer reading the preimage as
+// text sees the premise on its own line.
+//
+// Every fragment is framed this way, premised or not: an empty premise is
+// declared with length 0 rather than falling back to bare bytes, because a
+// second shape for the common case would be a second definition of "the bytes
+// of this fragment", and two definitions is the bug. It takes the two fields
+// rather than a fragment because this package depends on nothing else in the
+// tree; bundles.FragmentSurface is the model that supplies them and the only
+// production caller.
+func FragmentPreimage(premise string, content []byte) []byte {
+	var buf bytes.Buffer
+	buf.WriteString(FragmentPreimageContract)
+	buf.WriteByte('\n')
+	buf.WriteString("premise-len: ")
+	buf.WriteString(strconv.Itoa(len(premise)))
+	buf.WriteByte('\n')
+	buf.WriteString("content-len: ")
+	buf.WriteString(strconv.Itoa(len(content)))
+	buf.WriteByte('\n')
+	buf.WriteByte('\n')
+	buf.WriteString(premise)
+	buf.WriteByte('\n')
+	buf.Write(content)
+	return buf.Bytes()
+}
 
 // Assertion is what a countersignature claims about the bytes it covers.
 type Assertion string

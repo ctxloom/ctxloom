@@ -20,19 +20,6 @@ import (
 // session-scoped delivery scratch under the harp's private ephemeral dir.
 const SessionHarpEnv = "CTXLOOM_SESSION_HARP"
 
-// MCPCommandOverrideEnv carries an explicit override for the ctxloom MCP
-// stdio command a run's MCP-surface writer materializes (.mcp.json,
-// mcp_config.json, .kiro/settings/mcp.json, config.toml's [mcp_servers]),
-// replacing CtxloomCommand()'s self-exec-absolute default (see
-// ResolveMCPCommand). The host stamps it onto the run env ONLY for an
-// isolated-container cell (isolation.Container.MCPCommandOverride via
-// operations.MCPCommandOverrideForPolicy, cli/run.go) — the in-container
-// ctxloom binary path (the surface used to always emit the HOST
-// self-exec path, which does not exist inside the container, so the engine's
-// `ctxloom mcp` stdio shim never launched and the child had zero MCP tools).
-// Absent/empty everywhere else, which changes nothing.
-const MCPCommandOverrideEnv = "CTXLOOM_MCP_COMMAND_OVERRIDE"
-
 // ManagedLifecycle folds a host-assembled ManagedConfig into its managed hooks +
 // MCP; the surfaces × cells Setup then reads the merged state (GetHooks/GetMCP)
 // to write each settings/config surface. BaseLifecycle implements it.
@@ -147,13 +134,10 @@ func (b *LaunchBackend) History() SessionHistory { return b.history }
 // injection (ChatRequest.MCPServers), or nil when the lifecycle holds no
 // managed payload or lacks the capability. A structured Execute path uses this
 // to deliver the same server set Setup writes to the engine's settings file —
-// probed by capability so a bare ManagedLifecycle fake stays valid. override
-// is ComposeChatMCPServers' command override — callers pass
-// req.Env[MCPCommandOverrideEnv], populated ONLY for an isolated-container
-// cell; empty everywhere else is a no-op.
-func (b *LaunchBackend) ManagedChatMCPServers(override string) []ChatMCPServer {
-	if l, ok := b.lifecycle.(interface{ ChatMCPServers(string) []ChatMCPServer }); ok {
-		return l.ChatMCPServers(override)
+// probed by capability so a bare ManagedLifecycle fake stays valid.
+func (b *LaunchBackend) ManagedChatMCPServers() []ChatMCPServer {
+	if l, ok := b.lifecycle.(interface{ ChatMCPServers() []ChatMCPServer }); ok {
+		return l.ChatMCPServers()
 	}
 	return nil
 }
@@ -314,15 +298,14 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	}
 
 	inputs := SurfaceInputs{
-		Context:            assembled,
-		Fragments:          req.Fragments,
-		BundleMCP:          bundleMCP,
-		Hooks:              hooks,
-		ManageStatusline:   req.Managed.ManageStatusline,
-		Commands:           req.Managed.Commands,
-		Skills:             req.Managed.Skills,
-		MCPCommandOverride: req.Env[MCPCommandOverrideEnv],
-		DenyTools:          req.Managed.DenyTools,
+		Context:          assembled,
+		Fragments:        req.Fragments,
+		BundleMCP:        bundleMCP,
+		Hooks:            hooks,
+		ManageStatusline: req.Managed.ManageStatusline,
+		Commands:         req.Managed.Commands,
+		Skills:           req.Managed.Skills,
+		DenyTools:        req.Managed.DenyTools,
 	}
 
 	// The run's roots, resolved and advised ONCE, before any surface runs. The

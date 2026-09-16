@@ -64,7 +64,7 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 	}
 
 	t.Run("resolver drops the source's invocation fields", func(t *testing.T) {
-		out := ResolveManagedMCPServers(source(), "")
+		out := ResolveManagedMCPServers(source())
 
 		own := out[MCPServerName]
 		assert.Empty(t, own.Env, "the source's env must not survive onto ctxloom's own entry")
@@ -74,7 +74,7 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 	})
 
 	t.Run("descriptive fields still reach the listing", func(t *testing.T) {
-		own := ResolveManagedMCPServers(source(), "")[MCPServerName]
+		own := ResolveManagedMCPServers(source())[MCPServerName]
 
 		// Notes/Installation/SCM reach only the read-only `ctxloom mcp`
 		// listing (operations.mcpEntry) and are never handed to a process, so
@@ -85,7 +85,7 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 	})
 
 	t.Run("composed chat set carries no foreign env", func(t *testing.T) {
-		got := ComposeChatMCPServers("", source(), nil)
+		got := ComposeChatMCPServers(source(), nil)
 
 		byName := map[string]ChatMCPServer{}
 		for _, s := range got {
@@ -104,9 +104,9 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 		// it, at the resolver and at every layer below.
 		want := map[string]string{"TOOLS_TOKEN": "keep-me"}
 
-		assert.Equal(t, want, ResolveManagedMCPServers(source(), "")["third-party"].Env)
+		assert.Equal(t, want, ResolveManagedMCPServers(source())["third-party"].Env)
 
-		for _, s := range ComposeChatMCPServers("", source(), nil) {
+		for _, s := range ComposeChatMCPServers(source(), nil) {
 			if s.Name == "third-party" {
 				assert.Equal(t, want, s.Env, "a third-party server's env must reach the chat set")
 			}
@@ -120,7 +120,7 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 		restore := clidiag.SetSink(&buf)
 		defer restore()
 
-		ResolveManagedMCPServers(source(), "")
+		ResolveManagedMCPServers(source())
 
 		assert.Contains(t, buf.String(), foreignEnvKey,
 			"an operator who declared an env for ctxloom's own server must be told it did nothing")
@@ -137,7 +137,7 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 		ResolveManagedMCPServers(map[string]wire.MCPServer{
 			MCPServerName: ctxloomBundleServer(),
 			"third-party": thirdPartyEntry(),
-		}, "")
+		})
 
 		assert.Empty(t, buf.String(),
 			"the normal case — the builtin bundle declares no env — must stay quiet")

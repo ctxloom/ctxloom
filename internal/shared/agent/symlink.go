@@ -19,15 +19,12 @@ var (
 // GetExecutablePath returns the absolute path to the current ctxloom binary.
 // The path is resolved once and cached for the lifetime of the process.
 //
-// This is the CACHED variant used only by WarnOnCtxloomPathSkew. Materialized
-// surfaces (hook commands, the MCP server entry) no longer use it — they name
-// the self-exec absolute path via CtxloomCommand (internal/selfexec.Path,
-// upgrade-safe, not cached) so a staged and an installed binary can never
-// diverge within one session. What GetExecutablePath still catches, via
-// WarnOnCtxloomPathSkew: surfaces MATERIALIZED BEFORE this fix persist an
-// absolute path from an OLDER run; this process's `ctxloom` on PATH being a
-// different binary than the one running now is a live-skew signal worth a
-// warning regardless.
+// This is the CACHED variant, and WarnOnCtxloomPathSkew is its only caller.
+// A materialized surface must NOT use it: a surface names the bare executable
+// name (CtxloomCommand) so it resolves against PATH at fire time, on whatever
+// machine and in whatever cell it fires. This function answers the different
+// question WarnOnCtxloomPathSkew asks — which binary is running right now —
+// so that the two can be compared.
 func GetExecutablePath() (string, error) {
 	execPathMu.RLock()
 	cached := cachedExecPath
@@ -63,13 +60,14 @@ func SetExecutablePathForTesting(path string) {
 }
 
 // WarnOnCtxloomPathSkew emits a stderr warning when the `ctxloom` that
-// PATH resolves to is not the binary currently running. Surfaces
-// materialized before the self-exec-absolute-path fix (CtxloomCommand)
-// still carry the bare name `ctxloom`, so until the next apply
-// re-materializes them, they run whatever PATH points at at fire time; if
-// that differs from the running binary (e.g. an older system package
-// shadows the freshly installed one) a hook can fail with "unknown
-// command" for a subcommand the older build lacks.
+// PATH resolves to is not the binary currently running. Every materialized
+// surface names the bare `ctxloom` (CtxloomCommand), so a hook, a statusline
+// or the MCP stdio entry runs whatever PATH points at when it fires; if that
+// differs from the running binary (e.g. an older system package shadows the
+// freshly installed one) a hook can fail with "unknown command" for a
+// subcommand the older build lacks. This warning is the only thing standing
+// between that and silence — bare-name resolution is deliberate, and its
+// accepted cost is exactly this divergence.
 //
 // Fault-tolerant by contract: any resolution failure is silent (we
 // simply can't make a useful comparison), and a match is silent too.

@@ -5,13 +5,16 @@ this process should use when **re-invoking the running ctxloom binary**, survivi
 upgrade that unlinked the executing inode.
 
 **The contract it owns.** *Return a path that names the binary that is running right now.* Its
-most consequential consumer is `agent.CtxloomCommand()`
-(`internal/shared/agent/settings_io.go:44`), the funnel through which **every** materialized
-engine surface — `.mcp.json`, `config.toml`, hook commands, statusline, context-injection
-commands — gets the ctxloom command string it bakes into a file on disk. `CtxloomCommand`'s doc
-declares the invariant: *"a surface names the absolute path of the binary that materialized it, so
-a staged and an installed binary can never diverge within one session"* — and `Path()` is the sole
-implementation of that invariant.
+consumers all **re-invoke ctxloom as a child process** within this session — `cli.runCmd`'s
+self-executable resolution, `lm/grpc`'s plugin client and host runner. For those, "the binary
+running right now" is exactly the right answer.
+
+**It is NOT the source for a materialized surface.** `agent.CtxloomCommand()` — the funnel through
+which every engine surface (`.mcp.json`, `config.toml`, hook commands, statusline,
+context-injection commands) gets the command it bakes into a file on disk — returns the BARE name
+`ctxloom` and does not call this package. A surface outlives the process that wrote it and is read
+on other machines (`.claude/settings.json` is tracked) and inside containers, so a path naming
+*this* process is precisely the wrong durable answer there.
 
 ---
 
@@ -28,14 +31,11 @@ flowchart TD
     SEAM --> PATH
   end
 
-  PATH -->|"absolute exe path OR bare \"ctxloom\""| CC["agent.CtxloomCommand()<br/>settings_io.go:43"]
-  PATH --> RUN["cli.resolveSelfExecutable()<br/>run.go:289 → session distill"]
-  PATH --> GRPC["lm/grpc/client.go:364<br/>lm/grpc/host_runner.go:60"]
+  PATH --> RUN["cli.runCmd — self-executable for session distill"]
+  PATH --> GRPC["lm/grpc.Client · lm/grpc host runner"]
 
-  CC --> RMC["agent.ResolveMCPCommand(override)<br/>settings_io.go:59<br/>(substitutes the in-container path)"]
-  CC --> CHAT["agent.ComposeChatMCPServers<br/>chat_mcp.go:39 — no override parameter exists"]
-  RMC --> SURF[".mcp.json · config.toml · hooks · statusline"]
-  CHAT --> SURF
+  CC["agent.CtxloomCommand() = agent.CtxloomBinary<br/>(bare name — does NOT read selfexec)"]
+  CC --> SURF[".mcp.json · config.toml · hooks · statusline"]
 ```
 
 **The decision tree inside `Path()`** (`selfexec.go:51-67`):
@@ -77,22 +77,13 @@ flowchart TD
 - **`Path` has inverted error polarity: two resolution failures are converted into a
   plausible-looking success value.** `selfexec.go:57-58` and `:64-66` both return `"ctxloom"`, and
   the function has no error channel — so **no caller can tell "I know where I am" from "I am
-  guessing"**. `agent.CtxloomCommand`'s doc names the fallback as the exception to its own
-  invariant ("falls back to the bare name `ctxloom` only if self-lookup fails"), and nothing
-  reports when that happened. `settings_io.go:19-20` separately *forbids* callers from using the
-  bare name to materialize a command into a surface — which is exactly what `Path` hands them
-  under failure.
+  guessing"**. Every remaining caller spawns a child process with the result, so a silent
+  fallback to `"ctxloom"` re-resolves against `PATH` and may spawn a different build than the one
+  running, with nothing reported.
 - **`override` is exported test-only mutable global state in a production package**, unsynchronized
   and read from child-spawn paths (`lm/grpc/host_runner.go:60`, `client.go:364`) at a time when
   the project runs `agent_run` children concurrently. No writer package currently uses
   `t.Parallel()`, so the exposure is future rather than demonstrated.
-- **The seam's contract is a *host* path, and that is wrong for a `runtime:container` child.**
-  `settings_io.go:47-58` documents the correction — `agent.ResolveMCPCommand(override)` substitutes
-  the known in-container path — and every file-writing surface routes through it
-  (`mcpfile.go:87`, `claude/claude.go:697`). But
-  `agent.ComposeChatMCPServers` calls `CtxloomCommand()` **directly** (`chat_mcp.go:39`) and its
-  signature has nowhere to pass an override, so the chat path hands a container child a host path
-  it cannot exec.
 - **There are three different answers to "where is the running binary" in this repo**, with three
   different semantics and nothing reconciling them:
 

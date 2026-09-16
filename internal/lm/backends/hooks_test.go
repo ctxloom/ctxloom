@@ -43,28 +43,23 @@ func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfi
 // Hash-based identification enables ctxloom to track which hooks it manages vs
 // user-defined hooks, allowing clean updates without losing user customization.
 
-// TestNewContextInjectionHook_ShellQuotesProjectPath pins the shell-safe
-// quoting of the --project path: spaces, single quotes, and shell
-// metacharacters must not break the command split or inject behavior when
-// /bin/sh runs the hook.
-func TestNewContextInjectionHook_ShellQuotesProjectPath(t *testing.T) {
-	h := agent.NewContextInjectionHook("hash1", "/tmp/My Project")
-	assert.Contains(t, h.Command, `--project '/tmp/My Project' hash1`,
-		"path with spaces must be single-quoted; got %q", h.Command)
+// TestNewContextInjectionHook_CarriesNoMachineFact pins the portability
+// invariant on the generated command: neither the binary nor a project path
+// may be a fact about the machine that wrote it. The generated settings file
+// is tracked, so a path here is committed and every other clone gets a hook
+// that fails silently. The project is resolved at FIRE time instead, by
+// cli.resolveInjectContextWorkDir.
+//
+// MUTATION — re-add `--project <abs>` to the emitted command, or return an
+// absolute path from agent.CtxloomCommand; both must go RED.
+func TestNewContextInjectionHook_CarriesNoMachineFact(t *testing.T) {
+	h := agent.NewContextInjectionHook("hash1")
 
-	h = agent.NewContextInjectionHook("hash2", "/tmp/it's mine")
-	assert.Contains(t, h.Command, `--project '/tmp/it'\''s mine' hash2`,
-		"embedded single quote must use the '\\'' idiom; got %q", h.Command)
-
-	// The binary itself now names the self-exec absolute path
-	// (agent.CtxloomCommand), not the bare "ctxloom" — see its doc for the
-	// staged-vs-installed invariant this upholds.
-	assert.Contains(t, h.Command, agent.CtxloomCommand(),
-		"command must name the self-exec absolute path; got %q", h.Command)
-	assert.Contains(t, h.Command, " hook inject-context ",
-		"command must invoke the inject-context subcommand; got %q", h.Command)
+	assert.NotContains(t, h.Command, "--project",
+		"the generated hook must not embed a project path; got %q", h.Command)
+	assert.Equal(t, "'ctxloom' hook inject-context hash1", h.Command)
 	assert.True(t, agent.IsManaged(h.Command, "ctxloom"),
-		"self-exec absolute path must still resolve to the ctxloom exec token; got %q", h.Command)
+		"the quoted bare name must still resolve to the ctxloom exec token; got %q", h.Command)
 }
 
 // TestNewContextInjectionHooks_ChunksLargeContext verifies that a large
@@ -192,22 +187,24 @@ func TestDeliverManagedSettings_WithFS(t *testing.T) {
 // (AtomicWriteFile / GetFS / ComputeHookHash are covered in shared/agent —
 // settings_io_test.go — alongside the helpers themselves.)
 //
-// TestClaudeCodeHookWriter_WritesSelfExecAbsoluteCommands proves the
-// staged-binary-divergence fix end to end: every surface this writer
-// materializes (statusline, inject-context hook, auto-registered MCP
-// server) names the self-exec absolute path (agent.CtxloomCommand) of the
-// binary running THIS test, not the bare "ctxloom" that used to re-resolve
-// against PATH at fire time. Bundle-shipped hooks are untouched — their
-// Command is author-supplied, never materialized by this binary.
-func TestClaudeCodeHookWriter_WritesSelfExecAbsoluteCommands(t *testing.T) {
+// TestClaudeCodeHookWriter_WritesNoAbsolutePaths proves the portability fix
+// end to end: every surface this writer materializes (statusline,
+// inject-context hook, auto-registered MCP server) names the BARE `ctxloom`,
+// resolved on PATH at fire time. .claude/settings.json is a tracked file, so
+// an absolute path in any of them is one developer's machine committed into
+// the repo — and every other clone then runs hooks that silently do nothing.
+// Bundle-shipped hooks are untouched — their Command is author-supplied,
+// never materialized by this binary.
+//
+// MUTATION — materialize any of the three from selfexec.Path(); RED.
+func TestClaudeCodeHookWriter_WritesNoAbsolutePaths(t *testing.T) {
 	tmpDir := t.TempDir()
-	self := agent.CtxloomCommand()
 
 	writer := &claude.ClaudeCodeHookWriter{}
 	// Inject-context hook is constructed exactly the way the lifecycle
 	// constructs it — through the public constructor.
 	cfg := &wire.HooksConfig{Unified: wire.UnifiedHooks{
-		SessionStart: []wire.Hook{agent.NewContextInjectionHook("abc123", tmpDir)},
+		SessionStart: []wire.Hook{agent.NewContextInjectionHook("abc123")},
 		PostFileEdit: []wire.Hook{
 			{Command: "ctxloom hook stamp-plan", Type: "command"},
 		},
@@ -219,19 +216,22 @@ func TestClaudeCodeHookWriter_WritesSelfExecAbsoluteCommands(t *testing.T) {
 	var settings map[string]any
 	require.NoError(t, json.Unmarshal(settingsData, &settings))
 
+	assert.NotContains(t, string(settingsData), "/",
+		"no path component may appear anywhere in a tracked settings.json; got %s", settingsData)
+
 	statusLine := settings["statusLine"].(map[string]any)
-	assert.Equal(t, self+" hook hud", statusLine["command"],
-		"statusLine must name the self-exec absolute path; got %q", statusLine["command"])
+	assert.Equal(t, agent.CtxloomBinary+" hook hud", statusLine["command"],
+		"statusLine must name the bare ctxloom; got %q", statusLine["command"])
 
 	hooks := settings["hooks"].(map[string]any)
 
 	sessionStart := hooks["SessionStart"].([]any)
 	require.NotEmpty(t, sessionStart)
 	injectCmd := sessionStart[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
-	assert.Contains(t, injectCmd, self,
-		"inject-context hook must name the self-exec absolute path; got %q", injectCmd)
+	assert.NotContains(t, injectCmd, "--project",
+		"the materialized inject-context hook must carry no project path; got %q", injectCmd)
 	assert.True(t, agent.IsManaged(injectCmd, "ctxloom"),
-		"self-exec absolute path must still resolve to the ctxloom exec token; got %q", injectCmd)
+		"the bare name must still resolve to the ctxloom exec token; got %q", injectCmd)
 
 	post := hooks["PostToolUse"].([]any)
 	require.NotEmpty(t, post)
@@ -239,13 +239,13 @@ func TestClaudeCodeHookWriter_WritesSelfExecAbsoluteCommands(t *testing.T) {
 	assert.Equal(t, "ctxloom hook stamp-plan", bundleCmd,
 		"bundle-shipped hook command is author-supplied, not materialized by this binary; got %q", bundleCmd)
 
-	// .mcp.json: ctxloom's own MCP server command names the self-exec absolute
-	// path too — the bundle declares the bare name, the writer resolves it.
+	// .mcp.json: ctxloom's own MCP server command is the bare name too — a
+	// container reads this file at an identical path and must be able to exec it.
 	mcpData, err := os.ReadFile(filepath.Join(tmpDir, ".mcp.json"))
 	require.NoError(t, err)
 	var mcpConfig map[string]any
 	require.NoError(t, json.Unmarshal(mcpData, &mcpConfig))
 	ctxloomServer := mcpConfig["mcpServers"].(map[string]any)["ctxloom"].(map[string]any)
-	assert.Equal(t, self, ctxloomServer["command"],
-		"ctxloom's own MCP server command must name the self-exec absolute path; got %q", ctxloomServer["command"])
+	assert.Equal(t, agent.CtxloomBinary, ctxloomServer["command"],
+		"ctxloom's own MCP server command must be the bare name; got %q", ctxloomServer["command"])
 }

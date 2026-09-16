@@ -13,31 +13,29 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// TestBuildSurfaces_Claude_CarriesMCPCommandOverride is the parity gate on
-// claude's SurfaceInputs.
+// TestDeclared_Claude_CarriesSurfaceInputs is the parity gate on claude's
+// SurfaceInputs.
 //
 // A LOCAL SurfaceInputs for claude — agent.SurfaceInputs minus Fragments —
 // forces two hand-maintained field-by-field mappers (claudecode.go's
 // buildSurfaces and this package's registry.go closure), and those drift: one
-// mapper copied ten fields and silently dropped MCPCommandOverride, so a
-// surface built through the name→SurfaceSet seam stamps the HOST's self-exec
-// path into .mcp.json instead of the in-container path the override names.
+// mapper once copied ten fields and silently dropped the eleventh, so a
+// surface built through the name→SurfaceSet seam delivered a file missing
+// what the caller asked for.
 //
 // The assertion is on the delivered BYTES, not on the struct: a dropped field
-// has no compile error and no runtime error — it produces a .mcp.json that
-// looks entirely plausible and names a binary the container cannot exec.
-func TestDeclared_Claude_CarriesMCPCommandOverride(t *testing.T) {
-	const override = "/usr/local/bin/ctxloom"
-
+// has no compile error and no runtime error — it produces a settings.json and
+// a .mcp.json that look entirely plausible and do not do what was asked.
+func TestDeclared_Claude_CarriesSurfaceInputs(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir, home := "/cell", "/engine-home"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	resolved, err := agent.Select(Declared("claude-code")).WithEverything().Build(agent.SurfaceInputs{
-		Context:            "ctx",
-		BundleMCP:          map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}},
-		Hooks:              &wire.HooksConfig{},
-		MCPCommandOverride: override,
+		Context:   "ctx",
+		BundleMCP: map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}},
+		Hooks:     &wire.HooksConfig{},
+		DenyTools: []string{"Task"},
 	}, fs)
 	require.NoError(t, err)
 	for _, kd := range resolved.Deliveries() {
@@ -57,7 +55,12 @@ func TestDeclared_Claude_CarriesMCPCommandOverride(t *testing.T) {
 
 	entry, ok := doc.Servers[agent.MCPServerName]
 	require.True(t, ok, "the ctxloom-managed MCP server must be present in %s", raw)
-	assert.Equal(t, override, entry.Command,
-		"MCPCommandOverride must survive the shared-inputs → claude-surfaces mapping; "+
-			"a dropped field here writes a host path a container cannot exec")
+	assert.Equal(t, agent.CtxloomBinary, entry.Command,
+		"a materialized .mcp.json names the bare ctxloom, resolved on PATH wherever the file is read")
+
+	settings, err := afero.ReadFile(fs, filepath.Join(dir, ".claude", "settings.json"))
+	require.NoError(t, err, "claude's settings surface must have written the private settings.json")
+	assert.Contains(t, string(settings), "Task",
+		"DenyTools must survive the shared-inputs → claude-surfaces mapping; "+
+			"a dropped field here writes a settings.json that denies nothing")
 }

@@ -31,19 +31,13 @@ type fileTemplateDelivery struct {
 	// — it is irrelevant to DeliverMCP/DeliverSettings and left false
 	// everywhere else.
 	selfContainedCommands bool
-	// mcpCommandOverride, when non-empty, replaces agent.CtxloomCommand() as
-	// the ctxloom-managed .mcp.json entry's command (see
-	// agent.ResolveMCPCommand). Only mcpWriter.deliver sets this, for both MCP
-	// approaches (from SurfaceInputs.MCPCommandOverride) — irrelevant to
-	// DeliverCommands/DeliverSettings and left "" everywhere else.
-	mcpCommandOverride string
 	// denyTools, when non-empty, is unioned into the settings surface's
 	// permissions.deny (see writeSettingsFile / mergeDenyTools). Only
 	// settingsSurface.Deliver/DeliverIsolated set this (from
 	// SurfaceInputs.DenyTools) — irrelevant to DeliverMCP/DeliverCommands and
 	// left nil everywhere else. Kept as a receiver field (not a
 	// DeliverSettings parameter) so DeliverSettings's signature stays
-	// untouched — the same technique mcpCommandOverride uses for DeliverMCP.
+	// untouched.
 	denyTools []string
 }
 
@@ -58,14 +52,11 @@ func newFileTemplateDelivery(place placement, fs afero.Fs) *fileTemplateDelivery
 // targeted at place.Dir(): it merges ctxloom's own server, the profile+builtin
 // bundle servers, and the unified/backend servers into .mcp.json, preserving any
 // user-authored servers. Cleanup reverts via removeMCPConfig, which strips the
-// ctxloom-marked servers back out while leaving user servers in place. Reads
-// d.mcpCommandOverride (dire-five) — DeliverSettings below is deliberately NOT
-// touched the same way: the override is an MCP-only concern (it replaces the
-// ctxloom stdio command), and settings.json carries no such command.
+// ctxloom-marked servers back out while leaving user servers in place.
 // reprise:accept-drift
 func (d *fileTemplateDelivery) DeliverMCP(bundle map[string]wire.MCPServer) (agent.Delivered, error) {
 	dir := d.place.Dir()
-	w := &ClaudeCodeHookWriter{FS: d.fs, mcpCommandOverride: d.mcpCommandOverride}
+	w := &ClaudeCodeHookWriter{FS: d.fs}
 	if err := w.writeMCPConfig(dir, bundle); err != nil {
 		return nil, err
 	}

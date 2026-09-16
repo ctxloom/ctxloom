@@ -20,13 +20,13 @@ func TestExecToken(t *testing.T) {
 	}
 }
 
-// TestIsManaged_AbsolutePathCommand pins the invariant the self-exec fix
-// (CtxloomCommand) depends on: once materialized commands name an absolute
-// path instead of the bare "ctxloom", the removal/reconcile matcher must
-// still recognize them as managed — else re-apply orphans every surface a
-// staged/installed binary previously wrote. Both an MCP Command field
-// (bare absolute path, no args) and a shell hook command (absolute path
-// prefix, unquoted) are covered.
+// TestIsManaged_AbsolutePathCommand pins the matcher against a command shape
+// CtxloomCommand no longer emits but that still exists on disk: an
+// absolute-path ctxloom invocation, written either by an older ctxloom or by
+// hand. The removal/reconcile matcher must recognize those as managed — else
+// uninstall leaves them behind and a re-apply adds a bare-name duplicate
+// beside each one. Both an MCP Command field (bare absolute path, no args)
+// and a shell hook command (absolute path prefix, unquoted) are covered.
 func TestIsManaged_AbsolutePathCommand(t *testing.T) {
 	for _, c := range []string{
 		"/usr/local/bin/ctxloom",

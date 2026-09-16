@@ -267,13 +267,13 @@ func TestRunChatSession_InjectsMCPServers(t *testing.T) {
 	}
 	var out bytes.Buffer
 	require.NoError(t, runChatSession(context.Background(), mock, agent.ChatRequest{
-		MCPServers: managed.ChatMCPServers(""),
+		MCPServers: managed.ChatMCPServers(),
 	}, chatTurns{Stdin: strings.NewReader("")}, formatJSON, &out))
 
 	require.Len(t, captured.MCPServers, 2)
-	// Command names the self-exec absolute path (agent.CtxloomCommand), not
-	// the bare name — see its doc for the staged-vs-installed invariant.
-	assert.Equal(t, agent.ChatMCPServer{Name: "ctxloom", Command: agent.CtxloomCommand(), Args: agent.CtxloomMCPArgs}, captured.MCPServers[0])
+	// Command is the bare name, resolved on PATH at fire time — see
+	// agent.CtxloomCommand's doc for the portability invariant.
+	assert.Equal(t, agent.ChatMCPServer{Name: "ctxloom", Command: agent.CtxloomBinary, Args: agent.CtxloomMCPArgs}, captured.MCPServers[0])
 	assert.Equal(t, "taskloom", captured.MCPServers[1].Name)
 }
 

@@ -35,12 +35,6 @@ type ClaudeCodeHookWriter struct {
 	FS afero.Fs
 	// statusLineDisabled opts out of managing the ctxloom HUD statusline.
 	statusLineDisabled bool
-	// mcpCommandOverride, when non-empty, replaces agent.CtxloomCommand() as
-	// the ctxloom-managed .mcp.json entry's command (see
-	// agent.ResolveMCPCommand) — set ONLY for an isolated-container cell (the
-	// dire-five fix). Empty (the default) preserves the host self-exec-
-	// absolute behavior exactly.
-	mcpCommandOverride string
 }
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem. It is
@@ -703,10 +697,10 @@ func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings, pr
 		return
 	}
 
-	// Set or update ctxloom-managed statusLine. Command names the self-exec
-	// absolute path (agent.CtxloomCommand) — see its doc for why: a bare
-	// `ctxloom` re-resolves via PATH at fire time, which can silently
-	// diverge from the binary that materialized this file.
+	// Set or update ctxloom-managed statusLine. Command names the bare
+	// executable (agent.CtxloomCommand) and resolves via PATH at fire time:
+	// settings.json is a TRACKED file, so an absolute path here is one
+	// developer's machine baked into every clone.
 	settings.StatusLine = &claudeCodeStatusLine{
 		Type:    "command",
 		Command: ctxloomStatusLineCommand(),
@@ -992,16 +986,16 @@ const AppMCPServerName = agent.MCPServerName
 
 // addMCPServersToConfig adds the resolved bundle MCP servers to the .mcp.json
 // config. ctxloom's own entry (the builtin ctxloom bundle's) has its command
-// resolved to the self-exec absolute path, so this session's MCP server can
-// never diverge from the binary that materialized it, and additionally carries
-// cwd so it runs in the project directory where findAppDir works — the one
-// field no bundle can express.
+// resolved to the bare ctxloom executable (agent.CtxloomCommand) so it is
+// looked up on PATH wherever the entry is read, and additionally carries cwd
+// so it runs in the project directory where findAppDir works — the one field
+// no bundle can express.
 // mcpEntries renders the managed server set as .mcp.json entries. The
 // ctxloom entry alone gets a cwd: .mcp.json (not settings.json) is where
 // ${CLAUDE_PROJECT_DIR} expands, see MCPConfigPath.
 func (w *ClaudeCodeHookWriter) mcpEntries(bundleMCP map[string]wire.MCPServer) (map[string]agent.ChatMCPConfigEntry, error) {
 	out := make(map[string]agent.ChatMCPConfigEntry)
-	for name, server := range agent.ResolveManagedMCPServers(bundleMCP, w.mcpCommandOverride) {
+	for name, server := range agent.ResolveManagedMCPServers(bundleMCP) {
 		if err := server.Validate(); err != nil {
 			return nil, fmt.Errorf("mcp server %q: %w", name, err)
 		}

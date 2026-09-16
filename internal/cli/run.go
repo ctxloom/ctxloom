@@ -1526,20 +1526,6 @@ func (st *runState) stampWorkspaceOnRequest() {
 	// (launch_backend.go) consumes it to pick the delivery cell.
 	st.req.Options.CellKind = pb.CellKindToProto(operations.CellKindForPolicy(st.policy))
 
-	// For a container policy ONLY, stamp the in-container
-	// ctxloom binary path so the MCP-surface writer (running inside the
-	// container, per agentcoord B1.6's runner-terminated MCP) emits a
-	// `command` the container can actually exec, instead of the host
-	// self-exec path (which does not exist inside the container — the
-	// engine's `ctxloom mcp` stdio shim then never launches and the child
-	// has zero MCP tools). "" for none/worktree: the host self-exec-
-	// absolute invariant (agent.CtxloomCommand's doc) is untouched.
-	if override := operations.MCPCommandOverrideForPolicy(st.policy); override != "" {
-		if st.req.Options.Env == nil {
-			st.req.Options.Env = make(map[string]string, 1)
-		}
-		st.req.Options.Env[agent.MCPCommandOverrideEnv] = override
-	}
 }
 
 // startTransport creates the run's transport. The isolation axes (runAxes,
@@ -1591,7 +1577,7 @@ func (st *runState) startTransport() error {
 			Harp:        st.activeHarp,
 			ContextText: st.ctxResult.Context,
 			Prompt:      st.prompt,
-			MCPServers:  st.managed.ChatMCPServers(st.req.Options.Env[agent.MCPCommandOverrideEnv]),
+			MCPServers:  st.managed.ChatMCPServers(),
 			Permission:  st.permMode,
 			Mode:        st.mode,
 			RunnerEnv:   st.runnerSpawnEnv,

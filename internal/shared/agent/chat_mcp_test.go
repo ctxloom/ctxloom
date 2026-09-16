@@ -11,7 +11,7 @@ import (
 
 // ctxloomBundleServer is the entry the builtin ctxloom bundle contributes to a
 // resolved server set: the bare binary name and the `mcp serve` leaf, which
-// ResolveManagedMCPServers rewrites to the running binary's absolute path.
+// ResolveManagedMCPServers reconstructs from ctxloom's own values.
 func ctxloomBundleServer() wire.MCPServer {
 	return wire.MCPServer{Command: CtxloomBinary, Args: []string{"mcp", "serve"}}
 }
@@ -27,7 +27,7 @@ func TestComposeChatMCPServers_ManagedSet(t *testing.T) {
 		"tools":       {Command: "/bin/tools", Args: []string{"serve"}, Env: map[string]string{"A": "1"}},
 	}
 
-	got := ComposeChatMCPServers("", bundle, nil)
+	got := ComposeChatMCPServers(bundle, nil)
 
 	require.Len(t, got, 3)
 	assert.Equal(t, ChatMCPServer{Name: MCPServerName, Command: CtxloomCommand(), Args: CtxloomMCPArgs}, got[0])
@@ -45,7 +45,7 @@ func TestComposeChatMCPServers_RemoteServer(t *testing.T) {
 		"stdio":  {Command: "cmd", Args: []string{"a"}},
 	}
 
-	got := ComposeChatMCPServers("", bundle, nil)
+	got := ComposeChatMCPServers(bundle, nil)
 
 	require.Len(t, got, 2)
 	assert.Equal(t, ChatMCPServer{
@@ -62,7 +62,7 @@ func TestComposeChatMCPServers_RemoteServer(t *testing.T) {
 // exclude_mcp or by rejection — composes without one, exactly like the
 // settings write.
 func TestComposeChatMCPServers_CtxloomWithheld(t *testing.T) {
-	got := ComposeChatMCPServers("", map[string]wire.MCPServer{
+	got := ComposeChatMCPServers(map[string]wire.MCPServer{
 		"taskloom": {Command: "taskloom", Args: []string{"mcp"}},
 	}, nil)
 
@@ -79,7 +79,7 @@ func TestComposeChatMCPServers_ExistingNameWins(t *testing.T) {
 		"taskloom":    {Command: "taskloom", Args: []string{"mcp"}},
 	}
 
-	got := ComposeChatMCPServers("", bundle,
+	got := ComposeChatMCPServers(bundle,
 		[]ChatMCPServer{{Name: MCPServerName, Command: "/custom/ctxloom"}})
 
 	require.Len(t, got, 1)
@@ -90,25 +90,18 @@ func TestComposeChatMCPServers_ExistingNameWins(t *testing.T) {
 // payload was assembled (the minimal form / a failed config load) — nothing is
 // injected, mirroring the lifecycle Flush no-op.
 func TestComposeChatMCPServers_NoManagedPayload(t *testing.T) {
-	assert.Nil(t, ComposeChatMCPServers("", nil, nil))
+	assert.Nil(t, ComposeChatMCPServers(nil, nil))
 }
 
-// TestComposeChatMCPServers_CommandOverride pins the container path: the
-// structured-chat MCP set must name the IN-CONTAINER ctxloom binary, not the
-// host self-exec absolute path the bundle set would otherwise resolve to — the
-// same ResolveMCPCommand the settings writers use.
-func TestComposeChatMCPServers_CommandOverride(t *testing.T) {
-	bundle := map[string]wire.MCPServer{MCPServerName: ctxloomBundleServer()}
-
-	got := ComposeChatMCPServers("/in-container/ctxloom", bundle, nil)
+// TestComposeChatMCPServers_BareCommand pins the portability invariant at the
+// structured-chat composer: ctxloom's own entry names the BARE executable and
+// nothing machine-specific, so the same composed set is exec'able on any host
+// and inside any container. A self-exec absolute path here is the defect.
+func TestComposeChatMCPServers_BareCommand(t *testing.T) {
+	got := ComposeChatMCPServers(map[string]wire.MCPServer{MCPServerName: ctxloomBundleServer()}, nil)
 	require.Len(t, got, 1)
-	assert.Equal(t, "/in-container/ctxloom", got[0].Command,
-		"a non-empty override must win over the host self-exec-absolute default, matching ResolveMCPCommand")
-
-	// Empty override is a no-op — the host self-exec-absolute invariant is untouched.
-	got = ComposeChatMCPServers("", bundle, nil)
-	require.Len(t, got, 1)
-	assert.Equal(t, CtxloomCommand(), got[0].Command)
+	assert.Equal(t, "ctxloom", got[0].Command,
+		"the composed ctxloom command must be the bare name, resolved on PATH at fire time")
 	assert.Equal(t, CtxloomMCPArgs, got[0].Args)
 }
 
@@ -117,51 +110,26 @@ func TestComposeChatMCPServers_CommandOverride(t *testing.T) {
 // fixes WHAT is written, and it never mutates the caller's map (one resolved
 // set is shared across engines and cells).
 func TestResolveManagedMCPServers(t *testing.T) {
+	// A deliberately WRONG invocation under ctxloom's own name: the source's
+	// command and args must both be discarded and rebuilt, so neither can be
+	// mistaken for a pass-through.
 	src := map[string]wire.MCPServer{
-		MCPServerName: ctxloomBundleServer(),
+		MCPServerName: {Command: "/bundle/declared/ctxloom", Args: []string{"bogus"}},
 		"other":       {Command: "other", Args: []string{"x"}},
 	}
 
-	out := ResolveManagedMCPServers(src, "/in-container/ctxloom")
+	out := ResolveManagedMCPServers(src)
 
-	assert.Equal(t, "/in-container/ctxloom", out[MCPServerName].Command)
+	assert.Equal(t, "ctxloom", out[MCPServerName].Command)
 	assert.Equal(t, CtxloomMCPArgs, out[MCPServerName].Args)
 	assert.Equal(t, wire.MCPServer{Command: "other", Args: []string{"x"}}, out["other"],
 		"every other entry passes through untouched")
-	assert.Equal(t, CtxloomBinary, src[MCPServerName].Command,
+	assert.Equal(t, "/bundle/declared/ctxloom", src[MCPServerName].Command,
 		"the caller's map must not be mutated")
 
 	withheld := map[string]wire.MCPServer{"other": {Command: "other"}}
-	assert.Equal(t, withheld, ResolveManagedMCPServers(withheld, "/in-container/ctxloom"),
+	assert.Equal(t, withheld, ResolveManagedMCPServers(withheld),
 		"a set with no ctxloom entry is returned unchanged — nothing invents one")
-}
-
-// TestPatchManagedCommand pins the coordinator-delegation fix at the unit
-// hop: a caller that had to compose the managed set BEFORE the
-// isolation policy (and thus the override) was known can patch the
-// ctxloom entry's Command afterward, without disturbing any other entry — and
-// without the empty-override / no-matching-entry cases mutating anything.
-func TestPatchManagedCommand(t *testing.T) {
-	servers := []ChatMCPServer{
-		{Name: MCPServerName, Command: CtxloomCommand(), Args: CtxloomMCPArgs},
-		{Name: "other", Command: "/usr/local/bin/other-tool"},
-	}
-
-	patched := PatchManagedCommand(servers, "/in-container/ctxloom")
-	require.Len(t, patched, 2)
-	assert.Equal(t, "/in-container/ctxloom", patched[0].Command,
-		"the ctxloom entry's command must be patched")
-	assert.Equal(t, "/usr/local/bin/other-tool", patched[1].Command,
-		"a non-ctxloom entry must be left untouched")
-	assert.Equal(t, CtxloomCommand(), servers[0].Command,
-		"the original slice's entry must not be mutated in place")
-
-	assert.Equal(t, servers, PatchManagedCommand(servers, ""),
-		"an empty override is a no-op")
-
-	noManaged := []ChatMCPServer{{Name: "other", Command: "/usr/local/bin/other-tool"}}
-	assert.Equal(t, noManaged, PatchManagedCommand(noManaged, "/in-container/ctxloom"),
-		"a non-empty override with no matching entry is a no-op")
 }
 
 // TestManagedConfigChatMCPServers: the ManagedConfig-shaped entry point — the
@@ -169,7 +137,7 @@ func TestPatchManagedCommand(t *testing.T) {
 // a nil managed payload injects nothing.
 func TestManagedConfigChatMCPServers(t *testing.T) {
 	var nilManaged *ManagedConfig
-	assert.Nil(t, nilManaged.ChatMCPServers(""))
+	assert.Nil(t, nilManaged.ChatMCPServers())
 
 	m := &ManagedConfig{
 		BundleMCP: map[string]wire.MCPServer{
@@ -177,7 +145,7 @@ func TestManagedConfigChatMCPServers(t *testing.T) {
 			"taskloom":    {Command: "taskloom", Args: []string{"mcp"}},
 		},
 	}
-	got := m.ChatMCPServers("")
+	got := m.ChatMCPServers()
 	require.Len(t, got, 2)
 	assert.Equal(t, MCPServerName, got[0].Name)
 	assert.Equal(t, "taskloom", got[1].Name)
@@ -187,7 +155,7 @@ func TestManagedConfigChatMCPServers(t *testing.T) {
 // managed payload; one that never saw MergeManaged (the minimal form) yields nil.
 func TestBaseLifecycle_ChatMCPServers(t *testing.T) {
 	l := NewBaseLifecycle("acp")
-	assert.Nil(t, l.ChatMCPServers(""), "no managed payload merged → nothing to inject")
+	assert.Nil(t, l.ChatMCPServers(), "no managed payload merged → nothing to inject")
 
 	l.MergeManaged(&ManagedConfig{
 		BundleMCP: map[string]wire.MCPServer{
@@ -196,7 +164,7 @@ func TestBaseLifecycle_ChatMCPServers(t *testing.T) {
 		},
 	}, "/work", "")
 
-	got := l.ChatMCPServers("")
+	got := l.ChatMCPServers()
 	require.Len(t, got, 2)
 	assert.Equal(t, MCPServerName, got[0].Name)
 	assert.Equal(t, "taskloom", got[1].Name)
@@ -207,12 +175,12 @@ func TestBaseLifecycle_ChatMCPServers(t *testing.T) {
 // than an empty slice, matching the no-payload return.
 func TestComposeChatMCPServers_UncoveredArms(t *testing.T) {
 	t.Run("empty merged set returns nil, not an empty slice", func(t *testing.T) {
-		assert.Nil(t, ComposeChatMCPServers("", map[string]wire.MCPServer{}, nil),
+		assert.Nil(t, ComposeChatMCPServers(map[string]wire.MCPServer{}, nil),
 			"nothing to inject must be nil, matching the no-payload return")
 	})
 
 	t.Run("existing entries can empty the set completely", func(t *testing.T) {
-		got := ComposeChatMCPServers("", map[string]wire.MCPServer{MCPServerName: ctxloomBundleServer()},
+		got := ComposeChatMCPServers(map[string]wire.MCPServer{MCPServerName: ctxloomBundleServer()},
 			[]ChatMCPServer{{Name: MCPServerName}})
 		assert.Nil(t, got, "the caller's own entry wins and nothing is left to add")
 	})

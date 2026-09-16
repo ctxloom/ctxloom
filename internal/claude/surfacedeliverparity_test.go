@@ -19,9 +19,9 @@ import (
 // resulting path is recorded — so the delivery recipe (which writer, which
 // receiver fields get threaded onto it, which arguments) has to be edited twice
 // per surface, with nothing holding the two halves to each other.
-// MCPCommandOverride is the exact shape of the hazard: it is threaded onto the
-// writer in BOTH MCP bodies and, per the settings out-of-cwd comment,
-// deliberately in NEITHER settings body.
+// A per-surface receiver field is the exact shape of the hazard: denyTools is
+// threaded onto the writer in BOTH settings bodies and deliberately in NEITHER
+// MCP body, so a recipe edited in only one body silently splits the two.
 //
 // MCP now reaches its two writes through two APPROACHES sharing one embedded
 // mcpWriter, and settings still through one type's two forms. The invariant is
@@ -39,7 +39,7 @@ func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 	build := func(t *testing.T, fs afero.Fs) builtSurfaces {
 		t.Helper()
 		in := sampleInputs()
-		in.MCPCommandOverride = "/usr/local/bin/ctxloom"
+		in.DenyTools = []string{"Task"}
 		return newSurfaces(in, fs)
 	}
 

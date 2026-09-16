@@ -29,15 +29,22 @@ func setupTestEnv(t *testing.T) *testenv.TestEnvironment {
 	t.Helper()
 	env, err := testenv.NewTestEnvironment()
 	require.NoError(t, err, "failed to create test environment")
-	require.NoError(t, env.Setup(), "failed to setup test environment")
-	require.NoError(t, env.InitGitRepo(), "failed to init git repo")
-	require.NoError(t, env.CreateProjectConfig(), "failed to create .ctxloom directory")
+	// Registered the moment the temp root exists and BEFORE any step that can
+	// abort: NewTestEnvironment cleans up after its own failures, but once it
+	// returns, the root is this function's to release, and every require below
+	// ends the test on the spot. A removal registered after them is skipped on
+	// exactly the failures it exists to clean up after — the run that leaves a
+	// directory behind is the run that failed.
+	//
 	// Cleanup's error used to be discarded at every call site,
 	// which is the "reports nothing, removes nothing" blindness
 	// TestEnvironment.forceRemoveAll's own doc names as the mechanism behind
 	// an observed /tmp leak. assert.NoError (not require) since this runs in
 	// a t.Cleanup func, after the test body has already finished.
 	t.Cleanup(func() { assert.NoError(t, env.Cleanup(), "test environment cleanup") })
+	require.NoError(t, env.Setup(), "failed to setup test environment")
+	require.NoError(t, env.InitGitRepo(), "failed to init git repo")
+	require.NoError(t, env.CreateProjectConfig(), "failed to create .ctxloom directory")
 	return env
 }
 
@@ -995,8 +1002,10 @@ func TestSearch_WithTags(t *testing.T) {
 func TestInit_CreatesProjectStructure(t *testing.T) {
 	env, err := testenv.NewTestEnvironment()
 	require.NoError(t, err)
-	require.NoError(t, env.Setup())
+	// Before Setup, not after: the temp root exists as soon as the constructor
+	// returns, and a require that fails in between would skip the removal.
 	t.Cleanup(func() { assert.NoError(t, env.Cleanup(), "test environment cleanup") })
+	require.NoError(t, env.Setup())
 
 	_ = env.Run("init")
 
@@ -1016,8 +1025,10 @@ func TestInit_CreatesProjectStructure(t *testing.T) {
 func TestInit_GitMissing_FailsLoudBeforeClone(t *testing.T) {
 	env, err := testenv.NewTestEnvironment()
 	require.NoError(t, err)
-	require.NoError(t, env.Setup())
+	// Before Setup, not after: the temp root exists as soon as the constructor
+	// returns, and a require that fails in between would skip the removal.
 	t.Cleanup(func() { assert.NoError(t, env.Cleanup(), "test environment cleanup") })
+	require.NoError(t, env.Setup())
 
 	// The ctxloom binary itself is invoked by its absolute path (testenv.Run
 	// execs env.AppBinary directly), so it needs nothing on PATH to start;

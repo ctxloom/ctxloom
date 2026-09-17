@@ -12,10 +12,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -851,22 +848,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	rt.launchCancel = lcancel
 	c.mu.Unlock()
 
-	if rt.viaStartRun {
-		c.runChildViaStartRun(lctx, rt, prompt, token, url, "", rt.plan.Context)
-		return
-	}
-
-	launch, err := c.spawner.Launch(lctx, rt.plan, rt.plan.Context, "",
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot))
-	if err != nil {
-		c.failChild(rt, err)
-		return
-	}
-	c.noteLaunchAttached(rt.harp)
-	c.attachLaunch(rt, launch)
-	c.sendTurn(rt, prompt)
-	c.markAttached(rt) // the engine is up; driveChild below drives its whole lifetime, not just the launch
-	c.driveChild(rt, launch)
+	c.runChildViaStartRun(lctx, rt, prompt, token, url, "", rt.plan.Context)
 }
 
 // defaultRunnerAwaitTimeout is the package default for the wait for a
@@ -1055,10 +1037,8 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	if sid := resp.GetStartRun().GetHarnessSessionId(); sid != "" {
 		c.recordHarnessSession(rt.runID, sid)
 	}
-	// Mail queued while the engine was coming up drains now, as turns.
-	if c.pendingCount(rt.harp) > 0 {
-		c.pushMail(rt.harp)
-	}
+	// Mail written while the engine was coming up is the runner's own
+	// startup sweep's to deliver, as turns.
 	c.noteLaunchAttached(rt.harp) // a launch that came up resets the retry budget
 	c.markAttached(rt)            // StartRun round-tripped: the migrated run is up
 	return nil
@@ -1220,51 +1200,6 @@ func (c *Coordinator) onTurnStarted(role string) {
 	c.setState(rt, StateExecuting)
 }
 
-// noteChildReported marks that a child sent mail to its parent itself —
-// peerSend's hook into the no-double-delivery rule (see bridgeTurnResult).
-func (c *Coordinator) noteChildReported(harp string) {
-	c.mu.Lock()
-	if rt := c.byHarp[harp]; rt != nil {
-		rt.selfReported = true
-	}
-	c.mu.Unlock()
-}
-
-// accumulateFinalText folds one MIGRATED child's plane-1 message events into
-// its turn accumulator: MessageStarted on MESSAGE_CHANNEL_FINAL opens an
-// accumulating message id; that id's deltas append. REASONING (thinking)
-// and LOG (system chatter) are deliberately excluded — a coordinator wants
-// the child's ANSWER, not its scratchpad.
-func (c *Coordinator) accumulateFinalText(role string, ev *agentcoordpb.AgentEvent) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	rt := c.byHarp[role]
-	if rt == nil || rt.ownerRun {
-		// An owner-owned run's answer is rendered host-side from the WatchRuns
-		// stream (watch.broadcast, above the switch in handleAgentEvent), never
-		// bridged to a parent — so there is nothing to accumulate here, and
-		// accumulating without a bridge that clears it would leak per turn.
-		return
-	}
-	switch p := ev.GetPayload().(type) {
-	case *agentcoordpb.AgentEvent_MessageStarted:
-		if p.MessageStarted.GetChannel() != agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL {
-			return
-		}
-		if rt.finalMsgs == nil {
-			rt.finalMsgs = make(map[string]bool)
-		}
-		rt.finalMsgs[p.MessageStarted.GetMessageId()] = true
-	case *agentcoordpb.AgentEvent_MessageDelta:
-		if !rt.finalMsgs[p.MessageDelta.GetMessageId()] {
-			return
-		}
-		if text := p.MessageDelta.GetText(); text != "" {
-			rt.turnOutput = append(rt.turnOutput, text)
-		}
-	}
-}
-
 // captureRunFailure records a FAILED RunCompleted's reason on the child's
 // runtime so terminateRun can fold it into the parent's terminal notice. The
 // reason is the engine's OWN account of its death — via the stderr-tail
@@ -1300,146 +1235,6 @@ func (c *Coordinator) captureRunFailure(role string, ev *agentcoordpb.AgentEvent
 		rt.runFailure = text
 	}
 	c.mu.Unlock()
-}
-
-// bridgeTurnResult is the AUTOMATIC child→parent report: at a
-// child's turn boundary, whatever the child said this turn lands in its
-// parent's mailbox as `kind: "result"` — WITHOUT the child's model having to
-// decide to call agent_send. Receiving a delegated child's result must not
-// depend on model cooperation; that is the property a coordinator needs, and
-// the reason this no longer keys off whether the backend implements
-// agent.StructuredChat (it fired only for backends that DON'T, and every
-// registered backend does — so in production it never fired at all).
-//
-// NO DOUBLE DELIVERY. The bridge is a FALLBACK, not a duplicate: a child that
-// called agent_send to its parent during this turn has already reported, in
-// its own words, and rt.selfReported (set by peerSend) suppresses the bridge
-// for that turn. So a parent sees a child's turn exactly once — the child's
-// own message when it wrote one, ours when it didn't.
-//
-// A turn that ends with NEITHER a self-report NOR any FINAL-channel output
-// produced nothing to deliver; that is warned rather than queued as an empty
-// message (an empty body is this project's signature silent no-op, not a
-// report).
-// maxBridgedTurnBody bounds what the turn-boundary bridge puts in a parent's
-// mailbox. The bridge is a FALLBACK for a child that filed no report, and an
-// unbounded one hands the coordinator an entire model turn — the opposite of
-// the delegation rule that children return conclusions and artifacts travel by
-// reference. A coordinator's context is the scarce resource; the moment this
-// path fires is precisely when it is least affordable to flood it.
-const maxBridgedTurnBody = 4000
-
-// boundedTurnBody caps a bridged turn and says where the rest is, so the parent
-// learns THAT the child finished and where to read it without paying for the
-// whole text. Under the cap the text is returned untouched — a bound nobody
-// hits costs nothing.
-func boundedTurnBody(text, harp string) string {
-	if len(text) <= maxBridgedTurnBody {
-		return text
-	}
-	return text[:maxBridgedTurnBody] + fmt.Sprintf(
-		"\n\n[truncated: %d of %d bytes shown. The full turn is in agent %q's transcript.]",
-		maxBridgedTurnBody, len(text), harp)
-}
-
-func (c *Coordinator) bridgeTurnResult(rt *childRt) {
-	c.mu.Lock()
-	out := rt.turnOutput
-	errored := rt.turnErrored
-	reported := rt.selfReported
-	rt.turnOutput = nil
-	rt.turnErrored = false
-	rt.selfReported = false
-	rt.finalMsgs = nil
-	oneshot := rt.oneshot
-	// The MIGRATED path accumulates plane-1 message DELTAS (fragments of one
-	// message, concatenated); the legacy path accumulates whole entries
-	// (newline-separated, as the pre-existing oneshot bridge joined them).
-	sep := "\n"
-	if rt.viaStartRun {
-		sep = ""
-	}
-	c.mu.Unlock()
-
-	if reported {
-		return // the child reported itself; never deliver the same turn twice
-	}
-	// THE CUTOVER (spoolturnresult.go). For a spool-delivered run the RUNNER
-	// wrote this turn's report into the child's own out/ before it announced
-	// the boundary, so the bridge's delivery is a second copy of a message the
-	// parent already has. Suppressed HERE rather than at the call site, and
-	// after the accumulator has been taken, so the state machine still steps
-	// exactly as it always did — only the delivery is someone else's now.
-	//
-	// FILE XOR BRIDGE: this predicate and the runner's are the same fact (the
-	// coordinator's flag, stamped onto the run at spawn) read from the two
-	// sides, so a turn cannot be reported twice and cannot go unreported.
-	spooled := c.spoolDeliverTo(rt.harp)
-	text := strings.TrimSpace(strings.Join(out, sep))
-	if text == "" && spooled {
-		// The empty turn is reported too — by the runner, as an error the
-		// parent can actually read, which is more than this warn ever was.
-		return
-	}
-	if text == "" {
-		clidiag.Warn("ctxloom", "agent %s: turn ended with no report and no output — nothing to bridge to %s", rt.harp, rt.parentHarp)
-		// That warning goes to the COORDINATOR PROCESS's stderr —
-		// a channel the parent (an agent whose sole input is its mailbox)
-		// cannot read. Under the runtime:container prompt-delivery defect
-		// this fires every turn while every cheap signal (roster state,
-		// transcript existence, exit code) stays green, and the parent
-		// observes an indefinitely silent, "executing" child with no
-		// diagnostic at all. Best-effort: if the mailbox itself is what's
-		// broken, this mail also fails, but the case it exists for (a
-		// perfectly healthy mailbox, an unhealthy CHILD) is the common one.
-		if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "error",
-			fmt.Sprintf("agent %q (run %s) turn produced no output — nothing to report", rt.harp, rt.runID)); err != nil {
-			clidiag.Warn("ctxloom", "agent %s: notify parent of empty turn: %v", rt.harp, err)
-		}
-		return
-	}
-	if oneshot {
-		// Durable event-log record (Wave C4, manly-grant (7)) ALONGSIDE the
-		// mailbox bridge below — not a replacement for it; PublishEvents is
-		// event-plane only and carries no delivery semantics of its own. A
-		// MIGRATED child already emits its own RunCompleted on the
-		// RunChannel, so this synthetic sub-run is oneshot-only.
-		c.publishOneshotResult(rt, text, errored)
-	}
-	if spooled {
-		// The report is the child's own out/ file. The EVENT record above is
-		// not: PublishEvents is the event plane, carries no delivery semantics,
-		// and the cutover moved deliveries only — so it still happens here,
-		// from the accumulator that still accumulates.
-		return
-	}
-	// A NON-oneshot child that ends a turn without reporting has skipped its
-	// completion contract. The bridge still delivers what it said — losing the
-	// text would be worse — but the parent is told the contract was missed, in
-	// the mailbox, which is the only channel an agent can actually read. A
-	// oneshot child is exempt: the bridge IS its delivery mechanism, and
-	// flagging every one would be crying wolf on the normal case.
-	if !oneshot {
-		if _, _, err := c.queueMail(rt.harp, rt.parentHarp, KindError,
-			fmt.Sprintf("agent %q (run %s) ended a turn without filing a report; its turn text was bridged instead",
-				rt.harp, rt.runID)); err != nil {
-			clidiag.Warn("ctxloom", "agent %s: notify parent of unreported turn: %v", rt.harp, err)
-		}
-	}
-
-	if _, _, err := c.queueMail(rt.harp, rt.parentHarp, KindResult, boundedTurnBody(text, rt.harp)); err != nil {
-		clidiag.Warn("ctxloom", "agent %s: bridge turn result: %v", rt.harp, err)
-		// The accumulator was already cleared above (so a
-		// concurrent append during the failed queueMail call lands cleanly
-		// on top, not lost under a lock we no longer hold) — but a failed
-		// delivery must not silently vanish the turn's own text. Restore it
-		// AHEAD of anything accumulated since, so the next turn boundary
-		// retries delivering it instead of the report existing nowhere:
-		// not in rt, not in the mailbox fold, not in the parent's view.
-		c.mu.Lock()
-		rt.turnOutput = append(append([]string{}, out...), rt.turnOutput...)
-		c.mu.Unlock()
-	}
 }
 
 // oneShotReady reports whether rt's NEXT turn boundary must end the engine
@@ -1486,15 +1281,6 @@ func (c *Coordinator) onTurnIdle(role string) {
 		// already inert for an ended run; the bridge was not.
 		return
 	}
-	// The MIGRATED path's turn boundary: bridge this turn's result to the
-	// parent BEFORE anything below, so the parent's mailbox carries the
-	// child's answer whether or not the child's model chose to send one. An
-	// OWNER-OWNED run (Phase 2a-B) has no distinct parent — the host watches it
-	// directly — and bridging to its own harp would self-loop, so it is
-	// suppressed (childRt.ownerRun's doc).
-	if !rt.ownerRun {
-		c.bridgeTurnResult(rt)
-	}
 	// DRAINING: the boundary is where a drain's exit request is honoured
 	// (drain.go). Checked before the one-shot teardown so the terminal says
 	// drained (or stopped) rather than resumable — nothing resumes it here.
@@ -1515,275 +1301,6 @@ func (c *Coordinator) onTurnIdle(role string) {
 	}
 	c.setState(rt, StateIdle)
 	c.releaseSlot(rt)
-	if c.pendingCount(role) > 0 {
-		c.pushMail(role)
-	}
-}
-
-// driveChild consumes the child's event stream, handling turn boundaries and
-// idle wakes, until the stream closes. This is the LEGACY go-plugin Chat
-// path only (a degraded no-reach-back spawn, or a StructuredChat backend
-// outside the viaStartRun allowlist — spawner.go's viaStartRunBackends);
-// D2 retired its agentbus TapHub tee along with the rest of the bus package.
-//
-// FROZEN (spool-cutover RETIRE-FIRST ruling): this loop and its exclusive
-// helpers (handleChildEvent, onTurnBoundary, wakeChild, sendMailTurn,
-// sendTurn, endChild, attachLaunch, the rt.in/rt.wake channels, and
-// Spawner.Launch) are retired-in-place. They are never ported to the
-// file-spool messaging substrate that replaces the coordinator mailbox
-// (takeNextMail/pushMail below), and spawner.go's checkLegacyChatFreeze
-// refuses any backend not already frozen onto this path (legacyChatBackends).
-// When the mailbox machinery is deleted, whatever still rides this loop has
-// either migrated onto StartRun or loses delegation.
-// A legacy child is therefore not LIVE-observable via ConsumerService (D1's
-// watchHub only covers RunChannel item events, which this path never emits)
-// — an accepted, documented gap on an already-degraded path; its transcript
-// still tails via the store fallback (operations.WatchSessionFeed) like any
-// session.
-func (c *Coordinator) driveChild(rt *childRt, launch *operations.AgentChatLaunch) {
-	for {
-		select {
-		case ev, ok := <-launch.Events:
-			if !ok {
-				c.endChild(rt, launch)
-				return
-			}
-			c.handleChildEvent(rt, ev)
-		case <-rt.wake:
-			c.wakeChild(rt)
-		case <-c.baseCtx.Done():
-			// Coordinator shutdown: this is the ONE
-			// loop in the package with no baseCtx case — normally Close()'s
-			// attachment-snapshot loop already closed the launch (rt.close),
-			// which makes Events close and the branch above fire, but a
-			// shutdown that races attachLaunch (closeFn still nil at that
-			// snapshot) would otherwise leave this goroutine parked forever.
-			// Force the launch down directly rather than routing through
-			// endChild, which drains launch.Errs to completion — that only
-			// resolves once Events/Errs close on their own, exactly what we
-			// cannot wait for mid-shutdown.
-			c.closeChildInput(rt)
-			launch.Close()
-			c.terminateRun(rt.runID, CauseChatClose, "coordinator shutdown")
-			return
-		}
-	}
-}
-
-func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
-	switch {
-	case ev.Entry != nil:
-		// Turn accumulation for the legacy path's half of the result bridge:
-		// a ONESHOT child has no reach-back at all, so every
-		// entry it emits IS its output; a legacy CHAT child's answer is its
-		// assistant entries only (thinking/tool chatter is the engine
-		// transcript's job, §6b). Both feed bridgeTurnResult at the
-		// boundary — the bridge no longer fires for oneshot alone.
-		//
-		// rt.oneshot is read INSIDE the mutex with the accumulator it
-		// gates. It is childRt state like every other mutable field here
-		// (attachLaunch and StartOwnedRun both write it under c.mu), and
-		// reading it outside — one statement above the Lock that guards
-		// everything it decides — is a plain data race, not merely a stale
-		// read: the -race detector reports it.
-		if ev.Entry.Content == "" {
-			return
-		}
-		c.mu.Lock()
-		if rt.oneshot || ev.Entry.Type == agent.EntryTypeAssistant {
-			rt.turnOutput = append(rt.turnOutput, ev.Entry.Content)
-			if ev.Entry.IsError {
-				rt.turnErrored = true
-			}
-		}
-		c.mu.Unlock()
-	case ev.Session != nil:
-		// LEGACY path's half of PREREQ A: the migrated path
-		// already records this via StartRunResult/runchannel's
-		// ctxloom/harness_session custom event (runChildViaStartRun above);
-		// this is the only place a legacy go-plugin Chat dial's native
-		// session id (any StructuredChat backend outside
-		// viaStartRunBackends) reaches the journal at all — previously
-		// silently dropped by this switch having no case for it.
-		// recordHarnessSession is idempotent, so a repeat emission a legacy
-		// backend's Chat sends when its conversation id first resolves is
-		// safe.
-		if ev.Session.SessionID != "" {
-			c.recordHarnessSession(rt.runID, ev.Session.SessionID)
-			c.recordResumable(rt.runID, ev.Session.Resumable)
-		}
-	case ev.Complete != nil:
-		c.onTurnBoundary(rt)
-	}
-}
-
-// onTurnBoundary applies the §6a delivery rule "queued mid-turn → deliver at
-// the next boundary": pending mail starts the next turn (the slot is kept);
-// an empty mailbox parks the child idle and yields the slot.
-func (c *Coordinator) onTurnBoundary(rt *childRt) {
-	c.bridgeTurnResult(rt)
-	// DRAINING: the boundary is where a drain's exit request is honoured
-	// (drain.go) — before the mailbox is consulted, so queued mail stays
-	// queued for the next run rather than starting a turn the request said
-	// not to.
-	if p := c.exitRequested(rt); p != nil {
-		c.drainAtBoundary(rt, p)
-		return
-	}
-	// A journal failure here is NOT "the mailbox is empty": parking
-	// the child idle on it strands mail the fold still considers deliverable
-	// and reports the boundary as clean. Fail the child instead — a stalled
-	// child that says so beats one that silently stops consuming its mail.
-	msg, ok, err := c.takeNextMail(rt.harp)
-	if err != nil {
-		c.failChild(rt, err)
-		return
-	}
-	if ok {
-		c.sendMailTurn(rt, msg)
-		return
-	}
-	c.setState(rt, StateIdle)
-	c.releaseSlot(rt)
-}
-
-// publishOneshotResult journals ONE oneshot turn's stdout-bridged output as a
-// self-contained, FRESH-run_id sub-run over the unary PublishEvents fallback
-// (Wave C4 deliverable 1, closing manly-grant (7): "Oneshot-fallback
-// children → unary PublishEvents is a natural fit"). A oneshot backend has no
-// persistent engine or RunChannel of its own — startOneshot's own doc says
-// "no session continuity between turns beyond the composed context" — so each
-// completed turn genuinely IS its own independent run; that is what a fresh
-// run_id per turn captures, and it is what keeps RunCompleted's contract
-// invariant true ("terminal event; nothing may follow it for this run_id").
-// The persistent child's OWN identity (rt.runID/rt.harp — roster, queue slot,
-// mailbox) is untouched by this: it is purely an additional durable
-// event-log record, never a substitute for the mailbox delivery above.
-func (c *Coordinator) publishOneshotResult(rt *childRt, text string, errored bool) {
-	runStatus := agentcoordpb.Result_RUN_STATUS_SUCCEEDED
-	var errStatus *rpcstatus.Status
-	if errored {
-		runStatus = agentcoordpb.Result_RUN_STATUS_FAILED
-		errStatus = &rpcstatus.Status{Code: int32(codes.Unknown), Message: text}
-	}
-	ev := &agentcoordpb.AgentEvent{
-		RunId:      newRunID(),
-		Seq:        1,
-		OccurredAt: timestamppb.Now(),
-		Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
-			Result: &agentcoordpb.Result{Status: runStatus, Text: text, Error: errStatus},
-		}},
-	}
-	resp := c.PublishEvents([]*agentcoordpb.AgentEvent{ev})
-	for _, rej := range resp.GetRejected() {
-		clidiag.Warn("ctxloom", "agent %s: oneshot result publish rejected: %s", rt.harp, rej.GetReason().GetMessage())
-	}
-}
-
-// wakeChild starts a new turn on an idle child after a mailbox delivery (§6a
-// "idle at a turn boundary: start a new turn, message as the prompt").
-func (c *Coordinator) wakeChild(rt *childRt) {
-	if c.runState(rt.runID) != StateIdle {
-		return
-	}
-	msg, ok, err := c.takeNextMail(rt.harp)
-	if err != nil {
-		// Not a spurious wake — the take FAILED. Returning quietly
-		// would leave the child idle holding undelivered mail forever.
-		c.failChild(rt, err)
-		return
-	}
-	if !ok {
-		return // spurious wake (a recv or boundary drain consumed it)
-	}
-	if err := c.acquireRunSlot(rt); err != nil {
-		// takeNextMail already journaled the consume, so this return is the
-		// same durable loss sendTurn's drop paths were: the message left the
-		// mailbox to start a turn that is not going to happen.
-		c.requeueUndelivered(rt.harp, msg)
-		return
-	}
-	c.setState(rt, StateExecuting)
-	c.sendMailTurn(rt, msg)
-}
-
-// sendMailTurn writes one MAILBOX delivery to the child's input channel with the
-// same provenance framing the migrated path's turn sink applies
-// (frameCoordinatorDelivery). Both delivery paths frame: a turn that arrives
-// unmarked is indistinguishable to the model from its own operator's
-// instructions, which is a worse position than a marked frame in every case.
-//
-// sendTurn's other caller — the briefing — is deliberately unframed: it is the
-// run's own prompt, not a delivery from somebody else.
-func (c *Coordinator) sendMailTurn(rt *childRt, msg Message) {
-	if c.sendTurn(rt, frameCoordinatorDelivery(msg.From, msg.Kind, msg.Body)) {
-		return
-	}
-	// The message is ALREADY journaled as consumed — takeNextMail commits
-	// that at take, before any child has seen anything — so a drop here is
-	// not "a turn was missed", it is a message durably deleted from the
-	// mailbox and delivered to nobody. Put it back.
-	c.requeueUndelivered(rt.harp, msg)
-}
-
-// sendTurn writes one turn to the child's input channel, REPORTING whether
-// the turn was actually handed over. The driver goroutine is the channel's
-// only writer, so this never races the close in endChild.
-//
-// The report is load-bearing for the mailbox caller (sendMailTurn): both
-// false paths — a child whose input is already closed, and a coordinator
-// shutting down — used to return silently, and the message the caller was
-// carrying had already been consumed out of the fold. The BRIEFING caller
-// (runChild) has nothing to put back, so for it the warning below is the
-// whole remedy: a first turn that never reached the engine is otherwise
-// indistinguishable from a child that simply said nothing.
-func (c *Coordinator) sendTurn(rt *childRt, text string) bool {
-	c.mu.Lock()
-	in := rt.in
-	c.mu.Unlock()
-	if in == nil {
-		clidiag.Warn("ctxloom", "agent %s: a turn could not be delivered: the child's input channel is already closed", rt.harp)
-		return false
-	}
-	select {
-	case in <- agent.ChatMessage{Text: text}:
-		return true
-	case <-c.baseCtx.Done():
-		clidiag.Warn("ctxloom", "agent %s: a turn could not be delivered: the coordinator is shutting down", rt.harp)
-		return false
-	}
-}
-
-// endChild finalizes a child whose event stream closed: surface the terminal
-// stream error and route the terminal through terminateRun — reconciled
-// EXACTLY-ONCE with the runner-loss synthesis path (whichever claims the
-// terminal fact first wins; the loser is a no-op).
-func (c *Coordinator) endChild(rt *childRt, launch *operations.AgentChatLaunch) {
-	var streamErr string
-	for err := range launch.Errs {
-		if err != nil {
-			streamErr = err.Error()
-			clidiag.Warn("ctxloom", "agent %s (%s): chat stream ended: %v", rt.harp, rt.agentName, err)
-		}
-	}
-	c.closeChildInput(rt)
-	launch.Close()
-	c.terminateRun(rt.runID, CauseChatClose, streamErr)
-}
-
-// closeChildInput closes a legacy child's input channel exactly once: the
-// engine sees end-of-input, and every later sendTurn finds nil and reports
-// the turn undeliverable instead of panicking on a closed channel. Callers
-// run on the driver goroutine — the channel's only writer — so the close
-// cannot race a send.
-func (c *Coordinator) closeChildInput(rt *childRt) {
-	c.mu.Lock()
-	in := rt.in
-	rt.in = nil
-	c.mu.Unlock()
-	if in != nil {
-		close(in)
-	}
 }
 
 // failChild reports a launch failure to the parent's mailbox — the spawn verb
@@ -1975,14 +1492,6 @@ func (c *Coordinator) releaseSlotIntent(rt *childRt) {
 	c.mu.Unlock()
 }
 
-func (c *Coordinator) attachLaunch(rt *childRt, launch *operations.AgentChatLaunch) {
-	c.mu.Lock()
-	rt.in = launch.In
-	rt.close = launch.Close
-	rt.oneshot = launch.Oneshot
-	c.mu.Unlock()
-}
-
 // terminateRun is the EXACTLY-ONCE terminal seam every death path funnels
 // through: the legacy chat-stream-close (endChild), the runner-loss
 // synthesis, an explicit RunExited, agent_stop, launch failure,
@@ -2018,10 +1527,6 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// surviving (runchannel.go); drop this harp's at terminal so they don't
 	// accumulate across the process's lifetime.
 	c.clearReqTrack(rec.Harp)
-	// The DOWN direction's outstanding requests are settled, not merely
-	// dropped: their callers are blocked on an answer this run will never
-	// give, and the terminal is the fact that decides it.
-	c.clearDownTrack(rec.Harp)
 
 	// D4: drain BEFORE anything below that can tear the
 	// RunChannel's underlying connection down — closeFn (engine.Kill) closes
@@ -2110,22 +1615,10 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 			body += ": " + runFailure
 		}
 		if _, _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
-			clidiag.Warn("ctxloom", "agent %s: queue terminal notice: %v", rec.Harp, err)
-			// The durable queue is what just failed, so the invariant above
-			// ("the parent ALWAYS learns of a child death") cannot hold through
-			// the mailbox. Preserve it for the one case that actually hangs on
-			// it — a parent parked in agent_recv right now — by completing its
-			// poll directly with the same notice (non-durable, unjournaled), so
-			// it returns instead of blocking until its own timeout. A parent not
-			// currently parked cannot be reached this way; the warn above is the
-			// honest, loud record that it will not learn of this death.
-			if c.deliverTerminalFallback(rec.ParentHarp, Message{
-				ID: newMessageID(), From: rec.Harp, To: rec.ParentHarp, Kind: kind, Body: body,
-			}) {
-				clidiag.Warn("ctxloom", "agent %s: terminal notice delivered to parked parent %s via non-durable fallback (mailbox journal failed)", rec.Harp, rec.ParentHarp)
-			} else {
-				clidiag.Warn("ctxloom", "agent %s: parent %s was NOT parked in agent_recv and the mailbox journal failed — parent will not learn of this death", rec.Harp, rec.ParentHarp)
-			}
+			// The spool write is what just failed, so the invariant above
+			// ("the parent ALWAYS learns of a child death") does not hold for
+			// this death. Said loudly: there is nothing behind the file.
+			clidiag.Warn("ctxloom", "agent %s: the terminal notice could not be written to parent %s's spool (%v) — the parent will not learn of this death", rec.Harp, rec.ParentHarp, err)
 		}
 	}
 	c.spawner.MarkSessionEnded(rec.Harp)
@@ -2369,46 +1862,11 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	// run that never reported a session id falls back to the rendered-
 	// history context prime, still over StartRun. Queued mail is pushed as
 	// turns once the engine attaches (runChildViaStartRun's drain).
-	if rt.viaStartRun {
-		contextText := ""
-		if !haveResumeKey {
-			contextText = c.spawner.ResumeContext(lctx, plan, harp)
-		}
-		c.runChildViaStartRun(lctx, rt, "", token, url, resumeSessionID, contextText)
-		return
-	}
-
-	// LEGACY resume (Slice 0): mirror the ViaStartRun branch
-	// above — a captured native session id (journaled via
-	// handleChildEvent's ev.Session case) resumes the backend's OWN session
-	// with no rendered-transcript re-priming needed; only a prior run that
-	// never reported a session id falls back to the lossy ResumeContext
-	// replay.
-	//
-	// FROZEN (spool-cutover RETIRE-FIRST ruling): this legacy resume arm is
-	// retired-in-place exactly like runChild's launch arm — never ported to
-	// the spool substrate, closed to new backends (spawner.go's
-	// checkLegacyChatFreeze, applied via the Resolve call above).
 	contextText := ""
 	if !haveResumeKey {
 		contextText = c.spawner.ResumeContext(lctx, plan, harp)
 	}
-	launch, err := c.spawner.Launch(lctx, plan, contextText, resumeSessionID,
-		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot))
-	if err != nil {
-		c.failChild(rt, err)
-		return
-	}
-	c.noteLaunchAttached(harp)
-	c.attachLaunch(rt, launch)
-	if msg, ok, merr := c.takeNextMail(harp); merr != nil {
-		c.failChild(rt, merr)
-		return
-	} else if ok {
-		c.sendMailTurn(rt, msg)
-	}
-	c.markAttached(rt) // the engine is up; driveChild below drives its whole lifetime, not just the relaunch
-	c.driveChild(rt, launch)
+	c.runChildViaStartRun(lctx, rt, "", token, url, resumeSessionID, contextText)
 }
 
 // deliveryEndedDraining is driveQueued's observation for an ENDED recipient
@@ -2450,21 +1908,8 @@ func (c *Coordinator) driveQueued(harp string) string {
 		attached := c.armLaunch(harp)
 		c.goTracked(func() { c.resumeChild(harp, attached, 0) })
 	case StateIdle:
-		c.mu.Lock()
-		rt := c.byHarp[harp]
-		migrated := rt != nil && rt.viaStartRun
-		c.mu.Unlock()
-		switch {
-		case migrated:
-			// Push-down delivers to the runner; ITS driver starts the new
-			// turn (§6a decided runner-side for migrated children).
-			c.pushMail(harp)
-		case rt != nil:
-			select {
-			case rt.wake <- struct{}{}:
-			default:
-			}
-		}
+		// The doorbell that rang at the write wakes the runner; ITS driver
+		// starts the new turn (§6a decided runner-side).
 	}
 	return state
 }

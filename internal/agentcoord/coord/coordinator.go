@@ -146,8 +146,6 @@ type Coordinator struct {
 	queueF   *queueFold
 	rosterF  *rosterFold
 	reportsF *reportsFold
-	mail     *Store
-	mailF    *mailFold
 	items    *Store
 	itemsF   *itemsFold
 	auditJ   *Store
@@ -271,14 +269,6 @@ type Coordinator struct {
 	// answer to one copy would be lost with the channel it arrived on.
 	// Cleaned per-role at terminal (clearReqTrack); lazily initialized.
 	reqTrack map[reqKey]*inflightReq
-	// downTrack is reqTrack's mirror in the DOWN direction: outstanding
-	// coordinator→agent control requests, keyed by the same (role, request_id).
-	// It lives here rather than on runChan for the same reason — a request
-	// survives the channel it was queued on and is reissued on the role's next
-	// attach — and it is where the DRAIN SEAM's capability re-validation reads
-	// from (control.go's redrainDownRequests). Cleaned per-role at terminal
-	// (clearDownTrack); lazily initialized.
-	downTrack map[reqKey]*downReq
 	// asks holds the outstanding correlated asks (spoolcontrol.go) — question
 	// and summarize — keyed by the id their request file carries as origin_id,
 	// which is what a reply quotes in in_reply_to. Registered BEFORE the file
@@ -596,12 +586,6 @@ func (c *Coordinator) openJournals() error {
 		return err
 	}
 	c.runs = runs
-	c.mailF = newMailFold()
-	mail, err := openStore(filepath.Join(c.stateDir, "mailbox.jsonl"), c.mailF)
-	if err != nil {
-		return err
-	}
-	c.mail = mail
 	c.itemsF = newItemsFold()
 	// D4 CHECKPOINT compaction: a prior snapshot (if one exists — the
 	// common case is none, a fresh project) seeds the fold and replay
@@ -840,7 +824,6 @@ func (c *Coordinator) closePartial() {
 		}
 	}
 	shut("runs.jsonl", c.runs)
-	shut("mailbox.jsonl", c.mail)
 	shut("items.jsonl", c.items)
 	shut("interactions.jsonl", c.auditJ)
 	c.spoolIn.close() // idempotent: Close already closed it before the join
@@ -1002,12 +985,6 @@ func (c *Coordinator) childSend(caller Identity, to, kind, body string, structur
 		return "", false, "", ErrPeerRouting
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
-	// NO DOUBLE DELIVERY: this child reported to its parent in
-	// its own words, so the automatic turn-boundary bridge (children.go's
-	// bridgeTurnResult) must not report the same turn again. Marked here — the
-	// one place a child→parent send is accepted — rather than at either call
-	// site.
-	c.noteChildReported(caller.Harp)
 	id, completed, err := c.queueMailPayload(caller.Harp, parent, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", false, "", err
@@ -1132,20 +1109,13 @@ func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string) st
 	return fmt.Sprintf("stopped child %s; its execution slot is freed (a later agent_send resumes it as a fresh run)", rec.Harp)
 }
 
-// Inject delivers user-typed text into a child. It is now a thin wrapper over
-// ControlSteer with a HUMAN initiator — same verb, one implementation — which
-// is the Wave-D2 convergence: an attached, migrated target that advertises
-// `steer` rides plane 2 and gets a correlated acknowledgement; everything else
-// takes §5.6's mailbox route, which is this method's ORIGINAL behaviour,
-// preserved as a strict superset so no target loses anything.
+// Inject delivers user-typed text into a child: ControlSteer with a HUMAN
+// initiator — same verb, one implementation. The signature is the TUI's
+// contract (caller: run_terminal_ui.go): a Delivery* mode string.
 //
-// The signature is deliberately unchanged (caller: run_terminal_ui.go): the
-// TUI's contract is a Delivery* mode string, so the plane-2 SteerResult is
-// mapped back onto that vocabulary here rather than pushed onto the caller.
-//
-// INVARIANT (decision O3), unchanged on both routes: the KindUserInjected
-// mirror notice to the target's parent fires on EVERY successful injection — a
-// coordinator's picture of its child never diverges without a trace.
+// INVARIANT (decision O3): the KindUserInjected mirror notice to the target's
+// parent fires on EVERY successful injection — a coordinator's picture of its
+// child never diverges without a trace.
 func (c *Coordinator) Inject(harp, text string) (string, error) {
 	out, err := c.ControlSteer(context.Background(), ControlInitiator{
 		Kind: agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_HUMAN,
@@ -1155,31 +1125,7 @@ func (c *Coordinator) Inject(harp, text string) (string, error) {
 		// indirection; ControlSteer already wraps it.
 		return "", err
 	}
-	if out.Fallback != "" {
-		return out.Fallback, nil
-	}
-	return steerAppliedToDelivery(out.Applied), nil
-}
-
-// steerAppliedToDelivery maps a plane-2 acknowledgement onto the Delivery*
-// vocabulary the viewer speaks. APPLIED_IMMEDIATE means the target was IDLE and
-// a new turn started now — which is exactly DeliveryNewTurn — and
-// APPLIED_NEXT_TURN means it was mid-turn, which is DeliveryQueued. There is no
-// Delivery* value meaning "the target refused", so a rejection is reported as
-// the queue it is NOT: it maps to DeliveryQueued only when the runner actually
-// queued it, and REJECTED is surfaced as its own string so the TUI cannot
-// print a success for a refusal.
-func steerAppliedToDelivery(applied agentcoordpb.SteerResult_Applied) string {
-	switch applied {
-	case agentcoordpb.SteerResult_APPLIED_IMMEDIATE:
-		return DeliveryNewTurn
-	case agentcoordpb.SteerResult_APPLIED_NEXT_TURN:
-		return DeliveryQueued
-	case agentcoordpb.SteerResult_APPLIED_REJECTED:
-		return DeliveryRejected
-	default:
-		return DeliveryQueued
-	}
+	return out.Delivery, nil
 }
 
 // injectDigestRunes bounds the mirror notice body: enough for the parent to

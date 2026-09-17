@@ -53,14 +53,6 @@ const (
 	// factSessionCredRevoked revokes a session-owner credential.
 	factSessionCredRevoked = "session.cred.revoked"
 
-	// factMailQueued is one queued mailbox message (durable, role-addressed;
-	// deduped on message_id).
-	factMailQueued = "mail.queued"
-	// factMailConsumed advances a role's cursor: the listed message_ids are
-	// consumed. Appended only when a delivery is acknowledged — a SUBSEQUENT
-	// agent_recv from the same role (cursor-ack), or a turn-boundary
-	// delivery into a child the coordinator itself drives.
-	factMailConsumed = "mail.consumed"
 )
 
 // Terminal causes recorded on factRunEnded.
@@ -204,23 +196,6 @@ type sessionCred struct {
 	Harp     string `json:"harp,omitempty"`
 	Project  string `json:"project,omitempty"`
 	CredHash string `json:"cred_hash"`
-}
-
-// mailQueued is factMailQueued's payload.
-type mailQueued struct {
-	MessageID  string          `json:"message_id"`
-	From       string          `json:"from"`
-	To         string          `json:"to"`
-	Kind       string          `json:"kind,omitempty"`
-	Body       string          `json:"body"`
-	Structured json.RawMessage `json:"structured,omitempty"`
-	InReplyTo  string          `json:"in_reply_to,omitempty"`
-}
-
-// mailConsumed is factMailConsumed's payload.
-type mailConsumed struct {
-	Role       string   `json:"role"`
-	MessageIDs []string `json:"message_ids"`
 }
 
 // interaction is the audit payload for the interaction journal: one record

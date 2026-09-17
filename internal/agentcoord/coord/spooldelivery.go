@@ -391,21 +391,64 @@ func (c *Coordinator) ownerSpool(role string) bool {
 	return role != "" && role == c.ownerHarp
 }
 
-// deliverMailViaSpool IS the delivery: it writes msg as the single copy in the
-// recipient's in/ and rings the doorbell.
+// ErrNoSpoolReader refuses mail for a recipient with no spool reader: not
+// the declared owner, and not a run this coordinator tracks. A file written
+// for it would be a message delivered to a directory nobody reads, with
+// every signal green.
+var ErrNoSpoolReader = errors.New("coordinator mail: the recipient has no spool reader (it is neither the session owner nor a tracked run)")
+
+// queueMail is queueMailPayload's common-case wrapper: no structured
+// companion, no reply correlation.
+func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, completed bool, err error) {
+	return c.queueMailPayload(from, to, kind, body, nil, "")
+}
+
+// queueMailPayload delivers one message: the write into the recipient's in/
+// spool IS the delivery, fsynced before return, and the doorbell only bounds
+// latency. Routing policy is the caller's. structured is an optional
+// JSON-object companion (e.g. the escalation ladder's relayed
+// ApprovalRequest projection); inReplyTo correlates this message to an
+// earlier one's id.
 //
-// Unlike the shadow tee, a failure here is RETURNED. The tee could swallow its
-// own errors because the mailbox was still the system of record behind it;
-// under the cutover there is nothing behind it, so a write that failed is a
-// message that does not exist and the sender must be told so.
-//
-// completed is always false: nothing was handed to a waiting receiver
-// synchronously. The recipient's runner delivers it on the doorbell or its
+// completed is always false: nothing is handed to a waiting receiver
+// synchronously. The recipient's reader delivers it on the doorbell or its
 // next sweep, and its consume-rename is what reports back that it landed.
-func (c *Coordinator) deliverMailViaSpool(msg Message) (string, bool, error) {
+func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, completed bool, err error) {
+	return c.queueMailPayloadID(newMessageID(), from, to, kind, body, structured, inReplyTo)
+}
+
+// queueMailPayloadID is queueMailPayload with the message id supplied by the
+// caller. It exists for correlation-carrying mail whose id must be REGISTERED
+// somewhere before the mail is observable: this function publishes, and after
+// it returns a reply quoting the id can already arrive. relayApproval is the
+// case that forced it; see its comment.
+func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, error) {
+	// Role "" is undrainable by construction — agent_recv drains the caller's
+	// own harp and no session has the empty harp. Refused here, at the one
+	// point every sender funnels through, rather than at each sender.
+	if to == "" {
+		return "", false, fmt.Errorf("coordinator mail: refusing to queue a %q message from %q with no recipient: no session can drain role %q", kind, from, to)
+	}
+	// A message with NO payload is refused at the same chokepoint. Delivered,
+	// it completes a parked recv and is answered with the ordinary success
+	// disposition — a recipient woken for a turn whose content is nothing at
+	// all, with every signal green. A structured companion IS payload (the
+	// relayed ApprovalRequest projection and its replies carry it), so only a
+	// message with neither is empty.
+	if strings.TrimSpace(body) == "" && len(structured) == 0 {
+		return "", false, fmt.Errorf("coordinator mail: refusing to queue an empty message from %q to %q (kind %q): "+
+			"it carries no text and no structured payload, so the recipient would be woken with nothing to act on "+
+			"(check the sender's message composition)", from, to, kind)
+	}
+	if !c.spoolDeliverTo(to) {
+		return "", false, fmt.Errorf("%w: %q (from %q, kind %q)", ErrNoSpoolReader, to, from, kind)
+	}
+	msg := Message{ID: msgID, From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
 	// Write-and-ring is ONE operation (spoolcourier.go): the pairing used to be
 	// a convention repeated at each site, which is what made "made durable and
-	// handed to nobody" expressible here at all.
+	// handed to nobody" expressible here at all. A failure is RETURNED: there
+	// is nothing behind the file, so a write that failed is a message that
+	// does not exist and the sender must be told so.
 	if _, err := c.mailCourier().Send(msg); err != nil {
 		return "", false, err
 	}

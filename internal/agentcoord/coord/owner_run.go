@@ -265,12 +265,9 @@ func (c *Coordinator) SendOwnedRunTurn(runID, text string) error {
 		return fmt.Errorf("owner run %q: not an owner-owned run — send to a delegated child with agent_send, "+
 			"which routes and audits it as its parent's message", runID)
 	}
-	// queueMailPayloadID pushes to a migrated run's live channel itself
-	// (delivery-by-state), but push again explicitly for parity with
-	// runChildViaStartRun's standup drain — pushMail is idempotent.
+	// The write rings the run's doorbell; its runner delivers the turn.
 	if _, _, err := c.queueMail(rt.harp, rt.harp, "message", text); err != nil {
 		return fmt.Errorf("owner run %q: enqueue turn: %w", runID, err)
 	}
-	c.pushMail(rt.harp)
 	return nil
 }

@@ -373,7 +373,6 @@ func (c *Coordinator) spoolStatsSnapshot() *agentcoordpb.SpoolStatsResult {
 		Failed:           delivery.Failed,
 		DoorbellDropped:  doorbell.Dropped,
 		DoorbellRejected: doorbell.Rejected,
-		PushUnavailable:  c.PushUnavailableCount(),
 	}
 }
 

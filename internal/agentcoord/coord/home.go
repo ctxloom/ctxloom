@@ -60,20 +60,8 @@ type Home struct {
 	// emits their consumption fact. A crash before either re-delivers
 	// (at-least-once; the safe direction).
 	returned []string
-	// parkedCtl is the UNPULLED-CONTROL-BODY ledger, oldest first: one entry
-	// per control payload ParkControlPayload put into buffer, dropped the
-	// moment Recv hands that id to the harness. It is what makes "the agent
-	// never pulled the instruction" an OBSERVABLE state rather than something
-	// only discoverable by rummaging in buffer — the engine host's
-	// turn-boundary re-announcer reads it (PendingControlPayloads), and
-	// nothing else does.
-	//
-	// Separate from buffer rather than derived from it because buffer holds
-	// ordinary mail too (the pre-engine window), and "how long has the human's
-	// instruction been sitting unread" is a question only about control bodies.
-	parkedCtl []PendingControlPayload
-	park      *homePark
-	parked    bool
+	park     *homePark
+	parked   bool
 	// turnQ/turnPending are the ENGINE-HOST turn-delivery seam (§6a,
 	// runner-side): once a hosted engine registers a sink (SetTurnSink), a
 	// pushed PeerMessage with no recv parked is queued here in arrival
@@ -92,20 +80,6 @@ type Home struct {
 	// threads its Wrap through as a func; deliverNotice fires it, unlocked,
 	// whenever it buffers with nothing else to tell.
 	terminalNudge func()
-
-	// ctrlHandler executes coordinator-initiated plane-2 control requests
-	// (SetRequestHandler; EngineHost.BindHome registers itself). Nil means this
-	// runner hosts no engine, and the Request arm answers UNIMPLEMENTED —
-	// which is now a deliberate no-engine fallback rather than a window marker.
-	ctrlHandler func(context.Context, *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse
-	// inflightCtrl is the RESPONDER-side idempotency mirror of the
-	// coordinator's reqTrack, keyed by request_id: a reissue that arrives
-	// after a reconnect re-sends the SAME cached answer, and one that arrives
-	// while the original dispatch is still running is joined to it rather than
-	// starting a second execution. A control request consumes a child TURN, so
-	// a double dispatch is not a wasted round trip — it is a second turn the
-	// human never asked for.
-	inflightCtrl map[string]*inflightCtrl
 
 	// spoolHandler is THE consumer for validated inbound spool doorbells
 	// (SetSpoolDoorbellHandler), registered by startSpoolReactor. spoolDoorbell
@@ -260,7 +234,6 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		pending:      make(map[string]*homeReq),
 		consumed:     make(map[string]bool),
 		turnPending:  make(map[string]bool),
-		inflightCtrl: make(map[string]*inflightCtrl),
 	}
 	// A runner writes exactly ONE spool: its own harp's out/. The cache is
 	// still keyed by harp because spoolWriterCache is shared with the
@@ -461,14 +434,9 @@ func (h *Home) handleCoordinatorFrame(frame *agentcoordpb.CoordinatorFrame) {
 			hr.ch <- kind.Response
 		}
 	case *agentcoordpb.CoordinatorFrame_Notice:
-		if pm := kind.Notice.GetPeerMessage(); pm != nil {
-			h.deliverNotice(pm)
-		}
 		if sc := kind.Notice.GetSpoolChanged(); sc != nil {
 			h.handleSpoolChanged(sc)
 		}
-	case *agentcoordpb.CoordinatorFrame_Request:
-		h.serveCoordinatorRequest(kind.Request)
 	case *agentcoordpb.CoordinatorFrame_HelloAck:
 		// Duplicate ack on a live stream; ignore.
 	}
@@ -658,11 +626,6 @@ func (h *Home) ReportRunExited(exitCode int, harnessSessionID string) {
 	if h.cfg.RunID == "" {
 		return // a session-owner runner hosts no spawned run
 	}
-	// The run's terminal is also where its plane-2 responder-side idempotency
-	// records stop being owed — see clearInflightCtrl. Deferred, and above the
-	// link check, because a terminal reached with the link already down is
-	// still a terminal.
-	defer h.clearInflightCtrl()
 	h.mu.Lock()
 	link := h.link
 	h.mu.Unlock()
@@ -782,21 +745,8 @@ func (h *Home) recordReturned(msgs []*agentcoordpb.PeerMessage) {
 	for _, m := range msgs {
 		h.consumed[m.GetMessageId()] = true // never re-deliver to this harness
 		h.returned = append(h.returned, m.GetMessageId())
-		h.forgetParkedCtl(m.GetMessageId())
 	}
 	h.mu.Unlock()
-}
-
-// forgetParkedCtl drops id from the unpulled ledger. Called from the ONE place
-// a body stops being unpulled: the Recv that hands it to the harness. Caller
-// holds h.mu.
-func (h *Home) forgetParkedCtl(id string) {
-	for i, p := range h.parkedCtl {
-		if p.MessageID == id {
-			h.parkedCtl = append(h.parkedCtl[:i], h.parkedCtl[i+1:]...)
-			return
-		}
-	}
 }
 
 // ackReturned emits the consumption fact for everything a prior Recv handed

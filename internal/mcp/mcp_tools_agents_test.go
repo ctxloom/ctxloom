@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,23 +92,24 @@ func TestAgentToolHandlers_PlumbTheDelegation(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, sendOut.Disposition)
 
-	// The child's turn output reaches the coordinator's mailbox
-	// AUTOMATICALLY now — the blunt-whiff bridge (coord/children.go
-	// bridgeTurnResult), which fires for a legacy chat child too, no longer
-	// depending on the backend NOT implementing StructuredChat. The fake
-	// chat engine's assistant output for each turn is "ok".
+	// The child's turn output reaches the coordinator's inbox AUTOMATICALLY:
+	// its runner files the turn report into the child's own out/ spool and
+	// the coordinator routes it. The real mock backend echoes each turn as
+	// "mock chat: <text>", so the report carries the child's own output.
 	var recvOut *agentRecvResult
+	var gotResult bool
 	require.Eventually(t, func() bool {
 		_, recvOut, err = s.handleAgentRecv(context.Background(), nil, agentRecvInput{Wait: 1})
-		return err == nil && recvOut != nil && len(recvOut.Messages) > 0
-	}, 5*time.Second, 10*time.Millisecond, "the child's result must reach the coordinator's mailbox without the child choosing to report")
-	var gotResult bool
-	for _, m := range recvOut.Messages {
-		if m.Kind == "result" && m.Body == "ok" {
-			gotResult = true
+		if err != nil || recvOut == nil {
+			return false
 		}
-	}
-	assert.True(t, gotResult, "the bridged turn result must carry the child's own output; got %+v", recvOut.Messages)
+		for _, m := range recvOut.Messages {
+			if m.Kind == "result" && strings.HasPrefix(m.Body, "mock chat:") {
+				gotResult = true
+			}
+		}
+		return gotResult
+	}, 10*time.Second, 10*time.Millisecond, "the child's result must reach the coordinator's inbox without the child choosing to report")
 
 	// The no-config guard: a bare server (nil cfg, nil agents) refuses.
 	bare := &ctxServer{}

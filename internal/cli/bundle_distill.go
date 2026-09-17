@@ -92,16 +92,16 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	// Distillation runs on its own labeled config, independent of the primary
 	// role, so a project can pair (say) a cheap label for distill with a
 	// stronger one for coding. The --llm flag names a config label; otherwise
-	// the fast role's label is used.
+	// newLLMDistiller selects the fast role's label.
 	label := bundleDistillLLM
-	if label == "" {
-		label = cfg.FastLabel()
-	} else if validated, verr := validateExplicitLLM(cfg, label); verr != nil {
-		return verr
-	} else {
+	if label != "" {
+		validated, verr := validateExplicitLLM(cfg, label)
+		if verr != nil {
+			return verr
+		}
 		label = validated
 	}
-	distiller, err := newLLMDistillerForLabel(cfg, label)
+	distiller, err := newLLMDistiller(cfg, label)
 	if err != nil {
 		// REFUSE before any file is touched: a withheld distill prompt must
 		// not produce a run that rewrites bundles with the default prompt and

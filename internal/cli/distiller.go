@@ -8,25 +8,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// newLLMDistiller builds an operations.Distiller backed by the fast-role LLM
-// and distill prompt. It is the single construction point shared by every CLI
-// frontend (bundle/fragment/prompt distill and item edits) so distillation
-// wiring lives in one place. Returns a nil Distiller and a nil error when no
-// LLM resolves — the operations layer then stores raw content (fault-tolerant),
-// and the caller is told why on stderr.
-//
-// A NON-NIL ERROR IS A REFUSAL, not a fault: see newLLMDistillerForLabel.
-func newLLMDistiller(cfg *config.Config) (operations.Distiller, error) {
-	if cfg == nil {
-		clidiag.Warn("ctxloom", "no config is available, so nothing can be distilled: content will be stored RAW (undistilled)")
-		return nil, nil
-	}
-	return newLLMDistillerForLabel(cfg, cfg.FastLabel())
-}
-
-// newLLMDistillerForLabel is newLLMDistiller for an explicit config label
-// (e.g. `bundle distill --llm <label>`). The label resolves to its backend +
-// model via the registry; env comes from the same labeled entry.
+// newLLMDistiller builds an operations.Distiller for one config label and the
+// distill prompt. It is the single construction point shared by every CLI
+// frontend (bundle/fragment/prompt distill and item edits), and the ONE place
+// that decides which label distills: an explicit label (`bundle distill --llm
+// <label>`) is used as named; "" selects the fast (compression) role,
+// cfg.FastLabel. The label resolves to its backend + model through
+// operations.ResolveBackend — the SAME resolver every launch path uses, so a
+// bare backend name that is not a configured entry (`--llm mock`) reaches
+// that backend here exactly as it does on `run`, and a label that names
+// nothing is the finding ResolveBackend raises rather than a silent run on
+// the built-in default. Env comes from the same labeled entry.
 //
 // Returning nil means "this content will be stored RAW", which every caller
 // treats as success — so the reason is warned rather than swallowed: a distill
@@ -34,23 +26,21 @@ func newLLMDistiller(cfg *config.Config) (operations.Distiller, error) {
 // indistinguishable from working. There is exactly ONE reachable reason: no
 // label resolves, i.e. neither llm.defaults.fast nor llm.defaults.primary is
 // set and llm.configs does not hold exactly one entry (config.PrimaryLabel).
-// The backend guard below is defensive only — config.ResolveLLM degrades a
-// missing label and an empty type to the built-in default backend
-// (LLMConfig.EffectiveType) and never yields "".
-func newLLMDistillerForLabel(cfg *config.Config, label string) (operations.Distiller, error) {
+//
+// A NON-NIL ERROR IS A REFUSAL, not a fault: see the prompt load below.
+func newLLMDistiller(cfg *config.Config, label string) (operations.Distiller, error) {
 	if cfg == nil {
 		clidiag.Warn("ctxloom", "no config is available, so nothing can be distilled: content will be stored RAW (undistilled)")
 		return nil, nil
 	}
 	if label == "" {
+		label = cfg.FastLabel()
+	}
+	if label == "" {
 		clidiag.Warn("ctxloom", "no LLM label resolves for distillation (set llm.defaults.fast or llm.defaults.primary in config.yaml, or keep exactly one llm.configs entry): content will be stored RAW (undistilled)")
 		return nil, nil
 	}
-	backend, model := cfg.ResolveLLM(label)
-	if backend == "" {
-		clidiag.Warn("ctxloom", "llm label %q resolves to no backend: content will be stored RAW (undistilled)", label)
-		return nil, nil
-	}
+	backend, model := operations.ResolveBackend(cfg, label)
 	// The ONE error this constructor has: the project configured a `distill`
 	// prompt and the trust gate withheld it. Warning-and-continuing here would
 	// be exactly the swallow being fixed — the run would proceed on ctxloom's

@@ -257,7 +257,7 @@ func distillerForEdit(cfg *config.Config, noDistill bool) (operations.Distiller,
 	if noDistill {
 		return nil, nil
 	}
-	return newLLMDistiller(cfg)
+	return newLLMDistiller(cfg, "")
 }
 
 // editNoDistillWarning returns the exact line to print when --no-distill
@@ -291,7 +291,7 @@ func distillItem(cmd *cobra.Command, ref string, itemType ItemType, force bool) 
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	distiller, err := newLLMDistiller(cfg)
+	distiller, err := newLLMDistiller(cfg, "")
 	if err != nil {
 		return refuseWithheldDistillPrompt(cmd, err)
 	}

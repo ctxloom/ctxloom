@@ -288,7 +288,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 	// judges the outcome with p6AssertEcho so the failure carries a shape rather
 	// than a bare timeout. It does not assert on "the first message from that
 	// child": two messages reach a coordinator from one child harp on a live run
-	// (its own agent_send, and bridgeTurnResult's copy of its turn), and which
+	// (its own agent_send, and its runner's automatic turn report), and which
 	// lands in which agent_recv batch is a race — a floor whose PASS depended on
 	// batch ordering would be measuring the scheduler.
 	//
@@ -360,8 +360,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 	// The soak's first behavioural proof in this suite, asserted on PAYLOAD
 	// BYTES. See p6AssertSpoolEvidence for exactly what is claimed (the steer is
 	// a file in the child's IN plane, carrying the harp) and what is only
-	// measured and reported (the OUT plane, whose participation is a property of
-	// the cutover's scope rather than of P6's claim).
+	// measured and reported (the OUT plane, which is not P6's claim).
 	ctx.Step(`^the coordinator's steer is on disk in "([^"]*)"'s own spool, in a file carrying that harp$`,
 		func(c context.Context, name string) error {
 			w := worldFrom(c)

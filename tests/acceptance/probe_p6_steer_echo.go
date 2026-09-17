@@ -352,10 +352,9 @@ func (c p6SpoolCensus) String() string {
 // on in/ alone would red a cell for the child having done its job promptly.
 //
 // WHAT IT DELIBERATELY DOES NOT CLAIM: anything about the OUT plane. The child's
-// reply reaches the coordinator through its forwarder MCP server, and whether
-// that direction also lands as a file is a property of the cutover's scope, not
-// of P6's claim. The census records the out plane in full either way, so the
-// answer is measured and reported rather than assumed in either direction.
+// reply reaches the coordinator through its own out/ spool, but that direction
+// is not P6's claim. The census records the out plane in full either way, so
+// the answer is measured and reported rather than assumed in either direction.
 //
 // Three shapes, because they have three causes:
 //
@@ -378,7 +377,7 @@ func p6AssertSpoolEvidence(v probeVerdict, census p6SpoolCensus, harp string) er
 	}
 	if len(census.HarpIn) == 0 {
 		return v.fail(v.Channel.Shape,
-			fmt.Sprintf("%s — the spool ran (%d message file(s) on disk) but NO file in the child's IN plane carries the steer harp %q. Under the cutover the file IS the delivery, so a steer that is not on disk was not delivered by the substrate this cell claims to be exercising.",
+			fmt.Sprintf("%s — the spool ran (%d message file(s) on disk) but NO file in the child's IN plane carries the steer harp %q. The file IS the delivery, so a steer that is not on disk was not delivered by the substrate this cell claims to be exercising.",
 				v.Channel.Shape, census.Total, harp),
 			"\n"+census.String())
 	}

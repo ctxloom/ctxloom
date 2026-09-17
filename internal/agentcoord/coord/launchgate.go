@@ -232,12 +232,10 @@ func (c *Coordinator) cancelLaunch(harp string) {
 
 // markStopped is cancelLaunch's MARK half alone: the harp is stopped — no
 // armed or future relaunch proceeds — but a launch context in flight is left
-// running. The bulk agent_stop (StopChildren) needs exactly this: on the
-// legacy path the launch context IS the engine's lifetime for the whole run
-// (runChild deregisters it only when driveChild returns), so cancelling it
-// would kill a turn the sweep means to let reach its boundary. terminateRun
-// fires the run's own launchCancel when the sweep ends the run, in-flight
-// launch included.
+// running. The bulk agent_stop (StopChildren) needs exactly this: cancelling
+// a launch in flight would kill a turn the sweep means to let reach its
+// boundary. terminateRun fires the run's own launchCancel when the sweep ends
+// the run, in-flight launch included.
 func (c *Coordinator) markStopped(harp string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -280,11 +278,10 @@ func (c *Coordinator) noteLaunchAttached(harp string) {
 }
 
 // noteMailConsumed records the only thing that counts as progress for the
-// relaunch budget: harp actually DRAINED mail. Called from every site that
-// journals a factMailConsumed (takeNextMail, ackDelivered, and the runner's
-// ctxloom/mail_consumed custom event) — the mailbox emptying is the whole
-// reason terminateRun's tail re-arms, so the message leaving it is the whole
-// reason to forgive the attempts spent getting there.
+// relaunch budget: harp actually DRAINED mail (a consume-rename the
+// coordinator observed in its in/consumed sweep) — the spool emptying is the
+// whole reason terminateRun's tail re-arms, so the message leaving it is the
+// whole reason to forgive the attempts spent getting there.
 //
 // Deliberately NOT reset by an attach (noteLaunchAttached): this is
 // exactly the loop where every cycle attaches and none of them drains.

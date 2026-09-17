@@ -75,7 +75,7 @@ var capabilityInventory = []capabilityRow{
 	{10, "agent.SkillExport / agentDescriptor.skillExports — skills export"},
 	{11, "agent.PermissionMode / enforcesReadOnlyPlan — permission tiers, plan read-only"},
 	{12, "ChatRequest.ForwardPermissions / agent.PermissionRequest — approval flow"},
-	{13, "agent_send / coord.peerSend / bridgeTurnResult — steer and mail at turn boundaries"},
+	{13, "agent_send / coord.peerSend / the runner's automatic turn report — steer and mail at turn boundaries"},
 	{14, "ChatRequest.ResumeSessionID / ChatSessionInfo.Resumable — resume and session identity"},
 	{15, "transcript.Record / paths.HarpCanonicalTranscriptPath — canonical transcript capture"},
 	{16, "agentDescriptor.versionCommand / engineversion.Command — version reporting"},

@@ -214,18 +214,6 @@ type Coordinator struct {
 	// needed the coordinator lock would put contention on the exact path
 	// whose whole point is to cost nothing when it fails.
 	spoolDoorbell spoolDoorbellCounters
-	// pushUnavailable counts mail that could not be PUSHED to its recipient
-	// because that recipient has no pushable run channel (runchannel.go's
-	// pushMail guard). Same atomics-not-mu reasoning as spoolDoorbell above.
-	//
-	// It is not an error count. Some of it is by design — a legacy child's
-	// unparked channel is drained by its own turn boundary, not by a push. But
-	// one case is architectural and was invisible: THE SESSION OWNER'S OWN
-	// HARP NEVER HAS A RUN CHANNEL, so mail queued for a coordinator is never
-	// pushed and waits for that coordinator to call agent_recv itself. That
-	// silence is what made a missing wake read as "the system is just a bit
-	// slow" — the same failure the spool doorbell counts its drops to avoid.
-	pushUnavailable atomic.Uint64
 	// ownerHarp is Options.OwnerHarp: the recipient class "the owner, drained
 	// in-process" (spoolDeliverTo). Read-only after New.
 	ownerHarp string
@@ -927,7 +915,7 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structur
 func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, delivered bool, disposition string, err error) {
 	// THE COLLISION, and where it is resolved (spoolturnresult.go).
 	//
-	// A cut-over child's AUTOMATIC turn report quotes the id of the message
+	// A child's AUTOMATIC turn report quotes the id of the message
 	// that started the turn — the correlation a parent wants, and a ruling.
 	// But correlation is AUTHORITY here: an in_reply_to that names an
 	// outstanding ask answers it. An automatic report must not, or the

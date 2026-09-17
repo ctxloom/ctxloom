@@ -169,20 +169,17 @@ type childRt struct {
 	// the worktree's newest mtime is the only activity clock that is not
 	// written by the engine's own bookkeeping, so it is what distinguishes an
 	// agent inside a ten-minute build from one that is hung.
-	workDir     string
-	wake        chan struct{}
-	turnOutput  []string // result bridging: this turn's assistant output (see bridgeTurnResult)
-	turnErrored bool     // result bridging: this turn's Entry.IsError was set (Result.status)
+	workDir string
 	// runFailure is the last FAILED RunCompleted's Result.Text for this run —
 	// the engine's own reason for dying, which carries the adapter's dying
 	// words (a module-loader SyntaxError, a JSON-RPC -32603 "Invalid API
-	// key"). A migrated child
-	// that dies below the protocol emits NO final-channel output, so
-	// bridgeTurnResult has nothing to deliver and the parent would otherwise
-	// learn only "exited (runner-exit)" with no cause — the exact silent
-	// dead-end the 49-minute incident was. terminateRun folds this into the
-	// parent's terminal notice so a dead engine can say WHY. Captured on the
-	// RunChannel receive path (handleAgentEvent), read once at terminal.
+	// key"). A child that dies below the protocol emits NO final-channel
+	// output, so its runner's turn report has nothing to say and the parent
+	// would otherwise learn only "exited (runner-exit)" with no cause — the
+	// exact silent dead-end the 49-minute incident was. terminateRun folds
+	// this into the parent's terminal notice so a dead engine can say WHY.
+	// Captured on the RunChannel receive path (handleAgentEvent), read once
+	// at terminal.
 	runFailure string
 	// stderrTail reads the runner's bounded stderr tail (the container's
 	// streamed stderr, engine adapter's dying words teed in). It is the
@@ -202,24 +199,10 @@ type childRt struct {
 	// (test doubles, the owner-run path), which degrades to the timeout.
 	// Set at spawn (runChildViaStartRun), alongside stderrTail.
 	runnerWait func() error
-	// selfReported records that the CHILD ITSELF sent mail to its parent
-	// during the current turn (peerSend, caller.IsChild()). It is the
-	// no-double-delivery discriminator for bridgeTurnResult: a child that
-	// reported in its own words is not re-reported in ours. Cleared at the
-	// TURN BOUNDARY (bridgeTurnResult), never at turn start: a child may
-	// call agent_send before it says anything at all, and a start-of-turn
-	// reset would race that report away.
-	selfReported bool
-	// finalMsgs is the MIGRATED path's turn accumulator index: the plane-1
-	// message ids whose MessageStarted declared MESSAGE_CHANNEL_FINAL, so
-	// their deltas (and only theirs — never REASONING or LOG) join
-	// turnOutput. Cleared at the turn boundary alongside it.
-	finalMsgs map[string]bool
 
 	// attached closes once THIS attempt's launch decision is final: the
-	// engine is up (legacy: attachLaunch ran, right before the driveChild
-	// loop starts; migrated: the StartRun round-trip completed) or the
-	// attempt failed (failChild). It backs awaitChildUp/armLaunch —
+	// engine is up (the StartRun round-trip completed) or the attempt failed
+	// (failChild). It backs awaitChildUp/armLaunch —
 	// a test-facing deterministic quiesce seam over the
 	// launch/resume pipeline, replacing a wall-clock Eventually poll with a
 	// wait keyed on the actual goroutine's own progress. Set once at
@@ -1159,8 +1142,8 @@ func (c *Coordinator) onTurnStarted(role string) {
 // reason is the engine's OWN account of its death — via the stderr-tail
 // capture it carries the adapter's dying words (a module-loader
 // SyntaxError, a JSON-RPC -32603 "Invalid API key") for a death that happens
-// below the protocol, exactly the case that emits no final-channel output for
-// bridgeTurnResult to deliver. Any terminal that is neither SUCCEEDED nor
+// below the protocol, exactly the case in which its runner's turn report has
+// nothing to say. Any terminal that is neither SUCCEEDED nor
 // CANCELLED is captured when its text is non-empty: those two are not
 // failures to explain, and an empty text carries nothing (this project's
 // silent no-op — never surfaced as a reason).
@@ -1228,11 +1211,8 @@ func (c *Coordinator) onTurnIdle(role string) {
 	c.mu.Unlock()
 	if rt == nil || c.runEnded(rt.runID) {
 		// A turn boundary that lands after the run's terminal (see
-		// onTurnStarted) must not bridge: the child already delivered its
-		// terminal notice, and bridgeTurnResult on an empty accumulator queues
-		// the parent a second, contradictory "turn produced no output" message
-		// about a run that has finished. setState and releaseSlot below were
-		// already inert for an ended run; the bridge was not.
+		// onTurnStarted) changes nothing: setState and releaseSlot below are
+		// inert for an ended run.
 		return
 	}
 	// DRAINING: the boundary is where a drain's exit request is honoured
@@ -1546,8 +1526,8 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// death. Kind distinguishes a launch failure (error) from
 	// a lifecycle end (exited). A one-shot turn boundary is the exception —
 	// it is a NON-death, EXPECTED terminal that fires every single turn, so
-	// notifying the parent would spam its mailbox with an "exited" per turn;
-	// the turn's actual result was already bridged (bridgeTurnResult, before
+	// notifying the parent would spam its inbox with an "exited" per turn;
+	// the turn's actual result was already reported by the runner (before
 	// this terminate), and the harp is about to resume, so no notice is due.
 	if rec.ParentHarp != "" && cause != CauseOneShotBoundary {
 		kind, body := KindExited, fmt.Sprintf("agent %q (session %s) exited (%s)", rec.Agent, rec.Harp, cause)

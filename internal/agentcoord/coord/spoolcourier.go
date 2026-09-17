@@ -73,9 +73,9 @@ func (x *spoolCourier) Send(msg Message) (spool.Ref, error) {
 // SendProjected writes an ALREADY-PROJECTED spool message and rings it.
 //
 // It exists for callers that build their own spool.Message and own their own
-// failure reporting — the shadow tee does both, with its own counters. They
-// still must not be able to write without ringing, so the pairing lives here
-// and they compose on top rather than reaching past it.
+// failure reporting. They still must not be able to write without ringing, so
+// the pairing lives here and they compose on top rather than reaching past
+// it.
 func (x *spoolCourier) SendProjected(to string, sm *spool.Message) (spool.Ref, error) {
 	w, err := x.writers.writerFor(x.keyFor(to))
 	if err != nil {

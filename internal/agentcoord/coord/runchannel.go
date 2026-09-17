@@ -42,8 +42,7 @@ const (
 	// CustomTurnStarted / CustomTurnIdle are the engine host's turn-state
 	// transitions: started when engine output begins a turn, idle at its
 	// completion boundary. The coordinator folds them into the §6a roster
-	// state (executing/idle) and the D4 slot accounting — the migrated
-	// path's replacement for the coordinator-side driveChild state machine.
+	// state (executing/idle) and the D4 slot accounting.
 	CustomTurnStarted = "ctxloom/turn_started"
 	CustomTurnIdle    = "ctxloom/turn_idle"
 	// CustomToolPrefix namespaces host-relay tool requests
@@ -380,9 +379,9 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 // `if err == nil` with no else, structpb.NewStruct's by assignment to `_` — and
 // each produced a PeerMessage with the caller's payload silently missing. For a
 // relayed ApprovalRequest that is the entire message: the recipient gets an
-// approval notice with no request in it and nothing reports a fault. The caller
-// (pushMail) warns and leaves the message pending rather than spending it on a
-// hollow notice.
+// approval notice with no request in it and nothing reports a fault. The
+// caller (the runner's in/ sweep) moves such a file to in/failed/ rather than
+// delivering a hollow message.
 func peerMessageProto(m Message) (*agentcoordpb.PeerMessage, error) {
 	kind, err := agentcoordpb.MessageKindForLegacyName(m.Kind)
 	if err != nil {

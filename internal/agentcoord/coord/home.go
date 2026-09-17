@@ -655,10 +655,9 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	if req.GetRequestId() == "" {
 		req.RequestId = randID("req-", 12)
 	}
-	// THE CUTOVER's outbound half: under spool delivery an agent_send is a
-	// LOCAL durable file write plus a doorbell, with no coordinator round trip
-	// — so it also succeeds while the coordinator is restarting, and the
-	// coordinator routes it when it sweeps.
+	// agent_send is a LOCAL durable file write plus a doorbell, with no
+	// coordinator round trip — so it also succeeds while the coordinator is
+	// restarting, and the coordinator routes it when it sweeps.
 	if resp, handled := h.sendPeerViaSpool(req); handled {
 		return resp, nil
 	}

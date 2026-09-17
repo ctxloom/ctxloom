@@ -645,9 +645,9 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 	// The per-engine floor's single assertion, and deliberately not the
 	// "wait for any message, then assert on the first one" pair the
 	// cross-engine scenario above uses. Two messages reach a coordinator's
-	// mailbox from the SAME child harp on a live run — the child's own
-	// agent_send, and coord/children.go's bridgeTurnResult copy of its turn
-	// output (plus, when an engine fails to authenticate, a runner-exit
+	// inbox from the SAME child harp on a live run — the child's own
+	// agent_send, and its runner's automatic turn report (coord's
+	// spoolturnresult.go) (plus, when an engine fails to authenticate, a runner-exit
 	// report). Which one lands in which agent_recv batch is a race, so
 	// asserting on "the first message from that harp" would make a genuinely
 	// green engine flake red, and — worse for a floor — would let a
@@ -792,11 +792,11 @@ func j002300FindMessageFrom(w *World, harp, kind string) (map[string]any, error)
 			continue
 		}
 		// One harp can have SEVERAL messages pending, so position is not a
-		// selector. A child that ends a turn without filing a report queues a
-		// coord.KindError contract notice AHEAD of its coord.KindResult turn
-		// text (coord.bridgeTurnResult), and taking the first match silently
-		// asserted against the notice — reporting "the body does not carry its
-		// own guidance" for a body that was never the result at all.
+		// selector. More than one message from one child can land in one
+		// batch (its own agent_send and its runner's automatic turn report),
+		// and taking the first match silently asserted against whichever
+		// came first — reporting "the body does not carry its own guidance"
+		// for a body that was never the result at all.
 		if kind != "" {
 			if k, _ := m["kind"].(string); k != kind {
 				continue

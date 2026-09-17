@@ -17,16 +17,8 @@ import (
 // it) and the pause gate every turn waits on (RunnerRequest pause/resume).
 
 // turnTag attributes one locally-originated turn to what asked for it. The zero
-// value means "ordinary": the briefing, or coordinator mail.
+// value means "ordinary": the briefing, or an engine continuing on its own.
 type turnTag struct {
-	// "" (briefing/mail) | "steer" | "question" | "summarize" | "reannounce"
-	kind string
-	// The CoordinatorRequest's correlating id, when kind != "". "reannounce"
-	// is the exception: nothing correlates a re-announcement to an open
-	// request (the ack went back turns ago), so it carries the PARKED BODY's
-	// message id — which is what the re-announcer's budget is keyed on and
-	// what its give-up event names.
-	reqID string
 	// mail is the id of the DELIVERED MESSAGE that started this turn, when one
 	// did. It rides the attribution FIFO rather than a field of its own
 	// because that FIFO already answers exactly this question — which turn
@@ -41,7 +33,7 @@ type turnTag struct {
 }
 
 // enqueueTurn is the ONE funnel onto eh.in for every locally-originated turn —
-// the briefing's successor sends, coordinator mail, and each control verb.
+// the briefing's successor sends and delivered mail.
 //
 // It does three things that must happen together: it waits for the briefing to
 // have gone first (a turn that overtakes the briefing makes the

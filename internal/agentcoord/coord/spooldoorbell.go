@@ -16,15 +16,13 @@ import (
 // the control plane, and a doorbell carrying payload would recreate the
 // two-carrier desync the spool exists to kill.
 //
-// Three properties hold everywhere in this file, and each is a deliberate
-// contrast with the mail push (pushMail) the doorbell will eventually replace:
+// Three properties hold everywhere in this file:
 //
 //   - FIRE-AND-FORGET. A doorbell that cannot be sent right now — no channel,
 //     saturated send pump, no stream — is DROPPED, with zero rollback
-//     bookkeeping. pushMail must roll its delivery reservation back because the
-//     wire was the message's only carrier; here the FILE is the truth and the
-//     receiver's sweep is the at-least-once floor, so a dropped doorbell costs
-//     latency and never a message. Dropping is COUNTED and logged, though:
+//     bookkeeping: the FILE is the truth and the receiver's sweep is the
+//     at-least-once floor, so a dropped doorbell costs latency and never a
+//     message. Dropping is COUNTED and logged, though:
 //     silent-invisible is how a systematic sender bug reads as "the system is
 //     just a bit slow" forever.
 //   - VALIDATED AT THE RECEIVE CHOKEPOINT. Every field arrives from a
@@ -261,7 +259,7 @@ func (c *Coordinator) handleSpoolChanged(ch *runChan, msg *agentcoordpb.SpoolCha
 			ch.role, ref.Harp, ch.role)
 		ref.Harp = ch.role
 	}
-	// THE CUTOVER's wake. A doorbell means "look at that spool", never
+	// THE WAKE. A doorbell means "look at that spool", never
 	// "process exactly that file": the reactor re-derives the whole picture by
 	// sweeping, which is what makes a lost or duplicated ring harmless.
 	c.mu.Lock()

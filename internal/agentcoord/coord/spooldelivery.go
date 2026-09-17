@@ -19,8 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// THE MAIL-PLANE CUTOVER (config delegation.spool_delivery): ordinary
-// coordinator<->child mail is DELIVERED FROM FILES.
+// THE MAIL PLANE: coordinator<->child mail is DELIVERED FROM FILES.
 //
 // The shape, stated once, because every function below is a consequence of it:
 //
@@ -204,10 +203,9 @@ func (r *spoolReactor) drain(ctx context.Context) {
 // that is NOT a JSON object travels.
 //
 // YAML frontmatter's `structured` is a mapping, so a bare array, string or
-// number has nowhere faithful to sit. Before the cutover that was refused at
-// the projection, which was right for a shadow (the tee dropped a file and
-// counted it) and is fatal for a delivery (the message itself would be lost).
-// The payload therefore travels as its ORIGINAL JSON TEXT under this key —
+// number has nowhere faithful to sit, and refusing it at the projection
+// would lose the message itself. The payload therefore travels as its
+// ORIGINAL JSON TEXT under this key —
 // bytes in, identical bytes out — rather than as a YAML value, because a YAML
 // round trip is exactly where a large integer loses its precision and a
 // numeric-looking string stops being a string.
@@ -289,13 +287,11 @@ func clip(s string) string {
 // deliverableStructured normalises a spool payload for the PeerMessage WIRE
 // shape, which is a protobuf Struct and therefore always an object.
 //
-// A bare array or scalar has nowhere to sit in a Struct, so today's mailbox
-// path warns and leaves such a message pending forever (pushMail's "cannot
-// project mail onto the wire"). Under the cutover the file already carries the
-// payload faithfully, and the only question left is what the engine's turn
-// sees; wrapping it under the SAME marker key the file uses (spoolRawJSONKey)
-// delivers the message with its payload legible instead of stranding it, and
-// keeps one spelling of the wrapper rather than two.
+// A bare array or scalar has nowhere to sit in a Struct. The file already
+// carries the payload faithfully, and the only question left is what the
+// engine's turn sees; wrapping it under the SAME marker key the file uses
+// (spoolRawJSONKey) delivers the message with its payload legible instead of
+// stranding it, and keeps one spelling of the wrapper rather than two.
 func deliverableStructured(raw json.RawMessage) (json.RawMessage, error) {
 	head, err := spoolStructured(raw)
 	if err != nil {
@@ -811,8 +807,8 @@ type SpoolDeliveryStats struct {
 	// Consumed counts consume-renames observed or performed.
 	Consumed uint64
 	// Failed counts everything that did not get through — an unreadable file,
-	// an unroutable message, a rename that errored. Under the cutover these
-	// are not shadow divergences; each one is a message that has not arrived.
+	// an unroutable message, a rename that errored. Each one is a message
+	// that has not arrived.
 	Failed uint64
 }
 
@@ -988,9 +984,9 @@ func (h *Home) ackMailConsumed(ids []string) {
 	}
 }
 
-// sendPeerViaSpool is agent_send under the cutover: a LOCAL, durable file
-// write into this run's out/ plus a doorbell, with no coordinator round trip
-// at all. handled=false leaves the request to the ordinary plane-2 path.
+// sendPeerViaSpool is agent_send: a LOCAL, durable file write into this
+// run's out/ plus a doorbell, with no coordinator round trip at all.
+// handled=false leaves a non-PeerSend request to the ordinary plane-2 path.
 //
 // The guards duplicated from servePeerSend (a recipient, some text, a kind
 // from the closed sender vocabulary — read the SAME way, off the typed
@@ -1066,10 +1062,10 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 		RequestId: req.GetRequestId(),
 		Status:    okStatus("written to this session's outbound spool"),
 		Kind: &agentcoordpb.CoordinatorResponse_PeerSend{PeerSend: &agentcoordpb.PeerSendResult{
-			// The FILENAME STEM is the message id, because under the cutover
-			// the file is the message: there is no coordinator-minted mailbox
-			// id to quote, and an id the recipient could not resolve back to a
-			// file would make every in_reply_to written against it dangling.
+			// The FILENAME STEM is the message id, because the file is the
+			// message: there is no coordinator-minted id to quote, and an id
+			// the recipient could not resolve back to a file would make every
+			// in_reply_to written against it dangling.
 			MessageId: strings.TrimSuffix(ref.Name, spool.MessageFileExt),
 			Delivery:  agentcoordpb.PeerSendResult_DELIVERY_QUEUED,
 		}},

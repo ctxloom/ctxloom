@@ -9,42 +9,30 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// THE RESULT PLANE'S CUTOVER: a child's automatic turn report is written by
-// ITS OWN RUNNER, into its own out/ spool, and routed to the parent exactly
-// like any other message the child sends.
-//
-// What moved, and why it had to. The report is not a new message — it is the
-// bridge (children.go's bridgeTurnResult), which the COORDINATOR composed from
-// plane-1 message events it had accumulated and queued as mailbox mail. That
-// worked because the coordinator was the delivery substrate. Under the cutover
-// it is not: the file is, and a file in a child's out/ may only be written by
-// that child's runner (single writer per direction, §1.1 — the invariant that
-// makes ordering and the consume-rename trivial). A coordinator writing a
-// child's out/ to "bridge" would break it for the one message the child never
-// chose to send.
+// THE RESULT PLANE: a child's automatic turn report is written by ITS OWN
+// RUNNER, into its own out/ spool, and routed to the parent exactly like any
+// other message the child sends. The coordinator composes no report of its
+// own: a file in a child's out/ may only be written by that child's runner
+// (single writer per direction, §1.1 — the invariant that makes ordering and
+// the consume-rename trivial).
 //
 // Three properties this file exists to hold:
 //
-//   - EXACTLY ONCE, FILE XOR BRIDGE. The runner writes the report only when
-//     this run is cut over; the coordinator bridges only when it is not. The
-//     two predicates are the same fact read from the two sides — the
-//     coordinator's flag stamped onto the run at spawn — so a run cannot have
-//     both or neither.
-//   - A SELF-REPORT STILL SUPPRESSES IT. The bridge is a FALLBACK: a child that
-//     called agent_send to its parent during the turn has already reported in
-//     its own words. That check now happens HERE, where the send is (Home sees
-//     every agent_send this run makes), instead of coordinator-side on
-//     rt.selfReported.
+//   - EXACTLY ONCE. The runner writes one report per turn, and the
+//     coordinator never adds a second.
+//   - A SELF-REPORT SUPPRESSES IT. The automatic report is a FALLBACK: a
+//     child that called agent_send to its parent during the turn has already
+//     reported in its own words. That check happens HERE, where the send is
+//     (Home sees every agent_send this run makes).
 //   - AN EMPTY TURN IS STILL REPORTED, AS AN ERROR. A turn with no output and
 //     no self-report produced nothing to deliver, and the parent — an agent
-//     whose sole input is its mail — must not simply hear nothing. The
-//     coordinator's warn went to ITS stderr, which the parent cannot read; the
-//     file goes where the parent looks.
+//     whose sole input is its mail — must not simply hear nothing; the file
+//     goes where the parent looks.
 //
-// CORRELATION is the one thing the file carries that the mailbox bridge could
-// not: when the turn was started by a delivered mail file, the report quotes
-// that message's id in in_reply_to. A parent that sent three children the same
-// question can tell which answer answers which ask, without a convention.
+// CORRELATION: when the turn was started by a delivered mail file, the report
+// quotes that message's id in in_reply_to. A parent that sent three children
+// the same question can tell which answer answers which ask, without a
+// convention.
 
 // autoReportKey marks a message as the runner's AUTOMATIC turn report rather
 // than something the agent chose to send. It rides the structured companion

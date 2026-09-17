@@ -47,18 +47,16 @@ type Message struct {
 	// OriginID is the identity this message carried in the system that
 	// PRODUCED it, when that system is not the spool itself.
 	//
-	// It exists for the mailbox shadow tee, where the same logical message
-	// lives in two places at once: the mailbox knows it by its own id, and
-	// InReplyTo on a teed reply quotes THAT id, not a spool filename. Without
-	// somewhere to record it, a spool file cannot be matched back to the
-	// mailbox delivery it shadows and every correlation the tee copies is a
-	// dangling reference — which would make the tee's whole purpose (comparing
-	// the two representations before one of them is switched off)
-	// unmeasurable.
+	// It is the coordinator-minted message id a file carries (the id a
+	// waiter is registered under, and the id a reply's InReplyTo quotes),
+	// which is not the spool filename. Without somewhere to record it, a
+	// spool file cannot be matched back to that id and every correlation is a
+	// dangling reference.
 	//
 	// It is DELIBERATELY not ID: ID is the filename stem, stamped by the
 	// Writer, and the spool's own identity must never be something a producer
-	// can choose. Once the file IS the message, this is empty.
+	// can choose. A runner's own outbound write carries none: there the
+	// filename stem IS the message id.
 	OriginID string
 	// Created is the write stamp, serialised RFC3339 with nanoseconds.
 	Created time.Time

@@ -238,11 +238,11 @@ func (c *Coordinator) recordContainerName(runID, name string) {
 }
 
 // SendOwnedRunTurn enqueues a follow-up user turn for an owner-owned run: the
-// same mailbox enqueue + pushMail push (CoordinatorNotice{PeerMessage}) a
-// migrated runner's EngineHost already consumes as a new turn (delivery-by-
-// state). The run's harp is both sender and recipient (it is the session's own
-// run); bridgeTurnResult is suppressed for an owner run, so this input queue
-// never sees the run's own output re-queued into it (childRt.ownerRun's doc).
+// same spool write + doorbell a runner's EngineHost already consumes as a new
+// turn (delivery-by-state). The run's harp is both sender and recipient (it
+// is the session's own run); its runner files no automatic turn report
+// (HomeConfig.Depth 0), so this input queue never sees the run's own output
+// re-queued into it.
 func (c *Coordinator) SendOwnedRunTurn(runID, text string) error {
 	if strings.TrimSpace(text) == "" {
 		return fmt.Errorf("owner run %q: a turn needs text — an empty turn wakes the engine with nothing to "+

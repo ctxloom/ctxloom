@@ -21,7 +21,7 @@ const (
 	// KindMessage is the plain sender-to-sender message kind.
 	KindMessage = "message"
 	// KindResult carries a sender's own findings/verdict, and is also the
-	// automatic turn-boundary bridge's kind (children.go's bridgeTurnResult).
+	// automatic turn report's kind (spoolturnresult.go).
 	KindResult = "result"
 	// KindError reports a failure — a sender's own, or a coordinator-synthesized
 	// launch/resume failure.

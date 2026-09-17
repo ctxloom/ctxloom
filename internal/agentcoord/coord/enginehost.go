@@ -25,8 +25,8 @@ type engineHome interface {
 	emitEvent(ev *agentcoordpb.AgentEvent) uint64
 	emitCustomEvent(name string, value map[string]any)
 	SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool)
-	// SweepSpoolIn asks the runner to reconcile its inbound spool — the file
-	// plane's turn-boundary drain. A no-op for a run that is not cut over.
+	// SweepSpoolIn asks the runner to reconcile its inbound spool — the
+	// turn-boundary drain.
 	SweepSpoolIn()
 	ReportRunExited(exitCode int, harnessSessionID string)
 	// ReportTurnResult writes this turn's own output to the parent as the
@@ -338,9 +338,9 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	// SetTurnSink's closure and the briefing goroutine below both
 	// send to the same UNBUFFERED `in`, from two different goroutines, with
 	// no ordering between them — a Go select/send race Go itself does not
-	// resolve in send order. If mail is already queued at standup
-	// (issueStartRun's pushMail, immediately after startRun returns), the
-	// coordinator's mail delivery can win that race and land as the
+	// resolve in send order. If mail is already in the spool at standup
+	// (the startup sweep runs the moment the run is up), that mail's
+	// delivery can win that race and land as the
 	// child's FIRST turn, with the briefing (composed context + prompt)
 	// arriving second — every signal still reports success. `briefed`
 	// gates the turn sink on the briefing's OWN send actually completing
@@ -356,8 +356,8 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
 		// The delivered message's id rides the turn's attribution tag, so the
 		// report this turn produces can quote it (spoolturnresult.go). It is
-		// the id the DELIVERY used — under the cutover the file's origin id —
-		// which is exactly what the sender registered its waiter under.
+		// the id the DELIVERY used — the file's origin id — which is exactly
+		// what the sender registered its waiter under.
 		return eh.enqueueTurn(ctx, turnTag{mail: pm.GetMessageId()}, frameCoordinatorMessage(pm)) == nil
 	})
 
@@ -422,20 +422,17 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			turns++
 			inTurn = false
 			tag := eh.endTurn()
-			// THE AUTOMATIC TURN REPORT, file plane (spoolturnresult.go). It
-			// runs BEFORE the turn-idle event, so the child's answer is
-			// durable before the coordinator is told the child is idle —
-			// which is the moment a leftover-mail resume decision reads the
-			// spool. A no-op unless this run is cut over; the coordinator's
-			// bridge still owns the report otherwise.
+			// THE AUTOMATIC TURN REPORT (spoolturnresult.go). It runs BEFORE
+			// the turn-idle event, so the child's answer is durable before
+			// the coordinator is told the child is idle — which is the
+			// moment a leftover-mail resume decision reads the spool.
 			if err := home.ReportTurnResult(eh.takeTurnFinal(), tag.mail); err != nil {
 				clidiag.Warn("ctxloom", "engine host: this turn's report was not written: %v", err)
 			}
 			home.emitCustomEvent(CustomTurnIdle, map[string]any{"stop_reason": ev.Complete.StopReason})
-			// TURN-BOUNDARY SWEEP (the §6a drain, file plane): mail that
-			// arrived mid-turn becomes the next turn here. It is a no-op
-			// unless this run is cut over, and it dispatches rather than
-			// blocks — this loop must keep draining.
+			// TURN-BOUNDARY SWEEP (the §6a drain): mail that arrived mid-turn
+			// becomes the next turn here. It dispatches rather than blocks —
+			// this loop must keep draining.
 			home.SweepSpoolIn()
 		}
 	}

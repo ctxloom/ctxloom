@@ -1063,13 +1063,11 @@ const defaultChatDialTimeout = 5 * time.Minute
 // client.Chat dial gets the same fail-loud bound StartRun's dial-home wait
 // already has (defaultChatDialTimeout above).
 //
-// FROZEN (spool-cutover RETIRE-FIRST ruling): this dial and the driveChild
-// loop that consumes its launch are retired-in-place — never ported to the
-// file-spool messaging substrate that replaces the coordinator mailbox, and
-// closed to new backends (coord/spawner.go's checkLegacyChatFreeze refuses
-// any backend outside viaStartRunBackends + legacyChatBackends at Resolve).
-// Its remaining consumers (mock, the degraded no-reach-back spawn) lose
-// delegation when the mailbox deletes.
+// RETIRED: nothing in the tree calls Start any more. The coordinator loop
+// that consumed its launch went with the coordinator mailbox; every
+// delegated child rides StartEngine + StartRun. Start, startOneshot,
+// dialChat, leadContextIn, AgentChatLaunch and the chat-dial fields on
+// PreparedAgentChat are dead code awaiting removal.
 func (p *PreparedAgentChat) Start(ctx context.Context) (*AgentChatLaunch, error) {
 	if p.oneshot {
 		return p.startOneshot(ctx), nil

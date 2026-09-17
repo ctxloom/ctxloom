@@ -393,7 +393,7 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// silently discarded on every Save()/Marshal().
 	setOrDelete(existing, "permissions", c.permissions != "", c.permissions)
 	// Agent delegation's settings (concurrency resource ceiling + depth
-	// structural ceiling + the spool shadow tee — see DelegationConfig's doc);
+	// structural ceiling — see DelegationConfig's doc);
 	// pruned as a whole key when none is set (<=0 / false means "use the
 	// built-in default"). Wired here so a save/Marshal() round-trip does not
 	// silently drop it (the exact bug class dirty_tree_handler's own comment

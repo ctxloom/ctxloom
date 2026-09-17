@@ -54,7 +54,7 @@ func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, contai
 			return nil, "", err
 		}
 		host.BindHome(home)
-		return func() { cancel(); home.crash() }, containerName, nil
+		return func() { cancel(); home.Crash() }, containerName, nil
 	}
 	return starter, started
 }

@@ -19,7 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/config"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/liveness"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -71,8 +70,15 @@ type Options struct {
 	StateDir string
 	// Spawner overrides the launch seam (tests). Nil = production.
 	Spawner Spawner
-	// Factory is the production spawner's plugin-construction test seam.
-	Factory pb.ClientFactory
+	// Starter is the production spawner's RUNNER-PROCESS test seam: for each
+	// spawn it is handed the backend and the per-spawn runner env (the
+	// reach-back trio, harp, depth — exactly what a real runner process
+	// reads from its environment) and returns the isolation.EngineStarter
+	// that "launches" it. Nil = production, where isolation binds the real
+	// starter. It exists so an in-process runner double (coordtest) can be
+	// handed to the PRODUCTION spawner, and it is the ONLY route by which
+	// the mock backend is admitted for delegated children (prodSpawner.Resolve).
+	Starter StarterFunc
 	// Clock overrides command time (tests). Nil = time.Now.
 	Clock func() time.Time
 	// ConcurrencyCap overrides the number of concurrently EXECUTING child
@@ -217,6 +223,13 @@ type Coordinator struct {
 	// ownerHarp is Options.OwnerHarp: the recipient class "the owner, drained
 	// in-process" (spoolDeliverTo). Read-only after New.
 	ownerHarp string
+	// streams counts the RunnerChannel/RunChannel handlers in flight. Their
+	// deferred teardown is where a dropped runner becomes a terminal
+	// (runnerLost -> terminateRun -> the session index, the parent's notice),
+	// and grpc.Server.Stop returns without joining it — so Close waits on
+	// this after the server is down, or a shutdown races its own last
+	// terminals against whatever removes the state dir next.
+	streams sync.WaitGroup
 	// spoolRefs maps a message id the owner's reader has DELIVERED but not yet
 	// acked to the file it came from, so the consume-rename can find it at
 	// the acknowledgement moment (spoolowner.go). Guarded by mu.
@@ -426,7 +439,7 @@ func New(opts Options) (*Coordinator, error) {
 		if opts.Cfg == nil {
 			return nil, c.abortNew(errors.New("coord: Options.Cfg is required without an injected Spawner"))
 		}
-		c.spawner = newProdSpawner(opts.Cfg, opts.ProjectDir, opts.Factory)
+		c.spawner = newProdSpawner(opts.Cfg, opts.ProjectDir, opts.Starter)
 	}
 	if err := c.openJournals(); err != nil {
 		return nil, c.abortNew(err)
@@ -769,6 +782,10 @@ func (c *Coordinator) Close() {
 		if srv := c.srv.Load(); srv != nil {
 			srv.close()
 		}
+		// The stream handlers' deferred terminals run AFTER Stop returns;
+		// join them before the writers close so a runner dropped by the
+		// shutdown still gets its terminal recorded, not raced.
+		waitBounded(&c.streams, closeJoinBudget, "coordinator close: stream handlers")
 		// The spool writers close BEFORE the join, not after it. waitTracked is
 		// BOUNDED (closeJoinBudget) and says so when it gives up — "a leaked
 		// goroutine may still touch the state dir" — so a child teardown that

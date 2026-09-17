@@ -215,7 +215,10 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 	p.factory = req.Factory
 	p.starter = req.Starter
 	p.workDir = req.WorkDir
-	if p.factory == nil {
+	// A caller-supplied Starter (or Factory) replaces the isolation-bound
+	// launch: the runner it "starts" is the caller's, so there is no
+	// workspace to prepare for it.
+	if p.factory == nil && p.starter == nil {
 		if gerr := p.bindIsolatedSpawn(ctx, cfg); gerr != nil {
 			return nil, gerr
 		}

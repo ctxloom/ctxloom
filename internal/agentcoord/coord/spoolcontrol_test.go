@@ -129,7 +129,7 @@ func TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine(t *testing.T) {
 		SpoolSweepInterval: 50 * time.Millisecond,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { fresh.crash() })
+	t.Cleanup(func() { fresh.Crash() })
 	seen := make(chan string, 4)
 	fresh.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool { seen <- pm.GetText(); return true })
 	select {

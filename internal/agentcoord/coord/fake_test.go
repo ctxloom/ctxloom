@@ -246,7 +246,7 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 	var releaseOnce sync.Once
 	kill := func() {
 		cancel()
-		home.crash()
+		home.Crash()
 		releaseOnce.Do(func() { close(released) })
 	}
 	s.mu.Lock()

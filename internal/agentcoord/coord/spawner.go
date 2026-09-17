@@ -9,7 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -147,19 +147,23 @@ type Spawner interface {
 	MarkSessionEnded(harp string)
 }
 
+// StarterFunc is Options.Starter's shape: the runner-process seam, called
+// once per spawn with the backend and the per-spawn runner env.
+type StarterFunc func(backend string, runnerEnv map[string]string) isolation.EngineStarter
+
 // prodSpawner is the production Spawner over the operations launch tail.
 type prodSpawner struct {
 	cfg        *config.Config
 	projectDir string
 	gate       *operations.ExecutableTrustGate
-	factory    pb.ClientFactory // test seam; nil = default (isolation applies)
+	starter    StarterFunc // test seam; nil = production (isolation binds the starter)
 }
 
 // newProdSpawner builds the production spawner, installing the executable
 // trust gate for the children's managed-MCP composition (the same fail-closed
 // gate the run/acp paths apply).
-func newProdSpawner(cfg *config.Config, projectDir string, factory pb.ClientFactory) *prodSpawner {
-	s := &prodSpawner{cfg: cfg, projectDir: projectDir, factory: factory}
+func newProdSpawner(cfg *config.Config, projectDir string, starter StarterFunc) *prodSpawner {
+	s := &prodSpawner{cfg: cfg, projectDir: projectDir, starter: starter}
 	s.gate = operations.NewExecutableTrustGate(cfg)
 	cfg.SetExecutableTrustGate(s.gate.Authorizer())
 	return s
@@ -188,6 +192,19 @@ func newProdSpawner(cfg *config.Config, projectDir string, factory pb.ClientFact
 // through any backend-specific config file a Setup step would have to write.
 var viaStartRunBackends = map[string]bool{
 	config.BackendClaudeCode: true,
+}
+
+// admit is Resolve's backend gate. Production is checkStartRunAllowlist
+// alone. The mock backend — a deterministic StructuredChat with no runner
+// process of its own — is admitted ONLY when a Starter is injected
+// (Options.Starter): that seam is what supplies the runner an in-process
+// double stands in for, and without it a mock child would be a run nothing
+// can drive. There is deliberately no other route; a test pins that.
+func (s *prodSpawner) admit(backend string) error {
+	if s.starter != nil && backend == config.BackendMock {
+		return nil
+	}
+	return checkStartRunAllowlist(backend)
 }
 
 // checkStartRunAllowlist refuses a delegated spawn whose backend has not been
@@ -366,7 +383,7 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 			agentName, rs.Backend)
 	}
 
-	if err := checkStartRunAllowlist(rs.Backend); err != nil {
+	if err := s.admit(rs.Backend); err != nil {
 		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
 	}
 
@@ -410,7 +427,7 @@ var prepareAgentChat = operations.PrepareAgentChat
 // workspace/dirty-tree axes, the permission posture, the trust gate, the two
 // env maps.
 func (s *prodSpawner) chatRequest(plan *SpawnPlan, env, runnerEnv map[string]string) operations.AgentChatRequest {
-	return operations.AgentChatRequest{
+	req := operations.AgentChatRequest{
 		Resolved:         plan.resolved,
 		WorkDir:          s.projectDir,
 		Env:              env,
@@ -418,10 +435,13 @@ func (s *prodSpawner) chatRequest(plan *SpawnPlan, env, runnerEnv map[string]str
 		Permissions:      plan.Perm,
 		Gate:             s.gate.Authorizer(),
 		Verbosity:        childVerbosity(),
-		Factory:          s.factory,
 		Workspace:        plan.Workspace,
 		DirtyTreeHandler: plan.DirtyTreeHandler,
 	}
+	if s.starter != nil {
+		req.Starter = s.starter(plan.Backend, runnerEnv)
+	}
+	return req
 }
 
 // EngineSpawn is a StartEngine result: the spawned-but-not-chatting runner

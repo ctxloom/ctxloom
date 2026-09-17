@@ -246,6 +246,9 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	return h, nil
 }
 
+// RunID is the run this Home hosts ("" for a session owner's runner).
+func (h *Home) RunID() string { return h.cfg.RunID }
+
 // goTracked runs fn on a new goroutine Close/crash join — see trackedGroup.
 func (h *Home) goTracked(fn func()) { h.tracked.dispatch(fn) }
 
@@ -918,14 +921,16 @@ func (h *Home) reissueUnacked() {
 	}
 }
 
-// crash tears the home down WITHOUT the clean-shutdown acknowledgements —
-// the test seam simulating a runner crash (conformance: crash-before-ack
-// re-delivers). Joins Home's own tracked loops (bounded) before returning
-// so a caller (fakeSpawner.StartEngine's kill, wired
-// as childRt.close) can rely on crash() actually being done, not merely
+// Crash tears the home down WITHOUT the clean-shutdown acknowledgements —
+// the runner-process death a killed container or a SIGKILL is, and the seam
+// an in-process runner double's Kill uses (coordtest, and coord's own fake):
+// a crash before the ack re-delivers, which is the at-least-once contract.
+// Joins Home's own tracked loops (bounded) before returning so a caller
+// wired as childRt.close can rely on Crash actually being done, not merely
 // dispatched, before it proceeds (Coordinator.Close's attachment loop calls
-// closeFn synchronously for exactly this reason).
-func (h *Home) crash() {
+// closeFn synchronously for exactly this reason), and closes the out/
+// writer LAST so nothing lands after the join.
+func (h *Home) Crash() {
 	h.tracked.seal()
 	h.cancel()
 	_ = h.conn.Close()

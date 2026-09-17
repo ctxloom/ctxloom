@@ -130,6 +130,8 @@ type runChan struct {
 // here; identity derives from the connection credential.
 func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.AgentFrame, agentcoordpb.CoordinatorFrame]) error {
 	c := s.c
+	c.streams.Add(1)
+	defer c.streams.Done() // registered FIRST so it runs LAST, after the teardown below
 	id, ok := c.Identify(mdToken(stream.Context()))
 	if !ok {
 		return status.Error(codes.Unauthenticated, "unknown or revoked credential")

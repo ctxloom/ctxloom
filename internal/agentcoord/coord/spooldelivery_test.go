@@ -360,7 +360,7 @@ func TestSpoolDelivery_ColdRunnerDrainsItsSpoolBeforeAnyChannel(t *testing.T) {
 		// here is proof of the cold-start path and not of a fast timer.
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { home.crash() })
+	t.Cleanup(func() { home.Crash() })
 	require.False(t, home.Attached(), "this runner must never reach a coordinator")
 
 	delivered := make(chan string, 8)
@@ -469,7 +469,7 @@ func TestSpoolDelivery_ConsumedMailIsNeverDeliveredTwice(t *testing.T) {
 		SpoolSweepInterval: 50 * time.Millisecond,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { fresh.crash() })
+	t.Cleanup(func() { fresh.Crash() })
 	redelivered := make(chan string, 4)
 	fresh.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
 		redelivered <- pm.GetText()
@@ -749,7 +749,7 @@ func TestSpoolDelivery_UnmappableKindReachesATerminalState(t *testing.T) {
 		Harp:    harp,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { home.crash() })
+	t.Cleanup(func() { home.Crash() })
 	require.False(t, home.Attached(), "this runner must never reach a coordinator")
 
 	delivered := make(chan string, 8)

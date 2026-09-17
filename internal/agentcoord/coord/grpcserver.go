@@ -166,6 +166,8 @@ func (c *Coordinator) grpcServer() *grpc.Server {
 // claim (rev-6 A1).
 func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordpb.RunnerFrame, agentcoordpb.RuntimeFrame]) error {
 	c := s.c
+	c.streams.Add(1)
+	defer c.streams.Done() // registered FIRST so it runs LAST, after the teardown below
 	// Per-stream-establishment verification + identity mapping.
 	id, ok := c.Identify(mdToken(stream.Context()))
 	if !ok {

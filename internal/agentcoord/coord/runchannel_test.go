@@ -175,6 +175,10 @@ func TestRunChannel_StopRunLineage(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, researcherSpawner(), nil)
 	out := spawnResearcher(t, c)
+	// The stop below must find a RUNNING child, not one whose StartRun is
+	// still in flight — a stop that lands mid-launch ends the run as a
+	// cancelled launch, which is a different terminal.
+	require.NoError(t, c.awaitChildUp(context.Background(), out.Harp))
 	owner := ownerHome(t, c)
 
 	// A child cannot stop itself (its lineage owns nothing).

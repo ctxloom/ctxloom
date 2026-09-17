@@ -44,7 +44,7 @@ func writeSidecar(t *testing.T, root, harp, yamlBody string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, testSidecarName), []byte(yamlBody), 0o644))
 }
 
-func sidecarHarps(entries []Entry) []string {
+func harpNames(entries []Entry) []string {
 	out := make([]string, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, e.HarpName)
@@ -66,7 +66,7 @@ engine_version: "2.1.0"
 
 	got, err := m.ListAll()
 	require.NoError(t, err)
-	require.Equal(t, []string{"swift-amber-falcon"}, sidecarHarps(got))
+	require.Equal(t, []string{"swift-amber-falcon"}, harpNames(got))
 	e := got[0]
 	assert.Equal(t, "/proj/a", e.ProjectDir)
 	assert.Equal(t, "claude-code", e.Backend)
@@ -112,11 +112,11 @@ func TestListForProject_FiltersByProjectDirFromSidecar(t *testing.T) {
 
 	got, err := m.ListForProject("/proj/a")
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"in-a", "also-a"}, sidecarHarps(got))
+	assert.ElementsMatch(t, []string{"in-a", "also-a"}, harpNames(got))
 
 	all, err := m.ListAll()
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"in-a", "in-b", "also-a"}, sidecarHarps(all))
+	assert.ElementsMatch(t, []string{"in-a", "in-b", "also-a"}, harpNames(all))
 }
 
 func TestListAll_PurgedDirIsListedAsPurgedNotDropped(t *testing.T) {
@@ -135,7 +135,7 @@ purged_at: 2026-09-02T09:00:00Z
 `)
 	got, err := m.ListAll()
 	require.NoError(t, err)
-	require.Equal(t, []string{"purged-on-purpose"}, sidecarHarps(got),
+	require.Equal(t, []string{"purged-on-purpose"}, harpNames(got),
 		"a purged session is a real directory missing its content; it lists as purged, it is never mistaken for damage and dropped")
 	require.NotNil(t, got[0].PurgedAt)
 	assert.Equal(t, time.Date(2026, 9, 2, 9, 0, 0, 0, time.UTC), got[0].PurgedAt.UTC())
@@ -164,7 +164,7 @@ func TestListAll_StaleIndexYAMLLeftBehindIsIgnored(t *testing.T) {
 
 	got, err := m.ListAll()
 	require.NoError(t, err)
-	assert.Equal(t, []string{"real-one"}, sidecarHarps(got), "a stale index.yaml must not contribute rows")
+	assert.Equal(t, []string{"real-one"}, harpNames(got), "a stale index.yaml must not contribute rows")
 
 	found, err := m.Find("ghost-row")
 	require.NoError(t, err)
@@ -203,7 +203,7 @@ func TestOpen_MigratesIndexYAMLToSidecarsOnceAndLosslessly(t *testing.T) {
 	require.NoError(t, err)
 	got, err := m.ListAll()
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"has-dir", "no-dir-yet"}, sidecarHarps(got), "every index row becomes a session directory; none is lost")
+	assert.ElementsMatch(t, []string{"has-dir", "no-dir-yet"}, harpNames(got), "every index row becomes a session directory; none is lost")
 
 	byName := map[string]Entry{}
 	for _, e := range got {
@@ -229,7 +229,7 @@ func TestOpen_MigratesIndexYAMLToSidecarsOnceAndLosslessly(t *testing.T) {
 	require.NoError(t, err)
 	again, err := m2.ListAll()
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"has-dir", "no-dir-yet"}, sidecarHarps(again))
+	assert.ElementsMatch(t, []string{"has-dir", "no-dir-yet"}, harpNames(again))
 	after, err := m2.Find("has-dir")
 	require.NoError(t, err)
 	require.NotNil(t, after)
@@ -281,7 +281,7 @@ func TestFind_OneHarpLookupIsUnaffectedByASiblingsCorruptSidecar(t *testing.T) {
 	// The listing degrades to the readable set rather than failing whole.
 	all, err := m.ListAll()
 	require.NoError(t, err)
-	assert.Equal(t, []string{"good"}, sidecarHarps(all))
+	assert.Equal(t, []string{"good"}, harpNames(all))
 }
 
 func TestAssignHarp_WritesTheSidecarAndNoIndex(t *testing.T) {
@@ -325,7 +325,7 @@ func TestForget_RemovesTheSidecarAndLeavesTheDirectory(t *testing.T) {
 	require.NoError(t, m.Forget("forgotten"))
 	all, err := m.ListAll()
 	require.NoError(t, err)
-	assert.Empty(t, sidecarHarps(all), "without its sidecar the directory is no longer a session")
+	assert.Empty(t, harpNames(all), "without its sidecar the directory is no longer a session")
 	_, statErr := os.Stat(authored)
 	assert.NoError(t, statErr, "forgetting drops the record, never the authored files beside it")
 }

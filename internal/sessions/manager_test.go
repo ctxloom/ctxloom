@@ -98,14 +98,6 @@ func TestBindSession_Idempotent(t *testing.T) {
 	require.NoError(t, m.BindSession(entry.HarpName, "uuid-1", "/t1"))
 }
 
-func harpNames(entries []Entry) []string {
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.HarpName)
-	}
-	return names
-}
-
 // A new session ID that arrives WITH a transcript path is the engine rotating
 // its transcript under a live process — claude-code's /clear starts a fresh
 // UUID file and fires SessionStart again. The index has to follow it: pinned to

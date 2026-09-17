@@ -38,7 +38,7 @@ func TestNewLLMDistiller_UnresolvableLabelSaysContentWillBeStoredRaw(t *testing.
 		}})
 		require.Empty(t, cfg.FastLabel(), "fixture precondition: no label resolves")
 
-		d, err := newLLMDistiller(cfg)
+		d, err := newLLMDistiller(cfg, "")
 		require.NoError(t, err, "an unresolvable label is a warning, not a refusal")
 		assert.Nil(t, d)
 		out := warn.String()
@@ -48,7 +48,7 @@ func TestNewLLMDistiller_UnresolvableLabelSaysContentWillBeStoredRaw(t *testing.
 
 	t.Run("nil config", func(t *testing.T) {
 		warn := captureWarnings(t)
-		d, err := newLLMDistiller(nil)
+		d, err := newLLMDistiller(nil, "")
 		require.NoError(t, err)
 		assert.Nil(t, d)
 		assert.Contains(t, warn.String(), "RAW")
@@ -56,7 +56,7 @@ func TestNewLLMDistiller_UnresolvableLabelSaysContentWillBeStoredRaw(t *testing.
 
 	t.Run("explicit empty label", func(t *testing.T) {
 		warn := captureWarnings(t)
-		d, err := newLLMDistillerForLabel(config.NewFixture(config.Fixture{}), "")
+		d, err := newLLMDistiller(config.NewFixture(config.Fixture{}), "")
 		require.NoError(t, err)
 		assert.Nil(t, d)
 		assert.Contains(t, warn.String(), "RAW")
@@ -74,7 +74,7 @@ func TestNewLLMDistiller_ResolvableLabelIsSilent(t *testing.T) {
 		},
 	}})
 
-	d, err := newLLMDistiller(cfg)
+	d, err := newLLMDistiller(cfg, "")
 
 	require.NoError(t, err)
 	require.NotNil(t, d)
@@ -121,7 +121,7 @@ func TestNewLLMDistiller_BareBackendNameResolvesToThatBackend(t *testing.T) {
 	_, configured := cfg.GetLLMEntry("mock")
 	require.False(t, configured, "fixture precondition: mock is a backend name, not a label")
 
-	d, err := newLLMDistillerForLabel(cfg, "mock")
+	d, err := newLLMDistiller(cfg, "mock")
 
 	require.NoError(t, err)
 	require.NotNil(t, d)

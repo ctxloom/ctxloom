@@ -357,7 +357,7 @@ func isolatedHome(t *testing.T) {
 }
 
 // distillProjectYAML is a project whose fast role resolves, so a distiller is
-// actually constructed — without a resolvable label newLLMDistillerForLabel
+// actually constructed — without a resolvable label newLLMDistiller
 // returns early and the prompt is never resolved at all.
 const distillProjectYAML = "version: 6\nllm:\n  configs:\n    fast: { type: claude-code, model: haiku }\n  defaults:\n    fast: fast\n"
 
@@ -457,7 +457,7 @@ func TestBundleDistill_TrustedPromptIsNotRefused(t *testing.T) {
 	require.NoError(t, err)
 	seedDistillCommand(t, cfg)
 
-	d, err := newLLMDistillerForLabel(cfg, "fast")
+	d, err := newLLMDistiller(cfg, "fast")
 	require.NoError(t, err, "an admitted prompt is not a refusal")
 	ld, ok := d.(*llmDistiller)
 	require.True(t, ok)

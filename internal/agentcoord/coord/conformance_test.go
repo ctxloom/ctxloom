@@ -571,7 +571,11 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 
 	mode, err := c.Inject(out.Harp, "wake up")
 	require.NoError(t, err)
-	assert.Equal(t, DeliveryNewTurn, mode)
+	// The write rings the runner BEFORE the disposition reads the roster, so
+	// an idle child may already be executing the new turn by then: both
+	// spellings say the same thing — delivered as the next turn — and the
+	// engine's recorded turn below is the assertion that matters.
+	assert.Contains(t, []string{DeliveryNewTurn, DeliveryQueued}, mode)
 
 	require.Eventually(t, func() bool {
 		texts := sp.chat(0).recordedTexts()

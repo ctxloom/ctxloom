@@ -209,6 +209,24 @@ func TestEverySkillFieldIsClassified(t *testing.T) {
 // A skill's preimage is one canonicalization (it has no raw bytes), opened by
 // its OWN contract — not the exec contract it once borrowed — and it carries
 // the per-engine export config beside the manifest.
+// The hook gets the same walk as the text kinds and MCP
+// (TestEveryMCPFieldIsClassified): a field is either in the executable
+// preimage or classified as to why it is not, so a field added to a hook never
+// lands unsigned by default.
+func TestEveryHookFieldIsClassified(t *testing.T) {
+	order := 1
+	base := BundleHook{
+		Matcher: "Bash", Command: "cmd", Type: "command", Prompt: "prompt",
+		Timeout: 5, Async: false, PreToolFallback: false, Order: &order,
+		Tags: []string{"tag"},
+	}
+	assertEveryFieldClassified(t, base, func(v reflect.Value) [][]byte {
+		h := v.Interface().(BundleHook)
+		payload, _ := h.ContentPayload()
+		return [][]byte{payload}
+	})
+}
+
 func TestBundleSkill_ContentPayload_OpensWithTheSkillContractAndCarriesExports(t *testing.T) {
 	skill := BundleSkill{Files: map[string]SkillFileMeta{
 		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},

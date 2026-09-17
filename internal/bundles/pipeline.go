@@ -153,44 +153,15 @@ func (p *Pipeline) recordWithheld(ref string) {
 	p.withheldMu.Unlock()
 }
 
-// linkWithholds reports whether an item carrying tags, read from read, belongs
-// to a link group this run cannot deliver whole: one of the group's MCP
-// members was not granted. It names the group and the missing server so the
-// caller can say WHY, and it decides for every group the item is in — an item
-// in two groups needs both.
-//
-// FAIL-CLOSED, mirroring Decide: a nil grant withholds every linked item. An
-// unlinked item is never touched, because withholding is a property of the
-// group and not collateral for the bundle.
+// linkWithholds asks LinkWithholds with this pipeline's grant.
 func (p *Pipeline) linkWithholds(read BundleRead, tags []string) (linkID, server string, withheld bool) {
-	ids := LinkIDs(tags)
-	if len(ids) == 0 {
-		return "", "", false
-	}
-	if p.links == nil {
-		return ids[0], "", true
-	}
-	groups := read.Bundle.LinkGroups()
-	for _, id := range ids {
-		for _, mcp := range groups[id].MCPMembers() {
-			if !p.links.Granted(read, mcp) {
-				return id, mcp, true
-			}
-		}
-	}
-	return "", "", false
+	return LinkWithholds(p.links, read, tags)
 }
 
-// withholdLinked tallies and surfaces a link withhold. WarnOnce, because the
-// same assembly runs once per turn and an unchanged gap would otherwise
-// re-warn every time; the finding is content-free (refs and names only).
+// withholdLinked tallies and surfaces a link withhold.
 func (p *Pipeline) withholdLinked(ref, linkID, server string) {
 	p.recordWithheld(ref)
-	if server == "" {
-		clidiag.WarnOnce("ctxloom", "%s withheld: it is linked (%s=%s) but this pipeline has no link grant", ref, linkTagKey, linkID)
-		return
-	}
-	clidiag.WarnOnce("ctxloom", "%s withheld: it is linked (%s=%s) to MCP server %q, which this run was not granted", ref, linkTagKey, linkID, server)
+	WarnLinkWithheld(ref, linkID, server)
 }
 
 // deliver is the process stage in one function: RESOLVE a form from everything

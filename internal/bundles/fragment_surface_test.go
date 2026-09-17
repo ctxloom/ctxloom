@@ -208,6 +208,8 @@ func perturb(t *testing.T, v reflect.Value, name string) {
 		v.SetString(v.String() + "\x00perturbed")
 	case reflect.Bool:
 		v.SetBool(!v.Bool())
+	case reflect.Int:
+		v.SetInt(v.Int() + 1)
 	case reflect.Slice:
 		v.Set(reflect.Append(v, reflect.Zero(v.Type().Elem())))
 	case reflect.Pointer:

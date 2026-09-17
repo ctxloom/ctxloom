@@ -106,7 +106,7 @@ func TestExtractHooksFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	}
 	seen := map[string]string{}
 	// Deny the second pre_tool hook ("echo b", index 1).
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(seen, "#hooks/pre_tool/1"))
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(seen, "#hooks/pre_tool/1"), bundles.LinksUnchecked())
 
 	require.Len(t, got.PreTool, 1, "the denied pre_tool hook must be omitted")
 	assert.Equal(t, "echo a", got.PreTool[0].Command, "the trusted sibling hook survives")
@@ -132,7 +132,7 @@ func TestExtractHooksFromBundle_FailClosed(t *testing.T) {
 		PostTool: []bundles.BundleHook{{Command: "echo b", Type: "command"}},
 	}}
 	denyAll := testAuthorizer(false)
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), denyAll)
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), denyAll, bundles.LinksUnchecked())
 	assert.Empty(t, got.PreTool, "fail-closed: deny-all withholds pre_tool hooks")
 	assert.Empty(t, got.PostTool, "fail-closed: deny-all withholds post_tool hooks")
 }

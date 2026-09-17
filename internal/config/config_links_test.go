@@ -12,11 +12,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// writeLinkedBundleFixture lays down one bundle whose skill is linked to the
-// MCP server it drives, plus two profiles over it: "with" grants the server,
-// "without" vetoes it with exclude_mcp. Same bundle, same skill, two runs.
+// writeLinkedBundleFixture lays down one bundle whose skill, command and
+// session_start hook are linked to the MCP server they drive, plus two
+// profiles over it: "with" grants the server, "without" vetoes it with
+// exclude_mcp. Same bundle, same items, two runs.
 func writeLinkedBundleFixture(t *testing.T) *Config {
 	t.Helper()
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
@@ -44,6 +46,12 @@ commands:
   plan:
     content: PLAN
     tags: [ctxloom:link_id=think]
+hooks:
+  session_start:
+    - command: think-warmup
+      tags: [ctxloom:link_id=think]
+  pre_tool:
+    - command: free-guard
 `), 0644))
 	require.NoError(t, os.MkdirAll(filepath.Join(bundlesDir, "linked", "skills", "free"), 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
@@ -90,6 +98,57 @@ func TestConfig_LinkGrant_FollowsTheRunsGrantedMCPSet(t *testing.T) {
 	assert.Equal(t, []string{"free"}, skillNames(t, cfg, []string{"without"}),
 		"the linked skill is withheld with its vetoed server; the unlinked one is not collateral")
 	assert.Empty(t, commandNames(t, cfg, []string{"without"}))
+}
+
+func hookCommands(hooks []wire.Hook) []string {
+	var out []string
+	for _, h := range hooks {
+		out = append(out, h.Command)
+	}
+	return out
+}
+
+// A HOOK IS A MEMBER TOO. A session_start hook that calls a tool its server
+// provides is the exact shape link groups exist to stop: delivered beside a
+// withheld server it fires against nothing, silently. So the hook delivers
+// exactly when the server it is linked to is granted, and the unlinked hook
+// beside it is never collateral.
+func TestConfig_ResolveBundleHooks_LinkedHookFollowsTheRunsGrantedMCPSet(t *testing.T) {
+	cfg := writeLinkedBundleFixture(t)
+
+	require.Contains(t, cfg.ResolveBundleMCPServers([]string{"with"}), "think")
+	with := cfg.ResolveBundleHooks([]string{"with"})
+	assert.Equal(t, []string{"think-warmup"}, hookCommands(with.SessionStart))
+	assert.Equal(t, []string{"free-guard"}, hookCommands(with.PreTool))
+
+	require.NotContains(t, cfg.ResolveBundleMCPServers([]string{"without"}), "think")
+	without := cfg.ResolveBundleHooks([]string{"without"})
+	assert.Empty(t, hookCommands(without.SessionStart),
+		"the linked hook is withheld with its vetoed server: a hook must never fire against a tool that is not there")
+	assert.Equal(t, []string{"free-guard"}, hookCommands(without.PreTool),
+		"the unlinked hook is not collateral")
+}
+
+// The hook path follows the pipeline's rule for an omitted grant: nil fails
+// CLOSED for every linked hook and touches no unlinked one; not checking is
+// spelled bundles.LinksUnchecked, out loud.
+func TestExtractHooksFromBundle_NilLinkGrantWithholdsLinkedHooksOnly(t *testing.T) {
+	link := []string{"ctxloom:link_id=think"}
+	b := &bundles.Bundle{
+		MCP: map[string]bundles.BundleMCP{"think": {Command: "think-server", Tags: link}},
+		Hooks: bundles.BundleHooks{
+			SessionStart: []bundles.BundleHook{{Command: "think-warmup", Tags: link}},
+			PreTool:      []bundles.BundleHook{{Command: "free-guard"}},
+		},
+	}
+	read := bundles.ProjectAuthoredRead("fixture", b)
+
+	got := extractHooksFromBundle(read, mustLocalRef(t, "src"), bundles.AdmitAll(), nil)
+	assert.Empty(t, hookCommands(got.SessionStart))
+	assert.Equal(t, []string{"free-guard"}, hookCommands(got.PreTool))
+
+	unchecked := extractHooksFromBundle(read, mustLocalRef(t, "src"), bundles.AdmitAll(), bundles.LinksUnchecked())
+	assert.Equal(t, []string{"think-warmup"}, hookCommands(unchecked.SessionStart))
 }
 
 // The grant keys on the server AS SHIPPED BY THE BUNDLE, not on the bare name.

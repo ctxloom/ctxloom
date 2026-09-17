@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -463,12 +464,18 @@ func reportBundleRefLoadFailure(bundleRef string, err error) {
 func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	var result wire.UnifiedHooks
 
+	// One link grant for every arm: the granted set it answers from holds
+	// builtin, companion and profile servers alike, so a hook linked to its
+	// server is delivered exactly when that server is, whichever arm shipped
+	// both. Lazy, so an assembly with no linked hook never resolves it.
+	links := c.LinkGrant(profileNames)
+
 	// Built-in bundles are unconditional — they ship core ctxloom
 	// functionality (session bind, plan-stamping). No profile
 	// gating, no deps pull. Routed through c.ExecutableTrustGate() (see
 	// resolveBuiltinBundleMCPServers for why: allowed by default, but now
 	// reachable by a rejection).
-	result.Append(resolveBuiltinBundleHooks(c.ExecutableTrustGate()))
+	result.Append(resolveBuiltinBundleHooks(c.ExecutableTrustGate(), links))
 
 	bundleLoader := c.BundleLoader()
 
@@ -477,11 +484,11 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	// builtin exemption. Sorted for a deterministic result across runs.
 	cat := bundleLoader.Catalog()
 	for _, ref := range companionRefs(cat) {
-		result.Append(loadHooksFromBundleRef(ref, cat, c.ExecutableTrustGate()))
+		result.Append(loadHooksFromBundleRef(ref, cat, c.ExecutableTrustGate(), links))
 	}
 
 	c.eachProfileBundleRef(profileNames, func(bundleRef string) {
-		result.Append(loadHooksFromBundleRef(bundleRef, cat, c.ExecutableTrustGate()))
+		result.Append(loadHooksFromBundleRef(bundleRef, cat, c.ExecutableTrustGate(), links))
 	})
 	return result
 }
@@ -674,10 +681,10 @@ func resolveCompanionCommandsWith(pipe *bundles.Pipeline, cat bundles.Catalog) [
 // allowed by default (no new review friction), but now reachable by a
 // rejection (rejection is evaluated before the builtin exemption). A nil gate
 // (management/listing paths) stays fully ungated.
-func resolveBuiltinBundleHooks(gate bundles.Authorizer) wire.UnifiedHooks {
+func resolveBuiltinBundleHooks(gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
 	var out wire.UnifiedHooks
 	eachBuiltinBundle(func(read bundles.BundleRead) {
-		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(read, read.SourceRef(), gate)))
+		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(read, read.SourceRef(), gate, links)))
 	})
 	return out
 }
@@ -853,13 +860,13 @@ func builtinBundleCompanionMissing(b *bundles.Bundle) (string, bool) {
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
-func loadHooksFromBundleRef(bundleRef string, cat bundles.Catalog, gate bundles.Authorizer) wire.UnifiedHooks {
+func loadHooksFromBundleRef(bundleRef string, cat bundles.Catalog, gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
 	read, err := cat.Read(bundleRef)
 	if err != nil {
 		reportBundleRefLoadFailure(bundleRef, err)
 		return wire.UnifiedHooks{}
 	}
-	return extractHooksFromBundle(read, read.SourceRef(), gate)
+	return extractHooksFromBundle(read, read.SourceRef(), gate, links)
 }
 
 // extractHooksFromBundle converts a bundle's hooks to wire.Hooks. When gate
@@ -874,7 +881,14 @@ func loadHooksFromBundleRef(bundleRef string, cat bundles.Catalog, gate bundles.
 // branches rather than letting Decide answer. The identity scheme is
 // bundles.HookEntry.ID() ("<event>/<index>"), shared with the migration
 // baseline so a baselined hook's ref matches.
-func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bundles.Authorizer) wire.UnifiedHooks {
+//
+// links is the run's link grant (bundles.LinkGrant): a hook linked to an MCP
+// server the run was not granted is withheld here, after trust, exactly as the
+// content pipeline withholds a linked fragment — hooks never pass through that
+// pipeline, so this is where the group's atomicity is enforced for them. A nil
+// grant withholds every linked hook; a surface that gates nothing says
+// bundles.LinksUnchecked.
+func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
 	bundle := read.Bundle
 	if !bundle.Hooks.HasAny() {
 		return wire.UnifiedHooks{}
@@ -910,6 +924,7 @@ func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate b
 		out := make([]wire.Hook, 0, len(in))
 		for _, i := range order {
 			h := in[i]
+			id := bundles.HookEntry{Event: event, Index: i}.ID()
 			if bundles.Gates(gate) {
 				// Key by the bundle's source ref (canonical for a remote/cloned
 				// bundle, the local name for a project bundle) — NOT bundle.Name,
@@ -917,7 +932,7 @@ func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate b
 				// This makes the cascade's IsLocal/RepoURL honest (local hooks
 				// auto-trust; a cloned one is judged by WHO SIGNED it) and aligns
 				// the gate key with the baseline/grant key (both source).
-				ref, rerr := bundles.ItemRefFor(src, trust.KindHook, bundles.HookEntry{Event: event, Index: i}.ID())
+				ref, rerr := bundles.ItemRefFor(src, trust.KindHook, id)
 				if rerr != nil {
 					// Fail CLOSED and NAMED: a hook nothing can address is a
 					// hook nothing can decide about, and one such hook costs
@@ -941,6 +956,13 @@ func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate b
 				if !bundles.Decide(gate, read, ref, payload, bundles.FormRaw).Allow {
 					continue // withheld by the trust gate
 				}
+			}
+			// Trust decided first, so a trust withhold is reported as one;
+			// links are the second question, asked only of a hook trust
+			// would deliver. Effective tags, as LinkGroups computes them.
+			if linkID, server, withheld := bundles.LinkWithholds(links, read, slices.Concat(bundle.Tags, h.Tags)); withheld {
+				bundles.WarnLinkWithheld(read.DisplayName()+"#hooks/"+id, linkID, server)
+				continue
 			}
 			out = append(out, wire.Hook{
 				Matcher:         h.Matcher,

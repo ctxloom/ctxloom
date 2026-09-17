@@ -51,6 +51,10 @@ func linkedBundle() *Bundle {
 		MCP: map[string]BundleMCP{
 			"think": {Command: "think-server", Tags: link},
 		},
+		Hooks: BundleHooks{
+			SessionStart: []BundleHook{{Command: "think-warmup", Tags: link}},
+			PreTool:      []BundleHook{{Command: "unlinked-guard"}},
+		},
 	}
 }
 
@@ -63,9 +67,10 @@ func TestBundle_LinkGroups_GroupsEveryKindByEffectiveTags(t *testing.T) {
 	require.Contains(t, groups, "think")
 	assert.Equal(t, []LinkMember{
 		{Kind: trust.KindFragment, Name: "guide"},
+		{Kind: trust.KindHook, Name: "session_start/0"},
 		{Kind: trust.KindMCP, Name: "think"},
 		{Kind: trust.KindPrompt, Name: "plan"},
-	}, groups["think"].Members)
+	}, groups["think"].Members, "a hook joins by its trust identity, <event>/<index>: hooks have no author-given name")
 	assert.Equal(t, []string{"think"}, groups["think"].MCPMembers())
 
 	whole := &Bundle{
@@ -101,6 +106,25 @@ mcp:
 	assert.True(t, errors.Is(err, errs.ErrDanglingLink), "got %v", err)
 	assert.Contains(t, err.Error(), "think")
 	assert.Contains(t, err.Error(), "guide")
+}
+
+// A hook is a member like any other, so a hook-side link with no other side
+// is the same typo and the same refusal — a session_start hook that calls a
+// tool its server provides must not load beside a misspelled server tag.
+func TestParseBundle_DanglingHookLinkIDIsRefused(t *testing.T) {
+	_, err := ParseBundle([]byte(`version: "1.0"
+hooks:
+  session_start:
+    - command: think-warmup
+      tags: [ctxloom:link_id=think]
+mcp:
+  think:
+    command: think-server
+    tags: [ctxloom:link_id=thinc]
+`))
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, errs.ErrDanglingLink), "got %v", err)
+	assert.Contains(t, err.Error(), "hook/session_start/0")
 }
 
 func TestParseBundle_TwoSidedLinkParses(t *testing.T) {
@@ -207,6 +231,16 @@ func TestPipeline_NilLinkGrantWithholdsLinkedItemsOnly(t *testing.T) {
 // nothing an approval was granted over.
 func TestBundleMCP_TagsAreOutsideTheExecutablePreimage(t *testing.T) {
 	plain := BundleMCP{Command: "think-server", Args: []string{"--x"}}
+	linked := plain
+	linked.Tags = []string{"ctxloom:link_id=think"}
+	assert.Equal(t, plain.ComputeContentHash(), linked.ComputeContentHash())
+}
+
+// Tags are outside the hook executable preimage too: hooks share
+// ExecPreimageContract with MCP, and linking a hook to its server must not
+// invalidate the approval granted over what the hook runs.
+func TestBundleHook_TagsAreOutsideTheExecutablePreimage(t *testing.T) {
+	plain := BundleHook{Matcher: "Bash", Command: "think-warmup"}
 	linked := plain
 	linked.Tags = []string{"ctxloom:link_id=think"}
 	assert.Equal(t, plain.ComputeContentHash(), linked.ComputeContentHash())

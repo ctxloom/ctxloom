@@ -60,63 +60,10 @@ type TestEnvironment struct {
 	// serve this purpose.
 	childEnv map[string]string
 
-	// runs is the ordered history of every CLI invocation (Run / RunWithStdin),
-	// oldest first — replacing a single mutable lastOutput/lastError/
-	// lastExitCode slot. A single slot forced any scenario that
-	// ran two commands to lose the first's output the moment the second
-	// ran; five acceptance journeys had invented private snapshot fields to
-	// work around exactly that. LastOutput/LastExitCode/LastError read the
-	// newest entry; NthLastOutput(n) reaches back further.
-	runs []RunRecord
-}
-
-// RunRecord captures everything TestEnvironment observed about one CLI
-// invocation: the argv, its combined stdout+stderr, exit code, and any error.
-type RunRecord struct {
-	Args   []string
-	Output string // combined stdout+stderr
-	// Stdout is the MACHINE stream on its own. A `--format json` assertion
-	// that parses Output cannot work: any stderr line the command also
-	// emitted (a companion advisory, a withheld-content notice) is
-	// concatenated onto the JSON and the parse fails, which pushed those
-	// scenarios back onto substring matching — the exact weakness that let a
-	// json-flagged command pass while rendering human text.
-	Stdout   string
-	ExitCode int
-	Err      error
-}
-
-// recordRun derives a RunRecord's ExitCode from err (the same classification
-// Run/RunWithStdin used to do inline: 0 on success, -1 for a non-ExitError
-// failure, else the process's real exit code) and appends it to runs.
-func (e *TestEnvironment) recordRun(args []string, output string, err error) {
-	rec := RunRecord{
-		Args:   append([]string(nil), args...),
-		Output: output,
-		Err:    err,
-	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		rec.ExitCode = exitErr.ExitCode()
-	} else if err != nil {
-		rec.ExitCode = -1
-	} else {
-		rec.ExitCode = 0
-	}
-	e.runs = append(e.runs, rec)
-}
-
-// recordRunSplit records a run whose stdout and stderr were captured
-// separately, keeping both the concatenated view every existing assertion
-// reads and the machine stream on its own (see RunRecord.Stdout).
-//
-// This is the single funnel both Run and RunWithStdin pass through AFTER
-// cmd.Run()/cmd.Wait() has returned — i.e. after the process has genuinely
-// been started. Deliberately not hooked into recordRun instead:
-// environment_test.go calls recordRun directly with synthetic args ("first
-// command") to pin RunRecord's own bookkeeping.
-func (e *TestEnvironment) recordRunSplit(args []string, stdout, stderr string, err error) {
-	e.recordRun(args, stdout+stderr, err)
-	e.runs[len(e.runs)-1].Stdout = stdout
+	// RunHistory is the ordered record of every CLI invocation Run /
+	// RunWithStdin made in ProjectDir; LastOutput, NthLastOutput, LastExitCode
+	// and the rest are its promoted methods.
+	RunHistory
 }
 
 // forceRemoveAll removes dir even when it contains read-only files or
@@ -862,74 +809,7 @@ func (e *TestEnvironment) Command(extraEnv []string, args ...string) *exec.Cmd {
 
 // Run executes ctxloom with the given arguments in the project directory.
 func (e *TestEnvironment) Run(args ...string) error {
-	cmd := exec.Command(e.AppBinary, args...)
-	cmd.Dir = e.ProjectDir
-	cmd.Env = e.isolatedEnv()
-	cmd.SysProcAttr = pdeathsigSysProcAttr()
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	e.recordRunSplit(args, stdout.String(), stderr.String(), err)
-	return err
-}
-
-// LastOutput returns the combined stdout/stderr from the last command.
-func (e *TestEnvironment) LastOutput() string {
-	return e.NthLastOutput(0)
-}
-
-// LastStdout returns ONLY the last command's stdout — the stream a
-// `--format json` assertion has to parse (see RunRecord.Stdout).
-func (e *TestEnvironment) LastStdout() string {
-	if len(e.runs) == 0 {
-		return ""
-	}
-	return e.runs[len(e.runs)-1].Stdout
-}
-
-// LastArgs returns the argv the last command was invoked with, which is where
-// a format-aware assertion reads the encoding that was ASKED for. Reading it
-// off the invocation rather than sniffing the payload is what lets a scenario
-// tell "the command honoured --format text" apart from "the command emitted
-// something that happens to parse that way".
-func (e *TestEnvironment) LastArgs() []string {
-	if len(e.runs) == 0 {
-		return nil
-	}
-	return e.runs[len(e.runs)-1].Args
-}
-
-// NthLastOutput returns the combined stdout/stderr of the n-th most recent
-// command (n=0 is the same value LastOutput returns, n=1 the command before
-// that, and so on), or "" if fewer than n+1 commands have run yet. Lets a
-// scenario recover an EARLIER command's output after a later command has
-// run and LastOutput now reflects that one instead — the exact need five
-// acceptance journeys previously met by inventing a private snapshot field.
-func (e *TestEnvironment) NthLastOutput(n int) string {
-	idx := len(e.runs) - 1 - n
-	if idx < 0 || idx >= len(e.runs) {
-		return ""
-	}
-	return e.runs[idx].Output
-}
-
-// LastExitCode returns the exit code from the last command.
-func (e *TestEnvironment) LastExitCode() int {
-	if len(e.runs) == 0 {
-		return 0
-	}
-	return e.runs[len(e.runs)-1].ExitCode
-}
-
-// LastError returns the error from the last command.
-func (e *TestEnvironment) LastError() error {
-	if len(e.runs) == 0 {
-		return nil
-	}
-	return e.runs[len(e.runs)-1].Err
+	return e.Exec(e.Command(nil, args...))
 }
 
 // GitCommit creates a git commit with the given message.
@@ -986,7 +866,7 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	_ = stdinPipe.Close()
 
 	err = cmd.Wait()
-	e.recordRunSplit(args, stdout.String(), stderr.String(), err)
+	e.RecordSplit(args, stdout.String(), stderr.String(), err)
 	return err
 }
 
@@ -1085,8 +965,3 @@ func (b *syncBuffer) String() string {
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
-
-// RunCount returns the monotonic number of CLI invocations recorded so far
-// (see runs). A change between two observations means a command actually ran
-// in the interim.
-func (e *TestEnvironment) RunCount() int { return len(e.runs) }

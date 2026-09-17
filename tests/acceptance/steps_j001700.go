@@ -33,6 +33,7 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -61,12 +62,10 @@ const (
 type j001700State struct {
 	companyBare string // bare repo path (no file:// prefix) for the company's signed bundle remote, for AdvanceRemote
 
-	// Carol's own retraction-sync {pull, materialize} outputs are read via
-	// w.env.NthLastOutput(1) / .LastOutput() at assertion time —
-	// no snapshot fields needed since nothing else runs a command between
-	// "Carol runs her next routine sync" and the Then steps below.
-	bobSyncOutput   string // Bob's own retraction-sync `deps pull` output (his own runBob-captured stream, separate from w.env — a distinct single-slot register)
-	bobMaterialized string // Bob's own retraction-sync `profile materialize` output
+	// Carol's and Bob's retraction-sync {pull, materialize} outputs are read
+	// off their own run histories (w.env / w.j000700().bobRuns) at assertion
+	// time — no snapshot fields needed, since each developer's history is
+	// their own and nothing else runs in it between their sync and the Then.
 
 	embeddedShowBefore   string // `signer show <embedded principal>` output BEFORE the removal attempt
 	embeddedRemoveOutput string // `signer remove <embedded principal> --project` output
@@ -243,33 +242,16 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Bob runs his next routine sync$`, func(c context.Context) error {
 		w := worldFrom(c)
-		j001700 := j001700Of(w)
 		if err := runBob(w, "deps", "pull"); err != nil {
 			return err
 		}
-		j001700.bobSyncOutput = w.j000700().bobOutput
-		if err := runBob(w, "profile", "materialize", "default", "--target", "out"); err != nil {
-			return err
-		}
-		j001700.bobMaterialized = w.j000700().bobOutput
-		return nil
+		return runBob(w, "profile", "materialize", "default", "--target", "out")
 	})
 
 	ctx.Step(`^Carol is told the bundle was retracted, and her assistant no longer receives it$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// "Carol runs her next routine sync" ran pull then materialize, in
-		// that order, with nothing else in between: NthLastOutput(1) is the
-		// pull's own output, LastOutput() the materialize's — no
-		// snapshot fields needed.
-		carolSyncOutput := w.env.NthLastOutput(1)
-		carolMaterialized := w.env.LastOutput()
-		w.docStepMaterialized = carolSyncOutput + "\n" + carolMaterialized
-		if !strings.Contains(carolSyncOutput, "retracted") {
-			return fmt.Errorf("the sync output for Carol does not mention retraction; output:\n%s", carolSyncOutput)
-		}
-		wantWarn := fmt.Sprintf("retracted by the publisher (%s)", j001700RetractReason)
-		if !strings.Contains(carolMaterialized, wantWarn) {
-			return fmt.Errorf("the materialize output for Carol does not carry the exact withheld reason %q; output:\n%s", wantWarn, carolMaterialized)
+		if err := assertToldOfRetraction(w, "Carol", &w.env.RunHistory); err != nil {
+			return err
 		}
 		body, err := w.env.ReadFile(filepath.Join("out", "CLAUDE.md"))
 		if err != nil {
@@ -283,13 +265,9 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Bob is told the bundle was retracted too, and his assistant no longer receives it either$`, func(c context.Context) error {
 		w := worldFrom(c)
-		j001700 := j001700Of(w)
-		if !strings.Contains(j001700.bobSyncOutput, "retracted") {
-			return fmt.Errorf("the sync output for Bob does not mention retraction; output:\n%s", j001700.bobSyncOutput)
-		}
-		wantWarn := fmt.Sprintf("retracted by the publisher (%s)", j001700RetractReason)
-		if !strings.Contains(j001700.bobMaterialized, wantWarn) {
-			return fmt.Errorf("the materialize output for Bob does not carry the exact withheld reason %q; output:\n%s", wantWarn, j001700.bobMaterialized)
+		bob := &w.j000700().bobRuns
+		if err := assertToldOfRetraction(w, "Bob", bob); err != nil {
+			return err
 		}
 		// readBobFile sets docStepMaterialized itself (to the file it read), so
 		// this must run BEFORE the evidence assignment below or it would clobber
@@ -303,7 +281,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		if strings.Contains(body, j001700Marker) {
 			return fmt.Errorf("the materialized context for Bob still contains the retracted marker; content:\n%s", body)
 		}
-		w.docStepMaterialized = j001700.bobSyncOutput + "\n" + j001700.bobMaterialized
+		w.docStepMaterialized = bob.NthLastOutput(1) + "\n" + bob.LastOutput()
 		return nil
 	})
 
@@ -327,19 +305,8 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Carol is told the bundle is still retracted, and her assistant still does not receive it$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// Same shape as "Carol is told the bundle was retracted..." above:
-		// NthLastOutput(1) is the pull's own output, LastOutput() the
-		// materialize's — "Carol runs her next routine sync" ran pull
-		// then materialize, in that order, with nothing else in between.
-		carolSyncOutput := w.env.NthLastOutput(1)
-		carolMaterialized := w.env.LastOutput()
-		w.docStepMaterialized = carolSyncOutput + "\n" + carolMaterialized
-		if !strings.Contains(carolSyncOutput, "retracted") {
-			return fmt.Errorf("the sync output for Carol does not mention retraction even though the persisted verdict was retracted; output:\n%s", carolSyncOutput)
-		}
-		wantWarn := fmt.Sprintf("retracted by the publisher (%s)", j001700RetractReason)
-		if !strings.Contains(carolMaterialized, wantWarn) {
-			return fmt.Errorf("the materialize output for Carol does not carry the exact withheld reason %q; output:\n%s", wantWarn, carolMaterialized)
+		if err := assertToldOfRetraction(w, "Carol", &w.env.RunHistory); err != nil {
+			return err
 		}
 		body, err := w.env.ReadFile(filepath.Join("out", "CLAUDE.md"))
 		if err != nil {
@@ -494,4 +461,31 @@ func jsonAtPathFrom(raw, path string) (any, error) {
 		return nil, fmt.Errorf("not valid JSON: %w", err)
 	}
 	return jsonAtPath(doc, path)
+}
+
+// assertToldOfRetraction checks that a developer's routine sync — a `deps
+// pull` then a `profile materialize`, the two newest entries in THEIR OWN run
+// history — told them about the retraction, and attaches both outputs as the
+// step's evidence. Each output is anchored on something only that command
+// prints: the pull's "Retracted: N" summary line and the materialize's JSON
+// report (operations.MaterializeProfileResult on stdout). The withheld
+// warning alone cannot tell them apart — both commands emit it — so a check
+// on that would pass with the two registers swapped, or with one of them
+// stale from an earlier command.
+func assertToldOfRetraction(w *World, who string, runs *testenv.RunHistory) error {
+	syncOutput := runs.NthLastOutput(1)
+	materialized := runs.LastOutput()
+	w.docStepMaterialized = syncOutput + "\n" + materialized
+	if !strings.Contains(syncOutput, "Retracted: 1") {
+		return fmt.Errorf("the sync output for %s does not report the retraction; output:\n%s", who, syncOutput)
+	}
+	var report operations.MaterializeProfileResult
+	if err := json.Unmarshal([]byte(runs.LastStdout()), &report); err != nil || len(report.Wrote) == 0 {
+		return fmt.Errorf("the newest command for %s did not report as a materialize (err=%v); stdout:\n%s", who, err, runs.LastStdout())
+	}
+	wantWarn := fmt.Sprintf("retracted by the publisher (%s)", j001700RetractReason)
+	if !strings.Contains(materialized, wantWarn) {
+		return fmt.Errorf("the materialize output for %s does not carry the exact withheld reason %q; output:\n%s", who, wantWarn, materialized)
+	}
+	return nil
 }

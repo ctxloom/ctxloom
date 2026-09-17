@@ -329,11 +329,23 @@ func isoCredsSectionMarker(engine string) (string, error) {
 	}
 }
 
-// isoPerAgentScratchMarker is the path fragment every per-agent scratch
-// config-home carries (isolation's ephemeral session tree). Its PRESENCE in a
-// config-home var proves isolation engaged; its ABSENCE across every such var
-// proves the none axis really did leave the engine on the host's own config.
-const isoPerAgentScratchMarker = ".ctxloom/sessions"
+// isoIsPerAgentScratch reports whether a config-home value lies inside the
+// per-agent scratch tree — <HOME>/.ctxloom/sessions/... under the HOME the
+// harness hands the run. Its truth for a config-home var proves isolation
+// engaged; its falsity across every such var proves the none axis really did
+// leave the engine on the host's own config.
+//
+// ANCHORED AT THE RUN'S HOME, NOT A SUBSTRING. This used to test for
+// ".ctxloom/sessions" anywhere in the value, and that is true of EVERY path
+// the harness makes when the harness itself runs under a session-rooted
+// TMPDIR — which is where every delegated agent's worktree lives. The fake
+// HOME, the project, and a correct in-tree instance all carried the fragment,
+// so the check was false-positive for agents and invisible from a short
+// checkout.
+func isoIsPerAgentScratch(w *World, val string) bool {
+	root := filepath.Join(w.env.HomeDir, ".ctxloom", "sessions")
+	return val == root || strings.HasPrefix(val, root+string(os.PathSeparator))
+}
 
 // isoMatrixState is this file's per-scenario fixture state: where the spy's
 // output landed for the last run.
@@ -819,7 +831,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("%s: %w; full env dump:\n%s", varName, err, body)
 		}
-		if strings.Contains(val, filepath.Join(".ctxloom", "sessions")) {
+		if isoIsPerAgentScratch(w, val) {
 			return fmt.Errorf("%s=%q is a per-agent SCRATCH home (the worktree axis' answer), not the in-tree instance", varName, val)
 		}
 		if strings.Contains(val, filepath.Join("state", "engines")) {
@@ -984,7 +996,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			if key == "PWD" {
 				continue
 			}
-			if val := env[key]; strings.Contains(val, isoPerAgentScratchMarker) {
+			if val := env[key]; isoIsPerAgentScratch(w, val) {
 				return fmt.Errorf("workspace \"none\" handed engine %q an ISOLATED %s=%q — the none axis must share the host's own config-home, not relocate it; spy dump:\n%s", j.engine, key, val, body)
 			}
 		}

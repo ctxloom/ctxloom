@@ -78,7 +78,7 @@ var handlerScopes = map[string]handlerScope{
 		funcs: []string{"../coord/runchannel.go:serveSpawnAgent"},
 	},
 	ToolAgentSend: {
-		funcs: []string{"../coord/runchannel.go:servePeerSend"},
+		funcs: []string{"../coord/spooldelivery.go:sendPeerViaSpool"},
 	},
 	ToolAgentStop: {
 		funcs: []string{"../coord/runchannel.go:serveStopRun"},

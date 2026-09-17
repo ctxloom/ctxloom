@@ -72,20 +72,19 @@ func TestReport_ArtifactOnlyStillFiles(t *testing.T) {
 	assert.Equal(t, "a-1", events[0].GetArtifactProduced().GetArtifactId())
 }
 
-// TestEmitCustomEvent_UnencodableValueIsNotEmittedAsValueless: mail_consumed
-// carries the consumption cursor in its value. Swallowing the encode error and
+// TestEmitCustomEvent_UnencodableValueIsNotEmittedAsValueless: harness_session
+// carries the resume handle in its value. Swallowing the encode error and
 // emitting the event anyway spends a seq on an event whose payload says
-// "consumed nothing" — the coordinator's cursor never advances and nobody is
-// told. Dropping it instead leaves the messages unacked, which re-delivers
-// (the safe direction), and warns.
+// nothing — the coordinator records no handle and nobody is told. Dropping
+// it instead warns.
 func TestEmitCustomEvent_UnencodableValueIsNotEmittedAsValueless(t *testing.T) {
 	h := testHome(t)
 	warnings := captureWarnings(t)
 
-	h.emitCustomEvent(CustomMailConsumed, map[string]any{"message_ids": make(chan int)})
+	h.emitCustomEvent(CustomHarnessSession, map[string]any{"session_id": make(chan int)})
 
 	assert.Empty(t, h.emitted(), "an event whose value could not be encoded must not be emitted at all")
-	assert.Contains(t, warnings.String(), CustomMailConsumed, "the dropped event must be named on stderr")
+	assert.Contains(t, warnings.String(), CustomHarnessSession, "the dropped event must be named on stderr")
 }
 
 // TestEmitCustomEvent_NilValueStillEmits: the park/unpark assertions carry no

@@ -99,7 +99,7 @@ func TestSpoolTeeCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.
 	t.Setenv("HOME", fixture)
 
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", viaStartRun: true},
+		"worker": {perm: "bypass"},
 	}, nil)
 	sp.engineCaps = RunnerCapabilities(true)
 	c := newTestCoordinator(t, sp, nil)

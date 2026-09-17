@@ -14,174 +14,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// fakeEngine is one scripted child engine conversation. Turn texts are
-// recorded as received; each turn completes automatically unless gated
-// (turnGate non-nil — the test releases turns one by one), and the stream can
-// end itself after endAfterTurns turns (an engine that exits).
-type fakeEngine struct {
-	mu            sync.Mutex
-	texts         []string
-	gotEnv        map[string]string
-	gotRunnerEnv  map[string]string
-	gotResumeID   string // the resumeSessionID this engine's Launch call carried
-	turnGate      chan struct{}
-	endAfterTurns int
-	// oneshot marks the returned AgentChatLaunch as the no-structured-chat
-	// fallback (operations.AgentChatLaunch.Oneshot) — scripts a fakeSpawner
-	// child through children.go's oneshot bridging (PublishEvents + the
-	// parent-mailbox "result" bridge) without a real backend.
-	oneshot bool
-	// sessionID, when set, scripts this fake as a LEGACY (non-viaStartRun)
-	// backend that emits a native ChatEvent.Session on its first turn — the
-	// production shape a legacy go-plugin-dial backend can take. handleChildEvent
-	// must not drop it. Lets a test
-	// prove the coordinator CAPTURES a legacy backend's native session id
-	// (previously silently discarded — no ev.Session case existed).
-	sessionID string
-	// released closes when the launch's Close fired — the seam a production
-	// child's container teardown hangs off (AgentChatLaunch.Close /
-	// EngineSpawn.Kill → the runner handle's Kill, which force-removes the
-	// container). A test that must prove a stop RELEASED the child watches
-	// this rather than inferring it from the roster.
-	released chan struct{}
-}
-
-// releasedCh returns the channel launch closes when the engine's Close
-// fires; nil before the engine was launched.
-func (f *fakeEngine) releasedCh() <-chan struct{} {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.released
-}
-
-func (f *fakeEngine) recordedTexts() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.texts...)
-}
-
-func (f *fakeEngine) runnerEnv() map[string]string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	out := make(map[string]string, len(f.gotRunnerEnv))
-	for k, v := range f.gotRunnerEnv {
-		out[k] = v
-	}
-	return out
-}
-
-func (f *fakeEngine) env() map[string]string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	out := make(map[string]string, len(f.gotEnv))
-	for k, v := range f.gotEnv {
-		out[k] = v
-	}
-	return out
-}
-
-// launch adapts the fake engine onto the operations.AgentChatLaunch shape the
-// Spawner returns.
-func (f *fakeEngine) launch(ctx context.Context, contextText, resumeSessionID string, env, runnerEnv map[string]string) *operations.AgentChatLaunch {
-	f.mu.Lock()
-	f.gotEnv = env
-	f.gotRunnerEnv = runnerEnv
-	f.gotResumeID = resumeSessionID
-	released := make(chan struct{})
-	f.released = released
-	f.mu.Unlock()
-	in := make(chan agent.ChatMessage)
-	// events is small-buffered (not unbuffered like `in`): the REAL client
-	// wrapper (internal/lm/grpc/chat.go's GRPCClient.Chat) decouples a
-	// backend's event emission from the caller's sendTurn/driveChild
-	// ordering via its own independent in-pump/events-pump goroutines plus
-	// gRPC's own stream buffering — a legacy backend that emits a pre-loop
-	// Session event before ever reading `in` does not deadlock in production
-	// because of that slack. This fake
-	// wires straight to bare channels with none of that slack, so it needs
-	// its own small buffer to avoid an artificial deadlock that has nothing
-	// to do with the behavior under test.
-	events := make(chan agent.ChatEvent, 4)
-	errs := make(chan error, 1)
-	turnCtx, cancel := context.WithCancel(ctx)
-	var releaseOnce sync.Once
-	closeFn := func() {
-		cancel()
-		releaseOnce.Do(func() { close(released) })
-	}
-	first := true
-	go func() {
-		defer close(errs)
-		defer close(events)
-		if f.sessionID != "" {
-			// Mirror a legacy backend's Chat: a Session event rides BEFORE
-			// the first turn's entries — this fakeEngine's stand-in for a
-			// legacy (non-viaStartRun) backend's native session id.
-			select {
-			case events <- agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: f.sessionID}}:
-			case <-turnCtx.Done():
-				return
-			}
-		}
-		turns := 0
-		for msg := range in {
-			text := msg.Text
-			if first {
-				// The real launch prepends the lead context to the first
-				// turn; mirror it so lead-block assertions hold.
-				if contextText != "" {
-					text = contextText + "\n\n" + text
-				}
-				first = false
-			}
-			if text == "" {
-				continue
-			}
-			f.mu.Lock()
-			f.texts = append(f.texts, text)
-			gate := f.turnGate
-			f.mu.Unlock()
-			if gate != nil {
-				select {
-				case <-gate:
-				case <-turnCtx.Done():
-					return
-				}
-			}
-			select {
-			case events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "ok"}}:
-			case <-turnCtx.Done():
-				return
-			}
-			select {
-			case events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}:
-			case <-turnCtx.Done():
-				return
-			}
-			turns++
-			if f.endAfterTurns > 0 && turns >= f.endAfterTurns {
-				return
-			}
-		}
-	}()
-	return &operations.AgentChatLaunch{In: in, Events: events, Errs: errs, Close: closeFn, Oneshot: f.oneshot}
-}
-
-// resumeSessionID returns the resumeSessionID this engine's Launch call
-// carried (empty for a fresh, non-resumed launch) — Slice 0's threading
-// proof on the fake side.
-func (f *fakeEngine) resumeSessionID() string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.gotResumeID
-}
-
 // fakeSpawner is the hermetic Spawner: no config, no engines, no isolation.
 // It mints deterministic harps and scripts one fakeEngine per launch.
 type fakeSpawner struct {
 	mu       sync.Mutex
-	next     func() *fakeEngine
-	engines  []*fakeEngine
 	harpSeq  int
 	agents   map[string]fakeAgent // agent name → resolved plan bits
 	resolved []string
@@ -264,11 +100,10 @@ type fakeSpawner struct {
 }
 
 type fakeAgent struct {
-	perm        string // headless permission enum; "" refuses (D3)
-	runtime     agent.RuntimeAxis
-	profiles    []string
-	unknown     bool
-	viaStartRun bool // route this agent over the migrated StartRun path
+	perm     string // headless permission enum; "" refuses (D3)
+	runtime  agent.RuntimeAxis
+	profiles []string
+	unknown  bool
 	// backend is the SpawnPlan.Backend this agent resolves to (rides into
 	// HarnessSpec.harness on the StartRun path). Empty defaults to "mock" —
 	// most tests don't care and the coordinator's own mechanics are
@@ -287,11 +122,8 @@ type fakeAgent struct {
 	oneshot bool
 }
 
-func newFakeSpawner(agents map[string]fakeAgent, next func() *fakeEngine) *fakeSpawner {
-	if next == nil {
-		next = func() *fakeEngine { return &fakeEngine{} }
-	}
-	return &fakeSpawner{next: next, agents: agents}
+func newFakeSpawner(agents map[string]fakeAgent, next func() *scriptedChat) *fakeSpawner {
+	return &fakeSpawner{nextChat: next, agents: agents}
 }
 
 func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan, error) {
@@ -325,17 +157,16 @@ func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		resumeMode = ResumeModeOneShot
 	}
 	return &SpawnPlan{
-		AgentName:   agentName,
-		Backend:     backend,
-		Label:       "fast",
-		Profiles:    a.profiles,
-		Runtime:     a.runtime,
-		Context:     "FRAG-ONE",
-		Perm:        perm,
-		Degraded:    degraded,
-		ViaStartRun: a.viaStartRun,
-		MCPServers:  a.mcpServers,
-		ResumeMode:  resumeMode,
+		AgentName:  agentName,
+		Backend:    backend,
+		Label:      "fast",
+		Profiles:   a.profiles,
+		Runtime:    a.runtime,
+		Context:    "FRAG-ONE",
+		Perm:       perm,
+		Degraded:   degraded,
+		MCPServers: a.mcpServers,
+		ResumeMode: resumeMode,
 	}, nil
 }
 
@@ -346,21 +177,6 @@ func (s *fakeSpawner) AssignSession(_, _ string) (string, error) {
 	harp := fmt.Sprintf("child-harp-%d", s.harpSeq)
 	s.assigned = append(s.assigned, harp)
 	return harp, nil
-}
-
-func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText, resumeSessionID string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
-	s.mu.Lock()
-	e := s.next()
-	s.engines = append(s.engines, e)
-	s.perms = append(s.perms, plan.Perm)
-	s.workspaces = append(s.workspaces, plan.Workspace)
-	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
-	launchErr := s.launchErr
-	s.mu.Unlock()
-	if launchErr != nil {
-		return nil, launchErr
-	}
-	return e.launch(ctx, contextText, resumeSessionID, env, runnerEnv), nil
 }
 
 // StartEngine spawns the MIGRATED path's runner half for real: an in-process
@@ -380,6 +196,10 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 			mk = func() *scriptedChat { return &scriptedChat{} }
 		}
 		sc := mk()
+		sc.mu.Lock()
+		sc.gotEnv = env
+		sc.gotRunnerEnv = runnerEnv
+		sc.mu.Unlock()
 		s.chats = append(s.chats, sc)
 		backend = sc
 	}
@@ -587,28 +407,9 @@ func (s *fakeSpawner) assignedSessions() []string {
 }
 
 func (s *fakeSpawner) spawnCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.engines)
+	return s.chatCount()
 }
 
-func (s *fakeSpawner) engine(i int) *fakeEngine {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if i >= len(s.engines) {
-		return nil
-	}
-	return s.engines[i]
-}
-
-// newTestCoordinator builds a coordinator over a fake spawner in a temp state
-// dir, serving loopback listeners (so host children resolve a reach-back URL).
-// The Clock defaults to real time unless overridden. Runs at the package
-// default concurrency cap (agentConcurrencyCap, children.go) — tests pinning
-// D4 QUEUEING behavior at a SPECIFIC cap (most commonly 1, to exercise "past
-// the cap enqueues") must use newTestCoordinatorCap instead: the default is a
-// configurable resource ceiling, not a correctness serializer, and is not
-// guaranteed to be 1.
 // fakeRunDepth reads the stamped EnvRunDepth the way production's
 // parseRunDepth does: anything unparseable is depth 0.
 func fakeRunDepth(env map[string]string) int {

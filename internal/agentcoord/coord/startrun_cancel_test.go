@@ -29,7 +29,7 @@ const startRunAbortBudget = 15 * time.Second
 // reaches its send queue and no RunnerResponse ever comes back.
 func TestIssueStartRun_CancelAbortsTheRoundTrip(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", viaStartRun: true}}, nil)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	plan, err := sp.Resolve(context.Background(), "worker")

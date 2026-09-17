@@ -2,6 +2,7 @@ package coord
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -108,4 +109,27 @@ func TestSpoolKindMapping_IsExhaustive(t *testing.T) {
 	assert.Contains(t, err.Error(), "no frontmatter representation")
 	_, err = MailKindForSpool("a_frontmatter_kind_nobody_mapped")
 	require.Error(t, err)
+}
+
+// spoolDirsUnder lists every directory named "spool" anywhere below root — the
+// evidence for "the disabled tee touched nothing".
+func spoolDirsUnder(t *testing.T, root string) []string {
+	t.Helper()
+	var found []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			// A vanished temp entry is not evidence either way; a real
+			// failure is, so it is returned rather than swallowed.
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() && d.Name() == spool.SpoolDirName {
+			found = append(found, path)
+		}
+		return nil
+	})
+	require.NoError(t, err, "walking %s", root)
+	return found
 }

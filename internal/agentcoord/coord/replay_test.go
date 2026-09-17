@@ -132,7 +132,7 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 					}
 				case 2: // end a live run
 					if id := pickLive(rng, live); id != "" {
-						appendFact(factAt(factRunEnded, at, runEnded{RunID: id, Cause: CauseChatClose}))
+						appendFact(factAt(factRunEnded, at, runEnded{RunID: id, Cause: CauseRunnerExit}))
 						delete(live, id)
 					}
 				case 3: // bind a harness session id
@@ -241,70 +241,6 @@ func pickLive(rng *rand.Rand, live map[string]string) string {
 	}
 	sortStrings(ids)
 	return ids[rng.Intn(len(ids))]
-}
-
-// TestReplayEquivalence_Mailbox drives a seeded queue/consume sequence through
-// the mailbox journal and asserts the cursor projection replays identically —
-// consumed messages stay consumed, dedupe holds, order is preserved.
-func TestReplayEquivalence_Mailbox(t *testing.T) {
-	for seed := int64(0); seed < 16; seed++ {
-		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
-			dir := t.TempDir()
-			path := filepath.Join(dir, "mailbox.jsonl")
-			mailF := newMailFold()
-			store, err := openStore(path, mailF)
-			require.NoError(t, err)
-
-			rng := rand.New(rand.NewSource(seed + 100))
-			at := time.Unix(1_700_000_000, 0)
-			roles := []string{"harp-a", "harp-b", "harp-c"}
-			queued := map[string][]string{} // role → unconsumed ids in order
-			nextMsg := 0
-
-			appendFact := func(f Fact) {
-				require.NoError(t, store.Exec(func() ([]Fact, error) { return []Fact{f}, nil }))
-			}
-
-			for step := 0; step < 40; step++ {
-				at = at.Add(time.Second)
-				role := roles[rng.Intn(len(roles))]
-				if rng.Intn(2) == 0 { // queue
-					id := fmt.Sprintf("m-%d", nextMsg)
-					nextMsg++
-					appendFact(factAt(factMailQueued, at, mailQueued{MessageID: id, From: "x", To: role, Body: "b"}))
-					queued[role] = append(queued[role], id)
-					// A dedupe attempt: re-queue the same id (must be ignored).
-					if rng.Intn(3) == 0 {
-						appendFact(factAt(factMailQueued, at, mailQueued{MessageID: id, From: "x", To: role, Body: "b"}))
-					}
-				} else if len(queued[role]) > 0 { // consume a prefix
-					n := 1 + rng.Intn(len(queued[role]))
-					appendFact(factAt(factMailConsumed, at, mailConsumed{Role: role, MessageIDs: queued[role][:n]}))
-					queued[role] = queued[role][n:]
-				}
-			}
-
-			project := func(f *mailFold) map[string][]string {
-				out := map[string][]string{}
-				for _, role := range roles {
-					for _, m := range f.pendingFor(role) {
-						out[role] = append(out[role], m.ID)
-					}
-				}
-				return out
-			}
-			before := project(mailF)
-			require.NoError(t, store.Close())
-
-			rMailF := newMailFold()
-			rStore, err := openStore(path, rMailF)
-			require.NoError(t, err)
-			after := project(rMailF)
-			require.NoError(t, rStore.Close())
-
-			assert.Equal(t, before, after, "replaying the mailbox journal must reproduce pending/consumed exactly")
-		})
-	}
 }
 
 // TestJournal_TruncatesTornTail pins the torn-tail discipline: a crash

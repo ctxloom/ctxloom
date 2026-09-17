@@ -43,7 +43,7 @@ func TestHandleChildEvent_CapturesLegacySessionID_AndThreadsOnResume(t *testing.
 	resetStrictness(t)
 	const nativeID = "agy-conversation-abc123"
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{endAfterTurns: 1, sessionID: nativeID} })
+		func() *scriptedChat { return &scriptedChat{endAfterTurns: 1, sessionID: nativeID} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -68,7 +68,7 @@ func TestHandleChildEvent_CapturesLegacySessionID_AndThreadsOnResume(t *testing.
 	// primed with a rendered-transcript replay (contextText empty — the
 	// backend resumes its OWN session instead).
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
-	resumed := sp.engine(1)
+	resumed := sp.chat(1)
 	require.NotNil(t, resumed)
 	assert.Equal(t, nativeID, resumed.resumeSessionID(),
 		"resumeChild must pass the captured native id to Spawner.Launch, not fall back to transcript replay")

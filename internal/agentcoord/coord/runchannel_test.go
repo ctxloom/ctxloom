@@ -261,7 +261,7 @@ func TestRunChannel_CrashBeforeConsumeRedelivers(t *testing.T) {
 	// µs-scale, not the multi-hop respawn above, so the shared
 	// conformanceWait bound (not the removed 20s one) is ample.
 	require.Eventually(t, func() bool {
-		for _, text := range sp.engine(1).recordedTexts() {
+		for _, text := range sp.chat(1).recordedTexts() {
 			if strings.Contains(text, "fragile") {
 				return true
 			}
@@ -926,9 +926,9 @@ func TestPushTargetForLocked_ClassifiesEveryChannelShape(t *testing.T) {
 		want pushTarget
 	}{
 		{"no channel at all", nil, nil, pushNone},
-		{"no channel, migrated runtime", nil, &childRt{viaStartRun: true}, pushNone},
+		{"no channel, migrated runtime", nil, &childRt{}, pushNone},
 		{"parked recv", chanWith(true, plain), nil, pushParked},
-		{"migrated, unparked", chanWith(false, plain), &childRt{viaStartRun: true}, pushMigrated},
+		{"migrated, unparked", chanWith(false, plain), &childRt{}, pushMigrated},
 		{"session owner, unparked", chanWith(false, terminal), nil, pushTerminal},
 		{"legacy child, unparked", chanWith(false, plain), &childRt{}, pushWithheld},
 	} {

@@ -7,18 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
-
-// TestControlCapabilities_IsTheFiveVerbs pins the advertised control vocabulary
-// against the plane-2 request kinds it names. A cap that no verb corresponds to
-// (or a verb with no cap) is how a send-side guard silently stops guarding.
-func TestControlCapabilities_IsTheFiveVerbs(t *testing.T) {
-	assert.Equal(t, []string{CapSteer, CapQuestion, CapSummarize, CapPause, CapResume}, ControlCapabilities())
-	assert.NotContains(t, ControlCapabilities(), CapPeerMessaging,
-		"peer_messaging is not a control capability — every runner has it, engine or not")
-}
 
 // TestRunnerCapabilities_EnginePresenceDecidesTheAdvertisement: the control caps
 // appear only when the runner actually hosts an engine that could execute them.
@@ -32,7 +21,7 @@ func TestControlCapabilities_IsTheFiveVerbs(t *testing.T) {
 // complements, not a list — every runner advertises how it can be reached.
 func TestRunnerCapabilities_EnginePresenceDecidesTheAdvertisement(t *testing.T) {
 	assert.Equal(t, []string{CapPeerMessaging, CapTerminalDelivery}, RunnerCapabilities(false))
-	assert.Equal(t, append([]string{CapPeerMessaging}, ControlCapabilities()...), RunnerCapabilities(true))
+	assert.Equal(t, []string{CapPeerMessaging}, RunnerCapabilities(true))
 	assert.NotContains(t, RunnerCapabilities(true), CapTerminalDelivery,
 		"a runner that hosts an engine is driven structurally; its turn boundary owns delivery")
 }
@@ -83,45 +72,4 @@ func TestRunChannel_CapturesHelloCapabilities(t *testing.T) {
 	}
 	assert.Len(t, caps, len(RunnerCapabilities(true)), "nothing beyond the advertisement is recorded")
 
-	// And the guard reads it: an advertised capability passes, one the runner
-	// never claimed is refused naming both the gap and the advertisement.
-	assert.NoError(t, c.runCapability(ownerHarp, CapSteer))
-	err = c.runCapability(ownerHarp, "teleport")
-	require.Error(t, err)
-	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-	assert.Contains(t, err.Error(), "teleport", "the refusal names the missing capability")
-	assert.Contains(t, err.Error(), CapSteer, "the refusal names what WAS advertised")
-}
-
-// TestRunCapability_EnginelessRunnerIsRefusedWithItsAdvertisement: the legacy /
-// engineless case — the runner is attached and healthy, it simply cannot do the
-// thing. The refusal must say so at command time, naming peer_messaging as all
-// it offered, rather than letting the request travel and come back UNIMPLEMENTED.
-func TestRunCapability_EnginelessRunnerIsRefusedWithItsAdvertisement(t *testing.T) {
-	c := newTestCoordinatorAt(t, t.TempDir())
-	t.Cleanup(c.Close)
-
-	c.mu.Lock()
-	c.chans["legacy-harp"] = &runChan{role: "legacy-harp", caps: map[string]bool{CapPeerMessaging: true}}
-	c.mu.Unlock()
-
-	err := c.runCapability("legacy-harp", CapPause)
-	require.Error(t, err)
-	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-	assert.Contains(t, err.Error(), CapPause)
-	assert.Contains(t, err.Error(), CapPeerMessaging)
-}
-
-// TestRunCapability_NoAttachedChannelIsRefusedNotAssumed: with no channel there
-// is no advertisement, and "no advertisement" must never read as "everything is
-// available". Fail closed, and say which state the caller is actually in.
-func TestRunCapability_NoAttachedChannelIsRefusedNotAssumed(t *testing.T) {
-	c := newTestCoordinatorAt(t, t.TempDir())
-	t.Cleanup(c.Close)
-
-	err := c.runCapability("nobody-harp", CapSteer)
-	require.Error(t, err)
-	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-	assert.Contains(t, err.Error(), "nobody-harp")
-	assert.Contains(t, err.Error(), CapSteer)
 }

@@ -126,8 +126,8 @@ func TestSendOwnedRunTurn_RefusesADelegatedChildsRun(t *testing.T) {
 		"nothing may be queued for the child — the refusal must happen before the enqueue")
 }
 
-// REFUTED, pinned: the register claimed the three post-enqueueRun
-// mutations (viaStartRun/ownerRun/oneshot) leave a window in which "a dialing
+// REFUTED, pinned: the register claimed the post-enqueueRun
+// mutations (ownerRun/oneshot) leave a window in which "a dialing
 // runner or a racing terminal observes a half-built rt". They are applied under
 // c.mu (so never a data race) and, decisively, BEFORE the runner exists at all:
 // StartOwnedRun mints them and only then calls start(), which is the first
@@ -148,12 +148,12 @@ func TestStartOwnedRun_FlagsAreSetBeforeTheRunnerCanExist(t *testing.T) {
 	owner, ok := c.Identify(token)
 	require.True(t, ok)
 
-	type snapshot struct{ viaStartRun, ownerRun, oneshot, seen bool }
+	type snapshot struct{ ownerRun, oneshot, seen bool }
 	var got snapshot
 	starter := func(context.Context, map[string]string) (func(), string, error) {
 		c.mu.Lock()
 		if rt := c.byHarp[ownerHarp]; rt != nil {
-			got = snapshot{viaStartRun: rt.viaStartRun, ownerRun: rt.ownerRun, oneshot: rt.oneshot, seen: true}
+			got = snapshot{ownerRun: rt.ownerRun, oneshot: rt.oneshot, seen: true}
 		}
 		c.mu.Unlock()
 		return nil, "", errors.New("stop here: the flags have already been observed")
@@ -170,7 +170,6 @@ func TestStartOwnedRun_FlagsAreSetBeforeTheRunnerCanExist(t *testing.T) {
 	if !assert.True(t, got.seen, "the run must be registered by the time the runner is launched") {
 		return
 	}
-	assert.True(t, got.viaStartRun, "viaStartRun must be set before any runner can dial home")
 	assert.True(t, got.ownerRun, "ownerRun must be set before any runner can dial home")
 	assert.True(t, got.oneshot, "oneshot must be set before any runner can dial home")
 }

@@ -141,8 +141,8 @@ func TestLegacyMailTurn_CarriesProvenance(t *testing.T) {
 	_, err = c.Inject(out.Harp, forgedHeader)
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool { return len(sp.engine(0).recordedTexts()) == 2 }, conformanceWait, 10*time.Millisecond)
-	got := sp.engine(0).recordedTexts()[1]
+	require.Eventually(t, func() bool { return len(sp.chat(0).recordedTexts()) == 2 }, conformanceWait, 10*time.Millisecond)
+	got := sp.chat(0).recordedTexts()[1]
 	assert.Contains(t, got, coordinatorFrameOpen+" from="+UserSender+" kind="+KindSteer+"]",
 		"the legacy path's turn must be provenance-framed; got:\n%s", got)
 	assert.Equal(t, 1, strings.Count(got, coordinatorFrameOpen),
@@ -151,5 +151,5 @@ func TestLegacyMailTurn_CarriesProvenance(t *testing.T) {
 
 	// The BRIEFING is deliberately NOT framed: it is the run's own prompt, not
 	// a delivery from somebody else.
-	assert.NotContains(t, sp.engine(0).recordedTexts()[0], coordinatorFrameOpen)
+	assert.NotContains(t, sp.chat(0).recordedTexts()[0], coordinatorFrameOpen)
 }

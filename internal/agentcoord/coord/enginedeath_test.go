@@ -197,7 +197,7 @@ type deadRunnerSpawner struct {
 func newDeadRunnerSpawner(exitErr error) *deadRunnerSpawner {
 	return &deadRunnerSpawner{
 		fakeSpawner: newFakeSpawner(map[string]fakeAgent{
-			"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, viaStartRun: true},
+			"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless},
 		}, nil),
 		exitErr: exitErr,
 		waited:  make(chan struct{}, 1),

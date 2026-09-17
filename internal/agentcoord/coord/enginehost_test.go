@@ -45,15 +45,6 @@ type fakeEngineHome struct {
 	requests  []*agentcoordpb.AgentRequest
 	requestFn func(*agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error)
 
-	// ctrlHandler is whatever BindHome registered, and parked is every control
-	// body the host asked to park — the two halves of plane 2's down direction
-	// as seen from the Home seam.
-	ctrlHandler func(context.Context, *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse
-	parked      []*agentcoordpb.PeerMessage
-	// pendingCtl mirrors Home's unpulled-control ledger. It is the state the
-	// turn-boundary re-announcer reads, so the fake must model it (and let a
-	// test age or drain it) rather than pretend every parked body is pulled.
-	pendingCtl []PendingControlPayload
 	// turnReports records every automatic turn report the engine host composed
 	// at a boundary (ReportTurnResult) — the runner half of the result plane.
 	turnReports []turnReport
@@ -139,51 +130,6 @@ func (f *fakeEngineHome) spoolSweepCount() int {
 	return f.spoolSweeps
 }
 
-func (f *fakeEngineHome) SetRequestHandler(fn func(context.Context, *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.ctrlHandler != nil {
-		return
-	}
-	f.ctrlHandler = fn
-}
-
-func (f *fakeEngineHome) ParkControlPayload(pm *agentcoordpb.PeerMessage) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.parked = append(f.parked, pm)
-	f.pendingCtl = append(f.pendingCtl, PendingControlPayload{MessageID: pm.GetMessageId(), ParkedAt: time.Now()})
-}
-
-func (f *fakeEngineHome) PendingControlPayloads() []PendingControlPayload {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]PendingControlPayload(nil), f.pendingCtl...)
-}
-
-// pullControlPayload is the fake's agent_recv: the agent pulled id, so it stops
-// being pending.
-func (f *fakeEngineHome) pullControlPayload(id string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for i, p := range f.pendingCtl {
-		if p.MessageID == id {
-			f.pendingCtl = append(f.pendingCtl[:i], f.pendingCtl[i+1:]...)
-			return
-		}
-	}
-}
-
-// backdateControlPayloads moves every pending body's park time d into the past,
-// so a test can age an instruction without waiting for a wall clock.
-func (f *fakeEngineHome) backdateControlPayloads(d time.Duration) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for i := range f.pendingCtl {
-		f.pendingCtl[i].ParkedAt = f.pendingCtl[i].ParkedAt.Add(-d)
-	}
-}
-
 // customValues snapshots the recorded custom events matching name.
 func (f *fakeEngineHome) customValues(name string) []map[string]any {
 	f.mu.Lock()
@@ -195,25 +141,6 @@ func (f *fakeEngineHome) customValues(name string) []map[string]any {
 		}
 	}
 	return out
-}
-
-// parkedBodies snapshots the control bodies parked for agent_recv.
-func (f *fakeEngineHome) parkedBodies() []*agentcoordpb.PeerMessage {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]*agentcoordpb.PeerMessage(nil), f.parked...)
-}
-
-// control runs whatever BindHome registered, so a test drives the executor
-// through the same seam a coordinator frame would.
-func (f *fakeEngineHome) control(ctx context.Context, req *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse {
-	f.mu.Lock()
-	fn := f.ctrlHandler
-	f.mu.Unlock()
-	if fn == nil {
-		return nil
-	}
-	return fn(ctx, req)
 }
 
 func (f *fakeEngineHome) ReportRunExited(code int, sessionID string) {
@@ -270,6 +197,28 @@ type scriptedChat struct {
 	// 1). A one-shot child tears down at the turn boundary only when this is
 	// true (live-confirmed), so a one-shot test must set it.
 	resumable bool
+	// endAfterTurns, when > 0, ends the chat after that many turns — an
+	// engine that exits on its own. The runner then reports RunExited.
+	endAfterTurns int
+	// gotEnv / gotRunnerEnv are what the fake spawner's StartEngine was
+	// handed for this engine: the ENGINE's ambient env and the RUNNER's
+	// per-spawn env (the coordinator reach-back trio rides the latter only).
+	gotEnv       map[string]string
+	gotRunnerEnv map[string]string
+}
+
+// env is the engine's ambient environment as StartEngine received it.
+func (s *scriptedChat) env() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.gotEnv
+}
+
+// runnerEnv is the runner's per-spawn environment as StartEngine received it.
+func (s *scriptedChat) runnerEnv() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.gotRunnerEnv
 }
 
 func (s *scriptedChat) recordedTexts() []string {
@@ -295,6 +244,7 @@ func (s *scriptedChat) Chat(ctx context.Context, req agent.ChatRequest, in <-cha
 	if !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: "native-sess-42", Resumable: s.resumable}}) {
 		return ctx.Err()
 	}
+	turns := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -335,6 +285,10 @@ func (s *scriptedChat) Chat(ctx context.Context, req agent.ChatRequest, in <-cha
 				!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolOutput: "found"}}) ||
 				!send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, CostUSD: 0.0000015}}) {
 				return ctx.Err()
+			}
+			turns++
+			if s.endAfterTurns > 0 && turns >= s.endAfterTurns {
+				return nil
 			}
 		}
 	}

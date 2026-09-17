@@ -15,14 +15,14 @@ import (
 
 func TestFactAt_CarriesKindTimeAndMarshalledPayload(t *testing.T) {
 	at := time.Unix(1_700_000_000, 0).UTC()
-	got := factAt(factRunEnded, at, runEnded{RunID: "run-a", Cause: CauseChatClose, Detail: "d"})
+	got := factAt(factRunEnded, at, runEnded{RunID: "run-a", Cause: CauseRunnerExit, Detail: "d"})
 
 	assert.Equal(t, factRunEnded, got.Kind)
 	assert.True(t, got.At.Equal(at), "the fact carries the command-time timestamp verbatim: %s", got.At)
 
 	var back runEnded
 	require.NoError(t, json.Unmarshal(got.Data, &back))
-	assert.Equal(t, runEnded{RunID: "run-a", Cause: CauseChatClose, Detail: "d"}, back)
+	assert.Equal(t, runEnded{RunID: "run-a", Cause: CauseRunnerExit, Detail: "d"}, back)
 }
 
 // TestFactAt_RoundTripsThroughTheJournalLine: a fact is only useful if the

@@ -20,7 +20,7 @@ import (
 func oneShotSpawner(mk func() *scriptedChat) *fakeSpawner {
 	sp := newFakeSpawner(map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"},
-			viaStartRun: true, backend: "claude-code", oneshot: true},
+			backend: "claude-code", oneshot: true},
 	}, nil)
 	sp.nextChat = mk
 	return sp
@@ -269,7 +269,7 @@ func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(
 		map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{endAfterTurns: 1} }, // ends its run after each turn
+		func() *scriptedChat { return &scriptedChat{endAfterTurns: 1} }, // ends its run after each turn
 	)
 	c, err := New(Options{
 		ProjectDir:   t.TempDir(),
@@ -313,7 +313,7 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 	// static half is false, so the boundary must NOT tear down.
 	sp := newFakeSpawner(map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"},
-			viaStartRun: true, backend: "claude-code"}, // oneshot:false
+			backend: "claude-code"}, // oneshot:false
 	}, nil)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{resumable: true} }
 	c := newTestCoordinator(t, sp, nil)

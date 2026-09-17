@@ -22,7 +22,7 @@ import (
 // "worker".
 func startRunSpawner(mk func() *scriptedChat) *fakeSpawner {
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true},
+		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}},
 	}, nil)
 	sp.nextChat = mk
 	return sp
@@ -168,7 +168,7 @@ func TestStartRun_BackendParity(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			resetStrictness(t)
 			sp := newFakeSpawner(map[string]fakeAgent{
-				"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true, backend: backend},
+				"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, backend: backend},
 			}, nil)
 			c := newTestCoordinator(t, sp, nil)
 

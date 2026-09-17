@@ -331,13 +331,12 @@ func TestConsumerService_ListRuns(t *testing.T) {
 func TestConsumerService_SpoolStats_ReportsLiveCounters(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, startRunSpawner(nil), nil)
-	// Six distinct values so a field crossed with any other is caught.
+	// Five distinct values so a field crossed with any other is caught.
 	c.spoolDeliveryCount.delivered.Add(11)
 	c.spoolDeliveryCount.consumed.Add(12)
 	c.spoolDeliveryCount.failed.Add(13)
 	c.spoolDoorbell.dropped.Add(14)
 	c.spoolDoorbell.rejected.Add(15)
-	c.pushUnavailable.Add(16)
 
 	client, _ := dialConsumer(t, c.LoopbackURL(), c.consumerCreds.token())
 	res, err := client.SpoolStats(context.Background(), &agentcoordpb.SpoolStatsRequest{})
@@ -347,9 +346,8 @@ func TestConsumerService_SpoolStats_ReportsLiveCounters(t *testing.T) {
 	assert.Equal(t, c.SpoolDeliveryStats().Failed, res.GetFailed())
 	assert.Equal(t, c.SpoolDoorbellStats().Dropped, res.GetDoorbellDropped())
 	assert.Equal(t, c.SpoolDoorbellStats().Rejected, res.GetDoorbellRejected())
-	assert.Equal(t, c.PushUnavailableCount(), res.GetPushUnavailable())
 	assert.Equal(t, uint64(11), res.GetDelivered())
-	assert.Equal(t, uint64(16), res.GetPushUnavailable())
+	assert.Equal(t, uint64(15), res.GetDoorbellRejected())
 }
 
 // TestConsumerService_SpoolStats_RequiresCredential: the counters ride the

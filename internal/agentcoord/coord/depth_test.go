@@ -46,7 +46,7 @@ func TestEnqueueRun_DepthIncrementsFromCallerDepth(t *testing.T) {
 	plan, err := c.spawner.Resolve(context.Background(), "worker")
 	require.NoError(t, err)
 
-	rt, _, err := c.enqueueRun(caller, plan, "grandchild-harp", "go deeper", false, make(chan struct{}), caller.Depth+1, false)
+	rt, _, err := c.enqueueRun(caller, plan, "grandchild-harp", "go deeper", false, make(chan struct{}), caller.Depth+1)
 	require.NoError(t, err)
 	assert.Equal(t, 2, rt.depth, "a depth-1 caller's child must be depth 2, not a hardcoded 1")
 

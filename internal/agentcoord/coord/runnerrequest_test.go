@@ -21,7 +21,7 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -98,7 +98,7 @@ func TestAwaitRunner_WakesOnRegistration(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")

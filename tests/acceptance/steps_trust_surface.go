@@ -37,7 +37,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
@@ -1049,19 +1048,6 @@ func tsSupersedeStore(w *World) error {
 	}
 	w.docStepMaterialized = fmt.Sprintf("%d approval record(s) superseded; the display index survives:\n%s", moved, strings.TrimSpace(string(index)))
 	return nil
-}
-
-// tsCountersignRef is operations.CountersignRef, reached through the same
-// PRODUCTION parse the CLI performs on its own argument: trust.ParseBundleRef
-// turns the canonical item URI a scenario passes to `ctxloom bundle trust`
-// into a trust.BundleRef, whose Ref form composes the address a
-// countersignature actually binds to.
-func tsCountersignRef(cliRef string) (string, error) {
-	br, err := trust.ParseBundleRef(cliRef)
-	if err != nil {
-		return "", fmt.Errorf("parse item ref %q: %w", cliRef, err)
-	}
-	return operations.CountersignRef(trust.RefFromBundleRef(br))
 }
 
 func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {

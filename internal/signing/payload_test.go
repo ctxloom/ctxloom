@@ -92,16 +92,20 @@ func TestCountersignPayload_HeaderIsNotAffectedByPayloadContent(t *testing.T) {
 }
 
 // =============================================================================
-// THE ESCALATION, AS A TEST. Fragment/command payloads are BARE content bytes;
-// exec and skill payloads are deterministic JSON. So a bundle can ship a
-// FRAGMENT whose body IS an mcp server's preimage — byte equality, no collision
-// search — and the reviewer is shown it as TEXT. The composite attestation form
-// is what stops that approval from ever being found by the mcp gate: identical
-// payload bytes in different ROLES must produce different SIGNED bytes.
+// THE ESCALATION, AS A TEST. While a text kind's payload was its BARE content
+// bytes, a bundle could ship a FRAGMENT whose body IS an mcp server's preimage
+// — byte equality, no collision search — and the reviewer was shown it as
+// TEXT. The composite attestation form is what stops that approval from ever
+// being found by the mcp gate: identical payload bytes in different ROLES must
+// produce different SIGNED bytes. Every kind's preimage now opens with its own
+// contract line (TestPreimageContracts_AreDistinctAndPrefixFree), so the
+// collision cannot be built through a production builder any more; this test
+// hands the store one payload in every role directly, because the role
+// binding is a defence in its own right and must not depend on the framing.
 //
 // Every pair is checked, not just the text->exec one: fragment vs command was
-// the second collision axis (both bare bytes under identical layout forms), and
-// it is exactly why "start passing an exec form" would not have been a fix.
+// the second collision axis, and it is exactly why "start passing an exec
+// form" would not have been a fix.
 // =============================================================================
 
 func TestCountersignPayload_IdenticalBytesInDifferentRolesSignDifferently(t *testing.T) {

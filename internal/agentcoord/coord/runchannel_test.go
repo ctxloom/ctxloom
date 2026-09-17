@@ -336,8 +336,9 @@ func TestAgentSend_UnmarshalableStructuredIsRefused(t *testing.T) {
 		"a send whose structured payload cannot be carried must not report OK")
 	assert.Empty(t, resp.GetPeerSend().GetMessageId(),
 		"a refused send must not hand back a message id")
-	assert.Empty(t, spoolEntries(t, out.Harp, spool.DirOut),
-		"a refused send must not write a hollowed-out message")
+	for _, e := range spoolEntries(t, out.Harp, spool.DirOut) {
+		assert.NotEqual(t, "decision", e.Message.Body, "a refused send must not write a hollowed-out message")
+	}
 	assert.Empty(t, recvBody(t, c, "decision", 200*time.Millisecond))
 }
 

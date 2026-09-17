@@ -34,7 +34,7 @@ type Plan struct {
 	// the plan), as stamped by ctxloom's plan-stamp hook.
 	Sessions []string `json:"sessions"`
 	// ProjectDir is the project directory the owning session ran in, joined
-	// from ~/.ctxloom/sessions/index.yaml. Empty when the plan could not be
+	// from the owning session's record. Empty when the plan could not be
 	// attributed to any project (ephemeral/worktree session, pruned index
 	// entry, hand-created plan file) — and also empty from the unscoped List /
 	// ListHome, which do no attribution at all. Only the scoped listings

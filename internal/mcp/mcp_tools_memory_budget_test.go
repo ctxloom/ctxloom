@@ -84,7 +84,7 @@ func TestWithDistillBudget(t *testing.T) {
 // is in relayBudgets for precisely this reason.
 func TestDistillMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 
 	proj := t.TempDir()
@@ -129,7 +129,7 @@ func TestDistillMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 // asked to do.
 func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 
 	proj := t.TempDir()
@@ -144,8 +144,7 @@ func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.
 		p, perr := paths.HarpEssencePath(entry.HarpName)
 		require.NoError(t, perr)
 		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
-		require.NoError(t, os.WriteFile(p, []byte("# essence\n"), 0o644))
-		require.NoError(t, mgr.SetSummary(entry.HarpName, "distilled just now", nil, 0))
+		require.NoError(t, os.WriteFile(p, []byte("---\nsummary: distilled just now\n---\n# essence\n"), 0o644))
 		return &memory.CompactionResult{SessionID: entry.SessionID}, nil
 	}
 	defer func() { compactEntryFn = prev }()
@@ -178,7 +177,7 @@ func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.
 // the buffer empty and fail here.
 func TestDistillMissingForList_WarningsGoToTheRedirectableSinkNotStderr(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 
 	proj := t.TempDir()

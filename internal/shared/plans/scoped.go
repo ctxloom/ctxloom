@@ -6,35 +6,36 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
-// ProjectIndex is the harp → project-directory join table read from
-// ~/.ctxloom/sessions/index.yaml. Plans live under ~/.ctxloom/sessions/<harp>/
-// and carry no project of their own, so the owning session's index entry is the
-// only thing that attributes a plan to a project.
+// ProjectIndex is the harp → project-directory join table read from the
+// session store (each session's sidecar). Plans live under
+// ~/.ctxloom/sessions/<harp>/ and carry no project of their own, so the
+// owning session's record is the only thing that attributes a plan to a
+// project.
 //
 // Paths are stored filepath.Clean'd so a cosmetic difference (trailing
-// separator, "." segment) between the index and a caller's working directory
+// separator, "." segment) between the record and a caller's working directory
 // can't make a plan vanish from its own project's listing.
 type ProjectIndex map[string]string
 
-// LoadProjectIndex reads the session index and returns the harp → project-dir
+// LoadProjectIndex reads every session and returns the harp → project-dir
 // table. Sessions with no recorded project dir are simply absent, which reads
 // as "unattributable" at lookup time.
 //
 // The error is returned rather than folded into a bool at each lookup on
-// purpose: an unreadable or corrupt index is a real failure, and a caller that
-// quietly listed nothing because the index wouldn't parse is the silent-no-op
-// this package must not commit.
+// purpose: an unreadable session root is a real failure, and a caller that
+// quietly listed nothing because it wouldn't read is the silent-no-op this
+// package must not commit.
 func LoadProjectIndex() (ProjectIndex, error) {
-	m, err := sessions.Open("")
+	m, err := sessions.Open()
 	if err != nil {
 		return nil, err
 	}
-	idx, err := m.Load()
+	all, err := m.ListAll()
 	if err != nil {
 		return nil, err
 	}
-	out := make(ProjectIndex, len(idx.Sessions))
-	for _, e := range idx.Sessions {
+	out := make(ProjectIndex, len(all))
+	for _, e := range all {
 		if e.HarpName == "" || e.ProjectDir == "" {
 			continue
 		}

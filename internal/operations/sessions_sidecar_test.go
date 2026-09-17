@@ -19,7 +19,7 @@ import (
 // after the one-time migration contributes no rows.
 func TestListAllSessions_StaleIndexYAMLIsNotASource(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	real, err := mgr.AssignHarp("/proj/a", "claude-code")
 	require.NoError(t, err)
@@ -53,7 +53,7 @@ func TestListAllSessions_StaleIndexYAMLIsNotASource(t *testing.T) {
 // dropping, and this pins that nothing else took its place.
 func TestListAllSessions_PurgedDirectoryListsAsPurged(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	e, err := mgr.AssignHarp("/proj/a", "claude-code")
 	require.NoError(t, err)

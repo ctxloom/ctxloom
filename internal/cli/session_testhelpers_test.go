@@ -128,7 +128,7 @@ func enginePinFromLock(t *testing.T, key string) string {
 // into the real one.
 func seedHookSession(t *testing.T, backend string) string {
 	t.Helper()
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(t.TempDir(), backend)
 	require.NoError(t, err)
@@ -153,7 +153,7 @@ func seedEngineVersion(t *testing.T, mgr *sessions.Manager, harp, backend string
 // the liveness guard fires.
 func seedEndedSession(t *testing.T, projectDir, backend string) (*sessions.Manager, string) {
 	t.Helper()
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(projectDir, backend)
 	require.NoError(t, err)

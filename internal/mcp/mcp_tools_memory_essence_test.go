@@ -18,7 +18,7 @@ import (
 // plus the path its essence.md would occupy.
 func bindHarpForEssence(t *testing.T, projectDir string) (string, string) {
 	t.Helper()
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	e, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)

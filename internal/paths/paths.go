@@ -369,7 +369,7 @@ const (
 )
 
 // HomeSessionsDir returns ~/.ctxloom/sessions — the home-rooted directory
-// that holds the session index and per-harp session dirs. This is the
+// that holds the per-harp session dirs. This is the
 // single source of truth for the sessions root; both the task store and the
 // memory compactor resolve harp paths through it so they cannot diverge.
 // HomeConfigDir returns the user's home ctxloom directory (~/.ctxloom).

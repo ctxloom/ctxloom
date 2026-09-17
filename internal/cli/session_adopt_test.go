@@ -53,7 +53,7 @@ func writeAdoptVendorFile(t *testing.T, dir, sessionID string, start, end time.T
 // name and that directory (the one `session adopt` will scan).
 func seedClaudeHarpWithVendorDir(t *testing.T, projectDir string) (mgr *sessions.Manager, harp, dir string) {
 	t.Helper()
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
@@ -64,13 +64,13 @@ func seedClaudeHarpWithVendorDir(t *testing.T, projectDir string) (mgr *sessions
 	return mgr, entry.HarpName, dir
 }
 
-// indexBytes reads the raw session index file — used to prove a dry run
-// leaves it byte-for-byte untouched, the payload-level check a mutation that
-// wired --apply's write through on a report-only run would fail (a mutation
-// that merely dropped a LOG LINE would not).
-func indexBytes(t *testing.T) []byte {
+// sidecarBytes reads the harp's raw sidecar — used to prove a dry run leaves
+// it byte-for-byte untouched, the payload-level check a mutation that wired
+// --apply's write through on a report-only run would fail (a mutation that
+// merely dropped a LOG LINE would not).
+func sidecarBytes(t *testing.T, harp string) []byte {
 	t.Helper()
-	p, err := paths.SessionIndexPath()
+	p, err := paths.HarpSidecarPath(harp)
 	require.NoError(t, err)
 	b, err := os.ReadFile(p)
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func indexBytes(t *testing.T) []byte {
 }
 
 // TestSessionAdopt_DryRunWritesNothing is the dry-run-writes-nothing
-// mutation kill: a report-only run must leave index.yaml BYTE-IDENTICAL,
+// mutation kill: a report-only run must leave the sidecar BYTE-IDENTICAL,
 // not merely "the harp still has the same Rotations count" (which a
 // mutation reordering fields, or writing and reverting, could still pass).
 func TestSessionAdopt_DryRunWritesNothing(t *testing.T) {
@@ -88,12 +88,12 @@ func TestSessionAdopt_DryRunWritesNothing(t *testing.T) {
 		time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 5, 1, 0, 0, 0, time.UTC))
 	t.Cleanup(func() { resetSessionAdoptFlags(t) })
 
-	before := indexBytes(t)
+	before := sidecarBytes(t, harp)
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "adopt", harp)
 	require.NoError(t, err)
 
-	after := indexBytes(t)
+	after := sidecarBytes(t, harp)
 	assert.Equal(t, before, after, "a report-only run must leave index.yaml byte-identical")
 
 	assert.Contains(t, stdout, "id-orphan")
@@ -119,7 +119,7 @@ func TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload(t *testing.T) {
 	assert.Contains(t, stderr, "adopted 1 rotation")
 	assert.Contains(t, stderr, "session distill "+harp)
 
-	fresh, err := sessions.Open("")
+	fresh, err := sessions.Open()
 	require.NoError(t, err)
 	found, err := fresh.Find(harp)
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload(t *testing.T) {
 // loudly, naming itself, rather than silently scanning nothing.
 func TestSessionAdopt_UnsupportedBackendFails(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "mock")
 	require.NoError(t, err)

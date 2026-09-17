@@ -28,7 +28,7 @@ import (
 func TestTranscriptSize_PrefersCanonicalOverLegacy(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestTranscriptSize_PrefersCanonicalOverLegacy(t *testing.T) {
 func TestTranscriptEntryCount_FallsBackToLegacyWhenNoCanonical(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestTranscriptEntryCount_FallsBackToLegacyWhenNoCanonical(t *testing.T) {
 func TestTranscriptEntryCount_DanglingBoundPath_Warns(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)

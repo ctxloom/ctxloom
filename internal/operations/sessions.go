@@ -3,160 +3,55 @@ package operations
 import (
 	"context"
 	"errors"
-	"io/fs"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/engineversion"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
-// Session operations wrap the harp-keyed session index so frontends never touch
-// it directly (ADR 0019). The index is a thin filesystem-backed manager; these
-// open it per call. Entries are returned as-is — a domain type a frontend may
-// render, which 0019 permits; only the IO and decisions live here.
+// Session operations wrap the harp-keyed session store so frontends never
+// touch it directly (ADR 0019). The store is the set of session directories
+// and their sidecars under the sessions root; these open it per call.
+// Entries are returned as-is — a domain type a frontend may render, which
+// 0019 permits; only the IO and decisions live here.
+//
+// Readers group by what they need, and each costs what it needs:
+//   - a full listing (ListSessionsForProject, ListAllSessions) enumerates
+//     every session directory and reads every sidecar;
+//   - one session by harp (GetSession) reads that one directory's sidecar;
+//   - one session by backend id (HarpForSession) has to walk the sidecars,
+//     because a session id — current or rotated past — is recorded only in
+//     the sidecar of the harp that owns it.
+//
+// Nothing is reconciled away on the way out. A directory with a sidecar is
+// a session and is listed; a purged one carries PurgedAt and is listed as
+// purged; a forgotten one has no sidecar and is not a session at all.
 
 func openSessions() (sessions.Store, error) {
-	return sessions.Open("")
+	return sessions.Open()
 }
 
-// isUnrecoverable reports whether a session index entry can never be acted on
-// again, so listing should silently drop it (and forget the dangling row): its
-// transcript was bound but the file is now gone, AND it has no distilled essence
-// to fall back on. A still-pending entry (no transcript bound yet — a run in
-// flight) and a distilled entry are recoverable, so both are kept.
-func isUnrecoverable(e sessions.Entry) bool {
-	if e.PurgedAt != nil {
-		return false // purged on purpose: the row IS the record now, checked
-		// first so a purge that already destroyed the transcript this
-		// predicate would otherwise flag can never race its own index write —
-		// see operations.PurgeSession and sessions.Manager.MarkPurged's
-		// mark-before-destroy ordering.
-	}
-	if e.Summary != "" || len(e.Detail) > 0 {
-		return false // distilled: essence.md is still viewable
-	}
-	// ctxloom's OWN capture (transcript.jsonl) is a full fallback for a
-	// vendor transcript the vendor has since pruned — the whole point of
-	// capturing runner-side. Missing this check made the reap delete
-	// perfectly recoverable sessions. Manager.Reconcile fills this
-	// computed-on-read field on the entry it judges; without that fill the
-	// check here can never fire, which is why the fix had two halves.
-	if e.CanonicalTranscriptPath != "" {
-		return false
-	}
-	if e.TranscriptPath == "" {
-		return false // pending/unbound: the session is still in progress
-	}
-	// AUTHORED CONTENT OUTLIVES THE TRANSCRIPT IT WAS WRITTEN BESIDE. A plan or
-	// a report under persist/ is something a person (or an agent on their
-	// behalf) WROTE; the vendor transcript is a log that vendor may prune on its
-	// own schedule. Judging recoverability on the log alone therefore reaps the
-	// irreplaceable half to reclaim the replaceable one — measured on this box
-	// as 22 indexed harps carrying plans with no transcript, every one of them
-	// one reap away.
-	//
-	// Checked LAST, so it costs a directory read only for an entry already bound
-	// to a transcript that is gone. Consulting the filesystem is inside
-	// Reconcile's predicate contract (Entry + filesystem, never the index).
-	if hasAuthoredPersistContent(e.HarpName) {
-		return false
-	}
-	return transcriptGone(e.TranscriptPath)
-}
-
-// hasAuthoredPersistContent reports whether the harp's persist/ directory holds
-// anything authored, as opposed to anything ctxloom wrote there itself.
-//
-// The test is a `.md` leaf, and the narrowness is deliberate. persist/ mixes the
-// two kinds: plans and reports (`<name>.plan.md`, `<name>.report.md`) are
-// authored and cannot be regenerated from anything, while transcript.jsonl,
-// context-metrics.jsonl, diagnostics.log and transcript.jsonl.lock are ctxloom's
-// own machine-written bookkeeping. A broader test — "persist/ is non-empty" —
-// would keep every session that ever merely RAN alive forever, which turns
-// pruning off rather than making it correct, and the ruling is explicit that
-// pruning stays.
-//
-// A missing or unreadable directory yields false: absence of evidence that a
-// human wrote something is not, on its own, a reason to keep a row, and the
-// caller has already exhausted every other recoverability signal by this point.
-func hasAuthoredPersistContent(harp string) bool {
-	if harp == "" {
-		return false
-	}
-	dir, err := paths.HarpPersistDir(harp)
-	if err != nil {
-		return false
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".md") {
-			return true
-		}
-	}
-	return false
-}
-
-// transcriptGone reports whether the transcript file is genuinely absent
-// (ENOENT). Any other os.Stat error — permission denied, a transient I/O hiccup
-// on a network mount, EINTR, a temporarily-unavailable parent dir — is treated
-// as "not gone" so a degraded environment never permanently forgets a still-
-// recoverable session (CLAUDE.md fault tolerance: tolerate transient failures,
-// never destructive action). Only true non-existence makes a bound transcript
-// unrecoverable.
-func transcriptGone(path string) bool {
-	_, err := os.Stat(path)
-	return errors.Is(err, fs.ErrNotExist)
-}
-
-// ListSessions returns every session index entry, after reconciling away any
-// that have become unrecoverable (see isUnrecoverable) so a dead pointer never
-// reaches a frontend.
-func ListSessions() ([]sessions.Entry, error) {
-	mgr, err := openSessions()
-	if err != nil {
-		return nil, err
-	}
-	return mgr.Reconcile(isUnrecoverable)
-}
-
-// ListSessionsForProject returns the entries whose project dir matches,
-// most-recent-first, after reconciling the index so unrecoverable sessions are
-// silently dropped here too (`session list`, the MCP memory tools and the
-// VSCode companion all arrive through this path).
+// ListSessionsForProject returns the sessions whose project dir matches,
+// most-recent-first (`session list`, the MCP memory tools and the VSCode
+// companion all arrive through this path).
 func ListSessionsForProject(projectDir string) ([]sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {
 		return nil, err
 	}
-	if _, err := mgr.Reconcile(isUnrecoverable); err != nil {
-		return nil, err
-	}
 	return mgr.ListForProject(projectDir)
 }
 
-// ListAllSessions returns every recorded session across all projects,
-// most-recent-first by last-worked time (ActivityTime), after reconciling the
-// index so unrecoverable sessions are dropped here too. Mirrors
-// ListSessionsForProject without the project filter — the ordered all-projects
-// listing (`session list --all`, the list_sessions MCP tool, the
-// ctxloom://sessions resource). ListSessions (unsorted) stays for
-// order-insensitive callers that only need membership.
+// ListAllSessions returns every session across all projects, most-recent-first
+// by last-worked time (ActivityTime). Mirrors ListSessionsForProject without
+// the project filter — the ordered all-projects listing (`session list
+// --all`, the list_sessions MCP tool, the ctxloom://sessions resource).
 func ListAllSessions() ([]sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {
-		return nil, err
-	}
-	if _, err := mgr.Reconcile(isUnrecoverable); err != nil {
 		return nil, err
 	}
 	return mgr.ListAll()
@@ -439,22 +334,6 @@ func EndSession(harp string, at time.Time) error {
 		removeSessionInstance(entry.ProjectDir, harp)
 	}
 	return nil
-}
-
-// SessionIndexUpgrade reports whether loading the index would apply an in-memory
-// schema upgrade, returning the pending upgrade and a commit closure bound to
-// the loaded manager (nil pending when the on-disk index is already current).
-// The interactive caller prompts before invoking commit; the index is never
-// rewritten silently. See cmd's confirmUpgrade.
-func SessionIndexUpgrade() (*upgrade.Pending, func() error, error) {
-	mgr, err := openSessions()
-	if err != nil {
-		return nil, nil, err
-	}
-	if _, err := mgr.Load(); err != nil {
-		return nil, nil, err
-	}
-	return mgr.PendingUpgrade(), mgr.CommitUpgrade, nil
 }
 
 // BindSession records the backend session_id and transcript path for harp.

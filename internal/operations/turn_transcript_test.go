@@ -21,7 +21,7 @@ import (
 // adapter, and an unrecorded version refuses outright.
 func mintTurnSession(t *testing.T, backend, version string) string {
 	t.Helper()
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(t.TempDir(), backend)
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestResolveTurnTranscript_SelectsTheReaderForTheSessionsOwnEngine(t *testin
 // turns this red.
 func TestResolveTurnTranscript_RefusesAnUnrecordedEngineVersion(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(t.TempDir(), config.BackendClaudeCode)
 	require.NoError(t, err)

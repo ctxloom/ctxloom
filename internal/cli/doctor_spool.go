@@ -153,7 +153,7 @@ func doctorCheckSpoolBacklog(cfg *config.Config) doctorCheck {
 
 	for _, e := range entries {
 		if !e.IsDir() {
-			continue // e.g. index.yaml, sitting beside the harp dirs
+			continue // a lock file or the retired index, sitting beside the harp dirs
 		}
 		harp := e.Name()
 		root, err := spool.Root(mapper, harp)

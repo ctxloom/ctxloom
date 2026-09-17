@@ -31,7 +31,7 @@ func seedSweepFixture(t *testing.T) (instanceRoot, credential string) {
 	t.Setenv(projectroot.EnvVar, projectDir)
 	require.Equal(t, projectDir, projectroot.WorkDir(), "the fixture must own the resolved project root")
 
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)

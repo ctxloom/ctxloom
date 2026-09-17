@@ -213,16 +213,14 @@ func (f *CanonicalFallbackSource) ListSessions(ctx context.Context) ([]agent.Ses
 		return canonMetas, nil
 	}
 
-	// One index read for the whole dedup set, not one per canonical session:
-	// every Find re-reads and re-parses the entire index file, so the per-session
-	// lookup made the cost of a listing grow with the size of the project for
-	// data a single read already carries. An unreadable index simply covers
-	// nothing, exactly as a failing Find did.
+	// One enumeration for the whole dedup set, not one Find per canonical
+	// session. An unreadable store simply covers nothing, exactly as a failing
+	// Find did.
 	covered := make(map[string]bool, len(canonMetas))
 	if f.store != nil && len(canonMetas) > 0 {
-		if idx, err := f.store.Load(); err == nil {
-			sessionIDByHarp := make(map[string]string, len(idx.Sessions))
-			for _, e := range idx.Sessions {
+		if all, err := f.store.ListAll(); err == nil {
+			sessionIDByHarp := make(map[string]string, len(all))
+			for _, e := range all {
 				if e.SessionID != "" {
 					sessionIDByHarp[e.HarpName] = e.SessionID
 				}

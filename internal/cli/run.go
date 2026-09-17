@@ -1035,15 +1035,6 @@ func (st *runState) openSession() func() {
 		st.runEnv[k] = v
 	}
 
-	// If loading the index normalized an older on-disk format, offer to
-	// persist it before the upcoming AssignSession write (which would
-	// otherwise rewrite it as a side effect of creating the new session).
-	if pending, commit, upErr := operations.SessionIndexUpgrade(); upErr != nil {
-		clidiag.Warn("ctxloom", "session index open failed: %v", upErr)
-	} else {
-		confirmUpgrade(pending, commit)
-	}
-
 	entry, err := operations.AssignSession(st.ctx, st.workDir, st.backendName)
 	if err != nil {
 		clidiag.Warn("ctxloom", "session naming failed: %v", err)

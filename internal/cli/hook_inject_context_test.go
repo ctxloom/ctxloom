@@ -301,7 +301,7 @@ func TestClearRecoveryMessage(t *testing.T) {
 func TestCurrentSessionRecoverable(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 
 	// Shape 1: a PRIOR clear already recorded a rotation (a second-or-later

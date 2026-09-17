@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gopkg.in/yaml.v3"
@@ -289,7 +290,53 @@ func (s *ctxServer) handleResourceSessionsAll(_ context.Context, req *mcp.ReadRe
 	if err != nil {
 		return nil, err
 	}
-	return marshalResourceYAML(req.Params.URI, sessions.Index{Sessions: entries})
+	rows := make([]sessionsAllRow, len(entries))
+	for i, e := range entries {
+		rows[i] = sessionsAllRow{
+			HarpName:       e.HarpName,
+			SessionID:      e.SessionID,
+			Backend:        e.Backend,
+			ProjectDir:     e.ProjectDir,
+			StartedAt:      e.StartedAt,
+			EndedAt:        e.EndedAt,
+			TranscriptPath: e.TranscriptPath,
+			Summary:        e.Summary,
+			Detail:         e.Detail,
+			SourceEntries:  e.SourceEntries,
+			PurgedAt:       e.PurgedAt,
+			EngineVersion:  e.EngineVersion,
+			Rotations:      e.Rotations,
+		}
+	}
+	return marshalResourceYAML(req.Params.URI, sessionsAllResource{Sessions: rows})
+}
+
+// sessionsAllResource is the ctxloom://sessions/all payload: the full record
+// of every session, harp-named. It is this resource's OWN wire shape, spelled
+// out here rather than borrowed from sessions.Entry's tags, because the
+// entry's persisted form (its sidecar) and what a client is shown are two
+// different contracts — the sidecar omits the harp name and the essence-
+// derived fields precisely because the directory and essence.md carry them,
+// while a client has nothing but this payload.
+type sessionsAllResource struct {
+	Sessions []sessionsAllRow `yaml:"sessions"`
+}
+
+// sessionsAllRow is one session in sessionsAllResource, snake_case-keyed.
+type sessionsAllRow struct {
+	HarpName       string              `yaml:"harp_name"`
+	SessionID      string              `yaml:"session_id,omitempty"`
+	Backend        string              `yaml:"backend,omitempty"`
+	ProjectDir     string              `yaml:"project_dir"`
+	StartedAt      time.Time           `yaml:"started_at"`
+	EndedAt        *time.Time          `yaml:"ended_at,omitempty"`
+	TranscriptPath string              `yaml:"transcript_path,omitempty"`
+	Summary        string              `yaml:"summary,omitempty"`
+	Detail         []string            `yaml:"detail,omitempty"`
+	SourceEntries  int                 `yaml:"source_entries,omitempty"`
+	PurgedAt       *time.Time          `yaml:"purged_at,omitempty"`
+	EngineVersion  string              `yaml:"engine_version,omitempty"`
+	Rotations      []sessions.Rotation `yaml:"rotations,omitempty"`
 }
 
 // --- Single-record templates (Phase 4 Lever A) ---

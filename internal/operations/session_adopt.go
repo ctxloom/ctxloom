@@ -22,7 +22,7 @@ import (
 // record, and no path FindBySessionID could ever walk back to. This file is
 // the read-only discovery half (ScanAdoptCandidates); ApplyAdopt is the
 // write half, and it goes through sessions.Store.AppendRotations —
-// this package never hand-edits index.yaml (the restore that motivated this
+// this package never hand-edits a session record (the restore that motivated this
 // command was originally done exactly that way, by hand).
 
 // AdoptVerdict is ScanAdoptCandidates' judgment on one discovered vendor
@@ -354,7 +354,7 @@ func claudeRecordSpan(path string) (start, end time.Time, n int, err error) {
 
 // ApplyAdopt appends every Adopt-verdict candidate's Rotation to harp's
 // lineage through the store (sessions.Store.AppendRotations — never a hand
-// edit of index.yaml), in the oldest-first order ScanAdoptCandidates already
+// edit of the record), in the oldest-first order ScanAdoptCandidates already
 // computed them in. Returns how many were actually appended; 0 is a
 // legitimate, non-error outcome when candidates carries no Adopt-verdict row
 // (everything discovered was already known or overlapped).

@@ -328,6 +328,12 @@ func classifyHarpDir(harpDir string, entry *sessions.Entry) ([]PurgeItem, error)
 		if !d.Type().IsRegular() {
 			return nil // symlinks/devices/etc: not one of the enumerated classes, left alone
 		}
+		if rel == paths.SessionSidecarFileName {
+			// The session's own record is what says a purge happened
+			// (MarkPurged stamps it); it is no population and never an
+			// item.
+			return nil
+		}
 		info, infoErr := d.Info()
 		if infoErr != nil {
 			return infoErr

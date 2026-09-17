@@ -47,7 +47,6 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 
 	noArg := map[string]func() (string, error){
 		"HomeSessionsDir":           HomeSessionsDir,
-		"SessionIndexPath":          SessionIndexPath,
 		"HomeApprovalsPath":         HomeApprovalsPath,
 		"HomeAllowedSignersPath":    HomeAllowedSignersPath,
 		"HomeDistrustedSignersPath": HomeDistrustedSignersPath,

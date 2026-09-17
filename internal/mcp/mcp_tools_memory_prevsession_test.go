@@ -28,7 +28,7 @@ import (
 // the wrong file.
 func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 	testsupport.Isolate(t) // isolate HOME → ~/.ctxloom is a temp index
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 
 	projectDir := t.TempDir()
@@ -59,7 +59,7 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 	require.NoError(t, err)
 	const essenceBody = "## Previous session\nPicked up where we left off.\n"
 	require.NoError(t, os.WriteFile(essPath, []byte(essenceBody), 0o644))
-	require.NoError(t, mgr.SetSummary(harp, "prev work", nil, transcriptEntries))
+	require.NoError(t, mgr.SetSourceEntries(harp, transcriptEntries))
 
 	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")})}
 	_, out, err := s.previousSessionByHarp(context.Background(), harp, "")
@@ -76,7 +76,7 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 // must never block the agent.
 func TestPreviousSessionByHarp_UnknownHarpDegrades(t *testing.T) {
 	testsupport.Isolate(t)
-	_, err := sessions.Open("")
+	_, err := sessions.Open()
 	require.NoError(t, err)
 
 	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(t.TempDir(), ".ctxloom")})}

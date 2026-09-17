@@ -988,7 +988,7 @@ func TestCompact_BySessionID(t *testing.T) {
 func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/project", "claude-code")
 	require.NoError(t, err)
@@ -1078,7 +1078,7 @@ func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
 func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/project", "claude-code")
 	require.NoError(t, err)
@@ -1276,55 +1276,6 @@ func TestDeriveSummary(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// buildPickerDetail — extra picker lines from the body's Open Items section.
-// =============================================================================
-
-func TestBuildPickerDetail(t *testing.T) {
-	longBullet := "- " + strings.Repeat("x", 120)
-	tests := []struct {
-		name     string
-		body     string
-		expected []string
-	}{
-		{
-			name:     "extracts open items bullets",
-			body:     "### Open Items\n- finish the picker\n- write the tests\n\n### State\nin progress",
-			expected: []string{"- finish the picker", "- write the tests"},
-		},
-		{
-			name:     "stops at the next section heading",
-			body:     "### Open Items\n- only this one\n\n### Decisions\n- not this one",
-			expected: []string{"- only this one"},
-		},
-		{
-			name:     "caps at four bullets",
-			body:     "### Open Items\n- one\n- two\n- three\n- four\n- five\n- six",
-			expected: []string{"- one", "- two", "- three", "- four"},
-		},
-		{
-			name:     "caps each bullet at 80 bytes",
-			body:     "### Open Items\n" + longBullet,
-			expected: []string{longBullet[:80]},
-		},
-		{
-			name:     "nil when no open items section",
-			body:     "### State\n- this is state, not open items",
-			expected: nil,
-		},
-		{
-			name:     "ignores prose before the section",
-			body:     "Some intro prose.\n\n### Open Items\n- the real item",
-			expected: []string{"- the real item"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, buildPickerDetail(tt.body))
-		})
-	}
-}
-
 // TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason pins the error a
 // user actually sees when the canonical session index cannot be opened on a
 // retired-scraper backend. Those backends (claude-code, the default, among
@@ -1336,7 +1287,7 @@ func TestBuildPickerDetail(t *testing.T) {
 func TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) {
 	home := testsupport.Isolate(t)
 
-	// Make sessions.Open("") fail: it MkdirAll's the index's parent, so a plain
+	// Make sessions.Open() fail: it MkdirAll's the index's parent, so a plain
 	// file where that directory belongs is enough.
 	sessionsPath := filepath.Join(home, ".ctxloom", "sessions")
 	require.NoError(t, os.MkdirAll(filepath.Dir(sessionsPath), 0o755))
@@ -1346,7 +1297,7 @@ func TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) 
 	// before anything is asserted about behaviour: a temp HOME that the
 	// compactor does not actually consult would make this test green for the
 	// wrong reason.
-	_, openErr := sessions.Open("")
+	_, openErr := sessions.Open()
 	require.Error(t, openErr, "fixture is not hostile: sessions.Open still succeeds")
 
 	backend := "claude-code"
@@ -1487,24 +1438,25 @@ func TestSaveDistilled_NoHarpRefusesRatherThanGuessingALocation(t *testing.T) {
 // record saying why. The lookup failure is a degradation and the compactor
 // already has a sink for degradations.
 func TestUpdateSessionIndex_WarnsWhenTheIndexCannotBeRead(t *testing.T) {
-	home := testsupport.Isolate(t)
-	indexPath := filepath.Join(home, ".ctxloom", "sessions", "index.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(indexPath), 0o755))
-	require.NoError(t, os.WriteFile(indexPath, []byte("sessions: [not: a list of entries\n"), 0o644))
+	testsupport.Isolate(t)
+	sidecar, err := paths.HarpSidecarPath("lively-index-harp")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
+	require.NoError(t, os.WriteFile(sidecar, []byte("project_dir: [not: a mapping\n"), 0o644))
 
 	// The bind arm is reached only through Find, so assert the fixture is
 	// hostile from updateSessionIndex's own vantage point before asserting
 	// anything about what it reports.
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	_, ferr := mgr.Find("lively-index-harp")
-	require.Error(t, ferr, "the fixture index must be unreadable, or this pin proves nothing")
+	require.Error(t, ferr, "the fixture sidecar must be unreadable, or this pin proves nothing")
 
 	var sink bytes.Buffer
 	c := &Compactor{config: CompactionConfig{Progress: &sink}}
-	// An empty summary skips the SetSummary arm, so the lookup failure is the
-	// only thing that can put anything in the sink.
-	c.updateSessionIndex("lively-index-harp", "sess-1", "", nil, 0)
+	// An empty summary skips the fingerprint arm, so the lookup failure is
+	// the only thing that can put anything in the sink.
+	c.updateSessionIndex("lively-index-harp", "sess-1", "", 0)
 
 	assert.Contains(t, sink.String(), "lively-index-harp",
 		"an unreadable index must be reported, not silently taken for an absent entry")

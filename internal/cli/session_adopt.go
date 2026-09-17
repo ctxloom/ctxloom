@@ -17,7 +17,7 @@ import (
 // pre-fix /clear left a vendor file on disk with no index row, no rotation
 // record, and no path FindBySessionID could ever walk back to. The restore
 // that motivated this command was originally done by hand-editing
-// index.yaml; this is the command that does it through the store instead.
+// the record; this is the command that does it through the store instead.
 //
 // SAME report-then-apply shape as the session purge family: without --apply
 // this only reports, and the report says outright that nothing was applied.
@@ -43,7 +43,7 @@ adopted.
 
 Without --apply this only reports; nothing on disk or in the session index
 changes. --apply appends every adopted candidate to the harp's Rotations
-through the session store, oldest first — never a hand edit of index.yaml —
+through the session store, oldest first — never a hand edit of the record —
 and prints the next step (distill or recover) to actually materialize the
 recovered history; it does not run that step itself.
 

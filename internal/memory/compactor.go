@@ -273,7 +273,7 @@ func resolveTranscriptSource(config CompactionConfig) (pb.SessionSource, func(co
 	plans := reader.GetPlans
 	// S4: prefer ctxloom's own captured transcript over the
 	// legacy per-engine scraper reader now behind it. A session-index open
-	// failure (rare — a corrupt/unwritable ~/.ctxloom/sessions/index.yaml)
+	// failure (rare — an unreadable ~/.ctxloom/sessions root)
 	// degrades to the legacy-only reader rather than failing compaction
 	// outright; distillation must never block on the canonical layer.
 	//
@@ -286,7 +286,7 @@ func resolveTranscriptSource(config CompactionConfig) (pb.SessionSource, func(co
 	if backends.NoLegacyHistoryReason(config.Backend) == "" {
 		legacy = reader
 	}
-	store, sErr := sessions.Open("")
+	store, sErr := sessions.Open()
 	switch {
 	case sErr == nil:
 		return pb.NewCanonicalFallbackSource(legacy, config.WorkDir, store), plans, nil
@@ -529,11 +529,6 @@ func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourc
 	// so a distilled session never renders as "(no summary)" in `session list`.
 	summary := deriveSummary(frontmatterSummary, cleanedBody)
 
-	// Extra detail lines: the leading Open Items, so a session row shows "what +
-	// what's left" instead of a lone subject. Derived from the body before
-	// plan blocks are re-attached.
-	detail := buildPickerDetail(cleanedBody)
-
 	body := assembleBody(cleanedBody, app)
 
 	// Save distilled output
@@ -550,7 +545,7 @@ func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourc
 	}
 	result.DistilledPath = distilledPath
 
-	c.updateSessionIndex(harpName, session.ID, summary, detail, sourceEntries)
+	c.updateSessionIndex(harpName, session.ID, summary, sourceEntries)
 
 	result.Duration = time.Since(start)
 	return result, nil
@@ -827,7 +822,7 @@ func (c *Compactor) resolveHarpName() string {
 	// memory compact` with no coordinator context) falls back to the
 	// caller's own harp exactly as before this fix.
 	if c.config.SessionID != "" && c.config.HarpName != "" && c.config.SessionID != c.config.HarpName {
-		if mgr, err := sessions.Open(""); err == nil {
+		if mgr, err := sessions.Open(); err == nil {
 			if entry, _ := mgr.Find(c.config.SessionID); entry != nil {
 				return c.config.SessionID
 			}
@@ -852,7 +847,7 @@ func (c *Compactor) identityBoundSessionID() string {
 	if harpName == "" {
 		return ""
 	}
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	if err != nil {
 		return ""
 	}
@@ -870,11 +865,11 @@ func (c *Compactor) identityBoundSessionID() string {
 // later `ctxloom session distill <harp>` finds the transcript) and updates the
 // index summary, detail lines, and source-size staleness fingerprint. No-op
 // without a harp name; all failures warn, never fatal.
-func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, detail []string, sourceEntries int) {
+func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, sourceEntries int) {
 	if harpName == "" {
 		return
 	}
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	if err != nil {
 		return
 	}
@@ -899,13 +894,15 @@ func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, deta
 			c.warnf("index bind failed: %v", err)
 		}
 	}
-	// Guarded on a non-empty summary so a failed distill (no frontmatter) never
-	// clobbers a previously good summary; the fingerprint rides along with it.
-	// The essence.md frontmatter carries EntryCount unconditionally, so the
+	// The summary and Open Items are read from essence.md itself by every
+	// listing; only the staleness fingerprint is recorded on the session.
+	// Guarded on a non-empty summary so a failed distill (no frontmatter)
+	// never stamps a fingerprint for an essence that was not produced. The
+	// essence.md frontmatter carries EntryCount unconditionally, so the
 	// authoritative staleness check (loadOrDistillSession) works even here.
 	if summary != "" {
-		if err := mgr.SetSummary(harpName, summary, detail, sourceEntries); err != nil {
-			c.warnf("index summary update failed: %v", err)
+		if err := mgr.SetSourceEntries(harpName, sourceEntries); err != nil {
+			c.warnf("session fingerprint update failed: %v", err)
 		}
 	}
 }
@@ -921,7 +918,7 @@ func transcriptEntryCount(harpName string) int {
 	if harpName == "" {
 		return 0
 	}
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	if err != nil {
 		return 0
 	}
@@ -954,46 +951,6 @@ func transcriptEntryCount(harpName string) int {
 		return 0
 	}
 	return count
-}
-
-// maxPickerDetailLines caps the Open Items shown under a session row. With the
-// subject line that's up to 5 lines per session, enough to tell two sessions
-// apart without the listing growing unwieldy.
-const maxPickerDetailLines = 4
-
-// buildPickerDetail extracts the leading bullets of the body's "### Open Items"
-// section as the entry's detail lines — the "what's left to do". Each returned line is normalized to a single line capped at 80
-// bytes; the "- " bullet marker is preserved for readability. Returns nil when
-// the body has no Open Items section.
-func buildPickerDetail(body string) []string {
-	lines := strings.Split(body, "\n")
-	inOpen := false
-	var detail []string
-	for _, line := range lines {
-		t := strings.TrimSpace(line)
-		if strings.HasPrefix(t, "#") {
-			// A heading ends the Open Items section once we're inside it; before
-			// that, look for the Open Items heading specifically.
-			if inOpen {
-				break
-			}
-			if strings.Contains(strings.ToLower(t), "open items") {
-				inOpen = true
-			}
-			continue
-		}
-		if !inOpen || t == "" {
-			continue
-		}
-		if !strings.HasPrefix(t, "-") && !strings.HasPrefix(t, "*") {
-			continue
-		}
-		detail = append(detail, firstLineSummary(t))
-		if len(detail) >= maxPickerDetailLines {
-			break
-		}
-	}
-	return detail
 }
 
 // sessionToText converts a session to readable text for distillation. Plans
@@ -1216,7 +1173,7 @@ func parseLLMFrontmatter(out string) (summary, body string, ok bool) {
 		return "", out, false
 	}
 	bodyText := strings.TrimLeft(rest[end+len("\n---"):], "\r\n")
-	return firstLineSummary(parsed.Summary), bodyText, true
+	return sessions.FirstLineSummary(parsed.Summary), bodyText, true
 }
 
 // deriveSummary returns the index one-liner for a distillation: the LLM's
@@ -1224,7 +1181,7 @@ func parseLLMFrontmatter(out string) (summary, body string, ok bool) {
 // line of the body. Both are reduced to a single line capped at 80 bytes so a
 // session with any content never renders as "(no summary)".
 func deriveSummary(frontmatterSummary, body string) string {
-	if s := firstLineSummary(frontmatterSummary); s != "" {
+	if s := sessions.FirstLineSummary(frontmatterSummary); s != "" {
 		return s
 	}
 	for line := range strings.SplitSeq(body, "\n") {
@@ -1232,22 +1189,9 @@ func deriveSummary(frontmatterSummary, body string) string {
 		if t == "" || strings.HasPrefix(t, "#") {
 			continue
 		}
-		return firstLineSummary(t)
+		return sessions.FirstLineSummary(t)
 	}
 	return ""
-}
-
-// firstLineSummary trims s to its first non-empty line and caps it at 80 bytes,
-// matching the index-summary spec.
-func firstLineSummary(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = strings.TrimSpace(s[:i])
-	}
-	if len(s) > 80 {
-		s = textutil.TruncateBytes(s, 80)
-	}
-	return s
 }
 
 // saveDistilled writes the distilled session as markdown with YAML

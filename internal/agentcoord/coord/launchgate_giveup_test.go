@@ -23,14 +23,10 @@ func TestGiveUpLaunching_NotifiesTheParentForANonLaunchCause(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	const (
-		harp   = "spin-harp"
-		parent = "parent-harp"
-	)
+	const harp = "spin-harp"
+	parent := ownerIdentity().Harp
 	// Mail waiting for a harp whose budget is spent: the exact stranded state.
-	if _, _, err := c.queueMail(parent, harp, "task", "please do the thing"); !assert.NoError(t, err) {
-		return
-	}
+	writeSpoolMail(t, harp, parent, KindMessage, "please do the thing")
 	simulateAttachThenDie(c, harp, 200)
 	if _, ok, exhausted := c.nextRelaunch(harp); !assert.False(t, ok) || !assert.True(t, exhausted,
 		"precondition: the budget must be exhausted, not stopped") {
@@ -66,13 +62,9 @@ func TestGiveUpLaunching_StaysSilentForAnOperatorStop(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	const (
-		harp   = "stopped-harp"
-		parent = "parent-harp"
-	)
-	if _, _, err := c.queueMail(parent, harp, "task", "please do the thing"); !assert.NoError(t, err) {
-		return
-	}
+	const harp = "stopped-harp"
+	parent := ownerIdentity().Harp
+	writeSpoolMail(t, harp, parent, KindMessage, "please do the thing")
 	c.cancelLaunch(harp) // an explicit agent_stop
 
 	rec := RunRecord{RunID: "run-1", Harp: harp, Agent: "worker", ParentHarp: parent, Ended: true, Cause: CauseRunnerExit}

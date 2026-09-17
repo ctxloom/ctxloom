@@ -41,21 +41,25 @@ func ownerHome(t *testing.T, c *Coordinator) *Home {
 	return h
 }
 
-// childHome opens a Home on a spawned child's runner env (its credential +
-// run id from the per-spawn seam).
+// childHome returns the Home of the spawned child's OWN runner — the one the
+// fake spawner stood up for that run. A run has exactly one runner: dialing a
+// second Home with the same credential would supersede the first, and the
+// coordinator would refuse the StartRun it was about to issue.
 func childHome(t *testing.T, c *Coordinator, runID string) *Home {
 	t.Helper()
-	env := waitForChildEnv(t, c, runID)
-	h, err := NewHome(context.Background(), HomeConfig{
-		URL:     env[EnvCoordURL],
-		Token:   env[EnvCoordCred],
-		RunID:   env[EnvRunID],
-		Harness: "mock",
-		Version: "test",
-		Harp:    env["CTXLOOM_SESSION_HARP"],
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { h.Close(0, "") })
+	sp := c.spawner.(*fakeSpawner)
+	var h *Home
+	require.Eventually(t, func() bool {
+		sp.mu.Lock()
+		defer sp.mu.Unlock()
+		for _, home := range sp.engineHomes {
+			if home.cfg.RunID == runID {
+				h = home
+				return true
+			}
+		}
+		return false
+	}, conformanceWait, 10*time.Millisecond, "the child's runner never came up")
 	return h
 }
 

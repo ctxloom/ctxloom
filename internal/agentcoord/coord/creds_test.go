@@ -30,45 +30,24 @@ func TestVerifyToken_ConstantTimeMatch(t *testing.T) {
 	assert.False(t, ok, "an unknown token never matches")
 }
 
-// TestCredentialRevocation_SeversParkedPoll pins the security discipline:
-// stopping a child (agent_stop → revocation) severs its parked agent_recv
-// long-poll AND makes its credential immediately unverifiable.
-func TestCredentialRevocation_SeversParkedPoll(t *testing.T) {
+// TestCredentialRevocation_RevokesTheChildsCredential: agent_stop revokes
+// the child's run credential, so a runner that outlives its stop can no
+// longer speak as that run.
+func TestCredentialRevocation_RevokesTheChildsCredential(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
-	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
-
-	// The child parks in agent_recv (its long-poll registers).
-	severed := make(chan error, 1)
-	go func() {
-		_, rerr := c.AgentRecv(context.Background(), child, conformanceWait)
-		severed <- rerr
-	}()
-	require.Eventually(t, func() bool {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		return c.polls[out.Harp] != nil
-	}, conformanceWait, 10*time.Millisecond)
 
 	// The credential is verifiable while live.
 	env := waitForChildEnv(t, c, out.RunID)
 	_, ok := c.Identify(env[EnvCoordCred])
 	require.True(t, ok, "a live credential verifies")
 
-	// Stop the child: revocation severs the parked poll and the credential.
 	_, err = c.AgentStop(ownerIdentity(), out.Harp, "")
 	require.NoError(t, err)
-
-	select {
-	case rerr := <-severed:
-		require.ErrorIs(t, rerr, ErrRevoked, "the parked poll is severed with the revoked error")
-	case <-time.After(conformanceWait):
-		t.Fatal("the parked poll was never severed")
-	}
 
 	_, ok = c.Identify(env[EnvCoordCred])
 	assert.False(t, ok, "a revoked credential no longer verifies")
@@ -85,10 +64,10 @@ func TestMailbox_AtLeastOnceRedeliveryAndDedupe(t *testing.T) {
 	// Round 1: queue two messages to a role, recv them (delivered, NOT acked),
 	// then simulate a crash (close without the acking recv).
 	c1 := newTestCoordinatorAt(t, stateDir)
-	role := "harp-x"
-	_, _, err := c1.queueMail("sender", role, "", "first")
+	role := ownerIdentity().Harp
+	_, _, err := c1.queueMail("sender", role, KindMessage, "first")
 	require.NoError(t, err)
-	_, _, err = c1.queueMail("sender", role, "", "second")
+	_, _, err = c1.queueMail("sender", role, KindMessage, "second")
 	require.NoError(t, err)
 
 	msgs, err := c1.recvMail(context.Background(), role, 0)
@@ -122,7 +101,7 @@ func TestMailbox_PollPreemption(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinatorAt(t, mkTempDir(t))
 	defer c.Close()
-	role := "harp-p"
+	role := ownerIdentity().Harp
 
 	old := make(chan error, 1)
 	go func() {

@@ -133,3 +133,16 @@ func spoolDirsUnder(t *testing.T, root string) []string {
 	require.NoError(t, err, "walking %s", root)
 	return found
 }
+
+// writeSpoolMail puts one message file straight into harp's in/ spool, the way
+// the coordinator's courier would, without a coordinator: for a test whose
+// premise is "mail is waiting for this harp" and nothing more.
+func writeSpoolMail(t *testing.T, harp, from, kind, body string) {
+	t.Helper()
+	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
+	require.NoError(t, err)
+	spoolKind, err := SpoolKindForMail(kind)
+	require.NoError(t, err)
+	_, err = w.Write(&spool.Message{Kind: spoolKind, FromHarp: from, To: harp, Body: body})
+	require.NoError(t, err)
+}

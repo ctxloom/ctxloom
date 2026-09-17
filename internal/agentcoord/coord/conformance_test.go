@@ -319,7 +319,11 @@ func TestAgentSend_ResumesEndedChild(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 	resumedFirst := sp.chat(1).recordedTexts()[0]
 	assert.Contains(t, resumedFirst, "one more thing", "the message is the resumed session's first turn")
-	assert.Contains(t, resumedFirst, "FRAG-ONE", "the agent's composed context primes the resume")
+	// The scripted engine reports a native session id on every run, so the
+	// resume is by that key: the engine continues its OWN session, and the
+	// first turn carries the mail's provenance frame and nothing else — never
+	// a rendered-transcript replay.
+	assert.NotContains(t, resumedFirst, "FRAG-ONE", "a native-key resume does not re-prime the composed context")
 }
 
 // rosterState reads one harp's state off the roster snapshot.

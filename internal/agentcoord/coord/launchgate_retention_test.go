@@ -41,7 +41,7 @@ func TestLaunchGate_StopSurvivesTheTerminalAndAReap(t *testing.T) {
 
 	// Queue mail so the leftover-mail tail would genuinely want to relaunch:
 	// without pending mail nextRelaunch is never consulted at all.
-	_, _, err = c.queueMail(ownerIdentity().Harp, out.Harp, "task", "more work")
+	_, _, err = c.queueMail(ownerIdentity().Harp, out.Harp, KindMessage, "more work")
 	require.NoError(t, err)
 
 	c.cancelLaunch(out.Harp) // an explicit agent_stop

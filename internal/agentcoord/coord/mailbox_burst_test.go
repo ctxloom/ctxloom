@@ -77,7 +77,7 @@ func TestRecvMail_ASweepBurstIsDeliveredAsOneBatch(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	const (
-		role  = "parent-wave"
+		role  = "coordinator-harp"
 		burst = 6
 	)
 
@@ -142,7 +142,7 @@ func TestRecvMail_ASingleArrivalStillReturnsPromptly(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	const role = "parent-single"
+	role := ownerIdentity().Harp
 
 	type recvOutcome struct {
 		msgs []Message

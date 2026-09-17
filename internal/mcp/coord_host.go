@@ -42,7 +42,7 @@ func NewHostedCoordinator(cfg *config.Config, projectDir, ownerHarp string) (*co
 		// A configurable STRUCTURAL ceiling on the delegation tree's depth —
 		// see coord.agentDepthCap's doc. <= 0 (unset project config) falls
 		// back to the built-in default inside coord.New.
-		Depth: cfg.GetDelegationDepth(),
+		Depth:     cfg.GetDelegationDepth(),
 		OwnerHarp: ownerHarp,
 	})
 	if err != nil {

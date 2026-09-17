@@ -31,7 +31,7 @@ func TestHomePathFor_LandsUnderHomeLocks(t *testing.T) {
 }
 
 // TestHomePathFor_FlattensDistinctPathsToDistinctNames is the mutation-kill
-// test for the flatten step: MUTATION — replace flattenLockName's call
+// test for the flatten step: MUTATION — replace FlatName's call
 // inside HomePathFor with the bare absolute path (or drop the flatten
 // entirely) — turns this red, because the lock for a NESTED protected file
 // would then land in a directory that mirrors the real tree instead of

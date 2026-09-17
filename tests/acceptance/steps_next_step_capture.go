@@ -87,10 +87,14 @@ func vendorTranscriptLines(engine, closing string) (string, error) {
 	}
 }
 
-// writeIndexEntry rewrites the session index with one entry for harp on
-// engine. withVersion seeds the pinned engine version the way SessionStart
-// records it; without it the entry is the never-recorded state the hook must
-// refuse to read with a guessed adapter.
+// writeIndexEntry seeds one session for harp on engine by writing its
+// per-harp sidecar. The session store is the set of session directories plus
+// their session.yaml (the global index.yaml is gone), so seeding the sidecar
+// is what makes the session exist -- and it means a scenario can REWRITE the
+// seeded state after a command has run, which an index.yaml rewrite cannot do
+// once the store has migrated and retired it. withVersion seeds the pinned
+// engine version the way SessionStart records it; without it the entry is the
+// never-recorded state the hook must refuse to read with a guessed adapter.
 func writeIndexEntry(w *World, harp, engine string, withVersion bool) error {
 	version := ""
 	if withVersion {
@@ -98,16 +102,23 @@ func writeIndexEntry(w *World, harp, engine string, withVersion bool) error {
 		if version == "" {
 			return fmt.Errorf("no pinned engine version for %q: the fixture would seed a refusal while claiming to seed a readable session", engine)
 		}
-		version = "    engine_version: " + version + "\n"
 	}
-	entry := fmt.Sprintf("sessions:\n"+
-		"  - harp_name: %s\n"+
-		"    session_id: seeded-%s\n"+
-		"    backend: %s\n"+
-		"%s"+
-		"    project_dir: %s\n"+
-		"    started_at: 2026-03-14T00:00:00Z\n", harp, harp, engine, version, w.env.ProjectDir)
-	return w.env.WriteHomeFile(".ctxloom/sessions/index.yaml", entry)
+	return writeSessionSidecar(w, harp, engine, version)
+}
+
+// writeSessionSidecar writes the harp's session.yaml with the fields nothing
+// else on disk can supply. Every fixture that needs a session to exist goes
+// through here, so the sidecar's spelling lives in one place.
+func writeSessionSidecar(w *World, harp, engine, engineVersion string) error {
+	body := fmt.Sprintf(
+		"session_id: seeded-%s\n"+
+			"backend: %s\n"+
+			"project_dir: %s\n"+
+			"started_at: 2026-03-14T00:00:00Z\n", harp, engine, w.env.ProjectDir)
+	if engineVersion != "" {
+		body += "engine_version: " + engineVersion + "\n"
+	}
+	return w.env.WriteHomeFile(".ctxloom/sessions/"+harp+"/"+paths.SessionSidecarFileName, body)
 }
 
 // readCapturedNextStep reads the harp's next-step file straight off disk,

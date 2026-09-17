@@ -66,7 +66,6 @@ type World struct {
 	j001000      *j001000State      // J001000: cross-engine transcript capture's fixture state (steps_j001000_transcript_capture.go)
 	nextStep     *nextStepState     // next-step capture + distill task hint fixture state (steps_next_step_capture.go)
 	evalTriggers *evalTriggersState // evaluate_triggers: the seeded deferred task's harp (steps_evaluate_triggers.go)
-	mcpIndex     *mcpIndexState     // list_sessions: this scenario's accumulated index rows (steps_mcp_session_tools.go)
 	j002400      *j002400State      // J002400: the container runtime-axis journey's fixture state (steps_j002400_container.go)
 	j002600      *j002600State      // J002600: the worktree-task-store redirect journey's fixture state (steps_j002600_worktree_task_store.go)
 	j002300      *j002300State      // J002300: cross-engine delegation — distinct context + real two-way bus (steps_j002300_cross_engine_delegation.go)

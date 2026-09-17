@@ -26,40 +26,21 @@ import (
 	"github.com/cucumber/godog"
 )
 
-// mcpIndexEntries accumulates this scenario's seeded index rows. The shared
-// "a recorded session" fixture in steps_fixture.go writes a SINGLE-entry index
-// and would silently drop the earlier harp on a second call — j001300 hit the same
-// wall and notes it in j001300WriteIndex. list_sessions is inherently multi-session
-// (a listing that can only be proven with one row proves nothing about
-// listing), so it needs the accumulating writer.
-type mcpIndexState struct {
-	entries []string
-}
-
-func mcpIndexOf(w *World) *mcpIndexState {
-	if w.mcpIndex == nil {
-		w.mcpIndex = &mcpIndexState{}
-	}
-	return w.mcpIndex
-}
-
 func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
-	// A session in the index with a TITLE, and no transcript: list_sessions
-	// reads the index, so this is the whole fixture it needs. The summary is
-	// caller-chosen so a scenario can assert the title that belongs to a
-	// specific harp rather than that some title came back.
+	// A session with a TITLE and no transcript. The title is the summary in
+	// the session's essence.md frontmatter -- the store DERIVES a session's
+	// summary from there, and the retired index.yaml row is not a source -- so
+	// the fixture seeds the sidecar (which makes the session exist) and the
+	// essence (which carries the title). The summary is caller-chosen so a
+	// scenario can assert the title that belongs to a specific harp rather
+	// than that some title came back.
 	ctx.Step(`^a recorded session "([^"]*)" summarised as "([^"]*)"$`, func(c context.Context, harp, summary string) error {
 		w := worldFrom(c)
-		st := mcpIndexOf(w)
-		st.entries = append(st.entries, fmt.Sprintf(
-			"  - harp_name: %s\n"+
-				"    session_id: seeded-%s\n"+
-				"    backend: mock\n"+
-				"    project_dir: %s\n"+
-				"    started_at: 2026-03-14T00:00:00Z\n"+
-				"    ended_at: 2026-03-14T02:00:00Z\n"+
-				"    summary: %s\n", harp, harp, w.env.ProjectDir, summary))
-		return w.env.WriteHomeFile(".ctxloom/sessions/index.yaml", "sessions:\n"+strings.Join(st.entries, ""))
+		if err := writeSessionSidecar(w, harp, "mock", ""); err != nil {
+			return err
+		}
+		return w.env.WriteHomeFile(".ctxloom/sessions/"+harp+"/essence.md",
+			fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-03-15T00:00:00Z\nsummary: %s\n---\n\nseeded essence for %s\n", harp, summary, harp))
 	})
 
 	// Follows the tool's OWN reported output_path and reads what landed there.

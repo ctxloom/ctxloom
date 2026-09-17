@@ -192,18 +192,22 @@ func newProdSpawner(cfg *config.Config, projectDir string, starter StarterFunc) 
 // through any backend-specific config file a Setup step would have to write.
 var viaStartRunBackends = map[string]bool{
 	config.BackendClaudeCode: true,
+	// mock is reviewed onto StartRun because the binary can HOST it: `ctxloom
+	// llm host mock` stands up a real runner around the deterministic echo, so
+	// a mock child is a driveable run, not a run nothing can answer. That is
+	// what the acceptance journeys rely on when they delegate through a real
+	// ctxloom binary. It is safe in a user's binary for the same reason it was
+	// before the spool cutover: no credentials, no network, an echo.
+	config.BackendMock: true,
 }
 
-// admit is Resolve's backend gate. Production is checkStartRunAllowlist
-// alone. The mock backend — a deterministic StructuredChat with no runner
-// process of its own — is admitted ONLY when a Starter is injected
-// (Options.Starter): that seam is what supplies the runner an in-process
-// double stands in for, and without it a mock child would be a run nothing
-// can drive. There is deliberately no other route; a test pins that.
+// admit is Resolve's backend gate: checkStartRunAllowlist, nothing else. A
+// Starter (Options.Starter) changes HOW an admitted backend's runner is
+// stood up — in-process double instead of `ctxloom llm host` — never WHETHER
+// it is admitted. An earlier shape special-cased mock here on the premise
+// that it had no runner process of its own; that was false (the binary hosts
+// it), so mock is on the allowlist and the special case is gone.
 func (s *prodSpawner) admit(backend string) error {
-	if s.starter != nil && backend == config.BackendMock {
-		return nil
-	}
 	return checkStartRunAllowlist(backend)
 }
 

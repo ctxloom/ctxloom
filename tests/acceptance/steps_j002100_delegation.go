@@ -38,6 +38,7 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
@@ -609,25 +610,23 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 				time.Sleep(100 * time.Millisecond)
 			}
 			w.docStepMaterialized = fmt.Sprintf("interactions.jsonl — run_channel advertisements:\n  %s", strings.Join(caps, "\n  "))
-			// Every attached runner advertises the mailbox surface; a runner
-			// hosting an engine also advertises the five control kinds, because
-			// only a hosted engine could execute them.
+			// Every attached runner advertises the mailbox surface. What tells an
+			// engine-hosting child from the session owner is the ABSENCE of
+			// terminal_delivery: the owner advertises it because nothing on its
+			// side pulls mail at a turn boundary; a child hosting an engine does,
+			// so it must not. (The five control kinds an earlier shape advertised
+			// are gone with the plane that executed them; the spool is the carrier.)
 			for _, adv := range caps {
-				if !strings.Contains(adv, "peer_messaging") {
+				if !strings.Contains(adv, coord.CapPeerMessaging) {
 					return fmt.Errorf("an attached runner advertised %q, without the mailbox surface every runner has", adv)
 				}
 			}
 			for _, adv := range caps {
-				if strings.Contains(adv, "steer") {
-					for _, want := range []string{"question", "on_demand_summary", "pause", "resume"} {
-						if !strings.Contains(adv, want) {
-							return fmt.Errorf("an engine-hosting runner advertised %q but not %q — a partial control advertisement makes the send-side guard lie", adv, want)
-						}
-					}
-					return nil
+				if !strings.Contains(adv, coord.CapTerminalDelivery) {
+					return nil // an engine-hosting child: pulls its own mail, advertises no terminal delivery
 				}
 			}
-			return fmt.Errorf("no attached runner advertised the control capabilities; advertisements seen: %v", caps)
+			return fmt.Errorf("no attached runner advertised as an engine host (every advertisement carried terminal_delivery, the session owner's marker); advertisements seen: %v", caps)
 		})
 }
 

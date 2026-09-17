@@ -66,12 +66,12 @@ func TestProdSpawner_Resolve_Allowlist(t *testing.T) {
 	})
 }
 
-// TestProdSpawner_MockIsAdmittedThroughTheStarterSeamOnly pins the one
-// route the mock backend has into delegated children: an injected Starter
-// (Options.Starter — an in-process runner double). Without one, mock is
-// refused exactly like any other unreviewed backend, and no configuration,
-// runtime axis or allowlist entry admits it.
-func TestProdSpawner_MockIsAdmittedThroughTheStarterSeamOnly(t *testing.T) {
+// TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt pins the reason mock
+// may run delegated children: it is on the StartRun allowlist, and it is there
+// because `ctxloom llm host mock` stands up a real runner around it. The
+// Starter seam is orthogonal — it swaps the runner for an in-process double
+// and admits nothing on its own — and the allowlist admits nothing unreviewed.
+func TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt(t *testing.T) {
 	newSpawner := func(t *testing.T, starter StarterFunc) *prodSpawner {
 		t.Helper()
 		resetStrictness(t)
@@ -83,25 +83,17 @@ func TestProdSpawner_MockIsAdmittedThroughTheStarterSeamOnly(t *testing.T) {
 		return newProdSpawner(cfg, filepath.Dir(appDir), starter)
 	}
 
-	t.Run("no Starter: mock is refused at Resolve", func(t *testing.T) {
-		_, err := newSpawner(t, nil).Resolve(context.Background(), "dev")
-		require.Error(t, err, "mock must not run delegated children in production")
-		assert.Contains(t, err.Error(), "mock")
-		assert.Contains(t, err.Error(), "StartRun")
-	})
-
-	t.Run("with a Starter: mock resolves, and only mock is widened", func(t *testing.T) {
-		starter := func(string, map[string]string) isolation.EngineStarter { return nil }
-		s := newSpawner(t, starter)
-		plan, err := s.Resolve(context.Background(), "dev")
-		require.NoError(t, err)
+	t.Run("no Starter: mock resolves off the allowlist alone", func(t *testing.T) {
+		plan, err := newSpawner(t, nil).Resolve(context.Background(), "dev")
+		require.NoError(t, err, "mock is a hostable runner and needs no seam to be admitted")
 		assert.Equal(t, "mock", plan.Backend)
-		// The seam admits the mock double and nothing else: an unreviewed
-		// backend is still refused with a Starter present.
-		require.Error(t, s.admit("futurebackend"))
 	})
 
-	// The production allowlist itself never names mock: a build that listed
-	// it there would admit it without any Starter.
-	assert.False(t, viaStartRunBackends["mock"], "mock must never be on the production allowlist")
+	t.Run("a Starter widens nothing: an unreviewed backend is still refused", func(t *testing.T) {
+		starter := func(string, map[string]string) isolation.EngineStarter { return nil }
+		require.Error(t, newSpawner(t, starter).admit("futurebackend"),
+			"the seam changes how a runner is stood up, never whether a backend is admitted")
+	})
+
+	assert.True(t, viaStartRunBackends["mock"], "mock is reviewed onto StartRun because the binary hosts it")
 }

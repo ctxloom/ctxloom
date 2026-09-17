@@ -3,6 +3,7 @@ package confpatch
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/afero"
 	yamlv3 "gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -98,14 +100,14 @@ type RecordOp struct {
 	Value yamlv3.Node `yaml:"value,omitempty"`
 }
 
-// recordFileSuffix is the record's extension, named once because freeRecordPath
+// recordFileSuffix is the record's extension, named once because FreeRecordPath
 // has to split a filename on it to insert its counter.
 const recordFileSuffix = ".hew-record.yaml"
 
 // Last returns the newest record ctxloom wrote for target.
 //
 // Newest is decided by the record's own applied_at, not by filename order:
-// freeRecordPath's collision counter ("-2") is appended AFTER the timestamp, so
+// FreeRecordPath's collision counter ("-2") is appended AFTER the timestamp, so
 // a purely lexical sort puts "-10" before "-2". That case is vanishingly rare
 // (it needs two writes inside the same nanosecond) but sorting by the field
 // that actually means "when" costs nothing and cannot be wrong.
@@ -114,13 +116,27 @@ func (s *Store) Last(target string) (Record, bool, error) {
 	var newestKey string
 	found := false
 
-	prefix := flattenTarget(target) + "__"
-	entries, err := afero.ReadDir(s.fs, s.dir)
+	exists, err := afero.DirExists(s.fs, s.dir)
 	if err != nil {
+		return newest, false, fmt.Errorf("confpatch: stat %s: %w", s.dir, err)
+	}
+	if !exists {
 		// No record directory yet means no prior application — the first write
 		// to any target reaches here, so it is not an error.
 		return newest, false, nil
 	}
+	// The directory exists, so it may hold records named under the earlier,
+	// unbounded scheme. Rename them BEFORE matching by prefix, or a record
+	// written by an older ctxloom is invisible and the next apply stacks a
+	// second application on top of the first instead of reversing it.
+	if err := s.renameLegacyRecords(); err != nil {
+		return newest, false, err
+	}
+	entries, err := afero.ReadDir(s.fs, s.dir)
+	if err != nil {
+		return newest, false, fmt.Errorf("confpatch: read %s: %w", s.dir, err)
+	}
+	prefix := recordPrefix(target)
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() {
@@ -199,7 +215,7 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 	if err := s.fs.MkdirAll(s.dir, 0o755); err != nil {
 		return "", fmt.Errorf("confpatch: create %s: %w", s.dir, err)
 	}
-	recordPath, err := s.freePath(target, at)
+	recordPath, err := FreeRecordPath(s.fs, s.dir, target, at)
 	if err != nil {
 		return "", err
 	}
@@ -239,7 +255,7 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 // must retain the history needs a retention policy and somewhere to put it,
 // which is a different piece of work from not leaking files.
 func (s *Store) pruneSuperseded(target, keep string) error {
-	prefix := flattenTarget(target) + "__"
+	prefix := recordPrefix(target)
 	entries, err := afero.ReadDir(s.fs, s.dir)
 	if err != nil {
 		return err
@@ -282,47 +298,146 @@ func inverseOps(b hew.Binding, format hew.FormatID, target string, after, before
 	return hew.Resolve(tl, doc)
 }
 
-// freePath is the record path that does not already exist, disambiguating with
-// a counter when it does.
+// FreeRecordPath is the record path under dir that does not already exist,
+// disambiguating with a counter when it does.
 //
 // AtomicWriteFile OVERWRITES, so the timestamp alone was never a defence: two
 // applies against the same target in the same instant would produce the same
 // name and the second would silently destroy the first — the exact evidence the
 // record exists to preserve, gone on a success path. This loop makes that
 // impossible, which is the difference between an invariant and a hope.
-func (s *Store) freePath(target string, at time.Time) (string, error) {
-	base := recordFilename(target, at)
-	path := filepath.Join(s.dir, base)
+//
+// It disambiguates rather than refusing because refusing also loses a record:
+// the point is that no apply goes unrecorded, not that a particular filename
+// is available.
+//
+// Exported because cli's config-write path writes the same record shape into
+// the same directory and must name its files the same way; two copies of the
+// naming are how one of them ends up unbounded again.
+func FreeRecordPath(fs afero.Fs, dir, target string, at time.Time) (string, error) {
+	base := RecordFilename(target, at)
+	path := filepath.Join(dir, base)
 	for n := 2; ; n++ {
-		exists, err := afero.Exists(s.fs, path)
+		exists, err := afero.Exists(fs, path)
 		if err != nil {
 			return "", fmt.Errorf("confpatch: check %s: %w", path, err)
 		}
 		if !exists {
 			return path, nil
 		}
-		path = filepath.Join(s.dir, strings.TrimSuffix(base, recordFileSuffix)+fmt.Sprintf("-%d", n)+recordFileSuffix)
+		path = filepath.Join(dir, strings.TrimSuffix(base, recordFileSuffix)+fmt.Sprintf("-%d", n)+recordFileSuffix)
 	}
 }
 
-// recordFilename flattens target into one filename component and suffixes a
-// sortable UTC timestamp, because a record is an audit trail entry, not a
-// mutable sidecar: two applies against the same target must not overwrite each
-// other's record.
+// RecordFilename names target's record: its bounded flat name (see
+// paths.FlatName), then a sortable UTC timestamp, then the record suffix. A
+// record is an audit trail entry, not a mutable sidecar: two applies against
+// the same target must not overwrite each other's record.
 //
 // NANOSECONDS, not seconds. The clock is a parameter so the collision case is
 // reachable from a test — with time.Now() inlined here, two applies could only
 // be made to collide by running them inside the same second, which is a race a
 // test cannot state.
-func recordFilename(target string, at time.Time) string {
-	return flattenTarget(target) + "__" + at.UTC().Format("20060102T150405.000000000Z") + recordFileSuffix
+func RecordFilename(target string, at time.Time) string {
+	return recordPrefix(target) + at.UTC().Format(recordStampLayout) + recordFileSuffix
 }
 
-// flattenTarget turns a path into one filename component, the same way
-// paths.HomePathFor's flattenLockName flattens a protected path: forward-slash
-// it, then "/" -> "__".
-func flattenTarget(target string) string {
-	return strings.ReplaceAll(filepath.ToSlash(target), "/", "__")
+// recordStampLayout is the timestamp part of a record's name.
+const recordStampLayout = "20060102T150405.000000000Z"
+
+// recordPrefix is the part of a record's filename that identifies its target:
+// what Last and pruneSuperseded match on, and what RecordFilename builds on.
+func recordPrefix(target string) string {
+	return paths.FlatName(target) + "__"
+}
+
+// legacyRecordPrefix is the prefix records carried before the name was
+// bounded: the target's WHOLE path, flattened. It exists only so
+// renameLegacyRecords can recognise a record written under that scheme;
+// nothing writes it.
+func legacyRecordPrefix(target string) string {
+	return strings.ReplaceAll(filepath.ToSlash(target), "/", "__") + "__"
+}
+
+// renameLegacyRecords moves every record under s.dir (and any store nested
+// below it — taskloom keeps its own in a subdirectory) from the unbounded
+// name to the bounded one. The record body carries the target's full path,
+// so the new name is computed from the file itself; the timestamp and any
+// collision counter after the target part are kept as they are.
+//
+// IDEMPOTENT, because every launch may run it: a record already carrying the
+// bounded prefix for its own target is left alone, and a rename whose
+// destination already exists is skipped rather than overwriting — losing a
+// record is the one thing a rename must never do. A file whose body names no
+// target, or whose name matches neither scheme, is not this migration's to
+// touch and stays where it is.
+//
+// Candidates are collected first and renamed after the walk, so the walk
+// never sees a directory changing under it.
+func (s *Store) renameLegacyRecords() error {
+	type move struct{ from, to string }
+	var moves []move
+	walkErr := afero.Walk(s.fs, s.dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(info.Name(), recordFileSuffix) {
+			return nil
+		}
+		target, ok := recordTarget(s.fs, path)
+		if !ok {
+			return nil
+		}
+		name := info.Name()
+		if strings.HasPrefix(name, recordPrefix(target)) {
+			return nil
+		}
+		legacy := legacyRecordPrefix(target)
+		if !strings.HasPrefix(name, legacy) {
+			return nil
+		}
+		to := filepath.Join(filepath.Dir(path), recordPrefix(target)+strings.TrimPrefix(name, legacy))
+		moves = append(moves, move{from: path, to: to})
+		return nil
+	})
+	if walkErr != nil {
+		return fmt.Errorf("confpatch: scan %s for records to rename: %w", s.dir, walkErr)
+	}
+	var errs []error
+	for _, m := range moves {
+		exists, err := afero.Exists(s.fs, m.to)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if exists {
+			continue
+		}
+		if err := s.fs.Rename(m.from, m.to); err != nil {
+			errs = append(errs, fmt.Errorf("confpatch: rename record %s: %w", m.from, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// recordTarget reads the target a record on disk describes. Only the one
+// field is decoded: the rename needs the path and nothing else, and decoding
+// less is what lets a record this version cannot otherwise parse still be
+// renamed rather than stranded.
+func recordTarget(fs afero.Fs, path string) (string, bool) {
+	data, err := afero.ReadFile(fs, path)
+	if err != nil {
+		return "", false
+	}
+	var rec struct {
+		Targets []struct {
+			Target string `yaml:"target"`
+		} `yaml:"targets"`
+	}
+	if err := yamlv3.Unmarshal(data, &rec); err != nil || len(rec.Targets) == 0 || rec.Targets[0].Target == "" {
+		return "", false
+	}
+	return rec.Targets[0].Target, true
 }
 
 // ResolvedOpsToRecord adapts hew.ResolvedOp (the library's form) to RecordOp

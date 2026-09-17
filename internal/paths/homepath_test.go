@@ -31,7 +31,7 @@ func TestHomePathFor_LandsUnderHomeLocks(t *testing.T) {
 }
 
 // TestHomePathFor_FlattensDistinctPathsToDistinctNames is the mutation-kill
-// test for the flatten step: MUTATION — replace flattenLockName's call
+// test for the flatten step: MUTATION — replace FlatName's call
 // inside HomePathFor with the bare absolute path (or drop the flatten
 // entirely) — turns this red, because the lock for a NESTED protected file
 // would then land in a directory that mirrors the real tree instead of
@@ -79,14 +79,14 @@ func TestHomePathFor_SpellingsOfOneFileMapToOneLock(t *testing.T) {
 	}
 }
 
-// TestHomePathFor_CollisionsAfterFlatteningShareOneLock pins the documented
-// collision stance (HomePathFor's doc, mirroring ProjectPathFor's): two
-// protected paths that differ only in WHERE a path separator falls relative
-// to an underscore run flatten to the identical name and therefore share one
-// lock. That is the deliberately chosen "collision case" — safe
-// over-serialization, never the opposite failure of one resource getting two
-// lock names.
-func TestHomePathFor_CollisionsAfterFlatteningShareOneLock(t *testing.T) {
+// TestHomePathFor_DistinctPathsGetDistinctLocks pins that flattening is
+// injective in practice: two protected paths that differ only in WHERE a path
+// separator falls relative to an underscore run used to flatten to ONE name
+// and share a lock (documented then as safe over-serialization). The bounded
+// name carries a hash of the whole path, so distinct resources get distinct
+// locks. The invariant this file cannot give up is unchanged and pinned
+// above: one resource, however spelled, gets ONE lock name.
+func TestHomePathFor_DistinctPathsGetDistinctLocks(t *testing.T) {
 	home := testsupport.Isolate(t)
 
 	withSeparator, err := HomePathFor(filepath.Join(home, "a", "b", "c"))
@@ -94,8 +94,8 @@ func TestHomePathFor_CollisionsAfterFlatteningShareOneLock(t *testing.T) {
 	withUnderscore, err := HomePathFor(filepath.Join(home, "a", "b__c"))
 	require.NoError(t, err)
 
-	assert.Equal(t, withSeparator, withUnderscore,
-		"a path separator and a literal double-underscore must flatten to the same name — this is the documented, accepted collision, not a bug")
+	assert.NotEqual(t, withSeparator, withUnderscore,
+		"a/b/c and a/b__c are different files and must not share a lock name")
 }
 
 // TestHomePathFor_FailsClosedWhenHomeCannotBeResolved pins the home-resolution

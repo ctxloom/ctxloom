@@ -3,6 +3,7 @@ package paths
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,10 @@ func TestProjectPathFor_LandsUnderStateLocks(t *testing.T) {
 	got, err := ProjectPathFor(protected)
 	require.NoError(t, err)
 
-	assert.Equal(t, filepath.Join(appDir, StateDir, LocksDir, "config.yaml.lock"), got)
+	assert.Equal(t, filepath.Join(appDir, StateDir, LocksDir), filepath.Dir(got))
+	assert.True(t, strings.HasPrefix(filepath.Base(got), "config.yaml"),
+		"the lock's name must lead with the protected file's own name: %s", got)
+	assert.True(t, strings.HasSuffix(got, ".lock"))
 	assert.NotEqual(t, PathFor(protected), got,
 		"the project mapping must not collapse back to the beside-the-file shape")
 }

@@ -78,7 +78,7 @@ func TestContainerLockMount_HostAndContainerReadSameLockFile(t *testing.T) {
 	require.NoError(t, hostLock.Unlock())
 
 	// The container side: same basename (flattening depends only on the
-	// protected path, never on $HOME — see flattenLockName's doc), under
+	// protected path, never on $HOME — see paths.FlatName's doc), under
 	// the mount's CONTAINER target.
 	containerLockPath := filepath.Join(lockMount.Container, filepath.Base(hostLockPath))
 

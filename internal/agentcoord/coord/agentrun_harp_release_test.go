@@ -26,6 +26,7 @@ func TestAgentRun_AbortedSpawnReleasesTheHarp(t *testing.T) {
 		// NOT served: ReachURL has no listener to advertise, so
 		// spawnReachURL refuses (strictness is non-degraded) — the abort
 		// AFTER AssignSession has already committed the harp.
+		teeHome(t)
 		c, err := New(Options{ProjectDir: t.TempDir(), StateDir: t.TempDir(), Spawner: sp, OwnerHarp: ownerIdentity().Harp})
 		require.NoError(t, err)
 		t.Cleanup(c.Close)

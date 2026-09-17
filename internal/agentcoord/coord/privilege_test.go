@@ -201,6 +201,7 @@ func TestEnqueueRun_JournalCarriesNamesOnly_NeverCommandOrArgs(t *testing.T) {
 		},
 	}, nil)
 	stateDir := t.TempDir()
+	teeHome(t)
 	c, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

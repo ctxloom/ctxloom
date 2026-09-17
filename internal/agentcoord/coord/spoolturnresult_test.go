@@ -301,6 +301,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	stateDir := t.TempDir()
 
 	sp := cutoverSpawner(0)
+	teeHome(t)
 	first, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, first.Serve())
@@ -320,6 +321,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	teeHome(t)
 	second, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, second.Serve())

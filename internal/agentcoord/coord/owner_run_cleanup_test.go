@@ -26,6 +26,7 @@ import (
 func TestStartOwnedRun_CleansUpOnIssueStartRunFailure(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(nil, nil)
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:         t.TempDir(),
 		StateDir:           t.TempDir(),

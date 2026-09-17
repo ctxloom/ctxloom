@@ -27,6 +27,7 @@ func TestEndpointFile_ServeWritesWhatDiscoverReads(t *testing.T) {
 
 	// StateDir empty on purpose: this must land in the HOME-relative state dir
 	// discover.List globs, not a test temp dir off to one side.
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		ProjectKey: "endpoint-discovery-test",
@@ -57,6 +58,7 @@ func TestEndpointFile_NotYetMintedIsSkippedSilently(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		ProjectKey: "endpoint-unserved-test",

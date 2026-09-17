@@ -203,6 +203,7 @@ func countRuns(c *Coordinator) int {
 // the engine timing the integration test is subject to.
 func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 	resetStrictness(t)
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:   t.TempDir(),
 		StateDir:     t.TempDir(),
@@ -271,6 +272,7 @@ func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 		map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{endAfterTurns: 1} }, // ends its run after each turn
 	)
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:   t.TempDir(),
 		StateDir:     t.TempDir(),

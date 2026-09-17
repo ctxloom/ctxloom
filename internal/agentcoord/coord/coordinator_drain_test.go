@@ -147,6 +147,7 @@ func TestBeginDrain_RunnerChannelHelloRefusesFreshRunnerButAdmitsReconnect(t *te
 // beginning to accept runner/agent connections it will then have to refuse
 // one at a time.
 func TestBeginDrain_ServeRefusesToStartFreshOnceDraining(t *testing.T) {
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),

@@ -62,6 +62,7 @@ func TestStartOwnedRun_LaunchFailureReturnsTheWrappedError(t *testing.T) {
 // to stop a runaway relaunch loop. Apply the row's fix and this goes red.
 func TestStartOwnedRun_IssueStartRunFailureCountsOneLaunchFailure(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:         t.TempDir(),
 		StateDir:           t.TempDir(),

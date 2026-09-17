@@ -341,6 +341,7 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	sp := &progressSpawner{image: image, projectDir: projectDir, mode: mode}
 	t.Cleanup(sp.cleanup)
 
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:         projectDir,
 		ProjectKey:         "progress-itest",

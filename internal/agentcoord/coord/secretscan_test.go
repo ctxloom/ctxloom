@@ -17,6 +17,7 @@ import (
 func TestSecretScan_TokenNeverOnDisk(t *testing.T) {
 	resetStrictness(t)
 	stateDir := t.TempDir()
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   stateDir,

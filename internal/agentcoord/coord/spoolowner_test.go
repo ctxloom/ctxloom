@@ -188,6 +188,7 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	teeHome(t)
 	first, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil),
 		OwnerHarp: owner,
@@ -199,6 +200,7 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 	assert.Equal(t, "m-durable", got[0].ID)
 	first.Close() // delivered, never acked
 
+	teeHome(t)
 	second, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil),
 		OwnerHarp: owner,
@@ -220,6 +222,7 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 func TestSpoolOwner_RefusesAnUndeclaredOwner(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
+	teeHome(t)
 	_, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: t.TempDir(), Spawner: newFakeSpawner(nil, nil),
 	})
@@ -237,6 +240,7 @@ func TestSpoolOwner_MailToAQueuedChildIsNotStranded(t *testing.T) {
 	gate := make(chan struct{})
 	sp := cutoverSpawner(0)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{turnGate: gate} }
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: t.TempDir(), Spawner: sp,
 		OwnerHarp: ownerIdentity().Harp, ConcurrencyCap: 1,

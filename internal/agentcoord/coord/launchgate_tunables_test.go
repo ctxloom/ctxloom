@@ -122,6 +122,7 @@ func TestNew_AppliesLaunchTunablesFromEnv(t *testing.T) {
 	t.Setenv(EnvLaunchBackoffBase, "")
 	t.Setenv(EnvLaunchBackoffMax, "")
 
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),
@@ -142,6 +143,7 @@ func TestNew_AppliesLaunchTunablesFromEnv(t *testing.T) {
 // New, this fails loudly instead of the map assignment panicking at the first
 // launch attempt.
 func TestNew_InitialisesLaunchGateMap(t *testing.T) {
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),

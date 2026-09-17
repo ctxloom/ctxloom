@@ -26,6 +26,7 @@ func TestSpawnReachURL_RefusesInEveryMode(t *testing.T) {
 	// uses to reach the identical branch.
 	newUnserved := func(t *testing.T) *Coordinator {
 		t.Helper()
+		teeHome(t)
 		c, err := New(Options{
 			ProjectDir: t.TempDir(),
 			StateDir:   t.TempDir(),

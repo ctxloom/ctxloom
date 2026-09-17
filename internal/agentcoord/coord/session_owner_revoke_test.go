@@ -73,6 +73,7 @@ func TestRevokeSessionOwner_RevocationSurvivesAdoption(t *testing.T) {
 	stateDir := t.TempDir()
 	projectDir := t.TempDir()
 
+	teeHome(t)
 	first, err := New(Options{ProjectDir: projectDir, StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 
@@ -84,6 +85,7 @@ func TestRevokeSessionOwner_RevocationSurvivesAdoption(t *testing.T) {
 	first.Close()
 
 	// A fresh process adopting the same project's journals.
+	teeHome(t)
 	second, err := New(Options{ProjectDir: projectDir, StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	t.Cleanup(second.Close)

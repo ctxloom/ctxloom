@@ -229,6 +229,7 @@ func assertDeadRunnerIsReportedPromptly(t *testing.T, exitErr error, wantReason 
 	t.Helper()
 	resetStrictness(t)
 	sp := newDeadRunnerSpawner(exitErr)
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),

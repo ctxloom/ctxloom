@@ -1,7 +1,6 @@
 package confpatch
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"

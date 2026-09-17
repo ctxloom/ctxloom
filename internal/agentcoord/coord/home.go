@@ -60,20 +60,8 @@ type Home struct {
 	// emits their consumption fact. A crash before either re-delivers
 	// (at-least-once; the safe direction).
 	returned []string
-	// parkedCtl is the UNPULLED-CONTROL-BODY ledger, oldest first: one entry
-	// per control payload ParkControlPayload put into buffer, dropped the
-	// moment Recv hands that id to the harness. It is what makes "the agent
-	// never pulled the instruction" an OBSERVABLE state rather than something
-	// only discoverable by rummaging in buffer — the engine host's
-	// turn-boundary re-announcer reads it (PendingControlPayloads), and
-	// nothing else does.
-	//
-	// Separate from buffer rather than derived from it because buffer holds
-	// ordinary mail too (the pre-engine window), and "how long has the human's
-	// instruction been sitting unread" is a question only about control bodies.
-	parkedCtl []PendingControlPayload
-	park      *homePark
-	parked    bool
+	park     *homePark
+	parked   bool
 	// turnQ/turnPending are the ENGINE-HOST turn-delivery seam (§6a,
 	// runner-side): once a hosted engine registers a sink (SetTurnSink), a
 	// pushed PeerMessage with no recv parked is queued here in arrival
@@ -93,37 +81,14 @@ type Home struct {
 	// whenever it buffers with nothing else to tell.
 	terminalNudge func()
 
-	// ctrlHandler executes coordinator-initiated plane-2 control requests
-	// (SetRequestHandler; EngineHost.BindHome registers itself). Nil means this
-	// runner hosts no engine, and the Request arm answers UNIMPLEMENTED —
-	// which is now a deliberate no-engine fallback rather than a window marker.
-	ctrlHandler func(context.Context, *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse
-	// inflightCtrl is the RESPONDER-side idempotency mirror of the
-	// coordinator's reqTrack, keyed by request_id: a reissue that arrives
-	// after a reconnect re-sends the SAME cached answer, and one that arrives
-	// while the original dispatch is still running is joined to it rather than
-	// starting a second execution. A control request consumes a child TURN, so
-	// a double dispatch is not a wasted round trip — it is a second turn the
-	// human never asked for.
-	inflightCtrl map[string]*inflightCtrl
-
 	// spoolHandler is THE consumer for validated inbound spool doorbells
-	// (SetSpoolDoorbellHandler), registered by startSpoolReactor when delivery
-	// is on. spoolDoorbell counts what the doorbell deliberately does not
-	// retry — see spooldoorbell.go.
+	// (SetSpoolDoorbellHandler), registered by startSpoolReactor. spoolDoorbell
+	// counts what the doorbell deliberately does not retry — see
+	// spooldoorbell.go.
 	spoolHandler  SpoolDoorbellHandler
 	spoolDoorbell spoolDoorbellCounters
-	// spoolOut lends this harp's out/ writer for the shadow tee. Non-nil ONLY
-	// when the tee is on and this run has a harp — constructing it is what
-	// creates the spool directories, and a disabled tee must leave no trace on
-	// disk. spoolTeeCount is atomics for the same reason spoolDoorbell is.
-	spoolOut      *spoolWriterCache
-	spoolTeeCount spoolTeeCounters
-	// spoolDelivery is the CUTOVER switch for this run (HomeConfig.
-	// SpoolDelivery, stamped by the coordinator). When it is on, in/ is where
-	// mail comes from and out/ is where this agent's sends go; the mailbox
-	// notice path is never used for either.
-	spoolDelivery bool
+	// spoolOut lends this harp's out/ writer: where this agent's sends go.
+	spoolOut *spoolWriterCache
 	// spoolRefs maps a delivered message's dedupe id to the in/ file it came
 	// from, so the CONSUME-RENAME can happen at the existing acknowledgement
 	// moments (the engine accepted the turn / a later Recv proved the harness
@@ -180,25 +145,16 @@ type HomeConfig struct {
 	// CapPeerMessaging alone — the mailbox surface every runner has.
 	Capabilities []string
 	// Harp is this run's session harp (CTXLOOM_SESSION_HARP), which is the
-	// name of ITS spool. Empty on a runner that has none, and a runner with no
-	// harp has no spool to write into — the same degrade the persist mount
-	// itself takes (statemounts.go's noHarpNotice).
+	// name of ITS spool. Required: a runner with no harp has no spool to
+	// read or write, and so no way to receive or send at all (NewHome refuses
+	// it — ErrRunNeedsHarp).
 	Harp string
-	// SpoolTee turns on the outbound half of the mailbox's SHADOW TEE
-	// (spooltee.go): every accepted agent_send is additionally written into
-	// this harp's out/ spool and doorbelled. Off by default and stamped by the
-	// coordinator per spawn (EnvRunSpoolTee) from the same project config the
-	// coordinator's own half reads, so the two ends of one run never disagree
-	// about whether the run is being teed.
-	SpoolTee bool
-	// SpoolDelivery turns on the CUTOVER (spooldelivery.go) for this run: the
-	// runner delivers coordinator mail out of this harp's in/ spool and
-	// consumes each file by renaming it, and its own agent_send writes out/
-	// locally instead of asking the coordinator to queue it. Off by default
-	// and stamped by the coordinator per spawn (EnvRunSpoolDelivery); a
-	// runner with no harp has no spool and stays on the mailbox with a loud
-	// warning, because half a cutover is no delivery at all.
-	SpoolDelivery bool
+	// Depth is this run's delegation depth (EnvRunDepth): 0 is the session
+	// owner's own run, which has no parent, so its automatic turn report has
+	// nobody to go to (ReportTurnResult). A report written to "parent" from
+	// depth 0 would be refused and the refusal mailed back to the run as its
+	// next turn — a self-loop the bridge this replaced also had to suppress.
+	Depth int
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval) — see coord.Options.SpoolSweepInterval.
 	SpoolSweepInterval time.Duration
@@ -254,6 +210,9 @@ func (h *Home) requestFailure(ctx context.Context, waited time.Duration) error {
 // the tool verbs failing fast with ErrCoordinatorUnreachable — the
 // coordinator's runner-loss synthesis covers the lifecycle either way.
 func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
+	if cfg.Harp == "" {
+		return nil, ErrRunNeedsHarp
+	}
 	target, err := grpcTarget(cfg.URL)
 	if err != nil {
 		return nil, err
@@ -267,40 +226,28 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	}
 	hctx, cancel := context.WithCancel(ctx)
 	h := &Home{
-		cfg:          cfg,
-		ctx:          hctx,
-		cancel:       cancel,
-		conn:         conn,
-		ackCh:        make(chan struct{}),
-		pending:      make(map[string]*homeReq),
-		consumed:     make(map[string]bool),
-		turnPending:  make(map[string]bool),
-		inflightCtrl: make(map[string]*inflightCtrl),
+		cfg:         cfg,
+		ctx:         hctx,
+		cancel:      cancel,
+		conn:        conn,
+		ackCh:       make(chan struct{}),
+		pending:     make(map[string]*homeReq),
+		consumed:    make(map[string]bool),
+		turnPending: make(map[string]bool),
 	}
-	if (cfg.SpoolTee || cfg.SpoolDelivery) && cfg.Harp != "" {
-		// A runner writes exactly ONE spool: its own harp's out/. The cache is
-		// still keyed by harp because spoolWriterCache is shared with the
-		// coordinator's half, which serves many.
-		h.spoolOut = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirOut, cfg.Harp)
-	} else if cfg.SpoolTee {
-		clidiag.Warn("ctxloom", "runner: the spool tee is enabled but this run has no session harp, so it has no spool to write into; outbound mail will not be mirrored")
-	}
-	if cfg.SpoolDelivery && cfg.Harp != "" {
-		h.spoolDelivery = true
-		h.spoolRefs = make(map[string]spool.Ref)
-		h.startSpoolReactor()
-	} else if cfg.SpoolDelivery {
-		// A cutover run with no harp has no spool to read: it would sit
-		// waiting on a directory that does not exist while the coordinator
-		// writes files nobody sweeps. Refusing the cutover for it leaves the
-		// mailbox in charge, which still works — but silently is exactly the
-		// wrong way to do that.
-		clidiag.Warn("ctxloom", "runner: spool delivery is enabled but this run has no session harp, so it has no spool to read; falling back to mailbox delivery for this run")
-	}
+	// A runner writes exactly ONE spool: its own harp's out/. The cache is
+	// still keyed by harp because spoolWriterCache is shared with the
+	// coordinator's half, which serves many.
+	h.spoolOut = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirOut, cfg.Harp)
+	h.spoolRefs = make(map[string]spool.Ref)
+	h.startSpoolReactor()
 	h.goTracked(h.runnerChannelLoop)
 	h.goTracked(h.runChannelLoop)
 	return h, nil
 }
+
+// RunID is the run this Home hosts ("" for a session owner's runner).
+func (h *Home) RunID() string { return h.cfg.RunID }
 
 // goTracked runs fn on a new goroutine Close/crash join — see trackedGroup.
 func (h *Home) goTracked(fn func()) { h.tracked.dispatch(fn) }
@@ -490,14 +437,9 @@ func (h *Home) handleCoordinatorFrame(frame *agentcoordpb.CoordinatorFrame) {
 			hr.ch <- kind.Response
 		}
 	case *agentcoordpb.CoordinatorFrame_Notice:
-		if pm := kind.Notice.GetPeerMessage(); pm != nil {
-			h.deliverNotice(pm)
-		}
 		if sc := kind.Notice.GetSpoolChanged(); sc != nil {
 			h.handleSpoolChanged(sc)
 		}
-	case *agentcoordpb.CoordinatorFrame_Request:
-		h.serveCoordinatorRequest(kind.Request)
 	case *agentcoordpb.CoordinatorFrame_HelloAck:
 		// Duplicate ack on a live stream; ignore.
 	}
@@ -687,11 +629,6 @@ func (h *Home) ReportRunExited(exitCode int, harnessSessionID string) {
 	if h.cfg.RunID == "" {
 		return // a session-owner runner hosts no spawned run
 	}
-	// The run's terminal is also where its plane-2 responder-side idempotency
-	// records stop being owed — see clearInflightCtrl. Deferred, and above the
-	// link check, because a terminal reached with the link already down is
-	// still a terminal.
-	defer h.clearInflightCtrl()
 	h.mu.Lock()
 	link := h.link
 	h.mu.Unlock()
@@ -721,10 +658,9 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	if req.GetRequestId() == "" {
 		req.RequestId = randID("req-", 12)
 	}
-	// THE CUTOVER's outbound half: under spool delivery an agent_send is a
-	// LOCAL durable file write plus a doorbell, with no coordinator round trip
-	// — so it also succeeds while the coordinator is restarting, and the
-	// coordinator routes it when it sweeps.
+	// agent_send is a LOCAL durable file write plus a doorbell, with no
+	// coordinator round trip — so it also succeeds while the coordinator is
+	// restarting, and the coordinator routes it when it sweeps.
 	if resp, handled := h.sendPeerViaSpool(req); handled {
 		return resp, nil
 	}
@@ -742,12 +678,6 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	started := time.Now()
 	select {
 	case resp := <-hr.ch:
-		// The outbound half of the SHADOW TEE (spooltee.go). Here rather than
-		// at the send above because out/ records what this agent actually
-		// SENT: a request the coordinator refused was never a message, and
-		// mirroring it would put a file in the spool with no mailbox twin —
-		// the exact divergence the tee exists to detect.
-		h.teePeerSendResponse(req, resp)
 		return resp, nil
 	case <-ctx.Done():
 		h.mu.Lock()
@@ -817,21 +747,8 @@ func (h *Home) recordReturned(msgs []*agentcoordpb.PeerMessage) {
 	for _, m := range msgs {
 		h.consumed[m.GetMessageId()] = true // never re-deliver to this harness
 		h.returned = append(h.returned, m.GetMessageId())
-		h.forgetParkedCtl(m.GetMessageId())
 	}
 	h.mu.Unlock()
-}
-
-// forgetParkedCtl drops id from the unpulled ledger. Called from the ONE place
-// a body stops being unpulled: the Recv that hands it to the harness. Caller
-// holds h.mu.
-func (h *Home) forgetParkedCtl(id string) {
-	for i, p := range h.parkedCtl {
-		if p.MessageID == id {
-			h.parkedCtl = append(h.parkedCtl[:i], h.parkedCtl[i+1:]...)
-			return
-		}
-	}
 }
 
 // ackReturned emits the consumption fact for everything a prior Recv handed
@@ -1004,14 +921,16 @@ func (h *Home) reissueUnacked() {
 	}
 }
 
-// crash tears the home down WITHOUT the clean-shutdown acknowledgements —
-// the test seam simulating a runner crash (conformance: crash-before-ack
-// re-delivers). Joins Home's own tracked loops (bounded) before returning
-// so a caller (fakeSpawner.StartEngine's kill, wired
-// as childRt.close) can rely on crash() actually being done, not merely
+// Crash tears the home down WITHOUT the clean-shutdown acknowledgements —
+// the runner-process death a killed container or a SIGKILL is, and the seam
+// an in-process runner double's Kill uses (coordtest, and coord's own fake):
+// a crash before the ack re-delivers, which is the at-least-once contract.
+// Joins Home's own tracked loops (bounded) before returning so a caller
+// wired as childRt.close can rely on Crash actually being done, not merely
 // dispatched, before it proceeds (Coordinator.Close's attachment loop calls
-// closeFn synchronously for exactly this reason).
-func (h *Home) crash() {
+// closeFn synchronously for exactly this reason), and closes the out/
+// writer LAST so nothing lands after the join.
+func (h *Home) Crash() {
 	h.tracked.seal()
 	h.cancel()
 	_ = h.conn.Close()

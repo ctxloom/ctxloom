@@ -25,8 +25,8 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	const role = "child-a"
-	if _, _, err := c.queueMailPayloadID("m1", "parent", role, "task", "do the thing", nil, ""); !assert.NoError(t, err) {
+	role := ownerIdentity().Harp
+	if _, _, err := c.queueMailPayloadID("m1", "parent", role, KindMessage, "do the thing", nil, ""); !assert.NoError(t, err) {
 		return
 	}
 	if !assert.Equal(t, 1, c.pendingCount(role), "precondition: the message is deliverable") {
@@ -87,8 +87,8 @@ func TestRecvTimeout_DeliveryThatWonTheRaceIsStillDelivered(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	const role = "child-b"
-	if _, _, err := c.queueMailPayloadID("m9", "parent", role, "task", "already yours", nil, ""); !assert.NoError(t, err) {
+	role := ownerIdentity().Harp
+	if _, _, err := c.queueMailPayloadID("m9", "parent", role, KindMessage, "already yours", nil, ""); !assert.NoError(t, err) {
 		return
 	}
 

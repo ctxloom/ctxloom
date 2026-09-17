@@ -115,11 +115,6 @@ var degradeBranchAllowed = map[string]degradeExemption{
 		"unresolvable model is a CONFIG fault, and degraded launches with the model exactly as " +
 		"configured (rs.Model unchanged). The cost is an opaque engine-side error later instead " +
 		"of a clear one here; nothing is granted that strict mode withholds"},
-	"internal/agentcoord/coord/children.go": {sites: 1, why: "CONDITIONAL on the work " +
-		"surviving — it skips coordinator reach-back only when delegation.spool_delivery is on, " +
-		"so the child's mail rides the file spool and nothing it sends is lost. With the spool " +
-		"off it refuses in both modes. Both arms are pinned by " +
-		"TestSpawnReachURL_DegradedRefusesOnlyWhenWorkWouldBeLost"},
 }
 
 // TestArch_DegradeDiscipline_EveryBranchIsJustified fails when production code

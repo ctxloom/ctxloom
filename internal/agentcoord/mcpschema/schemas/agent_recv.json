@@ -19,7 +19,7 @@
       },
       "messages": {
         "items": {
-          "description": "Inbound relayed message from a sibling (or the coordinator itself, from_agent_id == \"\"). Reply via PeerSendRequest.in_reply_to. Until delivered, a queued PeerMessage is durable, role-addressed mailbox state at the coordinator: it survives coordinator process restarts and is delivered when the target reattaches.",
+          "description": "A delivered message, as agent_recv returns it: the runner's projection of a file swept from the run's in/ spool (or the coordinator's, from the owner's). Reply via PeerSendRequest.in_reply_to. It never rides the wire between coordinator and runner: the file is the message, and it is durable there.",
           "properties": {
             "from_agent_id": {
               "type": "string"

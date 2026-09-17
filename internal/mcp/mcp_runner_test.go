@@ -61,6 +61,7 @@ func testHome(t *testing.T) *coord.Home {
 		RunID:   "run-x",
 		Harness: "mock",
 		Version: "test",
+		Harp:    "run-x-harp",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })

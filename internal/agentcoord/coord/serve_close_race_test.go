@@ -12,10 +12,12 @@ import (
 // tests need to make themselves.
 func newUnservedCoordinator(t *testing.T) *Coordinator {
 	t.Helper()
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),
 		Spawner:    newFakeSpawner(nil, nil),
+		OwnerHarp:  ownerIdentity().Harp,
 	})
 	if !assert.NoError(t, err) {
 		t.FailNow()

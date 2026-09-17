@@ -20,7 +20,7 @@ import (
 func oneShotSpawner(mk func() *scriptedChat) *fakeSpawner {
 	sp := newFakeSpawner(map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"},
-			viaStartRun: true, backend: "claude-code", oneshot: true},
+			backend: "claude-code", oneshot: true},
 	}, nil)
 	sp.nextChat = mk
 	return sp
@@ -142,7 +142,7 @@ func TestSlotYield_MidTurnParkYieldsSlotToPeer(t *testing.T) {
 	// it waits.
 	aRecv := make(chan []Message, 1)
 	go func() {
-		msgs, _ := c.AgentRecv(context.Background(), Identity{Harp: a.Harp, RunID: a.RunID, Depth: 1}, conformanceWait)
+		msgs, _ := childRecv(t, c, a.RunID, conformanceWait)
 		aRecv <- msgs
 	}()
 	require.Eventually(t, func() bool { return rosterState(c, a.Harp) == StateParked }, conformanceWait, 10*time.Millisecond,
@@ -203,11 +203,13 @@ func countRuns(c *Coordinator) int {
 // the engine timing the integration test is subject to.
 func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 	resetStrictness(t)
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:   t.TempDir(),
 		StateDir:     t.TempDir(),
 		Spawner:      newFakeSpawner(nil, nil),
 		EndedRunTail: 2, // keep the newest 2 ended runs (beyond the current one)
+		OwnerHarp:    ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
@@ -268,13 +270,15 @@ func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(
 		map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{endAfterTurns: 1} }, // ends its run after each turn
+		func() *scriptedChat { return &scriptedChat{endAfterTurns: 1} }, // ends its run after each turn
 	)
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:   t.TempDir(),
 		StateDir:     t.TempDir(),
 		Spawner:      sp,
 		EndedRunTail: 1, // keep the current run + exactly one ended audit tail
+		OwnerHarp:    ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
@@ -311,7 +315,7 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 	// static half is false, so the boundary must NOT tear down.
 	sp := newFakeSpawner(map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"},
-			viaStartRun: true, backend: "claude-code"}, // oneshot:false
+			backend: "claude-code"}, // oneshot:false
 	}, nil)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{resumable: true} }
 	c := newTestCoordinator(t, sp, nil)

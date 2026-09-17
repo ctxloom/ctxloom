@@ -54,18 +54,18 @@ func TestAgentRun_HonorsAgentIntent(t *testing.T) {
 	assert.False(t, out.Queued)
 
 	require.Eventually(t, func() bool {
-		e := sp.engine(0)
+		e := sp.chat(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
-	first := sp.engine(0).recordedTexts()[0]
+	first := sp.chat(0).recordedTexts()[0]
 	assert.Contains(t, first, "FRAG-ONE", "composed context leads the first turn")
 	assert.Contains(t, first, "find the thing", "the briefing is the first turn")
 
-	env := sp.engine(0).env()
+	env := sp.chat(0).env()
 	assert.Equal(t, out.Harp, env["CTXLOOM_SESSION_HARP"], "ambient identity, never client-claimed")
 	assert.Empty(t, env[EnvCoordCred], "the ENGINE env never carries the credential (the runner is the one holder)")
-	renv := sp.engine(0).runnerEnv()
+	renv := sp.chat(0).runnerEnv()
 	assert.NotEmpty(t, renv[EnvCoordURL], "coordinator reach-back URL rides the runner spawn env")
 	assert.NotEmpty(t, renv[EnvCoordCred], "credential rides ONLY the runner spawn env")
 	assert.Equal(t, out.RunID, renv[EnvRunID], "run id correlates the runner")
@@ -114,7 +114,7 @@ func TestAgentRun_D3DegradedDowngradesToPlan(t *testing.T) {
 	assert.Contains(t, out.Degraded[0], "plan")
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
-	require.Eventually(t, func() bool { return len(sp.engine(0).recordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return len(sp.chat(0).recordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond)
 	assert.Equal(t, agent.PermissionPlan, sp.lastPerm(), "degraded narrows a child to the most restrictive headless-safe posture")
 }
 
@@ -124,14 +124,14 @@ func TestAgentRun_QueuePastCap(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
 	assert.False(t, first.Queued)
 	require.Eventually(t, func() bool {
-		e := sp.engine(0)
+		e := sp.chat(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
@@ -144,10 +144,10 @@ func TestAgentRun_QueuePastCap(t *testing.T) {
 	gate <- struct{}{} // finish child 1's turn → idle → slot released
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
-		e := sp.engine(1)
+		e := sp.chat(1)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
-	assert.Contains(t, sp.engine(1).recordedTexts()[0], "task two")
+	assert.Contains(t, sp.chat(1).recordedTexts()[0], "task two")
 }
 
 // TestAgentRun_GrandchildAllowed pins that raising delegation.depth (here, 2)
@@ -221,13 +221,13 @@ func TestAgentSend_MidTurnQueuesForBoundary_FIFO(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		e := sp.engine(0)
+		e := sp.chat(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
@@ -237,7 +237,7 @@ func TestAgentSend_MidTurnQueuesForBoundary_FIFO(t *testing.T) {
 		assert.Contains(t, disp, "queued")
 	}
 
-	e := sp.engine(0)
+	e := sp.chat(0)
 	for turn := 2; turn <= 4; turn++ {
 		gate <- struct{}{}
 		// The body arrives inside the provenance frame every mailbox delivery
@@ -299,7 +299,7 @@ func TestAgentRecv_TimeoutIsTypedFailure(t *testing.T) {
 func TestAgentSend_ResumesEndedChild(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{endAfterTurns: 1} })
+		func() *scriptedChat { return &scriptedChat{endAfterTurns: 1} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -314,12 +314,16 @@ func TestAgentSend_ResumesEndedChild(t *testing.T) {
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
-		e := sp.engine(1)
+		e := sp.chat(1)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
-	resumedFirst := sp.engine(1).recordedTexts()[0]
+	resumedFirst := sp.chat(1).recordedTexts()[0]
 	assert.Contains(t, resumedFirst, "one more thing", "the message is the resumed session's first turn")
-	assert.Contains(t, resumedFirst, "FRAG-ONE", "the agent's composed context primes the resume")
+	// The scripted engine reports a native session id on every run, so the
+	// resume is by that key: the engine continues its OWN session, and the
+	// first turn carries the mail's provenance frame and nothing else — never
+	// a rendered-transcript replay.
+	assert.NotContains(t, resumedFirst, "FRAG-ONE", "a native-key resume does not re-prime the composed context")
 }
 
 // rosterState reads one harp's state off the roster snapshot.
@@ -338,8 +342,8 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	gates := []chan struct{}{make(chan struct{}), make(chan struct{})}
 	var spawned int
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
-	sp.next = func() *fakeEngine {
-		e := &fakeEngine{turnGate: gates[spawned%len(gates)]}
+	sp.nextChat = func() *scriptedChat {
+		e := &scriptedChat{turnGate: gates[spawned%len(gates)]}
 		spawned++
 		return e
 	}
@@ -348,7 +352,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		e := sp.engine(0)
+		e := sp.chat(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 	assert.Equal(t, StateExecuting, rosterState(c, first.Harp))
@@ -367,13 +371,13 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	recvDone := make(chan struct{})
 	go func() {
 		defer close(recvDone)
-		_, _ = c.AgentRecv(context.Background(), Identity{Harp: first.Harp, RunID: first.RunID, Depth: 1}, conformanceWait)
+		_, _ = childRecv(t, c, first.RunID, conformanceWait)
 	}()
 	require.Eventually(t, func() bool { return rosterState(c, first.Harp) == StateParked }, conformanceWait, 10*time.Millisecond)
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
-		e := sp.engine(1)
+		e := sp.chat(1)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 	gates[1] <- struct{}{}
@@ -394,8 +398,8 @@ func TestParkedRecvYieldsSlot(t *testing.T) {
 	gates := []chan struct{}{make(chan struct{}), make(chan struct{})}
 	var spawned int
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
-	sp.next = func() *fakeEngine {
-		e := &fakeEngine{turnGate: gates[spawned%len(gates)]}
+	sp.nextChat = func() *scriptedChat {
+		e := &scriptedChat{turnGate: gates[spawned%len(gates)]}
 		spawned++
 		return e
 	}
@@ -404,7 +408,7 @@ func TestParkedRecvYieldsSlot(t *testing.T) {
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "ask a question", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		e := sp.engine(0)
+		e := sp.chat(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
@@ -415,30 +419,30 @@ func TestParkedRecvYieldsSlot(t *testing.T) {
 
 	recvDone := make(chan []Message, 1)
 	go func() {
-		msgs, _ := c.AgentRecv(context.Background(), Identity{Harp: first.Harp, RunID: first.RunID, Depth: 1}, conformanceWait)
+		msgs, _ := childRecv(t, c, first.RunID, conformanceWait)
 		recvDone <- msgs
 	}()
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond,
 		"a parked child must not block the queue")
 
+	// The send is a file plus a doorbell; the child's own runner completes
+	// its parked recv, which the coordinator cannot observe synchronously —
+	// so the disposition says what the coordinator knows: queued for a
+	// parked child.
 	disp, err := c.AgentSend(ownerIdentity(), first.Harp, KindResult, "42", nil, "")
 	require.NoError(t, err)
-	assert.Contains(t, disp, "waiting agent_recv")
-	select {
-	case <-recvDone:
-		t.Fatal("parked recv completed while the slot was still held by child 2")
-	case <-time.After(150 * time.Millisecond):
-	}
-
-	gates[1] <- struct{}{} // finish child 2's turn → slot frees → child 1 unparks
+	assert.NotContains(t, disp, "resum", "a parked child is never resumed for a delivery")
 	select {
 	case msgs := <-recvDone:
 		require.Len(t, msgs, 1)
 		assert.Equal(t, "42", msgs[0].Body)
 	case <-time.After(conformanceWait):
-		t.Fatal("parked recv never completed after the slot freed")
+		t.Fatal("parked recv never completed")
 	}
+
+	gates[1] <- struct{}{} // finish child 2's turn → slot frees → child 1 re-acquires
+	require.Eventually(t, func() bool { return rosterState(c, second.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 }
 
 // TestAgentStop_FreesSlot pins agent_stop: the child ends, the slot frees, the
@@ -447,13 +451,13 @@ func TestAgentStop_FreesSlot(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		e := sp.engine(0)
+		e := sp.chat(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "", "")
@@ -481,13 +485,13 @@ func TestInject_DeliveryModes(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		e := sp.engine(0)
+		e := sp.chat(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
@@ -504,7 +508,7 @@ func TestInject_DeliveryModes(t *testing.T) {
 
 	gate <- struct{}{} // finish turn 1 → boundary drains the injection as turn 2
 	require.Eventually(t, func() bool {
-		texts := sp.engine(0).recordedTexts()
+		texts := sp.chat(0).recordedTexts()
 		// Provenance-framed (frameCoordinatorDelivery): the injected body is the
 		// turn's content, the header names the user as its sender.
 		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, KindSteer, "mid-turn note")
@@ -524,13 +528,13 @@ func TestInject_MirrorDigestTruncatesLongText(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		e := sp.engine(0)
+		e := sp.chat(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
@@ -547,7 +551,7 @@ func TestInject_MirrorDigestTruncatesLongText(t *testing.T) {
 
 	gate <- struct{}{} // release the held turn so the child's turnGate goroutine doesn't leak past the test
 	require.Eventually(t, func() bool {
-		texts := sp.engine(0).recordedTexts()
+		texts := sp.chat(0).recordedTexts()
 		return len(texts) == 2 && strings.HasSuffix(texts[1], long)
 	}, conformanceWait, 10*time.Millisecond, "the child itself receives the injection VERBATIM (inside its provenance frame), undigested")
 }
@@ -567,10 +571,14 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 
 	mode, err := c.Inject(out.Harp, "wake up")
 	require.NoError(t, err)
-	assert.Equal(t, DeliveryNewTurn, mode)
+	// The write rings the runner BEFORE the disposition reads the roster, so
+	// an idle child may already be executing the new turn by then: both
+	// spellings say the same thing — delivered as the next turn — and the
+	// engine's recorded turn below is the assertion that matters.
+	assert.Contains(t, []string{DeliveryNewTurn, DeliveryQueued}, mode)
 
 	require.Eventually(t, func() bool {
-		texts := sp.engine(0).recordedTexts()
+		texts := sp.chat(0).recordedTexts()
 		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, KindSteer, "wake up")
 	}, conformanceWait, 10*time.Millisecond)
 
@@ -588,7 +596,7 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 func TestInject_ResumesEndedChild(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{endAfterTurns: 1} })
+		func() *scriptedChat { return &scriptedChat{endAfterTurns: 1} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -616,12 +624,12 @@ func TestInject_ResumesEndedChild(t *testing.T) {
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
-		e := sp.engine(1)
+		e := sp.chat(1)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
-	resumedFirst := sp.engine(1).recordedTexts()[0]
+	resumedFirst := sp.chat(1).recordedTexts()[0]
 	assert.Contains(t, resumedFirst, "one more thing", "the injected text is the resumed session's first turn")
-	assert.Contains(t, resumedFirst, "FRAG-ONE", "the agent's composed context primes the resume")
+	assert.NotContains(t, resumedFirst, "FRAG-ONE", "a native-key resume does not re-prime the composed context")
 
 	// The resumed engine shares the spawner's endAfterTurns:1 script too (it
 	// completes its own one turn and exits), so a SECOND KindExited notice
@@ -651,26 +659,28 @@ func TestInject_CompletesParkedRecvWithUserSenderIdentity(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		e := sp.engine(0)
+		e := sp.chat(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
 	recvDone := make(chan []Message, 1)
 	go func() {
-		msgs, _ := c.AgentRecv(context.Background(), Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}, conformanceWait)
+		msgs, _ := childRecv(t, c, out.RunID, conformanceWait)
 		recvDone <- msgs
 	}()
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateParked }, conformanceWait, 10*time.Millisecond)
 
 	mode, err := c.Inject(out.Harp, "direct note")
 	require.NoError(t, err)
-	assert.Equal(t, DeliveryCompletedRecv, mode)
+	// The runner completes the parked recv from the file; the coordinator
+	// reports what it can observe — queued for a parked child.
+	assert.Equal(t, DeliveryQueued, mode)
 
 	select {
 	case msgs := <-recvDone:

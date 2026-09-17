@@ -19,7 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/config"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/liveness"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -71,8 +70,15 @@ type Options struct {
 	StateDir string
 	// Spawner overrides the launch seam (tests). Nil = production.
 	Spawner Spawner
-	// Factory is the production spawner's plugin-construction test seam.
-	Factory pb.ClientFactory
+	// Starter is the production spawner's RUNNER-PROCESS test seam: for each
+	// spawn it is handed the backend and the per-spawn runner env (the
+	// reach-back trio, harp, depth — exactly what a real runner process
+	// reads from its environment) and returns the isolation.EngineStarter
+	// that "launches" it. Nil = production, where isolation binds the real
+	// starter. It exists so an in-process runner double (coordtest) can be
+	// handed to the PRODUCTION spawner, and it is the ONLY route by which
+	// the mock backend is admitted for delegated children (prodSpawner.Resolve).
+	Starter StarterFunc
 	// Clock overrides command time (tests). Nil = time.Now.
 	Clock func() time.Time
 	// ConcurrencyCap overrides the number of concurrently EXECUTING child
@@ -112,30 +118,12 @@ type Options struct {
 	// the real budget, or raise/lower it to prove a slow-but-successful
 	// dial-home survives (or doesn't) at a given budget.
 	RunnerAwaitTimeout time.Duration
-	// SpoolTee turns on the mailbox's SHADOW TEE onto the file spool
-	// (spooltee.go): mail is additionally written as spool files and
-	// doorbelled, reads are untouched. Default false, and false means nothing
-	// happens at all — no directory, no doorbell. Production sources this from
-	// project config (config.Config.GetDelegationSpoolTee); the coordinator
-	// also stamps it onto every runner it spawns (EnvRunSpoolTee) so both ends
-	// of a run agree without asking each other.
-	SpoolTee bool
-	// SpoolDelivery CUTS coordinator<->child mail over onto the file spool
-	// (spooldelivery.go): the file is the only copy, the consume-rename is the
-	// delivery ack, and the doorbell only bounds latency. Default false, and
-	// false is byte-identical pre-spool behaviour. Production sources it from
-	// project config (config.Config.GetDelegationSpoolDelivery); the
-	// coordinator stamps it onto every runner it spawns
-	// (EnvRunSpoolDelivery), because a run cut over on one side only delivers
-	// nothing at all.
-	SpoolDelivery bool
 	// OwnerHarp is the SESSION OWNER's harp: the one recipient whose inbox is
-	// drained IN THIS PROCESS (AgentRecv) rather than by a runner. Under the
-	// cutover the owner is a spool recipient like any migrated child, and it
-	// is identified by this declaration alone — never by holding a run
-	// record, because a host/stdio owner has none. Required when
-	// SpoolDelivery is set: a cutover coordinator that did not know whose
-	// inbox it drains would write every child->parent message into a
+	// drained IN THIS PROCESS (AgentRecv) rather than by a runner. The owner
+	// is a spool recipient like any migrated child, and it is identified by
+	// this declaration alone — never by holding a run record, because a
+	// host/stdio owner has none. Required: a coordinator that did not know
+	// whose inbox it drains would write every child->parent message into a
 	// directory nothing reads.
 	OwnerHarp string
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
@@ -143,16 +131,6 @@ type Options struct {
 	// prove that a DROPPED doorbell is still delivered by the sweep without
 	// waiting out the production interval.
 	SpoolSweepInterval time.Duration
-}
-
-// spoolPosture is the pair of spool switches a run is spawned under, kept
-// together so the per-spawn env stamp cannot acquire a third bare bool
-// argument and so a caller cannot pass one of the two and forget the other.
-type spoolPosture struct {
-	// Tee mirrors mail onto the spool without changing delivery.
-	Tee bool
-	// Delivery makes the spool the delivery path.
-	Delivery bool
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -174,8 +152,6 @@ type Coordinator struct {
 	queueF   *queueFold
 	rosterF  *rosterFold
 	reportsF *reportsFold
-	mail     *Store
-	mailF    *mailFold
 	items    *Store
 	itemsF   *itemsFold
 	auditJ   *Store
@@ -244,43 +220,26 @@ type Coordinator struct {
 	// needed the coordinator lock would put contention on the exact path
 	// whose whole point is to cost nothing when it fails.
 	spoolDoorbell spoolDoorbellCounters
-	// pushUnavailable counts mail that could not be PUSHED to its recipient
-	// because that recipient has no pushable run channel (runchannel.go's
-	// pushMail guard). Same atomics-not-mu reasoning as spoolDoorbell above.
-	//
-	// It is not an error count. Some of it is by design — a legacy child's
-	// unparked channel is drained by its own turn boundary, not by a push. But
-	// one case is architectural and was invisible: THE SESSION OWNER'S OWN
-	// HARP NEVER HAS A RUN CHANNEL, so mail queued for a coordinator is never
-	// pushed and waits for that coordinator to call agent_recv itself. That
-	// silence is what made a missing wake read as "the system is just a bit
-	// slow" — the same failure the spool doorbell counts its drops to avoid.
-	pushUnavailable atomic.Uint64
-	// spoolTee is the SHADOW-TEE switch (Options.SpoolTee, config
-	// delegation.spool_tee). Read-only after New, so no lock: it is a
-	// process-lifetime posture, not runtime state, and making it mutable would
-	// mean a delivery could be half-teed across a flip.
-	spoolTee bool
-	// spoolDelivery is the CUTOVER switch (Options.SpoolDelivery, config
-	// delegation.spool_delivery), read-only after New for the same reason
-	// spoolTee is: a delivery half-cut across a flip would be a message with
-	// no reader.
-	spoolDelivery bool
 	// ownerHarp is Options.OwnerHarp: the recipient class "the owner, drained
 	// in-process" (spoolDeliverTo). Read-only after New.
 	ownerHarp string
+	// streams counts the RunnerChannel/RunChannel handlers in flight. Their
+	// deferred teardown is where a dropped runner becomes a terminal
+	// (runnerLost -> terminateRun -> the session index, the parent's notice),
+	// and grpc.Server.Stop returns without joining it — so Close waits on
+	// this after the server is down, or a shutdown races its own last
+	// terminals against whatever removes the state dir next.
+	streams sync.WaitGroup
 	// spoolRefs maps a message id the owner's reader has DELIVERED but not yet
 	// acked to the file it came from, so the consume-rename can find it at
 	// the acknowledgement moment (spoolowner.go). Guarded by mu.
 	spoolRefs map[string]spool.Ref
-	// spoolIn lends the per-child in/ writers. Non-nil ONLY when the spool is
-	// switched on at all (tee or delivery): constructing it is what would
-	// create spool directories, and "both flags are off" has to mean nothing
-	// on disk changed.
-	spoolIn       *spoolWriterCache
-	spoolTeeCount spoolTeeCounters
+	// spoolIn lends the per-child in/ writers. The writers themselves are
+	// lazy (one per child, on its first message), so a run that never sends
+	// never gets a spool directory.
+	spoolIn *spoolWriterCache
 	// spoolReactor serialises the coordinator's own spool reading (out/ and
-	// in/consumed sweeps). Non-nil only under spoolDelivery — see its type.
+	// in/consumed sweeps) — see its type.
 	spoolReactor *spoolReactor
 	// spoolSweepInterval overrides the reconciliation cadence
 	// (Options.SpoolSweepInterval; 0 = spoolSweepInterval). Test seam: a
@@ -311,14 +270,6 @@ type Coordinator struct {
 	// answer to one copy would be lost with the channel it arrived on.
 	// Cleaned per-role at terminal (clearReqTrack); lazily initialized.
 	reqTrack map[reqKey]*inflightReq
-	// downTrack is reqTrack's mirror in the DOWN direction: outstanding
-	// coordinator→agent control requests, keyed by the same (role, request_id).
-	// It lives here rather than on runChan for the same reason — a request
-	// survives the channel it was queued on and is reissued on the role's next
-	// attach — and it is where the DRAIN SEAM's capability re-validation reads
-	// from (control.go's redrainDownRequests). Cleaned per-role at terminal
-	// (clearDownTrack); lazily initialized.
-	downTrack map[reqKey]*downReq
 	// asks holds the outstanding correlated asks (spoolcontrol.go) — question
 	// and summarize — keyed by the id their request file carries as origin_id,
 	// which is what a reply quotes in in_reply_to. Registered BEFORE the file
@@ -441,8 +392,8 @@ type Coordinator struct {
 func New(opts Options) (*Coordinator, error) {
 	// Refused before any state exists: an options contradiction, not a
 	// standup failure.
-	if opts.SpoolDelivery && opts.OwnerHarp == "" {
-		return nil, ErrCutoverNeedsOwner
+	if opts.OwnerHarp == "" {
+		return nil, ErrNeedsOwner
 	}
 	claim, err := acquireStateDir(opts)
 	if err != nil {
@@ -479,24 +430,16 @@ func New(opts Options) (*Coordinator, error) {
 		chans:              make(map[string]*runChan),
 		launchArmed:        make(map[string][]chan struct{}),
 		launches:           make(map[string]*launchState),
-		spoolTee:           opts.SpoolTee,
-		spoolDelivery:      opts.SpoolDelivery,
 		ownerHarp:          opts.OwnerHarp,
 		spoolSweepInterval: opts.SpoolSweepInterval,
-	}
-	if c.spoolTee || c.spoolDelivery {
-		// Built ONLY under a flag — see the field's doc. The writers
-		// themselves are still lazy (one per child, on its first message), so
-		// enabling either switch does not create a spool for a run that never
-		// sends.
-		c.spoolIn = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, spoolWriterIDCoordinator)
+		spoolIn:            newSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, spoolWriterIDCoordinator),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
 		if opts.Cfg == nil {
 			return nil, c.abortNew(errors.New("coord: Options.Cfg is required without an injected Spawner"))
 		}
-		c.spawner = newProdSpawner(opts.Cfg, opts.ProjectDir, opts.Factory)
+		c.spawner = newProdSpawner(opts.Cfg, opts.ProjectDir, opts.Starter)
 	}
 	if err := c.openJournals(); err != nil {
 		return nil, c.abortNew(err)
@@ -644,12 +587,6 @@ func (c *Coordinator) openJournals() error {
 		return err
 	}
 	c.runs = runs
-	c.mailF = newMailFold()
-	mail, err := openStore(filepath.Join(c.stateDir, "mailbox.jsonl"), c.mailF)
-	if err != nil {
-		return err
-	}
-	c.mail = mail
 	c.itemsF = newItemsFold()
 	// D4 CHECKPOINT compaction: a prior snapshot (if one exists — the
 	// common case is none, a fresh project) seeds the fold and replay
@@ -845,6 +782,10 @@ func (c *Coordinator) Close() {
 		if srv := c.srv.Load(); srv != nil {
 			srv.close()
 		}
+		// The stream handlers' deferred terminals run AFTER Stop returns;
+		// join them before the writers close so a runner dropped by the
+		// shutdown still gets its terminal recorded, not raced.
+		waitBounded(&c.streams, closeJoinBudget, "coordinator close: stream handlers")
 		// The spool writers close BEFORE the join, not after it. waitTracked is
 		// BOUNDED (closeJoinBudget) and says so when it gives up — "a leaked
 		// goroutine may still touch the state dir" — so a child teardown that
@@ -888,7 +829,6 @@ func (c *Coordinator) closePartial() {
 		}
 	}
 	shut("runs.jsonl", c.runs)
-	shut("mailbox.jsonl", c.mail)
 	shut("items.jsonl", c.items)
 	shut("interactions.jsonl", c.auditJ)
 	c.spoolIn.close() // idempotent: Close already closed it before the join
@@ -992,7 +932,7 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structur
 func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, delivered bool, disposition string, err error) {
 	// THE COLLISION, and where it is resolved (spoolturnresult.go).
 	//
-	// A cut-over child's AUTOMATIC turn report quotes the id of the message
+	// A child's AUTOMATIC turn report quotes the id of the message
 	// that started the turn — the correlation a parent wants, and a ruling.
 	// But correlation is AUTHORITY here: an in_reply_to that names an
 	// outstanding ask answers it. An automatic report must not, or the
@@ -1050,12 +990,6 @@ func (c *Coordinator) childSend(caller Identity, to, kind, body string, structur
 		return "", false, "", ErrPeerRouting
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
-	// NO DOUBLE DELIVERY: this child reported to its parent in
-	// its own words, so the automatic turn-boundary bridge (children.go's
-	// bridgeTurnResult) must not report the same turn again. Marked here — the
-	// one place a child→parent send is accepted — rather than at either call
-	// site.
-	c.noteChildReported(caller.Harp)
 	id, completed, err := c.queueMailPayload(caller.Harp, parent, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", false, "", err
@@ -1180,20 +1114,13 @@ func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string) st
 	return fmt.Sprintf("stopped child %s; its execution slot is freed (a later agent_send resumes it as a fresh run)", rec.Harp)
 }
 
-// Inject delivers user-typed text into a child. It is now a thin wrapper over
-// ControlSteer with a HUMAN initiator — same verb, one implementation — which
-// is the Wave-D2 convergence: an attached, migrated target that advertises
-// `steer` rides plane 2 and gets a correlated acknowledgement; everything else
-// takes §5.6's mailbox route, which is this method's ORIGINAL behaviour,
-// preserved as a strict superset so no target loses anything.
+// Inject delivers user-typed text into a child: ControlSteer with a HUMAN
+// initiator — same verb, one implementation. The signature is the TUI's
+// contract (caller: run_terminal_ui.go): a Delivery* mode string.
 //
-// The signature is deliberately unchanged (caller: run_terminal_ui.go): the
-// TUI's contract is a Delivery* mode string, so the plane-2 SteerResult is
-// mapped back onto that vocabulary here rather than pushed onto the caller.
-//
-// INVARIANT (decision O3), unchanged on both routes: the KindUserInjected
-// mirror notice to the target's parent fires on EVERY successful injection — a
-// coordinator's picture of its child never diverges without a trace.
+// INVARIANT (decision O3): the KindUserInjected mirror notice to the target's
+// parent fires on EVERY successful injection — a coordinator's picture of its
+// child never diverges without a trace.
 func (c *Coordinator) Inject(harp, text string) (string, error) {
 	out, err := c.ControlSteer(context.Background(), ControlInitiator{
 		Kind: agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_HUMAN,
@@ -1203,31 +1130,7 @@ func (c *Coordinator) Inject(harp, text string) (string, error) {
 		// indirection; ControlSteer already wraps it.
 		return "", err
 	}
-	if out.Fallback != "" {
-		return out.Fallback, nil
-	}
-	return steerAppliedToDelivery(out.Applied), nil
-}
-
-// steerAppliedToDelivery maps a plane-2 acknowledgement onto the Delivery*
-// vocabulary the viewer speaks. APPLIED_IMMEDIATE means the target was IDLE and
-// a new turn started now — which is exactly DeliveryNewTurn — and
-// APPLIED_NEXT_TURN means it was mid-turn, which is DeliveryQueued. There is no
-// Delivery* value meaning "the target refused", so a rejection is reported as
-// the queue it is NOT: it maps to DeliveryQueued only when the runner actually
-// queued it, and REJECTED is surfaced as its own string so the TUI cannot
-// print a success for a refusal.
-func steerAppliedToDelivery(applied agentcoordpb.SteerResult_Applied) string {
-	switch applied {
-	case agentcoordpb.SteerResult_APPLIED_IMMEDIATE:
-		return DeliveryNewTurn
-	case agentcoordpb.SteerResult_APPLIED_NEXT_TURN:
-		return DeliveryQueued
-	case agentcoordpb.SteerResult_APPLIED_REJECTED:
-		return DeliveryRejected
-	default:
-		return DeliveryQueued
-	}
+	return out.Delivery, nil
 }
 
 // injectDigestRunes bounds the mirror notice body: enough for the parent to

@@ -24,11 +24,11 @@ import (
 func awaitRelease(t *testing.T, sp *fakeSpawner, i int) {
 	t.Helper()
 	sp.mu.Lock()
-	require.Less(t, i, len(sp.engines), "engine %d was never launched", i)
-	e := sp.engines[i]
+	require.Less(t, i, len(sp.released), "engine %d was never launched", i)
+	released := sp.released[i]
 	sp.mu.Unlock()
 	select {
-	case <-e.releasedCh():
+	case <-released:
 	case <-time.After(conformanceWait):
 		t.Fatalf("engine %d's Close never fired: the child's process/container was not released", i)
 	}
@@ -53,12 +53,12 @@ func TestStopChildren_StopsEveryLiveChildWithinTheBoundAndNamesEach(t *testing.T
 	gate := make(chan struct{}) // never closed: the running child never yields
 	var launches int
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *fakeEngine {
+		func() *scriptedChat {
 			launches++
 			if launches == 1 {
-				return &fakeEngine{turnGate: gate}
+				return &scriptedChat{turnGate: gate}
 			}
-			return &fakeEngine{}
+			return &scriptedChat{}
 		})
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = 300 * time.Millisecond
@@ -116,7 +116,7 @@ func TestStopChildren_InFlightTurnEndsAtItsBoundaryNotBefore(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute // far past the test: a sweep that waits for it fails
 
@@ -161,7 +161,7 @@ func TestStopChildren_ParkedChildIsEnded(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{}) // never closed: the turn stays open under the park
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
 
@@ -171,19 +171,13 @@ func TestStopChildren_ParkedChildIsEnded(t *testing.T) {
 	// registered so the severance can be observed.
 	var runID string
 	c.runs.View(func() { runID = c.runsF.currentRun(harp).RunID })
-	child := Identity{Harp: harp, RunID: runID, Depth: 1}
 	severed := make(chan error, 1)
 	go func() {
-		_, rerr := c.AgentRecv(context.Background(), child, conformanceWait)
+		_, rerr := childRecv(t, c, runID, conformanceWait)
 		severed <- rerr
 	}()
-	require.Eventually(t, func() bool {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		return c.polls[harp] != nil
-	}, conformanceWait, 10*time.Millisecond)
-	c.onRolePark(harp)
-	require.Equal(t, StateParked, rosterState(c, harp), "precondition: the child is parked")
+	require.Eventually(t, func() bool { return rosterState(c, harp) == StateParked }, conformanceWait, 10*time.Millisecond,
+		"precondition: the child is parked")
 
 	started := time.Now()
 	stopped, err := c.StopChildren(context.Background(), ownerIdentity(), "batch complete")
@@ -195,9 +189,9 @@ func TestStopChildren_ParkedChildIsEnded(t *testing.T) {
 	assert.Equal(t, StateEnded, rosterState(c, harp))
 	select {
 	case rerr := <-severed:
-		require.ErrorIs(t, rerr, ErrRevoked, "the parked poll is severed like any agent_stop's")
+		require.Error(t, rerr, "the parked recv is severed with its runner, like any agent_stop's")
 	case <-time.After(conformanceWait):
-		t.Fatal("the parked poll was never severed")
+		t.Fatal("the parked recv was never severed")
 	}
 	awaitRelease(t, sp, 0)
 }
@@ -210,13 +204,16 @@ func TestStopChildren_ParkedChildIsEnded(t *testing.T) {
 func TestStopChildren_OnlyTheCallersOwnChildren(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
-	c := newTestCoordinator(t, sp, nil)
+	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 	c.drainBound = time.Minute
 
 	mine := spawnOneChild(t, c)
 	require.Eventually(t, func() bool { return rosterState(c, mine) == StateIdle }, conformanceWait, 5*time.Millisecond)
-	// A child of ANOTHER session under the same coordinator.
-	other, err := c.AgentRun(context.Background(), Identity{Harp: "other-coordinator", Depth: 0}, "worker", "go", "", "")
+	// A child of ANOTHER coordinator under the same process: the owner's
+	// child, coordinating a grandchild of its own.
+	var mineRunID string
+	c.runs.View(func() { mineRunID = c.runsF.currentRun(mine).RunID })
+	other, err := c.AgentRun(context.Background(), Identity{Harp: mine, RunID: mineRunID, Depth: 1}, "worker", "go", "", "")
 	require.NoError(t, err)
 	require.NoError(t, c.awaitChildUp(context.Background(), other.Harp))
 	require.Eventually(t, func() bool { return rosterState(c, other.Harp) == StateIdle }, conformanceWait, 5*time.Millisecond)
@@ -242,7 +239,7 @@ func TestStopChildren_SweptChildStaysResumableButIsNotAutoRelaunched(t *testing.
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = 200 * time.Millisecond
 
@@ -259,7 +256,7 @@ func TestStopChildren_SweptChildStaysResumableButIsNotAutoRelaunched(t *testing.
 	launches := func() int {
 		sp.mu.Lock()
 		defer sp.mu.Unlock()
-		return len(sp.engines)
+		return len(sp.chats)
 	}
 	assert.Never(t, func() bool { return launches() > 1 }, 300*time.Millisecond, 10*time.Millisecond,
 		"a swept child must NOT be relaunched by its leftover mail")
@@ -316,7 +313,7 @@ func TestStopChildren_ChildDyingDuringSweepIsNotRelaunched(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
 
@@ -350,7 +347,7 @@ func TestStopChildren_ChildDyingDuringSweepIsNotRelaunched(t *testing.T) {
 	launches := func() int {
 		sp.mu.Lock()
 		defer sp.mu.Unlock()
-		return len(sp.engines)
+		return len(sp.chats)
 	}
 	assert.Never(t, func() bool { return launches() > 1 }, 500*time.Millisecond, 10*time.Millisecond,
 		"a child that dies during a sweep must NOT be relaunched")

@@ -29,14 +29,13 @@
 // child→parent half works before a single steer is spent, so a red on the
 // steer cannot be confused with a child that never woke up.
 //
-// THE SPOOL EVIDENCE. Under the mail-plane cutover (config
-// delegation.spool_delivery, coord/spooldelivery.go) the coordinator's steer is
-// no longer a queue fact — THE FILE IS THE MESSAGE, written into the child's
+// THE SPOOL EVIDENCE. The coordinator's steer is not a queue fact — THE FILE
+// IS THE MESSAGE (coord/spooldelivery.go), written into the child's
 // own ~/.ctxloom/sessions/<harp>/persist/spool/in and renamed into in/consumed
 // when the child's runner accepts it. p6AssertSpoolEvidence asserts that
 // substrate on PAYLOAD BYTES: a file, on disk, carrying the minted harp. It
 // exists because "the echo came back" is compatible with the spool having done
-// nothing at all (the mailbox would have carried it either way), and because
+// nothing at all (some path nobody meant carried it), and because
 // the characteristic failure of every writer in this project is exit 0 with
 // zero bytes — which a delivery assertion made on outcomes alone cannot see.
 package acceptance
@@ -346,17 +345,16 @@ func (c p6SpoolCensus) String() string {
 // p6AssertSpoolEvidence is the soak's behavioural proof, asserted on PAYLOAD
 // BYTES rather than on a flag being set or a run exiting 0.
 //
-// WHAT IT CLAIMS, precisely, and no more: with delegation.spool_delivery on,
-// the coordinator's mid-session steer is a FILE in the child's own spool IN
+// WHAT IT CLAIMS, precisely, and no more: the coordinator's mid-session
+// steer is a FILE in the child's own spool IN
 // plane, and that file carries the minted harp. The in/ → in/consumed rename is
 // the child runner's acknowledgement, so BOTH count as the in plane — asserting
 // on in/ alone would red a cell for the child having done its job promptly.
 //
 // WHAT IT DELIBERATELY DOES NOT CLAIM: anything about the OUT plane. The child's
-// reply reaches the coordinator through its forwarder MCP server, and whether
-// that direction also lands as a file is a property of the cutover's scope, not
-// of P6's claim. The census records the out plane in full either way, so the
-// answer is measured and reported rather than assumed in either direction.
+// reply reaches the coordinator through its own out/ spool, but that direction
+// is not P6's claim. The census records the out plane in full either way, so
+// the answer is measured and reported rather than assumed in either direction.
 //
 // Three shapes, because they have three causes:
 //
@@ -374,12 +372,12 @@ func p6AssertSpoolEvidence(v probeVerdict, census p6SpoolCensus, harp string) er
 	}
 	if census.Total == 0 {
 		return v.fail(shapeSilentNoOp,
-			"delegation.spool_delivery is on for this cell and the round trip completed, but the child's spool holds ZERO message files. The mail plane wrote nothing while every outcome looked healthy — the exit-0-with-zero-bytes failure that only a payload assertion can see.",
+			"the round trip completed, but the child's spool holds ZERO message files. The mail plane wrote nothing while every outcome looked healthy — the exit-0-with-zero-bytes failure that only a payload assertion can see.",
 			"\n"+census.String())
 	}
 	if len(census.HarpIn) == 0 {
 		return v.fail(v.Channel.Shape,
-			fmt.Sprintf("%s — the spool ran (%d message file(s) on disk) but NO file in the child's IN plane carries the steer harp %q. Under the cutover the file IS the delivery, so a steer that is not on disk was not delivered by the substrate this cell claims to be exercising.",
+			fmt.Sprintf("%s — the spool ran (%d message file(s) on disk) but NO file in the child's IN plane carries the steer harp %q. The file IS the delivery, so a steer that is not on disk was not delivered by the substrate this cell claims to be exercising.",
 				v.Channel.Shape, census.Total, harp),
 			"\n"+census.String())
 	}

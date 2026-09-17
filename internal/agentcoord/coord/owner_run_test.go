@@ -46,13 +46,15 @@ func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, contai
 			Harness: backend,
 			Version: "test",
 			Engine:  host.Handle,
+			Harp:    spawnEnv["CTXLOOM_SESSION_HARP"],
+			Depth:   fakeRunDepth(spawnEnv),
 		})
 		if err != nil {
 			cancel()
 			return nil, "", err
 		}
 		host.BindHome(home)
-		return func() { cancel(); home.crash() }, containerName, nil
+		return func() { cancel(); home.Crash() }, containerName, nil
 	}
 	return starter, started
 }

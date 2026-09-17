@@ -120,18 +120,17 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// permission, and the composed MCP set. No agent-definition resolution runs —
 	// the host already resolved every field into OwnerRunSpec.
 	plan := &SpawnPlan{
-		AgentName:   spec.Harp,
-		Backend:     spec.Backend,
-		Label:       spec.Label,
-		Runtime:     ownerRunRuntime,
-		Perm:        spec.Permission,
-		MCPServers:  spec.MCPServers,
-		ViaStartRun: true,
+		AgentName:  spec.Harp,
+		Backend:    spec.Backend,
+		Label:      spec.Label,
+		Runtime:    ownerRunRuntime,
+		Perm:       spec.Permission,
+		MCPServers: spec.MCPServers,
 	}
 
 	// The owned run REUSES the owner's own identity rather than spawning a
 	// child of it — it IS the session owner, running over a different
-	// transport (ViaStartRun/container instead of the plugin-hosted path).
+	// transport (a container run instead of the plugin-hosted path).
 	// So its stamped depth is the owner's OWN depth (owner.Depth, normally
 	// 0), not owner.Depth+1: enqueueRun's depth parameter is explicit for
 	// exactly this reason (a genuine child, by contrast, always gets
@@ -148,7 +147,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// misrouting a call the owned run's OWN engine made about ITSELF
 	// (childSend's ParentHarp resolution hit the self-loop below; AgentStop
 	// and roster both explicitly refuse an IsChild() caller).
-	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}), owner.Depth, true)
+	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}), owner.Depth)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +164,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// hardcoded false, so it stays correct if that ever changes. This is
 	// UNRELATED to rt.oneshot/spec.Oneshot above (the --print single-turn
 	// CLI axis) — see Identity.OneShot's doc for the distinction.
-	kill, containerName, err := start(ctx, runnerEnv(spec.Harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
+	kill, containerName, err := start(ctx, runnerEnv(spec.Harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot))
 	if err != nil {
 		// ONE error, both destinations: the run's terminal record and the
 		// caller get the same text. Returning the bare cause here left the
@@ -239,11 +238,11 @@ func (c *Coordinator) recordContainerName(runID, name string) {
 }
 
 // SendOwnedRunTurn enqueues a follow-up user turn for an owner-owned run: the
-// same mailbox enqueue + pushMail push (CoordinatorNotice{PeerMessage}) a
-// migrated runner's EngineHost already consumes as a new turn (delivery-by-
-// state). The run's harp is both sender and recipient (it is the session's own
-// run); bridgeTurnResult is suppressed for an owner run, so this input queue
-// never sees the run's own output re-queued into it (childRt.ownerRun's doc).
+// same spool write + doorbell a runner's EngineHost already consumes as a new
+// turn (delivery-by-state). The run's harp is both sender and recipient (it
+// is the session's own run); its runner files no automatic turn report
+// (HomeConfig.Depth 0), so this input queue never sees the run's own output
+// re-queued into it.
 func (c *Coordinator) SendOwnedRunTurn(runID, text string) error {
 	if strings.TrimSpace(text) == "" {
 		return fmt.Errorf("owner run %q: a turn needs text — an empty turn wakes the engine with nothing to "+
@@ -265,12 +264,9 @@ func (c *Coordinator) SendOwnedRunTurn(runID, text string) error {
 		return fmt.Errorf("owner run %q: not an owner-owned run — send to a delegated child with agent_send, "+
 			"which routes and audits it as its parent's message", runID)
 	}
-	// queueMailPayloadID pushes to a migrated run's live channel itself
-	// (delivery-by-state), but push again explicitly for parity with
-	// runChildViaStartRun's standup drain — pushMail is idempotent.
+	// The write rings the run's doorbell; its runner delivers the turn.
 	if _, _, err := c.queueMail(rt.harp, rt.harp, "message", text); err != nil {
 		return fmt.Errorf("owner run %q: enqueue turn: %w", runID, err)
 	}
-	c.pushMail(rt.harp)
 	return nil
 }

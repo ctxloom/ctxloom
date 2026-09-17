@@ -21,7 +21,8 @@ import (
 func newPublishCoordinator(t *testing.T) (*Coordinator, string) {
 	t.Helper()
 	dir := t.TempDir()
-	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil)})
+	teeHome(t)
+	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)

@@ -63,36 +63,6 @@ func DefaultPolicy() Policy {
 
 		{Path: "delegation.concurrency", Scope: ScopeMachine, Note: "a resource ceiling — a fact about the box"},
 		{Path: "delegation.depth", Scope: ScopeMachine, Note: "a structural safety ceiling, tuned per box like a resource cap; a team's shared policy would belong in agents.*.permissions instead"},
-		// Machine, with its siblings, and for the SAME kind of reason
-		// delegation.concurrency is: what it decides is a cost this box pays,
-		// not behaviour this project has. The tee changes no delivery — every
-		// read still comes from the mailbox — so there is nothing about it a
-		// team could legitimately decide once for everyone; what it does is
-		// spend this machine's disk and two fsyncs per message writing
-		// evidence into ~/.ctxloom/sessions/<harp>/persist/spool that only the
-		// operator running the soak will ever read. Committing it would opt
-		// every clone into paying for that.
-		//
-		// NOT ScopeInvocation, despite being a rollout switch: a soak is
-		// measured over days, and Invocation would restrict it to env and
-		// flag — i.e. forbid the home config file that is exactly where an
-		// operator leaves it on across many runs. "Per-run" here means each
-		// delegated run carries the posture (the coordinator stamps it into
-		// the runner's env at spawn), not that it varies per invocation.
-		{Path: "delegation.spool_tee", Scope: ScopeMachine, Note: "a soak switch whose cost is this box's disk and fsyncs; it changes no delivery, so there is nothing here for a team to decide once for everyone"},
-		// The CUTOVER switch, and ScopeMachine for a different reason than its
-		// soak sibling above: this one does change delivery, and what it
-		// changes it to depends on the box — the spool lives in THIS machine's
-		// ~/.ctxloom/sessions, and a container-backed run only sees it because
-		// this machine's mount puts it there. A committed value would opt every
-		// clone's coordinator into a substrate whose behaviour is a property of
-		// the operator's filesystem, not of the project.
-		//
-		// NOT ScopeShared despite being a correctness-relevant switch: it is a
-		// migration posture an operator carries across many runs while the
-		// cutover is rolling out, not a project decision, and it must be
-		// settable in a home config for exactly that reason.
-		{Path: "delegation.spool_delivery", Scope: ScopeMachine, Note: "a substrate cutover whose behaviour depends on this machine's spool directory and mounts; a team cannot decide it once for every clone"},
 
 		{Path: "llm.configs.*", Scope: ScopePreference, Note: "which model a person likes; harmless in either file"},
 		{Path: "llm.configs.*.binary_path", Scope: ScopeMachine, Note: "an absolute path on this filesystem"},

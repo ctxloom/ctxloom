@@ -73,15 +73,16 @@ func (x *spoolCourier) Send(msg Message) (spool.Ref, error) {
 // SendProjected writes an ALREADY-PROJECTED spool message and rings it.
 //
 // It exists for callers that build their own spool.Message and own their own
-// failure reporting — the shadow tee does both, with its own counters. They
-// still must not be able to write without ringing, so the pairing lives here
-// and they compose on top rather than reaching past it.
+// failure reporting. They still must not be able to write without ringing, so
+// the pairing lives here and they compose on top rather than reaching past
+// it.
 func (x *spoolCourier) SendProjected(to string, sm *spool.Message) (spool.Ref, error) {
-	w, err := x.writers.writerFor(x.keyFor(to))
+	w, release, err := x.writers.writerFor(x.keyFor(to))
 	if err != nil {
 		return spool.Ref{}, fmt.Errorf("%s: cannot open the spool for %s: %w", x.side, to, err)
 	}
 	ref, err := w.Write(sm)
+	release() // the file is on disk (or refused): the lease ends before the ring
 	if err != nil {
 		return spool.Ref{}, fmt.Errorf("%s: writing into %s's spool: %w", x.side, to, err)
 	}

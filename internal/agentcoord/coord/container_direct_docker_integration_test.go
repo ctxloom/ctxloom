@@ -59,12 +59,11 @@ func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*SpawnP
 	}
 	perm := agent.PermissionBypass
 	return &SpawnPlan{
-		AgentName:   agentName,
-		Backend:     "mock",
-		Label:       "fast",
-		Runtime:     "container",
-		Perm:        perm,
-		ViaStartRun: true,
+		AgentName: agentName,
+		Backend:   "mock",
+		Label:     "fast",
+		Runtime:   "container",
+		Perm:      perm,
 	}, nil
 }
 
@@ -82,10 +81,6 @@ func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, er
 		return "", err
 	}
 	return entry.HarpName, nil
-}
-
-func (s *directBusSpawner) Launch(context.Context, *SpawnPlan, string, string, map[string]string, map[string]string) (*operations.AgentChatLaunch, error) {
-	return nil, &unknownAgentError{"legacy Launch is unused (this agent always routes ViaStartRun)"}
 }
 
 // StartEngine is the whole point: build the REAL Container policy, prepare its
@@ -158,7 +153,8 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	projectDir := testsupport.ProjectDir(t) // isolated HOME + cwd; never the real ~/.ctxloom
 
 	sp := &directBusSpawner{image: image, projectDir: projectDir}
-	c, err := New(Options{ProjectDir: projectDir, ProjectKey: "direct-itest", Spawner: sp})
+	teeHome(t)
+	c, err := New(Options{ProjectDir: projectDir, ProjectKey: "direct-itest", Spawner: sp, OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)

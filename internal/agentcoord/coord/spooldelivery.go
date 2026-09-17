@@ -19,8 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// THE MAIL-PLANE CUTOVER (config delegation.spool_delivery): ordinary
-// coordinator<->child mail is DELIVERED FROM FILES.
+// THE MAIL PLANE: coordinator<->child mail is DELIVERED FROM FILES.
 //
 // The shape, stated once, because every function below is a consequence of it:
 //
@@ -204,10 +203,9 @@ func (r *spoolReactor) drain(ctx context.Context) {
 // that is NOT a JSON object travels.
 //
 // YAML frontmatter's `structured` is a mapping, so a bare array, string or
-// number has nowhere faithful to sit. Before the cutover that was refused at
-// the projection, which was right for a shadow (the tee dropped a file and
-// counted it) and is fatal for a delivery (the message itself would be lost).
-// The payload therefore travels as its ORIGINAL JSON TEXT under this key —
+// number has nowhere faithful to sit, and refusing it at the projection
+// would lose the message itself. The payload therefore travels as its
+// ORIGINAL JSON TEXT under this key —
 // bytes in, identical bytes out — rather than as a YAML value, because a YAML
 // round trip is exactly where a large integer loses its precision and a
 // numeric-looking string stops being a string.
@@ -289,13 +287,11 @@ func clip(s string) string {
 // deliverableStructured normalises a spool payload for the PeerMessage WIRE
 // shape, which is a protobuf Struct and therefore always an object.
 //
-// A bare array or scalar has nowhere to sit in a Struct, so today's mailbox
-// path warns and leaves such a message pending forever (pushMail's "cannot
-// project mail onto the wire"). Under the cutover the file already carries the
-// payload faithfully, and the only question left is what the engine's turn
-// sees; wrapping it under the SAME marker key the file uses (spoolRawJSONKey)
-// delivers the message with its payload legible instead of stranding it, and
-// keeps one spelling of the wrapper rather than two.
+// A bare array or scalar has nowhere to sit in a Struct. The file already
+// carries the payload faithfully, and the only question left is what the
+// engine's turn sees; wrapping it under the SAME marker key the file uses
+// (spoolRawJSONKey) delivers the message with its payload legible instead of
+// stranding it, and keeps one spelling of the wrapper rather than two.
 func deliverableStructured(raw json.RawMessage) (json.RawMessage, error) {
 	head, err := spoolStructured(raw)
 	if err != nil {
@@ -348,14 +344,6 @@ func mailFromSpool(e spool.Entry, from string) (Message, error) {
 
 // ---- coordinator side --------------------------------------------------
 
-// spoolPosture is what this coordinator stamps onto every runner it spawns.
-func (c *Coordinator) spoolPosture() spoolPosture {
-	return spoolPosture{Tee: c.spoolTee, Delivery: c.spoolDelivery}
-}
-
-// SpoolDeliveryEnabled reports whether this coordinator delivers mail by file.
-func (c *Coordinator) SpoolDeliveryEnabled() bool { return c.spoolDelivery }
-
 // spoolDeliverTo reports whether mail for role is delivered by FILE rather
 // than by mailbox — whether there is a spool READER on the other end.
 //
@@ -377,13 +365,13 @@ func (c *Coordinator) spoolDeliverTo(role string) bool {
 	if c.ownerSpool(role) {
 		return true
 	}
-	if !c.spoolDelivery || role == "" {
+	if role == "" {
 		return false
 	}
 	c.mu.Lock()
 	rt := c.byHarp[role]
 	c.mu.Unlock()
-	if rt == nil || !rt.viaStartRun {
+	if rt == nil {
 		return false
 	}
 	tracked := false
@@ -392,29 +380,71 @@ func (c *Coordinator) spoolDeliverTo(role string) bool {
 }
 
 // ownerSpool reports whether role's inbox is a spool THIS PROCESS reads: the
-// declared session owner, under the cutover. It is narrower than
-// spoolDeliverTo on purpose — a migrated child's in/ is also a spool, but its
-// reader is the child's runner, and the recv-side substrate switch must never
-// drain a directory another process owns.
+// declared session owner. It is narrower than spoolDeliverTo on purpose — a
+// migrated child's in/ is also a spool, but its reader is the child's runner,
+// and the recv side must never drain a directory another process owns.
 func (c *Coordinator) ownerSpool(role string) bool {
-	return c.spoolDelivery && role != "" && role == c.ownerHarp
+	return role != "" && role == c.ownerHarp
 }
 
-// deliverMailViaSpool IS the delivery: it writes msg as the single copy in the
-// recipient's in/ and rings the doorbell.
+// ErrNoSpoolReader refuses mail for a recipient with no spool reader: not
+// the declared owner, and not a run this coordinator tracks. A file written
+// for it would be a message delivered to a directory nobody reads, with
+// every signal green.
+var ErrNoSpoolReader = errors.New("coordinator mail: the recipient has no spool reader (it is neither the session owner nor a tracked run)")
+
+// queueMail is queueMailPayload's common-case wrapper: no structured
+// companion, no reply correlation.
+func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, completed bool, err error) {
+	return c.queueMailPayload(from, to, kind, body, nil, "")
+}
+
+// queueMailPayload delivers one message: the write into the recipient's in/
+// spool IS the delivery, fsynced before return, and the doorbell only bounds
+// latency. Routing policy is the caller's. structured is an optional
+// JSON-object companion (e.g. the escalation ladder's relayed
+// ApprovalRequest projection); inReplyTo correlates this message to an
+// earlier one's id.
 //
-// Unlike the shadow tee, a failure here is RETURNED. The tee could swallow its
-// own errors because the mailbox was still the system of record behind it;
-// under the cutover there is nothing behind it, so a write that failed is a
-// message that does not exist and the sender must be told so.
-//
-// completed is always false: nothing was handed to a waiting receiver
-// synchronously. The recipient's runner delivers it on the doorbell or its
+// completed is always false: nothing is handed to a waiting receiver
+// synchronously. The recipient's reader delivers it on the doorbell or its
 // next sweep, and its consume-rename is what reports back that it landed.
-func (c *Coordinator) deliverMailViaSpool(msg Message) (string, bool, error) {
+func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, completed bool, err error) {
+	return c.queueMailPayloadID(newMessageID(), from, to, kind, body, structured, inReplyTo)
+}
+
+// queueMailPayloadID is queueMailPayload with the message id supplied by the
+// caller. It exists for correlation-carrying mail whose id must be REGISTERED
+// somewhere before the mail is observable: this function publishes, and after
+// it returns a reply quoting the id can already arrive. relayApproval is the
+// case that forced it; see its comment.
+func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, error) {
+	// Role "" is undrainable by construction — agent_recv drains the caller's
+	// own harp and no session has the empty harp. Refused here, at the one
+	// point every sender funnels through, rather than at each sender.
+	if to == "" {
+		return "", false, fmt.Errorf("coordinator mail: refusing to queue a %q message from %q with no recipient: no session can drain role %q", kind, from, to)
+	}
+	// A message with NO payload is refused at the same chokepoint. Delivered,
+	// it completes a parked recv and is answered with the ordinary success
+	// disposition — a recipient woken for a turn whose content is nothing at
+	// all, with every signal green. A structured companion IS payload (the
+	// relayed ApprovalRequest projection and its replies carry it), so only a
+	// message with neither is empty.
+	if strings.TrimSpace(body) == "" && len(structured) == 0 {
+		return "", false, fmt.Errorf("coordinator mail: refusing to queue an empty message from %q to %q (kind %q): "+
+			"it carries no text and no structured payload, so the recipient would be woken with nothing to act on "+
+			"(check the sender's message composition)", from, to, kind)
+	}
+	if !c.spoolDeliverTo(to) {
+		return "", false, fmt.Errorf("%w: %q (from %q, kind %q)", ErrNoSpoolReader, to, from, kind)
+	}
+	msg := Message{ID: msgID, From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
 	// Write-and-ring is ONE operation (spoolcourier.go): the pairing used to be
 	// a convention repeated at each site, which is what made "made durable and
-	// handed to nobody" expressible here at all.
+	// handed to nobody" expressible here at all. A failure is RETURNED: there
+	// is nothing behind the file, so a write that failed is a message that
+	// does not exist and the sender must be told so.
 	if _, err := c.mailCourier().Send(msg); err != nil {
 		return "", false, err
 	}
@@ -496,13 +526,8 @@ func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, 
 	return res, true
 }
 
-// startSpoolReactor brings up the coordinator's spool reader. It is a no-op
-// unless the cutover is on — the reactor is what would create directories and
-// the flag-off promise is that nothing on disk changes.
+// startSpoolReactor brings up the coordinator's spool reader.
 func (c *Coordinator) startSpoolReactor() {
-	if !c.spoolDelivery {
-		return
-	}
 	c.spoolSeen = map[string]map[string]bool{}
 	c.spoolReactor = newSpoolReactor(c.sweepChildSpool, c.spoolRoles, c.spoolSweepInterval)
 	// The reactor is registered AS the doorbell's consumer rather than being
@@ -782,8 +807,8 @@ type SpoolDeliveryStats struct {
 	// Consumed counts consume-renames observed or performed.
 	Consumed uint64
 	// Failed counts everything that did not get through — an unreadable file,
-	// an unroutable message, a rename that errored. Under the cutover these
-	// are not shadow divergences; each one is a message that has not arrived.
+	// an unroutable message, a rename that errored. Each one is a message
+	// that has not arrived.
 	Failed uint64
 }
 
@@ -802,11 +827,6 @@ func (s *spoolDeliveryCounters) stats() SpoolDeliveryStats {
 }
 
 // ---- runner side -------------------------------------------------------
-
-// SpoolDeliveryEnabled reports whether this runner takes its mail from files.
-// It answers from the resolved state, not the config bit: a run with no harp
-// has no spool and stays on the mailbox however it was stamped.
-func (h *Home) SpoolDeliveryEnabled() bool { return h.spoolDelivery }
 
 // SpoolDeliveryStats reports this runner's cumulative file-plane outcomes.
 func (h *Home) SpoolDeliveryStats() SpoolDeliveryStats { return h.spoolDeliveryCount.stats() }
@@ -834,9 +854,6 @@ func (h *Home) startSpoolReactor() {
 // reattach, doorbell — so a new trigger cannot accidentally introduce a second
 // way of reading the same directory.
 func (h *Home) SweepSpoolIn() {
-	if !h.spoolDelivery {
-		return
-	}
 	h.spoolIn.mark(h.cfg.Harp)
 }
 
@@ -935,29 +952,20 @@ func (h *Home) takeSpoolRef(id string) (spool.Ref, bool) {
 	return ref, ok
 }
 
-// ackMailConsumed is the ONE acknowledgement point for delivered mail, whichever
-// substrate carried it: the mailbox's consumption fact, or the spool's
-// consume-rename plus the doorbell that announces it.
-//
-// Routing both through one function is what keeps the two from drifting: the
-// ack timing (after the engine accepted / after the next Recv) is a property
-// of the CALLER, and it is the property that keeps at-least-once true.
+// ackMailConsumed is the ONE acknowledgement point for delivered mail: the
+// consume-rename plus the doorbell that announces it. The ack timing (after
+// the engine accepted / after the next Recv) is a property of the CALLER, and
+// it is the property that keeps at-least-once true.
 func (h *Home) ackMailConsumed(ids []string) {
-	if len(ids) == 0 {
-		return
-	}
-	if !h.spoolDelivery {
-		h.emitMailConsumed(ids)
-		return
-	}
-	var viaMailbox []string
 	for _, id := range ids {
 		ref, ok := h.takeSpoolRef(id)
 		if !ok {
-			// Not a file delivery: a cutover run can still be handed a
-			// mailbox message (a terminal fallback, say), and swallowing its
-			// ack would leave it pending forever.
-			viaMailbox = append(viaMailbox, id)
+			// Every delivery is a file, so an id with no file behind it is a
+			// delivery this reader never made. Said loudly rather than
+			// swallowed: an ack that matches nothing is a bookkeeping fault,
+			// not a no-op.
+			clidiag.Warn("ctxloom", "runner: asked to acknowledge message %s, which no spool file delivered", id)
+			h.spoolDeliveryCount.failed.Add(1)
 			continue
 		}
 		done, err := spool.Consume(spool.NewHomeMapper(), ref)
@@ -974,24 +982,11 @@ func (h *Home) ackMailConsumed(ids []string) {
 		// coordinator learns of it without polling.
 		h.outboundCourier().Announce("", done, "consumed")
 	}
-	h.emitMailConsumed(viaMailbox)
 }
 
-// emitMailConsumed sends the mailbox's own consumption fact.
-func (h *Home) emitMailConsumed(ids []string) {
-	if len(ids) == 0 {
-		return
-	}
-	vals := make([]any, len(ids))
-	for i, id := range ids {
-		vals[i] = id
-	}
-	h.emitCustomEvent(CustomMailConsumed, map[string]any{"message_ids": vals})
-}
-
-// sendPeerViaSpool is agent_send under the cutover: a LOCAL, durable file
-// write into this run's out/ plus a doorbell, with no coordinator round trip
-// at all. handled=false leaves the request to the ordinary plane-2 path.
+// sendPeerViaSpool is agent_send: a LOCAL, durable file write into this
+// run's out/ plus a doorbell, with no coordinator round trip at all.
+// handled=false leaves a non-PeerSend request to the ordinary plane-2 path.
 //
 // The guards duplicated from servePeerSend (a recipient, some text, a kind
 // from the closed sender vocabulary — read the SAME way, off the typed
@@ -1017,9 +1012,6 @@ func (h *Home) emitMailConsumed(ids []string) {
 // tested fallback this file's own doc comment names for exactly this
 // asymmetry ("the coordinator will complain later, by mail").
 func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, bool) {
-	if !h.spoolDelivery {
-		return nil, false
-	}
 	send := req.GetPeerSend()
 	if send == nil {
 		return nil, false
@@ -1070,10 +1062,10 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 		RequestId: req.GetRequestId(),
 		Status:    okStatus("written to this session's outbound spool"),
 		Kind: &agentcoordpb.CoordinatorResponse_PeerSend{PeerSend: &agentcoordpb.PeerSendResult{
-			// The FILENAME STEM is the message id, because under the cutover
-			// the file is the message: there is no coordinator-minted mailbox
-			// id to quote, and an id the recipient could not resolve back to a
-			// file would make every in_reply_to written against it dangling.
+			// The FILENAME STEM is the message id, because the file is the
+			// message: there is no coordinator-minted id to quote, and an id
+			// the recipient could not resolve back to a file would make every
+			// in_reply_to written against it dangling.
 			MessageId: strings.TrimSuffix(ref.Name, spool.MessageFileExt),
 			Delivery:  agentcoordpb.PeerSendResult_DELIVERY_QUEUED,
 		}},
@@ -1084,8 +1076,12 @@ func spoolSendErr(code codes.Code, msg string) *agentcoordpb.CoordinatorResponse
 	return &agentcoordpb.CoordinatorResponse{Status: statusErr(code, msg)}
 }
 
-// ErrCutoverNeedsOwner refuses a cutover coordinator that was not told whose
-// inbox it drains (Options.OwnerHarp): under the cutover every child->parent
-// message is a file in the owner's in/, and an owner nobody declared is a
-// directory nobody reads.
-var ErrCutoverNeedsOwner = errors.New("coord: delegation.spool_delivery needs the session owner's harp (Options.OwnerHarp): the owner's inbox is a spool and this process is its reader")
+// ErrNeedsOwner refuses a coordinator that was not told whose inbox it drains
+// (Options.OwnerHarp): every child->parent message is a file in the owner's
+// in/, and an owner nobody declared is a directory nobody reads.
+var ErrNeedsOwner = errors.New("coord: the coordinator needs the session owner's harp (Options.OwnerHarp): the owner's inbox is a spool and this process is its reader")
+
+// ErrRunNeedsHarp refuses a runner with no session harp (HomeConfig.Harp):
+// its spool is named by the harp, and a run with no spool can neither
+// receive coordinator mail nor send any.
+var ErrRunNeedsHarp = errors.New("coord: the runner needs this run's session harp (HomeConfig.Harp): its spool is named by it, and a run with no spool cannot receive or send")

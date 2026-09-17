@@ -61,6 +61,22 @@ func (g *trackedGroup) seal() {
 // naming what (the teardown, e.g. "coordinator close") and, when risk is
 // non-empty, what a goroutine still running past the budget may still touch —
 // rather than deadlocking the teardown.
+// waitBounded waits for wg up to budget, warning and proceeding past it —
+// the same discipline trackedGroup.wait applies, for a group that is not
+// sealed (the stream handlers are dispatched by the gRPC server, not by us).
+func waitBounded(wg *sync.WaitGroup, budget time.Duration, what string) {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(budget):
+		clidiag.Warn("ctxloom", "%s: handlers did not finish within %s; proceeding (a late terminal may still touch the state dir)", what, budget)
+	}
+}
+
 func (g *trackedGroup) wait(budget time.Duration, what, risk string) {
 	done := make(chan struct{})
 	go func() {

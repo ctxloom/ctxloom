@@ -42,14 +42,8 @@ func NewHostedCoordinator(cfg *config.Config, projectDir, ownerHarp string) (*co
 		// A configurable STRUCTURAL ceiling on the delegation tree's depth —
 		// see coord.agentDepthCap's doc. <= 0 (unset project config) falls
 		// back to the built-in default inside coord.New.
-		Depth: cfg.GetDelegationDepth(),
-		// The mailbox's shadow tee onto the file spool — off unless the
-		// project asks for it. See config.DelegationConfig.SpoolTee.
-		SpoolTee: cfg.GetDelegationSpoolTee(),
-		// The spool CUTOVER — off unless the project asks for it. See
-		// config.DelegationConfig.SpoolDelivery.
-		SpoolDelivery: cfg.GetDelegationSpoolDelivery(),
-		OwnerHarp:     ownerHarp,
+		Depth:     cfg.GetDelegationDepth(),
+		OwnerHarp: ownerHarp,
 	})
 	if err != nil {
 		return nil, err

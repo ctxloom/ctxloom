@@ -56,23 +56,14 @@ func p6Of(w *World) *p6State {
 	return w.p6
 }
 
-// p6SpoolHomeConfigYAML is the HOME half of a P6 cell's config: the mail-plane
-// cutover, switched on for this scenario only.
+// p6SpoolHomeConfigYAML is the HOME half of a P6 cell's config.
 //
-// IT HAS TO BE THE HOME LAYER. delegation.spool_tee and
-// delegation.spool_delivery are ScopeMachine (internal/config/layerscope's
-// policy: a substrate whose behaviour depends on THIS box's spool directory and
-// mounts, which a team cannot decide once for every clone), so a project
-// config.yaml declaring them does not survive a real Load. Home is where an
-// operator running the soak actually leaves them, and home is therefore where a
-// cell that wants the substrate has to write them.
-//
-// AND THE CELL HAS TO WRITE THEM ITSELF, which is the finding worth stating
-// plainly: this suite isolates HOME to a temp directory, so the operator's real
-// ~/.ctxloom/config.yaml — where the soak is switched on machine-wide — cannot
-// reach any scenario here. A machine-wide soak flag is invisible to the
-// acceptance suite by construction. Nothing in the lane would have told anyone
-// that; the first cell to assert on spool bytes finds it immediately.
+// It carries NOTHING about the mail plane, and that absence is the point: the
+// file spool is the only carrier there is, so a cell that wants to assert on
+// spool bytes has nothing to switch on. This suite isolates HOME to a temp
+// directory, so an operator's real ~/.ctxloom/config.yaml cannot reach any
+// scenario here; the home layer is written so that a cell is provably
+// running on a known home config rather than none.
 func p6SpoolHomeConfigYAML() string {
 	// THE isolation_engines PIN THAT USED TO BE HERE IS GONE, and its absence is
 	// the point. It existed because an agent image composed ALL FOUR engines, so
@@ -84,12 +75,8 @@ func p6SpoolHomeConfigYAML() string {
 	// An agent image now carries exactly ONE engine (frosted-pony, 2026-08-25),
 	// so there is nothing to pin: the image is a function of the engine the run
 	// asks for. Re-adding the pin would be inert at best.
-	return fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `# P6 (capability probe p6-steer-echo): the mail-plane cutover, on for this
-# scenario. Machine-scoped keys, so they must be written in the HOME layer —
-# a project file declaring them does not survive a real config Load.
-delegation:
-  spool_tee: true
-  spool_delivery: true
+	return fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `# P6 (capability probe p6-steer-echo): a known, empty home config. The mail
+# plane is the file spool unconditionally; there is nothing to switch on.
 `
 }
 
@@ -167,7 +154,6 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, runtime, workspace)); err != nil {
 				return err
 			}
-			// The mail plane, in the layer that is allowed to carry it.
 			if err := w.env.WriteHomeFile(".ctxloom/config.yaml", p6SpoolHomeConfigYAML()); err != nil {
 				return err
 			}
@@ -302,7 +288,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 	// judges the outcome with p6AssertEcho so the failure carries a shape rather
 	// than a bare timeout. It does not assert on "the first message from that
 	// child": two messages reach a coordinator from one child harp on a live run
-	// (its own agent_send, and bridgeTurnResult's copy of its turn), and which
+	// (its own agent_send, and its runner's automatic turn report), and which
 	// lands in which agent_recv batch is a race — a floor whose PASS depended on
 	// batch ordering would be measuring the scheduler.
 	//
@@ -374,8 +360,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 	// The soak's first behavioural proof in this suite, asserted on PAYLOAD
 	// BYTES. See p6AssertSpoolEvidence for exactly what is claimed (the steer is
 	// a file in the child's IN plane, carrying the harp) and what is only
-	// measured and reported (the OUT plane, whose participation is a property of
-	// the cutover's scope rather than of P6's claim).
+	// measured and reported (the OUT plane, which is not P6's claim).
 	ctx.Step(`^the coordinator's steer is on disk in "([^"]*)"'s own spool, in a file carrying that harp$`,
 		func(c context.Context, name string) error {
 			w := worldFrom(c)
@@ -388,7 +373,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			root := p6SpoolRoot(w.env.HomeDir, childHarp)
 			census, err := p6ReadSpoolCensus(root, p6.harp)
 			if err != nil {
-				return fmt.Errorf("p6: delegation.spool_delivery was switched on in this cell's HOME config, so the child's spool must exist: %w", err)
+				return fmt.Errorf("p6: the child's spool must exist, it is the only carrier: %w", err)
 			}
 			w.docStepMaterialized = census.String()
 			if err := p6AssertSpoolEvidence(p6Verdict(p6.cell), census, p6.harp); err != nil {

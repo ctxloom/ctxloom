@@ -56,6 +56,10 @@ func TestProgressReport_IsNotQueuedToTheParent(t *testing.T) {
 		return
 	}
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
+	// The child's runner files an automatic report for the turn that just
+	// ended and the coordinator routes it asynchronously: drain it, so the
+	// count below can only move for the PROGRESS report under test.
+	require.NotEmpty(t, recvKind(t, c, KindResult, conformanceWait), "the turn's automatic report reaches the parent first")
 
 	before := c.pendingCount(owner.Harp)
 	c.recordSummary(out.Harp, out.RunID, 1, &agentcoordpb.Summary{

@@ -17,10 +17,12 @@ import (
 func TestSecretScan_TokenNeverOnDisk(t *testing.T) {
 	resetStrictness(t)
 	stateDir := t.TempDir()
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   stateDir,
 		Spawner:    researcherSpawner(),
+		OwnerHarp:  ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
@@ -52,7 +54,7 @@ func TestSecretScan_TokenNeverOnDisk(t *testing.T) {
 
 	// And the ENGINE env (what a harness could write into its own files)
 	// carries no token either — the runner spawn env is the only carrier.
-	env := c.spawner.(*fakeSpawner).engine(0).env()
+	env := c.spawner.(*fakeSpawner).chat(0).env()
 	for k, v := range env {
 		for _, secret := range secrets {
 			require.NotEqual(t, secret, v, "engine env %s carries a raw credential", k)

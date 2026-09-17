@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,12 +52,14 @@ func TestRunnerAwaitTimeout_ProductionDefaultIsGenerous(t *testing.T) {
 // against awaitRunner so the test runs in milliseconds instead of minutes.
 func TestIssueStartRun_ToleratesSlowRunnerDialHomeWithinBudget(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless}}, nil)
+	sp := newSilentRunnerSpawner()
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:         t.TempDir(),
 		StateDir:           t.TempDir(),
 		Spawner:            sp,
 		RunnerAwaitTimeout: 300 * time.Millisecond,
+		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
@@ -64,7 +67,7 @@ func TestIssueStartRun_ToleratesSlowRunnerDialHomeWithinBudget(t *testing.T) {
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
-	env := waitForChildEnv(t, c, out.RunID)
+	env := sp.awaitRunnerEnv(t, out.RunID)
 	credHash := hashToken(env[EnvCoordCred])
 
 	// Simulate a slow-but-successful container start: nobody has dialed
@@ -93,12 +96,14 @@ func TestIssueStartRun_ToleratesSlowRunnerDialHomeWithinBudget(t *testing.T) {
 // regardless of ctx wouldn't be proving the budget does anything).
 func TestIssueStartRun_TooTightBudgetFailsTheSameSlowDialHome(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless}}, nil)
+	sp := newSilentRunnerSpawner()
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:         t.TempDir(),
 		StateDir:           t.TempDir(),
 		Spawner:            sp,
 		RunnerAwaitTimeout: 50 * time.Millisecond,
+		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
@@ -106,7 +111,7 @@ func TestIssueStartRun_TooTightBudgetFailsTheSameSlowDialHome(t *testing.T) {
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
-	env := waitForChildEnv(t, c, out.RunID)
+	env := sp.awaitRunnerEnv(t, out.RunID)
 	credHash := hashToken(env[EnvCoordCred])
 
 	go func() {
@@ -121,4 +126,45 @@ func TestIssueStartRun_TooTightBudgetFailsTheSameSlowDialHome(t *testing.T) {
 	defer acancel()
 	_, err = c.awaitRunner(actx, credHash)
 	assert.Error(t, err, "a dial-home slower than the configured budget must still fail — otherwise the budget governs nothing")
+}
+
+// silentRunnerSpawner spawns a runner PROCESS that never dials home — a
+// container still starting — so the test itself decides when the dial-home
+// lands. The fake spawner's own runner would dial the instant it was spawned.
+type silentRunnerSpawner struct {
+	*fakeSpawner
+	mu   sync.Mutex
+	envs []map[string]string
+}
+
+func newSilentRunnerSpawner() *silentRunnerSpawner {
+	return &silentRunnerSpawner{
+		fakeSpawner: newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless}}, nil),
+	}
+}
+
+func (s *silentRunnerSpawner) StartEngine(_ context.Context, _ *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
+	s.mu.Lock()
+	s.envs = append(s.envs, runnerEnv)
+	s.mu.Unlock()
+	return &EngineSpawn{WorkDir: "/work", Env: env, Model: "test-model", Kill: func() {}}, nil
+}
+
+// awaitRunnerEnv returns the per-spawn runner env for runID once the spawn
+// has happened.
+func (s *silentRunnerSpawner) awaitRunnerEnv(t *testing.T, runID string) map[string]string {
+	t.Helper()
+	var env map[string]string
+	require.Eventually(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, e := range s.envs {
+			if e[EnvRunID] == runID {
+				env = e
+				return true
+			}
+		}
+		return false
+	}, conformanceWait, 10*time.Millisecond, "the runner was never spawned")
+	return env
 }

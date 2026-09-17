@@ -41,7 +41,7 @@ func waitForChildEnv(t *testing.T, c *Coordinator, runID string) map[string]stri
 	deadline := time.Now().Add(conformanceWait)
 	for time.Now().Before(deadline) {
 		sp.mu.Lock()
-		for _, e := range sp.engines {
+		for _, e := range sp.chats {
 			env := e.runnerEnv()
 			if env[EnvRunID] == runID {
 				sp.mu.Unlock()
@@ -63,13 +63,13 @@ func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		e := sp.engine(0)
+		e := sp.chat(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
@@ -117,13 +117,13 @@ func TestRunnerLoss_HeartbeatTimeout(t *testing.T) {
 	clockMu.set(now)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, clockMu.now)
 
 	run, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		e := sp.engine(0)
+		e := sp.chat(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 

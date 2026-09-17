@@ -29,9 +29,9 @@ func TestQueueMail_RefusesAnEmptyBody(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	const role = "child-a"
+	role := ownerIdentity().Harp
 	for _, body := range []string{"", "   ", "\n\t "} {
-		_, _, err := c.queueMailPayloadID("m-empty", "parent", role, "task", body, nil, "")
+		_, _, err := c.queueMailPayloadID("m-empty", "parent", role, KindMessage, body, nil, "")
 		if !assert.Error(t, err, "an empty body (%q) must be refused, not queued", body) {
 			return
 		}
@@ -55,8 +55,8 @@ func TestQueueMail_StructuredOnlyMessageIsStillAllowed(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	const role = "child-b"
-	_, _, err := c.queueMailPayloadID("m-structured", "parent", role, "approval_reply", "",
+	role := ownerIdentity().Harp
+	_, _, err := c.queueMailPayloadID("m-structured", "parent", role, KindResult, "",
 		json.RawMessage(`{"decision":"accept"}`), "")
 	if !assert.NoError(t, err, "a structured-only message carries a payload and must be queued") {
 		return

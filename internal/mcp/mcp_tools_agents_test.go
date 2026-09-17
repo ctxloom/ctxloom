@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord/coordtest"
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -26,19 +28,20 @@ import (
 // buildHostCoordinator stands a real (production-spawner) coordinator up over
 // a hermetic fixture with HOME scrubbed, serving loopback listeners. It is the
 // same standup path `ctxloom run`/bare `ctxloom mcp` use. The
-// returned *fakeChatEngineSpawns lets a test reach into a spawned child's
-// captured ChatRequest (see fakeChatEngineSpawns.nth) instead of only
+// returned *coordtest.Runners lets a test reach into a spawned child's
+// captured ChatRequest (see coordtest.Engine.Request) instead of only
 // observing that a harp came back.
-func buildHostCoordinator(t *testing.T, subs map[string]agents.Agent) (*config.Config, *coord.Coordinator, *fakeChatEngineSpawns) {
+func buildHostCoordinator(t *testing.T, subs map[string]agents.Agent) (*config.Config, *coord.Coordinator, *coordtest.Runners) {
 	t.Helper()
 	resetStrictness(t)
 	cfg, root := delegationFixture(t, subs)
-	spawns := &fakeChatEngineSpawns{}
-	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Factory: spawns.factory()})
+	runners := coordtest.NewRunners()
+	t.Cleanup(runners.Close)
+	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Starter: runners.Starter, OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
-	return cfg, c, spawns
+	return cfg, c, runners
 }
 
 // TestAgentToolHandlers_PlumbTheDelegation drives the registered tool
@@ -71,7 +74,7 @@ func TestAgentToolHandlers_PlumbTheDelegation(t *testing.T) {
 	// (the "FRAG-ONE" fragment content delegationFixture seeds into bundle
 	// kit1/profile p1) as its first turn, and the agent's declared permission
 	// ("bypass" — see headlessAgent), not some default or leftover value.
-	engine := waitForChatCapture(t, spawns, 0)
+	engine := spawns.AwaitEngine(t, 0)
 	capturedReq, _ := engine.Request()
 	assert.Equal(t, agent.PermissionBypass, capturedReq.Permissions,
 		"the child must launch with the agent's declared permission, not a default")
@@ -89,23 +92,24 @@ func TestAgentToolHandlers_PlumbTheDelegation(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, sendOut.Disposition)
 
-	// The child's turn output reaches the coordinator's mailbox
-	// AUTOMATICALLY now — the blunt-whiff bridge (coord/children.go
-	// bridgeTurnResult), which fires for a legacy chat child too, no longer
-	// depending on the backend NOT implementing StructuredChat. The fake
-	// chat engine's assistant output for each turn is "ok".
+	// The child's turn output reaches the coordinator's inbox AUTOMATICALLY:
+	// its runner files the turn report into the child's own out/ spool and
+	// the coordinator routes it. The real mock backend echoes each turn as
+	// "mock chat: <text>", so the report carries the child's own output.
 	var recvOut *agentRecvResult
+	var gotResult bool
 	require.Eventually(t, func() bool {
 		_, recvOut, err = s.handleAgentRecv(context.Background(), nil, agentRecvInput{Wait: 1})
-		return err == nil && recvOut != nil && len(recvOut.Messages) > 0
-	}, 5*time.Second, 10*time.Millisecond, "the child's result must reach the coordinator's mailbox without the child choosing to report")
-	var gotResult bool
-	for _, m := range recvOut.Messages {
-		if m.Kind == "result" && m.Body == "ok" {
-			gotResult = true
+		if err != nil || recvOut == nil {
+			return false
 		}
-	}
-	assert.True(t, gotResult, "the bridged turn result must carry the child's own output; got %+v", recvOut.Messages)
+		for _, m := range recvOut.Messages {
+			if m.Kind == "result" && strings.HasPrefix(m.Body, "mock chat:") {
+				gotResult = true
+			}
+		}
+		return gotResult
+	}, 10*time.Second, 10*time.Millisecond, "the child's result must reach the coordinator's inbox without the child choosing to report")
 
 	// The no-config guard: a bare server (nil cfg, nil agents) refuses.
 	bare := &ctxServer{}
@@ -150,8 +154,9 @@ func TestProdSpawner_ChildMCPServers_ScopedPerAgent(t *testing.T) {
 	writeDelegationFile(t, filepath.Join(app, "profiles", "p-b.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-b\n")
 
 	resetStrictness(t)
-	spawns := &fakeChatEngineSpawns{}
-	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Factory: spawns.factory()})
+	spawns := coordtest.NewRunners()
+	t.Cleanup(spawns.Close)
+	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Starter: spawns.Starter, OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
@@ -177,8 +182,8 @@ func TestProdSpawner_ChildMCPServers_ScopedPerAgent(t *testing.T) {
 	// across BOTH captured requests: exactly one child carries server-a (and
 	// not server-b), exactly one carries server-b (and not server-a), and no
 	// single child ever carries both.
-	engine0 := waitForChatCapture(t, spawns, 0)
-	engine1 := waitForChatCapture(t, spawns, 1)
+	engine0 := spawns.AwaitEngine(t, 0)
+	engine1 := spawns.AwaitEngine(t, 1)
 	req0, _ := engine0.Request()
 	req1, _ := engine1.Request()
 
@@ -221,8 +226,9 @@ func TestProdSpawner_ChildMCPServers_JournaledDisjointPerAgent(t *testing.T) {
 	writeDelegationFile(t, filepath.Join(app, "profiles", "p-b.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-b\n")
 
 	resetStrictness(t)
-	spawns := &fakeChatEngineSpawns{}
-	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Factory: spawns.factory()})
+	spawns := coordtest.NewRunners()
+	t.Cleanup(spawns.Close)
+	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Starter: spawns.Starter, OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
@@ -291,25 +297,6 @@ func hasMCPServer(servers []agent.ChatMCPServer, name string) bool {
 	return false
 }
 
-// waitForChatCapture polls until the nth spawned engine exists and has
-// captured a Chat call. AgentRun enqueues and returns before the spawn
-// actually runs (`go c.runChild(...)` in children.go) — the harp/Engine
-// come back synchronously, but the factory call (and so the captured
-// ChatRequest) lands on a separate goroutine shortly after.
-func waitForChatCapture(t *testing.T, spawns *fakeChatEngineSpawns, n int) *fakeChatEngine {
-	t.Helper()
-	var engine *fakeChatEngine
-	require.Eventually(t, func() bool {
-		engine = spawns.nth(n)
-		if engine == nil {
-			return false
-		}
-		_, ok := engine.Request()
-		return ok
-	}, 5*time.Second, 5*time.Millisecond, "spawn #%d never reached the engine's Chat call", n)
-	return engine
-}
-
 // TestAgentStopHandler_OmittedHarpIsTheBulkForm pins the stdio server's
 // agent_stop with NO harp: every live child of this session is stopped and
 // each is named in the result; omitting the reason as well is refused,
@@ -325,7 +312,7 @@ func TestAgentStopHandler_OmittedHarpIsTheBulkForm(t *testing.T) {
 	}
 	_, runOut, err := s.handleAgentRun(context.Background(), nil, agentRunInput{Agent: "worker", Prompt: "go"})
 	require.NoError(t, err)
-	waitForChatCapture(t, spawns, 0)
+	spawns.AwaitEngine(t, 0)
 	// Sweep an IDLE child: a turn still in flight is given the real drain
 	// bound (agent_recv's max wait), which this package cannot shrink — the
 	// bound itself is pinned in coord's own tests.

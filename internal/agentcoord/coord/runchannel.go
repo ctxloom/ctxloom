@@ -27,15 +27,10 @@ import (
 // Custom event/request names — the namespaced "ctxloom/*" vocabulary riding
 // the contract's open extension points (CustomEvent / CustomRequest).
 const (
-	// CustomMailConsumed is the runner's explicit consumption fact: the
-	// mailbox cursor advances ONLY on it (tentative push-down delivery).
-	// Value: {"message_ids": [...]}.
-	CustomMailConsumed = "ctxloom/mail_consumed"
 	// CustomRecvParked / CustomRecvUnparked assert the runner-local
 	// agent_recv park state: park yields the child's execution slot
-	// (onRolePark) and opens the mail push window; unpark re-acquires.
-	// Runtime state — handled, never journaled; the runner RE-ASSERTS the
-	// current state after a reconnect.
+	// (onRolePark); unpark re-acquires. Runtime state — handled, never
+	// journaled; the runner RE-ASSERTS the current state after a reconnect.
 	CustomRecvParked   = "ctxloom/recv_parked"
 	CustomRecvUnparked = "ctxloom/recv_unparked"
 	// CustomHarnessSession reports the harness-NATIVE session id the moment
@@ -47,21 +42,9 @@ const (
 	// CustomTurnStarted / CustomTurnIdle are the engine host's turn-state
 	// transitions: started when engine output begins a turn, idle at its
 	// completion boundary. The coordinator folds them into the §6a roster
-	// state (executing/idle) and the D4 slot accounting — the migrated
-	// path's replacement for the coordinator-side driveChild state machine.
+	// state (executing/idle) and the D4 slot accounting.
 	CustomTurnStarted = "ctxloom/turn_started"
 	CustomTurnIdle    = "ctxloom/turn_idle"
-	// CustomControlUnpulled is the turn-boundary re-announcer's GIVE-UP fact
-	// (F10): a control body was announced, re-announced to the limit across
-	// that many turn boundaries, and the agent never called agent_recv for it.
-	// Value: {"message_id": "...", "announcements": N, "age_seconds": N}.
-	//
-	// It is the observable half of the re-announcer's bound. The control
-	// request was acknowledged long ago (APPLIED_NEXT_TURN), so there is no
-	// open call left to fail — which is exactly why an instruction lost this
-	// way used to be invisible, and why stopping quietly would have been the
-	// same defect in a different coat.
-	CustomControlUnpulled = "ctxloom/control_unpulled"
 	// CustomToolPrefix namespaces host-relay tool requests
 	// (CustomRequest{name: "ctxloom/<tool>"}).
 	CustomToolPrefix = "ctxloom/"
@@ -111,9 +94,6 @@ type runChan struct {
 	send   chan *agentcoordpb.CoordinatorFrame
 	cancel context.CancelFunc
 
-	parked bool     // runner-side agent_recv park is open
-	pushed []string // message ids pushed tentatively (also in c.delivered)
-
 	// caps is this run's Hello advertisement (coordination.proto's
 	// Hello.capabilities), captured at serve. It is per-CHANNEL because it is
 	// per-run: a resumed harp gets a fresh channel from a fresh runner and may
@@ -150,6 +130,8 @@ type runChan struct {
 // here; identity derives from the connection credential.
 func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.AgentFrame, agentcoordpb.CoordinatorFrame]) error {
 	c := s.c
+	c.streams.Add(1)
+	defer c.streams.Done() // registered FIRST so it runs LAST, after the teardown below
 	id, ok := c.Identify(mdToken(stream.Context()))
 	if !ok {
 		return status.Error(codes.Unauthenticated, "unknown or revoked credential")
@@ -217,26 +199,11 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 		"run_id":       id.RunID,
 		"capabilities": strings.Join(hello.GetCapabilities(), ","),
 	})
-	// THE DRAIN SEAM. Outstanding down requests are re-validated against THIS
-	// Hello's advertisement before any of them is handed over, then the
-	// survivors are reissued with their original ids. It runs before the mail
-	// drain below because a rejected request must become unconsumed — and
-	// therefore fallback-routable — as early as possible.
-	c.redrainDownRequests(ch)
-	// A migrated child's queued mail drains the moment its channel attaches
-	// (fresh spawn: the pre-engine window; reconnect: unconsumed
-	// redelivery — at-least-once, deduped runner-side on message_id).
-	c.mu.Lock()
-	rtAttach := c.byHarp[id.Harp]
-	migratedAttach := rtAttach != nil && rtAttach.viaStartRun
-	c.mu.Unlock()
-	if migratedAttach && c.pendingCount(id.Harp) > 0 {
-		c.pushMail(id.Harp)
-	}
-	// PER-CHILD ATTACH SWEEP (file plane): the coordinator's own half of the
-	// same reconnect reconciliation the runner does above — anything this
+	// PER-CHILD ATTACH SWEEP: the coordinator's own half of the same
+	// reconnect reconciliation the runner does on its side — anything this
 	// child wrote or consumed while its channel was down is picked up now
-	// rather than at the slow timer.
+	// rather than at the slow timer. (The runner's own startup sweep is what
+	// delivers mail written for it before it dialed home.)
 	c.spoolReactor.mark(id.Harp)
 
 	defer c.releaseRunChan(id.Harp, ch)
@@ -293,8 +260,6 @@ func (c *Coordinator) handleAgentFrame(ch *runChan, frame *agentcoordpb.AgentFra
 		// Plane-3 liveness; RunnerChannel owns loss detection.
 	case *agentcoordpb.AgentFrame_Hello:
 		// Duplicate hello on a live stream: tolerated.
-	case *agentcoordpb.AgentFrame_Response:
-		c.handleAgentResponse(ch, kind.Response)
 	case *agentcoordpb.AgentFrame_SpoolChanged:
 		c.handleSpoolChanged(ch, kind.SpoolChanged)
 	}
@@ -336,11 +301,6 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 		c.flushItems(ch)
 	default:
 		if kind := itemKind(ev); kind != "" {
-			// Result bridging: a MIGRATED child's answer for
-			// this turn is assembled from its own FINAL-channel message
-			// events as they stream, so the turn boundary below already
-			// holds the text to deliver to the parent.
-			c.accumulateFinalText(ch.role, ev)
 			c.captureRunFailure(ch.role, ev)
 			c.bufferItem(ch, ev, kind)
 			if kind == "run_completed" {
@@ -374,44 +334,9 @@ func (c *Coordinator) ackThrough(ch *runChan, seq uint64) {
 // handleCustomEvent serves the ctxloom/* custom event vocabulary.
 func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEvent) {
 	switch ev.GetName() {
-	case CustomMailConsumed:
-		ids, dropped := stringList(ev.GetValue(), "message_ids")
-		if dropped > 0 {
-			clidiag.Warn("ctxloom", "coordinator: %s from %s carried %d unusable message_ids entry/entries (not non-empty strings); those messages keep their cursor and will be re-delivered",
-				CustomMailConsumed, ch.role, dropped)
-		}
-		if len(ids) == 0 {
-			// The mailbox cursor advances ONLY on this fact, so an event with
-			// nothing usable in it means the runner's claim of consumption was
-			// lost: the messages stay pending and re-deliver. Both in-tree
-			// emitters refuse to send an empty list (home.go's ackReturned and
-			// the per-notice ack), so reaching here is a real fault, never
-			// ordinary traffic.
-			clidiag.Warn("ctxloom", "coordinator: ignoring a %s event from %s with no usable message_ids — the consumption it claims cannot be journaled",
-				CustomMailConsumed, ch.role)
-			return
-		}
-		if err := c.mail.Exec(func() ([]Fact, error) {
-			return []Fact{factAt(factMailConsumed, c.now(), mailConsumed{Role: ch.role, MessageIDs: ids})}, nil
-		}); err != nil {
-			clidiag.Warn("ctxloom", "coordinator: journal mail consumption for %s: %v", ch.role, err)
-			return
-		}
-		c.unreserve(ch.role, ids)
-		c.noteMailConsumed(ch.role) // real progress: the relaunch budget is forgiven
-		c.mu.Lock()
-		ch.pushed = removeIDs(ch.pushed, ids)
-		c.mu.Unlock()
 	case CustomRecvParked:
-		c.mu.Lock()
-		ch.parked = true
-		c.mu.Unlock()
 		c.onRolePark(ch.role)
-		c.pushMail(ch.role)
 	case CustomRecvUnparked:
-		c.mu.Lock()
-		ch.parked = false
-		c.mu.Unlock()
 		c.onRoleUnpark(ch.role)
 	case CustomHarnessSession:
 		s := ev.GetValue()
@@ -440,192 +365,7 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 		c.onTurnStarted(ch.role)
 	case CustomTurnIdle:
 		c.onTurnIdle(ch.role)
-	case CustomControlUnpulled:
-		// The coordinator is where a human's steer entered the system, so it
-		// is where "your instruction was never read" has to come out. There is
-		// no request left to fail — the ack went back the moment the reminder
-		// was queued — so this warns loudly rather than returning an error to
-		// nobody. Journalling it as a durable fact would be the better home
-		// for it and needs a new fact kind, which is a persisted-format change
-		// and not this change's to make.
-		f := ev.GetValue().GetFields()
-		clidiag.Warn("ctxloom", "coordinator: %s never pulled control payload %s after %d announcements over %ds — "+
-			"the instruction was NOT acted on",
-			ch.role, f["message_id"].GetStringValue(),
-			int64(f["announcements"].GetNumberValue()), int64(f["age_seconds"].GetNumberValue()))
 	}
-}
-
-// pushTarget names why a recipient's mail can be pushed, or why it cannot.
-//
-// It exists because the answer used to be computed TWICE, as two hand-written
-// inverses of each other in two files: queueMail assembled a positive
-// `parked || migrated || termDeliver` and pushMail independently assembled
-// the negative `ch == nil || (!ch.parked && !migrated && !termDeliver)`.
-// Nothing checked that the two agreed, and the cost of them disagreeing is
-// not a visible error — it is mail durably queued with its push withheld, so
-// the wake never fires and the coordinator waits forever for something that
-// cannot arrive. That is exactly the defect shape this package has already
-// shipped once. One gate, read by both paths, makes adding a fourth target a
-// single edit rather than a pair of edits nothing enforces.
-type pushTarget uint8
-
-const (
-	pushNone     pushTarget = iota // no run channel at all
-	pushParked                     // a parked runner-side recv
-	pushMigrated                   // a StartRun runner delivering by state
-	pushTerminal                   // a session owner: the push IS the wake
-	pushWithheld                   // attached, unparked: its turn boundary owns it
-)
-
-// pushable reports whether mail for this target may be pushed now.
-func (t pushTarget) pushable() bool {
-	return t == pushParked || t == pushMigrated || t == pushTerminal
-}
-
-// why is the reason notePushUnavailable reports. Empty when pushable, since
-// there is then nothing to explain.
-func (t pushTarget) why() string {
-	switch t {
-	case pushNone:
-		return "it has no run channel — a runner that has not attached yet, or one that has already detached"
-	case pushWithheld:
-		return "its run channel is attached but unparked, so its own turn boundary owns the delivery"
-	default:
-		return ""
-	}
-}
-
-// pushTargetForLocked is THE gate: the single place that decides whether a
-// role's mail is pushable, and the only place CapTerminalDelivery is read.
-// Caller must hold c.mu.
-func (c *Coordinator) pushTargetForLocked(role string) pushTarget {
-	ch := c.chans[role]
-	if ch == nil {
-		return pushNone
-	}
-	if ch.parked {
-		return pushParked
-	}
-	// A MIGRATED child's live channel is always pushable: its runner delivers
-	// by state (§6a — parked recv, new turn, or queue to the boundary). A
-	// LEGACY child's unparked channel is never pushed: its turn-boundary
-	// drain (takeNextMail) owns that delivery, and a push would strand the
-	// message in the runner's recv buffer.
-	if rt := c.byHarp[role]; rt != nil && rt.viaStartRun {
-		return pushMigrated
-	}
-	// The session owner is not an exception to §6a so much as the case §6a
-	// does not cover: that runner hosts no engine, so it has NO turn boundary
-	// to own the delivery. Withholding the push here does not defer the
-	// delivery, it CANCELS it — deliverNotice is what fires terminalNudge, so
-	// a message never pushed is a wake that never happens, and the owner sits
-	// quiet until it happens to poll.
-	if ch.caps[CapTerminalDelivery] {
-		return pushTerminal
-	}
-	return pushWithheld
-}
-
-// notePushUnavailable reports and then counts a push that could not happen,
-// in that order and for the same reason noteSpoolDrop does it that way: the
-// counter is what an observer polls, so incrementing it LAST makes "the count
-// moved" imply "the report is already written".
-//
-// The message deliberately does not call this an error, because most of it is
-// not one. What it must never be is SILENT: a coordinator whose own mail is
-// never pushed has no way to learn that the wake it is waiting for does not
-// exist for it, and reads the resulting quiet as the system being slow.
-// WarnOnce, so a busy legacy child cannot turn this into a log flood.
-func (c *Coordinator) notePushUnavailable(role string, t pushTarget) {
-	clidiag.WarnOnce("ctxloom", "coordinator: mail for %s could not be pushed (%s); it stays queued until that recipient calls agent_recv", role, t.why())
-	c.pushUnavailable.Add(1)
-}
-
-// PushUnavailableCount reports how much mail could not be pushed to its
-// recipient. Exposed so a diagnostic can SEE the silence described on the
-// field: a count that climbs while a coordinator believes it is current is the
-// signal that its mail is waiting on a poll it is not making.
-func (c *Coordinator) PushUnavailableCount() uint64 { return c.pushUnavailable.Load() }
-
-// pushMail pushes the role's undelivered mail to its parked runner channel
-// as CoordinatorNotice frames. Delivery is TENTATIVE: each pushed id is
-// reserved in the runtime delivery ledger (excluded from turn-boundary
-// drains) but stays pending in the fold until the runner's explicit
-// mail_consumed fact — a crash between notice and consume re-delivers
-// (at-least-once, deduped on message_id at both ends). Push happens ONLY
-// while the runner-side recv is parked: an unparked child's mail is the
-// turn machinery's to deliver (delivery-by-state, §6a), and pushing then
-// would hand the harness the same message twice.
-//
-// A saturated send pump ROLLS THE RESERVATION BACK. The reservation
-// is taken under c.mu before the send so a concurrent push or turn-boundary
-// drain cannot select the same message twice, and released again for exactly
-// the ids the pump refused — which were never delivered, so leaving them
-// reserved would hide them from undeliveredLocked (and so from every later
-// push) for as long as the channel lived. releaseRunChan's unconditional
-// un-reserve only covers the channel's DEATH; a live, busy child stranded the
-// message permanently, having already told the sender it was delivered.
-func (c *Coordinator) pushMail(role string) {
-	c.mu.Lock()
-	if t := c.pushTargetForLocked(role); !t.pushable() {
-		c.mu.Unlock()
-		c.notePushUnavailable(role, t)
-		return
-	}
-	ch := c.chans[role]
-	// Project BEFORE reserving: a message whose wire shape cannot be built was
-	// never handed to anyone, so it must not be marked delivered.
-	type outbound struct {
-		id     string
-		notice *agentcoordpb.CoordinatorFrame
-	}
-	var (
-		out      []outbound
-		unshaped []string
-	)
-	for _, m := range c.undeliveredLocked(role) {
-		pm, err := peerMessageProto(m)
-		if err != nil {
-			unshaped = append(unshaped, fmt.Sprintf("%s: %v", m.ID, err))
-			continue
-		}
-		c.delivered[role] = append(c.delivered[role], m.ID)
-		ch.pushed = append(ch.pushed, m.ID)
-		out = append(out, outbound{id: m.ID, notice: &agentcoordpb.CoordinatorFrame{
-			Kind: &agentcoordpb.CoordinatorFrame_Notice{
-				Notice: &agentcoordpb.CoordinatorNotice{Kind: &agentcoordpb.CoordinatorNotice_PeerMessage{
-					PeerMessage: pm,
-				}},
-			},
-		}})
-	}
-	send := ch.send
-	c.mu.Unlock()
-
-	for _, why := range unshaped {
-		clidiag.Warn("ctxloom", "coordinator: cannot project mail for %s onto the wire, not pushed (%s)", role, why)
-	}
-
-	var dropped []string
-	for _, o := range out {
-		select {
-		case send <- o.notice:
-		default:
-			// Send pump saturated: the notice never went out, so the
-			// tentative delivery must be undone — otherwise the reservation
-			// hides the message from every subsequent push.
-			dropped = append(dropped, o.id)
-		}
-	}
-	if len(dropped) == 0 {
-		return
-	}
-	clidiag.Warn("ctxloom", "coordinator: send pump saturated for %s; %d message(s) requeued for the next push", role, len(dropped))
-	c.mu.Lock()
-	ch.pushed = removeIDs(ch.pushed, dropped)
-	c.mu.Unlock()
-	c.unreserve(role, dropped)
 }
 
 // peerMessageProto projects a mailbox message onto the wire shape. Kind rides
@@ -641,9 +381,9 @@ func (c *Coordinator) pushMail(role string) {
 // `if err == nil` with no else, structpb.NewStruct's by assignment to `_` — and
 // each produced a PeerMessage with the caller's payload silently missing. For a
 // relayed ApprovalRequest that is the entire message: the recipient gets an
-// approval notice with no request in it and nothing reports a fault. The caller
-// (pushMail) warns and leaves the message pending rather than spending it on a
-// hollow notice.
+// approval notice with no request in it and nothing reports a fault. The
+// caller (the runner's in/ sweep) moves such a file to in/failed/ rather than
+// delivering a hollow message.
 func peerMessageProto(m Message) (*agentcoordpb.PeerMessage, error) {
 	kind, err := agentcoordpb.MessageKindForLegacyName(m.Kind)
 	if err != nil {
@@ -672,47 +412,20 @@ func peerMessageProto(m Message) (*agentcoordpb.PeerMessage, error) {
 	return pm, nil
 }
 
-// unreserveRuntime drops ids from the runtime delivery ledger WITHOUT a
-// consume fact — the channel died before consumption, so the messages
-// return to deliverable state.
-// releaseRunChan is the RunChannel handler's teardown: deregister the channel,
-// cancel its context, and release its tentative deliveries.
+// releaseRunChan is the RunChannel handler's teardown: deregister the channel
+// and cancel its context.
 //
-// Deregistration IS conditional — only this channel's own registration may be
-// removed, never a successor's. Un-reserving is NOT, and that asymmetry is the
-// whole point. A reconnect registers the new channel and cancels its
-// predecessor inside one c.mu window, so the OLD handler's teardown ALWAYS
-// observes the successor and the old `if registered` guard around the unreserve
-// was always false on exactly the path where mail was in flight. ch.pushed was
-// then dropped on the floor: reserved ids are invisible to undeliveredLocked
-// and so to pendingCount, meaning the reattach push never re-sends them and
-// only unreserve ever clears c.delivered — permanent, silent loss of a message
-// agent_send had already reported as delivered, decided by which goroutine won
-// the race.
-//
-// Un-reserving unconditionally is safe on the other teardown path too: severChan
-// nils ch.pushed under c.mu before this can run, so unreserveRuntime's
-// len(ids)==0 early return makes it a no-op rather than a double release.
+// Deregistration is conditional — only this channel's own registration may
+// be removed, never a successor's. A reconnect registers the new channel and
+// cancels its predecessor inside one c.mu window, so the OLD handler's
+// teardown always observes the successor.
 func (c *Coordinator) releaseRunChan(harp string, ch *runChan) {
 	c.mu.Lock()
 	if c.chans[harp] == ch {
 		delete(c.chans, harp)
 	}
-	pushed := ch.pushed
-	ch.pushed = nil
 	c.mu.Unlock()
 	ch.cancel()
-	// Tentative deliveries die with the channel: un-reserve so the pending
-	// messages re-deliver on reattach (at-least-once) and so the terminal
-	// path's leftover-mail resume sees them.
-	c.unreserveRuntime(harp, pushed)
-}
-
-func (c *Coordinator) unreserveRuntime(role string, ids []string) {
-	if len(ids) == 0 {
-		return
-	}
-	c.unreserve(role, ids)
 }
 
 // terminalDrainWindow bounds drainTerminalTail's safety-net wait: the cap for
@@ -762,22 +475,17 @@ func (c *Coordinator) drainTerminalTail(role string) {
 }
 
 // severChan tears a role's live run channel down (credential revocation /
-// terminal path), un-reserving its tentative deliveries SYNCHRONOUSLY so the
-// caller's immediate leftover-mail check sees them (the stream's own
-// deferred cleanup then finds itself unregistered and skips).
+// terminal path); the stream's own deferred cleanup then finds itself
+// unregistered and skips.
 func (c *Coordinator) severChan(role string) {
 	c.mu.Lock()
 	ch := c.chans[role]
-	var pushed []string
 	if ch != nil {
-		pushed = ch.pushed
-		ch.pushed = nil
 		delete(c.chans, role)
 	}
 	c.mu.Unlock()
 	if ch != nil {
 		ch.cancel()
-		c.unreserveRuntime(role, pushed)
 	}
 }
 
@@ -933,7 +641,10 @@ func (c *Coordinator) clearReqTrack(role string) {
 func (c *Coordinator) serveAgentRequest(caller Identity, req *agentcoordpb.AgentRequest) *agentcoordpb.CoordinatorResponse {
 	switch kind := req.GetKind().(type) {
 	case *agentcoordpb.AgentRequest_PeerSend:
-		return c.servePeerSend(caller, kind.PeerSend)
+		// agent_send never reaches the wire: it is a LOCAL file write in the
+		// runner (Home.sendPeerViaSpool), routed when the coordinator sweeps.
+		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented,
+			"agent_send is a local spool write at the runner and is never served here; a runner that sent it over the wire is older than this coordinator")}
 	case *agentcoordpb.AgentRequest_SpawnAgent:
 		return c.serveSpawnAgent(caller, kind.SpawnAgent)
 	case *agentcoordpb.AgentRequest_ListRuns:
@@ -946,94 +657,6 @@ func (c *Coordinator) serveAgentRequest(caller Identity, req *agentcoordpb.Agent
 		return c.serveCustom(caller, kind.Custom)
 	default:
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented, "request kind not offered in this window")}
-	}
-}
-
-// servePeerSend is agent_send: children address to_role "parent"; the owner
-// addresses children by to_agent_id (harp).
-//
-// `kind` has exactly ONE source: req.GetKind(), the typed MessageKind field
-// (coordination.proto's field 7). The proto is explicit that this REPLACES
-// the retired structured["kind"] free-string convention, and this function now
-// makes that true — structured is carried as an opaque companion and is never
-// inspected for a "kind" key.
-//
-// It used to be the other way around: req.GetKind() was decoded off the wire
-// onto this struct and then never once inspected — ValidateMessageKind and
-// LegacyKindName (messagekind.go) had no caller anywhere in the tree, and
-// `kind` fell back to structured["kind"] unconditionally, including for an
-// absent value (the zero value MESSAGE_KIND_UNSPECIFIED silently became
-// KindUnset, a message projecting onto the spool frontmatter as literally
-// "unkinded").
-//
-// The typed-field check below stays CONDITIONAL on the field actually being
-// set (mirroring the pre-existing shape, not merely inherited from it): an
-// explicitly-set unrecognised or coordinator-reserved value is refused HERE,
-// synchronously, before any routing. An UNSET field is deliberately NOT
-// refused at this layer — it falls through to peerSend below, unvalidated,
-// because peerSend's own chokepoint (SenderMailKind) sits AFTER the
-// approval/ask-reply correlation check: a reply to a relayed approval_request
-// carries its answer in `structured` and never needs a kind at all ("kind
-// rides alongside the decision and is ignored" — coordinator.go's peerSend).
-// Pre-refusing an unset kind here, unconditionally, would reject that reply
-// before peerSend ever got a chance to recognise it as one, which is exactly
-// what an earlier version of this change did and broke
-// (TestSpoolApproval_RelayRidesFilesAndAuditsIdentically). An ORDINARY send
-// with an unset kind still ends up refused — just one frame deeper, at
-// peerSend's SenderMailKind("") — which now refuses "" instead of accepting
-// it.
-func (c *Coordinator) servePeerSend(caller Identity, req *agentcoordpb.PeerSendRequest) *agentcoordpb.CoordinatorResponse {
-	to := req.GetToAgentId()
-	if role := req.GetToRole(); role != "" {
-		if to != "" {
-			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_send: set exactly one of to_agent_id / to_role, not both")}
-		}
-		to = role // ParentAddress ("parent") is the only role address in the B window
-	}
-	if to == "" {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, `agent_send: a recipient is required — to_agent_id (a child harp) or to_role: "parent"`)}
-	}
-	if req.GetText() == "" {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_send: text is required")}
-	}
-	if typed := req.GetKind(); typed != agentcoordpb.MessageKind_MESSAGE_KIND_UNSPECIFIED {
-		if err := agentcoordpb.ValidateMessageKind(typed); err != nil {
-			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
-		}
-	}
-	kind := agentcoordpb.LegacyKindName(req.GetKind())
-	var structured json.RawMessage
-	if s := req.GetStructured(); s != nil {
-		// Refuse rather than silently truncate. This used to be
-		// `if merr == nil { structured = raw }` with merr never inspected, so a
-		// Struct that could not be marshalled left `structured` nil and the
-		// message was QUEUED without its payload and reported as sent. For a
-		// parent answering a relayed approval that converts a decision into an
-		// unanswerable message: the decode side is strict and then reports
-		// "structured is required", blaming the sender, who was told it worked.
-		// serveCustom below already treats the identical failure as
-		// InvalidArgument.
-		raw, merr := protojson.Marshal(s)
-		if merr != nil {
-			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument,
-				fmt.Sprintf("agent_send: structured payload cannot be encoded, refusing to send it stripped: %v", merr))}
-		}
-		structured = raw
-	}
-	msgID, delivered, disposition, err := c.peerSend(caller, to, kind, req.GetText(), structured, req.GetInReplyTo())
-	if err != nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
-	}
-	delivery := agentcoordpb.PeerSendResult_DELIVERY_QUEUED
-	if delivered {
-		delivery = agentcoordpb.PeerSendResult_DELIVERY_DELIVERED
-	}
-	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(disposition),
-		Kind: &agentcoordpb.CoordinatorResponse_PeerSend{PeerSend: &agentcoordpb.PeerSendResult{
-			MessageId: msgID,
-			Delivery:  delivery,
-		}},
 	}
 }
 
@@ -1312,46 +935,4 @@ func statusFromErr(err error) *rpcstatus.Status {
 		code = codes.Unavailable
 	}
 	return statusErr(code, err.Error())
-}
-
-// stringList extracts a []string field from a Struct value, also reporting how
-// many entries it could NOT use: a list element that is not a non-empty string
-// counts one each, and a key whose value is not a list at all counts one. An
-// ABSENT key is not a fault and reports zero.
-//
-// The count is what lets a caller tell "the field said nothing" apart from "the
-// field said something this build cannot read" — without it, a malformed event
-// and an absent one were the same silent empty result at every call site.
-func stringList(s *structpb.Struct, key string) (out []string, dropped int) {
-	v, ok := s.GetFields()[key]
-	if !ok {
-		return nil, 0
-	}
-	lv, isList := v.GetKind().(*structpb.Value_ListValue)
-	if !isList {
-		return nil, 1
-	}
-	for _, e := range lv.ListValue.GetValues() {
-		if str := e.GetStringValue(); str != "" {
-			out = append(out, str)
-			continue
-		}
-		dropped++
-	}
-	return out, dropped
-}
-
-// removeIDs filters ids out of list.
-func removeIDs(list, ids []string) []string {
-	drop := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		drop[id] = true
-	}
-	kept := list[:0]
-	for _, id := range list {
-		if !drop[id] {
-			kept = append(kept, id)
-		}
-	}
-	return kept
 }

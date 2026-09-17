@@ -56,13 +56,11 @@ func TestSpoolSteer_RidesTheFileAndIsConsumedAtTheTurn(t *testing.T) {
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "first task")
+	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
 	outcome, err := c.ControlSteer(context.Background(), humanInitiator(), out.Harp, "stop and rebase first")
 	require.NoError(t, err)
 	require.NotEmpty(t, outcome.MessageID, "a durable steer must return the handle its withdrawal takes")
-	assert.Equal(t, agentcoordpb.SteerResult_APPLIED_UNSPECIFIED, outcome.Applied,
-		"the spool route must not report a plane-2 applied state it never observed")
 
 	turns := awaitChatText(t, sp, 0, "stop and rebase first")
 	var delivered string
@@ -82,10 +80,7 @@ func TestSpoolSteer_RidesTheFileAndIsConsumedAtTheTurn(t *testing.T) {
 	assert.Equal(t, "stop and rebase first", consumed[0].Message.Body)
 	assert.Equal(t, outcome.MessageID, consumed[0].Message.OriginID)
 
-	assert.Empty(t, home.PendingControlPayloads(),
-		"the durable steer must not ALSO park a control body: two carriers for one instruction is the double delivery this replaced")
-	assert.NotContains(t, mailboxEverQueued(c), outcome.MessageID,
-		"the file IS the steer; a mailbox fact would be a second copy nobody consumes")
+	assertNoMailboxJournal(t, c)
 }
 
 // TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine is the withdrawal
@@ -130,11 +125,11 @@ func TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine(t *testing.T) {
 	defer cancel()
 	fresh, err := NewHome(ctx, HomeConfig{
 		URL: "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-fresh-steer",
-		Harness: "mock", Harp: out.Harp, SpoolDelivery: true,
+		Harness: "mock", Harp: out.Harp,
 		SpoolSweepInterval: 50 * time.Millisecond,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { fresh.crash() })
+	t.Cleanup(func() { fresh.Crash() })
 	seen := make(chan string, 4)
 	fresh.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool { seen <- pm.GetText(); return true })
 	select {
@@ -174,52 +169,6 @@ func TestSpoolSteer_WithdrawAfterConsumeSaysSoHonestly(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoSuchSteer)
 	assert.NotErrorIs(t, err, ErrSteerAlreadyDelivered)
-}
-
-// TestSpoolSteer_FlagOffKeepsThePlaneTwoRouteAndTouchesNoDisk is the flag-off
-// half of the steer plane: with the cutover unset a steer still rides the
-// plane-2 request (body parked, reminder injected, pulled by the agent), still
-// reports an APPLIED state, offers no withdraw handle — and leaves no spool
-// directory anywhere under HOME.
-func TestSpoolSteer_FlagOffKeepsThePlaneTwoRouteAndTouchesNoDisk(t *testing.T) {
-	resetStrictness(t)
-	home := teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newTestCoordinator(t, sp, nil)
-	require.False(t, c.SpoolDeliveryEnabled())
-
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "", "")
-	require.NoError(t, err)
-	upCtx, upCancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer upCancel()
-	require.NoError(t, c.awaitChildUp(upCtx, out.Harp))
-	require.Eventually(t, func() bool { return sp.engineHome(0) != nil }, conformanceWait, 10*time.Millisecond)
-	runnerHome := sp.engineHome(0)
-	// JOIN on the precondition the plane-2 route actually has, rather than
-	// sampling it: a child that is up but has not yet had its `steer`
-	// capability advertisement land is legitimately routed to the §5.6
-	// MAILBOX fallback by ControlSteer, which parks no control payload and
-	// leaves Applied unspecified — the exact pair of failures this test showed
-	// under CPU starvation. awaitChildUp and a non-nil engineHome do not imply
-	// the advertisement has been recorded. Same idiom as
-	// TestControlSteer_PlaneTwoDeliversReminderAndBodyOnlyViaRecv.
-	require.Eventually(t, func() bool { return c.runCapability(out.Harp, CapSteer) == nil },
-		conformanceWait, 10*time.Millisecond,
-		"the plane-2 route is only reachable once the child advertises %q", CapSteer)
-
-	outcome, err := c.ControlSteer(context.Background(), humanInitiator(), out.Harp, "check the lockfile")
-	require.NoError(t, err)
-	assert.Empty(t, outcome.MessageID, "there is no durable object to withdraw on the request route")
-	assert.NotEqual(t, agentcoordpb.SteerResult_APPLIED_UNSPECIFIED, outcome.Applied,
-		"the plane-2 route must still report how the steer landed")
-	require.Eventually(t, func() bool { return len(runnerHome.PendingControlPayloads()) == 1 },
-		conformanceWait, 10*time.Millisecond,
-		"the request route parks the body for the agent to pull — that is the behaviour the flag preserves")
-
-	assert.Empty(t, spoolDirsUnder(t, home),
-		"a steer with the cutover off must create no spool directory anywhere under HOME")
-	assert.ErrorIs(t, c.WithdrawSteer(humanInitiator(), out.Harp, "anything"), ErrNoSuchSteer,
-		"withdrawal must refuse rather than pretend to retract a body that lives in a runner's memory")
 }
 
 // ---- correlated asks ----------------------------------------------------
@@ -473,15 +422,11 @@ func TestSpoolAsk_SummarizeCarriesItsOwnKind(t *testing.T) {
 	assert.Contains(t, kinds, KindSummarize, "a summarize ask must carry its own kind, not a question's (saw %v)", kinds)
 }
 
-// TestSpoolAsk_RefusedWhenTheTargetIsNotCutOver pins the flag-off answer.
-// Question and summarize were NEVER built on plane 2 (HandleControl has only a
-// steer arm), so with the cutover off there is no path — and saying so is the
-// only honest answer. A verb that silently waited out its budget against a
-// target that can never reply would report "it did not answer" for something
-// it never asked.
-func TestSpoolAsk_RefusedWhenTheTargetIsNotCutOver(t *testing.T) {
+// TestSpoolAsk_EmptyTextIsRefused: empty input fails rather than asking
+// nothing and waiting out a budget for an answer to a question nobody asked.
+func TestSpoolAsk_EmptyTextIsRefused(t *testing.T) {
 	resetStrictness(t)
-	home := teeHome(t)
+	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newTestCoordinator(t, sp, nil)
 
@@ -491,16 +436,6 @@ func TestSpoolAsk_RefusedWhenTheTargetIsNotCutOver(t *testing.T) {
 	defer upCancel()
 	require.NoError(t, c.awaitChildUp(upCtx, out.Harp))
 
-	_, err = c.ControlQuestion(context.Background(), humanInitiator(), out.Harp, "why?")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAskUnavailable)
-	assert.NotErrorIs(t, err, ErrAskTimeout, "refusing to ask is not the same fact as asking and getting no answer")
-
-	_, err = c.ControlSummarize(context.Background(), humanInitiator(), out.Harp, "everything")
-	assert.ErrorIs(t, err, ErrAskUnavailable)
-	assert.Empty(t, spoolDirsUnder(t, home), "a refused ask must leave no spool directory behind")
-
-	// Empty input fails rather than asking nothing and waiting out a budget.
 	_, err = c.ControlQuestion(context.Background(), humanInitiator(), out.Harp, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "text is required")
@@ -549,44 +484,12 @@ func TestSpoolControl_PauseHoldsTurnsAndLeavesMailUnconsumed(t *testing.T) {
 	awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "after the resume released the held turn")
 
 	// THE CARRIER SHOWS NOTHING. Pause and resume are runner requests: they
-	// left no message in the mailbox and no file in the spool.
+	// left no file in the spool and grew no other carrier.
 	for _, e := range spoolEntries(t, out.Harp, spool.DirInConsumed) {
 		assert.Equal(t, "work item while paused", e.Message.Body,
 			"the only file the whole exchange produced must be the mail; pause is not a delivery")
 	}
-	for _, id := range mailboxEverQueued(c) {
-		var m Message
-		c.mail.View(func() {
-			for _, pending := range c.mailF.pendingFor(out.Harp) {
-				if pending.ID == id {
-					m = pending
-				}
-			}
-		})
-		assert.NotEqual(t, "pause", m.Kind)
-	}
-}
-
-// TestSpoolControl_PauseRefusedWhenNotOnTheRunnerPlane pins the flag-off
-// answer: pause and resume were never built as executors on plane 2, so a run
-// that predates the cutover is refused with the typed capability error rather
-// than silently doing nothing.
-func TestSpoolControl_PauseRefusedWhenNotOnTheRunnerPlane(t *testing.T) {
-	resetStrictness(t)
-	teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newTestCoordinator(t, sp, nil)
-
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "", "")
-	require.NoError(t, err)
-	upCtx, upCancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer upCancel()
-	require.NoError(t, c.awaitChildUp(upCtx, out.Harp))
-
-	err = c.ControlPause(context.Background(), humanInitiator(), out.Harp, "review")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrCapabilityUnavailable)
-	assert.ErrorIs(t, c.ControlResume(context.Background(), humanInitiator(), out.Harp), ErrCapabilityUnavailable)
+	assertNoMailboxJournal(t, c)
 }
 
 // TestSpoolControl_PauseRefusesAnotherRunsId pins the A9 correlation on the

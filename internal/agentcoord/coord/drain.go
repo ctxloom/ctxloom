@@ -365,14 +365,10 @@ func (c *Coordinator) drainForce(harp, runID string, bound time.Duration, p drai
 }
 
 // drainAtBoundary is the REQUEST honoured: a child that reaches its turn
-// boundary with an exit requested ends there, with its turn's result already
-// bridged, instead of parking idle for a next turn that will never be handed
-// out. A legacy child's input is closed FIRST so that engine sees
-// end-of-input rather than a bare kill (onTurnBoundary runs on the driver
-// goroutine, as closeChildInput requires; a migrated child has no input
-// channel and the close is a no-op).
+// boundary with an exit requested ends there, with its turn's report already
+// written by its runner, instead of parking idle for a next turn that will
+// never be handed out.
 func (c *Coordinator) drainAtBoundary(rt *childRt, p *drainPolicy) {
-	c.closeChildInput(rt)
 	c.terminateRun(rt.runID, p.endCause, p.endDetail("at its turn boundary"))
 }
 

@@ -197,7 +197,7 @@ type deadRunnerSpawner struct {
 func newDeadRunnerSpawner(exitErr error) *deadRunnerSpawner {
 	return &deadRunnerSpawner{
 		fakeSpawner: newFakeSpawner(map[string]fakeAgent{
-			"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, viaStartRun: true},
+			"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless},
 		}, nil),
 		exitErr: exitErr,
 		waited:  make(chan struct{}, 1),
@@ -229,6 +229,7 @@ func assertDeadRunnerIsReportedPromptly(t *testing.T, exitErr error, wantReason 
 	t.Helper()
 	resetStrictness(t)
 	sp := newDeadRunnerSpawner(exitErr)
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),
@@ -237,6 +238,7 @@ func assertDeadRunnerIsReportedPromptly(t *testing.T, exitErr error, wantReason 
 		// elapsed, it would take minutes to do it — the 2s AgentRecv below
 		// would have long since returned empty.
 		RunnerAwaitTimeout: 5 * time.Minute,
+		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
@@ -247,17 +249,20 @@ func assertDeadRunnerIsReportedPromptly(t *testing.T, exitErr error, wantReason 
 
 	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 2*time.Second)
 	require.NoError(t, err)
-	var body string
+	// Every message the child's death produced is read together (the death
+	// notice and the exit notice are two files, swept as one batch), so the
+	// reason is looked for in ALL of them rather than in whichever came last.
+	var bodies []string
 	for _, m := range msgs {
 		if m.From == out.Harp {
-			body = m.Body
+			bodies = append(bodies, m.Body)
 		}
 	}
-	require.NotEmpty(t, body,
-		"the parent's mailbox was still EMPTY 2s after a runner died at standup, with a 5-minute dial-home budget "+
+	require.NotEmpty(t, bodies,
+		"the parent's inbox was still EMPTY 2s after a runner died at standup, with a 5-minute dial-home budget "+
 			"left to run: this is the silent window a delegated child's coordinator cannot tell apart from a hung engine")
-	assert.Contains(t, body, wantReason,
-		"the parent must be told the RUNNER died and why — a bare dial-home deadline names neither; got: %q", body)
+	assert.Contains(t, strings.Join(bodies, "\n"), wantReason,
+		"the parent must be told the RUNNER died and why — a bare dial-home deadline names neither; got: %q", bodies)
 
 	select {
 	case <-sp.waited:

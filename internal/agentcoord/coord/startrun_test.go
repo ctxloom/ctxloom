@@ -22,7 +22,7 @@ import (
 // "worker".
 func startRunSpawner(mk func() *scriptedChat) *fakeSpawner {
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true},
+		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}},
 	}, nil)
 	sp.nextChat = mk
 	return sp
@@ -73,9 +73,6 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 	// Turn boundary → idle on the roster (turn_idle folded).
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	// Journal proof: the interaction journal records start_run for this
-	// run, and NO legacy chat launch happened (no fakeEngine was built).
-	assert.Zero(t, sp.spawnCount(), "the legacy go-plugin Chat launch path must not fire for a migrated child")
 	assert.Equal(t, 1, sp.chatCount())
 
 	// The item events journaled (group-fsync path): the turn's message and
@@ -168,7 +165,7 @@ func TestStartRun_BackendParity(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			resetStrictness(t)
 			sp := newFakeSpawner(map[string]fakeAgent{
-				"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true, backend: backend},
+				"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, backend: backend},
 			}, nil)
 			c := newTestCoordinator(t, sp, nil)
 
@@ -184,7 +181,6 @@ func TestStartRun_BackendParity(t *testing.T) {
 			require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
 			// No legacy go-plugin Chat launch fired for this backend.
-			assert.Zero(t, sp.spawnCount(), "backend %q must not take the legacy Chat dial", backend)
 			assert.Equal(t, 1, sp.chatCount())
 
 			// The journal records THIS backend as the run's harness (proves

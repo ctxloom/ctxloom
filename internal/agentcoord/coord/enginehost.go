@@ -25,25 +25,13 @@ type engineHome interface {
 	emitEvent(ev *agentcoordpb.AgentEvent) uint64
 	emitCustomEvent(name string, value map[string]any)
 	SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool)
-	// SweepSpoolIn asks the runner to reconcile its inbound spool — the file
-	// plane's turn-boundary drain. A no-op for a run that is not cut over.
+	// SweepSpoolIn asks the runner to reconcile its inbound spool — the
+	// turn-boundary drain.
 	SweepSpoolIn()
 	ReportRunExited(exitCode int, harnessSessionID string)
-	// SetRequestHandler registers this host as the executor for
-	// coordinator-initiated plane-2 control requests (BindHome does it).
-	SetRequestHandler(fn func(context.Context, *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse)
 	// ReportTurnResult writes this turn's own output to the parent as the
-	// automatic turn report — the file plane's owner of what the coordinator's
-	// bridge does for a run that is not cut over. A no-op for such a run.
+	// automatic turn report.
 	ReportTurnResult(text, inReplyTo string) error
-	// ParkControlPayload puts a control request's body where agent_recv finds
-	// it, WITHOUT routing it to the turn sink — the control verbs inject their
-	// own reminder turn and the agent pulls the body.
-	ParkControlPayload(pm *agentcoordpb.PeerMessage)
-	// PendingControlPayloads reports the parked bodies the agent has not pulled
-	// yet, oldest first — what the turn-boundary re-announcer reads to decide
-	// whether an announced instruction is still sitting unread.
-	PendingControlPayloads() []PendingControlPayload
 	// Request runs one plane-2 request to completion (Home.Request) — the
 	// engine host's seam for issuing an agent-initiated request to the
 	// coordinator and awaiting its answer.
@@ -117,12 +105,6 @@ type EngineHost struct {
 	// across a relaunch: nothing was taken that was not delivered.
 	paused chan struct{}
 
-	// reannounce is the turn-boundary re-announcer's state (F10): what keeps
-	// an announced-but-never-pulled control body from sitting in the recv
-	// buffer, unread and unreported, until the process dies. See
-	// enginehost_reannounce.go.
-	reannounce reannounceState
-
 	// enqueueMu serializes the (push tag, send turn) pair so the FIFO cannot
 	// desynchronise from the order the engine actually receives turns. Two
 	// goroutines sending on an unbuffered channel is a race Go does not resolve
@@ -193,9 +175,6 @@ func (eh *EngineHost) BindHome(h engineHome) {
 		return
 	}
 	eh.home = h
-	// The engine host IS the control executor: registering here means a Home
-	// with an engine never keeps the no-engine UNIMPLEMENTED fallback.
-	h.SetRequestHandler(eh.HandleControl)
 	close(eh.homeReady)
 }
 
@@ -359,9 +338,9 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	// SetTurnSink's closure and the briefing goroutine below both
 	// send to the same UNBUFFERED `in`, from two different goroutines, with
 	// no ordering between them — a Go select/send race Go itself does not
-	// resolve in send order. If mail is already queued at standup
-	// (issueStartRun's pushMail, immediately after startRun returns), the
-	// coordinator's mail delivery can win that race and land as the
+	// resolve in send order. If mail is already in the spool at standup
+	// (the startup sweep runs the moment the run is up), that mail's
+	// delivery can win that race and land as the
 	// child's FIRST turn, with the briefing (composed context + prompt)
 	// arriving second — every signal still reports success. `briefed`
 	// gates the turn sink on the briefing's OWN send actually completing
@@ -377,8 +356,8 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
 		// The delivered message's id rides the turn's attribution tag, so the
 		// report this turn produces can quote it (spoolturnresult.go). It is
-		// the id the DELIVERY used — under the cutover the file's origin id —
-		// which is exactly what the sender registered its waiter under.
+		// the id the DELIVERY used — the file's origin id — which is exactly
+		// what the sender registered its waiter under.
 		return eh.enqueueTurn(ctx, turnTag{mail: pm.GetMessageId()}, frameCoordinatorMessage(pm)) == nil
 	})
 
@@ -443,25 +422,17 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			turns++
 			inTurn = false
 			tag := eh.endTurn()
-			// THE AUTOMATIC TURN REPORT, file plane (spoolturnresult.go). It
-			// runs BEFORE the turn-idle event, so the child's answer is
-			// durable before the coordinator is told the child is idle —
-			// which is the moment a leftover-mail resume decision reads the
-			// spool. A no-op unless this run is cut over; the coordinator's
-			// bridge still owns the report otherwise.
+			// THE AUTOMATIC TURN REPORT (spoolturnresult.go). It runs BEFORE
+			// the turn-idle event, so the child's answer is durable before
+			// the coordinator is told the child is idle — which is the
+			// moment a leftover-mail resume decision reads the spool.
 			if err := home.ReportTurnResult(eh.takeTurnFinal(), tag.mail); err != nil {
 				clidiag.Warn("ctxloom", "engine host: this turn's report was not written: %v", err)
 			}
 			home.emitCustomEvent(CustomTurnIdle, map[string]any{"stop_reason": ev.Complete.StopReason})
-			// THE TURN BOUNDARY IS THE TRIGGER (F10). A control body that
-			// was announced and not pulled during the turn that just ended
-			// gets re-announced here — the mechanism §6.1 assumed and never
-			// had. It dispatches and returns; this loop must keep draining.
-			eh.reannounceAtBoundary(home)
-			// TURN-BOUNDARY SWEEP (the §6a drain, file plane): mail that
-			// arrived mid-turn becomes the next turn here. It is a no-op
-			// unless this run is cut over, and it dispatches rather than
-			// blocks — this loop must keep draining.
+			// TURN-BOUNDARY SWEEP (the §6a drain): mail that arrived mid-turn
+			// becomes the next turn here. It dispatches rather than blocks —
+			// this loop must keep draining.
 			home.SweepSpoolIn()
 		}
 	}

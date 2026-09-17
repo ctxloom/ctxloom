@@ -39,8 +39,8 @@ func TestRecvPreempted_DeliveryToAnOrphanedPollIsNotLost(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	const role = "child-orphan"
-	if _, _, err := c.queueMailPayloadID("m1", "parent", role, "task", "do the thing", nil, ""); !assert.NoError(t, err) {
+	role := ownerIdentity().Harp
+	if _, _, err := c.queueMailPayloadID("m1", "parent", role, KindMessage, "do the thing", nil, ""); !assert.NoError(t, err) {
 		return
 	}
 	if !assert.Equal(t, 1, c.pendingCount(role), "precondition: the message is deliverable") {

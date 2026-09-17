@@ -13,22 +13,19 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// TestRunnerEnv_StampsDepth pins that runnerEnv stamps EnvRunDepth,
-// EnvRunOneShot and EnvRunSpoolTee UNCONDITIONALLY — unlike the reach-back trio
+// TestRunnerEnv_StampsDepth pins that runnerEnv stamps EnvRunDepth and
+// EnvRunOneShot UNCONDITIONALLY — unlike the reach-back trio
 // (EnvCoordURL/EnvCoordCred/EnvRunID), which is omitted whole when url == ""
-// (a degraded launch), all three must always be present: leafness must not
-// depend on reach-back being available, and neither must the runner's ability
-// to tell "the tee is off" from "the stamp went missing".
+// (a degraded launch), both must always be present: leafness must not depend
+// on reach-back being available.
 func TestRunnerEnv_StampsDepth(t *testing.T) {
-	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp", 3, true, spoolPosture{Tee: true, Delivery: true})
+	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp", 3, true)
 	assert.Equal(t, "3", withURL[EnvRunDepth])
 	assert.Equal(t, "true", withURL[EnvRunOneShot])
-	assert.Equal(t, "true", withURL[EnvRunSpoolTee])
 
-	degraded := runnerEnv("harp-1", "run-1", "tok", "", 0, false, spoolPosture{})
+	degraded := runnerEnv("harp-1", "run-1", "tok", "", 0, false)
 	assert.Equal(t, "0", degraded[EnvRunDepth], "depth is stamped even on a degraded (no reach-back) launch")
 	assert.Equal(t, "false", degraded[EnvRunOneShot], "oneshot is stamped even on a degraded (no reach-back) launch")
-	assert.Equal(t, "false", degraded[EnvRunSpoolTee], "the tee posture is stamped even on a degraded launch")
 	assert.NotContains(t, degraded, EnvCoordURL, "the trio is still omitted whole on a degraded launch")
 }
 
@@ -49,7 +46,7 @@ func TestEnqueueRun_DepthIncrementsFromCallerDepth(t *testing.T) {
 	plan, err := c.spawner.Resolve(context.Background(), "worker")
 	require.NoError(t, err)
 
-	rt, _, err := c.enqueueRun(caller, plan, "grandchild-harp", "go deeper", false, make(chan struct{}), caller.Depth+1, false)
+	rt, _, err := c.enqueueRun(caller, plan, "grandchild-harp", "go deeper", false, make(chan struct{}), caller.Depth+1)
 	require.NoError(t, err)
 	assert.Equal(t, 2, rt.depth, "a depth-1 caller's child must be depth 2, not a hardcoded 1")
 
@@ -105,7 +102,19 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	// BUILT-IN default depth cap (1) now refuses — raise it here so the test
 	// still exercises the peer-relay mechanics it targets, independent of
 	// the built-in default's current value.
-	c := newTestCoordinatorDepthCap(t, workerSpawner(), nil, 2)
+	// The grandchild's engine is gated: its briefing turn never ends, so it
+	// files no automatic turn report and the marker below is the ONLY
+	// message that reaches the child on hop 1.
+	sp := workerSpawner()
+	var spawned int
+	sp.nextChat = func() *scriptedChat {
+		spawned++
+		if spawned == 2 {
+			return &scriptedChat{turnGate: make(chan struct{})}
+		}
+		return &scriptedChat{}
+	}
+	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 
 	// depth 0 -> depth 1
 	child, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "delegate this", "", "")
@@ -147,6 +156,20 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 
 	grandchildH := childHome(t, c, grandchildRunID)
 
+	// The child parks in agent_recv FIRST: its runner hosts an engine, so a
+	// message that lands while no receive is parked is delivered to the
+	// engine as a turn (delivery by state), never held for a later receive.
+	childRecv := make(chan []*agentcoordpb.PeerMessage, 1)
+	go func() {
+		msgs, _ := childH.Recv(context.Background(), conformanceWait)
+		childRecv <- msgs
+	}()
+	require.Eventually(t, func() bool {
+		childH.mu.Lock()
+		defer childH.mu.Unlock()
+		return childH.parked
+	}, conformanceWait, 10*time.Millisecond, "the child's receive must be parked before the grandchild sends")
+
 	// Hop 1: grandchild -> ITS OWN direct parent (the child), never root
 	// directly — the peer model's flat-hub semantics (manly-grant (4)).
 	sendResp, err := grandchildH.Request(context.Background(), &agentcoordpb.AgentRequest{
@@ -157,22 +180,19 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, codes.OK, sendResp.GetStatus().GetCode())
 
-	// Select the grandchild's OWN send out of the child's mailbox: the
-	// automatic result bridge (children.go's bridgeTurnResult) legitimately
-	// delivers the grandchild's scripted turn output there too.
+	// Select the grandchild's OWN send out of the child's inbox: the
+	// grandchild's runner delivers its automatic turn report there too.
 	var marker *agentcoordpb.PeerMessage
-	require.Eventually(t, func() bool {
-		msgs, rerr := childH.Recv(context.Background(), 50*time.Millisecond)
-		if rerr != nil {
-			return false
-		}
+	select {
+	case msgs := <-childRecv:
 		for _, m := range msgs {
 			if m.GetText() == "marker-from-grandchild" {
 				marker = m
 			}
 		}
-		return marker != nil
-	}, conformanceWait, 10*time.Millisecond, "the marker must land in the CHILD's mailbox, not root's")
+	case <-time.After(conformanceWait):
+	}
+	require.NotNil(t, marker, "the marker must land in the CHILD's inbox, not root's")
 	assert.Equal(t, grandchildHarp, marker.GetFromAgentId())
 
 	// Hop 2: the child relays up to ITS OWN parent (root) — an explicit,
@@ -187,8 +207,8 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	require.EqualValues(t, codes.OK, relayResp.GetStatus().GetCode())
 
 	// Select the RELAY (the child's own agent_send, kind "message") out of the
-	// parent's mailbox: bridged turn results (kind "result") legitimately
-	// share it now — see children.go's bridgeTurnResult.
+	// parent's inbox: automatic turn reports (kind "result") legitimately
+	// share it.
 	rootMsgs := recvKind(t, c, KindMessage, time.Second)
 	require.Len(t, rootMsgs, 1)
 	assert.Equal(t, "relayed: marker-from-grandchild", rootMsgs[0].Body)

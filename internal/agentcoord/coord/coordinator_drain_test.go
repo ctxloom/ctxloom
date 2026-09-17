@@ -107,23 +107,17 @@ func TestBeginDrain_RunnerChannelHelloRefusesFreshRunnerButAdmitsReconnect(t *te
 	defer close(gate)
 	sp := newFakeSpawner(map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}},
-	}, func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+	}, func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 	env := waitForChildEnv(t, c, out.RunID)
-
-	// Baseline: a fresh runner Hello (no active runs) is admitted before
-	// draining. Deliberately left connected rather than Shutdown here: an
-	// explicit disconnect is a real RunnerChannel loss, which synthesizes
-	// RunExited for this credential's owned run and revokes it — exactly
-	// the confound this test must not introduce between its own dials.
-	// t.Cleanup tears it down only once every assertion below is done.
-	baseline, err := DialRunner(context.Background(), env[EnvCoordURL], env[EnvCoordCred], "", "mock", "test", nil)
-	require.NoError(t, err, "a fresh runner Hello must be admitted while the coordinator is not draining")
-	require.NotNil(t, baseline)
-	t.Cleanup(func() { baseline.Shutdown(0, "") })
+	// The child's own runner is the baseline: it dialed home with this
+	// credential and was admitted before draining. Waiting for it to be up
+	// keeps the dials below from racing its registration for the same
+	// credential (newest wins, and a superseded runner reconnects).
+	require.NoError(t, c.awaitChildUp(context.Background(), out.Harp))
 
 	c.BeginDrain()
 
@@ -147,10 +141,12 @@ func TestBeginDrain_RunnerChannelHelloRefusesFreshRunnerButAdmitsReconnect(t *te
 // beginning to accept runner/agent connections it will then have to refuse
 // one at a time.
 func TestBeginDrain_ServeRefusesToStartFreshOnceDraining(t *testing.T) {
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),
 		Spawner:    newFakeSpawner(nil, nil),
+		OwnerHarp:  ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)

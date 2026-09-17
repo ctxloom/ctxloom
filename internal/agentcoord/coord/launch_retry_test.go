@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -65,10 +64,10 @@ func (s *failingLaunchSpawner) Resolve(ctx context.Context, agentName string) (*
 	return s.fakeSpawner.Resolve(ctx, agentName)
 }
 
-func newFailingLaunchSpawner(viaStartRun bool) *failingLaunchSpawner {
+func newFailingLaunchSpawner() *failingLaunchSpawner {
 	return &failingLaunchSpawner{
 		fakeSpawner: newFakeSpawner(map[string]fakeAgent{
-			"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, viaStartRun: viaStartRun},
+			"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless},
 		}, nil),
 		delay: 10 * time.Millisecond,
 	}
@@ -87,10 +86,6 @@ func (s *failingLaunchSpawner) doomedLaunch(ctx context.Context) error {
 		s.cancelled.Add(1)
 		return ctx.Err()
 	}
-}
-
-func (s *failingLaunchSpawner) Launch(ctx context.Context, _ *SpawnPlan, _, _ string, _, _ map[string]string) (*operations.AgentChatLaunch, error) {
-	return nil, s.doomedLaunch(ctx)
 }
 
 func (s *failingLaunchSpawner) StartEngine(ctx context.Context, _ *SpawnPlan, _, _ map[string]string) (*EngineSpawn, error) {
@@ -133,10 +128,10 @@ func assertLaunchesStop(t *testing.T, sp *failingLaunchSpawner) {
 // run is already ENDED (the roster says so, and agent_stop will agree) while a
 // relaunch is armed and in flight. agent_stop lands there, then the relaunch
 // is released. Nothing about that sequence may leave a launch loop running.
-func stopDuringArmedRelaunch(t *testing.T, viaStartRun bool) {
+func stopDuringArmedRelaunch(t *testing.T) {
 	t.Helper()
 	resetStrictness(t)
-	sp := newFailingLaunchSpawner(viaStartRun)
+	sp := newFailingLaunchSpawner()
 	sp.resolveGate = make(chan struct{})
 	c := newTestCoordinator(t, sp, nil)
 
@@ -166,21 +161,14 @@ func stopDuringArmedRelaunch(t *testing.T, viaStartRun bool) {
 // on a run whose launch is failing, the LAUNCH ATTEMPT COUNT stops
 // increasing.
 func TestAgentStop_StopsFailingLaunchRetryLoop(t *testing.T) {
-	stopDuringArmedRelaunch(t, false)
-}
-
-// TestAgentStop_StopsFailingLaunchRetryLoop_StartRunPath is the same
-// assertion for the MIGRATED (StartRun) spawn half — the route every
-// production container child actually takes.
-func TestAgentStop_StopsFailingLaunchRetryLoop_StartRunPath(t *testing.T) {
-	stopDuringArmedRelaunch(t, true)
+	stopDuringArmedRelaunch(t)
 }
 
 // TestAgentStop_StopsRunningLaunchRetryLoop is the simpler shape: the loop is
 // freely spinning and the stop lands wherever it lands.
 func TestAgentStop_StopsRunningLaunchRetryLoop(t *testing.T) {
 	resetStrictness(t)
-	sp := newFailingLaunchSpawner(false)
+	sp := newFailingLaunchSpawner()
 	c := newTestCoordinator(t, sp, nil)
 	harp := spinUpRetryLoop(t, c, sp)
 
@@ -196,7 +184,7 @@ func TestAgentStop_StopsRunningLaunchRetryLoop(t *testing.T) {
 // than letting it run to completion and re-arm the loop behind the stop.
 func TestAgentStop_CancelsInFlightLaunch(t *testing.T) {
 	resetStrictness(t)
-	sp := newFailingLaunchSpawner(false)
+	sp := newFailingLaunchSpawner()
 	sp.delay = 3 * time.Second // a slow launch: the stop lands mid-flight
 	c := newTestCoordinator(t, sp, nil)
 
@@ -219,7 +207,7 @@ func TestAgentStop_CancelsInFlightLaunch(t *testing.T) {
 // silently for an hour.
 func TestFailingLaunch_RetryIsBoundedAndGivesUpLoudly(t *testing.T) {
 	resetStrictness(t)
-	sp := newFailingLaunchSpawner(false)
+	sp := newFailingLaunchSpawner()
 	c := newTestCoordinator(t, sp, nil)
 	spinUpRetryLoop(t, c, sp)
 

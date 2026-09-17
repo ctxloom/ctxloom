@@ -1,9 +1,7 @@
 package coord
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,47 +80,4 @@ func TestPublishEvents_RejectsMalformed(t *testing.T) {
 	assert.Equal(t, int32(codes.InvalidArgument), resp.GetRejected()[1].GetReason().GetCode())
 	assert.Equal(t, int32(codes.Unimplemented), resp.GetRejected()[2].GetReason().GetCode())
 	assert.Empty(t, resp.GetCommittedSeqByRun())
-}
-
-// TestOneshotChild_PublishesRunCompletedAndMailsParent is the production-path
-// proof: a oneshot-fallback child's completed turn both (a) journals a
-// RunCompleted fact via PublishEvents (durable event-log record, manly-grant
-// (7)) and (b) still bridges the SAME text to the parent's mailbox as before
-// — PublishEvents is additive, not a replacement for mailbox delivery.
-func TestOneshotChild_PublishesRunCompletedAndMailsParent(t *testing.T) {
-	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", profiles: []string{"p1"}},
-	}, func() *fakeEngine { return &fakeEngine{oneshot: true} })
-	c := newTestCoordinator(t, sp, nil)
-
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
-	require.NoError(t, err)
-
-	var msgs []Message
-	require.Eventually(t, func() bool {
-		msgs, err = c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
-		return err == nil && len(msgs) == 1
-	}, conformanceWait, 10*time.Millisecond, "the oneshot turn's output must still bridge to the parent's mailbox")
-	assert.Equal(t, "result", msgs[0].Kind)
-
-	// AND it published durably: exactly one run_completed item exists
-	// SOMEWHERE in the items fold (under a fresh sub-run id minted for the
-	// turn — never the persistent child's own out.RunID, which never carries
-	// a RunCompleted itself: only the sub-run does, keeping RunCompleted's
-	// "terminal; nothing may follow" contract invariant true across the
-	// child's later turns).
-	require.Eventually(t, func() bool {
-		var total int
-		c.items.View(func() {
-			for _, byKind := range c.itemsF.counts {
-				total += byKind["run_completed"]
-			}
-		})
-		return total == 1
-	}, conformanceWait, 10*time.Millisecond, "the turn's completion must journal via PublishEvents")
-	c.items.View(func() {
-		_, ok := c.itemsF.counts[out.RunID]
-		assert.False(t, ok, "the persistent child's own run_id never carries a RunCompleted item")
-	})
 }

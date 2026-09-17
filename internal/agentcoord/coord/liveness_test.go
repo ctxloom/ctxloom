@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -25,12 +26,26 @@ func livenessTestHome(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 }
 
+// onlyFixtureTranscript unlinks the transcript the child's own runner is
+// recording, so the fixture written next is the WHOLE evidence the monitor
+// reads. The runner keeps writing to its now-orphaned inode; the analyser
+// reads the path, which is the fixture's.
+func onlyFixtureTranscript(t *testing.T, harp string) {
+	t.Helper()
+	path, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		require.NoError(t, err)
+	}
+}
+
 // stuckChildTranscript reproduces the stuck-loop failure mode for harp: a
 // relaunch per delivery (a fresh transcript.Recorder, hence seq restarting at
 // 0 against the same O_APPEND file), the same composed context every time, no
 // turn ever.
 func stuckChildTranscript(t *testing.T, harp string, deliveries int) {
 	t.Helper()
+	onlyFixtureTranscript(t, harp)
 	for i := 0; i < deliveries; i++ {
 		rec, err := transcript.NewRecorder(harp, "claude")
 		require.NoError(t, err)
@@ -41,6 +56,7 @@ func stuckChildTranscript(t *testing.T, harp string, deliveries int) {
 
 func healthyChildTranscript(t *testing.T, harp string) {
 	t.Helper()
+	onlyFixtureTranscript(t, harp)
 	rec, err := transcript.NewRecorder(harp, "claude")
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rec.Close()) }()
@@ -113,7 +129,7 @@ func TestLivenessSnapshot_ParkSuppressesTheVerdict(t *testing.T) {
 	livenessTestHome(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	harp := spawnOneChild(t, c)
@@ -160,21 +176,6 @@ func TestLivenessTargets_ResolveTheCanonicalTranscriptPath(t *testing.T) {
 	assert.Equal(t, harp, targets[0].Harp)
 	assert.NotEmpty(t, targets[0].Runtime, "every target must carry a runtime axis so a probe can claim it")
 	assert.False(t, targets[0].StartedAt.IsZero(), "without a start time no age-gated rule can ever apply")
-}
-
-// The heartbeat probe must report Observed:false — never "dead" — for a run
-// with no connected runner, or the legacy chat path (which never dials home)
-// would be declared dead on sight.
-func TestRunnerHeartbeatProbe_AbsentRunnerIsUnobservedNotDead(t *testing.T) {
-	livenessTestHome(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
-	c := newTestCoordinator(t, sp, nil)
-	harp := spawnOneChild(t, c)
-
-	st := c.runnerHeartbeatProbe().Inspect(context.Background(), liveness.Target{Harp: harp})
-	assert.False(t, st.Observed, "no connected runner means we know nothing, not that it died")
-	assert.False(t, st.Alive)
-	assert.NotEmpty(t, st.Detail, "an unobserved target must say why")
 }
 
 // A connected runner beating recently is positive evidence of life.

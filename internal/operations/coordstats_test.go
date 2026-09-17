@@ -18,7 +18,7 @@ func TestQueryCoordinatorSpoolStats_ReadsLiveCounters(t *testing.T) {
 	home := testsupport.Isolate(t)
 	f := newFakeConsumerServer()
 	f.stats = &agentcoordpb.SpoolStatsResult{
-		Delivered: 1, Consumed: 2, Failed: 3, DoorbellDropped: 4, DoorbellRejected: 5, PushUnavailable: 6,
+		Delivered: 1, Consumed: 2, Failed: 3, DoorbellDropped: 4, DoorbellRejected: 5,
 	}
 	startFakeCoordinator(t, home, "proj", f)
 	eps, skipped := discover.List()
@@ -32,7 +32,6 @@ func TestQueryCoordinatorSpoolStats_ReadsLiveCounters(t *testing.T) {
 	assert.Equal(t, uint64(3), got.GetFailed())
 	assert.Equal(t, uint64(4), got.GetDoorbellDropped())
 	assert.Equal(t, uint64(5), got.GetDoorbellRejected())
-	assert.Equal(t, uint64(6), got.GetPushUnavailable())
 }
 
 // TestQueryCoordinatorSpoolStats_DeadEndpointErrs: an endpoint.json that

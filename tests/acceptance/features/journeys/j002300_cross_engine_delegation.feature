@@ -332,17 +332,12 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # repeats its context marker instead of the steer (probe_p6_steer_echo_test.go,
   # TestP6AssertEcho_ForeignChannelCannotFalseGreenIt).
   #
-  # THE SPOOL ASSERTION IS THE MAIL-PLANE CUTOVER'S FIRST BEHAVIOURAL PROOF IN
-  # THIS SUITE. Each row turns delegation.spool_tee and delegation.spool_delivery
-  # ON in its own isolated HOME config — they are ScopeMachine keys, so the
-  # operator's real ~/.ctxloom/config.yaml (where the soak is switched on) can
-  # never reach a scenario whose HOME is a temp dir; a cell that wants the
-  # substrate has to ask for it. The final step then asserts, on PAYLOAD BYTES,
-  # that the coordinator's steer exists as a FILE in the child's own spool in
-  # plane. "The echo came back" is compatible with the spool having done nothing
-  # at all — the mailbox would have carried it either way — and a switch that is
-  # on while nothing is written is this project's characteristic bug wearing the
-  # cutover's clothes.
+  # THE SPOOL ASSERTION IS THE MAIL PLANE'S BEHAVIOURAL PROOF IN THIS SUITE.
+  # The file spool is the only carrier, so the final step asserts, on PAYLOAD
+  # BYTES, that the coordinator's steer exists as a FILE in the child's own
+  # spool in plane. "The echo came back" is not enough on its own: a carrier
+  # that delivered by some path nobody meant, while writing nothing, is this
+  # project's characteristic bug wearing the spool's clothes.
   #
   # MEASURED 2026-08-13, EVERY ROW GREEN. The
   # claude-code row re-proves what the LOCKED scenario above already proves,

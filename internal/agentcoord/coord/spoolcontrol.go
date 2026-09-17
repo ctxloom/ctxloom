@@ -10,22 +10,18 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 )
 
-// THE INTERACTION-PLANE CUTOVER (config delegation.spool_delivery, same flag
-// and same predicate as the mail plane): steer and the correlated asks stop
-// being wire requests and become FILES.
+// THE INTERACTION PLANE: steer and the correlated asks are FILES in the
+// target's own in/ spool, same predicate as the mail plane (spoolDeliverTo).
 //
-// What changes, and why each is a consequence of the file being the message:
+// What follows from the file being the message:
 //
-//   - A STEER IS DURABLE AND WITHDRAWABLE. Today the instruction body rides a
-//     CoordinatorRequest, is parked in the runner's recv buffer and pulled by
-//     the agent, and dies with the runner process; the re-announcer exists
-//     because nothing else can see that it was never read. As a file it is
-//     ordinary mail with a reserved kind: it survives a relaunch, it is
-//     delivered as the next turn like any other message, an unread one is
-//     VISIBLE (a file still sitting in in/), and it can be RETRACTED before it
-//     is taken — the rename into in/withdrawn/ either wins or loses to the
-//     reader, and the filesystem is the arbiter. Stale-but-consumed is the
-//     accepted cost; withdrawal is the remedy.
+//   - A STEER IS DURABLE AND WITHDRAWABLE. It is ordinary mail with a
+//     reserved kind: it survives a relaunch, it is delivered as the next turn
+//     like any other message, an unread one is VISIBLE (a file still sitting
+//     in in/), and it can be RETRACTED before it is taken — the rename into
+//     in/withdrawn/ either wins or loses to the reader, and the filesystem is
+//     the arbiter. Stale-but-consumed is the accepted cost; withdrawal is the
+//     remedy.
 //
 //   - AN ASK IS COOPERATIVE. A question or a summarize request is a file the
 //     child answers with a file, correlated by in_reply_to. The answer is what
@@ -41,11 +37,6 @@ import (
 //     afterwards is the pulpy-whiff defect exactly: the answer arrives, finds
 //     no waiter, degrades to ordinary mail, and the asker sits out its whole
 //     budget before reporting a timeout that never happened.
-//
-// FLAG OFF: nothing below runs. Steer takes the plane-2 request path (or the
-// mailbox fallback) exactly as before, and the asks — which were never built
-// on plane 2 (HandleControl has only a steer arm) — refuse rather than
-// pretending a path exists.
 
 // ErrSteerAlreadyDelivered answers a withdrawal that lost its race: the target
 // already took the instruction, so there is nothing left to retract.
@@ -87,14 +78,14 @@ const askBudget = controlRequestBudget
 
 // ---- steer -------------------------------------------------------------
 
-// steerViaSpool is the cutover's steer route: the instruction becomes ONE
-// durable file in the target's in/ spool, with the reserved `steer` kind.
+// steerViaSpool is the steer route: the instruction becomes ONE durable file
+// in the target's in/ spool, with the reserved `steer` kind.
 //
 // It goes through the mail chokepoint (steerAsMail, and through it
 // queueMailPayload) rather than writing the file itself, and that is the point:
-// the empty-message and no-recipient refusals, the audit, the cutover branch,
-// the spool write and the delivery-by-state wake are all one path's, so a steer
-// cannot arrive by a discipline ordinary mail does not have.
+// the empty-message and no-recipient refusals, the audit, the spool write and
+// the delivery-by-state wake are all one path's, so a steer cannot arrive by
+// a discipline ordinary mail does not have.
 //
 // What this route adds is the KIND — which renders into the delivered turn's
 // provenance header, so the agent sees an instruction rather than an anonymous
@@ -392,8 +383,7 @@ func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, ha
 		return err
 	}
 	if !c.spoolDeliverTo(harp) {
-		return fmt.Errorf("%s: %q is not on the runner-request control plane "+
-			"(pause and resume are RunnerChannel requests under delegation.spool_delivery; this run predates it): %w",
+		return fmt.Errorf("%s: %q is not a run this coordinator tracks, so no runner request can reach it: %w",
 			verb, harp, ErrCapabilityUnavailable)
 	}
 	if rec.CredHash == "" {

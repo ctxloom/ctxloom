@@ -55,14 +55,15 @@ type agentDelegation struct {
 // most common installation — starts a coordinator whose Harp is "".
 //
 // An empty owner harp does not fail; it silently breaks every child->parent
-// delivery, because the harp IS the coordinator's mailbox address:
+// delivery, because the harp IS the coordinator's inbox address (the name of
+// its spool):
 //
 //   - agent_run journals AgentSpawned.ParentHarp = "" (coord/children.go's
 //     childRt.parentHarp), so the child's lineage has no parent;
-//   - coord's bridgeTurnResult then queues the child's whole turn output to
-//     "" and queueMailPayloadID refuses it ("no session can drain role"),
-//     leaving the report only in a stderr warning the coordinator — an agent
-//     whose sole input is its mailbox — structurally cannot read;
+//   - the child's runner then routes its turn report to "" and
+//     queueMailPayloadID refuses it ("no session can drain role"), leaving
+//     the report only in a stderr warning the coordinator — an agent whose
+//     sole input is its inbox — structurally cannot read;
 //   - a child that calls agent_send(to:"parent") itself hits childSend's
 //     `parent == ""` arm and is told it is "not a child of this coordinator".
 //

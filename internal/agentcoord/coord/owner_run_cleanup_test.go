@@ -26,11 +26,13 @@ import (
 func TestStartOwnedRun_CleansUpOnIssueStartRunFailure(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(nil, nil)
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:         t.TempDir(),
 		StateDir:           t.TempDir(),
 		Spawner:            sp,
 		RunnerAwaitTimeout: 100 * time.Millisecond, // issueStartRun's awaitRunner budget
+		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

@@ -123,10 +123,7 @@ func TestStartRunPayloadErr_Discriminates(t *testing.T) {
 			"with a nil Input — zero payload, every signal green")
 
 	// ...unless mail is waiting: the standup drain delivers it as the first turn.
-	_, _, err := c.queueMail("someone", child.harp, "message", "your first turn")
-	if !assert.NoError(t, err) {
-		return
-	}
+	writeSpoolMail(t, child.harp, "someone", KindMessage, "your first turn")
 	assert.NoError(t, c.startRunPayloadErr(child, "", ""),
 		"queued mail IS the first turn (issueStartRun's standup drain): that run has work to do")
 }

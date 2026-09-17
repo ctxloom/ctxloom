@@ -76,7 +76,7 @@ func TestP6Fixture_ContainerCellIsNotAHostCellWearingALabel(t *testing.T) {
 	assert.Greater(t, idxRuntime, idxAgents, "runtime must appear after agents:, i.e. within the binding")
 }
 
-// TestP6Fixture_HomeConfigCarriesTheMailPlaneAndNoImagePin replaces
+// TestP6Fixture_HomeConfigCarriesNoSwitchAndNoImagePin replaces
 // TestP6Fixture_HomeConfigPinsTheImageToOneEngine, whose subject no longer
 // exists.
 //
@@ -95,12 +95,12 @@ func TestP6Fixture_ContainerCellIsNotAHostCellWearingALabel(t *testing.T) {
 //
 // What is left worth pinning here is the mail plane, and the ABSENCE of the
 // pin: re-adding it would look like configuration and do nothing.
-func TestP6Fixture_HomeConfigCarriesTheMailPlaneAndNoImagePin(t *testing.T) {
+func TestP6Fixture_HomeConfigCarriesNoSwitchAndNoImagePin(t *testing.T) {
 	cfg := p6SpoolHomeConfigYAML()
 
 	assert.NotContains(t, cfg, "isolation_engines",
 		"the image is one-engine by construction now; an isolation_engines pin here would look like configuration and do nothing")
-	// The mail plane must survive, or the cell has no bus to measure.
-	assert.Contains(t, cfg, "spool_tee: true")
-	assert.Contains(t, cfg, "spool_delivery: true")
+	// The mail plane is the file spool unconditionally: a delegation key here
+	// would look like the switch that turns it on, and there is none.
+	assert.NotContains(t, cfg, "delegation")
 }

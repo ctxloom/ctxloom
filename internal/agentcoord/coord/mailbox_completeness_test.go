@@ -47,7 +47,7 @@ func TestRecvOverlapping_EveryQueuedMessageIsReceivedExactlyOnce(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	const role = "child-completeness"
+	role := ownerIdentity().Harp
 	const n = 6
 
 	sent := make([]string, 0, n)
@@ -107,7 +107,7 @@ func TestRecvPreempted_ConcurrentOverlapLosesNoMessage(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	const role = "child-overlap"
+	role := ownerIdentity().Harp
 	const n = 4
 
 	// The older receive parks and is then abandoned by its caller.

@@ -304,8 +304,9 @@ func checkParity[G any, P any](t *testing.T, hits map[string]bool, name string, 
 
 	// roundTrip populates, round-trips and asserts once. nilAt < 0 is the
 	// populated pass; otherwise the pointer with that ordinal is left nil. It
-	// returns the pointer paths the walk met, which is the nil pass's agenda.
-	roundTrip := func(t *testing.T, keep []string, nilAt int) []string {
+	// returns the filler so the caller can read the pointer paths the walk
+	// met (the nil pass's agenda) and which one this run actually nilled.
+	roundTrip := func(t *testing.T, keep []string, nilAt int) *parityFiller {
 		t.Helper()
 		var g G
 		rv := reflect.ValueOf(&g).Elem()
@@ -318,7 +319,7 @@ func checkParity[G any, P any](t *testing.T, hits map[string]bool, name string, 
 			back := from(to(g))
 			require.Equal(t, g, back,
 				"%s: a fully-populated value did not survive the proto round trip. Every difference below is a field with NO proto field or NO converter statement — it is silently dropped on the wire in production.", name)
-			return f.pointers
+			return f
 		}
 		require.NotEmpty(t, f.nilPath, "%s: nil pass asked for pointer ordinal %d but the walk met only %d — the fill is not deterministic", name, nilAt, len(f.pointers))
 		// A converter that dereferences an absent pointer crashes in
@@ -332,14 +333,17 @@ func checkParity[G any, P any](t *testing.T, hits map[string]bool, name string, 
 		back := from(to(g))
 		require.Equal(t, g, back,
 			"%s: with %s left NIL, the value did not survive the proto round trip. The converter turns an absent pointer into an explicit value — every consumer that distinguishes unset from set is now lied to.", name, f.nilPath)
-		return f.pointers
+		return f
 	}
 
 	sweep := func(t *testing.T, keep []string) {
 		t.Helper()
-		pointers := roundTrip(t, keep, -1)
+		pointers := roundTrip(t, keep, -1).pointers
 		for i, path := range pointers {
-			t.Run("nil="+path, func(t *testing.T) { roundTrip(t, keep, i) })
+			t.Run("nil="+path, func(t *testing.T) {
+				f := roundTrip(t, keep, i)
+				require.Equal(t, path, f.nilPath, "%s: the nil pass nilled a different pointer than the populated walk numbered at ordinal %d — the fill is not deterministic", name, i)
+			})
 		}
 	}
 

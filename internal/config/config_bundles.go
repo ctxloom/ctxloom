@@ -326,12 +326,23 @@ func bundleSCM(src trust.BundleRef) string {
 // same-named server from another survives, and the survivor must not stand in
 // for the one the linked item actually depends on.
 //
-// The granted set is resolved ONCE, here, not per question: the resolve
-// reports findings (unresolvable profiles, name contests) and a grant asked
-// many times in one assembly should not repeat them.
+// The granted set is resolved ONCE, on the FIRST question, and never at
+// construction. Both halves matter. The resolve records a strictness finding
+// per unresolvable ref and per name contest; a grant asked many times in one
+// assembly must not repeat them, so it is memoised. And a grant is BUILT by
+// every pipeline the run constructs -- context assembly, skills, commands,
+// curated exports -- most of which never meet a linked item: resolving eagerly
+// re-records the run's own findings once per pipeline, and `ctxloom doctor`,
+// which counts ClassRef findings around one AssembleContext call to report how
+// many refs were skipped, then reports double. Deferring to the first question
+// makes a run with no linked items resolve zero extra times.
 func (c *Config) LinkGrant(profileNames []string) bundles.LinkGrant {
-	granted := c.ResolveBundleMCPServers(profileNames)
+	var (
+		once    sync.Once
+		granted map[string]wire.MCPServer
+	)
 	return bundles.LinkGrantFunc(func(read bundles.BundleRead, server string) bool {
+		once.Do(func() { granted = c.ResolveBundleMCPServers(profileNames) })
 		srv, ok := granted[server]
 		return ok && srv.SCM == bundleSCM(read.SourceRef())
 	})

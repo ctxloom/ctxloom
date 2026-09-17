@@ -74,5 +74,4 @@ func TestRecordFilename_FitsNameMaxWithAtomicWriteHeadroom(t *testing.T) {
 	// ".tmp" in the same directory, so the bound has to hold for that name
 	// too, not just the final one.
 	assert.Less(t, len(name)+len(".")+len(".")+len("123456789")+len(".tmp"), 255)
-	_ = os.PathSeparator
 }

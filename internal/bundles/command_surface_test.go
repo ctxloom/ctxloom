@@ -84,10 +84,12 @@ func TestCommandSurface_GettersAreWhatThePreimageFrames(t *testing.T) {
 // (the exec preimage's rule). An absent engine config still encodes — the
 // zero export is a value, not a missing field — and `enabled` carries the
 // EFFECTIVE value (nil means enabled), because that is what the host acts on.
+// It shares the exec preimage's encoder, quirks included: '<' and '>' arrive
+// HTML-escaped, exactly as exec_preimage_golden_test.go records for MCP.
 func TestCommandSurface_ExportsPayload_IsCanonical(t *testing.T) {
 	cmd := exportedCommand()
 	assert.Equal(t,
-		`{"claude-code":{"enabled":true,"description":"installs X for you","argument_hint":"<package>","allowed_tools":["Bash(apt-get:*)"],"model":"claude-sonnet-5"}}`,
+		`{"claude-code":{"enabled":true,"description":"installs X for you","argument_hint":"\u003cpackage\u003e","allowed_tools":["Bash(apt-get:*)"],"model":"claude-sonnet-5"}}`,
 		string(cmd.Surface(false).ExportsPayload()))
 
 	bare := BundleCommand{ItemBody: ItemBody{Content: "body"}}

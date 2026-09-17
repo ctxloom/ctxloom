@@ -26,18 +26,19 @@ import (
 // EffectiveContentHash primitives the gate's preimage is defined by.
 
 // Fixture bodies. Kept as constants so the digests below can be verified by
-// hand without running Go. A COMMAND's preimage is its bare body:
-//
-//	printf '%s' "<body>" | sha256sum
-//
-// A FRAGMENT's preimage is signing.FragmentPreimage over (premise, body) —
-// these fixtures carry no premise, so:
+// hand without running Go. A FRAGMENT's preimage is signing.FragmentPreimage
+// over (premise, body) — these fixtures carry no premise, so:
 //
 //	printf 'ctxloom-fragment/1\npremise-len: 0\ncontent-len: %d\n\n\n%s' "${#body}" "$body" | sha256sum
 //
-// The fragment digests moved ONCE, deliberately, when the premise entered the
-// preimage under that contract string; the command digests did not move, which
-// is what shows commands were untouched by it.
+// A COMMAND's preimage is signing.CommandPreimage over (description, exports,
+// body) — these fixtures carry no description and the zero export config, so
+// with exports='{"claude-code":{"enabled":true,"description":"","argument_hint":"","allowed_tools":[],"model":""}}':
+//
+//	printf 'ctxloom-command/1\ndescription-len: 0\nexports-len: %d\ncontent-len: %d\n\n\n%s\n%s' "${#exports}" "${#body}" "$exports" "$body" | sha256sum
+//
+// Each kind's digests moved ONCE, deliberately, when its presented values
+// entered the preimage under its own contract string.
 const (
 	charFragRaw       = "raw fragment body"
 	charFragDistilled = "distilled fragment body"
@@ -57,10 +58,10 @@ const (
 	hashFragPlain     = "sha256:d495f54e8c396f53225661e480da5fe6c697262cd6cdced12a910526a0334029"
 	hashFragNoDistill = "sha256:a4bb261976ae0804d8fc8ac58982c084586df5b406b3ed576161394e6215914f"
 
-	hashCmdRaw       = "sha256:84ec2a0a544d3f810cdefd65b3a326a644bade59cb91b222bb6682cbfb0b111c"
-	hashCmdDistilled = "sha256:1a8000f368488ce188bd3d59e069640a3e93a43785c17436aef6da0683dacb47"
-	hashCmdPlain     = "sha256:0b1ddfb13e0208c94c46cc2eb451586cd821b599c3a11520dc232a24e31d14cf"
-	hashCmdNoDistill = "sha256:c8f060fda205340c0820e07c64f390592cbe2516c38ab783331fd08464dbf597"
+	hashCmdRaw       = "sha256:8652275f4c036c272dc969d99bfac47a20a095fb4076d439d6450babfafd1a44"
+	hashCmdDistilled = "sha256:70c8c3deecc610f3c62716fe16171dbbf87ce4fd7746e54e08be474fb0484e8d"
+	hashCmdPlain     = "sha256:89ddaa24be0b2c5efa5246244ce1873bbdf801e79b6e650d543c59b65917e7bc"
+	hashCmdNoDistill = "sha256:d114a21386da623b2bcc1de6425f86a80a6d89ca5c38c77214b3df5e27f12071"
 )
 
 // charExpectation is one pinned exposure: for a given gate ref and form

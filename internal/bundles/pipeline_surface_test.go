@@ -98,7 +98,7 @@ func TestPipeline_BareCommandBodyGrantDoesNotAdmit(t *testing.T) {
 
 	_, err := gatedPipe(NewLoader(seedLocal(seed)), grantFor(bareHash, FormRaw), false).GetCommand("b#commands/c")
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "got %v", err)
+	assert.True(t, errors.Is(err, errs.ErrCommandWithheld), "got %v", err)
 }
 
 // The description attack, end to end through the process stage: approve a
@@ -114,7 +114,7 @@ func TestPipeline_CommandDescriptionRewriteIsWithheldUnderTheOldApproval(t *test
 
 	_, err := gatedPipe(NewLoader(seedLocal(seed)), grantFor(approvedHash, form), false).GetCommand("b#commands/c")
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "got %v", err)
+	assert.True(t, errors.Is(err, errs.ErrCommandWithheld), "got %v", err)
 }
 
 // The capability attack: widen the tool grant after approval. Withheld.
@@ -128,5 +128,5 @@ func TestPipeline_CommandAllowedToolsRewriteIsWithheldUnderTheOldApproval(t *tes
 
 	_, err := gatedPipe(NewLoader(seedLocal(seed)), grantFor(approvedHash, form), false).GetCommand("b#commands/c")
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "got %v", err)
+	assert.True(t, errors.Is(err, errs.ErrCommandWithheld), "got %v", err)
 }

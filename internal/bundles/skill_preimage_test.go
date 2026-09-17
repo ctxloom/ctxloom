@@ -28,7 +28,7 @@ import (
 
 // constantEmptyPreimage is the exact payload the defect produced for EVERY
 // manifest-less skill. Nothing may ever produce it again.
-const constantEmptyPreimage = `{"preimage":"ctxloom-exec/1","manifest":[]}`
+const constantEmptyPreimage = `{"preimage":"ctxloom-skill/1","exports":{"claude-code":{"enabled":true}},"manifest":[]}`
 
 // realSkillTree writes a skill package to a real on-disk directory and
 // returns the bundle dir. body varies the SKILL.md instructions; script
@@ -141,7 +141,7 @@ func TestSkillContentPayload_AuthoredManifestPreimageUnchanged(t *testing.T) {
 	payload, err := entry.ContentPayload(fsys, bundleDir, "humanize")
 	require.NoError(t, err)
 
-	const want = `{"preimage":"ctxloom-exec/1","manifest":[{"path":"SKILL.md","sha256":"aaa","mode":"0644"},{"path":"scripts/run.sh","sha256":"bbb","mode":"0755"}]}`
+	const want = `{"preimage":"ctxloom-skill/1","exports":{"claude-code":{"enabled":true}},"manifest":[{"path":"SKILL.md","sha256":"aaa","mode":"0644"},{"path":"scripts/run.sh","sha256":"bbb","mode":"0755"}]}`
 	assert.Equal(t, want, string(payload),
 		"a skill with an authored manifest must hash exactly as it did before the manifest-less fix")
 }

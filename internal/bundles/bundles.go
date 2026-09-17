@@ -482,11 +482,13 @@ type BundleMCP struct {
 // whose fields are meaningless for a third of its users.
 //
 // Every field is either PRESENTED to the agent — and therefore inside the
-// fragment's trust preimage via FragmentSurface — or carries a `surface:` tag
-// classifying why it never reaches the agent. TestEveryFieldIsClassified
-// reflects over the struct and fails on a field that is neither, so adding a
-// field forces that decision rather than defaulting to unsigned. The tag is
-// what makes "not sent to AI" a checked fact instead of a comment.
+// item's trust preimage via its surface model (FragmentSurface,
+// CommandSurface) — or carries a `surface:` tag classifying why it never
+// reaches the agent. The reflective classification tests
+// (TestEveryFieldIsClassified and its command and skill twins) fail on a
+// field that is neither, so adding a field forces that decision rather than
+// defaulting to unsigned. The tag is what makes "not sent to AI" a checked
+// fact instead of a comment.
 type ItemBody struct {
 	Tags         []string `yaml:"tags,omitempty" surface:"selection"`     // Additional tags (merged with bundle tags); host-evaluated routing, never shown
 	Notes        string   `yaml:"notes,omitempty" surface:"human"`        // Human-readable notes, not sent to AI
@@ -520,9 +522,10 @@ const (
 	// NonPresentedProvenance: records who or what produced a form, never the
 	// form itself.
 	NonPresentedProvenance NonPresented = "provenance"
-	// NonPresentedSelection: routing metadata the HOST evaluates to pick
-	// fragments; the agent never sees it. Contrast Premise, which the AGENT
-	// evaluates and which is therefore presented.
+	// NonPresentedSelection: routing or location metadata the HOST evaluates
+	// to pick or find an item — tags, a skill's package path; the agent never
+	// sees it. Contrast Premise, which the AGENT evaluates and which is
+	// therefore presented.
 	NonPresentedSelection NonPresented = "selection"
 )
 
@@ -558,6 +561,13 @@ type BundleFragment struct {
 }
 
 // BundleCommand defines a slash command within a bundle.
+//
+// Description and LLM are PRESENTED: the description is advertised to the
+// agent as the command's help text, and every leaf of the per-engine export
+// config is written into the command file the engine reads — including
+// AllowedTools, which is a capability grant. All of it is inside the trust
+// preimage (CommandSurface), so none of it can be rewritten under a
+// verifying approval.
 type BundleCommand struct {
 	ItemBody    `yaml:",inline"`
 	Description string     `yaml:"description,omitempty"`
@@ -580,12 +590,18 @@ type BundleCommand struct {
 // `sign`, not hand-authored): relative path -> {sha256, mode}. It is what B2's
 // signing covers and B1b's archive codec packs; ParseSkillPackage computes the
 // authoritative version of it fresh from the source tree.
+//
+// Files and LLM are PRESENTED and inside the trust preimage (ContentPayload):
+// the manifest names every file the agent is handed, SKILL.md included, and
+// the per-engine enablement decides whether the package is offered at all.
+// Every other field carries a `surface:` classification; the reflective
+// classification test walks this struct like the text kinds.
 type BundleSkill struct {
-	Path  string                   `yaml:"path,omitempty"`  // dir relative to bundle dir; default "skills/<name>"
-	Tags  []string                 `yaml:"tags,omitempty"`  // Additional tags (merged with bundle tags)
-	Notes string                   `yaml:"notes,omitempty"` // Human-readable notes, not sent to AI
-	Files map[string]SkillFileMeta `yaml:"files,omitempty"` // GENERATED per-file manifest
-	LLM   SkillLLMExports          `yaml:"llm,omitempty"`   // Per-engine enablement only (name/description live in SKILL.md)
+	Path  string                   `yaml:"path,omitempty" surface:"selection"` // dir relative to bundle dir; default "skills/<name>" — where the host finds the tree, never shown
+	Tags  []string                 `yaml:"tags,omitempty" surface:"selection"` // Additional tags (merged with bundle tags); host-evaluated routing, never shown
+	Notes string                   `yaml:"notes,omitempty" surface:"human"`    // Human-readable notes, not sent to AI
+	Files map[string]SkillFileMeta `yaml:"files,omitempty"`                    // GENERATED per-file manifest
+	LLM   SkillLLMExports          `yaml:"llm,omitempty"`                      // Per-engine enablement only (name/description live in SKILL.md)
 }
 
 // SkillFileMeta is one manifest entry as recorded in bundle.yaml: a file's
@@ -657,10 +673,12 @@ func resolveEffective(preferDistilled bool, content, distilled string, noDistill
 // gate cannot be handed bytes the agent will not see, and the agent cannot be
 // handed bytes the gate did not cover.
 //
-// For a command Body and Preimage are the same bytes. For a fragment they are
-// not: the preimage is the framed FragmentSurface (premise included) while the
-// body is what the agent is served — the premise reaches it separately, via
-// the index, and is covered because it is inside the frame.
+// Body and Preimage are never the same bytes: the preimage is the framed
+// surface (FragmentSurface, CommandSurface — the body plus every other value
+// the agent is shown) while the body is what the agent is served. The other
+// values reach it separately — a premise via the index, a command's exports
+// as slash-command metadata — and are covered because they are inside the
+// frame.
 type ItemSurface struct {
 	Body     []byte      // the bytes served to the agent
 	Form     ContentForm // the layout form Body was selected in
@@ -675,11 +693,12 @@ func (f *BundleFragment) Resolve(preferDistilled bool) ItemSurface {
 	return ItemSurface{Body: []byte(s.Body()), Form: s.Form(), Preimage: s.Preimage()}
 }
 
-// Resolve is the process-stage resolution of this command. A command's gated
-// bytes ARE its served bytes: it carries no second presented value.
+// Resolve is the process-stage resolution of this command, built on Surface
+// exactly as the fragment's is: the gate decides on the framed surface, the
+// agent is served the body.
 func (p *BundleCommand) Resolve(preferDistilled bool) ItemSurface {
-	payload, form := p.ContentPayload(preferDistilled)
-	return ItemSurface{Body: payload, Form: form, Preimage: payload}
+	s := p.Surface(preferDistilled)
+	return ItemSurface{Body: []byte(s.Body()), Form: s.Form(), Preimage: s.Preimage()}
 }
 
 // staleDistill is the one shared compare primitive: it reports whether a
@@ -772,9 +791,9 @@ func (f *BundleFragment) EffectiveContent(preferDistilled bool) string {
 // by preferDistilled, and the form it was selected in. EffectiveContentHash
 // below hashes exactly this function's output.
 //
-// Unlike a command's payload this is NOT the bare served bytes — it is the
-// framed surface, premise included — because a fragment has two presented
-// values and the frame is what binds them under one signature.
+// It is NOT the bare served bytes — it is the framed surface, premise
+// included — because a fragment has two presented values and the frame is
+// what binds them under one signature.
 func (f *BundleFragment) ContentPayload(preferDistilled bool) ([]byte, ContentForm) {
 	s := f.Surface(preferDistilled)
 	return s.Preimage(), s.Form()
@@ -803,24 +822,118 @@ func (p *BundleCommand) NeedsDistill() bool {
 	return staleDistill(p.NoDistill, p.Distilled, p.ContentHash, p.Content)
 }
 
+// CommandSurface is the MODEL of what an agent is shown of a command: the
+// description it is advertised under, the per-engine export config the engine
+// writes into the command file (help text, argument hint, tool grant, model,
+// enablement), and the body it receives in the form it was selected in. The
+// trust preimage is computed FROM this model (Preimage), so "presented" and
+// "signed" are the same set by construction — the same property
+// FragmentSurface gives a fragment, for the same reason.
+//
+// Its fields are unexported and read through getters so a delivery path
+// cannot reach a human-only field (Notes, Installation) through the agent-
+// surface API. Membership is checked, not promised:
+// TestEveryCommandFieldIsClassified fails on any BundleCommand field that
+// neither moves Preimage nor carries a `surface:` classification.
+type CommandSurface struct {
+	description string
+	exports     LLMExports
+	body        string
+	form        ContentForm
+}
+
+// Surface resolves what the agent is shown of this command for a form
+// preference. Resolve (the process stage's entry point) is built on it, so the
+// body here is exactly the body the pipeline serves.
+func (p *BundleCommand) Surface(preferDistilled bool) CommandSurface {
+	body, form := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
+	return CommandSurface{description: p.Description, exports: p.LLM, body: body, form: form}
+}
+
+// Description is the help text the command is advertised under.
+func (s CommandSurface) Description() string { return s.description }
+
+// Exports is the per-engine export config the engine acts on.
+func (s CommandSurface) Exports() LLMExports { return s.exports }
+
+// Body is the text the agent receives, in Form.
+func (s CommandSurface) Body() string { return s.body }
+
+// Form reports which materialization Body is.
+func (s CommandSurface) Form() ContentForm { return s.form }
+
+// ExportsPayload is the canonical encoding of Exports that enters the
+// preimage — the one structured part of the surface, canonicalized under the
+// exec preimage's rule: every field always emitted, in declaration order, so
+// the bytes are a function of the values alone. `enabled` carries the
+// EFFECTIVE value (nil means enabled), which is what the host acts on; the
+// tool grant is emitted as an empty list rather than null for the same
+// reason. Any change to commandExportsPayload's field set requires bumping
+// signing.CommandPreimageContract.
+func (s CommandSurface) ExportsPayload() []byte {
+	cc := s.exports.ClaudeCode
+	tools := cc.AllowedTools
+	if tools == nil {
+		tools = []string{}
+	}
+	data, err := json.Marshal(commandExportsPayload{ClaudeCode: claudeCodeExportPayload{
+		Enabled:      cc.IsEnabled(),
+		Description:  cc.Description,
+		ArgumentHint: cc.ArgumentHint,
+		AllowedTools: tools,
+		Model:        cc.Model,
+	}})
+	if err != nil {
+		// Unreachable: the payload is strings, a bool and a string slice.
+		panic(fmt.Sprintf("encoding command exports preimage: %v", err))
+	}
+	return data
+}
+
+// commandExportsPayload is the canonical shape of a command's per-engine
+// export config inside its preimage (CommandSurface.ExportsPayload). Field
+// order here IS byte order; the set is part of signing.CommandPreimageContract.
+type commandExportsPayload struct {
+	ClaudeCode claudeCodeExportPayload `json:"claude-code"`
+}
+
+type claudeCodeExportPayload struct {
+	Enabled      bool     `json:"enabled"`
+	Description  string   `json:"description"`
+	ArgumentHint string   `json:"argument_hint"`
+	AllowedTools []string `json:"allowed_tools"`
+	Model        string   `json:"model"`
+}
+
+// Preimage is the bytes a countersignature over this surface covers:
+// signing.CommandPreimage over exactly the presented values, opened by
+// signing.CommandPreimageContract. Nothing else in the codebase is permitted
+// to define "the bytes of this command" any other way.
+func (s CommandSurface) Preimage() []byte {
+	return signing.CommandPreimage(s.description, s.ExportsPayload(), []byte(s.body))
+}
+
 // EffectiveContent returns distilled content if available and preferred.
 // Falls back to original content if distilled is empty or NoDistill is true.
 func (p *BundleCommand) EffectiveContent(preferDistilled bool) string {
-	content, _ := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
-	return content
+	return p.Surface(preferDistilled).Body()
 }
 
-// ContentPayload returns the exact bytes EffectiveContent(preferDistilled)
-// would serve, and the form they were exposed in. See
-// BundleFragment.ContentPayload — same single-preimage-builder contract.
+// ContentPayload is the SINGLE preimage builder for a command:
+// CommandSurface.Preimage for the surface selected by preferDistilled, and
+// the form it was selected in. See BundleFragment.ContentPayload — same
+// contract. It is NOT the bare served bytes: the description and the export
+// config are presented too, and the frame is what binds them under one
+// signature.
 func (p *BundleCommand) ContentPayload(preferDistilled bool) ([]byte, ContentForm) {
-	content, form := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
-	return []byte(content), form
+	s := p.Surface(preferDistilled)
+	return s.Preimage(), s.Form()
 }
 
-// EffectiveContentHash hashes EXACTLY the bytes EffectiveContent(preferDistilled)
-// returns, and reports their form. See BundleFragment.EffectiveContentHash — same
-// contract for the per-item trust gate (trust rework, TR0).
+// EffectiveContentHash hashes EXACTLY ContentPayload(preferDistilled) — the
+// framed surface whose body is what EffectiveContent returns — and reports
+// its form. See BundleFragment.EffectiveContentHash — same contract for the
+// per-item trust gate.
 func (p *BundleCommand) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
 	payload, form := p.ContentPayload(preferDistilled)
 	return hashContent(payload), form
@@ -842,12 +955,15 @@ func (s *BundleSkill) ToManifest() SkillManifest {
 
 // skillContentPayload is the canonical encoding BundleSkill.ContentPayload
 // shares — see mcpContentPayload below for the field-order/versioning
-// contract this mirrors exactly. A skill has no raw bytes to sign the way a
+// contract this mirrors exactly, under its own version
+// (signing.SkillPreimageContract). A skill has no raw bytes to sign the way a
 // fragment/command does (it is a directory tree, not a blob); its manifest —
-// every file's path, sha256, and mode, SKILL.md included — already covers the
-// whole package (skill/command split plan §3.1), so the manifest IS this
-// preimage. Editing any file in the tree, including a scripts/ script,
-// changes the manifest and therefore this payload, re-triggering review/sign.
+// every file's path, sha256, and mode, SKILL.md included — covers the whole
+// package (skill/command split plan §3.1), and its per-engine export config
+// decides whether the package is offered to that engine's agent at all. Both
+// are presented, so both are here. Editing any file in the tree, including a
+// scripts/ script, or disabling an engine, changes this payload and
+// re-triggers review/sign.
 //
 // The Manifest here is always the EFFECTIVE manifest (see
 // BundleSkill.EffectiveManifest) — authored if the skill has been synced,
@@ -855,17 +971,23 @@ func (s *BundleSkill) ToManifest() SkillManifest {
 // would make every unsynced skill share one preimage, which is exactly the
 // trust hole this design closes.
 type skillContentPayload struct {
-	Preimage string        `json:"preimage"`
-	Manifest SkillManifest `json:"manifest"`
+	Preimage string              `json:"preimage"`
+	Exports  skillExportsPayload `json:"exports"`
+	Manifest SkillManifest       `json:"manifest"`
 }
 
-// ContentPayload returns the canonical JSON encoding of the skill's manifest —
-// the SINGLE preimage builder for a skill, exactly as mcpContentPayload/
-// hookContentPayload are for MCP servers and hooks. This is a canonicalization
-// (a skill's "content" is structured per-file metadata, not raw bytes), which
-// is why it carries the same versioned first field those two use: any change
-// to this field set requires bumping signing.ExecPreimageContract, turning a
-// silent mass re-review of every skill approval into an announced one.
+// skillExportsPayload is the canonical shape of a skill's per-engine export
+// config inside its preimage: the EFFECTIVE enablement (nil means enabled),
+// which is what the host acts on. Field order is byte order; the set is part
+// of signing.SkillPreimageContract.
+type skillExportsPayload struct {
+	ClaudeCode skillEngineExportPayload `json:"claude-code"`
+}
+
+type skillEngineExportPayload struct {
+	Enabled bool `json:"enabled"`
+}
+
 // EffectiveManifest returns the manifest that BOTH this skill's trust
 // preimage covers AND the loader verifies the on-disk tree against. It is the
 // single answer to "which files, with which bytes and modes, is this skill?"
@@ -944,23 +1066,33 @@ func (b *Bundle) SkillPreimageDir(entry BundleSkill) (string, error) {
 	return dir, err
 }
 
-// skillPayloadFor encodes a resolved manifest into the canonical skill
-// preimage. Split out so a caller that already holds the effective manifest
-// (the loader, which also verifies the tree against it) builds the payload
-// without re-walking the tree — one parse, one manifest, one preimage.
-func skillPayloadFor(m SkillManifest) ([]byte, error) {
+// skillPayloadFor encodes a skill's export config and a resolved manifest into
+// the canonical skill preimage. Split out so a caller that already holds the
+// effective manifest (the loader, which also verifies the tree against it)
+// builds the payload without re-walking the tree — one parse, one manifest,
+// one preimage.
+func skillPayloadFor(exports SkillLLMExports, m SkillManifest) ([]byte, error) {
 	return json.Marshal(skillContentPayload{
-		Preimage: signing.ExecPreimageContract,
+		Preimage: signing.SkillPreimageContract,
+		Exports:  skillExportsPayload{ClaudeCode: skillEngineExportPayload{Enabled: exports.ClaudeCode.IsEnabled()}},
 		Manifest: m,
 	})
 }
 
+// ContentPayload returns the canonical JSON encoding of the skill's exports
+// and manifest — the SINGLE preimage builder for a skill, exactly as
+// mcpContentPayload/hookContentPayload are for MCP servers and hooks. This is
+// a canonicalization (a skill's "content" is structured per-file metadata,
+// not raw bytes), which is why it carries a versioned first field as those
+// two do: any change to this field set requires bumping
+// signing.SkillPreimageContract, turning a silent mass re-review of every
+// skill approval into an announced one.
 func (s *BundleSkill) ContentPayload(fsys afero.Fs, bundleDir, skillName string) ([]byte, error) {
 	manifest, err := s.EffectiveManifest(fsys, bundleDir, skillName)
 	if err != nil {
 		return nil, err
 	}
-	return skillPayloadFor(manifest)
+	return skillPayloadFor(s.LLM, manifest)
 }
 
 // ComputeContentHash hashes a skill's canonical manifest payload. This is the

@@ -7,8 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The exec preimage (ctxloom-exec/1, spec §3.3.2) is what an MCP / hook / skill
-// approval binds to, so its bytes are a contract. U030-F05 and U030-F18 both
+// The exec preimage (ctxloom-exec/1, spec §3.3.2) is what an MCP / hook
+// approval binds to — and the skill preimage (ctxloom-skill/1) shares its
+// encoder — so its bytes are a contract. U030-F05 and U030-F18 both
 // claim that contract is not met — an approval can be re-keyed by a change that
 // looks like nothing, or by a reimplementation that is faithful to the spec but
 // not to Go.
@@ -80,7 +81,7 @@ func TestExecPreimage_HTMLEscapingIsGoSpecific(t *testing.T) {
 
 	// The skill preimage shares the encoder, so a path or hash containing these
 	// characters escapes identically. Recorded via the shared payload builder.
-	skillBytes, err := skillPayloadFor(SkillManifest{
+	skillBytes, err := skillPayloadFor(SkillLLMExports{}, SkillManifest{
 		{Path: "a<b.md", SHA256: "deadbeef", Mode: "0644"},
 	})
 	require.NoError(t, err)

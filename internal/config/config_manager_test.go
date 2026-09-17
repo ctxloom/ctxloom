@@ -64,7 +64,13 @@ func TestUpdate_LocksUnderStateLocksNotBesideTheConfig(t *testing.T) {
 		return nil
 	}))
 
-	want := filepath.Join(appDir, paths.StateDir, paths.LocksDir, "config.yaml.lock")
+	// Ask paths for the name rather than spelling it: the lock's basename is
+	// a bounded flattening (paths.FlatName) and a literal here would drift
+	// the next time that changes, as it did once already.
+	want, err := paths.ProjectPathFor(managerConfigPath(t, mgr))
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(appDir, paths.StateDir, paths.LocksDir), filepath.Dir(want),
+		"the lock must live under state/locks")
 	require.FileExists(t, want, "the update lock must be taken under state/locks")
 
 	besideTheFile := managerConfigPath(t, mgr) + ".lock"

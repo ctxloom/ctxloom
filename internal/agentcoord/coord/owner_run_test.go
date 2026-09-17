@@ -47,6 +47,7 @@ func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, contai
 			Version: "test",
 			Engine:  host.Handle,
 			Harp:    spawnEnv["CTXLOOM_SESSION_HARP"],
+			Depth:   fakeRunDepth(spawnEnv),
 		})
 		if err != nil {
 			cancel()

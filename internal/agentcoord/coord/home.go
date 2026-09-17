@@ -175,6 +175,12 @@ type HomeConfig struct {
 	// read or write, and so no way to receive or send at all (NewHome refuses
 	// it — ErrRunNeedsHarp).
 	Harp string
+	// Depth is this run's delegation depth (EnvRunDepth): 0 is the session
+	// owner's own run, which has no parent, so its automatic turn report has
+	// nobody to go to (ReportTurnResult). A report written to "parent" from
+	// depth 0 would be refused and the refusal mailed back to the run as its
+	// next turn — a self-loop the bridge this replaced also had to suppress.
+	Depth int
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval) — see coord.Options.SpoolSweepInterval.
 	SpoolSweepInterval time.Duration

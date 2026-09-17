@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -407,6 +408,7 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		// this fake a live check that the coordinator's per-spawn stamp
 		// actually reaches the runner.
 		Harp:               runnerEnv["CTXLOOM_SESSION_HARP"],
+		Depth:              fakeRunDepth(runnerEnv),
 		SpoolSweepInterval: sweepInterval,
 	})
 	if err != nil {
@@ -607,6 +609,16 @@ func (s *fakeSpawner) engine(i int) *fakeEngine {
 // the cap enqueues") must use newTestCoordinatorCap instead: the default is a
 // configurable resource ceiling, not a correctness serializer, and is not
 // guaranteed to be 1.
+// fakeRunDepth reads the stamped EnvRunDepth the way production's
+// parseRunDepth does: anything unparseable is depth 0.
+func fakeRunDepth(env map[string]string) int {
+	d, err := strconv.Atoi(env[EnvRunDepth])
+	if err != nil {
+		return 0
+	}
+	return d
+}
+
 func newTestCoordinator(t *testing.T, sp Spawner, clock func() time.Time) *Coordinator {
 	t.Helper()
 	return newTestCoordinatorCap(t, sp, clock, 0)

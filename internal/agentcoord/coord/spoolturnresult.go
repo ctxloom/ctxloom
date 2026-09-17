@@ -89,9 +89,10 @@ func isAutoReport(structured json.RawMessage) bool {
 // this turn's own output into this run's out/ spool as `kind: result`,
 // correlated to the message that started the turn.
 //
-// It is a NO-OP for a run that is not cut over — the coordinator's bridge
-// still owns the report there, unchanged — which is the whole of the
-// exactly-once argument on this side.
+// It is a NO-OP for the session owner's own run (depth 0): that run has no
+// parent to report to — the host watches it directly — and a report written
+// to "parent" would come back as a refusal, delivered as the run's next turn,
+// which reports again: an infinite self-loop.
 //
 // text is the turn's FINAL-channel output, already joined by the caller
 // (EngineHost accumulates the same deltas, in the same order, that the
@@ -99,6 +100,9 @@ func isAutoReport(structured json.RawMessage) bool {
 // message that started the turn, or empty for a turn nothing delivered
 // started — a briefing, or an engine continuing on its own.
 func (h *Home) ReportTurnResult(text, inReplyTo string) error {
+	if h.cfg.Depth == 0 {
+		return nil
+	}
 	if h.takeSelfReported() {
 		// The child already reported, in its own words. Never deliver one
 		// turn twice.

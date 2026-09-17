@@ -117,7 +117,7 @@ func TestRunItemTrust_AcceptsLocalFragment(t *testing.T) {
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "x", IsLocal: true}
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedApprove(countersignRefFor(t, ref), signing.AttestFragmentRaw, []byte("always-trusted body")),
+	assert.True(t, store.HasUnsignedApprove(countersignRefFor(t, ref), signing.AttestFragmentRaw, fragmentBytes("always-trusted body")),
 		"approval must be recorded for the canonical ctxloom:local key, over the exact fragment bytes")
 }
 
@@ -167,7 +167,7 @@ func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(t, ref)),
 		"ref-level rejected state must be recorded")
 	// Content-reject companion.
-	assert.True(t, store.HasUnsignedContentReject(signing.AttestFragmentRaw, []byte("rm -rf danger")),
+	assert.True(t, store.HasUnsignedContentReject(signing.AttestFragmentRaw, fragmentBytes("rm -rf danger")),
 		"the item's content must be recorded as a content-reject")
 }
 

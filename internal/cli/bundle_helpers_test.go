@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/signing"
+
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
@@ -315,4 +317,14 @@ func TestPrintPushReminder_WritesToTheGivenWriter(t *testing.T) {
 	out := buf.String()
 	assert.Contains(t, out, "Bundle modified. To publish changes:")
 	assert.Contains(t, out, "ctxloom bundle push mybundle [remote]")
+}
+
+// fragmentBytes frames a premise-less fragment body the way the trust gate
+// hashes it. A fragment's approval binds to signing.FragmentPreimage — the
+// contract line, the declared lengths, then premise and body — NOT to the bare
+// body, so an assertion written against the raw string does not merely fail, it
+// tests nothing: the negative form passes while the approval sits on file under
+// the framed bytes. Mirrors operations' helper of the same name.
+func fragmentBytes(rawBody string) []byte {
+	return signing.FragmentPreimage("", []byte(rawBody))
 }

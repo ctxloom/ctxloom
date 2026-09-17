@@ -371,7 +371,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	recvDone := make(chan struct{})
 	go func() {
 		defer close(recvDone)
-		_, _ = c.AgentRecv(context.Background(), Identity{Harp: first.Harp, RunID: first.RunID, Depth: 1}, conformanceWait)
+		_, _ = childRecv(t, c, first.RunID, conformanceWait)
 	}()
 	require.Eventually(t, func() bool { return rosterState(c, first.Harp) == StateParked }, conformanceWait, 10*time.Millisecond)
 
@@ -419,30 +419,30 @@ func TestParkedRecvYieldsSlot(t *testing.T) {
 
 	recvDone := make(chan []Message, 1)
 	go func() {
-		msgs, _ := c.AgentRecv(context.Background(), Identity{Harp: first.Harp, RunID: first.RunID, Depth: 1}, conformanceWait)
+		msgs, _ := childRecv(t, c, first.RunID, conformanceWait)
 		recvDone <- msgs
 	}()
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond,
 		"a parked child must not block the queue")
 
+	// The send is a file plus a doorbell; the child's own runner completes
+	// its parked recv, which the coordinator cannot observe synchronously —
+	// so the disposition says what the coordinator knows: queued for a
+	// parked child.
 	disp, err := c.AgentSend(ownerIdentity(), first.Harp, KindResult, "42", nil, "")
 	require.NoError(t, err)
-	assert.Contains(t, disp, "waiting agent_recv")
-	select {
-	case <-recvDone:
-		t.Fatal("parked recv completed while the slot was still held by child 2")
-	case <-time.After(150 * time.Millisecond):
-	}
-
-	gates[1] <- struct{}{} // finish child 2's turn → slot frees → child 1 unparks
+	assert.NotContains(t, disp, "resum", "a parked child is never resumed for a delivery")
 	select {
 	case msgs := <-recvDone:
 		require.Len(t, msgs, 1)
 		assert.Equal(t, "42", msgs[0].Body)
 	case <-time.After(conformanceWait):
-		t.Fatal("parked recv never completed after the slot freed")
+		t.Fatal("parked recv never completed")
 	}
+
+	gates[1] <- struct{}{} // finish child 2's turn → slot frees → child 1 re-acquires
+	require.Eventually(t, func() bool { return rosterState(c, second.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 }
 
 // TestAgentStop_FreesSlot pins agent_stop: the child ends, the slot frees, the
@@ -625,7 +625,7 @@ func TestInject_ResumesEndedChild(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 	resumedFirst := sp.chat(1).recordedTexts()[0]
 	assert.Contains(t, resumedFirst, "one more thing", "the injected text is the resumed session's first turn")
-	assert.Contains(t, resumedFirst, "FRAG-ONE", "the agent's composed context primes the resume")
+	assert.NotContains(t, resumedFirst, "FRAG-ONE", "a native-key resume does not re-prime the composed context")
 
 	// The resumed engine shares the spawner's endAfterTurns:1 script too (it
 	// completes its own one turn and exits), so a SECOND KindExited notice
@@ -667,14 +667,16 @@ func TestInject_CompletesParkedRecvWithUserSenderIdentity(t *testing.T) {
 
 	recvDone := make(chan []Message, 1)
 	go func() {
-		msgs, _ := c.AgentRecv(context.Background(), Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}, conformanceWait)
+		msgs, _ := childRecv(t, c, out.RunID, conformanceWait)
 		recvDone <- msgs
 	}()
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateParked }, conformanceWait, 10*time.Millisecond)
 
 	mode, err := c.Inject(out.Harp, "direct note")
 	require.NoError(t, err)
-	assert.Equal(t, DeliveryCompletedRecv, mode)
+	// The runner completes the parked recv from the file; the coordinator
+	// reports what it can observe — queued for a parked child.
+	assert.Equal(t, DeliveryQueued, mode)
 
 	select {
 	case msgs := <-recvDone:

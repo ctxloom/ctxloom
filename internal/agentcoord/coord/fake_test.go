@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"fmt"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"maps"
 	"strconv"
 	"sync"
@@ -564,4 +565,20 @@ func harnessSessionID(c *Coordinator, harp string) string {
 		}
 	})
 	return id
+}
+
+// childRecv is a child's agent_recv: its OWN runner's Home.Recv, projected
+// onto the coordinator-side Message shape so assertions read the same
+// whichever side delivered.
+func childRecv(t *testing.T, c *Coordinator, runID string, wait time.Duration) ([]Message, error) {
+	t.Helper()
+	pms, err := childHome(t, c, runID).Recv(context.Background(), wait)
+	var out []Message
+	for _, pm := range pms {
+		out = append(out, Message{
+			ID: pm.GetMessageId(), From: pm.GetFromAgentId(), Kind: agentcoordpb.LegacyKindName(pm.GetKind()),
+			Body: pm.GetText(), InReplyTo: pm.GetInReplyTo(),
+		})
+	}
+	return out, err
 }

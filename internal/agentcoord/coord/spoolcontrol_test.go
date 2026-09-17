@@ -492,28 +492,6 @@ func TestSpoolControl_PauseHoldsTurnsAndLeavesMailUnconsumed(t *testing.T) {
 	assertNoMailboxJournal(t, c)
 }
 
-// TestSpoolControl_PauseRefusedWhenNotOnTheRunnerPlane pins the flag-off
-// answer: pause and resume were never built as executors on plane 2, so a run
-// that predates the cutover is refused with the typed capability error rather
-// than silently doing nothing.
-func TestSpoolControl_PauseRefusedWhenNotOnTheRunnerPlane(t *testing.T) {
-	resetStrictness(t)
-	teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newTestCoordinator(t, sp, nil)
-
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "", "")
-	require.NoError(t, err)
-	upCtx, upCancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer upCancel()
-	require.NoError(t, c.awaitChildUp(upCtx, out.Harp))
-
-	err = c.ControlPause(context.Background(), humanInitiator(), out.Harp, "review")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrCapabilityUnavailable)
-	assert.ErrorIs(t, c.ControlResume(context.Background(), humanInitiator(), out.Harp), ErrCapabilityUnavailable)
-}
-
 // TestSpoolControl_PauseRefusesAnotherRunsId pins the A9 correlation on the
 // new runner requests: a runner hosts exactly ONE run, and a request naming
 // another must be refused rather than applied to whatever run is here.

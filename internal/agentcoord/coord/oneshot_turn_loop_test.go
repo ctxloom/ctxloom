@@ -142,7 +142,7 @@ func TestSlotYield_MidTurnParkYieldsSlotToPeer(t *testing.T) {
 	// it waits.
 	aRecv := make(chan []Message, 1)
 	go func() {
-		msgs, _ := c.AgentRecv(context.Background(), Identity{Harp: a.Harp, RunID: a.RunID, Depth: 1}, conformanceWait)
+		msgs, _ := childRecv(t, c, a.RunID, conformanceWait)
 		aRecv <- msgs
 	}()
 	require.Eventually(t, func() bool { return rosterState(c, a.Harp) == StateParked }, conformanceWait, 10*time.Millisecond,

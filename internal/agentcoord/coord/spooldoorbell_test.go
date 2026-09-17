@@ -67,7 +67,10 @@ func TestSpoolDoorbell_RunnerToCoordinatorRoundTrip(t *testing.T) {
 }
 
 // TestSpoolDoorbell_CoordinatorToRunnerRoundTrip is the mirror: the
-// CoordinatorNotice arm, which will replace the PeerMessage payload push.
+// CoordinatorNotice arm. A runner is rung for what it READS — its own in/,
+// and in/withdrawn as the retraction notice — and refuses a doorbell for any
+// other directory (those are its own writes coming back at it), COUNTED as a
+// rejection rather than followed.
 func TestSpoolDoorbell_CoordinatorToRunnerRoundTrip(t *testing.T) {
 	for _, dir := range spool.Dirs() {
 		t.Run(dir.String(), func(t *testing.T) {
@@ -80,9 +83,20 @@ func TestSpoolDoorbell_CoordinatorToRunnerRoundTrip(t *testing.T) {
 			want := spool.Ref{Harp: doorbellHarp, Dir: dir, Name: doorbellName}
 			require.NoError(t, c.ringSpool(doorbellHarp, want))
 
-			assert.Equal(t, want, waitRef(t, got),
-				"the doorbell must arrive as the IDENTICAL ref in this direction too")
-			assert.Zero(t, h.SpoolDoorbellStats().Rejected)
+			switch dir {
+			case spool.DirIn, spool.DirInWithdrawn:
+				assert.Equal(t, want, waitRef(t, got),
+					"the doorbell must arrive as the IDENTICAL ref in this direction too")
+				assert.Zero(t, h.SpoolDoorbellStats().Rejected)
+			default:
+				require.Eventually(t, func() bool { return h.SpoolDoorbellStats().Rejected == 1 }, 10*time.Second, 10*time.Millisecond,
+					"a doorbell for a directory this runner does not read is refused, and counted")
+				select {
+				case ref := <-got:
+					t.Fatalf("a refused doorbell must never reach the handler, got %v", ref)
+				default:
+				}
+			}
 			assert.Zero(t, h.SpoolDoorbellStats().Dropped, "a live channel drops nothing")
 		})
 	}
@@ -348,23 +362,6 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 		}
 		assert.Equal(t, uint64(1), h.SpoolDoorbellStats().Dropped)
 	})
-}
-
-// TestSpoolDoorbell_NoConsumerIsTheDefault pins this slice's inertness: the
-// wire is capable and nothing acts on it. A doorbell arriving with no handler
-// registered is counted and dropped — not queued for a future consumer, which
-// would be state, and state is what the file already is.
-func TestSpoolDoorbell_NoConsumerIsTheDefault(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-	h := dialHome(t, c, doorbellHarp, CapPeerMessaging)
-
-	require.NoError(t, h.ringSpool(spool.Ref{Harp: doorbellHarp, Dir: spool.DirOut, Name: doorbellName}))
-
-	require.Eventually(t, func() bool {
-		return c.SpoolDoorbellStats().Dropped == 1
-	}, 10*time.Second, 10*time.Millisecond,
-		"with no consumer registered the doorbell is dropped, and counted so the inertness is observable")
-	assert.Zero(t, c.SpoolDoorbellStats().Rejected, "a valid ref nobody consumes is not a rejection")
 }
 
 // TestSpoolDoorbell_InvalidRefNeverReachesTheWire keeps the writer honest: a

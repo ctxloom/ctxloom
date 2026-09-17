@@ -357,7 +357,7 @@ for an already-approved item. Folding the role into the signed form value makes
 them different signed bytes, so no such transfer is possible.
 
 Today every kind's preimage opens with its own contract string (§3.3.2–§3.3.5;
-`ctxloom-exec/1`, `ctxloom-fragment/1`, `ctxloom-command/1`, `ctxloom-skill/1`
+`ctxloom-exec/2`, `ctxloom-fragment/1`, `ctxloom-command/1`, `ctxloom-skill/1`
 — pairwise distinct and prefix-free), so no two kinds can produce identical
 preimage bytes at all. The role in the form is kept as the second, independent
 defence: the store keys on it, and it never has to rely on the framing.
@@ -420,13 +420,30 @@ definitions is the bug.
    one framed field. A skill's per-engine enablement is presented the same way
    and enters its canonical payload beside the manifest — see §3.3.5.
 
-#### 3.3.2 The versioned exec preimage — `ctxloom-exec/1`
+#### 3.3.2 The versioned exec preimage — `ctxloom-exec/2`
 
 The canonical exec struct carries the contract version as its **first field**:
 
 ```json
-{"preimage":"ctxloom-exec/1","command":"…","args":[…],"env":{…},"installation":"…"}
+{"preimage":"ctxloom-exec/2","command":"…","args":[…],"env":{…},"url":"…","headers":{…},"installation":"…"}
 ```
+
+An MCP server is EXACTLY ONE of two things — a stdio process ctxloom launches
+(`command`, with `args`/`env`) or a network-hosted server an engine dials
+(`url`, with `headers`) — and **both targets are inside the preimage**. They
+have to be. The endpoint is WHERE the server is reached and a header is WHAT
+CREDENTIAL is presented to it, so an approval that covered only the stdio
+fields would still verify after a reviewed server was redirected to another
+host, or after its `Authorization` header was rewritten to exfiltrate the
+token. That is an approval of nothing in particular: the reviewer approved a
+name, not a server.
+
+There is deliberately **no transport field**. The URL's scheme already names
+the protocol, so a stored discriminator would be a second encoding of the same
+fact, representable in disagreement with it and checked by nothing. Engine
+formats that want one (claude's `type`) derive it from the URL at write time
+and never persist it — so it is not in the preimage either, because it is not
+an independent input.
 
 The version is not defensive against an attacker — a forged preimage gains nothing
 by naming a version. **It is defensive against us:** any change to the exec field
@@ -437,6 +454,20 @@ would satisfy an order-insensitive compare and still be wrong.
 
 The constant is `signing.ExecPreimageContract`. Third parties depend on this string;
 it is a public contract (§12), not an implementation detail.
+
+`/2` is the first bump this mechanism has actually spent, and it spent it on
+the remote-target fields above. Every `/1` exec record — every MCP and every
+HOOK approval, since both kinds share this contract — therefore stops verifying
+and its item returns to pending. That is the announced mass re-review the
+version carrier exists to produce, not a regression: the records are still
+READ, so a superseded approval surfaces as an UPDATE rather than as a
+first-time item, and no stale record is ever re-keyed onto the new bytes.
+
+Which fields are covered is not restated anywhere else. `bundles.mcpContentPayload`
+and `bundles.hookContentPayload` ARE the field sets, declaration order is byte
+order, and a reflective test (`TestEveryMCPFieldIsClassified`) refuses any
+`BundleMCP` field that neither moves the preimage nor carries an explicit
+`surface:` classification saying why the executable surface excludes it.
 
 #### 3.3.3 The framed fragment preimage — `ctxloom-fragment/1`
 
@@ -545,7 +576,7 @@ effective manifest:
 
 A skill has no raw bytes at all — it is a file tree named by its manifest — so
 its whole preimage is a canonicalization under the exec rule, and it carries its
-own contract rather than borrowing `ctxloom-exec/1`: a skill sharing the exec
+own contract rather than borrowing `ctxloom-exec/2`: a skill sharing the exec
 string would let a change to one field set go unannounced under the other's
 version. The manifest names every file the agent is handed (SKILL.md, where the
 agent-facing name and description live, included); the enablement decides
@@ -1974,7 +2005,7 @@ versioned independently, because they change for independent reasons:
 | Publisher signature | SSH **namespace**: `publish.v1.ctxloom.dev` | old signatures no longer verify → publishers must re-sign |
 | Countersignature payload framing | header line `ctxloom-countersign/2` **and** namespace `approve.v1.ctxloom.dev` | all existing approvals invalidate → mass re-review |
 | Countersignature **`ref` serialization** (§3.2.1) | the framing above | a different `ref` string is a different signed payload — signatures will not verify |
-| Exec-item preimage | `"preimage":"ctxloom-exec/1"` **first field** (§3.3.2) | all MCP/hook approvals invalidate |
+| Exec-item preimage | `"preimage":"ctxloom-exec/2"` **first field** (§3.3.2) | all MCP/hook approvals invalidate |
 | Companion loadout envelope | `"contract":"ctxloom-loadout/1"` | companions must re-emit |
 | Sibling path convention | `<bundle>.yaml.sig` | a new path is a new contract |
 

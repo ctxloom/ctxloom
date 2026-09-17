@@ -33,7 +33,7 @@ func ownerHome(t *testing.T, c *Coordinator) *Home {
 		RunID:   "", // depth-0: the channel attaches to the owning session
 		Harness: "mock",
 		Version: "test",
-		Harp:    "child-harp-1",
+		Harp:    ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })

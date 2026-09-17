@@ -181,7 +181,7 @@ func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan,
 		Harness: plan.Backend,
 		Version: "test",
 		Engine:  host.Handle,
-		Harp:    "child-harp-1",
+		Harp:    runnerEnv["CTXLOOM_SESSION_HARP"],
 	})
 	if err != nil {
 		cancel()
@@ -250,7 +250,7 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 	gate := make(chan struct{})
 	chat := &liveTapChat{turnGate: gate}
 	sp := &liveTapSpawner{projectDir: projectDir, chat: chat}
-	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectKey: "livetap-proj", Spawner: sp})
+	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectKey: "livetap-proj", Spawner: sp, OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve(), "Serve must write endpoint.json where discover.List() looks")
 	t.Cleanup(c.Close)

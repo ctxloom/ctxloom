@@ -222,7 +222,6 @@ func TestSpoolOwner_RefusesAnUndeclaredOwner(t *testing.T) {
 	teeHome(t)
 	_, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: t.TempDir(), Spawner: newFakeSpawner(nil, nil),
-		OwnerHarp: ownerIdentity().Harp,
 	})
 	require.ErrorIs(t, err, ErrNeedsOwner)
 }

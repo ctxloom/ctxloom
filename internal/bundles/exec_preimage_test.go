@@ -25,7 +25,7 @@ import (
 // them all back to pending with no version signal. Fail-closed, but a nasty
 // surprise.
 //
-// The mitigation is a version carrier: `"preimage":"ctxloom-exec/1"` as the
+// The mitigation is a version carrier: `"preimage":"ctxloom-exec/<n>"` as the
 // FIRST field of the canonical struct. Bumping it becomes a deliberate,
 // announced act. These tests hold that contract — the literal string, its
 // position, and the determinism the signature depends on.
@@ -33,7 +33,7 @@ import (
 
 // The exec preimage's first field must be the contract version, for BOTH exec
 // item kinds. Position is part of the contract (spec §3.3.2: "gains a
-// `"preimage":"ctxloom-exec/1"` FIRST field"), so this asserts exact bytes
+// `"preimage"` FIRST field"), so this asserts exact bytes
 // rather than JSONEq — a version carrier buried mid-object would satisfy an
 // order-insensitive compare and still be wrong.
 func TestExecContentPayload_IsVersioned_MCP(t *testing.T) {
@@ -51,8 +51,8 @@ func TestExecContentPayload_IsVersioned_MCP(t *testing.T) {
 	assert.True(t, strings.HasPrefix(string(payload), `{"preimage":"`+signing.ExecPreimageContract+`"`),
 		"the exec preimage must OPEN with the contract version; got: %s", payload)
 	assert.Equal(t,
-		`{"preimage":"ctxloom-exec/1","command":"postgres-mcp","args":["--host","db"],`+
-			`"env":{"PGUSER":"admin"},"installation":"npm i -g postgres-mcp"}`,
+		`{"preimage":"ctxloom-exec/2","command":"postgres-mcp","args":["--host","db"],`+
+			`"env":{"PGUSER":"admin"},"url":"","headers":null,"installation":"npm i -g postgres-mcp"}`,
 		string(payload))
 }
 
@@ -70,7 +70,7 @@ func TestExecContentPayload_IsVersioned_Hook(t *testing.T) {
 	assert.True(t, strings.HasPrefix(string(payload), `{"preimage":"`+signing.ExecPreimageContract+`"`),
 		"the exec preimage must OPEN with the contract version; got: %s", payload)
 	assert.Equal(t,
-		`{"preimage":"ctxloom-exec/1","matcher":"Bash","type":"command","command":"echo hi",`+
+		`{"preimage":"ctxloom-exec/2","matcher":"Bash","type":"command","command":"echo hi",`+
 			`"prompt":"","pre_tool_fallback":true}`,
 		string(payload))
 }

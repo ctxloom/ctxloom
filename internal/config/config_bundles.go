@@ -1006,14 +1006,11 @@ func extractMCPFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bun
 				continue // withheld by the trust gate
 			}
 		}
-		result[name] = wire.MCPServer{
-			Command:      mcp.Command,
-			Args:         mcp.Args,
-			Env:          mcp.Env,
-			Notes:        mcp.Notes,
-			Installation: mcp.Installation,
-			SCM:          bundleSCM(src),
-		}
+		srv := mcp.AsWire()
+		srv.Notes = mcp.Notes
+		srv.Installation = mcp.Installation
+		srv.SCM = bundleSCM(src)
+		result[name] = srv
 	}
 
 	return result

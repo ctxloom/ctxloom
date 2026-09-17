@@ -154,26 +154,16 @@ type childRt struct {
 	// Guarded by Coordinator.mu. Per RUN, not per harp, so a resumed run
 	// can never inherit a stale request.
 	exitRequested *drainPolicy
-	// ownerRun marks a top-level, OWNER-OWNED run (Phase 2a-B, StartOwnedRun):
-	// the owning session's own structured/oneshot container run, minted
-	// parent-less with the OWNER'S HARP reused as its run role. It rides the
-	// SAME migrated RunChannel machinery a delegated child does (viaStartRun),
-	// but has no distinct parent to report to — the host watches it directly
-	// via WatchRuns — so the automatic child→parent result bridge
-	// (bridgeTurnResult) MUST be suppressed for it: bridging to the owner's
-	// own mailbox (parentHarp == harp) would re-deliver the run's output as its
-	// own next turn, an infinite self-loop. Everything else (turn state, slot
-	// accounting, mailbox-borne follow-up turns) is identical to a migrated
-	// child.
+	// ownerRun marks a top-level, OWNER-OWNED run (StartOwnedRun): the owning
+	// session's own structured/oneshot container run, minted parent-less
+	// with the OWNER'S HARP reused as its run role. It rides the same
+	// RunChannel machinery a delegated child does, but has no distinct
+	// parent to report to — the host watches it directly via WatchRuns, and
+	// its runner files no automatic turn report (HomeConfig.Depth 0).
+	// Everything else (turn state, slot accounting, spool-borne follow-up
+	// turns) is identical to a child.
 	ownerRun bool
-	// viaStartRun marks a MIGRATED child (Wave C1): its engine control
-	// rides StartRun on the runner's RunnerChannel — no go-plugin Chat
-	// dial, no driveChild loop; turn delivery is push-down (§6a by child
-	// state, decided runner-side), and its terminal is RunExited/runner
-	// loss ONLY (lifecycle unification — the chat-close path never fires).
-	viaStartRun bool
-	in          chan<- agent.ChatMessage
-	close       func()
+	close    func()
 	// workDir is the isolation-resolved workspace this run's engine was
 	// started in (EngineSpawn.WorkDir). It exists for the liveness watchdog:
 	// the worktree's newest mtime is the only activity clock that is not
@@ -347,7 +337,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		return nil, err
 	}
 
-	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false, make(chan struct{}), caller.Depth+1, migratedLaunch(plan, url))
+	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false, make(chan struct{}), caller.Depth+1)
 	if err != nil {
 		c.releaseAssignedHarp(harp, err)
 		return nil, err
@@ -489,15 +479,7 @@ func callerLabel(caller Identity) string {
 // env stamp (EnvRunDepth, via runnerEnv) and the server-side recursion guard
 // (AgentRun's caller.Depth, read back from this same fact via Identify) never
 // diverge.
-// migrated is whether this run rides StartRun (spawner.go's viaStartRunBackends
-// AND a reach-back URL the runner can dial). It is decided HERE, at enqueue,
-// and not at launch: the recipient class of the run's mail follows from it
-// (spoolDeliverTo), and mail can arrive from the moment the harp is published
-// — a child parked on the execution cap is addressable long before it
-// launches. A class decided at launch left that window on the mailbox, and
-// under the cutover the post-launch standup drain counts the SPOOL, so a
-// message journaled in the window was never delivered.
-func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool, attached chan struct{}, depth int, migrated bool) (*childRt, string, error) {
+func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool, attached chan struct{}, depth int) (*childRt, string, error) {
 	runID := newRunID()
 	token, credHash, err := mintToken()
 	if err != nil {
@@ -552,8 +534,6 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 		parentRunID: caller.RunID,
 		depth:       depth,
 		plan:        plan,
-		viaStartRun: migrated,
-		wake:        make(chan struct{}, 1),
 		attached:    attached,
 	}
 	// Claim a free slot now when one exists so `queued` is truthful at
@@ -798,17 +778,9 @@ func (c *Coordinator) spawnReachURL(harp string, runtimeAxis agent.RuntimeAxis) 
 	return "", fmt.Errorf("agent_run: no coordinator endpoint reachable from runtime %q: %v — this child could not dial home, so nothing it sends could be routed and its work would be lost; check the container runtime's bridge network", runtimeAxis, err)
 }
 
-// migratedLaunch is the ONE spelling of "this run rides StartRun": an
-// allowlisted backend (plan.ViaStartRun) with a reach-back URL the runner can
-// dial. A degraded spawn without reach-back (url == "") keeps the frozen legacy
-// dial — the runner could never dial home.
-func migratedLaunch(plan *SpawnPlan, url string) bool {
-	return plan.ViaStartRun && url != ""
-}
-
 // runChild is a spawned child's driver goroutine: wait for an execution slot
-// (D4), launch the engine with the agent's intents honored, deliver the
-// briefing as the first turn, then drive turns from mailbox deliveries.
+// (D4), then spawn the runner and issue StartRun with the briefing as the
+// first turn; the runner drives every later turn from its own spool.
 func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	if err := c.acquireRunSlot(rt); err != nil {
 		// A terminal that landed while this spawn was parked on the cap has
@@ -820,24 +792,6 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 	c.setState(rt, StateExecuting)
 
-	// MIGRATED: for every backend in spawner.go's viaStartRunBackends,
-	// engine control rides
-	// StartRun on the runner's RunnerChannel. A degraded spawn without
-	// reach-back (url == "") cannot — the runner could never dial home — so
-	// it keeps the legacy dial. This is now the go-plugin Chat dial's ONE
-	// intentional, documented reachable case for an allowlisted backend
-	// (preserved as-is, matching what C1 already landed);
-	// the dial's other reachable case is a StructuredChat backend outside
-	// the allowlist — since S3b that is the mock test backend ALONE, no
-	// production backend (see delegate.go Start's KILL-LIST VERIFICATION);
-	// spawner.go's checkLegacyChatFreeze admits nothing else.
-	//
-	// FROZEN (spool-cutover RETIRE-FIRST ruling): the legacy arm below is
-	// retired-in-place — it is never ported to the file-spool messaging
-	// substrate that replaces the coordinator mailbox, and it admits no new
-	// backends (spawner.go's legacyChatBackends may only empty). Its
-	// remaining consumers either migrate onto StartRun or lose delegation
-	// when the mailbox machinery is deleted.
 	// The launch runs under a CANCELLABLE per-harp context, not baseCtx, so
 	// agent_stop reaches a launch that is in flight (container prepare, image
 	// pull, fs probe) and not merely the process a completed launch produced
@@ -1822,7 +1776,7 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	// ended run's own recorded depth straight through rather than deriving
 	// it from caller.Depth+1 (which would need caller.Depth = rec.Depth-1,
 	// the exact reconstruction this explicit depth parameter replaces).
-	rt, token, err := c.enqueueRun(caller, plan, harp, "", true, attached, rec.Depth, migratedLaunch(plan, url))
+	rt, token, err := c.enqueueRun(caller, plan, harp, "", true, attached, rec.Depth)
 	if errors.Is(err, errResumeLost) {
 		return // a concurrent resume claimed it; the winner delivers
 	}

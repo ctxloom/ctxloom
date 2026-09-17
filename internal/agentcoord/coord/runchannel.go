@@ -640,7 +640,10 @@ func (c *Coordinator) clearReqTrack(role string) {
 func (c *Coordinator) serveAgentRequest(caller Identity, req *agentcoordpb.AgentRequest) *agentcoordpb.CoordinatorResponse {
 	switch kind := req.GetKind().(type) {
 	case *agentcoordpb.AgentRequest_PeerSend:
-		return c.servePeerSend(caller, kind.PeerSend)
+		// agent_send never reaches the wire: it is a LOCAL file write in the
+		// runner (Home.sendPeerViaSpool), routed when the coordinator sweeps.
+		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented,
+			"agent_send is a local spool write at the runner and is never served here; a runner that sent it over the wire is older than this coordinator")}
 	case *agentcoordpb.AgentRequest_SpawnAgent:
 		return c.serveSpawnAgent(caller, kind.SpawnAgent)
 	case *agentcoordpb.AgentRequest_ListRuns:
@@ -653,94 +656,6 @@ func (c *Coordinator) serveAgentRequest(caller Identity, req *agentcoordpb.Agent
 		return c.serveCustom(caller, kind.Custom)
 	default:
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented, "request kind not offered in this window")}
-	}
-}
-
-// servePeerSend is agent_send: children address to_role "parent"; the owner
-// addresses children by to_agent_id (harp).
-//
-// `kind` has exactly ONE source: req.GetKind(), the typed MessageKind field
-// (coordination.proto's field 7). The proto is explicit that this REPLACES
-// the retired structured["kind"] free-string convention, and this function now
-// makes that true — structured is carried as an opaque companion and is never
-// inspected for a "kind" key.
-//
-// It used to be the other way around: req.GetKind() was decoded off the wire
-// onto this struct and then never once inspected — ValidateMessageKind and
-// LegacyKindName (messagekind.go) had no caller anywhere in the tree, and
-// `kind` fell back to structured["kind"] unconditionally, including for an
-// absent value (the zero value MESSAGE_KIND_UNSPECIFIED silently became
-// KindUnset, a message projecting onto the spool frontmatter as literally
-// "unkinded").
-//
-// The typed-field check below stays CONDITIONAL on the field actually being
-// set (mirroring the pre-existing shape, not merely inherited from it): an
-// explicitly-set unrecognised or coordinator-reserved value is refused HERE,
-// synchronously, before any routing. An UNSET field is deliberately NOT
-// refused at this layer — it falls through to peerSend below, unvalidated,
-// because peerSend's own chokepoint (SenderMailKind) sits AFTER the
-// approval/ask-reply correlation check: a reply to a relayed approval_request
-// carries its answer in `structured` and never needs a kind at all ("kind
-// rides alongside the decision and is ignored" — coordinator.go's peerSend).
-// Pre-refusing an unset kind here, unconditionally, would reject that reply
-// before peerSend ever got a chance to recognise it as one, which is exactly
-// what an earlier version of this change did and broke
-// (TestSpoolApproval_RelayRidesFilesAndAuditsIdentically). An ORDINARY send
-// with an unset kind still ends up refused — just one frame deeper, at
-// peerSend's SenderMailKind("") — which now refuses "" instead of accepting
-// it.
-func (c *Coordinator) servePeerSend(caller Identity, req *agentcoordpb.PeerSendRequest) *agentcoordpb.CoordinatorResponse {
-	to := req.GetToAgentId()
-	if role := req.GetToRole(); role != "" {
-		if to != "" {
-			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_send: set exactly one of to_agent_id / to_role, not both")}
-		}
-		to = role // ParentAddress ("parent") is the only role address in the B window
-	}
-	if to == "" {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, `agent_send: a recipient is required — to_agent_id (a child harp) or to_role: "parent"`)}
-	}
-	if req.GetText() == "" {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_send: text is required")}
-	}
-	if typed := req.GetKind(); typed != agentcoordpb.MessageKind_MESSAGE_KIND_UNSPECIFIED {
-		if err := agentcoordpb.ValidateMessageKind(typed); err != nil {
-			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
-		}
-	}
-	kind := agentcoordpb.LegacyKindName(req.GetKind())
-	var structured json.RawMessage
-	if s := req.GetStructured(); s != nil {
-		// Refuse rather than silently truncate. This used to be
-		// `if merr == nil { structured = raw }` with merr never inspected, so a
-		// Struct that could not be marshalled left `structured` nil and the
-		// message was QUEUED without its payload and reported as sent. For a
-		// parent answering a relayed approval that converts a decision into an
-		// unanswerable message: the decode side is strict and then reports
-		// "structured is required", blaming the sender, who was told it worked.
-		// serveCustom below already treats the identical failure as
-		// InvalidArgument.
-		raw, merr := protojson.Marshal(s)
-		if merr != nil {
-			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument,
-				fmt.Sprintf("agent_send: structured payload cannot be encoded, refusing to send it stripped: %v", merr))}
-		}
-		structured = raw
-	}
-	msgID, delivered, disposition, err := c.peerSend(caller, to, kind, req.GetText(), structured, req.GetInReplyTo())
-	if err != nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
-	}
-	delivery := agentcoordpb.PeerSendResult_DELIVERY_QUEUED
-	if delivered {
-		delivery = agentcoordpb.PeerSendResult_DELIVERY_DELIVERED
-	}
-	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(disposition),
-		Kind: &agentcoordpb.CoordinatorResponse_PeerSend{PeerSend: &agentcoordpb.PeerSendResult{
-			MessageId: msgID,
-			Delivery:  delivery,
-		}},
 	}
 }
 

@@ -375,7 +375,7 @@ func (c *Coordinator) spoolDeliverTo(role string) bool {
 	c.mu.Lock()
 	rt := c.byHarp[role]
 	c.mu.Unlock()
-	if rt == nil || !rt.viaStartRun {
+	if rt == nil {
 		return false
 	}
 	tracked := false

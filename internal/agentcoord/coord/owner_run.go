@@ -120,18 +120,17 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// permission, and the composed MCP set. No agent-definition resolution runs —
 	// the host already resolved every field into OwnerRunSpec.
 	plan := &SpawnPlan{
-		AgentName:   spec.Harp,
-		Backend:     spec.Backend,
-		Label:       spec.Label,
-		Runtime:     ownerRunRuntime,
-		Perm:        spec.Permission,
-		MCPServers:  spec.MCPServers,
-		ViaStartRun: true,
+		AgentName:  spec.Harp,
+		Backend:    spec.Backend,
+		Label:      spec.Label,
+		Runtime:    ownerRunRuntime,
+		Perm:       spec.Permission,
+		MCPServers: spec.MCPServers,
 	}
 
 	// The owned run REUSES the owner's own identity rather than spawning a
 	// child of it — it IS the session owner, running over a different
-	// transport (ViaStartRun/container instead of the plugin-hosted path).
+	// transport (a container run instead of the plugin-hosted path).
 	// So its stamped depth is the owner's OWN depth (owner.Depth, normally
 	// 0), not owner.Depth+1: enqueueRun's depth parameter is explicit for
 	// exactly this reason (a genuine child, by contrast, always gets
@@ -148,7 +147,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// misrouting a call the owned run's OWN engine made about ITSELF
 	// (childSend's ParentHarp resolution hit the self-loop below; AgentStop
 	// and roster both explicitly refuse an IsChild() caller).
-	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}), owner.Depth, true)
+	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}), owner.Depth)
 	if err != nil {
 		return nil, err
 	}

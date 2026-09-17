@@ -52,7 +52,6 @@ const (
 	factSessionCred = "session.cred"
 	// factSessionCredRevoked revokes a session-owner credential.
 	factSessionCredRevoked = "session.cred.revoked"
-
 )
 
 // Terminal causes recorded on factRunEnded.

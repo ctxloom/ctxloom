@@ -226,14 +226,14 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	}
 	hctx, cancel := context.WithCancel(ctx)
 	h := &Home{
-		cfg:          cfg,
-		ctx:          hctx,
-		cancel:       cancel,
-		conn:         conn,
-		ackCh:        make(chan struct{}),
-		pending:      make(map[string]*homeReq),
-		consumed:     make(map[string]bool),
-		turnPending:  make(map[string]bool),
+		cfg:         cfg,
+		ctx:         hctx,
+		cancel:      cancel,
+		conn:        conn,
+		ackCh:       make(chan struct{}),
+		pending:     make(map[string]*homeReq),
+		consumed:    make(map[string]bool),
+		turnPending: make(map[string]bool),
 	}
 	// A runner writes exactly ONE spool: its own harp's out/. The cache is
 	// still keyed by harp because spoolWriterCache is shared with the

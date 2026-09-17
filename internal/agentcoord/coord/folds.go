@@ -480,4 +480,3 @@ type Message struct {
 	// approval_request's relay and the parent's ApprovalDecision reply).
 	InReplyTo string `json:"in_reply_to,omitempty"`
 }
-

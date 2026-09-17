@@ -58,16 +58,6 @@ type SpawnPlan struct {
 	// of each recomposing it (which would also re-fire the executable trust
 	// gate's withheld-item warning per call).
 	MCPServers []agent.ChatMCPServer
-	// ViaStartRun routes this child's engine control over the agentcoord
-	// StartRun path (spawn the runner process, await its dial-home, issue
-	// StartRun on its RunnerChannel) instead of the legacy go-plugin Chat
-	// dial. The gate covers exactly the backends in viaStartRunBackends. It
-	// could be widened because the runner-side EngineHost/adaptation path
-	// (llm_serve.go) is ALREADY backend-agnostic — gated only on the
-	// agent.StructuredChat type assertion, never a backend-name check — so
-	// the only real per-backend deltas were in model delivery, not in the
-	// coordinator/runner machinery.
-	ViaStartRun bool
 	// ResumeMode is the per-engine resume-capability gate's outcome (one-shot
 	// + resume-key plan, Slice 2 / Fork 3's STATIC half): ResumeModeOneShot
 	// only when the resolved agent declared `driving: oneshot` AND the
@@ -139,16 +129,6 @@ type Spawner interface {
 	// operations.RecordSessionEngineVersion), exactly like MarkSessionEnded
 	// below.
 	RecordEngineVersion(ctx context.Context, harp, backend string)
-	// Launch starts the child engine with the composed context riding the
-	// first turn, env as the ENGINE's extra environment (ambient identity),
-	// and runnerEnv stamped per-spawn onto the RUNNER process (the
-	// coordinator reach-back trio — the runner is the one credential
-	// holder; the harness env never carries it). resumeSessionID, when
-	// non-empty, asks the backend to resume its own native session (Slice 0)
-	// instead of starting fresh — the LEGACY go-plugin dial's
-	// counterpart to the migrated StartRun path's
-	// StartRun{ResumeSessionId}. A fresh (non-resumed) launch passes "".
-	Launch(ctx context.Context, plan *SpawnPlan, contextText, resumeSessionID string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error)
 	// StartEngine spawns the child's engine RUNNER process (isolation-
 	// prepared, coordinator trio stamped via runnerEnv, env threaded into
 	// the isolation session state) WITHOUT opening the go-plugin Chat
@@ -185,70 +165,42 @@ func newProdSpawner(cfg *config.Config, projectDir string, factory pb.ClientFact
 	return s
 }
 
-// viaStartRunBackends is the spawn-cutover gate: the set of backend types
-// whose delegated children route their engine control over the StartRun path.
-// The runner-side EngineHost (internal/cli/llm_serve.go) gates on the
-// agent.StructuredChat type assertion alone, never a backend name, so every
-// member of this set gets the identical StartRun/adaptation/
-// approval-forwarding/resume machinery; the per-backend deltas were only ever
-// in model delivery.
+// viaStartRunBackends is the delegation allowlist: the set of backend types
+// that may run delegated children at all. Every child's engine control rides
+// the StartRun path (spawn the runner process, await its dial-home, issue
+// StartRun on its RunnerChannel). The runner-side EngineHost
+// (internal/cli/llm_serve.go) gates on the agent.StructuredChat type
+// assertion alone, never a backend name, so every member of this set gets
+// the identical StartRun/adaptation/approval-forwarding/resume machinery;
+// the per-backend deltas were only ever in model delivery.
 //
-// Backends NOT in this set ride the legacy coordinator-driven chat path ONLY
-// if they are in legacyChatBackends below; anything else is refused at Resolve
-// (checkLegacyChatFreeze) — this gate is deliberately an
-// allowlist of VERIFIED backends, not "implements StructuredChat", so a new
-// backend must be reviewed onto StartRun explicitly rather than swept in.
+// Any backend NOT in this set is refused at Resolve (checkStartRunAllowlist)
+// — this gate is deliberately an allowlist of VERIFIED backends, not
+// "implements StructuredChat", so a new backend must be reviewed onto
+// StartRun explicitly rather than swept in.
 //
 // The bar for admitting one is a per-backend recon showing that delta is
 // empty. What makes it empty generally: the runner-side standup
 // (internal/cli's standUpRunner), the isolation starter
 // (`ctxloom llm host <backend> --label ...`) and the HarnessSpec codec never
-// name a backend at all, and a delegated child's context rides the FIRST TURN
-// on BOTH paths — legacy via operations.leadContextIn, StartRun via
-// runChildViaStartRun's JoinLeadBlocks into StartRun.input — rather than
+// name a backend at all, and a delegated child's context rides the FIRST
+// TURN (runChildViaStartRun's JoinLeadBlocks into StartRun.input) rather than
 // through any backend-specific config file a Setup step would have to write.
 var viaStartRunBackends = map[string]bool{
 	config.BackendClaudeCode: true,
 }
 
-// legacyChatBackends is the RETIRE-FIRST freeze gate for the legacy
-// coordinator-driven child path (children.go's driveChild loop: the go-plugin
-// Chat dial for a StructuredChat backend outside viaStartRunBackends, and the
-// per-turn oneshot fallback for a backend with no StructuredChat at all).
-// That path is RETIRED: it is never ported to the file-spool messaging
-// substrate that replaces the coordinator mailbox, so this set may only
-// EMPTY — a member either migrates onto StartRun (viaStartRunBackends) or
-// loses delegation when the mailbox machinery is deleted. Nothing is ever
-// added: a backend in NEITHER table used to be swept silently onto the
-// legacy loop and is now refused loudly at Resolve (checkLegacyChatFreeze).
-//
-//   - mock: the test backend, and the table's SOLE remaining member. No
-//     production backend rides the frozen path by backend identity any more.
-//
-// The frozen path's OTHER reachable arm — a degraded (no-reach-back) spawn
-// of a viaStartRunBackends member, where StartRun is impossible because the
-// runner could never dial home — is gated by runChild's `url == ""` check,
-// not by this table; it is frozen under the same ruling.
-var legacyChatBackends = map[string]bool{
-	"mock": true,
-}
-
-// checkLegacyChatFreeze refuses a delegated spawn whose backend would land on
-// the retired legacy chat path without being one of its frozen residents. A
-// backend on the StartRun path (viaStartRunBackends) or in the frozen residue
-// (legacyChatBackends) passes; anything else — a newly registered backend
-// never reviewed onto StartRun, or a config-declared llm type that matches no
-// backend — fails loud here at Resolve time instead of silently joining a
-// path that is being removed (ctxloom never silently no-ops).
-func checkLegacyChatFreeze(backend string) error {
-	if viaStartRunBackends[backend] || legacyChatBackends[backend] {
+// checkStartRunAllowlist refuses a delegated spawn whose backend has not been
+// reviewed onto the StartRun path: a newly registered backend, or a
+// config-declared llm type that matches no backend, fails loud here at
+// Resolve time (ctxloom never silently no-ops).
+func checkStartRunAllowlist(backend string) error {
+	if viaStartRunBackends[backend] {
 		return nil
 	}
 	return fmt.Errorf(
-		"backend %q cannot run delegated children: the legacy coordinator-driven chat path is retired and frozen — it admits no new backends; delegated children run runner-side via StartRun (backends: %s), and only the frozen legacy backends (%s) remain on the old path until they migrate or are removed",
-		backend,
-		strings.Join(backendNames(viaStartRunBackends), ", "),
-		strings.Join(backendNames(legacyChatBackends), ", "))
+		"backend %q cannot run delegated children: delegated children run runner-side via StartRun, and only reviewed backends are admitted (backends: %s)",
+		backend, strings.Join(backendNames(viaStartRunBackends), ", "))
 }
 
 // resumeCapableBackends is the one-shot-resume plan's Slice 2 / Fork 3
@@ -414,30 +366,21 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 			agentName, rs.Backend)
 	}
 
-	// RETIRE-FIRST freeze gate (spool cutover): a backend outside BOTH
-	// viaStartRunBackends and legacyChatBackends used to be swept silently
-	// onto the legacy coordinator-driven chat loop (children.go's
-	// driveChild). That loop is retired — never ported to the spool
-	// substrate — so an unreviewed backend fails loud here instead of
-	// quietly joining a path that is being removed.
-	if err := checkLegacyChatFreeze(rs.Backend); err != nil {
+	if err := checkStartRunAllowlist(rs.Backend); err != nil {
 		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
 	}
 
 	plan := &SpawnPlan{
-		AgentName: agentName,
-		Backend:   rs.Backend,
-		Label:     rs.Label,
-		Profiles:  rs.Profiles,
-		Runtime:   rs.Runtime,
-		Context:   rs.Context,
-		Perm:      perm,
-		Degraded:  degraded,
-		// C3: every backend whose delegated Chat rides the shared ACP
-		// driver moves onto StartRun (see viaStartRunBackends).
-		ViaStartRun: viaStartRunBackends[rs.Backend],
-		ResumeMode:  resumeMode,
-		resolved:    rs,
+		AgentName:  agentName,
+		Backend:    rs.Backend,
+		Label:      rs.Label,
+		Profiles:   rs.Profiles,
+		Runtime:    rs.Runtime,
+		Context:    rs.Context,
+		Perm:       perm,
+		Degraded:   degraded,
+		ResumeMode: resumeMode,
+		resolved:   rs,
 	}
 	// F1: resolved once here (not per-Launch/StartEngine call) so the
 	// enqueue journal, Launch, and StartEngine all see the IDENTICAL
@@ -483,23 +426,6 @@ func (s *prodSpawner) chatRequest(plan *SpawnPlan, env, runnerEnv map[string]str
 		Workspace:        plan.Workspace,
 		DirtyTreeHandler: plan.DirtyTreeHandler,
 	}
-}
-
-func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText, resumeSessionID string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
-	req := s.chatRequest(plan, env, runnerEnv)
-	// The three fields ONLY the legacy go-plugin Chat dial consumes, verified
-	// against PreparedAgentChat.StartEngine, which reads none of them: Context
-	// rides the first turn (StartRun has no first turn to ride), MCPServers is
-	// patched into the EngineSpawn from plan.MCPServers instead, and
-	// ResumeSessionID's StartRun counterpart is HarnessSpec.resume_session_id.
-	req.Context = contextText
-	req.MCPServers = plan.MCPServers
-	req.ResumeSessionID = resumeSessionID
-	prep, err := prepareAgentChat(ctx, s.cfg, req)
-	if err != nil {
-		return nil, err
-	}
-	return prep.Start(ctx)
 }
 
 // EngineSpawn is a StartEngine result: the spawned-but-not-chatting runner

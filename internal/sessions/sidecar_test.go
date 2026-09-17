@@ -147,7 +147,7 @@ purged_at: 2026-09-02T09:00:00Z
 }
 
 func TestListAll_StaleIndexYAMLLeftBehindIsIgnored(t *testing.T) {
-	m, root := openSidecarRoot(t)
+	_, root := openSidecarRoot(t)
 	writeSidecar(t, root, "real-one", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
 	// The migration marker says the one-time import already happened. An
 	// index.yaml that appears after that — an older binary wrote one — is
@@ -162,11 +162,15 @@ func TestListAll_StaleIndexYAMLLeftBehindIsIgnored(t *testing.T) {
     started_at: 2026-08-01T10:00:00Z
 `), 0o644))
 
-	got, err := m.ListAll()
+	// Re-Open so the one-time migration runs again against the stale file:
+	// the marker must make it a no-op, never a re-import.
+	m2, err := Open()
+	require.NoError(t, err)
+	got, err := m2.ListAll()
 	require.NoError(t, err)
 	assert.Equal(t, []string{"real-one"}, harpNames(got), "a stale index.yaml must not contribute rows")
 
-	found, err := m.Find("ghost-row")
+	found, err := m2.Find("ghost-row")
 	require.NoError(t, err)
 	assert.Nil(t, found)
 	_, statErr := os.Stat(filepath.Join(root, "ghost-row"))

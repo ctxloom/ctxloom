@@ -203,7 +203,12 @@ type Manager struct {
 //
 // If the retired global index (index.yaml) is still sitting at the root and
 // has not been consumed, Open migrates it into sidecars first (see
-// MigrateIndex). Every launch may re-enter that; it is idempotent.
+// MigrateIndex). Every launch may re-enter that; it is idempotent. A
+// migration that cannot complete — an index.yaml that will not parse — is
+// warned about and left in place for the next launch to retry, never allowed
+// to fail the store: the sessions that already have sidecars are readable
+// regardless, and the SessionStart hook that opens this on every launch must
+// not fail the host engine over a file it no longer needs.
 func Open() (*Manager, error) {
 	root, err := paths.HomeSessionsDir()
 	if err != nil {
@@ -213,7 +218,7 @@ func Open() (*Manager, error) {
 		return nil, fmt.Errorf("mkdir sessions dir: %w", err)
 	}
 	if _, err := MigrateIndex(root); err != nil {
-		return nil, err
+		clidiag.Warn("ctxloom", "session index migration: %v (the retired index is left in place; sessions already migrated are unaffected)", err)
 	}
 	return &Manager{root: root}, nil
 }

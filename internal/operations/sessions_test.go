@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -72,32 +73,32 @@ func TestSelectPreviousEntry(t *testing.T) {
 	})
 }
 
-// TestListSessions_KeepsSessionWithOnlyACanonicalTranscript is an
 // TestBindSession_TransientIndexReadFailureWarnsRatherThanFailingSilently:
 // BindSession used to discard mgr.Find's error entirely, so a
-// transient index-read failure (a malformed on-disk index.yaml, here standing
-// in for any read/parse fault) was indistinguishable from "no entry for this
+// transient read failure (a malformed sidecar, here standing in for any
+// read/parse fault) was indistinguishable from "no entry for this
 // harp" — both took the same silent no-op. First-bind-wins never retries, so
 // a harp that misses its bind this way never gets a session id again. The
 // SessionStart hook must still never fail the host backend (CLAUDE.md fault
 // tolerance), so the fix is a warning, not a returned error.
 func TestBindSession_TransientIndexReadFailureWarnsRatherThanFailingSilently(t *testing.T) {
-	home := testsupport.Isolate(t)
+	testsupport.Isolate(t)
 
-	indexPath := filepath.Join(home, ".ctxloom", "sessions", "index.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(indexPath), 0o755))
-	// Malformed YAML (unterminated quote) makes loadLocked's yaml.Unmarshal
-	// fail, so mgr.Find returns a genuine parse error, not "absent".
-	require.NoError(t, os.WriteFile(indexPath, []byte(`sessions: ["unterminated`), 0o644))
+	sidecar, err := paths.HarpSidecarPath("some-harp")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
+	// Malformed YAML (unterminated quote) makes the sidecar parse fail, so
+	// mgr.Find returns a genuine parse error, not "absent".
+	require.NoError(t, os.WriteFile(sidecar, []byte(`project_dir: ["unterminated`), 0o644))
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	err := BindSession("some-harp", "sess-1", "/tmp/transcript.jsonl")
+	err = BindSession("some-harp", "sess-1", "/tmp/transcript.jsonl")
 	require.NoError(t, err, "the SessionStart hook must never fail the host backend")
 	assert.Contains(t, buf.String(), "some-harp", "the failure must be warned, naming the harp")
-	assert.Contains(t, buf.String(), "session index", "the warning must say what failed")
+	assert.Contains(t, buf.String(), "session record", "the warning must say what failed")
 }
 
 // The sibling of the case above, and the reason both need a test: BindSession
@@ -110,29 +111,32 @@ func TestBindSession_TransientIndexReadFailureWarnsRatherThanFailingSilently(t *
 // Asserts the EFFECT rather than the nil error: a no-op that still wrote a
 // binding would satisfy `require.NoError` perfectly well.
 func TestBindSession_UnknownHarpWritesNothing(t *testing.T) {
-	home := testsupport.Isolate(t)
+	testsupport.Isolate(t)
 
-	indexPath := filepath.Join(home, ".ctxloom", "sessions", "index.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(indexPath), 0o755))
-	// A VALID index that simply does not mention the harp being bound — so
+	// A VALID store that simply does not hold the harp being bound — so
 	// mgr.Find returns (nil, nil), the branch under test, rather than an error.
-	require.NoError(t, os.WriteFile(indexPath, []byte("sessions: []\n"), 0o644))
-
-	before, err := os.ReadFile(indexPath)
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
-	require.NotEmpty(t, before, "a zero-length fixture would make the comparison below vacuous")
+	other, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	root, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	before, err := os.ReadDir(root)
+	require.NoError(t, err)
+	require.NotEmpty(t, before, "an empty fixture would make the comparison below vacuous")
 
 	require.NoError(t, BindSession("absent-harp", "sess-1", "/tmp/transcript.jsonl"),
 		"the SessionStart hook must never fail the host backend")
 
-	after, err := os.ReadFile(indexPath)
+	after, err := os.ReadDir(root)
 	require.NoError(t, err)
-	assert.Equal(t, string(before), string(after),
-		"binding a harp with no index entry must write nothing at all")
-	assert.NotContains(t, string(after), "absent-harp",
-		"no entry may be minted for a harp the index never knew")
-	assert.NotContains(t, string(after), "sess-1",
-		"and no session id may be recorded against one")
+	assert.Equal(t, len(before), len(after),
+		"binding a harp with no record must write nothing at all")
+	assert.NoDirExists(t, filepath.Join(root, "absent-harp"),
+		"no session may be minted for a harp the store never knew")
+	got, err := mgr.Find(other.HarpName)
+	require.NoError(t, err)
+	assert.Empty(t, got.SessionID, "and no session id may be recorded against any other session")
 }
 
 // TestHarpForSession_ResolvesRotatedAwaySessionID pins the lineage lookup: a

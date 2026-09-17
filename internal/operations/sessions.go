@@ -363,7 +363,7 @@ func BindSession(harp, sessionID, transcriptPath string) error {
 		// `session transcript watch`/resume fails with "no session bound". The
 		// SessionStart hook must still never fail the host backend (CLAUDE.md
 		// fault tolerance), so this warns rather than returning the error.
-		clidiag.Warn("ctxloom", "SessionStart: bind %s: read session index: %v (session id not recorded)", harp, ferr)
+		clidiag.Warn("ctxloom", "SessionStart: bind %s: read session record: %v (session id not recorded)", harp, ferr)
 		return nil
 	}
 	if entry == nil {

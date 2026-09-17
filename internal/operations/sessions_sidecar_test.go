@@ -57,13 +57,18 @@ func TestListAllSessions_PurgedDirectoryListsAsPurged(t *testing.T) {
 	require.NoError(t, err)
 	e, err := mgr.AssignHarp("/proj/a", "claude-code")
 	require.NoError(t, err)
-	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
-	require.NoError(t, os.WriteFile(transcript, []byte("{}\n"), 0o644))
-	require.NoError(t, mgr.BindSession(e.HarpName, "sess-1", transcript))
-
-	_, err = PurgeSession(e.HarpName, PurgeSessionRequest{Populations: []PurgePopulation{PurgePopulationTranscript}, Undistilled: true, Apply: true})
+	require.NoError(t, mgr.BindSession(e.HarpName, "sess-1", ""))
+	// ctxloom's own capture, inside the harp dir: the machine-written bulk a
+	// purge destroys.
+	canonical, err := paths.HarpCanonicalTranscriptPath(e.HarpName)
 	require.NoError(t, err)
-	require.NoError(t, os.Remove(transcript))
+	require.NoError(t, os.MkdirAll(filepath.Dir(canonical), 0o755))
+	require.NoError(t, os.WriteFile(canonical, []byte(`{"kind":"entry"}`+"\n"), 0o644))
+
+	_, err = PurgeSession(e.HarpName, PurgeSessionRequest{Populations: []PurgePopulation{PurgePopulationTranscript}, Undistilled: true, EvenIfLive: true, Apply: true})
+	require.NoError(t, err)
+	assert.NoFileExists(t, canonical, "precondition: the purge destroyed the capture")
+	assert.DirExists(t, filepath.Dir(canonical), "precondition: the purge left the directory")
 
 	got, err := ListAllSessions()
 	require.NoError(t, err)

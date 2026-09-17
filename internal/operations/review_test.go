@@ -588,9 +588,22 @@ func TestRenderMCPSurface_EmptyServerShowsMarker(t *testing.T) {
 // renderSkillSurface returned "" outright for a skill whose
 // (effective) manifest has zero file entries.
 func TestRenderSkillSurface_EmptyManifestShowsMarker(t *testing.T) {
-	rendered := renderSkillSurface(bundles.SkillManifest{})
+	rendered := renderSkillSurface(bundles.SkillLLMExports{}, bundles.SkillManifest{})
 	assert.Contains(t, rendered, "nothing to display",
 		"an empty skill manifest must say so explicitly rather than rendering an empty string")
+}
+
+// A skill's per-engine enablement is inside its trust preimage, so review
+// must display it: what the reviewer is shown is exactly what they approve,
+// and a flip from enabled to disabled must appear in the diff rather than
+// re-gating the skill with nothing visibly changed.
+func TestRenderSkillSurface_ShowsEnablement(t *testing.T) {
+	manifest := bundles.SkillManifest{{Path: "SKILL.md", SHA256: "sha256:a", Mode: "0644"}}
+	assert.Contains(t, renderSkillSurface(bundles.SkillLLMExports{}, manifest), "claude-code: enabled")
+
+	disabled := false
+	off := bundles.SkillLLMExports{ClaudeCode: bundles.SkillEngineExport{Enabled: &disabled}}
+	assert.Contains(t, renderSkillSurface(off, manifest), "claude-code: disabled")
 }
 
 // TestRenderHookSurface_NoCommandOrPromptShowsMarker is a regression guard:

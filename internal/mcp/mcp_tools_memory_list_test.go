@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -32,12 +33,12 @@ func bindProjectSession(t *testing.T, mgr *sessions.Manager, projectDir, backend
 
 // TestHandleListSessions_AllProjectsSortedByActivity is the list_sessions
 // contract: all_projects returns every project's sessions, most-recent-first
-// by ActivityTime, with the title from the index summary and a last_activity
+// by ActivityTime, with the title from the essence summary and a last_activity
 // stamp in the CLI's local second-granularity format. Fails if the handler
 // stops sorting, drops the title, or changes the timestamp shape.
 func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 	testsupport.Isolate(t) // isolate HOME → ~/.ctxloom is a temp index
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 
 	projA := t.TempDir()
@@ -48,7 +49,10 @@ func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 	// recently; B is an hour stale.
 	harpB := bindProjectSession(t, mgr, projB, "claude-code", "sidB", now.Add(-time.Hour))
 	harpA := bindProjectSession(t, mgr, projA, "claude-code", "sidA", now)
-	require.NoError(t, mgr.SetSummary(harpA, "worked on A", nil, 0))
+	essence, err := paths.HarpEssencePath(harpA)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(essence), 0o755))
+	require.NoError(t, os.WriteFile(essence, []byte("---\nsummary: worked on A\n---\nbody\n"), 0o644))
 
 	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}
 	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{AllProjects: true})
@@ -73,7 +77,7 @@ func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 // filtering by cwd.
 func TestHandleListSessions_DefaultScopeIsCwdProject(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 
 	projA := t.TempDir()

@@ -203,8 +203,26 @@ const (
 	// across per-command files they would have to merge by hand.
 	LogFileName = "ctxloom.log"
 
-	// IndexFileName is the name of the home-rooted session index file.
+	// IndexFileName is the name the RETIRED global session index was kept
+	// under at the sessions root. Nothing reads or writes it any more; it is
+	// named only so the one-time migration into per-session sidecars can
+	// find it, and so the walkers over the sessions root know the file for
+	// what it is.
 	IndexFileName = "index.yaml"
+
+	// MigratedIndexFileName is what the migration renames a consumed
+	// index.yaml to. Its presence is the migration's done-marker: an
+	// index.yaml that appears beside it afterwards (an older binary wrote
+	// one) is ignored, never re-imported.
+	MigratedIndexFileName = "index.yaml.migrated"
+
+	// SessionSidecarFileName is the per-session record at the top level of
+	// each ~/.ctxloom/sessions/<harp>/: the facts a session directory cannot
+	// recover from its own contents (which project launched it, which engine
+	// owns it, its bound and rotated session ids, when it was purged). A
+	// directory under the sessions root IS a session exactly when it carries
+	// this file — sessions.IsSessionDir is the one predicate for that.
+	SessionSidecarFileName = "session.yaml"
 
 	// EssenceFileName is the name of a harp's distilled session essence.
 	EssenceFileName = "essence.md"
@@ -351,7 +369,7 @@ const (
 )
 
 // HomeSessionsDir returns ~/.ctxloom/sessions — the home-rooted directory
-// that holds the session index and per-harp session dirs. This is the
+// that holds the per-harp session dirs. This is the
 // single source of truth for the sessions root; both the task store and the
 // memory compactor resolve harp paths through it so they cannot diverge.
 // HomeConfigDir returns the user's home ctxloom directory (~/.ctxloom).
@@ -439,14 +457,27 @@ func HomeLogFilePath() (string, error) {
 	return filepath.Join(dir, LogFileName), nil
 }
 
-// SessionIndexPath returns ~/.ctxloom/sessions/index.yaml — the home-rooted
-// session index that binds harp names to backend sessions.
-func SessionIndexPath() (string, error) {
-	root, err := HomeSessionsDir()
+// HarpSidecarPath returns ~/.ctxloom/sessions/<harp>/session.yaml — the
+// session's own record (SessionSidecarFileName).
+func HarpSidecarPath(harp string) (string, error) {
+	dir, err := HarpDir(harp)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, IndexFileName), nil
+	return filepath.Join(dir, SessionSidecarFileName), nil
+}
+
+// HarpSidecarLockPath returns the cooperative lock every sidecar mutation
+// takes: ~/.ctxloom/sessions/<harp>.session.lock. It sits BESIDE the harp
+// dir for the reason HarpLockPath gives, and it is a DIFFERENT file from
+// HarpLockPath because that one is the session's liveness lock: a probe that
+// found it held would read a millisecond sidecar write as a running session.
+func HarpSidecarLockPath(harp string) (string, error) {
+	dir, err := HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return PathFor(dir + ".session"), nil
 }
 
 // HarpDir returns ~/.ctxloom/sessions/<harp>/. Errors when the home dir

@@ -153,7 +153,7 @@ func (s *liveTapSpawner) Resolve(context.Context, string) (*coord.SpawnPlan, err
 }
 
 func (s *liveTapSpawner) AssignSession(projectDir, backend string) (string, error) {
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	if err != nil {
 		return "", err
 	}

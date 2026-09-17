@@ -113,7 +113,7 @@ func fixedCompactor(sessionID, body string) func(memory.CompactionConfig) (*memo
 func TestLoadOrDistillSession_DistillsOnceThenServesTheCache(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 
 	projectDir := t.TempDir()

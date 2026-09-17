@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -123,15 +124,14 @@ func TestLocateTranscript_AbsentStore(t *testing.T) {
 	}
 }
 
-// TestFind_FillsTranscriptByLocation pins the L2 mitigation: an index entry
+// TestFind_FillsTranscriptByLocation pins the L2 mitigation: a session
 // whose bind hook never fired (containerized structured child — TranscriptPath
 // empty) resolves its transcript BY LOCATION on every read path (Find,
-// ListForProject, Reconcile), computed on read and never persisted to the
-// on-disk index.
+// ListForProject), computed on read and never persisted to the sidecar.
 func TestFind_FillsTranscriptByLocation(t *testing.T) {
 	home := testsupport.Isolate(t)
 
-	mgr, err := Open("")
+	mgr, err := Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,21 +157,17 @@ func TestFind_FillsTranscriptByLocation(t *testing.T) {
 		t.Fatalf("ListForProject TranscriptPath = %q, want %q", listed[0].TranscriptPath, want)
 	}
 
-	survivors, err := mgr.Reconcile(func(Entry) bool { return false })
-	if err != nil || len(survivors) != 1 {
-		t.Fatalf("reconcile: %v (n=%d)", err, len(survivors))
+	// Never persisted: the sidecar still has no transcript_path.
+	sidecar, err := paths.HarpSidecarPath(entry.HarpName)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if survivors[0].TranscriptPath != want {
-		t.Fatalf("Reconcile TranscriptPath = %q, want %q", survivors[0].TranscriptPath, want)
-	}
-
-	// Never persisted: the on-disk index still has no transcript_path.
-	raw, err := os.ReadFile(mgr.path)
+	raw, err := os.ReadFile(sidecar)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(raw), "transcript_path") {
-		t.Fatalf("located path leaked into the persisted index:\n%s", raw)
+		t.Fatalf("located path leaked into the persisted sidecar:\n%s", raw)
 	}
 }
 
@@ -180,7 +176,7 @@ func TestFind_FillsTranscriptByLocation(t *testing.T) {
 func TestFind_KeepsLiveHostBinding(t *testing.T) {
 	home := testsupport.Isolate(t)
 
-	mgr, err := Open("")
+	mgr, err := Open()
 	if err != nil {
 		t.Fatal(err)
 	}

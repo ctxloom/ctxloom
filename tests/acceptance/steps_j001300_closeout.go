@@ -563,14 +563,19 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 					h.name, w.env.LastExitCode(), w.env.LastOutput())
 			}
 		}
-		idx, err := w.env.ReadHomeFile(harpSessionsRel + "/index.yaml")
-		if err != nil {
-			return fmt.Errorf("the session index was destroyed: %w", err)
-		}
+		// The record is now the session's OWN sidecar, not a shared index:
+		// a purge stamps purged_at there and leaves the directory, so the
+		// session stays listed marked purged rather than vanishing.
 		for _, name := range st.order {
-			if !strings.Contains(idx, name) {
-				return fmt.Errorf("%s's index entry is gone. A purged session must remain in the index MARKED purged — "+
-					"a session that vanishes from the index is indistinguishable from one that never existed. Index:\n%s", name, idx)
+			sidecar := filepath.Join(harpDirIn(w, name), "session.yaml")
+			body, err := os.ReadFile(sidecar)
+			if err != nil {
+				return fmt.Errorf("%s's session record is gone. A purged session must remain a listed session MARKED purged — "+
+					"a session that vanishes is indistinguishable from one that never existed: %w", name, err)
+			}
+			if !strings.Contains(string(body), "purged_at") {
+				return fmt.Errorf("%s's record survived but carries no purged_at, so the derived listing reads it as a live "+
+					"session that lost its transcript and drops it as damage. Record:\n%s", name, body)
 			}
 		}
 		return nil

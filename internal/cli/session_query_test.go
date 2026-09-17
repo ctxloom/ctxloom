@@ -96,7 +96,7 @@ func TestSessionMatchesQuery_NotDistilled_NoFallback(t *testing.T) {
 func TestRunSessionQuery_Integration(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 
 	hit, err := mgr.AssignHarp(dir, "claude-code")
@@ -147,7 +147,7 @@ func TestRunSessionQuery_Integration(t *testing.T) {
 // "(no sessions)" placeholder `session list` uses.
 func TestRunSessionQuery_NoMatches(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	_, err = mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)

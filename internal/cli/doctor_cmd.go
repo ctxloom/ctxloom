@@ -1374,11 +1374,11 @@ const doctorHarpDurabilityMaxNamed = 5
 // writing a design note there writes into container-ephemeral space and
 // loses it on exit.
 //
-// The walk is two-level: HomeSessionsDir()'s OWN top level holds index.yaml
-// alongside the harp directories, so the OUTER iteration skips non-directory
-// entries — an exclusion list aimed at the harp level (as an earlier version
-// of this design proposed) would never see that file at all, since it never
-// walks into a non-directory. The INNER level is operations.HarpTopLevelArtifacts,
+// The walk is two-level: HomeSessionsDir()'s OWN top level holds files
+// (lock files, the retired index) alongside the harp directories, so the
+// OUTER iteration skips non-directory entries — an exclusion list aimed at
+// the harp level (as an earlier version of this design proposed) would never
+// see those files at all, since it never walks into a non-directory. The INNER level is operations.HarpTopLevelArtifacts,
 // which is also what operations.MigrateHarpArtifacts moves. Sharing that one
 // predicate is deliberate: a check that flags a file the mover declines is a
 // warning nobody can ever clear, and the two drifting apart is exactly how
@@ -1400,8 +1400,9 @@ func doctorCheckHarpDurability() doctorCheck {
 	var flagged []string
 	for _, e := range entries {
 		if !e.IsDir() {
-			// e.g. index.yaml, sitting at the sessions root's OWN top level
-			// beside the harp directories — not a harp, never walked into.
+			// a lock file or the retired index, sitting at the sessions
+			// root's OWN top level beside the harp directories — not a harp,
+			// never walked into.
 			continue
 		}
 		harp := e.Name()

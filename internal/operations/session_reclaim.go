@@ -165,8 +165,14 @@ func ReclaimAgedSessions(ctx context.Context, g git.Git, cutoff time.Time, apply
 //
 // A symlink is never followed — following one would turn a sweep of a
 // disposable session directory into a delete of whatever it points at — and
-// index.yaml, which lives beside the harp directories, is excluded by "is a
-// directory" alone.
+// the files beside the harp directories (lock files, the retired index) are
+// excluded by "is a directory" alone.
+//
+// Deliberately BROADER than sessions.IsSessionDir: a directory that has lost
+// its sidecar (what `session remove` leaves) is no longer a session, but it
+// is still disposable state under the root that an age-bounded reclaim
+// exists to sweep. The reclaim decides by age and liveness, never by whether
+// the listing would show the directory.
 func isHarpDirCandidate(e fs.DirEntry, name string) bool {
 	if e.Type()&fs.ModeSymlink != 0 {
 		return false

@@ -396,17 +396,17 @@ func TestCanonicalFallbackSource_ListSessions_CanonicalErrorsButLegacyHasSession
 	assert.Equal(t, "legacy-only-session", metas[0].ID)
 }
 
-// countingStore counts every read of the session index. Each of these methods
-// re-reads and re-parses the whole index file in the production Manager, so the
-// count is a direct proxy for file reads.
+// countingStore counts every read of the session store. Each of these methods
+// enumerates or reads sidecars in the production Manager, so the count is a
+// direct proxy for filesystem reads.
 type countingStore struct {
 	*sessions.MemStore
 	reads int
 }
 
-func (c *countingStore) Load() (*sessions.Index, error) {
+func (c *countingStore) ListAll() ([]sessions.Entry, error) {
 	c.reads++
-	return c.MemStore.Load()
+	return c.MemStore.ListAll()
 }
 
 func (c *countingStore) Find(harpName string) (*sessions.Entry, error) {

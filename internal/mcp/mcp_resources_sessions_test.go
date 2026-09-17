@@ -23,7 +23,7 @@ import (
 // explicitly so ordering assertions never depend on how fast the test ran.
 func seedSession(t *testing.T, projectDir string, activity time.Time) string {
 	t.Helper()
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	e, err := mgr.AssignHarp(projectDir, "claude")
 	require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestHandleResourceSessionsAll_MatchesSessionListAll(t *testing.T) {
 	require.NoError(t, err)
 	body := res.Contents[0].Text
 
-	var got sessions.Index
+	var got sessionsAllResource
 	require.NoError(t, yaml.Unmarshal([]byte(body), &got))
 	names := make([]string, 0, len(got.Sessions))
 	for _, e := range got.Sessions {

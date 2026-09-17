@@ -270,7 +270,7 @@ func entryLines(out string) []watchEntry {
 // by-location discovery resolves.
 func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 	t.Helper()
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", backend)
 	require.NoError(t, err)
@@ -327,7 +327,7 @@ func TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly(t *testing.T) {
 // located transcript is a clear error, not a silent empty stream.
 func TestRunSessionWatch_NothingToWatch(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
@@ -501,7 +501,7 @@ func requireFakeCred(ctx context.Context) error {
 // they happen, and the watch ends cleanly on RunCompleted.
 func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
 	home := testsupport.Isolate(t)
-	mgr, err := sessions.Open("")
+	mgr, err := sessions.Open()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)

@@ -30,7 +30,7 @@ func TestListForProject_EnrichmentParityAcrossStores(t *testing.T) {
 	}{
 		{"MemStore", func(*testing.T) Store { return NewMemStore() }},
 		{"Manager", func(t *testing.T) Store {
-			m, err := Open(filepath.Join(t.TempDir(), "index.yaml"))
+			m, err := Open()
 			require.NoError(t, err)
 			return m
 		}},

@@ -84,7 +84,7 @@ func TestResolveHarpName(t *testing.T) {
 	// summary into the CALLER's own harp dir/index entry.
 	t.Run("explicit SessionID naming a real, different harp wins over caller's own HarpName", func(t *testing.T) {
 		testsupport.Isolate(t)
-		mgr, err := sessions.Open("")
+		mgr, err := sessions.Open()
 		if err != nil {
 			t.Fatalf("open index: %v", err)
 		}
@@ -115,5 +115,5 @@ func TestResolveHarpName(t *testing.T) {
 // touch the index in that case (the common non-harp path).
 func TestSessionIndexNoHarpIsNoop(t *testing.T) {
 	c := &Compactor{config: CompactionConfig{}}
-	c.updateSessionIndex("", "sess-id", "summary", nil, 0) // must not panic / open index
+	c.updateSessionIndex("", "sess-id", "summary", 0) // must not panic / open index
 }

@@ -91,10 +91,13 @@ func j001200AddIndexEntry(w *World, harp, summary, transcriptPath string) error 
 func j001200HarpHome(harp string) string { return ".ctxloom/sessions/" + harp }
 
 // j001200WriteEssence writes a harp's distilled essence — the DERIVED artifact
-// `session show` prints and `--distill` resumes through.
-func j001200WriteEssence(w *World, harp, body string) error {
+// `session show` prints and `--distill` resumes through. The frontmatter
+// summary is where a session's one-line summary actually lives now (the
+// session store derives Entry.Summary from it), so a summary-only marker
+// belongs HERE, not in the pre-migration index row.
+func j001200WriteEssence(w *World, harp, summary, body string) error {
 	return w.env.WriteHomeFile(j001200HarpHome(harp)+"/essence.md",
-		fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-03-15T00:00:00Z\n---\n\n%s\n", harp, body))
+		fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-03-15T00:00:00Z\nsummary: %s\n---\n\n%s\n", harp, summary, body))
 }
 
 // j001200WriteCanonicalTranscript writes a harp's canonical transcript in the real
@@ -209,6 +212,7 @@ func j001200Setup(w *World) error {
 		return err
 	}
 	if err := j001200WriteEssence(w, j001200Harp,
+		"March design session, "+j001200SummaryMarker,
 		"Decision: worktrees are flat, named <project>--<branch>. "+j001200EssenceMarker); err != nil {
 		return err
 	}

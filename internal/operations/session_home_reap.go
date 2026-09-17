@@ -164,24 +164,24 @@ func reclaimInstance(stateDir, harp string) reclaimOutcome {
 	return reclaimReaped
 }
 
-// knownSessions reads the session index once and returns the set of harps it
-// carries an entry for, ended or not. Known is what lets an index-recorded
-// harp be a candidate without carrying the structural instance marker; it
-// says nothing about liveness, which is the lock's to decide.
+// knownSessions enumerates the session store once and returns the set of
+// harps it holds, ended or not. Known is what lets a recorded harp be a
+// candidate without carrying the structural instance marker; it says nothing
+// about liveness, which is the lock's to decide.
 //
-// An index that cannot be read is an error, never an empty set — see
+// A store that cannot be read is an error, never an empty set — see
 // ReapOrphanedSessionHomes' "no index, no sweep".
 func knownSessions() (map[string]bool, error) {
 	mgr, err := openSessions()
 	if err != nil {
-		return nil, fmt.Errorf("open session index: %w", err)
+		return nil, fmt.Errorf("open session store: %w", err)
 	}
-	idx, err := mgr.Load()
+	all, err := mgr.ListAll()
 	if err != nil {
-		return nil, fmt.Errorf("read session index: %w", err)
+		return nil, fmt.Errorf("read sessions: %w", err)
 	}
-	known := make(map[string]bool, len(idx.Sessions))
-	for _, e := range idx.Sessions {
+	known := make(map[string]bool, len(all))
+	for _, e := range all {
 		known[e.HarpName] = true
 	}
 	return known, nil

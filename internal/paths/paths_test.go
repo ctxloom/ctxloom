@@ -76,14 +76,28 @@ func TestTriggerCacheDir_HomeRootedUnderCache(t *testing.T) {
 	assert.True(t, strings.HasSuffix(got, filepath.Join(AppDirName, CacheDir, "triggers")))
 }
 
-func TestSessionIndexPath_InSessionsRoot(t *testing.T) {
+func TestHarpSidecarPath_InHarpDir(t *testing.T) {
 	testsupport.Isolate(t)
-	root, err := HomeSessionsDir()
+	harpDir, err := HarpDir("swift-amber-falcon")
 	assert.NoError(t, err)
-	got, err := SessionIndexPath()
+	got, err := HarpSidecarPath("swift-amber-falcon")
 	assert.NoError(t, err)
-	assert.Equal(t, filepath.Join(root, "index.yaml"), got)
-	assert.True(t, strings.HasSuffix(got, filepath.Join("sessions", "index.yaml")))
+	assert.Equal(t, filepath.Join(harpDir, SessionSidecarFileName), got)
+}
+
+// The sidecar lock sits BESIDE the harp dir (the HarpLockPath placement) and
+// under a name distinct from the liveness lock, so a sidecar write is never
+// read as a running session.
+func TestHarpSidecarLockPath_BesideTheHarpDirAndDistinctFromLivenessLock(t *testing.T) {
+	testsupport.Isolate(t)
+	harpDir, err := HarpDir("swift-amber-falcon")
+	assert.NoError(t, err)
+	got, err := HarpSidecarLockPath("swift-amber-falcon")
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Dir(harpDir), filepath.Dir(got))
+	liveness, err := HarpLockPath("swift-amber-falcon")
+	assert.NoError(t, err)
+	assert.NotEqual(t, liveness, got)
 }
 
 func TestHarpEssencePath_InHarpDir(t *testing.T) {

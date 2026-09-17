@@ -20,8 +20,8 @@ import (
 var sessionCmd = groupNodeDefault(&cobra.Command{
 	Use:   "session",
 	Short: "Browse and manage harp-named sessions",
-	Long: `Read and manage the harp-keyed session index at
-~/.ctxloom/sessions/index.yaml. Use to list/show/edit/remove
+	Long: `Read and manage the harp-keyed sessions under ~/.ctxloom/sessions:
+one directory per session, each carrying its own record. Use to list/show/edit/remove
 sessions without launching the LLM. Sessions appear here automatically
 once ` + "`ctxloom run`" + ` has been used to launch a backend.`,
 }, "list")
@@ -279,7 +279,7 @@ func renderSessionRemove(w io.Writer, out sessionRemoveResult) error {
 var sessionDistillCmd = &cobra.Command{
 	Use:   "distill <harp-name>",
 	Short: "Distill a session by harp name. Distillation is on-demand: nothing distills a session automatically when it ends.",
-	Long: `Looks up the harp's bound session_id in ~/.ctxloom/sessions/index.yaml,
+	Long: `Looks up the harp's bound session_id in its session record,
 runs the compactor on that backend session, and writes a fresh essence.md
 under the harp directory. Errors if the harp has no session_id bound
 (the SessionStart bind hook records it for sessions launched via ctxloom run).`,

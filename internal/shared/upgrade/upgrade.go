@@ -4,7 +4,7 @@
 // caller may then prompt the user before persisting (see Pending).
 //
 // An Upgrader is one schema step; a Pipeline is an ordered, composable chain of
-// them. Both config (internal/config) and the session index (internal/sessions)
+// them. Both config (internal/config) and the retired session index's one-time migration (internal/sessions)
 // build a Pipeline from their own Upgraders and run it over the raw file bytes.
 // The layer is YAML-document oriented — Pipeline.Run parses once and re-encodes
 // once — and version-aware via the Version/SetVersion helpers, so an Upgrader

@@ -116,8 +116,11 @@ func (s *Store) Last(target string) (Record, bool, error) {
 	var newestKey string
 	found := false
 
-	entries, err := afero.ReadDir(s.fs, s.dir)
+	exists, err := afero.DirExists(s.fs, s.dir)
 	if err != nil {
+		return newest, false, fmt.Errorf("confpatch: stat %s: %w", s.dir, err)
+	}
+	if !exists {
 		// No record directory yet means no prior application — the first write
 		// to any target reaches here, so it is not an error.
 		return newest, false, nil
@@ -129,7 +132,7 @@ func (s *Store) Last(target string) (Record, bool, error) {
 	if err := s.renameLegacyRecords(); err != nil {
 		return newest, false, err
 	}
-	entries, err = afero.ReadDir(s.fs, s.dir)
+	entries, err := afero.ReadDir(s.fs, s.dir)
 	if err != nil {
 		return newest, false, fmt.Errorf("confpatch: read %s: %w", s.dir, err)
 	}

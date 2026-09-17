@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // A §9.7 record is an audit-trail entry, and AtomicWriteFile overwrites — so
@@ -27,14 +29,14 @@ func TestFreeRecordPath_NeverOverwritesAnExistingRecord(t *testing.T) {
 
 	first, err := FreeRecordPath(fs, dir, target, at)
 	require.NoError(t, err)
-	require.NoError(t, afero.WriteFile(fs, first, []byte("first record\n"), 0o644))
+	testsupport.WriteFile(t, fs, first, []byte("first record\n"), 0o644)
 
 	second, err := FreeRecordPath(fs, dir, target, at)
 	require.NoError(t, err)
 	assert.NotEqual(t, first, second,
 		"a second apply at the SAME instant must not be handed the first record's path")
 
-	require.NoError(t, afero.WriteFile(fs, second, []byte("second record\n"), 0o644))
+	testsupport.WriteFile(t, fs, second, []byte("second record\n"), 0o644)
 
 	// The effect, not the report: both records are on disk with their own
 	// content. Asserting only that the paths differ would pass against a

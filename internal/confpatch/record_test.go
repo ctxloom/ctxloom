@@ -105,7 +105,7 @@ func plantLegacyRecord(t *testing.T, s *Store, fs afero.Fs, dir, target, stamp s
 
 	old := legacyRecordName(target, stamp)
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, old), body, 0o644))
+	testsupport.WriteFile(t, fs, filepath.Join(dir, old), body, 0o644)
 	return old
 }
 
@@ -203,7 +203,7 @@ func TestTheRenameLeavesAnUnrecognisedFileAlone(t *testing.T) {
 	const dir = "/home/u/.ctxloom/records"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 	stray := filepath.Join(dir, "notes"+recordFileSuffix)
-	require.NoError(t, afero.WriteFile(fs, stray, []byte("not: a record\n"), 0o644))
+	testsupport.WriteFile(t, fs, stray, []byte("not: a record\n"), 0o644)
 
 	_, found, err := s.Last("/proj/mcp.json")
 	require.NoError(t, err)

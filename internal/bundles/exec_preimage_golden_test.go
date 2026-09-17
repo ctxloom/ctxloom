@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The exec preimage (ctxloom-exec/1, spec §3.3.2) is what an MCP / hook
+// The exec preimage (ctxloom-exec/2, spec §3.3.2) is what an MCP / hook
 // approval binds to — and the skill preimage (ctxloom-skill/1) shares its
 // encoder — so its bytes are a contract. U030-F05 and U030-F18 both
 // claim that contract is not met — an approval can be re-keyed by a change that
@@ -42,10 +42,10 @@ func TestExecPreimage_NilAndEmptyArgsEnvDiffer(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.JSONEq(t,
-		`{"preimage":"ctxloom-exec/1","command":"srv","args":null,"env":null,"installation":""}`,
+		`{"preimage":"ctxloom-exec/2","command":"srv","args":null,"env":null,"url":"","headers":null,"installation":""}`,
 		string(absentBytes))
 	assert.JSONEq(t,
-		`{"preimage":"ctxloom-exec/1","command":"srv","args":[],"env":{},"installation":""}`,
+		`{"preimage":"ctxloom-exec/2","command":"srv","args":[],"env":{},"url":"","headers":null,"installation":""}`,
 		string(presentBytes))
 
 	assert.NotEqual(t, absent.ComputeContentHash(), present.ComputeContentHash(),
@@ -55,7 +55,7 @@ func TestExecPreimage_NilAndEmptyArgsEnvDiffer(t *testing.T) {
 // TestExecPreimage_HTMLEscapingIsGoSpecific records U030-F18: all three exec
 // preimages go through encoding/json.Marshal, whose default encoder escapes
 // '<', '>' and '&' to \u003c, \u003e and \u0026 — a Go-specific behaviour
-// that is NOT part of the documented ctxloom-exec/1 canonicalization.
+// that is NOT part of the documented ctxloom-exec canonicalization.
 //
 // The consequence is not cosmetic. Any non-Go implementation of the spec, and
 // any Go code using an encoder with SetEscapeHTML(false), computes a DIFFERENT

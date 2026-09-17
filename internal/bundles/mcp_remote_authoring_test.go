@@ -3,6 +3,7 @@ package bundles
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -167,4 +168,32 @@ func TestExecContentPayload_StdioAndRemoteNeverShareATrustIdentity(t *testing.T)
 	stdio := BundleMCP{Command: "srv"}
 	remote := BundleMCP{URL: "https://mcp.example.com/mcp"}
 	assert.NotEqual(t, stdio.ComputeContentHash(), remote.ComputeContentHash())
+}
+
+// The same classification rule the text kinds carry, over an MCP server. It is
+// the checked binding behind this change: URL and Headers are only "covered by
+// the preimage" because perturbing either is observable in the signed bytes,
+// and a future field added to BundleMCP cannot default to unsigned — it either
+// moves the preimage or states why the executable surface excludes it.
+//
+// The base is a REMOTE entry so that URL and Headers carry real values; a stdio
+// base would leave both zero and the perturbation would still be observable,
+// but the test would no longer read as the remote case it exists to protect.
+func TestEveryMCPFieldIsClassified(t *testing.T) {
+	base := BundleMCP{
+		Args:         []string{"--flag"},
+		Env:          map[string]string{"A": "1"},
+		URL:          "https://mcp.example.com/mcp",
+		Headers:      map[string]string{"Authorization": "Bearer t0ken"},
+		Tags:         []string{"tag"},
+		Notes:        "notes",
+		Installation: "installation",
+		ContentHash:  "sha256:recorded",
+	}
+	assertEveryFieldClassified(t, base, func(v reflect.Value) [][]byte {
+		m := v.Interface().(BundleMCP)
+		payload, err := m.ContentPayload()
+		require.NoError(t, err)
+		return [][]byte{payload}
+	})
 }

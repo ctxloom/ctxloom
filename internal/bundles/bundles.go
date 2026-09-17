@@ -19,6 +19,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
@@ -454,15 +455,53 @@ func (h BundleHooks) EntryByID(id string) (HookEntry, bool) {
 	return HookEntry{Event: event, Index: idx, Hook: hooks[idx]}, true
 }
 
-// BundleMCP defines an MCP server within a bundle.
+// BundleMCP is the bundle-authoring shape of an MCP server: the wire.MCPServer
+// fields a bundle may declare, minus the SCM marker (bundle servers are stamped
+// at the resolve boundary, not hand-authored). The conversion to wire.MCPServer
+// lives in config.extractMCPFromBundle.
+//
+// A server is EXACTLY ONE of two things, and the rule is wire.MCPServer's:
+// a stdio server ctxloom launches (Command, with Args/Env) or a network-hosted
+// server an engine dials (URL, with Headers). Command is therefore NOT
+// required — the `omitempty` on it is load-bearing for the remote case — and
+// the one-of rule is checked at LOAD by Bundle.checkMCPTargets, which calls
+// wire.MCPServer.Validate so there is one definition of it rather than two.
+//
+// There is deliberately NO transport field, for the reason stated on
+// wire.MCPServer: the URL's scheme already names the protocol, and the engine
+// writers derive the discriminator from it at write time rather than storing it.
+//
+// Every field is either inside the EXECUTABLE PREIMAGE — the bytes an approval
+// binds to, built by ContentPayload — or carries a `surface:` tag classifying
+// why it is not. TestEveryMCPFieldIsClassified fails on a field that is
+// neither, so adding one forces that decision instead of defaulting to
+// unsigned. For this kind the stake is higher than for a text item: an
+// unclassified field here is an executable detail reaching the host outside
+// what the reviewer approved.
 type BundleMCP struct {
-	Command      string            `yaml:"command"`
+	Command      string            `yaml:"command,omitempty"`
 	Args         []string          `yaml:"args,omitempty"`
 	Env          map[string]string `yaml:"env,omitempty"`
-	Tags         []string          `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags); host-evaluated, outside the executable preimage
-	Notes        string            `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string            `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
-	ContentHash  string            `yaml:"content_hash,omitempty"` // Hash of the executable surface (Command+Args+Env+Installation)
+	URL          string            `yaml:"url,omitempty"`     // Endpoint of a network-hosted server; its scheme is the transport
+	Headers      map[string]string `yaml:"headers,omitempty"` // HTTP headers sent when dialing URL (e.g. Authorization)
+	Tags         []string          `yaml:"tags,omitempty" surface:"selection"`       // Additional tags (merged with bundle tags); host-evaluated routing, never executed
+	Notes        string            `yaml:"notes,omitempty" surface:"human"`          // Human-readable notes, not sent to AI
+	Installation string            `yaml:"installation,omitempty"`                   // Setup/installation instructions; presented to the user, and inside the preimage
+	ContentHash  string            `yaml:"content_hash,omitempty" surface:"derived"` // recorded hash of the executable surface; circular to sign
+}
+
+// AsWire converts to the wire shape for validation. It deliberately does NOT
+// stamp SCM: that marker names the bundle a server was RESOLVED from, which is
+// not a thing a bundle author can say about their own file, and
+// config.extractMCPFromBundle is where it is applied.
+func (m BundleMCP) AsWire() wire.MCPServer {
+	return wire.MCPServer{
+		Command: m.Command,
+		Args:    m.Args,
+		Env:     m.Env,
+		URL:     m.URL,
+		Headers: m.Headers,
+	}
 }
 
 // ItemBody is the payload a fragment and a command carry IDENTICALLY: the
@@ -1128,7 +1167,8 @@ func (b *Bundle) SkillNames() []string {
 // Preimage MUST stay the first field. Go's encoding/json emits struct fields
 // in declaration order, so field order here IS the byte order of the preimage,
 // and the leading version carrier is part of the public contract (spec §3.3.2
-// — "the canonical struct gains a `"preimage":"ctxloom-exec/1"` first field").
+// — "the canonical struct gains a `"preimage"` first field", carrying
+// signing.ExecPreimageContract).
 // ANY change to the field set below — adding one, removing one, renaming a tag,
 // reordering — changes the preimage and therefore invalidates every existing
 // MCP approval. That is the moment to bump signing.ExecPreimageContract, which
@@ -1138,15 +1178,19 @@ type mcpContentPayload struct {
 	Command      string            `json:"command"`
 	Args         []string          `json:"args"`
 	Env          map[string]string `json:"env"`
+	URL          string            `json:"url"`
+	Headers      map[string]string `json:"headers"`
 	Installation string            `json:"installation"`
 }
 
 // ContentPayload returns the canonical JSON encoding of the MCP server's
-// executable surface — the ctxloom-exec contract version, then Command, Args
-// (order significant), Env (key-sorted), and Installation. Notes are excluded
-// (human-only, never executed). encoding/json provides the determinism: struct
-// fields emit in declaration order and map keys are sorted, so reordering Env
-// yields identical bytes while reordering Args (a slice) does not.
+// executable surface: the ctxloom-exec contract version first, then every
+// field of mcpContentPayload in declaration order — the stdio target, the
+// remote target, and the installation text. Notes and tags are excluded
+// (human- and host-facing, never executed). encoding/json provides the
+// determinism: struct fields emit in declaration order and map keys are
+// sorted, so reordering Env or Headers yields identical bytes while
+// reordering Args (a slice) does not.
 //
 // This is the SINGLE preimage builder for an MCP server: ComputeContentHash
 // below hashes exactly this function's output, and a countersignature
@@ -1161,16 +1205,19 @@ func (m *BundleMCP) ContentPayload() ([]byte, error) {
 		Command:      m.Command,
 		Args:         m.Args,
 		Env:          m.Env,
+		URL:          m.URL,
+		Headers:      m.Headers,
 		Installation: m.Installation,
 	}
 	return json.Marshal(canonical)
 }
 
-// ComputeContentHash hashes a canonical encoding of the MCP server's executable
-// surface — Command, Args (order significant), Env (key-sorted), and Installation.
-// Notes are excluded (human-only, never executed). encoding/json provides the
-// determinism: it sorts map keys, so reordering Env yields an identical hash while
-// reordering Args (a slice) does not. This is the hash an MCP trust grant binds to
+// ComputeContentHash hashes exactly ContentPayload's output — the canonical
+// encoding of the MCP server's executable surface, whose field set that
+// function defines and signing.ExecPreimageContract versions. There is no
+// second enumeration of those fields here: one would drift from the builder
+// and the stale copy would still read as authoritative.
+// This is the hash an MCP trust grant binds to
 // (trust rework, TR0); an MCP server has no distilled form, so there is one hash.
 func (m *BundleMCP) ComputeContentHash() string {
 	data, err := m.ContentPayload()
@@ -1331,6 +1378,16 @@ func ParseBundle(data []byte) (*Bundle, error) {
 		return nil, err
 	}
 
+	// An MCP entry that names neither a command nor a url — or both — is not
+	// something a later stage can resolve by guesswork. Refused here, at the
+	// one place every bundle passes through, for the same reason checkLinks is:
+	// a malformed entry that loads cleanly reaches the trust gate and an engine
+	// writer as a server that cannot be launched or dialed, and the failure
+	// surfaces far from the typo that caused it.
+	if err := bundle.checkMCPTargets(); err != nil {
+		return nil, err
+	}
+
 	// Initialize maps if nil
 	if bundle.Fragments == nil {
 		bundle.Fragments = make(map[string]BundleFragment)
@@ -1371,6 +1428,23 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	}
 
 	return &bundle, nil
+}
+
+// checkMCPTargets enforces wire.MCPServer's one-of-Command|URL rule over every
+// MCP entry the bundle declares, by asking wire.MCPServer.Validate itself. The
+// rule is NOT restated here: a second copy of it would drift from the one the
+// engine writers branch on, and the stale copy would keep its authority while
+// admitting entries the wire type refuses.
+//
+// Entries are visited in sorted order so a bundle with several bad ones always
+// reports the same first offender, rather than a different name per run.
+func (b *Bundle) checkMCPTargets() error {
+	for _, name := range slices.Sorted(maps.Keys(b.MCP)) {
+		if err := b.MCP[name].AsWire().Validate(); err != nil {
+			return fmt.Errorf("bundle mcp server %q: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // declaresNothing reports whether the bundle carries neither a version nor a

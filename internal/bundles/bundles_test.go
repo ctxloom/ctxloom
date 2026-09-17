@@ -531,7 +531,7 @@ func TestBundleMCP_ContentPayload_IsHashPreimage(t *testing.T) {
 	// because v0.7.0-pre1 has never shipped. See exec_preimage_test.go, which
 	// pins the exact byte layout and its field ORDER (JSONEq below is
 	// order-insensitive and would not catch a misplaced version carrier).
-	assert.JSONEq(t, `{"preimage":"ctxloom-exec/1","command":"postgres-mcp","args":["--host","db"],"env":{"PGUSER":"admin"},"installation":"npm i -g postgres-mcp"}`, string(payload))
+	assert.JSONEq(t, `{"preimage":"ctxloom-exec/2","command":"postgres-mcp","args":["--host","db"],"env":{"PGUSER":"admin"},"url":"","headers":null,"installation":"npm i -g postgres-mcp"}`, string(payload))
 
 	// ComputeContentHash must hash exactly these bytes.
 	assert.Equal(t, hashContent(payload), mcp.ComputeContentHash())

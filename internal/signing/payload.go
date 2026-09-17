@@ -72,7 +72,17 @@ const CountersignContract = "ctxloom-countersign/2"
 // Note the version is not defensive against an attacker — a forged preimage
 // gains nothing by naming a version. It is defensive against US: it makes an
 // accidental, unannounced field addition impossible to ship quietly.
-const ExecPreimageContract = "ctxloom-exec/1"
+//
+// /2 added the remote target to the covered field set: an MCP server may now be
+// declared by a bundle as a URL with HTTP headers rather than a command, and
+// both fields are inside the preimage. They have to be. The endpoint is WHERE
+// the server is dialed and a header is WHAT CREDENTIAL is presented to it, so
+// an approval that did not cover them would survive redirecting a reviewed
+// server to another host, or rewriting its Authorization header — an approval
+// of nothing in particular. Every /1 exec record therefore stops verifying and
+// its item returns to pending, which is the announced mass re-review this
+// string exists to make deliberate.
+const ExecPreimageContract = "ctxloom-exec/2"
 
 // FragmentPreimageContract is the contract-version string that opens every
 // fragment preimage (FragmentPreimage below). It exists for the same reason

@@ -482,8 +482,8 @@ type BundleMCP struct {
 	Command      string            `yaml:"command,omitempty"`
 	Args         []string          `yaml:"args,omitempty"`
 	Env          map[string]string `yaml:"env,omitempty"`
-	URL          string            `yaml:"url,omitempty"`     // Endpoint of a network-hosted server; its scheme is the transport
-	Headers      map[string]string `yaml:"headers,omitempty"` // HTTP headers sent when dialing URL (e.g. Authorization)
+	URL          string            `yaml:"url,omitempty"`                            // Endpoint of a network-hosted server; its scheme is the transport
+	Headers      map[string]string `yaml:"headers,omitempty"`                        // HTTP headers sent when dialing URL (e.g. Authorization)
 	Tags         []string          `yaml:"tags,omitempty" surface:"selection"`       // Additional tags (merged with bundle tags); host-evaluated routing, never executed
 	Notes        string            `yaml:"notes,omitempty" surface:"human"`          // Human-readable notes, not sent to AI
 	Installation string            `yaml:"installation,omitempty"`                   // Setup/installation instructions; presented to the user, and inside the preimage

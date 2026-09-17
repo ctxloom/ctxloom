@@ -227,10 +227,14 @@ func j001200Setup(w *World) error {
 	return nil
 }
 
-// j001200AssertNames checks the last command's output names every want, quoting
-// the whole output on failure.
-func j001200AssertNames(w *World, what string, wants ...string) error {
-	out := w.env.LastOutput()
+// j001200AssertNames checks that out — the stream the caller chose — names
+// every want, quoting it whole on failure. The stream is the caller's to pick
+// because the two kinds of claim read different ones: a RESULT (a listing
+// names the session) is stdout alone, since a stderr warning that quotes the
+// same harp — Reconcile's "session <harp> dropped from the index" — would
+// otherwise satisfy a search that returned nothing; a DIAGNOSTIC (the error
+// names the remedy) is the combined stream, where the diagnostic lives.
+func j001200AssertNames(w *World, out, what string, wants ...string) error {
 	var missing []string
 	for _, want := range wants {
 		if !strings.Contains(out, want) {
@@ -255,30 +259,31 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the search names the March session by a phrase that appears only in its distilled essence$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := j001200AssertNames(w, "`session search`", j001200Harp); err != nil {
+		if err := j001200AssertNames(w, w.env.LastStdout(), "`session search`", j001200Harp); err != nil {
 			return err
 		}
-		if strings.Contains(w.env.LastOutput(), j001200BareHarp) {
+		if strings.Contains(w.env.LastStdout(), j001200BareHarp) {
 			return fmt.Errorf("the search also returned %q, whose essence does not exist and whose text does not match — "+
-				"a search that returns everything is not a search. Output:\n%s", j001200BareHarp, w.env.LastOutput())
+				"a search that returns everything is not a search. Stdout:\n%s", j001200BareHarp, w.env.LastStdout())
 		}
 		return nil
 	})
 
 	ctx.Step(`^the search names the March session by a phrase that appears only in its index summary$`, func(c context.Context) error {
-		return j001200AssertNames(worldFrom(c), "`session search` over summaries", j001200Harp)
+		w := worldFrom(c)
+		return j001200AssertNames(w, w.env.LastStdout(), "`session search` over summaries", j001200Harp)
 	})
 
 	ctx.Step(`^ctxloom says plainly that nothing matched$`, func(c context.Context) error {
 		w := worldFrom(c)
-		out := strings.TrimSpace(w.env.LastOutput())
+		out := strings.TrimSpace(w.env.LastStdout())
 		if out == "" {
-			return fmt.Errorf("`session search` answered a no-match query with ZERO BYTES and exit %d. "+
+			return fmt.Errorf("`session search` answered a no-match query with ZERO BYTES on stdout and exit %d. "+
 				"An archivist cannot tell 'nothing matched' from 'the search did not run' — and this codebase's "+
 				"characteristic bug is exactly a successful-looking command that produced nothing", w.env.LastExitCode())
 		}
 		if strings.Contains(out, j001200Harp) || strings.Contains(out, j001200BareHarp) {
-			return fmt.Errorf("a query matching nothing returned session names anyway; output:\n%s", out)
+			return fmt.Errorf("a query matching nothing returned session names anyway; stdout:\n%s", out)
 		}
 		return nil
 	})
@@ -286,7 +291,8 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 	// --- Show ---------------------------------------------------------------
 
 	ctx.Step(`^ctxloom prints the decision the session reached$`, func(c context.Context) error {
-		return j001200AssertNames(worldFrom(c), "`session show`", j001200EssenceMarker)
+		w := worldFrom(c)
+		return j001200AssertNames(w, w.env.LastStdout(), "`session show`", j001200EssenceMarker)
 	})
 
 	ctx.Step(`^ctxloom says the session was never distilled and names how to distill it$`, func(c context.Context) error {
@@ -299,14 +305,14 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 		// so the error a user hits should point at the same fact and at the
 		// command that fixes it. Anything less leaves them believing the
 		// session was not recorded at all.
-		return j001200AssertNames(w, "the not-distilled error", "session distill")
+		return j001200AssertNames(w, w.env.LastOutput(), "the not-distilled error", "session distill")
 	})
 
 	// --- Resume: the payoff -------------------------------------------------
 
 	ctx.Step(`^the assembled context carries the conversation she had in March$`, func(c context.Context) error {
 		w := worldFrom(c)
-		out := w.env.LastOutput()
+		out := w.env.LastStdout()
 		if !strings.Contains(out, j001200TranscriptMarker) {
 			return fmt.Errorf("`run --session %s --dry-run` assembled a context that does NOT carry the recorded conversation "+
 				"(exit %d). The recall payoff is the whole point of capturing transcripts: history that can be found but not "+
@@ -355,7 +361,7 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 					"Output:\n%s", tell, out)
 			}
 		}
-		return j001200AssertNames(w, "the degrade", "no-such-harp-anywhere")
+		return j001200AssertNames(w, w.env.LastOutput(), "the degrade", "no-such-harp-anywhere")
 	})
 
 	// --- Retention of the raw record ---------------------------------------

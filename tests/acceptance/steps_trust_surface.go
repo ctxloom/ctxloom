@@ -823,10 +823,10 @@ func tsFragmentListState(w *World, name string) (string, error) {
 	if err := runOK(w, "fragment", "list", "--format", "json"); err != nil {
 		return "", err
 	}
-	out := w.env.LastOutput()
+	out := w.env.LastStdout()
 	var rows []map[string]any
 	if err := json.Unmarshal([]byte(out), &rows); err != nil {
-		return "", fmt.Errorf("parse `fragment list --format json` output: %w\noutput:\n%s", err, out)
+		return "", fmt.Errorf("parse `fragment list --format json` stdout: %w\nstdout:\n%s", err, out)
 	}
 	for _, row := range rows {
 		if n, _ := row["name"].(string); n == name {
@@ -1227,7 +1227,7 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		if err := runOK(w, args...); err != nil {
 			return err
 		}
-		out := w.env.LastOutput()
+		out := w.env.LastStdout()
 		w.docStepMaterialized = strings.TrimSpace(out)
 		if !formatAskedFor(w).Structured() {
 			if !strings.Contains(out, "update") {

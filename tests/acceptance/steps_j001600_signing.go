@@ -654,10 +654,10 @@ func j001600AssertReviewState(w *World, fragment, want string) error {
 	if err := runOK(w, "fragment", "list", "--format", "json"); err != nil {
 		return err
 	}
-	out := w.env.LastOutput()
+	out := w.env.LastStdout()
 	var rows []map[string]any
 	if err := json.Unmarshal([]byte(out), &rows); err != nil {
-		return fmt.Errorf("parse `fragment list --format json`: %w\noutput:\n%s", err, out)
+		return fmt.Errorf("parse `fragment list --format json`: %w\nstdout:\n%s", err, out)
 	}
 	for _, row := range rows {
 		if n, _ := row["name"].(string); n != fragment {
@@ -1586,7 +1586,7 @@ func j001600MarkerFor(which string) (string, error) {
 // four independent line-wide searches and is exactly the collapse this
 // assertion exists to catch.
 func j001600RenderedListingNames(w *World, format clifmt.Format, principal, store, fp string) error {
-	out := w.env.LastOutput()
+	out := w.env.LastStdout()
 	for _, line := range strings.Split(out, "\n") {
 		if !strings.Contains(line, principal) {
 			continue
@@ -1595,7 +1595,7 @@ func j001600RenderedListingNames(w *World, format clifmt.Format, principal, stor
 			return nil
 		}
 	}
-	return fmt.Errorf("no line of the %s listing names %q in the %q store with fingerprint %s and namespace %s; output was:\n%s",
+	return fmt.Errorf("no line of the %s listing names %q in the %q store with fingerprint %s and namespace %s; stdout was:\n%s",
 		format, principal, store, fp, signing.NamespacePublish, out)
 }
 

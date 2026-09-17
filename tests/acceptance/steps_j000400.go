@@ -206,7 +206,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the materialize report says (\S+) delivers those surfaces per-session at launch$`,
 		func(c context.Context, engine string) error {
 			w := worldFrom(c)
-			out := w.env.LastOutput()
+			out := w.env.LastStdout()
 			w.docStepMaterialized = fmt.Sprintf("materialize report for %s:\n%s", engine, out)
 			if !formatAskedFor(w).Structured() {
 				if !strings.Contains(out, "delivered per-session at launch") {
@@ -242,7 +242,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the materialize report names the hook it could not deliver to (\S+)$`,
 		func(c context.Context, engine string) error {
 			w := worldFrom(c)
-			out := w.env.LastOutput()
+			out := w.env.LastStdout()
 			w.docStepMaterialized = fmt.Sprintf("materialize report for %s:\n%s", engine, out)
 			if !strings.Contains(strings.ToLower(out), "hook") {
 				return fmt.Errorf("the %s materialize report never mentions hooks at all, so a team inheriting this profile is never told its guardrails did not come with it; report:\n%s", engine, out)

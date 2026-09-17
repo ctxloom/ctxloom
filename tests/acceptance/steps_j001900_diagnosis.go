@@ -464,10 +464,14 @@ func indentBlock(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-// j001900OutputNamesAll asserts the LAST command's output names every one of
-// wants — the shape of "the inspector named the cause".
+// j001900OutputNamesAll asserts the LAST command's stdout names every one of
+// wants — the shape of "the listing/report named the item". Stdout alone,
+// because every caller asserts a rendered LISTING: a stderr advisory that
+// quotes the same bundle or fragment name would otherwise satisfy a listing
+// that rendered nothing. Probes that accept ANY inspector's answer, stderr
+// included, go through j001900ProbesAnswered instead.
 func j001900OutputNamesAll(w *World, what string, wants ...string) error {
-	return j001900NamesAll(w.env.LastOutput(), what, wants...)
+	return j001900NamesAll(w.env.LastStdout(), what, wants...)
 }
 
 // j001900NamesAll is j001900OutputNamesAll over an already-captured output, for the
@@ -961,7 +965,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the dry run shows her the deploy guidance that would be composed$`, func(c context.Context) error {
 		w := worldFrom(c)
-		out := w.env.LastOutput()
+		out := w.env.LastStdout()
 		if !strings.Contains(out, j001900DeployMarker) {
 			return fmt.Errorf("`run --dry-run` did not show the composed context: the deploy guidance %q is nowhere in its output, "+
 				"so it cannot answer 'is my content in the context this run would send?'. What it printed was:\n%s", j001900DeployMarker, out)

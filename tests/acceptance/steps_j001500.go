@@ -479,10 +479,10 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		if err := runOK(w, "review", "--list"); err != nil {
 			return err
 		}
-		out := w.env.LastOutput()
+		out := w.env.LastStdout()
 		for _, want := range []string{j001500Of(w).bundleName, "guidance", "new"} {
 			if !strings.Contains(out, want) {
-				return fmt.Errorf("review --list does not show the formerly-signed content as pending %q; output:\n%s", want, out)
+				return fmt.Errorf("review --list does not show the formerly-signed content as pending %q; stdout:\n%s", want, out)
 			}
 		}
 		return nil

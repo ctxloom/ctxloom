@@ -225,11 +225,14 @@ func j001300AddForeignWorktree(w *World, branch string, dirty bool) (string, err
 	return dir, nil
 }
 
-// j001300Answered reports whether the LAST run's output names every want, failing
-// with the whole output and the exit code so a red scenario documents what the
-// product said instead.
-func j001300Answered(w *World, what string, wants ...string) error {
-	out := w.env.LastOutput()
+// j001300Answered reports whether out — the stream the caller chose — names
+// every want, failing with it whole and the exit code so a red scenario
+// documents what the product said instead. A REPORT (doctor's checks, a
+// listing, a purge plan) is read from stdout alone: a stderr line quoting the
+// same path or harp would otherwise stand in for the report that never
+// rendered. A REFUSAL is read from the combined stream, which is where
+// reportRefusal writes it.
+func j001300Answered(w *World, out, what string, wants ...string) error {
 	var missing []string
 	for _, want := range wants {
 		if !strings.Contains(out, want) {
@@ -372,18 +375,19 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^the checks name the ignore rule and the command that retires it$`, func(c context.Context) error {
-		return j001300Answered(worldFrom(c), "`ctxloom doctor`", ".ctxloom", "manage gitignore install")
+		w := worldFrom(c)
+		return j001300Answered(w, w.env.LastStdout(), "`ctxloom doctor`", ".ctxloom", "manage gitignore install")
 	})
 
 	ctx.Step(`^the checks name the foreign worktree, that it is unmerged and dirty, and the exact commands to remove it$`, func(c context.Context) error {
 		w := worldFrom(c)
-		return j001300Answered(w, "doctor's foreign-worktree report",
+		return j001300Answered(w, w.env.LastStdout(), "doctor's foreign-worktree report",
 			"proj--stale-feature", "unmerged", "git worktree remove", "git branch -d")
 	})
 
 	ctx.Step(`^the checks warn that the design notes sit in the harp directory's unclassified top level$`, func(c context.Context) error {
 		w := worldFrom(c)
-		return j001300Answered(w, "doctor's harp-durability check (B13)",
+		return j001300Answered(w, w.env.LastStdout(), "doctor's harp-durability check (B13)",
 			".plan.md", "persist")
 	})
 
@@ -391,7 +395,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the report names each scratch worktree with its harp, its owner and its verdict$`, func(c context.Context) error {
 		w := worldFrom(c)
-		return j001300Answered(w, "`ctxloom session worktrees`",
+		return j001300Answered(w, w.env.LastStdout(), "`ctxloom session worktrees`",
 			"ctxloom-wt-clean", "ctxloom-wt-wip", fmt.Sprintf("%d", deadOwnerPid))
 	})
 
@@ -443,7 +447,8 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 	// and no why leaves the caller unable to act on it, and is exactly what a
 	// wrong implementation that spared for the wrong reason also prints.
 	ctx.Step(`^the report says why each spared worktree was left alone$`, func(c context.Context) error {
-		return j001300Answered(worldFrom(c), "the reap report", "spared", "uncommitted changes")
+		w := worldFrom(c)
+		return j001300Answered(w, w.env.LastStdout(), "the reap report", "spared", "uncommitted changes")
 	})
 
 	// The refusal arm: an invocation that could prove nothing safe must remove
@@ -473,7 +478,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("the purge exited 0 having removed nothing. An action verb that changed nothing refuses, "+
 				"so an unattended run cannot mistake it for one that cleaned up. Output:\n%s", w.env.LastOutput())
 		}
-		return j001300Answered(w, "the refusal", "skipped")
+		return j001300Answered(w, w.env.LastOutput(), "the refusal", "skipped")
 	})
 
 	ctx.Step(`^her own long-lived worktree is untouched and was never listed$`, func(c context.Context) error {
@@ -497,7 +502,8 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 	// --- session purge ------------------------------------------------------
 
 	ctx.Step(`^the report lists what would be destroyed and what would be kept$`, func(c context.Context) error {
-		return j001300Answered(worldFrom(c), "`ctxloom session purge`", "transcript", "essence")
+		w := worldFrom(c)
+		return j001300Answered(w, w.env.LastStdout(), "`ctxloom session purge`", "transcript", "essence")
 	})
 
 	ctx.Step(`^every byte of every session is still on disk$`, func(c context.Context) error {
@@ -585,10 +591,10 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 			if !strings.Contains(string(body), j001300AuthoredMarker) {
 				return fmt.Errorf("%s no longer carries its own bytes; it holds:\n%s", p, body)
 			}
-			if !strings.Contains(w.env.LastOutput(), ".plan.md") {
+			if !strings.Contains(w.env.LastStdout(), ".plan.md") {
 				return fmt.Errorf("the authored notes survived but the purge never NAMED them. They are surfaced for the lessons "+
-					"step or manual filing, not silently skipped — a file kept but never mentioned is a file nobody will ever file. Output:\n%s",
-					w.env.LastOutput())
+					"step or manual filing, not silently skipped — a file kept but never mentioned is a file nobody will ever file. Stdout:\n%s",
+					w.env.LastStdout())
 			}
 			return nil
 		}
@@ -609,7 +615,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 				"record of what happened, and destroying it must take a deliberate act on the leaf that owns it. Output:\n%s",
 				w.env.LastOutput())
 		}
-		return j001300Answered(w, "the refusal",
+		return j001300Answered(w, w.env.LastOutput(), "the refusal",
 			"brisk-copper-moth", "never distilled", "session transcript purge", "--undistilled")
 	})
 

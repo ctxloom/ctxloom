@@ -117,9 +117,9 @@ func registerJ000100Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^ctxloom reports the engine it wired her project for$`, func(c context.Context) error {
-		out := worldFrom(c).env.LastOutput()
+		out := worldFrom(c).env.LastStdout()
 		if !strings.Contains(out, "claude-code") {
-			return fmt.Errorf("manage check never named the engine it wired:\n%s", out)
+			return fmt.Errorf("manage check never named the engine it wired; stdout:\n%s", out)
 		}
 		return nil
 	})
@@ -129,14 +129,14 @@ func registerJ000100Steps(ctx *godog.ScenarioContext) {
 	// this proves. Naming several markers is the point: one marker is satisfied
 	// by a doctor that runs a single check and stops.
 	ctx.Step(`^she is shown a health check for every part of the harness$`, func(c context.Context) error {
-		out := worldFrom(c).env.LastOutput()
+		out := worldFrom(c).env.LastStdout()
 		for _, marker := range []string{
 			"DOCTOR-CHECK-DEPS-a1",
 			"DOCTOR-CHECK-AGENTS-b2",
 			"DOCTOR-CHECK-HOOKS-TRUST-d4",
 		} {
 			if !strings.Contains(out, marker) {
-				return fmt.Errorf("doctor did not report %s:\n%s", marker, out)
+				return fmt.Errorf("doctor did not report %s on stdout:\n%s", marker, out)
 			}
 		}
 		return nil

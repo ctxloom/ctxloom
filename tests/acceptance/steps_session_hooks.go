@@ -80,30 +80,22 @@ func registerSessionHookSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the session index binds harp "([^"]*)" to session "([^"]*)"$`, func(c context.Context, harp, sessionID string) error {
 		w := worldFrom(c)
-		body, err := w.env.ReadHomeFile(".ctxloom/sessions/index.yaml")
+		// The binding lives in the harp's own sidecar now, not a shared index.
+		body, err := w.env.ReadHomeFile(".ctxloom/sessions/" + harp + "/session.yaml")
 		if err != nil {
-			return fmt.Errorf("read the session index: %w", err)
+			return fmt.Errorf("read the session record for harp %q: %w", harp, err)
 		}
-		var doc struct {
-			Sessions []struct {
-				HarpName       string `yaml:"harp_name"`
-				SessionID      string `yaml:"session_id"`
-				TranscriptPath string `yaml:"transcript_path"`
-			} `yaml:"sessions"`
+		var sidecar struct {
+			SessionID      string `yaml:"session_id"`
+			TranscriptPath string `yaml:"transcript_path"`
 		}
-		if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
-			return fmt.Errorf("parse the session index: %w; index:\n%s", err, body)
+		if err := yaml.Unmarshal([]byte(body), &sidecar); err != nil {
+			return fmt.Errorf("parse the session record for %q: %w; record:\n%s", harp, err, body)
 		}
-		for _, s := range doc.Sessions {
-			if s.HarpName != harp {
-				continue
-			}
-			if s.SessionID != sessionID {
-				return fmt.Errorf("harp %q is bound to session %q, not %q — the hook exited 0 without recording the binding; index:\n%s", harp, s.SessionID, sessionID, body)
-			}
-			return nil
+		if sidecar.SessionID != sessionID {
+			return fmt.Errorf("harp %q is bound to session %q, not %q — the hook exited 0 without recording the binding; record:\n%s", harp, sidecar.SessionID, sessionID, body)
 		}
-		return fmt.Errorf("the index holds no entry for harp %q at all; index:\n%s", harp, body)
+		return nil
 	})
 
 	ctx.Step(`^the hook's additionalContext contains "([^"]*)"$`, func(c context.Context, want string) error {

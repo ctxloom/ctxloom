@@ -56,9 +56,6 @@ const (
 
 // Terminal causes recorded on factRunEnded.
 const (
-	// CauseChatClose is the legacy chat-stream-close path (endChild): the
-	// child's engine event stream ended. Host children's only signal in B1.
-	CauseChatClose = "chat-close"
 	// CauseRunnerLoss is the coordinator-side synthesis: the
 	// run's RunnerChannel disconnected or missed heartbeats past the bound.
 	CauseRunnerLoss = "runner-loss"

@@ -350,9 +350,9 @@ func doctorCheckSpoolCounters(ctx context.Context) doctorCheck {
 			dead = append(dead, fmt.Sprintf("%s (%v)", ep.URL, err))
 			continue
 		}
-		line := fmt.Sprintf("%s: delivered=%d consumed=%d failed=%d doorbell_dropped=%d doorbell_rejected=%d push_unavailable=%d",
+		line := fmt.Sprintf("%s: delivered=%d consumed=%d failed=%d doorbell_dropped=%d doorbell_rejected=%d",
 			ep.URL, stats.GetDelivered(), stats.GetConsumed(), stats.GetFailed(),
-			stats.GetDoorbellDropped(), stats.GetDoorbellRejected(), stats.GetPushUnavailable())
+			stats.GetDoorbellDropped(), stats.GetDoorbellRejected())
 		if stats.GetFailed() > 0 {
 			faults++
 			line += " — failed>0: each one is a message that has not arrived"

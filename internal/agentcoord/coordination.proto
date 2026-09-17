@@ -14,18 +14,13 @@
 //     shape: `kind` moves out of `structured` and onto the message. A
 //     deliberate prerelease break, human-sanctioned, per the
 //     no-backward-compat-shims rule.
-//   - presentation-only reminder messages (MailPendingReminder,
-//     SteerPendingReminder, UnpulledReminder, QuestionPendingReminder,
-//     PausedReminder, ResumedReminder). NEVER WIRE TRAFFIC: they exist to be
-//     rendered into
-//     injected `<ctxloom-reminder>` frames by their GENERATED `.XmlLike()`
-//     encoders (annotations.proto's XmlRole). No RPC, oneof, or field
-//     anywhere carries one.
+//   - the presentation-only reminder message (MailPendingReminder). NEVER
+//     WIRE TRAFFIC: it exists to be rendered into an injected
+//     `<ctxloom-reminder>` frame by its GENERATED `.XmlLike()` encoder
+//     (annotations.proto's XmlRole). No RPC, oneof, or field anywhere
+//     carries it.
 //   - ControlInitiatorKind — the closed HUMAN/AGENT privilege
 //     discriminator for control verbs, journaled into durable facts.
-//   - Comment-only: SteerResult.APPLIED_IMMEDIATE no longer claims "injected
-//     into the current turn". It means IDLE TARGET, NEW
-//     TURN NOW; no engine surface supports genuine mid-turn injection.
 //
 //   - ListRunsResult.RunInfo gains permission_mode
 //     and mcp_servers so the roster — a real operator's ONLY black-box view
@@ -45,9 +40,8 @@
 //     ArtifactTransferService in artifacts.proto (same package) — see that
 //     file's header for the reserved-slot reconciliation and the design
 //     sketch's deviations. No field renumbering here; AgentRequest/
-//     CoordinatorResponse slot 15 (artifact_lookup) and CoordinatorRequest/
-//     AgentResponse slot 12 (state_snapshot) STAY reserved (Lookup/feedback/
-//     gates and StateSnapshot/Delta remain shelved).
+//     CoordinatorResponse slot 15 (artifact_lookup) STAYS reserved
+//     (Lookup/feedback/gates remain shelved).
 //   - Summary gains `publish_paths` (field 7) — the generic artifact-
 //     publish case: cell-local file paths the agent names explicitly,
 //     runner-read and uploaded via ArtifactTransferService alongside the
@@ -512,11 +506,15 @@ message RunExited {
 // =============================================================================
 
 message AgentFrame {
+  // 4 was AgentResponse (plane 2, agent answers coordinator): retired with
+  // the coordinator->agent request plane; control is a spool file or a
+  // RunnerRequest now.
+  reserved 4;
+
   oneof kind {
     Hello hello = 1;                    // first frame on every (re)connect
     AgentEvent event = 2;               // plane 1: durable, sequenced
     AgentRequest request = 3;           // plane 2: agent asks coordinator
-    AgentResponse response = 4;         // plane 2: agent answers coordinator
     Heartbeat heartbeat = 5;            // plane 3
 
     // The spool doorbell, runner -> coordinator (an out/ create, or an
@@ -532,10 +530,14 @@ message AgentFrame {
 }
 
 message CoordinatorFrame {
+  // 3 was CoordinatorRequest (plane 2, coordinator asks agent): retired; a
+  // steer, question or summarize is a file in the run's own in/ spool, and
+  // pause/resume ride RunnerRequest.
+  reserved 3;
+
   oneof kind {
     HelloAck hello_ack = 1;
     Ack ack = 2;                        // plane 3: event-plane watermark
-    CoordinatorRequest request = 3;     // plane 2: coordinator asks agent
     CoordinatorResponse response = 4;   // plane 2: coordinator answers agent
     CoordinatorNotice notice = 5;       // plane 3: fire-and-forget
   }
@@ -622,18 +624,20 @@ message Heartbeat {
 }
 
 // =============================================================================
-// Plane 2 — symmetric request/response
+// Plane 2 — agent -> coordinator request/response
 // =============================================================================
 //
-// Correlation contract (both directions):
+// Correlation contract:
 //   - request_id unique per sender per stream; echoed verbatim in the
 //     response; also the responder-side idempotency key across reconnects.
-//   - timeout is advisory wall-clock budget; on expiry the initiator may
-//     emit a CancelRequest notice and proceed with its declared fallback
-//     (e.g. approvals fall back to DECISION_CANCEL — nobody decided, so
-//     nothing is reported as a decision; only a real answerer DECLINEs).
+//   - timeout is advisory wall-clock budget; on expiry the initiator
+//     proceeds with its declared fallback.
 //   - Exactly one response per request. Errors travel in
 //     response.status, not by dropping the response.
+//
+// The coordinator -> agent direction has no request plane: an instruction to
+// a run is a file in that run's own in/ spool, and pause/resume are
+// RunnerRequests on the RunnerChannel.
 
 // ----- agent -> coordinator requests -----------------------------------------
 
@@ -1043,9 +1047,7 @@ message SpoolStatsRequest {}
 
 // SpoolStatsResult is the coordinator's process-lifetime tally of what the
 // file mail plane did and could not do: coord's SpoolDeliveryStats
-// (delivered/consumed/failed) and SpoolDoorbellStats (dropped/rejected), plus
-// the mailbox plane's push-unavailable count, which is the same "mail is
-// waiting on a poll nobody is making" silence seen from the other side.
+// (delivered/consumed/failed) and SpoolDoorbellStats (dropped/rejected).
 message SpoolStatsResult {
   // Messages the coordinator handed to its own surface (routed sends).
   uint64 delivered = 1;
@@ -1061,9 +1063,8 @@ message SpoolStatsResult {
   // Inbound doorbells refused at the receive chokepoint: a ref that did not
   // validate. A fault, not a race — a broken or hostile sender.
   uint64 doorbell_rejected = 5;
-  // Mail that could not be pushed to its recipient and stays queued until
-  // that recipient polls (agent_recv).
-  uint64 push_unavailable = 6;
+  // 6 was push_unavailable: the mailbox push plane's tally, retired with it.
+  reserved 6;
 }
 
 message WatchRunsRequest {
@@ -1102,125 +1103,6 @@ message CustomRequest {
   string name = 1;  // namespaced "vendor/name"
   google.protobuf.Struct value = 2;
 }
-
-// ----- coordinator -> agent requests ------------------------------------------
-
-message CoordinatorRequest {
-  string request_id = 1;
-  google.protobuf.Duration timeout = 2;
-
-  // What this request NEEDS the receiving run to be able to do, declared by
-  // the sender in the SAME vocabulary Hello.capabilities advertises.
-  //
-  // It exists for ONE consumer: the coordinator's own DRAIN SEAM. A request
-  // outlives the channel it was queued on — it is reissued with its original
-  // request_id when the role next attaches — and the run that attaches may not
-  // be the run that was addressed (a crash without a terminal, or a resume,
-  // brings up a run whose Hello can advertise differently). Re-checking this
-  // declared set against the FRESHLY advertised one before the request is
-  // handed over is what keeps a request enqueued under run N from being
-  // delivered to a run N+1 that cannot execute it.
-  //
-  // It is DECLARED, not derived, so the seam stays TAXONOMY-AGNOSTIC: the check
-  // is a set containment (declared ⊆ advertised) with no kind→capability table
-  // to keep in sync with the `kind` oneof below.
-  //
-  // IT IS NOT A SECURITY BOUNDARY, and nothing may treat it as one. The
-  // receiver's own backstop keys on the ACTUAL oneof arm, never on this field,
-  // so a request that declares less than it carries is still refused by the
-  // runner on the kind it really is. Under-declaring buys nothing; this field
-  // is only ever a reason to STOP delivery early, never a reason to allow it.
-  repeated string required_capabilities = 3;
-
-  // 12 is held for state_snapshot, deferred with the shared-state
-  // family; the design file is the source of record.
-  reserved 12;
-
-  oneof kind {
-    SteerRequest steer = 10;
-    QuestionRequest question = 11;
-    SummarizeRequest summarize = 13;
-    PauseRequest pause = 14;
-    ResumeRequest resume = 15;
-    CustomRequest custom = 90;
-  }
-}
-
-message AgentResponse {
-  string request_id = 1;
-  google.rpc.Status status = 2;  // UNIMPLEMENTED if capability absent
-
-  // 12 is held for state_snapshot, deferred with the shared-state
-  // family; the design file is the source of record.
-  reserved 12;
-
-  oneof kind {
-    SteerResult steer = 10;
-    QuestionResult question = 11;
-    SummarizeResult summarize = 13;
-    PauseResult pause = 14;
-    ResumeResult resume = 15;
-    google.protobuf.Struct custom = 90;
-  }
-}
-
-// Mid-run instruction injection (Codex turn steering / Claude SDK
-// streaming-input analog). Request/response so the coordinator knows
-// whether it landed before or after a decision point.
-message SteerRequest {
-  string text = 1;
-  google.protobuf.Struct metadata = 2;
-}
-
-message SteerResult {
-  enum Applied {
-    APPLIED_UNSPECIFIED = 0;
-    // The target was IDLE, so the steer starts a NEW TURN NOW. It is NOT
-    // injected into a turn already running: no engine surface ctxloom drives
-    // supports genuine mid-turn injection, and the earlier comment here
-    // ("injected into the current turn") claimed a capability that does not
-    // exist. "Immediate" is about LATENCY — the instruction is acted on
-    // without waiting for a boundary — never about interrupting a turn.
-    APPLIED_IMMEDIATE = 1;
-    APPLIED_NEXT_TURN = 2;       // queued for the next turn boundary
-    APPLIED_REJECTED = 3;        // agent declined (also see status)
-  }
-  Applied applied = 1;
-}
-
-// Coordinator (or a human behind it) asks the agent something without
-// disturbing its main loop: "why did you pick sqlx over diesel?"
-message QuestionRequest {
-  string text = 1;
-}
-
-message QuestionResult {
-  string text = 1;
-  google.protobuf.Struct structured = 2;
-}
-
-// On-demand summary at a given scope; the agent SHOULD also emit the
-// produced Summary as a durable event (covers_through_seq set), so
-// the pull leaves a record in the log.
-message SummarizeRequest {
-  Summary.Scope scope = 1;
-  string focus = 2;  // optional: "just the schema decisions"
-}
-
-message SummarizeResult {
-  Summary summary = 1;
-}
-
-message PauseRequest {
-  string reason = 1;
-}
-message PauseResult {
-  uint64 paused_at_seq = 1;  // no further events until Resume (except
-                             // heartbeats and this response)
-}
-
-message ResumeRequest {}
-message ResumeResult {}
 
 // ControlInitiatorKind names WHO initiated a control action — the
 // privilege discriminator the coordinator's control guard reads to decide
@@ -1269,7 +1151,7 @@ enum ControlInitiatorKind {
 // sender-supplied string can never be interpolated into a frame. Escaping is a
 // property of the encoder, not a convention someone has to remember.
 //
-// Every frame is DELIBERATELY tiny and content-free: the mailbox stays
+// The frame is DELIBERATELY tiny and content-free: the spool stays
 // authoritative and the agent PULLS the payload with agent_recv. Sender
 // identity and correlation ids have NO frame representation on purpose — they
 // are structured data on the pulled message, and as proto `string`s they are
@@ -1289,89 +1171,6 @@ message MailPendingReminder {
   uint32 count = 1 [(xml_role) = XML_ATTRIBUTE];
 }
 
-// A steer instruction is waiting in the mailbox.
-message SteerPendingReminder {
-  option (message_schema) = {
-    xml_like: true,
-    xml_text: "call agent_recv"
-  };
-}
-
-// A parked control body was announced and the turn that carried the
-// announcement ENDED without the agent pulling it. This is the frame the engine
-// host's turn-boundary re-announcer emits; the announcement frames above
-// (SteerPendingReminder and friends) are emitted once, at enqueue, and say
-// nothing about a body that has been sitting unread since.
-//
-// It exists as a SEPARATE message because the announcement frames are
-// field-less: they render to a byte-identical string every time, and a notice
-// repeated verbatim across turns is a notice a model learns to skip. The two
-// attributes here are the anti-habituation channel, and they are deliberately
-// different KINDS of signal:
-//
-//   - age_seconds is CONTINUOUS and monotone. It answers "how long has this
-//     been waiting", which is the question a model needs to weigh the notice
-//     against whatever it is doing;
-//   - urgency is a CLOSED, three-step escalation that changes on every
-//     re-announcement even when two turn boundaries fall in the same second, so
-//     a fast engine still sees the notice change rather than repeat.
-//
-// Both are attribute-eligible by construction (a number and an enum), so this
-// frame carries no sender bytes, exactly like every other one.
-message UnpulledReminder {
-  option (message_schema) = {
-    xml_like: true,
-    xml_text: "call agent_recv"
-  };
-
-  // Urgency is how many re-announcements have gone unanswered, not a severity
-  // anyone configures. FINAL is a PROMISE: it is the last frame this body will
-  // ever get, and when it too goes unanswered the runner gives up
-  // OBSERVABLY — see the control_unpulled custom event.
-  enum Urgency {
-    URGENCY_UNSPECIFIED = 0;
-    // First re-announcement: the announcement turn ended unpulled.
-    URGENCY_REPEAT = 1;
-    // The body has now survived more than one turn boundary unread.
-    URGENCY_URGENT = 2;
-    // The last frame this body gets. Nothing further will be injected for it.
-    URGENCY_FINAL = 3;
-  }
-
-  // How long the OLDEST unpulled body has been parked, whole seconds. Derived
-  // from the runner's own clock at park time — it is not sender-influenced and
-  // cannot carry sender bytes.
-  uint32 age_seconds = 1 [(xml_role) = XML_ATTRIBUTE];
-
-  // Which rung of the escalation this frame is.
-  Urgency urgency = 2 [(xml_role) = XML_ATTRIBUTE];
-}
-
-// A question is waiting in the mailbox and is expected to be answered in this
-// turn.
-message QuestionPendingReminder {
-  option (message_schema) = {
-    xml_like: true,
-    xml_text: "call agent_recv"
-  };
-}
-
-// This session has been paused; no further work until it resumes.
-message PausedReminder {
-  option (message_schema) = {
-    xml_like: true,
-    xml_text: "this session is paused"
-  };
-}
-
-// This session has been resumed.
-message ResumedReminder {
-  option (message_schema) = {
-    xml_like: true,
-    xml_text: "this session has resumed"
-  };
-}
-
 // ----- coordinator -> agent notices (fire-and-forget) -------------------------
 
 message CoordinatorNotice {
@@ -1379,19 +1178,21 @@ message CoordinatorNotice {
   // the design file is the source of record.
   reserved 5;
 
+  // 3 was PeerMessage (the mailbox push of a message onto the wire) and 4
+  // CancelRequest (withdrawing a CoordinatorRequest): both retired with the
+  // mailbox. Mail is a file in the run's in/ spool; the wire carries only
+  // the doorbell.
+  reserved 3, 4;
+
   oneof kind {
     CancelRun cancel = 1;
     BudgetUpdate budget_update = 2;
-    PeerMessage peer_message = 3;
-    CancelRequest cancel_request = 4;
 
     // The spool doorbell, coordinator -> runner (an in/ create, or an
     // out/consumed / in/withdrawn rename). Rides the notice arm because a
     // doorbell IS a fire-and-forget notice: no response, no correlation, and
-    // a saturated send pump DROPS it with no rollback bookkeeping at all
-    // (contrast the PeerMessage push's reservation rollback — that exists
-    // because the wire was the only carrier; here the file is the truth and
-    // the sweep redelivers).
+    // a saturated send pump DROPS it with no rollback bookkeeping at all —
+    // the file is the truth and the sweep redelivers.
     SpoolChanged spool_changed = 6;
   }
 }
@@ -1407,11 +1208,10 @@ message BudgetUpdate {
   BudgetSpec budget = 1;  // absolute new limits, not deltas
 }
 
-// Inbound relayed message from a sibling (or the coordinator itself,
-// from_agent_id == ""). Reply via PeerSendRequest.in_reply_to.
-// Until delivered, a queued PeerMessage is durable, role-addressed
-// mailbox state at the coordinator: it survives coordinator process
-// restarts and is delivered when the target reattaches.
+// A delivered message, as agent_recv returns it: the runner's projection of a
+// file swept from the run's in/ spool (or the coordinator's, from the owner's).
+// Reply via PeerSendRequest.in_reply_to. It never rides the wire between
+// coordinator and runner: the file is the message, and it is durable there.
 message PeerMessage {
   string message_id = 1;
   string from_agent_id = 2;
@@ -1435,12 +1235,6 @@ message PeerMessage {
   MessageKind kind = 8 [(field_schema) = {
     doc: "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_REPORT means a child of yours filed its FINAL report (read it from roster); MESSAGE_KIND_SUMMARIZE is the coordinator asking you for a summary, answered with in_reply_to; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices."
   }];
-}
-
-// Withdraw an outstanding CoordinatorRequest (agent equivalent: agents
-// simply stop waiting and treat their own timeout fallback).
-message CancelRequest {
-  string request_id = 1;
 }
 
 // ----- the spool doorbell (both directions) ----------------------------------

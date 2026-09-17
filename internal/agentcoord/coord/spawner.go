@@ -406,13 +406,9 @@ func (s *prodSpawner) RecordEngineVersion(ctx context.Context, harp, backend str
 // real isolation prepare (mirroring loadConfig above).
 var prepareAgentChat = operations.PrepareAgentChat
 
-// chatRequest builds the AgentChatRequest fields BOTH launch paths share.
-//
-// It exists so a field cannot land on one path and be forgotten on the other:
-// Launch and StartEngine differ ONLY in the three legacy-dial fields Launch adds
-// after this returns, and the shared remainder — the resolved agent, the
-// workspace/dirty-tree axes, the permission posture, the trust gate, the two env
-// maps — is composed exactly once.
+// chatRequest builds StartEngine's AgentChatRequest: the resolved agent, the
+// workspace/dirty-tree axes, the permission posture, the trust gate, the two
+// env maps.
 func (s *prodSpawner) chatRequest(plan *SpawnPlan, env, runnerEnv map[string]string) operations.AgentChatRequest {
 	return operations.AgentChatRequest{
 		Resolved:         plan.resolved,

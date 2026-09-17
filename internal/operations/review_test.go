@@ -168,12 +168,25 @@ func TestPendingReview_ContentAndRendering(t *testing.T) {
 	// just as happily over a fabricated digest. A tree holds the skill's files,
 	// so the manifest is generated from the bytes actually present: what is
 	// checked now is that EVERY listed file carries a real, full-length digest.
-	for _, line := range strings.Split(strings.TrimSpace(skill.CurrentContent), "\n") {
+	//
+	// The enablement header comes first — it is in the preimage, so it is on
+	// the screen — and the tree listing follows it.
+	assert.Contains(t, skill.CurrentContent, "claude-code: enabled")
+	for _, line := range strings.Split(skillTree(t, skill.CurrentContent), "\n") {
 		_, rest, ok := strings.Cut(line, "sha256:")
 		require.True(t, ok, "every manifest line names a digest: %q", line)
 		digest, _, _ := strings.Cut(rest, " ")
 		assert.Len(t, digest, 64, "a real SHA-256 is 64 hex characters, not a fixture string: %q", line)
 	}
+}
+
+// skillTree returns the per-file listing of a rendered skill surface: what
+// follows the enablement header renderSkillSurface opens with.
+func skillTree(t *testing.T, rendered string) string {
+	t.Helper()
+	_, tree, ok := strings.Cut(rendered, "\n\n")
+	require.True(t, ok, "a rendered skill surface opens with an enablement header: %q", rendered)
+	return strings.TrimSpace(tree)
 }
 
 // skillManifestLines indexes a rendered skill manifest by file path, so a test
@@ -182,7 +195,7 @@ func TestPendingReview_ContentAndRendering(t *testing.T) {
 func skillManifestLines(t *testing.T, rendered string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(rendered), "\n") {
+	for _, line := range strings.Split(skillTree(t, rendered), "\n") {
 		path, _, ok := strings.Cut(line, "  ")
 		require.True(t, ok, "every manifest line is %q-separated: %q", "  ", line)
 		out[path] = line

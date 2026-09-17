@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 )
 
 // THE OWNER'S RECEIVE: the long-poll behind agent_recv for the one recipient
@@ -129,8 +131,33 @@ func (c *Coordinator) tryClaimDeliverable(role string) ([]Message, bool) {
 
 // pendingCount reports how many messages could still be delivered to role —
 // the ended-child check: leftover mail triggers a resume, never strands.
+//
+// For the owner the count excludes what a receive has already handed to a
+// live caller and not yet acked (the runtime ledger, c.delivered): those
+// files are still in in/ because the ack is one receive late, but they are
+// spoken for, not waiting.
 func (c *Coordinator) pendingCount(role string) int {
-	return c.spoolPendingCount(role)
+	n := c.spoolPendingCount(role)
+	if !c.ownerSpool(role) {
+		return n
+	}
+	res, ok := c.sweepSpoolDir(role, spool.DirIn, "counting the owner's pending mail")
+	if !ok {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	reserved := make(map[string]bool, len(c.delivered[role]))
+	for _, id := range c.delivered[role] {
+		reserved[id] = true
+	}
+	n = 0
+	for _, e := range res.Entries {
+		if !reserved[spoolMessageID(e)] {
+			n++
+		}
+	}
+	return n
 }
 
 // unreserve drops ids from the runtime delivery ledger (they are consumed

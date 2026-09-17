@@ -198,9 +198,9 @@ func registerJ002000Steps(ctx *godog.ScenarioContext) {
 		if err := runOK(w, "agent", "show", j002000Agent); err != nil {
 			return err
 		}
-		if !strings.Contains(w.env.LastOutput(), j002000NewEngine) {
+		if !strings.Contains(w.env.LastStdout(), j002000NewEngine) {
 			return fmt.Errorf("`agent show %s` does not name %s after the swap — the file changed and the inspector did not; "+
-				"it printed:\n%s", j002000Agent, j002000NewEngine, w.env.LastOutput())
+				"its stdout was:\n%s", j002000Agent, j002000NewEngine, w.env.LastStdout())
 		}
 		return nil
 	})

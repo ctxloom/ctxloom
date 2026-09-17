@@ -73,8 +73,8 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		if err := runOK(w, "config", "show"); err != nil {
 			return err
 		}
-		if !strings.Contains(w.env.LastOutput(), engine) {
-			return fmt.Errorf("config show does not mention engine %q; output:\n%s", engine, w.env.LastOutput())
+		if !strings.Contains(w.env.LastStdout(), engine) {
+			return fmt.Errorf("config show does not mention engine %q; stdout:\n%s", engine, w.env.LastStdout())
 		}
 		return nil
 	})
@@ -104,7 +104,10 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		if err := runOK(w, "profile", "show", "default"); err != nil {
 			return err
 		}
-		out := w.env.LastOutput()
+		// Stdout alone: a remote bundle that FAILED to load is reported on
+		// stderr by its canonical ref — the very string asserted here — so
+		// the combined stream would name a bundle the profile never composed.
+		out := w.env.LastStdout()
 		// A pulled remote bundle canonicalizes to its full seeded URL
 		// (file:///.../remote.git@bundles/src), not the short "<remote>/<bundle>"
 		// form used to ADD it — check for each source's canonical ref rather
@@ -112,7 +115,7 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		for _, name := range []string{"personal", "company"} {
 			ref := w.remoteBare[name] + "@bundles/src"
 			if !strings.Contains(out, ref) {
-				return fmt.Errorf("profile default does not yet compose %q; profile show output:\n%s", ref, out)
+				return fmt.Errorf("profile default does not yet compose %q; profile show stdout:\n%s", ref, out)
 			}
 		}
 		return nil
@@ -326,14 +329,14 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^she is shown each held item and where it came from$`, func(c context.Context) error {
 		w := worldFrom(c)
-		out := w.env.LastOutput()
+		out := w.env.LastStdout()
 		// "Alice reviews the held content" (the preceding When) is the step
 		// that actually ran `review --list`, so it — not this Then — got the
 		// automatic CLIOutput attribution; re-attach the real listing here.
 		w.docStepMaterialized = strings.TrimSpace(out)
 		for _, want := range []string{"first", "second", "fragments/marker"} {
 			if !strings.Contains(out, want) {
-				return fmt.Errorf("review --list does not mention %q; output:\n%s", want, out)
+				return fmt.Errorf("review --list does not mention %q; stdout:\n%s", want, out)
 			}
 		}
 		return nil

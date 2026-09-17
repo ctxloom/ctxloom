@@ -119,10 +119,10 @@ func tcFragmentStates(w *World) (map[string]string, error) {
 	if err := runOK(w, "fragment", "list", "--format", "json"); err != nil {
 		return nil, err
 	}
-	out := w.env.LastOutput()
+	out := w.env.LastStdout()
 	var rows []map[string]any
 	if err := json.Unmarshal([]byte(out), &rows); err != nil {
-		return nil, fmt.Errorf("parse `fragment list --format json`: %w\noutput:\n%s", err, out)
+		return nil, fmt.Errorf("parse `fragment list --format json`: %w\nstdout:\n%s", err, out)
 	}
 	states := make(map[string]string, len(rows))
 	for _, row := range rows {

@@ -334,7 +334,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		run := func(rest ...string) (string, clifmt.Format) {
 			args := append(append([]string{}, flagArgs...), rest...)
 			_ = w.env.Run(args...)
-			return w.env.LastOutput(), formatAskedFor(w)
+			return w.env.LastStdout(), formatAskedFor(w)
 		}
 		// "before" listing: the embedded principal must already be visible —
 		// tagged embedded, not yet distrusted.

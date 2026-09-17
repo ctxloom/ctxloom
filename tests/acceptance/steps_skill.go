@@ -247,10 +247,10 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the skill list output includes "([^"]*)" from bundle "([^"]*)"$`, func(c context.Context, name, bundle string) error {
 		w := worldFrom(c)
-		out := w.env.LastOutput()
+		out := w.env.LastStdout()
 		w.docStepMaterialized = out
 		if !strings.Contains(out, bundle) || !strings.Contains(out, name) {
-			return fmt.Errorf("`ctxloom skill list` output does not mention bundle %q / skill %q; output:\n%s", bundle, name, out)
+			return fmt.Errorf("`ctxloom skill list` stdout does not mention bundle %q / skill %q; stdout:\n%s", bundle, name, out)
 		}
 		return nil
 	})
@@ -271,10 +271,10 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the skill show output carries the frontmatter description "([^"]*)"$`, func(c context.Context, want string) error {
 		w := worldFrom(c)
-		out := w.env.LastOutput()
+		out := w.env.LastStdout()
 		w.docStepMaterialized = out
 		if !strings.Contains(out, want) {
-			return fmt.Errorf("`ctxloom skill show` output does not carry description %q; output:\n%s", want, out)
+			return fmt.Errorf("`ctxloom skill show` stdout does not carry description %q; stdout:\n%s", want, out)
 		}
 		return nil
 	})
@@ -358,9 +358,9 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("`ctxloom skill import` exited %d, want 0; output:\n%s", code, w.env.LastOutput())
 		}
 		var doc map[string]any
-		out := w.env.LastOutput()
+		out := w.env.LastStdout()
 		if err := json.Unmarshal([]byte(out), &doc); err != nil {
-			return fmt.Errorf("parse `ctxloom skill import --format json` output: %w; output:\n%s", err, out)
+			return fmt.Errorf("parse `ctxloom skill import --format json` stdout: %w; stdout:\n%s", err, out)
 		}
 		state, _ := doc["signature_state"].(string)
 		w.docStepMaterialized = fmt.Sprintf("signature_state: %s", state)

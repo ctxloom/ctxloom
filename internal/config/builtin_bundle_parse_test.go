@@ -119,6 +119,6 @@ func TestBuiltinBundleReaders_UseTheCanonicalParser(t *testing.T) {
 	// of their live paths rather than merely present in the file.
 	assert.NotPanics(t, func() {
 		_ = resolveBuiltinBundleMCPServers(bundles.AdmitAll())
-		_ = resolveBuiltinBundleHooks(bundles.AdmitAll())
+		_ = resolveBuiltinBundleHooks(bundles.AdmitAll(), bundles.LinksUnchecked())
 	})
 }

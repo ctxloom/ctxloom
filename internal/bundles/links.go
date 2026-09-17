@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -85,8 +86,10 @@ func (g LinkGroup) MCPMembers() []string {
 // the tags it emits — so a bundle-level link tag binds every item and the
 // group seen here is the group the pipeline sees on a delivered item.
 //
-// The members are the four deliverable item kinds. Hooks and profiles carry
-// no tags and are not part of a link.
+// The members are the deliverable item kinds. A hook has no author-given
+// name, so it joins under its trust identity, HookEntry.ID(). Profiles are
+// deliberately not members: a profile is a selector over items, not a
+// delivered one, and "withhold the profile" has no meaning.
 func (b *Bundle) LinkGroups() map[string]LinkGroup {
 	groups := make(map[string]LinkGroup)
 	join := func(kind trust.ItemKind, name string, itemTags []string) {
@@ -108,6 +111,9 @@ func (b *Bundle) LinkGroups() map[string]LinkGroup {
 	}
 	for name, m := range b.MCP {
 		join(trust.KindMCP, name, m.Tags)
+	}
+	for _, e := range b.Hooks.Entries() {
+		join(trust.KindHook, e.ID(), e.Hook.Tags)
 	}
 	for id, g := range groups {
 		sort.Slice(g.Members, func(i, j int) bool {
@@ -160,6 +166,47 @@ type LinkGrant interface {
 type LinkGrantFunc func(read BundleRead, server string) bool
 
 func (f LinkGrantFunc) Granted(read BundleRead, server string) bool { return f(read, server) }
+
+// LinkWithholds reports whether an item carrying tags, read from read, belongs
+// to a link group grant cannot deliver whole: one of the group's MCP members
+// was not granted. It names the group and the missing server so the caller
+// can say WHY, and it decides for every group the item is in — an item in two
+// groups needs both. tags are the item's EFFECTIVE tags (bundle tags merged
+// onto its own), the same set LinkGroups computed membership from.
+//
+// FAIL-CLOSED, mirroring Decide: a nil grant withholds every linked item. An
+// unlinked item is never touched, because withholding is a property of the
+// group and not collateral for the bundle. Shared by the content pipeline and
+// the hook path, which has no pipeline (config.extractHooksFromBundle).
+func LinkWithholds(grant LinkGrant, read BundleRead, tags []string) (linkID, server string, withheld bool) {
+	ids := LinkIDs(tags)
+	if len(ids) == 0 {
+		return "", "", false
+	}
+	if grant == nil {
+		return ids[0], "", true
+	}
+	groups := read.Bundle.LinkGroups()
+	for _, id := range ids {
+		for _, mcp := range groups[id].MCPMembers() {
+			if !grant.Granted(read, mcp) {
+				return id, mcp, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// WarnLinkWithheld surfaces a link withhold. WarnOnce, because the same
+// assembly runs once per turn and an unchanged gap would otherwise re-warn
+// every time; the finding is content-free (refs and names only).
+func WarnLinkWithheld(ref, linkID, server string) {
+	if server == "" {
+		clidiag.WarnOnce("ctxloom", "%s withheld: it is linked (%s=%s) but this pipeline has no link grant", ref, linkTagKey, linkID)
+		return
+	}
+	clidiag.WarnOnce("ctxloom", "%s withheld: it is linked (%s=%s) to MCP server %q, which this run was not granted", ref, linkTagKey, linkID, server)
+}
 
 // LinksUnchecked is the management/listing statement, spelled as a value: link
 // groups are not consulted and every linked item resolves. It is for surfaces

@@ -41,10 +41,10 @@ func TestExtractMCP_ForgottenGate_WithholdsTheServer(t *testing.T) {
 func TestExtractHooks_ForgottenGate_WithholdsTheHook(t *testing.T) {
 	read := bundles.ProjectAuthoredRead("fixture", sentinelExecBundle())
 
-	got := extractHooksFromBundle(read, mustLocalRef(t, "src"), nil)
+	got := extractHooksFromBundle(read, mustLocalRef(t, "src"), nil, bundles.LinksUnchecked())
 	assert.Empty(t, got.PreTool, "a bundle hook reached settings with nothing having decided about it")
 
-	ungated := extractHooksFromBundle(read, mustLocalRef(t, "src"), bundles.AdmitAll())
+	ungated := extractHooksFromBundle(read, mustLocalRef(t, "src"), bundles.AdmitAll(), bundles.LinksUnchecked())
 	require.Len(t, ungated.PreTool, 1, "AdmitAll must admit exactly as the old nil did")
 }
 

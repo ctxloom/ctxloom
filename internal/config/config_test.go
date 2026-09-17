@@ -1329,7 +1329,7 @@ hooks:
 	require.NoError(t, os.WriteFile(filepath.Join(v2Dir, "with-hooks.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef("with-hooks", loader.Catalog(), bundles.AdmitAll())
+	result := loadHooksFromBundleRef("with-hooks", loader.Catalog(), bundles.AdmitAll(), bundles.LinksUnchecked())
 
 	require.Len(t, result.PostTool, 1)
 	assert.Equal(t, "TodoWrite", result.PostTool[0].Matcher)
@@ -1355,7 +1355,7 @@ mcp:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "no-hooks.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef("no-hooks", loader.Catalog(), bundles.AdmitAll())
+	result := loadHooksFromBundleRef("no-hooks", loader.Catalog(), bundles.AdmitAll(), bundles.LinksUnchecked())
 
 	assert.Empty(t, result.PostTool)
 	assert.Empty(t, result.PreTool)
@@ -1371,7 +1371,7 @@ mcp:
 // directly via a synthetic bundle through extractHooksFromBundle — the exact
 // code path resolveBuiltinBundleHooks takes.
 func TestResolveBuiltinBundleHooks(t *testing.T) {
-	hooks := resolveBuiltinBundleHooks(bundles.AdmitAll())
+	hooks := resolveBuiltinBundleHooks(bundles.AdmitAll(), bundles.LinksUnchecked())
 	assert.Empty(t, hooks.PreTool)
 	assert.Empty(t, hooks.PostTool)
 	assert.Empty(t, hooks.SessionStart)
@@ -1381,7 +1381,7 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 
 	synthetic := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{
 		Hooks: bundles.BundleHooks{PostFileEdit: []bundles.BundleHook{{Command: "echo hi", Type: "command"}}},
-	}), mustBuiltinRef(t, "future-bundle"), bundles.AdmitAll())
+	}), mustBuiltinRef(t, "future-bundle"), bundles.AdmitAll(), bundles.LinksUnchecked())
 	require.Len(t, synthetic.PostFileEdit, 1)
 	assert.Equal(t, "bundle:ctxloom+builtin:future-bundle", synthetic.PostFileEdit[0].SCM,
 		"extractHooksFromBundle prepends 'bundle:' to the source's canonical BundleIdentity, including a builtin's")

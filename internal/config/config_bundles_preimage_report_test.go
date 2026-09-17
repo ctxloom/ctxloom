@@ -30,7 +30,7 @@ func TestExtractHooksFromBundle_PreimageBuildFailure_IsReported(t *testing.T) {
 	}}
 
 	mark := strictness.Checkpoint()
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(nil))
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(nil), bundles.LinksUnchecked())
 
 	assert.Empty(t, got.PreTool, "fail-closed: a hook whose preimage cannot be built is withheld")
 

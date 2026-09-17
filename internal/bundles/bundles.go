@@ -317,12 +317,17 @@ type BundleHook struct {
 	Command string `yaml:"command,omitempty"`
 	Type    string `yaml:"type,omitempty"`
 	Prompt  string `yaml:"prompt,omitempty"`
-	Timeout int    `yaml:"timeout,omitempty"`
-	Async   bool   `yaml:"async,omitempty"`
+	Timeout int    `yaml:"timeout,omitempty" surface:"operational"`
+	Async   bool   `yaml:"async,omitempty" surface:"operational"`
 	// PreToolFallback (session_start only): the hook is idempotent and may
 	// fire on PreToolUse instead on an agent without a session-start event.
 	// See wire.Hook.PreToolFallback.
 	PreToolFallback bool `yaml:"pre_tool_fallback,omitempty"`
+	// Tags are merged with the bundle's and evaluated by the host — a link
+	// group membership (links.go) rides here — so, like BundleMCP.Tags, they
+	// sit OUTSIDE the executable preimage: linking a hook to the server it
+	// drives changes nothing an approval was granted over.
+	Tags []string `yaml:"tags,omitempty" surface:"selection"`
 
 	// Order sequences this hook against its siblings WITHIN its event, sparsely
 	// (see wire.HookOrderStep). It does NOT sequence against other bundles:
@@ -336,7 +341,7 @@ type BundleHook struct {
 	// ContentPayload: the executable preimage names its fields explicitly, so
 	// adding order here changes no hook's content hash and stales no approval —
 	// order is scheduling, not behaviour.
-	Order *int `yaml:"order,omitempty"`
+	Order *int `yaml:"order,omitempty" surface:"operational"`
 }
 
 // BundleHooks mirrors wire.UnifiedHooks. Same lifecycle events; backend-
@@ -566,11 +571,16 @@ const (
 	// sees it. Contrast Premise, which the AGENT evaluates and which is
 	// therefore presented.
 	NonPresentedSelection NonPresented = "selection"
+	// NonPresentedOperational: an execution knob the host applies — a hook's
+	// timeout, async flag, order — that decides when or for how long, never
+	// WHAT runs. Outside the executable preimage on purpose, so tuning one
+	// stales no approval; it is not content and the agent never sees it.
+	NonPresentedOperational NonPresented = "operational"
 )
 
 // surfaceClassifications is the closed vocabulary a `surface:` tag may carry.
 func surfaceClassifications() []NonPresented {
-	return []NonPresented{NonPresentedHuman, NonPresentedDerived, NonPresentedProvenance, NonPresentedSelection}
+	return []NonPresented{NonPresentedHuman, NonPresentedDerived, NonPresentedProvenance, NonPresentedSelection, NonPresentedOperational}
 }
 
 // BundleFragment defines a fragment within a bundle.

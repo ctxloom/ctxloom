@@ -125,7 +125,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	ownerHarp := entry.HarpName
 
 	starter := &dockerOwnerRunStarter{image: image, projectDir: projectDir, harp: ownerHarp}
-	c, err := New(Options{ProjectDir: projectDir, ProjectKey: "owner-itest", Spawner: newFakeSpawner(nil, nil)})
+	c, err := New(Options{ProjectDir: projectDir, ProjectKey: "owner-itest", Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
@@ -238,7 +238,7 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	ownerHarp := entry.HarpName
 
 	starter := &dockerOwnerRunStarter{image: image, projectDir: projectDir, harp: ownerHarp}
-	c, err := New(Options{ProjectDir: projectDir, ProjectKey: "owner-oneshot-itest", Spawner: newFakeSpawner(nil, nil)})
+	c, err := New(Options{ProjectDir: projectDir, ProjectKey: "owner-oneshot-itest", Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)

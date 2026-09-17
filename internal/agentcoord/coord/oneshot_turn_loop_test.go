@@ -208,6 +208,7 @@ func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 		StateDir:     t.TempDir(),
 		Spawner:      newFakeSpawner(nil, nil),
 		EndedRunTail: 2, // keep the newest 2 ended runs (beyond the current one)
+		OwnerHarp:    ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
@@ -275,6 +276,7 @@ func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 		StateDir:     t.TempDir(),
 		Spawner:      sp,
 		EndedRunTail: 1, // keep the current run + exactly one ended audit tail
+		OwnerHarp:    ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

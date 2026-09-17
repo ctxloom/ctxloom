@@ -16,6 +16,7 @@ func newUnservedCoordinator(t *testing.T) *Coordinator {
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),
 		Spawner:    newFakeSpawner(nil, nil),
+		OwnerHarp:  ownerIdentity().Harp,
 	})
 	if !assert.NoError(t, err) {
 		t.FailNow()

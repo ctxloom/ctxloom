@@ -181,6 +181,7 @@ func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan,
 		Harness: plan.Backend,
 		Version: "test",
 		Engine:  host.Handle,
+		Harp:    "child-harp-1",
 	})
 	if err != nil {
 		cancel()

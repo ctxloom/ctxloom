@@ -36,11 +36,12 @@ import (
 // doorbell would be reporting the doorbell works when it does not.
 func newCutoverCoordinator(t *testing.T, sp Spawner, sweep time.Duration) *Coordinator {
 	t.Helper()
+	teeHome(t)
 	c, err := New(Options{
-		ProjectDir:         t.TempDir(),
-		StateDir:           t.TempDir(),
-		Spawner:            sp,
-		
+		ProjectDir: t.TempDir(),
+		StateDir:   t.TempDir(),
+		Spawner:    sp,
+
 		OwnerHarp:          ownerIdentity().Harp,
 		SpoolSweepInterval: sweep,
 	})
@@ -357,12 +358,12 @@ func TestSpoolDelivery_ColdRunnerDrainsItsSpoolBeforeAnyChannel(t *testing.T) {
 	home, err := NewHome(ctx, HomeConfig{
 		// An address nothing serves: NewHome never fails hard, so the
 		// channel loops just keep reconnecting and no doorbell is possible.
-		URL:           "http://127.0.0.1:1/mcp",
-		Token:         "unused",
-		RunID:         "run-cold",
-		Harness:       "mock",
-		Harp:          harp,
-		
+		URL:     "http://127.0.0.1:1/mcp",
+		Token:   "unused",
+		RunID:   "run-cold",
+		Harness: "mock",
+		Harp:    harp,
+
 		// The PRODUCTION cadence, deliberately: at 30s nothing but the
 		// STARTUP pass can deliver inside this test's budget, so a delivery
 		// here is proof of the cold-start path and not of a fast timer.
@@ -755,12 +756,11 @@ func TestSpoolDelivery_UnmappableKindReachesATerminalState(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	home, err := NewHome(ctx, HomeConfig{
-		URL:           "http://127.0.0.1:1/mcp",
-		Token:         "unused",
-		RunID:         "run-unmappable-kind",
-		Harness:       "mock",
-		Harp:          harp,
-		
+		URL:     "http://127.0.0.1:1/mcp",
+		Token:   "unused",
+		RunID:   "run-unmappable-kind",
+		Harness: "mock",
+		Harp:    harp,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { home.crash() })

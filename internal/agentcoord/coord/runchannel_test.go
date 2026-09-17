@@ -33,6 +33,7 @@ func ownerHome(t *testing.T, c *Coordinator) *Home {
 		RunID:   "", // depth-0: the channel attaches to the owning session
 		Harness: "mock",
 		Version: "test",
+		Harp:    "child-harp-1",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })
@@ -50,6 +51,7 @@ func childHome(t *testing.T, c *Coordinator, runID string) *Home {
 		RunID:   env[EnvRunID],
 		Harness: "mock",
 		Version: "test",
+		Harp:    env["CTXLOOM_SESSION_HARP"],
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })
@@ -423,6 +425,7 @@ func TestRunChannel_ForeignRunIDRejected(t *testing.T) {
 		RunID:   "run-not-mine",
 		Harness: "mock",
 		Version: "test",
+		Harp:    env["CTXLOOM_SESSION_HARP"],
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })

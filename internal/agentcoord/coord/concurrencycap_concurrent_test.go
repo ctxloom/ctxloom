@@ -58,6 +58,7 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 		StateDir:       t.TempDir(),
 		Spawner:        sp,
 		ConcurrencyCap: n, // the seam under test: a resource ceiling >= the child count
+		OwnerHarp:      ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

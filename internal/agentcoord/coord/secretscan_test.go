@@ -21,6 +21,7 @@ func TestSecretScan_TokenNeverOnDisk(t *testing.T) {
 		ProjectDir: t.TempDir(),
 		StateDir:   stateDir,
 		Spawner:    researcherSpawner(),
+		OwnerHarp:  ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

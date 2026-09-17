@@ -158,7 +158,7 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	projectDir := testsupport.ProjectDir(t) // isolated HOME + cwd; never the real ~/.ctxloom
 
 	sp := &directBusSpawner{image: image, projectDir: projectDir}
-	c, err := New(Options{ProjectDir: projectDir, ProjectKey: "direct-itest", Spawner: sp})
+	c, err := New(Options{ProjectDir: projectDir, ProjectKey: "direct-itest", Spawner: sp, OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)

@@ -57,6 +57,7 @@ func TestIssueStartRun_ToleratesSlowRunnerDialHomeWithinBudget(t *testing.T) {
 		StateDir:           t.TempDir(),
 		Spawner:            sp,
 		RunnerAwaitTimeout: 300 * time.Millisecond,
+		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
@@ -99,6 +100,7 @@ func TestIssueStartRun_TooTightBudgetFailsTheSameSlowDialHome(t *testing.T) {
 		StateDir:           t.TempDir(),
 		Spawner:            sp,
 		RunnerAwaitTimeout: 50 * time.Millisecond,
+		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

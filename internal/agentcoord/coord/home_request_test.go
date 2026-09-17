@@ -23,6 +23,7 @@ func attachedHome(t *testing.T, c *Coordinator, runID string, env map[string]str
 		RunID:   runID,
 		Harness: "mock",
 		Version: "test",
+		Harp:    env["CTXLOOM_SESSION_HARP"],
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })
@@ -85,6 +86,7 @@ func TestRequest_NeverAttachedIsUnreachable(t *testing.T) {
 		RunID:   "run-not-mine", // Hello is rejected; the channel never attaches
 		Harness: "mock",
 		Version: "test",
+		Harp:    env["CTXLOOM_SESSION_HARP"],
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })

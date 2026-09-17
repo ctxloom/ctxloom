@@ -38,7 +38,7 @@ func TestNew_FailureAfterEphemeralFallbackLeavesNoTempDir(t *testing.T) {
 
 	// Cfg nil with no injected Spawner: the first failure after the state dir
 	// is acquired.
-	c, err := New(Options{ProjectDir: t.TempDir(), ProjectKey: key})
+	c, err := New(Options{ProjectDir: t.TempDir(), ProjectKey: key, OwnerHarp: ownerIdentity().Harp})
 	assert.Nil(t, c)
 	assert.Error(t, err)
 

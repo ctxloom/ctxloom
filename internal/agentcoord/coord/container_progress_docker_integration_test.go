@@ -346,6 +346,7 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 		ProjectKey:         "progress-itest",
 		Spawner:            sp,
 		RunnerAwaitTimeout: awaitBudget,
+		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

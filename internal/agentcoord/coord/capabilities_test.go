@@ -64,6 +64,7 @@ func TestRunChannel_CapturesHelloCapabilities(t *testing.T) {
 	h, err := NewHome(ctx, HomeConfig{
 		URL: url, Token: token, Harness: "test", Version: "test",
 		Capabilities: RunnerCapabilities(true),
+		Harp:         "child-harp-1",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })

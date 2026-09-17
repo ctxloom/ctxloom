@@ -18,12 +18,26 @@ import (
 // would write its fixtures into the developer's real session store and pass —
 // the residue only surfacing later as a spool full of "child-harp-1".
 
-// teeHome redirects HOME to a fresh temp dir and returns it. Every spool path
-// in these tests hangs off it.
+// teeHome gives THIS test a private HOME and returns it. Every spool path
+// hangs off HOME, and the owner's harp is a constant across tests, so two
+// tests sharing a HOME would read each other's owner spool — the second one
+// receiving results the first one's children wrote. It is idempotent per
+// test (the constructors call it, and a test that wants the path calls it
+// too): a second call returns the HOME the first minted rather than
+// switching the test to a directory it has already been told about.
+//
+// The marker is a key t.Setenv restores at the test's end, so it can never
+// name another test; it is kept outside the CTXLOOM_* namespace because
+// testsupport.Isolate clears that whole namespace.
 func teeHome(t *testing.T) string {
 	t.Helper()
+	const marker = "COORD_TEST_HOME_OWNER"
+	if os.Getenv(marker) == t.Name() {
+		return os.Getenv("HOME")
+	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv(marker, t.Name())
 	return home
 }
 

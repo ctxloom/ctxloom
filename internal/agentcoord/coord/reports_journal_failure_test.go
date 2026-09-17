@@ -30,7 +30,7 @@ import (
 // coordinator shutting down while a runner's last report is in flight).
 func TestRecordSummary_JournalFailureDoesNotClaimTheReportWasFiled(t *testing.T) {
 	dir := t.TempDir()
-	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil)})
+	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
@@ -66,7 +66,7 @@ func TestRecordSummary_JournalFailureDoesNotClaimTheReportWasFiled(t *testing.T)
 // checkpoint.
 func TestRecordSummary_SuccessStillAuditsAndCheckpoints(t *testing.T) {
 	dir := t.TempDir()
-	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil)})
+	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)

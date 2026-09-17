@@ -29,6 +29,7 @@ func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) *Home {
 	h, err := NewHome(ctx, HomeConfig{
 		URL: url, Token: token, Harness: "test", Version: "test",
 		Capabilities: caps,
+		Harp:         "child-harp-1",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })

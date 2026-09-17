@@ -151,6 +151,7 @@ func TestBeginDrain_ServeRefusesToStartFreshOnceDraining(t *testing.T) {
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),
 		Spawner:    newFakeSpawner(nil, nil),
+		OwnerHarp:  ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)

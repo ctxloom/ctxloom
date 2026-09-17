@@ -237,6 +237,7 @@ func assertDeadRunnerIsReportedPromptly(t *testing.T, exitErr error, wantReason 
 		// elapsed, it would take minutes to do it — the 2s AgentRecv below
 		// would have long since returned empty.
 		RunnerAwaitTimeout: 5 * time.Minute,
+		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

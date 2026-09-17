@@ -633,6 +633,7 @@ func newTestCoordinatorDepthCap(t *testing.T, sp Spawner, clock func() time.Time
 // above wrap.
 func newTestCoordinatorOpts(t *testing.T, sp Spawner, clock func() time.Time, concurrencyCap, depthCap int) *Coordinator {
 	t.Helper()
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:     t.TempDir(),
 		StateDir:       t.TempDir(),
@@ -718,6 +719,7 @@ func mkTempDir(t *testing.T) string { return t.TempDir() }
 // (adoption tests relaunch over the same dir).
 func newTestCoordinatorAt(t *testing.T, stateDir string) *Coordinator {
 	t.Helper()
+	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: stateDir,
 		StateDir:   stateDir,

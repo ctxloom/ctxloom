@@ -31,6 +31,7 @@ func TestStartOwnedRun_CleansUpOnIssueStartRunFailure(t *testing.T) {
 		StateDir:           t.TempDir(),
 		Spawner:            sp,
 		RunnerAwaitTimeout: 100 * time.Millisecond, // issueStartRun's awaitRunner budget
+		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

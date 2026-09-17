@@ -527,7 +527,7 @@ func TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated(t *testing
 		assert.Equal(t, "task-runner", result[0].Item)
 		assert.Equal(t, remote.CompanionSource+"@ltk", result[0].Bundle)
 
-		companionOnly := cfg.ResolveCompanionCommands()
+		companionOnly := cfg.ResolveCompanionCommands(nil)
 		require.Len(t, companionOnly, 1)
 		assert.Equal(t, "task-runner", companionOnly[0].Item)
 	})
@@ -537,7 +537,7 @@ func TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated(t *testing
 		cfg.SetExecutableTrustGate(testAuthorizer(false))
 		result := cfg.ResolveBundleCommands(nil)
 		assert.Empty(t, result, "a companion command must be withheld by a denying gate — a true builtin would NOT be")
-		assert.Empty(t, cfg.ResolveCompanionCommands())
+		assert.Empty(t, cfg.ResolveCompanionCommands(nil))
 	})
 }
 

@@ -10,13 +10,13 @@ package bundles
 // and delivers nothing, which would make every resolution test here fail for a
 // reason that has nothing to do with what it is testing.
 func ungated(l *Loader, preferDistilled bool) *Pipeline {
-	return NewPipeline(l, AdmitAll(), preferDistilled)
+	return NewPipeline(l, AdmitAll(), LinksUnchecked(), preferDistilled)
 }
 
 // gatedPipe wraps a reader in a pipeline that decides with authorizer — the
 // exposure shape.
 func gatedPipe(l *Loader, authorizer Authorizer, preferDistilled bool) *Pipeline {
-	return NewPipeline(l, authorizer, preferDistilled)
+	return NewPipeline(l, authorizer, LinksUnchecked(), preferDistilled)
 }
 
 // authorizerFunc adapts a plain function to Authorizer, so a test can spell a decision

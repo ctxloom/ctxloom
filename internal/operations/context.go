@@ -188,6 +188,8 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	if err != nil {
 		return nil, fmt.Errorf("resolve who consumes the assembled context: %w", err)
 	}
+	profileNames := resolveContextProfileNames(cfg, req)
+
 	pipe := req.Pipeline
 	// gate is the underlying trust gate behind pipe, when this call built its
 	// own (nil for an injected test pipeline — see warnWithheld). Kept so the
@@ -197,12 +199,13 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	if pipe == nil {
 		// Exposure surface: gate fragment/prompt content (trust rework, TR5). The
 		// gate runs the baseline first (idempotent) so existing content stays
-		// exposed, then withholds anything the cascade denies.
-		pipe, gate = exposurePipelineGated(cfg)
+		// exposed, then withholds anything the cascade denies. Link groups are
+		// judged against THIS run's granted MCP set — the same profiles the
+		// engine is launched with — so a linked fragment is assembled exactly
+		// when its server is.
+		pipe, gate = exposurePipelineGated(cfg, cfg.LinkGrant(profileNames))
 	}
 	loader := pipe.Loader()
-
-	profileNames := resolveContextProfileNames(cfg, req)
 
 	// Profiles picked up from configured defaults (rather than an explicit
 	// --profile / Profiles ask) degrade per fault-tolerance: a default that fails

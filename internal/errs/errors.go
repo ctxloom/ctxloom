@@ -44,6 +44,13 @@ var (
 	// verification against a signed bundle.yaml entry). See ErrFragmentWithheld.
 	ErrSkillWithheld = errors.New("skill withheld by trust gate")
 
+	// ErrDanglingLink indicates a bundle carries a ctxloom:link_id tag on
+	// exactly one item. A link binds two or more items in one bundle into a
+	// single delivery unit; one side alone is the signature of a typo on the
+	// other, which would otherwise silently unlink the pair and deliver a
+	// fragment beside the tool it lacks. Refused at parse so it cannot be silent.
+	ErrDanglingLink = errors.New("bundle link id is carried by only one item")
+
 	// ErrNoVersionResolver indicates a per-commit-version resolution was
 	// requested (multi-version coexistence, trust rework, TR5) but the loader
 	// has no version resolver wired. A pinned historical version cannot be

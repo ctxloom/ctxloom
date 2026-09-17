@@ -311,6 +311,32 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	return result
 }
 
+// bundleSCM is the marker a resolved MCP server carries to name the bundle
+// that shipped it (wire.MCPServer.SCM). extractMCPFromBundle stamps it and
+// LinkGrant reads it back, so "granted from THIS bundle" is one spelling.
+func bundleSCM(src trust.BundleRef) string {
+	return "bundle:" + string(src.BundleIdentity())
+}
+
+// LinkGrant answers the link-group question for a run over profileNames from
+// the run's OWN granted set — ResolveBundleMCPServers over the same profiles
+// the engine is launched with — so a fragment or skill linked to an MCP server
+// is delivered exactly when that server is. It is keyed by server name AND
+// owning bundle: the name arbiter can withhold one bundle's server while a
+// same-named server from another survives, and the survivor must not stand in
+// for the one the linked item actually depends on.
+//
+// The granted set is resolved ONCE, here, not per question: the resolve
+// reports findings (unresolvable profiles, name contests) and a grant asked
+// many times in one assembly should not repeat them.
+func (c *Config) LinkGrant(profileNames []string) bundles.LinkGrant {
+	granted := c.ResolveBundleMCPServers(profileNames)
+	return bundles.LinkGrantFunc(func(read bundles.BundleRead, server string) bool {
+		srv, ok := granted[server]
+		return ok && srv.SCM == bundleSCM(read.SourceRef())
+	})
+}
+
 // resolveBuiltinBundleMCPServers parses every YAML under
 // resources/builtin_bundles/ (embedded at build time) and returns the
 // merged MCP-server map. Mirrors resolveBuiltinBundleHooks. Each server
@@ -537,7 +563,7 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 // withheld command is therefore not exported.
 func (c *Config) ResolveBundleCommands(profileNames []string, opts ...BundleLoaderOption) []*bundles.LoadedContent {
 	loader := c.BundleLoader(opts...)
-	pipe := bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.ShouldUseDistilled())
+	pipe := bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled())
 
 	seen := make(map[string]bool)
 	var out []*bundles.LoadedContent
@@ -573,7 +599,7 @@ func (c *Config) ResolveBundleCommands(profileNames []string, opts ...BundleLoad
 // Deduped by skill item name (first occurrence wins), matching
 // ResolveBundleCommands' dedup key.
 func (c *Config) ResolveBundleSkills(profileNames []string, opts ...BundleLoaderOption) []*bundles.LoadedSkill {
-	pipe := bundles.NewPipeline(c.BundleLoader(opts...), c.ExecutableTrustGate(), c.ShouldUseDistilled())
+	pipe := bundles.NewPipeline(c.BundleLoader(opts...), c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled())
 
 	seen := make(map[string]bool)
 	var out []*bundles.LoadedSkill
@@ -606,10 +632,13 @@ func (c *Config) ResolveBundleSkills(profileNames []string, opts ...BundleLoader
 // This is the piece LoadCommandExports adds on BOTH its curated and uncurated
 // paths (ResolveBundleCommands only covers the uncurated one, since a
 // profile's commands: curation bypasses it entirely) — see prompts.go.
-func (c *Config) ResolveCompanionCommands(opts ...BundleLoaderOption) []*bundles.LoadedContent {
+// profileNames scopes only the LINK grant: a companion's commands are
+// unconditional, but one linked to a server the selected profiles veto is
+// withheld with it.
+func (c *Config) ResolveCompanionCommands(profileNames []string, opts ...BundleLoaderOption) []*bundles.LoadedContent {
 	loader := c.BundleLoader(opts...)
 	return resolveCompanionCommandsWith(
-		bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.ShouldUseDistilled()), loader.Catalog())
+		bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled()), loader.Catalog())
 }
 
 // resolveCompanionCommandsWith is the shared companion-command extraction
@@ -972,7 +1001,7 @@ func extractMCPFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bun
 			Env:          mcp.Env,
 			Notes:        mcp.Notes,
 			Installation: mcp.Installation,
-			SCM:          "bundle:" + string(src.BundleIdentity()), // Mark as coming from a bundle
+			SCM:          bundleSCM(src),
 		}
 	}
 

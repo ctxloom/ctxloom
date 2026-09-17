@@ -77,7 +77,7 @@ func localResolverLoader(t *testing.T, appDir string) *bundles.Pipeline {
 		"version: \"1.0\"\nfragments:\n  fmt:\n    content: WORKTREE-BODY\ncommands:\n  review:\n    content: WORKTREE-PROMPT\n", 0o644)
 	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{searchRoot})).WithVersionResolver(resolver)
 	// AdmitAll: this test resolves versions, not trust, and states so.
-	return bundles.NewPipeline(loader, bundles.AdmitAll(), false)
+	return bundles.NewPipeline(loader, bundles.AdmitAll(), bundles.LinksUnchecked(), false)
 }
 
 // TestLocalRev_FragmentResolvesHistoricalVersion proves a local fragment ref

@@ -61,7 +61,7 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 	//
 	// preferDistilled stays false: this changes WHO is admitted, not which
 	// bytes an admitted command contributes.
-	pipe := bundles.NewPipeline(loader, buildContentGate(cfg, nil, cfgFS(cfg)), false)
+	pipe := bundles.NewPipeline(loader, buildContentGate(cfg, nil, cfgFS(cfg)), bundles.LinksUnchecked(), false)
 	infos, err := loader.ListAllCommands()
 	if err != nil {
 		// Falling back to the built-in prompt on a listing failure is correct

@@ -33,7 +33,7 @@ func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...config.
 		// Same gate as the command curation branch (commands.go): the
 		// cfg-injected executable gate, nil on management paths.
 		return loadCuratedSkills(
-			bundles.NewPipeline(cfg.BundleLoader(opts...), cfg.ExecutableTrustGate(), cfg.ShouldUseDistilled()),
+			bundles.NewPipeline(cfg.BundleLoader(opts...), cfg.ExecutableTrustGate(), cfg.LinkGrant(profileNames), cfg.ShouldUseDistilled()),
 			curated)
 	}
 	return cfg.ResolveBundleSkills(profileNames, opts...)

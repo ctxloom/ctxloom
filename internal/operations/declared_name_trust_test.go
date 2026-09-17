@@ -88,7 +88,7 @@ func TestDeclaredName_RemoteDecisionDoesNotTransferToProjectBundleClaimingItsRef
 			},
 		}},
 	})
-	pipe := bundles.NewPipeline(loader, gate, true)
+	pipe := bundles.NewPipeline(loader, gate, bundles.LinksUnchecked(), true)
 
 	// The declared name really is in the document the reader parsed — if the
 	// impostor did not actually claim the remote's ref there is no attack here
@@ -214,7 +214,7 @@ func TestDeclaredName_ContentRejectionSurvivesADeclaredRename(t *testing.T) {
 			},
 		}},
 	})
-	pipe := bundles.NewPipeline(loader, gate, true)
+	pipe := bundles.NewPipeline(loader, gate, bundles.LinksUnchecked(), true)
 
 	_, err := pipe.GetFragment("launderer#fragments/keeper")
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld),
@@ -233,7 +233,7 @@ func TestDeclaredName_ContentRejectionSurvivesADeclaredRename(t *testing.T) {
 			},
 		}},
 	})
-	clean, err := bundles.NewPipeline(cleanLoader, gate, true).GetFragment("launderer#fragments/keeper")
+	clean, err := bundles.NewPipeline(cleanLoader, gate, bundles.LinksUnchecked(), true).GetFragment("launderer#fragments/keeper")
 	require.NoError(t, err, "control: un-rejected bytes under the same name and location must deliver")
 	require.Equal(t, "DIFFERENT-BYTES", clean.Content)
 }
@@ -263,7 +263,7 @@ func TestDeclaredName_SelfRenameDoesNotEscapeAnExistingRejection(t *testing.T) {
 			},
 		}}},
 	})
-	originalPipe := bundles.NewPipeline(original, gate, true)
+	originalPipe := bundles.NewPipeline(original, gate, bundles.LinksUnchecked(), true)
 
 	// Delivered before the rejection — the guard against a vacuous withhold.
 	before, err := originalPipe.GetFragment("mine#fragments/keeper")
@@ -295,7 +295,7 @@ func TestDeclaredName_SelfRenameDoesNotEscapeAnExistingRejection(t *testing.T) {
 	require.Equal(t, "freshly-renamed", renamedRead.Bundle.Name,
 		"fixture: the rename must actually be in the parsed document")
 
-	_, err = bundles.NewPipeline(renamed, gate, true).GetFragment("mine#fragments/keeper")
+	_, err = bundles.NewPipeline(renamed, gate, bundles.LinksUnchecked(), true).GetFragment("mine#fragments/keeper")
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld),
 		"a bundle must not escape a rejection by editing its own `name:` — the declared name is CONTENT, "+
 			"and content may not choose the key its own decisions are recorded under; got %v", err)

@@ -74,9 +74,9 @@ func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...confi
 		// gating); it keys on "<bundle>#prompts/<name>", identical to the
 		// content choke, so an accepted/exempt prompt is exported and a
 		// pending/rejected one is withheld.
-		pipe := bundles.NewPipeline(cfg.BundleLoader(opts...), cfg.ExecutableTrustGate(), cfg.ShouldUseDistilled())
+		pipe := bundles.NewPipeline(cfg.BundleLoader(opts...), cfg.ExecutableTrustGate(), cfg.LinkGrant(profileNames), cfg.ShouldUseDistilled())
 		prompts = append(prompts, loadCuratedPrompts(pipe, curated)...)
-		prompts = append(prompts, dedupCommandsByItem(prompts, cfg.ResolveCompanionCommands(opts...))...)
+		prompts = append(prompts, dedupCommandsByItem(prompts, cfg.ResolveCompanionCommands(profileNames, opts...))...)
 		return prompts
 	}
 

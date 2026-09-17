@@ -68,7 +68,7 @@ func gatedAcmeLoader(t *testing.T, records ReviewRecords) (*bundles.Pipeline, *c
 	t.Helper()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	gate := &contentGate{cfg: cfg, records: records}
-	pipe := bundles.NewPipeline(seedLoader(t, acmeToolingSeed()), gate, true)
+	pipe := bundles.NewPipeline(seedLoader(t, acmeToolingSeed()), gate, bundles.LinksUnchecked(), true)
 	return pipe, cfg
 }
 
@@ -170,7 +170,7 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 	gate := &contentGate{cfg: cfg, records: fx.records()}
 
 	// v1 stays exposed (accepted at this exact hash).
-	l1 := bundles.NewPipeline(seedLoader(t, v1), gate, true)
+	l1 := bundles.NewPipeline(seedLoader(t, v1), gate, bundles.LinksUnchecked(), true)
 	got, err := l1.GetFragment(acmeBundle + "tooling#fragments/solid")
 	require.NoError(t, err)
 	assert.Equal(t, "v1 body", got.Content)
@@ -185,7 +185,7 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 				},
 			}}},
 	}
-	l2 := bundles.NewPipeline(seedLoader(t, v2), gate, true)
+	l2 := bundles.NewPipeline(seedLoader(t, v2), gate, bundles.LinksUnchecked(), true)
 	_, err = l2.GetFragment(acmeBundle + "tooling#fragments/solid")
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "post-swap content must gate, got %v", err)
 
@@ -215,7 +215,7 @@ func TestExposureGate_FailClosed(t *testing.T) {
 	// A fresh, empty records store → every gated item withheld through the
 	// loader (nothing has ever been approved).
 	empty := &contentGate{records: newTrustFixture(t).records()}
-	l := bundles.NewPipeline(seedLoader(t, acmeToolingSeed()), empty, true)
+	l := bundles.NewPipeline(seedLoader(t, acmeToolingSeed()), empty, bundles.LinksUnchecked(), true)
 	_, err := l.GetFragment(solidRef)
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "an empty records store must withhold even a would-be-trusted item, got %v", err)
 }

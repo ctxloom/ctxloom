@@ -383,7 +383,7 @@ func TestLoader_RemoteTamperedTreeIsRefusedNotDegradedToUnsigned(t *testing.T) {
 	// nowhere downstream to be mishandled.
 	assert.Empty(t, l.Reads(), "a tree whose files moved must never become content")
 
-	pipe := NewPipeline(l, signatureRowsAuthorizer(), false)
+	pipe := NewPipeline(l, signatureRowsAuthorizer(), LinksUnchecked(), false)
 	_, ferr := pipe.GetFragment(ref + "#fragments/keeper")
 	require.Error(t, ferr, "and it must not resolve as an unsigned bundle awaiting review")
 
@@ -418,7 +418,7 @@ func TestLoader_LocalInvalidSignatureIsAdmittedAndTheAuthorIsTold(t *testing.T) 
 	restore := clidiag.SetSink(&warnings)
 	t.Cleanup(restore)
 	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root))),
-		signatureRowsAuthorizer(), false)
+		signatureRowsAuthorizer(), LinksUnchecked(), false)
 
 	lc, err := pipe.GetFragment("wave6-stale#fragments/keeper")
 

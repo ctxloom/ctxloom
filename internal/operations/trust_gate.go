@@ -380,8 +380,12 @@ func (e *ExecutableTrustGate) WarnWithheld() {
 // cfg.FS() is threaded so the gate's review-records store reads the same
 // filesystem as the rest of the operation (OS fs in production, a virtualized
 // fs in tests).
+//
+// This shape serves an explicit by-name ask or a listing, never a run's
+// assembly, so it does not consult link groups (bundles.LinksUnchecked): the
+// caller named the item, and "what exists" must not shrink with a profile.
 func exposurePipeline(cfg *config.Config, opts ...config.BundleLoaderOption) *bundles.Pipeline {
-	pipe, _ := exposurePipelineGated(cfg, opts...)
+	pipe, _ := exposurePipelineGated(cfg, bundles.LinksUnchecked(), opts...)
 	return pipe
 }
 
@@ -394,9 +398,13 @@ func exposurePipeline(cfg *config.Config, opts ...config.BundleLoaderOption) *bu
 // — a single-item resource fetch that already returns a distinct withheld
 // sentinel error, errs.ErrFragmentWithheld/ErrCommandWithheld) have no reasoned
 // advisory to print and keep using the simpler exposurePipeline.
-func exposurePipelineGated(cfg *config.Config, opts ...config.BundleLoaderOption) (*bundles.Pipeline, *contentGate) {
+//
+// links is the run's link grant (cfg.LinkGrant over the profiles being
+// assembled) for a surface that assembles a run, or bundles.LinksUnchecked
+// for one that does not — stated by the caller, because only it knows which.
+func exposurePipelineGated(cfg *config.Config, links bundles.LinkGrant, opts ...config.BundleLoaderOption) (*bundles.Pipeline, *contentGate) {
 	gate := buildContentGate(cfg, nil, cfgFS(cfg))
-	return bundles.NewPipeline(cfg.BundleLoader(opts...), gate, cfgPreferDistilled(cfg)), gate
+	return bundles.NewPipeline(cfg.BundleLoader(opts...), gate, links, cfgPreferDistilled(cfg)), gate
 }
 
 // cfgPreferDistilled returns the caller's raw-vs-distilled form choice, nil-safe.

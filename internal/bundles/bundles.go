@@ -459,6 +459,7 @@ type BundleMCP struct {
 	Command      string            `yaml:"command"`
 	Args         []string          `yaml:"args,omitempty"`
 	Env          map[string]string `yaml:"env,omitempty"`
+	Tags         []string          `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags); host-evaluated, outside the executable preimage
 	Notes        string            `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
 	Installation string            `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
 	ContentHash  string            `yaml:"content_hash,omitempty"` // Hash of the executable surface (Command+Args+Env+Installation)
@@ -476,7 +477,7 @@ type BundleMCP struct {
 // LLM — stays on the kind that has it, which is now the only thing either
 // declares.
 //
-// BundleMCP deliberately does NOT embed this: it shares three field names but
+// BundleMCP deliberately does NOT embed this: it shares several field names but
 // carries no Content and no distillation, so folding it in would mean a type
 // whose fields are meaningless for a third of its users.
 //
@@ -1189,6 +1190,13 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	var bundle Bundle
 	if err := yamlx.DecodeStrict(data, &bundle); err != nil {
 		return nil, strictDecodeError(err)
+	}
+
+	// A link id on exactly one item is the other side's typo, and left alone
+	// it would deliver that item beside the tool it lacks. Refused here, at
+	// the one place every bundle passes through, so it cannot be silent.
+	if err := bundle.checkLinks(); err != nil {
+		return nil, err
 	}
 
 	// Initialize maps if nil

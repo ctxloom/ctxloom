@@ -63,7 +63,7 @@ func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions ma
 	}
 	return NewPipeline(
 		NewLoader(seedLocal(map[string]*Bundle{canonicalRef: def})).WithVersionResolver(resolver),
-		gate, true)
+		gate, LinksUnchecked(), true)
 }
 
 const cqRef = "https://github.com/acme/b@bundles/cq"

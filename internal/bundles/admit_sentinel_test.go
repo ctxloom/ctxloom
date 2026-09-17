@@ -29,7 +29,7 @@ func sentinelSeed() map[string]*Bundle {
 }
 
 func sentinelPipe(a Authorizer) *Pipeline {
-	return NewPipeline(NewLoader(seedLocal(sentinelSeed())), a, true)
+	return NewPipeline(NewLoader(seedLocal(sentinelSeed())), a, LinksUnchecked(), true)
 }
 
 // TestExposure_RealGate_WithholdsWhatItRefuses proves the gated direction: a

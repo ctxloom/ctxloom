@@ -141,7 +141,7 @@ func TestSameNamedBundles_RefRejectDoesNotLeakBetweenSources(t *testing.T) {
 		fx := newTrustFixture(t)
 		gate := &contentGate{cfg: cfg, records: fx.records()}
 		loader := sameNameLoader(t, projectBody)
-		pipe := bundles.NewPipeline(loader, gate, true)
+		pipe := bundles.NewPipeline(loader, gate, bundles.LinksUnchecked(), true)
 
 		// Sanity: BOTH copies deliver first, through the SAME route. Without
 		// this the assertions below pass on an item that was never reachable.
@@ -175,7 +175,7 @@ func TestSameNamedBundles_RefRejectDoesNotLeakBetweenSources(t *testing.T) {
 		fx := newTrustFixture(t)
 		gate := &contentGate{cfg: cfg, records: fx.records()}
 		loader := sameNameLoader(t, projectBody)
-		pipe := bundles.NewPipeline(loader, gate, true)
+		pipe := bundles.NewPipeline(loader, gate, bundles.LinksUnchecked(), true)
 
 		got, err := pipe.GetFragment(projectFragmentRef)
 		require.NoError(t, err)
@@ -223,7 +223,7 @@ func TestSameNamedBundles_ContentRejectStillFollowsIdenticalBytes(t *testing.T) 
 	// The project copy ships the builtin's EXACT bytes — the vendored-copy
 	// case, and the one where ref separation could hide a rejection.
 	loader := sameNameLoader(t, body)
-	pipe := bundles.NewPipeline(loader, gate, true)
+	pipe := bundles.NewPipeline(loader, gate, bundles.LinksUnchecked(), true)
 
 	got, err := pipe.GetFragment(projectFragmentRef)
 	require.NoError(t, err)

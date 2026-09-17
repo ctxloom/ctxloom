@@ -50,6 +50,12 @@ type Pipeline struct {
 	loader     *Loader
 	authorizer Authorizer
 
+	// links decides whether a LINKED item's group is deliverable to this run
+	// (see LinkGrant). Like authorizer it is a stated policy: a surface that
+	// does not assemble a run passes LinksUnchecked, and nil is an omission
+	// that withholds every linked item.
+	links LinkGrant
+
 	// preferDistilled is the caller's raw-vs-distilled choice, held HERE
 	// because form selection is processing: the read stage carries every form
 	// the store holds (ItemRead.Resolve) and this stage picks one. It only ever
@@ -62,10 +68,12 @@ type Pipeline struct {
 }
 
 // NewPipeline builds the process stage over loader. A surface that does not
-// gate passes AdmitAll — the deliberate statement, spelled as a value. A nil
-// authorizer is an omission, and this pipeline then delivers nothing.
-func NewPipeline(loader *Loader, authorizer Authorizer, preferDistilled bool) *Pipeline {
-	return &Pipeline{loader: loader, authorizer: authorizer, preferDistilled: preferDistilled}
+// gate passes AdmitAll, and one that does not assemble a run passes
+// LinksUnchecked — each a deliberate statement, spelled as a value. A nil
+// authorizer is an omission, and this pipeline then delivers nothing; a nil
+// links grant is the same omission for every linked item.
+func NewPipeline(loader *Loader, authorizer Authorizer, links LinkGrant, preferDistilled bool) *Pipeline {
+	return &Pipeline{loader: loader, authorizer: authorizer, links: links, preferDistilled: preferDistilled}
 }
 
 // Loader returns the read stage this pipeline processes. Callers that need
@@ -145,6 +153,46 @@ func (p *Pipeline) recordWithheld(ref string) {
 	p.withheldMu.Unlock()
 }
 
+// linkWithholds reports whether an item carrying tags, read from read, belongs
+// to a link group this run cannot deliver whole: one of the group's MCP
+// members was not granted. It names the group and the missing server so the
+// caller can say WHY, and it decides for every group the item is in — an item
+// in two groups needs both.
+//
+// FAIL-CLOSED, mirroring Decide: a nil grant withholds every linked item. An
+// unlinked item is never touched, because withholding is a property of the
+// group and not collateral for the bundle.
+func (p *Pipeline) linkWithholds(read BundleRead, tags []string) (linkID, server string, withheld bool) {
+	ids := LinkIDs(tags)
+	if len(ids) == 0 {
+		return "", "", false
+	}
+	if p.links == nil {
+		return ids[0], "", true
+	}
+	groups := read.Bundle.LinkGroups()
+	for _, id := range ids {
+		for _, mcp := range groups[id].MCPMembers() {
+			if !p.links.Granted(read, mcp) {
+				return id, mcp, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// withholdLinked tallies and surfaces a link withhold. WarnOnce, because the
+// same assembly runs once per turn and an unchanged gap would otherwise
+// re-warn every time; the finding is content-free (refs and names only).
+func (p *Pipeline) withholdLinked(ref, linkID, server string) {
+	p.recordWithheld(ref)
+	if server == "" {
+		clidiag.WarnOnce("ctxloom", "%s withheld: it is linked (%s=%s) but this pipeline has no link grant", ref, linkTagKey, linkID)
+		return
+	}
+	clidiag.WarnOnce("ctxloom", "%s withheld: it is linked (%s=%s) to MCP server %q, which this run was not granted", ref, linkTagKey, linkID, server)
+}
+
 // deliver is the process stage in one function: RESOLVE a form from everything
 // the read reported, then decide whether that resolution may be exposed.
 // Returns nil when it may not.
@@ -162,6 +210,12 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 	}
 	s := r.Resolve(p.preferDistilled)
 	if !p.admit(r.Read, r.TrustRef, s.Preimage, s.Form) {
+		return nil
+	}
+	// Trust decided first, so a trust withhold is reported as one; links are
+	// the second question, asked only of an item trust would deliver.
+	if id, server, withheld := p.linkWithholds(r.Read, r.Tags); withheld {
+		p.withholdLinked(r.TrustRef, id, server)
 		return nil
 	}
 	return &LoadedContent{
@@ -215,6 +269,10 @@ func (p *Pipeline) admitSkill(ls *LoadedSkill) bool {
 // delivering an empty or two-bodied one.
 func (p *Pipeline) deliverSkill(ls *LoadedSkill) *LoadedSkill {
 	if !p.admitSkill(ls) {
+		return nil
+	}
+	if id, server, withheld := p.linkWithholds(ls.Read, ls.Tags); withheld {
+		p.withholdLinked(ls.TrustRef, id, server)
 		return nil
 	}
 	paths := make([]string, len(ls.Files))

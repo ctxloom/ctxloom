@@ -40,7 +40,7 @@ func TestBuiltinFragment_RejectViaLoaderRoute_WithholdsInjectionRoute(t *testing
 	// TrustRef derivation are real production code, exercised here exactly as
 	// they run).
 	loader := bundles.NewLoader(bundles.NewBuiltinReader())
-	pipe := bundles.NewPipeline(loader, gate, true)
+	pipe := bundles.NewPipeline(loader, gate, bundles.LinksUnchecked(), true)
 
 	// Sanity: BOTH routes deliver before any rejection — a builtin is exempt
 	// from review by default, so an empty records store must not withhold it.
@@ -115,7 +115,7 @@ func TestBuiltinFragment_Rejection_PersistsAcrossReload(t *testing.T) {
 	// reject would pass regardless of the identity fix and prove nothing.
 	firstGate := &contentGate{cfg: cfg, records: fx.records()}
 	fx.rejectRef(tRef)
-	_, err = bundles.NewPipeline(loader, firstGate, true).GetFragment("isolation#fragments/isolation-axes")
+	_, err = bundles.NewPipeline(loader, firstGate, bundles.LinksUnchecked(), true).GetFragment("isolation#fragments/isolation-axes")
 	require.True(t, errors.Is(err, errs.ErrFragmentWithheld), "sanity: rejection must take effect immediately")
 
 	// "Reload": build a BRAND NEW countersignRecords over the SAME backing
@@ -126,7 +126,7 @@ func TestBuiltinFragment_Rejection_PersistsAcrossReload(t *testing.T) {
 	reloadedGate := &contentGate{cfg: cfg, records: reloadedRecords}
 	reloadedLoader := bundles.NewLoader(bundles.NewBuiltinReader())
 
-	_, err = bundles.NewPipeline(reloadedLoader, reloadedGate, true).GetFragment("isolation#fragments/isolation-axes")
+	_, err = bundles.NewPipeline(reloadedLoader, reloadedGate, bundles.LinksUnchecked(), true).GetFragment("isolation#fragments/isolation-axes")
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld),
 		"a builtin rejection must survive a reload of the gate/loader, got %v", err)
 

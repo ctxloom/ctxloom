@@ -46,7 +46,7 @@ func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundl
 
 	pipe := bundles.NewPipeline(
 		seedLoader(t, map[string]*bundles.Bundle{cqVersionRef: def}).WithVersionResolver(resolver),
-		gate, true)
+		gate, bundles.LinksUnchecked(), true)
 	return pipe, cfg
 }
 

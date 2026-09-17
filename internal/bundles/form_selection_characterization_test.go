@@ -177,7 +177,7 @@ type charExposure struct {
 func newCharExposure(preferDistilled bool) *charExposure {
 	seen := map[string][2]string{}
 	return &charExposure{
-		pipe:   NewPipeline(NewLoader(seedLocal(charSeed())), blockingGate(seen), preferDistilled),
+		pipe:   NewPipeline(NewLoader(seedLocal(charSeed())), blockingGate(seen), LinksUnchecked(), preferDistilled),
 		seen:   seen,
 		prefer: preferDistilled,
 	}

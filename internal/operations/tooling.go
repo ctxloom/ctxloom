@@ -52,7 +52,7 @@ func CollectTooling(cfg *config.Config, pipe *bundles.Pipeline) []ToolingDeclara
 	}
 	var gate *contentGate
 	if pipe == nil {
-		pipe, gate = exposurePipelineGated(cfg)
+		pipe, gate = exposurePipelineGated(cfg, bundles.LinksUnchecked())
 	}
 	if pipe == nil {
 		return nil

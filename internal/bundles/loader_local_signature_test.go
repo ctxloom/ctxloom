@@ -75,7 +75,7 @@ func deliverKeeper(t *testing.T, fsys afero.Fs, bundleName string) (*LoadedConte
 	t.Cleanup(restore)
 
 	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"})).WithWarnWriter(&warnings),
-		signatureRowsAuthorizer(), false)
+		signatureRowsAuthorizer(), LinksUnchecked(), false)
 	lc, err := pipe.GetFragment(bundleName + "#fragments/keeper")
 	require.NoError(t, err, "a signature fact about LOCAL content must never withhold it")
 	return lc, warnings.String()

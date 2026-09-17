@@ -34,6 +34,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 const (
@@ -58,10 +59,13 @@ const (
 // j000700State is J000700's per-scenario state, held as a single field on World (see
 // world.go) to keep that shared struct's diff to one line.
 type j000700State struct {
-	bareOrigin  string // the team project's bare git origin (file path, no scheme)
-	bobDir      string // Bob's separate clone directory (empty until his first pull)
-	bobOutput   string // last command's combined stdout+stderr run in Bob's checkout
-	bobExit     int
+	bareOrigin string // the team project's bare git origin (file path, no scheme)
+	bobDir     string // Bob's separate clone directory (empty until his first pull)
+	// bobRuns is every command run in Bob's checkout, his own history
+	// separate from w.env's (Carol's): the journeys interleave the two
+	// developers' commands and assert per developer, so folding Bob's runs
+	// into w.env would shift Carol's NthLastOutput indices under her.
+	bobRuns     testenv.RunHistory
 	commandName string // the command name scenarios 1/3 authored/edited (default "conventional-commits")
 }
 
@@ -119,7 +123,7 @@ func registerJ000700Steps(ctx *godog.ScenarioContext) {
 		if err := runBob(w, "review", "--list", "--format", "json"); err != nil {
 			return err
 		}
-		out := w.j000700().bobOutput
+		out := w.j000700().bobRuns.LastStdout()
 		var res struct {
 			Total int `json:"total"`
 		}
@@ -395,20 +399,9 @@ func runBob(w *World, args ...string) error {
 	}
 	cmd := w.env.Command(nil, args...)
 	cmd.Dir = j000700.bobDir
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	j000700.bobOutput = stdout.String() + stderr.String()
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		j000700.bobExit = exitErr.ExitCode()
-	} else if err != nil {
-		j000700.bobExit = -1
-	} else {
-		j000700.bobExit = 0
-	}
-	if j000700.bobExit != 0 {
-		return fmt.Errorf("%v failed in bob's checkout (exit %d): %s", args, j000700.bobExit, j000700.bobOutput)
+	_ = j000700.bobRuns.Exec(cmd)
+	if code := j000700.bobRuns.LastExitCode(); code != 0 {
+		return fmt.Errorf("%v failed in bob's checkout (exit %d): %s", args, code, j000700.bobRuns.LastOutput())
 	}
 	return nil
 }

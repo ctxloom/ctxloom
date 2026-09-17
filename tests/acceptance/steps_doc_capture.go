@@ -189,7 +189,7 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 		// Per-scenario reset of the cross-step trackers so one scenario's tail
 		// state never bleeds into the next.
 		w.docPrevStepType = ""
-		w.docLastBobOutput = ""
+		w.docLastBobRunCount = 0
 		w.docLastCommandOutput = ""
 		w.docStepMaterialized = ""
 		w.docLastToolCalls = w.toolCalls
@@ -249,19 +249,21 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 				step.CLIOutput = w.docLastCommandOutput
 			}
 		}
-		// J000700 runs the teammate's (Bob's) commands in a separate checkout via its
-		// own exec plumbing, so that output never touches w.env.LastOutput() or
-		// its run counter. Surface it on a new-since-last-step basis so each
-		// teammate-side step shows its real output rather than inheriting a
-		// prior step's.
+		// J000700 runs the teammate's (Bob's) commands in a separate checkout
+		// with its own run history, so that output never touches w.env's
+		// counter. Same rule as w.env above: a step whose run advanced Bob's
+		// count owns his newest output, even when it is identical to the
+		// previous step's.
 		if w.j000700s != nil {
-			if bob := w.j000700s.bobOutput; bob != "" && bob != w.docLastBobOutput {
-				if step.CLIOutput == "" {
-					step.CLIOutput = bob
-				} else {
-					step.CLIOutput = step.CLIOutput + "\n" + bob
+			if rc := w.j000700s.bobRuns.RunCount(); rc != w.docLastBobRunCount {
+				if bob := w.j000700s.bobRuns.LastOutput(); bob != "" {
+					if step.CLIOutput == "" {
+						step.CLIOutput = bob
+					} else {
+						step.CLIOutput = step.CLIOutput + "\n" + bob
+					}
 				}
-				w.docLastBobOutput = bob
+				w.docLastBobRunCount = rc
 			}
 		}
 		// Set-and-consume evidence a step observed off w.env's streams entirely

@@ -91,7 +91,7 @@ type World struct {
 	docFileName          string      // filename this scenario's capture flushes to
 	docLastMockRecorded  string      // last mock-recorded payload already attached, to avoid repeat-attaching it every step
 	docLastRunCount      int         // env.RunCount() at the previous step, so a step that ran a command is attributed its output even when identical to the prior step's (a no-op step, which runs nothing, is not)
-	docLastBobOutput     string      // J000700: last teammate-checkout output already attributed (separate stream from w.env)
+	docLastBobRunCount   int         // J000700: bobRuns.RunCount() at the previous step (the teammate-checkout analogue of docLastRunCount)
 	toolCalls            int         // MCP tool invocations so far, so doc capture can tell "this step called a tool" from "a tool was called earlier"
 	docLastToolCalls     int         // toolCalls at the previous step, mirroring docLastRunCount for the MCP channel
 	docLastCommandOutput string      // most recent command's output within the current scenario, inherited by the Thens that assert about it; cleared per scenario

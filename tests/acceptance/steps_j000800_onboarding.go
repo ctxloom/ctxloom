@@ -235,7 +235,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		if err := runBob(w, "review", "--list", "--format", "json"); err != nil {
 			return err
 		}
-		out := w.j000700().bobOutput
+		out := w.j000700().bobRuns.LastStdout()
 		var res struct {
 			Total int `json:"total"`
 		}
@@ -394,8 +394,8 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return err
 		}
-		if !strings.Contains(w.j000700().bobOutput, "awaiting review") {
-			return fmt.Errorf("expected Bob to be told the company's content is awaiting review; materialize output:\n%s", w.j000700().bobOutput)
+		if out := w.j000700().bobRuns.LastOutput(); !strings.Contains(out, "awaiting review") {
+			return fmt.Errorf("expected Bob to be told the company's content is awaiting review; materialize output:\n%s", out)
 		}
 		if strings.Contains(body, j000800CompanyMarker) {
 			return fmt.Errorf("the materialized context for Bob unexpectedly contains the held company marker; content:\n%s", body)
@@ -503,15 +503,16 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^nothing fails because of the companion's presence or absence$`, func(c context.Context) error {
 		w := worldFrom(c)
 		// Real evidence for the @doc capture sidecar: by the time this step
-		// runs, "Bob starts a session" already consumed w.j000700().bobOutput via
-		// the automatic docLastBobOutput attribution, so this assertion (which
-		// runs no new command of its own) would otherwise render with an empty
+		// runs, "Bob starts a session" was already credited its output by the
+		// automatic run-count attribution, so this assertion (which runs no
+		// new command of its own) would otherwise render with an empty
 		// evidence pane despite being the load-bearing "and it actually
 		// succeeded" check — re-attach the same exit/output pair explicitly.
-		w.docStepMaterialized = fmt.Sprintf("Bob's session start: exit=%d\n%s", w.j000700().bobExit, strings.TrimSpace(w.j000700().bobOutput))
-		if w.j000700().bobExit != 0 {
+		bob := &w.j000700().bobRuns
+		w.docStepMaterialized = fmt.Sprintf("Bob's session start: exit=%d\n%s", bob.LastExitCode(), strings.TrimSpace(bob.LastOutput()))
+		if bob.LastExitCode() != 0 {
 			return fmt.Errorf("expected Bob's session start to succeed regardless of the companion's presence/absence; exit %d, output:\n%s",
-				w.j000700().bobExit, w.j000700().bobOutput)
+				bob.LastExitCode(), bob.LastOutput())
 		}
 		return nil
 	})
@@ -531,7 +532,7 @@ func bobMaterialized(w *World) (string, error) {
 	_ = runBob(w, "profile", "materialize", j000700Profile, "--target", "out")
 	body, err := readBobFile(w, filepath.Join("out", "CLAUDE.md"))
 	if err != nil {
-		return "", fmt.Errorf("read Bob's materialized out/CLAUDE.md (materialize output:\n%s): %w", w.j000700().bobOutput, err)
+		return "", fmt.Errorf("read Bob's materialized out/CLAUDE.md (materialize output:\n%s): %w", w.j000700().bobRuns.LastOutput(), err)
 	}
 	return body, nil
 }

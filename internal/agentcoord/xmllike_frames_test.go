@@ -34,46 +34,6 @@ func TestReminderFrameGoldens(t *testing.T) {
 			got:  (&MailPendingReminder{}).XmlLike(),
 			want: `<ctxloom-reminder kind="mail-pending" count="0">call agent_recv</ctxloom-reminder>`,
 		},
-		{
-			name: "steer pending",
-			got:  (&SteerPendingReminder{}).XmlLike(),
-			want: `<ctxloom-reminder kind="steer-pending">call agent_recv</ctxloom-reminder>`,
-		},
-		{
-			name: "question pending",
-			got:  (&QuestionPendingReminder{}).XmlLike(),
-			want: `<ctxloom-reminder kind="question-pending">call agent_recv</ctxloom-reminder>`,
-		},
-		{
-			// The re-announcement's two attributes are the anti-habituation
-			// channel: a notice repeated verbatim across turns is a notice a
-			// model learns to skip, so successive frames must not be the same
-			// bytes. Both attributes are pinned here for that reason.
-			name: "an unpulled body reports its age and its rung",
-			got: (&UnpulledReminder{
-				AgeSeconds: 90,
-				Urgency:    UnpulledReminder_URGENCY_URGENT,
-			}).XmlLike(),
-			want: `<ctxloom-reminder kind="unpulled" age_seconds="90" urgency="URGENCY_URGENT">call agent_recv</ctxloom-reminder>`,
-		},
-		{
-			name: "the final rung says so",
-			got: (&UnpulledReminder{
-				AgeSeconds: 305,
-				Urgency:    UnpulledReminder_URGENCY_FINAL,
-			}).XmlLike(),
-			want: `<ctxloom-reminder kind="unpulled" age_seconds="305" urgency="URGENCY_FINAL">call agent_recv</ctxloom-reminder>`,
-		},
-		{
-			name: "paused",
-			got:  (&PausedReminder{}).XmlLike(),
-			want: `<ctxloom-reminder kind="paused">this session is paused</ctxloom-reminder>`,
-		},
-		{
-			name: "resumed",
-			got:  (&ResumedReminder{}).XmlLike(),
-			want: `<ctxloom-reminder kind="resumed">this session has resumed</ctxloom-reminder>`,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.got != tc.want {
@@ -83,24 +43,15 @@ func TestReminderFrameGoldens(t *testing.T) {
 	}
 }
 
-// Every frame is TINY and carries no sender bytes (§6.1): the mailbox stays
+// Every frame is TINY and carries no sender bytes (§6.1): the spool stays
 // authoritative and the agent pulls the payload with agent_recv. A frame that
 // grew a body would be a delivery channel, and then the reminder and the
 // mailbox could disagree.
 func TestReminderFramesCarryNoSenderContent(t *testing.T) {
 	frames := []string{
 		(&MailPendingReminder{Count: 99}).XmlLike(),
-		(&SteerPendingReminder{}).XmlLike(),
-		(&QuestionPendingReminder{}).XmlLike(),
-		(&PausedReminder{}).XmlLike(),
-		(&ResumedReminder{}).XmlLike(),
-		// The widest re-announcement anything emits: the longest rung name and
-		// an age (100 days) no delegated run will outlive. Even at its widest
-		// it stays a notice, not a payload.
-		(&UnpulledReminder{
-			AgeSeconds: 8640000,
-			Urgency:    UnpulledReminder_URGENCY_URGENT,
-		}).XmlLike(),
+		// The widest count anything emits stays a notice, not a payload.
+		(&MailPendingReminder{Count: 4294967295}).XmlLike(),
 	}
 	for _, f := range frames {
 		if len(f) > 120 {
@@ -141,8 +92,8 @@ func TestXmlLikeEscapeNeutralisesFrameForgery(t *testing.T) {
 func TestReminderMessagesAreReachableFromNoWireMessage(t *testing.T) {
 	fd := (&MailPendingReminder{}).ProtoReflect().Descriptor().ParentFile()
 	reminders := reminderMessageNames(fd)
-	if len(reminders) != 6 {
-		t.Fatalf("found %d reminder messages, want 6 (update this test with the new frame)", len(reminders))
+	if len(reminders) != 1 {
+		t.Fatalf("found %d reminder messages, want 1 (update this test with the new frame)", len(reminders))
 	}
 	assertNoFieldCarriesAReminder(t, fd, reminders)
 	assertNoServiceMethodCarriesAReminder(t, fd, reminders)

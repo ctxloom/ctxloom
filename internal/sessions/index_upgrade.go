@@ -9,10 +9,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
-// indexUpgrades is the ordered set of session-index schema upgrades. loadLocked
-// runs it over the raw index bytes before parsing; upgrades apply in memory and
-// are persisted only after the user confirms (see Manager.CommitUpgrade), so a
-// read-only command never silently rewrites the index.
+// indexUpgrades is the ordered set of schema upgrades the RETIRED global
+// index file may need before it can be parsed. Its one remaining reader is
+// MigrateIndex, which runs it over the raw bytes in memory; the file itself
+// is never rewritten, only consumed.
 var indexUpgrades = upgrade.Pipeline{
 	tsNormalizeUpgrade{},
 }

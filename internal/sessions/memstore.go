@@ -7,18 +7,17 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // MemStore is an in-memory sessions Store adapter. It mirrors *Manager's
-// observable behavior (harp minting, first-bind-wins, reconcile-by-predicate)
-// so the operations layer's storage-agnosticism is demonstrable (ADR 0026) and
-// tests get a filesystem-free INDEX.
+// observable behavior (harp minting, first-bind-wins, project filtering) so
+// the operations layer's storage-agnosticism is demonstrable (ADR 0026) and
+// tests get a filesystem-free RECORD SET.
 //
-// Filesystem-free names the index and the index only: no index.yaml, no file
-// lock, no atomic rewrite, and none of the real store's write side effects —
-// BindSession drops no per-harp transcript symlink and PendingUpgrade always
-// reports "current".
+// Filesystem-free names the records and the records only: no session
+// directories, no sidecars, no file lock, no atomic rewrite, and none of the
+// real store's write side effects — BindSession drops no per-harp transcript
+// symlink.
 //
 // It does NOT mean disk-free, and callers must not assume it. Find,
 // ListForProject and ListAll run the same computed-on-read enrichment as
@@ -33,31 +32,9 @@ type MemStore struct {
 	sessions []Entry
 }
 
-// NewMemStore returns an empty in-memory session index.
+// NewMemStore returns an empty in-memory session store.
 func NewMemStore() *MemStore {
 	return &MemStore{}
-}
-
-// Load returns a snapshot copy of the index.
-func (m *MemStore) Load() (*Index, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return &Index{Sessions: append([]Entry(nil), m.sessions...)}, nil
-}
-
-// Reconcile drops entries that isDead reports unrecoverable and returns the
-// survivors, matching *Manager.Reconcile.
-func (m *MemStore) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	survivors := make([]Entry, 0, len(m.sessions))
-	for _, e := range m.sessions {
-		if !isDead(e) {
-			survivors = append(survivors, e)
-		}
-	}
-	m.sessions = survivors
-	return append([]Entry(nil), survivors...), nil
 }
 
 // ListForProject returns entries for projectDir, most-recent-first by
@@ -92,7 +69,7 @@ func (m *MemStore) Find(harpName string) (*Entry, error) {
 	for i := range m.sessions {
 		if m.sessions[i].HarpName == harpName {
 			out := m.sessions[i]
-			fillCanonicalTranscript(&out)
+			enrich(&out)
 			return &out, nil
 		}
 	}
@@ -112,13 +89,13 @@ func (m *MemStore) FindBySessionID(sessionID string) (*Entry, error) {
 		e := &m.sessions[i]
 		if e.SessionID == sessionID {
 			out := *e
-			fillCanonicalTranscript(&out)
+			enrich(&out)
 			return &out, nil
 		}
 		for _, r := range e.Rotations {
 			if r.SessionID == sessionID {
 				out := *e
-				fillCanonicalTranscript(&out)
+				enrich(&out)
 				return &out, nil
 			}
 		}
@@ -329,10 +306,3 @@ func (m *MemStore) Forget(harpName string) error {
 	}
 	return fmt.Errorf("harp not found: %q", harpName)
 }
-
-// PendingUpgrade always reports "current" — an in-memory index has no on-disk
-// schema to migrate.
-func (m *MemStore) PendingUpgrade() *upgrade.Pending { return nil }
-
-// CommitUpgrade is a no-op for the in-memory store.
-func (m *MemStore) CommitUpgrade() error { return nil }

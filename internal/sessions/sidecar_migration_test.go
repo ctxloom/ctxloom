@@ -143,7 +143,7 @@ func TestMigrateIndex_RealShapes(t *testing.T) {
 	report, err := MigrateIndex(root)
 	require.NoError(t, err)
 
-	m, err := Open(root)
+	m, err := Open()
 	require.NoError(t, err)
 	listed, err := m.ListAll()
 	require.NoError(t, err)
@@ -205,7 +205,7 @@ func TestMigrateIndex_InterruptedRunResumesWithoutOverwriting(t *testing.T) {
 	assert.NotContains(t, report.Migrated, "healthy")
 	assert.Contains(t, report.AlreadyPresent, "healthy")
 
-	m, err := Open(root)
+	m, err := Open()
 	require.NoError(t, err)
 	e, err := m.Find("healthy")
 	require.NoError(t, err)

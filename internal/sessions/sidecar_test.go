@@ -32,7 +32,7 @@ func openSidecarRoot(t *testing.T) (*Manager, string) {
 	root, err := paths.HomeSessionsDir()
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(root, 0o755))
-	m, err := Open(root)
+	m, err := Open()
 	require.NoError(t, err)
 	return m, root
 }
@@ -199,7 +199,7 @@ func TestOpen_MigratesIndexYAMLToSidecarsOnceAndLosslessly(t *testing.T) {
     purged_at: 2026-09-04T10:00:00Z
 `), 0o644))
 
-	m, err := Open(root)
+	m, err := Open()
 	require.NoError(t, err)
 	got, err := m.ListAll()
 	require.NoError(t, err)
@@ -225,7 +225,7 @@ func TestOpen_MigratesIndexYAMLToSidecarsOnceAndLosslessly(t *testing.T) {
 	// Re-entry: every launch may run this again. Nothing is duplicated and
 	// state written SINCE the migration is never overwritten by it.
 	require.NoError(t, m.MarkEnded("has-dir", time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)))
-	m2, err := Open(root)
+	m2, err := Open()
 	require.NoError(t, err)
 	again, err := m2.ListAll()
 	require.NoError(t, err)

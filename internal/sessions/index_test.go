@@ -16,26 +16,28 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// newManager opens a Manager against an isolated index AND an isolated HOME.
+// newManager opens a Manager against an isolated HOME. The store IS the
+// HOME-rooted session tree — there is no separate index file to redirect —
+// so isolating HOME is the whole of the isolation, and
+// requireIsolatedSessionRoot proves it took rather than trusting that it did.
 //
-// BOTH are required, and that is the trap this helper exists to close. Open's
-// argument redirects only the INDEX FILE. Every harp DIRECTORY path bottoms out
-// at paths.HomeSessionsDir -> os.UserHomeDir -> $HOME, so a Manager opened on a
-// temp index still mkdirs ~/.ctxloom/sessions/<harp>/ in the developer's REAL
-// home the moment BindSession links a transcript. Index isolation looks like
-// isolation and is not.
-//
-// Measured 2026-08-26: this helper and store_test.go's Manager adapter had
+// Measured 2026-08-26, before that guard: this helper and store_test.go's Manager adapter had
 // minted 2078 harp directories in the real session root — 82% of everything
 // there — each holding nothing but dangling symlinks to fixture paths like
 // "/t1" and "/orig". 15 per run, across roughly 139 runs.
 func newManager(t *testing.T) *Manager {
 	t.Helper()
-	requireIsolatedSessionRoot(t)
-	dir := t.TempDir()
-	m, err := Open(filepath.Join(dir, "index.yaml"))
-	require.NoError(t, err)
+	m, _ := openSidecarRoot(t)
 	return m
+}
+
+// seedEntries writes each entry's sidecar directly, bypassing AssignHarp, so a
+// test can lay down exact StartedAt/TranscriptPath values.
+func seedEntries(t *testing.T, m *Manager, entries []Entry) {
+	t.Helper()
+	for i := range entries {
+		require.NoError(t, m.writeSidecar(entries[i].HarpName, &entries[i]))
+	}
 }
 
 // requireIsolatedSessionRoot isolates HOME and then PROVES the isolation took,
@@ -58,16 +60,6 @@ func requireIsolatedSessionRoot(t *testing.T) {
 		root)
 }
 
-func TestOpen_CreatesParentDir(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "nested", "deeper", "index.yaml")
-	m, err := Open(path)
-	require.NoError(t, err)
-	idx, err := m.Load()
-	require.NoError(t, err)
-	assert.Empty(t, idx.Sessions, "fresh dir should yield empty index")
-}
-
 func TestAssignHarp_UniqueAcrossCalls(t *testing.T) {
 	m := newManager(t)
 	a, err := m.AssignHarp("/proj", "claude-code")
@@ -76,12 +68,12 @@ func TestAssignHarp_UniqueAcrossCalls(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, a.HarpName, b.HarpName, "two AssignHarp calls must yield different names")
 
-	idx, err := m.Load()
+	all, err := m.ListAll()
 	require.NoError(t, err)
-	require.Len(t, idx.Sessions, 2)
-	assert.Equal(t, "/proj", idx.Sessions[0].ProjectDir)
-	assert.Equal(t, "claude-code", idx.Sessions[0].Backend)
-	assert.Empty(t, idx.Sessions[0].SessionID, "newly-assigned entry should have empty SessionID (pending)")
+	require.Len(t, all, 2)
+	assert.Equal(t, "/proj", all[0].ProjectDir)
+	assert.Equal(t, "claude-code", all[0].Backend)
+	assert.Empty(t, all[0].SessionID, "newly-assigned entry should have empty SessionID (pending)")
 }
 
 func TestBindSession_FillsPendingEntry(t *testing.T) {
@@ -112,37 +104,6 @@ func harpNames(entries []Entry) []string {
 		names = append(names, e.HarpName)
 	}
 	return names
-}
-
-func TestReconcile_DropsDeadEntriesAndPersists(t *testing.T) {
-	m := newManager(t)
-	a, err := m.AssignHarp("/proj", "claude-code")
-	require.NoError(t, err)
-	b, err := m.AssignHarp("/proj", "claude-code")
-	require.NoError(t, err)
-	c, err := m.AssignHarp("/proj", "claude-code")
-	require.NoError(t, err)
-
-	dead := map[string]bool{b.HarpName: true}
-	survivors, err := m.Reconcile(func(e Entry) bool { return dead[e.HarpName] })
-	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{a.HarpName, c.HarpName}, harpNames(survivors))
-
-	// The drop is persisted: a fresh load no longer contains the dead harp.
-	idx, err := m.Load()
-	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{a.HarpName, c.HarpName}, harpNames(idx.Sessions))
-}
-
-func TestReconcile_NothingDeadIsANoop(t *testing.T) {
-	m := newManager(t)
-	a, err := m.AssignHarp("/proj", "claude-code")
-	require.NoError(t, err)
-
-	survivors, err := m.Reconcile(func(Entry) bool { return false })
-	require.NoError(t, err)
-	require.Len(t, survivors, 1)
-	assert.Equal(t, a.HarpName, survivors[0].HarpName)
 }
 
 // A new session ID that arrives WITH a transcript path is the engine rotating
@@ -239,28 +200,6 @@ func TestBindSession_UnknownHarpErrors(t *testing.T) {
 }
 
 // BindSession(harp, "", "") on a not-yet-bound entry used to
-// acquire the file lock, load, assign SessionID = "" (no actual change),
-// and perform a full index rewrite anyway — wasted I/O under lock for a
-// call that changes nothing, on what should be the ordinary "the hook
-// payload carried no session id" path (session_cmd.go's
-// bindSessionFromPayload calls this for exactly that case whenever none of
-// its three fallbacks find an id). Proven here by making the index's
-// directory read-only: a real write attempt fails loud (the pre-fix
-// behavior), while a genuine no-op must short-circuit before ever touching
-// the filesystem lock/write path.
-func TestBindSession_EmptyArgsIsANoOp_NoWriteAttempted(t *testing.T) {
-	m := newManager(t)
-	entry, err := m.AssignHarp("/proj", "claude-code")
-	require.NoError(t, err)
-
-	dir := filepath.Dir(m.path)
-	require.NoError(t, os.Chmod(dir, 0o555))
-	defer func() { _ = os.Chmod(dir, 0o755) }()
-
-	err = m.BindSession(entry.HarpName, "", "")
-	assert.NoError(t, err, "empty sessionID/transcriptPath must be recognized as a no-op before any write is attempted, even when the index dir is unwritable")
-}
-
 func TestListForProject_FiltersAndSorts(t *testing.T) {
 	m := newManager(t)
 	a, _ := m.AssignHarp("/proj-a", "claude-code")
@@ -297,11 +236,10 @@ func TestListForProject_OrdersByLastActivityNotStartedAt(t *testing.T) {
 
 	untouchedStarted := now.Add(-1 * time.Hour) // created more recently, never opened since
 
-	idx := &Index{Sessions: []Entry{
+	seedEntries(t, m, []Entry{
 		{HarpName: "worked-session", ProjectDir: "/proj", StartedAt: workedStarted, TranscriptPath: workedTranscript},
 		{HarpName: "untouched-session", ProjectDir: "/proj", StartedAt: untouchedStarted},
-	}}
-	require.NoError(t, m.saveLocked(idx))
+	})
 
 	list, err := m.ListForProject("/proj")
 	require.NoError(t, err)
@@ -321,14 +259,13 @@ func TestListForProject_FallsBackToStartedAt(t *testing.T) {
 	m := newManager(t)
 	now := time.Now().UTC().Truncate(time.Second)
 
-	idx := &Index{Sessions: []Entry{
+	seedEntries(t, m, []Entry{
 		// No transcript at all.
 		{HarpName: "newer-no-transcript", ProjectDir: "/proj", StartedAt: now},
 		{HarpName: "older-no-transcript", ProjectDir: "/proj", StartedAt: now.Add(-time.Hour)},
 		// A transcript path that doesn't exist on disk (stat fails).
 		{HarpName: "newest-dangling-transcript", ProjectDir: "/proj", StartedAt: now.Add(time.Hour), TranscriptPath: "/nonexistent/gone.jsonl"},
-	}}
-	require.NoError(t, m.saveLocked(idx))
+	})
 
 	list, err := m.ListForProject("/proj")
 	require.NoError(t, err)
@@ -359,7 +296,7 @@ func TestListAll_SpansProjectsSortedByActivity(t *testing.T) {
 	require.NoError(t, os.Chtimes(worked, recent, recent))
 
 	now := time.Now().UTC().Truncate(time.Second)
-	idx := &Index{Sessions: []Entry{
+	seedEntries(t, m, []Entry{
 		// proj-b, created an hour ago, never touched since → activity = StartedAt
 		// (an hour ago), which is OLDER than a-worked's 5-min-ago transcript.
 		{HarpName: "b-untouched", ProjectDir: "/proj-b", StartedAt: now.Add(-time.Hour)},
@@ -368,8 +305,7 @@ func TestListAll_SpansProjectsSortedByActivity(t *testing.T) {
 		{HarpName: "a-worked", ProjectDir: "/proj-a", StartedAt: now.Add(-24 * time.Hour), TranscriptPath: worked},
 		// proj-c, oldest, no activity signal.
 		{HarpName: "c-old", ProjectDir: "/proj-c", StartedAt: now.Add(-48 * time.Hour)},
-	}}
-	require.NoError(t, m.saveLocked(idx))
+	})
 
 	list, err := m.ListAll()
 	require.NoError(t, err)
@@ -453,16 +389,6 @@ func TestMarkEnded(t *testing.T) {
 	found, _ := m.Find(e.HarpName)
 	require.NotNil(t, found.EndedAt)
 	assert.WithinDuration(t, now.UTC(), *found.EndedAt, time.Second)
-}
-
-func TestSetSummary(t *testing.T) {
-	m := newManager(t)
-	e, _ := m.AssignHarp("/proj", "claude-code")
-	require.NoError(t, m.SetSummary(e.HarpName, "Designed bundle review on startup.", []string{"- ship the picker", "- write tests"}, 42))
-	found, _ := m.Find(e.HarpName)
-	assert.Equal(t, "Designed bundle review on startup.", found.Summary)
-	assert.Equal(t, []string{"- ship the picker", "- write tests"}, found.Detail)
-	assert.Equal(t, 42, found.SourceEntries, "the entry-count fingerprint must round-trip through the index")
 }
 
 // writeEntryTranscript writes a canonical transcript carrying exactly n
@@ -579,185 +505,7 @@ func TestEntry_SourceStale_PrefersCanonicalTranscriptPath(t *testing.T) {
 	assert.True(t, stale, "sanity check: the legacy file alone does NOT carry 7 entries")
 }
 
-func TestLoad_ToleratesLegacyPythonTimestamps(t *testing.T) {
-	// Earlier (Python) ctxloom builds wrote timestamps as
-	// datetime.isoformat(sep=' '): space separator, microseconds, "+00:00"
-	// offset. Go's RFC3339-only YAML time decoder rejects them, which used to
-	// fail the whole load (and block `ctxloom run` resume). Loading must now
-	// parse them into normalized time.Time values.
-	dir := t.TempDir()
-	path := filepath.Join(dir, "index.yaml")
-	const legacy = `sessions:
-- harp_name: generous-trustless-waltz
-  session_id: a295d415-f1cf-413e-9cfc-5ba4dc425e48
-  backend: claude-code
-  project_dir: /home/u/proj
-  started_at: 2026-05-28 16:57:20.781317+00:00
-  ended_at: 2026-05-28 19:21:32.662574+00:00
-`
-	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o644))
-
-	m, err := Open(path)
-	require.NoError(t, err)
-	idx, err := m.Load()
-	require.NoError(t, err)
-	require.Len(t, idx.Sessions, 1)
-
-	e := idx.Sessions[0]
-	assert.Equal(t, "generous-trustless-waltz", e.HarpName)
-	wantStart := time.Date(2026, 5, 28, 16, 57, 20, 781317000, time.UTC)
-	assert.True(t, e.StartedAt.Equal(wantStart), "started_at: got %s want %s", e.StartedAt, wantStart)
-	require.NotNil(t, e.EndedAt)
-	wantEnd := time.Date(2026, 5, 28, 19, 21, 32, 662574000, time.UTC)
-	assert.True(t, e.EndedAt.Equal(wantEnd), "ended_at: got %s want %s", *e.EndedAt, wantEnd)
-
-	// Load is non-destructive: the file is untouched, with the upgrade staged.
-	onDisk, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, legacy, string(onDisk), "Load must not rewrite the index")
-	require.NotNil(t, m.PendingUpgrade(), "legacy index should record a pending upgrade")
-	assert.Equal(t, path, m.PendingUpgrade().Path)
-}
-
-func TestCommitUpgrade_NormalizesAndClearsPending(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "index.yaml")
-	const legacy = `sessions:
-- harp_name: generous-trustless-waltz
-  backend: claude-code
-  project_dir: /home/u/proj
-  started_at: 2026-05-28 16:57:20.781317+00:00
-`
-	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o644))
-
-	m, err := Open(path)
-	require.NoError(t, err)
-	_, err = m.Load() // stages the pending upgrade
-	require.NoError(t, err)
-	require.NotNil(t, m.PendingUpgrade())
-
-	require.NoError(t, m.CommitUpgrade())
-	assert.Nil(t, m.PendingUpgrade(), "commit clears pending")
-
-	got, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Contains(t, string(got), "started_at: 2026-05-28T16:57:20.781317Z",
-		"committed index uses canonical RFC3339Nano")
-	assert.NotContains(t, string(got), "781317+00:00", "legacy format gone after commit")
-}
-
 // TestCommitUpgrade_DoesNotClobberConcurrentWrite pins the commit-time
-// re-stage: between Load (which stages the upgrade) and the user's consent,
-// the spawned backend's MCP BindSession may rewrite the index. Committing the
-// staged snapshot would silently drop that write — commit must re-read under
-// the lock and, finding canonical bytes, leave them alone.
-func TestCommitUpgrade_DoesNotClobberConcurrentWrite(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "index.yaml")
-	const legacy = `sessions:
-- harp_name: generous-trustless-waltz
-  backend: claude-code
-  project_dir: /home/u/proj
-  started_at: 2026-05-28 16:57:20.781317+00:00
-`
-	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o644))
-
-	m, err := Open(path)
-	require.NoError(t, err)
-	_, err = m.Load() // stages the pending upgrade
-	require.NoError(t, err)
-	require.NotNil(t, m.PendingUpgrade())
-
-	// A concurrent writer (canonical form, like saveLocked) lands a session
-	// bind during the prompt window.
-	const concurrent = `sessions:
-    - harp_name: generous-trustless-waltz
-      session_id: bound-by-mcp
-      backend: claude-code
-      project_dir: /home/u/proj
-      started_at: 2026-05-28T16:57:20.781317Z
-`
-	require.NoError(t, os.WriteFile(path, []byte(concurrent), 0o644))
-
-	require.NoError(t, m.CommitUpgrade())
-	assert.Nil(t, m.PendingUpgrade())
-
-	got, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Contains(t, string(got), "bound-by-mcp",
-		"the concurrent session bind must survive the upgrade commit")
-}
-
-func TestLoad_CurrentIndexHasNoPendingUpgrade(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "index.yaml")
-	const current = `sessions:
-- harp_name: generous-trustless-waltz
-  backend: claude-code
-  project_dir: /home/u/proj
-  started_at: 2026-05-28T16:57:20.781317Z
-`
-	require.NoError(t, os.WriteFile(path, []byte(current), 0o644))
-
-	m, err := Open(path)
-	require.NoError(t, err)
-	_, err = m.Load()
-	require.NoError(t, err)
-	assert.Nil(t, m.PendingUpgrade(), "a canonical index must not record a pending upgrade")
-}
-
-func TestSave_NormalizesLegacyTimestampsToRFC3339(t *testing.T) {
-	// A load+save round-trip over a legacy index self-heals the on-disk
-	// timestamp format to canonical RFC3339Nano.
-	dir := t.TempDir()
-	path := filepath.Join(dir, "index.yaml")
-	const legacy = `sessions:
-- harp_name: generous-trustless-waltz
-  backend: claude-code
-  project_dir: /home/u/proj
-  started_at: 2026-05-28 16:57:20.781317+00:00
-`
-	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o644))
-
-	m, err := Open(path)
-	require.NoError(t, err)
-	// AssignHarp loads and saves the whole index, rewriting every entry.
-	_, err = m.AssignHarp("/home/u/proj", "claude-code")
-	require.NoError(t, err)
-
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	got := string(data)
-	assert.Contains(t, got, "started_at: 2026-05-28T16:57:20.781317Z",
-		"legacy timestamp should be rewritten as RFC3339Nano")
-	assert.NotContains(t, got, "781317+00:00", "Python isoformat should be gone after save")
-}
-
-func TestLoad_UnparseableTimestampDoesNotBlockLoad(t *testing.T) {
-	// Fault tolerance: one unrecognized timestamp must not fail the whole load,
-	// and it must degrade to ~now (recent), NOT the zero time — zero sorts the
-	// session below `session list`'s day-horizon and hides it, the opposite of what
-	// graceful degradation should do.
-	dir := t.TempDir()
-	path := filepath.Join(dir, "index.yaml")
-	const bad = `sessions:
-- harp_name: busted
-  project_dir: /home/u/proj
-  started_at: not-a-timestamp-at-all
-`
-	require.NoError(t, os.WriteFile(path, []byte(bad), 0o644))
-
-	m, err := Open(path)
-	require.NoError(t, err)
-	idx, err := m.Load()
-	require.NoError(t, err, "unparseable timestamp must not fail the load")
-	require.Len(t, idx.Sessions, 1)
-	assert.Equal(t, "busted", idx.Sessions[0].HarpName)
-	got := idx.Sessions[0].StartedAt
-	assert.False(t, got.IsZero(), "bad timestamp must not degrade to zero time (would hide the session)")
-	assert.WithinDuration(t, time.Now(), got, time.Minute, "bad timestamp degrades to ~now, keeping the session visible")
-}
-
 func TestEntry_TimestampRoundTrip(t *testing.T) {
 	m := newManager(t)
 	e, err := m.AssignHarp("/proj", "claude-code")
@@ -812,16 +560,16 @@ func TestForget(t *testing.T) {
 	require.NoError(t, m.Forget(a.HarpName))
 	assert.Error(t, m.Forget(a.HarpName), "second forget should error since entry is gone")
 
-	idx, err := m.Load()
+	all, err := m.ListAll()
 	require.NoError(t, err)
-	require.Len(t, idx.Sessions, 1)
-	assert.Equal(t, b.HarpName, idx.Sessions[0].HarpName)
+	require.Len(t, all, 1)
+	assert.Equal(t, b.HarpName, all[0].HarpName)
 }
 
-// TestRename_RefusesUnsafeNewName pins a safe-rename rule at the index: the new name
-// becomes both an index KEY and a filesystem path component, and Rename is
-// the only place a harp name arrives from user argv. Asserted on the index
-// state, not the error text — a refused rename must leave the original entry
+// TestRename_RefusesUnsafeNewName pins a safe-rename rule at the store: the
+// new name becomes a filesystem path component, and Rename is the only place
+// a harp name arrives from user argv. Asserted on the store state, not the
+// error text — a refused rename must leave the original entry
 // findable and mint no entry under the traversing name.
 func TestRename_RefusesUnsafeNewName(t *testing.T) {
 	for _, bad := range []string{"..", "../..", "../../etc/passwd", "a/b", `a\b`, " lead", "nul\x00name"} {
@@ -972,12 +720,10 @@ func TestAppendRotations_EmptyIsANoOp(t *testing.T) {
 
 // TestAppendRotations_SurvivesManagerReload pins that the append is a real
 // persisted write, not an in-memory-only mutation: a fresh Manager opened
-// over the same path must see it.
+// over the same root must see it.
 func TestAppendRotations_SurvivesManagerReload(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "index.yaml")
-	m1, err := Open(path)
-	require.NoError(t, err)
+	m1 := newManager(t)
+	var err error
 	entry, err := m1.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, m1.BindSession(entry.HarpName, "id-2", "/t2"))
@@ -986,7 +732,7 @@ func TestAppendRotations_SurvivesManagerReload(t *testing.T) {
 		{SessionID: "id-1", TranscriptPath: "/t1", RotatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
 	}))
 
-	m2, err := Open(path)
+	m2, err := Open()
 	require.NoError(t, err)
 	found, err := m2.Find(entry.HarpName)
 	require.NoError(t, err)
@@ -996,12 +742,12 @@ func TestAppendRotations_SurvivesManagerReload(t *testing.T) {
 	assert.Equal(t, "/t1", found.Rotations[0].TranscriptPath)
 }
 
-// TestSaveLocked_UsesDurableWrite pins the ruled site (taskloom
-// unbounded-bacon): saveLocked must pass iox.Durable() so a crash cannot
-// silently revert the session index — this store's only record of every
-// session's rotation lineage — back to naming a stale prior version.
-// AssignHarp is the simplest public entry point that reaches saveLocked.
-func TestSaveLocked_UsesDurableWrite(t *testing.T) {
+// TestWriteSidecar_UsesDurableWrite pins the ruled site (taskloom
+// unbounded-bacon): the sidecar write must pass iox.Durable() so a crash
+// cannot silently revert a session's record — its only copy of the rotation
+// lineage — back to a stale prior version. AssignHarp is the simplest public
+// entry point that reaches writeSidecar.
+func TestWriteSidecar_UsesDurableWrite(t *testing.T) {
 	m := newManager(t)
 
 	var synced []string
@@ -1013,5 +759,5 @@ func TestSaveLocked_UsesDurableWrite(t *testing.T) {
 
 	_, err := m.AssignHarp("/proj", "claude")
 	require.NoError(t, err)
-	assert.NotEmpty(t, synced, "saveLocked must pass iox.Durable(): a reverted index after a crash loses rotation lineage with no signal")
+	assert.NotEmpty(t, synced, "writeSidecar must pass iox.Durable(): a reverted sidecar after a crash loses rotation lineage with no signal")
 }

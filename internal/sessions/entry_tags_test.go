@@ -16,8 +16,8 @@ func tagName(tag string) string {
 }
 
 // TestEntry_JSONTagsMirrorYAMLKeys pins the invariant Entry's doc comment
-// asserts: the YAML keys are the on-disk index contract, and every field's json
-// tag names the SAME snake_case key.
+// asserts: the YAML keys are the sidecar's on-disk contract, and every field's
+// json tag names the SAME snake_case key.
 //
 // The claim is not self-enforcing -- a field can acquire a camelCase json tag,
 // or a json key with no yaml counterpart, with nothing failing -- and the cost
@@ -28,9 +28,14 @@ func TestEntry_JSONTagsMirrorYAMLKeys(t *testing.T) {
 	rt := reflect.TypeOf(Entry{})
 	require.Positive(t, rt.NumField(), "Entry must have fields for this to assert anything")
 
-	// yamlOnlyExempt lists the fields deliberately absent from the YAML file
-	// because they are computed on read. Everything else must mirror.
+	// computedOnRead lists the fields deliberately absent from the sidecar
+	// because they are derived on read: the harp name from the directory,
+	// summary and detail from essence.md, the rest from stat. Everything
+	// else must mirror.
 	computedOnRead := map[string]bool{
+		"HarpName":                true,
+		"Summary":                 true,
+		"Detail":                  true,
 		"LastActivity":            true,
 		"CanonicalTranscriptPath": true,
 	}
@@ -46,7 +51,7 @@ func TestEntry_JSONTagsMirrorYAMLKeys(t *testing.T) {
 
 		if y == "-" {
 			assert.True(t, computedOnRead[f.Name],
-				"field %s is excluded from the on-disk index (yaml:\"-\") but is not a documented computed-on-read field; adding a persisted-format exemption is a decision, not a tag edit", f.Name)
+				"field %s is excluded from the sidecar (yaml:\"-\") but is not a documented computed-on-read field; adding a persisted-format exemption is a decision, not a tag edit", f.Name)
 			seenComputed[f.Name] = true
 			continue
 		}
@@ -64,11 +69,11 @@ func TestEntry_JSONTagsMirrorYAMLKeys(t *testing.T) {
 	require.Positive(t, mirrored, "the walk must have reached persisted fields; zero proves nothing")
 }
 
-// TestEntry_CanonicalTranscriptPathIsTheOnlyJSONOnlyKey pins the asymmetry the
-// doc calls out by name: CanonicalTranscriptPath is the one field visible over
-// JSON but absent from index.yaml. A second one appearing silently would mean a
-// projection could show a key the index cannot round-trip.
-func TestEntry_CanonicalTranscriptPathIsTheOnlyJSONOnlyKey(t *testing.T) {
+// TestEntry_DerivedFieldsAreTheOnlyJSONOnlyKeys pins the asymmetry by name:
+// the derived fields are visible over JSON but absent from the sidecar. A new
+// one appearing silently would mean a projection could show a key the
+// sidecar cannot round-trip.
+func TestEntry_DerivedFieldsAreTheOnlyJSONOnlyKeys(t *testing.T) {
 	rt := reflect.TypeOf(Entry{})
 	var jsonOnly []string
 	for i := range rt.NumField() {
@@ -79,5 +84,10 @@ func TestEntry_CanonicalTranscriptPathIsTheOnlyJSONOnlyKey(t *testing.T) {
 			jsonOnly = append(jsonOnly, f.Name+"="+j)
 		}
 	}
-	assert.Equal(t, []string{"CanonicalTranscriptPath=canonical_transcript_path"}, jsonOnly)
+	assert.Equal(t, []string{
+		"HarpName=harp_name",
+		"Summary=summary",
+		"Detail=detail",
+		"CanonicalTranscriptPath=canonical_transcript_path",
+	}, jsonOnly)
 }

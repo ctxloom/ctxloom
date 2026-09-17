@@ -1,8 +1,6 @@
 package sessions
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,10 +10,7 @@ import (
 
 func newIndexManager(t *testing.T) (*Manager, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "index.yaml")
-	m, err := Open(path)
-	require.NoError(t, err)
-	return m, path
+	return openSidecarRoot(t)
 }
 
 // The version has to SURVIVE THE FILE, not just the process: it is read back
@@ -23,14 +18,14 @@ func newIndexManager(t *testing.T) (*Manager, string) {
 // reader, and an in-memory-only stamp would leave every stored session
 // unreadable while looking correct in the run that recorded it — this
 // project's characteristic silent no-op.
-func TestRecordEngineVersion_PersistsToTheIndexFile(t *testing.T) {
-	m, path := newIndexManager(t)
+func TestRecordEngineVersion_PersistsToTheSidecar(t *testing.T) {
+	m, _ := newIndexManager(t)
 	e, err := m.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 
 	require.NoError(t, m.RecordEngineVersion(e.HarpName, "2.1.225"))
 
-	reopened, err := Open(path)
+	reopened, err := Open()
 	require.NoError(t, err)
 	got, err := reopened.Find(e.HarpName)
 	require.NoError(t, err)
@@ -82,23 +77,16 @@ func TestRecordEngineVersion_UnknownHarpErrors(t *testing.T) {
 	assert.Error(t, m.RecordEngineVersion("no-such-harp", "1.0.0"))
 }
 
-// The field is ADDITIVE, in the PurgedAt shape: an index written before it
+// The field is ADDITIVE, in the PurgedAt shape: a sidecar written before it
 // existed loads with the version simply unset (not an error, not a migration),
 // and one written without a version emits no key at all — so an older binary
 // reading this file sees exactly the file it wrote.
 func TestEngineVersion_IsAdditiveAndOmitted(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "index.yaml")
-	legacy := "sessions:\n" +
-		"    - harp_name: pre-field-harp\n" +
-		"      backend: claude-code\n" +
-		"      project_dir: /proj\n" +
-		"      started_at: 2026-01-01T00:00:00Z\n"
-	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o644))
+	m, root := openSidecarRoot(t)
+	writeSidecar(t, root, "pre-field-harp", "backend: claude-code\nproject_dir: /proj\nstarted_at: 2026-01-01T00:00:00Z\n")
 
-	m, err := Open(path)
-	require.NoError(t, err)
 	got, err := m.Find("pre-field-harp")
-	require.NoError(t, err, "an index written before the field existed must still load")
+	require.NoError(t, err, "a sidecar written before the field existed must still load")
 	require.NotNil(t, got)
 	assert.Empty(t, got.EngineVersion, "a pre-field session carries no version — which the read path treats as unknown")
 

@@ -43,6 +43,16 @@ import (
 // require the whole struct back. A zero value proves nothing about a dropped
 // field — a dropped zero equals a carried zero.
 //
+// A POINTER's zero is the one exception, and it needs its own pass. nil is
+// distinguishable from &zero, and it is the value that MEANS something: absent
+// versus explicitly set. A converter that reads a proto `optional` through its
+// generated getter turns absent into an explicit default, and the populated
+// pass cannot see that because it never sends nil. So every pointer below the
+// root is round-tripped a second time, alone, left nil — one subtest per
+// pointer, so a collapsed nil names the field that collapsed. The root value
+// itself is not nilled (to(nil) is a different contract), and a oneof union's
+// members are not either (the variant matrix already zeroes each of them).
+//
 // Anything reflection cannot populate or cannot round-trip (unexported fields,
 // interfaces, oneof unions) must be handled EXPLICITLY: the filler fails loudly
 // on a kind it cannot reach, unions are enumerated variant by variant, and the
@@ -89,6 +99,19 @@ type parityFiller struct {
 	t    *testing.T
 	n    int
 	hits map[string]bool // exclusion paths actually encountered, for the anti-rot gate
+
+	// The nil pass. Every pointer the walk meets below the root (and outside
+	// skipNil) is numbered in walk order and its path appended to pointers;
+	// the one whose ordinal equals nilAt is left nil instead of allocated and
+	// its path recorded in nilPath. With nilAt < 0 the walk allocates every
+	// pointer and pointers is the list the caller iterates. The walk is
+	// deterministic, so ordinal i names the same field on every run — and
+	// nilling ordinal i cannot shift the ordinals before it, only those under
+	// it, which is why the paths from a full walk stay valid.
+	nilAt    int
+	pointers []string
+	nilPath  string
+	skipNil  map[string]bool
 }
 
 func (f *parityFiller) next() int {
@@ -186,6 +209,15 @@ func (f *parityFiller) fill(v reflect.Value, path string, depth int) {
 		}
 		v.Set(m)
 	case reflect.Pointer:
+		if depth > 0 && !f.skipNil[path] {
+			ord := len(f.pointers)
+			f.pointers = append(f.pointers, path)
+			if ord == f.nilAt {
+				f.nilPath = path
+				v.Set(reflect.Zero(v.Type()))
+				return
+			}
+		}
 		p := reflect.New(v.Type().Elem())
 		f.fill(p.Elem(), path, depth+1)
 		v.Set(p)
@@ -237,12 +269,15 @@ func zeroUnionExcept(t *testing.T, v reflect.Value, union, keep []string) {
 
 // checkParity is the whole point of this file: round-trip a FULLY-POPULATED G
 // through to→from and require TOTAL equality. No field is named, so a field
-// added to G later is covered the moment it exists.
+// added to G later is covered the moment it exists. Then, for every pointer
+// the population reached, round-trip once more with that one pointer nil, so
+// the absent arm of each is covered too (see the header for why nil is the
+// one zero the populated pass cannot stand in for).
 //
 // variants, when given, enumerate a oneof union: each variant lists the fields
 // that stay populated while every other union field is zeroed, and each is
 // asserted as its own subtest. Fields outside the union stay fully populated in
-// every variant.
+// every variant, and the nil pass runs under each variant.
 func checkParity[G any, P any](t *testing.T, hits map[string]bool, name string, to func(G) P, from func(P) G, variants ...[]string) {
 	t.Helper()
 
@@ -256,27 +291,68 @@ func checkParity[G any, P any](t *testing.T, hits map[string]bool, name string, 
 			}
 		}
 	}
+	// Union members are addressed by the filler's struct-field path, which is
+	// rooted at the (de-pointered) root type's name.
+	root := reflect.TypeOf((*G)(nil)).Elem()
+	for root.Kind() == reflect.Pointer {
+		root = root.Elem()
+	}
+	skipNil := map[string]bool{}
+	for _, member := range union {
+		skipNil[root.String()+"."+member] = true
+	}
 
-	roundTrip := func(t *testing.T, keep []string) {
+	// roundTrip populates, round-trips and asserts once. nilAt < 0 is the
+	// populated pass; otherwise the pointer with that ordinal is left nil. It
+	// returns the filler so the caller can read the pointer paths the walk
+	// met (the nil pass's agenda) and which one this run actually nilled.
+	roundTrip := func(t *testing.T, keep []string, nilAt int) *parityFiller {
 		t.Helper()
 		var g G
 		rv := reflect.ValueOf(&g).Elem()
-		f := &parityFiller{t: t, hits: hits}
+		f := &parityFiller{t: t, hits: hits, nilAt: nilAt, skipNil: skipNil}
 		f.fill(rv, name, 0)
 		if len(union) > 0 {
 			zeroUnionExcept(t, rv, union, keep)
 		}
+		if nilAt < 0 {
+			back := from(to(g))
+			require.Equal(t, g, back,
+				"%s: a fully-populated value did not survive the proto round trip. Every difference below is a field with NO proto field or NO converter statement — it is silently dropped on the wire in production.", name)
+			return f
+		}
+		require.NotEmpty(t, f.nilPath, "%s: nil pass asked for pointer ordinal %d but the walk met only %d — the fill is not deterministic", name, nilAt, len(f.pointers))
+		// A converter that dereferences an absent pointer crashes in
+		// production; report it against the field rather than letting the
+		// panic take the rest of the sweep with it.
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("%s: with %s nil, the converter PANICKED: %v — absent is a value this converter cannot carry", name, f.nilPath, r)
+			}
+		}()
 		back := from(to(g))
 		require.Equal(t, g, back,
-			"%s: a fully-populated value did not survive the proto round trip. Every difference below is a field with NO proto field or NO converter statement — it is silently dropped on the wire in production.", name)
+			"%s: with %s left NIL, the value did not survive the proto round trip. The converter turns an absent pointer into an explicit value — every consumer that distinguishes unset from set is now lied to.", name, f.nilPath)
+		return f
+	}
+
+	sweep := func(t *testing.T, keep []string) {
+		t.Helper()
+		pointers := roundTrip(t, keep, -1).pointers
+		for i, path := range pointers {
+			t.Run("nil="+path, func(t *testing.T) {
+				f := roundTrip(t, keep, i)
+				require.Equal(t, path, f.nilPath, "%s: the nil pass nilled a different pointer than the populated walk numbered at ordinal %d — the fill is not deterministic", name, i)
+			})
+		}
 	}
 
 	if len(variants) == 0 {
-		t.Run(name, func(t *testing.T) { roundTrip(t, nil) })
+		t.Run(name, func(t *testing.T) { sweep(t, nil) })
 		return
 	}
 	for _, variant := range variants {
-		t.Run(name+"/"+fmt.Sprint(variant), func(t *testing.T) { roundTrip(t, variant) })
+		t.Run(name+"/"+fmt.Sprint(variant), func(t *testing.T) { sweep(t, variant) })
 	}
 }
 

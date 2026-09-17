@@ -108,22 +108,13 @@ type Home struct {
 	inflightCtrl map[string]*inflightCtrl
 
 	// spoolHandler is THE consumer for validated inbound spool doorbells
-	// (SetSpoolDoorbellHandler), registered by startSpoolReactor when delivery
-	// is on. spoolDoorbell counts what the doorbell deliberately does not
-	// retry — see spooldoorbell.go.
+	// (SetSpoolDoorbellHandler), registered by startSpoolReactor. spoolDoorbell
+	// counts what the doorbell deliberately does not retry — see
+	// spooldoorbell.go.
 	spoolHandler  SpoolDoorbellHandler
 	spoolDoorbell spoolDoorbellCounters
-	// spoolOut lends this harp's out/ writer for the shadow tee. Non-nil ONLY
-	// when the tee is on and this run has a harp — constructing it is what
-	// creates the spool directories, and a disabled tee must leave no trace on
-	// disk. spoolTeeCount is atomics for the same reason spoolDoorbell is.
-	spoolOut      *spoolWriterCache
-	spoolTeeCount spoolTeeCounters
-	// spoolDelivery is the CUTOVER switch for this run (HomeConfig.
-	// SpoolDelivery, stamped by the coordinator). When it is on, in/ is where
-	// mail comes from and out/ is where this agent's sends go; the mailbox
-	// notice path is never used for either.
-	spoolDelivery bool
+	// spoolOut lends this harp's out/ writer: where this agent's sends go.
+	spoolOut *spoolWriterCache
 	// spoolRefs maps a delivered message's dedupe id to the in/ file it came
 	// from, so the CONSUME-RENAME can happen at the existing acknowledgement
 	// moments (the engine accepted the turn / a later Recv proved the harness
@@ -180,25 +171,10 @@ type HomeConfig struct {
 	// CapPeerMessaging alone — the mailbox surface every runner has.
 	Capabilities []string
 	// Harp is this run's session harp (CTXLOOM_SESSION_HARP), which is the
-	// name of ITS spool. Empty on a runner that has none, and a runner with no
-	// harp has no spool to write into — the same degrade the persist mount
-	// itself takes (statemounts.go's noHarpNotice).
+	// name of ITS spool. Required: a runner with no harp has no spool to
+	// read or write, and so no way to receive or send at all (NewHome refuses
+	// it — ErrRunNeedsHarp).
 	Harp string
-	// SpoolTee turns on the outbound half of the mailbox's SHADOW TEE
-	// (spooltee.go): every accepted agent_send is additionally written into
-	// this harp's out/ spool and doorbelled. Off by default and stamped by the
-	// coordinator per spawn (EnvRunSpoolTee) from the same project config the
-	// coordinator's own half reads, so the two ends of one run never disagree
-	// about whether the run is being teed.
-	SpoolTee bool
-	// SpoolDelivery turns on the CUTOVER (spooldelivery.go) for this run: the
-	// runner delivers coordinator mail out of this harp's in/ spool and
-	// consumes each file by renaming it, and its own agent_send writes out/
-	// locally instead of asking the coordinator to queue it. Off by default
-	// and stamped by the coordinator per spawn (EnvRunSpoolDelivery); a
-	// runner with no harp has no spool and stays on the mailbox with a loud
-	// warning, because half a cutover is no delivery at all.
-	SpoolDelivery bool
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval) — see coord.Options.SpoolSweepInterval.
 	SpoolSweepInterval time.Duration
@@ -254,6 +230,9 @@ func (h *Home) requestFailure(ctx context.Context, waited time.Duration) error {
 // the tool verbs failing fast with ErrCoordinatorUnreachable — the
 // coordinator's runner-loss synthesis covers the lifecycle either way.
 func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
+	if cfg.Harp == "" {
+		return nil, ErrRunNeedsHarp
+	}
 	target, err := grpcTarget(cfg.URL)
 	if err != nil {
 		return nil, err
@@ -277,26 +256,12 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		turnPending:  make(map[string]bool),
 		inflightCtrl: make(map[string]*inflightCtrl),
 	}
-	if (cfg.SpoolTee || cfg.SpoolDelivery) && cfg.Harp != "" {
-		// A runner writes exactly ONE spool: its own harp's out/. The cache is
-		// still keyed by harp because spoolWriterCache is shared with the
-		// coordinator's half, which serves many.
-		h.spoolOut = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirOut, cfg.Harp)
-	} else if cfg.SpoolTee {
-		clidiag.Warn("ctxloom", "runner: the spool tee is enabled but this run has no session harp, so it has no spool to write into; outbound mail will not be mirrored")
-	}
-	if cfg.SpoolDelivery && cfg.Harp != "" {
-		h.spoolDelivery = true
-		h.spoolRefs = make(map[string]spool.Ref)
-		h.startSpoolReactor()
-	} else if cfg.SpoolDelivery {
-		// A cutover run with no harp has no spool to read: it would sit
-		// waiting on a directory that does not exist while the coordinator
-		// writes files nobody sweeps. Refusing the cutover for it leaves the
-		// mailbox in charge, which still works — but silently is exactly the
-		// wrong way to do that.
-		clidiag.Warn("ctxloom", "runner: spool delivery is enabled but this run has no session harp, so it has no spool to read; falling back to mailbox delivery for this run")
-	}
+	// A runner writes exactly ONE spool: its own harp's out/. The cache is
+	// still keyed by harp because spoolWriterCache is shared with the
+	// coordinator's half, which serves many.
+	h.spoolOut = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirOut, cfg.Harp)
+	h.spoolRefs = make(map[string]spool.Ref)
+	h.startSpoolReactor()
 	h.goTracked(h.runnerChannelLoop)
 	h.goTracked(h.runChannelLoop)
 	return h, nil
@@ -742,12 +707,6 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	started := time.Now()
 	select {
 	case resp := <-hr.ch:
-		// The outbound half of the SHADOW TEE (spooltee.go). Here rather than
-		// at the send above because out/ records what this agent actually
-		// SENT: a request the coordinator refused was never a message, and
-		// mirroring it would put a file in the spool with no mailbox twin —
-		// the exact divergence the tee exists to detect.
-		h.teePeerSendResponse(req, resp)
 		return resp, nil
 	case <-ctx.Done():
 		h.mu.Lock()

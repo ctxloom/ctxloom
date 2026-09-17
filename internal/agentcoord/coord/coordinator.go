@@ -112,30 +112,12 @@ type Options struct {
 	// the real budget, or raise/lower it to prove a slow-but-successful
 	// dial-home survives (or doesn't) at a given budget.
 	RunnerAwaitTimeout time.Duration
-	// SpoolTee turns on the mailbox's SHADOW TEE onto the file spool
-	// (spooltee.go): mail is additionally written as spool files and
-	// doorbelled, reads are untouched. Default false, and false means nothing
-	// happens at all — no directory, no doorbell. Production sources this from
-	// project config (config.Config.GetDelegationSpoolTee); the coordinator
-	// also stamps it onto every runner it spawns (EnvRunSpoolTee) so both ends
-	// of a run agree without asking each other.
-	SpoolTee bool
-	// SpoolDelivery CUTS coordinator<->child mail over onto the file spool
-	// (spooldelivery.go): the file is the only copy, the consume-rename is the
-	// delivery ack, and the doorbell only bounds latency. Default false, and
-	// false is byte-identical pre-spool behaviour. Production sources it from
-	// project config (config.Config.GetDelegationSpoolDelivery); the
-	// coordinator stamps it onto every runner it spawns
-	// (EnvRunSpoolDelivery), because a run cut over on one side only delivers
-	// nothing at all.
-	SpoolDelivery bool
 	// OwnerHarp is the SESSION OWNER's harp: the one recipient whose inbox is
-	// drained IN THIS PROCESS (AgentRecv) rather than by a runner. Under the
-	// cutover the owner is a spool recipient like any migrated child, and it
-	// is identified by this declaration alone — never by holding a run
-	// record, because a host/stdio owner has none. Required when
-	// SpoolDelivery is set: a cutover coordinator that did not know whose
-	// inbox it drains would write every child->parent message into a
+	// drained IN THIS PROCESS (AgentRecv) rather than by a runner. The owner
+	// is a spool recipient like any migrated child, and it is identified by
+	// this declaration alone — never by holding a run record, because a
+	// host/stdio owner has none. Required: a coordinator that did not know
+	// whose inbox it drains would write every child->parent message into a
 	// directory nothing reads.
 	OwnerHarp string
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
@@ -143,16 +125,6 @@ type Options struct {
 	// prove that a DROPPED doorbell is still delivered by the sweep without
 	// waiting out the production interval.
 	SpoolSweepInterval time.Duration
-}
-
-// spoolPosture is the pair of spool switches a run is spawned under, kept
-// together so the per-spawn env stamp cannot acquire a third bare bool
-// argument and so a caller cannot pass one of the two and forget the other.
-type spoolPosture struct {
-	// Tee mirrors mail onto the spool without changing delivery.
-	Tee bool
-	// Delivery makes the spool the delivery path.
-	Delivery bool
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -256,16 +228,6 @@ type Coordinator struct {
 	// silence is what made a missing wake read as "the system is just a bit
 	// slow" — the same failure the spool doorbell counts its drops to avoid.
 	pushUnavailable atomic.Uint64
-	// spoolTee is the SHADOW-TEE switch (Options.SpoolTee, config
-	// delegation.spool_tee). Read-only after New, so no lock: it is a
-	// process-lifetime posture, not runtime state, and making it mutable would
-	// mean a delivery could be half-teed across a flip.
-	spoolTee bool
-	// spoolDelivery is the CUTOVER switch (Options.SpoolDelivery, config
-	// delegation.spool_delivery), read-only after New for the same reason
-	// spoolTee is: a delivery half-cut across a flip would be a message with
-	// no reader.
-	spoolDelivery bool
 	// ownerHarp is Options.OwnerHarp: the recipient class "the owner, drained
 	// in-process" (spoolDeliverTo). Read-only after New.
 	ownerHarp string
@@ -273,14 +235,12 @@ type Coordinator struct {
 	// acked to the file it came from, so the consume-rename can find it at
 	// the acknowledgement moment (spoolowner.go). Guarded by mu.
 	spoolRefs map[string]spool.Ref
-	// spoolIn lends the per-child in/ writers. Non-nil ONLY when the spool is
-	// switched on at all (tee or delivery): constructing it is what would
-	// create spool directories, and "both flags are off" has to mean nothing
-	// on disk changed.
-	spoolIn       *spoolWriterCache
-	spoolTeeCount spoolTeeCounters
+	// spoolIn lends the per-child in/ writers. The writers themselves are
+	// lazy (one per child, on its first message), so a run that never sends
+	// never gets a spool directory.
+	spoolIn *spoolWriterCache
 	// spoolReactor serialises the coordinator's own spool reading (out/ and
-	// in/consumed sweeps). Non-nil only under spoolDelivery — see its type.
+	// in/consumed sweeps) — see its type.
 	spoolReactor *spoolReactor
 	// spoolSweepInterval overrides the reconciliation cadence
 	// (Options.SpoolSweepInterval; 0 = spoolSweepInterval). Test seam: a
@@ -441,8 +401,8 @@ type Coordinator struct {
 func New(opts Options) (*Coordinator, error) {
 	// Refused before any state exists: an options contradiction, not a
 	// standup failure.
-	if opts.SpoolDelivery && opts.OwnerHarp == "" {
-		return nil, ErrCutoverNeedsOwner
+	if opts.OwnerHarp == "" {
+		return nil, ErrNeedsOwner
 	}
 	claim, err := acquireStateDir(opts)
 	if err != nil {
@@ -479,17 +439,9 @@ func New(opts Options) (*Coordinator, error) {
 		chans:              make(map[string]*runChan),
 		launchArmed:        make(map[string][]chan struct{}),
 		launches:           make(map[string]*launchState),
-		spoolTee:           opts.SpoolTee,
-		spoolDelivery:      opts.SpoolDelivery,
 		ownerHarp:          opts.OwnerHarp,
 		spoolSweepInterval: opts.SpoolSweepInterval,
-	}
-	if c.spoolTee || c.spoolDelivery {
-		// Built ONLY under a flag — see the field's doc. The writers
-		// themselves are still lazy (one per child, on its first message), so
-		// enabling either switch does not create a spool for a run that never
-		// sends.
-		c.spoolIn = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, spoolWriterIDCoordinator)
+		spoolIn:            newSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, spoolWriterIDCoordinator),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {

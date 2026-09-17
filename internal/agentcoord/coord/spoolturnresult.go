@@ -99,9 +99,6 @@ func isAutoReport(structured json.RawMessage) bool {
 // message that started the turn, or empty for a turn nothing delivered
 // started — a briefing, or an engine continuing on its own.
 func (h *Home) ReportTurnResult(text, inReplyTo string) error {
-	if !h.spoolDelivery {
-		return nil
-	}
 	if h.takeSelfReported() {
 		// The child already reported, in its own words. Never deliver one
 		// turn twice.

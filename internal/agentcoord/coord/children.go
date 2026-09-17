@@ -22,7 +22,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 const (
@@ -740,17 +739,12 @@ func (c *Coordinator) childEnv(harp string) map[string]string {
 // coordinator-only MCP tools (mcp_runner.go). oneshot is this run's own
 // SpawnPlan.ResumeMode == ResumeModeOneShot, stamped via EnvRunOneShot on
 // the SAME unconditional terms as depth: a one-shot run is a leaf
-// regardless of depth (Identity.OneShot's doc). spool is the coordinator's own
-// spool posture (shadow tee and/or delivery cutover), stamped via
-// EnvRunSpoolTee/EnvRunSpoolDelivery on those same unconditional terms — the
-// runner cannot derive either locally (see those constants' docs).
-func runnerEnv(harp, runID, token, url string, depth int, oneshot bool, spool spoolPosture) map[string]string {
+// regardless of depth (Identity.OneShot's doc).
+func runnerEnv(harp, runID, token, url string, depth int, oneshot bool) map[string]string {
 	env := map[string]string{
 		"CTXLOOM_SESSION_HARP": harp,
 		EnvRunDepth:            strconv.Itoa(depth),
 		EnvRunOneShot:          strconv.FormatBool(oneshot),
-		EnvRunSpoolTee:         strconv.FormatBool(spool.Tee),
-		EnvRunSpoolDelivery:    strconv.FormatBool(spool.Delivery),
 	}
 	if url != "" {
 		env[EnvCoordURL] = url
@@ -767,14 +761,11 @@ func runnerEnv(harp, runID, token, url string, depth int, oneshot bool, spool sp
 // mcp.SessionOwnerEnv hand-built a two-key map (URL + credential) and
 // cli/run.go patched CTXLOOM_SESSION_HARP back in by hand — the tell that one
 // missing key had been noticed and the rest had not. Everything runnerEnv
-// stamps unconditionally (depth, oneshot, both spool postures) was simply
-// absent on the owner's runner, and absent reads as the safe default at every
-// consumer (llm_runner_common.go's consumeCoordinatorReachBack), so nothing
-// downstream could tell the omission from a deliberate "off". With
-// delegation.spool_tee on, that meant every child's agent_send was mirrored
-// into the spool and the human's own were not — the half-populated spool
-// EnvRunSpoolTee's doc calls impossible on the grounds that "the coordinator is
-// the only source". It is the only source again: this method is how.
+// stamps unconditionally (depth, oneshot) was simply absent on the owner's
+// runner, and absent reads as the safe default at every consumer
+// (llm_runner_common.go's consumeCoordinatorReachBack), so nothing downstream
+// could tell the omission from a deliberate "off". This method is how the
+// coordinator stays the only source.
 //
 // The owner's own values are passed EXPLICITLY rather than inherited from any
 // childRt, because all three differ from a child's: depth 0 (the owner is the
@@ -785,50 +776,29 @@ func runnerEnv(harp, runID, token, url string, depth int, oneshot bool, spool sp
 // nothing in the product distinguishes an unset coordinator env var from an
 // empty one, and HomeConfig.RunID == "" is already the owner's tested state).
 //
-// The spool posture is NOT a parameter: it comes from this coordinator, so the
-// owner's runner and its children's are stamped from one value that no caller
-// can disagree with. url may be empty on a degraded launch, on the same terms
-// as any child spawn — the trio is then omitted whole and the postures are
-// still stamped.
+// url may be empty on a degraded launch, on the same terms as any child
+// spawn — the trio is then omitted whole.
 func (c *Coordinator) OwnerRunnerEnv(harp, token, url string) map[string]string {
-	return runnerEnv(harp, "", token, url, 0, false, c.spoolPosture())
+	return runnerEnv(harp, "", token, url, 0, false)
 }
 
 // spawnReachURL resolves the coordinator URL a child on runtimeAxis can dial,
-// widening the listeners for a container child. A container child without
-// reach-back is exactly a stranding bug.
+// widening the listeners for a container child.
 //
-// CONDITIONAL REFUSAL (the degradation audit's item #4, ruled 2026-09-15).
-// Whether losing reach-back DAMAGES anything is the one question in this audit
-// whose answer genuinely depends on project config, so this is the one site
-// that reads config to decide its own fatality. That coupling is more than any
-// other converted site carries and is justified only by that fact:
-//
-//   - delegation.spool_delivery ON — coordinator<->child mail is delivered from
-//     the FILE SPOOL rather than the mailbox, so a child that cannot dial home
-//     still reaches its parent. The degrade provably costs nothing, and
-//     --degraded proceeds exactly as before.
-//   - OFF — the child's agent_send has no route at all. It runs, spends real
-//     quota and produces work nobody ever receives. That is lost work, so the
-//     spawn is refused in BOTH modes and the message names both ways out.
-//
-// It reads spool_DELIVERY and deliberately NOT spool_tee, and the difference is
-// load-bearing rather than pedantic: the tee is a SHADOW of the mailbox path
-// ("an un-teed run loses shadow coverage, never mail" — EnvRunSpoolTee's own
-// doc). It mirrors the very path a missing URL breaks, so a teed-but-not-
-// delivered run strands its mail exactly as an un-teed one does. Treating the
-// two switches as interchangeable would have re-admitted the damage in every
-// tee-only project while looking like a fix.
+// A child without reach-back is refused in EVERY strictness, --degraded
+// included. Its mail is a file spool, but the spool is swept by the child's
+// own runner, and that runner learns which spool is its own and rings its
+// doorbells over the run channel it dials home on: no reach-back means no
+// runner sweeping the child's in/ and no route for anything it writes to
+// out/. The child would run, spend real quota, and produce work nobody ever
+// receives. That is lost work, so the spawn is refused and the message names
+// the way out.
 func (c *Coordinator) spawnReachURL(harp string, runtimeAxis agent.RuntimeAxis) (string, error) {
 	url, err := c.ReachURL(runtimeAxis)
 	if err == nil {
 		return url, nil
 	}
-	if strictness.Degraded() && c.SpoolDeliveryEnabled() {
-		clidiag.Warn("ctxloom", "agent child %s: no coordinator endpoint reachable from runtime %q (%v); launching WITHOUT coordinator reach-back — its mail rides the file spool (delegation.spool_delivery), so nothing it sends is lost", harp, runtimeAxis, err)
-		return "", nil
-	}
-	return "", fmt.Errorf("agent_run: no coordinator endpoint reachable from runtime %q: %v — this child could not send anything back, and with delegation.spool_delivery off its work would be lost; check the container runtime's bridge network, or set delegation.spool_delivery: true so its mail rides the file spool instead", runtimeAxis, err)
+	return "", fmt.Errorf("agent_run: no coordinator endpoint reachable from runtime %q: %v — this child could not dial home, so nothing it sends could be routed and its work would be lost; check the container runtime's bridge network", runtimeAxis, err)
 }
 
 // migratedLaunch is the ONE spelling of "this run rides StartRun": an
@@ -887,7 +857,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 
 	launch, err := c.spawner.Launch(lctx, rt.plan, rt.plan.Context, "",
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -932,7 +902,7 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // baseCtx: agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url, resumeSessionID, contextText string) {
 	engine, err := c.spawner.StartEngine(ctx, rt.plan,
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -2424,7 +2394,7 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 		contextText = c.spawner.ResumeContext(lctx, plan, harp)
 	}
 	launch, err := c.spawner.Launch(lctx, plan, contextText, resumeSessionID,
-		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
+		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot))
 	if err != nil {
 		c.failChild(rt, err)
 		return

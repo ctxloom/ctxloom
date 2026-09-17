@@ -329,28 +329,26 @@ func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 	// ref arrives from a peer, and a runner that swept whatever spool it was
 	// pointed at would read a sibling session's mail across the one boundary
 	// the per-session mount exists to draw.
-	if h.spoolDelivery {
-		switch {
-		case ref.Harp != h.cfg.Harp:
-			clidiag.Warn("ctxloom", "runner: refusing a spool doorbell for %q; this run's spool is %q", ref.Harp, h.cfg.Harp)
-			h.spoolDoorbell.rejected.Add(1)
-			return
-		case ref.Dir == spool.DirInWithdrawn:
-			// ACCEPTED, and consumed below by the one seam.
-			// A RETRACTION (spoolcontrol.go's WithdrawSteer): the coordinator
-			// renamed an unread instruction out of in/ and is announcing the
-			// transition. There is nothing to deliver — the file has already
-			// left the directory this runner sweeps — and nothing to refuse
-			// either: a sweep re-derives the picture and finds it gone, which
-			// is exactly the outcome. Counting it as a rejection would make
-			// every successful withdrawal read as a doorbell fault.
-		case ref.Dir != spool.DirIn:
-			// out/ and the remaining terminal directories are this runner's
-			// own writes coming back at it; nothing to read there.
-			clidiag.Warn("ctxloom", "runner: ignoring a spool doorbell for %s: only inbound mail is delivered to this run", ref.Dir)
-			h.spoolDoorbell.rejected.Add(1)
-			return
-		}
+	switch {
+	case ref.Harp != h.cfg.Harp:
+		clidiag.Warn("ctxloom", "runner: refusing a spool doorbell for %q; this run's spool is %q", ref.Harp, h.cfg.Harp)
+		h.spoolDoorbell.rejected.Add(1)
+		return
+	case ref.Dir == spool.DirInWithdrawn:
+		// ACCEPTED, and consumed below by the one seam.
+		// A RETRACTION (spoolcontrol.go's WithdrawSteer): the coordinator
+		// renamed an unread instruction out of in/ and is announcing the
+		// transition. There is nothing to deliver — the file has already
+		// left the directory this runner sweeps — and nothing to refuse
+		// either: a sweep re-derives the picture and finds it gone, which
+		// is exactly the outcome. Counting it as a rejection would make
+		// every successful withdrawal read as a doorbell fault.
+	case ref.Dir != spool.DirIn:
+		// out/ and the remaining terminal directories are this runner's
+		// own writes coming back at it; nothing to read there.
+		clidiag.Warn("ctxloom", "runner: ignoring a spool doorbell for %s: only inbound mail is delivered to this run", ref.Dir)
+		h.spoolDoorbell.rejected.Add(1)
+		return
 	}
 	h.mu.Lock()
 	fn := h.spoolHandler

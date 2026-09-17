@@ -629,7 +629,7 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, format hew.Forma
 	if err := fs.MkdirAll(recordsDir, 0755); err != nil {
 		return "", fmt.Errorf("create %s: %w", recordsDir, err)
 	}
-	recordPath, err := freeRecordPath(fs, recordsDir, target, at)
+	recordPath, err := confpatch.FreeRecordPath(fs, recordsDir, target, at)
 	if err != nil {
 		return "", err
 	}
@@ -666,60 +666,6 @@ func inverseOps(b hew.Binding, format hew.FormatID, target string, after, before
 	}
 	return hew.Resolve(tl, doc)
 }
-
-// freeRecordPath is the record path that does not already exist, disambiguating
-// with a counter when it does.
-//
-// AtomicWriteFile OVERWRITES, so the timestamp alone was the whole defence and
-// it was not one: at second resolution two applies against the same target in
-// the same second produced the same name and the second silently destroyed the
-// first — the exact evidence the §9.7 record exists to preserve, gone on a
-// success path with a success message. Nanoseconds make that vanishingly
-// unlikely; this loop makes it IMPOSSIBLE, which is the difference between an
-// invariant and a hope.
-//
-// It disambiguates rather than refusing because refusing also loses a record:
-// the point is that no apply goes unrecorded, not that a particular filename
-// is available.
-func freeRecordPath(fs afero.Fs, dir, target string, at time.Time) (string, error) {
-	base := applicationRecordFilename(target, at)
-	path := filepath.Join(dir, base)
-	for n := 2; ; n++ {
-		exists, err := afero.Exists(fs, path)
-		if err != nil {
-			return "", fmt.Errorf("check %s: %w", path, err)
-		}
-		if !exists {
-			return path, nil
-		}
-		path = filepath.Join(dir, strings.TrimSuffix(base, recordFileSuffix)+fmt.Sprintf("-%d", n)+recordFileSuffix)
-	}
-}
-
-// applicationRecordFilename flattens target the same way
-// paths.HomePathFor's flattenLockName flattens a protected path into one
-// filename component (forward-slash it, then "/" -> "__"); the two are
-// independent copies of the same convention, not a shared function, for the
-// reason HomeLocksDirName's doc gives for a package outside internal/paths
-// keeping its own copy — crossing a
-// package boundary to share three lines of string manipulation is not worth
-// the coupling. Suffixed with a sortable UTC timestamp because a record is
-// an audit trail entry, not a mutable sidecar: two applies against the same
-// target must not overwrite each other's record.
-//
-// NANOSECONDS, not seconds. The format is still lexically sortable, and the
-// clock is a parameter so the collision case is reachable from a test — with
-// time.Now() inlined here, two applies could only be made to collide by
-// running them inside the same second, which is a race a test cannot state.
-// freeRecordPath is what actually enforces the no-overwrite invariant.
-func applicationRecordFilename(target string, at time.Time) string {
-	flat := strings.ReplaceAll(filepath.ToSlash(target), "/", "__")
-	return flat + "__" + at.UTC().Format("20060102T150405.000000000Z") + recordFileSuffix
-}
-
-// recordFileSuffix is the record's extension, named once because
-// freeRecordPath has to split a filename on it to insert its counter.
-const recordFileSuffix = ".hew-record.yaml"
 
 // containsConfigPatch implements rule 5's payload verification: it confirms
 // every key/value in patch is present in data, recursing into nested objects.

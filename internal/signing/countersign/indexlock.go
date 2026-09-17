@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
@@ -90,20 +89,16 @@ func (s *Store) lockedIndexUpdate(fn func() error) error {
 // repo already places locks for files a sidecar must not sit beside (ruled
 // 2026-08-13, closing undated-bronco).
 //
-// The absolute path is flattened into ONE filename component, so every lock
-// sits in one directory rather than a shadow tree. Two paths that flatten to
-// the same name are left to COLLIDE deliberately: they merely over-serialize,
-// which is the safe direction. The failure this cannot tolerate is the
-// opposite one — one index, two lock names, excluding nobody — so the encoding
-// is total and deterministic rather than injective.
+// paths.HomePathFor is exactly that mapping — resolve to absolute, flatten
+// into one bounded filename component, place under the home lock directory
+// — and it is the mapping every other home-rooted foreign-file lock uses.
+// Spelling it again here was a second copy of the encoding, which is the one
+// failure a lock name cannot tolerate: one index, two lock names, excluding
+// nobody.
 func indexLockPath(index string) (string, error) {
-	abs, err := filepath.Abs(index)
-	if err != nil {
-		return "", fmt.Errorf("countersignature index lock: resolve %s: %w", index, err)
-	}
-	dir, err := paths.HomeLocksDir()
+	path, err := paths.HomePathFor(index)
 	if err != nil {
 		return "", fmt.Errorf("countersignature index lock: %w", err)
 	}
-	return filepath.Join(dir, strings.ReplaceAll(filepath.ToSlash(abs), "/", "__")+".lock"), nil
+	return path, nil
 }

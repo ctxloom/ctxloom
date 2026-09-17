@@ -40,13 +40,16 @@ func TestHandleAgentRecv_CoordinatorTimeoutIsASuccessfulEmptyReceive(t *testing.
 		"a coordinator on a quiet wait re-arms; telling it to finish is the child's instruction")
 }
 
-func TestHandleAgentRecv_LeafTimeoutStaysAnError(t *testing.T) {
+// A leaf's agent_recv is served by ITS RUNNER (recvHandler, below), which
+// drains the run's own spool. The coordinator-side stdio server receives for
+// the session owner only; a leaf identity reaching it is refused rather
+// than parked on an inbox it does not have.
+func TestHandleAgentRecv_LeafIsRefusedAtTheCoordinator(t *testing.T) {
 	s := stdioServerAs(t, coord.Identity{Harp: "child-harp", Depth: 1})
 
 	_, out, err := s.handleAgentRecv(context.Background(), nil, agentRecvInput{Wait: 1})
-	require.ErrorIs(t, err, coord.ErrRecvTimeout, "a leaf's timeout is its signal to stop, and its harness should show red")
-	assert.Nil(t, out, "a leaf timeout carries no successful result to mistake for an empty receive")
-	assert.Contains(t, err.Error(), recvTimeoutLeafGuidance)
+	require.ErrorIs(t, err, coord.ErrRecvNotOwner, "a leaf has no inbox at the coordinator; its runner drains its spool")
+	assert.Nil(t, out, "a refusal carries no successful result to mistake for an empty receive")
 }
 
 func TestRecvHandler_CoordinatorTimeoutIsASuccessfulEmptyReceive(t *testing.T) {

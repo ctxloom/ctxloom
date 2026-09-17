@@ -34,7 +34,7 @@ func buildHostCoordinator(t *testing.T, subs map[string]agents.Agent) (*config.C
 	resetStrictness(t)
 	cfg, root := delegationFixture(t, subs)
 	spawns := &fakeChatEngineSpawns{}
-	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Factory: spawns.factory()})
+	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Factory: spawns.factory(), OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
@@ -151,7 +151,7 @@ func TestProdSpawner_ChildMCPServers_ScopedPerAgent(t *testing.T) {
 
 	resetStrictness(t)
 	spawns := &fakeChatEngineSpawns{}
-	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Factory: spawns.factory()})
+	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Factory: spawns.factory(), OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
@@ -222,7 +222,7 @@ func TestProdSpawner_ChildMCPServers_JournaledDisjointPerAgent(t *testing.T) {
 
 	resetStrictness(t)
 	spawns := &fakeChatEngineSpawns{}
-	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Factory: spawns.factory()})
+	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Factory: spawns.factory(), OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)

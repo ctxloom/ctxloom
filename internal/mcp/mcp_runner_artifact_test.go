@@ -29,6 +29,7 @@ func TestRunnerServer_ReportThenFetchArtifact(t *testing.T) {
 		ProjectDir: cwd,
 		StateDir:   t.TempDir(),
 		Cfg:        testConfig(),
+		OwnerHarp:  "owner-harp",
 	})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
@@ -43,6 +44,7 @@ func TestRunnerServer_ReportThenFetchArtifact(t *testing.T) {
 		RunID:   "", // depth-0 session owner
 		Harness: "mock",
 		Version: "test",
+		Harp:    "owner-harp",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { home.Close(0, "") })
@@ -132,6 +134,7 @@ func TestRunnerServer_ArtifactPathsResolveAgainstCellWorkDir(t *testing.T) {
 		ProjectDir: coordCwd,
 		StateDir:   t.TempDir(),
 		Cfg:        testConfig(),
+		OwnerHarp:  "owner-harp",
 	})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
@@ -146,6 +149,7 @@ func TestRunnerServer_ArtifactPathsResolveAgainstCellWorkDir(t *testing.T) {
 		RunID:   "",
 		Harness: "mock",
 		Version: "test",
+		Harp:    "owner-harp",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { home.Close(0, "") })

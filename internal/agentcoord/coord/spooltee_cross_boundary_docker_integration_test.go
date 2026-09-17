@@ -102,7 +102,7 @@ func TestSpoolTeeCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.
 		"worker": {perm: "bypass", viaStartRun: true},
 	}, nil)
 	sp.engineCaps = RunnerCapabilities(true)
-	c := newTeeCoordinator(t, sp)
+	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "go", "", "")
 	require.NoError(t, err)

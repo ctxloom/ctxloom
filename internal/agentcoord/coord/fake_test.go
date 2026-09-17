@@ -405,15 +405,8 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		// test, mirroring production's consumeCoordinatorReachBack
 		// (llm_runner_common.go) field for field. That makes every test using
 		// this fake a live check that the coordinator's per-spawn stamp
-		// actually reaches the runner: a tee enabled only on the coordinator
-		// would show up here as a runner that never mirrors, which is exactly
-		// the half-populated spool the soak must not have to diagnose.
-		Harp:     runnerEnv["CTXLOOM_SESSION_HARP"],
-		SpoolTee: runnerEnv[EnvRunSpoolTee] == "true",
-		// The CUTOVER stamp, read the same way for the same reason: a run cut
-		// over on the coordinator only would deliver nothing, and that is a
-		// failure every test using this fake should be able to catch.
-		SpoolDelivery:      runnerEnv[EnvRunSpoolDelivery] == "true",
+		// actually reaches the runner.
+		Harp:               runnerEnv["CTXLOOM_SESSION_HARP"],
 		SpoolSweepInterval: sweepInterval,
 	})
 	if err != nil {
@@ -647,6 +640,7 @@ func newTestCoordinatorOpts(t *testing.T, sp Spawner, clock func() time.Time, co
 		Clock:          clock,
 		ConcurrencyCap: concurrencyCap,
 		Depth:          depthCap,
+		OwnerHarp:      ownerIdentity().Harp,
 	})
 	if err != nil {
 		t.Fatalf("new coordinator: %v", err)
@@ -729,6 +723,7 @@ func newTestCoordinatorAt(t *testing.T, stateDir string) *Coordinator {
 		StateDir:   stateDir,
 		Spawner:    newFakeSpawner(nil, nil),
 		Clock:      nil,
+		OwnerHarp:  ownerIdentity().Harp,
 	})
 	if err != nil {
 		t.Fatalf("new coordinator: %v", err)

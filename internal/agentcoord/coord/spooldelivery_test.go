@@ -40,7 +40,7 @@ func newCutoverCoordinator(t *testing.T, sp Spawner, sweep time.Duration) *Coord
 		ProjectDir:         t.TempDir(),
 		StateDir:           t.TempDir(),
 		Spawner:            sp,
-		SpoolDelivery:      true,
+		
 		OwnerHarp:          ownerIdentity().Harp,
 		SpoolSweepInterval: sweep,
 	})
@@ -73,11 +73,7 @@ func awaitCutoverChild(t *testing.T, c *Coordinator, sp *fakeSpawner, prompt str
 	require.NoError(t, c.awaitChildUp(ctx, out.Harp), "the migrated child never came up")
 	require.Eventually(t, func() bool { return sp.engineHome(0) != nil }, conformanceWait, 10*time.Millisecond,
 		"the runner half never appeared")
-	home := sp.engineHome(0)
-	require.True(t, home.SpoolDeliveryEnabled(),
-		"the runner must have learned the cutover from the coordinator's per-spawn env stamp; "+
-			"a run cut over on one side only delivers nothing at all")
-	return out, home
+	return out, sp.engineHome(0)
 }
 
 // awaitCutoverChildIdle is awaitCutoverChild plus a wait for the child's FIRST
@@ -191,53 +187,6 @@ func awaitSpoolCount(t *testing.T, harp string, dir spool.Dir, n int, why string
 		return len(got) == n
 	}, conformanceWait, 10*time.Millisecond, "%s: %s should hold %d file(s), holds %d", why, dir, n, len(got))
 	return got
-}
-
-// TestSpoolDelivery_DisabledDeliversByMailboxAndTouchesNoDisk pins the
-// flag-off promise, which is the only thing that makes shipping a half-rolled
-// cutover defensible: with delegation.spool_delivery unset, a full two-way
-// exchange behaves exactly as it always did and leaves the filesystem as it
-// found it.
-//
-// It asserts the ABSENCE of the spool directory rather than an empty one. A
-// cutover that created its directories eagerly and delivered by mailbox would
-// pass a "no files" check while already having changed what an operator sees
-// on disk — and consumed/ appearing is precisely the trace a half-entered
-// cutover would leave.
-func TestSpoolDelivery_DisabledDeliversByMailboxAndTouchesNoDisk(t *testing.T) {
-	resetStrictness(t)
-	home := teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newTestCoordinator(t, sp, nil)
-	require.False(t, c.SpoolDeliveryEnabled(), "the cutover must be off unless a project asks for it")
-
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "", "")
-	require.NoError(t, err)
-	upCtx, upCancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer upCancel()
-	require.NoError(t, c.awaitChildUp(upCtx, out.Harp))
-	require.Eventually(t, func() bool { return sp.engineHome(0) != nil }, conformanceWait, 10*time.Millisecond)
-	runnerHome := sp.engineHome(0)
-	require.False(t, runnerHome.SpoolDeliveryEnabled(), "the runner must not cut over on its own")
-
-	// Down: an owner send still becomes a turn on the child.
-	msgID, _, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "second task", nil, "")
-	require.NoError(t, err)
-	require.NotEmpty(t, msgID)
-	awaitChatText(t, sp, 0, "second task")
-
-	// Up: the child's own send still reaches the parent's mailbox.
-	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
-	_, _, _, err = c.peerSend(child, ParentAddress, KindResult, "a finding", nil, "")
-	require.NoError(t, err)
-	require.NotEmpty(t, recvBody(t, c, "a finding", conformanceWait),
-		"the disabled cutover must not disturb ordinary delivery")
-
-	assert.Contains(t, mailboxEverQueued(c), msgID, "with the flag off the mailbox is still the carrier")
-	assert.Empty(t, spoolDirsUnder(t, home),
-		"the disabled cutover must create no spool directory — and therefore no consumed/ — anywhere under HOME")
-	assert.Equal(t, SpoolDeliveryStats{}, c.SpoolDeliveryStats())
-	assert.Equal(t, SpoolDeliveryStats{}, runnerHome.SpoolDeliveryStats())
 }
 
 // TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsConsumed is the
@@ -413,7 +362,7 @@ func TestSpoolDelivery_ColdRunnerDrainsItsSpoolBeforeAnyChannel(t *testing.T) {
 		RunID:         "run-cold",
 		Harness:       "mock",
 		Harp:          harp,
-		SpoolDelivery: true,
+		
 		// The PRODUCTION cadence, deliberately: at 30s nothing but the
 		// STARTUP pass can deliver inside this test's budget, so a delivery
 		// here is proof of the cold-start path and not of a fast timer.
@@ -456,7 +405,7 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 
 	sp := cutoverSpawner(0)
 	first, err := New(Options{
-		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, SpoolDelivery: true, OwnerHarp: ownerIdentity().Harp,
+		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, OwnerHarp: ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, first.Serve())
@@ -474,7 +423,7 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 	// A fresh coordinator on the same state: adopt() replays the run
 	// records, then the startup sweep finds the file.
 	second, err := New(Options{
-		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), SpoolDelivery: true, OwnerHarp: ownerIdentity().Harp,
+		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, second.Serve())
@@ -524,7 +473,7 @@ func TestSpoolDelivery_ConsumedMailIsNeverDeliveredTwice(t *testing.T) {
 	defer cancel()
 	fresh, err := NewHome(ctx, HomeConfig{
 		URL: "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-fresh",
-		Harness: "mock", Harp: out.Harp, SpoolDelivery: true,
+		Harness: "mock", Harp: out.Harp,
 		SpoolSweepInterval: 50 * time.Millisecond,
 	})
 	require.NoError(t, err)
@@ -811,7 +760,7 @@ func TestSpoolDelivery_UnmappableKindReachesATerminalState(t *testing.T) {
 		RunID:         "run-unmappable-kind",
 		Harness:       "mock",
 		Harp:          harp,
-		SpoolDelivery: true,
+		
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { home.crash() })

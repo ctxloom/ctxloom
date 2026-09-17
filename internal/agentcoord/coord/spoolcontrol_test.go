@@ -130,7 +130,7 @@ func TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine(t *testing.T) {
 	defer cancel()
 	fresh, err := NewHome(ctx, HomeConfig{
 		URL: "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-fresh-steer",
-		Harness: "mock", Harp: out.Harp, SpoolDelivery: true,
+		Harness: "mock", Harp: out.Harp,
 		SpoolSweepInterval: 50 * time.Millisecond,
 	})
 	require.NoError(t, err)
@@ -174,52 +174,6 @@ func TestSpoolSteer_WithdrawAfterConsumeSaysSoHonestly(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoSuchSteer)
 	assert.NotErrorIs(t, err, ErrSteerAlreadyDelivered)
-}
-
-// TestSpoolSteer_FlagOffKeepsThePlaneTwoRouteAndTouchesNoDisk is the flag-off
-// half of the steer plane: with the cutover unset a steer still rides the
-// plane-2 request (body parked, reminder injected, pulled by the agent), still
-// reports an APPLIED state, offers no withdraw handle — and leaves no spool
-// directory anywhere under HOME.
-func TestSpoolSteer_FlagOffKeepsThePlaneTwoRouteAndTouchesNoDisk(t *testing.T) {
-	resetStrictness(t)
-	home := teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newTestCoordinator(t, sp, nil)
-	require.False(t, c.SpoolDeliveryEnabled())
-
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "", "")
-	require.NoError(t, err)
-	upCtx, upCancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer upCancel()
-	require.NoError(t, c.awaitChildUp(upCtx, out.Harp))
-	require.Eventually(t, func() bool { return sp.engineHome(0) != nil }, conformanceWait, 10*time.Millisecond)
-	runnerHome := sp.engineHome(0)
-	// JOIN on the precondition the plane-2 route actually has, rather than
-	// sampling it: a child that is up but has not yet had its `steer`
-	// capability advertisement land is legitimately routed to the §5.6
-	// MAILBOX fallback by ControlSteer, which parks no control payload and
-	// leaves Applied unspecified — the exact pair of failures this test showed
-	// under CPU starvation. awaitChildUp and a non-nil engineHome do not imply
-	// the advertisement has been recorded. Same idiom as
-	// TestControlSteer_PlaneTwoDeliversReminderAndBodyOnlyViaRecv.
-	require.Eventually(t, func() bool { return c.runCapability(out.Harp, CapSteer) == nil },
-		conformanceWait, 10*time.Millisecond,
-		"the plane-2 route is only reachable once the child advertises %q", CapSteer)
-
-	outcome, err := c.ControlSteer(context.Background(), humanInitiator(), out.Harp, "check the lockfile")
-	require.NoError(t, err)
-	assert.Empty(t, outcome.MessageID, "there is no durable object to withdraw on the request route")
-	assert.NotEqual(t, agentcoordpb.SteerResult_APPLIED_UNSPECIFIED, outcome.Applied,
-		"the plane-2 route must still report how the steer landed")
-	require.Eventually(t, func() bool { return len(runnerHome.PendingControlPayloads()) == 1 },
-		conformanceWait, 10*time.Millisecond,
-		"the request route parks the body for the agent to pull — that is the behaviour the flag preserves")
-
-	assert.Empty(t, spoolDirsUnder(t, home),
-		"a steer with the cutover off must create no spool directory anywhere under HOME")
-	assert.ErrorIs(t, c.WithdrawSteer(humanInitiator(), out.Harp, "anything"), ErrNoSuchSteer,
-		"withdrawal must refuse rather than pretend to retract a body that lives in a runner's memory")
 }
 
 // ---- correlated asks ----------------------------------------------------
@@ -473,15 +427,11 @@ func TestSpoolAsk_SummarizeCarriesItsOwnKind(t *testing.T) {
 	assert.Contains(t, kinds, KindSummarize, "a summarize ask must carry its own kind, not a question's (saw %v)", kinds)
 }
 
-// TestSpoolAsk_RefusedWhenTheTargetIsNotCutOver pins the flag-off answer.
-// Question and summarize were NEVER built on plane 2 (HandleControl has only a
-// steer arm), so with the cutover off there is no path — and saying so is the
-// only honest answer. A verb that silently waited out its budget against a
-// target that can never reply would report "it did not answer" for something
-// it never asked.
-func TestSpoolAsk_RefusedWhenTheTargetIsNotCutOver(t *testing.T) {
+// TestSpoolAsk_EmptyTextIsRefused: empty input fails rather than asking
+// nothing and waiting out a budget for an answer to a question nobody asked.
+func TestSpoolAsk_EmptyTextIsRefused(t *testing.T) {
 	resetStrictness(t)
-	home := teeHome(t)
+	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newTestCoordinator(t, sp, nil)
 
@@ -491,16 +441,6 @@ func TestSpoolAsk_RefusedWhenTheTargetIsNotCutOver(t *testing.T) {
 	defer upCancel()
 	require.NoError(t, c.awaitChildUp(upCtx, out.Harp))
 
-	_, err = c.ControlQuestion(context.Background(), humanInitiator(), out.Harp, "why?")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAskUnavailable)
-	assert.NotErrorIs(t, err, ErrAskTimeout, "refusing to ask is not the same fact as asking and getting no answer")
-
-	_, err = c.ControlSummarize(context.Background(), humanInitiator(), out.Harp, "everything")
-	assert.ErrorIs(t, err, ErrAskUnavailable)
-	assert.Empty(t, spoolDirsUnder(t, home), "a refused ask must leave no spool directory behind")
-
-	// Empty input fails rather than asking nothing and waiting out a budget.
 	_, err = c.ControlQuestion(context.Background(), humanInitiator(), out.Harp, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "text is required")

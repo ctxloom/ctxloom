@@ -190,7 +190,7 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 
 	first, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil),
-		SpoolDelivery: true, OwnerHarp: owner,
+		OwnerHarp: owner,
 	})
 	require.NoError(t, err)
 	require.NoError(t, first.Serve())
@@ -201,7 +201,7 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 
 	second, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil),
-		SpoolDelivery: true, OwnerHarp: owner,
+		OwnerHarp: owner,
 	})
 	require.NoError(t, err)
 	require.NoError(t, second.Serve())
@@ -214,17 +214,16 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 	assert.True(t, consumed)
 }
 
-// TestSpoolOwner_CutoverRefusesAnUndeclaredOwner pins the fail-loud half of
-// the declaration: a cutover coordinator that does not know whose inbox it
-// drains would write every child->parent message for nobody.
-func TestSpoolOwner_CutoverRefusesAnUndeclaredOwner(t *testing.T) {
+// TestSpoolOwner_RefusesAnUndeclaredOwner pins the fail-loud half of the
+// declaration: a coordinator that does not know whose inbox it drains would
+// write every child->parent message for nobody.
+func TestSpoolOwner_RefusesAnUndeclaredOwner(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	_, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: t.TempDir(), Spawner: newFakeSpawner(nil, nil),
-		SpoolDelivery: true,
 	})
-	require.ErrorIs(t, err, ErrCutoverNeedsOwner)
+	require.ErrorIs(t, err, ErrNeedsOwner)
 }
 
 // TestSpoolOwner_MailToAQueuedChildIsNotStranded reproduces the PRE-LAUNCH
@@ -240,7 +239,7 @@ func TestSpoolOwner_MailToAQueuedChildIsNotStranded(t *testing.T) {
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{turnGate: gate} }
 	c, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: t.TempDir(), Spawner: sp,
-		SpoolDelivery: true, OwnerHarp: ownerIdentity().Harp, ConcurrencyCap: 1,
+		OwnerHarp: ownerIdentity().Harp, ConcurrencyCap: 1,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

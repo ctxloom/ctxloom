@@ -13,15 +13,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 )
 
-// Tests for the RESULT PLANE's cutover (spoolturnresult.go): a cut-over
-// child's automatic turn report is written by its own runner into its own
-// out/, and the coordinator's bridge does not fire for that run.
-//
-// The two halves of exactly-once are asserted separately because they fail
-// differently: "the file arrives" is a delivery, "the bridge is silent" is an
-// absence, and an absence is only meaningful against a run that would
-// otherwise have produced one — which is why the flag-off twin runs the same
-// script and IS compared against.
+// Tests for the RESULT PLANE (spoolturnresult.go): a child's automatic turn
+// report is written by its own runner into its own out/, exactly once.
 
 // bridgedResultFor runs one child under the given coordinator and returns the
 // result message its parent received, waiting for it.
@@ -34,52 +27,6 @@ func bridgedResultFor(t *testing.T, c *Coordinator, wait time.Duration) Message 
 	msgs := recvKind(t, c, KindResult, wait)
 	require.NotEmpty(t, msgs, "the parent never received this child's turn result")
 	return msgs[0]
-}
-
-// TestSpoolTurnResult_RidesTheFileWithTheBridgesOwnPayload is the payload
-// equivalence assertion, and it is made against the OTHER CARRIER rather than
-// against a literal: the same agent, the same prompt and the same scripted
-// engine are run once with the cutover on and once with it off, and what the
-// parent reads must be the same message.
-//
-// A literal expectation would only pin what this build happens to compose. The
-// bridge is the thing being replaced, so the bridge is the specification.
-func TestSpoolTurnResult_RidesTheFileWithTheBridgesOwnPayload(t *testing.T) {
-	resetStrictness(t)
-
-	// --- the bridge (flag off) ---
-	teeHome(t)
-	bridgeSp := cutoverSpawner(0)
-	bridgeC := newTestCoordinator(t, bridgeSp, nil)
-	require.False(t, bridgeC.SpoolDeliveryEnabled())
-	_, err := bridgeC.AgentRun(context.Background(), ownerIdentity(), "worker", "summarise the lockfile", "", "")
-	require.NoError(t, err)
-	viaBridge := bridgedResultFor(t, bridgeC, conformanceWait)
-	require.NotEmpty(t, viaBridge.Body, "the bridge's own message must not be empty, or this comparison proves nothing")
-
-	// --- the file (flag on) ---
-	teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newCutoverCoordinator(t, sp, 0)
-	out, _ := awaitCutoverChild(t, c, sp, "summarise the lockfile")
-	viaFile := bridgedResultFor(t, c, conformanceWait)
-
-	assert.Equal(t, viaBridge.Kind, viaFile.Kind, "the kind the parent reads must not change with the carrier")
-	assert.Equal(t, viaBridge.Body, viaFile.Body, "the report's text must be byte-identical: one substrate changed, not what the child said")
-	assert.Equal(t, viaBridge.From, viaFile.From, "the sender is the child either way")
-	assert.Equal(t, out.Harp, viaFile.From, "and it is resolved from the spool the file was found in")
-
-	// The one ADDITION, named rather than smuggled: the file-borne report is
-	// marked as automatic, because its correlation would otherwise let it pass
-	// for something the child chose to send (see peerSend's collision note).
-	assert.Empty(t, viaBridge.Structured, "the bridge's message carried no structured payload")
-	require.NotEmpty(t, viaFile.Structured)
-	assert.True(t, isAutoReport(viaFile.Structured),
-		"the file-borne report must declare that the runner composed it, not the agent")
-
-	// And it really was a file.
-	awaitSpoolEntryWithBody(t, out.Harp, spool.DirOutConsumed, viaFile.Body,
-		"the report must have travelled as a file in the child's own out/ spool")
 }
 
 // ownerResultsFrom reads the owner's SPOOL off disk — in/ and in/consumed/
@@ -339,25 +286,6 @@ func TestSpoolTurnResult_EmptyTurnIsReportedAsAnError(t *testing.T) {
 	assert.Equal(t, out.Harp, got[0].From)
 }
 
-// TestSpoolTurnResult_FlagOffStillBridgesAndTouchesNoDisk is the flag-off
-// half: with the cutover unset the coordinator's bridge still delivers the
-// report, and nothing writes a spool directory.
-func TestSpoolTurnResult_FlagOffStillBridgesAndTouchesNoDisk(t *testing.T) {
-	resetStrictness(t)
-	home := teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newTestCoordinator(t, sp, nil)
-
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
-	require.NoError(t, err)
-
-	got := bridgedResultFor(t, c, conformanceWait)
-	assert.Contains(t, got.Body, "do the thing", "the bridge must still deliver the turn's own output")
-	assert.Empty(t, got.Structured, "the bridge's message is unchanged: no marker, because nothing correlates it")
-	assert.Empty(t, got.InReplyTo)
-	assert.Empty(t, spoolDirsUnder(t, home), "a bridged run must create no spool directory anywhere under HOME")
-}
-
 // TestSpoolTurnResult_RestartWindowDeliversByOneCarrier covers the seam S5a
 // documented: between a coordinator's adopt() and the child's respawn a
 // cut-over harp is not yet tracked, so the cutover predicate reads false.
@@ -373,7 +301,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	stateDir := t.TempDir()
 
 	sp := cutoverSpawner(0)
-	first, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, SpoolDelivery: true, OwnerHarp: ownerIdentity().Harp})
+	first, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, first.Serve())
 	out, _ := awaitCutoverChild(t, first, sp, "first task")
@@ -392,7 +320,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	second, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), SpoolDelivery: true, OwnerHarp: ownerIdentity().Harp})
+	second, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, second.Serve())
 	t.Cleanup(second.Close)

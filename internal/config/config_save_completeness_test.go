@@ -1,7 +1,6 @@
 package config
 
 import (
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,7 +42,7 @@ func fullyPopulatedFixture() Fixture {
 		DirtyTreeHandler:             "commit",
 		Runtime:                      "container",
 		Permissions:                  "plan",
-		Delegation:                   DelegationConfig{Concurrency: 7, Depth: 2, SpoolTee: true},
+		Delegation:                   DelegationConfig{Concurrency: 7, Depth: 2},
 		IsolationImages:              map[string]string{"claude-code": "example.invalid/img:tag"},
 		IsolationBaseContainerfile:   "Containerfile.base",
 		IsolationDevcontainerBase:    &devcontainerBase,
@@ -74,16 +73,16 @@ func TestUISurvivesSaveRoundTrip(t *testing.T) {
 	}
 }
 
-// TestDelegationSpoolTeeSurvivesSaveRoundTrip covers the gap the class
+// TestDelegationDepthAloneSurvivesSaveRoundTrip covers the gap the class
 // assertion above cannot: `delegation` is persisted as ONE key, guarded by a
-// condition that names each of its fields, so a config in which spool_tee is
-// the ONLY thing set is pruned away entirely unless that condition was updated
-// too. The fully-populated fixture always sets the other two, so it can never
-// catch it — this is the case that actually loses a user's setting.
-func TestDelegationSpoolTeeSurvivesSaveRoundTrip(t *testing.T) {
+// condition that names each of its fields, so a config in which one field is
+// the ONLY thing set is pruned away entirely unless that condition names it.
+// The fully-populated fixture always sets the others, so it can never catch
+// it — this is the case that actually loses a user's setting.
+func TestDelegationDepthAloneSurvivesSaveRoundTrip(t *testing.T) {
 	cfg := NewFixture(Fixture{
 		Version:    CurrentConfigVersion,
-		Delegation: DelegationConfig{SpoolTee: true},
+		Delegation: DelegationConfig{Depth: 2},
 	})
 
 	data, err := cfg.Marshal()
@@ -91,18 +90,10 @@ func TestDelegationSpoolTeeSurvivesSaveRoundTrip(t *testing.T) {
 
 	var doc configDoc
 	require.NoError(t, yaml.Unmarshal(data, &doc))
-	assert.True(t, doc.Delegation.SpoolTee,
-		"delegation.spool_tee was silently discarded on save: applyConfigSections prunes the whole delegation key on a condition that does not mention it")
+	assert.Equal(t, 2, doc.Delegation.Depth,
+		"delegation.depth was silently discarded on save: applyConfigSections prunes the whole delegation key on a condition that does not mention it")
 
 	reloaded, err := ParseConfig(data)
 	require.NoError(t, err)
-	assert.True(t, reloaded.GetDelegationSpoolTee(), "the accessor must read back what was written")
-}
-
-// TestDelegationSpoolTeeDefaultsOff pins the posture the whole shadow-tee
-// design rests on: a project that never mentions the key gets no tee.
-func TestDelegationSpoolTeeDefaultsOff(t *testing.T) {
-	cfg, err := ParseConfig([]byte("version: " + strconv.Itoa(CurrentConfigVersion) + "\n"))
-	require.NoError(t, err)
-	assert.False(t, cfg.GetDelegationSpoolTee())
+	assert.Equal(t, 2, reloaded.GetDelegationDepth(), "the accessor must read back what was written")
 }

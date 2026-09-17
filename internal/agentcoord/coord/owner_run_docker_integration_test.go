@@ -182,8 +182,8 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	require.True(t, collector.await(outcome.RunID, wantFirst, 120*time.Second),
 		"the container's mock engine never echoed the first turn over Transport 2 (want %q); saw:\n%s", wantFirst, collector.snapshot(outcome.RunID))
 
-	// (1) A SECOND turn via SendOwnedRunTurn (the mailbox → pushMail → EngineHost
-	// delivery-by-state path) also round-trips. Follow-up turns ride the
+	// (1) A SECOND turn via SendOwnedRunTurn (the spool write → doorbell →
+	// EngineHost delivery-by-state path) also round-trips. Follow-up turns ride the
 	// PeerMessage delivery the plan (§5.B) specifies, so the engine sees the
 	// text inside the coordinator-delivery framing (frameCoordinatorMessage);
 	// the payload substring reaching the engine's echo is the round-trip proof.

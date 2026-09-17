@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
@@ -125,7 +124,7 @@ const doctorSpoolStuckMaxNamed = 5
 //     rarer but equally clean state) — kept as two different sentences so
 //     neither is mistaken for the other, and so an existing-but-empty
 //     in/failed/ cannot be confused with "we never looked."
-func doctorCheckSpoolBacklog(cfg *config.Config) doctorCheck {
+func doctorCheckSpoolBacklog() doctorCheck {
 	sessionsRoot, err := paths.HomeSessionsDir()
 	if err != nil {
 		return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorWarn,

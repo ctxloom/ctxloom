@@ -64,7 +64,6 @@ func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*SpawnP
 		Label:       "fast",
 		Runtime:     "container",
 		Perm:        perm,
-		ViaStartRun: true,
 	}, nil
 }
 
@@ -82,10 +81,6 @@ func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, er
 		return "", err
 	}
 	return entry.HarpName, nil
-}
-
-func (s *directBusSpawner) Launch(context.Context, *SpawnPlan, string, string, map[string]string, map[string]string) (*operations.AgentChatLaunch, error) {
-	return nil, &unknownAgentError{"legacy Launch is unused (this agent always routes ViaStartRun)"}
 }
 
 // StartEngine is the whole point: build the REAL Container policy, prepare its

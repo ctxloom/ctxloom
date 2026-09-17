@@ -126,13 +126,9 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*SpawnPl
 		Label:     "fast",
 		Runtime:   "container",
 		Perm:      perm,
-		// The production resolver reads viaStartRunBackends, which does NOT
-		// list "mock" (it is an allowlist of VERIFIED ACP-driven backends). A
-		// mock agent therefore cannot take the StartRun path by configuration
-		// alone; this plan asserts the flag directly, exactly as
-		// directBusSpawner does, so the test drives the migrated path with a
-		// deterministic, credential-free engine.
-		ViaStartRun: true,
+		// The production resolver's allowlist (viaStartRunBackends) does NOT
+		// list "mock"; this spawner resolves it directly, so the test drives
+		// the real path with a deterministic, credential-free engine.
 	}, nil
 }
 
@@ -142,10 +138,6 @@ func (s *progressSpawner) AssignSession(projectDir, backend string) (string, err
 		return "", err
 	}
 	return entry.HarpName, nil
-}
-
-func (s *progressSpawner) Launch(context.Context, *SpawnPlan, string, string, map[string]string, map[string]string) (*operations.AgentChatLaunch, error) {
-	return nil, &unknownAgentError{"legacy Launch is unused (this agent always routes ViaStartRun)"}
 }
 
 func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {

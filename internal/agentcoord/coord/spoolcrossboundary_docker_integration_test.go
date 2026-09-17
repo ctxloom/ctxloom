@@ -1,6 +1,6 @@
 //go:build docker_integration
 
-// The docker-gated proof that the shadow tee's DOORBELL PATH crosses a real
+// The docker-gated proof that the spool's DOORBELL PATH crosses a real
 // container boundary: a file the coordinator wrote on the host is located, in
 // a second filesystem view, from NOTHING BUT the reference the doorbell
 // carried over the wire.
@@ -15,7 +15,7 @@
 //
 // Run with:
 //
-//	just test-pkg ./internal/agentcoord/coord -tags docker_integration -run SpoolTeeCrossBoundary
+//	just test-pkg ./internal/agentcoord/coord -tags docker_integration -run SpoolCrossBoundary
 package coord
 
 import (
@@ -45,8 +45,8 @@ const (
 	crossBoundaryContainerHome = "/chome"
 )
 
-// TestSpoolTeeCrossBoundary_DoorbellRefResolvesInTheContainerView drives the
-// real stack — a tee-enabled coordinator, a migrated child, a live runner Home
+// TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView drives the
+// real stack — a coordinator, a migrated child, a live runner Home
 // over the coordinator's own listeners — and then follows the doorbell across a
 // real bind mount.
 //
@@ -59,14 +59,14 @@ const (
 //   - That ref is VIEW-INDEPENDENT. The identical HomeMapper resolves it to
 //     two different absolute paths under two different homes, and the
 //     container path — reached only by resolving the ref, never by listing a
-//     directory — names the exact bytes the coordinator's tee wrote.
+//     directory — names the exact bytes the coordinator wrote.
 //   - Rename-publish holds across the mount: the container reads a complete,
 //     parseable message, not a torn one.
 //
 // WHAT IT DOES NOT PROVE:
 //
 //   - It does not run a coordinator or a runner inside a container. Both live
-//     in this process; only the READ of the teed file happens in the
+//     in this process; only the READ of the written file happens in the
 //     container. A defect in how a containerized runner dials home, or in the
 //     env stamp a real container spawn carries, is out of its reach — the
 //     ordinary docker-gated run tests cover that ground.
@@ -78,8 +78,8 @@ const (
 //     container's OWN ctxloom picks up the right $HOME.
 //   - It says nothing about the sweep, which does not exist yet. That is the
 //     point: the only delivery mechanism under test is the doorbell.
-func TestSpoolTeeCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) {
-	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the spool tee cross-boundary integration test")
+func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) {
+	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the spool cross-boundary integration test")
 	resetStrictness(t)
 
 	// A real filesystem outside the checkout, for the same two reasons the
@@ -87,7 +87,7 @@ func TestSpoolTeeCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.
 	// (a durable substrate proven only over RAM is evidence about the wrong
 	// thing), and in-tree residue confuses worktree-safe WIP detection even
 	// when .gitignore hides it.
-	fixture, err := os.MkdirTemp(crossBoundaryFixtureRoot(t), "ctxloom-spool-tee-xb-")
+	fixture, err := os.MkdirTemp(crossBoundaryFixtureRoot(t), "ctxloom-spool-xb-")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		// Loud on purpose: leftover fixture dirs are machine debris a later
@@ -114,7 +114,7 @@ func TestSpoolTeeCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.
 	rings := make(chan spool.Ref, 4)
 	home.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { rings <- ref })
 
-	const body = "cross-boundary tee body\n"
+	const body = "cross-boundary body\n"
 	msgID, _, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, body, nil, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
@@ -123,7 +123,7 @@ func TestSpoolTeeCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.
 	select {
 	case ref = <-rings:
 	case <-time.After(30 * time.Second):
-		t.Fatal("the coordinator teed a file but its doorbell never reached the runner")
+		t.Fatal("the coordinator wrote a file but its doorbell never reached the runner")
 	}
 	require.NoError(t, ref.Validate(), "a doorbell that reached a handler must carry a usable ref")
 	assert.Equal(t, out.Harp, ref.Harp)
@@ -136,7 +136,7 @@ func TestSpoolTeeCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.
 	require.NotEmpty(t, hostBytes, "empty-source guard: a zero-byte file would satisfy a naive 'the bytes match' check")
 
 	// Quiesce BEFORE swapping $HOME: a live coordinator resolves spool paths
-	// on every tee write, and a global swap under it would be a race that
+	// on every spool write, and a global swap under it would be a race that
 	// shows up as an occasional red in someone else's branch. Close is
 	// idempotent, so the constructor's own cleanup still runs.
 	c.Close()
@@ -164,7 +164,7 @@ func TestSpoolTeeCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.
 	// a slower delivery.
 	got := containerRead(t, fixture, containerPath)
 	require.Equal(t, string(hostBytes), got,
-		"the container must read exactly the bytes the tee wrote, byte for byte")
+		"the container must read exactly the bytes the coordinator wrote, byte for byte")
 
 	msg, err := spool.Parse([]byte(got))
 	require.NoError(t, err, "the container must read a COMPLETE message, not a torn one")

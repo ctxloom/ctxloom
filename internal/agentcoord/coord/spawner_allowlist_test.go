@@ -19,13 +19,15 @@ import (
 // generic failure.
 func TestCheckStartRunAllowlist(t *testing.T) {
 	t.Run("StartRun backends pass", func(t *testing.T) {
-		for _, backend := range []string{"claude-code"} {
+		// mock is on the list because the binary hosts it (ctxloom llm host
+		// mock); see TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt.
+		for _, backend := range []string{"claude-code", "mock"} {
 			assert.NoError(t, checkStartRunAllowlist(backend), "backend %q", backend)
 		}
 	})
 
 	t.Run("anything else is refused, naming the path that exists", func(t *testing.T) {
-		for _, backend := range []string{"futurebackend", "mock", ""} {
+		for _, backend := range []string{"futurebackend", ""} {
 			err := checkStartRunAllowlist(backend)
 			require.Error(t, err, "backend %q must not run delegated children", backend)
 			assert.Contains(t, err.Error(), "StartRun")

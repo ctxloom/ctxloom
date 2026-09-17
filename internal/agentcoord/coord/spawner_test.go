@@ -38,7 +38,7 @@ func TestChildVerbosity(t *testing.T) {
 func TestViaStartRunBackends(t *testing.T) {
 	cases := map[string]bool{
 		"claude-code":  true,
-		"mock":         false,
+		"mock":         true, // hostable by the binary; see TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt
 		"":             false,
 		"unknown-type": false,
 	}

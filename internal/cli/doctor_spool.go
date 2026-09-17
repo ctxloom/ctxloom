@@ -219,27 +219,16 @@ func doctorCheckSpoolBacklog(cfg *config.Config) doctorCheck {
 	if spoolsFound == 0 {
 		// ZERO BYTES EXAMINED IS NOT A PASS. Returning doctorOK here reported
 		// success over nothing looked at — the exact defect this check's own
-		// doc says it exists in order not to be. What "no spool directory"
-		// means depends entirely on whether spool delivery is even on:
-		//
-		//   delivery OFF  expected. There is nothing to check because the
-		//                 feature is disabled, and a user asking about spool
-		//                 health deserves to learn THAT rather than "fine".
-		//   delivery ON   SUSPICIOUS. Something should have created a spool
-		//                 root; finding none means either no delegation has
-		//                 run, or this process reads a different home than the
-		//                 coordinator did (a container view, a different HOME).
-		//                 Both are worth saying out loud.
-		if cfg != nil && cfg.GetDelegationSpoolDelivery() {
-			return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorWarn,
-				Detail: "delegation.spool_delivery is ON but NO session has a spool directory under " +
-					sessionsRoot + " — nothing was examined. Either no delegated run has happened yet, " +
-					"or this command resolves a different home than the coordinator does " +
-					"(check HOME and any container view)"}
-		}
-		return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorOK,
-			Detail: "delegation.spool_delivery is off, so no session has a spool directory; " +
-				"nothing to check (enable it to use file-backed delegation delivery)"}
+		// doc says it exists in order not to be. No spool directory under the
+		// sessions root is SUSPICIOUS: either no delegated run has happened
+		// yet, or this process reads a different home than the coordinator
+		// did (a container view, a different HOME). Both are worth saying
+		// out loud.
+		return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorWarn,
+			Detail: "NO session has a spool directory under " + sessionsRoot +
+				" — nothing was examined. Either no delegated run has happened yet, " +
+				"or this command resolves a different home than the coordinator does " +
+				"(check HOME and any container view)"}
 	}
 	if len(stuck) == 0 && len(sweepErrs) == 0 && len(malformed) == 0 && len(failed) == 0 {
 		detail := fmt.Sprintf(

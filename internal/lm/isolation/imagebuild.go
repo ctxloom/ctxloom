@@ -880,12 +880,10 @@ func (c Container) buildFirstWorkingSource(ctx context.Context, sources []buildS
 // program asserting knowledge it does not have. That is what is refused: not a
 // measured harm, but an unmeasurable one being treated as absent.
 //
-// It is therefore UNCONDITIONAL, unlike the reach-back refusal in
-// coord.spawnReachURL. That one reads delegation.spool_delivery because the
-// harm there genuinely varies with a fact ctxloom can read. Here the deciding
-// fact lives in bytes ctxloom cannot interpret, so there is no predicate to
-// condition on — which is precisely why this is the simplest conversion of the
-// set rather than the hardest.
+// It is therefore UNCONDITIONAL. The deciding fact lives in bytes ctxloom
+// cannot interpret, so there is no predicate to condition on — which is
+// precisely why this is the simplest conversion of the set rather than the
+// hardest.
 //
 // Accepted cost, recorded: a project whose configured base is genuinely a
 // nice-to-have now fails a --degraded run that previously worked. The remedy is

@@ -193,8 +193,6 @@ var coordinatorEnvKeys = []string{
 	coord.EnvRunID,
 	coord.EnvRunDepth,
 	coord.EnvRunOneShot,
-	coord.EnvRunSpoolTee,
-	coord.EnvRunSpoolDelivery,
 	coord.EnvCellWorkDir,
 }
 
@@ -250,17 +248,6 @@ func consumeCoordinatorReachBack(backendName string, getenv func(string) string,
 			Harness: backendName,
 			Version: version.Version,
 			Harp:    getenv("CTXLOOM_SESSION_HARP"),
-			// Any value other than exactly "true" reads as OFF, on the same
-			// fail-safe terms as oneshot below: an un-teed run loses shadow
-			// coverage of the file substrate, while a run teed on a garbled
-			// stamp would write files nobody configured.
-			SpoolTee: getenv(coord.EnvRunSpoolTee) == "true",
-			// The CUTOVER stamp, read on the same exact-"true" terms. Off is
-			// the safe direction here too, and for a stronger reason: off
-			// means the mailbox, which delivers whatever the coordinator
-			// believes, while a garbled stamp read as ON would leave this
-			// runner reading a spool the coordinator never writes.
-			SpoolDelivery: getenv(coord.EnvRunSpoolDelivery) == "true",
 		},
 		harp:        getenv("CTXLOOM_SESSION_HARP"),
 		cellWorkDir: getenv(coord.EnvCellWorkDir),

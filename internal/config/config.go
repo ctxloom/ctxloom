@@ -746,8 +746,7 @@ type UIConfig struct {
 // DelegationConfig groups the project-wide agent-delegation settings. They are
 // grouped under one key because each governs DELEGATION — not because they
 // share a mechanism, which they do not: Concurrency is a resource ceiling,
-// Depth is a structural/correctness limit, SpoolTee is a substrate rollout
-// switch. See each field's doc.
+// Depth is a structural/correctness limit. See each field's doc.
 type DelegationConfig struct {
 	// Concurrency is the maximum number of delegated child turns EXECUTING
 	// at once (agentcoord/coord's execution-slot cap — each is a live engine
@@ -768,48 +767,6 @@ type DelegationConfig struct {
 	// which can leave an agent holding an inbox plus a child roster waiting
 	// on children it never spawned.
 	Depth int `yaml:"depth,omitempty"`
-	// SpoolTee turns on the SHADOW TEE of coordinator<->child mail onto the
-	// file spool (~/.ctxloom/sessions/<harp>/persist/spool): every mailbox
-	// delivery is ADDITIONALLY written as a spool message file and announced
-	// with a doorbell, while every read still comes from the mailbox. It
-	// changes no delivery behaviour by design — it exists so the file
-	// substrate can soak under real traffic before anything reads from it,
-	// and so a fidelity gap between the two representations shows up as a
-	// diverging file rather than as a lost message after a cutover.
-	//
-	// DEFAULT FALSE, and false must mean literally nothing happens: no spool
-	// directory is created, no doorbell is rung. A tee that half-runs when
-	// disabled would make "the flag is off" an untrustworthy statement about
-	// every incident that followed.
-	//
-	// It is a plain bool rather than a *bool because there is no third state
-	// to distinguish: unset and false both mean the tee is off, and the key
-	// is pruned from a saved config in both cases.
-	SpoolTee bool `yaml:"spool_tee,omitempty"`
-	// SpoolDelivery CUTS COORDINATOR<->CHILD MAIL OVER onto the file spool:
-	// the coordinator's write into a child's in/ becomes the ONLY write (no
-	// mailbox twin), the child's runner DELIVERS from that file and consumes
-	// it by renaming it into in/consumed/, and the child's own sends are
-	// written into out/ and routed by the coordinator. The gRPC doorbell
-	// carries a reference and bounds latency; the durable truth is the file,
-	// so a lost doorbell costs a sweep interval and never a message.
-	//
-	// It is a SEPARATE key from SpoolTee, not a mode of it, because the two
-	// have opposite risk profiles and must be independently settable: the tee
-	// changes no delivery and can be left on to gather evidence, while this
-	// one IS the delivery. Turning this on with the tee off is the cutover;
-	// turning both on is the same cutover (mail delivered by file is not
-	// additionally teed — there is nothing left to shadow).
-	//
-	// DEFAULT FALSE, and false means byte-identical pre-spool behaviour: the
-	// mailbox queues, pushes, parks and drains exactly as it always has.
-	//
-	// SCOPE: only runner-backed (StartRun) children are delivered by file.
-	// Mail to the session owner's own in-process mailbox and to a FROZEN
-	// legacy go-plugin child keeps the mailbox — neither has a runner that
-	// sweeps a spool, so a file written for them would sit in a directory
-	// nothing ever reads.
-	SpoolDelivery bool `yaml:"spool_delivery,omitempty"`
 }
 
 // DefaultDelegationDepth is the built-in default for delegation.depth (flat

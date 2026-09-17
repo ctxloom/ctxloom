@@ -43,6 +43,10 @@ func NewDocMCPServer() (server *mcp.Server, closeHome func(), err error) {
 		Token:   "docgen",
 		Harness: "docgen",
 		Version: version.Version,
+		// A harp names the run's spool; nothing is ever written to it here
+		// (writers are lazy and a sweep of a directory that does not exist
+		// is a no-op), but a run with no harp is refused.
+		Harp: "docgen",
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("docgen: dead-endpoint home: %w", err)

@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // writeLinkedBundleFixture lays down one bundle whose skill is linked to the
@@ -122,4 +124,46 @@ commands:
 		"the loser's linked command is withheld: its own server was not granted, whatever answers to the name")
 	assert.Equal(t, []string{"plan"}, commandNames(t, cfg, []string{"second"}),
 		"alone, the same bundle's server is granted and the command delivers")
+}
+
+// TestConfig_LinkGrant_ResolvesLazily: building a grant must not itself walk
+// the profiles. Construction happens inside every pipeline the run builds —
+// context assembly, skills, commands, curated exports — and the resolve it
+// wraps records a strictness finding for each unresolvable ref. Resolving at
+// construction therefore re-records the run's own findings once per pipeline,
+// and `ctxloom doctor`, which COUNTS ClassRef findings around one
+// AssembleContext call to report how many refs were skipped, then reports
+// double. The grant resolves on the first question asked of it, never before,
+// and exactly once.
+func TestConfig_LinkGrant_ResolvesLazily(t *testing.T) {
+	resetStrictness(t)
+	f := Fixture{AppPaths: []string{t.TempDir()}}
+	f.DefaultAgent = "default"
+	f.Agents = map[string]agents.Agent{
+		"default": {Profiles: []string{"link-lazy-missing-one", "link-lazy-missing-two"}},
+	}
+	cfg := NewFixture(f)
+
+	mark := strictness.Checkpoint()
+	grant := cfg.LinkGrant([]string{"link-lazy-missing-one", "link-lazy-missing-two"})
+	require.Empty(t, refFindings(strictness.Since(mark)),
+		"constructing a grant must record nothing: the resolve it wraps is deferred to the first question")
+
+	grant.Granted(bundles.BundleRead{}, "anything")
+	first := len(refFindings(strictness.Since(mark)))
+	require.Equal(t, 2, first, "the first question resolves once and records each unresolvable ref once")
+
+	grant.Granted(bundles.BundleRead{}, "anything-else")
+	assert.Equal(t, first, len(refFindings(strictness.Since(mark))),
+		"a second question re-uses the resolved set and records nothing more")
+}
+
+func refFindings(fs []strictness.Finding) []strictness.Finding {
+	var out []strictness.Finding
+	for _, f := range fs {
+		if f.Class == strictness.ClassRef {
+			out = append(out, f)
+		}
+	}
+	return out
 }

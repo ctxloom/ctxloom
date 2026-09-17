@@ -118,7 +118,8 @@ func TestBundleFragment_AddingAPremiseChangesThePreimage(t *testing.T) {
 // fails too: the classification would be a lie.
 //
 // This reflects over the struct rather than restating it. There is no field
-// list in this test to go stale.
+// list in this test to go stale. The same walk runs over BundleCommand and
+// BundleSkill (command_surface_test.go).
 func TestEveryFieldIsClassified(t *testing.T) {
 	base := BundleFragment{
 		ItemBody: fullyPopulatedItemBody(),
@@ -165,7 +166,7 @@ func assertEveryFieldClassified(t *testing.T, base any, preimages func(reflect.V
 				field.Name, surfaceTagKey, tag)
 		case !moved && !classified:
 			t.Errorf("%s neither moves the preimage nor carries a %s tag: decide whether the agent sees it "+
-				"(add it to FragmentSurface) or tag it with one of %v", field.Name, surfaceTagKey, surfaceClassifications())
+				"(add it to the kind's surface model) or tag it with one of %v", field.Name, surfaceTagKey, surfaceClassifications())
 		case !moved && classified:
 			assert.Contains(t, surfaceClassifications(), NonPresented(tag),
 				"%s carries an unknown %s classification %q", field.Name, surfaceTagKey, tag)
@@ -173,14 +174,17 @@ func assertEveryFieldClassified(t *testing.T, base any, preimages func(reflect.V
 	})
 }
 
-// walkFields visits every leaf field, descending into embedded structs so an
-// inlined ItemBody is classified field by field rather than as one blob.
+// walkFields visits every leaf field, descending into struct-typed fields —
+// an inlined ItemBody, a command's per-engine LLM exports — so each is
+// classified field by field rather than as one blob. A struct that is itself
+// tagged is classified as a whole and not entered: the tag is the decision
+// for everything under it.
 func walkFields(t *testing.T, typ reflect.Type, prefix []int, visit func(path []int, f reflect.StructField)) {
 	t.Helper()
 	for i := 0; i < typ.NumField(); i++ {
 		f := typ.Field(i)
 		path := append(append([]int{}, prefix...), i)
-		if f.Anonymous && f.Type.Kind() == reflect.Struct {
+		if _, tagged := f.Tag.Lookup(surfaceTagKey); !tagged && f.Type.Kind() == reflect.Struct {
 			walkFields(t, f.Type, path, visit)
 			continue
 		}
@@ -191,6 +195,12 @@ func walkFields(t *testing.T, typ reflect.Type, prefix []int, visit func(path []
 // perturb changes a field's value in a way that is distinguishable from the
 // baseline for every kind the item shapes currently use. A new kind fails
 // loudly so the test grows with the struct rather than silently skipping.
+//
+// A nil pointer is the ABSENT value; its perturbation is presence with the
+// zero value, so a tri-state field (an opt-out `*bool`, where nil means
+// enabled) is perturbed to the state absence does not mean. A map is copied
+// before it gains a key: the mutated item is a shallow copy of the base and
+// must not reach back into the base's map.
 func perturb(t *testing.T, v reflect.Value, name string) {
 	t.Helper()
 	switch v.Kind() {
@@ -200,6 +210,22 @@ func perturb(t *testing.T, v reflect.Value, name string) {
 		v.SetBool(!v.Bool())
 	case reflect.Slice:
 		v.Set(reflect.Append(v, reflect.Zero(v.Type().Elem())))
+	case reflect.Pointer:
+		if v.IsNil() {
+			v.Set(reflect.New(v.Type().Elem()))
+			return
+		}
+		fresh := reflect.New(v.Type().Elem())
+		fresh.Elem().Set(v.Elem())
+		perturb(t, fresh.Elem(), name)
+		v.Set(fresh)
+	case reflect.Map:
+		copied := reflect.MakeMap(v.Type())
+		for _, k := range v.MapKeys() {
+			copied.SetMapIndex(k, v.MapIndex(k))
+		}
+		copied.SetMapIndex(reflect.ValueOf("perturbed").Convert(v.Type().Key()), reflect.Zero(v.Type().Elem()))
+		v.Set(copied)
 	default:
 		require.Failf(t, "unhandled field kind", "%s has kind %s; teach perturb how to change it", name, v.Kind())
 	}

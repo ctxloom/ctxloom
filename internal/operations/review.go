@@ -331,7 +331,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, read bundles.BundleRea
 		if !ok {
 			continue
 		}
-		item.CurrentContent = renderSkillSurface(manifest)
+		item.CurrentContent = renderSkillSurface(skill.LLM, manifest)
 		out = append(out, item)
 	}
 	return out
@@ -603,23 +603,36 @@ func renderHookSurface(entry bundles.HookEntry) string {
 	return b.String()
 }
 
-// renderSkillSurface renders a skill package as a per-file TREE listing —
-// path, content hash, and POSIX mode, one line per file, sorted — rather than
-// a single blob. This is what makes the package reviewable file-by-file: when
-// review shows this as an UPDATE, the unified diff against the previous
-// listing (readTrustSnapshot / unifiedReviewDiff) surfaces exactly which
-// file(s) changed, added, or were removed, including a mode flip on a
-// scripts/ entry (0644 -> 0755), not merely "the skill changed".
-// It takes the resolved EFFECTIVE manifest rather than the entry so that what
-// is displayed is exactly what the trust preimage covers, for a synced and an
-// unsynced skill alike.
-func renderSkillSurface(manifest bundles.SkillManifest) string {
-	if len(manifest) == 0 {
-		return emptySurfaceMarker
-	}
+// renderSkillSurface renders a skill package as its per-engine enablement
+// followed by a per-file TREE listing — path, content hash, and POSIX mode,
+// one line per file, sorted — rather than a single blob. This is what makes
+// the package reviewable file-by-file: when review shows this as an UPDATE,
+// the unified diff against the previous listing (readTrustSnapshot /
+// unifiedReviewDiff) surfaces exactly which file(s) changed, added, or were
+// removed, including a mode flip on a scripts/ entry (0644 -> 0755), not
+// merely "the skill changed".
+//
+// It takes the export config and the resolved EFFECTIVE manifest rather than
+// the entry so that what is displayed is exactly what the trust preimage
+// covers (bundles.BundleSkill.ContentPayload), for a synced and an unsynced
+// skill alike: the enablement is in the preimage, so a flip to disabled must
+// show in the diff rather than re-gate the skill with nothing visibly changed.
+func renderSkillSurface(exports bundles.SkillLLMExports, manifest bundles.SkillManifest) string {
 	var b strings.Builder
+	fmt.Fprintf(&b, "claude-code: %s\n\n", enablementWord(exports.ClaudeCode.IsEnabled()))
+	if len(manifest) == 0 {
+		b.WriteString(emptySurfaceMarker)
+		return b.String()
+	}
 	for _, entry := range manifest {
 		fmt.Fprintf(&b, "%s  %s  mode:%s\n", entry.Path, entry.SHA256, entry.Mode)
 	}
 	return b.String()
+}
+
+func enablementWord(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
 }

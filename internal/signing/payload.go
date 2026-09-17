@@ -18,11 +18,13 @@
 //     fixed-shape ASCII header that binds {contract, assertion, ref, form,
 //     len}. See spec §3.2, and CountersignPayload below.
 //
-// Two of those item payloads are themselves framed here rather than being raw
-// bytes: the exec preimage (ExecPreimageContract, built in package bundles)
-// and the fragment preimage (FragmentPreimage below). Each carries its own
-// contract version INSIDE the signed bytes for the reason stated on
-// ExecPreimageContract.
+// None of those item payloads is bare bytes: every kind's preimage opens with
+// its own contract version — the exec and skill canonicalizations
+// (ExecPreimageContract, SkillPreimageContract; built in package bundles) and
+// the fragment and command framings (FragmentPreimage, CommandPreimage below).
+// Each carries the version INSIDE the signed bytes for the reason stated on
+// ExecPreimageContract, and the contracts are pairwise distinct and
+// prefix-free so no two kinds can ever produce identical preimage bytes.
 package signing
 
 import (
@@ -134,6 +136,80 @@ func FragmentPreimage(premise string, content []byte) []byte {
 	return buf.Bytes()
 }
 
+// CommandPreimageContract is the contract-version string that opens every
+// command preimage (CommandPreimage below). A command's countersigned bytes
+// are a framing over EVERYTHING the agent is shown of the command: its
+// description, its per-engine export config — the slash command's help text,
+// argument hint, tool grant, model and enablement, which the engine writes
+// into the command file's frontmatter — and its body. Signing the body alone
+// left the help text rewritable under a verifying approval, and left the tool
+// grant, which is a CAPABILITY, reaching the agent unsigned. Any change to the
+// presented field set must bump this string so the mass re-review it causes is
+// announced rather than discovered.
+const CommandPreimageContract = "ctxloom-command/1"
+
+// CommandPreimage builds the exact byte sequence a command countersignature is
+// taken over — the item payload that CountersignPayload then frames:
+//
+//	"ctxloom-command/1\n"
+//	"description-len: " <decimal byte length of description> "\n"
+//	"exports-len: " <decimal byte length of exports> "\n"
+//	"content-len: " <decimal byte length of content> "\n"
+//	"\n"
+//	<description> "\n"
+//	<exports> "\n"
+//	<content>
+//
+// It is a FRAMING in exactly FragmentPreimage's sense: a fixed LF-delimited
+// ASCII preamble with a closed field set and declared lengths, so no byte
+// inside any field can move a boundary and two distinct triples never frame to
+// the same bytes (TestCommandPreimage_IsInjectiveOverTheSplit). The description
+// and the content are carried verbatim. The exports field is the one
+// structured part of the surface — per-engine settings with a list-valued
+// tool grant, and no raw bytes of their own — so it arrives here already
+// canonicalized by its builder (bundles.CommandSurface.ExportsPayload), under
+// the same rule that lets the exec preimage be a canonicalization at all.
+//
+// Every command is framed this way, described or not: empty fields are
+// declared with length 0 rather than falling back to bare bytes, because a
+// second shape for the common case would be a second definition of "the bytes
+// of this command". This package depends on nothing else in the tree, so it
+// takes the three fields rather than a command; bundles.CommandSurface is the
+// model that supplies them and the only production caller.
+func CommandPreimage(description string, exports, content []byte) []byte {
+	var buf bytes.Buffer
+	buf.WriteString(CommandPreimageContract)
+	buf.WriteByte('\n')
+	buf.WriteString("description-len: ")
+	buf.WriteString(strconv.Itoa(len(description)))
+	buf.WriteByte('\n')
+	buf.WriteString("exports-len: ")
+	buf.WriteString(strconv.Itoa(len(exports)))
+	buf.WriteByte('\n')
+	buf.WriteString("content-len: ")
+	buf.WriteString(strconv.Itoa(len(content)))
+	buf.WriteByte('\n')
+	buf.WriteByte('\n')
+	buf.WriteString(description)
+	buf.WriteByte('\n')
+	buf.Write(exports)
+	buf.WriteByte('\n')
+	buf.Write(content)
+	return buf.Bytes()
+}
+
+// SkillPreimageContract is the contract-version string carried as the FIRST
+// field of the canonical JSON preimage of a skill package
+// (bundles.BundleSkill.ContentPayload, the single preimage builder for that
+// kind). A skill has no raw bytes — it is a file tree named by a manifest,
+// plus per-engine export settings — so its preimage is a canonicalization for
+// the same reason the exec preimage is, and it is versioned for the same
+// reason: any change to the field set must bump this string. It is a
+// separate contract from ExecPreimageContract because it names a different
+// shape; a skill borrowing the exec string would let a change to one field
+// set go unannounced under the other's version.
+const SkillPreimageContract = "ctxloom-skill/1"
+
 // Assertion is what a countersignature claims about the bytes it covers.
 type Assertion string
 
@@ -173,16 +249,15 @@ const (
 // countersignature binds, naming both the item's ROLE and (for the two
 // distillable kinds) which materialization was reviewed.
 //
-// It is composite because an approval attests bytes IN A ROLE, and role is not
-// recoverable from the bytes. Fragment and command payloads are bare content
-// bytes with no tag or length prefix, and exec/skill payloads are deterministic
-// JSON with every field always emitted — so a bundle can ship a FRAGMENT whose
-// body is literally an MCP server's preimage JSON alongside the matching MCP
-// server, by byte EQUALITY rather than by any collision search. With role
-// folded into the signed form value, the reviewer's approval of that fragment
-// keys as "fragment/raw" and can never satisfy the MCP server's "exec/mcp" gate
-// — which matters because the dangerous rendering (an executable shown as "what
-// it runs") is exactly the step skipped once an item is already approved.
+// It is composite because an approval attests bytes IN A ROLE, and role must be
+// in the record, not inferred from the bytes. Every kind's preimage now opens
+// with its own contract string, so a text item can no longer be byte-identical
+// to an executable's preimage by construction; the role in the form is the
+// second, independent defence — the store keys on it, and a reviewer's
+// approval of a command keys as "command/raw" and can never satisfy an MCP
+// server's "exec/mcp" gate whatever the bytes. That matters because the
+// dangerous rendering (an executable shown as "what it runs") is exactly the
+// step skipped once an item is already approved.
 //
 // It is a CLOSED enum, not a free string, for two reasons. What VERIFIES must
 // not depend on which plugins are loaded: an open vocabulary would make the

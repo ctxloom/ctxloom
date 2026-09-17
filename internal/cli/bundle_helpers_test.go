@@ -328,3 +328,13 @@ func TestPrintPushReminder_WritesToTheGivenWriter(t *testing.T) {
 func fragmentBytes(rawBody string) []byte {
 	return signing.FragmentPreimage("", []byte(rawBody))
 }
+
+// commandBytes is the same for an undescribed command with the zero export
+// config: its approval binds to the framed surface (description, exports,
+// body on the command contract), not the bare body. Built through the
+// production builder because the exports encoding is package bundles' own.
+// Mirrors operations' helper of the same name.
+func commandBytes(rawBody string) []byte {
+	payload, _ := (&bundles.BundleCommand{ItemBody: bundles.ItemBody{Content: rawBody}}).ContentPayload(false)
+	return payload
+}

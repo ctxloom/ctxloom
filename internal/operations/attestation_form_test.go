@@ -174,8 +174,9 @@ func TestEffectiveTrust_ApprovingTextDoesNotApproveAnIdenticalExecutable(t *test
 }
 
 // The SECOND collision axis, and the reason "start passing an exec form" would
-// not have been a fix: a fragment and a command are both BARE content bytes under
-// identical layout forms, so nothing but the role separates them.
+// not have been a fix: a fragment and a command share identical layout forms,
+// so at the STORE — which keys on whatever bytes it is handed, and is what this
+// exercises — nothing but the role separates them.
 func TestEffectiveTrust_ApprovingAFragmentDoesNotApproveAnIdenticalCommand(t *testing.T) {
 	fx := newTrustFixture(t)
 	body := []byte("Run every migration before deploying.\n")
@@ -327,31 +328,4 @@ func TestPendingReview_SupersededApprovalReadsAsUpdateNotNew(t *testing.T) {
 	assert.Positive(t, res.Updates)
 	assert.Equal(t, ReviewStatusNew, refs[seedItemRef(t, reviewSeedKey, "commands/greet")],
 		"an item nobody ever approved must still read as NEW (the label has to distinguish something)")
-}
-
-// An item with no bytes in any form must be REFUSED, never reported approved
-// with nothing written: exit 0 plus a success message plus zero recorded bytes is
-// the failure mode that leaves a user believing they approved something.
-//
-// The subject is a COMMAND because a command's payload is its bare body, so
-// an empty body is an empty payload. A fragment's payload is its framed
-// surface and is never empty — an empty-bodied fragment still countersigns
-// its contract line and premise, so a record IS written and the failure mode
-// this test names cannot arise for it.
-func TestSetItemTrust_AnItemWithNoContentIsRefusedRatherThanSilentlyNotRecorded(t *testing.T) {
-	fx := newTrustFixture(t)
-	empty := &bundles.Bundle{
-		Version: "1.0",
-		Commands: map[string]bundles.BundleCommand{"hollow": {
-			ItemBody: bundles.ItemBody{
-				Content: "",
-			},
-		}},
-	}
-	_, err := SetItemTrust(nil, SetItemTrustRequest{
-		Ref: seedItemRef(t, reviewSeedKey, "commands/hollow"), UserStore: fx.user, Signer: fx.signer, Root: fx.root,
-		Loader: reviewLoader(t, empty), FS: afero.NewMemMapFs(),
-	})
-	require.Error(t, err, "approving an item with no bytes must fail loudly")
-	assert.Contains(t, err.Error(), "nothing to countersign")
 }

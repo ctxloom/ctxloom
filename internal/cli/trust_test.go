@@ -144,7 +144,7 @@ func TestRunItemTrust_AcceptsLocalCommand(t *testing.T) {
 	// spelling.
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindPrompt, Name: "review", IsLocal: true}
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedApprove(countersignRefFor(t, ref), signing.AttestCommandRaw, []byte("always-trusted command body")))
+	assert.True(t, store.HasUnsignedApprove(countersignRefFor(t, ref), signing.AttestCommandRaw, commandBytes("always-trusted command body")))
 }
 
 // TestRunBlacklist_WritesBothComponents drives `ctxloom blacklist <ref>`: it

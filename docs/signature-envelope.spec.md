@@ -336,30 +336,31 @@ signatures that will never verify:
 |---|---|---|---|---|
 | `fragment` | raw | `fragment/raw` | `signing.FragmentPreimage` over (premise, authored content) — §3.3.3 | `BundleFragment.ContentPayload` |
 | `fragment` | distilled | `fragment/distilled` | `signing.FragmentPreimage` over (premise, distilled rewrite) — §3.3.3 | `BundleFragment.ContentPayload` |
-| `prompt` (a command) | raw | `command/raw` | the command's authored content | `BundleCommand.ContentPayload` |
-| `prompt` (a command) | distilled | `command/distilled` | the command's distilled rewrite | `BundleCommand.ContentPayload` |
+| `prompt` (a command) | raw | `command/raw` | `signing.CommandPreimage` over (description, exports, authored content) — §3.3.4 | `BundleCommand.ContentPayload` |
+| `prompt` (a command) | distilled | `command/distilled` | `signing.CommandPreimage` over (description, exports, distilled rewrite) — §3.3.4 | `BundleCommand.ContentPayload` |
 | `mcp` | raw (its only form) | `exec/mcp` | `BundleMCP` canonical JSON (Command, Args, Env, Installation) | `BundleMCP.ContentPayload` |
 | `hook` | raw (its only form) | `exec/hook` | `BundleHook` canonical JSON (executable surface) | `BundleHook.ContentPayload` |
-| `skill` | raw (its only form) | `skill` | `SkillManifest` canonical JSON (the whole package tree) | `BundleSkill.ContentPayload` |
+| `skill` | raw (its only form) | `skill` | canonical JSON of (exports, `SkillManifest`) — §3.3.5 | `BundleSkill.ContentPayload` |
 
 A ref-reject binds no content, so its `form:` field is empty (§5.3).
 
 **Why the form is composite, and why this is security-load-bearing.** An approval
-attests bytes IN A ROLE, and the role is not recoverable from the bytes. A
-command's payload is BARE content bytes — no tag, no length prefix, no delimiter
-— while exec and skill payloads are deterministic JSON with every field always
-emitted, and a fragment's is a framed preimage (§3.3.3) whose body is carried
-verbatim. So a publisher can ship a COMMAND whose body is literally an MCP
-server's preimage alongside the matching MCP server: byte EQUALITY, no collision
-search. A reviewer is shown that command as TEXT
-(text items render as content; executables render as "what they run") and approves
-it. If the two shared an approval key, the executable would then be trusted having
-NEVER been displayed as an executable — the dangerous rendering is exactly the step
-skipped for an already-approved item. Folding the role into the signed form value
-makes them different signed bytes, so no such transfer is possible. The same holds
-one axis over, for fragment vs command: the fragment frame makes their bytes
-differ today, but the role is bound in the form so that this never has to be
-relied on.
+attests bytes IN A ROLE, and the role must be in the record rather than inferred
+from the bytes. When a text kind's payload was its bare body — no tag, no length
+prefix, no delimiter — a publisher could ship a COMMAND whose body was literally
+an MCP server's preimage alongside the matching MCP server: byte EQUALITY, no
+collision search. A reviewer is shown that command as TEXT (text items render as
+content; executables render as "what they run") and approves it. If the two
+shared an approval key, the executable would then be trusted having NEVER been
+displayed as an executable — the dangerous rendering is exactly the step skipped
+for an already-approved item. Folding the role into the signed form value makes
+them different signed bytes, so no such transfer is possible.
+
+Today every kind's preimage opens with its own contract string (§3.3.2–§3.3.5;
+`ctxloom-exec/1`, `ctxloom-fragment/1`, `ctxloom-command/1`, `ctxloom-skill/1`
+— pairwise distinct and prefix-free), so no two kinds can produce identical
+preimage bytes at all. The role in the form is kept as the second, independent
+defence: the store keys on it, and it never has to rely on the framing.
 
 **Routing never reads this value.** What an item IS, and how it is rendered and
 dispatched, comes from the surface-type registry. A registry name with no
@@ -406,6 +407,18 @@ definitions is the bug.
    lengths, closed preamble, no canonicalization of either field), and it is
    versioned for the same reason the exec preimage is: adding a presented field
    must be an announced invalidation, never a silent one.
+4. **The command payload is a FRAMING over the command's whole presented
+   surface, and the skill payload carries its exports.** A command is shown to
+   the agent as more than its body: its description is advertised as the slash
+   command's help text, and its per-engine export config — help text, argument
+   hint, tool grant, model, enablement — is written into the command file the
+   engine reads. Signing the body alone left the description rewritable under a
+   verifying approval and left the tool grant, which is a CAPABILITY, unsigned.
+   So the command payload binds all of it — see §3.3.4. The export config is
+   the one structured part of that surface (a list-valued grant has no raw
+   bytes), so it is canonicalized under the exec rule (item 2) and carried as
+   one framed field. A skill's per-engine enablement is presented the same way
+   and enters its canonical payload beside the manifest — see §3.3.5.
 
 #### 3.3.2 The versioned exec preimage — `ctxloom-exec/1`
 
@@ -473,6 +486,75 @@ signatures and every other kind were unaffected).
 `ctxloom review` shows a fragment as these exact bytes — the same rule as the
 exec kinds, which render their preimage — so the premise a reviewer approves is
 on the screen and a premise edit appears in the diff.
+
+#### 3.3.4 The framed command preimage — `ctxloom-command/1`
+
+`payload_bytes` for a command, in either layout form, is `signing.CommandPreimage`:
+
+```
+"ctxloom-command/1\n"
+"description-len: " <decimal byte length of description> "\n"
+"exports-len: " <decimal byte length of exports> "\n"
+"content-len: " <decimal byte length of content> "\n"
+"\n"
+<description> "\n"
+<exports> "\n"
+<content>
+```
+
+where `content` is the body in the attested layout form, `description` is the
+command's own `description:` (empty when unset), and `exports` is the canonical
+JSON of the per-engine export config, every field always emitted in this order
+with the EFFECTIVE enablement (an unset `enabled` is `true`) and an empty tool
+grant as `[]`:
+
+```json
+{"claude-code":{"enabled":true,"description":"…","argument_hint":"…","allowed_tools":["…"],"model":"…"}}
+```
+
+Every command is framed this way, described or not; empty fields are declared
+with length 0. The framing rules of §3.3.3 apply unchanged — declared lengths,
+closed preamble, description and content verbatim — and the invariant is the
+same: the signed preimage is exactly what is presented. `bundles.CommandSurface`
+is the model of "presented"; the reflective classification test refuses any
+`BundleCommand` field, down to each leaf of its export config, that is neither
+on that surface nor explicitly classified as non-presented.
+
+The `exports` field is a canonicalization, deliberately: the export config has
+no raw bytes of its own, and the exec rule (§3.3 item 2) is the one already
+shipped for structured fields. It shares the exec encoder, escaping quirks
+included. Any change to its field set — a new engine, a new per-engine field —
+is a change to this contract and must bump `signing.CommandPreimageContract`.
+
+Introducing the frame was itself that event: every command approval and
+content-reject recorded over bare bytes stopped matching and returned to pending
+(fail-closed; ref-rejects, publisher signatures and the other kinds were
+unaffected). `ctxloom review` shows a command as these exact bytes, so the
+description and tool grant a reviewer approves are on the screen and an edit to
+either appears in the diff.
+
+#### 3.3.5 The versioned skill preimage — `ctxloom-skill/1`
+
+`payload_bytes` for a skill is `BundleSkill.ContentPayload`: canonical JSON with
+the contract as its first field, then the per-engine export config, then the
+effective manifest:
+
+```json
+{"preimage":"ctxloom-skill/1","exports":{"claude-code":{"enabled":true}},"manifest":[{"path":"SKILL.md","sha256":"…","mode":"0644"},…]}
+```
+
+A skill has no raw bytes at all — it is a file tree named by its manifest — so
+its whole preimage is a canonicalization under the exec rule, and it carries its
+own contract rather than borrowing `ctxloom-exec/1`: a skill sharing the exec
+string would let a change to one field set go unannounced under the other's
+version. The manifest names every file the agent is handed (SKILL.md, where the
+agent-facing name and description live, included); the enablement decides
+whether the package is offered to that engine at all, so it is presented and
+therefore signed. Any change to this field set must bump
+`signing.SkillPreimageContract`. Introducing the contract invalidated every
+skill approval recorded under the exec string, in the same announced window as
+the command frame. `ctxloom review` shows the enablement above the tree listing
+so a flip to disabled appears in the diff.
 
 ---
 

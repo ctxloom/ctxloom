@@ -134,47 +134,22 @@ Feature: The trust surface — what "review" actually controls
     Then the fragment is withheld entirely, in neither its raw nor its new distilled form
     And the fragment's review state is "pending"
 
-  # THE TEXT→EXEC ESCALATION. An approval attests bytes IN A ROLE, and the role
-  # is not recoverable from the bytes: a command's payload is its bare body,
-  # while an MCP server's is deterministic JSON, so a publisher can ship a
-  # COMMAND whose body IS the MCP server's executable preimage — byte equality,
-  # no collision search needed. The reviewer is shown that command as TEXT
-  # (text items render as content; executables render as "what they run"), and
-  # if the two shared one approval key the executable would reach the assistant
-  # having NEVER been displayed as an executable, because the dangerous rendering
-  # is exactly the step skipped for an already-approved item. What the countersign
-  # payload binds is therefore a COMPOSITE form naming the role
-  # ("command/raw" vs "exec/mcp"), so the two can never share a key.
-  #
-  # The text item is a command, not a fragment, because a fragment's payload is
-  # a framed surface (premise plus body, opened by its own contract line) and
-  # so can never be byte-identical to an exec preimage: the frame closes that
-  # pair by construction, and the role binding is what closes this one.
-  #
-  # The last four lines are what make that claim testable at all (audit
-  # irate-catfish, F4). The delivered-surface half alone could not fail:
-  # an approval's key is ref PLUS form, the two items are #commands/guide
-  # and #mcp/toolserver, and Ref.Key bakes the KIND into the ref — so the ref
-  # component already separates them and the composite form never did any
-  # work. Replacing exec/mcp with the text form outright left 30 of 30
-  # scenarios green. Worse, the MCP was withheld by default anyway (unsigned,
-  # never reviewed), so its absence proved an absence.
-  #
-  # So the roles are read out of the countersignature store itself, and the
-  # executable is then approved IN ITS OWN ROLE and shown to start flowing —
-  # which is what establishes that nothing but the missing exec/mcp approval
-  # was keeping it out of the session above.
-  Scenario: Approving a text command never approves the executable whose bytes it copies
-    Given a bundle from an unsigned, never-reviewed publisher ships a command whose body is byte-identical to its MCP server's executable preimage
-    When Alice approves the command
-    And Alice starts a session
-    Then the copied preimage is present in her assistant's delivered surface as text
-    And the MCP server is absent from her assistant's delivered surface
-    And what Alice approved is on record as the text's role only, never as the executable's
-    When Alice approves the MCP server
-    And Alice starts a session
-    Then the MCP server is present in her assistant's delivered surface
-    And the two decisions are on record as separate attestations over the same bytes, one per role
+  # THE TEXT→EXEC ESCALATION, and why there is no scenario for it any more.
+  # An approval attests bytes IN A ROLE, and once a text item's payload could
+  # equal an executable's preimage byte for byte (a bare body copying an MCP
+  # server's canonical JSON), the reviewer would be shown that item as TEXT
+  # while the executable reached the assistant having never been displayed as
+  # one. Two defences close it. The countersign payload binds a COMPOSITE form
+  # naming the role ("command/raw" vs "exec/mcp"), so the two can never share
+  # a key at the store. And every kind's preimage now opens with its own
+  # contract line — fragment, command, exec, skill, pairwise distinct — so no
+  # text item can be byte-identical to an executable's preimage in the first
+  # place. A scenario needs a fixture that collides through the production
+  # builders, and none can be built: the fixture's own guard ("does not
+  # actually collide") is what retired it. The role binding is pinned where it
+  # lives, at the store, by the attestation-form tests in internal/operations
+  # and internal/signing; the contract distinctness by
+  # signing.TestPreimageContracts_AreDistinctAndPrefixFree.
 
   # STALING. The composite form is a change to what gets signed, so it bumps the
   # countersign contract and every approval recorded before it stops verifying.

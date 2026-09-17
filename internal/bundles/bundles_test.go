@@ -419,8 +419,9 @@ func TestBundleCommand_EffectiveContentHash(t *testing.T) {
 	rawHash, rawForm := prompt.EffectiveContentHash(false)
 	distHash, distForm := prompt.EffectiveContentHash(true)
 
-	assert.Equal(t, hashContent([]byte("RAW-BYTES")), rawHash)
-	assert.Equal(t, hashContent([]byte("DISTILLED-BYTES")), distHash)
+	exports := prompt.Surface(false).ExportsPayload()
+	assert.Equal(t, hashContent(signing.CommandPreimage("", exports, []byte("RAW-BYTES"))), rawHash)
+	assert.Equal(t, hashContent(signing.CommandPreimage("", exports, []byte("DISTILLED-BYTES"))), distHash)
 	assert.Equal(t, FormRaw, rawForm)
 	assert.Equal(t, FormDistilled, distForm)
 	assert.NotEqual(t, rawHash, distHash)
@@ -499,9 +500,10 @@ func TestBundleCommand_ContentPayload_IsHashPreimage(t *testing.T) {
 	rawPayload, rawForm := cmd.ContentPayload(false)
 	distPayload, distForm := cmd.ContentPayload(true)
 
-	assert.Equal(t, []byte("RAW-BYTES"), rawPayload)
+	exports := cmd.Surface(false).ExportsPayload()
+	assert.Equal(t, signing.CommandPreimage("", exports, []byte("RAW-BYTES")), rawPayload)
 	assert.Equal(t, FormRaw, rawForm)
-	assert.Equal(t, []byte("DISTILLED-BYTES"), distPayload)
+	assert.Equal(t, signing.CommandPreimage("", exports, []byte("DISTILLED-BYTES")), distPayload)
 	assert.Equal(t, FormDistilled, distForm)
 
 	rawHash, _ := cmd.EffectiveContentHash(false)
@@ -582,7 +584,7 @@ func TestBundleSkill_ContentPayload_IsHashPreimage(t *testing.T) {
 	payload, err := skill.ContentPayload(nil, "", "")
 	require.NoError(t, err)
 	assert.JSONEq(t,
-		`{"preimage":"ctxloom-exec/1","manifest":[`+
+		`{"preimage":"ctxloom-skill/1","exports":{"claude-code":{"enabled":true}},"manifest":[`+
 			`{"path":"SKILL.md","sha256":"sha256:skillmd1","mode":"0644"},`+
 			`{"path":"scripts/run.sh","sha256":"sha256:script1","mode":"0755"}]}`,
 		string(payload))
@@ -2089,7 +2091,7 @@ func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
 
 		cmdPayload, _ := cmd.ContentPayload(preferDistilled)
 		assert.NotContains(t, string(cmdPayload), secretish)
-		assert.Equal(t, "command body", string(cmdPayload))
+		assert.Equal(t, signing.CommandPreimage("", cmd.Surface(false).ExportsPayload(), []byte("command body")), cmdPayload)
 	}
 
 	// And the loader carries it as sidecar metadata, never spliced into Content.

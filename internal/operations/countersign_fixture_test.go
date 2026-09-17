@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
@@ -115,6 +116,17 @@ func fragmentBytes(rawBody string) []byte {
 	return signing.FragmentPreimage("", []byte(rawBody))
 }
 
+// commandBytes is the countersigned payload of an UNDESCRIBED command with the
+// zero export config whose body is rawBody: the framed surface
+// (bundles.CommandSurface.Preimage), not the bare body — for the same reason
+// fragmentBytes frames. It goes through the production builder because the
+// exports field is a canonicalization that package owns; restating it here
+// would be a second definition of the bytes of a command.
+func commandBytes(rawBody string) []byte {
+	payload, _ := (&bundles.BundleCommand{ItemBody: bundles.ItemBody{Content: rawBody}}).ContentPayload(false)
+	return payload
+}
+
 // approveFragment/approvePrompt are approve() convenience wrappers for the
 // overwhelmingly common test shape: a single-form (raw) approval of a
 // trustRepo-hosted fragment/prompt by (bundle, name, body).
@@ -125,7 +137,7 @@ func (f *trustFixture) approveFragment(bundle, name, rawBody string) {
 
 func (f *trustFixture) approvePrompt(bundle, name, rawBody string) {
 	f.t.Helper()
-	f.approve(trust.Ref{RepoURL: trustRepo, Bundle: bundle, Kind: trust.KindPrompt, Name: name}, signing.FormRaw, []byte(rawBody))
+	f.approve(trust.Ref{RepoURL: trustRepo, Bundle: bundle, Kind: trust.KindPrompt, Name: name}, signing.FormRaw, commandBytes(rawBody))
 }
 
 // rejectFragment/rejectPrompt are the combined-rejection convenience wrappers
@@ -145,7 +157,7 @@ func (f *trustFixture) rejectPrompt(bundle, name, rawBody string) {
 	f.t.Helper()
 	f.rejectRef(trust.Ref{RepoURL: trustRepo, Bundle: bundle, Kind: trust.KindPrompt, Name: name})
 	if rawBody != "" {
-		f.rejectContent(trust.KindPrompt, signing.FormRaw, []byte(rawBody))
+		f.rejectContent(trust.KindPrompt, signing.FormRaw, commandBytes(rawBody))
 	}
 }
 

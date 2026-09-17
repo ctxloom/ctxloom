@@ -170,7 +170,7 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
 		return nil
 	}
-	payload, err := skillPayloadFor(manifest)
+	payload, err := skillPayloadFor(entry.LLM, manifest)
 	if err != nil {
 		clidiag.Warn("ctxloom", "skill %q withheld: encoding trust preimage: %v", name, err)
 		return nil

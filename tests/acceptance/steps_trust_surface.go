@@ -26,7 +26,6 @@
 package acceptance
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,7 +37,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
@@ -97,7 +95,7 @@ const tsTreeEnvelope = "version: \"1.0.0\"\n"
 
 // tsFullTreeItems builds the item-file map for the full trust-surface bundle:
 // one fragment (name/body given, front-matter-free so a caller can hand it
-// exact bytes — see tsCollisionTreeItems), one command, one MCP server, one
+// exact bytes), one command, one MCP server, one
 // hook, and one profile — one of each trust-addressable kind, plus the one
 // that isn't. distilled == "" omits the fragment's distilled sibling file
 // (internal/content/paths.go: "fragments/<stem>.distilled.md").
@@ -138,21 +136,6 @@ func tsDualFormTreeItems() map[string]string {
 	return map[string]string{
 		"fragments/context.md":           tsDualRawMarker,
 		"fragments/context.distilled.md": tsDualDistilledMarker,
-	}
-}
-
-// tsCollisionTreeItems builds the item-file map for the text->exec collision
-// fixture: a command whose body is byte-for-byte execPayload (the MCP server's
-// executable preimage) and the MCP server itself. execPayload rides through
-// as raw bytes — not %q, not wrapped in front-matter — because the whole
-// point of the fixture is that the command's stored payload equals the exec
-// preimage exactly. It is a command rather than a fragment because a
-// fragment's payload is its framed surface (signing.FragmentPreimage) and can
-// never equal an exec preimage.
-func tsCollisionTreeItems(execPayload []byte) map[string]string {
-	return map[string]string{
-		"prompts/guide.md":    string(execPayload),
-		"mcp/toolserver.yaml": fmt.Sprintf("command: %q\nargs: [%q]\n", tsCollisionMCP().Command, tsMCPMarker),
 	}
 }
 
@@ -1016,21 +999,12 @@ func tsAssertHook(w *World, present bool) error {
 }
 
 // =============================================================================
-// THE TEXT→EXEC ESCALATION, AND STALING.
+// STALING.
 //
-// These two scenarios cover the composite attestation form: what a
-// countersignature binds names the item's ROLE as well as its bytes, so
-// byte-identical items of different kinds can never share one approval — and the
-// contract bump that introduced it leaves every earlier approval STALE rather
-// than absent.
+// This scenario covers the countersign contract bump that introduced the
+// composite attestation form: every approval recorded before it is left STALE
+// rather than absent.
 // =============================================================================
-
-// tsCollisionMCP is the MCP server the collision fixture ships. Its executable
-// preimage — the exact bytes a countersignature over it would cover — is what the
-// fixture's FRAGMENT carries as its body.
-func tsCollisionMCP() bundles.BundleMCP {
-	return bundles.BundleMCP{Command: "/bin/echo", Args: []string{tsMCPMarker}}
-}
 
 // tsSupersedeStore rewrites Alice's approvals store into the state a countersign
 // contract bump leaves behind: every recorded signature is still on disk and
@@ -1076,143 +1050,7 @@ func tsSupersedeStore(w *World) error {
 	return nil
 }
 
-// tsCountersignRef is operations.CountersignRef, reached through the same
-// PRODUCTION parse the CLI performs on its own argument: trust.ParseBundleRef
-// turns the canonical item URI a scenario passes to `ctxloom bundle trust`
-// into a trust.BundleRef, whose Ref form composes the address a
-// countersignature actually binds to.
-func tsCountersignRef(cliRef string) (string, error) {
-	br, err := trust.ParseBundleRef(cliRef)
-	if err != nil {
-		return "", fmt.Errorf("parse item ref %q: %w", cliRef, err)
-	}
-	return operations.CountersignRef(trust.RefFromBundleRef(br))
-}
-
-// tsAssertCollisionRoles is the assertion the text→exec escalation scenario
-// turns on, and the only one on this page that can fail when the composite
-// attestation form is deleted.
-//
-// The scenario's delivered-surface half CANNOT fail: an approval is keyed by
-// ref AND form, trust.Ref.Key bakes the item KIND into the ref, and the fixture's
-// two items are #commands/guide and #mcp/toolserver — so the ref component
-// alone already separates them and the role plays no part (audit
-// irate-catfish, F4). This reads the ROLE out of the store instead, over the
-// one payload both items share.
-//
-// Before the executable has been approved (mcpApproved=false) the text's
-// approval must exist under command/raw and NOTHING may cover those bytes as
-// exec/mcp. After it has, BOTH roles must be on record, each under its own ref
-// — and neither may have been written under the other's form, which is exactly
-// what a collapsed form mapping would produce.
-func tsAssertCollisionRoles(w *World, mcpApproved bool) error {
-	mcp := tsCollisionMCP()
-	payload, err := mcp.ContentPayload()
-	if err != nil {
-		return fmt.Errorf("build the mcp executable preimage: %w", err)
-	}
-	textRef, err := tsCountersignRef(tsRef(w, "commands/guide"))
-	if err != nil {
-		return err
-	}
-	mcpRef, err := tsCountersignRef(tsRef(w, "mcp/toolserver"))
-	if err != nil {
-		return err
-	}
-	store := tsApprovalsStore(w)
-
-	// The text's decision, in the text's role. True in both phases: approving
-	// the executable must not disturb or absorb it.
-	if !store.HasUnsignedApprove(textRef, signing.AttestCommandRaw, payload) {
-		return fmt.Errorf("no approval of %s is on record under %q over the %d shared bytes — Alice approved the fragment, "+
-			"so this is the decision she actually made", textRef, signing.AttestCommandRaw, len(payload))
-	}
-	// A decision may never be recorded under the OTHER item's role. Under a
-	// collapsed mapping (exec/mcp folded onto fragment/raw) the executable's
-	// approval lands here.
-	if store.HasUnsignedApprove(mcpRef, signing.AttestCommandRaw, payload) {
-		return fmt.Errorf("an approval of the EXECUTABLE %s is on record under the TEXT role %q: the two roles share a key, "+
-			"so approving a command and approving the executable whose bytes it copies are the same decision",
-			mcpRef, signing.AttestCommandRaw)
-	}
-	if store.HasUnsignedApprove(textRef, signing.AttestExecMCP, payload) {
-		return fmt.Errorf("an approval of the TEXT %s is on record under the EXECUTABLE role %q — approving a command "+
-			"must never attest its bytes as something that runs", textRef, signing.AttestExecMCP)
-	}
-
-	execOnRecord := store.HasUnsignedApprove(mcpRef, signing.AttestExecMCP, payload)
-	if mcpApproved && !execOnRecord {
-		return fmt.Errorf("the MCP server was approved by Alice, but no approval of %s is on record under %q over those same %d bytes; "+
-			"the executable's decision has to be recorded IN THE EXECUTABLE'S ROLE, or it is indistinguishable from the "+
-			"text's", mcpRef, signing.AttestExecMCP, len(payload))
-	}
-	if !mcpApproved && execOnRecord {
-		return fmt.Errorf("nobody has approved the executable yet, but %s is already on record under %q — an approval of "+
-			"the text expanded to cover the thing that runs", mcpRef, signing.AttestExecMCP)
-	}
-	w.docStepMaterialized = fmt.Sprintf("countersign store over the %d shared bytes:\n  %s → %s: on record\n  %s → %s: %v",
-		len(payload), textRef, signing.AttestCommandRaw, mcpRef, signing.AttestExecMCP, execOnRecord)
-	return nil
-}
-
 func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
-	ctx.Step(`^a bundle from an unsigned, never-reviewed publisher ships a command whose body is byte-identical to its MCP server's executable preimage$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
-			return err
-		}
-		mcp := tsCollisionMCP()
-		execPayload, err := mcp.ContentPayload()
-		if err != nil {
-			return fmt.Errorf("build the mcp executable preimage: %w", err)
-		}
-		// The collision, verified through the two PRODUCTION preimage builders:
-		// the command the reviewer will be shown as text and the executable the
-		// gate will ask about resolve to identical bytes.
-		cmd := bundles.BundleCommand{
-			ItemBody: bundles.ItemBody{
-				Content: string(execPayload),
-			},
-		}
-		cmdPayload, _ := cmd.ContentPayload(false)
-		if !bytes.Equal(cmdPayload, execPayload) {
-			return fmt.Errorf("fixture does not actually collide: command payload %q != mcp preimage %q", cmdPayload, execPayload)
-		}
-		ts := tsOf(w)
-		root := remoteSingleFilePublishPath(ts.bundleName)
-		files := map[string]string{root + "/" + bundles.DirectoryFormManifest: tsTreeEnvelope}
-		for rel, body := range tsCollisionTreeItems(execPayload) {
-			files[root+"/"+rel] = body
-		}
-		url, err := w.env.SeedRemote(files)
-		if err != nil {
-			return fmt.Errorf("seed collision trust-surface remote: %w", err)
-		}
-		return tsWireAndPull(w, url)
-	})
-
-	ctx.Step(`^the copied preimage is present in her assistant's delivered surface as text$`, func(c context.Context) error {
-		w := worldFrom(c)
-		rel := filepath.Join("out", ".claude", "commands", "trustdemo-guide.md")
-		body, err := w.env.ReadFile(rel)
-		if err != nil {
-			return fmt.Errorf("read exported command %s (materialize output:\n%s): %w", rel, w.env.LastOutput(), err)
-		}
-		if !strings.Contains(body, tsMCPMarker) {
-			return fmt.Errorf("%s does not carry the approved command's body; the approval Alice actually made must be honoured, or this scenario proves nothing:\n%s", rel, body)
-		}
-		w.docStepMaterialized = j000400Excerpt(body, tsMCPMarker, 1)
-		return nil
-	})
-
-	ctx.Step(`^what Alice approved is on record as the text's role only, never as the executable's$`, func(c context.Context) error {
-		return tsAssertCollisionRoles(worldFrom(c), false)
-	})
-
-	ctx.Step(`^the two decisions are on record as separate attestations over the same bytes, one per role$`, func(c context.Context) error {
-		return tsAssertCollisionRoles(worldFrom(c), true)
-	})
-
 	ctx.Step(`^her approval was recorded under a superseded countersign contract$`, func(c context.Context) error {
 		return tsSupersedeStore(worldFrom(c))
 	})

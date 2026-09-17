@@ -59,11 +59,11 @@ func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*SpawnP
 	}
 	perm := agent.PermissionBypass
 	return &SpawnPlan{
-		AgentName:   agentName,
-		Backend:     "mock",
-		Label:       "fast",
-		Runtime:     "container",
-		Perm:        perm,
+		AgentName: agentName,
+		Backend:   "mock",
+		Label:     "fast",
+		Runtime:   "container",
+		Perm:      perm,
 	}, nil
 }
 

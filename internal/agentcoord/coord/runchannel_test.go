@@ -309,16 +309,6 @@ func TestRunChannel_ForeignRunIDRejected(t *testing.T) {
 	require.ErrorIs(t, rerr, ErrCoordinatorUnreachable)
 }
 
-// reservedIDs snapshots a role's runtime delivery ledger -- the ids handed to a
-// RunChannel but not yet acked. An id sitting here is invisible to
-// undeliveredLocked (and so to pendingCount and every redelivery path), which
-// is exactly why leaking one is silent loss.
-func reservedIDs(c *Coordinator, role string) []string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]string(nil), c.delivered[role]...)
-}
-
 // TestServePeerSend_UnmarshalableStructuredIsRefused is the regression guard:
 // servePeerSend marshalled the caller's Struct with
 // `if raw, merr := protojson.Marshal(s); merr == nil { structured = raw }` and

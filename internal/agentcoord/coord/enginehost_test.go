@@ -130,19 +130,6 @@ func (f *fakeEngineHome) spoolSweepCount() int {
 	return f.spoolSweeps
 }
 
-// customValues snapshots the recorded custom events matching name.
-func (f *fakeEngineHome) customValues(name string) []map[string]any {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var out []map[string]any
-	for _, c := range f.customs {
-		if c.Name == name {
-			out = append(out, c.Value)
-		}
-	}
-	return out
-}
-
 func (f *fakeEngineHome) ReportRunExited(code int, sessionID string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

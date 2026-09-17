@@ -36,6 +36,11 @@ type fakeSpawner struct {
 	nextChat func() *scriptedChat
 	chats    []*scriptedChat
 	kills    []func()
+	// released[i] closes when the i-th engine's Kill fired — the seam a
+	// production child's container teardown hangs off. A test that must
+	// prove a stop RELEASED the child watches this rather than inferring it
+	// from the roster.
+	released []chan struct{}
 	// nextBackend, when set, supplies a REAL agent.StructuredChat backend
 	// for the MIGRATED path instead of nextChat's scripted double — the
 	// seam a live-path reproduction uses to put a genuine driver, spawning a
@@ -236,12 +241,16 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		return nil, err
 	}
 	host.BindHome(home)
+	released := make(chan struct{})
+	var releaseOnce sync.Once
 	kill := func() {
 		cancel()
 		home.crash()
+		releaseOnce.Do(func() { close(released) })
 	}
 	s.mu.Lock()
 	s.kills = append(s.kills, kill)
+	s.released = append(s.released, released)
 	s.engineHomes = append(s.engineHomes, home)
 	s.mu.Unlock()
 	if workDir == "" {
@@ -544,4 +553,15 @@ func newTestCoordinatorAt(t *testing.T, stateDir string) *Coordinator {
 		t.Fatalf("new coordinator: %v", err)
 	}
 	return c
+}
+
+// harnessSessionID reads the harp's current run's captured native session id.
+func harnessSessionID(c *Coordinator, harp string) string {
+	var id string
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(harp); r != nil {
+			id = r.HarnessSessionID
+		}
+	})
+	return id
 }

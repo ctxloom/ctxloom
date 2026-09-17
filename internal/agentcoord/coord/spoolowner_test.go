@@ -56,7 +56,7 @@ func TestSpoolOwner_FinalReportReachesTheOwnerThroughTheSpool(t *testing.T) {
 	entry, ok := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirIn, "FINAL: the deliverable")
 	require.True(t, ok, "the delivered report must still sit in the owner's in/ until the next receive acks it")
 	assert.Equal(t, got[0].ID, entry.Message.OriginID, "the mailbox id the owner saw is the file's origin id")
-	assert.Empty(t, mailboxEverQueued(c), "under the cutover the owner's mail must have NO mailbox twin")
+	assertNoMailboxJournal(t, c)
 }
 
 // TestSpoolOwner_ChildSendRidesTheFileIntoAgentRecv pins the ordinary
@@ -83,7 +83,7 @@ func TestSpoolOwner_ChildSendRidesTheFileIntoAgentRecv(t *testing.T) {
 	assert.Equal(t, KindResult, got[0].Kind)
 	_, inOwnerSpool := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirIn, "a finding")
 	assert.True(t, inOwnerSpool, "the routed message must be a file in the owner's in/")
-	assert.Empty(t, mailboxEverQueued(c), "no mailbox twin")
+	assertNoMailboxJournal(t, c)
 }
 
 // TestSpoolOwner_AckIsConsumeOnNextRecv pins at-least-once for the owner:
@@ -257,7 +257,7 @@ func TestSpoolOwner_MailToAQueuedChildIsNotStranded(t *testing.T) {
 	// The owner writes to the QUEUED child.
 	_, err = c.AgentSend(ownerIdentity(), b.Harp, KindMessage, "early", nil, "")
 	require.NoError(t, err)
-	assert.Empty(t, mailboxEverQueued(c), "a migrated child's mail must be a file from the moment it is enqueued, never a mailbox fact")
+	assertNoMailboxJournal(t, c)
 	assert.Equal(t, 1, c.pendingCount(b.Harp), "the message must be counted as pending for B before it launches")
 
 	// A finishes at its turn boundary and frees the slot; B launches.

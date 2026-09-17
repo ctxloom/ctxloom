@@ -1,7 +1,6 @@
 package coord
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"

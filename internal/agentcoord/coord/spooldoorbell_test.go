@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -402,4 +403,45 @@ func TestSpoolDoorbell_CarriesNothingButTheReference(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"harp", "dir", "name"}, got,
 		"SpoolChanged must carry the logical coordinate and NOTHING else: any payload field makes the wire a second source of truth")
+}
+
+// dialHome stands up a REAL runner Home against c, attached as harp,
+// advertising exactly caps. The end-to-end dial is the point: only a real
+// Hello attaches a real run channel on both sides.
+func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) *Home {
+	t.Helper()
+	url, err := c.ReachURL("host")
+	require.NoError(t, err)
+	token, err := c.RegisterSessionOwner(harp)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	h, err := NewHome(ctx, HomeConfig{
+		URL: url, Token: token, Harness: "test", Version: "test",
+		Capabilities: caps,
+		Harp:         harp,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { h.Close(0, "") })
+	require.Eventually(t, func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.chans[harp] != nil
+	}, 10*time.Second, 10*time.Millisecond, "the run channel must attach before a control request can be sent")
+	// BOTH sides, because the handshake attaches them at different moments:
+	// the coordinator registers c.chans[harp] when it READS the Hello, while
+	// the runner sets h.stream only after it has read the HelloAck back. A
+	// fixture that waits on the coordinator's half alone hands back a Home
+	// whose stream is still nil, and every unbuffered runner->coordinator
+	// send in that window is dropped ON PURPOSE (Home.trySend's nil-stream
+	// arm) — silently, because fire-and-forget is the design. That is a
+	// fixture defect, not a product one: it turns "the doorbell arrived" into
+	// a race against the scheduler, lost whenever the box is busy.
+	require.Eventually(t, func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return h.stream != nil
+	}, 10*time.Second, 10*time.Millisecond, "the runner's own end of the run channel must be attached, or a send made now is dropped as 'run channel down'")
+	return h
 }

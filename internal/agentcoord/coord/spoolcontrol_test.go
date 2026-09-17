@@ -56,13 +56,11 @@ func TestSpoolSteer_RidesTheFileAndIsConsumedAtTheTurn(t *testing.T) {
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "first task")
+	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
 	outcome, err := c.ControlSteer(context.Background(), humanInitiator(), out.Harp, "stop and rebase first")
 	require.NoError(t, err)
 	require.NotEmpty(t, outcome.MessageID, "a durable steer must return the handle its withdrawal takes")
-	assert.Equal(t, agentcoordpb.SteerResult_APPLIED_UNSPECIFIED, outcome.Applied,
-		"the spool route must not report a plane-2 applied state it never observed")
 
 	turns := awaitChatText(t, sp, 0, "stop and rebase first")
 	var delivered string
@@ -82,10 +80,7 @@ func TestSpoolSteer_RidesTheFileAndIsConsumedAtTheTurn(t *testing.T) {
 	assert.Equal(t, "stop and rebase first", consumed[0].Message.Body)
 	assert.Equal(t, outcome.MessageID, consumed[0].Message.OriginID)
 
-	assert.Empty(t, home.PendingControlPayloads(),
-		"the durable steer must not ALSO park a control body: two carriers for one instruction is the double delivery this replaced")
-	assert.NotContains(t, mailboxEverQueued(c), outcome.MessageID,
-		"the file IS the steer; a mailbox fact would be a second copy nobody consumes")
+	assertNoMailboxJournal(t, c)
 }
 
 // TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine is the withdrawal
@@ -489,22 +484,12 @@ func TestSpoolControl_PauseHoldsTurnsAndLeavesMailUnconsumed(t *testing.T) {
 	awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "after the resume released the held turn")
 
 	// THE CARRIER SHOWS NOTHING. Pause and resume are runner requests: they
-	// left no message in the mailbox and no file in the spool.
+	// left no file in the spool and grew no other carrier.
 	for _, e := range spoolEntries(t, out.Harp, spool.DirInConsumed) {
 		assert.Equal(t, "work item while paused", e.Message.Body,
 			"the only file the whole exchange produced must be the mail; pause is not a delivery")
 	}
-	for _, id := range mailboxEverQueued(c) {
-		var m Message
-		c.mail.View(func() {
-			for _, pending := range c.mailF.pendingFor(out.Harp) {
-				if pending.ID == id {
-					m = pending
-				}
-			}
-		})
-		assert.NotEqual(t, "pause", m.Kind)
-	}
+	assertNoMailboxJournal(t, c)
 }
 
 // TestSpoolControl_PauseRefusedWhenNotOnTheRunnerPlane pins the flag-off

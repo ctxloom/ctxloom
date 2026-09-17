@@ -41,7 +41,7 @@ func waitForChildEnv(t *testing.T, c *Coordinator, runID string) map[string]stri
 	deadline := time.Now().Add(conformanceWait)
 	for time.Now().Before(deadline) {
 		sp.mu.Lock()
-		for _, e := range sp.engines {
+		for _, e := range sp.chats {
 			env := e.runnerEnv()
 			if env[EnvRunID] == runID {
 				sp.mu.Unlock()

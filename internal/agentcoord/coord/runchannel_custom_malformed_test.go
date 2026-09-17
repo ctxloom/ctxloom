@@ -62,4 +62,3 @@ func TestHandleCustomEvent_MalformedEventsAreReported(t *testing.T) {
 		assert.Empty(t, out, "the ordinary path must not warn")
 	})
 }
-

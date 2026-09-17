@@ -162,21 +162,13 @@ func countChatText(sp *fakeSpawner, i int, want string) int {
 	return n
 }
 
-// mailboxEverQueued reports every message id the mailbox fold has EVER seen —
-// pending and consumed alike.
-//
-// It is the "no mailbox twin" assertion, and it has to read `seen` rather than
-// `pending`: a message that was queued AND consumed leaves `pending` empty, so
-// a test that checked pending would call a full mailbox delivery a successful
-// cutover.
-func mailboxEverQueued(c *Coordinator) []string {
-	var ids []string
-	c.mail.View(func() {
-		for id := range c.mailF.seen {
-			ids = append(ids, id)
-		}
-	})
-	return ids
+// assertNoMailboxJournal is the "no mailbox twin" assertion in its final
+// form: there is no mailbox at all, so a coordinator that delivered anything
+// must not have grown a mailbox journal in its state dir.
+func assertNoMailboxJournal(t *testing.T, c *Coordinator) {
+	t.Helper()
+	_, err := os.Stat(filepath.Join(c.stateDir, "mailbox.jsonl"))
+	assert.True(t, os.IsNotExist(err), "the file IS the delivery; a mailbox journal would be a second carrier")
 }
 
 // awaitSpoolCount waits for a spool directory to hold exactly n entries.
@@ -225,8 +217,7 @@ func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsConsumed(t *testing.T) {
 	// legitimately still rides the mailbox in the same run — the child's own
 	// bridged result goes to the OWNER, which is not a cut-over recipient —
 	// so the assertion is about THIS id, not about the fold being empty.)
-	assert.NotContains(t, mailboxEverQueued(c), msgID,
-		"under the cutover the spool write IS the delivery; a mailbox fact would be a second copy nobody consumes")
+	assertNoMailboxJournal(t, c)
 
 	// The file was consumed by RENAME, not deleted: in/ empty, in/consumed/
 	// holding exactly the message that was delivered.
@@ -660,14 +651,9 @@ func TestSpoolDelivery_PendingCountReadsTheSpool(t *testing.T) {
 	}
 
 	assert.GreaterOrEqual(t, c.pendingCount(out.Harp), 1,
-		"pendingCount must read the spool for a cut-over child; the fold holds nothing for it")
-	var foldPending []Message
-	c.mail.View(func() { foldPending = c.mailF.pendingFor(out.Harp) })
-	assert.Empty(t, foldPending,
-		"the count came from the DIRECTORY: the mailbox fold holds nothing for this child, which is why reading it would report a permanent zero")
+		"pendingCount must read the spool: the count comes from the DIRECTORY")
 
-	// A harp that is not cut over still answers from the mailbox, and a
-	// non-existent spool is zero rather than an error.
+	// A non-existent spool is zero rather than an error.
 	assert.Zero(t, c.pendingCount("no-such-harp"))
 }
 

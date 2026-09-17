@@ -34,7 +34,7 @@ func TestIssueStartRun_CancelAbortsTheRoundTrip(t *testing.T) {
 
 	plan, err := sp.Resolve(context.Background(), "worker")
 	require.NoError(t, err)
-	rt, token, err := c.enqueueRun(ownerIdentity(), plan, "child-stop-harp", "brief", false, make(chan struct{}), 1, true)
+	rt, token, err := c.enqueueRun(ownerIdentity(), plan, "child-stop-harp", "brief", false, make(chan struct{}), 1)
 	require.NoError(t, err)
 	credHash := hashToken(token)
 

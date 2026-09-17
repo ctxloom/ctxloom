@@ -145,11 +145,10 @@ type liveTapSpawner struct {
 
 func (s *liveTapSpawner) Resolve(context.Context, string) (*coord.SpawnPlan, error) {
 	return &coord.SpawnPlan{
-		AgentName:   "worker",
-		Backend:     "claude-code",
-		Label:       "fast",
-		Perm:        agent.PermissionBypass,
-		ViaStartRun: true,
+		AgentName: "worker",
+		Backend:   "claude-code",
+		Label:     "fast",
+		Perm:      agent.PermissionBypass,
 	}, nil
 }
 

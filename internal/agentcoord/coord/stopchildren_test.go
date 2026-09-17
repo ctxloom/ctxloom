@@ -24,11 +24,11 @@ import (
 func awaitRelease(t *testing.T, sp *fakeSpawner, i int) {
 	t.Helper()
 	sp.mu.Lock()
-	require.Less(t, i, len(sp.engines), "engine %d was never launched", i)
-	e := sp.engines[i]
+	require.Less(t, i, len(sp.released), "engine %d was never launched", i)
+	released := sp.released[i]
 	sp.mu.Unlock()
 	select {
-	case <-e.releasedCh():
+	case <-released:
 	case <-time.After(conformanceWait):
 		t.Fatalf("engine %d's Close never fired: the child's process/container was not released", i)
 	}
@@ -259,7 +259,7 @@ func TestStopChildren_SweptChildStaysResumableButIsNotAutoRelaunched(t *testing.
 	launches := func() int {
 		sp.mu.Lock()
 		defer sp.mu.Unlock()
-		return len(sp.engines)
+		return len(sp.chats)
 	}
 	assert.Never(t, func() bool { return launches() > 1 }, 300*time.Millisecond, 10*time.Millisecond,
 		"a swept child must NOT be relaunched by its leftover mail")
@@ -350,7 +350,7 @@ func TestStopChildren_ChildDyingDuringSweepIsNotRelaunched(t *testing.T) {
 	launches := func() int {
 		sp.mu.Lock()
 		defer sp.mu.Unlock()
-		return len(sp.engines)
+		return len(sp.chats)
 	}
 	assert.Never(t, func() bool { return launches() > 1 }, 500*time.Millisecond, 10*time.Millisecond,
 		"a child that dies during a sweep must NOT be relaunched")

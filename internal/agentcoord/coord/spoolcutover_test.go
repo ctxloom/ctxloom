@@ -57,8 +57,7 @@ func TestSpoolCutover_MailRidesTheSpoolWithNothingAsked(t *testing.T) {
 	awaitChatText(t, sp, 0, "second task")
 	consumed := awaitSpoolEntryWithBody(t, out.Harp, spool.DirInConsumed, "second task", "after delivery")
 	assert.Equal(t, msgID, consumed.Message.OriginID, "the consumed file is the message the owner sent")
-	assert.NotContains(t, mailboxEverQueued(c), msgID,
-		"the spool write IS the delivery; a mailbox fact would be a second copy nobody consumes")
+	assertNoMailboxJournal(t, c)
 
 	// Up: the child's agent_send is a local file write that the coordinator
 	// routes into the owner's agent_recv.
@@ -75,6 +74,5 @@ func TestSpoolCutover_MailRidesTheSpoolWithNothingAsked(t *testing.T) {
 	require.NotEmpty(t, got, "the owner's agent_recv must be satisfied from the child's out/ spool")
 	assert.Equal(t, out.Harp, got[0].From)
 	awaitSpoolEntryWithBody(t, out.Harp, spool.DirOutConsumed, "a finding", "after routing")
-	assert.NotContains(t, mailboxEverQueued(c), resp.GetPeerSend().GetMessageId(),
-		"the child's send must never have been journaled as mailbox mail")
+	assertNoMailboxJournal(t, c)
 }

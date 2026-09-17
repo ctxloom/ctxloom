@@ -101,3 +101,34 @@ func TestLoadDistillPrompt_AbsentSourcesYieldTheDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, got)
 }
+
+// TestNewLLMDistiller_BareBackendNameResolvesToThatBackend pins the
+// ad-hoc `--llm <backend>` form: a label that is not a configured `llm:`
+// entry but names a registered backend resolves to THAT backend, the same
+// way every other launch path resolves it (operations.ResolveBackend). The
+// distiller used to resolve through config.ResolveLLM alone, which has no
+// backend registry and degrades an unknown label to the built-in default —
+// so `bundle distill --llm mock` silently distilled on claude-code and
+// reported success.
+func TestNewLLMDistiller_BareBackendNameResolvesToThatBackend(t *testing.T) {
+	warn := captureWarnings(t)
+	cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{
+		Defaults: config.RoleDefaults{Primary: "a"},
+		Configs: map[string]config.LLMConfig{
+			"a": {Type: "claude-code", Body: map[string]interface{}{"model": "opus"}},
+		},
+	}})
+	_, configured := cfg.GetLLMEntry("mock")
+	require.False(t, configured, "fixture precondition: mock is a backend name, not a label")
+
+	d, err := newLLMDistillerForLabel(cfg, "mock")
+
+	require.NoError(t, err)
+	require.NotNil(t, d)
+	ld, ok := d.(*llmDistiller)
+	require.True(t, ok)
+	assert.Equal(t, "mock", ld.llmName, "the backend the user named, not the built-in default")
+	assert.Equal(t, "mock", ld.llmLabel)
+	assert.Empty(t, ld.model, "an ad-hoc backend carries no configured model")
+	assert.NotContains(t, warn.String(), "RAW")
+}

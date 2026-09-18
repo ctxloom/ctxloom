@@ -1,135 +1,256 @@
 # agentcoord — overview
 
 `internal/agentcoord` is the **agent-delegation subsystem**: the wire contract
-(`agentcoord.v1` protos), the coordinator runtime (`coord`), the MCP tool surface the
-delegating LLM sees (`mcpschema`), and out-of-process endpoint discovery (`discover`).
-It owns one contract: *a session can spawn other agent sessions as children, exchange
+(`agentcoord.v1` in `coordination.proto` / `artifacts.proto`, plus `seqwatch.go` and
+`messagekind.go`), the runtime (`coord` — both the coordinator half and the runner
+half compile from this one package), the file substrate messages live in (`spool`),
+the MCP tool surface the delegating LLM sees (`mcpschema`), and out-of-process
+endpoint discovery for consumers with no coordinator of their own (`discover`). It
+owns one contract: *a session can spawn other agent sessions as children, exchange
 durable messages with them, receive their reports, and fetch their work products —
-across process, container and worktree boundaries — with every state change recorded
-as an append-only fact.*
+across process, container and worktree boundaries — with every state change
+recorded as an append-only fact or an on-disk file.*
 
-Everything durable in delegation passes through `internal/agentcoord/coord`:
-`runs.jsonl`, `mailbox.jsonl`, `items.jsonl`, `interactions.jsonl`, the credential
-set, the content-addressed artifact store, and the harp↔run index.
+Everything durable in delegation is one of:
 
-## Process topology
+- **Three journals** under the coordinator's state dir, each a `coord.Store`
+  replayed into folds (`runsFold`, `queueFold`, `rosterFold`, `reportsFold`,
+  `itemsFold`): `runs.jsonl` (run lifecycle and session credentials), `items.jsonl`
+  (the plane-1 event stream), `interactions.jsonl` (the audit journal). See
+  `Coordinator.openJournals`.
+- **The spool**: one directory per session harp under `paths.HarpPersistDir`
+  (`spool.SpoolDirName`), holding `in/`, `out/` and their `consumed/`, `withdrawn/`
+  and `failed/` subdirectories (`spool.Dir`, `spool.Dirs`, `spool.FailedDirNames`).
+  A message is a file; the file is the payload's only carrier. The package doc of
+  `internal/agentcoord/spool` is the authority on its properties.
+- **The content-addressed artifact store** (`artifactstore.go`), keyed by sha256.
 
-Two processes, one bidirectional gRPC link per run.
+There is no message journal: a message's durability is the fsynced file, and its
+consumption is the rename that moves it into `consumed/`.
+
+## Package topology
+
+Copied from the audit's delegation/layer graph
+(`docs/architecture/audit-2026-09-18/04-coordination-bus.md` §3). Solid arrows are
+imports the stated layering expects (README package map, `tests/arch`
+`layering_test.go`, `coord/doc.go`); dashed red are imports against or past a layer;
+dotted are hidden couplings through the environment or the filesystem.
 
 ```mermaid
 flowchart TD
-  subgraph CoordProc["coordinator process — ctxloom run / mcp"]
-    C["Coordinator<br/>coordinator.go:92"]
-    ST[("Store ×4<br/>runs · mailbox · items · interactions<br/>journal.go:58")]
-    FOLDS["folds: runs/queue/roster/mail/items/reports"]
-    SRV["coordServing (h2c)<br/>httpserver.go:36"]
-    GS["coordService · consumerService · artifactService<br/>grpcserver.go:92"]
-    C --> ST --> FOLDS
-    C --> SRV --> GS
-  end
+  CLI["internal/cli<br/>(run.go, llm_runner_common.go, llm_serve.go)"]
+  TUI["internal/cli/tui"]
+  MCP["internal/mcp<br/>(mcp_runner.go coordinationHandler;<br/>mcp_tools_agents.go local surface;<br/>coord_host.go NewHostedCoordinator)"]
+  COORD["internal/agentcoord/coord"]
+  PROTO["internal/agentcoord (proto, seqwatch, messagekind)"]
+  SCHEMA["internal/agentcoord/mcpschema"]
+  SPOOL["internal/agentcoord/spool"]
+  DISC["internal/agentcoord/discover"]
+  OPS["internal/operations"]
+  ISO["internal/lm/isolation"]
+  TRANS["internal/transcript"]
+  CFG["internal/config"]
+  AGENTS["internal/agents"]
+  LIVE["internal/liveness"]
+  PATHS["internal/paths"]
+  FS[("$HOME/.ctxloom/… spool dirs<br/>(spool.HomeMapper)")]
+  ENV[("process env: CTXLOOM_COORD_URL/CRED, RUN_ID,<br/>SESSION_HARP, MCP_SOCKET, LAUNCH_* tunables")]
 
-  subgraph RunnerProc["runner process — ctxloom llm serve (ONE run)"]
-    H["Home<br/>home.go:31"]
-    RL["RunnerLink<br/>runnerlink.go:34"]
-    EH["EngineHost<br/>enginehost.go:53"]
-    BE[["agent.StructuredChat<br/>(mock only — no shipped engine implements it)"]]
-    EH -->|in-process Chat| BE
-    H --> EH
-    RL --> EH
-  end
+  CLI --> COORD
+  TUI --> COORD
+  MCP --> COORD
+  MCP --> SCHEMA
+  COORD --> PROTO
+  COORD --> SPOOL
+  COORD --> DISC
+  COORD --> OPS
+  COORD --> LIVE
+  COORD --> PATHS
+  SCHEMA --> PROTO
+  SPOOL --> PATHS
+  DISC --> PATHS
+  OPS -.->|"must not import coord (ok)"| COORD
 
-  GS <-->|"RunnerChannel (lifecycle, by credential)"| RL
-  GS <-->|"RunChannel (one run · 3 planes)"| H
-  GS <-->|"ArtifactTransferService"| H
-  GS -->|"ConsumerService (read-only)"| VIEW[["operations/sessionfeed · cli/run_owned · TUI"]]
+  COORD -. "runtime library imported by a<br/>stdio RELAY (tacky-padding)" .-> MCP
+  COORD -->|"isolation.ParseWorkspaceAxis (runchannel.go)<br/>isolation.EngineStarter (spawner.go)"| ISO
+  linkStyle 15 stroke:#c00,stroke-dasharray:5
+  COORD -->|"transcript.Recorder in EngineHost —<br/>RUNNER-side concern living in the coordinator package"| TRANS
+  linkStyle 16 stroke:#c00,stroke-dasharray:5
+  COORD -->|"config.Load per Resolve (spawner.go)"| CFG
+  linkStyle 17 stroke:#c00,stroke-dasharray:5
+  COORD --> AGENTS
+  COORD -->|"mcpschema.RecvWaitMax (runtime importing the LLM-facing schema)"| SCHEMA
+  linkStyle 19 stroke:#c00,stroke-dasharray:5
+  COORD -. "9 × spool.NewHomeMapper() per call; root re-resolved from $HOME at write time" .-> FS
+  COORD -. "runnerEnv() writes; consumeCoordinatorReachBack / selfIdentityFromEnv / os.Getenv(EnvMCPSocket) read" .-> ENV
+  MCP -. "selfIdentityFromEnv(cwd)" .-> ENV
 ```
 
-Three planes ride one `RunChannel`:
+## Process topology
+
+Two processes per run, joined by gRPC and by the filesystem.
+
+**The coordinator process** (the session owner, `ctxloom run`) constructs one
+`coord.Coordinator` (`coord.New`) which owns the journals, the state-dir lock, the
+`in/` spool writers, and the h2c listener (`coordServing`, `httpserver.go`) that
+serves `coordService`, `consumerService` and `artifactService` (`grpcserver.go`).
+Its long-lived goroutines are `runnerWatchdog`, `livenessWatchdog` and the
+coordinator-side `spoolReactor`. Every LLM-facing verb lands on one of
+`Coordinator.AgentRun`, `AgentSend`, `AgentRecv`, `AgentStop`, `StopChildren`,
+`Roster`/`ListRuns` — whether it arrived in-process (the coordinator-local MCP
+surface, `mcp.NewHostedCoordinator`) or over the wire (`handleAgentRequest →
+serveSpawnAgent / serveListRuns / serveStopRun`).
+
+**The runner process** (`ctxloom llm serve|host|turn`, one per run;
+`llm_runner_common.go`) constructs a `coord.Home` which dials two streams —
+`RunnerChannel` (lifecycle, one per credential, via `DialRunner` / `RunnerLink`) and
+`RunChannel` (one per run) — and hosts the engine in-process through
+`coord.EngineHost` (`agent.StructuredChat`). It also serves the runner-hosted MCP
+socket (`mcp.ServeRunnerMCP`) the engine's stdio shim forwards to; that surface is
+generated from `mcpschema` and dispatches to `mcp.coordinationHandler`,
+`recvHandler` and `reportHandler`, which call `Home.Request`, `Home.Recv` and
+`Home.Report`. Its goroutines are `Home.runnerChannelLoop`, `runChannelLoop`, the
+runner-side `spoolReactor`, `RunnerLink.heartbeatLoop`/`receiveLoop`, `Home.turnPump`
+and `EngineHost.adapt`.
+
+**Read-only consumers** (`internal/operations`' session feed, `ctxloom session
+transcript watch`, the TUI) reach `ConsumerService` on the same listener, located
+through `discover` when they have no coordinator of their own.
+
+### What rides the wire
+
+`CoordinatorService.RunChannel` multiplexes three planes plus one advisory frame.
+The proto (`coordination.proto`) is the authority; this table restates its oneofs.
 
 | Plane | Direction | Carrier | Semantics |
 |---|---|---|---|
-| 1 — events | agent → coordinator | `AgentEvent` | durable, sequenced, cumulative `Ack` |
-| 2 — requests | agent → coordinator | `AgentRequest` / `CoordinatorResponse` | approval, spawn_agent, peer_send, list_runs, stop_run, custom |
-| 3 — notices | coordinator → agent | `CoordinatorNotice` | mail push (`peer_message`); fire-and-forget |
+| 1 — events | agent → coordinator | `AgentFrame.event` (`AgentEvent`) | durable, sequenced, journaled to `items.jsonl`; `CoordinatorFrame.ack` (`Ack`) is the cumulative watermark |
+| 2 — requests | agent → coordinator | `AgentFrame.request` (`AgentRequest`) / `CoordinatorFrame.response` (`CoordinatorResponse`) | `spawn_agent`, `list_runs`, `stop_run`, `custom`; `request_id` is the idempotency key |
+| 3 — keepalive & notices | both | `AgentFrame.heartbeat`; `CoordinatorFrame.notice` (`CoordinatorNotice`: `cancel`, `budget_update`, `spool_changed`) | fire-and-forget |
+| doorbell | both | `AgentFrame.spool_changed` / `CoordinatorNotice.spool_changed` (`SpoolChanged{harp, dir, name}`) | advisory: no seq, no buffering, dropped when the stream is down; the receiver's sweep is the at-least-once floor |
 
-The downward request direction (`CoordinatorRequest`: steer/question/summarize/pause/
-resume) exists in the proto and has **zero implementation** — see
-[wire-contract.md](wire-contract.md).
+There is no coordinator→agent request plane and no message push: a steer, question
+or summarize to a child is a file in that child's `in/` (`Coordinator.ControlSteer`,
+`spoolcontrol.go`); pause/resume and start/stop/kill/drain ride `RunnerRequest` on
+`RunnerChannel`. `AgentRequest.kind` admits `approval`, `user_input` and `peer_send`
+that `serveAgentRequest` answers `Unimplemented` — `agent_send` on the runner-hosted
+surface is intercepted before the wire (`Home.sendPeerViaSpool`).
 
-## Message flow — spawn to artifact fetch
+## Message flow
+
+### Spawn
+
+`Coordinator.AgentRun` → `Spawner.Resolve` (a `SpawnPlan`: profiles, engine,
+runtime, permissions, MCP servers) → `Spawner.AssignSession` (the child's harp) →
+`Coordinator.enqueueRun` (`mintToken`; `factRunEnqueued` journaled; `childRt`
+published; slot `TryAcquire`) → `RunOutcome` back to the caller (`Queued` says
+whether a slot was held) → `runChild` (`acquireRunSlot` blocks in FIFO order) →
+`runChildViaStartRun` → `Spawner.StartEngine` (exec or container, with the
+reach-back trio in the runner's env) → `issueStartRun` (`awaitRunner` for the
+runner's `RunnerHello`, then `RunnerRequest.start_run{HarnessSpec, Input}`) →
+runner `EngineHost.startRun` → `agent.StructuredChat.Chat`. The runner's identity on
+every subsequent frame is minted from its bearer credential
+(`Coordinator.Identify`), never from anything the frame claims. Detail, including
+the slot/park/idle/one-shot state machine and the exactly-once terminal, is in
+[child-lifecycle.md](child-lifecycle.md) and the audit's G4/G5/SM1.
+
+### Mail
+
+One message's life, both directions, copied from the audit's SM2. The full call
+graphs are the audit's G1 (child → parent), G2 (parent → child) and G3 (`agent_recv`,
+which exists once per side).
 
 ```mermaid
-sequenceDiagram
-  autonumber
-  participant P as Parent agent (LLM)
-  participant CO as Coordinator
-  participant SP as Spawner / operations
-  participant H as Home (runner)
-  participant CH as Child engine
-
-  P->>CO: agent_run{role, input.prompt}
-  CO->>SP: Resolve(agent) → SpawnPlan (profiles, engine, runtime, ladder, MCP)
-  CO->>CO: AssignSession → harp; enqueueRun → mint run_id + bearer token<br/>journal factRunEnqueued (children.go:272)
-  CO->>CO: slots.Acquire (cap = delegation.concurrency, default 4)
-  CO-->>P: RunOutcome{harp, run_id, engine, queued} — "spawned" (fixed at enqueue)
-  CO->>SP: StartEngine → runner process with reach-back trio in env
-  H->>CO: RunnerHello / RunChannel Hello (bearer token)
-  CO->>H: StartRun{HarnessSpec, Input{prompt}}
-  H->>CH: StructuredChat in-process (enginehost.go:311)
-  CH-->>H: native events
-  H->>CO: AgentEvent stream (plane 1) → items.jsonl, roster, watchHub
-  CO-->>H: Ack{committed_seq}
-
-  P->>CO: agent_send{to: harp, text}
-  CO->>CO: queueMail → factMailQueued (mailbox.go:85)
-  CO->>H: CoordinatorNotice{peer_message} (pushMail, runchannel.go:385)
-  H->>CH: turn text (SetTurnSink / turnPump)
-  CH-->>H: turn output
-  H->>CO: AgentEvent{MessageDelta FINAL} → accumulateFinalText
-  CO->>CO: bridgeTurnResult → queueMail(child → parent, kind "result")
-  P->>CO: agent_recv (long poll, up to 600s)
-  CO-->>P: []Message (at-least-once; cursor-acked by the NEXT recv)
-
-  CH->>H: agent_report{summary, publish_paths}
-  H->>CO: UploadArtifact stream (sha256 CAS)
-  H->>CO: AgentEvent{Summary} + AgentEvent{ArtifactProduced}
-  CO->>CO: recordSummary / recordArtifact → reportsFold
-  P->>CO: agent_fetch_artifact{artifact_id}
-  CO->>H: DownloadArtifact → header(sha256) + chunks
-  H->>H: verify sha256 BEFORE placing (homeartifacts.go:148)
+stateDiagram-v2
+  state "child → parent" as up {
+    [*] --> OutFile: Home.sendPeerViaSpool → spool.Writer.Write(out/) [fsync] + ringSpool (AgentFrame.spool_changed, drop-counted)
+    OutFile --> Swept: coordinator sweepChildOut (doorbell mark | reattach mark | periodic tick | startup pass)
+    Swept --> Routed: routeSpoolOut → peerSend (ask-reply intercept; SenderMailKind; childSend lineage) → queueMailPayload
+    Routed --> OwnerInFile: mailCourier.Send → spool.Writer.Write(owner in/) [NEW id] + ringSpool→deliverToPoll
+    Routed --> OutFailed: refused → replySpoolRefusal (to sender) + noticeSpoolDrop (to parent) + spool.Fail(out/failed/)
+    OwnerInFile --> OutConsumed: consumeSpool(out/→out/consumed/)
+    OwnerInFile --> Claimed: AgentRecv → claimSpoolInbox (reserve id in c.delivered; remember ref)
+    Claimed --> Returned: recvMail returns []Message (+settleBurst)
+    Returned --> InConsumed: NEXT AgentRecv → ackSpoolInbox → spool.Consume(in/→in/consumed/); unreserve
+    Claimed --> OwnerInFile: coordinator crash before ack → re-read under same id
+  }
+  state "parent → child" as down {
+    [*] --> InFile: ownerSend/steer/notice → queueMailPayloadID → mailCourier.Send (child in/) + ringSpool (CoordinatorNotice.spool_changed, non-blocking)
+    InFile --> Delivered: Home.sweepSpoolIn (doorbell | reattach | turn boundary | tick | startup) → mailFromSpool → peerMessageProto → deliverNotice (dedupe h.consumed/turnPending/buffer)
+    Delivered --> TurnQueued: no park ∧ turn sink → turnQ
+    Delivered --> Buffered: else h.buffer; completes parked Recv; else terminalNudge
+    TurnQueued --> Accepted: turnPump → sink → EngineHost.enqueueTurn → in chan (engine stdin)
+    Accepted --> InConsumed: ackMailConsumed → spool.Consume + Announce('consumed') doorbell → coordinator sweepChildConsumed → noteMailConsumed (budget forgiven)
+    Buffered --> ReturnedToHarness: Home.Recv returns; recordReturned
+    ReturnedToHarness --> InConsumed: NEXT Home.Recv (ackReturned) or Home.Close → ackMailConsumed
+    TurnQueued --> Buffered: sink returned false (engine gone)
+    InFile --> InWithdrawn: WithdrawSteer (rename wins) → ErrSteerAlreadyDelivered if lost
+    InFile --> InFailed: unparseable / unknown kind → failSpoolEntry (spool.Fail)
+    InFile --> InFile: Home.exited → sweep skipped; file belongs to the NEXT run (resume)
+  }
 ```
+
+Reading it:
+
+- **Upward** (`agent_send` from a child), the runner writes the file into the
+  child's own `out/` and rings the doorbell. The coordinator's `spoolReactor`
+  sweeps that `out/`, routes each entry through the same `Coordinator.peerSend` the
+  in-process surface uses, and the courier writes a fresh file into the parent's
+  `in/`. The sender's identity is the directory the file was found in, never the
+  file's own `from_harp` (`Coordinator.spoolSenderIdentity`, `mailFromSpool`).
+- **Downward** (`agent_send`, steer, or a synthesized notice to a child), the
+  coordinator writes into the child's `in/` and rings `CoordinatorNotice.spool_changed`;
+  the runner's `Home.sweepSpoolIn` picks it up and either hands it to the engine as a
+  turn (`turnPump → EngineHost.enqueueTurn`) or buffers it for a parked `Home.Recv`.
+- **The owner's inbox** has no runner: `Coordinator.recvMail` drains the owner's
+  `in/` in the coordinator process (`claimSpoolInbox` / `ackSpoolInbox`,
+  `spoolowner.go`). The owner is identified by declaration (`Options.OwnerHarp`),
+  not by a run record.
+- **The ack** on both sides is `spool.Consume` — a rename into `consumed/` —
+  performed one receive late: a reader acknowledges the previous batch when it asks
+  for the next (`Home.ackReturned`, `Coordinator.ackSpoolInbox`), or on a clean
+  `Home.Close`. There is no cursor and no consumption fact.
+
+### Report and artifact
+
+`agent_report` rides plane 1: `Home.Report → emitEvent` (`Summary`,
+`ArtifactProduced`) with the bytes streamed separately over
+`ArtifactTransferService/UploadArtifact` into the sha256 CAS. The coordinator folds
+them (`recordSummary`, `recordArtifact` → `reportsFold`); a FINAL summary also queues
+an ordinary `KindReport` mail to the parent (`notifyParentOfFinalReport`) and, under
+the final policy, drains the child (`endOnFinalReport`). `agent_fetch_artifact` is
+`DownloadArtifact`: the receiver hashes as it streams and refuses to place bytes
+whose sha256 does not match the manifest (`Home.DownloadArtifact`).
 
 ## System-wide invariants
 
+Each is stated by the symbol that enforces it. If the symbol is gone, the row is
+false — delete it rather than leave it.
+
 | # | Invariant | Enforced at |
 |---|---|---|
-| I1 | A child may address only `"parent"` or its own parent's harp; anything else is `ErrPeerRouting` | `coordinator.go:669-673` |
-| I2 | Only a non-child (depth-0) caller may `agent_stop`, `roster`, or `agent_run` beyond the leaf gate | `coordinator.go:728`, `runchannel.go:775`, `mcpschema/binding.go:40` |
-| I3 | Facts become visible only after they are durable: `decide → append → fsync → apply` under one write lock | `journal.go:207` (`execLocked`) |
-| I4 | Folds are single-writer by construction; `View` is a read-lock window and callers must not retain references out of it | `journal.go:248,261` |
-| I5 | Mail delivery is **at-least-once**, deduped on `message_id`; a recv implicitly acks the *previous* recv's batch (cursor-ack) | `folds.go:440`, `mailbox.go:218` |
-| I6 | Every run death funnels through one exactly-once terminal (`terminateRun`) which frees the slot, revokes the credential, severs the channel and notices the parent | `children.go:1299` |
-| I7 | Approval resolution is a fail-closed allow-list: only `ACCEPT` / `ACCEPT_FOR_SESSION` grant | `enginehost.go:739`, `approval.go:452` |
-| I8 | The audit journal (`interactions.jsonl`) is **never a gate** — `audit` warns and proceeds | `coordinator.go:565` |
-| I9 | Artifacts move by reference; the receiver verifies sha256 against the manifest before placing bytes | `homeartifacts.go:148-154` |
-| I10 | A run's identity is `(harp, run_id)`; a resume mints a **fresh run_id** under the same harp | `children.go:1522`, `folds.go:182` |
+| I1 | A child may address only `ParentAddress` or its own parent's harp; anything else is `ErrPeerRouting`. The kind vocabulary is gated once, for both surfaces, by `SenderMailKind`. | `Coordinator.peerSend`, `Coordinator.childSend` (`coordinator.go`) |
+| I2 | Only a non-child caller may `agent_stop` or `roster`; a LEAF child's runner never registers the coordinator-only tools at all. | `Coordinator.AgentStop`, `Coordinator.serveListRuns`; `mcpschema.CoordinatorOnlyTools` |
+| I3 | Facts become visible only after they are durable: one writer goroutine serialises every `decide → append → fsync → apply` window. | `Store.writer`, `Store.execLocked` (`journal.go`) |
+| I4 | Folds are single-writer by construction; `Store.View` is a read-lock window and callers must not retain references out of it. | `Store.View` (`journal.go`) |
+| I5 | The file is the message. The wire carries only a `spool.Ref` (harp, dir, name); a doorbell lost on a down stream costs latency, never a message, because every reader's sweep re-derives the whole picture (`spoolReactor`, `spoolSweepInterval`, the startup and reconnect sweeps). | `spool.Writer.Write`, `spool.Sweep`; `AgentFrame.spool_changed` doc in `coordination.proto` |
+| I6 | The ack is the consume-rename. Delivery is at-least-once and one receive late; a reader that crashes before acking is re-delivered the same file, deduped on its id (`Home.deliverNotice`'s `consumed` set; the owner's `c.delivered` reservation). | `spool.Consume`; `Home.ackReturned` / `Home.ackMailConsumed`; `Coordinator.ackSpoolInbox` |
+| I7 | Each spool directory has one writer: the coordinator writes `in/`, the run's own runner writes `out/`. A sender is who the DIRECTORY says, and a `SpoolChanged.harp` arriving on a child's channel is resolved against THAT child's spool, never against the harp the frame names. | `spool.DirIn` / `spool.DirOut` docs; `Coordinator.handleSpoolChanged`, `spoolSenderIdentity` |
+| I8 | A `Ref` from a less-trusted peer is validated at one chokepoint — harp grammar, closed `Dir` set, bare filename — and rejected, never sanitised. Nothing is silently dropped: a malformed file is a named `spool.Problem`, a lost rename is `spool.ErrAlreadyGone`. | `spool.Ref.Validate`, `spool.HomeMapper.Resolve`, `spool.Sweep` |
+| I9 | Every run death funnels through one exactly-once terminal that claims `factRunEnded` inside the journal window; only the claimant frees the slot, revokes the credential, severs the channel and notices the parent. | `Coordinator.terminateRun` (`children.go`) |
+| I10 | The audit journal (`interactions.jsonl`) is never a gate — `audit` warns and proceeds. | `Coordinator.audit` (`coordinator.go`) |
+| I11 | Artifacts move by reference; the receiver verifies sha256 against the manifest before placing bytes. | `Home.DownloadArtifact` (`homeartifacts.go`) |
+| I12 | A run's identity is `(harp, run_id)`; a resume mints a fresh `run_id` under the same harp, and a run's authenticated identity comes from its bearer credential, not from any frame field. | `resumeChild → enqueueRun → newRunID`; `Coordinator.Identify` |
 
-## Divergence index
+The coordinator brokers no approval UI: nothing produces a `PendingApproval` (its
+doc comment says why), and `AgentRequest.approval` is unserved. A human answers the
+engine's native prompt by attaching to the agent's window.
 
-Documented behaviour that differs from real behaviour, one line each. Detail on the
-linked page.
+## Where the known gaps live
 
-| Divergence | Page |
-|---|---|
-| `agent_stop` on a one-shot child between turns reports `"had already ended (oneshot-boundary)"` — a refusal-shaped message for a stop that did take effect | [child-lifecycle.md](child-lifecycle.md) |
-| `RunInfo.task_id` and `RunInfo.last_event_at` are set nowhere, while the `roster` tool schema promises "last activity" | [observation.md](observation.md), [wire-contract.md](wire-contract.md) |
-| 8 LLM-facing MCP tool arguments are schema-validated and then discarded (`budget`, `constraints`, `notify_on`, `include_descendants`, `task_id`, `grace`, `reason`, `artifact_ids`) | [wire-contract.md](wire-contract.md) |
-| `HarnessSpec.extra_args` documents a runner-side allowlist that does not exist and is never read | [transport.md](transport.md) |
-| `HelloAck.committed_seq` is documented as "the authoritative resume cursor"; the coordinator echoes back the agent's own claim | [transport.md](transport.md) |
-| The audit journal fails open (warn-and-proceed) while enforcement fails closed; `relayApproval` journals `resolution: "timed_out"` for three non-timeout failures | [approvals.md](approvals.md) |
-| An approval reply whose `structured` payload failed to marshal at the edge is queued as ordinary mail; the strict decoder then blames the sender | [approvals.md](approvals.md) |
-| `RevokeSessionOwner` has zero call sites — depth-0 owner credentials are never revoked, contradicting `doc.go:16-18` | [coordinator-core.md](coordinator-core.md) |
-| `Home.abandonPark`'s comment says "requeue"; no requeue exists | [transport.md](transport.md) |
-| `artifactstore.go:20-24` attributes corrupt-read detection to `artifacts.go`; verification is client-side in `homeartifacts.go` | [artifacts.md](artifacts.md) |
-| Summary dedupe keys `(harp, seq)` while `seq` is per-run and restarts at 1 on resume | [artifacts.md](artifacts.md) |
-| `spawner.go:102-119` says one-shot is "not yet executed (v0.8)"; `Resolve` returns `ResumeModeOneShot` for the StartRun backend today | [child-lifecycle.md](child-lifecycle.md) |
+This page does not carry a divergence index. Stated-vs-actual findings for this
+seam are in the task log under `area:bus` (`taskloom list --tag-query area:bus`)
+and, as a dated snapshot with call graphs, in
+`docs/architecture/audit-2026-09-18/04-coordination-bus.md` §4 (F1–F12) and
+`10-synthesis.md` A3. A finding recorded here and there would drift; the task log is
+the copy that gets closed.

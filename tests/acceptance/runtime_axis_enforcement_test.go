@@ -49,7 +49,10 @@ func TestRuntimeAxis_ConfigFileControl(t *testing.T) {
 			require.NoError(t, env.InitGitRepo())
 			require.NoError(t, env.CreateProjectConfig())
 			require.NoError(t, env.WriteFile(".ctxloom/config.yaml",
-				fmt.Sprintf("version: %d\nagents:\n  probe:\n    runtime: %s\n", config.CurrentConfigVersion, tc.runtime)))
+				// An agent binds an engine or it is refused at load (an axis
+				// alone is not an agent), so the probe binds the built-in
+				// engine label: the axis under test is what varies.
+				fmt.Sprintf("version: %d\nagents:\n  probe:\n    llm: claude-code\n    runtime: %s\n", config.CurrentConfigVersion, tc.runtime)))
 
 			_ = env.Run("run", "--agent", "probe", "--dry-run", "hi")
 			exit := env.LastExitCode()

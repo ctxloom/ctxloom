@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"testing"
@@ -72,12 +73,24 @@ var helpArgCommands = []struct {
 	// exists reports whether the resource named "help" is now present.
 	// Required for (and used only by) actsOnResource rows.
 	exists func(t *testing.T) bool
+	// flags are set on the command before RunE, for a resource whose create
+	// needs more than a name: an agent binds an engine or it is refused
+	// (operations.ErrAgentWithoutEngine), so the row that proves "help" is a
+	// NAME here must still supply a binding. Profile names are not resolved
+	// at write time, so the no-config premise of the test holds.
+	flags map[string]string
+	// seed prepares the project before RunE. An agent is a fact about the
+	// PROJECT (layerscope: every agents.* field is ScopeShared), so a create
+	// with no project config lands in the home layer, where the binding is
+	// dropped on load; the row that proves "help" is a NAME here needs a
+	// project config to write into.
+	seed func(t *testing.T)
 }{
 	{path: []string{"bundle", "create"}, behaviour: actsOnResource, exists: bundleHelpExists},
 	{path: []string{"bundle", "edit"}, behaviour: helpAsFallback},
 	{path: []string{"bundle", "show"}, behaviour: helpAsFallback},
 	{path: []string{"agent", "show"}, behaviour: helpAsFallback},
-	{path: []string{"agent", "create"}, behaviour: actsOnResource, exists: agentHelpExists},
+	{path: []string{"agent", "create"}, behaviour: actsOnResource, exists: agentHelpExists, flags: map[string]string{"profiles": "default"}, seed: seedProjectConfig},
 	{path: []string{"agent", "default"}, behaviour: helpAsFallback},
 	{path: []string{"agent", "remove"}, behaviour: helpAsFallback},
 	{path: []string{"profile", "create"}, behaviour: helpBeforeConfig},
@@ -120,6 +133,9 @@ func TestHelpArgShortcut_BehaviourForEveryNameTakingCommand(t *testing.T) {
 			testsupport.ProjectDir(t)
 			config.Invalidate()
 			t.Cleanup(config.Invalidate)
+			if tc.seed != nil {
+				tc.seed(t)
+			}
 			home, err := os.UserHomeDir()
 			require.NoError(t, err)
 
@@ -134,9 +150,15 @@ func TestHelpArgShortcut_BehaviourForEveryNameTakingCommand(t *testing.T) {
 			var out bytes.Buffer
 			cmd.SetOut(&out)
 			cmd.SetContext(context.Background())
+			for k, v := range tc.flags {
+				require.NoError(t, cmd.Flags().Set(k, v))
+			}
 			t.Cleanup(func() {
 				cmd.SetOut(nil)
 				cmd.SetContext(context.Background())
+				for k := range tc.flags {
+					_ = cmd.Flags().Set(k, "")
+				}
 			})
 
 			require.NoError(t, cmd.RunE(cmd, []string{"help"}),
@@ -162,10 +184,14 @@ func TestHelpArgShortcut_BehaviourForEveryNameTakingCommand(t *testing.T) {
 			// only difference between the first two behaviours, and it is why
 			// they are separate constants rather than one "renders help".
 			_, statErr := os.Stat(filepath.Join(home, ".ctxloom"))
-			if tc.behaviour == helpBeforeConfig {
+			switch {
+			case tc.seed != nil:
+				// The row loaded config from the project it seeded, so the
+				// home fallback never ran and its app dir proves nothing.
+			case tc.behaviour == helpBeforeConfig:
 				assert.True(t, os.IsNotExist(statErr),
 					"`ctxloom %s help` must render help WITHOUT loading config — that is what lets it work in a directory with no ctxloom config at all", name)
-			} else {
+			default:
 				assert.NoError(t, statErr,
 					"`ctxloom %s help` resolves config before it can know the shortcut applies; if that stopped being true, move this row to helpBeforeConfig", name)
 			}
@@ -179,6 +205,14 @@ func bundleHelpExists(t *testing.T) bool {
 	require.NoError(t, err)
 	_, err = operations.GetBundle(cfg, "help")
 	return err == nil
+}
+
+// seedProjectConfig gives the project dir a minimal config so a project-scoped
+// write has a project layer to land in.
+func seedProjectConfig(t *testing.T) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(".ctxloom", 0o755))
+	testsupport.WriteFileString(t, afero.NewOsFs(), filepath.Join(".ctxloom", "config.yaml"), "version: 6\n", 0o644)
 }
 
 func agentHelpExists(t *testing.T) bool {

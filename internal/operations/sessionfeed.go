@@ -243,7 +243,7 @@ func watchConsumerFeed(ctx context.Context, ep discover.Endpoint, entry *session
 		return nil, fmt.Errorf("watch: read snapshot frame at %s: %w", ep.URL, err)
 	}
 
-	events, errs := adaptConsumerFeed(ctx, entry, backend, runID, conn, stream)
+	events, errs := adaptConsumerFeed(ctx, entry, backend, conn, stream)
 	return &SessionFeed{Source: "live", Events: events, Errs: errs}, nil
 }
 
@@ -300,7 +300,7 @@ const customEventTurnIdle = "ctxloom/turn_idle"
 // the per-run seq), and every loss becomes one standalone Gap event ahead
 // of the next entry — the shape the renderers (CLI session_watch.go, tui
 // feed.go) read.
-func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend, runID string, conn *grpc.ClientConn, stream grpc.ServerStreamingClient[agentcoordpb.WatchEvent]) (<-chan SessionFeedEvent, <-chan error) {
+func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend string, conn *grpc.ClientConn, stream grpc.ServerStreamingClient[agentcoordpb.WatchEvent]) (<-chan SessionFeedEvent, <-chan error) {
 	events := make(chan SessionFeedEvent)
 	errs := make(chan error, 1)
 	go func() {
@@ -329,7 +329,10 @@ func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend, runI
 		}
 		lastBoundary := sent
 
-		seqs := &agentcoordpb.SeqWatch{RunID: runID}
+		// Unscoped on purpose: the WatchRuns subscription above already
+		// confines this stream to one run, so every event and marker range
+		// on it is the run's own, whether or not the wire stamped a run_id.
+		seqs := &agentcoordpb.SeqWatch{}
 
 		st := consumerFeedState{msgs: map[string]*agent.SessionEntry{}, tools: map[string]string{}}
 		flush := func(e agent.SessionEntry) bool {

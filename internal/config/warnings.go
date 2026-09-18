@@ -46,6 +46,16 @@ const (
 	// WarnKindUnknownKey and for the identical reason: a setting that looks
 	// applied and is not is the worse outcome.
 	WarnKindLayerScope WarningKind = "layer-scope"
+	// WarnKindEnginelessAgent: an `agents:` entry declares no llm and no
+	// profiles — nothing that could resolve an engine. That is not a degraded
+	// agent, it is not an agent: `run --agent` would fall through to the
+	// default binding or fail deep in launch rather than at the declaration.
+	// The entry is DROPPED from the layer before the merge, for the same
+	// reason WarnKindUnknownKey drops its key: an agent that lists as bound
+	// to nothing is the worse outcome. Dropping it at the LAYER is also what
+	// keeps a home-only `{}` out of the project file, where the next
+	// project-layer save would otherwise re-serialise it from the merged view.
+	WarnKindEnginelessAgent WarningKind = "engineless-agent"
 )
 
 // StrictnessClass buckets a warning kind for the fail-loudly gate. Every kind
@@ -79,6 +89,8 @@ func (k WarningKind) FixIt() string {
 		// own FixIt, inlined by Message) — this is only the short pointer the
 		// strictness gate's listing shows alongside it.
 		return "see the finding above for the exact key and where it belongs instead"
+	case WarnKindEnginelessAgent:
+		return "bind the agent to an llm or to profiles (ctxloom agent edit <name> --llm <label> | --profiles <p,...>), or remove it (ctxloom agent remove <name>)"
 	default: // parse / validate
 		return "fix the config file (ctxloom manage config edit)"
 	}

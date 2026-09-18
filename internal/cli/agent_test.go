@@ -472,3 +472,25 @@ func TestRunAgentRemove_YesRemovesAndReports(t *testing.T) {
 	_, ok := cfg.Agent("dev")
 	assert.False(t, ok, "--yes must actually remove the agent from config, not merely report it gone")
 }
+
+// TestRunAgentList_CannotRenderAnEnginelessAgent pins the row's observed
+// symptom from the reading side: a config declaring `agents: x: {}` used to
+// list `x` with a null llm and null profiles. The loader now refuses the
+// binding, so the list cannot reach it in either rendering — the JSON path,
+// where null/null was visible, is asserted directly.
+func TestRunAgentList_CannotRenderAnEnginelessAgent(t *testing.T) {
+	agentProject(t, "version: 6\nagents:\n  x: {}\n  dev:\n    profiles: [default]\n")
+
+	cmd, out := textCmd()
+	require.NoError(t, runAgentList(cmd, nil))
+	assert.Contains(t, out.String(), "Agents (1):")
+	assert.NotContains(t, out.String(), "  x", "the engineless binding never reaches the list")
+
+	cfg, err := GetConfig()
+	require.NoError(t, err)
+	list := operations.ListAgents(cfg)
+	raw, err := json.Marshal(list)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"x"`)
+	assert.NotContains(t, string(raw), "null", "no row can carry a null llm AND null profiles once the loader refuses the shell")
+}

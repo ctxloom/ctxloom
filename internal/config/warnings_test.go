@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -86,13 +87,39 @@ func TestLoad_AbsentConfigNoWarnings(t *testing.T) {
 }
 
 // allWarningKinds is every kind config.Load can attach to a Warning. A kind
-// missing from here is a kind nothing below checks, so keep it exhaustive.
+// missing from here is a kind nothing below checks; "keep it exhaustive" was
+// the whole mechanism once, and a kind was added without it, so
+// TestWarningKind_AllWarningKindsIsExhaustive now scans the declarations.
 var allWarningKinds = []WarningKind{
 	WarnKindRead,
 	WarnKindParse,
 	WarnKindValidate,
 	WarnKindUnknownKey,
 	WarnKindMigrationLossy,
+	WarnKindLayerScope,
+	WarnKindEnginelessAgent,
+}
+
+// TestWarningKind_AllWarningKindsIsExhaustive turns the list above from a
+// promise into a check: every `WarnKind... WarningKind = "..."` declared in
+// warnings.go must appear in allWarningKinds by its on-the-wire value, so a
+// new kind cannot skip the fatal-class/fix-it gate by being left out here.
+func TestWarningKind_AllWarningKindsIsExhaustive(t *testing.T) {
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err)
+	src, err := os.ReadFile(filepath.Join(dir, "warnings.go"))
+	require.NoError(t, err)
+
+	listed := make(map[WarningKind]bool, len(allWarningKinds))
+	for _, k := range allWarningKinds {
+		listed[k] = true
+	}
+	declared := regexp.MustCompile(`(?m)^\s*WarnKind\w+ WarningKind = "([^"]+)"`).FindAllStringSubmatch(string(src), -1)
+	require.NotEmpty(t, declared, "the scan must find the kind declarations, or it is checking nothing")
+	for _, m := range declared {
+		assert.True(t, listed[WarningKind(m[1])], "kind %q is declared in warnings.go but missing from allWarningKinds", m[1])
+	}
+	assert.Len(t, allWarningKinds, len(declared), "allWarningKinds carries a kind warnings.go no longer declares")
 }
 
 // The doc on WarningKind promises that every kind is fatal-class in strict

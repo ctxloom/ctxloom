@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -356,6 +357,12 @@ func validateContainerAuth(cfg *config.Config, name string, req SetAgentRequest)
 // against the engines this config actually exposes, because an engine nothing
 // defines leaves the binding broken. Which backend it maps to, and the
 // override precedence, still resolve later in ResolveAgent.
+// ErrAgentWithoutEngine is the refusal for a binding that would end the write
+// with neither an llm nor profiles — nothing that could resolve an engine.
+// Config load refuses the same shape on read (config.WarnKindEnginelessAgent),
+// so a binding cannot be authored here that the loader would then drop.
+var ErrAgentWithoutEngine = errors.New("an agent needs an llm or at least one profile to bind an engine; neither was given")
+
 func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
@@ -412,6 +419,14 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
 		entry.HomeMode = orKeep(req.HomeMode, entry.HomeMode)
+		// Checked against the record the write RESULTS IN, inside the
+		// transaction, for the same reason the surface preference is: a
+		// create with no --llm/--profiles and an edit that clears the last of
+		// them both land here, and returning abandons the Update so the live
+		// binding (if any) survives untouched.
+		if entry.LLM == "" && len(entry.Profiles) == 0 {
+			return fmt.Errorf("agent %q: %w", name, ErrAgentWithoutEngine)
+		}
 		d.Agents[name] = entry
 		return nil
 	})

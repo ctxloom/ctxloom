@@ -62,13 +62,7 @@ func NoLegacyHistoryReason(name string) string {
 // scraper was retired, sorted — a view over the descriptors, for a gate that
 // wants the set rather than one answer.
 func RetiredScraperBackendNames() []string {
-	var names []string
-	for _, name := range List() {
-		if NoLegacyHistoryReason(name) != "" {
-			names = append(names, name)
-		}
-	}
-	return names
+	return ListWhere(func(name string) bool { return NoLegacyHistoryReason(name) != "" })
 }
 
 // ContainerFor returns the named engine's declaration of how a containerized

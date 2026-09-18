@@ -22,7 +22,8 @@
 //     (discovery.go), one hasher and report shaper (report.go), the sentinel
 //     dispatcher (sentinel.go), and the Runtime that ties them together
 //     (runtime.go). Adding a backend adds an L1 profile, not code here.
-//   - L3 is the per-surface wire adapter (oneshot.go for claude -p).
+//   - L3 is the per-surface wire adapter (oneshot.go for claude -p,
+//     interactive.go for the pty session).
 //   - L4 is the thin binary (cmd/mockengine) that selects a personality.
 //
 // SCOPE BOUNDARY — READ THIS BEFORE CITING A GREEN MOCK RUN (task fiery-pasta).

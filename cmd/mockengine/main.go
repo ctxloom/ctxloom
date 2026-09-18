@@ -8,11 +8,12 @@
 // mockengine reads clearly as "the fake that impersonates an engine" and is
 // distinct from the in-process backend named "mock".
 //
-// One PERSONALITY per launch, selected by a flag (--claude) or the
-// MOCKENGINE_PERSONALITY env var (backend registry name). Everything after the
-// mock's own leading flags is the VENDOR argv, parsed against L1's declared
-// grammar for the chosen personality+surface — the mock never restates that
-// grammar.
+// One PERSONALITY per launch, selected by a flag (--<backend>) or the
+// MOCKENGINE_PERSONALITY env var (backend registry name), and one SURFACE,
+// selected by --surface or MOCKENGINE_SURFACE (oneshot unless said otherwise).
+// Everything after the mock's own leading flags is the VENDOR argv, parsed
+// against L1's declared grammar for the chosen personality+surface — the mock
+// never restates that grammar.
 package main
 
 import (
@@ -26,10 +27,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// envPersonality selects the personality when no --claude/--personality flag is
+// envPersonality selects the personality when no --<backend>/--personality flag is
 // present — the clean channel when the mock is installed via a config `env:`
 // block and the driver owns the argv.
 const envPersonality = "MOCKENGINE_PERSONALITY"
+
+// envSurface selects the surface when no --surface flag is present, for the
+// same reason envPersonality exists. Empty means oneshot.
+const envSurface = "MOCKENGINE_SURFACE"
 
 func main() {
 	// The personality registry is the backend registry; compose it first.
@@ -60,17 +65,43 @@ func personalityFromFlag(tok string) (string, bool) {
 	return name, true
 }
 
+// impersonable lists the registered backends that declare an engine CLI — the
+// personalities a --<backend> flag can select.
+func impersonable() []string {
+	return backends.ListWhere(func(name string) bool {
+		_, ok := backends.EngineCLIsFor(name)
+		return ok
+	})
+}
+
+// surfaceByName resolves the requested surface name against the personality's
+// DECLARED surfaces; an empty name means oneshot. The name is matched, never
+// converted into agent.CLISurface: membership in that vocabulary is the
+// declaration's to assert, and a value no surface declares is refused here
+// with the same loudness an undeclared flag gets from ParseArgv.
+func surfaceByName(clis []agent.EngineCLI, name string) (agent.EngineCLI, bool) {
+	if name == "" {
+		return agent.EngineCLIFor(clis, agent.CLISurfaceOneshot)
+	}
+	for _, cli := range clis {
+		if string(cli.Surface) == name {
+			return cli, true
+		}
+	}
+	return agent.EngineCLI{}, false
+}
+
 // run parses the mock's OWN leading flags, resolves the personality's EngineCLI
 // via the backends resolver, parses the remaining vendor argv against L1, and
 // runs the L2 runtime. It returns a process exit code.
 func run(args []string) int {
 	personality := os.Getenv(envPersonality)
-	surface := agent.CLISurfaceOneshot // this slice: oneshot is the built surface
+	surfaceName := os.Getenv(envSurface)
 	vendorArgs := args
 
 	// Consume the mock's own leading flags. They come FIRST because ctxloom
 	// prepends a config `args:` block ahead of the engine flags buildArgs emits,
-	// so a leading --claude survives into argv[0..]. Parsing stops at the first
+	// so a leading --<backend> survives into argv[0..]. Parsing stops at the first
 	// token that is not a mock flag (or at an explicit "--"), and everything
 	// after is the vendor argv.
 consume:
@@ -82,6 +113,13 @@ consume:
 				return 2
 			}
 			personality = vendorArgs[1]
+			vendorArgs = vendorArgs[2:]
+		case "--surface":
+			if len(vendorArgs) < 2 {
+				fmt.Fprintln(os.Stderr, "mock-engine: --surface needs a value")
+				return 2
+			}
+			surfaceName = vendorArgs[1]
 			vendorArgs = vendorArgs[2:]
 		case "--":
 			vendorArgs = vendorArgs[1:]
@@ -97,7 +135,10 @@ consume:
 	}
 
 	if personality == "" {
-		fmt.Fprintf(os.Stderr, "mock-engine: no personality selected — pass --claude or set %s\n", envPersonality)
+		// The hint names the flags that actually work: the registry's own
+		// names, not a spelling this file guessed.
+		fmt.Fprintf(os.Stderr, "mock-engine: no personality selected — pass --<backend> (one of %s) or set %s\n",
+			strings.Join(impersonable(), ", "), envPersonality)
 		return 2
 	}
 
@@ -106,9 +147,9 @@ consume:
 		fmt.Fprintf(os.Stderr, "mock-engine: backend %q declares no engine CLI to impersonate\n", personality)
 		return 2
 	}
-	cli, ok := agent.EngineCLIFor(clis, surface)
+	cli, ok := surfaceByName(clis, surfaceName)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "mock-engine: %q has no %q surface\n", personality, surface)
+		fmt.Fprintf(os.Stderr, "mock-engine: %q has no %q surface\n", personality, surfaceName)
 		return 2
 	}
 
@@ -161,6 +202,9 @@ consume:
 		Stdin:     os.Stdin,
 		Stdout:    os.Stdout,
 		Stderr:    os.Stderr,
+	}
+	if cli.Surface == agent.CLISurfaceInteractive {
+		rt.Resize = resizeNotifications(os.Stdout)
 	}
 	return rt.Run()
 }

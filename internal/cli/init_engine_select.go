@@ -31,13 +31,7 @@ var primaryEngines = []string{config.BackendClaudeCode}
 // Derived from the registry so the help cannot name an engine that no longer
 // exists.
 func userEngineNames() string {
-	var names []string
-	for _, name := range backends.List() {
-		if !isTestOnlyBackend(name) {
-			names = append(names, name)
-		}
-	}
-	return strings.Join(names, ", ")
+	return strings.Join(backends.ListWhere(func(name string) bool { return !isTestOnlyBackend(name) }), ", ")
 }
 
 func getAvailableEngines() (primary, secondary []string) {

@@ -31,8 +31,13 @@ type Runtime struct {
 	// "set to nothing" is exactly what a delivery that ran and passed nothing,
 	// or an engine reply of zero bytes, looks like. os.LookupEnv in production.
 	LookupEnv func(string) (string, bool)
-	// Stdin is the child's stdin — the oneshot prompt channel.
+	// Stdin is the child's stdin — the oneshot prompt channel, and the typed
+	// input of an interactive session.
 	Stdin io.Reader
+	// Resize delivers terminal resizes to an interactive session; nil for a
+	// surface with no terminal. The binary feeds it from SIGWINCH; a test feeds
+	// it directly.
+	Resize <-chan agent.WindowSize
 	// Stdout is the vendor wire output.
 	Stdout io.Writer
 	// Stderr carries the discovery report (bracketed by the report markers) and
@@ -161,21 +166,19 @@ func (r *Runtime) emitReport(report Report) error {
 
 // render puts the outcome on the wire in the surface's format. Oneshot dispatches
 // to the engine's per-personality wire adapter (renderOneshotWire — claude's
-// {result,modelUsage} envelope on the minimal form, another personality's plain text), because the
-// oneshot stdout contract is per-engine and not derivable from L1. Interactive —
-// deferred in this slice to a plain echo — writes the response text without the
-// pty/keystroke/SIGWINCH behaviour a real interactive engine has (see the package
-// doc's deferred-surfaces note).
+// {result,modelUsage} envelope on the minimal form), because the oneshot stdout
+// contract is per-engine and not derivable from L1. Interactive runs the shared
+// echo session (renderInteractive): the reply, then reflected lines and reported
+// resizes until quit or EOF. An unknown surface is a LOUD error, matching
+// renderOneshotWire's stance on an unknown engine: silently echoing for any
+// surface would tolerate exactly the drift the mock exists to catch.
 func (r *Runtime) render(promptLen int, outcome Outcome) error {
 	switch r.CLI.Surface {
 	case agent.CLISurfaceOneshot:
 		return renderOneshotWire(r.CLI.Engine, r.stdout(), r.Argv, promptLen, outcome)
+	case agent.CLISurfaceInteractive:
+		return r.renderInteractive(promptLen, outcome)
 	default:
-		// No interactive personality exists (--surface has no caller, main.go
-		// hard-codes oneshot), so this arm used to echo the response for ANY
-		// unknown surface — silently tolerating exactly the drift
-		// renderOneshotWire's own unknown-ENGINE branch refuses. Fail loud
-		// instead, matching that stance.
 		return fmt.Errorf("mock-engine: no wire adapter for surface %q", r.CLI.Surface)
 	}
 }

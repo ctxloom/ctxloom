@@ -26,6 +26,7 @@ func ctxloomOwnHooks() []wire.Hook {
 		agent.NewContextInjectionChunkHook("abc123", 2, 2),
 		agent.NewToolReflectHook(agent.DefaultToolReflectBytes),
 		agent.NewNextStepHook(),
+		agent.NewSkillMatesHook(),
 	}
 }
 

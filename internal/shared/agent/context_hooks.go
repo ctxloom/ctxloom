@@ -93,6 +93,32 @@ func NewToolReflectHook(minBytes int) wire.Hook {
 	}
 }
 
+// SkillMatesTimeout is the timeout, in seconds, for the PostToolUse
+// skill-mates hook. Like NextStepTimeout it READS THE TRANSCRIPT (that is
+// where "already invoked this session" comes from); unlike the reflect hook it
+// fires only on Skill calls, so the longer budget is paid rarely.
+const SkillMatesTimeout = 15
+
+// NewSkillMatesHook creates the PostToolUse hook that, when a link-group skill
+// completes, names its group-mates the session has not invoked yet. It is the
+// owner-session binding of that one ctxloom-owned step: the engine's tool
+// hook is the completion signal, and the hook's additionalContext is the
+// channel -- the same vehicle the skill listing rides.
+//
+// Matched to the Skill tool alone: for any other tool the answer is silence,
+// and a process spawn plus a transcript read is too much to pay to hear it.
+// No arguments, for the reason NewNextStepHook gives: the installed command
+// outlives the session that wrote it, so the session is resolved from the
+// environment at fire time.
+func NewSkillMatesHook() wire.Hook {
+	return wire.Hook{
+		Command: fmt.Sprintf("%s hook skill-mates", shellSingleQuote(CtxloomCommand())),
+		Type:    "command",
+		Matcher: "Skill",
+		Timeout: SkillMatesTimeout,
+	}
+}
+
 // NextStepTimeout is the timeout, in seconds, for the TurnEnd next-step hook.
 // Longer than ToolReflectTimeout because this hook READS THE TRANSCRIPT, which
 // grows with the session; short enough that a stalled read cannot hold a turn

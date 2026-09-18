@@ -105,13 +105,18 @@ type SessionStartSpecificOutput struct {
 const HookEventPostToolUse = "PostToolUse"
 
 // PostToolUsePayload is the JSON written to a PostToolUse hook's stdin.
-// ToolResponse is left RAW because its shape is per-tool (a string for some,
-// an object for others) and this hook only needs its size -- decoding it into
-// a concrete type would make the hook fail on every tool it had not modelled.
+// ToolInput and ToolResponse are left RAW because their shape is per-tool (a
+// string for some, an object for others): the reflect hook needs only the
+// response's size, the skill-mates hook only the Skill tool's input
+// (InvokedSkill), and decoding either into a concrete type would make a hook
+// fail on every tool it had not modelled.
 type PostToolUsePayload struct {
-	SessionID    string          `json:"session_id"`
-	ToolName     string          `json:"tool_name"`
-	ToolResponse json.RawMessage `json:"tool_response"`
+	SessionID      string          `json:"session_id"`
+	TranscriptPath string          `json:"transcript_path,omitempty"`
+	Cwd            string          `json:"cwd,omitempty"`
+	ToolName       string          `json:"tool_name"`
+	ToolInput      json.RawMessage `json:"tool_input,omitempty"`
+	ToolResponse   json.RawMessage `json:"tool_response"`
 }
 
 // PostToolUseOutput is the JSON a PostToolUse hook writes to stdout. An empty

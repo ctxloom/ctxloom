@@ -1,14 +1,17 @@
 package cli
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // TestResolveLaunchSource_RefusesATypodProjectRuntime pins the run's runtime
@@ -99,4 +102,56 @@ func TestBuildRunRequest_CarriesTheResolvedRuntimeAxis(t *testing.T) {
 			"unset passes through as unset; it is not rewritten as a literal host")
 		assert.False(t, st.runAxes.WantsContainer())
 	})
+}
+
+// TestResolveLaunchSource_MockAgentBoundToContainerReachesTheRunAxes is the
+// CLI half of the claim "nothing short of a runtime probe refuses mock in a
+// container". The --agent arm resolves the binding, the request builder
+// carries the axis, and the next thing to consult it is isolation.Prepare —
+// whose chain probes the host for a daemon. Everything before that point is
+// exercised here for BOTH ownership modes; the probe itself is not a unit
+// concern.
+//
+// The fixture is the containerized-run journey's (a mock label, an agent
+// bound to it with a container runtime), so a refusal that only fires on the
+// real shape could not hide behind a synthetic one.
+func TestResolveLaunchSource_MockAgentBoundToContainerReachesTheRunAxes(t *testing.T) {
+	for _, axis := range []isolation.RuntimeAxis{isolation.RuntimeContainerRootless, isolation.RuntimeContainerRootful} {
+		t.Run(string(axis), func(t *testing.T) {
+			resetStrictness(t)
+			withRunPermissionsFlag(t, "")
+			withRunAgentFlag(t, "mock-container")
+			cfg := config.NewFixture(config.Fixture{
+				AppPaths: []string{t.TempDir()},
+				LM: config.LMConfig{
+					Configs:  map[string]config.LLMConfig{"fast": {Type: "mock"}},
+					Defaults: config.RoleDefaults{Primary: "fast"},
+				},
+				Agents: map[string]agents.Agent{
+					"mock-container": {LLM: "fast", Runtime: string(axis)},
+				},
+			})
+			st := newPermissionRunState(t, cfg, "", "")
+			st.ctx = context.Background()
+
+			require.NoError(t, st.resolveLaunchSource(), "the --agent arm accepts a mock binding with a container runtime")
+			assert.Equal(t, "mock", st.backendName, "the binding's label resolved to the double")
+			assert.Equal(t, axis, st.agentRuntime)
+
+			require.NoError(t, st.buildRunRequest(), "the request builder accepts the resolved pair")
+			assert.Equal(t, axis, st.runAxes.Runtime)
+			assert.True(t, st.runAxes.WantsContainer(),
+				"the container demand reaches the axes isolation.Prepare will read — the first thing past here is the runtime probe")
+			assert.Empty(t, strictness.All(), "no finding of any class was raised on the way")
+		})
+	}
+}
+
+// withRunAgentFlag sets the package-level --agent flag var for one test and
+// restores it after; resolveLaunchSource dispatches on it directly.
+func withRunAgentFlag(t *testing.T, v string) {
+	t.Helper()
+	orig := runAgent
+	runAgent = v
+	t.Cleanup(func() { runAgent = orig })
 }

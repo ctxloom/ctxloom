@@ -395,6 +395,32 @@ func TestReclaimAgedSessions_DoesNotFollowASymlinkInsideTheStore(t *testing.T) {
 	assert.Equal(t, "not yours\n", string(body))
 }
 
+// TestReclaimAgedSessions_IgnoresASymlinkedHarpDir: a symlink at the
+// sessions root that is NAMED like a harp and points outside the tree is not
+// a candidate at all. Following it would delete whatever it points at; the
+// target's aged, in-scope store must survive with its bytes.
+func TestReclaimAgedSessions_IgnoresASymlinkedHarpDir(t *testing.T) {
+	testsupport.Isolate(t)
+	root, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(root, 0o755))
+	outside := t.TempDir()
+	victim := filepath.Join(outside, paths.EphemeralDirName, "scratch.txt")
+	require.NoError(t, os.MkdirAll(filepath.Dir(victim), 0o755))
+	require.NoError(t, os.WriteFile(victim, []byte("not yours\n"), 0o644))
+	srBackdate(t, outside)
+	require.NoError(t, os.Symlink(outside, filepath.Join(root, "linked-quiet-heron")))
+	srSeedDeadSession(t, "linked-quiet-heron")
+
+	res := srReclaim(t, ReclaimEphemeralAndPersist, true)
+
+	assert.Empty(t, res.Candidates, "a symlinked harp directory is never considered")
+	assert.Equal(t, 0, res.Newer)
+	body, err := os.ReadFile(victim)
+	require.NoError(t, err, "the target outside the tree is never touched")
+	assert.Equal(t, "not yours\n", string(body))
+}
+
 // TestReclaimAgedSessions_TouchesNothingBesideTheSessions pins the other
 // boundary: files and non-harp directories beside the session directories
 // under the sessions root are not candidates and are not touched.

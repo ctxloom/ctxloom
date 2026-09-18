@@ -32,11 +32,19 @@ import (
 // Every other method here is answered by Catalog — a caller that only queries
 // should hold that instead, because holding it cannot re-read the world.
 type Loader struct {
-	readers []Reader
+	// source derives the reader set from the world each time it is asked. It
+	// is a function and not a slice because the set is NOT fixed for the
+	// loader's life: a reader exists per pinned lockfile entry, and a pull
+	// adds entries while this loader is alive. Invalidate drops the derived
+	// readers along with the resolved set, so the next index re-derives
+	// them; re-resolving a set derived before the pull is how a bundle the
+	// run had just installed was reported "not found" until the next run.
+	source func() []Reader
 
-	mu     sync.RWMutex
-	loaded bool
-	cat    Catalog // the resolved set; see Resolve
+	mu      sync.RWMutex
+	readers []Reader // derived from source on index; nil until then
+	loaded  bool
+	cat     Catalog // the resolved set; see Resolve
 
 	// versionResolver materializes a specific historical commit-version of a
 	// bundle (multi-version coexistence, trust rework, TR5). nil = no per-version
@@ -72,7 +80,15 @@ const remotePathSentinel = "<remote>:"
 // seed map had, where pinned remote content shadowed a stale extracted copy on
 // disk.
 func NewLoader(readers ...Reader) *Loader {
-	return &Loader{readers: readers, warnOut: os.Stderr}
+	return NewLoaderFrom(func() []Reader { return readers })
+}
+
+// NewLoaderFrom composes a loader over a reader SOURCE: source is called to
+// derive the reader set on first use and again after every Invalidate, so a
+// set that depends on the world — one reader per lockfile entry — follows the
+// world. NewLoader is the fixed-set special case.
+func NewLoaderFrom(source func() []Reader) *Loader {
+	return &Loader{source: source, warnOut: os.Stderr}
 }
 
 // WithWarnWriter redirects this loader/store's user-facing diagnostics (the
@@ -109,7 +125,23 @@ func (l *Loader) WithVersionResolver(resolver BundleVersionResolver) *Loader {
 // It comes from the first reader that has one (the project reader in every real
 // wiring), and falls back to the OS filesystem for a loader composed entirely
 // of sources that are not filesystems.
-func (l *Loader) FS() afero.Fs { return readersFS(l.readers) }
+func (l *Loader) FS() afero.Fs {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return readersFS(l.deriveReadersLocked())
+}
+
+// deriveReadersLocked returns the reader set, deriving it from source if it
+// has not been since construction or the last Invalidate. Deriving is separate
+// from resolving (index) because FS needs the readers without paying for a
+// resolve — which would exec every companion probe for a caller that only
+// asked which filesystem the content lives on. Caller holds l.mu for writing.
+func (l *Loader) deriveReadersLocked() []Reader {
+	if l.readers == nil {
+		l.readers = l.source()
+	}
+	return l.readers
+}
 
 // index resolves every reader once and memoizes the result for this loader's
 // life, which is what makes repeated resolution cheap and what keeps a
@@ -132,7 +164,7 @@ func (l *Loader) index() {
 	if l.loaded {
 		return
 	}
-	l.cat, l.loaded = Resolve(context.Background(), l.readers...), true
+	l.cat, l.loaded = Resolve(context.Background(), l.deriveReadersLocked()...), true
 }
 
 // Catalog returns the resolved set, reading the sources on first use. Callers
@@ -171,7 +203,7 @@ func isSyntheticPath(path string) bool {
 func (l *Loader) Invalidate() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.loaded, l.cat = false, Catalog{}
+	l.loaded, l.cat, l.readers = false, Catalog{}, nil
 }
 
 // Reads returns every bundle this loader can see, with the trust facts its

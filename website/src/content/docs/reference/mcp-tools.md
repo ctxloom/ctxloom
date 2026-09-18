@@ -141,7 +141,7 @@ Distill and load context from a session. Accepts either session_id (backend UUID
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `backend` | string | No | Backend to read session from (defaults to the configured default LLM) |
-| `harp_name` | string | No | Harp-named session reference (e.g. "swift-amber-falcon") from ~/.ctxloom/sessions/index.yaml. Resolved to a session_id via the index; if both are passed, harp_name wins. |
+| `harp_name` | string | No | Harp-named session reference (e.g. "swift-amber-falcon") naming a directory under ~/.ctxloom/sessions. Resolved to a session_id via that session's record; if both are passed, harp_name wins. |
 | `model` | string | No | LLM model to use for distillation if needed |
 | `session_id` | string | No | Backend-native session ID (UUID). Either session_id or harp_name is required. |
 

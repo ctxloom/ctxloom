@@ -102,6 +102,20 @@ func (s *interactiveRun) waitFor(t *testing.T, want string) {
 	}
 }
 
+// exitCode waits (bounded) for Run to return and yields its exit code. A
+// session that does not end is a failure, never a hang: the mock's whole
+// point on this surface is that a test can close the turn on purpose.
+func (s *interactiveRun) exitCode(t *testing.T) int {
+	t.Helper()
+	select {
+	case code := <-s.done:
+		return code
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the session did not end; stdout:\n%s", s.stdout.String())
+		return -1
+	}
+}
+
 func (s *interactiveRun) typeLine(t *testing.T, line string) {
 	t.Helper()
 	if _, err := io.WriteString(s.stdin, line+"\n"); err != nil {
@@ -118,7 +132,7 @@ func TestRuntime_Interactive_PromptIsTheTrailingPositional(t *testing.T) {
 	const prompt = "open the session with this"
 	s := startInteractive(t, []string{"--name", "harp-x", prompt})
 	s.typeLine(t, mockengine.InteractiveQuit)
-	code := <-s.done
+	code := s.exitCode(t)
 
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0\nstderr:\n%s", code, s.stderr.String())
@@ -153,7 +167,7 @@ func TestRuntime_Interactive_EchoesTypedLinesAndReportsResizes(t *testing.T) {
 	s.waitFor(t, mockengine.InteractiveWinsizePrefix+"30x100\n")
 	s.typeLine(t, "pong")
 	s.typeLine(t, mockengine.InteractiveQuit)
-	code := <-s.done
+	code := s.exitCode(t)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0\nstderr:\n%s", code, s.stderr.String())
 	}
@@ -178,7 +192,7 @@ func TestRuntime_Interactive_EOFEndsTheSession(t *testing.T) {
 	if err := s.stdin.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if code := <-s.done; code != 0 {
+	if code := s.exitCode(t); code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
 }
@@ -189,7 +203,7 @@ func TestRuntime_Interactive_EOFEndsTheSession(t *testing.T) {
 func TestRuntime_Interactive_FailSentinelExitsNonzero(t *testing.T) {
 	s := startInteractive(t, []string{mockengine.SentinelFail + " boom"})
 	s.typeLine(t, mockengine.InteractiveQuit)
-	code := <-s.done
+	code := s.exitCode(t)
 	if code == 0 {
 		t.Fatalf("exit code = 0 on a fail sentinel; stdout:\n%s", s.stdout.String())
 	}

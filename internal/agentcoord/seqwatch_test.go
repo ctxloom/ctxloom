@@ -104,6 +104,22 @@ func TestSeqWatch_Observe_MarkerRangesAreReconciledWithTheWatermark(t *testing.T
 	}
 }
 
+// A stream that is already scoped to one run by its subscription
+// (ConsumerService.WatchRuns with run_ids) carries events that need no
+// run_id check — and hermetic fixtures on that path stamp none. An unscoped
+// watch (RunID empty) accounts every event and every marker range as the
+// run's own.
+func TestSeqWatch_Observe_UnscopedWatchAccountsEveryEvent(t *testing.T) {
+	w := &SeqWatch{}
+	got, _ := observe(t, w, fill("", 1))
+	assert.Equal(t, 0, got)
+	got, _ = observe(t, w, fill("", 4))
+	assert.Equal(t, 2, got, "the jump from 1 to 4 is two lost events even with no run_id on the wire")
+	lost, isMarker := w.Observe(marker(rng("r", 5, 6)))
+	assert.True(t, isMarker)
+	assert.Equal(t, 2, lost.Count(), "an unscoped watch keeps every range the marker names")
+}
+
 // A hub-wide subscription carries other runs' events until it is narrowed
 // (cli.renderOwnedRunEvents subscribes before its run's ID exists); they are
 // neither this run's baseline nor its jump.

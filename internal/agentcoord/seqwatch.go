@@ -18,13 +18,16 @@ import (
 //     still catches a loss the hub could not announce in time (a terminal
 //     that had room for itself but not for its marker).
 //
-// Zero value is not usable: RunID must be set — the reader is watching one
-// run, and a hub-wide subscription (cli.renderOwnedRunEvents subscribes
-// before its run's ID exists) carries other runs' events and other runs'
-// ranges, which are not this reader's baseline, jump, or loss.
+// RunID scopes the accounting to one run when the SUBSCRIPTION is not
+// already scoped: a hub-wide subscription (cli.renderOwnedRunEvents
+// subscribes before its run's ID exists) carries other runs' events and
+// other runs' marker ranges, which are not this reader's baseline, jump, or
+// loss. Leave it empty for a stream the subscription already confines to one
+// run (ConsumerService.WatchRuns with run_ids): every event and every range
+// on it is the run's own, whatever run_id — if any — the wire stamped.
 type SeqWatch struct {
 	RunID string
-	last  uint64 // highest seq of RunID delivered or announced lost; 0 until the first
+	last  uint64 // highest seq delivered or announced lost; 0 until the first
 }
 
 // Observe folds one stream event into the watermark. lost names RunID's
@@ -40,12 +43,12 @@ type SeqWatch struct {
 // already reported.
 func (w *SeqWatch) Observe(ev *AgentEvent) (lost *EventsLost, marker bool) {
 	if m, ok := ev.GetPayload().(*AgentEvent_EventsLost); ok {
-		lost, w.last = m.EventsLost.past(w.RunID, w.last)
+		lost, w.last = m.EventsLost.past(w, w.last)
 		return lost, true
 	}
 	lost = &EventsLost{}
 	seq := ev.GetSeq()
-	if ev.GetRunId() != w.RunID || seq == 0 || seq <= w.last {
+	if !w.owns(ev.GetRunId()) || seq == 0 || seq <= w.last {
 		return lost, false
 	}
 	if w.last != 0 && seq > w.last+1 {
@@ -55,12 +58,16 @@ func (w *SeqWatch) Observe(ev *AgentEvent) (lost *EventsLost, marker bool) {
 	return lost, false
 }
 
-// past returns runID's ranges trimmed to what lies past last, in seq order,
-// and the watermark advanced over them. Ranges are walked in seq order, not
-// wire order: the hub records the events a full ring refused (newest) before
-// the ones it evicted (oldest), so a lower range can follow a higher one,
-// and both can be new.
-func (m *EventsLost) past(runID string, last uint64) (*EventsLost, uint64) {
+// owns reports whether an event or range stamped runID is this watch's to
+// account: everything on an unscoped watch, only RunID's on a scoped one.
+func (w *SeqWatch) owns(runID string) bool { return w.RunID == "" || runID == w.RunID }
+
+// past returns the watch's ranges trimmed to what lies past last, in seq
+// order, and the watermark advanced over them. Ranges are walked in seq
+// order, not wire order: the hub records the events a full ring refused
+// (newest) before the ones it evicted (oldest), so a lower range can follow
+// a higher one, and both can be new.
+func (m *EventsLost) past(w *SeqWatch, last uint64) (*EventsLost, uint64) {
 	ranges := slices.Clone(m.GetLost())
 	slices.SortFunc(ranges, func(a, b *EventsLost_Range) int {
 		return cmp.Compare(a.GetFirstSeq(), b.GetFirstSeq())
@@ -68,13 +75,13 @@ func (m *EventsLost) past(runID string, last uint64) (*EventsLost, uint64) {
 	kept := &EventsLost{}
 	for _, r := range ranges {
 		first, lastSeq := r.GetFirstSeq(), r.GetLastSeq()
-		if r.GetRunId() != runID || lastSeq <= last {
+		if !w.owns(r.GetRunId()) || lastSeq <= last {
 			continue
 		}
 		if first <= last {
 			first = last + 1
 		}
-		kept.Lost = append(kept.Lost, &EventsLost_Range{RunId: runID, FirstSeq: first, LastSeq: lastSeq})
+		kept.Lost = append(kept.Lost, &EventsLost_Range{RunId: r.GetRunId(), FirstSeq: first, LastSeq: lastSeq})
 		last = lastSeq
 	}
 	return kept, last

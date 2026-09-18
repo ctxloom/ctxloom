@@ -1,0 +1,7 @@
+closeout: S07, S08, S09, S10, S11, S12, S13, S23, M01, M02, M03, M04, M43
+admit: S01, S02, S03, S04, S05, S06, S25, M05, M06, M07, M08, M09, M10, M15, M16
+unattended: S05, S24, S26, S27, S28, M12, M13, M14, M26
+prompt-human: S09, S15, S16, S17, S18, S19, S20, S22, S23, S28, M15, M17, M18, M19, M20, M21, M22, M23, M24, M38
+design-by-test: S14, M27, M28, M29, M30, M31, M32, M33
+check-triggers: M34, M35, M36, M37, M38, M39
+recover: S10, S29, M40, M41, M42, M43

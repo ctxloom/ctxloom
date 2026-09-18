@@ -1,0 +1,1848 @@
+version: 1.0.0
+description: |-
+  Skills corpus v0: SEVEN SKILLS as premised fragments, and situations mined from real session
+  transcripts for the MOMENT a skill was, or should have been, model-invoked.
+
+  Fragments are this repo's own .claude/skills (closeout, admit, unattended, prompt-human,
+  design-by-test) and the two ctxloom-shipped commands (check-triggers, recover). Each carries its
+  existing frontmatter `description` -- what the engine's Skill listing shows the model, per
+  src/tools/SkillTool/prompt.ts (`- <name>: <description>`, 250-char cap) -- its body, and a
+  `premise` slot. The premise slot is EMPTY in the commit that introduces the situations, and
+  that ordering is the blind-labelling evidence: the labeller had not seen a premise because none
+  existed.
+
+  `expect` was labelled against the skill BODIES, never a premise. `source` records provenance:
+  `invoked` = the Skill tool was called at this moment (mined from Skill tool_use records across
+  ~1,050 engine transcripts and ~430 ctxloom transcript streams under ~/.ctxloom/sessions);
+  `missed` = judged SHOULD-HAVE: the moment matches what the body says the skill is for, and no
+  Skill call followed in the response turn; `canary` = nothing among the seven applies.
+
+  HOW SHOULD-HAVE WAS JUDGED: (a) the human's turn, read on its own, asks for what the body does
+  (by purpose, not by name), or (b) a hook or brief named the skill, or (c) the agent itself
+  described the situation the skill exists for and then did the work by hand. Two of the misses
+  are confirmed by the human in the transcript itself ("we have a skill similar to wrap it up that
+  didn't just trigger"; "you didn't trigger good night protocol and work that last night"). Some
+  misses occurred in sessions where the skill body had been loaded EARLIER; the engine's own rule
+  ("Do not invoke a skill that is already running") explains the non-call, but the MOMENT still
+  applies and a premise is judged on moments.
+
+  N-rows are mined negatives: the words resemble a skill (trigger, close out, recover, good night)
+  and nothing applies -- the human is talking ABOUT the skill, fixing its code, or doing the other
+  half of a two-half workflow. C-rows are authored canaries, because a transcript records only
+  moments where the agent acted.
+
+  NO NEGATIVE LIST, per the prior corpora: `expect` names only what SHOULD be selected; anything
+  else selected is a false positive.
+
+  `observed` is the count of near-identical mined turns folded into the row; 1 where the row is
+  a single moment.
+
+  PREMISES, authored after the situations were committed, shaped by phase 0 and phase 1: each is
+  at most 250 characters (the engine's per-entry cap, so it could stand as the listing line
+  itself); each keys on what is OBSERVABLE IN THE MOMENT AS THE AGENT WOULD STATE IT -- the
+  human's words where the moment is a human turn, the agent's own next action where it is not;
+  `tags` are nouns presented as valid grounds for inclusion, per the tags-as-signal result.
+fragments:
+  closeout:
+    ref: ctxloom:project@skills/closeout
+    description: Close out a turn that changed something — verify against the real gate, kill a mutation
+      for every test written or changed, fix falsified comments, leave the task log true, and fix or file
+      what was found. Use when finishing a turn that touched code, tests, docs or the task log; when asked
+      to "close out", "wrap up", "finish this properly"; and at the end of a unit of work. Reports honestly,
+      including "not done" where that is the truth.
+    content: |-
+      # closeout
+
+      The close-out contract for a turn that CHANGED something.
+
+      **INVOKED DELIBERATELY — by a human, or by you when a unit of work ends. NOTHING
+      FIRES IT AUTOMATICALLY, and that is a decision rather than an omission:** it was
+      once wired to a per-turn hook and the checklist MASSIVELY POLLUTED CONTEXT,
+      arriving on every turn whether or not it was wanted. Firing it costs a chunk of
+      the window, so it is spent when the work is done, not on a timer.
+
+      Do not re-wire it to a hook. A later reader finding `ctxloom hook turn-changed`
+      and concluding the automation is "missing" is re-deriving exactly the thing that
+      was removed on purpose — that has already happened once.
+
+      **This file is the single source of the checklist.** Anything that points at
+      close-out points HERE rather than restating it, because a rule hand-copied into
+      two places is the expensive kind of drift: one copy gets retired and the other
+      keeps asserting it, with nothing to say which is current.
+
+      ## The checklist
+
+      1. **VERIFY, against the real gate.** → `turn-gates`
+         Build from THIS tree and drive that binary. Read exit codes, and know the
+         three that lie: `gofmt -l` lists files and exits 0, `go test -run` matching
+         nothing exits 0 having run nothing, and a pipeline reports the LAST
+         command's status.
+      2. **KILL A MUTATION for every test you wrote or changed, and REPORT every one,
+         including survivors.** → `green-is-not-passing`, `turn-gates`
+         A survivor is the most valuable result there is: it names an untested claim
+         you just shipped. Scope the mutation to the production code your new or
+         changed tests NAME. Changed nothing under test? Say so; do not invent a run.
+      3. **FIX THE DOCS AND COMMENTS YOU FALSIFIED.** → `unchecked-bindings`
+         Nothing tests a comment, which is why this is on a checklist and not in CI.
+         Cite by symbol; state the invariant, not the history.
+      4. **LEAVE THE TASK LOG TRUE.** → `close-the-turn`
+         Close what landed, quoting ask against outcome. Cut a partly-satisfied task
+         down to what REMAINS. Re-tag what you moved. BEFORE CLOSING, re-read it for
+         anything still open — closing is destructive to queryability, so a live
+         decision or deferral inside it must exist as its OWN row first.
+         **UPDATE THE PLAN REFERENCES**: if you wrote, moved, superseded or corrected
+         a plan, fix the `ctxloom:plan="<path>"` tag on every task it governs — and
+         add it where the association exists only in prose. The tag is repeatable
+         BECAUSE a task is often governed by a deep design AND a later document that
+         corrects it; carrying only the newer loses the reasoning, only the older
+         sends the next reader to build something that already exists. Nothing else
+         will do this: a tag has no compiler and no gate, and a path written in a body
+         is found only by regexing prose — which fails SILENTLY on a path wrapped
+         across a line break, reporting "none cited" for a reference that is intact
+         AND for one that is broken.
+      5. **FIX WHAT YOU FOUND.** → `close-the-turn`
+         Filing is the exception. Defer only for a human decision (tag it `human`,
+         state the question) or a genuinely large load — and say which.
+
+      ## How to report
+
+      Report what is now TRUE, not what you noticed. Lead with what landed, not with
+      what you observed. **Do not call the work done while a found item is still open
+      and unnamed** — name it, or it does not exist.
+
+      Say "not done" where that is the truth. A confident wrong claim costs the reader
+      their next hour; an honest gap costs a sentence.
+    premise: The human has told you to close out, wrap up, or finish the work properly, or a unit of work
+      has just ended -- the gate is green and you are about to report what landed. Not per turn, and not
+      while the work is still moving.
+    tags: close out, wrap up, gate, mutation, falsified comment, task log, report, done
+  admit:
+    ref: ctxloom:project@skills/admit
+    description: Admit work to the nightly queue — roll the live queue tag forward, triage every candidate
+      against the unattended stop conditions, and withhold anything that cannot be finished in the dark.
+      Use before handing over for an unattended run, when the human says "let's set up tonight's queue",
+      "what should run overnight", "admit these", "queue this up for tonight", or asks what is in the
+      queue. Runs WITH the human present; the unattended skill consumes what this produces.
+    content: |-
+      # admit
+
+      This is the waking half of the unattended run. It exists because the expensive
+      judgement — **which work is safe to do with nobody watching** — is far cheaper
+      made while the human is still in the room, and because nothing else removes an
+      item from the queue once it is in.
+
+      You are not doing the work here. You are deciding what tonight's run is allowed
+      to touch, and you are doing it in the few minutes before the human leaves.
+
+      ---
+
+      ## The queue is a tag, and exactly one date is ever live
+
+      The queue lives in taskloom as a flat dated tag, `queue:<YYYYMMDD>`. Admission
+      ROLLS IT FORWARD by ADDING tonight's date to each item admitted.
+
+          taskloom list --tag-query queue:<tonight> --compact
+
+      **Do NOT remove earlier dates.** The tag is not single-valued and it is not a
+      "current queue" field: a row accumulates the nights it was admitted to, and that
+      is its admission history. Stripping the old date destroys the only record that a
+      row was worked on, or waited through, a given night — and a row carrying
+      `queue:20260903,queue:20260904` is telling you it survived two admissions, which
+      is exactly the signal you want when deciding whether to admit it a third time.
+
+      **The invariant is that exactly one `queue:<date>` is the CURRENT one — tonight's
+      — not that a row carries only one.** Hold that deliberately, because the hazard
+      it guards is real and is about the QUERY, not the tags: a run that reads a date
+      which has passed still returns rows, still starts, and the rows are simply the
+      wrong ones. Nothing about it looks wrong. Guard it by querying tonight's date,
+      never by deleting yesterday's.
+
+      This is not hypothetical. A queue admitted on 2026-08-31 was still live on
+      2026-09-03 carrying fourteen items. Independent validation of all fourteen found
+      two that were finished or duplicated and could have been closed at any point,
+      three whose text made claims the code had already falsified, and six that an
+      unattended run **could never have done at all**. Four nights of a queue that
+      could not be worked, and nothing said so.
+
+      ## What earns admission
+
+      An item is admitted when a GATE CAN SETTLE IT. That is the whole test, and it is
+      the same test the run itself will apply at 3am — better applied now, by someone
+      who can ask a question.
+
+      Refuse the temptation to admit something because it is important. Importance is
+      what makes an item worth doing; verifiability is what makes it safe to do
+      unattended. They are unrelated, and confusing them is how the queue fills with
+      work that cannot move.
+
+      ## What is withheld, and where it goes instead
+
+      **The stop conditions are defined in the `unattended` skill. Read them there.**
+      Do not restate them here and do not summarise them — a rule kept in two places
+      drifts, and the stale copy goes on being enforced while it lies.
+
+      Apply those conditions to every candidate. Anything that trips one is **NOT
+      admitted**. Tag it `human` so it lands in the one queue a person actually works
+      from, and say so in your report.
+
+      Beyond the stop conditions, withhold an item when:
+
+      - it is **blocked on another row** that has not landed — admitting it queues a
+        guaranteed stall, and the run will burn its revert budget discovering that;
+      - it is **scoped to a different release** — a tag naming a future version is a
+        statement that the work is not for now;
+      - **the human must look at something** for the work to be judged done: a
+        rendering, a pane, an interaction. There is nobody to look;
+      - it needs a **live multi-process or credentialed run** the gates cannot drive.
+
+      Report each withheld item in one line: the harp, and which condition it tripped.
+      The human is leaving — they need the list, not the reasoning.
+
+      ## Verify the candidate before admitting it
+
+      **A task's text outlives the code it describes.** Rows here have named functions
+      that were deleted commits earlier, and have asserted work as outstanding that
+      had already landed. Admitting one of those spends a night rediscovering the
+      present.
+
+      So for each candidate, before it goes in, spend the few seconds:
+
+      - read its `sig:` and `touches:` tags and confirm those symbols and paths still
+        exist — `grep`, or `git log -S '<Symbol>'` for when something appeared or
+        vanished;
+      - if the premise is gone, do not admit it. Correct the row, or close it.
+
+      Reaching "this is already done" or "this claim is false" is a **successful**
+      outcome of admission and is often worth more than admitting the item. Say so
+      plainly and move on.
+
+      ## The exchange with the human
+
+      Lead with the recommendation, never a survey. They are trying to leave.
+
+      1. **Report the live queue's state first** — its date, its age, and what is
+         still open on it. If it is stale, say so in the first sentence.
+      2. **Propose the carry-forward**: which unfinished items roll to tonight, and
+         which you are dropping, with the one-line reason each.
+      3. **Propose new candidates** from the backlog, filtered as above. Name the
+         source you drew from so they can redirect it.
+      4. **Take their ruling**, then apply the tags — add tonight's date, remove the
+         previous one.
+      5. **Confirm the invariant**: exactly one `queue:<date>` is live, and it is
+         tonight's. Verify by reading it back, not by assuming the write landed.
+
+      ## What you must NOT do
+
+      - **Do not create tasks.** Admission tags existing rows. A new row needs the
+        human's agreement, and the moment before they leave is the worst moment to
+        negotiate one. If something genuinely needs filing, say so and let them
+        decide.
+      - **Do not admit on your own judgement alone.** The human's ruling is the
+        admission; your triage is the recommendation that informs it. This is the one
+        judgement they specifically kept.
+      - **Do not admit an empty queue and hand over anyway.** If nothing qualifies,
+        say that. A night spent on nothing is better than a night spent on work that
+        will be reverted.
+
+      ## Handing over
+
+      When the tags are applied and read back, say what the run is authorized to do:
+      the count admitted, the count withheld, and the exact query the run will use.
+      Then hand off to the `unattended` skill, which owns everything from pre-flight
+      onward.
+    premise: 'You are deciding, with the human still present, what tonight''s queue may hold: they said
+      admit, preflight, tonight''s queue, or what should run overnight, asked what is in the queue, or
+      are about to leave you a queue to work.'
+    tags: queue, tonight, admit, preflight, overnight, stop conditions, taskloom tag, carry-forward
+  unattended:
+    ref: ctxloom:project@skills/unattended
+    description: Work an admitted queue of tasks autonomously and unattended — overnight or while the
+      human is away — getting as far as is safely feasible and stopping short of any decision that is
+      hard to reverse or that endangers the environment. Use when the human says "good night", "run overnight",
+      "work the queue while I'm out", "grind on this unattended", or hands over a tagged backlog and leaves.
+      Coordinator role.
+    content: |-
+      # unattended
+
+      You are running **unattended**. Nobody will answer a question, approve a
+      prompt, or rescue a wedged run until morning. That single fact changes what
+      "done well" means: the goal is not maximum throughput, it is **maximum work
+      completed that the human will not have to undo**, plus a report they can act on
+      cold.
+
+      Read the whole skill before starting. The stop conditions are the point of the
+      exercise, not an afterthought.
+
+      ---
+
+      ## The contract, in one paragraph
+
+      Work the admitted queue one item at a time. Each item lands as its own branch,
+      gets merged to the integration branch only when the **full** gate suite passes
+      on the **integrated** tree, and is recorded as it lands. When an item trips a
+      stop condition, file it with enough context to decide cold and **move to the
+      next item** — never halt the run. Keep the integration branch green at every
+      commit. Push nothing. Leave the machine as you found it. Write the morning
+      report incrementally, because you will probably die before the end.
+
+      ---
+
+      ## Pre-flight — do all of this before the first item
+
+      Do not skip this because the human is waiting to go to bed. A bad pre-flight is
+      how a night gets wasted.
+
+      1. **Establish the queue.** Default source is taskloom:
+         `taskloom list --tag-query <expr> --compact`. The human tags items during
+         the day; you work what carries the tag. If they named a different source
+         (a file, a plan's remaining steps), use that. **The queue is admitted, not
+         discovered** — you do not add items to it yourself (see *Queue exhausted*).
+      2. **Read the queue and triage it AGAINST THE STOP CONDITIONS NOW**, while the
+         human is still awake. Anything that obviously trips a stop condition should
+         be raised **before they leave**, not at 3am. This is the highest-value
+         minute of the whole run: the expensive judgement is *which items are safe
+         unattended*, and it is far cheaper made with them present.
+      3. **Confirm a green baseline.** Run the full gate suite. Record the exact
+         commands and their exit codes. **If the tree is not green before you start,
+         stop and say so** — you cannot tell your breakage from pre-existing
+         breakage, and you will spend the night chasing someone else's bug.
+      4. **Pin the base SHA.** Record it. Every branch you cut starts here.
+         **COMMIT FIRST, so the baseline is attributable.** An unattended run that
+         starts on a dirty tree cannot tell its own changes from what was already
+         there, and neither can the human reading the diff in the morning. Commit the
+         outstanding work, then pin the SHA of THAT commit.
+
+         **Never sweep work you do not own.** If the tree carries changes belonging to
+         another session or to the human, STOP AND ASK while they are still awake —
+         `git add -A` across somebody else's in-flight edits is exactly the
+         irreversible mistake this run exists to avoid. Committing your own outstanding
+         work is hygiene; committing theirs is data loss with a commit message on it.
+      5. **Check for other sessions' in-flight work.** `taskloom list` for In
+         Progress items touching your files, and `git worktree list`. Another
+         coordinator may be live in this repo right now. Route around their files;
+         note what you avoided.
+      6. **Measure your gate commands** (`s=$(date +%s); <cmd>; echo $(( $(date +%s) - s ))`).
+         You need these numbers for the sub-agent briefs (see *Dispatching*).
+      7. **Write the report file's header immediately** — queue, baseline, base SHA,
+         start time. If you die in the first ten minutes, the human still learns
+         something.
+      8. **Know what binds you.** Nothing fires a close-out checklist at you: this
+         skill is invoked deliberately, and nothing reminds you per turn. That
+         changes the reminder, not the obligation — verify against the real gate and
+         read exit codes, kill a mutation for every test you write or change and
+         report the survivors, keep the task log true, and say "not done" where that
+         is the truth. There is no prompt coming. This skill is the rule.
+
+      ---
+
+      ## The stop conditions
+
+      These are **hard**. When an item requires one, you do not do it, you do not do
+      a smaller version of it, and you do not work around it. You file it and move on.
+
+      ### Decisions that are expensive or impossible to reverse
+
+      - **Architecture.** Anything that changes a boundary, a dependency direction,
+        a public contract, or the shape of a module. If the fix would be described in
+        a design doc rather than a diff, stop.
+      - **Dependencies — adding, removing, OR swapping.** Not just new libraries:
+        *removing* one has a blast radius too. This includes vendoring, pinning
+        changes, and toolchain version bumps.
+      - **Prompts.** Any prompt, system message, skill, fragment, or profile text
+        that shapes how a model behaves. These are judgement artifacts and they are
+        the human's voice, not yours.
+      - **Schemas, wire formats, and anything persisted to disk.** A change to an
+        on-disk format is a migration for every existing user. Config files,
+        lockfiles, task logs, transcripts, protobuf/API surfaces.
+      - **Trust, signing, credentials, secrets.** Signed preimages, key handling,
+        verification order, credential paths. A wrong call here is a security hole
+        that looks exactly like a cleanup.
+      - **Deleting anything that breaks a public contract.**
+
+      ### Actions that endanger the environment
+
+      - **Nothing leaves the machine.** No push, no PR, no tag, no release, no
+        publish, no deploy, no posting to any external service, no writes to shared
+        infrastructure. The human pushes in the morning, after reading a diff.
+      - **No destructive git.** No rebase, no force-push, no `branch -D`, no
+        `worktree remove --force`, no `gc`, no `reflog expire`. `.git` is shared:
+        those commands hit the whole repository, not just your branch.
+      - **Never touch a worktree or branch you did not create.** It may hold another
+        session's only copy of uncommitted work.
+      - **No system or toolchain changes.** No installs, upgrades, image or
+        devcontainer rebuilds, no writes to global config or the user's home outside
+        your own working area.
+      - **Never run a destructive path against real data.** Use a temp directory or
+        an injected filesystem. The task log, the lockfile, and the user's config are
+        live production data on this machine.
+      - **Leave no daemons.** Anything you start, you stop. Long-lived processes
+        accumulate silently and poison later measurements.
+
+      ### The subtle one: anything a gate cannot verify
+
+      **Unverifiable is not the same as safe. Unverifiable means stop.**
+
+      If no test would catch the mistake, you cannot make the change unattended —
+      there is nobody to notice. In practice this rules out:
+
+      - code paths that only execute under a runtime you cannot exercise here
+        (a container, a foreign OS, a build tag you cannot enable);
+      - anything gated behind credentials you do not have;
+      - behaviour whose only evidence is a human looking at it (rendering,
+        formatting, interaction feel);
+      - "obviously equivalent" refactors in code with no coverage — write the
+        characterization test first, or leave it.
+
+      Report these as *unverifiable here*, naming what would be needed to settle
+      them. That is a genuinely useful finding, not a failure.
+
+      ---
+
+      ## The loop
+
+      For each admitted item, in order:
+
+      1. **Re-read the task.** It may already be done, already be wrong, or already
+         be owned by someone else. Check before working. Register-style claims are
+         frequently stale in both directions.
+      2. **Cut a branch from the pinned base**, one per item, in its own worktree.
+      3. **Do the work, or dispatch it** (see below). Validate before fixing: reaching
+         "this claim is wrong" or "this is already fixed" is a *successful* outcome
+         and is often worth more than a fix.
+      4. **Commit after every meaningful unit.** Uncommitted work is the only kind
+         that can be lost, and unattended runs die in ways attended ones do not.
+         **Name every task/finding ID in the commit BODY as well as the subject** —
+         any downstream bookkeeping that scans only subject lines will silently lose
+         the rest.
+      5. **Run the full gate suite on the integrated result**, and read **exit
+         codes** — never grep output for "PASS". An exit 0 from a run that executed
+         nothing is the failure mode that fools everyone.
+      6. **Green → merge to the integration branch. Red → the revert budget applies.**
+      7. **Record the outcome** in taskloom and in the report, immediately. Not
+         batched at the end.
+      8. **Reap the worktree**: merged, removed, branch deleted. Done is all three.
+
+      ### The revert budget
+
+      Two failed fix attempts on one item, then **revert to last green, file what you
+      learned, and move on.** Do not spend six hours grinding. And never, under any
+      circumstance, leave the integration branch red — a red tree at 7am means the
+      human's morning starts with archaeology instead of review.
+
+      ### Blast-radius check
+
+      Before merging, look at the diff size. If an item's change is dramatically
+      larger than its description implied, that is a signal you misread the task.
+      Stop, file it with the diff stat, and move on rather than merging something the
+      human did not expect.
+
+      ---
+
+      ## Dispatching sub-agents
+
+      If you delegate (and you should, for anything context-heavy):
+
+      - **Never put a slow command in an implementer brief.** A command that outruns
+        the harness's Bash timeout gets auto-backgrounded, and the tool promises a
+        completion notification that a leaf agent never receives — it waits forever
+        with its deliverable unsent while the harness reports it `completed`.
+        Forbidding this in prose does not work; it has been measured and made things
+        worse. Give implementers only fast, narrow gates (per-package test, vet,
+        lint). **You** run the full suite at merge time — which you must do anyway,
+        since you never close anything on an agent's reported exit code.
+      - **Require commit-after-every-unit in every brief.** This is what makes a
+        stalled agent survivable rather than fatal.
+      - **Give every brief the stop conditions above**, and require it to escalate
+        rather than decide. Its escalations become your report's decision list.
+      - **Verify everything yourself**: inspect the worktree and the process table
+        before believing any claim about what landed. Reports have been wrong.
+      - Treat an agent whose result is a sentence about waiting as **alive-but-stuck**,
+        not finished. Resume it and tell it to run in the foreground.
+      - **The `@live` lane is agent-accessible, bounded** (ruled 2026-09-11). When
+        neither inspection nor the focused runner can settle a claim, an implementer
+        may run `@live` cells on its own judgement: pin the cheap model, at most five
+        cells per row, and name every cell spent in its FINAL report. Unreported
+        spend is the violation, not the spend.
+
+      ---
+
+      ## Budget and time
+
+      - Respect any token budget or wake time you were given. **Reserve margin** —
+        enough to finish the current item cleanly, reap worktrees, stop processes,
+        and finalize the report. Running out mid-merge is the worst possible ending.
+      - If you are approaching the ceiling, stop taking new items and spend the
+        remainder closing out cleanly.
+
+      ---
+
+      ## When the queue is exhausted
+
+      Do **not** admit new work — that is the one judgement the human specifically
+      kept for themselves. Instead, **deepen what you already did**:
+
+      - re-run the full suite from a clean state and confirm it still passes;
+      - add failure-path tests for anything you changed that lacked coverage
+        (happy-path suites routinely pass while missing the defect entirely);
+      - adversarially re-check your own verdicts: try to **refute** each conclusion
+        rather than confirm it, and say plainly where you now think you were wrong;
+      - verify that claimed cleanup actually happened — `ls` it, check the process
+        table. "Archived" and "cleaned up" have been false before.
+
+      Write no new features and start no new queue items. Then clean up and finish.
+
+      ---
+
+      ## The morning report
+
+      **Write it incrementally, from the first minute.** It is the deliverable. A
+      report composed at the end is a report that does not exist when the run dies at
+      4am.
+
+      Put it somewhere durable and stable, and tell the human the path. It must be
+      readable **cold in about a minute**, by someone with no memory of last night:
+
+      1. **Headline** — what landed, in one sentence, with the diff stat and the
+         gate exit codes.
+      2. **Queue status** — done / stopped / not reached, per item, one line each.
+      3. **Decisions waiting on you** — every stop condition hit, with enough context
+         to decide without reading the code, and your recommendation. **Each entry
+         must stand alone**: restate the situation, the options, and the stakes. They
+         will have lost all context, and "as discussed" means nothing at 7am.
+      4. **What I got wrong** — anything you reverted, mis-diagnosed, or now doubt.
+         Lead with it rather than burying it. The report's value is being true, not
+         being impressive.
+      5. **Environment state** — worktrees created and reaped, processes started and
+         stopped, and anything left running and why.
+      6. **Where to pick up.**
+
+      State uncertainty plainly. "I could not verify X without Y" is a useful
+      sentence; a confident wrong claim costs the human their morning.
+
+      ---
+
+      ## The three rules that survive everything else
+
+      1. **Push nothing.** Local history is always recoverable; a push is not.
+      2. **Green at every commit, or reverted.**
+      3. **When in doubt, file it and move on.** An item left undone costs one
+         morning. An irreversible wrong decision costs much more, and the whole
+         reason you are running unattended is that nobody is there to catch it.
+    premise: The human said good night, run overnight, run this unattended, or handed you a queue and
+      left, and you are about to work with nobody to answer a question or approve anything until morning.
+    tags: good night, overnight, unattended, queue, stop conditions, coordinator, morning report, revert
+      budget
+  prompt-human:
+    ref: ctxloom:project@skills/prompt-human
+    description: Find everything blocked on a human decision, then put each one to them as an interactive
+      question carrying far more context than usual — because they know the project but are running several
+      threads at once and have no idea which one this is. Use whenever the human ASKS ABOUT pending decisions
+      or TELLS YOU TO ACT ON them — the verb does not matter and these examples are not exhaustive. Asked
+      as a question — "what's pending", "anything for me?", "what needs deciding", "what's blocked on
+      me". Given as an instruction, which is just as common — "raise the human decisions", "run the decisions
+      by me", "surface what needs deciding", "go through the open questions", "ask me", "check with me".
+      Treat ANY phrasing naming decisions, open questions, or what is blocked on the human as a match,
+      however it is worded. Also use before ending a work session, cutting a release, or handing off.
+    content: |-
+      # Putting decisions to a human
+
+      Work stalls silently when a decision nobody asked for sits inside an agent
+      report, a deferral line, or your own reasoning. This skill finds those and puts
+      them in front of the human in a form they can answer without reconstructing the
+      context first.
+
+      The bar is not "list open questions." It is: **the human can decide correctly
+      having forgotten everything about this particular thread.**
+
+      That last qualifier is the whole design. They know the project — telling them
+      what a lockfile is wastes their attention and reads as condescension. What they
+      do not have is *situational* knowledge, because they are running several threads
+      at once: other repos, other agents, a release, a conversation from four hours
+      ago. When your question lands they have no idea which thread it belongs to.
+
+      So: **explain the situation, never the project.**
+
+      ---
+
+      ## 1. Sweep — all of these, not just the conversation
+
+      - **This session's context.** Anything you deferred, worked around, or resolved
+        by picking a default. If you wrote "I'll assume", "for now", "pending", or
+        "left tagged" — that is a candidate.
+      - **Agent reports.** Every DEFERRALS section, every "STOP AND REPORT" that
+        fired, every "I did not decide X". Sub-agents are told to escalate rather than
+        choose; those escalations die with the report unless surfaced.
+      - **The task log.** Filter for the decision tag, plus terms like "decide" and
+        "open question". Read the BODIES — a task titled for a symptom often carries
+        the decision in its last paragraph.
+      - **Design docs and plans.** "Open decisions" sections and `*.plan.md` files
+        accumulate unanswered questions by design.
+      - **The code and tests.** Feature-file comments saying a row stays red pending a
+        decision; load-bearing comments that pose a question and never answer it.
+
+      ---
+
+      ## 2. Validate the row before you treat it as a question
+
+      **The row is not the truth. The tree is.** A task outlives the code it
+      describes, and a stale one does not look stale — it looks exactly like live
+      work, because it was live when it was written.
+
+      So before a row becomes a question, establish that it still describes reality:
+
+      - **Do the symbols it cites still exist?** `grep` them. A row whose subject was
+        deleted is not a decision, it is an archaeology find.
+      - **Has the fix already landed?** Read the call site it names. `git log -S
+        '<symbol>'` says when something appeared or vanished.
+      - **Was it already ruled?** The ruling is often in the row's own later
+        paragraphs, under a heading the first line does not hint at.
+      - **Is there a more advanced duplicate?** Two rows on one question drift, and
+        whichever you read first looks complete.
+
+      Reaching "already done", "already ruled", "duplicate" or "moot" is a
+      **SUCCESSFUL** outcome of this skill, not a wasted pass. Close, defer or absorb
+      the row, record what you verified and how, and move on without asking.
+
+      ### Validity is not the same as "is anything still open"
+
+      Do not turn this step into "does the row contain an unanswered question". That
+      test is wrong in a way that quietly DESTROYS the queue, and it was run at scale
+      once before anyone noticed.
+
+      The `human` tag does not mean "needs a decision". It means the row lands in the
+      queue a PERSON WORKS FROM — work that trips an unattended stop condition. Those
+      are two different sets, and the second is much larger. A row can have every
+      question settled and still be human-only: prompt, skill, fragment and profile
+      text are the human's voice; signing keys, dependency changes, schema and on-disk
+      format changes, cross-repo moves, anything needing credentials or a live
+      multi-process run, and anything whose only evidence is a person looking at it
+      all qualify with no open question anywhere in the text.
+
+      So when this step finds a row's decision already taken, that settles whether to
+      ASK about it. It does not settle whether the row belongs in the human queue.
+      Judge that against the stop conditions themselves — they live in the `unattended`
+      skill — and leave the tag alone unless the remaining WORK could genuinely run
+      with nobody watching.
+
+      Measured: applying the wrong test to this project's backlog stripped the tag
+      from 28 rows in one pass, on rows whose remaining work included editing signed
+      bundle text and rebuilding a container image. It was caught by the human, not by
+      the sweep. When in doubt the answer is to leave the tag on: a needless row costs
+      one glance, and a dropped one costs the work.
+
+      ### Why this is a numbered step and not advice
+
+      Measured in one session working this backlog: of the rows examined, FOUR were
+      invalid, each in a different way — one duplicated a further-along row; one
+      turned on a package that had been deleted wholesale, so none of its forks could
+      be answered at all; one had already been ruled and carried a stale tag; and one
+      had ALREADY BEEN FIXED in the tree, with the commit sitting in the log. A full
+      question had been drafted around that last one before anybody checked.
+
+      The cost of skipping this is not merely wasted attention, which would be
+      recoverable. It is that **a ruling taken on a false premise gets written down as
+      a decision** — and then it is authoritative, it outlives the confusion that
+      produced it, and the next reader has no way to tell it apart from a sound one.
+      An answer to a question that should never have been asked is worse than no
+      answer.
+
+      ---
+
+      ## 3. Filter — most things are NOT the human's call
+
+      Ask only where **different answers produce materially different work**. Decide
+      the rest yourself and say what you decided.
+
+      Genuinely theirs:
+
+      - adding, removing, or swapping a **dependency**
+      - changing a **contract**: exported signature, wire or config format, persisted
+        file shape, or a trust outcome
+      - a **new CLI surface** — command, subcommand, flag, or exit-code semantics
+      - **breaking existing users**, even where the project permits it: *how* it
+        breaks, and whether it breaks loudly, is a decision
+      - **scope against a release** — does this block the cut
+      - a **security posture**
+      - anything where you would otherwise be guessing at **intent** rather than at
+        fact
+
+      Not theirs — do it, and mention it:
+
+      - anything a convention, an existing helper, or a nearby precedent already
+        answers
+      - anything you can settle by reading the code or running a command
+
+      ### Burn these before asking
+
+      - **Go and read.** A fork whose answer is in the tree is not a fork, it is your
+        homework. Grep the symbol. Read the doc comment — in a codebase that states
+        its rules there, the answer is frequently written verbatim.
+      - **Beware of proposing new mechanism.** An option that adds a declaration — a
+        config key, a mode flag, a new field — is very often a duplicate of state
+        something already computes. Ask "what already knows this?" before offering it.
+        Two sources of the same truth can disagree; that is worse than no answer.
+      - **Check whether it was already ruled.** Search the task log and design docs
+        for the same question under a different name. Re-asking a settled question
+        spends trust as well as time.
+
+      ---
+
+      ## 4. Load their context INTO the question
+
+      Assume zero recall of anything you have not restated. Each question stands
+      alone, even if you asked a related one twenty minutes ago.
+
+      Open by re-establishing WHICH:
+
+      - which task, branch, file, or subsystem — by name
+      - what it was trying to do, in one sentence
+      - what state it is in right now
+      - what CHANGED that produced this question
+
+      Then the substance — as much of this as applies, because it is the difference
+      between a question answered in ten seconds and one deferred again:
+
+      - **The measured fact, quoted.** Not "the check seems wrong" but the actual
+        output, the actual error, the actual line. Quote a doc comment when it is the
+        thing that settles the argument.
+      - **VERIFIED versus INFERRED, explicitly.** Say which parts you ran and which
+        you reasoned to. If you did not check something material, say so — "I have not
+        confirmed X" is worth more than a confident guess, and it tells them how much
+        to lean on the rest.
+      - **What was already tried or ruled out, with the reason.** Otherwise they will
+        propose it, and you will both discover you agreed an hour ago.
+      - **Blast radius.** What else changes, who else is affected, what gets redone.
+      - **The cost of each option**, concretely. Not "more work" but "a schema change
+        plus a resolution mechanism that does not exist yet."
+      - **The cost of NOT deciding.** What stays blocked, and whether it degrades.
+
+      Cite by SYMBOL (`package.Function`, a task ID, a scenario name) rather than
+      file:line. A stale symbol fails loudly the moment someone greps; a stale line
+      number quietly points at unrelated code and gets believed.
+
+      ---
+
+      ## 5. Ask with the question tool, not with prose
+
+      Prose questions get skimmed and answered vaguely. Use the interactive question
+      tool (`AskUserQuestion` or the harness equivalent), even for a single decision.
+      It forces a real fork and records the answer.
+
+      **Recommend, do not survey.** Your recommendation goes first, marked. A survey
+      with no recommendation hands the analysis back to the person who asked you to do
+      it. If you genuinely have no preference, say so and say why it is close.
+
+      **Every option carries its cost.** An option with no downside means you have not
+      understood it yet — find the cost or drop the option.
+
+      **Options must be mutually exclusive and real.** Two options where one is
+      obviously right is not a fork; it is a decision you should have made. If an
+      option is bad but plausible enough that they might pick it, include it and say
+      you would push back — that is more useful than hiding it.
+
+      **Put the pushback IN the option.** If you think a choice is wrong, the option's
+      own description should say so. They are entitled to overrule you, and they can
+      only do that if they can see what you think.
+
+      **Batch by context, not by count.** Several questions in one call is fine when
+      they share a situation and each is individually complete. Collapse dependents:
+      if X settles Y, ask X only. Two questions about genuinely different subsystems
+      in one breath will get one answered well and one answered carelessly.
+
+      ---
+
+      ## 6. After they answer
+
+      - **Record the decision where the work lives** — the task, the design doc, the
+        commit message body. A ruling that exists only in a chat log gets
+        re-litigated, and the next reader cannot find it.
+      - **Record the ACCEPTED COST too**, and what should trigger revisiting it. A
+        decision recorded without its cost reads later as an oversight rather than a
+        choice.
+      - **If the answer invalidates something you wrote earlier, strike it** — do not
+        layer a correction on top. A task carrying a superseded ruling in its first
+        paragraph will send the next person the wrong way.
+      - **If they correct your premise, repair the premise in the record**, not just
+        the ruling. An answer to a badly framed question is still badly framed.
+      - **Record deferrals as deferrals.** If they defer, write down what is now
+        unverified and what should revive it. Silence reads as "handled".
+      - **Act on it.** If the answer unblocks work, do the work. Do not report the
+        answer back and stop.
+
+      ---
+
+      ## Failure modes this exists to prevent
+
+      - **The decision that never surfaced.** It sat in an agent's DEFERRALS section
+        and the coordinator summarised the agent's successes instead.
+      - **The context-free question.** "Should we use A or B?" about something they
+        last saw four hours and three subsystems ago.
+      - **The question the code answered.** Their attention spent on your homework.
+      - **The stale question.** The row described work already done, already
+        ruled, or turning on code since deleted — and the ruling it produced was
+        then recorded as authoritative, indistinguishable from a sound one.
+      - **The invented fork.** A new config key offered as an option, when an existing
+        assembler already carries the answer.
+      - **The false fork.** Two options where one is obviously right.
+      - **The survey.** Four options, no recommendation, no costs.
+      - **The silent default.** You picked one and moved on. If it was obvious, say it
+        was obvious; if it was not, it was a decision and it needed asking.
+      - **The buried answer.** They ruled, you carried on, and nothing in the repo
+        records what they decided or why.
+    premise: The human asked what is pending, blocked on them, or needs deciding, or told you to raise,
+      run by them, or go through the human questions or decisions -- any wording -- or you are about to
+      hand off, end a session, or cut a release.
+    tags: human decisions, open questions, pending, blocked on the human, escalation, question prompt,
+      hand-off, morning after
+  design-by-test:
+    ref: ctxloom:project@skills/design-by-test
+    description: Decide an architectural question by writing the test FIRST, because the test is where
+      the interface gets proposed while it is still cheap to argue with. Use when planning any change
+      that introduces or alters a signature, a boundary, a contract, or a data path — before writing the
+      implementation, and before dispatching an implementer. Not a testing practice; a design one.
+    content: |-
+      # Decide it in a test, before the implementation decides it for you
+
+      Write the failing test FIRST. Not for coverage — coverage is what `closeout`
+      verifies afterwards, and a killed mutation there is stronger evidence than test
+      ordering ever was. Write it first because **the test is where the design
+      decision is made, and writing it first is what makes that decision reviewable
+      while it is still cheap to change.**
+
+      ## Why this is a PLANNING skill and not a testing one
+
+      A signature written inside an implementation is a fait accompli. By the time
+      anyone reads it, the callers exist, the tests are shaped around it, and the
+      question "should it look like this?" costs a refactor to ask.
+
+      The same signature written in a test, before the implementation, is a
+      PROPOSAL. It costs one edit to change. That is the entire difference, and it
+      is why `closeout` cannot cover this: closeout audits what was decided. This
+      decides.
+
+          func TestStartOwnedRun_RefusesWhileDraining(t *testing.T) {
+              c := newCoordinator(t)
+              c.BeginDrain()                       // <- proposes: one-way, no args
+              _, err := c.StartOwnedRun(ctx, id)   // <- proposes: refusal is an error,
+              require.ErrorIs(t, err, ErrDraining) //    not a bool, not a panic
+          }
+
+      Four design decisions are visible there before a line of production code
+      exists: drain is a coordinator method not a package function; it takes no
+      deadline; refusal surfaces as a typed error; and the error is comparable with
+      `errors.Is`. Each is arguable in ten seconds at this stage, and expensive to
+      revisit once `StartOwnedRun` is written.
+
+      ## The rule
+
+      1. **Write the test that names the behaviour.** Compile it. Watch it FAIL.
+      2. **COMMIT IT RED, on its own.** This is not ceremony — it is what puts the
+         proposal in history where a reviewer, or you tomorrow, can see what was
+         decided and when. A design that only ever appears already-implemented was
+         never reviewed, it was announced.
+      3. Then implement until it passes.
+
+      The red commit is the artifact. Without it the claim "this was designed" is
+      unverifiable, which is the same failure mode as an unchecked comment.
+
+      ## The payoff that is actually about architecture
+
+      **If you cannot write the test, you have found an open question — RAISE IT, do
+      not guess.**
+
+      That is the whole reason this skill exists. An unwritable test is a design hole
+      made visible at the cheapest possible moment. Concretely, if you find yourself
+      unable to proceed because you do not know:
+
+      - what the function should be CALLED, or which type owns it — the boundary is
+        unsettled;
+      - what it should RETURN when the interesting case happens — the contract is
+        unsettled;
+      - what to construct to reach the code at all — the dependencies are wrong, and
+        the test is telling you so before the implementation buries it;
+      - whether the caller is even allowed to be in that state — you have found a
+        missing invariant;
+
+      then STOP and put the question to whoever owns it. Do not resolve it by writing
+      an implementation and letting the shape fall out. An implementation always
+      produces AN answer; that is precisely why it is the wrong instrument for
+      choosing one.
+
+      ## What this does NOT ask of you
+
+      - Not coverage-driven development. Do not write a test per function.
+      - Not every change. A deletion, a comment fix, a rename with no new surface:
+        skip it. This applies where a SIGNATURE, BOUNDARY, CONTRACT or DATA PATH is
+        introduced or altered.
+      - Not a substitute for mutation. Mutation is POST FACTO by nature and belongs
+        in `closeout`, which already requires it. Do not run one here; you have
+        nothing to mutate yet.
+
+      ## Dispatching
+
+      If you are handing this to someone else, the ordering requirement goes IN THE
+      BRIEF, and require the red commit as evidence. An instruction to "write tests"
+      reliably produces implementation-first work with tests appended — and the
+      result is indistinguishable at merge unless the history shows the red state.
+    premise: You are about to introduce or change a signature, interface, contract, schema, boundary,
+      or data path -- yourself or by dispatching an implementer -- and no failing test yet states the
+      proposed shape.
+    tags: interface, signature, contract, schema, boundary, data path, red test, dispatch, architecture
+  check-triggers:
+    ref: ctxloom:shipped@commands/check-triggers
+    description: Review Deferred tasks and surface any whose revive trigger has fired
+    content: |-
+      Review the project's Deferred tasks and decide which ones their **revive
+      trigger** says should come back now. A Deferred task is one parked on a named
+      condition (the same idea as an ADR revive trigger): it stays out of the active
+      list until that condition is met.
+
+      ## How to run it
+
+      1. **List the Deferred tasks.** Call the `task_list` MCP tool with
+         `statuses: ["Deferred"]` (Deferred tasks are hidden from the default view, so
+         you must name the status). Each task carries a `trigger` field — the
+         free-text condition that should revive it. If there are none, say so and stop.
+
+      2. **Get machine verdicts.** Call the `evaluate_triggers` MCP tool. It gathers
+         evidence (git history since each task was deferred, changed files, the
+         repository's current state, and the status of other tasks), batches every
+         Deferred task's trigger into one model call, and returns a verdict per
+         task: **fired**, **not-fired**, **needs-investigation**, or
+         **cannot-determine** — each with confidence, evidence, and reasoning. For a
+         needs-investigation verdict, ctxloom may already have run one bounded
+         follow-up look (file existence, a targeted grep, recent commits on a path,
+         another task's status) before returning, so what you get back is often
+         already the settled answer. Do NOT re-derive your own judgement of whether
+         a trigger fired — this tool is the mechanism now; your job is to present
+         its output and get a decision.
+
+      3. **Report — do not act yet.** Present the verdicts: for each task its harp
+         id, text, trigger, verdict, confidence, evidence, and reasoning. Lead with
+         **fired**. Explain what each outcome means for the decision ahead:
+         - **fired** — the evidence shows the condition occurred. Propose reviving it.
+         - **not-fired** — positive evidence shows the condition hasn't occurred yet. Leave it Deferred.
+         - **needs-investigation** — the evidence is suggestive but not conclusive, even after ctxloom's own follow-up look. Worth a closer look from you before deciding; leave it Deferred until then.
+         - **cannot-determine** — the trigger can't be judged from evidence available inside this system (e.g. it depends on something a person has to say). Treat it the same as "not yet" — never as fired. Leave it Deferred.
+
+         If `evaluate_triggers` reports `degraded: true`, say so plainly: the
+         verdicts it returned are a fallback (cannot-determine across the board),
+         not a real judgement, and nothing should be revived on their basis this
+         run.
+
+      4. **Confirm before moving anything.** Ask the user which of the **fired**
+         tasks to revive. Only for the ones they confirm, call `task_set_status`
+         with `status: "To Do"` (no trigger needed — moving off Deferred preserves
+         the stored trigger). Leave every other task Deferred. Never move a task
+         back automatically; the transition is always the user's call.
+
+      ## Notes
+
+      - `evaluate_triggers` proposes; it never changes a task's status itself —
+        this skill is what turns a confirmed fired verdict into an actual status
+        change, and only after the user confirms.
+      - Verdicts are cached against the evidence that produced them, so a repeat run
+        with nothing changed makes no further model calls. Pass `refresh: true` to
+        `evaluate_triggers` to force a fresh look regardless.
+      - This is the read/decide half of the Deferred workflow. The defer half is
+        `task_set_status` with `status: "Deferred"` and a `trigger`, or `task_add`
+        with the same.
+    premise: You are reading the task log, judging by hand whether a Deferred task's revive trigger has
+      fired, about to revive one, or reviewing the board before a release cut or a queue admission with
+      Deferred rows on it.
+    tags: Deferred, revive trigger, task log, evaluate_triggers, backlog, release cut
+  recover:
+    ref: ctxloom:shipped@commands/recover
+    description: Recover context from the current session after /clear
+    content: |-
+      Recover the context that `/clear` wiped from THIS session. `/clear` empties the
+      context window but does not end the session — the work you are recovering still
+      lives in the current session's still-growing transcript.
+
+      ## Steps
+
+      1. Use the ctxloom MCP tool "recover_session" to retrieve the current session:
+         - ctxloom resolves the current (still-live) session at read time and
+           re-distills its still-growing transcript. No process tracking is involved.
+         - Returns the distilled essence of the current session.
+
+      2. If successful (content is returned), review the restored context and summarize:
+         - What was being worked on
+         - Key decisions made
+         - Progress achieved
+         - Any planned next steps
+
+      3. Ask: "I've recovered context from before the clear. Ready to continue?"
+
+      If nothing is recovered:
+      "No recoverable context found for this session."
+    premise: The context was cleared, or the human asked you to recover a session by name, and you are
+      about to reconstruct what was being worked on before acting on it.
+    tags: /clear, recover, session, context, distilled essence, resume
+situations:
+- id: S01
+  intent: The human said 'ok, lets prepare an unattended run'; I'm about to set tonight's queue up with
+    them still here.
+  observed: 1
+  example: '[user] ok, lets prepare an unattended run'
+  expect:
+  - admit
+  source: invoked
+  session: '2026-09-05'
+- id: S02
+  intent: The human said 'ok, file that and admit it for tonight'; I'm about to record the row and put
+    it on tonight's queue.
+  observed: 1
+  example: '[user] ok, file that and admit it for tonight'
+  expect:
+  - admit
+  source: invoked
+  session: '2026-09-09'
+  label_note: admit says do not CREATE tasks on your own judgement; the human asked, so filing is theirs.
+- id: S03
+  intent: The human said 'lets admit the 2s and preflight them'; I'm about to triage those rows for tonight
+    and then pre-flight the run.
+  observed: 1
+  example: '[user] lets admit the 2s and preflight them'
+  expect:
+  - admit
+  - unattended
+  source: invoked
+  session: '2026-09-16'
+  label_note: pre-flight is the unattended skill's opening section; admit hands off to it. Borderline
+    on unattended resolves to include.
+- id: S04
+  intent: The human said 'ok, resume the queue for tonight'; I'm about to roll the live queue tag forward.
+  observed: 1
+  example: '[user] ok, resume the queue for tonight'
+  expect:
+  - admit
+  source: invoked
+  session: '2026-09-16'
+- id: S05
+  intent: The human said 'yeah, admit them to tonight's queue and work them'; I'm about to admit and then
+    start working the queue autonomously.
+  observed: 1
+  example: '[user] yeah, admit them to tonight''s queue and work them'
+  expect:
+  - admit
+  - unattended
+  source: invoked
+  session: '2026-09-15'
+- id: S06
+  intent: A sub-agent's final report just landed with a deferred item; I'm about to put that item onto
+    tonight's queue as a follow-up.
+  observed: 1
+  example: '[task-notification] ...Nothing else deferred. -> Skill(admit, ''broken-jailbreak'')'
+  expect:
+  - admit
+  source: invoked
+  session: '2026-09-14'
+  label_note: agent-initiated, no human phrasing to lean on.
+- id: S07
+  intent: A Stop hook says 'This turn changed files. Invoke the closeout skill and follow it.'; I'm about
+    to comply.
+  observed: 3
+  example: '[hook] Stop hook feedback: This turn changed files. Invoke the `closeout` skill and follow
+    it.'
+  expect:
+  - closeout
+  source: invoked
+  session: '2026-08-25'
+  label_note: named outright; the trivial case.
+- id: S08
+  intent: The human said 'ok, closeout'; I'm about to verify, mutate, fix docs, true the task log and
+    report.
+  observed: 12
+  example: '[user] ok, closeout'
+  expect:
+  - closeout
+  source: invoked
+  session: 2026-08-27..09-16
+- id: S09
+  intent: The human said 'yes, run closeout, present human questions'; I'm about to close out and then
+    put the open decisions to them.
+  observed: 1
+  example: '[user] yes, run closeout, present human questions'
+  expect:
+  - closeout
+  - prompt-human
+  source: invoked
+  session: '2026-09-03'
+- id: S10
+  intent: The human said 'crap, close out the prior to clear items'; I'm about to close out commits made
+    before the /clear that I no longer hold in context.
+  observed: 1
+  example: '[user] crap, close out the prior to clear items'
+  expect:
+  - closeout
+  - recover
+  source: invoked
+  session: '2026-09-03'
+  label_note: closeout is the ask; the work sits behind a /clear, so recovering that context is the first
+    step. Borderline on recover resolves to include.
+- id: S11
+  intent: The background full-acceptance run I started after merging has just completed with exit 0; I'm
+    about to close the merged work out.
+  observed: 2
+  example: '[task-notification] Background command ''Full acceptance on merged release/0.7'' completed
+    (exit code 0) -> Skill(closeout, ''v1 bundle format removal merged...'')'
+  expect:
+  - closeout
+  source: invoked
+  session: 2026-09-01, 2026-09-08
+  label_note: agent-initiated on a gate notification, twice in the data.
+- id: S12
+  intent: It is morning; the unattended run of last night's queue is complete and the human said 'close
+    out'; I'm about to close the night's work out.
+  observed: 1
+  example: '[user] close out -> Skill(closeout, ''Unattended run of queue:20260907 complete...'')'
+  expect:
+  - closeout
+  - prompt-human
+  source: invoked
+  session: '2026-09-07'
+  label_note: the night's report holds escalations nobody has answered; prompt-human's sweep covers exactly
+    those. Borderline -> include.
+- id: S13
+  intent: The human said 'hmm, we have a skill similar to wrap it up that didn't just trigger'; I'm about
+    to run the close-out I missed.
+  observed: 1
+  example: '[user] hmm, we have a skill similar to wrap it up that iddn''t just trigger'
+  expect:
+  - closeout
+  source: invoked
+  session: '2026-08-29'
+  label_note: the human naming a miss; the moment is still a close-out.
+- id: S14
+  intent: I'm about to dispatch an implementer to route distillation through an existing operations entry
+    point, which changes a data path and a call signature.
+  observed: 1
+  example: Skill(design-by-test, 'Route distillation through the existing operations.RunOneshot...')
+  expect:
+  - design-by-test
+  source: invoked
+  session: '2026-09-17'
+  label_note: the only model invocation of this skill in the data; agent-initiated before dispatch.
+- id: S15
+  intent: The human said 'ok, raise the human decisions'; I'm about to sweep for what is blocked on them
+    and ask each one with full context.
+  observed: 14
+  example: '[user] ok, raise the human decisions'
+  expect:
+  - prompt-human
+  source: invoked
+  session: 2026-08-24..09-16
+- id: S16
+  intent: The human said 'give me human questions'; I'm about to present the open decisions.
+  observed: 1
+  example: '[user] give me human questions'
+  expect:
+  - prompt-human
+  source: invoked
+  session: '2026-08-25'
+- id: S17
+  intent: The human said 'run the human by my' (typo for 'by me'); I'm about to walk the pending decisions
+    past them.
+  observed: 1
+  example: '[user] run the human by my'
+  expect:
+  - prompt-human
+  source: invoked
+  session: '2026-08-26'
+- id: S18
+  intent: The human said 'run it by me with more context'; I'm about to re-present the open decisions
+    with the situation explained.
+  observed: 1
+  example: '[user] run it by me with more context'
+  expect:
+  - prompt-human
+  source: invoked
+  session: '2026-08-29'
+- id: S19
+  intent: The human said 'human protocol, ask questions'; I'm about to put the blocked decisions to them
+    one at a time.
+  observed: 1
+  example: '[user] human protocol, ask questions'
+  expect:
+  - prompt-human
+  source: invoked
+  session: '2026-08-31'
+- id: S20
+  intent: An adversarial review left four findings that need a ruling and the human said 'raise them w/human
+    protocol'; I'm about to ask each.
+  observed: 1
+  example: '[user] raise them w/human protocol'
+  expect:
+  - prompt-human
+  source: invoked
+  session: '2026-09-01'
+- id: S21
+  intent: It is morning after an unattended run and the human asked 'what can we continue that didn't
+    get continued to finish last night's queue?'; I'm about to read the report and surface what stopped
+    and why.
+  observed: 1
+  example: '[user] ok, what can we continue that didn''t get continued to finish last night''s queue?'
+  expect:
+  - prompt-human
+  - admit
+  source: invoked
+  session: '2026-09-07'
+  label_note: what stopped overnight stopped on a decision; carrying rows forward is admission. Both borderline
+    -> include.
+- id: S22
+  intent: The human said 'ok, lets resume the taskloom queue for today'; I'm about to work the rows that
+    are open, several of which are blocked on them.
+  observed: 1
+  example: '[user] ok, lets resume the taskloom queue for today -> Skill(prompt-human, ''Work the five
+    queue rows blocked on the human'')'
+  expect:
+  - admit
+  - prompt-human
+  source: invoked
+  session: '2026-09-16'
+- id: S23
+  intent: I have finished the close-out checklist and step 5 left items deferred for a human decision;
+    I'm about to report.
+  observed: 2
+  example: '[closeout body] ...Defer only for a human decision (tag it `human`, state the question)...
+    -> Skill(prompt-human)'
+  expect:
+  - prompt-human
+  source: invoked
+  session: 2026-08-24, 2026-09-03
+  label_note: agent-initiated as the tail of closeout, twice.
+- id: S24
+  intent: The human said 'good night'; I'm about to start working the admitted queue on my own until morning.
+  observed: 6
+  example: '[user] good night'
+  expect:
+  - unattended
+  source: invoked
+  session: 2026-08-26..09-10
+- id: S25
+  intent: The human said 'ok, lets look at the taskloom queue for tonight and preflight it for good night';
+    I'm about to read the queue and pre-flight the run.
+  observed: 1
+  example: '[user] ok, lets look at the taskloom queue for tonight and preflight it for good night'
+  expect:
+  - unattended
+  - admit
+  source: invoked
+  session: '2026-09-01'
+- id: S26
+  intent: The human said 'ok, lets build those now, unattended'; I'm about to work those items autonomously.
+  observed: 1
+  example: '[user] ok, lets build those now, unattended'
+  expect:
+  - unattended
+  source: invoked
+  session: '2026-09-04'
+- id: S27
+  intent: The human said 'locate the taskloom queue for tonight, which has been preflighted, and go unattended
+    mode on it'.
+  observed: 1
+  example: '[user] locate the taskloom queue for tonight, which has been preflighted, and go unattended
+    mode on it'
+  expect:
+  - unattended
+  source: invoked
+  session: '2026-09-07'
+- id: S28
+  intent: The human said 'read the taskloom task log for tonight and action what we can, prompt for what
+    we can't. get started, I'll be back in a bit to rule on any preflight items. good night'.
+  observed: 1
+  example: '[user] ok, lets read the taskloom task log for tonight and action what we can, prompt for
+    what we can''t (go through all of it first)...good night'
+  expect:
+  - unattended
+  - prompt-human
+  source: invoked
+  session: '2026-09-16'
+- id: S29
+  intent: The human said 'recover zonal-lone-jazz'; I'm about to pull that session's distilled context
+    back.
+  observed: 1
+  example: '[user] recover zonal-lone-jazz'
+  expect:
+  - recover
+  source: invoked
+  session: tame-hasty-boots
+  label_note: the only model invocation of recover; every other use was the human typing /recover.
+- id: M01
+  intent: The human said 'ok, wrap it up after this gate'; the gate is running and I'm about to finish
+    the ledger work and report.
+  observed: 1
+  example: '[user] ok, wrap it up after this gate -> no Skill call; later the same day: ''we have a skill
+    similar to wrap it up that didn''t just trigger'''
+  expect:
+  - closeout
+  source: missed
+  session: dire-upper-trade 2026-08-29
+  label_note: human-confirmed miss.
+- id: M02
+  intent: The human said 'wrap it up'; the final gate is green and I'm about to close the session's work.
+  observed: 2
+  example: '[user] wrap it up -> ''Final gate green... Closing out.'' with no Skill call'
+  expect:
+  - closeout
+  source: missed
+  session: dire-upper-trade 2026-08-29
+- id: M03
+  intent: The human said 'ok, merge it and close out'; I'm about to merge the branch and then close out.
+  observed: 1
+  example: '[user] ok, merge it and close out -> no Skill call'
+  expect:
+  - closeout
+  source: missed
+  session: left-blue-stool 2026-09-08
+- id: M04
+  intent: The human said 'ok, close out'; I'm about to work the checklist from memory of a body loaded
+    earlier in the session.
+  observed: 3
+  example: '[user] ok, close out -> ''Working the close-out checklist (the contract is already loaded
+    from earlier this session)'''
+  expect:
+  - closeout
+  source: missed
+  session: armed-noisy-stir, agile-warm-human
+  label_note: the engine's 'already loaded' rule explains the non-call; the MOMENT still applies and that
+    is what a premise must predict.
+- id: M05
+  intent: The human said 'admit that'; I'm about to put the row we just discussed on tonight's queue.
+  observed: 1
+  example: '[user] admit that -> ''Applying the admit contract - the skill itself only materializes at
+    next launch, so I''m executing its steps directly'''
+  expect:
+  - admit
+  source: missed
+  session: armed-noisy-stir 2026-09-04
+  label_note: skill not in the listing that session; still the moment.
+- id: M06
+  intent: The human said 'ok, admit the four I ruled -- those are all fine (explicit rule bypass)'; I'm
+    about to tag four rows onto tonight's queue recording the waived stop condition on each.
+  observed: 1
+  example: '[user] ok, admit the four I ruled -- those are all fine (explicit rule bypass)'
+  expect:
+  - admit
+  source: missed
+  session: left-blue-stool 2026-09-07
+- id: M07
+  intent: The human said 'great, file it and add it to tonight's queue'; I'm about to file the row and
+    admit it.
+  observed: 3
+  example: '[user] great, file it and add it to tonight''s queue (w/bypass permissions)'
+  expect:
+  - admit
+  source: missed
+  session: ideal-ashy-chevy, vapid-fair-going
+- id: M08
+  intent: The human said 'that plan file needs to be admitted for tonight's implementation'; I'm about
+    to put the plan's remaining work on the queue.
+  observed: 1
+  example: '[user] ok, and that plan file needs to be admitted for tonight''s implementation. that''s
+    what I was looking for earlier and missed'
+  expect:
+  - admit
+  source: missed
+  session: agile-warm-human 2026-09-10
+- id: M09
+  intent: The human said 'tmux preflight now'; I'm about to pre-flight the tmux work against the stop
+    conditions while they are still here.
+  observed: 1
+  example: '[user] tmux preflight now -> ''Running the unattended pre-flight on the tmux work...'' with
+    no Skill call'
+  expect:
+  - unattended
+  - admit
+  source: missed
+  session: gusty-bleak-tweak 2026-08-31
+- id: M10
+  intent: The human said 'lets propose, from the architecture alignment plan, the run for tonight'; I'm
+    about to pick candidates from the plan for tonight's queue.
+  observed: 1
+  example: '[user] lets propose, from architecture alignment plan and the engines/output rework contained
+    within, the run for tonight'
+  expect:
+  - admit
+  source: missed
+  session: armed-noisy-stir 2026-09-02
+- id: M11
+  intent: 'The human said ''good night''; I answered ''Good night. Everything''s committed and green''
+    and stopped. Next morning: ''you didn''t trigger good night protocol and work that last night''.'
+  observed: 1
+  example: '[user] good night -> ''Good night. Everything''s committed and green - it''ll be waiting exactly
+    as you left it.'''
+  expect:
+  - unattended
+  source: missed
+  session: ideal-ashy-chevy 2026-09-07
+  label_note: human-confirmed miss.
+- id: M12
+  intent: The human said 'ok, good night protocol for the container work'; I'm about to start the run
+    on that work.
+  observed: 1
+  example: '[user] ok, good night protocol for teh container work'
+  expect:
+  - unattended
+  source: missed
+  session: lousy-elder-lint 2026-08-24
+- id: M13
+  intent: The human said 'run this unattended'; I'm about to continue the remaining slices on my own.
+  observed: 1
+  example: '[user] run this unattended'
+  expect:
+  - unattended
+  source: missed
+  session: ideal-ashy-chevy 2026-09-05
+- id: M14
+  intent: The human said 'ok, good night. keep driving through the queue' and left; I'm about to keep
+    working the queue with nobody to ask.
+  observed: 4
+  example: '[user] ok, good night. keep driving through the queue'
+  expect:
+  - unattended
+  source: missed
+  session: vapid-fair-going 2026-09-14, ugly-icy-squid 2026-08-13
+- id: M15
+  intent: The human asked 'ok, anything pending for good night?'; I'm about to say what is outstanding
+    before they leave.
+  observed: 1
+  example: '[user] ok, anything pending for good night?'
+  expect:
+  - admit
+  - prompt-human
+  source: missed
+  session: dire-upper-trade 2026-08-29
+  label_note: asks what is in the queue (admit) and what is blocked on them before a hand-off (prompt-human).
+- id: M16
+  intent: The human asked 'ok, are we ready to good night that?' about the daemon work; I'm about to judge
+    whether it can be done with nobody watching.
+  observed: 1
+  example: '[user] ok, are we ready to good night that? -> ''no, not the daemon. Three reasons, and they''re
+    the stop conditions'''
+  expect:
+  - admit
+  source: missed
+  session: gusty-bleak-tweak 2026-08-31
+  label_note: the answer given IS admit's triage; unattended's stop conditions are read through admit.
+- id: M17
+  intent: The human said 'raise the human questions'; I'm about to surface what is blocked on them.
+  observed: 6
+  example: '[user] raise the human questions -> no Skill call'
+  expect:
+  - prompt-human
+  source: missed
+  session: lousy-elder-lint, hazy-sore-turf, vapid-fair-going
+- id: M18
+  intent: The human said 'raise them with human protocol'; I'm about to verify the facts and put each
+    question to them.
+  observed: 3
+  example: '[user] raise them with human protocol'
+  expect:
+  - prompt-human
+  source: missed
+  session: fiery-dizzy-mom, ideal-ashy-chevy
+- id: M19
+  intent: The human asked 'ok, what was escalated, human protocol'; I'm about to list what tonight escalated
+    to them.
+  observed: 1
+  example: '[user] ok, what was esclataed, human protocol k'
+  expect:
+  - prompt-human
+  source: missed
+  session: gusty-bleak-tweak 2026-08-31
+- id: M20
+  intent: The human said 'ok, let's work through the human questions'; I'm about to pull the queue of
+    decisions.
+  observed: 1
+  example: '[user] ok, let''s work through the human questions'
+  expect:
+  - prompt-human
+  source: missed
+  session: armed-noisy-stir 2026-09-04
+- id: M21
+  intent: The human said 'ok, run human things past me'; I'm about to validate the rows and ask.
+  observed: 3
+  example: '[user] ok, run human things past me'
+  expect:
+  - prompt-human
+  source: missed
+  session: vapid-fair-going, ideal-ashy-chevy
+- id: M22
+  intent: The human said 'run design work by me'; I'm about to walk the design through with its open decisions
+    flagged.
+  observed: 1
+  example: '[user] run design work by me -> design walked with ''▶ DECISION'' markers'
+  expect:
+  - prompt-human
+  source: missed
+  session: ideal-ashy-chevy 2026-09-05
+  label_note: 'borderline: the verb is ''run by me'' and the content is decisions.'
+- id: M23
+  intent: The human asked 'ok, what are the four human items?'; I'm about to answer.
+  observed: 1
+  example: '[user] ok, what are the four human items?'
+  expect:
+  - prompt-human
+  source: missed
+  session: shut-hoary-yahoo 2026-08-06
+- id: M24
+  intent: The human said 'run them by me, one at a time, question prompt, more context'.
+  observed: 5
+  example: '[user] run them by me, one at a time, question prompt, more context'
+  expect:
+  - prompt-human
+  source: missed
+  session: lined-evil-niece, finer-vile-haiku, ugly-icy-squid, plump-sappy-siren
+- id: M25
+  intent: The human said 'ok, lets see what's pending in tasks'; I'm about to read the task log.
+  observed: 1
+  example: '[user] ok, lets see what''s pending in tasks'
+  expect:
+  - prompt-human
+  - check-triggers
+  source: missed
+  session: lousy-elder-lint 2026-08-24
+  label_note: '''what''s pending'' is prompt-human''s phrase; a task-log review is where Deferred rows
+    get looked at. Both borderline -> include.'
+- id: M26
+  intent: The human said 'continue with what can be handled. halt when a high consequence/hard to change
+    decision needs to be made. keep the decisions and open questions logs open'.
+  observed: 1
+  example: '[user] continue with what can be handled. halt when a high consequence/hard to change decision
+    needs to be made...'
+  expect:
+  - unattended
+  - prompt-human
+  source: missed
+  session: wide-unlit-snide 2026-07-28
+  label_note: predates both skills; the moment is theirs.
+- id: M27
+  intent: The human ruled 'Approach should be an interface, and the engines should implement only those
+    that they can support'; I'm about to build that interface.
+  observed: 1
+  example: '[user] ok, yes. Approach should be an interface, and the engines should implement only those
+    that they can support...'
+  expect:
+  - design-by-test
+  source: missed
+  session: agile-warm-human 2026-09-10
+- id: M28
+  intent: The human said 'contract changes are fine, approved... we make sure that the v1 move and v1
+    locators happen at the same time'; I'm about to implement a contract change.
+  observed: 1
+  example: '[user] contract changes are fine, approved. relocation is going to happen, we make sure that
+    the v1 move and v1 locators happen at the same time'
+  expect:
+  - design-by-test
+  source: missed
+  session: left-blue-stool 2026-09-06
+- id: M29
+  intent: The human recalled 'we decided pretty standard OO designs there -- interface, things that don't
+    make sense in interface go in constructor'; I'm about to build slice 3a on that shape.
+  observed: 1
+  example: '[user] and if I recall correctly, we decided pretty standard OO designs there -- interface,
+    things that dont'' make sense in interface (fs positions) go in constructor'
+  expect:
+  - design-by-test
+  source: missed
+  session: agile-warm-human 2026-09-10
+- id: M30
+  intent: The human asked 'is interface support/polymorphism not the better play for tactile hurry'; I'm
+    about to decide an architectural question.
+  observed: 1
+  example: '[user] ok, while we have this context. Is interface support/polymorphism not the better play
+    for tactile hurry'
+  expect:
+  - design-by-test
+  source: missed
+  session: vapid-fair-going 2026-09-14
+- id: M31
+  intent: The human ruled 'the final report should trigger the orchestrator to terminate the agent, then
+    fire the event, then clean up. not via shell script, via go'; I'm about to propose shapes for that
+    lifecycle.
+  observed: 1
+  example: '[user] ok, the final report should trigger the orchestrator to terminate the agent, then it
+    should fire the event, then it should be cleaned up. not via shell script, via go'
+  expect:
+  - design-by-test
+  source: missed
+  session: vapid-fair-going 2026-09-13
+  label_note: a data path and a contract are being decided; 'trigger' here is not a task trigger.
+- id: M32
+  intent: The human said 'no, no daemon per socket. One grpc interface, running as user... it launches
+    and kills runners'; I'm about to shape a public gRPC surface.
+  observed: 1
+  example: '[user] no, no daemon per socket. One grpc interface, running as user...'
+  expect:
+  - design-by-test
+  source: missed
+  session: gusty-bleak-tweak 2026-08-31
+  label_note: 'borderline: design talk, not yet implementation; a public contract is the subject.'
+- id: M33
+  intent: The human asked 'is the tagma comparator standard with other comparators? lets use a standard
+    interface if we can'; I'm about to choose the comparator's interface.
+  observed: 1
+  example: '[user] ok, is the tagma comparator standard with other comparators? lets use a standard interface
+    if we can'
+  expect:
+  - design-by-test
+  source: missed
+  session: vague-rocky-sniff 2026-07-22
+  label_note: borderline; predates the skill.
+- id: M34
+  intent: B2 has merged, which unblocks a row whose Deferred sibling's trigger has now fired; I'm about
+    to settle that row first.
+  observed: 1
+  example: '[assistant] B2 has merged, which unblocks `growing-shelf` - and its Deferred sibling''s trigger
+    has fired, so let me settle that first'
+  expect:
+  - check-triggers
+  source: missed
+  session: quit-lanky-frame
+  label_note: agent judged the trigger by hand; the skill says the tool is the mechanism now.
+- id: M35
+  intent: I've noticed Deferred tasks were never in any batch because the default list hides them; I'm
+    about to rebuild the plan to cover them.
+  observed: 1
+  example: '[assistant] 74 Deferred tasks had never been in any batch. The default list hides them...'
+  expect:
+  - check-triggers
+  source: missed
+  session: plump-sappy-siren
+- id: M36
+  intent: An agent found 6 of 18 Deferred tasks parked on triggers that already fired; I'm about to decide
+    what to do with them.
+  observed: 1
+  example: '[assistant] `c02` found 6 of 18 Deferred tasks are parked on triggers that already fired -
+    33%. They''re not deferred, they''re forgotten.'
+  expect:
+  - check-triggers
+  source: missed
+  session: plump-sappy-siren
+  label_note: the exact finding the skill exists to produce, produced by hand.
+- id: M37
+  intent: I'm about to state whether a Deferred row's revive trigger has fired, judging from the tree.
+  observed: 1
+  example: '[assistant] Its revive trigger - a decision to sort the whole backlog by consequence, not
+    just the release set - has not fired.'
+  expect:
+  - check-triggers
+  source: missed
+  session: lousy-elder-lint
+- id: M38
+  intent: Five gated tasks are Deferred, two of them security- and data-loss-shaped, and a prerelease
+    cut is coming; I'm about to flag them before pre001.
+  observed: 1
+  example: '[assistant] Five gated tasks are Deferred, including `tepid-emu` (security) and `only-viper`
+    (data-loss)... Worth a look before pre001.'
+  expect:
+  - check-triggers
+  - prompt-human
+  source: missed
+  session: vague-rocky-sniff
+  label_note: prompt-human also names 'before cutting a release'.
+- id: M39
+  intent: Starting a session, I'm about to list every open task including the Deferred ones to see the
+    whole board.
+  observed: 1
+  example: '[tool_use] task_list {statuses: [''To Do'',''In Progress'',''Deferred'']}'
+  expect:
+  - check-triggers
+  source: missed
+  session: regal-rash-dash
+  label_note: 'borderline: listing, not judging; include.'
+- id: M40
+  intent: The human said 'can you recover lined-evil-niece please'; I'm about to load that session's context.
+  observed: 1
+  example: '[user] can you recover lined-evil-niece please'
+  expect:
+  - recover
+  source: missed
+  session: finer-vile-haiku 2026-08-08
+  label_note: the shipped body says THIS session after /clear; the ask names another session. Borderline
+    -> include.
+- id: M41
+  intent: The human said 'ok, lets recover from green-moist-tweed'; I'm about to pull that session's history.
+  observed: 1
+  example: '[user] ok, lets recover from green-moist-tweed'
+  expect:
+  - recover
+  source: missed
+  session: dire-upper-trade 2026-08-29
+- id: M42
+  intent: The context was just cleared and I don't hold the protocol I was following; I'm about to go
+    looking for what I was doing.
+  observed: 1
+  example: '[assistant] Let me find it rather than guess - I don''t have that protocol in context after
+    the `/clear`.'
+  expect:
+  - recover
+  source: missed
+  session: ideal-ashy-chevy 2026-09-07
+- id: M43
+  intent: A brief handed me a commit range and says 'close out the ten commits made before the /clear';
+    I'm about to reconstruct what they were.
+  observed: 1
+  example: Skill(closeout, 'Close out the ten commits made before the /clear on release/...') with no
+    recover
+  expect:
+  - recover
+  - closeout
+  source: missed
+  session: '2026-09-03'
+  label_note: closeout was invoked; recover was not. Listed here for recover.
+- id: N01
+  intent: The human asked 'what hooks do we have available? do we have a pre turn end hook? (not configured
+    hooks, but triggers)'; I'm about to list the hook vocabulary.
+  observed: 1
+  example: '[user] ok, what hooks do we have available? do we have a pre turn end hook? (not configurd
+    hooks, but triggers)'
+  expect: []
+  source: canary
+  session: firm-merry-bully
+  label_note: '''trigger'' as hook event, not a Deferred task.'
+  canary: true
+- id: N02
+  intent: The human ruled 'close out should be a valid skill (do not invoke now) but should not be triggered
+    on hook'; I'm about to record the ruling.
+  observed: 1
+  example: '[user] close out should be a valid skill (do not invoke now) but should *not* be triggered
+    on hook'
+  expect: []
+  source: canary
+  session: gusty-bleak-tweak
+  label_note: talking ABOUT the skill, with an explicit do-not-invoke.
+  canary: true
+- id: N03
+  intent: The human said 'lets set up an always-on closeout reminder to instruct the LLM to ask the user
+    to run closeout after workstreams complete'; I'm about to write a fragment.
+  observed: 1
+  example: '[user] ok, lets real quick set up an always on closeout reminder...'
+  expect: []
+  source: canary
+  session: gusty-bleak-tweak
+  label_note: authoring guidance about closeout is not closing out.
+  canary: true
+- id: N04
+  intent: The human asked 'do we have the closeout/agent end? clean up level numbering'; I'm about to
+    check a ruling and tidy numbering.
+  observed: 1
+  example: '[user] yeah, do we have the closeout/agent end? clean up level numbering.'
+  expect: []
+  source: canary
+  session: vapid-fair-going
+  canary: true
+- id: N05
+  intent: The human said 'well crap, that's a bug in recover, which I thought we just fixed' then 'fix
+    recover first'; I'm about to debug the recover code path.
+  observed: 1
+  example: '[user] fix recover first'
+  expect: []
+  source: canary
+  session: ugly-icy-squid
+  label_note: fixing the feature named recover; not recovering.
+  canary: true
+- id: N06
+  intent: The human said 'ok, compact it' about the memory index; I'm about to compress the index file
+    in place.
+  observed: 1
+  example: '[user] ok, compact it -> ''61 entries, all worth keeping - I''ll compress in place'''
+  expect: []
+  source: canary
+  session: regal-rash-dash
+  canary: true
+- id: N07
+  intent: I'm about to park a task as Deferred with a revive trigger naming the condition that should
+    bring it back.
+  observed: 1
+  example: '[assistant] Filed as `unexposed-bagginess`, Deferred with a revive trigger.'
+  expect: []
+  source: canary
+  session: gusty-bleak-tweak
+  label_note: the DEFER half; check-triggers is the read/decide half and says so.
+  canary: true
+- id: N08
+  intent: The human said 'lets build a good night skill that instructs the agents to work through a defined
+    work queue...'; I'm about to draft a skill.
+  observed: 1
+  example: '[user] ok, lets build a good night skill that instructs the agents (ideally a coordinator)
+    to work through a defined work queue...'
+  expect: []
+  source: canary
+  session: wordy-broad-stank 2026-07-29
+  label_note: authoring the skill, before it existed.
+  canary: true
+- id: N09
+  intent: The human asked 'so what directive caused you to stop there? the last 2/3 of nights it's halted
+    very early'; I'm about to explain last night's early stop.
+  observed: 1
+  example: '[user] so what directive caused you to stop there?...'
+  expect: []
+  source: canary
+  session: ugly-icy-squid
+  label_note: a post-mortem question about the run, not a run.
+  canary: true
+- id: N10
+  intent: The human asked 'will an install and restart restore recover's working, or are we broken right
+    now?'; I'm about to compare binary versions.
+  observed: 1
+  example: '[user] will an install and restart to restore recover''s working be viable, or are we broken
+    right now?'
+  expect: []
+  source: canary
+  session: left-blue-stool
+  canary: true
+- id: N11
+  intent: The human said 'remove the shell trigger, keeping unattended skill. remove the skill's saying
+    it is triggered on turn complete'; I'm about to sweep prose for a stale claim.
+  observed: 1
+  example: '[user] hmm, B. remove the shell trigger, keeping unattended skill...'
+  expect: []
+  source: canary
+  session: gusty-bleak-tweak
+  canary: true
+- id: C01
+  intent: The user asked which time zone the server stamps its logs in; I'll read one line and tell them.
+  observed: 1
+  example: (authored, not mined)
+  expect: []
+  source: canary
+  canary: true
+- id: C02
+  intent: I'm renaming a local variable inside a single function so it reads better.
+  observed: 1
+  example: (authored, not mined)
+  expect: []
+  source: canary
+  canary: true
+- id: C03
+  intent: The user asked me to explain how the premise filter withholds fragments; I'm reading the code
+    to answer.
+  observed: 1
+  example: (authored, not mined)
+  expect: []
+  source: canary
+  canary: true
+- id: C04
+  intent: I'm about to run the linter and fix the formatting complaints before continuing.
+  observed: 1
+  example: (authored, not mined)
+  expect: []
+  source: canary
+  canary: true
+- id: C05
+  intent: The user asked what the --degraded flag does; I'll read its definition and answer.
+  observed: 1
+  example: (authored, not mined)
+  expect: []
+  source: canary
+  canary: true
+- id: C06
+  intent: I'm writing the commit message for the change I just made.
+  observed: 1
+  example: (authored, not mined)
+  expect: []
+  source: canary
+  canary: true

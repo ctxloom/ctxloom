@@ -211,6 +211,14 @@ type Config struct {
 	// presentation preferences; `run --plain-terminal` disables the layer
 	// entirely regardless of this section.
 	ui UIConfig
+	// sessionReapAge is how old a session must be before `ctxloom clean`
+	// reclaims its disposable store (~/.ctxloom/sessions/<harp>/ephemeral),
+	// in the age grammar `clean --older-than` takes ("30d", "12w", "720h").
+	// Empty means the built-in default (DefaultSessionReapAge). A fact about
+	// this machine's disk, not project policy: the sessions root is
+	// home-global, so this is honoured from the home file and never from
+	// the committed project file (layerscope: ScopeMachine).
+	sessionReapAge string
 
 	// Runtime-only fields: populated during Load, never part of the persisted
 	// config — configDoc (their yaml counterpart) simply omits them, which
@@ -360,6 +368,7 @@ type configDoc struct {
 	IsolationDevcontainerService string                  `yaml:"isolation_devcontainer_service,omitempty"`
 	IsolationEngines             []string                `yaml:"isolation_engines,omitempty"`
 	UI                           UIConfig                `yaml:"ui,omitempty"`
+	SessionReapAge               string                  `yaml:"session_reap_age,omitempty"`
 }
 
 // toDoc copies c's persisted fields into a configDoc for marshaling.
@@ -392,6 +401,7 @@ func (c *Config) toDoc() configDoc {
 		IsolationDevcontainerService: c.isolationDevcontainerService,
 		IsolationEngines:             slices.Clone(c.isolationEngines),
 		UI:                           cloneUIConfig(c.ui),
+		SessionReapAge:               c.sessionReapAge,
 	}
 }
 
@@ -419,6 +429,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.isolationDevcontainerService = doc.IsolationDevcontainerService
 	c.isolationEngines = doc.IsolationEngines
 	c.ui = doc.UI
+	c.sessionReapAge = doc.SessionReapAge
 
 	// lm.Configs is pre-populated before every decode precisely so downstream
 	// code may write into it, and a document is free to null it back out.
@@ -777,6 +788,24 @@ type DelegationConfig struct {
 // coordinator itself always agree on the resolved cap without ever
 // exchanging it over the wire.
 const DefaultDelegationDepth = 1
+
+// DefaultSessionReapAge is the built-in default for session_reap_age: the
+// age past which `ctxloom clean` reclaims a session's disposable store when
+// neither the home config nor --older-than states one. Thirty days is long
+// enough that a session someone is still resuming keeps its scratch, and
+// short enough that the store — which every run now adds a directory to —
+// stays bounded.
+const DefaultSessionReapAge = "30d"
+
+// SessionReapAge returns the configured session_reap_age, defaulting to
+// DefaultSessionReapAge. The value is an age in `clean --older-than`'s
+// grammar and is parsed there, not here: one grammar, one parser.
+func (c *Config) SessionReapAge() string {
+	if c.sessionReapAge == "" {
+		return DefaultSessionReapAge
+	}
+	return c.sessionReapAge
+}
 
 // DefaultUIPrefixKey is the default viewer prefix key (decision O2 of the
 // agent-io-observation plan: Ctrl-], explicitly not ESC).

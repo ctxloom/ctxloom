@@ -48,6 +48,7 @@ type Fixture struct {
 	IsolationDevcontainerService string
 	IsolationEngines             []string
 	UI                           UIConfig
+	SessionReapAge               string
 
 	// Runtime-only fields, mirroring Config's own (see Config's doc).
 	AppPaths           []string
@@ -88,6 +89,7 @@ func (c *Config) ToFixture() Fixture {
 		IsolationDevcontainerService: c.isolationDevcontainerService,
 		IsolationEngines:             slices.Clone(c.isolationEngines),
 		UI:                           cloneUIConfig(c.ui),
+		SessionReapAge:               c.sessionReapAge,
 		AppPaths:                     slices.Clone(c.appPaths),
 		AppRoot:                      c.appRoot,
 		AppDir:                       c.appDir,
@@ -135,6 +137,7 @@ func NewFixture(f Fixture) *Config {
 		isolationDevcontainerService: f.IsolationDevcontainerService,
 		isolationEngines:             slices.Clone(f.IsolationEngines),
 		ui:                           cloneUIConfig(f.UI),
+		sessionReapAge:               f.SessionReapAge,
 		appPaths:                     slices.Clone(f.AppPaths),
 		appRoot:                      f.AppRoot,
 		appDir:                       f.AppDir,

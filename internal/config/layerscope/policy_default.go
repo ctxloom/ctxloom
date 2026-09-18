@@ -62,6 +62,7 @@ func DefaultPolicy() Policy {
 		{Path: "dirty_tree_commit_ack", Scope: ScopeNever, Note: "prior human authorization to mutate a repo belongs in an admission store, never the config chain"},
 
 		{Path: "delegation.concurrency", Scope: ScopeMachine, Note: "a resource ceiling — a fact about the box"},
+		{Path: "session_reap_age", Scope: ScopeMachine, Note: "how long this machine's home-global session store keeps disposable state; a fact about the box's disk, never a project's"},
 		{Path: "delegation.depth", Scope: ScopeMachine, Note: "a structural safety ceiling, tuned per box like a resource cap; a team's shared policy would belong in agents.*.permissions instead"},
 
 		{Path: "llm.configs.*", Scope: ScopePreference, Note: "which model a person likes; harmless in either file"},

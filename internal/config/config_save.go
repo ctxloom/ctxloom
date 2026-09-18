@@ -414,6 +414,10 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// precisely so an explicit `surround: false` is distinguishable from
 	// unset and survives the round trip.
 	setOrDelete(existing, "ui", c.ui.PrefixKey != "" || c.ui.Surround != nil, c.ui)
+	// The aged-session sweep's age; pruned when empty so an unset file falls
+	// through to DefaultSessionReapAge rather than persisting a value nobody
+	// chose.
+	setOrDelete(existing, "session_reap_age", c.sessionReapAge != "", c.sessionReapAge)
 	if c.isolationDevcontainerBase != nil {
 		setOrDelete(existing, "isolation_devcontainer_base", true, *c.isolationDevcontainerBase)
 	} else {

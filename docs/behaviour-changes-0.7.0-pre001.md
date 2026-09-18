@@ -223,6 +223,7 @@ in scoped and global listings alike — they are never hidden.
 | Surface | Before | Now |
 |---|---|---|
 | A child relaunch, turn boundary, or wake whose mail-consume fails to journal | read as "no mail": the child was driven with **no prompt** / parked idle holding undelivered mail, and the message became permanently invisible (its reservation was never released) | the reservation is released so the message stays queued, and the child is failed with the journal error rather than driven promptless |
+| A coordinating agent steering, questioning, summarizing, pausing or resuming one of its children | only the human could (viewer/terminal steer); an agent had `agent_send` for an instruction and `agent_stop` as the only "pause" | five runner-surface tools — `agent_steer`, `agent_ask`, `agent_summarize`, `agent_pause`, `agent_resume` — ride the new `ControlRun` plane-2 frame onto the same coordinator verbs the viewer uses; withheld from a leaf like `agent_stop`, ownership-checked against the caller's own children, and `agent_pause`/`agent_resume` report whether THIS call changed the run's state |
 
 ### Build and generator gates (contributors)
 

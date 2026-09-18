@@ -194,7 +194,16 @@ var excludedTemplates = map[string]string{}
 // is decided from real coverage data by TestCLICoverage_EveryLeafActuallyRan,
 // which has its own exemption list and its own fails-in-both-directions
 // contract. What remains under this ratchet is the MCP surface alone.
-const maxKnownUncoveredTotal = 3
+// RAISED 3 -> 8 by the five control tools (agent_steer, agent_ask,
+// agent_summarize, agent_pause, agent_resume): they are runner-only, and this
+// harness drives the STANDALONE surface — no scenario here reaches a spawned
+// child's runner socket, which is the same reason roster, agent_report and
+// agent_fetch_artifact sit in knownUncoveredRunnerOnlyTools. Their behaviour
+// is pinned at the runner surface against a live coordinator in
+// internal/mcp (mcp_runner_control_test.go) and on the wire in
+// internal/agentcoord/coord (controlwire_test.go); the backfill this ratchet
+// waits for is a harness that can drive the runner surface at all.
+const maxKnownUncoveredTotal = 8
 
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.

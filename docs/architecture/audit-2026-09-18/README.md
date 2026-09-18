@@ -21,6 +21,14 @@ References are by symbol and file, never line numbers.
   runner socket), as package boundaries, exported signatures, the target data flow,
   a deletion ledger, the rulings it needs, and an ordered migration with three
   design-by-test bodies
+- `21-adversarial-review.md` — the attack on design A: 25 refuted / 33 held, with the smallest
+  design change that closes each refutation
+- `22-target-architecture-b.md` — design B, made blind to A from the same evidence, with
+  the config-lifecycle and pass-once emphases
+- `23-comparison-a-vs-b.md` — where A and B agree (the provisional skeleton) and the
+  divergence table with the review's bearing on each
+- `24-adversarial-review-b.md` — the attack on design B against the rulings made after
+  the comparison, added when it lands
 - `briefs/` — what each analyst was asked, for scope
 
 These are a snapshot: they describe the tree they were read from. Findings that land

@@ -829,7 +829,7 @@ func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, deny
 // stale-ledger checkout as if a user had written them.
 // TestRemoveSettings_WithoutALedger_ReclaimsEveryHookCtxloomConstructs walks the
 // constructors and fails when one is not recognised here.
-var ctxloomMachineCallbacks = []string{"inject-context", "session-bind", "stamp-plan", "tool-reflect", "next-step", "hud"}
+var ctxloomMachineCallbacks = []string{"inject-context", "session-bind", "stamp-plan", "tool-reflect", "skill-mates", "next-step", "hud"}
 
 func isCtxloomMachineCallback(command string) bool {
 	if !agent.IsManaged(command, "ctxloom") {

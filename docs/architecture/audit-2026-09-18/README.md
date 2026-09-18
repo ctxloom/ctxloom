@@ -14,6 +14,13 @@ References are by symbol and file, never line numbers.
   ranked refactor program with the human rulings each slice needs (Part B)
 - `11-dataflow-review.md` — the data-flow lens (unused inputs, guessed inputs,
   coupling, internals passed out), added when it lands
+- `20-target-architecture.md` — the revised architecture designed from the review under
+  the human's rulings (hexagonal core/ports/adapters; engines as polymorphic plugin
+  packages; one composite package from repos, project and companions; static and
+  dynamic delivery; session home as the default root; one owner per harp over the
+  runner socket), as package boundaries, exported signatures, the target data flow,
+  a deletion ledger, the rulings it needs, and an ordered migration with three
+  design-by-test bodies
 - `briefs/` — what each analyst was asked, for scope
 
 These are a snapshot: they describe the tree they were read from. Findings that land

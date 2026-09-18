@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -571,5 +572,40 @@ func TestParseWorkspaceAxis(t *testing.T) {
 		// WantsWorktree reads anything unrecognized as the shared checkout.
 		assert.False(t, Axes{Workspace: WorkspaceAxis(bad)}.WantsWorktree(),
 			"an unparsed spelling really would have read as the shared checkout")
+	}
+}
+
+// TestChainFor_TestOnlyVendorlessEngine_ReachesTheRuntimeProbe pins the last
+// gate before a daemon for a test double bound to a container: with a
+// runtime answering, the chain's first tier IS a container carrying that
+// engine's spec, whose auth resolves without any credential — and nothing on
+// the way raised a finding. The probe itself is stubbed because it is the
+// daemon; everything short of it is the claim.
+//
+// A double is DistributionTestOnly, which keeps it out of every OFFERED and
+// composed roster. Those rosters are lists of names; this chain must never
+// consult one, because the capability (a declared install fragment and a
+// vendorless auth) is what a container run actually needs.
+func TestChainFor_TestOnlyVendorlessEngine_ReachesTheRuntimeProbe(t *testing.T) {
+	const engine = "vendorless-chain"
+	registerVendorlessFixture(t, engine, agent.DistributionTestOnly)
+	require.NotContains(t, ContainerAuthEngines(), engine, "precondition: the double is not on the offered roster")
+	require.NotContains(t, composableEngines(), engine, "precondition: nor on the composed one")
+
+	for _, axis := range []RuntimeAxis{RuntimeContainerRootless, RuntimeContainerRootful} {
+		t.Run(string(axis), func(t *testing.T) {
+			resetStrictness(t)
+			stubRuntimeProbe(t, fakeRuntime{name: "docker", binary: "docker", available: true})
+
+			chain := chainFor(Axes{Workspace: WorkspaceShared, Runtime: axis}, engine, ImageConfig{})
+
+			require.NotEmpty(t, chain)
+			c, ok := chain[0].(Container)
+			require.True(t, ok, "the first tier is the container the run asked for, not a degrade")
+			assert.Equal(t, engine, c.engine)
+			_, authOK := c.engineSpec.resolveAuth(c.home, t.TempDir())
+			assert.True(t, authOK, "the spec the tier carries authenticates the double against nothing")
+			assert.Empty(t, strictness.All(), "no gate short of the daemon refused the pair")
+		})
 	}
 }

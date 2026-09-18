@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,6 +100,16 @@ func TestEngineContainerSpecFor_Vendorless(t *testing.T) {
 	assert.Equal(t, []string{".mock", ctxloomCacheOverlayDir}, p.overlayDirs)
 	assert.Empty(t, p.transcriptStoreRel)
 	assert.Nil(t, p.relocatedCredentialMounts, "no credential files, nothing to overlay on a relocated home")
+
+	// The hint is read only when resolveAuth answers !ok, which a vendorless
+	// resolver never does, so the ONE string the field can carry here is a
+	// sentinel that says so. The declaration side already forbids a real
+	// hint (agent.ContainerAuth.Validate: Vendorless excludes Hint); this
+	// pins the spec side, so the error a broken invariant would print names
+	// the invariant rather than a vendor credential that does not exist.
+	assert.True(t, strings.HasPrefix(p.authHint, "unreachable:"), "authHint = %q", p.authHint)
+	assert.Contains(t, p.authHint, "vendorless-fixture authenticates against no vendor",
+		"the sentinel carries the declaration's own reason, so a reader of the message can see which engine claimed it")
 
 	require.NotNil(t, p.resolveAuth)
 	for _, home := range []string{"/root", ""} {

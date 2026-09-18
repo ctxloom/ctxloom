@@ -1,11 +1,13 @@
 package operations
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 )
@@ -157,6 +159,55 @@ func TestAgentRuntimeOffer_AgreesWithWhatTheWriterAccepts(t *testing.T) {
 				"%s: the interview withheld container-rootless, so the write must refuse it — an offer the writer accepts but the interview hides is a missing option, and one the interview offers but the writer refuses is a wasted decision", backend)
 			assert.Contains(t, err.Error(), "container auth",
 				"%s: and the refusal must be the container-auth one, not some unrelated failure", backend)
+		})
+	}
+}
+
+// mockContainerConfig is the containerized-run journey's fixture in miniature
+// (tests/acceptance's j002200ConfigYAML): one label on the mock backend, and an
+// agent bound to it with a container runtime. It is the exact pair a live
+// daemon would launch, so the proof below runs on the same shape.
+const mockContainerConfig = "version: 6\nllm:\n  configs:\n    fast: { type: mock }\n  defaults:\n    primary: fast\nagents:\n  mock-container:\n    llm: fast\n    profiles: []\n    runtime: container-rootless\n"
+
+// TestMockBoundToContainer_PassesEveryValidationShortOfADaemon is the
+// operations-layer half of the claim "nothing outside internal/lm/isolation
+// refuses mock + container": every gate a binding crosses before a runtime is
+// probed — the interview's offer, the writer's refusal, and the launch's
+// resolution — accepts it, for BOTH ownership modes.
+//
+// mock is DistributionTestOnly, so ContainerAuthEngines() never NAMES it in a
+// refusal's suggestion list; that is a roster fact about what is OFFERED by
+// name, and it must not leak into the capability check that decides
+// acceptance. Asserting acceptance here, rather than agreement between the
+// two gates (TestAgentRuntimeOffer_AgreesWithWhatTheWriterAccepts), is what
+// rules out the failure where both consistently refuse a double.
+func TestMockBoundToContainer_PassesEveryValidationShortOfADaemon(t *testing.T) {
+	for _, axis := range []isolation.RuntimeAxis{isolation.RuntimeContainerRootless, isolation.RuntimeContainerRootful} {
+		t.Run(string(axis), func(t *testing.T) {
+			cfg, appDir := loadConfigDir(t, mockContainerConfig)
+
+			offer := AgentRuntimeOffer(cfg, "fast")
+			assert.Equal(t, "mock", offer.Backend, "the label resolves to the double")
+			assert.Contains(t, offer.Runtimes, axis, "the interview offers the container axis for mock")
+			assert.Empty(t, offer.ContainerWithheld)
+			assert.NotContains(t, isolation.ContainerAuthEngines(), "mock",
+				"precondition: mock is absent from the OFFERED roster, so acceptance below is decided by capability alone")
+
+			_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+				Name:    "mock-container",
+				LLM:     ptr("fast"),
+				Runtime: ptr(string(axis)),
+			})
+			require.NoError(t, err, "the writer accepts the binding")
+
+			// Re-read what the writer persisted: the launch resolves the
+			// binding on disk, not the fixture's in-memory copy.
+			written, err := config.Load(config.WithAppDir(appDir))
+			require.NoError(t, err)
+			rs, err := ResolveAgent(context.Background(), written, "mock-container", "")
+			require.NoError(t, err, "the launch resolves the binding")
+			assert.Equal(t, "mock", rs.Backend)
+			assert.Equal(t, axis, rs.Runtime, "the container axis reaches the resolved agent, where the run reads it")
 		})
 	}
 }

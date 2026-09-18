@@ -1182,3 +1182,29 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 			"and the provenance label, so a mismatched image is flagged stale exactly once")
 	}
 }
+
+// TestComposeAgentContainerfile_TestOnlyEngineBakesOnlyItself closes the
+// "heavy image" worry for a test double: because an agent image carries
+// exactly ONE engine, composing for a DistributionTestOnly engine yields that
+// engine's own install fragment and no vendor's — not a shared multi-engine
+// image with every installer and network pull in it. The default-composed
+// roster (composableEngines) excludes a double, and that exclusion decides
+// which images `container build` pre-builds unasked, never what goes INSIDE
+// the image a run of the double composes for itself.
+//
+// TestComposeAgentContainerfile_ExactlyOneEngineStage iterates the composed
+// roster, so it can never reach a double; this is the same claim for the
+// engine that roster leaves out.
+func TestComposeAgentContainerfile_TestOnlyEngineBakesOnlyItself(t *testing.T) {
+	const engine = "vendorless-lean"
+	registerVendorlessFixture(t, engine, agent.DistributionTestOnly)
+	require.NotContains(t, composableEngines(), engine, "precondition: a double is never on the default-composed roster")
+
+	cf := string(composeAgentContainerfile(engine))
+
+	assert.Equal(t, 2, strings.Count(cf, "# engine: "),
+		"the header line and EXACTLY ONE engine stage — a second stage would be another vendor's installer riding into a double's image")
+	assert.Contains(t, cf, "RUN command -v cat", "the double's own fragment is the one baked")
+	assert.NotContains(t, cf, "claude --version", "no real vendor's installer is present")
+	assert.Contains(t, cf, `LABEL ctxloom.engine="`+engine+`"`)
+}

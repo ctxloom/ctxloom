@@ -71,7 +71,6 @@ package acceptance
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -88,7 +87,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
-	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 
@@ -1272,14 +1270,8 @@ func j001400DeliverInContainer(c context.Context, w *World, root string) error {
 	st := j001400Of(w)
 	rt, decision, msg := containercell.Select(c, "J001400's container delivery-matrix rows")
 	j001400ContainerReport.Do(func() { fmt.Println("\n" + containercell.Report(containercell.Detect(c))) })
-	switch decision {
-	case dockergate.Fail:
-		return errors.New(msg)
-	case dockergate.Skip:
-		fmt.Printf("SKIPPED (J001400 container delivery row): %s\n", msg)
-		w.docStepMaterialized = "SKIPPED: " + msg
-		return godog.ErrSkip
-	case dockergate.Proceed:
+	if err := gateContainerRow(w, "J001400 container delivery row", decision, msg); err != nil {
+		return err
 	}
 
 	// The anti-vacuity guard. If the engine's context file were already there,

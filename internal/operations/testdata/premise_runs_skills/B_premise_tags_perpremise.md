@@ -1,0 +1,157 @@
+# Applicability, premise and tags
+
+You are an agent about to act. Below are 7
+fragments of guidance you may load, and a list of SITUATIONS: statements of what an
+agent is about to do.
+
+Each fragment gives you TWO signals:
+
+  PREMISE -- the condition under which the guidance applies.
+  TAGS    -- the artifacts, tools and concepts the fragment concerns.
+
+BOTH are valid grounds for including a fragment. Specifically:
+
+  - If the PREMISE describes the moment, include it.
+  - If the TAGS clearly match what the situation is about, that is ALSO
+    sufficient grounds to include it, even where the premise reads as a
+    near-miss.
+  - Where the premise is a BORDERLINE call, let a tag match settle it toward
+    INCLUDING. We would much rather offer a fragment that turns out to be
+    unnecessary than withhold one that was needed: an unnecessary fragment
+    costs a little context, while a withheld one is never learned to exist and
+    cannot be asked for.
+  - Only when neither the premise nor the tags reach the moment, answer NONE.
+
+Bear in mind the situations are terse -- one line each, where a real moment
+carries much more. Judge what the line is plainly ABOUT, and do not require it
+to spell out every condition a premise names.
+
+Consider each fragment ON ITS OWN against every situation. You are not choosing
+a best match; several fragments may apply to the same situation, and that is
+expected.
+
+Output one line per fragment, nothing else:
+
+    <fragment-name>: <situation ids, or NONE>
+
+## Fragments (7)
+
+### closeout
+TAGS: close out, wrap up, gate, mutation, falsified comment, task log, report, done
+PREMISE: The human has told you to close out, wrap up, or finish the work properly, or a unit of work has just ended -- the gate is green and you are about to report what landed. Not per turn, and not while the work is still moving.
+
+### admit
+TAGS: queue, tonight, admit, preflight, overnight, stop conditions, taskloom tag, carry-forward
+PREMISE: You are deciding, with the human still present, what tonight's queue may hold: they said admit, preflight, tonight's queue, or what should run overnight, asked what is in the queue, or are about to leave you a queue to work.
+
+### unattended
+TAGS: good night, overnight, unattended, queue, stop conditions, coordinator, morning report, revert budget
+PREMISE: The human said good night, run overnight, run this unattended, or handed you a queue and left, and you are about to work with nobody to answer a question or approve anything until morning.
+
+### prompt-human
+TAGS: human decisions, open questions, pending, blocked on the human, escalation, question prompt, hand-off, morning after
+PREMISE: The human asked what is pending, blocked on them, or needs deciding, or told you to raise, run by them, or go through the human questions or decisions -- any wording -- or you are about to hand off, end a session, or cut a release.
+
+### design-by-test
+TAGS: interface, signature, contract, schema, boundary, data path, red test, dispatch, architecture
+PREMISE: You are about to introduce or change a signature, interface, contract, schema, boundary, or data path -- yourself or by dispatching an implementer -- and no failing test yet states the proposed shape.
+
+### check-triggers
+TAGS: Deferred, revive trigger, task log, evaluate_triggers, backlog, release cut
+PREMISE: You are reading the task log, judging by hand whether a Deferred task's revive trigger has fired, about to revive one, or reviewing the board before a release cut or a queue admission with Deferred rows on it.
+
+### recover
+TAGS: /clear, recover, session, context, distilled essence, resume
+PREMISE: The context was cleared, or the human asked you to recover a session by name, and you are about to reconstruct what was being worked on before acting on it.
+
+## Situations (89)
+
+S01: The human said 'ok, lets prepare an unattended run'; I'm about to set tonight's queue up with them still here.
+S02: The human said 'ok, file that and admit it for tonight'; I'm about to record the row and put it on tonight's queue.
+S03: The human said 'lets admit the 2s and preflight them'; I'm about to triage those rows for tonight and then pre-flight the run.
+S04: The human said 'ok, resume the queue for tonight'; I'm about to roll the live queue tag forward.
+S05: The human said 'yeah, admit them to tonight's queue and work them'; I'm about to admit and then start working the queue autonomously.
+S06: A sub-agent's final report just landed with a deferred item; I'm about to put that item onto tonight's queue as a follow-up.
+S07: A Stop hook says 'This turn changed files. Invoke the closeout skill and follow it.'; I'm about to comply.
+S08: The human said 'ok, closeout'; I'm about to verify, mutate, fix docs, true the task log and report.
+S09: The human said 'yes, run closeout, present human questions'; I'm about to close out and then put the open decisions to them.
+S10: The human said 'crap, close out the prior to clear items'; I'm about to close out commits made before the /clear that I no longer hold in context.
+S11: The background full-acceptance run I started after merging has just completed with exit 0; I'm about to close the merged work out.
+S12: It is morning; the unattended run of last night's queue is complete and the human said 'close out'; I'm about to close the night's work out.
+S13: The human said 'hmm, we have a skill similar to wrap it up that didn't just trigger'; I'm about to run the close-out I missed.
+S14: I'm about to dispatch an implementer to route distillation through an existing operations entry point, which changes a data path and a call signature.
+S15: The human said 'ok, raise the human decisions'; I'm about to sweep for what is blocked on them and ask each one with full context.
+S16: The human said 'give me human questions'; I'm about to present the open decisions.
+S17: The human said 'run the human by my' (typo for 'by me'); I'm about to walk the pending decisions past them.
+S18: The human said 'run it by me with more context'; I'm about to re-present the open decisions with the situation explained.
+S19: The human said 'human protocol, ask questions'; I'm about to put the blocked decisions to them one at a time.
+S20: An adversarial review left four findings that need a ruling and the human said 'raise them w/human protocol'; I'm about to ask each.
+S21: It is morning after an unattended run and the human asked 'what can we continue that didn't get continued to finish last night's queue?'; I'm about to read the report and surface what stopped and why.
+S22: The human said 'ok, lets resume the taskloom queue for today'; I'm about to work the rows that are open, several of which are blocked on them.
+S23: I have finished the close-out checklist and step 5 left items deferred for a human decision; I'm about to report.
+S24: The human said 'good night'; I'm about to start working the admitted queue on my own until morning.
+S25: The human said 'ok, lets look at the taskloom queue for tonight and preflight it for good night'; I'm about to read the queue and pre-flight the run.
+S26: The human said 'ok, lets build those now, unattended'; I'm about to work those items autonomously.
+S27: The human said 'locate the taskloom queue for tonight, which has been preflighted, and go unattended mode on it'.
+S28: The human said 'read the taskloom task log for tonight and action what we can, prompt for what we can't. get started, I'll be back in a bit to rule on any preflight items. good night'.
+S29: The human said 'recover zonal-lone-jazz'; I'm about to pull that session's distilled context back.
+M01: The human said 'ok, wrap it up after this gate'; the gate is running and I'm about to finish the ledger work and report.
+M02: The human said 'wrap it up'; the final gate is green and I'm about to close the session's work.
+M03: The human said 'ok, merge it and close out'; I'm about to merge the branch and then close out.
+M04: The human said 'ok, close out'; I'm about to work the checklist from memory of a body loaded earlier in the session.
+M05: The human said 'admit that'; I'm about to put the row we just discussed on tonight's queue.
+M06: The human said 'ok, admit the four I ruled -- those are all fine (explicit rule bypass)'; I'm about to tag four rows onto tonight's queue recording the waived stop condition on each.
+M07: The human said 'great, file it and add it to tonight's queue'; I'm about to file the row and admit it.
+M08: The human said 'that plan file needs to be admitted for tonight's implementation'; I'm about to put the plan's remaining work on the queue.
+M09: The human said 'tmux preflight now'; I'm about to pre-flight the tmux work against the stop conditions while they are still here.
+M10: The human said 'lets propose, from the architecture alignment plan, the run for tonight'; I'm about to pick candidates from the plan for tonight's queue.
+M11: The human said 'good night'; I answered 'Good night. Everything's committed and green' and stopped. Next morning: 'you didn't trigger good night protocol and work that last night'.
+M12: The human said 'ok, good night protocol for the container work'; I'm about to start the run on that work.
+M13: The human said 'run this unattended'; I'm about to continue the remaining slices on my own.
+M14: The human said 'ok, good night. keep driving through the queue' and left; I'm about to keep working the queue with nobody to ask.
+M15: The human asked 'ok, anything pending for good night?'; I'm about to say what is outstanding before they leave.
+M16: The human asked 'ok, are we ready to good night that?' about the daemon work; I'm about to judge whether it can be done with nobody watching.
+M17: The human said 'raise the human questions'; I'm about to surface what is blocked on them.
+M18: The human said 'raise them with human protocol'; I'm about to verify the facts and put each question to them.
+M19: The human asked 'ok, what was escalated, human protocol'; I'm about to list what tonight escalated to them.
+M20: The human said 'ok, let's work through the human questions'; I'm about to pull the queue of decisions.
+M21: The human said 'ok, run human things past me'; I'm about to validate the rows and ask.
+M22: The human said 'run design work by me'; I'm about to walk the design through with its open decisions flagged.
+M23: The human asked 'ok, what are the four human items?'; I'm about to answer.
+M24: The human said 'run them by me, one at a time, question prompt, more context'.
+M25: The human said 'ok, lets see what's pending in tasks'; I'm about to read the task log.
+M26: The human said 'continue with what can be handled. halt when a high consequence/hard to change decision needs to be made. keep the decisions and open questions logs open'.
+M27: The human ruled 'Approach should be an interface, and the engines should implement only those that they can support'; I'm about to build that interface.
+M28: The human said 'contract changes are fine, approved... we make sure that the v1 move and v1 locators happen at the same time'; I'm about to implement a contract change.
+M29: The human recalled 'we decided pretty standard OO designs there -- interface, things that don't make sense in interface go in constructor'; I'm about to build slice 3a on that shape.
+M30: The human asked 'is interface support/polymorphism not the better play for tactile hurry'; I'm about to decide an architectural question.
+M31: The human ruled 'the final report should trigger the orchestrator to terminate the agent, then fire the event, then clean up. not via shell script, via go'; I'm about to propose shapes for that lifecycle.
+M32: The human said 'no, no daemon per socket. One grpc interface, running as user... it launches and kills runners'; I'm about to shape a public gRPC surface.
+M33: The human asked 'is the tagma comparator standard with other comparators? lets use a standard interface if we can'; I'm about to choose the comparator's interface.
+M34: B2 has merged, which unblocks a row whose Deferred sibling's trigger has now fired; I'm about to settle that row first.
+M35: I've noticed Deferred tasks were never in any batch because the default list hides them; I'm about to rebuild the plan to cover them.
+M36: An agent found 6 of 18 Deferred tasks parked on triggers that already fired; I'm about to decide what to do with them.
+M37: I'm about to state whether a Deferred row's revive trigger has fired, judging from the tree.
+M38: Five gated tasks are Deferred, two of them security- and data-loss-shaped, and a prerelease cut is coming; I'm about to flag them before pre001.
+M39: Starting a session, I'm about to list every open task including the Deferred ones to see the whole board.
+M40: The human said 'can you recover lined-evil-niece please'; I'm about to load that session's context.
+M41: The human said 'ok, lets recover from green-moist-tweed'; I'm about to pull that session's history.
+M42: The context was just cleared and I don't hold the protocol I was following; I'm about to go looking for what I was doing.
+M43: A brief handed me a commit range and says 'close out the ten commits made before the /clear'; I'm about to reconstruct what they were.
+N01: The human asked 'what hooks do we have available? do we have a pre turn end hook? (not configured hooks, but triggers)'; I'm about to list the hook vocabulary.
+N02: The human ruled 'close out should be a valid skill (do not invoke now) but should not be triggered on hook'; I'm about to record the ruling.
+N03: The human said 'lets set up an always-on closeout reminder to instruct the LLM to ask the user to run closeout after workstreams complete'; I'm about to write a fragment.
+N04: The human asked 'do we have the closeout/agent end? clean up level numbering'; I'm about to check a ruling and tidy numbering.
+N05: The human said 'well crap, that's a bug in recover, which I thought we just fixed' then 'fix recover first'; I'm about to debug the recover code path.
+N06: The human said 'ok, compact it' about the memory index; I'm about to compress the index file in place.
+N07: I'm about to park a task as Deferred with a revive trigger naming the condition that should bring it back.
+N08: The human said 'lets build a good night skill that instructs the agents to work through a defined work queue...'; I'm about to draft a skill.
+N09: The human asked 'so what directive caused you to stop there? the last 2/3 of nights it's halted very early'; I'm about to explain last night's early stop.
+N10: The human asked 'will an install and restart restore recover's working, or are we broken right now?'; I'm about to compare binary versions.
+N11: The human said 'remove the shell trigger, keeping unattended skill. remove the skill's saying it is triggered on turn complete'; I'm about to sweep prose for a stale claim.
+C01: The user asked which time zone the server stamps its logs in; I'll read one line and tell them.
+C02: I'm renaming a local variable inside a single function so it reads better.
+C03: The user asked me to explain how the premise filter withholds fragments; I'm reading the code to answer.
+C04: I'm about to run the linter and fix the formatting complaints before continuing.
+C05: The user asked what the --degraded flag does; I'll read its definition and answer.
+C06: I'm writing the commit message for the change I just made.

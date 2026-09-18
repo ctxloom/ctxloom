@@ -1,0 +1,44 @@
+The following skills are available:
+
+- closeout: Close out a turn that changed something — verify against the real gate, kill a mutation for every test written or changed, fix falsified comments, leave the task log true, and fix or file what was found. Use when finishing a turn that touched code, …
+- admit: Admit work to the nightly queue — roll the live queue tag forward, triage every candidate against the unattended stop conditions, and withhold anything that cannot be finished in the dark. Use before handing over for an unattended run, when the huma…
+- unattended: Work an admitted queue of tasks autonomously and unattended — overnight or while the human is away — getting as far as is safely feasible and stopping short of any decision that is hard to reverse or that endangers the environment. Use when the huma…
+- prompt-human: Find everything blocked on a human decision, then put each one to them as an interactive question carrying far more context than usual — because they know the project but are running several threads at once and have no idea which one this is. Use wh…
+- design-by-test: Decide an architectural question by writing the test FIRST, because the test is where the interface gets proposed while it is still cheap to argue with. Use when planning any change that introduces or alters a signature, a boundary, a contract, or a…
+- check-triggers: Review Deferred tasks and surface any whose revive trigger has fired - You are reading the task log, judging by hand whether a Deferred task's revive trigger has fired, about to revive one, or reviewing the board before a release cut or a queue admi…
+- recover: Recover context from the current session after /clear - The context was cleared, or the human asked you to recover a session by name, and you are about to reconstruct what was being worked on before acting on it. [/, c, l, e, a, r, ,, , r, e, c, o, …
+
+Judge EACH skill on its own against the imminent action — you are not picking the single best match, and several may apply at once. When it is a borderline call, include it. Match against WHAT IS ABOUT TO BE DONE, not the surrounding context.
+
+For EACH situation below, name every skill that should be invoked, or NONE. Answer ONLY with lines of the form `<id>: name, name` or `<id>: NONE`, one per situation, in order, nothing else.
+
+S01: The human said 'ok, lets prepare an unattended run'; I'm about to set tonight's queue up with them still here.
+S02: The human said 'ok, file that and admit it for tonight'; I'm about to record the row and put it on tonight's queue.
+S03: The human said 'lets admit the 2s and preflight them'; I'm about to triage those rows for tonight and then pre-flight the run.
+S04: The human said 'ok, resume the queue for tonight'; I'm about to roll the live queue tag forward.
+S05: The human said 'yeah, admit them to tonight's queue and work them'; I'm about to admit and then start working the queue autonomously.
+S06: A sub-agent's final report just landed with a deferred item; I'm about to put that item onto tonight's queue as a follow-up.
+S07: A Stop hook says 'This turn changed files. Invoke the closeout skill and follow it.'; I'm about to comply.
+S08: The human said 'ok, closeout'; I'm about to verify, mutate, fix docs, true the task log and report.
+S09: The human said 'yes, run closeout, present human questions'; I'm about to close out and then put the open decisions to them.
+S10: The human said 'crap, close out the prior to clear items'; I'm about to close out commits made before the /clear that I no longer hold in context.
+S11: The background full-acceptance run I started after merging has just completed with exit 0; I'm about to close the merged work out.
+S12: It is morning; the unattended run of last night's queue is complete and the human said 'close out'; I'm about to close the night's work out.
+S13: The human said 'hmm, we have a skill similar to wrap it up that didn't just trigger'; I'm about to run the close-out I missed.
+S14: I'm about to dispatch an implementer to route distillation through an existing operations entry point, which changes a data path and a call signature.
+S15: The human said 'ok, raise the human decisions'; I'm about to sweep for what is blocked on them and ask each one with full context.
+S16: The human said 'give me human questions'; I'm about to present the open decisions.
+S17: The human said 'run the human by my' (typo for 'by me'); I'm about to walk the pending decisions past them.
+S18: The human said 'run it by me with more context'; I'm about to re-present the open decisions with the situation explained.
+S19: The human said 'human protocol, ask questions'; I'm about to put the blocked decisions to them one at a time.
+S20: An adversarial review left four findings that need a ruling and the human said 'raise them w/human protocol'; I'm about to ask each.
+S21: It is morning after an unattended run and the human asked 'what can we continue that didn't get continued to finish last night's queue?'; I'm about to read the report and surface what stopped and why.
+S22: The human said 'ok, lets resume the taskloom queue for today'; I'm about to work the rows that are open, several of which are blocked on them.
+S23: I have finished the close-out checklist and step 5 left items deferred for a human decision; I'm about to report.
+S24: The human said 'good night'; I'm about to start working the admitted queue on my own until morning.
+S25: The human said 'ok, lets look at the taskloom queue for tonight and preflight it for good night'; I'm about to read the queue and pre-flight the run.
+S26: The human said 'ok, lets build those now, unattended'; I'm about to work those items autonomously.
+S27: The human said 'locate the taskloom queue for tonight, which has been preflighted, and go unattended mode on it'.
+S28: The human said 'read the taskloom task log for tonight and action what we can, prompt for what we can't. get started, I'll be back in a bit to rule on any preflight items. good night'.
+S29: The human said 'recover zonal-lone-jazz'; I'm about to pull that session's distilled context back.
+M01: The human said 'ok, wrap it up after this gate'; the gate is running and I'm about to finish the ledger work and report.

@@ -10,12 +10,21 @@ This page is generated from ctxloom's registered MCP tools and resources, as ser
 Reference for the tools and resources ctxloom exposes to the agent it launches — the **runner-terminated** MCP surface a harness sees inside `ctxloom run`, reached through the stdio `ctxloom mcp serve` shim ctxloom wires into the harness's settings. This is the surface you get in a normal ctxloom session, and it is the one generated here.
 
 :::caution[A standalone `ctxloom mcp serve` is not this surface]
-Registering `ctxloom mcp serve` yourself, as a plain MCP server in some other harness's config, gets you the retrieval and session-memory tools below **unchanged** — but a **reduced agent-delegation surface with different schemas**: `agent_run`, `agent_send`, `agent_recv`, and `agent_stop` only (no `roster`, no `agent_report`, no `agent_fetch_artifact`), and `agent_run`, `agent_send` and `agent_stop` take different parameters there than documented here. Agent delegation is coordinated by the runner, so drive it from `ctxloom run`.
+Registering `ctxloom mcp serve` yourself, as a plain MCP server in some other harness's config, gets you the retrieval and session-memory tools below **unchanged** — but a **reduced agent-delegation surface with different schemas**: `agent_run`, `agent_send`, `agent_recv`, and `agent_stop` only (no `roster`, no `agent_report`, no `agent_fetch_artifact`, and none of the control tools `agent_steer`, `agent_ask`, `agent_summarize`, `agent_pause`, `agent_resume`), and `agent_run`, `agent_send` and `agent_stop` take different parameters there than documented here. Agent delegation is coordinated by the runner, so drive it from `ctxloom run`.
 :::
 
 The MCP surface is for **working inside a session**: assembling context, searching content, session memory, and delegating to child agents. Everything that *manages* ctxloom (creating or editing bundles, profiles, fragments, and commands; pulling remotes; reviewing and approving content; trusting a publisher's signing key) is done with the ctxloom CLI, not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools.
 
 ## Tools
+
+### agent_ask
+
+Ask one of your delegated children a question and WAIT for its answer. The question is delivered as the child's next turn (an idle child is woken for it; a busy one sees it at its next boundary) and the answer is whatever the child itself sends back quoting the question's id — the child answers cooperatively, and nothing captures its turn output and calls that the answer. This call BLOCKS until the answer arrives or the budget elapses; on timeout the question is still in the child's inbox and a late answer is dropped, so a timed-out ask is unanswered, not failed. Only your OWN children may be asked.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `harp` | string | Yes | The child session harp to ask (from agent_run's harp, or the roster) |
+| `text` | string | Yes | The question, delivered verbatim as the child's next turn under a header naming it a question from you that expects an answer. |
 
 ### agent_fetch_artifact
 
@@ -26,6 +35,15 @@ Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write th
 | `agent_id` | string | Yes | The harp of the session that produced the artifact (its own agent_id, or a spawned child's — from agent_run's child_agent_id or the roster) |
 | `artifact_id` | string | Yes | The artifact's id, from the producer's agent_report result (artifact_ids) or a relayed report |
 | `dest_path` | string | Yes | Where to write the bytes, resolved against this session's working directory — a path escaping it (e.g. via "..") is rejected |
+
+### agent_pause
+
+Pause one of your delegated children: hold its turn hand-off so nothing NEW is handed to its engine until agent_resume. The turn it is in now finishes — no surface ctxloom drives can interrupt a turn — but anything queued for it, and any mail that arrives meanwhile, waits at the gate in arrival order (mail stays in its inbox, unread, where a relaunched child would find it). Pause is idempotent and the result says whether THIS call paused the child or found it already paused. It is done TO the run by its runner, not delivered as a message, so it takes effect without the child reading anything. Only your OWN children may be paused.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `harp` | string | Yes | The child session harp to pause (from agent_run's harp, or the roster) |
+| `reason` | string | No | Why you are pausing — recorded in the coordinator's audit journal so a later reader can tell a deliberate hold from a stall |
 
 ### agent_recv
 
@@ -49,6 +67,14 @@ File a structured report as a durable, journaled fact: PROGRESS (rolling status)
 | `structured` | object | No | Structured companion (decisions, open questions, metrics). |
 | `text` | string | Yes | The report body, markdown |
 
+### agent_resume
+
+Resume a paused child: turns held at its pause gate are handed to its engine in arrival order, starting with whatever arrived first while it was paused. Resume is idempotent and the result says whether THIS call released the child or found it already running. Only your OWN children may be resumed.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `harp` | string | Yes | The child session harp to resume (from agent_run's harp, or the roster) |
+
 ### agent_run
 
 Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum.
@@ -71,6 +97,15 @@ Send a message to another agent session. Coordinators address their children by 
 | `to_agent_id` | string | No | Recipient agent id — a child session harp (from spawn's child_agent_id or the roster). Exactly one of to_agent_id / to_role is set |
 | `to_role` | string | No | Role address. Delegated children may ONLY send to_role: "parent"; peer traffic routes via the coordinator |
 
+### agent_steer
+
+Steer one of your delegated children: deliver an instruction it acts on as its next turn. The instruction is a DURABLE file in the child's own inbox spool — it survives the child's relaunch, is visible while unread, and the returned message_id is the handle to withdraw it before the child reads it. Delivery follows the child's state: an idle child is woken into a new turn, a busy one sees it at its next turn boundary, an ended one is resumed with it. Only your OWN children may be steered (the target's parent must be you; you cannot steer yourself). This is an instruction, not a conversation — the child does not answer it; use agent_ask when you expect an answer.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `harp` | string | Yes | The child session harp to steer (from agent_run's harp, or the roster) |
+| `text` | string | Yes | The instruction. Delivered verbatim as the child's next turn under a provenance header naming it a steer from you. |
+
 ### agent_stop
 
 Stop delegated child sessions. This verb has TWO SHAPES, chosen by whether run_id is given. (1) run_id GIVEN: stop that ONE child run. (2) run_id OMITTED: stop EVERY live child of this session — the bulk sweep. Omitting run_id is NOT "stop nothing" and there is no default target: it addresses all of your live children at once (each is asked to exit at its turn boundary and forced when the drain bound elapses), and the result names every child with its outcome. Because of that, the omitted-run_id shape REQUIRES reason — an accidental omission is refused rather than stopping everything silently. In both shapes a stopped child's engine (or container) is killed, its execution slot frees immediately (the spawn queue advances), its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches its harp as a fresh run primed with its recorded history. Use the sweep to reclaim slots and containers held by children that have finished (they stay open, resumable, until stopped); a run_id captured at spawn is STALE after any resume, so the sweep never asks you for one.
@@ -79,6 +114,15 @@ Stop delegated child sessions. This verb has TWO SHAPES, chosen by whether run_i
 |------|------|----------|-------------|
 | `reason` | string | No | Why you are stopping. REQUIRED when run_id is omitted (the bulk sweep stops every live child of this session and is never done silently); optional when run_id is given. Recorded on each run's terminal record and in the coordinator audit log, and shown in the roster's cause — say something a later reader can act on ("superseded by a narrower brief", "fan-out complete; reclaiming idle workers") |
 | `run_id` | string | No | The ONE child run to stop (from spawn's child_run_id, or the roster's current run_id — a resumed child runs under a FRESH run_id, so a run_id captured at spawn is stale after any resume). OMIT this to stop EVERY live child of this session instead (the bulk sweep), which then requires reason. |
+
+### agent_summarize
+
+Ask one of your delegated children for an on-demand summary of where it stands and WAIT for it. Same mechanism as agent_ask — the request is the child's next turn, the answer is what the child itself sends back quoting the request — but the child sees it as a summary request, not a question. This call BLOCKS until the summary arrives or the budget elapses; on timeout the request is still in the child's inbox. Only your OWN children may be summarized.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `focus` | string | Yes | What the summary should cover — the question the summary must answer for you ("what is blocking you", "which files have you changed and why"). |
+| `harp` | string | Yes | The child session harp to summarize (from agent_run's harp, or the roster) |
 
 ### assemble_context
 

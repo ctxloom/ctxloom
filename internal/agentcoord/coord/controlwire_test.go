@@ -24,8 +24,9 @@ import (
 // each verb's EFFECT is observable on the child — not the verbs themselves,
 // which spoolcontrol_test.go covers at the in-process seam.
 
-// controlRun sends one ControlRun on home and returns the response.
-func controlRun(t *testing.T, home *Home, verb any) *agentcoordpb.CoordinatorResponse {
+// controlFrame wraps one verb message as the ControlRun request it rides in;
+// nil is a ControlRun with no arm set.
+func controlFrame(t *testing.T, verb any) *agentcoordpb.AgentRequest {
 	t.Helper()
 	req := &agentcoordpb.ControlRun{}
 	switch v := verb.(type) {
@@ -42,13 +43,35 @@ func controlRun(t *testing.T, home *Home, verb any) *agentcoordpb.CoordinatorRes
 	case nil:
 		// no verb set
 	default:
-		t.Fatalf("controlRun: %T is not a ControlRun arm", verb)
+		t.Fatalf("controlFrame: %T is not a ControlRun arm", verb)
 	}
-	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
-		Kind: &agentcoordpb.AgentRequest_ControlRun{ControlRun: req},
-	})
+	return &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_ControlRun{ControlRun: req}}
+}
+
+// controlRun sends one ControlRun on home and returns the response.
+func controlRun(t *testing.T, home *Home, verb any) *agentcoordpb.CoordinatorResponse {
+	t.Helper()
+	resp, err := home.Request(context.Background(), controlFrame(t, verb))
 	require.NoError(t, err)
 	return resp
+}
+
+// controlRunAsync is controlRun for a call that BLOCKS on the child (an
+// ask): the wire call runs on its own goroutine and the response — or the
+// transport error — lands on the returned channel, so no assertion runs off
+// the test goroutine.
+func controlRunAsync(t *testing.T, home *Home, verb any) <-chan *agentcoordpb.CoordinatorResponse {
+	t.Helper()
+	frame := controlFrame(t, verb)
+	out := make(chan *agentcoordpb.CoordinatorResponse, 1)
+	go func() {
+		resp, err := home.Request(context.Background(), frame)
+		if err != nil {
+			resp = &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unavailable, "transport: "+err.Error())}
+		}
+		out <- resp
+	}()
+	return out
 }
 
 // TestControlRun_ChildSteersItsOwnGrandchild is the row's whole point: the
@@ -142,8 +165,7 @@ func TestControlRun_QuestionIsAnsweredOverTheWire(t *testing.T) {
 	askIDs := make(chan string, 1)
 	c.onAskPublished = func(id string) { askIDs <- id }
 
-	responses := make(chan *agentcoordpb.CoordinatorResponse, 1)
-	go func() { responses <- controlRun(t, owner, &agentcoordpb.ControlQuestion{Harp: out.Harp, Text: "why sqlx over diesel?"}) }()
+	responses := controlRunAsync(t, owner, &agentcoordpb.ControlQuestion{Harp: out.Harp, Text: "why sqlx over diesel?"})
 
 	var askID string
 	select {
@@ -186,8 +208,7 @@ func TestControlRun_SummarizeCarriesItsKindAndAnswersInItsArm(t *testing.T) {
 	askIDs := make(chan string, 1)
 	c.onAskPublished = func(id string) { askIDs <- id }
 
-	responses := make(chan *agentcoordpb.CoordinatorResponse, 1)
-	go func() { responses <- controlRun(t, owner, &agentcoordpb.ControlSummarize{Harp: out.Harp, Focus: "what is blocking you"}) }()
+	responses := controlRunAsync(t, owner, &agentcoordpb.ControlSummarize{Harp: out.Harp, Focus: "what is blocking you"})
 
 	var askID string
 	select {

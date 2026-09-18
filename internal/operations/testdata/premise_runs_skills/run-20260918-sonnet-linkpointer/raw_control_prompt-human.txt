@@ -1,0 +1,22 @@
+Based on the `prompt-human` skill description (asked what is pending/blocked/needs deciding, told to raise or go through decisions, or about to hand off/end a session):
+
+S09
+S15
+S16
+S17
+S18
+S19
+S20
+S21
+S23
+S28
+M15
+M17
+M18
+M19
+M20
+M21
+M22
+M23
+M24
+M25

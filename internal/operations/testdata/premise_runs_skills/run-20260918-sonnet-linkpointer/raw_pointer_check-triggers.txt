@@ -1,0 +1,6 @@
+Based on the check-triggers skill (reviewing Deferred rows to judge whether a revive trigger has fired, or reviewing the board before a release cut):
+
+M34
+M36
+M37
+M38

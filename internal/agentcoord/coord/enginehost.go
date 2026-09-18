@@ -28,6 +28,10 @@ type engineHome interface {
 	// SweepSpoolIn asks the runner to reconcile its inbound spool — the
 	// turn-boundary drain.
 	SweepSpoolIn()
+	// AwaitMailAcked blocks until the delivered messages ids have been
+	// consume-acked (Home.AwaitMailAcked) — the exit path's guard against
+	// reporting RunExited while an accepted turn's file is still in in/.
+	AwaitMailAcked(ctx context.Context, ids []string) error
 	ReportRunExited(exitCode int, harnessSessionID string)
 	// ReportTurnResult writes this turn's own output to the parent as the
 	// automatic turn report.
@@ -387,6 +391,10 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 		lastMeta  *agent.TurnMeta
 		turns     int
 		sessionID string
+		// accepted is every delivered message whose turn the engine TOOK
+		// (its tag was popped by beginTurn), completed or not — see
+		// awaitAcceptedAcks.
+		accepted []string
 	)
 	items := &itemStream{home: home, final: eh.appendTurnFinal}
 	for ev := range out {
@@ -422,6 +430,7 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			turns++
 			inTurn = false
 			tag := eh.endTurn()
+			accepted = appendMail(accepted, tag)
 			// THE AUTOMATIC TURN REPORT (spoolturnresult.go). It runs BEFORE
 			// the turn-idle event, so the child's answer is durable before
 			// the coordinator is told the child is idle — which is the
@@ -437,12 +446,47 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 		}
 	}
 	items.closeOpen()
+	// An engine that died mid-turn had taken that turn's message too; when
+	// no turn is open endTurn hands back the zero tag and nothing is added.
+	accepted = appendMail(accepted, eh.endTurn())
+	awaitAcceptedAcks(home, accepted)
 
 	result, exitCode := terminalResult(<-chatErr, ctx.Err(), lastMeta, turns)
 	home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
 		Result: result,
 	}}})
 	home.ReportRunExited(exitCode, sessionID)
+}
+
+// appendMail adds the delivered message a turn was started by, when one was.
+func appendMail(accepted []string, tag turnTag) []string {
+	if tag.mail == "" {
+		return accepted
+	}
+	return append(accepted, tag.mail)
+}
+
+// mailAckFlushBudget bounds adapt's wait for accepted turns' consume-acks at
+// exit. Generous against a slow filesystem, small against a hung one.
+const mailAckFlushBudget = 5 * time.Second
+
+// awaitAcceptedAcks is AT-LEAST-ONCE, RUNNER SIDE: every turn the engine took
+// must be consumed on disk before ANY terminal signal leaves this runner. The
+// coordinator's terminateRun reads in/ to decide whether to relaunch the harp
+// for leftover mail; an exit that overtakes the pump's rename makes it launch
+// a second run for a message this one already answered, and that run finds
+// nothing and idles forever. The wait is short (the pump is in that id's ack
+// tail) and bounded: a stuck rename is warned about, never allowed to hold
+// the exit.
+func awaitAcceptedAcks(home engineHome, accepted []string) {
+	if len(accepted) == 0 {
+		return
+	}
+	actx, cancel := context.WithTimeout(context.Background(), mailAckFlushBudget)
+	defer cancel()
+	if err := home.AwaitMailAcked(actx, accepted); err != nil {
+		clidiag.Warn("ctxloom", "engine host: exiting with %d delivered turn(s) not yet marked consumed (%v) — the coordinator may relaunch this harp for mail it already answered", len(accepted), err)
+	}
 }
 
 // terminalResult classifies one ended engine stream: chatErr is what

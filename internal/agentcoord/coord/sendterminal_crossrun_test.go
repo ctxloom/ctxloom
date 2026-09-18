@@ -42,7 +42,7 @@ func TestSendTerminal_EvictionNeverConsumesAnotherRunsTerminal(t *testing.T) {
 
 	// Run A's terminal needs room. The oldest queued event is run B's terminal;
 	// it must NOT be the one evicted.
-	sendTerminal(ch, terminalEvent(3, "run-A"))
+	sendTerminal(&watchSub{ch: ch}, terminalEvent(3, "run-A"))
 
 	require.Len(t, ch, 2, "sendTerminal must not grow the ring — evict one, then place one")
 
@@ -67,7 +67,7 @@ func TestSendTerminal_EvictsTheNonTerminalNotTheTerminal(t *testing.T) {
 	ch <- terminalEvent(1, "run-B") // must survive
 	ch <- nonTerminalEvent(2, "run-A")
 
-	sendTerminal(ch, terminalEvent(3, "run-A"))
+	sendTerminal(&watchSub{ch: ch}, terminalEvent(3, "run-A"))
 
 	// The surviving events are exactly B's terminal and A's new terminal; the
 	// non-terminal (seq 2) is the one that was dropped.

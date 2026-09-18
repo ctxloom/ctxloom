@@ -64,7 +64,7 @@ removes a harp's current run.
 | `watchHub` | `consumer.go:88` | live fan-out of every `AgentEvent` to subscribers |
 | `watchSub` | `consumer.go:99` | one subscription: an optional run-id filter plus a bounded ring of 256 |
 | `watchHub.subscribe` | `consumer.go:107` | registers a subscriber, returns its ring and a cancel |
-| `watchHub.broadcast` | `consumer.go:142` | non-blocking fan-out; **drops are by design** and are recovered downstream via seq-gap detection |
+| `watchHub.broadcast` | `consumer.go` | non-blocking fan-out; a full ring **loses events but says so** — one synthetic `EventsLost` marker with the exact seq ranges precedes the next delivered event; readers fold it into their per-run seq accounting via `agentcoordpb.SeqWatch`, so a loss is reported once |
 | `sendTerminal` | `consumer.go:173` | bounded evict-then-retry placement of a terminal event, because a consumer that waits on `RunCompleted` hangs forever if it is dropped |
 | `Coordinator.WatchRuns` | `consumer.go:239` | in-process subscribe-**then**-snapshot (that order is the no-gap guarantee) |
 | `consumerService.WatchRuns` | `consumer.go:274` | streams a snapshot frame then live events |

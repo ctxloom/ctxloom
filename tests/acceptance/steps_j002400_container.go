@@ -101,9 +101,9 @@ func registerJ002400Steps(ctx *godog.ScenarioContext) {
 		agentName := "mock"
 		if runtime == "container" {
 			agentName = "mock-container"
-			if rt, _, msg := containercell.Select(c, "J002400's containerized-run row"); !rt.Available {
-				fmt.Printf("SKIPPED (J002400 container row): no container runtime reachable here (%s)\n", msg)
-				return godog.ErrSkip
+			_, decision, msg := containercell.Select(c, "J002400's containerized-run row")
+			if err := gateContainerRow(w, "J002400 container row", decision, msg); err != nil {
+				return err
 			}
 		}
 

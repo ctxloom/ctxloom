@@ -378,10 +378,9 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice runs the container-bound agent in a real container$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j002200 := j002200Of(w)
-		rt, _, msg := containercell.Select(c, "j002200's container credential shared-identity row")
-		if !rt.Available {
-			fmt.Printf("SKIPPED (j002200 container shared-identity row): no container runtime reachable here (%s)\n", msg)
-			return godog.ErrSkip
+		_, decision, msg := containercell.Select(c, "j002200's container credential shared-identity row")
+		if err := gateContainerRow(w, "j002200 container shared-identity row", decision, msg); err != nil {
+			return err
 		}
 		// The record MUST live inside the project workspace: a containerized
 		// engine can only write where the container can see, and ctxloom mounts

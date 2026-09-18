@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -71,10 +72,10 @@ func (cc *consumerCreds) verify(presented string) bool {
 	return ok
 }
 
-// watchRingSize bounds one subscriber's buffer: a stalled watcher drops its
+// watchRingSize bounds one subscriber's buffer: a stalled watcher loses its
 // own newest events rather than ever stalling the RunChannel recv loop that
-// calls broadcast (the same never-block invariant TapHub documents for the
-// legacy per-harp tap; this hub generalizes it across every run).
+// calls broadcast — but it is TOLD what it lost (watchSub.lost), never
+// silently shorted.
 const watchRingSize = 256
 
 // watchHub is the D1 live consumer broadcast: every AgentEvent
@@ -97,9 +98,16 @@ func newWatchHub() *watchHub { return &watchHub{subs: make(map[*watchSub]struct{
 // "every run visible to this credential" (D1 does not yet scope visibility
 // below the whole project — a consumer credential sees the whole
 // coordinator, matching its loopback-only, host-local trust boundary).
+//
+// lost is non-nil while this subscriber is LAGGED: events were not queued
+// (ring full) or were evicted (sendTerminal) and the subscriber has not yet
+// been told. It is flushed as ONE synthetic EventsLost marker the moment the
+// ring has room for the marker AND the next event, so the marker always
+// precedes the first event delivered after the loss. Guarded by watchHub.mu.
 type watchSub struct {
 	runIDs map[string]bool
 	ch     chan *agentcoordpb.AgentEvent
+	lost   []*agentcoordpb.EventsLost_Range
 }
 
 // subscribe registers a subscriber and returns its event channel, a cancel
@@ -135,114 +143,186 @@ func isTerminal(ev *agentcoordpb.AgentEvent) bool {
 	return ok
 }
 
+// isLossMarker reports whether ev is a synthetic EventsLost marker — the
+// hub's own, never a runner's.
+func isLossMarker(ev *agentcoordpb.AgentEvent) bool {
+	_, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_EventsLost)
+	return ok
+}
+
+// isEvictable is the complement of the two kinds sendTerminal must never
+// sacrifice: a terminal (its loss is unrecoverable — no seq gap ever reveals
+// it, and a watcher waits on it forever) and a loss marker (evicting the
+// notice of a loss is the silent drop this hub exists to rule out).
+func isEvictable(ev *agentcoordpb.AgentEvent) bool {
+	return !isTerminal(ev) && !isLossMarker(ev)
+}
+
 // broadcast fans ev out to every matching subscriber. Two invariants govern
 // this function, and both are load-bearing:
 //
 //  1. NEVER block the caller. This runs synchronously inside
 //     handleAgentEvent, on the goroutine that services a live RunChannel's
 //     recv loop (runchannel.go) — stalling here stalls that runner's
-//     liveness. A full subscriber ring therefore drops ev for that
-//     subscriber only (a simpler discipline than TapObserver's
-//     drop-oldest+gap-accounting — D1's pre-made semantics promise live
-//     delta text, not a gap-free guarantee; a lagging viewer's next event
-//     still arrives, and roster/ListRuns always gives it a consistent
-//     non-live fallback).
+//     liveness. A full subscriber ring therefore loses ev for that
+//     subscriber only — but NEVER silently: the loss is recorded on the
+//     subscriber (watchSub.lost) and delivered as one synthetic EventsLost
+//     marker, carrying the exact per-run seq ranges, ahead of the next event
+//     that does fit (deliver). A MessageDelta is part of a child's streamed
+//     answer; a reader that is not told it lagged reports a truncated answer
+//     as the whole one. Rejected alternatives, both ruled out: blocking the
+//     producer (one stuck viewer stalls every subscriber and the run) and
+//     the plain drop this replaced.
 //  2. The one terminal event a run ever emits (RunCompleted — "terminal;
 //     exactly one per run", coordination.proto) fights for delivery instead
-//     of taking its chances with the plain drop above: silently losing it
-//     both evades any seq-based gap detection (nothing arrives afterward to
-//     reveal the hole) and hangs a consumer that waits on it forever
-//     (operations.adaptConsumerFeed only ends the feed on RunCompleted).
-//     sendTerminal below evicts a queued event to make room — bounded,
-//     still never a blocking send — rather than trading invariant 1 away
-//     even for this one event. The evicted event becomes an honest seq gap,
-//     which is exactly what PART 1's consumer-side detection is for.
+//     of taking its chances with the ring: silently losing it hangs a
+//     consumer that waits on it forever (operations.adaptConsumerFeed only
+//     ends the feed on RunCompleted). sendTerminal evicts queued events to
+//     make room — bounded, still never a blocking send — rather than trading
+//     invariant 1 away even for this one event. Each evicted event is a loss
+//     like any other and is reported in the marker the terminal is preceded
+//     by.
 func (h *watchHub) broadcast(ev *agentcoordpb.AgentEvent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	terminal := isTerminal(ev)
 	for sub := range h.subs {
 		if len(sub.runIDs) > 0 && !sub.runIDs[ev.GetRunId()] {
 			continue
 		}
-		if terminal {
-			sendTerminal(sub.ch, ev)
+		if isTerminal(ev) {
+			sendTerminal(sub, ev)
 			continue
 		}
-		select {
-		case sub.ch <- ev:
-		default:
-		}
+		deliver(sub, ev)
 	}
 }
 
-// terminalEvictAttempts bounds sendTerminal's evict-then-retry loop: a
-// handful of tries, never an unbounded or blocking one.
+// deliver queues ev on sub's ring, non-blocking. A lagged subscriber needs
+// two free slots — the pending EventsLost marker goes first, then ev — so
+// the marker is never delivered after the event it was meant to precede;
+// with fewer, ev joins the pending loss. Runs under watchHub.mu, so the only
+// concurrent actor is the reader draining sub.ch, which can only ADD room:
+// a slot counted free here stays free through the send.
+func deliver(sub *watchSub, ev *agentcoordpb.AgentEvent) {
+	if sub.room() < sub.need() {
+		sub.noteLost(ev)
+		return
+	}
+	sub.flushLost()
+	sub.ch <- ev
+}
+
+// room is the number of free slots on sub's ring.
+func (sub *watchSub) room() int { return cap(sub.ch) - len(sub.ch) }
+
+// need is how many slots the next delivery takes: the event itself, plus
+// the pending EventsLost marker that must precede it when sub is lagged.
+func (sub *watchSub) need() int {
+	if sub.lost != nil {
+		return 2
+	}
+	return 1
+}
+
+// noteLost records that ev was not delivered to sub. Contiguous seqs of one
+// run coalesce into one range; per loss episode a run can therefore
+// contribute at most two ranges (its newest events, not queued; its oldest,
+// evicted for a terminal), so the slice is bounded by the runs on the ring.
+func (sub *watchSub) noteLost(ev *agentcoordpb.AgentEvent) {
+	for i := len(sub.lost) - 1; i >= 0; i-- {
+		r := sub.lost[i]
+		if r.GetRunId() != ev.GetRunId() {
+			continue
+		}
+		if r.GetLastSeq()+1 == ev.GetSeq() {
+			r.LastSeq = ev.GetSeq()
+			return
+		}
+		break
+	}
+	sub.lost = append(sub.lost, &agentcoordpb.EventsLost_Range{
+		RunId: ev.GetRunId(), FirstSeq: ev.GetSeq(), LastSeq: ev.GetSeq(),
+	})
+}
+
+// flushLost queues sub's pending loss as one EventsLost marker and clears
+// it. The caller has already checked there is room.
+func (sub *watchSub) flushLost() {
+	if sub.lost == nil {
+		return
+	}
+	sub.ch <- &agentcoordpb.AgentEvent{
+		OccurredAt: timestamppb.Now(),
+		Payload:    &agentcoordpb.AgentEvent_EventsLost{EventsLost: &agentcoordpb.EventsLost{Lost: sub.lost}},
+	}
+	sub.lost = nil
+}
+
+// terminalEvictAttempts bounds sendTerminal's evictions: a handful, never an
+// unbounded or blocking loop. A lagged subscriber needs two slots (marker,
+// then terminal), so the bound leaves slack beyond that.
 const terminalEvictAttempts = 4
 
-// sendTerminal places a run's terminal event onto ch, evicting one
-// already-queued event (oldest first — ch is a plain FIFO channel) to make
-// room when the ring is full. Both selects stay non-blocking throughout:
-// this races the serving loop that is concurrently draining ch from the
-// other end (consumerService.WatchRuns / Coordinator.WatchRuns's forwarding
-// goroutine), which is fine either way — if that loop already freed a slot,
-// the send succeeds without needing an eviction; if the eviction "misses"
-// because the loop got there first, the next send attempt succeeds instead.
-func sendTerminal(ch chan *agentcoordpb.AgentEvent, ev *agentcoordpb.AgentEvent) {
-	for attempt := 0; ; attempt++ {
-		select {
-		case ch <- ev:
-			return
-		default:
-		}
-		if attempt == terminalEvictAttempts {
-			// Every attempt raced a full ring that never yielded a slot, OR the
-			// ring is saturated with OTHER runs' terminals evictOneNonTerminal
-			// refuses to sacrifice. Dropping this terminal both evades seq-gap
-			// detection (nothing follows to reveal the hole) and hangs any
-			// watcher on this run (operations.adaptConsumerFeed ends its feed
-			// only on RunCompleted), so unlike an ordinary dropped event it must
-			// NOT be silent (F10): name the run whose terminal was lost so a hung
-			// viewer is diagnosable from the coordinator's logs.
-			clidiag.Warn("ctxloom", "consumer watch: dropped terminal event for run %q after %d evict attempts on a full ring — a watcher on that run may hang until its own timeout",
-				ev.GetRunId(), terminalEvictAttempts)
+// sendTerminal places a run's terminal event onto sub's ring — preceded by
+// the pending EventsLost marker if sub is lagged — evicting already-queued
+// evictable events (oldest first; the ring is a plain FIFO channel) to make
+// room when it is full. Every evicted event is recorded as lost, so the
+// marker that precedes the terminal names it. When the ring is saturated
+// with events that may not be evicted (other runs' terminals, markers) and
+// only one slot can be had, the terminal takes it and the marker stays
+// pending for the next flush: dropping the terminal hangs the watcher,
+// deferring the marker does not. Never blocks: this races only the serving
+// loop draining sub.ch from the other end, which can only free slots.
+func sendTerminal(sub *watchSub, ev *agentcoordpb.AgentEvent) {
+	for attempt := 0; attempt < terminalEvictAttempts; attempt++ {
+		if sub.room() >= sub.need() {
+			sub.flushLost()
+			sub.ch <- ev
 			return
 		}
-		evictOneNonTerminal(ch)
+		evicted := evictOneEvictable(sub.ch)
+		if evicted == nil {
+			break // nothing left to sacrifice; another pass would find the same
+		}
+		sub.noteLost(evicted)
 	}
+	if sub.room() >= 1 {
+		sub.ch <- ev
+		return
+	}
+	// Dropping a terminal hangs any watcher on this run
+	// (operations.adaptConsumerFeed ends its feed only on RunCompleted) and,
+	// unlike an ordinary lost event, cannot wait for a marker the reader will
+	// stop listening for: name the run whose terminal was lost so a hung
+	// viewer is diagnosable from the coordinator's logs.
+	clidiag.Warn("ctxloom", "consumer watch: dropped terminal event for run %q after %d evict attempts on a full ring — a watcher on that run may hang until its own timeout",
+		ev.GetRunId(), terminalEvictAttempts)
 }
 
-// evictOneNonTerminal frees one slot in ch by dropping its OLDEST NON-terminal
-// event, and only a non-terminal (F09): a terminal is the one event whose loss
-// is unrecoverable (no seq gap ever reveals it, and a watcher waits on it
-// forever), so sendTerminal draining another run's terminal here to make room —
-// the payload-blind `<-ch` this replaced — destroyed the very invariant it
-// exists to protect (both production subscribers watch ALL runs, so one ring
-// carries many runs' terminals). It drains events until it finds a non-terminal
-// to sacrifice, holding any terminals it must drain past and re-queuing them so
-// only a seq-gap-recoverable event is dropped. If every queued event is itself a
-// terminal, nothing is evicted and the caller's bounded retry falls through to
-// the F10 drop-with-diagnostic. Stays non-blocking throughout (never trades away
-// broadcast's never-block invariant), and runs under watchHub.mu so no
-// concurrent broadcast races the drain — only the serving loop drains ch too,
-// which is safe (it delivers, never loses).
-func evictOneNonTerminal(ch chan *agentcoordpb.AgentEvent) {
+// evictOneEvictable frees one slot in ch by removing its OLDEST evictable
+// event (isEvictable) and returns it, or nil when every queued event is a
+// terminal or a loss marker. It drains events until it finds one to
+// sacrifice, holding any protected events it must drain past and re-queuing
+// them in order, so only a seq-recoverable event is removed. Stays
+// non-blocking throughout (never trades away broadcast's never-block
+// invariant), and runs under watchHub.mu so no concurrent broadcast races
+// the drain — only the serving loop drains ch too, which is safe (it
+// delivers, never loses).
+func evictOneEvictable(ch chan *agentcoordpb.AgentEvent) *agentcoordpb.AgentEvent {
 	var held []*agentcoordpb.AgentEvent
 	for {
 		var e *agentcoordpb.AgentEvent
 		select {
 		case e = <-ch:
 		default:
-			// Ring drained without a non-terminal to sacrifice: put the
-			// terminals back (in order) and let the retry bound decide.
+			// Ring drained without an evictable event: put the protected
+			// ones back (in order) and let the retry bound decide.
 			requeue(ch, held)
-			return
+			return nil
 		}
-		if !isTerminal(e) {
-			// Sacrifice this one non-terminal, then restore any terminals we
-			// had to drain past to reach it.
+		if isEvictable(e) {
 			requeue(ch, held)
-			return
+			return e
 		}
 		held = append(held, e)
 	}

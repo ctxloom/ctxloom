@@ -19,7 +19,7 @@ import (
 // diagnostic that NAMES the run whose terminal was lost.
 //
 // Exhaustion is forced with a ring saturated by ANOTHER run's terminal, which
-// evictOneNonTerminal (F09) correctly refuses to sacrifice: no room is ever
+// evictOneEvictable (F09) correctly refuses to sacrifice: no room is ever
 // freed, so every attempt fails and the bound is reached.
 func TestSendTerminal_DropAfterExhaustion_LogsTheDroppedRun(t *testing.T) {
 	var buf bytes.Buffer
@@ -29,7 +29,7 @@ func TestSendTerminal_DropAfterExhaustion_LogsTheDroppedRun(t *testing.T) {
 	ch := make(chan *agentcoordpb.AgentEvent, 1)
 	ch <- terminalEvent(1, "run-other") // a terminal that must not be evicted → no slot ever frees
 
-	sendTerminal(ch, terminalEvent(2, "run-dropped"))
+	sendTerminal(&watchSub{ch: ch}, terminalEvent(2, "run-dropped"))
 
 	out := buf.String()
 	require.NotEmpty(t, out,

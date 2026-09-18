@@ -56,10 +56,16 @@ the decision lives.
 | Rulings added | ten | eight, incl. NEW: delete the go-plugin arm; per-engine export blocks (ADR 0020 amendment); keep reload-per-spawn at one site | — | the go-plugin question is the one that changes the plan |
 
 ## 3. Reading
-The skeleton is consistent and matches the review's "the shape is right". B already
-holds on seven of the review's eleven refutations of A (config owner, resume,
-depth, reach-back, ownership, wire value in part, endpoint as input), because it
-had the config-lifecycle and data-passing emphases A did not. What B has NOT been
+The skeleton is consistent and matches the review's "the shape is right". The
+review of B (24-adversarial-review-b.md) corrects this section's first count: B
+holds on THREE of A's seven material refutations (config owner, container mail via
+the mount, the resume arm — plus reach-back carried typed), not seven of eleven;
+it repeats A's core-purity failure (proto and adapters imported by core on day one)
+and A's per-process MCP endpoint, and its own port signatures form import cycles
+(engine↔launch↔delivery) as drawn. Layout cost, measured by that review:
+keeping today's names touches ≈19 importing packages + 9 arch-test files; the
+rename into core/adapters adds ≈108 more — the layout question is settled on
+evidence in favour of keeping the names. What B has NOT been
 tested against: Package on the wire (its own uncertainty #3), the MCP endpoint's
 lifetime across one-shot turns, the mount dependency for container mail, core
 purity (does `agentcoord/coord` in B's core import the proto?), and the go-plugin

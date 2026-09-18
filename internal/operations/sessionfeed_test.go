@@ -225,11 +225,13 @@ func assistantMessage(t *testing.T, f *fakeConsumerServer, id, text string) {
 // flushes to exactly one feed entry per push (runchannel.go's item
 // lifecycle), which is what the seq-gap table test below needs: a clean
 // one-event-in, one-entry-out correspondence so a Gap marker's position
-// relative to the surrounding entries is unambiguous.
+// relative to the surrounding entries is unambiguous. It carries the run_id
+// every event on the wire carries — the adapter's seq accounting is per run.
 func pushToolCall(t *testing.T, f *fakeConsumerServer, seq uint64) {
 	t.Helper()
 	f.push(t, &agentcoordpb.AgentEvent{
-		Seq: seq,
+		RunId: "run-1",
+		Seq:   seq,
 		Payload: &agentcoordpb.AgentEvent_ToolCallStarted{ToolCallStarted: &agentcoordpb.ToolCallStarted{
 			ToolCallId: fmt.Sprintf("tc-%d", seq),
 			ToolName:   fmt.Sprintf("seq-%d", seq),

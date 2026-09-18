@@ -205,15 +205,6 @@ type ownedRenderResult struct {
 	err  error
 }
 
-// lostRangesText renders a marker's ranges as "2..4, 9..9" for a warning.
-func lostRangesText(m *agentcoordpb.EventsLost) string {
-	parts := make([]string, 0, len(m.GetLost()))
-	for _, r := range m.GetLost() {
-		parts = append(parts, fmt.Sprintf("%d..%d", r.GetFirstSeq(), r.GetLastSeq()))
-	}
-	return strings.Join(parts, ", ")
-}
-
 // renderOwnedRunEvents renders one owner-owned run's AgentEvent stream: it
 // forwards FINAL-channel message deltas (text mode → prose to out; json mode →
 // the same NDJSON entry contract renderChatEvents/chatEventToJSON emit for the
@@ -248,42 +239,20 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 	// lossy, per-subscriber buffer that a busy coordinator's OTHER concurrent
 	// runs can also fill (this run's subscription is scoped, but the ring
 	// still overflows under sustained overload); nothing upstream re-sends a
-	// lost event. Two signals say what was lost, and each becomes a warning:
-	// the hub's own EventsLost marker (exact ranges, ahead of the next event
-	// it could queue — read before the run filter below, since the marker
-	// names runs in its ranges and carries none itself), and a hole in the
-	// strictly contiguous per-run Seq every event this run's EngineHost
-	// emits (home.go's emitEvent) — which still catches a loss the hub could
-	// not announce in time. lastSeq tracks the highest Seq observed for THIS
-	// run and is advanced over a marker so one loss is warned about once;
-	// Seq 0 (unset — e.g. test fixtures, the marker itself) is never a gap.
-	var lastSeq uint64
+	// lost event. SeqWatch accounts for the loss from both signals the wire
+	// carries — the hub's EventsLost marker and a hole in the per-run Seq —
+	// and each loss is warned about once: the renderer must say so rather
+	// than finish as if a possibly truncated answer were complete.
+	seqs := &agentcoordpb.SeqWatch{RunID: runID}
 	for {
 		select {
 		case ev := <-events:
-			if lost, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_EventsLost); ok {
-				mine := &agentcoordpb.EventsLost{}
-				for _, r := range lost.EventsLost.GetLost() {
-					if r.GetRunId() == runID {
-						mine.Lost = append(mine.Lost, r)
-					}
-				}
-				gap, advanced := mine.NewPast(lastSeq)
-				if gap > 0 {
-					clidiag.Warn("ctxloom", "run %s: lost %d event(s) at seq %s — the coordinator's live event buffer was full (likely other concurrent runs competing for it) and could not queue them; this run's rendered output may be INCOMPLETE", runID, gap, lostRangesText(mine))
-				}
-				lastSeq = advanced
-				continue
+			lost, marker := seqs.Observe(ev)
+			if lost.Count() > 0 {
+				clidiag.Warn("ctxloom", "run %s: lost %d event(s) at seq %s — the coordinator's live event buffer was full (likely other concurrent runs competing for it) and could not queue them; this run's rendered output may be INCOMPLETE", runID, lost.Count(), lost.RangesText())
 			}
-			if ev.GetRunId() != runID {
+			if marker || ev.GetRunId() != runID {
 				continue
-			}
-			if seq := ev.GetSeq(); seq != 0 {
-				if lastSeq != 0 && seq > lastSeq+1 {
-					missed := seq - lastSeq - 1
-					clidiag.Warn("ctxloom", "run %s: lost %d event(s) between seq %d and %d — the coordinator's live event buffer was full (likely other concurrent runs competing for it) and dropped them; this run's rendered output may be INCOMPLETE", runID, missed, lastSeq, seq)
-				}
-				lastSeq = seq
 			}
 			switch p := ev.GetPayload().(type) {
 			case *agentcoordpb.AgentEvent_MessageStarted:

@@ -231,4 +231,74 @@ prompt-human as the tail of closeout (twice), admit on a sub-agent's deferral (o
 design-by-test before a dispatch (once). check-triggers, whose moment is always agent-side, was
 never invoked.
 
-_(Premises, score, and the per-skill verdict follow in the commits after this one.)_
+## Phase 2 — the score
+
+Run `run-20260918-haiku` (beside the scorer): bare `claude --print` on haiku, the engine's
+own listing shape (`- name: description - when_to_use`, 250-char cap, noun tags appended),
+89 situations in three foreground chunks per condition.
+
+| condition | recall | precision | false-fire | exact set | recall (invoked) | recall (missed) |
+|---|---|---|---|---|---|---|
+| engine — the Skill tool's real instruction | 0.678 | 0.983 | 0 / 17 | 65 / 89 | 0.763 | 0.612 |
+| ctxloom — the three measured properties | 0.655 | 1.000 | 0 / 17 | 63 / 89 | 0.789 | 0.551 |
+
+| skill | expected | engine | ctxloom |
+|---|---|---|---|
+| closeout | 12 | 12/12 | 12/12 |
+| admit | 17 | 11/17 | 11/17 |
+| unattended | 13 | 8/13 | 9/13 |
+| prompt-human | 24 | 14/24 | 13/24 |
+| design-by-test | 8 | 4/8 | 4/8 |
+| check-triggers | 7 | 6/7 | 4/7 |
+| recover | 6 | 4/6 | 4/6 |
+
+### The prediction above was wrong, and that is the finding
+
+Phase 1 predicted, from the fragment trial's numbers, that the engine's menu-shaped
+instruction would under-select against per-premise judgement — 0.49 against 0.76 was the
+single largest effect that trial found. **For skills it does not.** The two instructions land
+within noise of each other on n=89, in both directions of the split. The instruction that
+moved fragment recall by +0.27 moves skill recall by nothing.
+
+Why the two kinds differ is visible in the split by source. Recall is 0.76–0.79 on moments a
+skill WAS invoked in the original transcript and 0.55–0.61 on moments it SHOULD have been and
+was not. A skill's `when_to_use` and its description are keyed to the same vocabulary, and the
+selector matches that vocabulary well — closeout, whose trigger words are the words a human
+actually says, is 12/12. The misses are the OBLIQUE phrasings ("we should set up tonight",
+"anything blocked on me?") that live outside that vocabulary, and no instruction about HOW
+to judge recovers a match the words do not carry. The premise reproduces the model's own
+blind spots because it is built from the same material. A fragment premise names a
+situation the body does not; a skill premise restates the skill.
+
+Precision is the other half of the story: 0.98–1.00 with **zero false fires on 17
+nothing-applies situations**. The selector is conservative and accurate. The prior trial's
+over-select ruling was made against a matcher that widened; this one does not widen at all,
+so "borderline resolves toward including" has nothing to act on.
+
+### Measurement #1, per skill
+
+Does the authored premise add anything over the existing description?
+
+- **closeout** — no. The description alone would score the same; the premise is decoration.
+- **admit, unattended, prompt-human** — the premise adds vocabulary the description lacks
+  (queue, tonight, blocked-on-me) and it did not help, because the misses are phrasings
+  outside both. Decoration for the invoked set; insufficient for the missed set.
+- **design-by-test, recover, check-triggers** — n too small (6–8) to separate from noise.
+
+The honest conclusion: for a skill, the 250-character line the engine reads IS the premise,
+and authoring it well means naming the situations a human will actually phrase obliquely —
+not restating what the skill does. That is the next trial: rewrite the three big-miss
+premises against the `missed` set's phrasings, re-score blind on a fresh mined set.
+
+### Ruled 2026-09-18 (Ben): `when_to_use` is the premise, and it gets a cap
+
+"when to use is our premise, which we should probably cap." A ctxloom fragment premise has
+no length bound today; a skill premise is read as part of one 250-character line, truncated
+with an ellipsis, and the tail is never seen. The premise vocabulary should carry the same
+cap so an author writing for ctxloom's index is writing something the engine's matcher can
+also read whole — and so a premise cannot grow into a second body. The number is the
+engine's (`MAX_LISTING_DESC_CHARS = 250`, shared with the description); pinning it by symbol
+rather than restating it is the checked binding.
+
+_(Run details, prompts and answers: `premise_runs_skills/run-20260918-haiku/`.)_
+

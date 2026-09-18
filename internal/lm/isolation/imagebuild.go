@@ -269,11 +269,10 @@ const (
 	userBaseBuildFixIt         = "fix the configured base Containerfile (isolation_base_containerfile) so it builds, or remove that setting to accept ctxloom's own base deliberately"
 	devcontainerBaseBuildFixIt = "fix the project .devcontainer/devcontainer.json (or its build.dockerfile) so it builds, or opt out with isolation_devcontainer_base: false to accept ctxloom's own base deliberately"
 	devcontainerDetectFixIt    = "fix the project .devcontainer/devcontainer.json (malformed JSON, or a dockerComposeFile with no resolvable service — set isolation_devcontainer_service), or opt out with isolation_devcontainer_base: false / --no-devcontainer-base"
-	// noComposableEnginesFixIt is attached when isolation_engines resolves to
-	// an empty set: every configured name was unknown or
-	// non-composable, so the composed agent image would otherwise build
-	// green with zero engine-install layers and fail every run.
-	noComposableEnginesFixIt = "set isolation_engines to at least one supported, composable engine (see `ctxloom container build --help`), or leave it unset to compose every composable engine"
+	// noComposableEnginesFixIt is attached when the ONE engine an agent image
+	// is composed for has no install fragment: the image would otherwise
+	// build green with zero engine-install layers and fail every run.
+	noComposableEnginesFixIt = "bind the agent to an engine that declares an official-installer fragment (see `ctxloom container build --help`), or provide a prebuilt image for this engine via isolation_images"
 )
 
 // buildSourcesOptions carries every input buildSources needs to order a

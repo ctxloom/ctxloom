@@ -141,12 +141,15 @@ func registeredEngineContainers() map[string]engineContainerRegistration {
 	return out
 }
 
-// composableEngines is the deterministic default engine set a composed agent
-// image bakes when isolation_engines is unconfigured, alphabetical: every
-// engine that CAN be composed (declares an installer fragment) AND ships by
-// default (DistributionDefault). Capability and policy, each read from where
-// it is declared. An opt-in engine composes only when asked for; a test
-// double never.
+// composableEngines is the deterministic set of engines whose single-engine
+// agent image is worth building UNASKED, alphabetical: every engine that CAN
+// be composed (declares an installer fragment) AND ships by default
+// (DistributionDefault). Capability and policy, each read from where it is
+// declared. It is a roster of NAMES, not a composition set — an agent image
+// carries exactly one engine (composeAgentContainerfile), and a run composes
+// its own backend's image whether or not that backend is listed here. An
+// opt-in engine or a test double is therefore fully buildable and runnable
+// in a container; it is only never pre-built or offered by name.
 func composableEngines() []string {
 	var names []string
 	for name, r := range registeredEngineContainers() {

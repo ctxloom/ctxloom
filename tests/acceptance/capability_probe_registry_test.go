@@ -499,7 +499,7 @@ func TestProbeRegistry_SetCellRefusesToAnnotateACellThatIsNotThere(t *testing.T)
 func TestProbeRegistry_LookupFindsWhatItDeclares(t *testing.T) {
 	p, ok := probeSpecByName(probeP0)
 	require.True(t, ok, "probeSpecByName must find the floor probe %q; every wave-2 slice addresses its own row this way", probeP0)
-	require.Equal(t, "engine_isolation_matrix.feature", p.Feature)
+	require.Equal(t, "probes/engine_isolation_matrix.feature", p.Feature)
 
 	if _, ok := probeSpecByName("p99-does-not-exist"); ok {
 		t.Error("probeSpecByName must report a miss, not hand back a zero-value probe a caller would then treat as real")

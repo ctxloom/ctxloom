@@ -516,7 +516,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # has been corrected. The vendor half of the claim — does a REAL engine
   # binary actually honor the variable it was handed, credentials and all —
   # is proven live, against real engine binaries and real credentials, by
-  # tests/acceptance/features/isolation_probe.feature (`just isolation-probe
+  # tests/acceptance/features/probes/isolation_probe.feature (`just isolation-probe
   # <engine> worktree`). The two layers are complementary, not redundant:
   # this one is fast, hermetic, and catches a ctxloom-side regression in CI on
   # every commit; the probe is slow, costs a real paid call, and is the one

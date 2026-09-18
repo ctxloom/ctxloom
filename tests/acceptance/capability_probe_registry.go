@@ -281,7 +281,7 @@ var probeRegistry = []probeSpec{
 		Title:        "structured-output + default-context floor: one JSON object carrying a nonce planted in composed context",
 		Capabilities: []int{1, 2, 3, 18, 19},
 		Channel:      channelComposedContext,
-		Feature:      "engine_isolation_matrix.feature",
+		Feature:      "probes/engine_isolation_matrix.feature",
 		Paid:         true,
 		Cells:        p0Cells(),
 	},
@@ -290,7 +290,7 @@ var probeRegistry = []probeSpec{
 		Title:        "context-approach sweep: the same task with ManagedConfig.Surfaces pinning a non-default approach",
 		Capabilities: []int{4, 5},
 		Channel:      channelComposedContext,
-		Feature:      "capability_context_approaches.feature",
+		Feature:      "probes/capability_context_approaches.feature",
 		Paid:         true,
 		Cells: []probeCell{
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "system-prompt",
@@ -319,7 +319,7 @@ var probeRegistry = []probeSpec{
 		Title:        "MCP tool round trip: a fixture stdio server whose get_nonce tool is the ONLY place the harp exists",
 		Capabilities: []int{8},
 		Channel:      channelMCPToolResult,
-		Feature:      "capability_mcp_round_trip.feature",
+		Feature:      "probes/capability_mcp_round_trip.feature",
 		Paid:         true,
 		// EVERY CELL WAS RUN, one at a time on this box, against
 		// real engines on real subscriptions.
@@ -382,7 +382,7 @@ var probeRegistry = []probeSpec{
 		Title:        "hook firing: the vendor binary executes the session_start hook ctxloom wrote, proven by the hook's own stamp file",
 		Capabilities: []int{6, 7},
 		Channel:      channelHookStamp,
-		Feature:      "capability_hook_firing.feature",
+		Feature:      "probes/capability_hook_firing.feature",
 		Paid:         true,
 		Cells: []probeCell{
 			hostCell("claude-code", probeLiveVerified,
@@ -414,7 +414,7 @@ var probeRegistry = []probeSpec{
 		Title:        "plan sentinel: permissions=plan must leave a sentinel file's bytes untouched, and the bypass control must land the write",
 		Capabilities: []int{11},
 		Channel:      channelSentinelFile,
-		Feature:      "capability_plan_sentinel.feature",
+		Feature:      "probes/capability_plan_sentinel.feature",
 		Paid:         true,
 		Cells:        p4Cells(),
 	},

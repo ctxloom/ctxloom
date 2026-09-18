@@ -525,7 +525,7 @@ func TestHookProbeRegistryRow_IsWiredToThisFeature(t *testing.T) {
 	if !ok {
 		t.Fatalf("the registry has no %q row", probeP3)
 	}
-	if p.Feature != "capability_hook_firing.feature" {
+	if p.Feature != "probes/capability_hook_firing.feature" {
 		t.Errorf("P3 must name its feature file, got %q", p.Feature)
 	}
 	runnable := map[string]bool{}

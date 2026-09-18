@@ -327,6 +327,38 @@ func TestAdaptConsumerFeed_SeqGapDetection(t *testing.T) {
 	}
 }
 
+// TestAdaptConsumerFeed_EventsLostMarkerIsAGap: the hub's synthetic
+// EventsLost marker (coord/consumer.go — a full subscriber ring reports what
+// it lost, ahead of the next event it delivers) surfaces as the same
+// standalone Gap the renderers already read, with the marker's exact count;
+// and because the marker advanced the seq watermark, the event that follows
+// it does not report the same loss a second time via the seq jump.
+func TestAdaptConsumerFeed_EventsLostMarkerIsAGap(t *testing.T) {
+	home := testsupport.Isolate(t)
+	harp := seedFeedHarp(t, home, false)
+	f := newFakeConsumerServer()
+	f.setRuns(runInfoFor(harp, "run-1"))
+	startFakeCoordinator(t, home, "proj", f)
+
+	feed, err := WatchSessionFeed(context.Background(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+	require.NoError(t, err)
+
+	pushToolCall(t, f, 1)
+	require.NotNil(t, nextFeedEvent(t, feed.Events).Event)
+
+	f.push(t, &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_EventsLost{EventsLost: &agentcoordpb.EventsLost{
+		Lost: []*agentcoordpb.EventsLost_Range{{RunId: "run-1", FirstSeq: 2, LastSeq: 4}},
+	}}})
+	gapEv := nextFeedEvent(t, feed.Events)
+	require.Nil(t, gapEv.Event, "the marker must surface as a standalone Gap event")
+	assert.Equal(t, 3, gapEv.Gap, "the marker's exact count: seqs 2, 3, 4")
+
+	pushToolCall(t, f, 5)
+	entryEv := nextFeedEvent(t, feed.Events)
+	require.NotNil(t, entryEv.Event, "seq 5 follows the marker as an entry, not as a second Gap for the same loss")
+	assert.Zero(t, entryEv.Gap)
+}
+
 func turnIdle(t *testing.T, f *fakeConsumerServer) {
 	t.Helper()
 	f.push(t, &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: customEventTurnIdle}}})

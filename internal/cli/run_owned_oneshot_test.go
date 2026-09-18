@@ -161,6 +161,62 @@ func TestRenderOwnedRunEvents_IgnoresOtherRuns(t *testing.T) {
 	assert.Equal(t, "mine", out.String())
 }
 
+// TestRenderOwnedRunEvents_EventsLostMarkerIsSurfacedOnce pins the
+// renderer's handling of the hub's own account of a loss: the synthetic
+// EventsLost marker (coord/consumer.go) carries no run_id of its own — the
+// ranges name the run — so it must be read BEFORE the run filter that drops
+// foreign events, warned about with its exact range, and counted once: the
+// event after it (seq 5) reveals the same 2..4 hole by seq jump, and that
+// must not become a second warning for one loss.
+func TestRenderOwnedRunEvents_EventsLostMarkerIsSurfacedOnce(t *testing.T) {
+	start := ownedFinalStart("m1")
+	start.Seq = 1
+	marker := &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_EventsLost{EventsLost: &agentcoordpb.EventsLost{
+		Lost: []*agentcoordpb.EventsLost_Range{
+			{RunId: "some-other-run", FirstSeq: 1, LastSeq: 50}, // hub-wide ring: another run's loss is not this run's
+			{RunId: ownedTestRunID, FirstSeq: 2, LastSeq: 4},
+		},
+	}}}
+	d := ownedDelta("m1", "hello")
+	d.Seq = 5
+	idleEv := ownedTurnIdle()
+	idleEv.Seq = 6
+
+	ch := make(chan *agentcoordpb.AgentEvent, 8)
+	ch <- start
+	ch <- marker
+	ch <- d
+	ch <- idleEv
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	idle := make(chan string, 4)
+	done := make(chan error, 1)
+	go func() {
+		_, err := renderOwnedRunEvents(ctx, io.Discard, formatText, ownedTestRunID, ch, idle, true)
+		done <- err
+	}()
+
+	select {
+	case text := <-idle:
+		assert.Equal(t, "hello", text, "the delta after the marker still renders")
+	case <-time.After(10 * time.Second):
+		t.Fatal("no turn boundary observed")
+	}
+	cancel()
+	<-done
+
+	out := buf.String()
+	assert.Contains(t, out, ownedTestRunID, "the warning must name the affected run")
+	assert.Contains(t, out, "seq 2..4", "the warning must carry the marker's exact range")
+	assert.NotContains(t, out, "some-other-run", "another run's loss on a hub-wide ring is not this run's problem")
+	assert.Equal(t, 1, strings.Count(out, "lost"), "one loss, one warning: the seq jump that follows the marker must not repeat it\n%s", out)
+}
+
 // TestRenderOwnedRunEvents_SeqGapIsSurfaced pins the gap-detection
 // fix: the watchHub ring (consumer.go) is a lossy, per-subscriber-shared
 // buffer — a busy coordinator running other concurrent work can drop this

@@ -295,14 +295,21 @@ const customEventTurnIdle = "ctxloom/turn_idle"
 // adaptLiveFeed's retired doc comment for the rationale — unchanged by D2).
 // The D1 watchHub broadcast this stream rides (consumer.go) is a
 // non-blocking send on a bounded per-subscriber ring: a stalled subscriber
-// silently loses events at the HUB, which never notices the drop itself.
-// This adapter recovers truth from the wire's own seq (per-run monotonic,
-// starts at 1, no gaps at the source — coordination.proto's AgentEvent.seq
-// contract): a jump ahead of the last observed seq means the hub dropped
-// exactly that many events, and the loop below emits a Gap marker for it
-// before converting the arriving event's own payload. See the seq
-// bookkeeping just inside the main receive loop for the three disciplines
-// (mid-run baseline join, reconnect-reissue duplicates, seq==0 tolerance).
+// loses events at the HUB. Two sources tell this adapter what was lost, and
+// both become the same standalone Gap event ahead of the next entry:
+//
+//   - the hub's own EventsLost marker (exact per-run seq ranges, delivered
+//     ahead of the next event that fit) — authoritative;
+//   - a jump in the wire's own seq (per-run monotonic, starts at 1, no gaps
+//     at the source — coordination.proto's AgentEvent.seq contract) — the
+//     inference that predates the marker and still covers a loss the hub
+//     could not announce in time (a terminal that had room for itself but
+//     not for its marker).
+//
+// EventsLost.NewPast reconciles the two so one loss is never counted twice.
+// See the seq bookkeeping just inside the main receive loop for the three
+// disciplines (mid-run baseline join, reconnect-reissue duplicates, seq==0
+// tolerance).
 func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend string, conn *grpc.ClientConn, stream grpc.ServerStreamingClient[agentcoordpb.WatchEvent]) (<-chan SessionFeedEvent, <-chan error) {
 	events := make(chan SessionFeedEvent)
 	errs := make(chan error, 1)
@@ -396,6 +403,12 @@ func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend strin
 			// event: neither a baseline, a duplicate, nor a gap.
 
 			switch p := ev.GetPayload().(type) {
+			case *agentcoordpb.AgentEvent_EventsLost:
+				gap, advanced := p.EventsLost.NewPast(lastSeq)
+				lastSeq, haveSeq = advanced, haveSeq || advanced != 0
+				if gap > 0 && !emit(SessionFeedEvent{Gap: gap}) {
+					return
+				}
 			case *agentcoordpb.AgentEvent_MessageStarted:
 				st.msgs[p.MessageStarted.GetMessageId()] = &agent.SessionEntry{
 					Type: entryTypeFromRoute(p.MessageStarted.GetRole(), p.MessageStarted.GetChannel()),

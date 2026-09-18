@@ -205,6 +205,15 @@ type ownedRenderResult struct {
 	err  error
 }
 
+// lostRangesText renders a marker's ranges as "2..4, 9..9" for a warning.
+func lostRangesText(m *agentcoordpb.EventsLost) string {
+	parts := make([]string, 0, len(m.GetLost()))
+	for _, r := range m.GetLost() {
+		parts = append(parts, fmt.Sprintf("%d..%d", r.GetFirstSeq(), r.GetLastSeq()))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // renderOwnedRunEvents renders one owner-owned run's AgentEvent stream: it
 // forwards FINAL-channel message deltas (text mode → prose to out; json mode →
 // the same NDJSON entry contract renderChatEvents/chatEventToJSON emit for the
@@ -238,17 +247,34 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 	// The watchHub ring (consumer.go) this channel is fed from is a
 	// lossy, per-subscriber buffer that a busy coordinator's OTHER concurrent
 	// runs can also fill (this run's subscription is scoped, but the ring
-	// still drops under sustained overload); nothing upstream re-sends a
-	// dropped event. Every event this run's own EngineHost emits carries a
-	// strictly contiguous per-run Seq (home.go's emitEvent), so a hole in
-	// that sequence is the only signal available that this stream has
-	// silently lost data. lastSeq tracks the highest Seq observed for THIS
-	// run; Seq 0 (unset — e.g. test fixtures, or any future event type that
-	// does not route through emitEvent) is never treated as a gap.
+	// still overflows under sustained overload); nothing upstream re-sends a
+	// lost event. Two signals say what was lost, and each becomes a warning:
+	// the hub's own EventsLost marker (exact ranges, ahead of the next event
+	// it could queue — read before the run filter below, since the marker
+	// names runs in its ranges and carries none itself), and a hole in the
+	// strictly contiguous per-run Seq every event this run's EngineHost
+	// emits (home.go's emitEvent) — which still catches a loss the hub could
+	// not announce in time. lastSeq tracks the highest Seq observed for THIS
+	// run and is advanced over a marker so one loss is warned about once;
+	// Seq 0 (unset — e.g. test fixtures, the marker itself) is never a gap.
 	var lastSeq uint64
 	for {
 		select {
 		case ev := <-events:
+			if lost, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_EventsLost); ok {
+				mine := &agentcoordpb.EventsLost{}
+				for _, r := range lost.EventsLost.GetLost() {
+					if r.GetRunId() == runID {
+						mine.Lost = append(mine.Lost, r)
+					}
+				}
+				gap, advanced := mine.NewPast(lastSeq)
+				if gap > 0 {
+					clidiag.Warn("ctxloom", "run %s: lost %d event(s) at seq %s — the coordinator's live event buffer was full (likely other concurrent runs competing for it) and could not queue them; this run's rendered output may be INCOMPLETE", runID, gap, lostRangesText(mine))
+				}
+				lastSeq = advanced
+				continue
+			}
 			if ev.GetRunId() != runID {
 				continue
 			}

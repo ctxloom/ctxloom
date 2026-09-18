@@ -251,6 +251,41 @@ func TestBeginDrain_ChildDyingDuringDrainIsNotRelaunched(t *testing.T) {
 	assert.Positive(t, c.pendingCount(harp), "its mail is preserved for whoever runs next, not consumed")
 }
 
+// TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt is the positive pin
+// the test above is the negative of: outside a drain, mail queued mid-turn
+// that races the child's death (CauseRunnerExit — no drain, no sweep) is not
+// stranded. terminateRun's tail (relaunchForLeftoverMail) relaunches the harp
+// and THAT message is what the relaunched run receives as its first turn,
+// leaving nothing pending. Deterministic: terminateRun is called directly,
+// so the race is forced rather than raced.
+func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
+	resetStrictness(t)
+	gate := make(chan struct{})
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+	c := newTestCoordinator(t, sp, nil)
+
+	harp := spawnGatedChild(t, sp, c)
+	const leftover = "one more thing"
+	_, err := c.AgentSend(ownerIdentity(), harp, KindMessage, leftover, nil, "")
+	require.NoError(t, err)
+	require.Positive(t, c.pendingCount(harp), "precondition: the child must have mail pending when it dies")
+
+	var runID string
+	c.runs.View(func() { runID = c.runsF.currentRun(harp).RunID })
+	c.terminateRun(runID, CauseRunnerExit, "engine crashed mid-turn")
+
+	require.Eventually(t, func() bool { return sp.chatCount() == 2 }, conformanceWait, 5*time.Millisecond,
+		"a child that dies with mail pending must be relaunched exactly once")
+	require.Eventually(t, func() bool { return len(sp.chat(1).recordedTexts()) > 0 }, conformanceWait, 5*time.Millisecond,
+		"the relaunched run must receive a first turn")
+	texts := sp.chat(1).recordedTexts()
+	assert.Len(t, texts, 1, "the leftover mail is one turn, not several")
+	assert.Contains(t, texts[0], leftover, "the relaunched run's first turn must carry the message that raced the death")
+	assert.Zero(t, c.pendingCount(harp), "delivery consumes the mail; nothing is left queued behind the new run")
+	assert.NotEqual(t, runID, currentRunID(c, harp), "the delivery rides a fresh run, not the dead one")
+}
+
 // TestBeginDrain_SendToEndedChildDoesNotResumeIt: an explicit agent_send to an
 // ended child is ordinarily a resume (a fresh run). Under drain that is new
 // work; the message is queued durably and the disposition says so rather than

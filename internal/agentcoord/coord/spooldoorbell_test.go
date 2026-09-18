@@ -268,12 +268,15 @@ func TestSpoolDoorbell_InvalidRefRejectedAtTheChokepoint(t *testing.T) {
 	}
 }
 
-// TestSpoolDoorbell_ForgedHarpResolvesAgainstTheChannel is the isolation fence.
-// A child can put any harp it likes in a frame; if the coordinator believed it,
-// the child could aim the coordinator's reader — and its consume-renames — at a
-// SIBLING's spool. Identity comes from the channel, exactly as inbound mail's
-// sender identity comes from the connection credential and never from `from`.
-func TestSpoolDoorbell_ForgedHarpResolvesAgainstTheChannel(t *testing.T) {
+// TestSpoolDoorbell_ForgedHarpIsRefused is the isolation fence. A child can
+// put any harp it likes in a frame; if the coordinator believed it, the child
+// could aim the coordinator's reader — and its consume-renames — at a SIBLING's
+// spool. The frame is REFUSED, not re-aimed: the spool contract is "rejected,
+// never sanitised", and a rewritten field would leave a probing peer
+// indistinguishable in the counters from a quiet one. Nothing is lost by
+// refusing — the sweep is the delivery floor, and a doorbell only bounds
+// latency (see TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep).
+func TestSpoolDoorbell_ForgedHarpIsRefused(t *testing.T) {
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
 	h := dialHome(t, c, doorbellHarp, CapPeerMessaging)
 
@@ -293,12 +296,84 @@ func TestSpoolDoorbell_ForgedHarpResolvesAgainstTheChannel(t *testing.T) {
 		},
 	}})
 
-	ref := waitRef(t, got)
-	assert.Equal(t, doorbellHarp, ref.Harp,
-		"the claimed harp must be replaced by the channel's own role, or a child can point the coordinator at a sibling's spool")
-	assert.Equal(t, spool.DirOut, ref.Dir, "only the harp is re-aimed; the rest of the coordinate stands")
+	require.Eventually(t, func() bool {
+		return c.SpoolDoorbellStats().Rejected == 1
+	}, 10*time.Second, 10*time.Millisecond,
+		"a runner naming someone else's harp is broken or probing; the refusal must be COUNTED, or a probe reads as ordinary contention")
+
+	select {
+	case ref := <-got:
+		t.Fatalf("the consumer was handed %s — a ref naming a foreign harp must be refused, not re-aimed at the channel's own spool", ref)
+	default:
+	}
 	assert.Contains(t, buf.String(), "innocent-sibling-session",
-		"a runner naming someone else's harp is broken or probing, and both deserve a trace")
+		"the refusal must name the harp the frame claimed, or an operator cannot tell a probe from a broken mapper")
+	assert.Contains(t, buf.String(), "refusing",
+		"the report must read as a refusal, not a correction")
+}
+
+// TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep pins what makes
+// refusal SAFE: the doorbell is a latency hint and the file is the truth. A
+// child whose out/ holds a real message but whose doorbell claimed a sibling's
+// harp gets that doorbell refused — and the message still reaches the owner,
+// because the reconciliation tick sweeps every known role regardless.
+//
+// The doorbell consumer is replaced with a capture so the ONLY way the file
+// can arrive is the tick: a delivery here proves the floor, not the bell. The
+// child still rings honestly for its own turn report, so the capture is
+// checked for THIS file's ref rather than for silence.
+func TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	const cadence = 150 * time.Millisecond
+	sp := cutoverSpawner(cadence)
+	c := newCutoverCoordinator(t, sp, cadence)
+	out, _ := awaitCutoverChild(t, c, sp, "first task")
+
+	got := make(chan spool.Ref, 16)
+	c.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { got <- ref })
+	handedOver := func(name string) bool {
+		for {
+			select {
+			case r := <-got:
+				if r.Name == name {
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}
+
+	// The message, written straight into the child's out/ so that no honest
+	// doorbell is rung for it by anyone.
+	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
+	require.NoError(t, err)
+	ref, err := w.Write(&spool.Message{
+		Kind: KindResult, FromHarp: out.Harp, To: ParentAddress,
+		Body: "announced under a false name",
+	})
+	require.NoError(t, err)
+
+	// The forged announcement: the right file, a sibling's harp.
+	c.mu.Lock()
+	ch := c.chans[out.Harp]
+	c.mu.Unlock()
+	require.NotNil(t, ch, "the child's run channel must be attached for the doorbell to have a role")
+	before := c.SpoolDoorbellStats().Rejected
+	c.handleSpoolChanged(ch, &agentcoordpb.SpoolChanged{
+		Harp: "innocent-sibling-session",
+		Dir:  agentcoordpb.SpoolDir_SPOOL_DIR_OUT,
+		Name: ref.Name,
+	})
+	assert.Equal(t, before+1, c.SpoolDoorbellStats().Rejected, "the forged doorbell must be counted as refused")
+	assert.False(t, handedOver(ref.Name), "the consumer must not be handed a refused doorbell's ref, re-aimed or otherwise")
+
+	msgs := recvBody(t, c, "announced under a false name", conformanceWait)
+	require.NotEmpty(t, msgs, "refusing the doorbell must cost latency only: the sweep is the at-least-once floor")
+	assert.Equal(t, out.Harp, msgs[0].From, "the sender is the spool the file was found in")
+	awaitSpoolCount(t, out.Harp, spool.DirOut, 0, "after the sweep routed it")
+	assert.False(t, handedOver(ref.Name), "the delivery must have come from the tick, never from the refused bell")
 }
 
 // TestSpoolDoorbell_DropsWhenItCannotBeSent pins the fire-and-forget ruling on

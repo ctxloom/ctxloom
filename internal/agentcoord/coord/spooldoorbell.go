@@ -29,11 +29,13 @@ import (
 //     less-trusted peer, so an inbound doorbell passes spool.Ref.Validate
 //     before anything resolves it to a path. An invalid ref is refused and
 //     counted, and the consumer hook never sees it.
-//   - IDENTITY COMES FROM THE CHANNEL, NEVER THE CLAIM (coordinator side).
-//     Refs arriving on a child's channel name THAT child's spool whatever harp
-//     the frame claims, exactly as inbound mail's sender identity comes from
-//     the connection credential and not the message's `from`. Without that, a
-//     child could aim the coordinator's reader at a sibling's spool.
+//   - IDENTITY COMES FROM THE CHANNEL, NEVER THE CLAIM. A ref arriving on a
+//     child's channel may only name THAT child's spool; one naming any other
+//     harp is refused and counted, on both sides. The coordinator does not
+//     re-aim such a ref at the channel's own spool: the spool contract is
+//     "rejected, never sanitised", and a rewritten field would leave a peer
+//     probing for sibling harps indistinguishable in the counters from a
+//     quiet one. Refusing costs nothing — the sweep is the delivery floor.
 //
 // Conversion lives HERE rather than beside the generated types because the
 // spool package's layering forbids the other direction: spool depends on
@@ -48,10 +50,11 @@ type SpoolDoorbellStats struct {
 	// latency until a sweep, never a message.
 	Dropped uint64
 	// Rejected counts inbound doorbells refused at the receive chokepoint —
-	// a ref that did not validate. These are faults, not races: a doorbell
-	// naming a file that no longer exists is a normal outcome resolved by the
-	// reader, while a ref that does not even parse means a broken or hostile
-	// sender.
+	// a ref that did not validate, or one naming a spool the sending channel
+	// does not own. These are faults, not races: a doorbell naming a file
+	// that no longer exists is a normal outcome resolved by the reader, while
+	// a ref that does not even parse, or that names a sibling's harp, means a
+	// broken or hostile sender.
 	Rejected uint64
 }
 
@@ -240,9 +243,11 @@ func (c *Coordinator) SetSpoolDoorbellHandler(fn SpoolDoorbellHandler) {
 // arriving on ch.
 //
 // The claimed harp is validated (a ref that does not parse is a fault worth
-// refusing whole) and then IGNORED in favour of ch.role. That substitution is
-// the isolation fence: the coordinator watches a channel's own spool, never a
-// spool the peer on that channel names.
+// refusing whole) and then checked against ch.role. That check is the
+// isolation fence: the coordinator watches a channel's own spool, never a
+// spool the peer on that channel names — and a ref naming any other harp is
+// REFUSED, not re-aimed. The handler therefore only ever sees a ref whose
+// harp is the role it arrived from.
 func (c *Coordinator) handleSpoolChanged(ch *runChan, msg *agentcoordpb.SpoolChanged) {
 	ref, err := SpoolRefFromProto(msg)
 	if err != nil {
@@ -252,12 +257,15 @@ func (c *Coordinator) handleSpoolChanged(ch *runChan, msg *agentcoordpb.SpoolCha
 		return
 	}
 	if ref.Harp != ch.role {
-		// Not fatal — the ref is simply re-aimed at the channel's own spool —
-		// but a runner that names someone else's harp is either broken or
-		// probing, and both deserve a trace.
-		clidiag.Warn("ctxloom", "coordinator: spool doorbell from %s claimed harp %q; resolving against %s's own spool instead",
+		// A runner that names someone else's harp is either broken or
+		// probing, and both deserve a trace AND a count: a warn line alone
+		// leaves a probe reading like ordinary doorbell contention. Nothing
+		// is lost by refusing — the file is on disk and the reactor's tick
+		// sweeps ch.role's spool regardless.
+		clidiag.Warn("ctxloom", "coordinator: refusing a spool doorbell from %s that names %q's spool; %s's own spool is swept regardless",
 			ch.role, ref.Harp, ch.role)
-		ref.Harp = ch.role
+		c.spoolDoorbell.rejected.Add(1)
+		return
 	}
 	// THE WAKE. A doorbell means "look at that spool", never
 	// "process exactly that file": the reactor re-derives the whole picture by

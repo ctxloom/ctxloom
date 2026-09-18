@@ -235,7 +235,7 @@ var trustCascadeTarget = mutationTarget{
 	Name:          "trust_cascade",
 	SourceRelPath: "internal/operations/trust.go",
 	Judge: acceptanceJudge{Features: []string{
-		"features/trust_surface.feature",
+		"features/journeys/trust_surface.feature",
 		"features/journeys/j001500_corporate_signed.feature",
 		"features/journeys/j001700_incident.feature",
 	}},

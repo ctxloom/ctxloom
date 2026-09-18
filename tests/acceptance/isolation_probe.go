@@ -16,7 +16,7 @@
 // this repo's CI" — it is "answer the same question again, unattended, every
 // time claude-code/codex/opencode ship a new version." A
 // scenario welded into j002200's own feature file could not serve that; see
-// features/isolation_probe.feature and website/src/content/docs/security/
+// features/probes/isolation_probe.feature and website/src/content/docs/security/
 // isolation.md's "The executable probe" section for how to invoke it for a
 // single engine/axis and how to read a failure.
 //

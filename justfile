@@ -1062,7 +1062,7 @@ test-acceptance-live-container: container-build-acceptance
             go build -o /home/ctxloom/ctxloom . && \
             CTXLOOM_BINARY=/home/ctxloom/ctxloom go test -trimpath -v -tags "acceptance integration" -count=1 ./tests/acceptance/...'
 
-# Run the standalone isolation probe (tests/acceptance/features/
+# Run the standalone isolation probe (tests/acceptance/features/probes/
 # isolation_probe.feature) for exactly ONE engine x axis cell — the
 # per-engine-release regression check, not the whole live suite. ENGINE is
 # a registered engine name; AXIS is worktree,
@@ -1076,7 +1076,7 @@ test-acceptance-live-container: container-build-acceptance
 # absent. See website/src/content/docs/security/isolation.md's "The
 # executable probe" section.
 isolation-probe ENGINE AXIS: build
-    ACCEPTANCE_PATHS=features/isolation_probe.feature \
+    ACCEPTANCE_PATHS=features/probes/isolation_probe.feature \
     ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{AXIS}}" \
     CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -trimpath -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
@@ -1100,7 +1100,7 @@ live-delegation ENGINE: build _ensure-gotmpdir
     go test -trimpath -v -timeout 20m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the engine x isolation floor
-# (features/engine_isolation_matrix.feature): the simplest live round trip —
+# (features/probes/engine_isolation_matrix.feature): the simplest live round trip —
 # "emit exactly this JSON object, nothing else" — for one engine under one
 # isolation scheme. ENGINE is a registered engine name, RUNTIME is
 # host|container-rootless|container-rootful, WORKSPACE is none|worktree.
@@ -1119,14 +1119,15 @@ live-delegation ENGINE: build _ensure-gotmpdir
 # by saying so rather than by being killed.
 engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" \
-    ACCEPTANCE_PATHS=features/engine_isolation_matrix.feature \
+    ACCEPTANCE_PATHS=features/probes/engine_isolation_matrix.feature \
     ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}" \
     CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the capability-probe ladder (tests/acceptance's probe
 # registry): PROBE is a registry probe name without the @probe- prefix
-# ("p3-hook-firing"), FEATURE is that probe's own feature file, ENGINE is
+# ("p3-hook-firing"), FEATURE is that probe's registry Feature value
+# ("probes/capability_hook_firing.feature"), ENGINE is
 # a registered engine name, RUNTIME is host|container, WORKSPACE is
 # none|worktree. The five tags it composes are exactly the tag line every
 # probe's Examples block carries (probeCell.Tags), so this recipe and the
@@ -1152,7 +1153,7 @@ capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the plan-sentinel probe (P4 of the capability ladder,
-# features/capability_plan_sentinel.feature): does `permissions: plan` actually
+# features/probes/capability_plan_sentinel.feature): does `permissions: plan` actually
 # stop a write. POSTURE is control|plan, or "pair" to run BOTH — and pair is
 # what you almost always want.
 # WHY PAIR IS THE DEFAULT ANSWER. The plan cell's claim is negative: a file that
@@ -1169,7 +1170,7 @@ capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
 # `capability-probe`/`capability-sweep` recipes are a later slice's job (S10 of
 # the capability-probe design); this is the single-cell unit those will call.
 plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
-    ACCEPTANCE_PATHS=features/capability_plan_sentinel.feature \
+    ACCEPTANCE_PATHS=features/probes/capability_plan_sentinel.feature \
     ACCEPTANCE_TAGS="@live && @probe-p4-plan-sentinel && @{{ENGINE}} && @host && @ws-none{{ if POSTURE == 'pair' { '' } else { ' && @var-' + POSTURE } }}" \
     CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...

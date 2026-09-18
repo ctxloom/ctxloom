@@ -1,6 +1,6 @@
 //go:build acceptance
 
-// Godog wiring for features/isolation_probe.feature. All decision logic
+// Godog wiring for features/probes/isolation_probe.feature. All decision logic
 // (auth-path resolution, the live run, the four-guarantee assertions) lives
 // in isolation_probe.go, untangled from godog — this file only translates
 // Gherkin steps into calls against it, and prints the one loud per-cell

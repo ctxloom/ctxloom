@@ -37,10 +37,10 @@ func writeLayers(t *testing.T, homeBody, projectBody string) *Config {
 func seedLayers(t *testing.T, fs afero.Fs, home, homeBody, projectBody string) string {
 	t.Helper()
 	projectAppDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(projectAppDir), []byte(projectBody), 0644))
+	testsupport.WriteFileString(t, fs, paths.ConfigPath(projectAppDir), projectBody, 0644)
 	if homeBody != "" {
 		homeAppDir := filepath.Join(home, AppDirName)
-		require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir), []byte(homeBody), 0644))
+		testsupport.WriteFileString(t, fs, paths.ConfigPath(homeAppDir), homeBody, 0644)
 	}
 	return projectAppDir
 }

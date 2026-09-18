@@ -287,16 +287,6 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 		ch.ackSeq = seq
 	}
 	c.mu.Unlock()
-	if isLossMarker(ev) {
-		// EventsLost is the watch hub's own synthetic marker (consumer.go),
-		// never a runner's: teed through, it would tell every subscriber
-		// they lagged when nothing was lost. Ack-and-drop before the tee,
-		// like any foreign payload, but named — a runner emitting it is
-		// either hostile or confused, and either is worth a line.
-		clidiag.Warn("ctxloom", "run %q sent an events_lost marker — that kind is coordinator-emitted only; dropped", ch.id.RunID)
-		c.flushItems(ch)
-		return
-	}
 	c.watch.broadcast(ev)
 
 	switch payload := ev.GetPayload().(type) {

@@ -868,12 +868,6 @@ func (h *Home) SweepSpoolIn() {
 // harness took the batch). deliverNotice's own dedupe on message id is what
 // makes a doorbell and a sweep that race resolve to one delivery.
 func (h *Home) sweepSpoolIn() {
-	if h.exited.Load() {
-		// The engine has exited (Home.exited): a file swept now belongs to
-		// the run the coordinator launches next, and delivering it here
-		// would consume it into a sink nothing reads.
-		return
-	}
 	mapper := spool.NewHomeMapper()
 	path, err := spool.DirPath(mapper, h.cfg.Harp, spool.DirIn)
 	if err != nil {

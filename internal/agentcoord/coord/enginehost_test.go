@@ -48,12 +48,6 @@ type fakeEngineHome struct {
 	// turnReports records every automatic turn report the engine host composed
 	// at a boundary (ReportTurnResult) — the runner half of the result plane.
 	turnReports []turnReport
-
-	// awaitedAcks and lifecycle record the exit ordering: which delivered
-	// turns' consume-acks the host waited for, and whether that wait came
-	// before the RunExited report.
-	awaitedAcks []string
-	lifecycle   []string
 }
 
 func (f *fakeEngineHome) Request(_ context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
@@ -143,18 +137,6 @@ func (f *fakeEngineHome) ReportRunExited(code int, sessionID string) {
 		Code      int
 		SessionID string
 	}{code, sessionID})
-	f.lifecycle = append(f.lifecycle, "exited")
-}
-
-// AwaitMailAcked records which delivered turns the engine host waited on
-// before reporting its exit, in lifecycle order against ReportRunExited —
-// the ordering is the whole point of the call.
-func (f *fakeEngineHome) AwaitMailAcked(_ context.Context, ids []string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.awaitedAcks = append(f.awaitedAcks, ids...)
-	f.lifecycle = append(f.lifecycle, "await-acks")
-	return nil
 }
 
 func (f *fakeEngineHome) customNames() []string {
@@ -589,41 +571,6 @@ func TestEngineHost_TurnSinkDeliversFramedMail(t *testing.T) {
 	require.True(t, sink(&agentcoordpb.PeerMessage{MessageId: "m-10", FromAgentId: "parent-harp", Text: "another", Kind: agentcoordpb.MessageKind(99)}))
 	require.Eventually(t, func() bool { return len(sc.recordedTexts()) == 3 }, 5*time.Second, 10*time.Millisecond)
 	assert.NotContains(t, sc.recordedTexts()[2], "kind=")
-}
-
-// TestEngineHost_ExitWaitsForDeliveredTurnsToBeAcked pins the runner side of
-// the at-least-once seam: a delivered message's consume-ack (Home.turnPump,
-// after the engine accepted the turn) races the engine's own exit — an engine
-// that exits on the turn it just accepted can have its RunExited reach the
-// coordinator BEFORE the file is renamed consumed, and the coordinator's
-// leftover-mail tail then relaunches the harp for a message that is already
-// answered. The host therefore waits for every accepted turn's ack before it
-// reports the exit, and only for the turns the engine actually took.
-func TestEngineHost_ExitWaitsForDeliveredTurnsToBeAcked(t *testing.T) {
-	home := &fakeEngineHome{}
-	sc := &scriptedChat{endAfterTurns: 2} // the briefing, then the delivered turn, then exit
-	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
-	t.Cleanup(eh.Close)
-	eh.BindHome(home)
-	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
-	require.Equal(t, int32(0), resp.GetStatus().GetCode())
-	require.Eventually(t, func() bool { return len(sc.recordedTexts()) == 1 }, 5*time.Second, 10*time.Millisecond)
-
-	home.mu.Lock()
-	sink := home.sink
-	home.mu.Unlock()
-	require.True(t, sink(&agentcoordpb.PeerMessage{MessageId: "m-9", FromAgentId: "parent-harp", Text: "last assignment"}))
-
-	require.Eventually(t, func() bool {
-		home.mu.Lock()
-		defer home.mu.Unlock()
-		return len(home.exited) == 1
-	}, 5*time.Second, 10*time.Millisecond, "the engine ends after the delivered turn and the host reports the exit")
-
-	home.mu.Lock()
-	defer home.mu.Unlock()
-	assert.Equal(t, []string{"m-9"}, home.awaitedAcks, "exactly the delivered turn the engine took — the briefing carried no mail")
-	assert.Equal(t, []string{"await-acks", "exited"}, home.lifecycle, "the ack wait must come BEFORE the exit report, or it protects nothing")
 }
 
 // TestEngineHost_StartRunIdempotentOnReissue: the SAME run_id reissued

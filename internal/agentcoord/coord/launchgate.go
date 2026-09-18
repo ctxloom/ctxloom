@@ -396,7 +396,7 @@ func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail strin
 		return
 	}
 	attached := c.armLaunch(rec.Harp)
-	c.goTracked(func() { c.resumeChild(rec.Harp, rec.RunID, attached, delay) })
+	c.goTracked(func() { c.resumeChild(rec.Harp, attached, delay) })
 }
 
 // giveUpLaunching is the LOUD end of a bounded retry: the parent's mailbox

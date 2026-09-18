@@ -1376,9 +1376,6 @@ message AgentEvent {
     // --- summaries ---
     Summary summary = 70;
 
-    // --- observation plane (synthetic; coordinator-emitted, never journaled) ---
-    EventsLost events_lost = 80;
-
     // --- escape hatches (AG-UI RAW / CUSTOM analogs) ---
     RawEvent raw = 90;
     CustomEvent custom = 91;
@@ -1683,24 +1680,6 @@ message Summary {
 
 // Verbatim upstream harness event (raw Claude API stream event, Codex
 // app-server notification...) for lossless forwarding/debugging.
-// EventsLost is SYNTHETIC: the coordinator's watch fan-out (coord/consumer.go,
-// watchHub) queues one to a WatchRuns subscriber whose bounded ring
-// overflowed, in place of every event it could not queue, the moment that
-// ring has room again — so the marker always PRECEDES the next event the
-// subscriber receives after the loss. Lossy, never silent: a reader that sees
-// this has missed exactly the listed ranges and can re-read them from the
-// journal or roster. It is never journaled, never folded, and never a
-// runner's to emit (an inbound one is dropped); the enclosing AgentEvent
-// carries no seq and no run_id of its own — the ranges name the runs.
-message EventsLost {
-  message Range {
-    string run_id = 1;
-    uint64 first_seq = 2;  // inclusive
-    uint64 last_seq = 3;   // inclusive
-  }
-  repeated Range lost = 1;
-}
-
 message RawEvent {
   string source = 1;  // e.g. "claude-agent-sdk/stream_event"
   google.protobuf.Struct event = 2;

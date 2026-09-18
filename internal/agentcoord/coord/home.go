@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -71,17 +70,6 @@ type Home struct {
 	// preserved — a crash between notice and hand-off re-delivers).
 	turnQ       chan *agentcoordpb.PeerMessage
 	turnPending map[string]bool
-	// acking holds the ids the engine has ACCEPTED whose consume-rename the
-	// pump has not yet performed; ackWake is closed and replaced whenever
-	// turnPending or acking shrinks. Together they let AwaitMailAcked answer
-	// "is any of these still on its way to consumed/" without polling.
-	acking  map[string]bool
-	ackWake chan struct{}
-	// exited is set once ReportRunExited has run for a spawned run: the
-	// hosted engine is gone, and this runner must not sweep in/ again — mail
-	// written for the harp's NEXT run would land in a dead sink and be
-	// consumed out from under the run launched to answer it.
-	exited atomic.Bool
 
 	// terminalNudge is the SESSION-OWNER's delivery-by-state seam, the
 	// counterpart to turnQ for a Home no engine ever registered a turn sink
@@ -246,8 +234,6 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		pending:     make(map[string]*homeReq),
 		consumed:    make(map[string]bool),
 		turnPending: make(map[string]bool),
-		acking:      make(map[string]bool),
-		ackWake:     make(chan struct{}),
 	}
 	// A runner writes exactly ONE spool: its own harp's out/. The cache is
 	// still keyed by harp because spoolWriterCache is shared with the
@@ -615,26 +601,19 @@ func (h *Home) turnPump(q <-chan *agentcoordpb.PeerMessage, sink func(*agentcoor
 		select {
 		case pm := <-q:
 			ok := sink(pm)
-			id := pm.GetMessageId()
 			h.mu.Lock()
-			delete(h.turnPending, id)
+			delete(h.turnPending, pm.GetMessageId())
 			if ok {
-				h.consumed[id] = true
-				h.acking[id] = true
+				h.consumed[pm.GetMessageId()] = true
 			} else {
 				h.buffer = append(h.buffer, pm) // engine gone: back to the recv buffer
-				h.wakeAckWaitersLocked()
 			}
 			h.mu.Unlock()
 			if ok {
 				// THE ACK, whichever substrate carried it (mailConsumed):
 				// emitted only now, because "the engine accepted the turn" is
 				// the earliest moment the delivery is real.
-				h.ackMailConsumed([]string{id})
-				h.mu.Lock()
-				delete(h.acking, id)
-				h.wakeAckWaitersLocked()
-				h.mu.Unlock()
+				h.ackMailConsumed([]string{pm.GetMessageId()})
 			}
 		case <-h.ctx.Done():
 			return
@@ -642,59 +621,14 @@ func (h *Home) turnPump(q <-chan *agentcoordpb.PeerMessage, sink func(*agentcoor
 	}
 }
 
-// wakeAckWaitersLocked releases every AwaitMailAcked caller to re-check.
-// Caller holds h.mu.
-func (h *Home) wakeAckWaitersLocked() {
-	close(h.ackWake)
-	h.ackWake = make(chan struct{})
-}
-
-// AwaitMailAcked blocks until none of ids is still on its way to consumed/:
-// neither queued for the engine (turnPending) nor accepted with its
-// consume-rename in flight (acking). An id this runner never delivered, or
-// one already acked, needs no wait. Bounded by ctx.
-//
-// The engine host calls this before it reports RunExited, for the turns the
-// engine actually took: the pump's ack for an accepted turn trails the
-// engine's acceptance (transcript write, bookkeeping, rename), and an engine
-// that exits on the turn it just accepted can otherwise have its exit reach
-// the coordinator while the file is still in in/ — where terminateRun's
-// leftover-mail tail reads it as unanswered and launches the harp again for
-// a message that is already consumed by the time that run sweeps.
-func (h *Home) AwaitMailAcked(ctx context.Context, ids []string) error {
-	for {
-		h.mu.Lock()
-		inFlight := false
-		for _, id := range ids {
-			if h.turnPending[id] || h.acking[id] {
-				inFlight = true
-				break
-			}
-		}
-		wake := h.ackWake
-		h.mu.Unlock()
-		if !inFlight {
-			return nil
-		}
-		select {
-		case <-wake:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
 // ReportRunExited sends a best-effort RunExited on the live lifecycle link
 // WITHOUT tearing the home down — the engine host's chat-ended signal (the
 // runner process itself stays up until the coordinator kills it; the
-// coordinator's loss synthesis covers a link that is down). It also retires
-// this runner's in/ sweep (Home.exited): whether or not the frame gets out,
-// the engine is gone and nothing here can take a turn.
+// coordinator's loss synthesis covers a link that is down).
 func (h *Home) ReportRunExited(exitCode int, harnessSessionID string) {
 	if h.cfg.RunID == "" {
 		return // a session-owner runner hosts no spawned run
 	}
-	h.exited.Store(true)
 	h.mu.Lock()
 	link := h.link
 	h.mu.Unlock()

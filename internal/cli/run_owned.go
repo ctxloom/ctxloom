@@ -238,21 +238,26 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 	// The watchHub ring (consumer.go) this channel is fed from is a
 	// lossy, per-subscriber buffer that a busy coordinator's OTHER concurrent
 	// runs can also fill (this run's subscription is scoped, but the ring
-	// still overflows under sustained overload); nothing upstream re-sends a
-	// lost event. SeqWatch accounts for the loss from both signals the wire
-	// carries — the hub's EventsLost marker and a hole in the per-run Seq —
-	// and each loss is warned about once: the renderer must say so rather
-	// than finish as if a possibly truncated answer were complete.
-	seqs := &agentcoordpb.SeqWatch{RunID: runID}
+	// still drops under sustained overload); nothing upstream re-sends a
+	// dropped event. Every event this run's own EngineHost emits carries a
+	// strictly contiguous per-run Seq (home.go's emitEvent), so a hole in
+	// that sequence is the only signal available that this stream has
+	// silently lost data. lastSeq tracks the highest Seq observed for THIS
+	// run; Seq 0 (unset — e.g. test fixtures, or any future event type that
+	// does not route through emitEvent) is never treated as a gap.
+	var lastSeq uint64
 	for {
 		select {
 		case ev := <-events:
-			lost, marker := seqs.Observe(ev)
-			if lost.Count() > 0 {
-				clidiag.Warn("ctxloom", "run %s: lost %d event(s) at seq %s — the coordinator's live event buffer was full (likely other concurrent runs competing for it) and could not queue them; this run's rendered output may be INCOMPLETE", runID, lost.Count(), lost.RangesText())
-			}
-			if marker || ev.GetRunId() != runID {
+			if ev.GetRunId() != runID {
 				continue
+			}
+			if seq := ev.GetSeq(); seq != 0 {
+				if lastSeq != 0 && seq > lastSeq+1 {
+					missed := seq - lastSeq - 1
+					clidiag.Warn("ctxloom", "run %s: lost %d event(s) between seq %d and %d — the coordinator's live event buffer was full (likely other concurrent runs competing for it) and dropped them; this run's rendered output may be INCOMPLETE", runID, missed, lastSeq, seq)
+				}
+				lastSeq = seq
 			}
 			switch p := ev.GetPayload().(type) {
 			case *agentcoordpb.AgentEvent_MessageStarted:

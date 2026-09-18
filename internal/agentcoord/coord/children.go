@@ -1653,7 +1653,7 @@ func (c *Coordinator) reapEndedRuns() {
 // attempt armed BEFORE an agent_stop must not carry on behind it, which is
 // exactly how an unbounded relaunch loop can outlive every stop issued
 // against it.
-func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, delay time.Duration) {
+func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay time.Duration) {
 	settled := false
 	defer func() {
 		// Only close here if enqueueRun never ran (found=false, Resolve
@@ -1692,19 +1692,10 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 		// (relaunchForLeftoverMail and driveQueued refuse to arm one after).
 		return
 	}
-	// THE CLAIM. An attempt is armed FOR the run that had ended (forRun) and
-	// the mail queued behind it. "The harp is Ended" alone is not enough:
-	// nextRelaunch can charge the leftover-mail tail a backoff long enough
-	// for an explicit send to resume the harp AND for that newer run to end
-	// too — at which point the harp is Ended again, but the mail this attempt
-	// was armed for was answered in between. Launching then hands the engine
-	// nothing and it idles forever. If a different run is current, the harp
-	// has moved on and whatever is queued now belongs to that run's own
-	// terminate tail (or the send that queued it).
 	var rec RunRecord
 	found := false
 	c.runs.View(func() {
-		if r := c.runsF.currentRun(harp); r != nil && r.Ended && r.RunID == forRun {
+		if r := c.runsF.currentRun(harp); r != nil && r.Ended {
 			rec = *r
 			found = true
 		}
@@ -1826,10 +1817,10 @@ const deliveryEndedDraining = "ended-draining"
 // boundary. Returns the state the delivery observed (or
 // deliveryEndedDraining for a resume refused under drain).
 func (c *Coordinator) driveQueued(harp string) string {
-	state, runID := "", ""
+	state := ""
 	c.runs.View(func() {
 		if r := c.runsF.currentRun(harp); r != nil {
-			state, runID = r.State, r.RunID
+			state = r.State
 		}
 	})
 	switch state {
@@ -1849,7 +1840,7 @@ func (c *Coordinator) driveQueued(harp string) string {
 		// leaked into that path the bound would not be a bound.
 		c.clearLaunchGate(harp)
 		attached := c.armLaunch(harp)
-		c.goTracked(func() { c.resumeChild(harp, runID, attached, 0) })
+		c.goTracked(func() { c.resumeChild(harp, attached, 0) })
 	case StateIdle:
 		// The doorbell that rang at the write wakes the runner; ITS driver
 		// starts the new turn (§6a decided runner-side).

@@ -123,31 +123,38 @@ func customFillEvent(seq uint64) *agentcoordpb.AgentEvent {
 	}
 }
 
-// TestWatchHub_Broadcast_FullRingLossIsReportedBeforeTheNextEvent is the
-// hub-level contract test for the ruled overflow behavior: a full subscriber
-// ring still loses non-terminal events (the producer is never blocked), but
-// NEVER silently — ONE synthetic EventsLost marker naming the exact seq
-// range arrives ahead of the next event that fits. Restoring the plain drop
-// (deliver forgetting noteLost) turns this red: after the ring's own
-// contents the reader would see seq 261 with no marker before it.
-func TestWatchHub_Broadcast_FullRingLossIsReportedBeforeTheNextEvent(t *testing.T) {
+// TestWatchHub_Broadcast_TerminalEvictsOnFullBufferAndNonTerminalStillDrops
+// is PART 2's hub-level contract test: a full subscriber ring still drops a
+// non-terminal event exactly as before (invariant 1, unchanged), but the
+// run's one terminal event (RunCompleted) evicts the oldest queued event to
+// make room rather than being silently lost — and never blocks the caller
+// either way. "Direct seq inspection" (the brief's alternative to routing
+// through PART 1) proves the eviction here: a baseline event is drained
+// first, the ring is filled contiguously behind it, and after the terminal
+// broadcast the next drained seq skips exactly the one evicted event.
+func TestWatchHub_Broadcast_TerminalEvictsOnFullBufferAndNonTerminalStillDrops(t *testing.T) {
 	h := newWatchHub()
 	ch, cancel, _ := h.subscribe(nil)
 	defer cancel()
 
-	// Fill the ring to capacity (seq 1..256) without draining — the slow
-	// subscriber broadcast's doc comment (invariant 1) describes.
-	for i := 1; i <= watchRingSize; i++ {
-		h.broadcast(customFillEvent(uint64(i)))
+	// Baseline: one event, drained immediately (mirrors PART 1's own
+	// baseline discipline — this fixes "the next expected seq" at 2).
+	h.broadcast(customFillEvent(1))
+	baseline := <-ch
+	require.Equal(t, uint64(1), baseline.GetSeq())
+
+	// Fill the ring to capacity (seq 2..257) without draining — the slow
+	// subscriber broadcast's own doc comment (invariant 1) describes.
+	for i := 0; i < watchRingSize; i++ {
+		h.broadcast(customFillEvent(uint64(2 + i)))
 	}
 	require.Len(t, ch, watchRingSize, "the ring must be completely full before the assertions below mean anything")
 
-	// Four more on the full ring: lost, and broadcast must not block losing them.
+	// A NON-terminal event on a full ring must still drop (invariant 1 is
+	// unchanged by this fix) — and broadcast must not block doing it.
 	overflowDone := make(chan struct{})
 	go func() {
-		for seq := watchRingSize + 1; seq <= watchRingSize+4; seq++ {
-			h.broadcast(customFillEvent(uint64(seq)))
-		}
+		h.broadcast(customFillEvent(uint64(2 + watchRingSize)))
 		close(overflowDone)
 	}()
 	select {
@@ -155,51 +162,12 @@ func TestWatchHub_Broadcast_FullRingLossIsReportedBeforeTheNextEvent(t *testing.
 	case <-time.After(2 * time.Second):
 		t.Fatal("broadcast of a non-terminal event must never block, even on a full ring")
 	}
-	assert.Len(t, ch, watchRingSize, "a full ring never grows: the overflow was not queued")
+	assert.Len(t, ch, watchRingSize, "a non-terminal event must still be dropped when the ring is full")
 
-	// The reader frees one slot — not enough for marker + event, so the next
-	// broadcast is lost too rather than arriving without its marker.
-	require.Equal(t, uint64(1), (<-ch).GetSeq())
-	h.broadcast(customFillEvent(uint64(watchRingSize + 5)))
-	assert.Len(t, ch, watchRingSize-1, "with one free slot the marker cannot precede the event, so the event joins the loss")
-
-	// Two free slots: the marker and the next event go in, in that order.
-	require.Equal(t, uint64(2), (<-ch).GetSeq())
-	h.broadcast(customFillEvent(uint64(watchRingSize + 6)))
-	require.Len(t, ch, watchRingSize, "marker + event fill the two freed slots")
-
-	for seq := 3; seq <= watchRingSize; seq++ {
-		require.Equal(t, uint64(seq), (<-ch).GetSeq(), "the ring's own contents arrive intact, in order")
-	}
-	marker := <-ch
-	lost, ok := marker.GetPayload().(*agentcoordpb.AgentEvent_EventsLost)
-	require.True(t, ok, "the first event after the ring's contents must be the EventsLost marker, got %T", marker.GetPayload())
-	require.Len(t, lost.EventsLost.GetLost(), 1, "one run lost one contiguous range")
-	r := lost.EventsLost.GetLost()[0]
-	assert.Equal(t, "r", r.GetRunId())
-	assert.Equal(t, uint64(watchRingSize+1), r.GetFirstSeq(), "the gap starts at the first event the full ring refused")
-	assert.Equal(t, uint64(watchRingSize+5), r.GetLastSeq(), "the gap ends at the last event lost before room appeared")
-	assert.Equal(t, uint64(0), marker.GetSeq(), "the marker is synthetic: it carries no seq of its own")
-	assert.Equal(t, uint64(watchRingSize+6), (<-ch).GetSeq(), "the event that ended the loss episode follows its marker")
-}
-
-// TestWatchHub_Broadcast_TerminalOnFullRingIsPrecededByItsLossMarker pins
-// invariant 2 against the new contract: the run's one terminal (RunCompleted)
-// still fights for delivery on a full ring by evicting queued events — and
-// each eviction is a loss the subscriber is told about, in the same marker as
-// the events the full ring refused, delivered BEFORE the terminal.
-func TestWatchHub_Broadcast_TerminalOnFullRingIsPrecededByItsLossMarker(t *testing.T) {
-	h := newWatchHub()
-	ch, cancel, _ := h.subscribe(nil)
-	defer cancel()
-
-	for i := 1; i <= watchRingSize; i++ {
-		h.broadcast(customFillEvent(uint64(i)))
-	}
-	h.broadcast(customFillEvent(uint64(watchRingSize + 1))) // refused: the ring is full
-
+	// The terminal event fights for delivery — it must arrive despite the
+	// full ring, and broadcast must still never block.
 	term := &agentcoordpb.AgentEvent{
-		Seq: uint64(watchRingSize + 2), RunId: "r",
+		Seq: uint64(3 + watchRingSize), RunId: "r",
 		Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}},
 	}
 	termDone := make(chan struct{})
@@ -212,88 +180,107 @@ func TestWatchHub_Broadcast_TerminalOnFullRingIsPrecededByItsLossMarker(t *testi
 	case <-time.After(2 * time.Second):
 		t.Fatal("broadcast of the terminal event must never block")
 	}
-	require.Len(t, ch, watchRingSize, "ring size unchanged: two slots were evicted for marker + terminal, not grown")
 
-	// seq 1 and 2 were evicted (oldest first); 3..256 survive; then the marker; then the terminal.
-	for seq := 3; seq <= watchRingSize; seq++ {
-		require.Equal(t, uint64(seq), (<-ch).GetSeq())
+	// Drain the ring and confirm: the terminal event is in it, capacity was
+	// never exceeded (exactly one slot was evicted to make room), and the
+	// first drained seq after the baseline reveals the evicted hole.
+	var gotTerminal bool
+	var firstAfterBaseline uint64
+	drained := 0
+drain:
+	for {
+		select {
+		case ev := <-ch:
+			drained++
+			if firstAfterBaseline == 0 {
+				firstAfterBaseline = ev.GetSeq()
+			}
+			if _, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted); ok {
+				gotTerminal = true
+			}
+		default:
+			break drain
+		}
 	}
-	marker := <-ch
-	lost, ok := marker.GetPayload().(*agentcoordpb.AgentEvent_EventsLost)
-	require.True(t, ok, "the marker must precede the terminal, got %T", marker.GetPayload())
-	var ranges [][2]uint64
-	for _, r := range lost.EventsLost.GetLost() {
-		assert.Equal(t, "r", r.GetRunId())
-		ranges = append(ranges, [2]uint64{r.GetFirstSeq(), r.GetLastSeq()})
-	}
-	assert.Equal(t, [][2]uint64{{uint64(watchRingSize + 1), uint64(watchRingSize + 1)}, {1, 2}}, ranges,
-		"the marker names the refused event AND the two evicted ones, each run-contiguous run of seqs as one range")
-	assert.Same(t, term, <-ch, "the terminal lands right after its marker")
-}
-
-// TestWatchSub_NoteLost_CoalescesContiguousSeqsPerRun pins the marker's
-// shape on a hub-wide ring where two runs' events interleave: contiguous
-// seqs of one run fold into one range even with another run's events
-// between them, so the marker stays bounded by runs, not by events lost.
-func TestWatchSub_NoteLost_CoalescesContiguousSeqsPerRun(t *testing.T) {
-	sub := &watchSub{ch: make(chan *agentcoordpb.AgentEvent, 1)}
-	sub.noteLost(nonTerminalEvent(7, "a"))
-	sub.noteLost(nonTerminalEvent(1, "b"))
-	sub.noteLost(nonTerminalEvent(8, "a"))
-	sub.noteLost(nonTerminalEvent(2, "b"))
-	sub.noteLost(nonTerminalEvent(3, "a")) // a's evicted tail: not contiguous with 8, a new range
-
-	require.Len(t, sub.lost, 3)
-	assert.Equal(t, "a", sub.lost[0].GetRunId())
-	assert.Equal(t, [2]uint64{7, 8}, [2]uint64{sub.lost[0].GetFirstSeq(), sub.lost[0].GetLastSeq()})
-	assert.Equal(t, "b", sub.lost[1].GetRunId())
-	assert.Equal(t, [2]uint64{1, 2}, [2]uint64{sub.lost[1].GetFirstSeq(), sub.lost[1].GetLastSeq()})
-	assert.Equal(t, "a", sub.lost[2].GetRunId())
-	assert.Equal(t, [2]uint64{3, 3}, [2]uint64{sub.lost[2].GetFirstSeq(), sub.lost[2].GetLastSeq()})
+	assert.True(t, gotTerminal, "the terminal event must be received despite the full ring")
+	assert.Equal(t, watchRingSize, drained, "ring size unchanged: one slot was evicted to make room, not grown")
+	assert.Equal(t, uint64(3), firstAfterBaseline, "the oldest queued event (seq 2) must have been evicted — a real, honest gap")
 }
 
 // TestSendTerminal_EvictsOldestWhenFull is a focused unit test on the
-// bounded-retry shape itself: the FIFO channel's oldest queued events (not
-// some other ones) are what get evicted, and because every eviction is a
-// loss the subscriber must hear about, the terminal lands right after the
-// marker naming them — two evictions, well inside terminalEvictAttempts.
-func TestSendTerminal_EvictsOldestWhenFull(t *testing.T) {
-	sub := &watchSub{ch: make(chan *agentcoordpb.AgentEvent, 2)}
-	sub.ch <- nonTerminalEvent(1, "r")
-	sub.ch <- nonTerminalEvent(2, "r")
-	term := terminalEvent(3, "r")
+// bounded-retry shape itself: the FIFO channel's oldest queued event (not
+// some other one) is what gets evicted, and the terminal event lands right
+// after it — one eviction, one successful retry, well inside
+// terminalEvictAttempts.
+// TestWatchHub_Narrow_ScopesToOneRun is PART 1's hub-level contract
+// test. startContainerOwnedRun must subscribe BEFORE the run's ID exists
+// (StartOwnedRun mints it internally, mid-call — see run_owned.go's own
+// comment on that ordering), so subscribe(nil) — hub-wide — is unavoidable at
+// that instant. But staying hub-wide for the run's ENTIRE lifetime means
+// every other concurrent run sharing this coordinator competes for the same
+// watchRingSize-slot ring, silently stealing this run's own delivery budget.
+// narrow lets the caller re-scope the SAME subscription, in place, the
+// moment it learns its run's ID — proven here by broadcasting an unrelated
+// run's events both before and after narrowing: they arrive while
+// unscoped, and are excluded from the ring entirely (not merely
+// client-filtered) once narrowed.
+func TestWatchHub_Narrow_ScopesToOneRun(t *testing.T) {
+	h := newWatchHub()
+	ch, cancel, narrow := h.subscribe(nil)
+	defer cancel()
 
-	sendTerminal(sub, term)
+	other := &agentcoordpb.AgentEvent{
+		Seq: 1, RunId: "other-run",
+		Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: "fill"}},
+	}
+	h.broadcast(other)
+	select {
+	case ev := <-ch:
+		assert.Equal(t, "other-run", ev.GetRunId(), "unscoped (nil filter): every run's events reach this subscriber")
+	default:
+		t.Fatal("an unscoped subscription must receive every run's events")
+	}
 
-	require.Len(t, sub.ch, 2, "sendTerminal must not grow the ring — evict, then place")
-	got := <-sub.ch
-	lost, ok := got.GetPayload().(*agentcoordpb.AgentEvent_EventsLost)
-	require.True(t, ok, "the evicted events must be reported by a marker ahead of the terminal, got %T", got.GetPayload())
-	require.Len(t, lost.EventsLost.GetLost(), 1)
-	assert.Equal(t, uint64(1), lost.EventsLost.GetLost()[0].GetFirstSeq())
-	assert.Equal(t, uint64(2), lost.EventsLost.GetLost()[0].GetLastSeq())
-	assert.Same(t, term, <-sub.ch, "the terminal event must be the one placed")
-	assert.Nil(t, sub.lost, "flushing the marker clears the pending loss")
+	narrow("target-run")
+
+	// Now unrelated events must never even enter the ring — proven by
+	// filling the ring past capacity with them and confirming it never
+	// reports full to a non-blocking broadcast, unlike the shared-ring test
+	// above.
+	for i := 0; i < watchRingSize+1; i++ {
+		h.broadcast(&agentcoordpb.AgentEvent{
+			Seq: uint64(2 + i), RunId: "other-run",
+			Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: "fill"}},
+		})
+	}
+	assert.Empty(t, ch, "after narrowing, a foreign run's events must never occupy this subscriber's ring at all")
+
+	mine := &agentcoordpb.AgentEvent{
+		Seq: 999, RunId: "target-run",
+		Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: "fill"}},
+	}
+	h.broadcast(mine)
+	select {
+	case ev := <-ch:
+		assert.Equal(t, "target-run", ev.GetRunId(), "the narrowed run's own events must still arrive")
+	default:
+		t.Fatal("the narrowed-to run's events must still be delivered")
+	}
 }
 
-// TestSendTerminal_TerminalWinsWhenOnlyOneSlotCanBeFreed pins the priority
-// when a lagged subscriber's ring cannot yield two slots (the rest is other
-// runs' terminals, which are never evicted): the terminal is placed and the
-// marker stays pending — dropping the terminal would hang the watcher,
-// deferring the marker does not.
-func TestSendTerminal_TerminalWinsWhenOnlyOneSlotCanBeFreed(t *testing.T) {
-	sub := &watchSub{ch: make(chan *agentcoordpb.AgentEvent, 2)}
-	sub.ch <- terminalEvent(1, "other")
-	sub.ch <- nonTerminalEvent(5, "r")
-	term := terminalEvent(6, "r")
+func TestSendTerminal_EvictsOldestWhenFull(t *testing.T) {
+	ch := make(chan *agentcoordpb.AgentEvent, 2)
+	ch <- &agentcoordpb.AgentEvent{Seq: 1}
+	ch <- &agentcoordpb.AgentEvent{Seq: 2}
+	term := &agentcoordpb.AgentEvent{Seq: 3, Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}}}
 
-	sendTerminal(sub, term)
+	sendTerminal(ch, term)
 
-	require.Len(t, sub.ch, 2)
-	assert.Equal(t, "other", (<-sub.ch).GetRunId(), "the other run's terminal survives")
-	assert.Same(t, term, <-sub.ch, "the terminal takes the one slot the eviction freed")
-	require.Len(t, sub.lost, 1, "the evicted event stays a pending loss for the next flush")
-	assert.Equal(t, uint64(5), sub.lost[0].GetFirstSeq())
+	require.Len(t, ch, 2, "sendTerminal must not grow the ring — evict one, then place one")
+	got := <-ch
+	assert.Equal(t, uint64(2), got.GetSeq(), "the OLDEST queued event (seq 1) must be the one evicted, not seq 2")
+	got = <-ch
+	assert.Same(t, term, got, "the terminal event must be the one placed")
 }
 
 // TestSendTerminal_NeverBlocksWhenChannelIsWedged proves the bounded give-up
@@ -302,11 +289,11 @@ func TestSendTerminal_TerminalWinsWhenOnlyOneSlotCanBeFreed(t *testing.T) {
 // blocking forever, matching consumer.go's never-block invariant even for
 // the terminal-delivery exception.
 func TestSendTerminal_NeverBlocksWhenChannelIsWedged(t *testing.T) {
-	sub := &watchSub{ch: make(chan *agentcoordpb.AgentEvent)} // unbuffered; nothing ever sends or receives concurrently
+	ch := make(chan *agentcoordpb.AgentEvent) // unbuffered; nothing ever sends or receives concurrently
 	term := &agentcoordpb.AgentEvent{Seq: 1, Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}}}
 	done := make(chan struct{})
 	go func() {
-		sendTerminal(sub, term)
+		sendTerminal(ch, term)
 		close(done)
 	}()
 	select {

@@ -1,6 +1,6 @@
 //go:build acceptance
 
-// Fixtures and assertions for context_status (features/context_status.feature).
+// Fixtures and assertions for context_status (features/cli/context_status.feature).
 //
 // The seeding steps write through internal/contextmetrics' OWN writer rather
 // than emitting JSONL by hand. That is the point of them: this suite drives

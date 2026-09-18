@@ -23,7 +23,7 @@ import (
 // MCP surface, against a session large enough to have triggered the
 // ~381,000-char blowup the original bug report described, must come back
 // bounded rather than passing an uncompressed distillation through raw. See
-// tests/acceptance/features/mcp_tools.feature's "recover_session bounds..."
+// tests/acceptance/features/cli/mcp_tools.feature's "recover_session bounds..."
 // scenario.
 //
 // The mock backend's DEFAULT response (no custom CTXLOOM_MOCK_RESPONSE) is an

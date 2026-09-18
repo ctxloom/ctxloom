@@ -28,8 +28,8 @@ Feature: bundle — the container authored content lives in, and everything that
 
   | leaf                               | specified in                     |
   | bundle trust / reject / forget     | cli/content_decision.feature     |
-  | bundle distill                     | content_distill.feature          |
-  | bundle sign, bundle move           | j001600_signing.feature          |
+  | bundle distill                     | cli/content_distill.feature      |
+  | bundle sign, bundle move           | journeys/j001600_signing.feature |
 
   Each of those is a state machine or a ceremony that spans more than one noun
   — a decision that also governs `ctxloom review`, a distillation that also

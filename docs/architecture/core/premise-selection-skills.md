@@ -313,6 +313,45 @@ and authoring it well means naming the situations a human will actually phrase o
 not restating what the skill does. That is the next trial: rewrite the three big-miss
 premises against the `missed` set's phrasings, re-score blind on a fresh mined set.
 
+### Where the misses are, and what five conditions say about them
+
+Split the Sonnet per-premise run by how many skills a situation wants:
+
+| situations wanting | n | fully found |
+|---|---|---|
+| one skill | 57 | 53 (0.93) |
+| two skills | 15 | 2 (0.13) |
+
+**On single-skill moments the premises are at the fragment trial's ceiling.** The entire gap
+is the fifteen two-skill moments, and those pairs are always CONSEQUENT, never simultaneous:
+admit→unattended, closeout→prompt-human, closeout→recover, prompt-human→unattended,
+check-triggers→prompt-human. Five conditions were run against them (`premise_runs_skills/`):
+
+| condition | both-found |
+|---|---|
+| haiku, engine's menu instruction | 2 / 15 |
+| sonnet, per-premise (the fragment trial's method) | 2 / 15 |
+| sonnet, premises rewritten as discrete booleans | 1 / 15 |
+| sonnet, trimmed premises, full listing shown, no pointer | 4 / 15 |
+| sonnet, same, each line carrying "(often relevant alongside: X)" | 2 / 15 |
+
+None passed 4. Booleans COST single-skill recall (the human's real phrasings were doing the
+matching) and did not move the pairs; the relevance pointer lowered both-found and added
+false fires. The consequent skill's condition is genuinely FALSE at the moment the human
+speaks — `unattended` is not true until `admit` has run — and no text in a 250-character
+line changes what the moment contains. This is not a wording problem and the listing is not
+where it can be fixed.
+
+Where it can be: the corpus's `missed` set shows the actual failure shape. The first skill
+fires; its body names the consequent in prose ("hand off to the unattended skill", "defer
+only for a human decision"); and the model does the consequent BY HAND instead of invoking
+it — M09 "Running the unattended pre-flight..." with no Skill call, M11 "good night" answered
+in prose. The hand-off is an unchecked prose binding. A link group's job, if it has one here,
+is to make that hand-off CHECKED: on a grouped skill's completion, re-present its mates as
+now-relevant — a delta listing, which is exactly the incremental `sentSkillNames` mechanism
+phase 0 found the engine already has. That is a ctxloom-side completion hook, not listing
+text, and it is a design for a human to rule on rather than a sixth wording trial.
+
 ### Ruled 2026-09-18 (Ben): `when_to_use` is the premise, and it gets a cap
 
 "when to use is our premise, which we should probably cap." A ctxloom fragment premise has

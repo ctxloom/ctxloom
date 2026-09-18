@@ -663,6 +663,9 @@ func (c *Coordinator) serveAgentRequest(caller Identity, req *agentcoordpb.Agent
 		// The bulk shape waits on the drain, bounded; baseCtx is the only
 		// ctx a plane-2 dispatch has, and Close settles the drain anyway.
 		return c.serveStopRun(c.baseCtx, caller, kind.StopRun)
+	case *agentcoordpb.AgentRequest_ControlRun:
+		// Same ctx reasoning: each verb applies its own budget to baseCtx.
+		return c.serveControlRun(c.baseCtx, caller, kind.ControlRun)
 	case *agentcoordpb.AgentRequest_Custom:
 		return c.serveCustom(caller, kind.Custom)
 	default:

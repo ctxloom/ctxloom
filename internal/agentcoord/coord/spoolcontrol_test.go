@@ -463,9 +463,11 @@ func TestSpoolControl_PauseHoldsTurnsAndLeavesMailUnconsumed(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
-	require.NoError(t, c.ControlPause(ctx, humanInitiator(), out.Harp, "human is reviewing"))
+	newly, err := c.ControlPause(ctx, humanInitiator(), out.Harp, "human is reviewing")
+	require.NoError(t, err)
+	assert.True(t, newly, "the first pause is the one that installed the gate")
 
-	_, _, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
+	_, _, _, err = c.peerSend(ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
 	require.NoError(t, err)
 
 	require.Never(t, func() bool { return countChatText(sp, 0, "work item while paused") > 0 },
@@ -477,9 +479,13 @@ func TestSpoolControl_PauseHoldsTurnsAndLeavesMailUnconsumed(t *testing.T) {
 		"the held message must still be in the delivery directory, where a relaunched run would find it")
 
 	// Pause is idempotent, and says which it did.
-	require.NoError(t, c.ControlPause(ctx, humanInitiator(), out.Harp, "still reviewing"))
+	newly, err = c.ControlPause(ctx, humanInitiator(), out.Harp, "still reviewing")
+	require.NoError(t, err)
+	assert.False(t, newly, "a second pause finds the gate already installed and must say so")
 
-	require.NoError(t, c.ControlResume(ctx, humanInitiator(), out.Harp))
+	newly, err = c.ControlResume(ctx, humanInitiator(), out.Harp)
+	require.NoError(t, err)
+	assert.True(t, newly, "the resume is the one that released the gate")
 	awaitChatText(t, sp, 0, "work item while paused")
 	awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "after the resume released the held turn")
 

@@ -1,0 +1,38 @@
+{
+  "name": "agent_steer",
+  "description": "Steer one of your delegated children: deliver an instruction it acts on as its next turn. The instruction is a DURABLE file in the child's own inbox spool — it survives the child's relaunch, is visible while unread, and the returned message_id is the handle to withdraw it before the child reads it. Delivery follows the child's state: an idle child is woken into a new turn, a busy one sees it at its next turn boundary, an ended one is resumed with it. Only your OWN children may be steered (the target's parent must be you; you cannot steer yourself). This is an instruction, not a conversation — the child does not answer it; use agent_ask when you expect an answer.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "harp": {
+        "description": "The child session harp to steer (from agent_run's harp, or the roster)",
+        "examples": [
+          "swift-amber-falcon"
+        ],
+        "type": "string"
+      },
+      "text": {
+        "description": "The instruction. Delivered verbatim as the child's next turn under a provenance header naming it a steer from you.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "harp",
+      "text"
+    ],
+    "type": "object"
+  },
+  "outputSchema": {
+    "properties": {
+      "delivery": {
+        "description": "How the steer landed, from coord's Delivery* vocabulary: completed the child's parked receive, woke it into a new turn, queued for its next boundary, or resumed an ended session.",
+        "type": "string"
+      },
+      "message_id": {
+        "description": "The withdraw handle: the id of the durable instruction file, valid until the child takes it.",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

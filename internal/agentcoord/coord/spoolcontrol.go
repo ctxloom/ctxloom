@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
@@ -75,6 +76,14 @@ var ErrAskTimeout = errors.New("ask: the target did not answer within the budget
 // number: an ask is a foreground control action with a caller waiting on it,
 // and the substrate underneath it changed, not the human's patience.
 const askBudget = controlRequestBudget
+
+// AskWireBudget is what a TRANSPORT should allow one question/summarize ask
+// to take end to end: askBudget plus slack. The coordinator's own verdict on
+// an unanswered ask (ErrAskTimeout, which says the request is still in the
+// child's spool and a late answer will be dropped) is the one the caller must
+// read; a wire hop that expired at the same instant would replace it with a
+// bare "request timed out" that says nothing about where the question went.
+const AskWireBudget = askBudget + 5*time.Second
 
 // ---- steer -------------------------------------------------------------
 
@@ -358,18 +367,32 @@ func (c *Coordinator) resolveAskReply(caller Identity, inReplyTo, body string, s
 // instruction that takes effect "when you next look at your mailbox" is not a
 // pause. It is a RunnerRequest — beside StartRun, StopRun, KillRun and Drain —
 // answered synchronously by the runner process that owns the engine.
-func (c *Coordinator) ControlPause(ctx context.Context, by ControlInitiator, harp, reason string) error {
-	return c.runnerControl(ctx, by, harp, "pause", reason)
+//
+// newlyPaused is the runner's own word on whether THIS call installed the
+// gate or found it already installed. Pause is idempotent, so both are
+// success; a caller who cannot tell them apart cannot tell a deliberate
+// second hold from a pause that never took.
+func (c *Coordinator) ControlPause(ctx context.Context, by ControlInitiator, harp, reason string) (newlyPaused bool, err error) {
+	resp, err := c.runnerControl(ctx, by, harp, "pause", reason)
+	if err != nil {
+		return false, err
+	}
+	return resp.GetPauseRun().GetNewlyPaused(), nil
 }
 
 // ControlResume releases a paused target: turns held at the gate are handed to
-// the engine in arrival order.
-func (c *Coordinator) ControlResume(ctx context.Context, by ControlInitiator, harp string) error {
-	return c.runnerControl(ctx, by, harp, "resume", "")
+// the engine in arrival order. newlyResumed mirrors ControlPause's
+// newlyPaused: whether this call released the gate or found none.
+func (c *Coordinator) ControlResume(ctx context.Context, by ControlInitiator, harp string) (newlyResumed bool, err error) {
+	resp, err := c.runnerControl(ctx, by, harp, "resume", "")
+	if err != nil {
+		return false, err
+	}
+	return resp.GetResumeRun().GetNewlyResumed(), nil
 }
 
-// runnerControl issues one pause/resume against harp's runner and reports what
-// the runner said.
+// runnerControl issues one pause/resume against harp's runner and returns
+// what the runner answered (an OK response; a refusal is the error).
 //
 // It runs the SAME ownership guards every control verb runs, and the same
 // cutover predicate the delivery planes use — not because pause needs a spool,
@@ -377,17 +400,17 @@ func (c *Coordinator) ControlResume(ctx context.Context, by ControlInitiator, ha
 // reconciles: the predicate is what says "this run is on the new plane", and
 // every control surface has to agree about that or the answer depends on which
 // one you asked.
-func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, harp, verb, reason string) error {
+func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, harp, verb, reason string) (*agentcoordpb.RunnerResponse, error) {
 	rec, err := c.controlTarget(by, harp)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !c.spoolDeliverTo(harp) {
-		return fmt.Errorf("%s: %q is not a run this coordinator tracks, so no runner request can reach it: %w",
+		return nil, fmt.Errorf("%s: %q is not a run this coordinator tracks, so no runner request can reach it: %w",
 			verb, harp, ErrCapabilityUnavailable)
 	}
 	if rec.CredHash == "" {
-		return fmt.Errorf("%s: %q has no runner credential, so no runner request can reach it: %w", verb, harp, ErrCapabilityUnavailable)
+		return nil, fmt.Errorf("%s: %q has no runner credential, so no runner request can reach it: %w", verb, harp, ErrCapabilityUnavailable)
 	}
 	c.audit("agent_"+verb, by.auditName(), map[string]string{"harp": harp})
 
@@ -401,7 +424,7 @@ func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, ha
 	case "resume":
 		req.Kind = &agentcoordpb.RunnerRequest_ResumeRun{ResumeRun: &agentcoordpb.ResumeRun{RunId: rec.RunID}}
 	default:
-		return fmt.Errorf("%q is not a runner control verb", verb)
+		return nil, fmt.Errorf("%q is not a runner control verb", verb)
 	}
 	if _, has := ctx.Deadline(); !has {
 		var cancel context.CancelFunc
@@ -410,10 +433,10 @@ func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, ha
 	}
 	resp, err := c.requestRunner(ctx, rec.CredHash, req)
 	if err != nil {
-		return fmt.Errorf("%s %s: %w", verb, harp, err)
+		return nil, fmt.Errorf("%s %s: %w", verb, harp, err)
 	}
 	if code := resp.GetStatus().GetCode(); code != 0 {
-		return fmt.Errorf("%s %s refused: %s", verb, harp, resp.GetStatus().GetMessage())
+		return nil, fmt.Errorf("%s %s refused: %s", verb, harp, resp.GetStatus().GetMessage())
 	}
-	return nil
+	return resp, nil
 }

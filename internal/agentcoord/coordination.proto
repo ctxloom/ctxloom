@@ -662,6 +662,10 @@ message AgentRequest {
     // realizes it as a hard kill (grace is advisory); the child's slot
     // frees and its terminal record is synthesized as usual.
     StopRun stop_run = 16;
+    // A coordinating session controls ONE of its own children — steer,
+    // question, summarize, pause, resume — through the same coordinator verbs
+    // the human drives from the viewer; answered by ControlRunResult.
+    ControlRun control_run = 17;
     // Open extension point, mirroring CustomEvent.
     CustomRequest custom = 90;
   }
@@ -684,6 +688,7 @@ message CoordinatorResponse {
     PeerSendResult peer_send = 13;
     ListRunsResult list_runs = 14;
     StopRunResult stop_run = 16;  // answers AgentRequest.stop_run
+    ControlRunResult control_run = 17;  // answers AgentRequest.control_run
     google.protobuf.Struct custom = 90;
   }
 }
@@ -1011,6 +1016,150 @@ message ListRunsResult {
     repeated string mcp_servers = 9;
   }
   repeated RunInfo runs = 1;
+}
+
+// ----- agent-initiated control of a child ------------------------------------
+//
+// ControlRun is the AGENT initiator's reach onto the control verbs: a
+// coordinating session asks the coordinator to steer, question, summarize,
+// pause or resume ONE of ITS OWN children. It is a TRANSPORT onto the same
+// coordinator verbs the human drives from the viewer (coord.Coordinator's
+// ControlSteer/ControlQuestion/ControlSummarize/ControlPause/ControlResume),
+// not a second implementation of them: the coordinator derives the initiator
+// from the REQUESTER's credential, runs the verb's own guards (the target
+// must exist, must not be the requester itself, and must be the requester's
+// child — coord.controlTarget), and answers whatever the verb answered.
+//
+// Each verb is one arm so the MCP surface can bind a TOOL per verb (the
+// arm's message is that tool's input schema) while the wire carries exactly
+// one request kind. The target is addressed by HARP, never run_id: a harp is
+// stable across a child's resumes, and a control action is aimed at the
+// child, not at one attempt of it.
+message ControlRun {
+  oneof verb {
+    ControlSteer steer = 10;
+    ControlQuestion question = 11;
+    ControlSummarize summarize = 12;
+    ControlPause pause = 13;
+    ControlResume resume = 14;
+  }
+}
+
+// Answers ControlRun, arm for arm.
+message ControlRunResult {
+  oneof verb {
+    ControlSteerResult steer = 10;
+    ControlAskResult question = 11;
+    ControlAskResult summarize = 12;
+    ControlPauseResult pause = 13;
+    ControlResumeResult resume = 14;
+  }
+}
+
+message ControlSteer {
+  option (message_schema) = {
+    doc: "Steer one of your delegated children: deliver an instruction it acts on as its next turn. The instruction is a DURABLE file in the child's own inbox spool — it survives the child's relaunch, is visible while unread, and the returned message_id is the handle to withdraw it before the child reads it. Delivery follows the child's state: an idle child is woken into a new turn, a busy one sees it at its next turn boundary, an ended one is resumed with it. Only your OWN children may be steered (the target's parent must be you; you cannot steer yourself). This is an instruction, not a conversation — the child does not answer it; use agent_ask when you expect an answer."
+  };
+  string harp = 1 [(field_schema) = {
+    required: true,
+    doc: "The child session harp to steer (from agent_run's harp, or the roster)",
+    example: "\"swift-amber-falcon\""
+  }];
+  string text = 2 [(field_schema) = {
+    required: true,
+    doc: "The instruction. Delivered verbatim as the child's next turn under a provenance header naming it a steer from you."
+  }];
+}
+
+message ControlSteerResult {
+  // How the steer landed, from coord's Delivery* vocabulary: completed the
+  // child's parked receive, woke it into a new turn, queued for its next
+  // boundary, or resumed an ended session.
+  string delivery = 1;
+  // The withdraw handle: the id of the durable instruction file, valid
+  // until the child takes it.
+  string message_id = 2;
+}
+
+message ControlQuestion {
+  option (message_schema) = {
+    doc: "Ask one of your delegated children a question and WAIT for its answer. The question is delivered as the child's next turn (an idle child is woken for it; a busy one sees it at its next boundary) and the answer is whatever the child itself sends back quoting the question's id — the child answers cooperatively, and nothing captures its turn output and calls that the answer. This call BLOCKS until the answer arrives or the budget elapses; on timeout the question is still in the child's inbox and a late answer is dropped, so a timed-out ask is unanswered, not failed. Only your OWN children may be asked."
+  };
+  string harp = 1 [(field_schema) = {
+    required: true,
+    doc: "The child session harp to ask (from agent_run's harp, or the roster)",
+    example: "\"swift-amber-falcon\""
+  }];
+  string text = 2 [(field_schema) = {
+    required: true,
+    doc: "The question, delivered verbatim as the child's next turn under a header naming it a question from you that expects an answer."
+  }];
+}
+
+message ControlSummarize {
+  option (message_schema) = {
+    doc: "Ask one of your delegated children for an on-demand summary of where it stands and WAIT for it. Same mechanism as agent_ask — the request is the child's next turn, the answer is what the child itself sends back quoting the request — but the child sees it as a summary request, not a question. This call BLOCKS until the summary arrives or the budget elapses; on timeout the request is still in the child's inbox. Only your OWN children may be summarized."
+  };
+  string harp = 1 [(field_schema) = {
+    required: true,
+    doc: "The child session harp to summarize (from agent_run's harp, or the roster)",
+    example: "\"swift-amber-falcon\""
+  }];
+  string focus = 2 [(field_schema) = {
+    required: true,
+    doc: "What the summary should cover — the question the summary must answer for you (\"what is blocking you\", \"which files have you changed and why\")."
+  }];
+}
+
+// One cooperative answer to a question or summarize ask.
+message ControlAskResult {
+  // The id the child's reply quoted — the same id its question carried.
+  string ask_id = 1;
+  // The harp that answered, resolved from the inbox the reply came from,
+  // never from anything the reply claimed.
+  string from = 2;
+  // The reply body: what the child chose to send.
+  string text = 3;
+  // The reply's structured companion, when the child attached one.
+  google.protobuf.Struct structured = 4;
+}
+
+message ControlPause {
+  option (message_schema) = {
+    doc: "Pause one of your delegated children: hold its turn hand-off so nothing NEW is handed to its engine until agent_resume. The turn it is in now finishes — no surface ctxloom drives can interrupt a turn — but anything queued for it, and any mail that arrives meanwhile, waits at the gate in arrival order (mail stays in its inbox, unread, where a relaunched child would find it). Pause is idempotent and the result says whether THIS call paused the child or found it already paused. It is done TO the run by its runner, not delivered as a message, so it takes effect without the child reading anything. Only your OWN children may be paused."
+  };
+  string harp = 1 [(field_schema) = {
+    required: true,
+    doc: "The child session harp to pause (from agent_run's harp, or the roster)",
+    example: "\"swift-amber-falcon\""
+  }];
+  string reason = 2 [(field_schema) = {
+    doc: "Why you are pausing — recorded in the coordinator's audit journal so a later reader can tell a deliberate hold from a stall",
+    example: "\"reviewing its first batch before it continues\""
+  }];
+}
+
+message ControlPauseResult {
+  // Whether THIS request is what paused the run, as opposed to finding it
+  // already paused (pause is idempotent; this says which happened).
+  bool newly_paused = 1;
+}
+
+message ControlResume {
+  option (message_schema) = {
+    doc: "Resume a paused child: turns held at its pause gate are handed to its engine in arrival order, starting with whatever arrived first while it was paused. Resume is idempotent and the result says whether THIS call released the child or found it already running. Only your OWN children may be resumed."
+  };
+  string harp = 1 [(field_schema) = {
+    required: true,
+    doc: "The child session harp to resume (from agent_run's harp, or the roster)",
+    example: "\"swift-amber-falcon\""
+  }];
+}
+
+message ControlResumeResult {
+  // Whether THIS request is what released the run, as opposed to finding it
+  // already running.
+  bool newly_resumed = 1;
 }
 
 // =============================================================================

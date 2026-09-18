@@ -179,7 +179,7 @@ func TestRuntime_Interactive_EchoesTypedLinesAndReportsResizes(t *testing.T) {
 	if echo1 < 0 || ws < 0 || echo2 < 0 {
 		t.Fatalf("missing echo/winsize lines (ping=%d winsize=%d pong=%d); stdout:\n%s", echo1, ws, echo2, out)
 	}
-	if !(echo1 < ws && ws < echo2) {
+	if echo1 >= ws || ws >= echo2 {
 		t.Errorf("order: ping-echo@%d winsize@%d pong-echo@%d; want ping < winsize < pong\n%s", echo1, ws, echo2, out)
 	}
 }

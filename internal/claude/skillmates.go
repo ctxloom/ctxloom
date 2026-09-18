@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -14,9 +13,11 @@ import (
 // skill has run, which the listing text cannot say. This file is the
 // owner-session binding of the one ctxloom-owned step that closes that gap: at
 // a skill's completion, name its link-group mates the session has not invoked
-// yet. The membership comes from the group (bundles.UninvokedSkillMates); the
-// moment comes from the engine's PostToolUse event; "not yet invoked" comes
-// from the engine's own transcript, so no state is persisted anywhere.
+// yet. The membership comes from the group (bundles.UninvokedSkillMates, joined
+// to these pieces by the hook verb in internal/cli -- this package must not
+// link the bundle model, the lean binaries reach it); the moment comes from
+// the engine's PostToolUse event; "not yet invoked" comes from the engine's
+// own transcript, so no state is persisted anywhere.
 
 // SkillToolName is the tool claude-code runs a skill through. Its input carries
 // the invoked skill's name under `skill` (skillToolInput).
@@ -73,26 +74,4 @@ func SkillMatesContext(completed string, mates []string) string {
 		return ""
 	}
 	return "Skill " + completed + " completed; linked skills not yet invoked this session: " + strings.Join(mates, ", ")
-}
-
-// BuildSkillMatesOutput decides what one PostToolUse payload earns: the
-// skill-mates line when the completed tool was a Skill call whose link group
-// has mates the session has not invoked yet, and silence otherwise -- a
-// non-Skill tool, a skill in no group, or a group fully invoked.
-//
-// delivered is the skill set this run materialized for the engine (the same
-// set the listing came from), and prior is the session transcript up to now.
-func BuildSkillMatesOutput(payload PostToolUsePayload, delivered []*bundles.LoadedSkill, prior []agent.ChatEvent) PostToolUseOutput {
-	completed, ok := InvokedSkill(payload.ToolName, payload.ToolInput)
-	if !ok {
-		return PostToolUseOutput{}
-	}
-	line := SkillMatesContext(completed, bundles.UninvokedSkillMates(delivered, completed, SkillsInvoked(prior)))
-	if line == "" {
-		return PostToolUseOutput{}
-	}
-	return PostToolUseOutput{HookSpecificOutput: &PostToolUseSpecificOutput{
-		HookEventName:     HookEventPostToolUse,
-		AdditionalContext: line,
-	}}
 }

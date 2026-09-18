@@ -112,7 +112,7 @@ func skillMatesOutput(cmd *cobra.Command) (claude.PostToolUseOutput, error) {
 	}
 	delivered := slices.DeleteFunc(backends.LoadSkillExports(cfg, cfg.DefaultAgentProfiles()),
 		func(s *bundles.LoadedSkill) bool { return !claudeengine.SkillEnabled(s) })
-	return claude.BuildSkillMatesOutput(payload, delivered, evs), nil
+	return buildSkillMatesOutput(payload, delivered, evs), nil
 }
 
 func init() {

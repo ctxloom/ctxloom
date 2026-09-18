@@ -17,31 +17,26 @@ import (
 func TestNoLegacyHistoryReason_AgreesWithEveryBackendsHistory(t *testing.T) {
 	names := List()
 	require.NotEmpty(t, names)
-	retired := 0
+	// The expected retired set is derived from the OTHER side of the
+	// agreement — the backends that construct no History — so the comparison
+	// with RetiredScraperBackendNames below is between two derivations, not
+	// one derivation and a copy of itself.
+	var retired []string
 	for _, name := range names {
 		reason := NoLegacyHistoryReason(name)
 		history := Get(name).History()
 		if reason != "" {
-			retired++
 			assert.Nil(t, history, "%s declares its legacy scraper retired (%q) but still constructs a History", name, reason)
 		} else {
 			assert.NotNil(t, history, "%s constructs no History yet declares no reason — the retirement is undeclared", name)
 		}
-	}
-	assert.GreaterOrEqual(t, retired, 1, "at least one shipped engine's scraper was retired")
-	assert.ElementsMatch(t, retiredNames(t), RetiredScraperBackendNames())
-	assert.Empty(t, NoLegacyHistoryReason("never-registered"), "an unregistered name keeps its legacy leg by default")
-}
-
-func retiredNames(t *testing.T) []string {
-	t.Helper()
-	var out []string
-	for _, name := range List() {
-		if NoLegacyHistoryReason(name) != "" {
-			out = append(out, name)
+		if history == nil {
+			retired = append(retired, name)
 		}
 	}
-	return out
+	assert.NotEmpty(t, retired, "at least one shipped engine's scraper was retired")
+	assert.ElementsMatch(t, retired, RetiredScraperBackendNames())
+	assert.Empty(t, NoLegacyHistoryReason("never-registered"), "an unregistered name keeps its legacy leg by default")
 }
 
 // IsTestOnly is a thin read over the Distribution enum: a double is hidden

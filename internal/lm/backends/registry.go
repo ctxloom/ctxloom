@@ -146,6 +146,20 @@ func List() []string {
 	return names
 }
 
+// ListWhere returns the registered backend names keep accepts, in List's
+// sorted order. It is the one filter over the registry: every "the backends
+// that declare X" view is a predicate on a name, and a loop per view is how
+// four copies of this came to exist.
+func ListWhere(keep func(name string) bool) []string {
+	var names []string
+	for _, name := range List() {
+		if keep(name) {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 // Exists returns true if a backend with the given name is registered.
 func Exists(name string) bool {
 	_, ok := lookup(name)

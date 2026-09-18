@@ -8,7 +8,7 @@
 // mockengine reads clearly as "the fake that impersonates an engine" and is
 // distinct from the in-process backend named "mock".
 //
-// One PERSONALITY per launch, selected by a flag (--claude) or the
+// One PERSONALITY per launch, selected by a flag (--<backend>) or the
 // MOCKENGINE_PERSONALITY env var (backend registry name), and one SURFACE,
 // selected by --surface or MOCKENGINE_SURFACE (oneshot unless said otherwise).
 // Everything after the mock's own leading flags is the VENDOR argv, parsed
@@ -27,7 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// envPersonality selects the personality when no --claude/--personality flag is
+// envPersonality selects the personality when no --<backend>/--personality flag is
 // present — the clean channel when the mock is installed via a config `env:`
 // block and the driver owns the argv.
 const envPersonality = "MOCKENGINE_PERSONALITY"
@@ -65,6 +65,15 @@ func personalityFromFlag(tok string) (string, bool) {
 	return name, true
 }
 
+// impersonable lists the registered backends that declare an engine CLI — the
+// personalities a --<backend> flag can select.
+func impersonable() []string {
+	return backends.ListWhere(func(name string) bool {
+		_, ok := backends.EngineCLIsFor(name)
+		return ok
+	})
+}
+
 // surfaceByName resolves the requested surface name against the personality's
 // DECLARED surfaces; an empty name means oneshot. The name is matched, never
 // converted into agent.CLISurface: membership in that vocabulary is the
@@ -92,7 +101,7 @@ func run(args []string) int {
 
 	// Consume the mock's own leading flags. They come FIRST because ctxloom
 	// prepends a config `args:` block ahead of the engine flags buildArgs emits,
-	// so a leading --claude survives into argv[0..]. Parsing stops at the first
+	// so a leading --<backend> survives into argv[0..]. Parsing stops at the first
 	// token that is not a mock flag (or at an explicit "--"), and everything
 	// after is the vendor argv.
 consume:
@@ -126,7 +135,10 @@ consume:
 	}
 
 	if personality == "" {
-		fmt.Fprintf(os.Stderr, "mock-engine: no personality selected — pass --claude or set %s\n", envPersonality)
+		// The hint names the flags that actually work: the registry's own
+		// names, not a spelling this file guessed.
+		fmt.Fprintf(os.Stderr, "mock-engine: no personality selected — pass --<backend> (one of %s) or set %s\n",
+			strings.Join(impersonable(), ", "), envPersonality)
 		return 2
 	}
 

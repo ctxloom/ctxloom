@@ -103,13 +103,10 @@ func vendorReaderFor(engine string) (vendorReaderEntry, bool) {
 // edit; an engine that declares them absent does not, and its reason is
 // readable through backends.TranscriptReadersFor.
 func VendorReaderEngineNames() []string {
-	var names []string
-	for _, name := range backends.List() {
-		if _, ok := vendorReaderFor(name); ok {
-			names = append(names, name)
-		}
-	}
-	return names
+	return backends.ListWhere(func(name string) bool {
+		_, ok := vendorReaderFor(name)
+		return ok
+	})
 }
 
 // VendorReaderAdaptersFor returns the version-scoped transcript adapters

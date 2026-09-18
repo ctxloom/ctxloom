@@ -16,6 +16,7 @@ import (
 
 	pty "github.com/aymanbagabas/go-pty"
 
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/mockengine"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -217,5 +218,29 @@ func TestRun_SurfaceSelection(t *testing.T) {
 	// Default surface is oneshot: an argv without --print does not parse.
 	if code := run([]string{"--claude-code", "hello"}); code != 2 {
 		t.Errorf("interactive-shaped argv on the default (oneshot) surface: exit %d, want 2", code)
+	}
+}
+
+// TestImpersonable_NamesExactlyTheBackendsWithAnEngineCLI pins the hint the
+// no-personality refusal prints: every name it offers is selectable (declares
+// an engine CLI), and every selectable backend is offered.
+func TestImpersonable_NamesExactlyTheBackendsWithAnEngineCLI(t *testing.T) {
+	offered := map[string]bool{}
+	for _, name := range impersonable() {
+		if _, ok := backends.EngineCLIsFor(name); !ok {
+			t.Errorf("hint offers %q, which declares no engine CLI and so cannot be selected", name)
+		}
+		if _, ok := personalityFromFlag("--" + name); !ok {
+			t.Errorf("hint offers %q, but --%s does not select it", name, name)
+		}
+		offered[name] = true
+	}
+	for _, name := range backends.List() {
+		if _, ok := backends.EngineCLIsFor(name); ok && !offered[name] {
+			t.Errorf("%q is selectable but the hint does not offer it", name)
+		}
+	}
+	if len(offered) == 0 {
+		t.Fatal("the hint offers nothing: this test checked no name")
 	}
 }

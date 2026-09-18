@@ -2291,13 +2291,22 @@ func (c *Config) buildBundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
 	// preimage from a tree that does not exist there and withheld the skill in
 	// silence. bundles.readersFS now selects by provenance instead, so that
 	// failure is no longer reachable by reordering this slice.
-	readers := []bundles.Reader{bundles.NewProjectReader(fsys, c.bundleReaderDirs(), bundles.WithTrustRoot(c.TrustRoot()))}
-	readers = append(readers, bundles.NewBuiltinReader(bundles.WithTrustRoot(c.TrustRoot())))
-	readers = append(readers, c.remoteBundleReaders()...)
-	readers = append(readers, c.companionReader())
-	readers = append(readers, lc.extraReaders...)
+	//
+	// A SOURCE, not a slice: the remote readers are one per lockfile entry, and
+	// a pull adds entries while this loader is alive (it is shared for the
+	// Config's life and the sync builds it before any fetch). Deriving the set
+	// on every (re)index is what makes InvalidateBundleLoader mean what it says
+	// — "re-reads every source" — for the lockfile too, not only for the
+	// content behind the readers that already existed.
+	source := func() []bundles.Reader {
+		readers := []bundles.Reader{bundles.NewProjectReader(fsys, c.bundleReaderDirs(), bundles.WithTrustRoot(c.TrustRoot()))}
+		readers = append(readers, bundles.NewBuiltinReader(bundles.WithTrustRoot(c.TrustRoot())))
+		readers = append(readers, c.remoteBundleReaders()...)
+		readers = append(readers, c.companionReader())
+		return append(readers, lc.extraReaders...)
+	}
 
-	loader := bundles.NewLoader(readers...)
+	loader := bundles.NewLoaderFrom(source)
 	// Multi-version coexistence (trust rework, TR5): give every read-path loader
 	// the capability to materialize a specific historical commit-version of a
 	// remote bundle via FetchItem. This is opt-in at the loader's version-aware

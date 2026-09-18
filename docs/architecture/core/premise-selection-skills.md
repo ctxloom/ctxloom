@@ -252,6 +252,29 @@ own listing shape (`- name: description - when_to_use`, 250-char cap, noun tags 
 | check-triggers | 7 | 6/7 | 4/7 |
 | recover | 6 | 4/6 | 4/6 |
 
+### Against the fragment trial's 0.93 — same model, same method
+
+The human asked why ~0.68 sits so far below the fragment trial's ~0.93. Three things
+differed, and the deleted `premise_runs/README.md` had already warned that "a number without
+its model and date stops being comparable": that trial was **sonnet, per-premise** (one call
+per premise, "consider this premise ON ITS OWN") on a corpus with **no should-have-fired
+set**; this trial's first run was **haiku, the engine's real menu shape**, with 43 of 89
+situations being misses. Re-run under the fragment trial's exact method and model
+(`run-20260918-sonnet-perpremise`):
+
+| condition | recall | precision | false-fire | exact | invoked | missed |
+|---|---|---|---|---|---|---|
+| haiku, menu (engine instruction) | 0.678 | 0.983 | 0/17 | 65/89 | 0.763 | 0.612 |
+| sonnet, per-premise | 0.747 | 0.985 | 0/17 | 72/89 | 0.737 | 0.755 |
+
+Model and method together are worth ~7 points, and they are worth it entirely on the
+`missed` set (0.61 → 0.755): per-premise judgement on a stronger model recovers the oblique
+phrasings. On the `invoked` set — the only kind of situation the fragment corpus held —
+the two runs are flat at 0.74–0.79. So under identical conditions skills score roughly
+0.75 where fragments scored 0.93. That gap is the two kinds behaving differently, which
+the design of record's last section predicted, and the deleted README's caveat that the
+selector already knew the fragments' content cuts the 0.93 as well.
+
 ### The prediction above was wrong, and that is the finding
 
 Phase 1 predicted, from the fragment trial's numbers, that the engine's menu-shaped

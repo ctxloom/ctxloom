@@ -36,6 +36,12 @@ description: |-
 
   `observed` is the count of near-identical mined turns folded into the row; 1 where the row is
   a single moment.
+
+  PREMISES, authored after the situations were committed, shaped by phase 0 and phase 1: each is
+  at most 250 characters (the engine's per-entry cap, so it could stand as the listing line
+  itself); each keys on what is OBSERVABLE IN THE MOMENT AS THE AGENT WOULD STATE IT -- the
+  human's words where the moment is a human turn, the agent's own next action where it is not;
+  `tags` are nouns presented as valid grounds for inclusion, per the tags-as-signal result.
 fragments:
   closeout:
     ref: ctxloom:project@skills/closeout
@@ -106,7 +112,10 @@ fragments:
 
       Say "not done" where that is the truth. A confident wrong claim costs the reader
       their next hour; an honest gap costs a sentence.
-    premise: ''
+    premise: The human has told you to close out, wrap up, or finish the work properly, or a unit of work
+      has just ended -- the gate is green and you are about to report what landed. Not per turn, and not
+      while the work is still moving.
+    tags: close out, wrap up, gate, mutation, falsified comment, task log, report, done
   admit:
     ref: ctxloom:project@skills/admit
     description: Admit work to the nightly queue — roll the live queue tag forward, triage every candidate
@@ -241,7 +250,10 @@ fragments:
       the count admitted, the count withheld, and the exact query the run will use.
       Then hand off to the `unattended` skill, which owns everything from pre-flight
       onward.
-    premise: ''
+    premise: 'You are deciding, with the human still present, what tonight''s queue may hold: they said
+      admit, preflight, tonight''s queue, or what should run overnight, asked what is in the queue, or
+      are about to leave you a queue to work.'
+    tags: queue, tonight, admit, preflight, overnight, stop conditions, taskloom tag, carry-forward
   unattended:
     ref: ctxloom:project@skills/unattended
     description: Work an admitted queue of tasks autonomously and unattended — overnight or while the
@@ -516,7 +528,10 @@ fragments:
       3. **When in doubt, file it and move on.** An item left undone costs one
          morning. An irreversible wrong decision costs much more, and the whole
          reason you are running unattended is that nobody is there to catch it.
-    premise: ''
+    premise: The human said good night, run overnight, run this unattended, or handed you a queue and
+      left, and you are about to work with nobody to answer a question or approve anything until morning.
+    tags: good night, overnight, unattended, queue, stop conditions, coordinator, morning report, revert
+      budget
   prompt-human:
     ref: ctxloom:project@skills/prompt-human
     description: Find everything blocked on a human decision, then put each one to them as an interactive
@@ -774,7 +789,11 @@ fragments:
         was obvious; if it was not, it was a decision and it needed asking.
       - **The buried answer.** They ruled, you carried on, and nothing in the repo
         records what they decided or why.
-    premise: ''
+    premise: The human asked what is pending, blocked on them, or needs deciding, or told you to raise,
+      run by them, or go through the human questions or decisions -- any wording -- or you are about to
+      hand off, end a session, or cut a release.
+    tags: human decisions, open questions, pending, blocked on the human, escalation, question prompt,
+      hand-off, morning after
   design-by-test:
     ref: ctxloom:project@skills/design-by-test
     description: Decide an architectural question by writing the test FIRST, because the test is where
@@ -865,7 +884,10 @@ fragments:
       BRIEF, and require the red commit as evidence. An instruction to "write tests"
       reliably produces implementation-first work with tests appended — and the
       result is indistinguishable at merge unless the history shows the red state.
-    premise: ''
+    premise: You are about to introduce or change a signature, interface, contract, schema, boundary,
+      or data path -- yourself or by dispatching an implementer -- and no failing test yet states the
+      proposed shape.
+    tags: interface, signature, contract, schema, boundary, data path, red test, dispatch, architecture
   check-triggers:
     ref: ctxloom:shipped@commands/check-triggers
     description: Review Deferred tasks and surface any whose revive trigger has fired
@@ -925,7 +947,10 @@ fragments:
       - This is the read/decide half of the Deferred workflow. The defer half is
         `task_set_status` with `status: "Deferred"` and a `trigger`, or `task_add`
         with the same.
-    premise: ''
+    premise: You are reading the task log, judging by hand whether a Deferred task's revive trigger has
+      fired, about to revive one, or reviewing the board before a release cut or a queue admission with
+      Deferred rows on it.
+    tags: Deferred, revive trigger, task log, evaluate_triggers, backlog, release cut
   recover:
     ref: ctxloom:shipped@commands/recover
     description: Recover context from the current session after /clear
@@ -951,7 +976,9 @@ fragments:
 
       If nothing is recovered:
       "No recoverable context found for this session."
-    premise: ''
+    premise: The context was cleared, or the human asked you to recover a session by name, and you are
+      about to reconstruct what was being worked on before acting on it.
+    tags: /clear, recover, session, context, distilled essence, resume
 situations:
 - id: S01
   intent: The human said 'ok, lets prepare an unattended run'; I'm about to set tonight's queue up with

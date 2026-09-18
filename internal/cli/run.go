@@ -529,6 +529,12 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return ferr
 	}
 
+	// Past the last gate an engine can still be refused at over its
+	// environment: whatever the gates let through (nothing in strict mode;
+	// under --degraded, every finding the launch proceeded past) is now
+	// what the agent needs to know, so it rides into the request here.
+	st.attachStartupFindings()
+
 	st.stampWorkspaceOnRequest()
 
 	if err := st.startTransport(); err != nil {
@@ -2208,6 +2214,7 @@ func init() {
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
 	runCmd.Flags().BoolVar(&runOneShot, "one-shot", false, "Run one turn non-interactively, print the response, and exit")
 	runCmd.Flags().BoolVar(&runPlainTerminal, "plain-terminal", false, "Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session")
+	runCmd.Flags().BoolVar(&runNoStartupFindings, "no-startup-findings", false, "Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")
 

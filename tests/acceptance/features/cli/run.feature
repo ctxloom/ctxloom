@@ -211,3 +211,62 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command succeeds
       And the mock recorded input contains "WebFetch"
+
+  Rule: What the launch learned about its own environment reaches the agent
+
+    A launch computes findings about the ground the agent is about to stand
+    on — a config key it does not know and therefore IGNORED, an isolation axis
+    that degraded, a companion it expected and withheld. Until now those went
+    to stderr, which the human may not be watching and the agent never sees;
+    an agent whose config half-loaded then works confidently on the wrong
+    premise and reports success. So the findings ride INTO the started agent's
+    context, as doctor's own rows, and a flag opts out for the scripted runs
+    where that is measured waste.
+
+    # Both scenarios assert on the mock's RECORD of what crossed the launch
+    # wire, never on the CLI's own stderr: the claim is that the AGENT received
+    # the finding, and stderr is exactly the surface this rule exists to stop
+    # relying on. Degraded mode is what lets a config finding reach a launch
+    # at all — in strict mode the startup gate aborts on it first, which is
+    # the other, already-covered half of the same doctrine. It is spelled as
+    # the environment switch rather than the flag because the engine is a
+    # child ctxloom process with a startup gate of its own, and only the
+    # environment reaches it.
+    Scenario: A config finding the launch proceeded past is delivered into the agent's context
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a fragment "testing" in bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        version: 6
+        runt1me: host
+        """
+      And the mock LLM responds "MOCK-REPLY"
+      And the environment variable "CTXLOOM_DEGRADED" is set to "1"
+      When I run "ctxloom run --one-shot --profile dev unicorn-prompt"
+      Then the command succeeds
+      And the mock recorded input contains "FRAGMENT-BODY-testing"
+      And the mock recorded input contains "DOCTOR-CHECK-STARTUP-FINDINGS"
+      And the mock recorded input contains "unknown key `runt1me`"
+
+    # The opt-out, paired with the positive scenario above and with the
+    # assembled context still present in the record — so an absent finding is
+    # evidence of the flag, not of a launch that delivered nothing.
+    Scenario: --no-startup-findings withholds the findings and nothing else
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a fragment "testing" in bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        version: 6
+        runt1me: host
+        """
+      And the mock LLM responds "MOCK-REPLY"
+      And the environment variable "CTXLOOM_DEGRADED" is set to "1"
+      When I run "ctxloom run --one-shot --no-startup-findings --profile dev unicorn-prompt"
+      Then the command succeeds
+      And the mock recorded input contains "FRAGMENT-BODY-testing"
+      And the mock recorded input does not contain "DOCTOR-CHECK-STARTUP-FINDINGS"
+      And the mock recorded input does not contain "unknown key `runt1me`"

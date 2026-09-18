@@ -57,22 +57,23 @@ ctxloom run [flags] [prompt...]
 ### Options
 
 ```
-      --agent string         Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)
-  -r, --command string       Run a saved command by name
-      --distill              With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)
-  -n, --dry-run              Show command that would be executed
-  -f, --fragment strings     Context fragment(s) to include (can be repeated)
-  -l, --llm string           config label to use (e.g. claude-code, claude-fast, codex); overrides the configured default
-      --one-shot             Run one turn non-interactively, print the response, and exit
-      --permissions string   Permission posture: default|acceptEdits|plan|bypass (overrides the agent/config default)
-      --plain-terminal       Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session
-  -p, --profile string       Profile to use (predefined fragment collection)
-      --prompt string        Prompt to send to the AI (alternative to positional args)
-      --session string       Resume the named harp session: folds its full recorded transcript into this run's assembled context. Combine with --distill to resume via its distilled essence instead.
-  -t, --tag strings          Include fragments with this tag (can be repeated)
-  -v, --verbose count        Increase verbosity (can be repeated: -v, -vv, -vvv)
-      --workspace string     Session workspace axis (none|worktree; empty = project default)
-  -y, --yes                  Assume yes for the install-on-startup prompt
+      --agent string          Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)
+  -r, --command string        Run a saved command by name
+      --distill               With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)
+  -n, --dry-run               Show command that would be executed
+  -f, --fragment strings      Context fragment(s) to include (can be repeated)
+  -l, --llm string            config label to use (e.g. claude-code, claude-fast, codex); overrides the configured default
+      --no-startup-findings   Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context
+      --one-shot              Run one turn non-interactively, print the response, and exit
+      --permissions string    Permission posture: default|acceptEdits|plan|bypass (overrides the agent/config default)
+      --plain-terminal        Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session
+  -p, --profile string        Profile to use (predefined fragment collection)
+      --prompt string         Prompt to send to the AI (alternative to positional args)
+      --session string        Resume the named harp session: folds its full recorded transcript into this run's assembled context. Combine with --distill to resume via its distilled essence instead.
+  -t, --tag strings           Include fragments with this tag (can be repeated)
+  -v, --verbose count         Increase verbosity (can be repeated: -v, -vv, -vvv)
+      --workspace string      Session workspace axis (none|worktree; empty = project default)
+  -y, --yes                   Assume yes for the install-on-startup prompt
 ```
 
 ### Options inherited from parent commands

@@ -1,10 +1,4 @@
 agents:
-    orchestrator:
-        llm: claude-code
-        permissions: bypass
-        profiles:
-            - orchestrator
-        runtime: host
     default:
         llm: claude-code
         profiles:
@@ -35,6 +29,19 @@ agents:
         profiles:
             - finder
         runtime: container-rootless
+    orchestrator:
+        llm: claude-code
+        permissions: bypass
+        profiles:
+            - orchestrator
+        runtime: host
+    reviewer-fable:
+        llm: claude-fable
+        permissions: bypass
+        profiles:
+            - default
+            - developer-escalation
+        runtime: host
     triage:
         llm: claude-fast
         profiles:
@@ -48,6 +55,9 @@ llm:
     configs:
         claude-code:
             model: claude-opus-5
+            type: claude-code
+        claude-fable:
+            model: claude-fable-5-1
             type: claude-code
         claude-fast:
             model: claude-haiku-4-5-20251001

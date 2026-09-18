@@ -13,8 +13,8 @@ Browse and manage harp-named sessions
 
 ### Synopsis
 
-Read and manage the harp-keyed session index at
-~/.ctxloom/sessions/index.yaml. Use to list/show/edit/remove
+Read and manage the harp-keyed sessions under ~/.ctxloom/sessions:
+one directory per session, each carrying its own record. Use to list/show/edit/remove
 sessions without launching the LLM. Sessions appear here automatically
 once `ctxloom run` has been used to launch a backend.
 

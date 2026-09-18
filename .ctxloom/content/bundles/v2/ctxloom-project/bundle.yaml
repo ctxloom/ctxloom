@@ -112,8 +112,8 @@ fragments:
             existing covers — an agent label, an LLM config label. There, env falls
             back to whatever the shell handed over, while `--config-set` preserves
             the typed case. That is why `--config-set` can mint a brand-new
-            case-sensitive key (`agents.MyCoder.runtime=container`,
-            `llm.configs.big.env.GEMINI_API_KEY=...`) and env fundamentally cannot.
+            case-sensitive key (`agents.MyCoder.runtime=container`)
+            and env fundamentally cannot.
         no_distill: true
         premise: You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
     dind-in-agent-cells:

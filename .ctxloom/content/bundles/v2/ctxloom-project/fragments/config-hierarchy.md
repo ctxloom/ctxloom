@@ -57,5 +57,5 @@ existing casing. They diverge only at a dynamic level that nothing
 existing covers — an agent label, an LLM config label. There, env falls
 back to whatever the shell handed over, while `--config-set` preserves
 the typed case. That is why `--config-set` can mint a brand-new
-case-sensitive key (`agents.MyCoder.runtime=container`,
-`llm.configs.big.env.GEMINI_API_KEY=...`) and env fundamentally cannot.
+case-sensitive key (`agents.MyCoder.runtime=container`)
+and env fundamentally cannot.

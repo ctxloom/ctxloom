@@ -21,7 +21,7 @@ const TestSupportPrefix = ModulePath + "/internal/testsupport"
 // cover whatever later takes that directory's name.
 var testSupportImporters = map[string]string{
 	"tests/integration/testenv": "shared harness for the -tags integration suite; never linked into a binary",
-	"tests/acceptance":          "godog acceptance suite, compiled only under -tags acceptance; never linked into a binary",
+	"tests/acceptance":          "godog acceptance suite, compiled only under -tags acceptance; never linked into a binary. The import lives in tagged step files the DEFAULT build cannot see, so the untagged liveness pass reports this entry stale — it is live under the tag, and the tagged pass is the one that needs it",
 }
 
 // reachesTestSupport is exported by a package that can reach the test-only

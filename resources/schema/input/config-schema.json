@@ -335,11 +335,6 @@
         }
       },
       "additionalProperties": false
-    },
-    "session_reap_age": {
-      "type": "string",
-      "description": "How old a session must be before `ctxloom clean` reclaims its disposable store (~/.ctxloom/sessions/<harp>/ephemeral): an offset in `clean --older-than`'s grammar - 30d, 12w, 720h. Default 30d when unset. `clean --older-than` overrides it for one invocation. persist/ is never taken on this age alone; that needs `clean --include-persist`. A session carrying a top-level file named `keep` is never reclaimed. A fact about this machine's disk, so it is honoured from ~/.ctxloom/config.yaml (or CTXLOOM_CONFIG_SESSION_REAP_AGE) and never from the committed project file. A value the grammar cannot parse is REFUSED, never resolved to the default.",
-      "pattern": "^[0-9]+(d|w|h|m|s)$"
     }
   },
   "$defs": {

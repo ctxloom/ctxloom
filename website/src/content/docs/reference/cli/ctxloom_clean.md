@@ -24,28 +24,20 @@ LOCAL-ONLY — nothing rebuilds them, so clean never takes them, and neither
 does --yes. lock.yaml survives too: it is rebuildable but committed, so
 deleting it would dirty your tree rather than free anything.
 
-Every session also leaves a directory under ~/.ctxloom/sessions/<harp>/,
-and clean reaps the DISPOSABLE part of it by age: ephemeral/, the scratch
-store (agent worktrees, rendered overlays) whose loss costs nothing. A
-session is aged when nothing anywhere in it has been modified for longer
-than the bound — 30d unless your ~/.ctxloom/config.yaml sets
-session_reap_age, and --older-than overrides either for one invocation:
+Session data is LOCAL-ONLY too, and no invocation takes it unless you name an
+age. Pass --older-than to reclaim the sessions that are BOTH older than a
+bound you state and provably not running:
 
   ctxloom clean --older-than 30d          an offset: 30d, 12w, 720h
   ctxloom clean --older-than 2026-01-01   or a date
 
-persist/ — transcripts, plans, session artifacts — is REFERENCED DATA:
-task rows and design records cite paths in it, so no age takes it. Pass
---include-persist to reclaim it too, from the same aged sessions. The
-session's own record (its sidecar, essence and rotation segments) is never
-taken: the directory stays, and the session still lists and resolves.
-
-To exempt one session from every sweep, place an empty file named 'keep'
-at the top of its directory.
+There is no default age, deliberately: nothing rebuilds a session record, so
+a bound this command invented for you would silently eat history. Without
+--older-than, not one session is considered.
 
 A session is reclaimed only when its liveness lock proves its owner has
-ended. A running session, or one whose liveness cannot be established at
-all, is reported and left alone. A session holding a scratch worktree with
+ended. A running session, or one whose liveness cannot be established at all,
+is reported and left alone. A session holding a scratch worktree with
 uncommitted work is reported and left alone too — that work exists nowhere
 else.
 
@@ -53,8 +45,8 @@ A session that predates the liveness lock has no lock file, so its owner can
 never be proven dead — and this sweep, which ranges over every session at
 once, will NEVER reclaim it. That is deliberate, not a gap: nothing but the
 lock can tell such a session apart from one still running, and a bulk sweep
-is the wrong place to gamble a live session's scratch on a guess. Clearing
-one is a per-session decision a human makes by naming it:
+is the wrong place to gamble a live session's only copy of its history on a
+guess. Clearing one is a per-session decision a human makes by naming it:
 'ctxloom session transcript purge <harp> --even-if-live' (and the artifacts
 counterpart) destroy the machine-written bulk of the one session you name.
 
@@ -76,8 +68,7 @@ ctxloom clean [flags]
 ### Options
 
 ```
-      --include-persist     also reclaim persist/ (transcripts, plans, artifacts) from the aged sessions; referenced data, so never taken without this
-      --older-than string   reclaim the disposable store of sessions last active before this age (30d, 12w, 720h) or date (2026-01-01), overriding the configured session_reap_age for this invocation
+      --older-than string   also reclaim session data last active before this age (30d, 12w, 720h) or date (2026-01-01). No default: without it, no session is considered.
       --yes                 apply exactly the plan this reports
 ```
 

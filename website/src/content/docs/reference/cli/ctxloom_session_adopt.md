@@ -29,7 +29,7 @@ adopted.
 
 Without --apply this only reports; nothing on disk or in the session index
 changes. --apply appends every adopted candidate to the harp's Rotations
-through the session store, oldest first — never a hand edit of the record —
+through the session store, oldest first — never a hand edit of index.yaml —
 and prints the next step (distill or recover) to actually materialize the
 recovered history; it does not run that step itself.
 

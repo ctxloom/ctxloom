@@ -224,15 +224,6 @@ const (
 	// this file — sessions.IsSessionDir is the one predicate for that.
 	SessionSidecarFileName = "session.yaml"
 
-	// SessionKeepMarkerFileName is the hand-placed exemption from the aged
-	// session sweep (operations.ReclaimAgedSessions): a plain file of this
-	// name at the top level of ~/.ctxloom/sessions/<harp>/ takes the whole
-	// session out of every scope of that sweep. Its contents are ignored;
-	// its presence is the decision. Named as a word rather than a dotfile
-	// so it is visible in a plain listing — the person who placed it is
-	// the one who will later wonder why the session was never reclaimed.
-	SessionKeepMarkerFileName = "keep"
-
 	// EssenceFileName is the name of a harp's distilled session essence.
 	EssenceFileName = "essence.md"
 

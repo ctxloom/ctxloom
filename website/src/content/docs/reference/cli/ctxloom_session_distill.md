@@ -13,7 +13,7 @@ Distill a session by harp name. Distillation is on-demand: nothing distills a se
 
 ### Synopsis
 
-Looks up the harp's bound session_id in its session record,
+Looks up the harp's bound session_id in ~/.ctxloom/sessions/index.yaml,
 runs the compactor on that backend session, and writes a fresh essence.md
 under the harp directory. Errors if the harp has no session_id bound
 (the SessionStart bind hook records it for sessions launched via ctxloom run).

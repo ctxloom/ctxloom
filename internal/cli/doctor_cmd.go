@@ -853,37 +853,71 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	if config.CompanionsDisabled() {
 		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "companion probing disabled (--no-companions)"}
 	}
-	cat := cfg.BundleLoader().Catalog()
+	decided := readCompanionDecisions(cfg)
+	if !decided.discovered() {
+		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "no companions discovered"}
+	}
+	return doctorCheck{Marker: marker, Status: doctorOK, Detail: decided.detail()}
+}
 
-	var contributing []string
+// companionDecisions is what the resolved catalog decided about each companion
+// binary it knows of, read once off that catalog rather than discovering
+// companions a second time. It is a struct rather than the rendered detail so
+// a consumer can ask WHAT was decided (withheld) without matching the
+// rendered text: the startup-findings delivery selects on it, and the doctor
+// row's ok status deliberately carries no such signal (add-ons are never a
+// doctor failure).
+type companionDecisions struct {
+	// contributing named companions whose loadout the session actually reads.
+	contributing []string
+	// absent is on nobody's PATH; notRun is present but never consented to
+	// (with its path); failed is present, consented, and its probe broke.
+	absent, notRun, failed []string
+}
+
+func readCompanionDecisions(cfg *config.Config) companionDecisions {
+	cat := cfg.BundleLoader().Catalog()
+	var d companionDecisions
 	for _, read := range cat.Reads() {
 		if read.Provenance == bundles.ProvenanceCompanion {
-			contributing = append(contributing, companionBinOf(read.Key()))
+			d.contributing = append(d.contributing, companionBinOf(read.Key()))
 		}
 	}
-	var absent, notRun, failed []string
 	for _, cand := range cat.Candidates() {
 		bin := companionBinOf(cand.Ref)
 		switch cand.Reason {
 		case bundles.CandidateAbsent:
-			absent = append(absent, bin)
+			d.absent = append(d.absent, bin)
 		case bundles.CandidateUnconsented:
-			notRun = append(notRun, fmt.Sprintf("%s (%s)", bin, cand.Path))
+			d.notRun = append(d.notRun, fmt.Sprintf("%s (%s)", bin, cand.Path))
 		default:
-			failed = append(failed, fmt.Sprintf("%s (%s)", bin, cand.Path))
+			d.failed = append(d.failed, fmt.Sprintf("%s (%s)", bin, cand.Path))
 		}
 	}
-	if len(contributing)+len(absent)+len(notRun)+len(failed) == 0 {
-		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "no companions discovered"}
-	}
+	return d
+}
 
-	// "(none)" rather than an omitted section: what a session actually carries
-	// is the fact this check exists to state, and a missing line reads as
-	// unchecked. Every other section is about an exception and is omitted when
-	// it has no members. Each carries the remedy its reason implies.
+// discovered reports whether the catalog knew of any companion at all.
+func (d companionDecisions) discovered() bool {
+	return len(d.contributing) > 0 || d.withheld()
+}
+
+// withheld reports whether any companion the session might have expected is
+// NOT contributing — absent, unconsented, or failed. This is the decision an
+// agent needs to hear: the tool it expects is not there.
+func (d companionDecisions) withheld() bool {
+	return len(d.absent)+len(d.notRun)+len(d.failed) > 0
+}
+
+// detail renders the decisions as the doctor row's text. "(none)" rather than
+// an omitted section: what a session actually carries is the fact this check
+// exists to state, and a missing line reads as unchecked. Every other section
+// is about an exception and is omitted when it has no members. Each carries
+// the remedy its reason implies.
+func (d companionDecisions) detail() string {
 	loadouts := "(none)"
-	if len(contributing) > 0 {
-		loadouts = strings.Join(contributing, ", ")
+	if len(d.contributing) > 0 {
+		loadouts = strings.Join(d.contributing, ", ")
 	}
 	parts := []string{"loadouts read: " + loadouts}
 	for _, section := range []struct {
@@ -891,16 +925,16 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 		items []string
 		hint  string
 	}{
-		{"NOT RUN", notRun, " — allow with 'ctxloom companion trust <path>'"},
-		{"probe failed", failed, ""},
-		{"not installed", absent, ""},
+		{"NOT RUN", d.notRun, " — allow with 'ctxloom companion trust <path>'"},
+		{"probe failed", d.failed, ""},
+		{"not installed", d.absent, ""},
 	} {
 		if len(section.items) == 0 {
 			continue
 		}
 		parts = append(parts, section.label+": "+strings.Join(section.items, ", ")+section.hint)
 	}
-	return doctorCheck{Marker: marker, Status: doctorOK, Detail: strings.Join(parts, "; ")}
+	return strings.Join(parts, "; ")
 }
 
 // companionBinOf recovers the binary name a companion identity was minted

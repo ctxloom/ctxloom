@@ -309,14 +309,6 @@ func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, con
 			wire.UnifiedHooks{PostTool: []wire.Hook{agent.NewToolReflectHook(minBytes)}},
 			fixedSource(HookSource{Origin: HookOriginContext}))
 	}
-	// The PostToolUse skill-mates hook rides the same managed set: link
-	// groups are ctxloom's own delivery unit, so the step that follows one
-	// up at a skill's completion belongs to ctxloom rather than to any
-	// bundle. Ungated -- it is silent for every skill outside a group, so
-	// the only thing to configure would be whether a group may be followed.
-	m.mergeUnified(
-		wire.UnifiedHooks{PostTool: []wire.Hook{agent.NewSkillMatesHook()}},
-		fixedSource(HookSource{Origin: HookOriginContext}))
 	// The TurnEnd next-step hook rides the same managed set, for the same
 	// reason as the reflect hook above: it exists to make the distilled
 	// essence task-aware, so it belongs to ctxloom rather than to any bundle.

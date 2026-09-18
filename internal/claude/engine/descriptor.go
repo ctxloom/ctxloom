@@ -153,12 +153,7 @@ func CommandExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	})
 }
 
-// SkillEnabled is claude-code's per-skill enablement: the one pick both the
-// materializer (SkillExports) and the skill-mates hook read, so what the hook
-// names as a mate is a skill the engine actually has.
-func SkillEnabled(s *bundles.LoadedSkill) bool { return s.LLM.ClaudeCode.IsEnabled() }
-
 // SkillExports resolves claude-code's per-skill enablement.
 func SkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return engine.BuildSkillExports(skills, SkillEnabled)
+	return engine.BuildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.ClaudeCode.IsEnabled() })
 }

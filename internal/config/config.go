@@ -1950,6 +1950,13 @@ func loadConfigLayer(cfg *Config, layer layerscope.Layer, appPath, homeAppPath, 
 		zap.L().Warn("config_layer_scope_warning", zap.String("path", configPath), zap.Strings("key", v.Path))
 	}
 
+	// Per layer, like the scope drop above — see dropEnginelessAgents' doc for
+	// why the check belongs to the layer, not the merged view.
+	for _, w := range dropEnginelessAgents(configPath, raw) {
+		cfg.warnings = append(cfg.warnings, w)
+		zap.L().Warn("config_engineless_agent_warning", zap.String("path", configPath), zap.String("warning", w.Text))
+	}
+
 	zap.L().Debug("config_loaded", zap.String("path", configPath))
 	return raw, pending, nil
 }

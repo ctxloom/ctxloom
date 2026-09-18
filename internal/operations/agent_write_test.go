@@ -244,8 +244,9 @@ func TestSetAgent_RejectsUnknownRuntime(t *testing.T) {
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
 	_, err = SetAgent(mgr, reloaded, SetAgentRequest{
-		Name:    "steady",
-		Runtime: ptr("container-rootless"),
+		Name:     "steady",
+		Profiles: ptr([]string{"default"}),
+		Runtime:  ptr("container-rootless"),
 	})
 	require.NoError(t, err)
 
@@ -283,7 +284,7 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 	assert.Equal(t, "plan", sub.Permissions)
 
 	// Unknown value: stored verbatim, never an error.
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Permissions: ptr("wildwest")})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Profiles: ptr([]string{"default"}), Permissions: ptr("wildwest")})
 	require.NoError(t, err, "unknown permissions warns, never errors")
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -737,13 +738,60 @@ func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
 				require.NoErrorf(t, err, "engine %q has container auth, so `runtime: %s` must be accepted", engine, mode)
 			}
 
-			// An agent with NO engine on the binding is left alone: its engine comes
+			// An agent with NO llm on the binding is left alone: its engine comes
 			// from the composed profiles' llm and the project default at resolve time,
-			// so there is no knowable pair to refuse here.
+			// so there is no knowable pair to refuse here. (Profiles are what carry
+			// that engine — a binding with neither is refused outright, see
+			// TestSetAgent_RefusesABindingWithNoEngine.)
 			reloaded, err = config.Load(config.WithAppDir(appDir))
 			require.NoError(t, err)
-			_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "unbound", Runtime: ptr(mode)})
-			require.NoError(t, err, "an engineless binding has no pair to judge at write time")
+			_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "unbound", Profiles: ptr([]string{"default"}), Runtime: ptr(mode)})
+			require.NoError(t, err, "a profile-carried engine has no pair to judge at write time")
 		})
 	}
+}
+
+// TestSetAgent_RefusesABindingWithNoEngine is the row's second settling
+// condition. `ctxloom agent create help` — no --llm, no --profiles — used to
+// exit 0 and write `agents: help: {}`: a binding with nothing bound, listed
+// as null/null and resolving to nothing at launch. The write edge refuses it
+// the same way it refuses an unknown engine, and nothing lands.
+func TestSetAgent_RefusesABindingWithNoEngine(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+
+	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{Name: "help"})
+	require.ErrorIs(t, err, ErrAgentWithoutEngine, "an agent with no llm and no profiles is not an agent; the write must be refused")
+	assert.Contains(t, err.Error(), `"help"`, "the refusal names the binding")
+
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	_, ok := reloaded.Agent("help")
+	assert.False(t, ok, "a refused SetAgent call must persist nothing")
+}
+
+// TestSetAgent_RefusesAnEditThatClearsTheLastEngineBinding is the edit half:
+// `agent edit dev --llm ""` on a profile-less binding would leave the same
+// engineless shell behind, and the record on disk is exactly what the refusal
+// must protect — the existing binding survives untouched.
+func TestSetAgent_RefusesAnEditThatClearsTheLastEngineBinding(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, llmLabelsFixture)
+	mgr := managerFor(appDir)
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", LLM: ptr("claude-fast")})
+	require.NoError(t, err)
+
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("")})
+	require.ErrorIs(t, err, ErrAgentWithoutEngine, "clearing the only engine binding must be refused, not written")
+
+	final, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	sub, ok := final.Agent("dev")
+	require.True(t, ok, "the live binding must survive the refused edit")
+	assert.Equal(t, "claude-fast", sub.LLM)
+
+	// Clearing the llm while profiles remain is a legal edit: the profiles
+	// carry the engine from here on.
+	_, err = SetAgent(mgr, final, SetAgentRequest{Name: "dev", LLM: ptr(""), Profiles: ptr([]string{"default"})})
+	require.NoError(t, err, "an edit that leaves profiles bound is not engineless")
 }

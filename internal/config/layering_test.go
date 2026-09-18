@@ -22,17 +22,27 @@ func writeLayers(t *testing.T, homeBody, projectBody string) *Config {
 	t.Helper()
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
+	projectAppDir := seedLayers(t, fs, home, homeBody, projectBody)
 
+	cfg, err := Load(WithFS(fs), WithAppDir(projectAppDir))
+	require.NoError(t, err)
+	return cfg
+}
+
+// seedLayers is writeLayers' seeding half for a test that owns its HOME and
+// fs (it needs the home path afterwards, or writes through a Manager rather
+// than a Load): the project config.yaml lands at "/proj/.ctxloom" and, when
+// homeBody is non-empty, the home config.yaml under home. Returns the project
+// app dir.
+func seedLayers(t *testing.T, fs afero.Fs, home, homeBody, projectBody string) string {
+	t.Helper()
 	projectAppDir := "/proj/.ctxloom"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(projectAppDir), []byte(projectBody), 0644))
 	if homeBody != "" {
 		homeAppDir := filepath.Join(home, AppDirName)
 		require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir), []byte(homeBody), 0644))
 	}
-
-	cfg, err := Load(WithFS(fs), WithAppDir(projectAppDir))
-	require.NoError(t, err)
-	return cfg
+	return projectAppDir
 }
 
 // TestLoad_ProjectInheritsHomeKeys is the new-behavior pin D3 exists for: a

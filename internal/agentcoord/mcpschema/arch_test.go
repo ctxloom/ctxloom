@@ -101,6 +101,23 @@ var handlerScopes = map[string]handlerScope{
 	ToolAgentFetchArtifact: {
 		funcs: []string{"../../mcp/mcp_runner.go:fetchArtifactHandler"},
 	},
+	// The five control tools share one wire server: each arm's fields are
+	// read in its case of serveControlRun.
+	ToolAgentSteer: {
+		funcs: []string{"../coord/controlwire.go:serveControlRun"},
+	},
+	ToolAgentAsk: {
+		funcs: []string{"../coord/controlwire.go:serveControlRun"},
+	},
+	ToolAgentSummarize: {
+		funcs: []string{"../coord/controlwire.go:serveControlRun"},
+	},
+	ToolAgentPause: {
+		funcs: []string{"../coord/controlwire.go:serveControlRun"},
+	},
+	ToolAgentResume: {
+		funcs: []string{"../coord/controlwire.go:serveControlRun"},
+	},
 }
 
 func TestArch_MCPToolSchemas_EveryInputFieldIsReadByItsHandler(t *testing.T) {

@@ -619,8 +619,87 @@ func coordinationHandler(home *coord.Home, harp, cwd, name string, leaf bool) (m
 		return recvHandler(home, leaf), nil
 	case mcpschema.ToolAgentReport:
 		return reportHandler(home, harp, cwd), nil
+	case mcpschema.ToolAgentSteer:
+		return controlToolHandler(home, name,
+			func(m *agentcoordpb.ControlSteer) *agentcoordpb.ControlRun {
+				return &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Steer{Steer: m}}
+			},
+			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetSteer() }), nil
+	case mcpschema.ToolAgentAsk:
+		return controlToolHandler(home, name,
+			func(m *agentcoordpb.ControlQuestion) *agentcoordpb.ControlRun {
+				return &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Question{Question: m}}
+			},
+			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetQuestion() }), nil
+	case mcpschema.ToolAgentSummarize:
+		return controlToolHandler(home, name,
+			func(m *agentcoordpb.ControlSummarize) *agentcoordpb.ControlRun {
+				return &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Summarize{Summarize: m}}
+			},
+			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetSummarize() }), nil
+	case mcpschema.ToolAgentPause:
+		return controlToolHandler(home, name,
+			func(m *agentcoordpb.ControlPause) *agentcoordpb.ControlRun {
+				return &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Pause{Pause: m}}
+			},
+			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetPause() }), nil
+	case mcpschema.ToolAgentResume:
+		return controlToolHandler(home, name,
+			func(m *agentcoordpb.ControlResume) *agentcoordpb.ControlRun {
+				return &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Resume{Resume: m}}
+			},
+			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetResume() }), nil
 	default:
 		return nil, fmt.Errorf("runner MCP: no handler for generated tool %q — extend coordinationHandler alongside the binding table", name)
+	}
+}
+
+// controlToolHandler builds the handler for one control tool. The arguments
+// decode into the verb's OWN message (the tool's generated input schema),
+// ride the wire as that arm of ControlRun, and the matching arm of
+// ControlRunResult is the structured result — one exchange shape for all
+// five verbs, so a sixth cannot be served by a copy that drifts.
+//
+// arm wraps the decoded message as its ControlRun arm; pick selects the
+// answering arm (a nil pick is an empty structured result, which
+// coordinationResult already handles).
+func controlToolHandler[M any, PM interface {
+	*M
+	proto.Message
+}](home *coord.Home, name string, arm func(PM) *agentcoordpb.ControlRun, pick func(*agentcoordpb.ControlRunResult) proto.Message) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		m := PM(new(M))
+		if err := unmarshalArgs(req, m); err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		if budget := controlWireBudget(name); budget > 0 {
+			if _, has := ctx.Deadline(); !has {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, budget)
+				defer cancel()
+			}
+		}
+		resp, err := home.Request(ctx, &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_ControlRun{ControlRun: arm(m)}})
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		return coordinationResult(resp, pick(resp.GetControlRun()))
+	}
+}
+
+// controlWireBudget is how long one control tool's plane-2 request may take
+// when the harness hands the handler a deadline-free ctx, or zero to keep
+// Home.Request's default. Only the two ASKS outrun it: they block for the
+// child's cooperative answer, and the coordinator's own verdict on an
+// unanswered one must arrive before the wire gives up (coord.AskWireBudget).
+// Steer, pause and resume are mechanical and keep the default so a wedged
+// runner fails fast.
+func controlWireBudget(name string) time.Duration {
+	switch name {
+	case mcpschema.ToolAgentAsk, mcpschema.ToolAgentSummarize:
+		return coord.AskWireBudget
+	default:
+		return 0
 	}
 }
 

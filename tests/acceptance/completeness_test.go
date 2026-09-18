@@ -64,8 +64,13 @@ var knownUncoveredTools = []string{
 // their own: the standalone-surface census cannot see them at all, so without
 // this list they are invisible rather than red. Backfill still needed.
 var knownUncoveredRunnerOnlyTools = []string{
+	"agent_ask",
 	"agent_fetch_artifact",
+	"agent_pause",
 	"agent_report",
+	"agent_resume",
+	"agent_steer",
+	"agent_summarize",
 	"roster",
 }
 

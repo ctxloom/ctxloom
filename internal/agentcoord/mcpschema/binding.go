@@ -26,23 +26,39 @@ const (
 	ToolAgentReport        = "agent_report"
 	ToolRoster             = "roster"
 	ToolAgentFetchArtifact = "agent_fetch_artifact"
+	// The control verbs: a coordinator acting on ONE of its own children.
+	// Each rides the ControlRun wire pair as its own arm.
+	ToolAgentSteer     = "agent_steer"
+	ToolAgentAsk       = "agent_ask"
+	ToolAgentSummarize = "agent_summarize"
+	ToolAgentPause     = "agent_pause"
+	ToolAgentResume    = "agent_resume"
 )
 
 // CoordinatorOnlyTools returns the set of tools a LEAF delegated agent must
 // NOT receive (the trust-boundary gate, internal/mcp/mcp_runner.go's
-// registration loop): agent_run, roster, agent_stop, and
-// agent_fetch_artifact all either spawn/observe/control OTHER children or
-// retrieve another agent's artifacts — capabilities that make sense only for
-// a coordinator. A leaf keeps agent_send/agent_recv/agent_report (parent
-// reporting only). The top-level human session is never gated by this (see
-// llm_serve.go's leaf computation); only a delegated child's runner consults
-// it.
+// registration loop): every tool here either spawns, observes, controls or
+// stops OTHER children, or retrieves another agent's artifacts —
+// capabilities that make sense only for a coordinator. A leaf keeps
+// agent_send/agent_recv/agent_report (parent reporting only). The top-level
+// human session is never gated by this (see llm_serve.go's leaf
+// computation); only a delegated child's runner consults it.
+//
+// The control verbs are here for the same reason agent_stop is: a leaf has
+// no children, so a control tool in its hands can only ever be refused by
+// the coordinator's ownership check — and a leaf holding one infers it has
+// children to control, which is the stall this gate exists to prevent.
 func CoordinatorOnlyTools() map[string]bool {
 	return map[string]bool{
 		ToolAgentRun:           true,
 		ToolRoster:             true,
 		ToolAgentStop:          true,
 		ToolAgentFetchArtifact: true,
+		ToolAgentSteer:         true,
+		ToolAgentAsk:           true,
+		ToolAgentSummarize:     true,
+		ToolAgentPause:         true,
+		ToolAgentResume:        true,
 	}
 }
 
@@ -167,6 +183,34 @@ func CoordinationBindings() []Binding {
 			Output: "agentcoord.v1.FetchArtifactResult",
 			Route:  RouteArtifactFetch,
 		},
+		// The control verbs. Each tool's input is one arm of ControlRun and
+		// its output the matching arm of ControlRunResult: the WIRE carries
+		// one request kind, the SURFACE offers one tool per verb.
+		{
+			Tool:   ToolAgentSteer,
+			Input:  "agentcoord.v1.ControlSteer",
+			Output: "agentcoord.v1.ControlSteerResult",
+		},
+		{
+			Tool:   ToolAgentAsk,
+			Input:  "agentcoord.v1.ControlQuestion",
+			Output: "agentcoord.v1.ControlAskResult",
+		},
+		{
+			Tool:   ToolAgentSummarize,
+			Input:  "agentcoord.v1.ControlSummarize",
+			Output: "agentcoord.v1.ControlAskResult",
+		},
+		{
+			Tool:   ToolAgentPause,
+			Input:  "agentcoord.v1.ControlPause",
+			Output: "agentcoord.v1.ControlPauseResult",
+		},
+		{
+			Tool:   ToolAgentResume,
+			Input:  "agentcoord.v1.ControlResume",
+			Output: "agentcoord.v1.ControlResumeResult",
+		},
 	}
 }
 
@@ -213,6 +257,12 @@ func Routes() map[string]Route {
 		ToolAgentStop:   RouteCoordination,
 		ToolAgentReport: RouteCoordination,
 		ToolRoster:      RouteCoordination,
+		// The control verbs ride the ControlRun arm of the same typed frames.
+		ToolAgentSteer:     RouteCoordination,
+		ToolAgentAsk:       RouteCoordination,
+		ToolAgentSummarize: RouteCoordination,
+		ToolAgentPause:     RouteCoordination,
+		ToolAgentResume:    RouteCoordination,
 
 		// Artifact transfer (E1d) — the dedicated chunked-transfer service,
 		// not a typed plane-2 frame.

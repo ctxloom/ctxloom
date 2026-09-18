@@ -97,6 +97,14 @@ func capUnavailable(format string, a ...any) capUnavailableError {
 	return capUnavailableError{st: status.Newf(codes.FailedPrecondition, format, a...)}
 }
 
+// ErrControlRefused marks every ownership refusal a control verb makes: the
+// initiator is not allowed to control THIS target (a self-target, a run that
+// is not the initiator's child, an initiator kind this build does not
+// recognise). Typed so a transport can answer PERMISSION_DENIED on the cause
+// rather than on the prose, and so a caller can tell "not yours" from "does
+// not exist" (ErrNotInjectable) without reading the message.
+var ErrControlRefused = errors.New("control: the initiator may not control this target")
+
 // controlRequestBudget bounds one control request when the caller's ctx
 // carries no deadline. A control action is a foreground command against an
 // attached target: the caller is waiting.
@@ -128,7 +136,7 @@ func (c *Coordinator) controlTarget(by ControlInitiator, harp string) (*RunRecor
 	// session would pass its own ownership check via that self-loop and could
 	// steer, pause or question ITSELF — a loop with no floor.
 	if harp == by.Harp {
-		return nil, fmt.Errorf("control: %q cannot control itself", harp)
+		return nil, fmt.Errorf("%w: %q cannot control itself", ErrControlRefused, harp)
 	}
 	// Guard 3 — ownership. Exhaustive, with no default-allow arm: an initiator
 	// this build does not recognise must be REFUSED, not quietly handed the
@@ -140,10 +148,10 @@ func (c *Coordinator) controlTarget(by ControlInitiator, harp string) (*RunRecor
 		// existing rule, unchanged.
 	case agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_AGENT:
 		if rec.ParentHarp != by.Harp {
-			return nil, fmt.Errorf("control: %q is not the parent of %q; a coordinating agent controls only its own children", by.Harp, harp)
+			return nil, fmt.Errorf("%w: %q is not the parent of %q; a coordinating agent controls only its own children", ErrControlRefused, by.Harp, harp)
 		}
 	default:
-		return nil, fmt.Errorf("control: initiator kind %d is refused", int32(by.Kind))
+		return nil, fmt.Errorf("%w: initiator kind %d is refused", ErrControlRefused, int32(by.Kind))
 	}
 	return rec, nil
 }

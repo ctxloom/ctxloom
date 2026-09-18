@@ -199,7 +199,10 @@ var standaloneDelegationTools = []string{"agent_run", "agent_send", "agent_recv"
 // runnerOnlyDelegationTools are the delegation tools mcpIntro says the
 // standalone surface does NOT have, and which therefore must exist on the
 // documented (runner-terminated) surface for the caution to mean anything.
-var runnerOnlyDelegationTools = []string{"roster", "agent_report", "agent_fetch_artifact"}
+var runnerOnlyDelegationTools = []string{
+	"roster", "agent_report", "agent_fetch_artifact",
+	"agent_steer", "agent_ask", "agent_summarize", "agent_pause", "agent_resume",
+}
 
 // differingParamTools are the shared delegation tools whose standalone input
 // schema genuinely differs from the documented one. agent_recv is deliberately

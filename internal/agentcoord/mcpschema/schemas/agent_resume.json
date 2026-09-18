@@ -1,0 +1,29 @@
+{
+  "name": "agent_resume",
+  "description": "Resume a paused child: turns held at its pause gate are handed to its engine in arrival order, starting with whatever arrived first while it was paused. Resume is idempotent and the result says whether THIS call released the child or found it already running. Only your OWN children may be resumed.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "harp": {
+        "description": "The child session harp to resume (from agent_run's harp, or the roster)",
+        "examples": [
+          "swift-amber-falcon"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "harp"
+    ],
+    "type": "object"
+  },
+  "outputSchema": {
+    "properties": {
+      "newly_resumed": {
+        "description": "Whether THIS request is what released the run, as opposed to finding it already running.",
+        "type": "boolean"
+      }
+    },
+    "type": "object"
+  }
+}

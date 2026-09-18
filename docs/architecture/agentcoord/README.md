@@ -6,7 +6,7 @@ about this subsystem's design without re-reading the source; every claim carries
 
 | Page | Purpose |
 |---|---|
-| [overview.md](overview.md) | What the subsystem is, its process topology, the coordinator→spawn→mailbox→report→artifact message flow, the ten system-wide invariants, and an index of every documented-vs-real divergence |
+| [overview.md](overview.md) | What the subsystem is, its process topology, the wire planes as the proto declares them, the spool message flow (spawn, mail in both directions, report and artifact), and the system-wide invariants cited by symbol. Known gaps live in the task log (`area:bus`), not in the page. |
 | [wire-contract.md](wire-contract.md) | `agentcoord.v1`: the three gRPC services, the three planes, message families, proto3 enum zero-value polarity, the dead surface, and the contracts the protos assert but the code does not implement |
 | [coordinator-core.md](coordinator-core.md) | The `Coordinator` object: the four append-only journals, the fsync-before-apply durability engine, the six folds and the fact vocabulary, bearer credentials and `Identity`, lifecycle and state directory |
 | [child-lifecycle.md](child-lifecycle.md) | `agent_run` → enqueue → execution slot → spawn → turn loop → exactly-once terminal; the two launch drivers, the retry/stop gate, one-shot driving, and the owner-owned container run |

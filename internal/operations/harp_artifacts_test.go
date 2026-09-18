@@ -57,6 +57,8 @@ func TestHarpTopLevelArtifacts_NamesAuthoredWorkOnly(t *testing.T) {
 	writeHarpFile(t, root, harp, paths.CanonicalTranscriptFileName, "ctxloom's own")
 	writeHarpFile(t, root, harp, paths.LegacyCanonicalTranscriptFileName, "ctxloom's own")
 	writeHarpFile(t, root, harp, paths.IndexFileName, "ctxloom's own")
+	writeHarpFile(t, root, harp, paths.SessionKeepMarkerFileName, "")
+	writeHarpFile(t, root, harp, paths.NextStepFileName, "ctxloom's own")
 	writeHarpFile(t, root, harp, paths.EngineTranscriptLinkPrefix+"claude-abc.jsonl", "ctxloom's own")
 	require.NoError(t, os.MkdirAll(filepath.Join(root, harp, paths.PersistDirName), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, harp, paths.EphemeralDirName), 0o755))

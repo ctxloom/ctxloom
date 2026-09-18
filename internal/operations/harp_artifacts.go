@@ -85,7 +85,13 @@ func HarpTopLevelArtifacts(harpDir string) ([]string, error) {
 			paths.CanonicalTranscriptFileName,
 			paths.LegacyCanonicalTranscriptFileName,
 			paths.IndexFileName,
-			paths.MigratedIndexFileName:
+			paths.MigratedIndexFileName,
+			// The reaper's exemption marker and the captured next step are
+			// ctxloom's own top-level members: the reaper Lstat's the marker at
+			// the top only, and memory.ReadNextStep reads the step there, so
+			// sweeping either into persist/ would silently disable both.
+			paths.SessionKeepMarkerFileName,
+			paths.NextStepFileName:
 			continue
 		}
 		if strings.HasPrefix(name, paths.EngineTranscriptLinkPrefix) {

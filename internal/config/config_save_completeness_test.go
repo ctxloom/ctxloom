@@ -49,7 +49,27 @@ func fullyPopulatedFixture() Fixture {
 		IsolationDevcontainerService: "app",
 		IsolationEngines:             []string{"claude-code"},
 		UI:                           UIConfig{PrefixKey: "ctrl-]", Surround: &surround},
+		SessionReapAge:               "45d",
 	}
+}
+
+// TestSessionReapAgeSurvivesSaveRoundTrip pins the one named field end to
+// end through the documented API: written, marshalled, parsed back, and read
+// through the accessor that applies the default — so a save that dropped it
+// would surface as the default, not the value written.
+func TestSessionReapAgeSurvivesSaveRoundTrip(t *testing.T) {
+	cfg := NewFixture(Fixture{
+		Version:        CurrentConfigVersion,
+		SessionReapAge: "45d",
+	})
+
+	data, err := cfg.Marshal()
+	require.NoError(t, err)
+
+	reloaded, err := ParseConfig(data)
+	require.NoError(t, err)
+	assert.Equal(t, "45d", reloaded.SessionReapAge(),
+		"session_reap_age was silently discarded on save: applyConfigSections must emit it")
 }
 
 // TestUISurvivesSaveRoundTrip is the instance that prompted the class fix:

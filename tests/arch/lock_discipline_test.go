@@ -31,7 +31,7 @@
 //     WriteFileAtomicFs, WriteManagedContext, WriteManagedPackageFiles,
 //     WriteManagedCommandFiles, WriteServers, RemoveServers) — covers every
 //     settings-family persist path in this module (see settings_io.go,
-//     mcpfile.go, managedcontext.go, packagefiles.go and every engine's own
+//     managedcontext.go, packagefiles.go and every engine's own
 //     save/saveSettings/saveMCPConfig/saveOpencodeConfig wrapper).
 //   - LOCK SIGNAL: a call whose callee name is exactly "WithFileLock"
 //     (agent.WithFileLock, the SettingsWriter family's one lock idiom —

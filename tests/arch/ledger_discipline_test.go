@@ -42,9 +42,8 @@
 //     a bare expression);
 //     2. a CALL to a method whose name contains "ledger" case-
 //     insensitively (writeLedger/readLedger/reconcileLedger/ledger()) —
-//     MCPFileConfig (mcpfile.go) wraps its own `ledger.Ledger{...}`
-//     construction behind these names, so signal 1 alone never fires
-//     inside WriteServers/RemoveServers themselves;
+//     a writer that wraps its own `ledger.Ledger{...}` construction
+//     behind such a name never spells signal 1 at its own call site;
 //     3. a call to WriteManagedContext, DeliverManagedContext, or
 //     StripManagedSection (the in-file-marker mechanism,
 //     managedcontext.go) — the markers live in the bytes it writes, so
@@ -118,8 +117,8 @@ var ledgerDisciplineScopes = lockDisciplineScopes
 var ledgerManagedPattern = regexp.MustCompile(`(?i)managed`)
 
 // ledgerNamePattern catches a METHOD whose name contains "ledger" — the
-// shape MCPFileConfig uses (writeLedger/readLedger/reconcileLedger/ledger())
-// to keep its ledger.Ledger construction private to mcpfile.go rather than
+// shape of a writer that keeps its ledger.Ledger construction private
+// behind writeLedger/readLedger/reconcileLedger/ledger() rather than
 // spelling `ledger.Ledger{...}` at every call site. See the header doc.
 var ledgerNamePattern = regexp.MustCompile(`(?i)ledger`)
 
@@ -235,11 +234,10 @@ func scanFileForLedgerDiscipline(fset *token.FileSet, f *ast.File, rel string) [
 				// A METHOD named *Ledger (writeLedger, readLedger,
 				// reconcileLedger, or the bare accessor `ledger()`) is the
 				// ownership record too, even though its RECEIVER is not the
-				// package identifier "ledger" — MCPFileConfig wraps its own
-				// ledger.Ledger construction behind exactly these names
-				// (mcpfile.go), so the package-qualifier selector check
-				// below never fires inside WriteServers/RemoveServers
-				// themselves; this call-name check is what catches it.
+				// package identifier "ledger" — a writer that wraps its own
+				// ledger.Ledger construction behind exactly these names never
+				// trips the package-qualifier selector check below at its own
+				// call site; this call-name check is what catches it.
 				if ledgerNamePattern.MatchString(name) {
 					hasRecord = true
 				}

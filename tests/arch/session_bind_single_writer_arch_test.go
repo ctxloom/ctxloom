@@ -6,7 +6,7 @@
 // exposable-rental unit 3: a live incident displaced a harp's session
 // binding WITHOUT appending the displaced id to Entry.Rotations, which is
 // exactly the lineage-loss bug BindSession's own
-// displacement-append (see sessions/index.go's doc comment) exists to
+// displacement-append (see Manager.BindSession's doc comment) exists to
 // prevent. Manager.BindSession and MemStore.BindSession are themselves
 // unit-pinned (internal/sessions' own tests) to append correctly — the
 // open question this gate answers is whether some OTHER code path writes a
@@ -56,7 +56,7 @@ var bindSessionAllowedCallers = map[string]string{
 	"internal/memory/compactor.go":    "the compactor's forward-bind backstop; only binds an UNBOUND entry (entry.SessionID == \"\"), so it never reaches the displacement branch",
 	// Manager's and MemStore's OWN definitions are function DECLARATIONS,
 	// not CallExpr — findBindSessionCallers below only matches calls, so
-	// internal/sessions/index.go and memstore.go never need an entry here.
+	// Manager.BindSession and MemStore.BindSession never need an entry here.
 }
 
 // findBindSessionCallers walks every non-test .go file under root and

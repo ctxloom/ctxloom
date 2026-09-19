@@ -178,58 +178,19 @@ func SafeInSharedCwd(a Approach) bool {
 	return !PresentsUnderProjectRoot(a)
 }
 
-// SurfaceKind names the CROSS-BACKEND category a delivery surface belongs to —
-// the union over every engine's surfaces. It exists for exactly two purposes:
-// (1) the opt-in SurfaceSelection builder (a caller states which kinds it
-// delivers), and (2) reporting which surfaces a delivery actually wrote. It is
-// deliberately NOT a dispatch key — no code branches on a surface's kind to
-// decide HOW to write it (that stays each surface's own Deliver). Engines fold
-// several concerns into one file (claude/kiro settings carry hooks; codex config
-// carries hooks + MCP) — those all map
-// to SurfaceSettings, so a caller selecting Settings gets the whole folded file.
-type SurfaceKind int
+// SurfaceKind is present.Kind under this package's established name: the
+// cross-backend category a delivery surface belongs to. The vocabulary is
+// declared once, in core/present; the parser below stays here because it
+// walks this package's surfaceOrder.
+type SurfaceKind = present.Kind
 
 const (
-	// SurfaceContext is the engine's context surface (CLAUDE.md, .agents/AGENTS.md,
-	// steering, or codex's context cache file).
-	SurfaceContext SurfaceKind = iota
-	// SurfaceMCP is the engine's MCP server config (.mcp.json, mcp_config.json,
-	// .kiro/settings/mcp.json). codex folds MCP into its config surface (Settings).
-	SurfaceMCP
-	// SurfaceSettings is the engine's settings/hooks surface (.claude/settings.json,
-	// codex config.toml, .agents/hooks.json, kiro agent JSON).
-	SurfaceSettings
-	// SurfaceCommands is the engine's slash-command files (a skill-only
-	// engine's writer renders these to its native SKILL.md convention, but the
-	// export a caller hands this surface is always a command, never a skill;
-	// SurfaceSkills is the discrete kind for genuine Agent Skill packages).
-	SurfaceCommands
-	// SurfaceSkills is the engine's Agent Skills surface — SKILL.md package
-	// directories (claude .claude/skills/, kiro .kiro/skills/, …). Distinct
-	// from SurfaceCommands: a command is a user-invoked slash-command template,
-	// a skill is a model-invoked capability package (SKILL.md + optional
-	// scripts/assets), loaded by the engine via progressive disclosure. See
-	// the skill/command split plan (skill-command-split.plan.md §3.4).
-	SurfaceSkills
+	SurfaceContext  = present.Context
+	SurfaceMCP      = present.MCP
+	SurfaceSettings = present.Settings
+	SurfaceCommands = present.Commands
+	SurfaceSkills   = present.Skills
 )
-
-// String renders the kind as the stable lowercase label used in delivery reports.
-func (k SurfaceKind) String() string {
-	switch k {
-	case SurfaceContext:
-		return "context"
-	case SurfaceMCP:
-		return "mcp"
-	case SurfaceSettings:
-		return "settings"
-	case SurfaceCommands:
-		return "commands"
-	case SurfaceSkills:
-		return "skills"
-	default:
-		return "unknown"
-	}
-}
 
 // ParseSurfaceKind is SurfaceKind.String's inverse, and lives beside it so the
 // two cannot drift: a kind renamed for a user's eyes is renamed for their

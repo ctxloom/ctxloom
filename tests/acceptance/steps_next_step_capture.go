@@ -106,19 +106,15 @@ func writeIndexEntry(w *World, harp, engine string, withVersion bool) error {
 	return writeSessionSidecar(w, harp, engine, version)
 }
 
-// writeSessionSidecar writes the harp's session.yaml with the fields nothing
-// else on disk can supply. Every fixture that needs a session to exist goes
-// through here, so the sidecar's spelling lives in one place.
+// writeSessionSidecar records harp on engine, pinned to engineVersion when
+// one is given.
 func writeSessionSidecar(w *World, harp, engine, engineVersion string) error {
-	body := fmt.Sprintf(
-		"session_id: seeded-%s\n"+
-			"backend: %s\n"+
-			"project_dir: %s\n"+
-			"started_at: 2026-03-14T00:00:00Z\n", harp, engine, w.env.ProjectDir)
-	if engineVersion != "" {
-		body += "engine_version: " + engineVersion + "\n"
-	}
-	return w.env.WriteHomeFile(".ctxloom/sessions/"+harp+"/"+paths.SessionSidecarFileName, body)
+	return seedSessionSidecar(w, harp, sessionSeed{
+		SessionID:     "seeded-" + harp,
+		Backend:       engine,
+		StartedAt:     "2026-03-14T00:00:00Z",
+		EngineVersion: engineVersion,
+	})
 }
 
 // readCapturedNextStep reads the harp's next-step file straight off disk,

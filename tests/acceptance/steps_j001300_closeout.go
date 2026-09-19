@@ -158,25 +158,24 @@ func j001300SeedHarp(w *World, harp string, essence, authored bool) error {
 	return j001300WriteIndex(w)
 }
 
-// j001300WriteIndex rewrites the session index over EVERY seeded harp. The shared
-// "a recorded session" fixture step writes a single-entry index, which would
-// silently drop earlier harps; a close-out journey is inherently multi-harp,
-// so it owns its own accumulating writer.
+// j001300WriteIndex (re)records EVERY seeded harp's session: each harp's
+// directory carries its own sidecar, so an addition never disturbs an
+// earlier harp, and re-recording all of them keeps a close-out journey's
+// inherently multi-harp world whole after a step rewrites one.
 func j001300WriteIndex(w *World) error {
 	st := j001300Of(w)
-	var b strings.Builder
-	b.WriteString("sessions:\n")
 	for _, name := range st.order {
-		fmt.Fprintf(&b, "  - harp_name: %s\n", name)
-		fmt.Fprintf(&b, "    session_id: seeded-%s\n", name)
-		b.WriteString("    backend: claude-code\n")
-		fmt.Fprintf(&b, "    project_dir: %s\n", w.env.ProjectDir)
-		b.WriteString("    started_at: 2026-01-01T00:00:00Z\n")
-		b.WriteString("    ended_at: 2026-01-02T00:00:00Z\n")
-		fmt.Fprintf(&b, "    transcript_path: %s\n", filepath.Join(harpDirIn(w, name), "transcript.jsonl"))
-		fmt.Fprintf(&b, "    summary: seeded close-out session %s\n", name)
+		if err := seedSessionSidecar(w, name, sessionSeed{
+			SessionID:      "seeded-" + name,
+			Backend:        "claude-code",
+			StartedAt:      "2026-01-01T00:00:00Z",
+			EndedAt:        "2026-01-02T00:00:00Z",
+			TranscriptPath: filepath.Join(harpDirIn(w, name), "transcript.jsonl"),
+		}); err != nil {
+			return err
+		}
 	}
-	return w.env.WriteHomeFile(harpSessionsRel+"/index.yaml", b.String())
+	return nil
 }
 
 // j001300AddScratchWorktree seeds one scratch worktree (seedScratchWorktree,

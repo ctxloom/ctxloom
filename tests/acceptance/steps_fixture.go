@@ -371,20 +371,16 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return w.env.WriteFile(".ctxloom/config.yaml", body)
 	})
 
-	// A recorded session seeds the home session index so session list/show/
+	// A recorded session seeds the home session store so session list/show/
 	// rename/forget can be exercised without launching a backend. project_dir is
 	// the live project so current-project listing finds it too.
 	ctx.Step(`^a recorded session "([^"]*)"$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
-		entry := fmt.Sprintf("sessions:\n"+
-			"  - harp_name: %s\n"+
-			"    session_id: seeded-%s\n"+
-			"    backend: claude-code\n"+
-			"    project_dir: %s\n"+
-			"    started_at: 2026-01-01T00:00:00Z\n"+
-			"    transcript_path: \"\"\n"+
-			"    summary: seeded acceptance session\n", harp, harp, w.env.ProjectDir)
-		if err := w.env.WriteHomeFile(".ctxloom/sessions/index.yaml", entry); err != nil {
+		if err := seedSessionSidecar(w, harp, sessionSeed{
+			SessionID: "seeded-" + harp,
+			Backend:   "claude-code",
+			StartedAt: "2026-01-01T00:00:00Z",
+		}); err != nil {
 			return err
 		}
 		essence := fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-01-01T00:00:00Z\n---\n\nSeeded essence for %s.\n", harp, harp)

@@ -199,25 +199,22 @@ func seedClearedHarpLineage(w *World, harp string) error {
 	preclearVendorAbs := filepath.Join(w.env.HomeDir, preclearVendorRel)
 	postclearVendorAbs := filepath.Join(w.env.HomeDir, postclearVendorRel)
 
-	// The index entry: current binding is the POST-clear id (the exclusion),
-	// the PRE-clear id is a rotation (so it reverse-resolves to this harp).
+	// The session record: current binding is the POST-clear id (the
+	// exclusion), the PRE-clear id is a rotation (so it reverse-resolves to
+	// this harp).
 	rotatedAt := time.Date(2026, 3, 14, 1, 0, 0, 0, time.UTC).Format(time.RFC3339)
-	index := fmt.Sprintf("sessions:\n"+
-		"  - harp_name: %s\n"+
-		"    session_id: %s\n"+
-		"    backend: %s\n"+
-		"    engine_version: %s\n"+
-		"    project_dir: %s\n"+
-		"    started_at: 2026-03-14T00:00:00Z\n"+
-		"    transcript_path: %q\n"+
-		"    rotations:\n"+
-		"      - session_id: %s\n"+
-		"        transcript_path: %q\n"+
-		"        rotated_at: %s\n",
-		harp, bareRecoverPostclearID, config.BackendMock,
-		j001000SeededEngineVersion(config.BackendMock), w.env.ProjectDir,
-		postclearVendorAbs, bareRecoverPreclearID, preclearVendorAbs, rotatedAt)
-	if err := w.env.WriteHomeFile(".ctxloom/sessions/index.yaml", index); err != nil {
+	if err := seedSessionSidecar(w, harp, sessionSeed{
+		SessionID:      bareRecoverPostclearID,
+		Backend:        config.BackendMock,
+		EngineVersion:  j001000SeededEngineVersion(config.BackendMock),
+		StartedAt:      "2026-03-14T00:00:00Z",
+		TranscriptPath: postclearVendorAbs,
+		Rotations: []sessionSeedEntry{{
+			SessionID:      bareRecoverPreclearID,
+			TranscriptPath: preclearVendorAbs,
+			RotatedAt:      rotatedAt,
+		}},
+	}); err != nil {
 		return err
 	}
 

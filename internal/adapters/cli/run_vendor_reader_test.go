@@ -26,7 +26,7 @@ func claudeVendorFixturePath(t *testing.T) string {
 	t.Helper()
 	root, err := sourcedir.RepoRoot()
 	require.NoError(t, err)
-	return filepath.Join(root, "internal", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
+	return filepath.Join(root, "internal", "adapters", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
 }
 
 // canonicalTranscriptExists reports whether harp has a non-empty canonical

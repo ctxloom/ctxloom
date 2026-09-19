@@ -469,7 +469,7 @@ func cliSourceDir(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("could not locate the module root, so the census has no tree to read: %v", err)
 	}
-	dir := filepath.Join(root, "internal", "cli")
+	dir := filepath.Join(root, "internal", "adapters", "cli")
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatalf("the CLI source at %s is unreadable (%v); this gate censuses the tree and "+
 			"cannot proceed over an absent one", dir, err)

@@ -55,7 +55,7 @@ func TestCLITestBinary_FailsClosedWithoutTheSandbox(t *testing.T) {
 	unsandboxed := repoDir(t) // a real, non-temp directory tree
 
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Dir = filepath.Join(unsandboxed, "internal", "cli")
+	cmd.Dir = filepath.Join(unsandboxed, "internal", "adapters", "cli")
 	cmd.Env = append(os.Environ(),
 		testsupport.SandboxOffEnv+"=1",
 		"HOME="+unsandboxed,

@@ -21,7 +21,7 @@ import (
 // package's own suite exercises, reused rather than hand-rolled so a conversion
 // that only works on a synthetic stub cannot pass here.
 func claudeVendorFixture() string {
-	return sourcedir.RepoPath("internal", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
+	return sourcedir.RepoPath("internal", "adapters", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
 }
 
 // TestLoadOrDistillSession_ConvertsVendorTranscriptOnDemand is the claim the

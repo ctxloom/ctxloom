@@ -62,7 +62,7 @@ func j001000From(w *World) *j001000State {
 // production — the same file each package's own _test.go golden-compares
 // against, never a hand-rolled duplicate.
 var j001000FixtureFile = map[string]string{
-	"claude": filepath.Join("internal", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl"),
+	"claude": filepath.Join("internal", "adapters", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl"),
 }
 
 // j001000RepoRoot resolves the repo root by walking up from where the test

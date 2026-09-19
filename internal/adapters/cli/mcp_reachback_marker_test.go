@@ -40,7 +40,7 @@ func TestReachBackMarker_HasExactlyOneDeclaration(t *testing.T) {
 	// here, and the private copy the doc above describes was here.
 	for _, dir := range []string{
 		pkgSourceDir(t),
-		filepath.Join(repoDir(t), "internal", "mcp"),
+		filepath.Join(repoDir(t), "internal", "adapters", "mcp"),
 	} {
 		entries, err := os.ReadDir(dir)
 		require.NoError(t, err, "read %s", dir)

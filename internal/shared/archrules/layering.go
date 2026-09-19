@@ -158,22 +158,13 @@ var LayeringRules = []LayeringRule{
 			// core/config — Part 1.0 also lists config/layerscope, which is under the
 			// from-prefix today and so not a violation until the rename moves it to
 			// adapters/configload/layerscope.
-			"internal/core/config -> internal/adapters/agents":                 "slice 4: the adapters/configload split",
-			"internal/core/config -> internal/adapters/content":                "slice 4: the adapters/configload split",
-			"internal/core/config -> internal/adapters/content/remotetree":     "slice 4: the adapters/configload split",
-			"internal/core/config -> internal/adapters/projectroot":            "slice 4: the adapters/configload split; config no longer finds its own root",
 			"internal/core/config -> internal/adapters/remote":                 "slice 5: trust ports behind Sources.TrustPorts",
 			"internal/core/config -> internal/shared/admission":                "slice 5: admission is decided by composite.Trust",
-			"internal/core/config -> internal/shared/cliversion":               "slice 4: the adapters/configload split",
-			"internal/core/config -> internal/adapters/configload/layerscope":  "slice 4: the adapters/configload split; layerscope is configload's",
-			"internal/core/config -> internal/adapters/companions":             "slice 4: companion probing moves to adapters/companions",
-			"internal/core/config -> internal/shared/confload":                 "slice 4: the file/env/flag chain is adapters/configload's (measured; not in Part 1.0's config row)",
-			"internal/core/config -> internal/adapters/signing":                "slice 5: trust ports behind Sources.TrustPorts",
 			"internal/core/config -> internal/adapters/signing/allowedsigners": "slice 5: trust ports behind Sources.TrustPorts",
-			"internal/core/config -> internal/shared/upgrade":                  "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's config row)",
 			"internal/core/config -> internal/shared/clidiag":                  "slice 15: clidiag becomes typed reports",
 			"internal/core/config -> internal/shared/strictness":               "slice 15: strictness becomes a value (measured; not in Part 1.0's config row)",
-			"internal/core/config -> resources":                                "slice 4: the embedded default config is data adapters/configload supplies (measured; Part 1.0 does not classify resources)",
+			"internal/core/config -> internal/adapters/agents":                 "measured: agents.Agent is the value type Config carries for an agent binding; Part 1.1 does not place agents, and no slice names this edge",
+			"internal/core/config -> internal/adapters/configload/layerscope":  "measured: the reader moved to configload in slice 4, but Save's write-side scope filter (DropLayerScopeViolations) still consults the layer policy; leaves when the policy is a value the reader hands the Config",
 
 			// core/coord — Part 1.0 also lists shared/agent, a from-package here (see
 			// profiles). envswitch is listed there without a slice.
@@ -238,6 +229,14 @@ var LayeringRules = []LayeringRule{
 			"internal/lm/backends",
 		},
 		Allowed: map[string]string{
+			"internal/adapters/configload -> internal/adapters/configload/layerscope": "sanctioned: a package's own subpackage",
+			"internal/adapters/companions -> internal/adapters/companions/loadout":    "sanctioned: a package's own subpackage",
+			"internal/adapters/companions/loadout -> internal/adapters/signing":       "slice 5: the loadout envelope is signed and verified through the trust ports",
+			"internal/adapters/configload -> internal/adapters/projectroot":           "slice 7: launch.HostFacts carries the project root from cmd/*",
+			"internal/adapters/operations -> internal/adapters/configload":            "slice 7: the process is composed at cmd/*; operations.App receives the Sources",
+			"internal/adapters/operations -> internal/adapters/companions":            "slice 7: the process is composed at cmd/*; the companion Prober is injected",
+			"internal/adapters/cli -> internal/adapters/configload":                   "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
+			"internal/adapters/cli -> internal/adapters/companions":                   "slice 7: the companion list/show/status commands drive the probe; composed at cmd/*",
 			// sanctioned (Part 1.1): the CLI is a frontend over operations; a
 			// package may import its own subpackage.
 			"internal/adapters/cli -> internal/adapters/operations":                                         "sanctioned: cli → operations is one of the two adapter-to-adapter edges Part 0 keeps",

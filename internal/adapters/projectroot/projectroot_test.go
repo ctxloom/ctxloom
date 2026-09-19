@@ -190,7 +190,7 @@ func TestFromEnv_EachDistinctInvalidRootWarns(t *testing.T) {
 
 // TestFromEnv_RepeatedInvalidRootWarnsOnce pins the half of the suppression that
 // must survive the fix: the same offending value, resolved many times in one
-// process (config.Load runs on every command), stays a single line.
+// process (the config read runs on every command), stays a single line.
 func TestFromEnv_RepeatedInvalidRootWarnsOnce(t *testing.T) {
 	testsupport.Isolate(t)
 

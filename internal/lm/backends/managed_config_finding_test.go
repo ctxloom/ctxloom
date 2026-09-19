@@ -1,23 +1,13 @@
 package backends
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
-
-// swapConfigLoader points the seam at a stub for one test.
-func swapConfigLoader(t *testing.T, fn func(...config.LoadOption) (*config.Config, error)) {
-	t.Helper()
-	prev := loadConfigFn
-	loadConfigFn = fn
-	t.Cleanup(func() { loadConfigFn = prev })
-}
 
 func resetStrictness(t *testing.T) strictness.Mark {
 	t.Helper()
@@ -30,53 +20,28 @@ func resetStrictness(t *testing.T) strictness.Mark {
 	return strictness.Checkpoint()
 }
 
-// TestAssembleManagedConfig_UnloadableConfigIsAFinding pins what makes a
-// config-load failure VISIBLE.
-//
-// On a nil return the run proceeds with no hooks, no MCP and no commands while
-// looking entirely healthy — exit 0, the turn answers, nothing delivered. This
-// project's characteristic failure shape, and before this it was reachable by
-// any config-load hiccup with only a stderr warning behind it.
-//
-// The assertion is that a FINDING is recorded, not that the process exits:
-// strictness owns fatal-vs-warn centrally and this site must not branch on it.
-func TestAssembleManagedConfig_UnloadableConfigIsAFinding(t *testing.T) {
+// A run without a configuration has no managed surfaces to assemble. The
+// refusal for a configuration that cannot be READ is upstream — config.Open
+// hands out no owner, so no run reaches this function — which is why a nil
+// here yields a nil payload and no finding of its own.
+func TestAssembleManagedConfig_NilConfig_YieldsNoManagedSet(t *testing.T) {
 	mark := resetStrictness(t)
-	swapConfigLoader(t, func(...config.LoadOption) (*config.Config, error) {
-		return nil, errors.New("config.yaml: unreadable")
-	})
 
-	got := AssembleManagedConfig("claude-code", t.TempDir(), nil, nil)
+	got := AssembleManagedConfig(nil, "claude-code", t.TempDir(), nil, nil)
 
-	found := strictness.Since(mark)
-	require.NotEmpty(t, found,
-		"an unloadable config recorded NO finding: the run would proceed with no managed surfaces and nothing would say so")
-	assert.Equal(t, strictness.ClassConfig, found[0].Class)
-	assert.NotEmpty(t, found[0].FixIt,
-		"the refusal is the whole user interface for this failure; it must state the remedy")
-	assert.False(t, found[0].NonDegradable,
-		"launching without managed surfaces is not itself the harm, so --degraded must be able to pass this")
-	assert.Nil(t, got, "an unloadable config must not yield a managed set")
+	assert.Nil(t, got)
+	assert.Empty(t, strictness.Since(mark))
 }
 
-// TestAssembleManagedConfig_LoadableConfigRaisesNothing is the CONTROL. Without
-// it the test above passes just as happily against a function that reports a
-// finding unconditionally — which would refuse every launch on every machine.
+// The control: a configuration the test constructs assembles a payload and
+// raises nothing, so the assertion is a property of AssembleManagedConfig and
+// not of whatever .ctxloom the checkout happens to hold.
 func TestAssembleManagedConfig_LoadableConfigRaisesNothing(t *testing.T) {
 	mark := resetStrictness(t)
-	// The loader returns a config this test CONSTRUCTS. It previously swapped
-	// the seam for a function that called the real config.Load, which is the
-	// same thing as not swapping it: the assertion then read whatever .ctxloom
-	// the checkout happened to hold, so the result was a property of the
-	// machine and not of AssembleManagedConfig. It could go green on a tidy
-	// machine while the code was broken, and red on an untidy one while the
-	// code was fine.
-	swapConfigLoader(t, func(...config.LoadOption) (*config.Config, error) {
-		return &config.Config{}, nil
-	})
 
-	_ = AssembleManagedConfig("claude-code", t.TempDir(), nil, nil)
+	got := AssembleManagedConfig(&config.Config{}, "claude-code", t.TempDir(), nil, nil)
 
+	assert.NotNil(t, got)
 	assert.Empty(t, strictness.Since(mark),
-		"a loadable config must raise nothing — otherwise the finding above proves only that this function always reports")
+		"a loadable config must not record a finding: an unconditional finding would refuse every launch")
 }

@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -31,7 +30,7 @@ Pass --yes to apply it.`,
 
 func runLLMRemove(cmd *cobra.Command, args []string) error {
 	label := args[0]
-	cfg, err := GetConfigForUpdate()
+	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -48,7 +47,7 @@ func runLLMRemove(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	if err := operations.RemoveLLM(config.NewManager(), cfg, label); err != nil {
+	if err := operations.RemoveLLM(cmd.Context(), App(), cfg, label); err != nil {
 		return err
 	}
 	return emit(cmd, struct {

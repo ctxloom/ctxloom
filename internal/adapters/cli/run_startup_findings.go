@@ -55,7 +55,7 @@ func startupFindingsReport(cfg *config.Config, recorded []strictness.Finding) do
 			checks = append(checks, c)
 		}
 	}
-	if !config.CompanionsDisabled() && readCompanionDecisions(cfg).withheld() {
+	if !App().NoCompanions && readCompanionDecisions(cfg).withheld() {
 		checks = append(checks, doctorCheckSetupCompanions(cfg, nil))
 	}
 	return doctorReport{Checks: checks}

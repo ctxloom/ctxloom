@@ -112,7 +112,14 @@ type SyncDependenciesResult struct {
 
 // SyncDependencies syncs remote bundles and profiles referenced in config.
 // This is the main entry point for auto-fetch on startup.
-func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenciesRequest) (*SyncDependenciesResult, error) {
+func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest) (*SyncDependenciesResult, error) {
+	if app == nil {
+		return nil, fmt.Errorf("sync: app is required")
+	}
+	cfg, err := app.Config(ctx)
+	if err != nil {
+		return nil, err
+	}
 	fs := getFS(req.FS)
 	baseDir := getBaseDir(cfg)
 
@@ -167,11 +174,17 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		if err := syncRefs(ctx, puller, refs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, result); err != nil {
 			return err
 		}
-		// A pull lands new pinned content, so anything the Config's shared
-		// bundle loader already resolved is now incomplete. Post-sync steps read
-		// bundles immediately (lockfile, hook materialization), and a later pass
-		// may resolve a profile that only became loadable because of this pull.
-		cfg.InvalidateBundleLoader()
+		// A pull lands new pinned content: the next generation is the one that
+		// holds it AND the lockfile's retraction records. Post-sync steps read
+		// bundles immediately (lockfile, hook materialization), and a later
+		// pass may resolve a profile that only became loadable because of this
+		// pull, so every later read in this sync is against the reloaded
+		// generation.
+		snap, rerr := app.Reload(ctx)
+		if rerr != nil {
+			return fmt.Errorf("reload configuration after pull: %w", rerr)
+		}
+		cfg = snap.Config
 		return nil
 	}
 
@@ -323,9 +336,8 @@ func syncRefs(ctx context.Context, puller Puller, refs []string, itemType remote
 // full lockfile/hook machinery. Production wires them to the real operations.
 var (
 	syncLockStep func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error)
-	// syncHooksStep takes no *config.Config: ApplyHooks reloads config from
-	// disk itself, so passing one here would be the same silent discard the
-	// parameter removal fixed.
+	// syncHooksStep applies from the generation runSyncPostSteps holds — the
+	// one reloaded after the last pull.
 	syncHooksStep func(context.Context, ApplyHooksRequest) (*ApplyHooksResult, error)
 )
 
@@ -344,7 +356,7 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 		// The puller already wrote the lockfile inline during this sync, so the
 		// lock step only needs to surface it — SkipSync avoids a redundant
 		// second sync pass.
-		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs, SkipSync: true}); err != nil {
+		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs}); err != nil {
 			clidiag.Warn("ctxloom", "failed to generate lockfile after sync: %v", err)
 			zap.L().Warn("failed to generate lockfile", zap.Error(err))
 		}
@@ -357,6 +369,7 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 	// inside ApplyHooks); degraded mode warns and continues.
 	if req.ApplyHooks && result.Total > 0 {
 		if _, err := syncHooksStep(ctx, ApplyHooksRequest{
+			Cfg:               cfg,
 			RegenerateContext: true,
 		}); err != nil {
 			strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
@@ -905,7 +918,11 @@ func refreshReferencedClones(ctx context.Context, cfg *config.Config) {
 
 // SyncOnStartup is a convenience function that runs sync with sensible defaults.
 // This is meant to be called during MCP server initialization or CLI startup.
-func SyncOnStartup(ctx context.Context, cfg *config.Config) (*SyncDependenciesResult, error) {
+func SyncOnStartup(ctx context.Context, app *App) (*SyncDependenciesResult, error) {
+	cfg, err := app.Config(ctx)
+	if err != nil {
+		return nil, err
+	}
 	// Refresh every referenced clone to its live tip BEFORE the
 	// missing-dependency probe. In steady state (everything installed) the probe
 	// reports Count 0 and short-circuits below — so this is the ONLY fetch a
@@ -931,7 +948,7 @@ func SyncOnStartup(ctx context.Context, cfg *config.Config) (*SyncDependenciesRe
 	}
 
 	// Sync missing dependencies
-	return SyncDependencies(ctx, cfg, SyncDependenciesRequest{
+	return SyncDependencies(ctx, app, SyncDependenciesRequest{
 		Force:      false, // Don't overwrite existing
 		Lock:       true,  // Update lockfile
 		ApplyHooks: true,  // Apply hooks

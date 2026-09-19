@@ -26,7 +26,7 @@
 // anyway (deliberately — the binding was already validated at write time, so
 // reaching that arm means a hand-edited config, and a session is worth more than
 // a purist refusal). backends.AssembleManagedConfig degrades the same way when
-// config.Load fails, and a nil ManagedConfig drops the pin entirely on the way
+// the config read fails, and a nil ManagedConfig drops the pin entirely on the way
 // to the wire.
 //
 // Either degrade produces a cell that DELIVERS THE NONCE PERFECTLY, exits 0, and
@@ -197,7 +197,7 @@ var approachDegradeMarkers = []approachDegradeMarker{
 	},
 	{
 		Marker: "launching without managed hooks/commands",
-		Why:    "backends.AssembleManagedConfig returned nil (config.Load failed), and internal/adapters/cli/run.go only attaches the binding's Surfaces preference to a NON-nil managed payload — so the pin was dropped on the way to the wire and the engine's default delivery ran instead.",
+		Why:    "backends.AssembleManagedConfig returned nil (the config read failed), and internal/adapters/cli/run.go only attaches the binding's Surfaces preference to a NON-nil managed payload — so the pin was dropped on the way to the wire and the engine's default delivery ran instead.",
 	},
 }
 

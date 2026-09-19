@@ -2,8 +2,9 @@ package operations
 
 import (
 	"context"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"

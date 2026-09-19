@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -82,7 +81,7 @@ func runCompletion(cmd *cobra.Command, args []string) error {
 
 // completeFragmentNames returns a completion function for fragment names.
 func completeFragmentNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	cfg, err := config.Load()
+	cfg, err := GetConfig()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -101,7 +100,7 @@ func completeFragmentNames(cmd *cobra.Command, args []string, toComplete string)
 
 // completeProfileNames returns a completion function for profile names.
 func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	cfg, err := config.Load()
+	cfg, err := GetConfig()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -123,7 +122,7 @@ func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) 
 // llm.configs). If the config can't be loaded, it falls back to registered
 // backend names.
 func completeLLMNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	cfg, err := config.Load()
+	cfg, err := GetConfig()
 	if err != nil {
 		return filterPrefix(backends.List(), toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
@@ -135,7 +134,7 @@ func completeLLMNames(cmd *cobra.Command, args []string, toComplete string) ([]s
 // Note: This requires loading fragment files so it may be slow with many fragments.
 // For now, return common tags from config profiles as a fast approximation.
 func completeTagNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	cfg, err := config.Load()
+	cfg, err := GetConfig()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -162,7 +161,7 @@ func completeTagNames(cmd *cobra.Command, args []string, toComplete string) ([]s
 
 // completePromptNames returns a completion function for prompt names.
 func completePromptNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	cfg, err := config.Load()
+	cfg, err := GetConfig()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

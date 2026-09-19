@@ -63,7 +63,7 @@ func runLLMEdit(cmd *cobra.Command, args []string) error   { return writeLLM(cmd
 // writeLLM is `llm create`/`llm edit`'s shared body — mirrors
 // agent.go's writeAgentBinding.
 func writeLLM(cmd *cobra.Command, label string, mustExist bool) error {
-	cfg, err := GetConfigForUpdate()
+	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -75,7 +75,7 @@ func writeLLM(cmd *cobra.Command, label string, mustExist bool) error {
 		return err
 	}
 
-	entry, err := operations.SetLLM(config.NewManager(), req)
+	entry, err := operations.SetLLM(cmd.Context(), App(), req)
 	if err != nil {
 		return err
 	}

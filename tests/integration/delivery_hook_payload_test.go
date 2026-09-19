@@ -74,7 +74,7 @@ func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 		RegenerateContext: true,
 		WorkDir:           projectDir,
 		FS:                afero.NewOsFs(),
-		ConfigLoader:      func() (*config.Config, error) { return cfg, nil },
+		Cfg:               cfg,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, res)

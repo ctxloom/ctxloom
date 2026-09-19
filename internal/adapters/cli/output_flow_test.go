@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -38,8 +38,8 @@ func newIsolatedFlowProject(t *testing.T) string {
 	t.Helper()
 	dir := testsupport.ProjectDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 	return dir
 }
 
@@ -66,7 +66,7 @@ func newIsolatedFlowProject(t *testing.T) string {
 func TestOutputFlow_TipToTail(t *testing.T) {
 	t.Run("empty_result_is_visible_not_silent", func(t *testing.T) {
 		newIsolatedFlowProject(t)
-		cfg, err := config.LoadFresh()
+		cfg, err := configload.Load()
 		require.NoError(t, err)
 		_, err = operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
 			Name:        "empty-fixture",
@@ -87,7 +87,7 @@ func TestOutputFlow_TipToTail(t *testing.T) {
 
 	t.Run("success_text_and_json_agree", func(t *testing.T) {
 		newIsolatedFlowProject(t)
-		cfg, err := config.LoadFresh()
+		cfg, err := configload.Load()
 		require.NoError(t, err)
 		_, err = operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
 			Name:        "flow-fixture",
@@ -112,7 +112,7 @@ func TestOutputFlow_TipToTail(t *testing.T) {
 
 	t.Run("bad_filter_is_a_loud_error_not_a_silent_empty_success", func(t *testing.T) {
 		newIsolatedFlowProject(t)
-		cfg, err := config.LoadFresh()
+		cfg, err := configload.Load()
 		require.NoError(t, err)
 		_, err = operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
 			Name:        "real-bundle",

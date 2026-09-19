@@ -20,7 +20,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -134,9 +133,9 @@ func TestAgentShow_JSONCarriesTheResolutionFailure(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"),
 		[]byte("version: 5\nagents:\n  broken:\n    profiles: [no-such-profile]\n"), 0o644))
-	t.Chdir(root)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	chdir(t, root)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	cmd, out := formatCmd("json")
 	cmd.SetContext(context.Background())
@@ -265,15 +264,18 @@ func agentProject(t *testing.T, configYAML string) string {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, ".ctxloom"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".ctxloom", "config.yaml"), []byte(configYAML), 0o644))
-	t.Chdir(root)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	chdir(t, root)
+	resetApp()
+	t.Cleanup(resetApp)
 	return root
 }
 
 // textCmd is a bare cobra command wired to a buffer, for calling an extracted
 // RunE without registering anything on the root tree.
 func textCmd() (*cobra.Command, *bytes.Buffer) {
+	// One command is one invocation: the root composes the process afresh
+	// per Execute, so a command driven directly gets the same.
+	resetApp()
 	var buf bytes.Buffer
 	c := &cobra.Command{}
 	c.SetOut(&buf)
@@ -426,7 +428,7 @@ func TestRunAgentDefault_PersistsTheBinding(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), "dev", "the binding must reach disk, not just stdout")
 
-	config.Invalidate()
+	resetApp()
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	assert.Equal(t, "dev", cfg.GetDefaultAgent())
@@ -446,7 +448,7 @@ func TestRunAgentRemove_BareReportsAndDestroysNothing(t *testing.T) {
 	assert.Contains(t, out.String(), "Nothing was removed")
 	assert.Contains(t, out.String(), "--yes")
 
-	config.Invalidate()
+	resetApp()
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	_, ok := cfg.Agent("dev")
@@ -466,7 +468,7 @@ func TestRunAgentRemove_YesRemovesAndReports(t *testing.T) {
 	require.NoError(t, runAgentRemove(cmd, []string{"dev"}))
 	assert.Contains(t, out.String(), `Removed agent "dev"`)
 
-	config.Invalidate()
+	resetApp()
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	_, ok := cfg.Agent("dev")

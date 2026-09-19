@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // TestCheckStartRunAllowlist pins the delegation allowlist: backends reviewed
@@ -47,9 +46,7 @@ func TestProdSpawner_Resolve_Allowlist(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		appDir := filepath.Join(t.TempDir(), ".ctxloom")
 		writeSpawnerConfig(t, appDir, body)
-		cfg, err := config.Load(config.WithAppDir(appDir))
-		require.NoError(t, err)
-		return newProdSpawner(cfg, filepath.Dir(appDir), nil)
+		return newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	}
 
 	t.Run("an unreviewed backend type is refused at Resolve", func(t *testing.T) {
@@ -80,9 +77,7 @@ func TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		appDir := filepath.Join(t.TempDir(), ".ctxloom")
 		writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: mock\n    permissions: bypass\n")
-		cfg, err := config.Load(config.WithAppDir(appDir))
-		require.NoError(t, err)
-		return newProdSpawner(cfg, filepath.Dir(appDir), starter)
+		return newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), starter)
 	}
 
 	t.Run("no Starter: mock resolves off the allowlist alone", func(t *testing.T) {

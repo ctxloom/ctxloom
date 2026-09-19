@@ -60,7 +60,7 @@ func pushBundle(cmd *cobra.Command, bundleName, remoteOverride string, createPR 
 // agentkey.Discoverer — mirroring internal/adapters/cli/sign.go's runSign — and an
 // optional PublishManager backed by a mock Publisher) so the
 // --sign/--no-sign/sign.default composition is exercisable without a real
-// config.Load(), git binary, ssh-agent, or network call. mgr==nil uses
+// config read, git binary, ssh-agent, or network call. mgr==nil uses
 // PushBundle's own default (a real, network-backed manager) — production's
 // path.
 func pushBundleCfg(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discoverer, mgr *remote.PublishManager, bundleName, remoteOverride string, createPR bool, message string, sign, noSign bool) error {

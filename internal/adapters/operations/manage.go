@@ -400,14 +400,14 @@ type SetStatuslineResult struct {
 }
 
 // SetStatusline persists whether ctxloom manages its HUD statusline, inside
-// one Manager.Update transaction. The change takes effect on the next hook
+// one Owner.Update transaction. The change takes effect on the next hook
 // apply (`manage hooks install` / `ctxloom run`).
-func SetStatusline(_ context.Context, mgr *config.Manager, req SetStatuslineRequest) (*SetStatuslineResult, error) {
-	if mgr == nil {
-		return nil, fmt.Errorf("manager is required")
+func SetStatusline(ctx context.Context, app *App, req SetStatuslineRequest) (*SetStatuslineResult, error) {
+	if app == nil {
+		return nil, fmt.Errorf("app is required")
 	}
 	enabled := req.Enabled
-	if err := mgr.Update(func(d *config.Draft) error {
+	if _, err := app.Update(ctx, func(d *config.Draft) error {
 		d.Settings.Statusline = &enabled
 		return nil
 	}); err != nil {

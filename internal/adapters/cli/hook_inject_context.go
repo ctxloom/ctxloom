@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -14,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
@@ -170,7 +168,7 @@ func runHookInjectContext(cmd *cobra.Command, args []string) (err error) {
 	// one clobbering the other.
 	output.SystemMessage = operations.JoinLeadBlocks(
 		clearRecoveryMessage(hookInput.Source, part, clearRecoverable),
-		agentSetupNudge(workDir, part),
+		agentSetupNudge(part),
 	)
 
 	// Output JSON to stdout
@@ -234,19 +232,19 @@ func currentSessionRecoverable(source, harpName, payloadSessionID string) bool {
 	return entry.SessionID != "" && entry.SessionID != payloadSessionID
 }
 
-// agentSetupNudge returns the Phase F "profiles but no agents" nudge for
-// the project rooted at workDir, or "" when it should not fire. It loads the
-// project config (rooted at workDir/.ctxloom) and delegates the trigger decision
-// to operations.AgentSetupNudge (profiles present AND no agents). It fires
-// once per SessionStart (part<=1, so a multi-chunk inject doesn't repeat it) and
-// is fully fault-tolerant: a config-load failure yields "" and never blocks
-// startup (CLAUDE.md). The condition self-resolves the moment any agent is
-// configured.
-func agentSetupNudge(workDir string, part int) string {
+// agentSetupNudge returns the "profiles but no agents" nudge for the project
+// this hook process runs in, or "" when it should not fire. It reads this
+// process's own generation (a hook is an engine-spawned process with no
+// owner of its own beyond the one it opens from its working directory; the
+// runner-side carrier for what a hook may know is slice 8's) and delegates
+// the trigger decision to operations.AgentSetupNudge. It fires once per
+// SessionStart (part<=1, so a multi-chunk inject doesn't repeat it) and is
+// fault-tolerant: a config refusal yields "" and never blocks startup.
+func agentSetupNudge(part int) string {
 	if part > 1 {
 		return ""
 	}
-	cfg, err := config.Load(config.WithAppDir(filepath.Join(workDir, config.AppDirName)))
+	cfg, err := GetConfig()
 	if err != nil {
 		return ""
 	}

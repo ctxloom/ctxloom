@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -48,7 +48,7 @@ func TestMain(m *testing.M) {
 		// Companion-binary detection must be deterministic (built-in bundle
 		// fragments/hooks/MCP inject only when ltk/taskloom are on PATH); tests
 		// opt back in via config.SetLookPathForTesting.
-		restore := config.SetLookPathForTesting(func(string) (string, error) {
+		restore := companions.SetLookPathForTesting(func(string) (string, error) {
 			return "", exec.ErrNotFound
 		})
 		defer restore()

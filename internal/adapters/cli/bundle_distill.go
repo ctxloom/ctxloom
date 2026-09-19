@@ -285,9 +285,9 @@ var defaultDistillPrompt = resources.MustGetPromptText("distill-default")
 // came from their own configured prompt. So that one case returns an error, and
 // the callers refuse (docs/trust-model.md, docs/cli-ux-principles.md §7).
 //
-// cfg is the caller's already-loaded config rather than a second ambient
-// config.Load(), so the prompt is resolved against the very bundles the run is
-// using. A nil cfg has no bundles to consult and yields the default.
+// cfg is the caller's generation, so the prompt is resolved against the very
+// bundles the run is using. A nil cfg has no bundles to consult and yields
+// the default.
 func loadDistillPrompt(cfg *config.Config) (string, error) {
 	if cfg == nil {
 		return defaultDistillPrompt, nil

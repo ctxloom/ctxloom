@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // TestChildVerbosity pins the env-only diagnostics knob: CTXLOOM_VERBOSE=1
@@ -105,10 +104,7 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: plan\n")
 
-	cfg, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-
-	s := newProdSpawner(cfg, filepath.Dir(appDir), nil)
+	s := newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 
 	// The agent present at construction resolves fine (baseline).
 	plan, err := s.Resolve(context.Background(), "dev")
@@ -133,34 +129,26 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 	assert.Equal(t, "claude-code", freshPlan.Backend)
 	assert.Equal(t, agent.PermissionBypass, freshPlan.Perm, "the newly-written permission enum resolves, not a stale snapshot")
 
-	// The ORIGINAL captured cfg (still in scope) never mutates: proves the
-	// re-read is per-call, not a mutation of s.cfg itself.
-	_, ok := cfg.Agent("fresh")
-	assert.False(t, ok, "the startup snapshot's own cfg is never rewritten")
+	// The generation the FIRST spawn captured never mutates: a reload is a
+	// new generation, not a rewrite of the one already published.
+	_, ok := plan.cfg.Agent("fresh")
+	assert.False(t, ok, "the first spawn's generation is never rewritten")
 }
 
-// TestProdSpawner_ResolveFallsBackToStartupSnapshotOnReadFailure pins the
-// fault-tolerant half: a reload failure must not break spawning — Resolve
-// falls back to the captured s.cfg rather than refusing the whole call.
-// config.Load itself is fault-tolerant (a malformed/unreadable config.yaml
-// degrades to Warnings, never a hard error — CLAUDE.md), so this drives the
-// fallback through the loadConfig seam rather than the real loader, which
-// has no way to trigger it.
-func TestProdSpawner_ResolveFallsBackToStartupSnapshotOnReadFailure(t *testing.T) {
+// TestProdSpawner_ResolveFallsBackToPublishedGenerationOnReloadFailure pins
+// the fault-tolerant half: a reload that fails must not break spawning —
+// Resolve falls back to the generation already published rather than
+// refusing the whole call. The failure is forced by making the config file
+// unparsable AFTER the owner opened: the reader refuses a present unparsable
+// layer, so the spawn's Reload errors and the published generation serves.
+func TestProdSpawner_ResolveFallsBackToPublishedGenerationOnReloadFailure(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: plan\n")
 
-	cfg, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	s := newProdSpawner(cfg, filepath.Dir(appDir), nil)
-
-	prevLoad := loadConfig
-	loadConfig = func(...config.LoadOption) (*config.Config, error) {
-		return nil, assert.AnError
-	}
-	t.Cleanup(func() { loadConfig = prevLoad })
+	s := newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), nil)
+	writeSpawnerConfig(t, appDir, "version: 6\nagents: [unclosed\n  : nonsense\n")
 
 	plan, err := s.Resolve(context.Background(), "dev")
 	require.NoError(t, err, "resolve must not fail outright on a reload read problem")
@@ -182,9 +170,7 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		appDir := filepath.Join(t.TempDir(), ".ctxloom")
 		writeSpawnerConfig(t, appDir, body)
-		cfg, err := config.Load(config.WithAppDir(appDir))
-		require.NoError(t, err)
-		return newProdSpawner(cfg, filepath.Dir(appDir), nil)
+		return newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	}
 
 	t.Run("absent driving resolves persistent, unchanged from today", func(t *testing.T) {

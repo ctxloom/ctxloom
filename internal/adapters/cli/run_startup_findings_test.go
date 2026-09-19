@@ -16,9 +16,10 @@ import (
 
 // noCompanions pins the companion probe to "nothing discovered" so a test
 // about the OTHER rows is not perturbed by whatever companion binaries happen
-// to sit on the developer's PATH.
-func noCompanions(cfg *config.Config) {
-	cfg.SetCompanionProbeForTesting(func(context.Context) (bundles.CompanionProbe, error) {
+// to sit on the developer's PATH; it returns the generation so pinned.
+func noCompanions(t *testing.T, cfg *config.Config) *config.Config {
+	t.Helper()
+	return withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
 		return bundles.CompanionProbe{}, nil
 	})
 }
@@ -29,8 +30,7 @@ func cleanProject(t *testing.T) *config.Config {
 	t.Helper()
 	root, cfg := setupProject(t, "claude-code")
 	scaffoldLocalTierState(t, root)
-	noCompanions(cfg)
-	return cfg
+	return noCompanions(t, cfg)
 }
 
 // TestStartupFindingsReport_RecordedFindingsBecomeRows: every finding the
@@ -73,7 +73,7 @@ func TestStartupFindingsReport_CleanProjectYieldsNothing(t *testing.T) {
 // words.
 func TestStartupFindingsReport_AbsentLocalStateIsAFinding(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
-	noCompanions(cfg)
+	cfg = noCompanions(t, cfg)
 
 	report := startupFindingsReport(cfg, nil)
 
@@ -90,7 +90,7 @@ func TestStartupFindingsReport_AbsentLocalStateIsAFinding(t *testing.T) {
 func TestStartupFindingsReport_WithheldCompanionIsAFinding(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
 	scaffoldLocalTierState(t, root)
-	cfg.SetCompanionProbeForTesting(func(context.Context) (bundles.CompanionProbe, error) {
+	cfg = withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
 		return bundles.CompanionProbe{
 			Loadouts: []bundles.CompanionLoadout{
 				{Bin: "ltk", Path: "/opt/bin/ltk", Bundle: []byte("version: \"1.0\"\n")},
@@ -114,7 +114,7 @@ func TestStartupFindingsReport_WithheldCompanionIsAFinding(t *testing.T) {
 func TestStartupFindingsReport_CleanCompanionsAreNotAFinding(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
 	scaffoldLocalTierState(t, root)
-	cfg.SetCompanionProbeForTesting(func(context.Context) (bundles.CompanionProbe, error) {
+	cfg = withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
 		return bundles.CompanionProbe{
 			Loadouts: []bundles.CompanionLoadout{
 				{Bin: "ltk", Path: "/opt/bin/ltk", Bundle: []byte("version: \"1.0\"\n")},

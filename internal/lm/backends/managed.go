@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // itemRefFor mints the canonical "<source>#<kind>/<item>" reference this
@@ -82,49 +81,25 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 // the backend over RunStart. The agent's Setup consumes only the result
 // (BaseLifecycle.MergeManaged), so the launch backends never import
 // config/bundles. The assembly that used to run plugin-side in each agent's
-// Setup (config.Load + LoadPrompts + MergeConfigHooks) lives here now.
-
 // AssembleManagedConfig resolves the host-side setup payload for one target
-// backend: the slash-command exports (mapped to that backend's enablement +
-// metadata), the config+default-profile+bundle hook set WITHOUT context-injection
-// (the agent appends that itself from its plugin-side context hash), the merged
-// config+default-profile MCP servers, and whether ctxloom manages the statusline.
+// backend against cfg — the generation the run was resolved from, never a
+// fresh read: the slash-command exports (mapped to that backend's enablement
+// + metadata), the config+default-profile+bundle hook set WITHOUT
+// context-injection (the agent appends that itself from its plugin-side
+// context hash), the merged config+default-profile MCP servers, and whether
+// ctxloom manages the statusline.
 //
-// Fault tolerant per CLAUDE.md: a config load failure yields a nil payload — the
-// agent's Setup then writes an empty managed set rather than blocking launch.
 // The gate gates the executable surfaces (bundle MCP servers + hooks + prompt
-// exports) for the `ctxloom run` setup payload (trust rework). It is built
-// by the run command (which can reach operations.EffectiveTrust); attaching it
-// to the loaded config flows it to ResolveBundleMCPServers / AssembleManagedHooks
-// / LoadCommandExports. bundles.AdmitAll = deliberately no gating.
+// exports); attaching it to cfg flows it to ResolveBundleMCPServers /
+// AssembleManagedHooks / LoadCommandExports. bundles.AdmitAll = deliberately
+// no gating.
 //
 // profileNames is the run's SELECTED profile set (the same set AssembleContext
 // scoped context to), so the managed mcp/commands/hooks track the chosen profile
 // rather than always the configured defaults. An empty set falls back to the
 // defaults inside each resolver (scopedProfiles / resolveProfileScope).
-func AssembleManagedConfig(backendName, workDir string, gate bundles.Authorizer, profileNames []string) *agent.ManagedConfig {
-	cfg, err := loadConfigFn()
-	if err != nil {
-		// A nil return means this run proceeds with NO managed surfaces — no
-		// hooks, no MCP, no commands — while looking entirely healthy: exit 0,
-		// the turn answers, nothing delivered. That is this project's
-		// characteristic failure shape, so it is a FINDING rather than a
-		// warning nobody reads: refused by default, and degradable because a
-		// user who would rather have a working LLM with no managed surfaces
-		// than no LLM is making a legitimate choice. strictness owns the
-		// fatal-vs-warn decision; this site deliberately does not branch on it.
-		//
-		// It does NOT remove anything. A previous version of this comment said
-		// Setup "writes an EMPTY managed set from a nil payload" and that "the
-		// reconciling writers then remove every previously-installed ctxloom
-		// hook/command". Both halves are false: agent.LaunchBackend's Setup
-		// early-returns on a nil payload and writes nothing at all, so
-		// previously-installed entries are left exactly as they were. The
-		// claim cost a multi-hour investigation before it was checked against
-		// the code, which is why it is corrected here rather than deleted.
-		strictness.FailOnce(strictness.ClassConfig,
-			"fix the config this run could not load, or pass --degraded to launch without managed hooks, MCP and commands",
-			"config load failed, so this run would deliver no managed surfaces at all: %v", err)
+func AssembleManagedConfig(cfg *config.Config, backendName, workDir string, gate bundles.Authorizer, profileNames []string) *agent.ManagedConfig {
+	if cfg == nil {
 		return nil
 	}
 	cfg.SetExecutableTrustGate(gate)

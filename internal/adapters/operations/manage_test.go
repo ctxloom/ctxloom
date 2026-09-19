@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -87,7 +88,7 @@ func TestHarnessStatus_ReportsStatuslinePreference(t *testing.T) {
 
 // TestSetStatusline_PersistsPreference proves SetStatusline's SAVE serializes
 // the preference faithfully. Read back via ParseConfig (a single-document
-// parse, no layering) rather than a full config.Load: config.statusline is
+// parse, no layering) rather than a full the config read: config.statusline is
 // ScopeMachine (internal/adapters/configload/layerscope) — whether ctxloom may own THIS
 // terminal is a per-machine fact, so a committed PROJECT file (every clone's
 // copy, which is what SetStatusline writes to — there is no separate
@@ -95,7 +96,7 @@ func TestHarnessStatus_ReportsStatuslinePreference(t *testing.T) {
 // Load. What this test still pins is that the write itself is faithful.
 func TestSetStatusline_PersistsPreference(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
-	mgr := config.NewManager(config.WithAppDir(appDir))
+	mgr := testApp(t, configload.WithAppDir(appDir))
 
 	res, err := SetStatusline(context.Background(), mgr, SetStatuslineRequest{Enabled: false})
 	require.NoError(t, err)
@@ -120,10 +121,10 @@ func TestApplyHooks_HonorsStatuslineOptOut(t *testing.T) {
 	}
 
 	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "claude-code",
-		FS:           fs,
-		ConfigLoader: loader,
-		WorkDir:      tmpDir,
+		Backend: "claude-code",
+		FS:      fs,
+		Cfg:     loaded(t, loader),
+		WorkDir: tmpDir,
 	})
 	require.NoError(t, err)
 

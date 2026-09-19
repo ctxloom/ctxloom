@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
@@ -38,8 +37,8 @@ import (
 // proves RunE ran.
 func TestFormatGuard_RefusesBeforeTheCommandDoesAnything(t *testing.T) {
 	testsupport.ProjectDir(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -76,8 +75,8 @@ func TestFormatGuard_RefusesBeforeTheCommandDoesAnything(t *testing.T) {
 // it. Neither may be refused.
 func TestFormatGuard_TextAndImplicitFormatsStillRun(t *testing.T) {
 	testsupport.ProjectDir(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)

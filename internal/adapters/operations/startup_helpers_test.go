@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -138,48 +138,48 @@ func TestWriteAndRecordSyncSummary_InstalledAndErrorsBothPrinted(t *testing.T) {
 }
 
 func TestReportCompanions_PresentBinariesLogVersions(t *testing.T) {
-	defer config.AdmitEveryDiscoveredCompanionForTesting()()
-	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
+	restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
 	})
 	defer restoreLook()
-	restoreProbe := config.SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
+	restoreProbe := companions.SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
 		return []byte(`{"name":"x","version":"v9.9.9"}`), nil
 	})
 	defer restoreProbe()
 	var buf bytes.Buffer
 
-	ReportCompanions(&buf, nil)
+	ReportCompanions(&buf, companions.Prober{}, nil)
 
 	assert.Contains(t, buf.String(), "ctxloom: companion taskloom v9.9.9")
 	assert.Contains(t, buf.String(), "ctxloom: companion ltk v9.9.9")
 }
 
 func TestReportCompanions_MissingBinariesStaySilent(t *testing.T) {
-	restoreLook := config.SetLookPathForTesting(func(string) (string, error) {
+	restoreLook := companions.SetLookPathForTesting(func(string) (string, error) {
 		return "", errors.New("not found")
 	})
 	defer restoreLook()
 	var buf bytes.Buffer
 
-	ReportCompanions(&buf, nil)
+	ReportCompanions(&buf, companions.Prober{}, nil)
 
 	assert.Empty(t, buf.String(), "install hints belong to the bundle resolvers, not the boot report")
 }
 
 func TestReportCompanions_ProbeFailureWarnsButContinues(t *testing.T) {
-	defer config.AdmitEveryDiscoveredCompanionForTesting()()
-	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
+	restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
 	})
 	defer restoreLook()
-	restoreProbe := config.SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
+	restoreProbe := companions.SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
 		return nil, errors.New("exec format error")
 	})
 	defer restoreProbe()
 	var buf bytes.Buffer
 
-	ReportCompanions(&buf, nil)
+	ReportCompanions(&buf, companions.Prober{}, nil)
 
 	assert.Contains(t, buf.String(), "ctxloom: warning: companion taskloom")
 	assert.Contains(t, buf.String(), "ctxloom: warning: companion ltk")

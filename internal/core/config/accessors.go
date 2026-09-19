@@ -17,9 +17,9 @@ package config
 // read-then-locally-mutate pattern this codebase actually uses is safe. This
 // does not recurse indefinitely — nothing in the tree reaches three levels
 // deep into a value obtained this way — and the real immutability guarantee
-// is the unexported fields plus the Manager/Draft write path (Manager.Update),
+// is the unexported fields plus the Owner/Draft write path (Owner.Update),
 // not these copies. A copy is a defense for well-behaved callers, not a
-// security boundary; see TestSnapshot_CannotBeMutatedByReaders for the actual
+// security boundary; see TestOwnerCurrent_AccessorsCopy for the actual
 // enforcement mechanism.
 
 import (
@@ -28,7 +28,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 func cloneBoolPtr(b *bool) *bool {
@@ -119,6 +118,10 @@ func cloneEditor(e EditorConfig) EditorConfig {
 // most one today).
 func (c *Config) GetAppPaths() []string { return slices.Clone(c.appPaths) }
 
+// Source reports which layer set this value was read from: a project
+// .ctxloom, or the user home standing alone.
+func (c *Config) Source() ConfigSource { return c.source }
+
 // GetAppDir returns the full path to the resolved .ctxloom directory.
 func (c *Config) GetAppDir() string { return c.appDir }
 
@@ -193,11 +196,11 @@ func (c *Config) GetConfiguredAgents() map[string]agents.Agent { return cloneAge
 // GetPendingUpgrade returns the PROJECT (or home, when no project layer)
 // pending schema upgrade, or nil when the on-disk schema was already
 // current.
-func (c *Config) GetPendingUpgrade() *upgrade.Pending { return c.pendingUpgrade }
+func (c *Config) GetPendingUpgrade() *PendingUpgrade { return c.pendingUpgrade }
 
 // GetHomePendingUpgrade returns the HOME layer's pending schema upgrade
 // (only populated when a project layer also exists), or nil.
-func (c *Config) GetHomePendingUpgrade() *upgrade.Pending { return c.homePendingUpgrade }
+func (c *Config) GetHomePendingUpgrade() *PendingUpgrade { return c.homePendingUpgrade }
 
 // GetLMConfig returns a copy of the whole LLM registry + role-default block.
 func (c *Config) GetLMConfig() LMConfig { return cloneLMConfig(c.lm) }
@@ -214,7 +217,8 @@ func (c *Config) GetLLMEntry(label string) (LLMConfig, bool) {
 
 // IsLLMUserAuthored reports whether label's llm.configs entry was actually
 // declared by the user (in config.yaml, any layer) rather than merged in by
-// mergeDefaultConfig's whole-registry fallback for a project that configured
+// the shipped default registry's whole-registry fallback
+// (Builder.OverlayDefaultRegistry) for a project that configured
 // no LLMs at all (LMConfig's own doc: "not a per-key overlay" — it is a
 // stand-in for the ENTIRE registry, not a per-label default). Without this
 // distinction, `llm remove claude-code` on a project that never wrote a
@@ -227,7 +231,7 @@ func (c *Config) IsLLMUserAuthored(label string) bool {
 	if !ok {
 		return false
 	}
-	// lmDefaultOverlay is nil whenever mergeDefaultConfig never ran (the
+	// lmDefaultOverlay is nil whenever the overlay never applied (the
 	// user's llm.configs was non-empty to begin with, so every entry is
 	// unambiguously theirs) OR the embedded default failed to parse — either
 	// way, nothing in cfg.lm.Configs could have come from the fallback.

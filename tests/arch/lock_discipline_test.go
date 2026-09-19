@@ -35,7 +35,7 @@
 //     save/saveSettings/saveMCPConfig/saveOpencodeConfig wrapper).
 //   - LOCK SIGNAL: a call whose callee name is exactly "WithFileLock"
 //     (agent.WithFileLock, the SettingsWriter family's one lock idiom —
-//     config.Manager.Update, M7's OWN transactional lock for ctxloom's own
+//     config.Owner.Update, M7's OWN transactional lock for ctxloom's own
 //     config.yaml, is a different mechanism by design and out of this
 //     gate's scope; see its doc).
 //
@@ -75,7 +75,7 @@
 //     save*/one of the known primitives (e.g. a locally invented verb) is
 //     invisible — this is a naming-convention gate, exactly like
 //     write_discipline_test.go's isAferoFsLikeName.
-//   - config.Manager.Update (M7, internal/core/config) is a DIFFERENT, already-
+//   - config.Owner.Update (M7, internal/core/config) is a DIFFERENT, already-
 //     transactional lock idiom (its own paths.ProjectPathFor-keyed lock,
 //     not agent.WithFileLock) and internal/core/config is out of scope entirely —
 //     this gate is specifically about the SettingsWriter/R6 class of

@@ -34,6 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -114,15 +115,15 @@ func formatCoverageWalk(t *testing.T) []string {
 // formatCoverageProject sets up an isolated project root (CTXLOOM_ROOT env,
 // undone by t.Cleanup via t.Setenv) with no pre-existing .ctxloom, and
 // returns a config.Config over it for fixture setup (operations.CreateBundle
-// etc.) — config.Load()'s degraded-fault-tolerance path resolves a config
+// etc.) — configload.Load()'s degraded-fault-tolerance path resolves a config
 // cleanly even with nothing on disk yet (built-in LM defaults), so read-only
 // commands need no fixture beyond this.
 func formatCoverageProject(t *testing.T) *config.Config {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv(projectroot.EnvVar, dir)
-	config.Invalidate()
-	cfg, err := config.LoadFresh()
+	resetApp()
+	cfg, err := configload.Load()
 	require.NoError(t, err)
 	return cfg
 }

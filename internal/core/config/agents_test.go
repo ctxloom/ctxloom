@@ -1,11 +1,14 @@
-package config
+package config_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +28,7 @@ func writeAppConfig(t *testing.T, appDir, body string) {
 }
 
 // TestConfig_ParsesAgentsKey proves the `agents:` config key is parsed
-// into Config.Agents — the config-key source of the agent entity.
+// into config.Config.Agents — the config-key source of the agent entity.
 func TestConfig_ParsesAgentsKey(t *testing.T) {
 	// The config.yaml read is real-OS-fs (no WithFS): isolate HOME so the
 	// new home-layer read (D2/D3 layering) never reaches this developer's
@@ -41,12 +44,12 @@ agents:
   finder:
     profiles: [finder]
 `)
-	cfg, err := Load(WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
-	require.Len(t, cfg.agents, 2)
-	assert.Equal(t, "claude-code", cfg.agents["dev"].LLM)
-	assert.Equal(t, []string{"go-developer", "go-style"}, cfg.agents["dev"].Profiles)
-	assert.Empty(t, cfg.agents["finder"].LLM, "engine is optional")
+	require.Len(t, cfg.GetConfiguredAgents(), 2)
+	assert.Equal(t, "claude-code", cfg.GetConfiguredAgents()["dev"].LLM)
+	assert.Equal(t, []string{"go-developer", "go-style"}, cfg.GetConfiguredAgents()["dev"].Profiles)
+	assert.Empty(t, cfg.GetConfiguredAgents()["finder"].LLM, "engine is optional")
 }
 
 // TestConfig_LegacySubagentsKey_WarnsNeverErrors pins the v0.7.0 rename
@@ -69,18 +72,18 @@ subagents:
     llm: claude-code
     profiles: [go-developer]
 `)
-	cfg, err := Load(WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err, "a legacy key must never block startup")
-	assert.Empty(t, cfg.agents, "the retired key is inert, not migrated")
+	assert.Empty(t, cfg.GetConfiguredAgents(), "the retired key is inert, not migrated")
 	assert.Empty(t, cfg.LoadAgents())
 	warned := false
-	for _, w := range cfg.warnings {
+	for _, w := range cfg.ToFixture().Warnings {
 		if strings.Contains(w.Text, "subagents") {
 			warned = true
 			break
 		}
 	}
-	assert.True(t, warned, "schema validation should warn about the stray subagents key so the rename is diagnosable; warnings: %v", cfg.warnings)
+	assert.True(t, warned, "schema validation should warn about the stray subagents key so the rename is diagnosable; warnings: %v", cfg.ToFixture().Warnings)
 }
 
 // TestConfigSchema_AcceptsAgents pins the schema to the parser: a config with
@@ -124,7 +127,7 @@ agents:
     profiles: [finder]
 `)
 
-	cfg, err := Load(WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
 	subs := cfg.LoadAgents()
@@ -166,7 +169,7 @@ func TestLoadAgents_RetiredDirectoryIsAFatalFinding(t *testing.T) {
 	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, "finder.yaml"),
 		[]byte("llm: fast\nprofiles: [finder]\n"), 0o644))
 
-	cfg := NewFixture(Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{appPath},
 		Agents:   map[string]agents.Agent{"dev": {LLM: "claude-code", Profiles: []string{"go-developer"}}},
 	})
@@ -201,7 +204,7 @@ func TestLoadAgents_AbsentOrEmptyDirectoryIsSilent(t *testing.T) {
 	require.NoError(t, afero.WriteFile(mem, filepath.Join(paths.AgentsPath(appPath), "README.md"),
 		[]byte("notes\n"), 0o644))
 
-	cfg := NewFixture(Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{appPath},
 		Agents:   map[string]agents.Agent{"dev": {Profiles: []string{"p"}}},
 	})
@@ -224,26 +227,28 @@ func TestConfig_SaveRoundTripsAgents(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeAppConfig(t, appDir, "version: 5\n")
-	cfg, err := Load(WithAppDir(appDir))
+	src, err := configload.New(nil, nil, configload.WithAppDir(appDir))
+	require.NoError(t, err)
+	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
 
-	cfg.agents = map[string]agents.Agent{
-		"dev": {LLM: "claude-code", Profiles: []string{"go-developer"}},
-	}
-	configPath, err := cfg.GetConfigFilePath()
+	next, err := owner.Update(context.Background(), func(d *config.Draft) error {
+		d.Agents = map[string]agents.Agent{
+			"dev": {LLM: "claude-code", Profiles: []string{"go-developer"}},
+		}
+		return nil
+	})
 	require.NoError(t, err)
-	require.NoError(t, cfg.saveLocked(cfg.getFS(), configPath))
 
-	reloaded, err := Load(WithAppDir(appDir))
-	require.NoError(t, err)
-	require.Len(t, reloaded.agents, 1)
-	assert.Equal(t, "claude-code", reloaded.agents["dev"].LLM)
-	assert.Equal(t, []string{"go-developer"}, reloaded.agents["dev"].Profiles)
+	got := next.Config.GetConfiguredAgents()
+	require.Len(t, got, 1)
+	assert.Equal(t, "claude-code", got["dev"].LLM)
+	assert.Equal(t, []string{"go-developer"}, got["dev"].Profiles)
 }
 
 // LoadAgents folded the `agents:` config-key entries into its merged
 // map with a plain struct copy, so every returned Agent's Profiles and
-// Escalation slices still pointed at the shared Config's storage. That bypasses
+// Escalation slices still pointed at the shared config.Config's storage. That bypasses
 // the copy-on-read policy accessors.go exists to enforce — and the package
 // already owns the right helper (cloneAgent), it simply was not on this path.
 //
@@ -251,54 +256,7 @@ func TestConfig_SaveRoundTripsAgents(t *testing.T) {
 // permission ladder a delegated child runs under, and Agent.Profiles decides
 // which context that child is given. A caller that filters or reorders either
 // in place would be rewriting them for every other holder of the ambient
-// Config, silently.
-
-// TestLoadAgents_NeverAliasesConfigContainers is the class gate — a slice field
-// added to agents.Agent tomorrow and not cloned fails here.
-func TestLoadAgents_NeverAliasesConfigContainers(t *testing.T) {
-	cfg := NewFixture(aliasProbeFixture())
-
-	list := cfg.LoadAgents()
-	require.NotEmpty(t, list, "the probe fixture must define an agent, or this gate proves nothing")
-
-	assertNoSharedContainers(t, reflect.ValueOf(cfg).Elem(), reflect.ValueOf(list), "Config", "LoadAgents")
-}
-
-// TestLoadAgents_MutationDoesNotReachConfig states it as behaviour, on the two
-// fields F05 named.
-func TestLoadAgents_MutationDoesNotReachConfig(t *testing.T) {
-	cfg := NewFixture(aliasProbeFixture())
-
-	for _, a := range cfg.LoadAgents() {
-		require.NotEmpty(t, a.Profiles)
-		require.NotEmpty(t, a.Escalation)
-		a.Profiles[0] = "MUTATED"
-		a.Escalation[0].Kinds[0] = "MUTATED"
-		a.Escalation[0].Action = "MUTATED"
-	}
-
-	worker := cfg.GetConfiguredAgents()["worker"]
-	assert.Equal(t, []string{"p"}, worker.Profiles,
-		"LoadAgents must hand back an owned copy of Profiles")
-	assert.Equal(t, []string{"TOOL_USE"}, worker.Escalation[0].Kinds,
-		"LoadAgents must hand back an owned copy of each rung's Kinds")
-	assert.Equal(t, "auto_accept", worker.Escalation[0].Action,
-		"LoadAgents must hand back an owned copy of the Escalation slice itself")
-}
-
-// TestAgent_MutationDoesNotReachConfig covers the single-name lookup, which is
-// the path operations.ResolveAgent and DefaultAgentProfiles actually take.
-func TestAgent_MutationDoesNotReachConfig(t *testing.T) {
-	cfg := NewFixture(aliasProbeFixture())
-
-	got, ok := cfg.Agent("worker")
-	require.True(t, ok)
-	require.NotEmpty(t, got.Profiles)
-	got.Profiles[0] = "MUTATED"
-
-	assert.Equal(t, []string{"p"}, cfg.GetConfiguredAgents()["worker"].Profiles,
-		"Agent must hand back an owned copy of Profiles")
-}
+// config.Config, silently.
 
 // Agent(name) re-runs LoadAgents on every lookup, and one command reaches it
 // several times (ResolveAgent, DefaultAgentProfiles, `agent show`), so the
@@ -313,7 +271,7 @@ func TestLoadAgents_RetiredDirectoryFindingIsRecordedOncePerWindow(t *testing.T)
 	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, "stranded.yaml"),
 		[]byte("profiles: [from-disk]\n"), 0o644))
 
-	cfg := NewFixture(Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{appPath},
 		Agents:   map[string]agents.Agent{"dev": {Profiles: []string{"from-config"}}},
 	})
@@ -330,4 +288,14 @@ func TestLoadAgents_RetiredDirectoryFindingIsRecordedOncePerWindow(t *testing.T)
 
 	assert.Len(t, strictness.Since(mark), 1,
 		"the signpost states a fact about the config once per window; repeating it per lookup is noise")
+}
+
+func resetStrictness(t *testing.T) {
+	t.Helper()
+	strictness.Reset()
+	strictness.SetDegraded(false)
+	t.Cleanup(func() {
+		strictness.Reset()
+		strictness.SetDegraded(false)
+	})
 }

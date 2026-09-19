@@ -68,7 +68,7 @@ func TestUpgrade_EmptyClosureDoesNotEraseTheLockfile(t *testing.T) {
 	baseDir, ref, cfg := setupSeededLockProject(t)
 	ctx := context.Background()
 
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 	require.Equal(t, 1, mustLoadActive(t, baseDir).Count(), "the project starts with a populated lock")
 
@@ -97,7 +97,7 @@ func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
 	baseDir, ref, cfg := setupSeededLockProject(t)
 	ctx := context.Background()
 
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
 	// Hold the bundle, and record a publisher retraction against it.
@@ -138,7 +138,7 @@ func TestUpgrade_RetractionSurvivesNonEmptyReresolve(t *testing.T) {
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()
 
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
 	// Record a publisher retraction against the entry, WITHOUT holding it —
@@ -222,7 +222,7 @@ func TestUpgrade_DeclaredAndCurrentIsNotNothingDeclared(t *testing.T) {
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()
 
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
 	// Nothing moved upstream, so nothing advances — the same Advanced==0 the

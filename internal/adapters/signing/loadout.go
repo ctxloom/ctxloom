@@ -59,7 +59,7 @@ type LoadoutEnvelope struct {
 func EncodeLoadoutEnvelope(bundleBytes []byte, armoredSig []byte, signer string) ([]byte, error) {
 	// An empty bundle attests to nothing (the same principle applies to Sign
 	// itself) — floor it here so every caller of the envelope primitive gets
-	// the protection, not just companionloadout.Emit's own separate guard.
+	// the protection, not just loadout.Emit's own separate guard.
 	if len(bundleBytes) == 0 {
 		return nil, fmt.Errorf("encode loadout envelope: refusing to encode an empty bundle — a loadout contributing nothing must fail loud, not look like a healthy envelope")
 	}

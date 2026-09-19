@@ -2,8 +2,9 @@ package backends
 
 import (
 	"bytes"
-	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"testing"
+
+	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

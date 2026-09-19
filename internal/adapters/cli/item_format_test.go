@@ -32,7 +32,7 @@ func itemFormatProject(t *testing.T) *config.Config {
 	t.Helper()
 	root := t.TempDir()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join(root, ".ctxloom")}})
-	t.Chdir(root)
+	chdir(t, root)
 	return cfg
 }
 

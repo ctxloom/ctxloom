@@ -17,8 +17,8 @@ import (
 // user AUTHORED.
 //
 // Authored is not decoration. This listing prints the UNION of the registered
-// backends and config.yaml's labels, and mergeDefaultConfig's whole-registry
-// fallback additionally merges the embedded default registry into the READ
+// backends and config.yaml's labels, and the shipped default registry's
+// whole-registry fallback additionally merges into the READ
 // view of any project that declared no llm.configs at all — so a bare engine
 // name arrives here indistinguishable from a label the team wrote and
 // maintains. The same conflation is why `llm remove claude-code` on such a

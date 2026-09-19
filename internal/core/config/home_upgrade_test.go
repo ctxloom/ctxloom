@@ -6,8 +6,6 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // long-ice: with home < project layering, a stale ~/.ctxloom/config.yaml was
@@ -24,8 +22,8 @@ func TestCommitHomeUpgrade(t *testing.T) {
 	t.Run("persists the home layer and clears only its own pending", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		cfg := &Config{fs: fs}
-		cfg.homePendingUpgrade = &upgrade.Pending{Path: "/home/u/.ctxloom/config.yaml", Data: []byte("version: 5\n")}
-		cfg.pendingUpgrade = &upgrade.Pending{Path: "/proj/.ctxloom/config.yaml", Data: []byte("version: 5\n")}
+		cfg.homePendingUpgrade = &PendingUpgrade{Path: "/home/u/.ctxloom/config.yaml", Data: []byte("version: 5\n")}
+		cfg.pendingUpgrade = &PendingUpgrade{Path: "/proj/.ctxloom/config.yaml", Data: []byte("version: 5\n")}
 
 		require.NoError(t, cfg.CommitHomeUpgrade())
 
@@ -56,19 +54,19 @@ func TestCommitUpgrade_EmptyPayload_RefusesAndLeavesTheFileAlone(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		pending *upgrade.Pending
+		pending *PendingUpgrade
 		commit  func(c *Config) error
-		field   func(c *Config) **upgrade.Pending
+		field   func(c *Config) **PendingUpgrade
 	}{
 		{
 			name:   "project layer",
 			commit: (*Config).CommitUpgrade,
-			field:  func(c *Config) **upgrade.Pending { return &c.pendingUpgrade },
+			field:  func(c *Config) **PendingUpgrade { return &c.pendingUpgrade },
 		},
 		{
 			name:   "home layer",
 			commit: (*Config).CommitHomeUpgrade,
-			field:  func(c *Config) **upgrade.Pending { return &c.homePendingUpgrade },
+			field:  func(c *Config) **PendingUpgrade { return &c.homePendingUpgrade },
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -76,7 +74,7 @@ func TestCommitUpgrade_EmptyPayload_RefusesAndLeavesTheFileAlone(t *testing.T) {
 			require.NoError(t, afero.WriteFile(fs, path, []byte("version: 6\nkept: yes\n"), 0o644))
 
 			cfg := &Config{fs: fs}
-			*tc.field(cfg) = &upgrade.Pending{Path: path, Data: nil, Applied: []string{"some-upgrade"}}
+			*tc.field(cfg) = &PendingUpgrade{Path: path, Data: nil, Applied: []string{"some-upgrade"}}
 
 			err := tc.commit(cfg)
 			require.Error(t, err, "an empty payload must fail loud, not report a successful rewrite")

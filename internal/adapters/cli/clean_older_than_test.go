@@ -43,8 +43,8 @@ func cotProject(t *testing.T) string {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.AppDirName, paths.ConfigFileName+".yaml"),
 		[]byte("version: 6\n"), 0o644))
 	t.Setenv(projectroot.EnvVar, dir)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 	return dir
 }
 
@@ -56,7 +56,7 @@ func cotHomeConfig(t *testing.T, body string) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(home, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(home, paths.ConfigFileName+".yaml"), []byte(body), 0o644))
-	config.Invalidate()
+	resetApp()
 }
 
 const (

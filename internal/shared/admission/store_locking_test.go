@@ -39,7 +39,7 @@ import (
 // memory-model level, they just each overwrite the other's committed record.
 // The payload assertion below (every scope present, non-empty file) is what
 // actually catches that, exactly as it caught it for
-// config.Manager.Update (TestUpdate_SerializesConcurrentWritersInProcess).
+// config.Owner.Update (TestUpdate_SerializesConcurrentWritersInProcess).
 func TestStore_ConcurrentSetsUnderRaceSurviveDistinctKeys(t *testing.T) {
 	fs := afero.NewOsFs()
 	path := filepath.Join(t.TempDir(), "decisions.yaml")
@@ -127,7 +127,7 @@ func TestStore_ConcurrentDecideUnderRaceSurviveDistinctKeys(t *testing.T) {
 // involved, by making the lock file's path a pre-existing directory so
 // os.OpenFile(O_CREATE|O_RDWR) on it fails outright — the identical shape
 // TestUpdate_FailsClosedWhenLockCannotBeAcquired uses for
-// config.Manager.Update.
+// config.Owner.Update.
 func TestStore_LockAcquisitionFailureFailsClosedFileUntouched(t *testing.T) {
 	fs := afero.NewOsFs()
 	path := filepath.Join(t.TempDir(), "decisions.yaml")

@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -59,7 +58,7 @@ func TestApplyHooks_UnreadableApprovalsStore_IsNotReportedAsApplied(t *testing.T
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ConfigLoader:      func() (*config.Config, error) { return cfg, nil },
+		Cfg:               cfg,
 		WorkDir:           tmpDir,
 	})
 
@@ -84,7 +83,7 @@ func TestApplyHooks_ReadableApprovalsStore_StillApplies(t *testing.T) {
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ConfigLoader:      func() (*config.Config, error) { return cfg, nil },
+		Cfg:               cfg,
 		WorkDir:           tmpDir,
 	})
 	require.NoError(t, err)

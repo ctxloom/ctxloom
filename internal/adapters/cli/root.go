@@ -1,19 +1,25 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"os"
 	"sync"
 
-	"github.com/spf13/cobra"
+	"github.com/ctxloom/ctxloom/internal/engines"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
+	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
@@ -41,31 +47,75 @@ func (e *ExitError) Error() string {
 	return fmt.Sprintf("exit code %d", e.Code)
 }
 
-// GetConfig returns the project configuration. Warnings that config.Load
-// downgraded from hard errors (unreadable/malformed/schema-invalid files —
-// CLAUDE.md fault tolerance) are echoed to stderr here so every GetConfig-based
-// command surfaces them instead of silently operating on a partial config.
+// theApp is the process's composition: the one config.Owner and the
+// per-invocation switches, built by rootPersistentPreRun from the invoked
+// command's parsed flags and the environment. Every command reaches
+// configuration through it — one owner, one generation per operation.
+var theApp *operations.App
+
+// App returns the process's composition. A command reached without the root's
+// PersistentPreRun (a test driving RunE directly) composes from the process
+// environment on first use; SetAppForTesting installs a fixture instead.
+func App() *operations.App {
+	if theApp == nil {
+		installApp(nil, os.Environ(), envSwitchOn("CTXLOOM_NO_COMPANIONS"))
+	}
+	return theApp
+}
+
+// SetAppForTesting installs app as the process composition for one test and
+// returns the restore function.
+func SetAppForTesting(app *operations.App) func() {
+	prev := theApp
+	theApp = app
+	return func() { theApp = prev }
+}
+
+// installApp composes the process's Sources from flags, environ and the
+// companion switch and holds them in theApp. A flag or env override that
+// cannot be bound degrades to a warning: each individual override is still
+// resolved, and warned about, per generation.
+func installApp(flags *pflag.FlagSet, environ []string, noCompanions bool, opts ...configload.Option) {
+	src, err := operations.ComposeSources(operations.Compose{Flags: flags, Environ: environ, NoCompanions: noCompanions, Options: opts})
+	if err != nil {
+		clidiag.Warn("ctxloom", "config overrides: %v", err)
+	}
+	theApp = operations.NewApp(src, noCompanions)
+}
+
+// pinAppDir re-composes the process's App with its .ctxloom directory PINNED
+// to appDir instead of discovered from the working directory — for init,
+// whose target is explicit (the working directory or the user home) and
+// which must not adopt an ancestor project. Legal only before the owner has
+// opened; afterwards a second composition would be a second owner.
+func pinAppDir(cmd *cobra.Command, appDir string) error {
+	if theApp != nil && theApp.Opened() {
+		return fmt.Errorf("cannot pin the configuration directory to %s: the configuration is already open", appDir)
+	}
+	noCompanions := envSwitchOn("CTXLOOM_NO_COMPANIONS")
+	if cmd.Root().PersistentFlags().Changed("no-companions") {
+		noCompanions = noCompanionsFlag
+	}
+	installApp(cmd.Flags(), os.Environ(), noCompanions, configload.WithAppDir(appDir))
+	return nil
+}
+
+// envSwitchOn reads an on/off environment switch; an unrecognized value is
+// off, with a warning, so a typo never silently enables a mode.
+func envSwitchOn(name string) bool {
+	on, unrecognized := envswitch.On(name)
+	if unrecognized != "" {
+		clidiag.Warn("ctxloom", "%s=%q is not an on/off value; treating it as off (on: 1/true/yes/on, off: 0/false/no/off)", name, unrecognized)
+	}
+	return on
+}
+
+// GetConfig returns the published generation's configuration. Warnings the
+// reader downgraded from hard errors (schema-invalid files, refused
+// overrides) are echoed to stderr here so every GetConfig-based command
+// surfaces them instead of silently operating on a partial config.
 func GetConfig() (*config.Config, error) {
-	return loadWithWarnings(config.Load)
-}
-
-// GetConfigForUpdate returns a config a command may MUTATE before saving. It is
-// GetConfig's read/write twin: GetConfig hands back the shared ambient config
-// (memoized, so ~35 call sites share one parse), and mutating that instance
-// would let a change abandoned on an error path — validation failure, a Save
-// that errors — leak into every later reader in the same process (an MCP/ACP
-// server, the coordinator). Commands that write config (agent set/remove, llm
-// default, mcp add/remove) take their own instance instead.
-func GetConfigForUpdate() (*config.Config, error) {
-	return loadWithWarnings(config.LoadFresh)
-}
-
-// loadWithWarnings runs one of config's loaders and echoes the findings it
-// downgraded from hard errors, so no command silently operates on a partial
-// config. Which loader is the ONLY difference between the two entry points
-// above; the warning echo is a property of loading, not of read-vs-write.
-func loadWithWarnings(load func(...config.LoadOption) (*config.Config, error)) (*config.Config, error) {
-	cfg, err := load()
+	cfg, err := App().Config(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -160,27 +210,18 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 	if cmd.Root().PersistentFlags().Changed("degraded") {
 		strictness.SetDegraded(degradedFlag)
 	}
-	// Same shape as --degraded: CTXLOOM_NO_COMPANIONS was already applied
-	// pre-dispatch, and an explicitly set flag wins over it in either
-	// direction. Applied here (not after GetConfig) because config.Load is
-	// called from ~10 sites across the CLI — a per-Config toggle would only
-	// take effect on whichever one happened to be wired.
+	// The composition root. cmd.Flags() is the invoked command's fully-parsed
+	// flag set (its own local flags plus every inherited persistent flag) at
+	// the earliest point every subcommand passes through, so the env/CLI
+	// config-override chain (CTXLOOM_CONFIG_* vars, --config-set) and the
+	// companion switch (CTXLOOM_NO_COMPANIONS, with an explicitly set
+	// --no-companions winning in either direction) are captured exactly ONCE
+	// per process, here, as inputs to the one config.Owner.
+	noCompanions := envSwitchOn("CTXLOOM_NO_COMPANIONS")
 	if cmd.Root().PersistentFlags().Changed("no-companions") {
-		config.SetCompanionsDisabled(noCompanionsFlag)
+		noCompanions = noCompanionsFlag
 	}
-	// Capture the env/CLI config-override chain (CTXLOOM_CONFIG_* vars,
-	// plus any flag this INVOKED command changed) exactly ONCE per process,
-	// right here — cmd.Flags() is the invoked command's fully-parsed flag
-	// set (its own local flags plus every inherited persistent flag) at the
-	// earliest point every subcommand passes through. Every config.Load
-	// from here on resolves it via the funnel (see loadUncached); a bind
-	// failure degrades to a warning rather than aborting startup, matching
-	// this codebase's fault-tolerance convention (an ambiguous individual
-	// override is caught and warned about later, per-Load, once there is a
-	// config base to resolve it against).
-	if err := config.InstallOverridesFromFlags(cmd.Flags()); err != nil {
-		clidiag.Warn("ctxloom", "config overrides: %v", err)
-	}
+	installApp(cmd.Flags(), os.Environ(), noCompanions)
 	// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
 	// --format, off (today's plain "<prog>: warning: <msg>" stderr) for
 	// text/markdown or an unresolvable value — an invalid --format is
@@ -310,12 +351,9 @@ func init() {
 	// --hooks, --agents, --mcp, --profiles, --llm) and broke structured
 	// --format output with stray warnings on totally unrelated flags
 	// (--bundle, --sig, ...). Registered here, once, on the root command;
-	// config.InstallOverridesFromFlags (called from PersistentPreRun below)
-	// reads it via confload.Product.ReadOverrides.
+	// rootPersistentPreRun hands the parsed set to the composition
+	// (configload reads it via confload.Product.ReadOverrides).
 	rootCmd.PersistentFlags().StringArray(confload.ConfigSetFlagName, nil,
 		"override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)")
 
-	// Config is loaded via internal/core/config.Load() which handles the hierarchy:
-	// 1. Project .ctxloom/config.yaml
-	// 2. Embedded resources
 }

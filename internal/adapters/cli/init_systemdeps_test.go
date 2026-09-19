@@ -59,7 +59,7 @@ func isolateSignKeyEnv(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	t.Chdir(t.TempDir()) // outside any .git — kills the LOCAL config tier
+	chdir(t, t.TempDir()) // outside any .git — kills the LOCAL config tier
 }
 
 // TestCheckSystemDeps_GitMissing_FailsLoud pins the new hard-block gate: a

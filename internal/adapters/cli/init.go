@@ -120,6 +120,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := pinAppDir(cmd, appDir); err != nil {
+		return err
+	}
 
 	alreadyExists := ctxloomDirExists(appDir)
 	if alreadyExists {
@@ -235,7 +238,7 @@ func engineForExistingDir(selected, appDir string) string {
 	if selected != "" {
 		return selected
 	}
-	if cfg, err := config.Load(config.WithAppDir(appDir)); err == nil {
+	if cfg, err := GetConfig(); err == nil {
 		return cfg.GetDefaultLLM()
 	}
 	return ""
@@ -286,7 +289,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
 	fmt.Printf("Default AI engine: %s\n", engine)
 	fmt.Println("Seeded remote \"ctxloom-default\" (official curated repo).")
-	trustCfg, trustCfgErr := config.Load(config.WithAppDir(appDir))
+	trustCfg, trustCfgErr := GetConfig()
 	if trustCfgErr != nil {
 		trustCfg = nil
 	}
@@ -351,22 +354,12 @@ func resolveSetupEngine(selected string, interactive bool) (engine string, repos
 }
 
 // writeInitialConfig delegates project bootstrap (the .ctxloom skeleton +
-// config.yaml + default remotes.yaml) to the operations core.
-//
-// It EXPLICITLY invalidates the ambient config memo on success, rather than
-// relying on the memo's own stat-based self-correction (config.Load's mtime
-// +size check). init's own post-scaffold steps (addPersonalRemotes,
-// cloneConfiguredRemotes, pullSeededDependencies, applyInitHooks) read the
-// config back appDir-SCOPED, which is never served from the memo at all — but
-// the AMBIENT readers that follow in the same process are (GetConfig in
-// launchDiscovery and launchEngineWithPrompt), and a stat check has only
-// mtime+size granularity to key on: theoretically indistinguishable from the
-// pre-write state on a filesystem coarse enough, or if a PRIOR config.Load in
-// this same init run (e.g. engineForExistingDir probing for a pre-existing
-// config before this write happens) already memoized a "missing" stamp whose
-// invalidation this write's own stat SHOULD, but need not provably, trigger.
-// Invalidate() removes that dependency: the very next Load anywhere in the
-// process re-reads from disk unconditionally.
+// config.yaml + default remotes.yaml) to the operations core, then publishes
+// the generation that holds the scaffold — the one Reload after a scaffold
+// (Part 1.8). Every post-scaffold step (addPersonalRemotes,
+// cloneConfiguredRemotes, pullSeededDependencies, applyInitHooks) and the
+// discovery launch read that generation; nothing in this process observes
+// the pre-scaffold state again.
 func writeInitialConfig(appDir, engine, dirtyTreeHandler string, dirtyTreeCommitAck bool) error {
 	_, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
 		AppDir:             appDir,
@@ -374,9 +367,12 @@ func writeInitialConfig(appDir, engine, dirtyTreeHandler string, dirtyTreeCommit
 		DirtyTreeHandler:   dirtyTreeHandler,
 		DirtyTreeCommitAck: dirtyTreeCommitAck,
 	})
-	if err == nil {
-		config.Invalidate()
+	if err != nil {
+		return err
 	}
+	// The scaffold is written: the generation init's discovery launch
+	// resolves against is the one that holds it.
+	_, err = App().Reload(context.Background())
 	return err
 }
 
@@ -418,7 +414,7 @@ func addPersonalRemotes(cmd *cobra.Command, appDir string, repos []string, forge
 	if len(repos) == 0 {
 		return
 	}
-	cfg, loadErr := config.Load(config.WithAppDir(appDir))
+	cfg, loadErr := GetConfig()
 	if loadErr != nil {
 		clidiag.Warn("ctxloom", "failed to load config for remote: %v", loadErr)
 		return
@@ -437,7 +433,7 @@ func addPersonalRemotes(cmd *cobra.Command, appDir string, repos []string, forge
 // discovery (search_library, browse) can read them offline. Fault-tolerant:
 // per-remote failures warn and continue.
 func cloneConfiguredRemotes(cmd *cobra.Command, appDir string) {
-	cfg, loadErr := config.Load(config.WithAppDir(appDir))
+	cfg, loadErr := GetConfig()
 	if loadErr != nil {
 		clidiag.Warn("ctxloom", "failed to load config for cloning remotes: %v", loadErr)
 		return
@@ -479,12 +475,7 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 		fmt.Println("  ctxloom deps pull")
 		return
 	}
-	cfg, err := config.Load(config.WithAppDir(appDir))
-	if err != nil {
-		warnDependencyPullFailed("failed to load config for dependency pull: " + err.Error())
-		return
-	}
-	result, syncErr := operations.SyncDependencies(cmd.Context(), cfg, operations.SyncDependenciesRequest{
+	result, syncErr := operations.SyncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
 		Lock:       true,
 		ApplyHooks: false, // applyInitHooks runs right after
 	})
@@ -539,17 +530,17 @@ var applyHooksFn = operations.ApplyHooks
 // ctxloom reachable from a session at all, so "applied to nothing" must never
 // render as a success line with an empty payload.
 func applyInitHooks(cmd *cobra.Command, appDir string) {
-	// ApplyHooks used to take a *config.Config and never read it, so
-	// the appDir-scoped config init had just built was silently discarded and
-	// ApplyHooks re-discovered one by walking up from cwd — the wrong project
-	// whenever `init` targeted a directory other than the working one.
-	// ConfigLoader is the seam ApplyHooks actually honours, so the appDir goes
-	// there. A load failure now surfaces through applyErr below.
+	// The generation to apply from is the one the scaffold produced: the
+	// process's composition is pinned to appDir (pinAppDir), so this is the
+	// target project even when init runs inside another project's tree.
+	cfg, err := GetConfig()
+	if err != nil {
+		clidiag.Warn("ctxloom", "failed to apply hooks: %v", err)
+		return
+	}
 	result, applyErr := applyHooksFn(context.Background(), operations.ApplyHooksRequest{
+		Cfg:               cfg,
 		RegenerateContext: false,
-		ConfigLoader: func() (*config.Config, error) {
-			return config.Load(config.WithAppDir(appDir))
-		},
 	})
 	if applyErr != nil {
 		clidiag.Warn("ctxloom", "failed to apply hooks: %v", applyErr)

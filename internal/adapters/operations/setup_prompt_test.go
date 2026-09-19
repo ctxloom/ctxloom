@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -97,11 +98,11 @@ commands:
 // composing over ListAllCommands picks up an installed companion's setup
 // guidance with no separate companion-specific lookup in this package.
 func TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin(t *testing.T) {
-	defer config.AdmitEveryDiscoveredCompanionForTesting()()
+	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	testsupport.Isolate(t)
 	t.Setenv("HOME", t.TempDir())
 
-	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+	restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 		if bin == "ltk" {
 			return "/fake/ltk", nil
 		}
@@ -112,13 +113,13 @@ func TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin(t *testing.T)
 	bundleYAML := []byte("version: \"1.0.0\"\ncommands:\n  agent-setup:\n    content: COMPANION-SHIPPED-SETUP-PROMPT\n")
 	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, nil, "")
 	require.NoError(t, err)
-	restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
+	restoreProbe := companions.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
 	defer restoreProbe()
 
 	appDir, _ := regenTestApp(t)
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
-	got := ResolveSetupPrompt(cfg, "BUILTIN")
+	got := ResolveSetupPrompt(published(t, cfg), "BUILTIN")
 	assert.Contains(t, got, "BUILTIN", "the built-in guidance must still be present")
 	assert.Contains(t, got, "COMPANION-SHIPPED-SETUP-PROMPT",
 		"an installed companion's agent-setup command must be composed in exactly like a repo bundle's")

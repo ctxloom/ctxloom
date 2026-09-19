@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -30,9 +31,9 @@ import (
 // approval-escalation ladder — none of which the user mentioned.
 func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
 		Name:        "dev",
 		LLM:         ptr("claude-code"),
 		Profiles:    ptr([]string{"go-developer"}),
@@ -42,22 +43,23 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 
 	// An escalation ladder the request type cannot even express, written by
 	// hand into config.yaml the way a user or a bundle would.
-	require.NoError(t, mgr.Update(func(d *config.Draft) error {
+	_, uerr := mgr.Update(context.Background(), func(d *config.Draft) error {
 		a := d.Agents["dev"]
 		a.Escalation = []agents.EscalationRung{{Action: "surface_to_human", Role: "parent"}}
 		d.Agents["dev"] = a
 		return nil
-	}))
+	})
+	require.NoError(t, uerr)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
 	// The user changes ONE axis.
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", Runtime: ptr("container-rootless")})
+	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "dev", Runtime: ptr("container-rootless")})
 	require.NoError(t, err)
 
 	// Read back via readAgentFromDisk (ParseConfig, no layering) rather than a
-	// full config.Load: Runtime is ScopeMachine (internal/adapters/configload/layerscope),
+	// full the config read: Runtime is ScopeMachine (internal/adapters/configload/layerscope),
 	// so a committed PROJECT file no longer has it take effect on a real
 	// Load — this test's concern is Save's field-preservation contract, which
 	// ParseConfig verifies independent of that load-time policy.
@@ -75,17 +77,17 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 // which is what the pointer-valued request buys over merge-on-zero.
 func TestSetAgent_ExplicitEmptyClears(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", LLM: ptr("claude-code"), Profiles: ptr([]string{"p"})})
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{Name: "dev", LLM: ptr("claude-code"), Profiles: ptr([]string{"p"})})
 	require.NoError(t, err)
-	reloaded, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("")})
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
-	final, err := config.Load(config.WithAppDir(appDir))
+	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("")})
+	require.NoError(t, err)
+
+	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	got, ok := final.Agent("dev")
 	require.True(t, ok)

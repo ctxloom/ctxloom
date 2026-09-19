@@ -52,7 +52,7 @@ func TestLLMListEntries_MarksAuthoredFromPredicate(t *testing.T) {
 // `llm list` prints the UNION of the registered backends and the labels
 // config.yaml declares, and used to render both identically — so a reader
 // could not tell the five labels this project authored from the six bare
-// engine names mergeDefaultConfig's whole-registry fallback supplied. That is
+// engine names the default-registry overlay's whole-registry fallback supplied. That is
 // the same conflation that let `llm remove claude-code` report success and
 // delete nothing on a project that never wrote an llm.configs line.
 //

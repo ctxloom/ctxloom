@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
@@ -22,14 +23,14 @@ import (
 
 // scrubProjectRoot builds an isolated project rooted at a tempdir whose default
 // profile "dev" pulls in a local bundle "tools" carrying two MCP servers,
-// "alpha" and "beta". CTXLOOM_ROOT points config.Load() and projectroot at the
+// "alpha" and "beta". CTXLOOM_ROOT points configload.Load() and projectroot at the
 // same root, so the real trust handlers + ApplyHooks operate end-to-end on this
 // project. Both servers are project-local executables — first-party under the
 // review model, so they are exposed until explicitly rejected. Returns the
 // project root (where .claude/.mcp.json lands).
 func scrubProjectRoot(t *testing.T) string {
 	t.Helper()
-	testsupport.Isolate(t)        // junk HOME so config.Load reads only this project
+	testsupport.Isolate(t)        // junk HOME so the config read reads only this project
 	t.Setenv("SSH_AUTH_SOCK", "") // no ssh-agent — trust/blacklist take the unsigned path deterministically
 	root := t.TempDir()
 	t.Setenv(projectroot.EnvVar, root)
@@ -73,12 +74,13 @@ func readMCPConfig(t *testing.T, root string) string {
 func TestTrustMutations_RefreshManagedArtifacts(t *testing.T) {
 	root := scrubProjectRoot(t)
 
-	cfg, err := config.Load()
+	cfg, err := configload.Load()
 	require.NoError(t, err)
 
 	// Apply the harness once. Both local MCP servers are project-authored, so they
 	// auto-trust and are written into settings immediately — no manual trust step.
 	_, err = operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
+		Cfg:               cfg,
 		Backend:           config.BackendClaudeCode,
 		RegenerateContext: true,
 	})
@@ -114,12 +116,13 @@ func TestTrustMutations_RefreshManagedArtifacts(t *testing.T) {
 func TestTrustMutations_RefreshFailureDoesNotBlock(t *testing.T) {
 	scrubProjectRoot(t)
 
-	cfg, err := config.Load()
+	cfg, err := configload.Load()
 	require.NoError(t, err)
 
 	// Apply once so a harness exists (harnessApplied → true), guaranteeing the
 	// refresh actually reaches ApplyHooks rather than being skipped.
 	_, err = operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
+		Cfg:               cfg,
 		Backend:           config.BackendClaudeCode,
 		RegenerateContext: true,
 	})
@@ -161,7 +164,7 @@ func TestBlacklist_UnresolvableItemStatesTheRejectionIsRefOnly(t *testing.T) {
 	root := scrubProjectRoot(t)
 	_ = root
 
-	cfg, err := config.Load()
+	cfg, err := configload.Load()
 	require.NoError(t, err)
 
 	warnings := captureWarnings(t)

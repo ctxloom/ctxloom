@@ -3,12 +3,13 @@ package coord
 import (
 	"context"
 	"fmt"
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"maps"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"

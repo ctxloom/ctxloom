@@ -30,21 +30,21 @@ type SetDefaultLLMResult struct {
 }
 
 // SetDefaultLLM records the default LLM plugin in config, inside one
-// Manager.Update transaction: the "is this already the default" check reads
+// Owner.Update transaction: the "is this already the default" check reads
 // the same locked, freshly-reloaded Draft the write applies to, so the
 // answer is never a statement about a config another writer has since
 // replaced. Frontends validate that the name is a known plugin (a frontend
 // concern — it depends on the caller's plugin discovery) before calling;
 // this owns the mutation + save so no frontend writes config directly.
-func SetDefaultLLM(_ context.Context, mgr *config.Manager, req SetDefaultLLMRequest) (*SetDefaultLLMResult, error) {
+func SetDefaultLLM(ctx context.Context, app *App, req SetDefaultLLMRequest) (*SetDefaultLLMResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	if mgr == nil {
-		return nil, fmt.Errorf("manager is required")
+	if app == nil {
+		return nil, fmt.Errorf("app is required")
 	}
 
-	err := mgr.Update(func(d *config.Draft) error {
+	_, err := app.Update(ctx, func(d *config.Draft) error {
 		if d.LM.Defaults.Primary == req.Name {
 			return errDefaultLLMUnchanged
 		}
@@ -150,13 +150,13 @@ func warnLLMPermissionsTypo(label string, permissions *string) {
 }
 
 // SetLLM adds or updates a LOCAL LLM registry entry under the `llm.configs`
-// config key, inside one Manager.Update transaction — the same locked,
+// config key, inside one Owner.Update transaction — the same locked,
 // freshly-reloaded read-modify-write SetAgent uses, so a concurrent writer
 // cannot land between the read of the existing entry and the write of the
 // merged one.
-func SetLLM(mgr *config.Manager, req SetLLMRequest) (*LLMEntry, error) {
-	if mgr == nil {
-		return nil, fmt.Errorf("manager is required")
+func SetLLM(ctx context.Context, app *App, req SetLLMRequest) (*LLMEntry, error) {
+	if app == nil {
+		return nil, fmt.Errorf("app is required")
 	}
 	if req.Label == "" {
 		return nil, fmt.Errorf("label is required")
@@ -172,7 +172,7 @@ func SetLLM(mgr *config.Manager, req SetLLMRequest) (*LLMEntry, error) {
 	}
 	warnLLMPermissionsTypo(req.Label, req.Permissions)
 
-	err := mgr.Update(func(d *config.Draft) error {
+	next, err := app.Update(ctx, func(d *config.Draft) error {
 		if d.LM.Configs == nil {
 			d.LM.Configs = make(map[string]config.LLMConfig)
 		}
@@ -204,31 +204,26 @@ func SetLLM(mgr *config.Manager, req SetLLMRequest) (*LLMEntry, error) {
 		return nil, fmt.Errorf("save llm %q: %w", req.Label, err)
 	}
 
-	// Re-read the FULLY MERGED view for the returned entry, through mgr's
-	// OWN resolution (Options() carries any WithFS/WithAppDir test seam), so
-	// the confirmed entry reflects what a later load will actually see.
-	reloaded, rerr := config.Load(mgr.Options()...)
-	if rerr != nil {
-		return nil, fmt.Errorf("reload llm %q after save: %w", req.Label, rerr)
-	}
-	got, _ := reloaded.GetLLMEntry(req.Label)
+	// The confirmed entry is read from the generation the write produced —
+	// the FULLY MERGED view a later reader will actually see.
+	got, _ := next.Config.GetLLMEntry(req.Label)
 	result := llmEntryFromConfig(req.Label, got)
 	return &result, nil
 }
 
 // RemoveLLM deletes a LOCAL LLM registry entry from the `llm.configs`
-// config key, inside one Manager.Update transaction — mirroring
+// config key, inside one Update transaction — mirroring
 // RemoveAgent. cfg is consulted (via IsLLMUserAuthored) to distinguish a
-// genuinely user-declared entry from one mergeDefaultConfig's
+// genuinely user-declared entry from one the shipped default registry's
 // whole-registry fallback merely filled in for a project that configured no
 // LLMs at all (e.g. "claude-code" on an empty llm.configs) — without that
 // check, removing a never-configured built-in would report success while
 // persisting no change at all (there was nothing on disk to delete). An
 // unknown or not-user-authored label is an error, never a silent
 // zero-effect success.
-func RemoveLLM(mgr *config.Manager, cfg *config.Config, label string) error {
-	if mgr == nil {
-		return fmt.Errorf("manager is required")
+func RemoveLLM(ctx context.Context, app *App, cfg *config.Config, label string) error {
+	if app == nil {
+		return fmt.Errorf("app is required")
 	}
 	if cfg == nil {
 		return fmt.Errorf("config is required")
@@ -239,7 +234,7 @@ func RemoveLLM(mgr *config.Manager, cfg *config.Config, label string) error {
 	if !cfg.IsLLMUserAuthored(label) {
 		return fmt.Errorf("llm %q not found in config.yaml", label)
 	}
-	return mgr.Update(func(d *config.Draft) error {
+	_, err := app.Update(ctx, func(d *config.Draft) error {
 		delete(d.LM.Configs, label)
 		if d.LM.Defaults.Primary == label {
 			clidiag.Warn("ctxloom", "llm %q was the configured default (llm.defaults.primary); set a new one with `ctxloom llm default <label>`", label)
@@ -249,4 +244,5 @@ func RemoveLLM(mgr *config.Manager, cfg *config.Config, label string) error {
 		}
 		return nil
 	})
+	return err
 }

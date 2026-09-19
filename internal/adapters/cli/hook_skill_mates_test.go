@@ -25,7 +25,7 @@ import (
 // linkedSkillsProject lays down a project whose default agent's profile ships
 // one bundle with the corpus's measured miss: admit and unattended linked under
 // one id, plus a linked skill the engine is not given (disabled for
-// claude-code) and an unlinked skill beside them. CTXLOOM_ROOT points config.Load
+// claude-code) and an unlinked skill beside them. CTXLOOM_ROOT points the config read
 // at it, as the hook's own process would be.
 func linkedSkillsProject(t *testing.T) string {
 	t.Helper()

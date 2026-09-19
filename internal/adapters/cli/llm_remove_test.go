@@ -8,8 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 func TestRunLLMRemove_BareReportsAndDestroysNothing(t *testing.T) {
@@ -20,7 +18,7 @@ func TestRunLLMRemove_BareReportsAndDestroysNothing(t *testing.T) {
 	assert.Contains(t, out.String(), "Nothing was removed")
 	assert.Contains(t, out.String(), "--yes")
 
-	config.Invalidate()
+	resetApp()
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	_, ok := cfg.GetLLMEntry("big")
@@ -37,7 +35,7 @@ func TestRunLLMRemove_YesRemovesAndReports(t *testing.T) {
 	require.NoError(t, runLLMRemove(cmd, []string{"big"}))
 	assert.Contains(t, out.String(), `Removed llm "big"`)
 
-	config.Invalidate()
+	resetApp()
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	_, ok := cfg.GetLLMEntry("big")
@@ -58,7 +56,7 @@ func TestRunLLMRemove_UnknownLabelErrors_EvenBare(t *testing.T) {
 
 // TestRunLLMRemove_BareBackendNameIsNotRemovable proves a registered
 // backend name with no config.yaml entry (e.g. "claude-code" on a project
-// with no llm.configs at all — mergeDefaultConfig's whole-registry
+// with no llm.configs at all — the default-registry overlay's whole-registry
 // fallback merely fills the READ view, IsLLMUserAuthored sees through it)
 // is refused, never falsely reported as removed.
 func TestRunLLMRemove_BareBackendNameIsNotRemovable(t *testing.T) {

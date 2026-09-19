@@ -9,7 +9,6 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/logsink"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
@@ -59,9 +58,6 @@ func main() {
 	// mechanism for a subprocess/CI that must not depend on what the host has
 	// installed; the persistent --no-companions flag wins over it once parsed
 	// (see cli root's PersistentPreRun).
-	if envSwitchOn("CTXLOOM_NO_COMPANIONS", os.Stderr) {
-		config.SetCompanionsDisabled(true)
-	}
 
 	// Initialize logging (verbose mode if CTXLOOM_VERBOSE=1), dispatch, flush,
 	// exit — in that order, and with the exit as the LAST thing this process

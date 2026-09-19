@@ -47,7 +47,7 @@ func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	ctx := context.Background()
 
 	// Initial lock pins the current default-branch tip.
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
 	e0, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
@@ -77,7 +77,7 @@ func TestUpgrade_HeldEntryDoesNotAdvance(t *testing.T) {
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()
 
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
 	// Hold the bundle at its current SHA.
@@ -126,7 +126,7 @@ func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
 	active0 := mustLoadActive(t, baseDir)

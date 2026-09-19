@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -344,8 +343,8 @@ func TestBundleViews_CarryNoSchemaTypes(t *testing.T) {
 // is the test that does.
 func TestBundleListAndShow_FormatJSON_EmitTheViews(t *testing.T) {
 	testsupport.ProjectDir(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	create, _ := formatCmd("text")
 	create.SetContext(context.Background())

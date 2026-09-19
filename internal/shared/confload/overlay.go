@@ -117,7 +117,8 @@ func (e *SchemaViolationError) Unwrap() error { return e.Err }
 // later, per load, in ApplyOverrides/Load.
 //
 // Env is built by koanf's env provider (github.com/knadh/koanf/providers/
-// env/v2), which scans os.Environ() for vars starting with p.EnvPrefix and
+// env/v2) over environ — the caller's captured environment (os.Environ() at
+// the composition root; nil contributes nothing) — for vars starting with p.EnvPrefix and
 // hands each surviving "name=value" pair through a TransformFunc that strips
 // EnvPrefix and coerces the value (coerceEnvValue), stored keyed by the
 // stripped name (e.g. CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME becomes key
@@ -153,7 +154,7 @@ func (e *SchemaViolationError) Unwrap() error { return e.Err }
 // is a reported error (joined across every malformed entry), not silently
 // dropped. The value is coerced exactly like an env var's (coerceEnvValue) —
 // bool, then int, then a comma-separated list, else a plain string.
-func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
+func (p Product) ReadOverrides(fs *pflag.FlagSet, environ []string) (Overrides, error) {
 	if !strings.Contains(p.EnvPrefix, EnvPrefixSegment) {
 		// Scanning with this prefix would sweep the product's bootstrap and
 		// process-selection vars into the config chain (see EnvPrefixSegment).
@@ -167,7 +168,8 @@ func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
 	}
 
 	envProvider := kenv.Provider("", kenv.Opt{
-		Prefix: p.EnvPrefix,
+		Prefix:      p.EnvPrefix,
+		EnvironFunc: func() []string { return environ },
 		TransformFunc: func(name, raw string) (string, any) {
 			suffix := strings.TrimPrefix(name, p.EnvPrefix)
 			if suffix == "" {
@@ -218,35 +220,6 @@ func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
 	}
 
 	return Overrides{Env: envValues, Flags: flagValues}, errors.Join(errs...)
-}
-
-// Stamp returns a cheap, deterministic identity for o's raw content — changes
-// whenever any override name or value changes. It exists so a memoized
-// config load (internal/core/config's ambientStamp) can fold it in alongside a
-// config file's own mtime+size stat: an ambient memo built BEFORE overrides
-// were installed (or before they changed) must not be served forever just
-// because no file changed — see the package's consuming caller for the full
-// rationale. The zero Overrides{} stamps as "env:|cli:", a stable constant a
-// caller can compare against to detect "no overrides installed at all".
-func (o Overrides) Stamp() string {
-	return "env:" + stampFlat(o.Env) + "|cli:" + stampFlat(o.Flags)
-}
-
-// stampFlat renders a flat map deterministically (sorted keys) for Stamp.
-func stampFlat(m map[string]any) string {
-	if len(m) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for _, k := range keys {
-		fmt.Fprintf(&b, "%s=%v;", k, m[k])
-	}
-	return b.String()
 }
 
 // ApplyOverrides resolves o's Env then Flags layers against base (env first,

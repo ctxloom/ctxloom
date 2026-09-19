@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -387,14 +388,14 @@ func runAgentEdit(cmd *cobra.Command, args []string) error {
 func writeAgentBinding(cmd *cobra.Command, name string, mustExist bool) error {
 	// No help shortcut: the positional arg NAMES the agent to write, and the
 	// shortcut made an agent called "help" impossible to create.
-	cfg, err := GetConfigForUpdate()
+	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	if err := checkAgentExistence(cfg, name, mustExist); err != nil {
 		return err
 	}
-	entry, err := operations.SetAgent(config.NewManager(), cfg, buildSetAgentRequest(cmd, name))
+	entry, err := operations.SetAgent(cmd.Context(), App(), cfg, buildSetAgentRequest(cmd, name))
 	if err != nil {
 		return err
 	}
@@ -518,7 +519,7 @@ Examples:
 }
 
 func runAgentDefault(cmd *cobra.Command, args []string) error {
-	cfg, err := GetConfigForUpdate()
+	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -541,7 +542,7 @@ func runAgentDefault(cmd *cobra.Command, args []string) error {
 		}
 		clidiag.Warn("ctxloom", "agent %q is not defined yet; a bare `ctxloom run` will degrade to empty context until it is", name)
 	}
-	if err := setDefaultAgent(name); err != nil {
+	if err := setDefaultAgent(cmd.Context(), name); err != nil {
 		return err
 	}
 	w.Printf("Set default agent to %q.\n", name)
@@ -560,8 +561,8 @@ func renderDefaultAgent(w *iox.ErrWriter, current string) error {
 }
 
 // setDefaultAgent persists `default_agent` in .ctxloom/config.yaml.
-func setDefaultAgent(name string) error {
-	if err := config.NewManager().Update(func(d *config.Draft) error {
+func setDefaultAgent(ctx context.Context, name string) error {
+	if _, err := App().Update(ctx, func(d *config.Draft) error {
 		d.DefaultAgent = name
 		return nil
 	}); err != nil {
@@ -596,7 +597,7 @@ Pass --yes to apply it.`,
 // reprise:accept-drift
 func runAgentRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	cfg, err := GetConfigForUpdate()
+	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -617,7 +618,7 @@ func runAgentRemove(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	if err := operations.RemoveAgent(config.NewManager(), name); err != nil {
+	if err := operations.RemoveAgent(cmd.Context(), App(), name); err != nil {
 		// See runAgentShow: only an ABSENT "help" is the courtesy request.
 		if name == helpArgName {
 			return cmd.Help()
@@ -687,7 +688,7 @@ func completeWorkspaceNames(*cobra.Command, []string, string) ([]string, cobra.S
 
 // completeAgentNames completes positional agent-name args.
 func completeAgentNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	cfg, err := config.Load()
+	cfg, err := GetConfig()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

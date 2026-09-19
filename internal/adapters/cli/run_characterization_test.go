@@ -54,8 +54,8 @@ import (
 func runCLIFixture(t *testing.T) string {
 	t.Helper()
 	dir := testsupport.ProjectDir(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"),
@@ -70,7 +70,7 @@ func runCLIFixture(t *testing.T) string {
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".ctxloom"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".ctxloom", "config.yaml"),
 		[]byte(fmt.Sprintf("version: %d\neditor:\n  command: \"true\"\n", config.CurrentConfigVersion)), 0o644))
-	config.Invalidate()
+	resetApp()
 
 	for _, argv := range [][]string{
 		{"bundle", "create", "demo", "-d", "characterization fixture"},
@@ -152,7 +152,7 @@ func runCLI(t *testing.T, args ...string) cliResult {
 	rootCmd.SetErr(nil)
 	rootCmd.SetArgs(nil)
 	resetFlagState(rootCmd)
-	config.Invalidate()
+	resetApp()
 
 	return cliResult{out: cobraOut.String(), stdout: outBuf.String(), stderr: errBuf.String(), err: execErr}
 }
@@ -206,14 +206,14 @@ func TestRunCharacterization_FlagValidationRejectsBeforeAnyWork(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 // `config create` writes a default profile whose parents are remote bundles that
-// are not installed. config.Load downgrades that to warnings; the run path
+// are not installed. the config read downgrades that to warnings; the run path
 // surfaces them AND records them as fatal findings, so the startup gate aborts
 // with the dedicated exit code rather than launching an empty-context session.
 // A dry run is gated too — previewing a broken setup must say so.
 func TestRunCharacterization_StartupGateAbortsOnRecordedFindings(t *testing.T) {
 	testsupport.ProjectDir(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	require.NoError(t, runCLI(t, "config", "create").err)
 

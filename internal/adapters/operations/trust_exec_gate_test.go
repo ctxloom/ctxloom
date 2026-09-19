@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -139,7 +140,7 @@ func TestExecGate_TrustedSignerExemptsExecutables(t *testing.T) {
 // which are trusted-signer/pending like any other third-party content, never
 // exempt.
 func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
-	restore := config.SetLookPathForTesting(func(string) (string, error) { return "", exec.ErrNotFound })
+	restore := companions.SetLookPathForTesting(func(string) (string, error) { return "", exec.ErrNotFound })
 	defer restore()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SSH_AUTH_SOCK", "")
@@ -179,7 +180,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 // (ltk/taskloom moved off the in-binary builtin exemption that test used
 // to drive onto their own loadouts, which are never exempt).
 func TestExecGate_ResolveBundleMCPServers_CompanionRejectable(t *testing.T) {
-	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+	restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 		if bin == "ltk" {
 			return "/fake/ltk", nil
 		}
@@ -189,7 +190,7 @@ func TestExecGate_ResolveBundleMCPServers_CompanionRejectable(t *testing.T) {
 	envelope, err := signing.EncodeLoadoutEnvelope(
 		[]byte("version: \"1.0.0\"\nmcp:\n  ltk-server:\n    command: ltk\n    args: [\"serve\"]\n"), nil, "")
 	require.NoError(t, err)
-	restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
+	restoreProbe := companions.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
 	defer restoreProbe()
 
 	t.Setenv("HOME", t.TempDir())
@@ -213,7 +214,7 @@ func TestExecGate_ResolveBundleMCPServers_CompanionRejectable(t *testing.T) {
 // TestExecGate_ResolveBundleHooks_RealCascade is the hook twin: a first-party
 // local bundle hook is applied while a rejected sibling is withheld.
 func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
-	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
+	restore := companions.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
 	defer restore()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SSH_AUTH_SOCK", "")

@@ -111,14 +111,14 @@ func TestConfig_Save_PrunesEmptiedEditor(t *testing.T) {
 }
 
 // TestConfig_Save_DoesNotPersistEmbeddedDefaults pins the registry boundary:
-// mergeDefaultConfig overlays the embedded default LLM registry as a runtime
+// the default-registry overlay overlays the embedded default LLM registry as a runtime
 // fallback for users who configured none. Persisting that overlay would pin
 // the user to a snapshot of shipped model defaults that stops tracking future
 // releases — Save must write only user-authored LM configuration.
 func TestConfig_Save_DoesNotPersistEmbeddedDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &Config{appPaths: []string{tmpDir}}
-	mergeDefaultConfig(cfg)
+	overlayDefaultRegistry(cfg)
 	require.NotEmpty(t, cfg.lm.Configs, "precondition: the overlay populated the registry")
 
 	configPath := paths.ConfigPath(tmpDir)
@@ -148,7 +148,7 @@ func TestConfig_Save_UserRegistryStillPersists(t *testing.T) {
 			"mine": {Type: "claude-code"},
 		}},
 	}
-	mergeDefaultConfig(cfg) // no-op for a non-empty registry
+	overlayDefaultRegistry(cfg) // no-op for a non-empty registry
 
 	require.NoError(t, cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir)))
 	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
@@ -161,7 +161,7 @@ func TestConfig_Save_UserRegistryStillPersists(t *testing.T) {
 // and the temp never outlives the call. The advisory-lock acquisition and
 // fail-closed-on-lock-failure behaviors this file used to pin here (via the
 // since-deleted Config.Save(), which had zero production callers -- every
-// real write goes through Manager.Update) are covered on the actual
+// real write goes through Owner.Update) are covered on the actual
 // production write path by TestUpdate_HoldsFileLockAcrossReadModifyWrite and
 // TestUpdate_FailsClosedWhenLockCannotBeAcquired in config_manager_test.go.
 func TestConfig_Save_LeavesNoTempFiles(t *testing.T) {
@@ -187,7 +187,7 @@ func TestConfig_Save_LeavesNoTempFiles(t *testing.T) {
 // applyConfigSections emits — so every key ctxloom does not model, and every
 // key it does but the in-memory Config happens not to carry, was destroyed.
 // Reached by every `ctxloom agent add` / `mcp add` / `manage` write through
-// Manager.Update.
+// Owner.Update.
 //
 // "I could not read what is there" is not "there is nothing there", and it is
 // certainly not a licence to overwrite it.

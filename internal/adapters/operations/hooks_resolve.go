@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -48,8 +49,8 @@ type ResolveHooksRequest struct {
 	// configured defaults — the same set an apply would use.
 	Profiles []string `json:"profiles,omitempty"`
 
-	ConfigLoader ConfigLoaderFunc `json:"-"` // test seam, mirrors ApplyHooksRequest
-	WorkDir      string           `json:"-"`
+	Cfg     *config.Config `json:"-"` // the generation to resolve from; required
+	WorkDir string         `json:"-"`
 }
 
 // ResolvedHook is one hook in its final position.
@@ -135,7 +136,7 @@ func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksRe
 		return nil, err
 	}
 
-	cfg, err := resolveHookConfig(ApplyHooksRequest{ConfigLoader: req.ConfigLoader})
+	cfg, err := resolveHookConfig(ApplyHooksRequest{Cfg: req.Cfg})
 	if err != nil {
 		return nil, err
 	}

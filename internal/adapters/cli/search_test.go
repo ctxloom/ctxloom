@@ -13,7 +13,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // captureStdout runs fn with os.Stdout redirected to a pipe and returns what
@@ -232,7 +231,7 @@ func TestPrintLocalResultsIncludesSkills(t *testing.T) {
 func TestSearchWritesToTheCommandWriter(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(projectroot.EnvVar, dir)
-	config.Invalidate()
+	resetApp()
 
 	var out, errOut bytes.Buffer
 	rootCmd.SetOut(&out)

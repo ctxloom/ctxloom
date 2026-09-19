@@ -253,7 +253,7 @@ func TestFlattenDependencies_UnreadableLockfileIsReported(t *testing.T) {
 	require.NoError(t, os.WriteFile(lockPath, []byte("   \n"), 0o644))
 
 	warnings := captureWarnings(t)
-	FlattenDependencies(context.Background(), cfg, nil)
+	FlattenDependencies(context.Background(), published(t, cfg), nil)
 
 	out := warnings.String()
 	assert.Contains(t, out, lockPath, "the failure names the file that could not be read")
@@ -273,6 +273,6 @@ func TestFlattenDependencies_MissingLockfileIsSilent(t *testing.T) {
 	cfg := testConfigWithSCMPath(tmp)
 
 	warnings := captureWarnings(t)
-	FlattenDependencies(context.Background(), cfg, nil)
+	FlattenDependencies(context.Background(), published(t, cfg), nil)
 	assert.NotContains(t, warnings.String(), "lockfile")
 }

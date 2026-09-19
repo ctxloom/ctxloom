@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -459,9 +460,9 @@ func TestExposureWithheld_Characterization_RealPath_StoreErrorWithholds(t *testi
 
 	// Rebuild cfg over an fs that refuses to open the approvals directory, so
 	// the gate the exposure path constructs for itself hits the fault.
-	broken, err := config.Load(
-		config.WithFS(denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}),
-		config.WithAppDir(appDir))
+	broken, err := configload.Load(
+		configload.WithFS(denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}),
+		configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	_ = cfg
 
@@ -475,7 +476,7 @@ func TestExposureWithheld_Characterization_RealPath_StoreErrorWithholds(t *testi
 }
 
 // realExposureProject materializes a project with one local bundle (two
-// fragments) on fs and returns a config.Load'ed cfg over it — the production
+// fragments) on fs and returns a the config read'ed cfg over it — the production
 // construction path, so AssembleContext builds its own reader and its own
 // gate from cfg alone.
 func realExposureProject(t *testing.T, fs afero.Fs) (*config.Config, string) {
@@ -494,7 +495,7 @@ fragments:
       BLOCKED-MARKER
 `
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleYAML), 0o644))
-	cfg, err := config.Load(config.WithFS(fs), config.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	return cfg, appDir
 }

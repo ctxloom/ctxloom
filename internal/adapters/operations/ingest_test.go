@@ -408,7 +408,7 @@ func TestIngest_RegenerateContext_InjectedBuiltinAlsoSelectedByRefIsWrittenOnce(
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir, nil)
+	hash, err := regenerateContext(cfg, workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash)
 
@@ -444,7 +444,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir, nil)
+	hash, err := regenerateContext(cfg, workDir)
 	require.NoError(t, err)
 	written, err := agent.ReadContextFile(workDir, hash)
 	require.NoError(t, err)
@@ -477,7 +477,7 @@ fragments:
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 		})
-		h, err := regenerateContext(cfg, workDir, nil)
+		h, err := regenerateContext(cfg, workDir)
 		require.NoError(t, err)
 		w, err := agent.ReadContextFile(workDir, h)
 		require.NoError(t, err)
@@ -629,7 +629,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir, nil)
+	hash, err := regenerateContext(cfg, workDir)
 	require.NoError(t, err)
 	written, err := agent.ReadContextFile(workDir, hash)
 	require.NoError(t, err)

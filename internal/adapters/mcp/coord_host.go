@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -25,13 +26,17 @@ import (
 // ownerHarp is the session owner's harp — the inbox this process drains
 // (coord.Options.OwnerHarp); every hosting site knows it before standing the
 // coordinator up.
-func NewHostedCoordinator(cfg *config.Config, projectDir, ownerHarp string) (*coord.Coordinator, error) {
+func NewHostedCoordinator(app *operations.App, projectDir, ownerHarp string) (*coord.Coordinator, error) {
+	cfg, err := app.Config(context.Background())
+	if err != nil {
+		return nil, err
+	}
 	key := ""
 	if pid, _, err := taskops.ResolveProjectIdentity(projectDir); err == nil {
 		key = pid
 	} // best-effort: "" falls back to a path-derived key inside coord.New
 	c, err := coord.New(coord.Options{
-		Cfg:        cfg,
+		App:        app,
 		ProjectDir: projectDir,
 		ProjectKey: key,
 		// A configurable RESOURCE ceiling (concurrent live engine
@@ -135,8 +140,8 @@ func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context
 // spool stamps) returned for injection at launch. A standup failure returns
 // the error for the caller's fail-loud gate; the caller decides degraded
 // behavior.
-func HostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp string, runtimeAxis agent.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
-	c, err := NewHostedCoordinator(cfg, projectDir, ownerHarp)
+func HostCoordinatorForSession(app *operations.App, projectDir, ownerHarp string, runtimeAxis agent.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
+	c, err := NewHostedCoordinator(app, projectDir, ownerHarp)
 	if err != nil {
 		return nil, nil, err
 	}

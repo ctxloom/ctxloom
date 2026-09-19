@@ -32,7 +32,7 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 	// fatal-class finding it records is caught by the gate below.
 	gates := newPhaseGates(os.Stderr)
 
-	return mcp.ServeStdio(ctx, cwd, func() error {
+	return mcp.ServeStdio(ctx, App(), cwd, func() error {
 		return gates.close(PhaseStartup)
 	}, mcpServeDryRun)
 }

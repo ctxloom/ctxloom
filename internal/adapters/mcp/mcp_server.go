@@ -33,6 +33,11 @@ import (
 // cell work dir — so a cell-local tool sees the CELL's identity, never the
 // serving process's env.
 type ctxServer struct {
+	// app is the process's composition; cfg is the generation this server
+	// serves — the one published after startup's sync, held for the
+	// server's life. A runner-terminated server (newRunnerMCPServer) is
+	// handed its generation and holds no app.
+	app *operations.App
 	cfg *config.Config
 	// dryRun suppresses the startup apply's single write. Starting this
 	// server normally REWRITES the project's managed settings — that is what
@@ -150,7 +155,7 @@ func sessionInstructions(harp string) string {
 // (graceful-egomaniac unit 2: identity/stamp mismatch) is different — it
 // falls back to local startup exactly like a session that was never
 // forward-triggered at all, so it DOES reach gate.
-func ServeStdio(ctx context.Context, cwd string, gate func() error, dryRun bool) error {
+func ServeStdio(ctx context.Context, app *operations.App, cwd string, gate func() error, dryRun bool) error {
 	// FORWARD MODE (agentcoord B1.6): when the harness-inherited env names
 	// the runner's MCP socket, this whole server is a stdio↔HTTP-over-unix
 	// proxy onto it. No local startup (config, sync, hooks) runs — the
@@ -185,7 +190,7 @@ func ServeStdio(ctx context.Context, cwd string, gate func() error, dryRun bool)
 		// forwardOutcomeRefused: same fall-through as the env-var trigger.
 	}
 
-	s := &ctxServer{self: selfIdentityFromEnv(cwd), dryRun: dryRun}
+	s := &ctxServer{app: app, self: selfIdentityFromEnv(cwd), dryRun: dryRun}
 	if err := s.startup(ctx); err != nil {
 		// startup() only returns context.Canceled — anything else
 		// (config load failure, sync errors, hook failures) is
@@ -241,7 +246,11 @@ func ServeStdio(ctx context.Context, cwd string, gate func() error, dryRun bool)
 // dry-run gate. A write that happened before that gate could not be suppressed
 // by it, which is the whole point of the flag.
 func (s *ctxServer) startup(ctx context.Context) error {
-	cfg := loadStartupConfig()
+	cfg, err := s.app.Config(ctx)
+	if err != nil {
+		return err
+	}
+	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
 	s.cfg = cfg
 
 	// Hooks/statusline/MCP entries are written as bare `ctxloom` and
@@ -252,7 +261,7 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// Log which companion binaries (taskloom, ltk) this session is wired
 	// with, version-probed via `<bin> version --format json`. The wiring itself
 	// happens in applyStartupHooks below via the built-in bundles.
-	operations.ReportCompanions(os.Stderr, cfg.TrustRoot())
+	operations.ReportCompanions(os.Stderr, s.app.Prober(), cfg.TrustRoot())
 
 	// EVERYTHING BELOW MUTATES, so it is gated as one block. Config
 	// resolution and the companion report above do not, which is the
@@ -304,7 +313,13 @@ func (s *ctxServer) startup(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	runStartupSync(ctx, cfg)
+	runStartupSync(ctx, s.app)
+	// A startup sync that pulled published a new generation; the server
+	// serves that one.
+	if cfg, err = s.app.Config(ctx); err != nil {
+		return err
+	}
+	s.cfg = cfg
 
 	// Apply hooks against the active lockfile. Unreviewed bundle hooks/MCP are
 	// withheld per item by the executable trust gate ApplyHooks installs, so
@@ -318,54 +333,18 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	return nil
 }
 
-// loadStartupConfig loads config, falling back to a minimal empty config on
-// failure (startup must never abort on config errors — CLAUDE.md), and echoes
-// any accumulated config warnings to stderr.
-func loadStartupConfig() *config.Config {
-	return loadStartupConfigWith(config.Load)
-}
-
-// loadStartupConfigWith is loadStartupConfig over an injected loader. config.Load
-// degrades essentially every user-facing failure to a config.Warning rather than
-// an error, so the error branch below is otherwise unreachable from a fixture —
-// and unreachable code is exactly where a reporting defect survives.
-func loadStartupConfigWith(load func(...config.LoadOption) (*config.Config, error)) *config.Config {
-	cfg, err := load()
+func runStartupSync(ctx context.Context, app *operations.App) {
+	cfg, err := app.Config(ctx)
 	if err != nil {
-		cfg = fallbackConfigForLoadFailure(err)
+		return
 	}
-	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
-	return cfg
-}
-
-// fallbackConfigForLoadFailure builds the minimal config a failed load degrades
-// to. The failure rides as the config's single Warning, which is the ONE report
-// of it: config.RecordWarningsTo both prints that warning and records it as a
-// strictness finding, so warning about it here too would put the identical
-// sentence on stderr twice.
-func fallbackConfigForLoadFailure(err error) *config.Config {
-	return config.NewFixture(config.Fixture{
-		LM:       config.LMConfig{Configs: make(map[string]config.LLMConfig)},
-		Warnings: []config.Warning{{Kind: config.WarnKindRead, Text: fmt.Sprintf("failed to load config: %v", err)}},
-	})
-}
-
-// runStartupSync auto-syncs remote bundles/profiles when enabled, bounded to
-// 60s.
-//
-// A failure is REPORTED as a ClassSync finding, not swallowed: the startup gate
-// decides its fatality, so by default the launch aborts and --degraded warns and
-// continues. Cancellation alone returns quietly. This is the refuse-by-default
-// posture, not the older always-launch one — a sync that silently continued was
-// how a session came up against content nobody could see had failed to load.
-func runStartupSync(ctx context.Context, cfg *config.Config) {
 	syncCfg := cfg.GetSyncConfig()
 	if !syncCfg.ShouldAutoSync() {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "ctxloom: syncing remote bundles and profiles from config...\n")
 	syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
-	result, syncErr := operations.SyncOnStartup(syncCtx, cfg)
+	result, syncErr := operations.SyncOnStartup(syncCtx, app)
 	syncCancel()
 	if syncErr != nil {
 		if !errors.Is(syncErr, context.Canceled) {
@@ -384,6 +363,7 @@ func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 	// with settings must see the same regenerated context/hooks/commands —
 	// refreshing only one leaves the others serving stale managed sets.
 	if _, err := operations.ApplyHooks(ctx, operations.ApplyHooksRequest{
+		Cfg:               s.cfg,
 		RegenerateContext: true,
 		DryRun:            s.dryRun,
 	}); err != nil && !errors.Is(err, context.Canceled) {

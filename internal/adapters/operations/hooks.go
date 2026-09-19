@@ -19,17 +19,13 @@ import (
 	"github.com/spf13/afero"
 )
 
-// ConfigLoaderFunc is a function that loads configuration.
-type ConfigLoaderFunc func() (*config.Config, error)
-
 // ApplyHooksRequest contains parameters for applying hooks.
 type ApplyHooksRequest struct {
-	Backend           string           `json:"backend"`            // claude-code, codex, or all
-	RegenerateContext bool             `json:"regenerate_context"` // Also regenerate context file
-	FS                afero.Fs         `json:"-"`                  // Optional filesystem for testing
-	ConfigLoader      ConfigLoaderFunc `json:"-"`                  // Optional config loader for testing (defaults to config.Load)
-	WorkDir           string           `json:"-"`                  // Optional work directory for testing (defaults to git root)
-	BundleLoaderFS    afero.Fs         `json:"-"`                  // Optional FS for bundle loader (for testing regenerateContext)
+	Backend           string         `json:"backend"`            // claude-code, codex, or all
+	RegenerateContext bool           `json:"regenerate_context"` // Also regenerate context file
+	FS                afero.Fs       `json:"-"`                  // Optional filesystem for testing
+	Cfg               *config.Config `json:"-"`                  // The generation to apply from; required
+	WorkDir           string         `json:"-"`                  // Optional work directory for testing (defaults to git root)
 	// Force overrides the refusal in checkHookTargetScope when the resolved
 	// workDir would write Claude Code's user-global settings.json (the $HOME
 	// collision). Without it, that collision aborts the
@@ -66,16 +62,10 @@ type ApplyHooksResult struct {
 	Errors []string `json:"errors,omitempty"`
 }
 
-// ApplyHooks applies ctxloom hooks to backend configuration files.
-//
-// It deliberately takes NO *config.Config. It used to accept one and
-// never read it — every caller handed over a Config it had just built and had
-// it silently discarded, because ApplyHooks reloads from disk via
-// resolveHookConfig. That reload is correct and load-bearing (`manage install`
-// writes config.yaml immediately before calling, so a Config captured earlier
-// is stale by construction), so the parameter was the thing that was wrong,
-// not the reload. Tests and any caller needing a different config inject it
-// through ApplyHooksRequest.ConfigLoader, which is the one honoured seam.
+// ApplyHooks applies ctxloom hooks to backend configuration files, from the
+// generation req.Cfg carries. It never re-reads: a caller that has just
+// written config.yaml (`manage install`) did so through the config Owner's
+// Update, which published the generation it then passes here.
 func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, error) {
 	// Bracket the WHOLE call, config load included, so a TRUST-CLASS finding
 	// recorded anywhere under it becomes an error here rather than a warning
@@ -188,7 +178,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// (the `manage hooks install` path) for the configured DEFAULT profiles —
 	// there is no per-run `-p` selection here — so nil scopes to the defaults.
 	bundleMCP := freshCfg.ResolveBundleMCPServers(nil)
-	prompts := backends.LoadCommandExports(freshCfg, nil, bundleLoaderOpts(req)...)
+	prompts := backends.LoadCommandExports(freshCfg, nil)
 
 	backendNames, err := hookBackendNames(freshCfg, backend)
 	if err != nil {
@@ -275,27 +265,12 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	return result, nil
 }
 
-// bundleLoaderOpts builds the bundle loader options from the request's optional
-// test filesystem.
-func bundleLoaderOpts(req ApplyHooksRequest) []config.BundleLoaderOption {
-	if req.BundleLoaderFS == nil {
-		return nil
-	}
-	return []config.BundleLoaderOption{config.WithBundleLoaderFS(req.BundleLoaderFS)}
-}
-
-// resolveHookConfig reloads config for freshness, using the injected loader when
-// provided.
+// resolveHookConfig is the one refusal for a request without a generation.
 func resolveHookConfig(req ApplyHooksRequest) (*config.Config, error) {
-	loader := req.ConfigLoader
-	if loader == nil {
-		loader = func() (*config.Config, error) { return config.Load() }
+	if req.Cfg == nil {
+		return nil, fmt.Errorf("apply hooks: a config generation is required")
 	}
-	freshCfg, err := loader()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-	return freshCfg, nil
+	return req.Cfg, nil
 }
 
 // resolveHookWorkDir returns the injected work dir, else the CTXLOOM_ROOT
@@ -372,7 +347,7 @@ func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, work
 	if !req.RegenerateContext {
 		return "", false
 	}
-	contextHash, err := regenerateContext(freshCfg, workDir, bundleLoaderOpts(req), contextOpts...)
+	contextHash, err := regenerateContext(freshCfg, workDir, contextOpts...)
 	if err != nil {
 		strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
 			"regenerate context failed: %v", err)
@@ -812,12 +787,12 @@ func installedContextFile(ctx context.Context, cfg *config.Config) (string, erro
 }
 
 // regenerateContext loads fragments from default profiles and writes the context file.
-func regenerateContext(cfg *config.Config, workDir string, bundleOpts []config.BundleLoaderOption, opts ...agent.ContextFileOption) (string, error) {
+func regenerateContext(cfg *config.Config, workDir string, opts ...agent.ContextFileOption) (string, error) {
 	// Load fragments from default profiles using bundles. This is an exposure
 	// surface (the SessionStart-injected context file), so it gates content the
 	// same way AssembleContext does (trust rework, TR5) — baseline-first, then
 	// withhold anything the cascade denies.
-	pipe, gate := exposurePipelineGated(cfg, cfg.LinkGrant(cfg.DefaultAgentProfiles()), bundleOpts...)
+	pipe, gate := exposurePipelineGated(cfg, cfg.LinkGrant(cfg.DefaultAgentProfiles()))
 
 	// Collect through the same path AssembleContext uses: collectProfileFragments
 	// emits tag-matched fragments under their canonical qualified names (so

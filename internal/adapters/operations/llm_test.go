@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
@@ -53,25 +54,25 @@ func TestAvailableLLMNames_Sorted(t *testing.T) {
 }
 
 // =============================================================================
-// SetDefaultLLM: the write path, migrated onto Manager.Update
+// SetDefaultLLM: the write path, migrated onto Owner.Update
 // =============================================================================
 
 // TestSetDefaultLLM_SetsAndPersists proves the write survives a reload. The
 // seed names an explicit starting primary ("mock") rather than leaving
 // llm.defaults.primary absent — an absent primary is filled in-memory by the
-// shipped-default overlay (mergeDefaultConfig) at load time, which would make
+// shipped-default overlay (the default-registry overlay) at load time, which would make
 // "claude-code" look already-current and turn this into an unchanged-status
 // test instead of the set-status one it's named for.
 func TestSetDefaultLLM_SetsAndPersists(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  defaults:\n    primary: codex\n")
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
 	res, err := SetDefaultLLM(context.Background(), mgr, SetDefaultLLMRequest{Name: "claude-code"})
 	require.NoError(t, err)
 	assert.Equal(t, "set", res.Status)
 	assert.Equal(t, "claude-code", res.Name)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.Equal(t, "claude-code", reloaded.PrimaryLabel())
 }
@@ -80,7 +81,7 @@ func TestSetDefaultLLM_SetsAndPersists(t *testing.T) {
 // default" report and skips the write.
 func TestSetDefaultLLM_UnchangedWhenAlreadyDefault(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  defaults:\n    primary: claude-code\n")
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
 	res, err := SetDefaultLLM(context.Background(), mgr, SetDefaultLLMRequest{Name: "claude-code"})
 	require.NoError(t, err)
@@ -90,12 +91,12 @@ func TestSetDefaultLLM_UnchangedWhenAlreadyDefault(t *testing.T) {
 // TestSetDefaultLLM_EmptyName errors rather than clearing the default.
 func TestSetDefaultLLM_EmptyName(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
-	_, err := SetDefaultLLM(context.Background(), managerFor(appDir), SetDefaultLLMRequest{Name: ""})
+	_, err := SetDefaultLLM(context.Background(), managerFor(t, appDir), SetDefaultLLMRequest{Name: ""})
 	assert.Error(t, err)
 }
 
 // TestSetDefaultLLM_UnchangedCheckSeesConcurrentWrite proves the specific
-// race Manager.Update closes for this call: the "is this already the
+// race Owner.Update closes for this call: the "is this already the
 // default" check reads the SAME locked, freshly-reloaded Draft the write
 // applies to, so writer B's decision can never be a statement about a config
 // writer A has already replaced. This is a different concurrency property
@@ -111,14 +112,14 @@ func TestSetDefaultLLM_EmptyName(t *testing.T) {
 // "unchanged", never "set" against the stale pre-lock "alpha".
 func TestSetDefaultLLM_UnchangedCheckSeesConcurrentWrite(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  defaults:\n    primary: alpha\n")
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
 	aEnteredCritical := make(chan struct{})
 	releaseA := make(chan struct{})
 	aDone := make(chan struct{})
 	go func() {
 		defer close(aDone)
-		err := mgr.Update(func(d *config.Draft) error {
+		_, err := mgr.Update(context.Background(), func(d *config.Draft) error {
 			close(aEnteredCritical)
 			<-releaseA
 			d.LM.Defaults.Primary = "beta"
@@ -153,7 +154,7 @@ func TestSetDefaultLLM_UnchangedCheckSeesConcurrentWrite(t *testing.T) {
 	assert.Equal(t, "unchanged", bResult.Status,
 		"B's fresh reload (taken AFTER acquiring the lock) must see A's already-committed \"beta\", not the stale pre-lock \"alpha\"")
 
-	final, err := config.Load(config.WithAppDir(appDir))
+	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.Equal(t, "beta", final.PrimaryLabel())
 }

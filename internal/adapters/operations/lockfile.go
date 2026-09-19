@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/spf13/afero"
 
@@ -18,11 +17,6 @@ type Puller interface {
 
 // LockDependenciesRequest contains parameters for generating a lockfile.
 type LockDependenciesRequest struct {
-	// SkipSync skips running sync before generating the lockfile.
-	// By default, sync runs first to ensure all dependencies are installed
-	// before locking their versions. Set to true to skip this behavior.
-	SkipSync bool `json:"skip_sync"`
-
 	// FailOnConflict makes a dependency hash conflict a hard error, for callers
 	// that want strict locking. When false (startup auto-lock) the conflict is
 	// warned and the conflicted items are dropped, never blocking the session
@@ -52,16 +46,6 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	baseDir := getBaseDir(cfg)
 
 	// Run sync first so the clones the closure walk reads are present.
-	if !req.SkipSync {
-		if _, err := SyncDependencies(ctx, cfg, SyncDependenciesRequest{
-			Force: false,
-			Lock:  false, // don't recurse back into lock
-			FS:    req.FS,
-		}); err != nil {
-			return nil, fmt.Errorf("failed to sync dependencies before locking: %w", err)
-		}
-	}
-
 	pins, conflicts, unexpanded := FlattenDependencies(ctx, cfg, nil)
 	if len(conflicts) > 0 {
 		if req.FailOnConflict {

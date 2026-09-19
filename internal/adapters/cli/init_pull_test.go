@@ -14,7 +14,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -177,9 +176,9 @@ func TestRunInit_PullsRemoteDependencies(t *testing.T) {
 	url := seedBundleRemote(t)
 	ref := url + "@bundles/demo"
 	project, appDir := seedProjectReferencing(t, ref)
-	t.Chdir(project)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	chdir(t, project)
+	resetApp()
+	t.Cleanup(resetApp)
 	withInitFlags(t, false)
 
 	captureStdout(t, func() {
@@ -200,13 +199,13 @@ func TestRunInit_RepeatedInitKeepsTheClosureInstalled(t *testing.T) {
 	url := seedBundleRemote(t)
 	ref := url + "@bundles/demo"
 	project, appDir := seedProjectReferencing(t, ref)
-	t.Chdir(project)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	chdir(t, project)
+	resetApp()
+	t.Cleanup(resetApp)
 	withInitFlags(t, false)
 
 	for run := 0; run < 2; run++ {
-		config.Invalidate()
+		resetApp()
 		captureStdout(t, func() {
 			require.NoError(t, runInit(initTestCmd(), nil), "init run %d must succeed", run+1)
 		})
@@ -225,9 +224,9 @@ func TestRunInit_NoPull_SuppressesTheDependencyPull(t *testing.T) {
 	url := seedBundleRemote(t)
 	ref := url + "@bundles/demo"
 	project, appDir := seedProjectReferencing(t, ref)
-	t.Chdir(project)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	chdir(t, project)
+	resetApp()
+	t.Cleanup(resetApp)
 	withInitFlags(t, true)
 
 	out := captureStdout(t, func() {
@@ -257,9 +256,9 @@ func TestRunInit_FailedPullKeepsTheProjectAndSaysSo(t *testing.T) {
 	bare := strings.TrimPrefix(url, "file://")
 	require.NoError(t, os.Rename(bare, bare+".unreachable"))
 
-	t.Chdir(project)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	chdir(t, project)
+	resetApp()
+	t.Cleanup(resetApp)
 	withInitFlags(t, false)
 
 	var runErr error

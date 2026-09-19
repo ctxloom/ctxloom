@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -248,7 +249,7 @@ fragments:
 `
 	require.NoError(t, afero.WriteFile(fs, bundlesDir+"/dev.yaml", []byte(bundleYAML), 0o644))
 
-	cfg, err := config.Load(config.WithFS(fs), config.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
 	// Reject one local fragment (rejection beats the local exemption).
@@ -334,7 +335,7 @@ fragments:
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ConfigLoader:      mockConfigLoader,
+		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
 	require.NoError(t, err)

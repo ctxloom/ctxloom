@@ -315,7 +315,7 @@ func TestSyncDependencies_NoRemotes(t *testing.T) {
 	// Create the profiles directory
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS: fs,
 	})
 	if err != nil {
@@ -352,7 +352,7 @@ remotes:
 
 	puller := &syncMockPuller{}
 
-	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS:       fs,
 		Registry: registry,
 		Puller:   puller,
@@ -401,7 +401,7 @@ remotes:
 	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	puller := &syncMockPuller{}
 
-	_, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	_, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS:       fs,
 		Registry: registry,
 		Puller:   puller,
@@ -466,7 +466,7 @@ remotes:
 	puller := &syncMockPuller{}
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
 
-	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS:           fs,
 		Registry:     registry,
 		Puller:       puller,
@@ -519,7 +519,7 @@ remotes:
 	puller := &syncMockRetractionPuller{retracted: true, reason: "compromised release"}
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
 
-	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS:           fs,
 		Registry:     registry,
 		Puller:       puller,
@@ -569,7 +569,7 @@ remotes:
 	puller := &syncMockRetractionPuller{retracted: false}
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
 
-	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS:           fs,
 		Registry:     registry,
 		Puller:       puller,
@@ -622,7 +622,7 @@ remotes:
 	}
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
 
-	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS:           fs,
 		Registry:     registry,
 		Puller:       puller,
@@ -673,7 +673,7 @@ remotes:
 	restore := clidiag.SetSink(&warnings)
 	defer restore()
 
-	_, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	_, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS:           fs,
 		Registry:     registry,
 		Puller:       puller,
@@ -716,7 +716,7 @@ remotes:
 	puller := &syncMockPuller{}
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
 
-	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS:           fs,
 		Registry:     registry,
 		Puller:       puller,
@@ -757,7 +757,7 @@ remotes:
 	// The bundle reads as installed; Force must re-pull it anyway.
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
 
-	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS:           fs,
 		Registry:     registry,
 		Puller:       puller,
@@ -803,7 +803,7 @@ remotes:
 		err: fmt.Errorf("network error"),
 	}
 
-	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS:       fs,
 		Registry: registry,
 		Puller:   puller,
@@ -852,7 +852,7 @@ remotes:
 
 	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 
-	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS:       fs,
 		Registry: registry,
 		Puller:   &overwritePuller{},
@@ -1137,7 +1137,7 @@ func TestSyncOnStartup(t *testing.T) {
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
 	// With only local bundles, should return up_to_date or empty
-	result, err := SyncOnStartup(context.Background(), cfg)
+	result, err := SyncOnStartup(context.Background(), fixtureApp(t, cfg))
 	if err != nil {
 		t.Fatalf("SyncOnStartup failed: %v", err)
 	}
@@ -1501,7 +1501,7 @@ remotes:
 
 	puller := &revealingPuller{fs: fs, reveals: rootRef, revealedRef: revealedRef}
 
-	_, err = SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	_, err = SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS: fs, Registry: registry, Puller: puller,
 	})
 	require.NoError(t, err)
@@ -1582,7 +1582,7 @@ remotes:
 	restore := clidiag.SetSink(&warnings)
 	defer restore()
 
-	_, err = SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+	_, err = SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS: fs, Registry: registry, Puller: puller,
 	})
 	require.NoError(t, err)

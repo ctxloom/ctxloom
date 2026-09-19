@@ -33,7 +33,7 @@ func TestRun_SessionMintFailureRefusesTheRunBeforeAnyEngineSpawn(t *testing.T) {
 	// needs no binary installed, so it is configured under its own label.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"),
 		[]byte(fmt.Sprintf("version: %d\nllm:\n  configs:\n    mock:\n      type: mock\n", config.CurrentConfigVersion)), 0o644))
-	config.Invalidate()
+	resetApp()
 
 	witness := filepath.Join(t.TempDir(), "runner-spawned")
 	stub := filepath.Join(t.TempDir(), "ctxloom")

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -42,7 +42,7 @@ func TestLoadout_YAML_IsAValidBundle(t *testing.T) {
 // and, eventually, the same bytes a build-time signature would cover).
 func TestLoadout_YAMLFormat_EmitsRawBytesVerbatim(t *testing.T) {
 	var buf bytes.Buffer
-	require.NoError(t, companionloadout.Emit(&buf, "yaml", loadoutYAML, loadoutSig))
+	require.NoError(t, loadout.Emit(&buf, "yaml", loadoutYAML, loadoutSig))
 	assert.Equal(t, loadoutYAML, buf.Bytes())
 }
 
@@ -54,7 +54,7 @@ func TestLoadout_YAMLFormat_EmitsRawBytesVerbatim(t *testing.T) {
 // an error.
 func TestLoadout_JSONFormat_DecodesToIdenticalBundle(t *testing.T) {
 	var buf bytes.Buffer
-	require.NoError(t, companionloadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
+	require.NoError(t, loadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
 
 	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), nil, time.Now())
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher(t *testing.T) {
 	require.NotEmpty(t, loadoutSig, "ltk's committed loadout.yaml.sig is missing or not embedded — run `just sign-loadouts` and commit it")
 
 	var buf bytes.Buffer
-	require.NoError(t, companionloadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
+	require.NoError(t, loadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
 
 	cfg := &config.Config{}
 	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), cfg.TrustRoot(), time.Now())
@@ -103,7 +103,7 @@ func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
 
 	tampered := append(append([]byte{}, loadoutYAML...), []byte("\n# drift: this byte was never signed\n")...)
 	var buf bytes.Buffer
-	require.NoError(t, companionloadout.Emit(&buf, "json", tampered, loadoutSig))
+	require.NoError(t, loadout.Emit(&buf, "json", tampered, loadoutSig))
 
 	cfg := &config.Config{}
 	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), cfg.TrustRoot(), time.Now())
@@ -124,7 +124,7 @@ func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
 //     would start erroring;
 //   - renaming it breaks a cross-process wire contract: ctxloom's companion
 //     discovery execs `<bin> loadout --format json`, built from
-//     companionloadout.Subcommand/FormatFlag/FormatJSON, and shared with
+//     loadout.Subcommand/FormatFlag/FormatJSON, and shared with
 //     cmd/taskloom;
 //   - unifying the vocabularies would have loadout advertise toml/markdown
 //     envelope formats that do not exist.
@@ -187,7 +187,7 @@ func TestRoot_FormatMeansTheEnvelopeFormatUnderLoadout(t *testing.T) {
 
 func TestLoadout_UnknownFormatErrors(t *testing.T) {
 	var buf bytes.Buffer
-	err := companionloadout.Emit(&buf, "toml", loadoutYAML, loadoutSig)
+	err := loadout.Emit(&buf, "toml", loadoutYAML, loadoutSig)
 	assert.Error(t, err)
 	assert.Empty(t, buf.Bytes())
 }

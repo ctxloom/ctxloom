@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -43,9 +42,7 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", name+".yaml"), []byte(doc), 0o644))
 			}
 		}
-		cfg, err := config.Load(config.WithAppDir(appDir))
-		require.NoError(t, err)
-		return newProdSpawner(cfg, filepath.Dir(appDir), nil)
+		return newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	}
 
 	hasCtxloom := func(servers []agent.ChatMCPServer) bool {

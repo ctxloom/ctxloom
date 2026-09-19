@@ -211,7 +211,9 @@ type pinnedCall struct {
 // session identity is minted by the sessions.Store's AssignHarp through the
 // harp allocator, so both are pinned; their sanctioned callers are the
 // store itself, operations (StartRun's home) and the harp CLI, which mints
-// names, not sessions. config.Open is today's config.Load. coord.New is
+// names, not sessions. config.Open is opened by operations.App (the one
+// owner) until cmd/* composes the process in slice 7; configload.Load is
+// the test-only read and has no sanctioned production caller. coord.New is
 // already the one constructor.
 var pinnedCalls = []pinnedCall{
 	{
@@ -231,9 +233,14 @@ var pinnedCalls = []pinnedCall{
 		permitted: []string{"cmd"},
 	},
 	{
-		what:      "opens the config (config.Load, today's config.Open)",
-		match:     func(c *ast.CallExpr) bool { return selectorCall(c, "config", "Load") },
-		permitted: []string{"cmd"},
+		what:      "opens the config (config.Open — one owner per process)",
+		match:     func(c *ast.CallExpr) bool { return selectorCall(c, "config", "Open") },
+		permitted: []string{"cmd", "internal/adapters/operations"},
+	},
+	{
+		what:      "reads the config outside the owner (configload.Load is for tests only)",
+		match:     func(c *ast.CallExpr) bool { return selectorCall(c, "configload", "Load") },
+		permitted: nil,
 	},
 }
 
@@ -247,37 +254,9 @@ var oneMintOneOwnerAllowed = map[string]string{
 	// the coordinator is constructed by the MCP server, not the composition root
 	"internal/adapters/mcp/coord_host.go#NewHostedCoordinator": "Part 1.1 one-mint-one-owner: coord.New moves under cmd/*; Part 4.1 names no slice for the move (measured)",
 
-	// config.Load in the CLI: slice 4 gives operations.App the one
-	// config.Owner and the CLI stops opening the config itself
-	"internal/adapters/cli/agent.go#completeAgentNames":                  "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/clean_cmd.go#sessionReapCutoff":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/completion.go#completeFragmentNames":          "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/completion.go#completeLLMNames":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/completion.go#completeProfileNames":           "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/completion.go#completePromptNames":            "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/completion.go#completeTagNames":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/hook_hud.go#gatherCtxloomInfo":                "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/hook_inject_context.go#agentSetupNudge":       "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/hook_skill_mates.go#skillMatesOutput":         "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/init.go#addPersonalRemotes":                   "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/adapters/cli/init.go#applyInitHooks":                       "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/adapters/cli/init.go#cloneConfiguredRemotes":               "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/adapters/cli/init.go#engineForExistingDir":                 "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/adapters/cli/init.go#pullSeededDependencies":               "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/adapters/cli/init.go#setupNewCtxloomDir":                   "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/adapters/cli/llm_runner_common.go#loadAndConfigureBackend": "slice 4: one Reload per spawn, owned by operations.App",
-	"internal/adapters/cli/run.go#runState.loadConfig":                   "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/session_cmd.go#runSessionDistill":             "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/session_cmd.go#sessionAppDir":                 "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/session_distill.go#distillMissingOrStale":     "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/adapters/cli/session_query.go#runSessionQuery":             "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-
-	// config.Load inside operations: the memoized loader each service opens
-	// for itself becomes the one Owner the App is constructed with
-	"internal/adapters/operations/hooks.go#resolveHookConfig":       "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
-	"internal/adapters/operations/llm.go#SetLLM":                    "slice 4: operations.App is constructed with the one config.Owner; SetLLM writes a Draft",
-	"internal/adapters/operations/mcp_servers.go#resolveListConfig": "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
-	"internal/adapters/operations/sessionfeed.go#WatchSessionFeed":  "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
+	// the test-only read opens a throwaway owner; its own pin (the
+	// configload.Load entry in pinnedCalls) keeps it out of production
+	"internal/adapters/configload/sources.go#Load": "sanctioned: configload.Load is the tests' one read; production opens the config through operations.App",
 }
 
 func scanOneMintOneOwner(t *testing.T) []ringSite {
@@ -466,11 +445,11 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/shared/procsec/procsec.go": "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
 
 	// core reading the environment for itself
-	"internal/core/paths/homeguard.go":   "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
-	"internal/core/paths/paths.go":       "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
-	"internal/core/config/config.go":     "slice 4: adapters/configload owns the file chain; core/config reads no environment",
-	"internal/core/agent/rendezvous.go":  "slice 14a: the rendezvous is the engine host's (adapters/runner), handed its temp root",
-	"internal/core/coord/coordinator.go": "slice 14a: the ephemeral state dir for a second coordinator in one project is a launch.HostFacts temp root, not a read of its own (measured; masked while coord was the declaring package)",
+	"internal/core/paths/homeguard.go":       "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
+	"internal/core/paths/paths.go":           "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
+	"internal/adapters/configload/appdir.go": "slice 7: launch.HostFacts carries home, cwd and the temp root from cmd/*; the reader's directory discovery then takes them as values",
+	"internal/core/agent/rendezvous.go":      "slice 14a: the rendezvous is the engine host's (adapters/runner), handed its temp root",
+	"internal/core/coord/coordinator.go":     "slice 14a: the ephemeral state dir for a second coordinator in one project is a launch.HostFacts temp root, not a read of its own (measured; masked while coord was the declaring package)",
 
 	// the CLI: HostFacts are computed once by the composition root
 	"internal/adapters/cli/bundle_items.go":    "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",

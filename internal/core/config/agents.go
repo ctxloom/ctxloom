@@ -111,66 +111,6 @@ func (c *Config) retiredEscalationSignpost() {
 	}
 }
 
-// dropEnginelessAgents refuses every `agents:` entry in ONE decoded config
-// layer that declares neither an llm nor profiles, removing it from values in
-// place so it never reaches the layer merge, and returns one finding per
-// refusal naming the key (agents.<name>) and the file it came from.
-//
-// It runs per LAYER, deliberately: checked on the MERGED map instead, the
-// finding could only name the project's path for a declaration that lives in
-// home, and the shell would already be in the view Manager.Update saves back
-// into the project file — which is how a home-only `help: {}` came to be
-// re-serialised into a committed config. The layer-scope check cannot catch
-// it: every per-agent FIELD is ScopeShared, so a home agent declaring any
-// field is dropped there (koanf prunes the emptied parent too), but a
-// verbatim `{}` has no field for that check to see.
-//
-// An llm alone is a complete binding (the context is the project default's)
-// and profiles alone are too (they carry the llm, falling back to the project
-// default backend — see agents.Agent), so only the pair-absent case is
-// refused. Whether the llm label or a profile actually exists is resolved
-// later, by operations.ResolveAgent, exactly as before.
-func dropEnginelessAgents(configPath string, values map[string]any) []Warning {
-	agentsMap, ok := values["agents"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	// Sorted so a layer with several offenders reports them in a stable order.
-	names := make([]string, 0, len(agentsMap))
-	for name := range agentsMap {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	var out []Warning
-	for _, name := range names {
-		body, _ := agentsMap[name].(map[string]any)
-		if bindsEngine(body) {
-			continue
-		}
-		delete(agentsMap, name)
-		out = append(out, Warning{Kind: WarnKindEnginelessAgent, Text: fmt.Sprintf(
-			"agents.%s in %s declares neither an llm nor profiles, so nothing could resolve an engine for it — an agent bound to nothing is not an agent; the entry is ignored",
-			name, configPath)})
-	}
-	if len(agentsMap) == 0 {
-		delete(values, "agents")
-	}
-	return out
-}
-
-// bindsEngine reports whether a raw agent body names an llm or at least one
-// profile. A non-string llm or non-list profiles is a schema violation
-// reported separately; here it counts as absent, not as a binding.
-func bindsEngine(body map[string]any) bool {
-	if llm, ok := body["llm"].(string); ok && llm != "" {
-		return true
-	}
-	if profiles, ok := body["profiles"].([]any); ok && len(profiles) > 0 {
-		return true
-	}
-	return false
-}
-
 // strandedAgentFiles returns the base names of the YAML files under dir — the
 // definitions a user wrote where nothing reads them. A dir that is absent or
 // unreadable yields nothing: the signpost only ever fires on something it can

@@ -15,7 +15,7 @@ func TestMergeDefaultConfig_NonEmptyRegistryUntouched(t *testing.T) {
 		"only": {Type: "claude-code", Body: map[string]interface{}{"model": "haiku"}},
 	}}}
 
-	mergeDefaultConfig(cfg)
+	overlayDefaultRegistry(cfg)
 
 	assert.Len(t, cfg.lm.Configs, 1, "merge must not inject default labels into a non-empty registry")
 	assert.Contains(t, cfg.lm.Configs, "only")
@@ -27,7 +27,7 @@ func TestMergeDefaultConfig_NonEmptyRegistryUntouched(t *testing.T) {
 func TestMergeDefaultConfig_EmptyAdoptsDefault(t *testing.T) {
 	cfg := &Config{}
 
-	mergeDefaultConfig(cfg)
+	overlayDefaultRegistry(cfg)
 
 	assert.NotEmpty(t, cfg.lm.Configs, "empty registry should adopt the embedded default")
 	assert.NotEmpty(t, cfg.FastLabel(), "fast role must resolve out of the box")

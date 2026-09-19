@@ -711,7 +711,7 @@ func doctorTrustStoreDetail(signers []operations.SignerListing, err error) (deta
 // just needed a stricter (WARN, not INFO) reading of the empty/missing case.
 
 // doctorAppDir mirrors operations.getBaseDir's fallback (unexported there,
-// remotes.go): the .ctxloom directory config.Load already resolved, or ""
+// remotes.go): the .ctxloom directory the reader already resolved, or ""
 // when it found none (callers use this to short-circuit rather than probe a
 // directory that was never located).
 func doctorAppDir(cfg *config.Config) string {
@@ -735,11 +735,11 @@ func doctorProjectDir(cfg *config.Config) string {
 	return filepath.Dir(appDir)
 }
 
-// doctorCheckSetupMarker verifies the .ctxloom marker directory config.Load
-// already resolved (cfg.AppPaths, config.go:137) is present and the project
-// config loaded without a hard error — the ground-floor precondition every
-// other check in this report assumes. Read-only: it inspects config.Load's
-// ALREADY-resolved record instead of re-globbing the filesystem for .ctxloom.
+// doctorCheckSetupMarker verifies the .ctxloom marker directory the reader
+// already resolved (cfg.AppPaths) is present and the project config was read
+// without a hard error — the ground-floor precondition every other check in
+// this report assumes. Read-only: it inspects the generation's ALREADY-resolved
+// record instead of re-globbing the filesystem for .ctxloom.
 func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-MARKER-e5"
 	if cfgErr != nil {
@@ -851,7 +851,7 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	if cfgErr != nil {
 		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
-	if config.CompanionsDisabled() {
+	if App().NoCompanions {
 		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "companion probing disabled (--no-companions)"}
 	}
 	decided := readCompanionDecisions(cfg)

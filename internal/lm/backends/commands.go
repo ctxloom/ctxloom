@@ -51,7 +51,7 @@ import (
 // The config bundle loader is the only loader that also surfaces remote bundles
 // from the lockfile clone cache; empty fs bundle dirs are fine — remote-only
 // setups still produce commands.
-func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...config.BundleLoaderOption) []*bundles.LoadedContent {
+func LoadCommandExports(cfg *config.Config, profileNames []string) []*bundles.LoadedContent {
 	prompts := builtinCommands()
 
 	// A nil cfg has nothing further to resolve — mirrors LoadSkillExports'
@@ -74,9 +74,9 @@ func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...confi
 		// gating); it keys on "<bundle>#prompts/<name>", identical to the
 		// content choke, so an accepted/exempt prompt is exported and a
 		// pending/rejected one is withheld.
-		pipe := bundles.NewPipeline(cfg.BundleLoader(opts...), cfg.ExecutableTrustGate(), cfg.LinkGrant(profileNames), cfg.ShouldUseDistilled())
+		pipe := bundles.NewPipeline(cfg.BundleLoader(), cfg.ExecutableTrustGate(), cfg.LinkGrant(profileNames), cfg.ShouldUseDistilled())
 		prompts = append(prompts, loadCuratedPrompts(pipe, curated)...)
-		prompts = append(prompts, dedupCommandsByItem(prompts, cfg.ResolveCompanionCommands(profileNames, opts...))...)
+		prompts = append(prompts, dedupCommandsByItem(prompts, cfg.ResolveCompanionCommands(profileNames))...)
 		return prompts
 	}
 
@@ -88,7 +88,7 @@ func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...confi
 	// trust-withheld command never loads — the resolver builds its own process
 	// stage over the cfg-carried executable gate. opts thread the seed into the
 	// resolver's reader.
-	return append(prompts, cfg.ResolveBundleCommands(profileNames, opts...)...)
+	return append(prompts, cfg.ResolveBundleCommands(profileNames)...)
 }
 
 // dedupCommandsByItem returns the entries of add whose Item does not already

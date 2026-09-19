@@ -168,7 +168,7 @@ func TestRunInit_ExistingDir_HonoursRemoteFlags(t *testing.T) {
 	appDir := filepath.Join(dir, ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("version: 5\n"), 0o644))
-	t.Chdir(dir)
+	chdir(t, dir)
 
 	var gotRepos []string
 	var gotForge string
@@ -229,8 +229,8 @@ func TestDiscoverySessionPrompt_MergesDiscoveryAndAgentSetup(t *testing.T) {
 // a session set up against instructions no other door ever emits.
 func TestSetupPromptDoors_EmitTheSameBody(t *testing.T) {
 	testsupport.Isolate(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	cfg, _ := GetConfig()
 
@@ -324,9 +324,9 @@ func TestEngineForExistingDir(t *testing.T) {
 	dir := t.TempDir()
 	appDir := filepath.Join(dir, ".ctxloom")
 	writeEngineConfig(t, appDir, "claude-code")
-	t.Chdir(dir)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	chdir(t, dir)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	require.Equal(t, "claude-code", engineForExistingDir("", appDir),
 		"with no flag, the engine recorded in the existing config is used")
@@ -354,15 +354,20 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 	project := t.TempDir()
 	projectApp := filepath.Join(project, ".ctxloom")
 	writeEngineConfig(t, projectApp, "claude-code")
-	t.Chdir(project)
+	chdir(t, project)
 
 	// The .ctxloom this init actually targets: names codex.
 	target := t.TempDir()
 	targetApp := filepath.Join(target, ".ctxloom")
 	writeEngineConfig(t, targetApp, "mock")
 
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
+	// init pins the process composition to its target before its first read,
+	// exactly as runInit does, so discovery from cwd never adopts the ambient
+	// project.
+	cmd := &cobra.Command{}
+	require.NoError(t, pinAppDir(cmd, targetApp))
 
 	assert.Equal(t, "mock", engineForExistingDir("", targetApp),
 		"the engine must come from the .ctxloom this init targets")
@@ -370,20 +375,14 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 	var gotAppDir string
 	orig := applyHooksFn
 	applyHooksFn = func(_ context.Context, req operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
-		// This used to read the appDir off the *config.Config
-		// parameter — which ApplyHooks never read, so the assertion held
-		// while production re-discovered an ambient config by walking up
-		// from cwd. Read it off ConfigLoader instead: the seam ApplyHooks
-		// actually honours, so the pin now tracks the real path.
-		require.NotNil(t, req.ConfigLoader, "the target appDir must ride the seam ApplyHooks honours")
-		loaded, lerr := req.ConfigLoader()
-		require.NoError(t, lerr)
-		gotAppDir = loaded.GetAppDir()
+		// The generation rides the request; ApplyHooks reads nothing else.
+		require.NotNil(t, req.Cfg, "the target generation must ride the request")
+		gotAppDir = req.Cfg.GetAppDir()
 		return &operations.ApplyHooksResult{Status: "ok", Backends: []string{"mock"}}, nil
 	}
 	t.Cleanup(func() { applyHooksFn = orig })
 
-	captureStdout(t, func() { applyInitHooks(&cobra.Command{}, targetApp) })
+	captureStdout(t, func() { applyInitHooks(cmd, targetApp) })
 	assert.Equal(t, targetApp, gotAppDir,
 		"hooks must be applied from the config this init wrote, not the ambient one")
 }

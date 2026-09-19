@@ -47,7 +47,6 @@ func dirProfileCfg(t *testing.T, defaults []string, dirProfiles map[string]strin
 	// Setting AppPaths arms companion probing, which execs the companion
 	// binaries on the HOST's PATH — the fixture, not the machine, must decide
 	// what these tests observe.
-	cfg.DisableCompanionProbe()
 	return cfg
 }
 

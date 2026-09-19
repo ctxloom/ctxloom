@@ -1,17 +1,17 @@
 package operations
 
 import (
+	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // =============================================================================
 // SetLLM / RemoveLLM: `llm create`/`llm edit`/`llm remove`'s shared write
-// core, on Manager.Update — mirrors agent_write_test.go's coverage for the
+// core, on Owner.Update — mirrors agent_write_test.go's coverage for the
 // agent CRUD sibling this closes the parity gap with.
 // =============================================================================
 
@@ -20,9 +20,9 @@ import (
 // all land and survive a reload.
 func TestSetLLM_CreatesAndPersists(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	entry, err := SetLLM(mgr, SetLLMRequest{
+	entry, err := SetLLM(context.Background(), mgr, SetLLMRequest{
 		Label:       "big",
 		Type:        ptr("mock"),
 		Model:       ptr("o1"),
@@ -34,7 +34,7 @@ func TestSetLLM_CreatesAndPersists(t *testing.T) {
 	assert.Equal(t, "o1", entry.Model)
 	assert.Equal(t, "bypass", entry.Permissions)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	got, ok := reloaded.GetLLMEntry("big")
 	require.True(t, ok, "the created llm must survive a reload")
@@ -50,14 +50,14 @@ func TestSetLLM_RefusesNonRegisteredSpellings(t *testing.T) {
 	for _, spelling := range []string{"claude", "CLAUDE", "Claude-Code", "claudecode"} {
 		t.Run(spelling, func(t *testing.T) {
 			_, appDir := loadConfigDir(t, "version: 5\n")
-			mgr := managerFor(appDir)
+			mgr := managerFor(t, appDir)
 
-			_, err := SetLLM(mgr, SetLLMRequest{Label: "big", Type: ptr(spelling)})
+			_, err := SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Type: ptr(spelling)})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "unknown type")
 			assert.Contains(t, err.Error(), "claude-code", "the refusal names the registered spelling")
 
-			reloaded, err := config.Load(config.WithAppDir(appDir))
+			reloaded, err := configload.Load(configload.WithAppDir(appDir))
 			require.NoError(t, err)
 			_, ok := reloaded.GetLLMEntry("big")
 			assert.False(t, ok, "a refused type must write nothing")
@@ -70,13 +70,13 @@ func TestSetLLM_RefusesNonRegisteredSpellings(t *testing.T) {
 // degrade at resolve time). Nothing must be written.
 func TestSetLLM_RejectsUnknownType(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	_, err := SetLLM(mgr, SetLLMRequest{Label: "big", Type: ptr("bogus-backend")})
+	_, err := SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Type: ptr("bogus-backend")})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bogus-backend")
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	_, ok := reloaded.GetLLMEntry("big")
 	assert.False(t, ok, "a rejected SetLLM call must persist nothing")
@@ -87,12 +87,12 @@ func TestSetLLM_RejectsUnknownType(t *testing.T) {
 // (`agent edit dev --runtime container` must not wipe dev's engine).
 func TestSetLLM_EditOnlyChangesNamedFields(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	_, err := SetLLM(mgr, SetLLMRequest{Label: "big", Type: ptr("mock"), Model: ptr("o1")})
+	_, err := SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Type: ptr("mock"), Model: ptr("o1")})
 	require.NoError(t, err)
 
-	entry, err := SetLLM(mgr, SetLLMRequest{Label: "big", Permissions: ptr("plan")})
+	entry, err := SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Permissions: ptr("plan")})
 	require.NoError(t, err)
 	assert.Equal(t, "mock", entry.Type, "an unnamed field must survive an edit that names a different one")
 	assert.Equal(t, "o1", entry.Model)
@@ -102,16 +102,16 @@ func TestSetLLM_EditOnlyChangesNamedFields(t *testing.T) {
 // TestRemoveLLM_DeletesAndPersists proves the removal round-trips.
 func TestRemoveLLM_DeletesAndPersists(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	_, err := SetLLM(mgr, SetLLMRequest{Label: "big", Type: ptr("mock")})
+	_, err := SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Type: ptr("mock")})
 	require.NoError(t, err)
 
-	cfg, err := config.Load(config.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
-	require.NoError(t, RemoveLLM(mgr, cfg, "big"))
+	require.NoError(t, RemoveLLM(context.Background(), mgr, cfg, "big"))
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	_, ok := reloaded.GetLLMEntry("big")
 	assert.False(t, ok, "removed llm must not survive a reload")
@@ -119,14 +119,14 @@ func TestRemoveLLM_DeletesAndPersists(t *testing.T) {
 
 // TestRemoveLLM_UnknownLabelErrors: removing a label config.yaml never
 // declared (including a bare backend name like "claude-code", which has no
-// config entry to delete — mergeDefaultConfig's whole-registry fallback
+// config entry to delete — the default-registry overlay's whole-registry fallback
 // fills an EMPTY llm.configs with it, but that is not a user declaration,
 // see IsLLMUserAuthored) is an error, never a silent zero-effect success.
 func TestRemoveLLM_UnknownLabelErrors(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	err := RemoveLLM(mgr, cfg, "claude-code")
+	err := RemoveLLM(context.Background(), mgr, cfg, "claude-code")
 	require.Error(t, err)
 }
 
@@ -136,13 +136,13 @@ func TestRemoveLLM_UnknownLabelErrors(t *testing.T) {
 // every default-shaped name, only the ones the user never actually wrote.
 func TestRemoveLLM_UserDeclaredOverrideOfADefaultName_Succeeds(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  configs:\n    claude-code: { permissions: bypass }\n")
-	mgr := managerFor(appDir)
-	cfg, err := config.Load(config.WithAppDir(appDir))
+	mgr := managerFor(t, appDir)
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
-	require.NoError(t, RemoveLLM(mgr, cfg, "claude-code"))
+	require.NoError(t, RemoveLLM(context.Background(), mgr, cfg, "claude-code"))
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.False(t, reloaded.IsLLMUserAuthored("claude-code"))
 }

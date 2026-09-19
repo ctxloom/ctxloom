@@ -5,9 +5,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/spf13/cobra"
-
-	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // The exec-consent CLI: the scriptable half of the trust-on-first-use decision
@@ -82,7 +81,7 @@ func runCompanionListCmd(cmd *cobra.Command, _ []string) error {
 	root := loadConfigOrFallback(GetConfig, os.Stderr).TrustRoot()
 	// prompt=false: merely LOOKING at companion state must never itself run a
 	// foreign binary. AdmitCompanions decides without executing anything.
-	admissions := config.AdmitCompanions(config.DiscoverCompanions(), root)
+	admissions := companions.AdmitCompanions(companions.DiscoverCompanions(), root)
 	out := make([]companionListing, 0, len(admissions))
 	for _, a := range admissions {
 		out = append(out, companionListing{Bin: a.Bin, Path: a.Path, Allowed: a.Allow, Reason: string(a.Reason)})
@@ -135,7 +134,7 @@ func runCompanionShowCmd(cmd *cobra.Command, args []string) error {
 	// The trust root is CONFIG-provided, so this shows the decision the real
 	// probes would make on this machine rather than a second answer.
 	root := loadConfigOrFallback(GetConfig, os.Stderr).TrustRoot()
-	admissions := config.AdmitCompanions([]string{args[0]}, root)
+	admissions := companions.AdmitCompanions([]string{args[0]}, root)
 	a := admissions[0]
 	payload := companionShow{Bin: a.Bin, Path: a.Path, SHA256: a.SHA256, Allowed: a.Allow, Reason: string(a.Reason)}
 	return emit(cmd, payload, func() error {

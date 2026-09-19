@@ -145,11 +145,11 @@ func (r *localFSReader) contentProvenance() ProvenanceClass { return r.provenanc
 // empty list with a nil error is how a permissions problem reaches the user as
 // "your fragment does not exist".
 //
-// Each is reported ONCE per process, and the reason is structural: this walk is
-// memoized per LOADER, but a process builds many (Config.BundleLoader composes a
-// fresh one per call site — `ctxloom doctor` went through 22). Every fault below
-// is a property of the filesystem, so it cannot resolve itself between two
-// builds inside one process, and reporting per build turned a single malformed
+// Each is reported ONCE per process, and the reason is structural: this walk
+// runs once per generation, and a process may publish several (a reload after
+// a pull, after a scaffold, per spawn). Every fault below is a property of the
+// filesystem, so it cannot resolve itself between two generations inside one
+// process, and reporting per generation turned a single malformed
 // bundle into a screenful of identical lines that buried the one filename
 // needing a fix. The FINDING still records per checkpoint window, so strict mode
 // cannot be talked out of aborting by a repeat.

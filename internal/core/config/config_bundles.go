@@ -53,6 +53,32 @@ func (c *Config) SetExecutableTrustGate(gate bundles.Authorizer) {
 	c.execGate = gate
 }
 
+// bindGeneration attaches the generation's resolved Catalog and gate to the
+// Config the Owner is about to publish, so a consumer reaching this
+// generation through its *Config sees exactly what the Snapshot carries.
+// Called once per generation, before publication; never on a published value.
+func (c *Config) bindGeneration(catalog func() bundles.Catalog, gate bundles.Authorizer) {
+	c.catalog = catalog
+	c.execGate = gate
+}
+
+// Catalog returns the generation's bundle catalog. Every Config an Owner
+// published had one bound before publication (bindGeneration) and returns
+// that same resolved set for its life. A Config no Owner published — a
+// fixture — has no generation to pin: it resolves the two readers core
+// itself can build, the project's authored bundles and the builtins, on
+// every call, and never sees remote or companion content, which only the
+// composition root's Sources supply.
+func (c *Config) Catalog() bundles.Catalog {
+	if c.catalog != nil {
+		return c.catalog()
+	}
+	root := c.TrustRoot()
+	return bundles.Resolve(context.Background(),
+		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root)),
+		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)))
+}
+
 // ExecutableTrustGate returns the gate the bundle executable surfaces decide
 // with — never nil, because a nil authorizer withholds everything downstream
 // (bundles.Decide) and a management path asking for a config's gate is not a
@@ -579,8 +605,8 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 // the configured form from ShouldUseDistilled, and both are handed to the
 // process stage here rather than baked into how the reader was built. A
 // withheld command is therefore not exported.
-func (c *Config) ResolveBundleCommands(profileNames []string, opts ...BundleLoaderOption) []*bundles.LoadedContent {
-	loader := c.BundleLoader(opts...)
+func (c *Config) ResolveBundleCommands(profileNames []string) []*bundles.LoadedContent {
+	loader := c.BundleLoader()
 	pipe := bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled())
 
 	seen := make(map[string]bool)
@@ -616,8 +642,8 @@ func (c *Config) ResolveBundleCommands(profileNames []string, opts ...BundleLoad
 // skill emission explicitly out of the first slices) — not implemented here.
 // Deduped by skill item name (first occurrence wins), matching
 // ResolveBundleCommands' dedup key.
-func (c *Config) ResolveBundleSkills(profileNames []string, opts ...BundleLoaderOption) []*bundles.LoadedSkill {
-	pipe := bundles.NewPipeline(c.BundleLoader(opts...), c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled())
+func (c *Config) ResolveBundleSkills(profileNames []string) []*bundles.LoadedSkill {
+	pipe := bundles.NewPipeline(c.BundleLoader(), c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled())
 
 	seen := make(map[string]bool)
 	var out []*bundles.LoadedSkill
@@ -653,8 +679,8 @@ func (c *Config) ResolveBundleSkills(profileNames []string, opts ...BundleLoader
 // profileNames scopes only the LINK grant: a companion's commands are
 // unconditional, but one linked to a server the selected profiles veto is
 // withheld with it.
-func (c *Config) ResolveCompanionCommands(profileNames []string, opts ...BundleLoaderOption) []*bundles.LoadedContent {
-	loader := c.BundleLoader(opts...)
+func (c *Config) ResolveCompanionCommands(profileNames []string) []*bundles.LoadedContent {
+	loader := c.BundleLoader()
 	return resolveCompanionCommandsWith(
 		bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled()), loader.Catalog())
 }

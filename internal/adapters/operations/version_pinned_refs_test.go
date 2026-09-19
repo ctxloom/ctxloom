@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
@@ -234,7 +235,7 @@ func TestVersionPinned_FetchFailureWithholdsOnlyThatItem(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	// Disable always-on companion builtins so FragmentsLoaded is exactly the
 	// profile's items regardless of what's on the test host's PATH.
-	defer config.SetLookPathForTesting(func(string) (string, error) {
+	defer companions.SetLookPathForTesting(func(string) (string, error) {
 		return "", fmt.Errorf("not installed")
 	})()
 	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{

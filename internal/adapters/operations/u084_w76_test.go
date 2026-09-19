@@ -199,10 +199,10 @@ func TestApplyHooks_TotalFailureIsNotReportedAsPartialSuccess(t *testing.T) {
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "claude-code",
-		FS:           readOnly,
-		ConfigLoader: loader,
-		WorkDir:      workDir,
+		Backend: "claude-code",
+		FS:      readOnly,
+		Cfg:     loaded(t, loader),
+		WorkDir: workDir,
 	})
 
 	// Prove the fixture actually defeated the write from the
@@ -235,10 +235,10 @@ func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "claude-code",
-		FS:           fs,
-		ConfigLoader: loader,
-		WorkDir:      tmpDir,
+		Backend: "claude-code",
+		FS:      fs,
+		Cfg:     loaded(t, loader),
+		WorkDir: tmpDir,
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, result.Backends, "control fixture must have at least one backend succeed")
@@ -289,11 +289,12 @@ func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 	_, readErr := os.ReadDir(bundlesDir)
 	require.Error(t, readErr, "fixture is not hostile: the bundles dir is still readable")
 
-	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-
 	var res *ListFragmentsResult
 	var err error
 	stderr := captureStderr(t, func() {
+		// The loader resolves its readers at construction, so the read — and
+		// the diagnostic it emits — happens inside the capture window.
+		loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 		res, err = ListFragments(context.Background(), nil, ListFragmentsRequest{Loader: loader})
 	})
 

@@ -18,8 +18,6 @@ package taskstest
 import (
 	"os"
 	"testing"
-
-	"github.com/ctxloom/ctxloom/internal/shared/confload"
 )
 
 // EnvKeys is the canonical, complete set of host/session environment
@@ -147,7 +145,30 @@ func Isolate(t *testing.T) string {
 	t.Helper()
 	home := isolateEnv(t)
 	requireIsolatedAppDir(t, callerPackage())
+	runIsolateHooks(t)
 	return home
+}
+
+// isolateHooks run at every Isolate and ChangeDir, and again at the test's
+// cleanup: a package whose process-wide state is keyed to the environment
+// or the working directory (the CLI's composition, opened from cwd)
+// registers its reset here, so a test that re-roots the process never
+// inherits the composition a previous test opened.
+var isolateHooks []func()
+
+// RegisterIsolateHook adds fn to the hooks Isolate and ChangeDir run.
+func RegisterIsolateHook(fn func()) { isolateHooks = append(isolateHooks, fn) }
+
+func runIsolateHooks(t *testing.T) {
+	t.Helper()
+	for _, fn := range isolateHooks {
+		fn()
+	}
+	t.Cleanup(func() {
+		for _, fn := range isolateHooks {
+			fn()
+		}
+	})
 }
 
 // isolateEnv is Isolate without the isolation CHECK: it installs the temp
@@ -166,24 +187,7 @@ func isolateEnv(t *testing.T) string {
 	for _, k := range EnvKeys {
 		t.Setenv(k, "")
 	}
-	ResetProcessOverrides(t)
 	return home
-}
-
-// ResetProcessOverrides clears confload's process-wide env/CLI override
-// capture (see confload.ResetProcessOverrides's doc) for the duration of the
-// test: that state outlives any single t.Setenv-scoped var and is shared
-// across every test in the binary, so a PRIOR test's (or production code's)
-// installed Overrides could otherwise leak into a test that never itself
-// touches overrides. This is the CANONICAL body both Isolate here and
-// internal/testsupport.Isolate call — testsupport already imports this
-// package for ChangeDir, for the identical "one body, no duplicate" reason
-// (see ChangeDir's doc): the shared tree must stay self-contained (cannot
-// import testsupport) while testsupport may import shared.
-func ResetProcessOverrides(t *testing.T) {
-	t.Helper()
-	confload.ResetProcessOverrides()
-	t.Cleanup(confload.ResetProcessOverrides)
 }
 
 // ProjectDir isolates the environment (see Isolate) and switches the working
@@ -221,6 +225,7 @@ func ChangeDir(t *testing.T, dir string) {
 		t.Fatalf("taskstest: chdir: %v", err)
 	}
 	t.Cleanup(func() { restoreDir(t, orig, dir) })
+	runIsolateHooks(t)
 }
 
 // errorReporter is the one method restoreDir needs from *testing.T. It exists

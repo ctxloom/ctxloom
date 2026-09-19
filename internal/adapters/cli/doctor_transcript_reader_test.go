@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // --- DOCTOR-CHECK-TRANSCRIPT-READER-v2 --------------------------------------
@@ -130,8 +130,8 @@ func TestDoctorCheckTranscriptReaders_RightState_EngineWithNoVendorReader(t *tes
 	require.Contains(t, string(body), "mock", "the scaffolded config must name the engine it was built with")
 	require.NoError(t, os.WriteFile(cfgPath, []byte(strings.ReplaceAll(string(body), "mock", "some-future-engine")), 0o644))
 
-	config.Invalidate()
-	cfg, err := config.Load(config.WithAppDir(filepath.Join(root, ".ctxloom")))
+	resetApp()
+	cfg, err := configload.Load(configload.WithAppDir(filepath.Join(root, ".ctxloom")))
 	require.NoError(t, err)
 
 	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("1.18.4"))

@@ -187,7 +187,7 @@ func TestDepsList_NamesAnUnregisteredOrigin(t *testing.T) {
 // name nobody could pass back to `deps hold`.
 func TestDepsList_ReadsAnInstalledClosureFromTheLockfile(t *testing.T) {
 	root, cfg := setupProject(t, "mock")
-	t.Chdir(root)
+	chdir(t, root)
 
 	const (
 		demoRef  = "https://github.com/alice/ctxloom@bundles/demo"

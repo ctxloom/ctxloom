@@ -107,7 +107,7 @@ func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 // TestAssembleManagedHooks_WithInvalidProfile must not panic on a default
 // profile reference that has no definition.
 func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"non-existent-profile"}}},
 	})
@@ -147,7 +147,7 @@ func TestAssembleManagedDenyTools_CircularProfileIsWarnedNotMasked(t *testing.T)
 }
 
 func TestAssembleManagedDenyTools_ExplicitProfileWarningOmitsDefault(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{})
+	cfg := gatedFixture(config.Fixture{})
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)

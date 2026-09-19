@@ -29,7 +29,7 @@ import (
 // B's "builtin:isolation#fragments/isolation-axes" (IsBuiltin). Rejecting via
 // one left the other deliverable: exactly the gate bypass this fixes.
 func TestBuiltinFragment_RejectViaLoaderRoute_WithholdsInjectionRoute(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	gate := &contentGate{cfg: cfg, records: fx.records()}
 
@@ -97,12 +97,12 @@ func containsFragmentRef(frags []config.BuiltinFragment, ref string) bool {
 
 // TestBuiltinFragment_Rejection_PersistsAcrossReload proves a builtin
 // rejection is not an artifact of one in-process gate: re-opening the
-// countersignature store (fresh countersignRecords, fresh contentGate, fresh
+// countersignature store (fresh countersign.Records, fresh contentGate, fresh
 // Loader/Pipeline — nothing shared with the objects that recorded the
 // rejection) still withholds the item. This is what distinguishes "rejected"
 // from "happened to be denied by an object still holding it in memory."
 func TestBuiltinFragment_Rejection_PersistsAcrossReload(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 
 	loader := bundles.NewLoader(bundles.NewBuiltinReader())
@@ -118,7 +118,7 @@ func TestBuiltinFragment_Rejection_PersistsAcrossReload(t *testing.T) {
 	_, err = bundles.NewPipeline(loader, firstGate, bundles.LinksUnchecked(), true).GetFragment("isolation#fragments/isolation-axes")
 	require.True(t, errors.Is(err, errs.ErrFragmentWithheld), "sanity: rejection must take effect immediately")
 
-	// "Reload": build a BRAND NEW countersignRecords over the SAME backing
+	// "Reload": build a BRAND NEW countersign.Records over the SAME backing
 	// stores (re-reads the fixture's memFs from scratch, like a fresh process
 	// re-opening ~/.ctxloom/approvals would), a brand new gate, and a brand
 	// new loader — none of it the object identity that recorded the reject.

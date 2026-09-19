@@ -40,7 +40,7 @@ const impostorRemoteRef = "https://example.test/repo@bundles/kit"
 func declaredNameGate(t *testing.T) (*contentGate, *trustFixture) {
 	t.Helper()
 	fx := newTrustFixture(t)
-	return &contentGate{cfg: config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}}), records: fx.records()}, fx
+	return &contentGate{cfg: gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}}), records: fx.records()}, fx
 }
 
 // TEST 1 — A GRANT DOES NOT TRANSFER TO A BUNDLE THAT CLAIMS ITS NAME.
@@ -192,7 +192,7 @@ func TestDeclaredName_ProjectBundleKeysByLocationNotByDeclaredName(t *testing.T)
 // it asserts is ref-agnostic by construction — which is exactly the property
 // being pinned. It is not a tautology either: it dies to mutations of the
 // CONTENT-REJECT path. Measured — replacing the `if len(payload) == 0` guard in
-// countersignRecords.Rejected with a bare `return false`, so only the ref-level
+// countersign.Records.Rejected with a bare `return false`, so only the ref-level
 // component survives, fails THIS test at the withhold assertion and leaves the
 // other three in this file passing. That is the only thing it is entitled to
 // claim.

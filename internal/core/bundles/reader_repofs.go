@@ -227,7 +227,7 @@ func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
 		b.Path = r.syntheticPath()
 	}
 	facts.stamp(b)
-	return newRead(r.ref, b, ProvenanceRemote, TrustCtxRemote, facts), nil
+	return NewRead(r.ref, b, ProvenanceRemote, TrustCtxRemote, facts), nil
 }
 
 // openTreeBundle opens the tree as a content.Bundle. The store is rooted at the
@@ -252,26 +252,26 @@ func (r *repoFSReader) openTreeBundle() (content.Bundle, error) {
 // present, files no longer matching it — is a state a single document cannot
 // reach, and it is an error rather than an invalid-signature fact: nothing here
 // was read as the publisher signed it.
-func (r *repoFSReader) verifyTree(ctx context.Context, tree content.Bundle) (signatureFacts, error) {
+func (r *repoFSReader) verifyTree(ctx context.Context, tree content.Bundle) (SignatureFacts, error) {
 	verdict, err := attest.VerifyBundle(ctx, tree, r.cfg.root, time.Now())
 	if err != nil {
-		return signatureFacts{}, fmt.Errorf("bundles: verifying the pinned tree for %q: %w", r.ref, err)
+		return SignatureFacts{}, fmt.Errorf("bundles: verifying the pinned tree for %q: %w", r.ref, err)
 	}
 	if verdict.Contents != nil {
-		return signatureFacts{}, fmt.Errorf("%w: %q — %v", ErrTreeBundleWithheld, r.ref, verdict.Contents)
+		return SignatureFacts{}, fmt.Errorf("%w: %q — %v", ErrTreeBundleWithheld, r.ref, verdict.Contents)
 	}
 	if verdict.Status == attest.StatusTampered {
-		return signatureFacts{}, fmt.Errorf("%w: %q — %s", ErrTreeBundleWithheld, r.ref, verdict.Detail)
+		return SignatureFacts{}, fmt.Errorf("%w: %q — %s", ErrTreeBundleWithheld, r.ref, verdict.Detail)
 	}
 	if verdict.OK() {
-		return signatureFacts{signature: SignatureValid, signer: SignerTrusted, principal: verdict.Principal}, nil
+		return SignatureFacts{Signature: SignatureValid, Signer: SignerTrusted, Principal: verdict.Principal}, nil
 	}
 	// Unattested, or attested by a key this trust root does not know: unsigned
 	// to us, the ordinary case and the review path — not an error. Carry the
 	// display-only fingerprint when the verdict has one, so a human can compare
 	// it against what the publisher told them out of band.
 	if fp := verdict.UntrustedSignerFingerprint; fp != "" {
-		return signatureFacts{signature: SignatureValid, signer: SignerUntrusted, fingerprint: fp}, nil
+		return SignatureFacts{Signature: SignatureValid, Signer: SignerUntrusted, Fingerprint: fp}, nil
 	}
-	return signatureFacts{signature: SignatureNone, signer: SignerNone}, nil
+	return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}, nil
 }

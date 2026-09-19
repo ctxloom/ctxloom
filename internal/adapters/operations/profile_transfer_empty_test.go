@@ -111,7 +111,7 @@ func TestProfileTransfer_RealProfileStillRoundTrips(t *testing.T) {
 func profileTransferFixture(t *testing.T, name, body string) (*config.Config, afero.Fs) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app/.ctxloom"}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{"/app/.ctxloom"}})
 	dir := paths.ProfilesPath(cfg.GetAppPaths()[0])
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 	require.NoError(t, afero.WriteFile(fs, profilePath(cfg, name), []byte(body), 0o644))

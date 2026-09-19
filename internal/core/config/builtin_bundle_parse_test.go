@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -118,7 +119,7 @@ func TestBuiltinBundleReaders_UseTheCanonicalParser(t *testing.T) {
 	// Exercised through the exported surfaces, so the shared helper is on each
 	// of their live paths rather than merely present in the file.
 	assert.NotPanics(t, func() {
-		_ = resolveBuiltinBundleMCPServers(bundles.AdmitAll())
-		_ = resolveBuiltinBundleHooks(bundles.AdmitAll(), bundles.LinksUnchecked())
+		_ = resolveBuiltinBundleMCPServers(composite.Ungated().Authorizer())
+		_ = resolveBuiltinBundleHooks(composite.Ungated().Authorizer(), bundles.LinksUnchecked())
 	})
 }

@@ -43,7 +43,7 @@ fragments:
     content: "PLAIN-FRAGMENT"
 `), 0644))
 
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"with"}}},

@@ -418,8 +418,7 @@ func (s *prodSpawner) RecordEngineVersion(ctx context.Context, harp, backend str
 var prepareAgentChat = operations.PrepareAgentChat
 
 // chatRequest builds StartEngine's AgentChatRequest: the resolved agent, the
-// workspace/dirty-tree axes, the permission posture, the trust gate, the two
-// env maps.
+// workspace/dirty-tree axes, the permission posture, the two env maps.
 func (s *prodSpawner) chatRequest(plan *SpawnPlan, env, runnerEnv map[string]string) operations.AgentChatRequest {
 	req := operations.AgentChatRequest{
 		Resolved:         plan.resolved,
@@ -427,7 +426,6 @@ func (s *prodSpawner) chatRequest(plan *SpawnPlan, env, runnerEnv map[string]str
 		Env:              env,
 		RunnerEnv:        runnerEnv,
 		Permissions:      plan.Perm,
-		Gate:             plan.cfg.ExecutableTrustGate(),
 		Verbosity:        childVerbosity(),
 		Workspace:        plan.Workspace,
 		DirtyTreeHandler: plan.DirtyTreeHandler,

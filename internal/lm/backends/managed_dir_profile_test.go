@@ -39,7 +39,7 @@ func dirProfileCfg(t *testing.T, defaults []string, dirProfiles map[string]strin
 	for name, body := range dirProfiles {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))
 	}
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
@@ -73,7 +73,7 @@ func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 
 	cfg2 := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
 	keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
-	cfg2.SetExecutableTrustGate(hashAuthorizer(keepHash))
+	cfg2.BindTrustForTesting(hashTrust(keepHash))
 	gated := preToolCommandSet(AssembleManagedHooks(cfg2, "/tmp", "", nil).Wire().Unified)
 	assert.Contains(t, gated, "keep-hook", "a granted directory-profile hook is applied")
 	assert.NotContains(t, gated, "drop-hook", "an un-granted directory-profile hook is withheld by the exec gate")
@@ -97,11 +97,11 @@ func TestAssembleManagedHooks_DirProfileMergesWithAnotherDefault(t *testing.T) {
 	// only dir-hook and still see both. Every declared hook is gated today, so
 	// a hook the gate does not grant is withheld regardless of which profile
 	// declared it.
-	grant := hashAuthorizer(
+	grant := hashTrust(
 		bundles.HashPayload(hookExecPayload(wire.Hook{Command: "dir-hook", Type: "command"})),
 		bundles.HashPayload(hookExecPayload(wire.Hook{Command: "other-hook", Type: "command"})),
 	)
-	cfg.SetExecutableTrustGate(grant)
+	cfg.BindTrustForTesting(grant)
 
 	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Wire().Unified)
 	assert.Contains(t, cmds, "other-hook", "the second default profile's granted hook is applied")
@@ -126,7 +126,7 @@ func TestAssembleManagedHooks_DirProfileInheritsParentHooks(t *testing.T) {
 func TestAssembleManagedHooks_DeniedHookIsWarned(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
 	keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
-	cfg.SetExecutableTrustGate(hashAuthorizer(keepHash))
+	cfg.BindTrustForTesting(hashTrust(keepHash))
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)

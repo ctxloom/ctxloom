@@ -70,10 +70,10 @@ type Sources interface {
 	Read(ctx context.Context) (*Config, []Warning, error)
 	// Readers are the bundle sources a generation's Catalog is resolved from.
 	Readers(ctx context.Context, cfg *Config) ([]bundles.Reader, error)
-	// TrustPorts is the executable gate for cfg's generation: the value
-	// Snapshot.Trust wraps. Until composite carries its own trust-record
-	// types this is the bundles.Authorizer the adapters already produce.
-	TrustPorts(ctx context.Context, cfg *Config) (bundles.Authorizer, error)
+	// TrustPorts are the three ports the generation's Trust decides with,
+	// built for cfg: the trust root, the review records and the retraction
+	// records (the lockfile), so none of them outlives the generation.
+	TrustPorts(ctx context.Context, cfg *Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error)
 }
 
 // Owner is the one owner of the loaded configuration in a process (the
@@ -133,15 +133,15 @@ func (o *Owner) build(ctx context.Context, cfg *Config, warnings []Warning) (*Sn
 		return nil, fmt.Errorf("config: resolving bundle sources: %w", err)
 	}
 	catalog := sync.OnceValue(func() bundles.Catalog { return bundles.Resolve(context.Background(), readers...) })
-	auth, err := o.src.TrustPorts(ctx, cfg)
+	root, records, retraction, err := o.src.TrustPorts(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving trust: %w", err)
 	}
-	if auth == nil {
-		auth = bundles.AdmitAll()
+	trust, err := composite.NewTrust(root, records, retraction)
+	if err != nil {
+		return nil, fmt.Errorf("config: resolving trust: %w", err)
 	}
-	trust := composite.FromAuthorizer(auth)
-	cfg.bindGeneration(catalog, auth)
+	cfg.bindGeneration(catalog, trust)
 	return &Snapshot{
 		Config:     cfg,
 		Trust:      trust,

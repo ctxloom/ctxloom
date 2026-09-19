@@ -119,8 +119,8 @@ func NewBuiltinReader(opts ...ReaderOption) Reader {
 // The principled fix is for profiles.ResolvedProfile to carry the read of the
 // bundle (or project tree) it came from, which is a slice of its own.
 func ProjectAuthoredRead(ref string, b *Bundle) BundleRead {
-	return newRead(ref, b, ProvenanceProject, TrustCtxLocal,
-		signatureFacts{signature: SignatureNone, signer: SignerNone})
+	return NewRead(ref, b, ProvenanceProject, TrustCtxLocal,
+		SignatureFacts{Signature: SignatureNone, Signer: SignerNone})
 }
 
 // FS exposes the filesystem this reader read from, so a caller computing a
@@ -458,7 +458,7 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	// collisions belong — in Catalog.Resolve, which shadows the builtin, keeps
 	// the project's, and SAYS SO. Source qualification survives only on
 	// bundle.sourceRef, the trust key, stamped above.
-	return newRead(name, bundle, r.provenance, TrustCtxLocal, facts), nil
+	return NewRead(name, bundle, r.provenance, TrustCtxLocal, facts), nil
 }
 
 // signatureFactsFor resolves the signature axes from the sibling `.sig`.
@@ -466,16 +466,16 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 // A sidecar that EXISTS but cannot be READ is its own state and must not read
 // as unsigned: we cannot show it covers these bytes, so it is exactly as
 // unpublishable as a stale one, and just as silent without this.
-func (r *localFSReader) signatureFactsFor(path string, data []byte) signatureFacts {
+func (r *localFSReader) signatureFactsFor(path string, data []byte) SignatureFacts {
 	sig, err := afero.ReadFile(r.fsys, path+SigSuffix)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return signatureFacts{signature: SignatureNone, signer: SignerNone}
+		return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
 	case err != nil:
-		return signatureFacts{
-			signature: SignatureInvalid,
-			signer:    SignerUntrusted,
-			detail:    fmt.Sprintf("it could not be read: %v", err),
+		return SignatureFacts{
+			Signature: SignatureInvalid,
+			Signer:    SignerUntrusted,
+			Detail:    fmt.Sprintf("it could not be read: %v", err),
 		}
 	}
 	return readSignatureFacts(data, sig, r.trustRoot())

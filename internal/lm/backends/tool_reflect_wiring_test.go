@@ -13,7 +13,7 @@ import (
 // the given tool_reflect_bytes, and returns the resolved post_tool commands.
 func reflectHooksFor(t *testing.T, setting int) []string {
 	t.Helper()
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		Settings: config.SettingsConfig{ToolReflectBytes: setting},
 	})
 	m := newManagedHooks()

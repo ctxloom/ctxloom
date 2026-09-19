@@ -57,12 +57,11 @@ func (f fakeRetraction) Retracted(ref trust.Ref) (bool, string) {
 	return f(ref)
 }
 
-func noRecords() fakeRecords         { return fakeRecords{} }
-func noRetraction() fakeRetraction   { return nil }
-func fixedNow() time.Time            { return time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC) }
+func noRecords() fakeRecords       { return fakeRecords{} }
+func noRetraction() fakeRetraction { return nil }
 func mustTrust(t *testing.T, r ReviewRecords, x RetractionRecords) Trust {
 	t.Helper()
-	tr, err := NewTrust(fakeRoot{}, r, x, fixedNow)
+	tr, err := NewTrust(fakeRoot{}, r, x)
 	require.NoError(t, err)
 	return tr
 }
@@ -87,11 +86,11 @@ func remoteExecutable(t *testing.T) (bundles.Exposure, string) {
 }
 
 func TestNewTrust_EveryPortRequired(t *testing.T) {
-	_, err := NewTrust(nil, noRecords(), noRetraction(), fixedNow)
+	_, err := NewTrust(nil, noRecords(), noRetraction())
 	require.Error(t, err, "a holder with no trust root is not a gate")
-	_, err = NewTrust(fakeRoot{}, nil, noRetraction(), fixedNow)
+	_, err = NewTrust(fakeRoot{}, nil, noRetraction())
 	require.Error(t, err, "a holder with no review records is not a gate")
-	_, err = NewTrust(fakeRoot{}, noRecords(), nil, fixedNow)
+	_, err = NewTrust(fakeRoot{}, noRecords(), nil)
 	require.Error(t, err, "a holder with no retraction records is not a gate")
 }
 

@@ -88,7 +88,7 @@ func TestRemoteRev_DocumentFormIsRefused(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), "consumer", ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	resolve := BundleVersionResolver(cfg)
 	require.NotNil(t, resolve, "an app dir must yield a version resolver")
 
@@ -179,7 +179,7 @@ func TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle(t *testing.T) {
 		[]byte("publisher@example.com namespaces=\""+signing.NamespacePublish+"\" "+
 			string(ssh.MarshalAuthorizedKey(pub))), 0o644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	resolve := BundleVersionResolver(cfg)
 	require.NotNil(t, resolve, "an app dir must yield a version resolver")
 

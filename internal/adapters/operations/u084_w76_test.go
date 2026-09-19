@@ -151,7 +151,7 @@ func TestNewRepoCache_MalformedRemotesRegistryWarnsRatherThanSilentlyDroppingTok
 	_, regErr := remote.NewRegistry(remotesPath)
 	require.Error(t, regErr, "fixture is not hostile: remote.NewRegistry parsed it fine")
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{dir}})
 	var cache *remote.RepoCache
 	stderr := captureStderr(t, func() { cache = NewRepoCache(cfg) })
 
@@ -168,7 +168,7 @@ func TestNewRepoCache_MissingRemotesRegistryStaysSilent(t *testing.T) {
 	_, statErr := os.Stat(paths.RemotesPath(dir))
 	require.True(t, os.IsNotExist(statErr), "fixture must have no remotes.yaml")
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{dir}})
 	stderr := captureStderr(t, func() { _ = NewRepoCache(cfg) })
 
 	assert.NotContains(t, stderr, "remotes registry",

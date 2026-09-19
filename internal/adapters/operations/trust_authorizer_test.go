@@ -210,7 +210,7 @@ func TestAuthorizer_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+			cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 			fx := newTrustFixture(t)
 
 			g := &contentGate{cfg: cfg, records: fx.records()}
@@ -257,7 +257,7 @@ func companionLikeRead(t *testing.T) bundles.BundleRead {
 // old "a companion loadout from a companion is withheld, never crashes, never
 // auto-allowed" line; see docs/trust-model.md.
 func TestAuthorizer_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 
 	// A companion read whose signature does not cover its bytes: local posture
@@ -287,7 +287,7 @@ func TestAuthorizer_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T
 // trust question) and the AUTHOR IS TOLD, at the moment their bundle stopped
 // being publishable rather than at `bundle push` time.
 func TestAuthorizer_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 	read := staleLocalRead(t, "stale-kit")
 
@@ -333,7 +333,7 @@ func staleLocalRead(t *testing.T, name string) bundles.BundleRead {
 // unsigned, no signer" — which is exactly the claim a zero value would
 // otherwise make.
 func TestAuthorizer_UnclaimedReadWithholds(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 
 	v := g.Admit(bundles.Exposure{
@@ -390,7 +390,7 @@ func TestEffectiveTrust_ContradictoryPostureWithholds(t *testing.T) {
 // bytes must not admit a different set under the same ref. A hash-keyed gate
 // whose index was edited would.
 func TestAuthorizer_DecidesOnBytesSoChangedContentReGates(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	read := readOf(t, seedLoader(t, map[string]*bundles.Bundle{authorizerRemoteRef: authorizerBundle()}), authorizerRemoteRef)
 	itemRef := authorizerItemRef

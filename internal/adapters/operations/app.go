@@ -9,7 +9,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
@@ -43,8 +42,10 @@ type Compose struct {
 
 // ComposeSources builds the process's config.Sources: the file/env/flag
 // reader with the remote readers behind the lockfile, the companion prober,
-// the profile-ref canonicalizer, the bundle version resolver and the
-// executable trust gate wired in. The ONE place these adapters meet.
+// the profile-ref canonicalizer and the bundle version resolver wired in.
+// The ONE place these adapters meet. The trust ports are the Sources' own
+// (configload.Sources.TrustPorts): nothing here can leave a generation
+// ungated.
 // A flag or env override that cannot be bound is returned alongside a
 // usable Sources; the root degrades it to a warning.
 func ComposeSources(c Compose) (config.Sources, error) {
@@ -56,9 +57,6 @@ func ComposeSources(c Compose) (config.Sources, error) {
 		configload.WithVersionResolver(BundleVersionResolver),
 		configload.WithReaderSource(RemoteBundleReaders),
 		configload.WithReaderSource(prober.ReaderSource()),
-		configload.WithTrustGate(func(cfg *config.Config) bundles.Authorizer {
-			return NewExecutableTrustGate(cfg).Authorizer()
-		}),
 	}
 	opts = append(opts, c.Options...)
 	return configload.New(c.Flags, c.Environ, opts...)

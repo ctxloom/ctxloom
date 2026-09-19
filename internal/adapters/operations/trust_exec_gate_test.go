@@ -63,7 +63,7 @@ func toolingHookPayload() []byte {
 // unreviewed item DENIES (pending), and a rejection DENIES regardless. This is
 // the executable choke's deny path — the security-critical surface.
 func TestExecGate_MCP_CascadeResolves(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 
 	// Pending (never reviewed) + unsigned → DENY.
@@ -91,7 +91,7 @@ func TestExecGate_MCP_CascadeResolves(t *testing.T) {
 // TestExecGate_Hook_CascadeResolves drives the REAL decision function on a
 // bundle-hook ref: approved → ALLOW, unsigned unreviewed → DENY, rejected → DENY.
 func TestExecGate_Hook_CascadeResolves(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 
 	gate := &contentGate{cfg: cfg, records: fx.records()}
@@ -114,7 +114,7 @@ func TestExecGate_Hook_CascadeResolves(t *testing.T) {
 // publisher signer passes the exec gate with no per-item review state at all —
 // while a rejection still beats the exemption.
 func TestExecGate_TrustedSignerExemptsExecutables(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	gate := &contentGate{cfg: cfg, records: fx.records()}
 	signed := execRead(t, trustedPublisher)
@@ -154,7 +154,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "mcp-bundle.yaml"),
 		[]byte("version: \"1.0\"\nmcp:\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n"), 0o644))
 
-	cfg := config.NewFixture(config.Fixture{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}})
 
 	// Local bundle MCP servers are project-authored (first-party), so they are
 	// exposed with no review state. A rejection still withholds one — the
@@ -165,7 +165,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 		trust.Ref{Bundle: "mcp-bundle", Kind: trust.KindMCP, Name: "noisy-server", IsLocal: true},
 		signing.FormRaw, noisyPayload)
 
-	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Authorizer())
+	cfg.BindTrustForTesting(NewExecutableTrustGate(cfg).Trust())
 	result := cfg.ResolveBundleMCPServers(nil)
 
 	assert.Contains(t, result, "quiet-server", "first-party local MCP server must be written to settings")
@@ -197,14 +197,14 @@ func TestExecGate_ResolveBundleMCPServers_CompanionRejectable(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	ltkPayload := mcpPayloadOf(bundles.BundleMCP{Command: "ltk", Args: []string{"serve"}})
 	installUnsignedRejection(t,
 		trust.Ref{RepoURL: remote.CompanionSource, Bundle: "ltk", Kind: trust.KindMCP, Name: "ltk-server"},
 		signing.FormRaw, ltkPayload)
 
-	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Authorizer())
+	cfg.BindTrustForTesting(NewExecutableTrustGate(cfg).Trust())
 	result := cfg.ResolveBundleMCPServers(nil)
 
 	assert.NotContains(t, result, "ltk-server",
@@ -228,7 +228,7 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hook-bundle.yaml"),
 		[]byte("version: \"1.0\"\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n  session_start:\n    - command: echo deny\n      type: command\n"), 0o644))
 
-	cfg := config.NewFixture(config.Fixture{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}})
 
 	// Local bundle hooks are first-party (project-authored); a rejection still
 	// withholds one — the rejected step precedes the local exemption.
@@ -239,7 +239,7 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 		trust.Ref{Bundle: "hook-bundle", Kind: trust.KindHook, Name: "session_start/0", IsLocal: true},
 		signing.FormRaw, denyPayload)
 
-	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Authorizer())
+	cfg.BindTrustForTesting(NewExecutableTrustGate(cfg).Trust())
 	result := cfg.ResolveBundleHooks(nil)
 
 	keepApplied, denyApplied := false, false
@@ -275,7 +275,7 @@ func TestExecGate_FailClosed(t *testing.T) {
 	assert.Equal(t, 0, rejected)
 
 	// Unparseable ref → withhold (no selector).
-	g2 := &contentGate{cfg: config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}}), records: newTrustFixture(t).records()}
+	g2 := &contentGate{cfg: gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}}), records: newTrustFixture(t).records()}
 	assert.False(t, admitExec(t, g2, unsigned, "garbage-without-selector", pbytes("abc"), "raw"),
 		"a ref the gate cannot address must be withheld")
 	// Recorded under the ref VERBATIM (bundles.UnaddressableReporter): the
@@ -289,15 +289,6 @@ func TestExecGate_FailClosed(t *testing.T) {
 		"a read that established nothing must never be treated as local/unsigned")
 	assert.Contains(t, g2.withheldRefs(), gatePostgresRef)
 
-	// A nil *ExecutableTrustGate is a no-op (no gating, no panic), and it says so
-	// with AdmitAll rather than handing back a nil that would withhold
-	// everything downstream.
-	var nilGate *ExecutableTrustGate
-	assert.False(t, bundles.Gates(nilGate.Authorizer()),
-		"a nil gate must hand back the ungated authorizer, not a real one")
-	assert.True(t, nilGate.Authorizer().Admit(bundles.Exposure{}).Allow,
-		"the no-op gate must admit")
-	nilGate.WarnWithheld()
 }
 
 // TestExecGate_WithheldTallySplitsRejected proves the advisory tally separates
@@ -306,7 +297,7 @@ func TestExecGate_FailClosed(t *testing.T) {
 func TestExecGate_WithheldTallySplitsRejected(t *testing.T) {
 	fx := newTrustFixture(t)
 	fx.rejectItem(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindHook, Name: "pre_tool/0"}, signing.FormRaw, toolingHookPayload())
-	g := &contentGate{cfg: config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}}), records: fx.records()}
+	g := &contentGate{cfg: gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}}), records: fx.records()}
 
 	unsigned := execRead(t, "")
 	assert.False(t, admitExec(t, g, unsigned, gatePostgresRef, postgresPayload(), "raw"), "pending item withheld")
@@ -347,7 +338,7 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hookb.yaml"),
 		[]byte("version: \"1.0\"\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n"), 0o644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	// SetBlacklist (backing `ctxloom blacklist`/`bundle reject`) resolves a
 	// user-typed ASK, while bundles.Decide reads a producer's canonical ref —
 	// so the exec-gate calls below use a SEPARATE, canonical-grammar ref.

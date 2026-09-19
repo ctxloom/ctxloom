@@ -14,8 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // fakeSources is a config.Sources whose every port is a closure, with a count
@@ -26,7 +29,7 @@ type fakeSources struct {
 	reads   atomic.Int32
 	read    func(context.Context) (*config.Config, []config.Warning, error)
 	readers func(*config.Config) []bundles.Reader
-	trust   func(*config.Config) bundles.Authorizer
+	ports   func(*config.Config) []compositetest.Option
 }
 
 func (f *fakeSources) Read(ctx context.Context) (*config.Config, []config.Warning, error) {
@@ -41,11 +44,13 @@ func (f *fakeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.
 	return f.readers(cfg), nil
 }
 
-func (f *fakeSources) TrustPorts(_ context.Context, cfg *config.Config) (bundles.Authorizer, error) {
-	if f.trust == nil {
-		return bundles.AdmitAll(), nil
+func (f *fakeSources) TrustPorts(_ context.Context, cfg *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
+	var opts []compositetest.Option
+	if f.ports != nil {
+		opts = f.ports(cfg)
 	}
-	return f.trust(cfg), nil
+	root, records, retraction := compositetest.Ports(opts...)
+	return root, records, retraction, nil
 }
 
 // sequenceSources returns a Sources whose Read hands back the given configs
@@ -111,27 +116,41 @@ func TestOwner_Reload_NewGenerationLeavesOldSnapshotUnchanged(t *testing.T) {
 }
 
 func TestOwner_Reload_TrustIsBuiltPerGenerationFromTrustPorts(t *testing.T) {
-	// Generation 1 is ungated; generation 2's ports report a gate. The
-	// snapshot's Trust must follow the ports of ITS generation, so a retraction
-	// that lands between two reloads is visible on the next one and never
-	// retroactively on the previous.
+	// Generation 1's records approve nothing; generation 2's approve
+	// everything. The snapshot's Trust must decide with the ports of ITS
+	// generation, so a review that lands between two reloads is visible on
+	// the next one and never retroactively on the previous.
 	var gen atomic.Int32
 	src := sequenceSources(fixtureWithDefault("a"), fixtureWithDefault("b"))
-	src.trust = func(*config.Config) bundles.Authorizer {
+	src.ports = func(*config.Config) []compositetest.Option {
 		if gen.Add(1) == 1 {
-			return bundles.AdmitAll()
+			return nil
 		}
-		return bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict { return bundles.Verdict{} })
+		return []compositetest.Option{compositetest.ApproveAll()}
 	}
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
 	first := owner.Current()
-	assert.False(t, first.Trust.Gates(), "generation 1's ports admit everything")
+	e := remoteExposure(t)
+	assert.False(t, first.Trust.Authorizer().Admit(e).Allow, "generation 1's records approve nothing")
 
 	second, err := owner.Reload(context.Background())
 	require.NoError(t, err)
-	assert.True(t, second.Trust.Gates(), "generation 2's ports gate")
-	assert.False(t, first.Trust.Gates(), "the retired generation's trust is unchanged")
+	assert.True(t, second.Trust.Authorizer().Admit(e).Allow, "generation 2's records approve")
+	assert.False(t, first.Trust.Authorizer().Admit(e).Allow, "the retired generation's trust is unchanged")
+	assert.True(t, second.Trust.Gates(), "a generation's Trust always decides; only a listing names Ungated()")
+}
+
+// remoteExposure is an unsigned command that travelled: admitted by nothing
+// but a review record.
+func remoteExposure(t *testing.T) bundles.Exposure {
+	t.Helper()
+	const refStr = "ctxloom+git://github.com/acme/repo//bundles/tools#prompts/deploy"
+	br, err := trust.ParseBundleRef(refStr)
+	require.NoError(t, err)
+	read := bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
+		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
+	return bundles.Exposure{Read: read, Ref: trust.RefFromBundleRef(br), RefStr: refStr, Bytes: []byte("echo"), Form: bundles.FormRaw}
 }
 
 func TestOwner_Reload_CatalogIsResolvedFromReaders(t *testing.T) {

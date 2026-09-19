@@ -51,7 +51,7 @@ func CollectTooling(cfg *config.Config, pipe *bundles.Pipeline) []ToolingDeclara
 	if cfg == nil {
 		return nil
 	}
-	var gate *contentGate
+	var gate bundles.Authorizer
 	if pipe == nil {
 		pipe, gate = exposurePipelineGated(cfg, bundles.LinksUnchecked())
 	}

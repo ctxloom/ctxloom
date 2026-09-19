@@ -20,7 +20,7 @@ import (
 // goes red.
 
 func TestListMCPServers_ReturnsCtxloomsOwnServerResolved(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{})
+	cfg := gatedFixture(config.Fixture{})
 
 	res, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{})
 	require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestListMCPServers_ReturnsCtxloomsOwnServerResolved(t *testing.T) {
 }
 
 func TestGetMCPServer_FindsCtxloomsOwnServer(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{})
+	cfg := gatedFixture(config.Fixture{})
 
 	res, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: agent.MCPServerName})
 	require.NoError(t, err)
@@ -56,7 +56,7 @@ func TestGetMCPServer_FindsCtxloomsOwnServer(t *testing.T) {
 }
 
 func TestGetMCPServer_NotFound(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{})
+	cfg := gatedFixture(config.Fixture{})
 
 	res, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "no-such-server"})
 	require.NoError(t, err)
@@ -66,7 +66,7 @@ func TestGetMCPServer_NotFound(t *testing.T) {
 }
 
 func TestListMCPServers_QueryFiltersByNameAndCommand(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{})
+	cfg := gatedFixture(config.Fixture{})
 
 	all, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{})
 	require.NoError(t, err)

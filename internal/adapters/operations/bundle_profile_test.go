@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -50,7 +51,9 @@ profiles:
 }
 
 func bundleProfileConfig(root string) *config.Config {
-	return config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join(root, ".ctxloom")}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join(root, ".ctxloom")}})
+	cfg.BindTrustForTesting(compositetest.Trust())
+	return cfg
 }
 
 const kitProfileKey = "ctxloom:local@bundles/kit#profiles/p1"
@@ -129,13 +132,13 @@ func TestBundleProfile_MCPStillGatesAtExecChoke(t *testing.T) {
 	writeBundleProfileFixture(t, root)
 	cfg := bundleProfileConfig(root)
 
-	// Ungated: the profile's bundle MCP server is present.
+	// Admitted by locality: the profile's bundle MCP server is present.
 	servers := cfg.ResolveBundleMCPServers([]string{kitProfileKey})
 	_, ok := servers["db"]
-	assert.True(t, ok, "the profile's MCP server resolves when ungated")
+	assert.True(t, ok, "the profile's MCP server resolves under a gate that admits it")
 
-	// Deny exec gate: the same MCP server is withheld at the exec choke.
-	cfg.SetExecutableTrustGate(testAuthorizer(false))
+	// A rejection: the same MCP server is withheld at the exec choke.
+	cfg.BindTrustForTesting(compositetest.Trust(compositetest.RejectAll()))
 	servers = cfg.ResolveBundleMCPServers([]string{kitProfileKey})
 	_, ok = servers["db"]
 	assert.False(t, ok, "the profile's MCP server still gates at the exec choke")

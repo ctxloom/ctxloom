@@ -11,6 +11,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -63,14 +65,24 @@ func withSeedAndCompanions(t *testing.T, cfg *config.Config, seed map[string]*bu
 func publish(t *testing.T, cfg *config.Config, src seededSources) *config.Config {
 	t.Helper()
 	src.cfg = cfg
+	// The gate the fixture already carries survives publication: the Owner
+	// binds a Trust over the fake ports, and a test that stated a gate of its
+	// own (BindTrustForTesting) meant that one.
+	carried := cfg.Trust()
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
-	return owner.Current().Config
+	out := owner.Current().Config
+	if carried.Authorizer() != nil {
+		out.BindTrustForTesting(carried)
+	} else {
+		out.BindTrustForTesting(admitting())
+	}
+	return out
 }
 
 // seededSources publishes a fixture with the project and builtin readers,
-// optionally the companion reader and one extra, under the gate the fixture
-// already carries.
+// optionally the companion reader and one extra; the gate is the fixture's
+// own (publish), else a Trust that admits by locality.
 type seededSources struct {
 	cfg        *config.Config
 	extra      bundles.Reader
@@ -96,8 +108,9 @@ func (s seededSources) Readers(_ context.Context, cfg *config.Config) ([]bundles
 	return readers, nil
 }
 
-func (s seededSources) TrustPorts(_ context.Context, cfg *config.Config) (bundles.Authorizer, error) {
-	return cfg.ExecutableTrustGate(), nil
+func (s seededSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
+	root, records, retraction := compositetest.Ports()
+	return root, records, retraction, nil
 }
 
 // withResolver returns cfg's value with the pinned-version resolver bound,
@@ -105,10 +118,10 @@ func (s seededSources) TrustPorts(_ context.Context, cfg *config.Config) (bundle
 func withResolver(cfg *config.Config, r bundles.BundleVersionResolver) *config.Config {
 	f := cfg.ToFixture()
 	f.VersionResolver = r
-	out := config.NewFixture(f)
+	out := gatedFixture(f)
 	if fs := cfg.FS(); fs != nil {
 		out.SetFS(fs)
 	}
-	out.SetExecutableTrustGate(cfg.ExecutableTrustGate())
+	out.BindTrustForTesting(cfg.Trust())
 	return out
 }

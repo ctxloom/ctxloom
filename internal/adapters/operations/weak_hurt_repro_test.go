@@ -30,7 +30,7 @@ import (
 //
 // REFUTED on v0.7.0-pre1 @ f314574: both paths already deny-all through the
 // same EffectiveTrust cascade contentGate.allow uses (readableRecords is
-// satisfied by countersignRecords regardless of which of the three
+// satisfied by countersign.Records regardless of which of the three
 // production call sites boxes it into EffectiveTrustRequest.Records — see
 // trust.go's unconditional `records.(readableRecords)` check). These tests
 // are kept as permanent regression coverage: NewTrustStamper's and
@@ -48,7 +48,7 @@ func TestWeakHurt_TrustStamper_UnreadableStore_ListingPath(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(approvalsDir, 0o755))
 	wrapped := denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{projectDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{projectDir}})
 	loader := seedLoader(t, map[string]*bundles.Bundle{
 		"demo": {Fragments: map[string]bundles.BundleFragment{"localfrag": {
 			ItemBody: bundles.ItemBody{
@@ -85,7 +85,7 @@ func TestWeakHurt_PendingReview_UnreadableStore_ListingPath(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(approvalsDir, 0o755))
 	wrapped := denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{projectDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{projectDir}})
 	loader := seedLoader(t, map[string]*bundles.Bundle{
 		"https://github.com/acme/repo@bundles/tooling": {
 			Fragments: map[string]bundles.BundleFragment{"solid": {

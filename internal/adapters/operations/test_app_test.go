@@ -9,6 +9,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
@@ -42,16 +44,34 @@ func (s fixtureSources) Readers(_ context.Context, cfg *config.Config) ([]bundle
 	return append(readers, companions.Prober{}.ReaderSource()(cfg)...), nil
 }
 
-func (s fixtureSources) TrustPorts(_ context.Context, cfg *config.Config) (bundles.Authorizer, error) {
-	return cfg.ExecutableTrustGate(), nil
+func (s fixtureSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
+	root, records, retraction := compositetest.Ports()
+	return root, records, retraction, nil
 }
 
 // fixtureApp opens the process composition over a fixture Config.
 func fixtureApp(t *testing.T, cfg *config.Config) *App {
 	t.Helper()
+	// The gate the fixture already carries survives publication: the Owner
+	// binds a Trust over the fake ports, and a test that stated a gate of its
+	// own (BindTrustForTesting) meant that one.
+	carried := cfg.Trust()
 	owner, err := config.Open(context.Background(), fixtureSources{cfg: cfg})
 	require.NoError(t, err)
+	if carried.Authorizer() != nil {
+		owner.Current().Config.BindTrustForTesting(carried)
+	}
 	return OpenedApp(owner)
+}
+
+// gatedFixture is config.NewFixture with a gate bound that admits by
+// locality and withholds what travelled (compositetest.Trust): a fixture that
+// exercises an executable surface must state its gate, and this is what a
+// test about anything other than trust means.
+func gatedFixture(f config.Fixture) *config.Config {
+	cfg := config.NewFixture(f)
+	cfg.BindTrustForTesting(compositetest.Trust())
+	return cfg
 }
 
 // published returns the fixture as the generation the process would hold:

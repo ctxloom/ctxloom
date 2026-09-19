@@ -77,7 +77,7 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 	noAuthLabels := map[string]config.LLMConfig{noAuthLabel: {Type: "acp"}}
 
 	newCfg := func(projectRuntime string, existing map[string]agents.Agent) *config.Config {
-		return config.NewFixture(config.Fixture{
+		return gatedFixture(config.Fixture{
 			LM:      config.LMConfig{Configs: noAuthLabels, Defaults: config.RoleDefaults{Primary: noAuthLabel}},
 			Agents:  existing,
 			Runtime: projectRuntime,
@@ -159,7 +159,7 @@ func TestRunOneshot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 		base := oneshotTestConfig(t)
 		f := base.ToFixture()
 		f.Runtime = runtime
-		out := config.NewFixture(f)
+		out := gatedFixture(f)
 		// NewFixture does not carry the injected filesystem, and the profile
 		// this config selects is a FILE on it now.
 		out.SetFS(base.FS())
@@ -240,7 +240,7 @@ func TestPrepareAgentChat_RuntimeAxisArrivesAlreadyParsed(t *testing.T) {
 	writeAgentProfileFixture(t, root)
 
 	bindingCfg := func(runtime, projectRuntime string) *config.Config {
-		return config.NewFixture(config.Fixture{
+		return gatedFixture(config.Fixture{
 			AppPaths: []string{filepath.Join(root, ".ctxloom")},
 			LM: config.LMConfig{
 				Configs:  map[string]config.LLMConfig{"fast": {Type: "mock"}},

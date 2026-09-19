@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -61,10 +62,10 @@ func TestCountersignRecords_PersonalRejectBeatsProjectApprove(t *testing.T) {
 	// personal USER store.
 	require.NoError(t, userStore.WriteRefReject(mustCountersignRef(t, ref), devSigner))
 
-	records := countersignRecords{user: userStore, project: projectStore, root: root}
+	records := countersign.NewRecords(userStore, projectStore, root, nil)
 
 	// Sanity: in isolation, the project approval alone WOULD allow.
-	assert.True(t, records.Approved(ref, payload, string(signing.FormRaw)),
+	assert.True(t, records.Approved(ref, payload, bundles.ContentForm(signing.FormRaw)),
 		"the project store's approval must itself verify (sanity check)")
 
 	// But the union's Rejected() must ALSO be true — and per the decision
@@ -105,7 +106,7 @@ func TestCountersignRecords_ProjectRejectBeatsPersonalApprove(t *testing.T) {
 	require.NoError(t, projectStore.WriteRefReject(mustCountersignRef(t, ref), leadSigner))
 	require.NoError(t, userStore.WriteApprove(mustCountersignRef(t, ref), signing.AttestFragmentRaw, payload, devSigner))
 
-	records := countersignRecords{user: userStore, project: projectStore, root: root}
+	records := countersign.NewRecords(userStore, projectStore, root, nil)
 
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: ref, Payload: payload, Form: string(signing.FormRaw), Records: records,
@@ -134,7 +135,7 @@ func TestCountersignRecords_UntrustedKeyCountersigIsNotApproval(t *testing.T) {
 	payload := []byte("body")
 	require.NoError(t, userStore.WriteApprove(mustCountersignRef(t, ref), signing.AttestFragmentRaw, payload, signer))
 
-	records := countersignRecords{user: userStore, project: countersign.NewStore("/project-approvals", fs), root: root}
+	records := countersign.NewRecords(userStore, countersign.NewStore("/project-approvals", fs), root, nil)
 
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: ref, Payload: payload, Form: string(signing.FormRaw), Records: records,

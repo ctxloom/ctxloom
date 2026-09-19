@@ -28,7 +28,7 @@ import (
 // (config.NewFixture with AppPaths only), pointed at the project's app dir:
 // no inline profile definitions, no defaults, nothing.
 func fallbackShapedConfig(baseDir string) *config.Config {
-	return config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})
+	return gatedFixture(config.Fixture{AppPaths: []string{baseDir}})
 }
 
 // setupSeededLockProject builds a file:// source repo and a project that
@@ -60,7 +60,7 @@ func setupSeededLockProject(t *testing.T) (baseDir, ref string, cfg *config.Conf
 
 	base := testConfigWithSCMPath(baseDir).ToFixture()
 	base.AppPaths = append(base.AppPaths, profileDir)
-	cfg = config.NewFixture(base)
+	cfg = gatedFixture(base)
 	return baseDir, ref, cfg
 }
 

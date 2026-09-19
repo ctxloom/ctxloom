@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // A profile whose content the review gate withholds ENTIRELY
@@ -66,15 +65,13 @@ func TestGuttedProfiles(t *testing.T) {
 // names the profile — the thing the old generic tally never did.
 func TestWarnGuttedProfiles_NamesProfileAndWithheldItems(t *testing.T) {
 	gate := &contentGate{}
-	gate.record(
-		bundles.Exposure{
-			Ref:    trust.Ref{RepoURL: "https://github.com/acme/repo", Bundle: "ensemble", Kind: trust.KindFragment, Name: "role"},
-			RefStr: "ctxloom+git://github.com/acme/repo//bundles/ensemble#fragments/role",
-		},
+	// An unaddressable ref is the one withhold a gate records without deciding
+	// a claimed exposure, so it is the shortest way to a tallied item.
+	gate.Unaddressable("ctxloom+git://github.com/acme/repo//bundles/ensemble#fragments/role",
 		bundles.Verdict{Reason: bundles.ReasonPending})
 
 	var out bytes.Buffer
-	warnGuttedProfilesTo(&out, map[string][]string{"coordinator": {"role"}}, nil, gate)
+	warnGuttedProfilesTo(&out, map[string][]string{"coordinator": {"role"}}, nil, gate.Authorizer())
 	text := out.String()
 	assert.Contains(t, text, "coordinator", "the gutted PROFILE must be named")
 	assert.Contains(t, text, "bundles/ensemble", "the withheld item's bundle must be named")

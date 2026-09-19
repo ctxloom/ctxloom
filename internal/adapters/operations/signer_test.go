@@ -173,7 +173,7 @@ func TestAddSigner_WrongNamespaceKeyNotTrustedForPublish(t *testing.T) {
 // writing somewhere other than where the user expects, silently, is exactly
 // the defect shape this project keeps removing.
 func TestAddSigner_ProjectRequestedButNoneConfigured_FallsBackToUserStore(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{}) // no AppPaths: outside a project
+	cfg := gatedFixture(config.Fixture{}) // no AppPaths: outside a project
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 	_, line := testKeyLine(t)
@@ -358,7 +358,7 @@ func TestRemoveSigner_UnknownPrincipalIsNoopNotError(t *testing.T) {
 // here (signerStorePath had no fallback), which is the asymmetry that let
 // `signer untrust` default to a DIFFERENT store than `signer trust`.
 func TestRemoveSigner_ProjectRequestedButNoneConfigured_FallsBackToUserStore(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{}) // no AppPaths: outside a project
+	cfg := gatedFixture(config.Fixture{}) // no AppPaths: outside a project
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 
@@ -413,7 +413,7 @@ func TestRemoveSigner_ProjectConfigured_NoFallbackAndNeverTouchesUserStore(t *te
 // can target: the local distrust record for ctxloom's own embedded key. This
 // is the exact file the real incident wrote a permanent distrust into.
 func TestRemoveSigner_EmbeddedPrincipal_SuppressionAlsoFallsBackToUserStore(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{}) // no AppPaths: outside a project
+	cfg := gatedFixture(config.Fixture{}) // no AppPaths: outside a project
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 

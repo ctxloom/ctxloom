@@ -158,7 +158,7 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 	// resolve back through, and asking for one dropped exactly that content
 	// from review with a "bundle not found" nobody could act on.
 	e := &reviewEnumerator{cfg: cfg, records: records, fs: req.FS,
-		authorizer: &contentGate{cfg: cfg, records: records, fs: req.FS}}
+		authorizer: trustOverRecords(cfg, records, req.FS).Authorizer()}
 	result := &PendingReviewResult{}
 	for _, read := range loader.Reads() {
 		ref := read.DisplayName()
@@ -220,7 +220,7 @@ func reviewPublisherOf(read bundles.BundleRead) (state bundles.Reason, principal
 // reviewEnumerator resolves items against the shared records/registry.
 type reviewEnumerator struct {
 	cfg     *config.Config
-	records countersignRecords
+	records countersign.Records
 	fs      afero.Fs
 	// authorizer is the SAME decision the exposure path uses, built once over
 	// the shared records store. Review asks it what would be delivered rather
@@ -462,7 +462,7 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	// by a countersign-contract bump read as an UPDATE rather than as a NEW item:
 	// the record can no longer verify, but a human's earlier look at this ref is
 	// still a fact, and telling them "new" would hide it.
-	refStr, refErr := CountersignRef(tRef)
+	refStr, refErr := countersign.CountersignRef(tRef)
 	if refErr != nil {
 		// An item nothing can address cannot be approved either — the
 		// exposure gate withholds it regardless. Surface the anomaly and drop
@@ -499,10 +499,10 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 // An unreadable index is reported, never folded into "no prior approval":
 // that answer would relabel an UPDATE as NEW and hide the diff a reviewer
 // looks at.
-func latestApproveEntry(records countersignRecords, ref string, layout signing.Form) (countersign.IndexEntry, bool, error) {
+func latestApproveEntry(records countersign.Records, ref string, layout signing.Form) (countersign.IndexEntry, bool, error) {
 	var latest countersign.IndexEntry
 	found := false
-	for _, st := range records.bothStores() {
+	for _, st := range []*countersign.Store{records.User(), records.Project()} {
 		e, ok, err := st.LatestApprove(ref, layout)
 		if err != nil {
 			return countersign.IndexEntry{}, false, err

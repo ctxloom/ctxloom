@@ -40,7 +40,7 @@ func TestAttestationFormFor_ThePublishedMapping(t *testing.T) {
 		{trust.KindHook, signing.FormRaw, signing.AttestExecHook},
 		{trust.KindSkill, signing.FormRaw, signing.AttestSkill},
 	} {
-		got, err := attestationFormFor(tc.kind, tc.layout)
+		got, err := countersign.AttestationFormFor(tc.kind, tc.layout)
 		require.NoErrorf(t, err, "%s + %s", tc.kind, tc.layout)
 		assert.Equalf(t, tc.want, got, "%s + %s", tc.kind, tc.layout)
 	}
@@ -54,7 +54,7 @@ func TestAttestationFormFor_ThePublishedMapping(t *testing.T) {
 func TestAttestationFormFor_IsExhaustiveInBothDirections(t *testing.T) {
 	reached := map[signing.AttestationForm]trust.ItemKind{}
 	for _, kind := range trust.ItemKinds() {
-		forms := attestationFormsFor(kind)
+		forms := countersign.AttestationFormsFor(kind)
 		require.NotEmptyf(t, forms, "kind %q derives no attestation form: it could never be approved", kind)
 		for _, f := range forms {
 			require.Truef(t, f.Valid(), "kind %q derives %q, which is outside the closed vocabulary", kind, f)
@@ -75,9 +75,9 @@ func TestAttestationFormFor_IsExhaustiveInBothDirections(t *testing.T) {
 // exactly this shape (a trust.ItemKind declared outside package trust).
 func TestAttestationFormFor_AnUnregisteredKindIsInert(t *testing.T) {
 	for _, kind := range []trust.ItemKind{"profiles", "widget", ""} {
-		_, err := attestationFormFor(kind, signing.FormRaw)
+		_, err := countersign.AttestationFormFor(kind, signing.FormRaw)
 		assert.Errorf(t, err, "kind %q must have no attestation form", kind)
-		assert.Emptyf(t, attestationFormsFor(kind), "kind %q must offer nothing to countersign", kind)
+		assert.Emptyf(t, countersign.AttestationFormsFor(kind), "kind %q must offer nothing to countersign", kind)
 	}
 }
 
@@ -86,7 +86,7 @@ func TestAttestationFormFor_AnUnregisteredKindIsInert(t *testing.T) {
 // would approve bytes under a form nobody reviewed.
 func TestAttestationFormFor_SingleFormKindsRefuseDistilled(t *testing.T) {
 	for _, kind := range []trust.ItemKind{trust.KindMCP, trust.KindHook, trust.KindSkill} {
-		_, err := attestationFormFor(kind, signing.FormDistilled)
+		_, err := countersign.AttestationFormFor(kind, signing.FormDistilled)
 		assert.Errorf(t, err, "%q has no distilled form", kind)
 	}
 }
@@ -153,9 +153,9 @@ func TestEffectiveTrust_ApprovingTextDoesNotApproveAnIdenticalExecutable(t *test
 	fx.approve(fragRef, signing.FormRaw, execPayload)
 
 	records := fx.records()
-	assert.True(t, records.Approved(fragRef, execPayload, string(signing.FormRaw)),
+	assert.True(t, records.Approved(fragRef, execPayload, bundles.ContentForm(signing.FormRaw)),
 		"the fragment the human actually reviewed must be approved (or this test proves nothing)")
-	assert.False(t, records.Approved(mcpRef, execPayload, string(signing.FormRaw)),
+	assert.False(t, records.Approved(mcpRef, execPayload, bundles.ContentForm(signing.FormRaw)),
 		"approving a fragment must NEVER satisfy an mcp gate over identical bytes")
 
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
@@ -169,7 +169,7 @@ func TestEffectiveTrust_ApprovingTextDoesNotApproveAnIdenticalExecutable(t *test
 	// The hook axis, same bytes: an exec payload is exec-shaped whichever
 	// executable surface asks about it, so the role has to discriminate.
 	hookRef := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindHook, Name: "pre_tool/0"}
-	assert.False(t, records.Approved(hookRef, execPayload, string(signing.FormRaw)),
+	assert.False(t, records.Approved(hookRef, execPayload, bundles.ContentForm(signing.FormRaw)),
 		"approving a fragment must NEVER satisfy a hook gate over identical bytes")
 }
 
@@ -187,16 +187,16 @@ func TestEffectiveTrust_ApprovingAFragmentDoesNotApproveAnIdenticalCommand(t *te
 	fx.approve(fragRef, signing.FormRaw, body)
 	records := fx.records()
 
-	assert.True(t, records.Approved(fragRef, body, string(signing.FormRaw)))
-	assert.False(t, records.Approved(cmdRef, body, string(signing.FormRaw)),
+	assert.True(t, records.Approved(fragRef, body, bundles.ContentForm(signing.FormRaw)))
+	assert.False(t, records.Approved(cmdRef, body, bundles.ContentForm(signing.FormRaw)),
 		"a fragment's approval must not cover an identically-bodied command")
 
 	// And the reverse, since a command is the invocable surface: approving the
 	// command must not bless the fragment either.
 	fx2 := newTrustFixture(t)
 	fx2.approve(cmdRef, signing.FormRaw, body)
-	assert.True(t, fx2.records().Approved(cmdRef, body, string(signing.FormRaw)))
-	assert.False(t, fx2.records().Approved(fragRef, body, string(signing.FormRaw)))
+	assert.True(t, fx2.records().Approved(cmdRef, body, bundles.ContentForm(signing.FormRaw)))
+	assert.False(t, fx2.records().Approved(fragRef, body, bundles.ContentForm(signing.FormRaw)))
 }
 
 // The skill axis: approving a fragment whose body is a skill's manifest preimage
@@ -210,7 +210,7 @@ func TestEffectiveTrust_ApprovingTextDoesNotApproveAnIdenticalSkillTree(t *testi
 	skillRef := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindSkill, Name: "humanize"}
 
 	fx.approve(fragRef, signing.FormRaw, skillPayload)
-	assert.False(t, fx.records().Approved(skillRef, skillPayload, string(signing.FormRaw)),
+	assert.False(t, fx.records().Approved(skillRef, skillPayload, bundles.ContentForm(signing.FormRaw)),
 		"approving prose must never approve a skill package's tree")
 }
 
@@ -246,7 +246,7 @@ func TestRejected_ContentRejectionIsScopedToTheRoleItWasMadeIn(t *testing.T) {
 // approvals directory.
 func writeSupersededApprove(t *testing.T, fx *trustFixture, dir string, ref trust.Ref, legacyKind string, payload []byte) {
 	t.Helper()
-	refStr, refErr := CountersignRef(ref)
+	refStr, refErr := countersign.CountersignRef(ref)
 	require.NoError(t, refErr)
 	framed := "ctxloom-countersign/1\n" +
 		"assertion: approve\n" +
@@ -273,7 +273,7 @@ func TestSupersededApproval_DoesNotVerifyButIsStillVisibleAsAPriorApproval(t *te
 	writeSupersededApprove(t, fx, userApprovalsDir, ref, "fragments", payload)
 	// Its display-index entry survives the bump too — written with the kind and
 	// layout labels of its own era.
-	idxRef, err := CountersignRef(ref)
+	idxRef, err := countersign.CountersignRef(ref)
 	require.NoError(t, err)
 	require.NoError(t, fx.user.AppendIndex(countersign.IndexEntry{
 		Ref: idxRef, Kind: "fragments", Form: "raw",
@@ -284,7 +284,7 @@ func TestSupersededApproval_DoesNotVerifyButIsStillVisibleAsAPriorApproval(t *te
 	records := fx.records()
 
 	// STALE: the record no longer covers these bytes, so the item is withheld.
-	assert.False(t, records.Approved(ref, payload, string(signing.FormRaw)),
+	assert.False(t, records.Approved(ref, payload, bundles.ContentForm(signing.FormRaw)),
 		"a record framed under the superseded contract must not verify")
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: ref, Payload: payload, Form: string(signing.FormRaw), Records: records,
@@ -295,7 +295,7 @@ func TestSupersededApproval_DoesNotVerifyButIsStillVisibleAsAPriorApproval(t *te
 
 	// NOT ABSENT: the prior approval is still discoverable, which is what makes
 	// the item read as an update to re-review.
-	prior, err := records.hadPriorApprove(idxRef, signing.FormRaw)
+	prior, err := records.HadPriorApprove(idxRef, signing.FormRaw)
 	require.NoError(t, err)
 	assert.True(t, prior, "a superseded approval must still be reported as a prior approval")
 }
@@ -308,7 +308,7 @@ func TestPendingReview_SupersededApprovalReadsAsUpdateNotNew(t *testing.T) {
 	payload := []byte("solid raw body")
 
 	writeSupersededApprove(t, fx, userApprovalsDir, ref, "fragments", payload)
-	idxRef, err := CountersignRef(ref)
+	idxRef, err := countersign.CountersignRef(ref)
 	require.NoError(t, err)
 	require.NoError(t, fx.user.AppendIndex(countersign.IndexEntry{
 		Ref: idxRef, Kind: "fragments", Form: "raw",

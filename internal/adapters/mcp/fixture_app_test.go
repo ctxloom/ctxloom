@@ -8,6 +8,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
@@ -28,8 +30,9 @@ func (s fixtureSources) Readers(_ context.Context, cfg *config.Config) ([]bundle
 	}, nil
 }
 
-func (s fixtureSources) TrustPorts(_ context.Context, cfg *config.Config) (bundles.Authorizer, error) {
-	return cfg.ExecutableTrustGate(), nil
+func (s fixtureSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
+	root, records, retraction := compositetest.Ports()
+	return root, records, retraction, nil
 }
 
 // fixtureApp opens the process composition over a fixture Config.

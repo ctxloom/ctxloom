@@ -31,7 +31,7 @@ var gatePulledRef = mustGitItemRef("github.com", "/acme/repo", "tooling", trust.
 // ExecutableTrustGate.WarnWithheld and the content-loader's warnWithheld
 // consult (see trust_gate.go).
 func TestContentGate_WithheldItems_ReportReason(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 
 	// gateHookRef: a human explicitly rejected it.
@@ -92,7 +92,7 @@ func TestContentGate_WithheldItems_ReportReason(t *testing.T) {
 // dispositions, instead of the old undifferentiated "N bundle executable(s)
 // awaiting review" tally.
 func TestExecutableTrustGate_WarnWithheld_NamesReason(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	fx.rejectItem(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindHook, Name: "pre_tool/0"},
 		signing.FormRaw, toolingHookPayload())

@@ -47,7 +47,7 @@ func w74ShortNameFS(t *testing.T, withLocalFile bool) (afero.Fs, *config.Config,
 		require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "personal", "tool.yaml"),
 			[]byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
 	}
-	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}),
+	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}}),
 		[]string{paths.LocalBundlesPath(appDir)}
 }
 
@@ -127,7 +127,7 @@ func TestBundleListDeletedResolver_WarnsOnUnreadableLockfile(t *testing.T) {
 	restore := clidiag.SetSink(&sink)
 	defer restore()
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NotNil(t, bundleListDeletedResolver(cfg))
 
 	assert.Contains(t, sink.String(), lockPath,
@@ -148,7 +148,7 @@ func TestBundleListDeletedResolver_SilentOnGoodLockfile(t *testing.T) {
 	restore := clidiag.SetSink(&sink)
 	defer restore()
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NotNil(t, bundleListDeletedResolver(cfg))
 	assert.Empty(t, sink.String(), "a missing lockfile is the ordinary case, not a fault")
 }
@@ -177,7 +177,7 @@ func TestNewBundleReaderForConfig_WarnsWhenLockfileUnreadable(t *testing.T) {
 	restore := clidiag.SetSink(&sink)
 	defer restore()
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	reader := NewBundleReaderForConfig(cfg)
 
 	assert.Nil(t, reader, "an unreadable lockfile still yields no reader")
@@ -202,7 +202,7 @@ func TestNewBundleReaderForConfig_SilentOnGoodLockfile(t *testing.T) {
 	restore := clidiag.SetSink(&sink)
 	defer restore()
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	assert.NotNil(t, NewBundleReaderForConfig(cfg))
 	assert.Empty(t, sink.String())
 }

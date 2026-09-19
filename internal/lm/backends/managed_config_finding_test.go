@@ -27,7 +27,7 @@ func resetStrictness(t *testing.T) strictness.Mark {
 func TestAssembleManagedConfig_NilConfig_YieldsNoManagedSet(t *testing.T) {
 	mark := resetStrictness(t)
 
-	got := AssembleManagedConfig(nil, "claude-code", t.TempDir(), nil, nil)
+	got := AssembleManagedConfig(nil, "claude-code", t.TempDir(), nil)
 
 	assert.Nil(t, got)
 	assert.Empty(t, strictness.Since(mark))
@@ -39,7 +39,7 @@ func TestAssembleManagedConfig_NilConfig_YieldsNoManagedSet(t *testing.T) {
 func TestAssembleManagedConfig_LoadableConfigRaisesNothing(t *testing.T) {
 	mark := resetStrictness(t)
 
-	got := AssembleManagedConfig(&config.Config{}, "claude-code", t.TempDir(), nil, nil)
+	got := AssembleManagedConfig(&config.Config{}, "claude-code", t.TempDir(), nil)
 
 	assert.NotNil(t, got)
 	assert.Empty(t, strictness.Since(mark),

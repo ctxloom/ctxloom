@@ -72,7 +72,7 @@ fragments:
 // default set a bare regenerate reads). No inline profiles are declared, which
 // is the case that previously failed.
 func fixtureConfig(root string) *config.Config {
-	return config.NewFixture(config.Fixture{
+	return gatedFixture(config.Fixture{
 		AppPaths:     []string{filepath.Join(root, ".ctxloom")},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"test"}}},

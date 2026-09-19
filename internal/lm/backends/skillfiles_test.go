@@ -86,7 +86,7 @@ func TestSkillExportsFor_UnregisteredBackendReturnsNil(t *testing.T) {
 // resolve must not be warned as a "default profile" — mirrors the
 // commands.go/managed.go regression tests for the same wording bug.
 func TestResolveProfileSkillRefs_ExplicitProfileWarningOmitsDefault(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{})
+	cfg := gatedFixture(config.Fixture{})
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)

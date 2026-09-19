@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
@@ -39,14 +40,14 @@ func TestZeroRef_HasNoAddressAndIsInert(t *testing.T) {
 
 	assert.Equal(t, "#/", zero.Key())
 	assert.Empty(t, zero.CanonicalURL())
-	addr, err := CountersignRef(zero)
+	addr, err := countersign.CountersignRef(zero)
 	require.Error(t, err, "the zero Ref must have no countersign-store address")
 	assert.Empty(t, addr, "a refusal must yield no address, not a stand-in for one")
 
 	// 1. Nothing can be countersigned at that address.
-	_, err = attestationFormFor(zero.Kind, signing.FormRaw)
+	_, err = countersign.AttestationFormFor(zero.Kind, signing.FormRaw)
 	assert.Error(t, err, "the empty kind must derive no attestation form")
-	assert.Empty(t, attestationFormsFor(zero.Kind),
+	assert.Empty(t, countersign.AttestationFormsFor(zero.Kind),
 		"an empty kind offering a form would let a content rejection — or an approval — key off '|#/'")
 
 	// 2. The decision function withholds it.

@@ -206,9 +206,10 @@ const (
 
 	// --- the gate's own state, appended last so no reason above renumbers ---
 
-	// ReasonUngated: nobody gates this surface, and it says so (AdmitAll). An
-	// ADMIT that names the absence of a rule rather than claiming one decided,
-	// which is what a management or listing path is honestly doing.
+	// ReasonUngated: nobody gates this surface, and it says so
+	// (composite.Ungated). An ADMIT that names the absence of a rule rather
+	// than claiming one decided, which is what a management or listing path
+	// is honestly doing.
 	ReasonUngated
 	// ReasonUngoverned: the exposure reached the gate with NO authorizer at all.
 	// A fault in the CALLER, not a fact about the content — so it is not
@@ -424,10 +425,11 @@ type UnaddressableReporter interface {
 // could forget the last of those.
 //
 // A NIL authorizer withholds, and says so. "I deliberately have no gate" is
-// spelled AdmitAll — a value the caller writes — so nil is left meaning the one
-// thing it cannot be a policy for: nobody supplied a gate. Admitting on it would
-// make a forgotten gate indistinguishable from an intended one at every call
-// site, and would resolve the mistake toward exposure.
+// spelled composite.Ungated() — a value the caller writes, by name — so nil
+// is left meaning the one thing it cannot be a policy for: nobody supplied a
+// gate. Admitting on it would make a forgotten gate indistinguishable from an
+// intended one at every call site, and would resolve the mistake toward
+// exposure.
 //
 // An UNPARSEABLE ref withholds. An item nothing can address is an item the
 // decision function was never able to key on, and exposing it would be exposing
@@ -449,9 +451,10 @@ func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, 
 		clidiag.Warn("ctxloom", "withheld %s: %s", ref, v.Reason.Explain(v.Detail))
 		return v
 	}
-	// AdmitAll answers here, above the parse, so an ungated surface behaves
+	// An ungated surface answers here, above the parse, so a listing behaves
 	// exactly as it did when it was spelled nil — including for a ref nothing
-	// can address.
+	// can address. Parsing first would turn every listing path into a new
+	// source of withholds.
 	if !Gates(authorizer) {
 		return authorizer.Admit(Exposure{Read: read, RefStr: ref, Bytes: payload, Form: form})
 	}

@@ -184,8 +184,8 @@ func TestRefusals_AnUnreadableRecordIsReportedNotReadAsSilence(t *testing.T) {
 func TestRefusals_AnUnresolvedProjectRootRefusesRatherThanUsingTheWorkingDirectory(t *testing.T) {
 	cases := map[string]*config.Config{
 		"no config":      nil,
-		"no app paths":   config.NewFixture(config.Fixture{}),
-		"empty app path": config.NewFixture(config.Fixture{AppPaths: []string{""}}),
+		"no app paths":   gatedFixture(config.Fixture{}),
+		"empty app path": gatedFixture(config.Fixture{AppPaths: []string{""}}),
 	}
 	for name, cfg := range cases {
 		t.Run(name, func(t *testing.T) {

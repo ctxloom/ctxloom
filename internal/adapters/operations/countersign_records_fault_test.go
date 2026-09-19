@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -20,9 +21,9 @@ import (
 func unresolvableUserStore(t *testing.T) string {
 	t.Helper()
 	t.Setenv("HOME", string(filepath.Separator)+"ctxloom-unsandboxed-home")
-	_, err := homeApprovalsDir()
+	_, err := countersign.HomeDir()
 	require.Error(t, err, "fixture precondition: the user store must be unresolvable here")
-	return "SetHomeApprovalsDirForTesting"
+	return "SetHomeDirForTesting"
 }
 
 // TestBuildCountersignRecords_UnresolvableUserStore_KeepsTheCause pins the
@@ -40,7 +41,7 @@ func TestBuildCountersignRecords_UnresolvableUserStore_KeepsTheCause(t *testing.
 
 	records := buildCountersignRecords(nil, afero.NewOsFs(), nil, nil, nil)
 
-	err := records.readable()
+	err := records.Fault()
 	require.Error(t, err, "an unconfigured user store must never resolve as readable")
 	assert.Contains(t, err.Error(), want,
 		"the resolver's own error must survive to the caller, not be replaced by a guess")

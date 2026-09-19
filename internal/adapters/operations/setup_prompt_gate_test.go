@@ -53,7 +53,7 @@ func seedRemoteSetupCommand(t *testing.T, marker string) *config.Config {
 		remote.LockEntry{SHA: commit.String(), URL: repoURL, FetchedAt: time.Now().UTC()})
 	require.NoError(t, lm.Save(lock))
 
-	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	return gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 // TestResolveSetupPrompt_WithholdsUnreviewedRemoteGuidance is the reason this
@@ -88,7 +88,7 @@ commands:
   agent-setup:
     content: "LOCAL-PROJECT-GUIDANCE"
 `)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	got := ResolveSetupPrompt(cfg, "BUILTIN-DEFAULT")
 

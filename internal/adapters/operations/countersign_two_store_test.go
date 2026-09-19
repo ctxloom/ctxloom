@@ -47,9 +47,9 @@ func TestCountersignRecords_AbsentUserStore_ProjectStoreStillDecides(t *testing.
 	require.Equal(t, countersign.StateReadable, projectState)
 	require.NoError(t, perr)
 
-	records := countersignRecords{user: user, project: f.project, root: f.root}
+	records := countersign.NewRecords(user, f.project, f.root, nil)
 
-	require.NoError(t, records.readable(),
+	require.NoError(t, records.Fault(),
 		"an absent user store beside a readable project store is a SUPPORTED configuration (containers, CI) and must not fail the run")
 
 	mark := strictness.Checkpoint()
@@ -74,11 +74,8 @@ func TestCountersignRecords_UnreadableProjectStore_FailsEvenWithAReadableUser(t 
 	require.NoError(t, fs.MkdirAll(projectDir, 0o755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(projectDir, "0bad.sig"), []byte("not armored\n"), 0o644))
 
-	records := countersignRecords{
-		user:    countersign.NewStore(userDir, fs),
-		project: countersign.NewStore(projectDir, fs),
-	}
-	err := records.readable()
+	records := countersign.NewRecords(countersign.NewStore(userDir, fs), countersign.NewStore(projectDir, fs), nil, nil)
+	err := records.Fault()
 	require.Error(t, err, "an UNREADABLE store is a fault in either position; only ABSENT is tolerated")
 	assert.Contains(t, err.Error(), "project approvals store")
 }

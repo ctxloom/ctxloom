@@ -79,7 +79,7 @@ func seedRemoteFragmentFixture(t *testing.T) (cfg *config.Config, canonicalRef, 
 	require.NoError(t, err)
 	require.NoError(t, reg.Add("tooling", repoURL))
 
-	return published(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})), canonicalRef, "tooling/tools"
+	return published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}})), canonicalRef, "tooling/tools"
 }
 
 // TestItemRead_BundleResolutionParity is the parity test, run across

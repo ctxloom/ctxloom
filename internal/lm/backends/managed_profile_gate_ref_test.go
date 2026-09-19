@@ -128,7 +128,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 		0o644))
 
 	profileRef := remote.LocalBundleRef("kit") + remote.ProfileSelector + "dev"
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{profileRef}}},
 		AppPaths:     []string{appDir},
@@ -139,7 +139,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 	// itself, at the selector parser — never even reaching a
 	// caller-supplied gate function to ask).
 	var gotRefs []string
-	cfg.SetExecutableTrustGate(recordingAuthorizer(true, &gotRefs))
+	cfg.BindTrustForTesting(recordingTrust(&gotRefs))
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
 	// Reaching the authorizer AT ALL is the fix: a double-'#' ref does not parse
@@ -170,12 +170,12 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *test
 		0o644))
 
 	profileRef := remote.LocalBundleRef("kit") + remote.ProfileSelector + "dev"
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{profileRef}}},
 		AppPaths:     []string{appDir},
 	})
-	cfg.SetExecutableTrustGate(testAuthorizer(false))
+	cfg.BindTrustForTesting(rejectingAll())
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
 	assert.Empty(t, assembled.Wire().Unified.PreTool, "a denied bundle-shipped profile hook must be withheld from the produced settings, not merely fail silently in a way that still ships it")

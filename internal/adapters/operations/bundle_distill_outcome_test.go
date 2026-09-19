@@ -129,7 +129,7 @@ fragments:
 	home, err := paths.HomeApprovalsPath()
 	require.NoError(t, err)
 	store := countersign.NewStore(home, afero.NewOsFs())
-	refStr, err := CountersignRef(ref)
+	refStr, err := countersign.CountersignRef(ref)
 	require.NoError(t, err)
 	require.NoError(t, store.WriteUnsignedApprove(refStr, signing.AttestFragmentDistilled, []byte("old distilled text")))
 	require.NoError(t, store.AppendIndex(countersign.IndexEntry{

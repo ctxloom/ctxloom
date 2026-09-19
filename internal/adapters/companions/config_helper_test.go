@@ -7,15 +7,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // companionSources is a config.Sources over a fixture whose readers are what
 // the composition root wires — project, builtin and every discovered
-// companion's loadout — with the test's own gate.
+// companion's loadout — with the test's own trust ports.
 type companionSources struct {
-	cfg  *config.Config
-	gate bundles.Authorizer
+	cfg   *config.Config
+	ports []compositetest.Option
 }
 
 func (s companionSources) Read(context.Context) (*config.Config, []config.Warning, error) {
@@ -31,18 +33,17 @@ func (s companionSources) Readers(_ context.Context, cfg *config.Config) ([]bund
 	return append(readers, Prober{}.ReaderSource()(cfg)...), nil
 }
 
-func (s companionSources) TrustPorts(context.Context, *config.Config) (bundles.Authorizer, error) {
-	if s.gate == nil {
-		return bundles.AdmitAll(), nil
-	}
-	return s.gate, nil
+func (s companionSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
+	root, records, retraction := compositetest.Ports(s.ports...)
+	return root, records, retraction, nil
 }
 
 // companionConfig publishes f through a real config.Owner whose generation
-// carries the companion reader and gate, and returns its Config.
-func companionConfig(t *testing.T, f config.Fixture, gate bundles.Authorizer) *config.Config {
+// carries the companion reader and a Trust over the given fake ports (none:
+// a companion's own loadout is admitted by locality), and returns its Config.
+func companionConfig(t *testing.T, f config.Fixture, ports ...compositetest.Option) *config.Config {
 	t.Helper()
-	owner, err := config.Open(context.Background(), companionSources{cfg: config.NewFixture(f), gate: gate})
+	owner, err := config.Open(context.Background(), companionSources{cfg: config.NewFixture(f), ports: ports})
 	require.NoError(t, err)
 	return owner.Current().Config
 }

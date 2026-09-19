@@ -105,7 +105,7 @@ func (r *localFSReader) readLocalTreeForm(ctx context.Context, manifestPath stri
 // facts never gate a load; they are the diagnostic that tells an author their
 // bytes and their manifest have parted company, which is worth reporting
 // whether or not a key was involved.
-func (r *localFSReader) treeIntegrityFacts(ctx context.Context, tree content.Bundle, envelope signatureFacts) signatureFacts {
+func (r *localFSReader) treeIntegrityFacts(ctx context.Context, tree content.Bundle, envelope SignatureFacts) SignatureFacts {
 	verdict, err := attest.VerifyBundle(ctx, tree, r.trustRoot(), time.Now())
 	switch {
 	case err != nil:
@@ -124,11 +124,11 @@ func (r *localFSReader) treeIntegrityFacts(ctx context.Context, tree content.Bun
 // axis is INVALID rather than absent, because a manifest that exists and does
 // not describe the tree is a different fact from no manifest at all, and
 // collapsing them loses which one happened.
-func invalidTreeFacts(format string, args ...any) signatureFacts {
-	return signatureFacts{
-		signature: SignatureInvalid,
-		signer:    SignerUntrusted,
-		detail:    fmt.Sprintf(format, args...),
+func invalidTreeFacts(format string, args ...any) SignatureFacts {
+	return SignatureFacts{
+		Signature: SignatureInvalid,
+		Signer:    SignerUntrusted,
+		Detail:    fmt.Sprintf(format, args...),
 	}
 }
 

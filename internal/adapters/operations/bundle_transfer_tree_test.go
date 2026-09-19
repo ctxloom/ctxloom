@@ -102,14 +102,14 @@ func memTreeBundleFS(t *testing.T) (afero.Fs, *config.Config, string) {
 	appDir := filepath.Join("/proj", ".ctxloom")
 	src := filepath.Join(authoredV1(appDir), "toolkit")
 	writeTree(t, fs, src, treeBundleFiles)
-	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), src
+	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}}), src
 }
 
 // consumerConfig is a SECOND project on the same filesystem — the import side of
 // the round trip, so the imported tree is compared against a source it did not
 // overwrite.
 func consumerConfig() *config.Config {
-	return config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/consumer", ".ctxloom")}})
+	return gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/consumer", ".ctxloom")}})
 }
 
 func TestExportImportBundleTree_RoundTripsEveryFileByteForByte(t *testing.T) {

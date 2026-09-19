@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -253,16 +254,13 @@ type Config struct {
 	// on-disk config.
 	injectedFS bool
 
-	// execGate gates the bundle EXECUTABLE surfaces (bundle MCP servers + bundle
-	// hooks resolved by ResolveBundleMCPServers/ResolveBundleHooks, and prompt
-	// command-file exports via LoadCommandExports) when set. nil means UNSET, and
-	// ExecutableTrustGate turns that into bundles.AdmitAll — the gate-free
-	// management/listing shape, named rather than implied. Read it through that
-	// accessor, never directly: a nil reaching bundles.Decide withholds. The
-	// operations/run consumers inject it before writing backend settings (TR5);
-	// operations can't be imported here, so the gate is a plain bundles.Authorizer
-	// func. Never persisted.
-	execGate bundles.Authorizer
+	// trust is the generation's gate holder (composite.Trust), bound by the
+	// Owner (bindGeneration) before the Snapshot carrying this Config is
+	// published, so the bundle EXECUTABLE surfaces (ResolveBundleMCPServers,
+	// ResolveBundleHooks, LoadCommandExports) decide with the same gate the
+	// Snapshot carries. Zero for a fixture nobody bound: its nil authorizer
+	// is withheld on loudly (bundles.Decide), never admitted. Never persisted.
+	trust composite.Trust
 
 	// catalog and versionResolver are the generation's bundle view: the
 	// catalog resolved (once, on first use) from the Sources' readers, bound

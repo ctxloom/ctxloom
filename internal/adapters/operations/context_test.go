@@ -179,7 +179,7 @@ func withProfileDefs(t *testing.T, cfg *config.Config, defs map[string]config.Pr
 		seed[name] = p
 	}
 	testsupport.WriteDirProfiles(t, fs, appDir, seed)
-	out := config.NewFixture(f)
+	out := gatedFixture(f)
 	out.SetFS(fs)
 	return out
 }
@@ -250,7 +250,7 @@ fragments:
 
 func TestAssembleContext_WithTags(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Tags:     []string{"security"},
@@ -268,7 +268,7 @@ func TestAssembleContext_WithTags(t *testing.T) {
 // warning at all, indistinguishable from "no tags were asked for".
 func TestAssembleContext_TagMatchingNothingIsReported(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Tags:     []string{"no-such-tag-anywhere"},
@@ -284,7 +284,7 @@ func TestAssembleContext_TagMatchingNothingIsReported(t *testing.T) {
 // real match must never appear in MissingTags.
 func TestAssembleContext_TagThatMatchesIsNotReportedMissing(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Tags:     []string{"security"},
@@ -297,7 +297,7 @@ func TestAssembleContext_TagThatMatchesIsNotReportedMissing(t *testing.T) {
 
 func TestAssembleContext_WithFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{"dev#fragments/go-patterns"},
@@ -313,7 +313,7 @@ func TestAssembleContext_WithFragments(t *testing.T) {
 
 func TestAssembleContext_MultipleFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{
@@ -333,7 +333,7 @@ func TestAssembleContext_MultipleFragments(t *testing.T) {
 
 func TestAssembleContext_DeduplicatesFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{
@@ -653,7 +653,7 @@ fragments:
 
 func TestAssembleContext_EmptyRequest(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Pipeline: opPipe(cfg, loader),
@@ -690,7 +690,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		// A fresh Config per sub-test: companion probing is memoized once per
 		// Config's lifetime, so sharing one across sub-tests with different
 		// fakes would silently reuse the first sub-test's cached result.
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+		cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 		restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 			return "/fake/" + bin, nil // every companion is "installed"
@@ -719,7 +719,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 
 	t.Run("companion absent (loadout probe fails) → that companion's fragments skipped", func(t *testing.T) {
 		_, loader := setupContextTestFS(t)
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+		cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 		restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 			if bin == "ltk" {
@@ -774,7 +774,7 @@ func TestAssembleContext_InjectsBuiltinIsolationFragment(t *testing.T) {
 	require.NotEmpty(t, frag.Content)
 
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, loader)})
 	require.NoError(t, err)
@@ -811,7 +811,7 @@ func TestAssembleContext_ExcludesCtxloomInitCommandBody(t *testing.T) {
 	require.Contains(t, body, "Phase 2", "sanity: this is really the five-phase body")
 
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	// Deliberately bare: no profile, no fragments, no tags — the same
 	// zero-ask shape TestAssembleContext_InjectsBuiltinIsolationFragment uses
@@ -827,7 +827,7 @@ func TestAssembleContext_ExcludesCtxloomInitCommandBody(t *testing.T) {
 
 func TestAssembleContext_CombineTagsAndFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Tags:      []string{"security"},
@@ -1420,7 +1420,7 @@ func TestAssembleContext_UnknownProfileError(t *testing.T) {
 // --profile path above stays a hard error.
 func TestAssembleContext_UnresolvableDefaultProfileDegrades(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		AppPaths:     []string{testBaseDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/example/repo@profiles/missing"}}},
@@ -1519,7 +1519,7 @@ func TestAssembleContext_DirectoryProfileExcludesFragments(t *testing.T) {
 // win"). Request-level tags remain unfiltered; only profile-pushed content is.
 func TestAssembleContext_DirectoryProfileExcludesTaggedFragment(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 	})
 

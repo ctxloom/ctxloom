@@ -38,7 +38,7 @@ func TestProfileOperations_ListCreateDelete_RoundTrip(t *testing.T) {
 	}
 	loader := profiles.NewLoader([]string{dir}, profiles.WithFS(fs))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	cfg.SetFS(fs)
 
 	list, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{Loader: loader})

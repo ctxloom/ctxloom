@@ -182,7 +182,7 @@ func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 }
 
 func TestResolveBackend(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
+	cfg := gatedFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
 		"agy-code": {Type: "mock", Body: map[string]any{"model": "gemini-3-pro"}},
 	}}})
 
@@ -221,7 +221,7 @@ func TestResolveBackend(t *testing.T) {
 	// launch path refuses it as an unknown backend rather than this boundary
 	// rounding it to a real one.
 	t.Run("a hand-written entry's type is not rewritten", func(t *testing.T) {
-		handWritten := config.NewFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
+		handWritten := gatedFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
 			"hand-edited": {Type: "claude", Body: map[string]any{"model": "opus"}},
 		}}})
 		backend, model := ResolveBackend(handWritten, "hand-edited")

@@ -24,7 +24,7 @@ func u085ProfileProject(t *testing.T) *config.Config {
 	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "profiles"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", "local-one.yaml"),
 		[]byte("name: local-one\ndescription: real\n"), 0o644))
-	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	return gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 // TestUpdateProfile_PreservesLoaderError pins the write path:
@@ -85,7 +85,7 @@ func TestProfileLoaderFactories_AgreeUnderInjectedFS(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0o755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "profiles", "injected.yaml"),
 		[]byte("name: injected\ndescription: from the injected fs\n"), 0o644))
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	cfg.SetFS(fs)
 
 	fromConfig, cerr := cfg.GetProfileLoader().Load("injected")
@@ -118,7 +118,7 @@ func TestProfileLoaderFactories_AgreeUnderInjectedFS(t *testing.T) {
 func TestProfileLoader_KeepsFreshInstallFallbackDir(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	require.NoError(t, profileLoader(cfg).Save(&profiles.Profile{Name: "fresh", Description: "d"}))
 	assert.FileExists(t, filepath.Join(appDir, "profiles", "fresh.yaml"))

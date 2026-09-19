@@ -10,6 +10,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -59,10 +61,12 @@ hooks:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "linked", "skills", "free", "SKILL.md"),
 		[]byte("---\nname: free\ndescription: Needs nothing.\n---\n\nBody.\n"), 0644))
 
-	return &Config{
+	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"with"}}},
 		appPaths: []string{appDir},
 	}
+	cfg.BindTrustForTesting(compositetest.Trust())
+	return cfg
 }
 
 func skillNames(t *testing.T, cfg *Config, profiles []string) []string {
@@ -143,11 +147,11 @@ func TestExtractHooksFromBundle_NilLinkGrantWithholdsLinkedHooksOnly(t *testing.
 	}
 	read := bundles.ProjectAuthoredRead("fixture", b)
 
-	got := extractHooksFromBundle(read, mustLocalRef(t, "src"), bundles.AdmitAll(), nil)
+	got := extractHooksFromBundle(read, mustLocalRef(t, "src"), composite.Ungated().Authorizer(), nil)
 	assert.Empty(t, hookCommands(got.SessionStart))
 	assert.Equal(t, []string{"free-guard"}, hookCommands(got.PreTool))
 
-	unchecked := extractHooksFromBundle(read, mustLocalRef(t, "src"), bundles.AdmitAll(), bundles.LinksUnchecked())
+	unchecked := extractHooksFromBundle(read, mustLocalRef(t, "src"), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
 	assert.Equal(t, []string{"think-warmup"}, hookCommands(unchecked.SessionStart))
 }
 

@@ -1279,13 +1279,6 @@ func (st *runState) seedTask() {
 // longer leaks the default profile's MCP or every pulled bundle's commands
 // into X's session.
 func (st *runState) buildRunRequest() error {
-	// Gate the executable surfaces (bundle MCP servers + bundle hooks + prompt
-	// command-file exports) the host ships in ManagedConfig: these bypass the
-	// content loader, so each is gated at its own choke via this injected
-	// gate. Built once (opens the trust store + registry); fail-closed (a
-	// DENY omits the executable). Surfaced below.
-	execGate := operations.NewExecutableTrustGate(st.cfg)
-
 	if err := st.resolvePostureAndAxes(runPermissions); err != nil {
 		return err
 	}
@@ -1293,7 +1286,7 @@ func (st *runState) buildRunRequest() error {
 	st.warnHostBypassStopgap()
 	st.warnPlanOneshotCancels()
 
-	st.managed = backends.AssembleManagedConfig(st.cfg, st.backendName, st.workDir, execGate.Authorizer(), st.ctxResult.Profiles)
+	st.managed = backends.AssembleManagedConfig(st.cfg, st.backendName, st.workDir, st.ctxResult.Profiles)
 	// The binding's delivery preference rides the managed payload to the
 	// backend, which is the only place with the argv sink system-prompt needs.
 	// Set AFTER assembly rather than inside it: AssembleManagedConfig resolves
@@ -1317,7 +1310,7 @@ func (st *runState) buildRunRequest() error {
 		ManagedConfig: pb.ManagedConfigToProto(st.managed),
 	}
 	// Advisory: tell the user if a bundle executable was withheld (content-free).
-	execGate.WarnWithheld()
+	operations.WarnWithheldBy(st.cfg.ExecutableTrustGate())
 	return nil
 }
 

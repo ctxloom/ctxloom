@@ -52,16 +52,15 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 	// declared top-level permissions and only falls back to PermissionDefault,
 	// so a project could lose the mitigation silently.
 	//
-	// Gating costs little, because the decision function admits local, builtin
-	// and trusted-signer content outright (see trust.Ref.IsLocal and
-	// EffectiveTrust's SourceTrustedSigner tier). A project's OWN bundles and
-	// anything signed by a key the user already trusts still contribute; only
-	// an unreviewed REMOTE bundle is withheld, which is the same deal every
-	// sibling surface already gets.
+	// Gating costs little, because the generation's Trust admits local,
+	// builtin and trusted-signer content outright (composite.Trust's cascade).
+	// A project's OWN bundles and anything signed by a key the user already
+	// trusts still contribute; only an unreviewed REMOTE bundle is withheld,
+	// which is the same deal every sibling surface already gets.
 	//
 	// preferDistilled stays false: this changes WHO is admitted, not which
 	// bytes an admitted command contributes.
-	pipe := bundles.NewPipeline(loader, buildContentGate(cfg, nil, cfgFS(cfg)), bundles.LinksUnchecked(), false)
+	pipe := bundles.NewPipeline(loader, cfg.ExecutableTrustGate(), bundles.LinksUnchecked(), false)
 	infos, err := loader.ListAllCommands()
 	if err != nil {
 		// Falling back to the built-in prompt on a listing failure is correct

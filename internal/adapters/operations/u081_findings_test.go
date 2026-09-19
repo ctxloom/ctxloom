@@ -288,7 +288,7 @@ func TestReadSignature_AbsentIsNotAnError(t *testing.T) {
 // its trust quietly stripped.
 func TestImportBundle_UnreadableSignatureFailsLoudly(t *testing.T) {
 	base := afero.NewMemMapFs()
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 	require.NoError(t, base.MkdirAll("/incoming", 0755))
 	require.NoError(t, afero.WriteFile(base, "/incoming/seed.yaml", []byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
 	require.NoError(t, afero.WriteFile(base, "/incoming/seed.yaml.sig", []byte("SIG"), 0644))
@@ -311,7 +311,7 @@ func TestImportBundle_RejectsEmptyBundle(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
-			cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+			cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 			require.NoError(t, fs.MkdirAll("/incoming", 0755))
 			require.NoError(t, afero.WriteFile(fs, "/incoming/hollow.yaml", []byte(body), 0644))
 
@@ -362,7 +362,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 		for _, name := range tc.unusable {
 			t.Run(tc.kind+"/rejects/"+name, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
-				cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+				cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 				require.NoError(t, fs.MkdirAll("/incoming", 0755))
 				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
 
@@ -374,7 +374,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 		for _, name := range tc.loadable {
 			t.Run(tc.kind+"/accepts/"+name, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
-				cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+				cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 				require.NoError(t, fs.MkdirAll("/incoming", 0755))
 				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
 
@@ -390,7 +390,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 func TestImportBundle_DoesNotDestroyOnRejection(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	bdir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bdir, 0755))
 	good := []byte("version: 1.0.0\nfragments:\n  keep:\n    content: precious\n")

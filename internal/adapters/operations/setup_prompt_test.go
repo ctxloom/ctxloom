@@ -27,7 +27,7 @@ commands:
   something-else:
     content: "UNRELATED"
 `)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	assert.Equal(t, "BUILTIN", ResolveSetupPrompt(cfg, "BUILTIN"),
 		"no agent-setup command installed → the built-in prompt alone")
@@ -46,7 +46,7 @@ commands:
   agent-setup:
     content: "BUNDLE-SHIPPED-SETUP-PROMPT"
 `)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	got := ResolveSetupPrompt(cfg, "BUILTIN-DEFAULT")
 	assert.Contains(t, got, "BUILTIN-DEFAULT", "the built-in guidance must still be present")
@@ -74,7 +74,7 @@ commands:
   agent-setup:
     content: "ALPHA-SETUP-CONTENT"
 `)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	got := ResolveSetupPrompt(cfg, "BUILTIN")
 	require.Contains(t, got, "BUILTIN")
@@ -117,7 +117,7 @@ func TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin(t *testing.T)
 	defer restoreProbe()
 
 	appDir, _ := regenTestApp(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	got := ResolveSetupPrompt(published(t, cfg), "BUILTIN")
 	assert.Contains(t, got, "BUILTIN", "the built-in guidance must still be present")
@@ -136,7 +136,7 @@ commands:
   agent-setup:
     content: "BUNDLE-SHIPPED-SETUP-PROMPT"
 `)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)

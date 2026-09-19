@@ -15,164 +15,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
-
-// EffectiveTrustRequest carries the inputs for the trust decision function.
-//
-// The caller supplies the item Ref, the exact PAYLOAD BYTES about to be exposed
-// (pre-mustache), the Form those bytes are in, and the item's verified Signer.
-// Bytes, not a hash: a hash can only ever be compared, and this decision must be
-// able to VERIFY — a signature is over bytes, and the store's hash index finds a
-// candidate signature but never decides anything (spec §9.3, trap #2).
-type EffectiveTrustRequest struct {
-	Ref     trust.Ref
-	Payload []byte
-	// Form names which materialization Payload is — the LAYOUT form
-	// (bundles.FormRaw or bundles.FormDistilled, as a string; single-form items
-	// — mcp, hook, skill — use FormRaw). An approval only allows when it covers
-	// THIS form, and the ROLE it must also cover is derived from Ref.Kind rather
-	// than named here (see countersignRecords.Approved): a caller cannot assert
-	// its own role, so it cannot assert the wrong one. An unknown/empty form,
-	// or a kind with no attestation form at all, matches nothing and resolves
-	// pending (fail closed).
-	Form string
-	// Signer is the VERIFIED publisher identity of the document this item was
-	// parsed out of (bundles.Bundle.Signer): the principal of an allowed_signers
-	// entry whose key made a valid publish signature over that document's bytes,
-	// or "builtin:ctxloom", or "" for unsigned. It is an INPUT to the decision,
-	// never a state of the item — a signed item with an untrusted key is not a
-	// fourth state, it is pending (spec §8, red line 1).
-	//
-	// It is NEVER a claim read from content. See bundles.Bundle.signer.
-	Signer string
-
-	// Posture is the READ stage's answer to the only question the exemption
-	// steps ever really asked: did these bytes cross an intermediary on their
-	// way here, or not (bundles.BundleRead.TrustCtx).
-	//
-	// It REPLACES re-deriving locality from the shape of Ref. The two never
-	// disagreed in production — the only readers that produce local-posture
-	// content are the project, builtin and companion readers, and each of them
-	// leaves a ref that parses back to the matching flag — but "the gate keys on
-	// what the reader established" is a property, whereas "the ref string still
-	// spells the same thing" is a coincidence that has to be maintained. This is
-	// what lets the decision table's remote rows be decided HERE at all: nothing
-	// about a ref string can say whether a signature covered its bytes.
-	//
-	// ZERO IS UNSET AND UNSET WITHHOLDS. An unset posture never reaches the
-	// first-party arm, so it falls through to the signature/approval steps and
-	// out the fail-closed default. A caller that cannot state a posture gets
-	// LESS exposure, never more.
-	Posture bundles.TrustCtx
-
-	// Provenance names WHICH first-party source a local-posture item came from,
-	// so the allow can be reported as the specific exemption it is (local,
-	// builtin, companion) rather than as a generic "first party". It decides
-	// nothing on its own: Posture is the gate, this is the label, and a
-	// contradictory pair (local posture, remote provenance) matches no arm and
-	// falls through fail-closed.
-	Provenance bundles.ProvenanceClass
-
-	// Records is the review-record backing store: the countersignature stores
-	// (spec §9.2), reached through the ReviewRecords seam. Optional: nil builds
-	// the default (the user + project countersignature stores, verified against
-	// cfg's full trust root — see newCountersignRecords).
-	Records ReviewRecords `json:"-"`
-	// Retraction is the LOCAL retraction-record seam (RetractionRecords).
-	// Optional: nil builds the default (the active lockfile — see
-	// buildLockfileRetraction). Never touches the network itself; retraction
-	// status is recorded there by sync, which has the network in hand (see
-	// internal/adapters/remote/retract.go CheckRetracted and operations.syncItem).
-	Retraction RetractionRecords `json:"-"`
-	FS         afero.Fs          `json:"-"`
-}
-
-// ReviewRecords is the seam between the DECISION FUNCTION (steps 1 and 5, whose
-// shape is settled) and the STORE that records human review decisions.
-//
-// It is backed by the countersignature stores (spec §9.2): a human running
-// `ctxloom review` countersigns the exact reviewed bytes with their own SSH key,
-// and that signature IS the approval record — a hand-edited file is inert noise,
-// not an approval, because it does not verify.
-//
-// Both methods take the PAYLOAD BYTES rather than a hash, which is the shape a
-// signature verification needs and a hash comparison does not — so the
-// implementation slots in without reshaping the decision function or any of its
-// call sites.
-type ReviewRecords interface {
-	// Rejected reports a rejection covering this ref OR exactly these bytes.
-	// The two components are deliberately different scopes: the ref block is
-	// sticky (it survives the content changing under the ref), while the content
-	// rejection is ref-agnostic (a renamed or moved identical copy stays
-	// rejected). Both must be honored, and it must be evaluated for EVERY item —
-	// including unsigned ones and ones whose publisher signature failed to
-	// verify. A rejection is of bytes, not of provenance.
-	Rejected(ref trust.Ref, payload []byte) bool
-
-	// Approved reports that a human approved exactly these bytes, at this ref,
-	// in this form. Any change to the exposed bytes must drop the approval and
-	// return the item to pending. form is the LAYOUT form; the role the
-	// approval must have been recorded in comes from ref.Kind.
-	Approved(ref trust.Ref, payload []byte, form string) bool
-}
-
-// RetractionRecords is the seam between the DECISION FUNCTION and the LOCAL
-// record of publisher retractions.
-//
-// Retraction status originates at the REMOTE MANIFEST (internal/adapters/remote/
-// retract.go's CheckRetracted hits the fetcher) but EffectiveTrust is an
-// EXPOSURE-TIME, local-only decision — it must never make a network call of
-// its own. So the network probe runs at SYNC time (sync already has the
-// network in hand — see operations.syncItem) and its verdict is recorded
-// locally (the active lockfile, see buildLockfileRetraction); this seam is
-// what EffectiveTrust reads back, exactly mirroring how ReviewRecords lets the
-// decision function consult a human's review without re-deriving it.
-type RetractionRecords interface {
-	// Retracted reports whether ref's bundle is currently recorded as
-	// retracted, and the publisher's stated reason (display-only). A ref with
-	// no local record (never synced, or synced before retraction existed)
-	// reports false — fail-closed for EXPOSURE still holds via the ordinary
-	// pending default; a missing retraction record is not itself a security
-	// gap because sync re-evaluates it for every installed ref (see
-	// operations.syncItem's installed-ref retraction re-check).
-	Retracted(ref trust.Ref) (retracted bool, reason string)
-}
-
-// readableRecords is the OPTIONAL capability a ReviewRecords implementation
-// may expose: "can this backing store actually be read". EffectiveTrust
-// checks it via a type assertion (never adds it to the ReviewRecords
-// interface itself) so the fail-closed gate applies to any REAL,
-// disk-backed records value — whether EffectiveTrust built it fresh (the
-// records == nil default) or a caller built one the same way and threaded it
-// in non-nil, which is what every production caller actually does — while a
-// test fake with no physical store to corrupt (fakeRecords) simply doesn't
-// implement it and is assumed readable. countersignRecords.readable (see
-// countersign_records.go) is the sole production implementation.
-type readableRecords interface {
-	readable() error
-}
-
-// readableRetraction is the RETRACTION-side twin of readableRecords: the
-// OPTIONAL capability a RetractionRecords implementation may expose, meaning
-// "could retraction state actually be established". EffectiveTrust checks it
-// by type assertion rather than widening the RetractionRecords interface, so
-// the closure-driven test fakes (fakeRetraction) stay two lines long and are
-// simply assumed readable; lockfileRetraction is the sole production
-// implementation.
-//
-// The method name deliberately differs from readableRecords.readable(), so
-// the two capabilities are not structurally identical interfaces that any
-// implementation of one silently satisfies for the other. They are different
-// stores answering different questions, and a type assertion must never
-// confuse them.
-type readableRetraction interface {
-	retractionReadable() error
-	lockfilePath() string
-}
 
 // EffectiveTrustResult reports the decision outcome and which step decided it.
 type EffectiveTrustResult struct {
@@ -241,392 +88,6 @@ func (r EffectiveTrustResult) Reason() string {
 	}
 }
 
-// EffectiveTrust is the sole owner of the per-item trust decision function.
-// First-match-wins, fail-closed:
-//
-//  1. REJECTED       DENY   a rejection covers this ref, or these exact bytes
-//
-// 2a. UNREADABLE     DENY   retraction state could not be established (remote refs only)
-//  2. RETRACTED      DENY   the publisher withdrew this bundle (locally recorded at sync)
-//  3. FIRST PARTY    ALLOW  local posture — project, builtin or companion
-//  5. TRUSTED SIGNER ALLOW  a key trusted to PUBLISH signed these bytes
-//  6. APPROVED       ALLOW  a human approved exactly these bytes, here, in this form
-//  7. otherwise      DENY   pending — withheld until a human reviews it
-//
-// REJECTION IS SUPREME and it is step 1 for a reason: a user must be able to
-// reject content signed by the ctxloom release key itself, and to reject a
-// builtin. No signature can un-reject anything, and no verification may
-// short-circuit ahead of it — step 1 is evaluated even when the publisher
-// signature is absent or failed to verify, because a rejection is of BYTES, not
-// of provenance.
-//
-// RETRACTION is step 2, a PEER of rejection rather than folded into it: a
-// rejection is a human's decision about bytes; a retraction is the
-// PUBLISHER'S own withdrawal, sourced from their remote manifest (see
-// internal/adapters/remote/retract.go CheckRetracted) rather than a countersignature.
-// It is checked this early so it, too, beats every allow below — including a
-// trusted signer's own key: a publisher must be able to retract content it
-// signed. The check itself is a pure LOCAL lookup (RetractionRecords) — the
-// network probe already ran at sync time, which is the only place with the
-// network in hand (operations.syncItem); EXPOSURE-time evaluation here never
-// dials out.
-//
-// Step 2 FAILS CLOSED (2a). Because the lookup is local, it has a way of
-// coming back with no answer at all — a lock.yaml that exists and will not
-// parse. "I cannot read the retraction record" is not "nothing is retracted",
-// and collapsing the two re-exposes content a publisher deliberately withdrew,
-// which inverts the one control that exists for "this turned out to be
-// harmful". So an unreadable lockfile withholds instead, for exactly the refs
-// that lockfile could have spoken about (remote ones — see retractable). An
-// ABSENT lockfile is not this case and never was: a project with no pins
-// legitimately has nothing retracted.
-//
-// Step 5 is where SIGNATURES enter, and what they buy is authentication, never
-// authorization: it allows because a key trusted for the publish namespace
-// signed exactly these bytes. It replaces the deleted trust_bundles source
-// bypass, which allowed because of the URL the bytes arrived from and never
-// looked at the content at all. Signed still does not mean safe — that is why
-// review (steps 1 and 6) is a separate axis and why rejection (and retraction)
-// outrank every signature, including ours.
-//
-// Red line: NO STATE WAS ADDED. Signer is an input, never a state. An item is
-// pending, approved, or rejected; a signed item whose key you do not trust is
-// not a fourth thing — it is pending. Retraction is likewise not a fourth
-// STATE (EffectiveTrustResult.State() renders it as rejected — withheld
-// permanently, awaiting nothing) — it is a second DENY reason at the top of
-// the cascade.
-//
-// Nothing here reads or writes lock.yaml directly for the REJECTED step (ADR
-// 0033): the lockfile pins dependencies and is not a security surface for
-// review state. Retraction is the deliberate, narrow exception — see
-// buildLockfileRetraction — because the alternative is a network call at
-// exposure time, which is worse. Verification happens at the EXPOSURE choke,
-// not at fetch or lock time — a pull of an unsigned, badly signed, rejected,
-// or retracted bundle SUCCEEDS, and its content is withheld here.
-func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTrustResult, error) {
-	records := req.Records
-	if records == nil {
-		records = buildCountersignRecords(cfg, req.FS, nil, nil, nil)
-	}
-	// The unreadable-store fail-closed gate runs HERE, unconditionally — not
-	// only when records was built fresh above. Every production caller
-	// (contentGate.allow, review.go's PendingReview, bundle_distill.go)
-	// builds its ReviewRecords ONCE at construction time and threads it into
-	// EffectiveTrustRequest.Records non-nil on EVERY call; a check gated on
-	// "records == nil" therefore never runs for any of them and is dead code
-	// in production — confirmed empirically: reject a local fragment, corrupt
-	// the approvals store, re-materialize, and it silently un-rejects.
-	// readableRecords is an OPTIONAL capability, not
-	// part of the ReviewRecords contract: a test fake that doesn't implement
-	// it (fakeRecords) is assumed readable and skips this gate entirely —
-	// only a REAL countersignRecords (built here or injected by a caller
-	// that built one the same way) is ever asked.
-	if rr, ok := records.(readableRecords); ok {
-		if err := rr.readable(); err != nil {
-			// An approvals store we cannot read may hold REJECTIONS we would
-			// otherwise miss — deny everything rather than silently reopen the
-			// gate, ahead of every other step (including the local/builtin
-			// exemptions below). Fatal-class in strict mode (a deny-all
-			// session is not the session the user set up) — mirrors the
-			// deleted ledger's own store-open check (getTrustStore).
-			//
-			// FailOnce, not Fail: this gate now runs on EVERY item (it moved
-			// out of the records==nil preamble, which fired at most once per
-			// build, onto the per-item production path). A whole session's
-			// worth of items hits the SAME unreadable store, so the finding
-			// and its warning line are identical every time — FailOnce
-			// collapses them to a single abort-listing entry per checkpoint
-			// window instead of one per item (a 13-item materialize would
-			// otherwise print the same fatal line 13 times).
-			strictness.FailOnce(strictness.ClassTrust, "fix or remove the corrupted approvals store, then re-review (ctxloom review)",
-				"approvals store unreadable, denying all items: %v", err)
-			return decide(trust.Deny, trust.SourcePending), nil
-		}
-	}
-	retraction := req.Retraction
-	if retraction == nil {
-		retraction = buildLockfileRetraction(cfg, req.FS)
-	}
-
-	// 1. REJECTED. Checked FIRST, ahead of every allow — including the trusted
-	//    signer and the builtin. Rejection is supreme.
-	if records.Rejected(req.Ref, req.Payload) {
-		return decide(trust.Deny, trust.SourceRejected), nil
-	}
-	// 2a. RETRACTION STATE UNREADABLE — the fail-closed arm of step 2.
-	//     A lockfile that exists but cannot be parsed does not
-	//     say "nothing is retracted"; it says nothing at all. Treating that
-	//     silence as "nothing" is failing OPEN on the one control whose whole
-	//     purpose is "this content turned out to be harmful", so a retraction
-	//     that once withdrew a bundle would silently un-withdraw it. Assume
-	//     instead that whatever was retracted STAYS retracted: withhold.
-	//
-	//     SCOPED to refs the lockfile could ever have spoken about. Unlike the
-	//     approvals store — which holds REJECTIONS, and a local fragment can
-	//     be rejected, which is why that gate denies everything — the lockfile
-	//     records only REMOTE bundle entries. A local or builtin ref has no
-	//     lockfile entry by construction, so an unreadable lockfile conceals
-	//     nothing about it; denying it would be withholding on the basis of
-	//     state that provably could not exist, and would break a project whose
-	//     content is entirely first-party. retractable() is the single
-	//     predicate shared with lockfileRetraction.Retracted, so the exemption
-	//     and the gate can never drift apart.
-	//
-	//     BELOW step 1, not above it: rejection is supreme, and a rejected
-	//     item should be reported as "rejected" — the truthful, more specific
-	//     answer the user acts on — rather than as the generic fail-closed
-	//     one. Both deny; only the Source differs. (The approvals gate sits
-	//     ABOVE step 1 because an unreadable approvals store is what makes
-	//     rejection itself unknowable; here rejection is perfectly readable.)
-	//
-	//     SourcePending, matching the corrupt-approvals-store deny and
-	//     trust.SourcePending's own documented role as "the terminal
-	//     fail-closed source (unreadable store or registry...)". Deliberately
-	//     NOT SourceRetracted: nothing here establishes that the publisher
-	//     actually withdrew anything, and SourceRetracted renders as the
-	//     permanent StateRejected — claiming a retraction we cannot read would
-	//     be as dishonest as ignoring one.
-	if rr, ok := retraction.(readableRetraction); ok && retractable(req.Ref) {
-		if err := rr.retractionReadable(); err != nil {
-			// FailOnce, not Fail, for the same reason the approvals gate uses
-			// it: this runs per ITEM, and a whole session's worth of items
-			// hits the same broken file with a byte-identical message.
-			strictness.FailOnce(strictness.ClassTrust,
-				"delete "+rr.lockfilePath()+" and rebuild it (ctxloom remote lock) — the file is left intact, so its holds and retractions can be read by hand first",
-				"cannot establish retraction state: %s is unreadable (%v) — withholding remote content rather than treating a withdrawn bundle as trustworthy",
-				rr.lockfilePath(), err)
-			return decide(trust.Deny, trust.SourcePending), nil
-		}
-	}
-	// 2. RETRACTED. A peer of step 1: the publisher, not a local reviewer,
-	//    withdrew this bundle. Checked just as early so it too beats every
-	//    exemption below (local/builtin never actually carry a retraction
-	//    record — see buildLockfileRetraction — but the ordering is principled
-	//    the same way rejection's is: nothing may short-circuit ahead of it).
-	if retracted, reason := retraction.Retracted(req.Ref); retracted {
-		// SourceRetracted is the one source carrying a display-only
-		// elaboration (the publisher-stated reason).
-		return &EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceRetracted, Detail: reason}, nil
-	}
-	// 3/4/4b. FIRST PARTY: content that reached this machine WITHOUT crossing an
-	//    intermediary. One posture, three names — and the names are the whole
-	//    reason this is not a single arm:
-	//
-	//      3.  LOCAL: authored in this project. "You wrote it here, you trust
-	//          it; a clone of it is not yours" — a seeded or cloned bundle is
-	//          read by the repofs reader, which reports REMOTE posture, so a
-	//          copy of remote content never lands here.
-	//      4.  BUILTIN: compiled into this binary. Authenticated BY the binary —
-	//          trusting ctxloom trusts what it ships — and deliberately NOT
-	//          signed (signing bytes embedded in the binary doing the verifying
-	//          is circular).
-	//      4b. COMPANION: a loadout an installed companion binary advertised
-	//          about itself. Local-equivalent for a reason that is about ORDER
-	//          OF OPERATIONS, not deference: ctxloom reads a loadout by
-	//          EXECUTING the binary, so by the time this content exists that
-	//          binary has already run arbitrary code as the user. Gating the
-	//          CONTENT afterwards buys ~nothing and costs a review prompt for a
-	//          tool the user deliberately installed. The control point that DOES
-	//          have purchase is exec, and that is where the human decision lives
-	//          (config.AdmitCompanions — trust-on-first-use keyed on absolute
-	//          path + binary hash, first-party names exempt only from ctxloom's
-	//          own install directory). A companion's SIGNATURE does not enter
-	//          this decision in either direction: a publisher signature protects
-	//          bytes from an intermediary and a loadout has none, so a signature
-	//          that fails to verify there is a stale release, not an attack.
-	//
-	//    It sits BELOW rejection and retraction, deliberately, so step 1 still
-	//    reaches every one of the three — a user can reject a builtin — and it
-	//    does not escape the unreadable-approvals gate above, which denies every
-	//    item including these.
-	//
-	//    A contradictory pair (local posture, remote provenance) matches no arm
-	//    and falls through to the signature steps: fail-closed, never a fourth
-	//    exemption nobody wrote.
-	if req.Posture == bundles.TrustCtxLocal {
-		switch req.Provenance {
-		case bundles.ProvenanceProject:
-			return decide(trust.Allow, trust.SourceLocal), nil
-		case bundles.ProvenanceBuiltin:
-			return decide(trust.Allow, trust.SourceBuiltin), nil
-		case bundles.ProvenanceCompanion:
-			return decide(trust.Allow, trust.SourceCompanion), nil
-		}
-	}
-	// 5. TRUSTED SIGNER: a key this machine trusts for the PUBLISH namespace made
-	//    a signature over the exact bytes of the document this item came from,
-	//    and that signature verified — at load, before any YAML parse.
-	//
-	//    A non-empty Signer means exactly that and cannot mean anything else:
-	//    it is stamped only by signing.VerifyPublisher's return value, which
-	//    resolves the principal from allowed_signers (never from any advisory
-	//    field in the content) and only after checking the key is trusted FOR
-	//    THIS NAMESPACE. A bundle cannot declare its own signer; see
-	//    bundles.Bundle.signer.
-	//
-	//    trust.BuiltinSigner is excluded explicitly. It is a SYNTHETIC identity,
-	//    not a cryptographic one — nothing about a builtin is verified beyond
-	//    "it shipped inside this binary", which is what step 3 above says. A
-	//    builtin is allowed as a BUILTIN, at its own step, and never as a
-	//    "trusted publisher". Without this guard, any future path that stamped
-	//    the synthetic token onto a non-builtin bundle would silently launder it
-	//    into a verified publisher, so the guard is here rather than in the
-	//    caller's discipline.
-	if req.Signer != "" && req.Signer != trust.BuiltinSigner {
-		return decide(trust.Allow, trust.SourceTrustedSigner), nil
-	}
-	// 6. APPROVED: a human reviewed exactly these bytes, at this ref, in this
-	//    form. Any change to the exposed bytes drops the approval and returns the
-	//    item to pending.
-	if records.Approved(req.Ref, req.Payload, req.Form) {
-		return decide(trust.Allow, trust.SourceAccepted), nil
-	}
-	// 7. Terminal fail-closed default: pending, withheld until reviewed. This is
-	//    where unsigned content lands, where signed-but-untrusted-key content
-	//    lands, and where content whose bytes changed lands.
-	return decide(trust.Deny, trust.SourcePending), nil
-}
-
-func decide(d trust.Decision, s trust.Source) *EffectiveTrustResult {
-	return &EffectiveTrustResult{Decision: d, Source: s}
-}
-
-// lockfileRetraction is the default RetractionRecords: it reads retraction
-// status straight off the active lockfile's bundle entries, which is where
-// operations.syncItem records what CheckRetracted found the last time the
-// network was consulted (see remote.LockEntry.Retracted). It is built fresh
-// per EffectiveTrust call when no Retraction is injected — the same
-// lazy-default shape as buildCountersignRecords, and just as safe to build
-// repeatedly: a missing lockfile degrades to "nothing retracted" (Load()
-// returns an empty Lockfile rather than an error), never a crash and never a
-// spurious deny.
-//
-// unreadable is the fail-closed arm: non-nil when the lockfile
-// EXISTS but could not be read or parsed, which means retraction state is
-// UNKNOWN rather than empty. See readableRetraction and step 2's gate.
-type lockfileRetraction struct {
-	lock       *remote.Lockfile
-	unreadable error
-	// path is the lockfile the failure refers to, carried so the diagnostic
-	// can name the exact file the user has to fix. Nothing the user typed
-	// mentions lock.yaml, so an unnamed file is an undiagnosable abort.
-	path string
-}
-
-// retractionReadable implements readableRetraction: nil when retraction state
-// was established (including the legitimate "no lockfile at all" case),
-// non-nil when it could not be.
-func (l *lockfileRetraction) retractionReadable() error {
-	if l == nil {
-		return nil
-	}
-	return l.unreadable
-}
-
-// lockfilePath reports the file the unreadable error refers to (for the
-// diagnostic); empty when there is nothing to name.
-func (l *lockfileRetraction) lockfilePath() string {
-	if l == nil {
-		return ""
-	}
-	return l.path
-}
-
-// buildLockfileRetraction loads cfg's active lockfile and wraps it as a
-// RetractionRecords.
-//
-// A load failure is NOT degraded to an empty lockfile. An ABSENT lockfile is
-// not a failure at all — a project with no pinned dependencies legitimately
-// has nothing retracted, and remote.LockfileManager.Load already turns
-// os.IsNotExist into an empty lockfile with a nil error, so that case never
-// reaches the branch below. What DOES reach it is a lockfile that exists and
-// cannot be read or parsed, and that means retraction state is UNKNOWN, which
-// is not the same statement as "nothing is retracted" — see the gate in
-// EffectiveTrust for why the difference is the whole defect.
-func buildLockfileRetraction(cfg *config.Config, fs afero.Fs) RetractionRecords {
-	if cfg == nil {
-		// A nil cfg means there is no project to read a lockfile FROM (every
-		// production call site threads a real cfg — see contentGate/TrustStamper
-		// construction; nil only ever appears in a decision-function unit test
-		// exercising the cascade directly). Building a default here would fall
-		// back to getFS(nil)'s real OS filesystem and read whatever lock.yaml
-		// happens to sit under the test process's cwd — exactly the un-hermetic
-		// disk touch buildCountersignRecords' own nil-cfg tests take pains to
-		// avoid (HOME override + injected FS). Degrading to "never retracted"
-		// is safe: a real caller always has cfg, so this branch never masks a
-		// production retraction.
-		return &lockfileRetraction{lock: &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}}
-	}
-	baseDir := getBaseDir(cfg)
-	lm := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(getFS(fs)))
-	lockfile, err := lm.Load()
-	if err != nil {
-		// FAIL CLOSED. The read has no safe answer to give, so it refuses to
-		// invent one: the empty lockfile substituted here is a placeholder
-		// that the step-2 gate never actually consults, kept only so
-		// Retracted() stays nil-safe for any caller that skips the gate.
-		return &lockfileRetraction{
-			lock:       &remote.Lockfile{Bundles: map[string]remote.LockEntry{}},
-			unreadable: err,
-			path:       lm.Path(),
-		}
-	}
-	return &lockfileRetraction{lock: lockfile}
-}
-
-// lockfileKeyForRef reconstructs a bundle ref's lockfile map key
-// ("<url>@bundles/<path>") from a trust.Ref — the exact inverse of what
-// remote.ParseReference derives a trust.Ref's RepoURL/Bundle FROM, and the
-// exact string
-// bundles.Bundle.contentSourceRef carries as the gate's "source" for a cloned
-// bundle (loader.go's gateContent). All three — the lockfile key, the
-// trust.Ref, and the gated content's source ref — are the same identity
-// spelled three ways; this is where the spellings meet back up.
-func lockfileKeyForRef(ref trust.Ref) string {
-	return ref.RepoURL + "@" + remote.ItemTypeBundle.DirName() + "/" + ref.Bundle
-}
-
-// retractable reports whether the lockfile could ever record a retraction FOR
-// this ref. Retraction is a REMOTE-manifest concept: local and builtin items
-// have no remote lockfile entry (no RepoURL) and are never retracted by
-// construction.
-//
-// COMPANION refs are deliberately still IN scope here even though they are
-// now local-equivalent at the decision function's step 4b, and the asymmetry
-// is intentional. A companion ref carries a non-empty RepoURL (the fixed
-// ctxloom:companion token), so it reaches this gate, and nothing ever writes
-// a lockfile entry under that token — which means step 2a can only ever make
-// a companion item MORE withheld when lock.yaml is unreadable, never less.
-// Exempting them would be a relaxation of a fail-closed gate that nobody
-// asked for, so the scope stays as it was; it is also, empirically, what
-// tests/acceptance/features/trust_surface.feature's unreadable-lockfile
-// scenario observes on a machine with real companions installed.
-//
-// This is the ONE predicate defining that scope, deliberately shared by the
-// two places that must agree on it: the Retracted() exemption below, and
-// EffectiveTrust's step-2a unreadable gate. If they ever disagreed, either a
-// retractable ref would slip past the fail-closed gate, or a first-party ref
-// would be withheld over state that could not have existed.
-func retractable(ref trust.Ref) bool {
-	return !ref.IsLocal && !ref.IsBuiltin && ref.RepoURL != ""
-}
-
-// Retracted implements RetractionRecords over the wrapped lockfile snapshot.
-// Local and builtin items never have a remote lockfile entry (no RepoURL) and
-// are never retracted by construction — see retractable.
-func (l *lockfileRetraction) Retracted(ref trust.Ref) (bool, string) {
-	if l == nil || l.lock == nil || !retractable(ref) {
-		return false, ""
-	}
-	entry, ok := l.lock.GetEntry(remote.ItemTypeBundle, lockfileKeyForRef(ref))
-	if !ok || !entry.Retracted {
-		return false, ""
-	}
-	return true, entry.RetractedReason
-}
-
-// --- Mutations (the plumbing under `ctxloom bundle trust|reject|forget`) ----
-
 // resolveCountersignStore picks the physical countersignature store a
 // mutation writes to: the committable PROJECT store when project is true,
 // else the personal USER store (spec §9.2). Injected stores (test seams) win
@@ -642,7 +103,7 @@ func resolveCountersignStore(cfg *config.Config, fs afero.Fs, project bool, inje
 	if injectedUser != nil {
 		return injectedUser, "user", nil
 	}
-	home, herr := homeApprovalsDir()
+	home, herr := countersign.HomeDir()
 	if herr != nil {
 		return nil, "", fmt.Errorf("cannot resolve the user approvals store: %w", herr)
 	}
@@ -860,7 +321,7 @@ func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustRes
 		return nil, err
 	}
 
-	refStr, err := CountersignRef(tRef)
+	refStr, err := countersign.CountersignRef(tRef)
 	if err != nil {
 		return nil, fmt.Errorf("cannot approve %q: %w", req.Ref, err)
 	}
@@ -980,7 +441,7 @@ func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistRes
 		return nil, err
 	}
 
-	refStr, err := CountersignRef(tRef)
+	refStr, err := countersign.CountersignRef(tRef)
 	if err != nil {
 		return nil, fmt.Errorf("cannot reject %q: %w", req.Ref, err)
 	}
@@ -1149,7 +610,7 @@ type itemAttestation struct {
 // itemAttestations resolves every countersignable materialization of an item:
 // its payload bytes (computeItemPayloadPair — the single definition of "the
 // bytes of item X in form F") each paired with the attestation form derived from
-// the item's KIND (attestationFormFor). It is the role-aware entry point both
+// the item's KIND (countersign.AttestationFormFor). It is the role-aware entry point both
 // write paths use, so an approval or a rejection can never be recorded under a
 // kind-blind form.
 //
@@ -1172,7 +633,7 @@ func itemAttestations(cat bundles.Catalog, tRef trust.Ref, key trust.BundleKey) 
 		if len(m.payload) == 0 {
 			continue
 		}
-		attested, ferr := attestationFormFor(tRef.Kind, m.layout)
+		attested, ferr := countersign.AttestationFormFor(tRef.Kind, m.layout)
 		if ferr != nil {
 			return nil, "", ferr
 		}
@@ -1219,22 +680,22 @@ func computeItemPayload(cfg *config.Config, cat bundles.Catalog, tRef trust.Ref,
 // fail-closed DENY (never "trusted"), so a listing can never crash and a hash
 // failure can never produce a trusted stamp. Not safe for concurrent use.
 type TrustStamper struct {
-	cfg     *config.Config
-	loader  *bundles.Loader
-	records ReviewRecords
-	fs      afero.Fs
+	cfg    *config.Config
+	loader *bundles.Loader
+	gate   bundles.Authorizer
+	fs     afero.Fs
 }
 
 // TrustStamperOption injects a pre-built dependency, mirroring the loader
 // option style. Tests drive the stamper over an in-memory store/loader;
-// production builds them from cfg.
+// production stamps with the generation's own gate.
 type TrustStamperOption func(*TrustStamper)
 
-// WithStampRecords injects a pre-built review-record store, bypassing the
-// default countersignature-store construction. Production
-// leaves this unset; tests inject a fixture built over an in-memory fs.
-func WithStampRecords(r ReviewRecords) TrustStamperOption {
-	return func(ts *TrustStamper) { ts.records = r }
+// WithStampRecords stamps with a gate built over r instead of the
+// generation's: the review records a caller just wrote (a mutation that
+// reports the decision it recorded), or a fixture over an in-memory fs.
+func WithStampRecords(r composite.ReviewRecords) TrustStamperOption {
+	return func(ts *TrustStamper) { ts.gate = trustOverRecords(ts.cfg, r, ts.fs).Authorizer() }
 }
 
 // WithStampLoader injects a pre-built bundle loader (it must resolve the same
@@ -1243,28 +704,50 @@ func WithStampLoader(l *bundles.Loader) TrustStamperOption {
 	return func(ts *TrustStamper) { ts.loader = l }
 }
 
-// WithStampFS injects the filesystem used to build the records store when it
-// is not supplied directly.
+// WithStampFS injects the filesystem the lockfile retraction is read from
+// when WithStampRecords builds its own gate.
 func WithStampFS(fs afero.Fs) TrustStamperOption {
 	return func(ts *TrustStamper) { ts.fs = fs }
 }
 
-// NewTrustStamper builds a stamper for cfg. It never errors: the
-// countersignature stores degrade to "no candidates" rather than failing to
-// open (unlike the deleted hash-pair trust.yaml, there is no single file whose
-// corruption can deny an entire listing).
+// NewTrustStamper builds a stamper for cfg. It never errors: it decides with
+// the generation's Trust (cfg.ExecutableTrustGate), and a Config nobody bound
+// stamps every item DENY (bundles.Decide's nil-gate withhold), never trusted.
 func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamper {
 	ts := &TrustStamper{cfg: cfg}
+	if cfg != nil {
+		ts.gate = cfg.ExecutableTrustGate()
+		ts.fs = cfg.FS()
+	}
 	for _, o := range opts {
 		o(ts)
 	}
 	if ts.loader == nil && cfg != nil {
 		ts.loader = bundleLoader(cfg)
 	}
-	if ts.records == nil {
-		ts.records = newCountersignRecords(cfg, ts.fs)
-	}
 	return ts
+}
+
+// trustOverRecords is the ONE gate shape an operation builds when it must
+// decide with review records other than the generation's — the ones it just
+// wrote, or a caller's injected stores: the generation's trust root and
+// lockfile, over r.
+func trustOverRecords(cfg *config.Config, r composite.ReviewRecords, fs afero.Fs) composite.Trust {
+	root := reviewTrustRoot(cfg, nil)
+	retraction := remote.NewLockfileRetraction(remote.NewLockfileManager(getBaseDir(cfg), remote.WithLockfileFS(getFS(fs))))
+	tr, err := composite.NewTrust(rootPort{root}, r, retraction)
+	if err != nil {
+		panic(err) // every port is supplied above
+	}
+	return tr
+}
+
+// rootPort presents a signing.TrustRoot as the core-owned port.
+type rootPort struct{ root signing.TrustRoot }
+
+func (r rootPort) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) composite.SignerDecision {
+	d := r.root.TrustedForNamespace(key, ns, now)
+	return composite.SignerDecision{Trusted: d.Trusted, Principal: d.Principal}
 }
 
 // ForRef stamps a fragment/prompt/mcp item addressed by its full list ref
@@ -1292,11 +775,11 @@ func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
 		return pending
 	}
 	tRef := trust.RefFromBundleRef(br)
-	payload, form, signer, err := computeItemPayload(ts.cfg, ts.loader.Catalog(), tRef, br.BundleIdentity())
+	payload, form, _, err := computeItemPayload(ts.cfg, ts.loader.Catalog(), tRef, br.BundleIdentity())
 	if err != nil {
 		return pending
 	}
-	return ts.resolve(tRef, read, payload, string(form), signer)
+	return ts.resolve(tRef, read, payload, form)
 }
 
 // ForHook stamps a bundle hook addressed by its (source, HookEntry) identity,
@@ -1331,7 +814,7 @@ func (ts *TrustStamper) ForHook(source string, entry bundles.HookEntry) Effectiv
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
 	tRef := trust.RefFromBundleRef(br)
-	return ts.resolve(tRef, read, payload, string(bundles.FormRaw), ts.signerFor(source))
+	return ts.resolve(tRef, read, payload, bundles.FormRaw)
 }
 
 // readAsk returns the READ of the bundle a listing ASKED for by name — the
@@ -1350,21 +833,6 @@ func (ts *TrustStamper) readAsk(source string) bundles.BundleRead {
 	return read
 }
 
-// signerFor returns the verified publisher identity of the bundle a listing
-// asked for by name, or "" when it is unsigned or cannot be loaded. Fail-safe:
-// an unresolvable bundle yields no signer, which means MORE review, never more
-// exposure.
-func (ts *TrustStamper) signerFor(source string) string {
-	if ts.loader == nil || source == "" {
-		return ""
-	}
-	bundle, err := ts.loader.Load(source)
-	if err != nil {
-		return ""
-	}
-	return bundle.Signer()
-}
-
 // resolve runs the decision function with the stamper's shared records store,
 // so no item re-reads the countersignature stores. It does NOT make the call
 // I/O-free: Retraction is left unset, so EffectiveTrust reads and parses the
@@ -1372,19 +840,38 @@ func (ts *TrustStamper) signerFor(source string) string {
 // trust_perkitem_io_test.go). Sharing that too would fix the sample point of
 // retraction state for a whole listing, which is a trust decision, not a
 // caching one.
-func (ts *TrustStamper) resolve(ref trust.Ref, read bundles.BundleRead, payload []byte, form, signer string) EffectiveTrustResult {
-	res, err := EffectiveTrust(ts.cfg, EffectiveTrustRequest{
-		Ref:        ref,
-		Payload:    payload,
-		Form:       form,
-		Signer:     signer,
-		Posture:    read.TrustCtx(),
-		Provenance: read.Provenance,
-		Records:    ts.records,
-		FS:         ts.fs,
-	})
-	if err != nil || res == nil {
+func (ts *TrustStamper) resolve(ref trust.Ref, read bundles.BundleRead, payload []byte, form bundles.ContentForm) EffectiveTrustResult {
+	if ts.gate == nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	return *res
+	v := ts.gate.Admit(bundles.Exposure{Read: read, Ref: ref, RefStr: ref.Key(), Bytes: payload, Form: form})
+	return resultOf(v)
+}
+
+// resultOf projects a gate's Verdict onto the stamped result: the Source is
+// the cascade STEP the Reason names, and Detail travels as the verdict's.
+func resultOf(v bundles.Verdict) EffectiveTrustResult {
+	res := EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending, Detail: v.Detail}
+	if v.Allow {
+		res.Decision = trust.Allow
+	}
+	switch v.Reason {
+	case bundles.ReasonRejected:
+		res.Source = trust.SourceRejected
+	case bundles.ReasonRetracted:
+		res.Source = trust.SourceRetracted
+	case bundles.ReasonLocal, bundles.ReasonStaleLocalSignature:
+		res.Source = trust.SourceLocal
+	case bundles.ReasonBuiltin:
+		res.Source = trust.SourceBuiltin
+	case bundles.ReasonCompanion:
+		res.Source = trust.SourceCompanion
+	case bundles.ReasonTrustedSigner:
+		res.Source = trust.SourceTrustedSigner
+	case bundles.ReasonApproved:
+		res.Source = trust.SourceAccepted
+	case bundles.ReasonUngated:
+		res.Source = trust.SourceLocal
+	}
+	return res
 }

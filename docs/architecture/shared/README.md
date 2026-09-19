@@ -24,7 +24,7 @@ The largest package in the layer (26 internal importers). It has no single respo
 | Page | Purpose |
 |---|---|
 | [`confload.md`](confload.md) | The config precedence chain (home file < project file < env < `--config-set`) shared by every ctxloom-family binary, plus overlay merge and path resolution. |
-| [`strictness.md`](strictness.md) | The fail-loudly policy layer: classified `Finding`s at startup chokes and the process-wide `--degraded` switch that reverts them to warn-and-continue. |
+| [`strictness.md`](strictness.md) | The fail-loudly policy layer and `report`: typed findings a core component returns or reports, the ledger the startup gates read, and `--degraded` as a `Mode` VALUE the composition root builds and hands down. |
 
 ## Task tracking — `internal/shared/tasks/*`
 

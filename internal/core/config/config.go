@@ -314,6 +314,10 @@ type Config struct {
 	bundleLoaderMu sync.Mutex
 	bundleLoader   *bundles.Loader
 
+	// catalog is the generation's resolved bundle catalog, bound by the Owner
+	// (bindGeneration) before the Snapshot carrying this Config is published.
+	catalog *bundles.Catalog
+
 	// companionProbe overrides companion-loadout discovery; nil means the real
 	// ProbeCompanionLoadouts. The real probe execs whatever companion binaries
 	// happen to be on the HOST's PATH, so any test that sets AppPaths (the only

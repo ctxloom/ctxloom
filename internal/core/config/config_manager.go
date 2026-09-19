@@ -2,14 +2,10 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
 
 // lockFileMode and lockDirMode are the modes the config-update lock's
@@ -102,36 +98,13 @@ func (m *Manager) Update(fn func(*Draft) error) error {
 		return fmt.Errorf("resolve config path: %w", err)
 	}
 
-	// flock.Flock.Lock is BLOCKING, so an error from it is a persistent
-	// environmental failure, never transient contention. Proceeding unlocked
-	// on that failure is exactly backwards: it discards the read-modify-write
-	// serialization this method exists to provide, silently, on every
-	// subsequent Update call. Fail closed.
-	if !injectedFS {
-		// ProjectPathFor, not PathFor: config.yaml lives in the project's
-		// .ctxloom tree, so its sidecar belongs under state/locks rather than
-		// beside it, where `.ctxloom/config.yaml.lock` showed up untracked in
-		// every freshly initialized project. The derivation is
-		// internal/core/paths', whole — a lock path composed here is a second
-		// opinion about the same resource, which is the one failure that
-		// package cannot detect.
-		lockPath, lerr := paths.ProjectPathFor(configPath)
-		if lerr != nil {
-			return fmt.Errorf("config: locating update lock for %s: %w", configPath, lerr)
-		}
-		if lerr := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); lerr != nil {
-			return fmt.Errorf("config: preparing update lock directory for %s: %w", configPath, lerr)
-		}
-		fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
-		stop := lockwait.Watch(lockPath)
-		lerr = fl.Lock()
-		stop()
-		if lerr != nil {
-			return fmt.Errorf("config: acquiring update lock for %s: %w", configPath, lerr)
-		}
-		defer func() { _ = fl.Unlock() }()
-	}
+	return withUpdateLock(injectedFS, configPath, func() error {
+		return m.updateLocked(fs, configPath, fn)
+	})
+}
 
+// updateLocked is Update's transaction body, run under the file lock.
+func (m *Manager) updateLocked(fs afero.Fs, configPath string, fn func(*Draft) error) error {
 	// Re-read FRESH now that the lock is held: this is the "read" half of
 	// read-modify-write, and it is what makes this safe against a writer
 	// that finished just before we acquired the lock — the path resolution

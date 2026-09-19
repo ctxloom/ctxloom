@@ -3,6 +3,7 @@ package config_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // fakeSources is a config.Sources whose every port is a closure, with a count
@@ -132,8 +134,9 @@ func TestOwner_Reload_TrustIsBuiltPerGenerationFromTrustPorts(t *testing.T) {
 
 func TestOwner_Reload_CatalogIsResolvedFromReaders(t *testing.T) {
 	memfs := afero.NewMemMapFs()
-	require.NoError(t, memfs.MkdirAll("/bundles/only", 0o755))
-	require.NoError(t, afero.WriteFile(memfs, "/bundles/only/bundle.yaml", []byte("version: \"1.0\"\n"), 0o644))
+	require.NoError(t, afero.WriteFile(memfs,
+		filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), "only.yaml"),
+		[]byte("version: \"1.0\"\n"), 0o644))
 
 	src := sequenceSources(fixtureWithDefault("a"))
 	src.readers = func(*config.Config) []bundles.Reader {
@@ -191,7 +194,12 @@ func TestOwner_Update_WritesThroughAndReturnsNextGeneration(t *testing.T) {
 }
 
 func TestOwner_Update_FnError_AbandonsWriteAndKeepsGeneration(t *testing.T) {
-	src := sequenceSources(fixtureWithDefault("first"))
+	memfs := afero.NewMemMapFs()
+	const appDir = "/proj/.ctxloom"
+	require.NoError(t, afero.WriteFile(memfs, appDir+"/config.yaml", []byte("default_agent: first\n"), 0o644))
+	cfg := config.NewFixture(config.Fixture{DefaultAgent: "first", AppDir: appDir, AppPaths: []string{appDir}})
+	cfg.SetFS(memfs)
+	src := sequenceSources(cfg)
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
 	before := owner.Current()
@@ -200,4 +208,7 @@ func TestOwner_Update_FnError_AbandonsWriteAndKeepsGeneration(t *testing.T) {
 	_, err = owner.Update(context.Background(), func(*config.Draft) error { return abandon })
 	require.ErrorIs(t, err, abandon)
 	assert.Same(t, before, owner.Current(), "an abandoned Update publishes nothing")
+	data, err := afero.ReadFile(memfs, appDir+"/config.yaml")
+	require.NoError(t, err)
+	assert.Equal(t, "default_agent: first\n", string(data), "an abandoned Update writes nothing")
 }

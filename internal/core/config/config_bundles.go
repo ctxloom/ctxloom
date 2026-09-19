@@ -53,6 +53,24 @@ func (c *Config) SetExecutableTrustGate(gate bundles.Authorizer) {
 	c.execGate = gate
 }
 
+// bindGeneration attaches the generation's resolved Catalog and gate to the
+// Config the Owner is about to publish, so a consumer reaching this
+// generation through its *Config sees exactly what the Snapshot carries.
+// Called once per generation, before publication; never on a published value.
+func (c *Config) bindGeneration(cat bundles.Catalog, gate bundles.Authorizer) {
+	c.catalog = &cat
+	c.execGate = gate
+}
+
+// Catalog returns the generation's bundle catalog when the Owner bound one,
+// or a catalog resolved from this Config's own readers otherwise.
+func (c *Config) Catalog() bundles.Catalog {
+	if c.catalog != nil {
+		return *c.catalog
+	}
+	return c.BundleLoader().Catalog()
+}
+
 // ExecutableTrustGate returns the gate the bundle executable surfaces decide
 // with — never nil, because a nil authorizer withholds everything downstream
 // (bundles.Decide) and a management path asking for a config's gate is not a

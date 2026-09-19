@@ -104,7 +104,7 @@ func newSessionFullRowForTest(harp, summary, essence, essencePath string) Sessio
 // clifmt.Render, never touching pagerWriter — see the "unpaged" name).
 func TestEmitSessionRows_FullJSON_IsStructuredAndUnpaged(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)
@@ -139,7 +139,7 @@ func TestEmitSessionRows_FullJSON_IsStructuredAndUnpaged(t *testing.T) {
 // --full > file` and CI test runs working.
 func TestEmitSessionRows_FullText_SkipsPagerWhenNotTTY(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)
@@ -170,7 +170,7 @@ func TestEmitSessionRows_FullText_SkipsPagerWhenNotTTY(t *testing.T) {
 // lightweight path, but the surviving row carries the complete essence body.
 func TestEmitSessionRows_QueryFull_MatchesAndCarriesBody(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	hit, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)
@@ -245,7 +245,7 @@ func TestNewSessionFullRow_EssenceAndPathAgree(t *testing.T) {
 // test is what goes red when it is fixed.
 func TestEmitSessionRows_FullMarkdown_TakesTheHumanBranchUnlikeEmit(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)

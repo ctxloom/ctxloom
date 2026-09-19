@@ -131,7 +131,7 @@ func TestLocateTranscript_AbsentStore(t *testing.T) {
 func TestFind_FillsTranscriptByLocation(t *testing.T) {
 	home := testsupport.Isolate(t)
 
-	mgr, err := Open()
+	mgr, err := Open(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestFind_FillsTranscriptByLocation(t *testing.T) {
 func TestFind_KeepsLiveHostBinding(t *testing.T) {
 	home := testsupport.Isolate(t)
 
-	mgr, err := Open()
+	mgr, err := Open(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

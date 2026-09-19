@@ -24,7 +24,7 @@ func TestSessionStoreContract(t *testing.T) {
 			// The store IS the HOME-rooted session tree, so HOME must be
 			// isolated or every write below lands in the real session store.
 			requireIsolatedSessionRoot(t)
-			m, err := Open()
+			m, err := Open(nil)
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}
@@ -134,7 +134,7 @@ func TestSessionStoreContract_FindPopulatesCanonicalTranscript(t *testing.T) {
 			// The store IS the HOME-rooted session tree, so HOME must be
 			// isolated or every write below lands in the real session store.
 			requireIsolatedSessionRoot(t)
-			m, err := Open()
+			m, err := Open(nil)
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}
@@ -196,7 +196,7 @@ func TestSessionStoreContract_RotationLineage(t *testing.T) {
 			// The store IS the HOME-rooted session tree, so HOME must be
 			// isolated or every write below lands in the real session store.
 			requireIsolatedSessionRoot(t)
-			m, err := Open()
+			m, err := Open(nil)
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}
@@ -268,7 +268,7 @@ func TestSessionStoreContract_AppendRotations(t *testing.T) {
 			// The store IS the HOME-rooted session tree, so HOME must be
 			// isolated or every write below lands in the real session store.
 			requireIsolatedSessionRoot(t)
-			m, err := Open()
+			m, err := Open(nil)
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}
@@ -341,7 +341,7 @@ func TestSessionStoreContract_RenameRefusesUnsafeNames(t *testing.T) {
 			// The store IS the HOME-rooted session tree, so HOME must be
 			// isolated or every write below lands in the real session store.
 			requireIsolatedSessionRoot(t)
-			m, err := Open()
+			m, err := Open(nil)
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}

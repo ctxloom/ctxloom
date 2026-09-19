@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"io"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
@@ -170,7 +171,7 @@ func ResolveSessionSource(cfg *config.Config, backendName, workDir string) (pb.S
 	if backends.NoLegacyHistoryReason(backendName) == "" {
 		legacy = pb.NewSessionReader(backendName, 0)
 	}
-	store, err := sessions.Open()
+	store, err := sessions.Open(strictness.Sink("ctxloom"))
 	if err != nil {
 		clidiag.Warn("ctxloom", "session index open failed, reading legacy transcripts only: %v", err)
 		if legacy != nil {

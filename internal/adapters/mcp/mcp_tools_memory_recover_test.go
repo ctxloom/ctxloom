@@ -41,7 +41,7 @@ func claudeVendorFixture() string {
 func TestLoadOrDistillSession_ConvertsVendorTranscriptOnDemand(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
@@ -88,7 +88,7 @@ func TestLoadOrDistillSession_ConvertsVendorTranscriptOnDemand(t *testing.T) {
 func TestLoadOrDistillSession_LiveRefreshesAnAlreadyConvertedTranscript(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
@@ -157,7 +157,7 @@ func TestLoadOrDistillSession_LiveRefreshesAnAlreadyConvertedTranscript(t *testi
 func TestLoadOrDistillSession_LiveRefreshesWhenAddressedByHarp(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
@@ -224,7 +224,7 @@ func TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache(t *testing.T
 	}
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
@@ -271,7 +271,7 @@ func TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache(t *testing.T
 func TestSessionHarpForID(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	// The project must be the working directory: operations.HarpForSession
 	// resolves the backend-native spelling through the PROJECT-SCOPED listing,
@@ -312,7 +312,7 @@ func TestSessionHarpForID(t *testing.T) {
 func TestSessionHarpForID_ResolvesRotatedAwaySessionID(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
@@ -343,7 +343,7 @@ func TestSessionHarpForID_ResolvesRotatedAwaySessionID(t *testing.T) {
 func TestLoadOrDistillSession_ArchivedAlsoConvertsOnDemand(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
@@ -374,7 +374,7 @@ func TestLoadOrDistillSession_ArchivedAlsoConvertsOnDemand(t *testing.T) {
 func TestLoadOrDistillSession_ArchivedDoesNotRewriteAnExistingTranscript(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
@@ -423,7 +423,7 @@ func TestLoadOrDistillSession_ArchivedDoesNotRewriteAnExistingTranscript(t *test
 func TestLoadOrDistillSession_NoCaptureMessageDoesNotSendTheUserBackToBackfill(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(t.TempDir(), "claude-code")
 	require.NoError(t, err)

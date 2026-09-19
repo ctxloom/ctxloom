@@ -126,11 +126,9 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/refuri",
 			"internal/shared/schema",
 			"internal/shared/liveness",
+			"internal/shared/report",
 		},
 		Allowed: map[string]string{
-			// core/sessions
-			"internal/core/sessions -> internal/shared/clidiag": "slice 15: clidiag becomes typed reports",
-
 			// core/profiles — Part 1.0 lists remote; the other three were MEASURED,
 			// not listed.
 			"internal/core/profiles -> internal/adapters/remote":   "slice 5: the pull-walk reader moves to adapters/remote",

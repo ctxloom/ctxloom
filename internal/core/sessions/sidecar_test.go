@@ -32,7 +32,7 @@ func openSidecarRoot(t *testing.T) (*Manager, string) {
 	root, err := paths.HomeSessionsDir()
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(root, 0o755))
-	m, err := Open()
+	m, err := Open(nil)
 	require.NoError(t, err)
 	return m, root
 }
@@ -177,7 +177,7 @@ func TestListAll_StaleIndexYAMLLeftBehindIsIgnored(t *testing.T) {
 `), 0o644))
 
 			// Re-Open against the stale file: nothing may read it.
-			m2, err := Open()
+			m2, err := Open(nil)
 			require.NoError(t, err)
 			got, err := m2.ListAll()
 			require.NoError(t, err)

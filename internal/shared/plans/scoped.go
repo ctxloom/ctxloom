@@ -1,6 +1,7 @@
 package plans
 
 import (
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -26,7 +27,7 @@ type ProjectIndex map[string]string
 // quietly listed nothing because it wouldn't read is the silent-no-op this
 // package must not commit.
 func LoadProjectIndex() (ProjectIndex, error) {
-	m, err := sessions.Open()
+	m, err := sessions.Open(strictness.Sink("ctxloom"))
 	if err != nil {
 		return nil, err
 	}

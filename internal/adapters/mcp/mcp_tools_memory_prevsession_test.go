@@ -28,7 +28,7 @@ import (
 // the wrong file.
 func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 	testsupport.Isolate(t) // isolate HOME → ~/.ctxloom is a temp index
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 
 	projectDir := t.TempDir()
@@ -76,7 +76,7 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 // must never block the agent.
 func TestPreviousSessionByHarp_UnknownHarpDegrades(t *testing.T) {
 	testsupport.Isolate(t)
-	_, err := sessions.Open()
+	_, err := sessions.Open(nil)
 	require.NoError(t, err)
 
 	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(t.TempDir(), ".ctxloom")})}

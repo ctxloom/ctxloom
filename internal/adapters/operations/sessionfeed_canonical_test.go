@@ -23,7 +23,7 @@ import (
 // locator should ever be consulted for this entry.
 func seedCanonicalFeedHarp(t *testing.T, content string) *sessions.Entry {
 	t.Helper()
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	minted, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)

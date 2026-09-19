@@ -722,7 +722,7 @@ func TestAppendRotations_SurvivesManagerReload(t *testing.T) {
 		{SessionID: "id-1", TranscriptPath: "/t1", RotatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
 	}))
 
-	m2, err := Open()
+	m2, err := Open(nil)
 	require.NoError(t, err)
 	found, err := m2.Find(entry.HarpName)
 	require.NoError(t, err)

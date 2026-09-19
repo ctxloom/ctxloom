@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // linkEngineTranscript creates
@@ -51,19 +51,20 @@ import (
 // files under one name is a correctness hazard for whoever reads it next.
 // Every other rotation gets its OWN new link (a new sessionID means a new
 // path), so the harp dir's own listing becomes the vendor-log lineage.
-func linkEngineTranscript(harpName, engine, sessionID, transcriptPath string) {
+func linkEngineTranscript(harpName, engine, sessionID, transcriptPath string) (found report.Findings) {
+	rep := report.To(&found)
 	if engine == "" || sessionID == "" {
-		clidiag.Warn("ctxloom", "engine transcript link for harp %q: missing engine (%q) or session id (%q); nothing linked", harpName, engine, sessionID)
+		rep.Warnf("engine transcript link for harp %q: missing engine (%q) or session id (%q); nothing linked", harpName, engine, sessionID)
 		return
 	}
 	link, err := paths.HarpEngineTranscriptLinkPath(harpName, engine, sessionID)
 	if err != nil {
-		clidiag.Warn("ctxloom", "engine transcript link: %v", err)
+		rep.Warnf("engine transcript link: %v", err)
 		return
 	}
 	dir := filepath.Dir(link)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		clidiag.Warn("ctxloom", "engine transcript link: %v", err)
+		rep.Warnf("engine transcript link: %v", err)
 		return
 	}
 	// A transcript that already lives INSIDE the session dir needs no
@@ -81,7 +82,7 @@ func linkEngineTranscript(harpName, engine, sessionID, transcriptPath string) {
 	// But a dangling link is indistinguishable from a missing one at every
 	// later read, so the stale binding is named here, where the cause is known.
 	if _, serr := os.Stat(transcriptPath); serr != nil {
-		clidiag.Warn("ctxloom", "engine transcript link: bound transcript %s does not resolve (%v); linking it anyway, but reads through the session dir will fail until it appears", transcriptPath, serr)
+		rep.Warnf("engine transcript link: bound transcript %s does not resolve (%v); linking it anyway, but reads through the session dir will fail until it appears", transcriptPath, serr)
 	}
 
 	existing, rlErr := os.Readlink(link)
@@ -96,23 +97,24 @@ func linkEngineTranscript(harpName, engine, sessionID, transcriptPath string) {
 		// name is never observably absent — see atomicSymlink) and say so
 		// loudly; this is not the routine first-sighting path.
 		if err := atomicSymlink(transcriptPath, link); err != nil {
-			clidiag.Warn("ctxloom", "engine transcript link: %v", err)
+			rep.Warnf("engine transcript link: %v", err)
 			return
 		}
-		clidiag.Warn("ctxloom", "engine transcript link %s previously pointed at %s, now repointed to %s: session id %q was reused for a different %s transcript", link, existing, transcriptPath, sessionID, engine)
+		rep.Warnf("engine transcript link %s previously pointed at %s, now repointed to %s: session id %q was reused for a different %s transcript", link, existing, transcriptPath, sessionID, engine)
 		return
 	case !errors.Is(rlErr, os.ErrNotExist):
 		// Something occupies the name and it is not even a symlink (or is
 		// unreadable for some other reason). Name the real cause here rather
 		// than letting the Symlink call below fail with an opaque EEXIST,
 		// which describes the symptom and hides the cause.
-		clidiag.Warn("ctxloom", "engine transcript link: could not inspect existing %s (%v)", link, rlErr)
+		rep.Warnf("engine transcript link: could not inspect existing %s (%v)", link, rlErr)
 		return
 	}
 	// Absent: the ordinary first-sighting case for this engine+sessionID.
 	if err := os.Symlink(transcriptPath, link); err != nil {
-		clidiag.Warn("ctxloom", "engine transcript link: %v", err)
+		rep.Warnf("engine transcript link: %v", err)
 	}
+	return found
 }
 
 // atomicSymlink replaces link with a symlink to target such that link is

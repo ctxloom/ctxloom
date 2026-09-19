@@ -53,7 +53,7 @@ func writeAdoptVendorFile(t *testing.T, dir, sessionID string, start, end time.T
 // name and that directory (the one `session adopt` will scan).
 func seedClaudeHarpWithVendorDir(t *testing.T, projectDir string) (mgr *sessions.Manager, harp, dir string) {
 	t.Helper()
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
@@ -119,7 +119,7 @@ func TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload(t *testing.T) {
 	assert.Contains(t, stderr, "adopted 1 rotation")
 	assert.Contains(t, stderr, "session distill "+harp)
 
-	fresh, err := sessions.Open()
+	fresh, err := sessions.Open(nil)
 	require.NoError(t, err)
 	found, err := fresh.Find(harp)
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload(t *testing.T) {
 // loudly, naming itself, rather than silently scanning nothing.
 func TestSessionAdopt_UnsupportedBackendFails(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "mock")
 	require.NoError(t, err)

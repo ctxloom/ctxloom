@@ -31,10 +31,10 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // lockFileMode and lockDirMode are the modes a sidecar's advisory-lock file
@@ -198,6 +198,10 @@ type Rotation struct {
 type Manager struct {
 	root string
 	mu   sync.Mutex
+	// rep receives the findings a listing or a bind raises about one
+	// session without failing the whole operation (a corrupt sidecar, a
+	// transcript link that could not be made). The caller renders them.
+	rep report.Reporter
 }
 
 // Open returns a Manager over the sessions root — ~/.ctxloom/sessions, the
@@ -208,7 +212,10 @@ type Manager struct {
 //
 // A retired global index (index.yaml) at the root is not read: the session
 // directories and their sidecars are the only source of sessions.
-func Open() (*Manager, error) {
+//
+// sink receives the per-session findings the Manager raises without failing
+// an operation; nil discards them.
+func Open(sink report.Sink) (*Manager, error) {
 	root, err := paths.HomeSessionsDir()
 	if err != nil {
 		return nil, fmt.Errorf("home dir: %w", err)
@@ -216,7 +223,7 @@ func Open() (*Manager, error) {
 	if err := os.MkdirAll(root, lockDirMode); err != nil {
 		return nil, fmt.Errorf("mkdir sessions dir: %w", err)
 	}
-	return &Manager{root: root}, nil
+	return &Manager{root: root, rep: report.To(sink)}, nil
 }
 
 // Root returns the sessions root this Manager enumerates.
@@ -461,7 +468,9 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 			// the entry a rotation just displaced (cur, above): that
 			// binding's link was already created when IT was current, at its
 			// own bind. Best-effort: a failure must not block the bind.
-			linkEngineTranscript(harpName, e.Backend, sessionID, transcriptPath)
+			for _, f := range linkEngineTranscript(harpName, e.Backend, sessionID, transcriptPath) {
+				m.rep.Report(f)
+			}
 		}
 		return true, nil
 	})
@@ -604,7 +613,7 @@ func (m *Manager) enumerate() ([]Entry, error) {
 		}
 		e, err := m.readSidecar(d.Name())
 		if err != nil {
-			clidiag.Warn("ctxloom", "session %s skipped: %v", d.Name(), err)
+			m.rep.Warnf("session %s skipped: %v", d.Name(), err)
 			continue
 		}
 		if e == nil {

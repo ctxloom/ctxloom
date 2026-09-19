@@ -71,7 +71,7 @@ func Build() (engine.Engine, error) {
 		Dynamic:      &sessionEndpoint{traits{present.Traits{Roots: home, Channel: present.ChannelFile}}},
 		CLI:          cli,
 		ModelAliases: map[string]string{},
-		ExportSchema: []byte(`{"type":"object"}`),
+		ExportSchema: ExportSchema,
 	}
 	b := engine.Base{Definition: d}
 	if err := b.Validate(); err != nil {

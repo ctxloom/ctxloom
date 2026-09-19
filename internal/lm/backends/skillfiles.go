@@ -90,16 +90,11 @@ func loadCuratedSkills(pipe *bundles.Pipeline, refs []string) []*bundles.LoadedS
 	return out
 }
 
-// forceExportSkill marks a loaded skill enabled for every engine's export. A
-// profile that curates a skill is an explicit request to export it, so the
-// per-skill per-engine opt-out flag is overridden — the skill mirror of
-// forceExport (commands.go). Deliberately parallel with it: same
-// shape by design, different item types with no shared supertype to factor
-// through without a cross-file generics refactor.
-// reprise:ignore
+// forceExportSkill marks a loaded skill CURATED: a profile that curates a
+// skill is an explicit request to export it, so every engine exports it even
+// where the bundle's block opts out — the skill mirror of forceExport.
 func forceExportSkill(ls *bundles.LoadedSkill) *bundles.LoadedSkill {
-	on := true
-	ls.LLM.ClaudeCode.Enabled = &on
+	ls.Curated = true
 	return ls
 }
 

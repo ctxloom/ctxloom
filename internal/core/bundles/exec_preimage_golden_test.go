@@ -81,7 +81,7 @@ func TestExecPreimage_HTMLEscapingIsGoSpecific(t *testing.T) {
 
 	// The skill preimage shares the encoder, so a path or hash containing these
 	// characters escapes identically. Recorded via the shared payload builder.
-	skillBytes, err := skillPayloadFor(SkillLLMExports{}, SkillManifest{
+	skillBytes, err := skillPayloadFor(EngineBlocks{}, SkillManifest{
 		{Path: "a<b.md", SHA256: "deadbeef", Mode: "0644"},
 	})
 	require.NoError(t, err)

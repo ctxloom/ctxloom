@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -97,7 +98,7 @@ func TestBuiltinCommandFrontmatterParity(t *testing.T) {
 		raw, err := resources.GetBuiltinCommand(name)
 		require.NoError(t, err)
 		if strings.HasPrefix(string(raw), "---\n") {
-			assert.NotEmptyf(t, c.LLM.ClaudeCode.Description, "builtin command %q has frontmatter but no parsed description", name)
+			assert.Containsf(t, string(c.Exports[claude.EngineName]), `"description":"`, "builtin command %q has frontmatter but no parsed description", name)
 		}
 	}
 }

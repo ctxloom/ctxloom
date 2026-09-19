@@ -175,7 +175,7 @@ func assertEveryFieldClassified(t *testing.T, base any, preimages func(reflect.V
 }
 
 // walkFields visits every leaf field, descending into struct-typed fields —
-// an inlined ItemBody, a command's per-engine LLM exports — so each is
+// an inlined ItemBody — so each is
 // classified field by field rather than as one blob. A struct that is itself
 // tagged is classified as a whole and not entered: the tag is the decision
 // for everything under it.
@@ -222,6 +222,19 @@ func perturb(t *testing.T, v reflect.Value, name string) {
 		perturb(t, fresh.Elem(), name)
 		v.Set(fresh)
 	case reflect.Map:
+		// Per-engine blocks are presented through the block the frozen
+		// preimage contract canonicalises (CommandSurface.ExportsPayload);
+		// a block for another engine is outside it. Perturb the contract
+		// block, which is what "the exports changed" means to the preimage.
+		if v.Type() == reflect.TypeOf(EngineBlocks(nil)) {
+			copied := EngineBlocks{}
+			for _, k := range v.MapKeys() {
+				copied[k.String()] = v.MapIndex(k).Bytes()
+			}
+			copied[preimageContractEngine] = []byte(`{"enabled":false,"description":"perturbed"}`)
+			v.Set(reflect.ValueOf(copied))
+			return
+		}
 		copied := reflect.MakeMap(v.Type())
 		for _, k := range v.MapKeys() {
 			copied.SetMapIndex(k, v.MapIndex(k))

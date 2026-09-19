@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // TestSkillExports_DescriptionReachesTheEngineInSKILLmd is the coverage that
@@ -35,7 +36,7 @@ func TestSkillExports_DescriptionReachesTheEngineInSKILLmd(t *testing.T) {
 			{RelPath: "SKILL.md", Mode: 0644, Content: []byte(
 				"---\nname: humanize\ndescription: " + description + "\n---\n\nbody\n")},
 		},
-		LLM: bundles.SkillLLMExports{ClaudeCode: bundles.SkillEngineExport{Enabled: boolPtr(true)}},
+		Exports: bundles.EngineBlocks{claude.EngineName: []byte(`{"enabled":true}`)},
 	}
 
 	ex := claudeengine.SkillExports([]*bundles.LoadedSkill{skill})
@@ -53,5 +54,3 @@ func TestSkillExports_DescriptionReachesTheEngineInSKILLmd(t *testing.T) {
 		"the description an engine actually reads travels inside SKILL.md's own frontmatter, "+
 			"not in a separate export field")
 }
-
-func boolPtr(b bool) *bool { return &b }

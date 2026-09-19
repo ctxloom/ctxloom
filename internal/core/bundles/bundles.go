@@ -518,7 +518,7 @@ func (m BundleMCP) AsWire() wire.MCPServer {
 // It is EMBEDDED and `yaml:",inline"`, so the wire form is unchanged: a
 // fragment and a command serialize the same keys they always did. What differs
 // between the two kinds — a fragment's Premise, a command's Description and
-// LLM — stays on the kind that has it, which is now the only thing either
+// Exports — stays on the kind that has it, which is now the only thing either
 // declares.
 //
 // BundleMCP deliberately does NOT embed this: it shares several field names but
@@ -611,17 +611,15 @@ type BundleFragment struct {
 
 // BundleCommand defines a slash command within a bundle.
 //
-// Description and LLM are PRESENTED: the description is advertised to the
-// agent as the command's help text, and every leaf of the per-engine export
-// config is written into the command file the engine reads — including
-// AllowedTools, which is a capability grant. All of it is inside the trust
-// preimage (CommandSurface), so none of it can be rewritten under a
-// verifying approval.
+// Description and Exports are PRESENTED: the description is advertised to
+// the agent as the command's help text, and an engine writes its own export
+// block into the command file it reads — a block can carry a capability
+// grant. All of it is inside the trust preimage (CommandSurface), so none of
+// it can be rewritten under a verifying approval.
 type BundleCommand struct {
 	ItemBody    `yaml:",inline"`
 	Description string       `yaml:"description,omitempty"`
-	LLM         LLMExports   `yaml:"llm,omitempty"` // Per-LLM export settings (e.g. claude-code slash-command config)
-	Exports     EngineBlocks `yaml:"exports,omitempty"`
+	Exports     EngineBlocks `yaml:"exports,omitempty"` // per engine name, opaque; that engine decodes its block
 }
 
 // BundleSkill defines an Agent Skill package within a bundle: a directory
@@ -641,18 +639,18 @@ type BundleCommand struct {
 // signing covers and B1b's archive codec packs; ParseSkillPackage computes the
 // authoritative version of it fresh from the source tree.
 //
-// Files and LLM are PRESENTED and inside the trust preimage (ContentPayload):
-// the manifest names every file the agent is handed, SKILL.md included, and
-// the per-engine enablement decides whether the package is offered at all.
-// Every other field carries a `surface:` classification; the reflective
-// classification test walks this struct like the text kinds.
+// Files and Exports are PRESENTED and inside the trust preimage
+// (ContentPayload): the manifest names every file the agent is handed,
+// SKILL.md included, and an engine's block decides whether the package is
+// offered to it at all. Every other field carries a `surface:`
+// classification; the reflective classification test walks this struct like
+// the text kinds.
 type BundleSkill struct {
 	Path    string                   `yaml:"path,omitempty" surface:"selection"` // dir relative to bundle dir; default "skills/<name>" — where the host finds the tree, never shown
 	Tags    []string                 `yaml:"tags,omitempty" surface:"selection"` // Additional tags (merged with bundle tags); host-evaluated routing, never shown
 	Notes   string                   `yaml:"notes,omitempty" surface:"human"`    // Human-readable notes, not sent to AI
 	Files   map[string]SkillFileMeta `yaml:"files,omitempty"`                    // GENERATED per-file manifest
-	LLM     SkillLLMExports          `yaml:"llm,omitempty"`                      // Per-engine enablement only (name/description live in SKILL.md)
-	Exports EngineBlocks             `yaml:"exports,omitempty"`
+	Exports EngineBlocks             `yaml:"exports,omitempty"`                  // per engine name, opaque; that engine decodes its block (name/description live in SKILL.md)
 }
 
 // SkillFileMeta is one manifest entry as recorded in bundle.yaml: a file's
@@ -888,7 +886,7 @@ func (p *BundleCommand) NeedsDistill() bool {
 // neither moves Preimage nor carries a `surface:` classification.
 type CommandSurface struct {
 	description string
-	exports     LLMExports
+	exports     EngineBlocks
 	body        string
 	form        ContentForm
 }
@@ -898,14 +896,14 @@ type CommandSurface struct {
 // body here is exactly the body the pipeline serves.
 func (p *BundleCommand) Surface(preferDistilled bool) CommandSurface {
 	body, form := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
-	return CommandSurface{description: p.Description, exports: p.LLM, body: body, form: form}
+	return CommandSurface{description: p.Description, exports: p.Exports, body: body, form: form}
 }
 
 // Description is the help text the command is advertised under.
 func (s CommandSurface) Description() string { return s.description }
 
-// Exports is the per-engine export config the engine acts on.
-func (s CommandSurface) Exports() LLMExports { return s.exports }
+// Exports are the per-engine blocks, opaque; each engine decodes its own.
+func (s CommandSurface) Exports() EngineBlocks { return s.exports }
 
 // Body is the text the agent receives, in Form.
 func (s CommandSurface) Body() string { return s.body }
@@ -917,18 +915,23 @@ func (s CommandSurface) Form() ContentForm { return s.form }
 // preimage — the one structured part of the surface, canonicalized under the
 // exec preimage's rule: every field always emitted, in declaration order, so
 // the bytes are a function of the values alone. `enabled` carries the
-// EFFECTIVE value (nil means enabled), which is what the host acts on; the
-// tool grant is emitted as an empty list rather than null for the same
-// reason. Any change to commandExportsPayload's field set requires bumping
-// signing.CommandPreimageContract.
+// EFFECTIVE value (absent means enabled), which is what the host acts on;
+// the tool grant is emitted as an empty list rather than null for the same
+// reason.
+//
+// This is the ONE place this package looks inside a block, and it does so
+// under the FROZEN preimage contract: signing.CommandPreimageContract fixed
+// these bytes as a canonicalisation of the claude-code block's fields, and
+// every signed bundle's countersignatures cover them. Widening the preimage
+// to every block re-signs the world; that is a contract bump, not a slice.
 func (s CommandSurface) ExportsPayload() []byte {
-	cc := s.exports.ClaudeCode
+	cc := preimageBlock(s.exports)
 	tools := cc.AllowedTools
 	if tools == nil {
 		tools = []string{}
 	}
 	data, err := json.Marshal(commandExportsPayload{ClaudeCode: claudeCodeExportPayload{
-		Enabled:      cc.IsEnabled(),
+		Enabled:      cc.Enabled == nil || *cc.Enabled,
 		Description:  cc.Description,
 		ArgumentHint: cc.ArgumentHint,
 		AllowedTools: tools,
@@ -939,6 +942,36 @@ func (s CommandSurface) ExportsPayload() []byte {
 		panic(fmt.Sprintf("encoding command exports preimage: %v", err))
 	}
 	return data
+}
+
+// preimageContractEngine names the block the frozen preimage contract
+// canonicalises. It is a contract constant, not an engine choice: the bytes
+// signing.CommandPreimageContract covers were fixed over this block.
+const preimageContractEngine = "claude-code"
+
+// preimageBlockFields are the fields of the contract block the preimage
+// canonicalises, read leniently: a block that omits one canonicalises to its
+// default, and a key the contract does not name is ignored here (the
+// engine's own decode judges it).
+type preimageBlockFields struct {
+	Enabled      *bool    `json:"enabled"`
+	Description  string   `json:"description"`
+	ArgumentHint string   `json:"argument_hint"`
+	AllowedTools []string `json:"allowed_tools"`
+	Model        string   `json:"model"`
+}
+
+func preimageBlock(blocks EngineBlocks) preimageBlockFields {
+	var fields preimageBlockFields
+	if raw, ok := blocks[preimageContractEngine]; ok {
+		// A block that does not decode as these fields canonicalises to the
+		// defaults: the preimage must be a total function of the bytes, and
+		// refusing here would make a signature unverifiable rather than an
+		// item undeliverable — the engine's decode is where a bad block is
+		// refused, naming the engine.
+		_ = json.Unmarshal(raw, &fields)
+	}
+	return fields
 }
 
 // commandExportsPayload is the canonical shape of a command's per-engine
@@ -1122,10 +1155,11 @@ func (b *Bundle) SkillPreimageDir(entry BundleSkill) (string, error) {
 // effective manifest (the loader, which also verifies the tree against it)
 // builds the payload without re-walking the tree — one parse, one manifest,
 // one preimage.
-func skillPayloadFor(exports SkillLLMExports, m SkillManifest) ([]byte, error) {
+func skillPayloadFor(exports EngineBlocks, m SkillManifest) ([]byte, error) {
+	cc := preimageBlock(exports)
 	return json.Marshal(skillContentPayload{
 		Preimage: signing.SkillPreimageContract,
-		Exports:  skillExportsPayload{ClaudeCode: skillEngineExportPayload{Enabled: exports.ClaudeCode.IsEnabled()}},
+		Exports:  skillExportsPayload{ClaudeCode: skillEngineExportPayload{Enabled: cc.Enabled == nil || *cc.Enabled}},
 		Manifest: m,
 	})
 }
@@ -1143,7 +1177,7 @@ func (s *BundleSkill) ContentPayload(fsys afero.Fs, bundleDir, skillName string)
 	if err != nil {
 		return nil, err
 	}
-	return skillPayloadFor(s.LLM, manifest)
+	return skillPayloadFor(s.Exports, manifest)
 }
 
 // ComputeContentHash hashes a skill's canonical manifest payload. This is the
@@ -1473,7 +1507,7 @@ func (b *Bundle) declaresNothing() bool {
 // YAML unmarshal silently misparse it into a BundleSkill with a stray
 // content-shaped map dropped. `skills:` used to be this codebase's name for
 // the command item-kind; it now means a real Agent Skill package (BundleSkill:
-// Path/Tags/Notes/Files/LLM), which never carries an inline `content:` field —
+// Path/Tags/Notes/Files/Exports), which never carries an inline `content:` field —
 // that shape difference is the deterministic discriminator this function uses.
 //
 // An entry under `skills:` that is NOT content-shaped is a genuine new-shape

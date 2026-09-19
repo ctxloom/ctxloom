@@ -85,25 +85,43 @@ func TestParseVersion_VersionLeadsNameFollows(t *testing.T) {
 	assert.Equal(t, "2.1.225", v)
 }
 
-func TestCommandExports_ProjectsTheClaudeCodeBlock(t *testing.T) {
-	off := false
-	ex := CommandExports([]*bundles.LoadedContent{{
-		Name: "p", Content: "body",
-		LLM: bundles.LLMExports{ClaudeCode: bundles.ClaudeCodeConfig{Enabled: &off, Description: "d", ArgumentHint: "h", AllowedTools: []string{"Read"}, Model: "m"}},
-	}})
-	require.Len(t, ex, 1)
+func TestCommandExports_DecodesTheClaudeCodeBlock(t *testing.T) {
+	block := []byte(`{"enabled":false,"description":"d","argument_hint":"h","allowed_tools":["Read"],"model":"m"}`)
+	ex := CommandExports([]*bundles.LoadedContent{
+		{Name: "p", Content: "body", Exports: bundles.EngineBlocks{claude.EngineName: block}},
+		{Name: "curated", Content: "body", Exports: bundles.EngineBlocks{claude.EngineName: block}, Curated: true},
+		{Name: "other", Content: "body", Exports: bundles.EngineBlocks{"other-engine": []byte(`{"enabled":false}`)}},
+	})
+	require.Len(t, ex, 3)
 	assert.Equal(t, agent.CommandExport{Name: "p", Content: "body", Enabled: false, Description: "d", ArgumentHint: "h", AllowedTools: []string{"Read"}, Model: "m"}, ex[0])
+	assert.True(t, ex[1].Enabled, "a curated command exports even where its block opts out")
+	assert.True(t, ex[2].Enabled, "another engine's block says nothing about this one")
 }
 
-func TestSkillExports_ReadsTheClaudeCodeEnablement(t *testing.T) {
-	off := false
+// A block the schema refuses withholds the item from this engine — it is
+// not exported with a guess — and the refusal names the engine.
+func TestCommandExports_RefusesAMalformedBlock(t *testing.T) {
+	_, err := claude.DecodeExportBlock([]byte(`{"enabled":"yes"}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), claude.EngineName)
+	_, err = claude.DecodeExportBlock([]byte(`{"unknown_key":1}`))
+	require.Error(t, err, "the schema closes the block: an unknown key is an authoring error")
+
+	ex := CommandExports([]*bundles.LoadedContent{{Name: "p", Content: "body", Exports: bundles.EngineBlocks{claude.EngineName: []byte(`{"enabled":"yes"}`)}}})
+	require.Len(t, ex, 1)
+	assert.False(t, ex[0].Enabled)
+}
+
+func TestSkillExports_ReadsTheClaudeCodeBlock(t *testing.T) {
 	ex := SkillExports([]*bundles.LoadedSkill{
 		{Frontmatter: bundles.SkillFrontmatter{Name: "on"}},
-		{Frontmatter: bundles.SkillFrontmatter{Name: "off"}, LLM: bundles.SkillLLMExports{ClaudeCode: bundles.SkillEngineExport{Enabled: &off}}},
+		{Frontmatter: bundles.SkillFrontmatter{Name: "off"}, Exports: bundles.EngineBlocks{claude.EngineName: []byte(`{"enabled":false}`)}},
+		{Frontmatter: bundles.SkillFrontmatter{Name: "curated"}, Exports: bundles.EngineBlocks{claude.EngineName: []byte(`{"enabled":false}`)}, Curated: true},
 	})
-	require.Len(t, ex, 2)
+	require.Len(t, ex, 3)
 	assert.True(t, ex[0].Enabled)
 	assert.False(t, ex[1].Enabled)
+	assert.True(t, ex[2].Enabled)
 }
 
 // Claude's refresh token is single-use and rotating, so the ORDER is the

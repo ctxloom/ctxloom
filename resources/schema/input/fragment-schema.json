@@ -52,7 +52,7 @@
     },
     "premise": {
       "type": "string",
-      "description": "When this fragment applies, and to whom, in prose addressed to the acting agent. A fragment with NO premise is ALWAYS loaded \u2014 absence asserts that it applies unconditionally. Giving a fragment a premise opts it OUT of unconditional loading: it is withheld from assembled context and offered in the premise index instead, for the agent to request by name when the premise holds.",
+      "description": "When this fragment applies, and to whom, in prose addressed to the acting agent. A fragment with NO premise is ALWAYS loaded — absence asserts that it applies unconditionally. Giving a fragment a premise opts it OUT of unconditional loading: it is withheld from assembled context and offered in the premise index instead, for the agent to request by name when the premise holds.",
       "examples": [
         "You are about to remove, prune or force-delete a git worktree or its branch.",
         "You are deciding whether a test that just went green actually proves anything."
@@ -95,118 +95,17 @@
     },
     "exports": {
       "type": "object",
-      "description": "Exported variable values from generators. Maps variable names to their values.",
+      "description": "Per-engine export blocks, keyed by engine name. Each block is opaque to ctxloom: the named engine decodes it against its own export schema (published per engine by gen-schemas), so any engine name is permitted here.",
       "additionalProperties": {
-        "type": "string"
+        "type": "object"
       }
     },
     "llm": {
       "type": "object",
-      "description": "Per-LLM export settings (e.g. slash-command config), keyed by backend.",
-      "properties": {
-        "claude-code": {
-          "type": "object",
-          "description": "Claude Code slash command export settings. Prompts are exported by default (opt-out model).",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Set to false to disable slash command export. Default is true (exported).",
-              "default": true
-            },
-            "description": {
-              "type": "string",
-              "description": "Description shown in /help for this command.",
-              "examples": [
-                "Review code for security issues",
-                "Generate unit tests"
-              ]
-            },
-            "argument_hint": {
-              "type": "string",
-              "description": "Hint for expected arguments, shown in autocomplete.",
-              "examples": [
-                "[file] [focus]",
-                "[issue-number]"
-              ]
-            },
-            "allowed_tools": {
-              "type": "array",
-              "description": "Tool restrictions for this command. If not specified, all tools are allowed.",
-              "items": {
-                "type": "string"
-              },
-              "examples": [
-                [
-                  "Read",
-                  "Grep"
-                ],
-                [
-                  "Bash(git diff:*)",
-                  "Read"
-                ]
-              ]
-            },
-            "model": {
-              "type": "string",
-              "description": "Override model for this command.",
-              "examples": [
-                "claude-sonnet-4-20250514",
-                "claude-opus-4-20250514"
-              ]
-            }
-          },
-          "additionalProperties": false
-        },
-        "opencode": {
-          "type": "object",
-          "description": "opencode custom-command export settings. Prompts are exported by default (opt-out model) as .opencode/command/<name>.md files, invocable as /<name> slash commands.",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Set to false to disable command export. Default is true (exported).",
-              "default": true
-            },
-            "description": {
-              "type": "string",
-              "description": "Description shown in opencode's command palette / resolved config.",
-              "examples": [
-                "Review code for security issues",
-                "Generate unit tests"
-              ]
-            }
-          },
-          "additionalProperties": false
-        },
-        "codex": {
-          "type": "object",
-          "description": "Codex CLI custom-prompt export settings. Prompts are exported by default (opt-out model) as $CODEX_HOME/prompts/<name>.md files, invocable as /<name> slash commands.",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Set to false to disable custom-prompt export. Default is true (exported).",
-              "default": true
-            },
-            "description": {
-              "type": "string",
-              "description": "Description shown in Codex's /prompts listing.",
-              "examples": [
-                "Review code for security issues",
-                "Generate unit tests"
-              ]
-            },
-            "argument_hint": {
-              "type": "string",
-              "description": "Hint for expected arguments, shown in autocomplete.",
-              "examples": [
-                "[file] [focus]",
-                "[issue-number]"
-              ]
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
+      "description": "Retired spelling of `exports`, still read: an authored bundle in this shape loads to the same blocks. New bundles write `exports`.",
+      "additionalProperties": {
+        "type": "object"
+      }
     }
   },
   "additionalProperties": false

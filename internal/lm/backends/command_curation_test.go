@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 )
@@ -46,13 +47,10 @@ func curationCfg(t *testing.T, defaults []string, defs map[string]config.Profile
 	return cfg
 }
 
-// optOut returns an LLMExports with every backend's slash-command export
+// optOut returns export blocks with claude-code's slash-command export
 // explicitly disabled (the global opt-out), to prove curation force-enables.
-func optOut() bundles.LLMExports {
-	off := false
-	var x bundles.LLMExports
-	x.ClaudeCode.Enabled = &off
-	return x
+func optOut() bundles.EngineBlocks {
+	return bundles.EngineBlocks{claude.EngineName: []byte(`{"enabled":false}`)}
 }
 
 // bundlePromptItems returns the bare item names of the bundle (non-builtin)
@@ -151,7 +149,7 @@ func TestLoadCommandExports_CuratedForceEnablesOptOut(t *testing.T) {
 				ItemBody: bundles.ItemBody{
 					Content: "OPTOUT",
 				},
-				LLM: optOut(),
+				Exports: optOut(),
 			},
 		}},
 	}

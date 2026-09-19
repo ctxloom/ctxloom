@@ -38,8 +38,11 @@ type LoadedSkill struct {
 	Frontmatter SkillFrontmatter  // SKILL.md's parsed frontmatter, carried verbatim
 	Body        string            // SKILL.md content after the frontmatter block
 	Files       []LoadedSkillFile // every file in the package, SKILL.md included
-	LLM         SkillLLMExports   // per-engine enablement
-	Tags        []string          // combined (bundle + skill) tags
+	Exports     EngineBlocks      // per engine name, opaque; that engine decodes its block
+	// Curated marks a skill a profile named explicitly; an engine exports
+	// it even where its block opts out, because naming it is the ask.
+	Curated bool
+	Tags    []string // combined (bundle + skill) tags
 
 	// TrustRef is the ref the trust gate keys this package by, minted through
 	// the canonical bundle-reference grammar (ItemRefFor,
@@ -170,7 +173,7 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
 		return nil
 	}
-	payload, err := skillPayloadFor(entry.LLM, manifest)
+	payload, err := skillPayloadFor(entry.Exports, manifest)
 	if err != nil {
 		clidiag.Warn("ctxloom", "skill %q withheld: encoding trust preimage: %v", name, err)
 		return nil
@@ -218,7 +221,7 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 		Frontmatter:  pkg.Frontmatter,
 		Body:         pkg.Body,
 		Files:        files,
-		LLM:          entry.LLM,
+		Exports:      entry.Exports,
 		Tags:         slices.Concat(bundle.Tags, entry.Tags),
 		TrustRef:     trustRef,
 		TrustPayload: payload,

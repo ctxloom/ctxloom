@@ -11,17 +11,13 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // loadedSkill builds a bundles.LoadedSkill fixture with one SKILL.md file and
 // a claude-code enablement flag, the skills analog of remotePrompt above.
 func loadedSkill(name string, claudeEnabled bool) *bundles.LoadedSkill {
-	on, off := true, false
-	enabled := &off
-	if claudeEnabled {
-		enabled = &on
-	}
 	return &bundles.LoadedSkill{
 		Name:        "skill-bundle/" + name,
 		Bundle:      "skill-bundle",
@@ -31,14 +27,14 @@ func loadedSkill(name string, claudeEnabled bool) *bundles.LoadedSkill {
 			{RelPath: "SKILL.md", Content: []byte("SKILL.md body"), Mode: 0644},
 			{RelPath: "scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: 0755},
 		},
-		LLM: bundles.SkillLLMExports{ClaudeCode: bundles.SkillEngineExport{Enabled: enabled}},
+		Exports: bundles.EngineBlocks{claude.EngineName: enablementBlock(claudeEnabled)},
 	}
 }
 
 // TestClaudeSkillExports_ResolvesEnablementAndFiles proves claudeSkillExports
 // maps a resolved skill's frontmatter name/description and every file (with
 // its mode) straight through into agent.SkillExport, and resolves the
-// claude-code enablement from SkillLLMExports.
+// claude-code enablement from its block.
 func TestClaudeSkillExports_ResolvesEnablementAndFiles(t *testing.T) {
 	skills := []*bundles.LoadedSkill{loadedSkill("humanize", true)}
 
@@ -115,4 +111,12 @@ func TestResolveProfileSkillRefs_CircularProfileIsWarnedNotMasked(t *testing.T) 
 
 	assert.Contains(t, buf.String(), "inheritance",
 		"the real cause (inheritance) must reach the warning, not the directory loader's unrelated not-found error: got %q", buf.String())
+}
+
+// enablementBlock is a claude-code block that only sets enablement.
+func enablementBlock(enabled bool) []byte {
+	if enabled {
+		return []byte(`{"enabled":true}`)
+	}
+	return []byte(`{"enabled":false}`)
 }

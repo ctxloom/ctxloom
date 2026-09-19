@@ -101,7 +101,7 @@ func TestCommandSurface_ExportsPayloadIsTheFrozenCanonicalForm(t *testing.T) {
 	bare := BundleCommand{ItemBody: ItemBody{Content: "x"}}
 	assert.Equal(t, `{"claude-code":{"enabled":true,"description":"","argument_hint":"","allowed_tools":[],"model":""}}`, string(bare.Surface(false).ExportsPayload()))
 
-	skillBytes, err := skillPayloadFor(b.Skills["reviewer"].LLM, SkillManifest{})
+	skillBytes, err := skillPayloadFor(b.Skills["reviewer"].Exports, SkillManifest{})
 	require.NoError(t, err)
 	assert.Contains(t, string(skillBytes), `"exports":{"claude-code":{"enabled":false}}`)
 }

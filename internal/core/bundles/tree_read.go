@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -131,7 +132,7 @@ func (r *reader) add(ref trust.Ref, s content.Surface) error {
 	case content.Fragment:
 		r.addFragment(v)
 	case content.Command:
-		r.addCommand(v)
+		return r.addCommand(v)
 	case content.MCP:
 		r.addMCP(v)
 	case content.Hook:
@@ -150,13 +151,16 @@ func (r *reader) add(ref trust.Ref, s content.Surface) error {
 }
 
 func (r *reader) addFragment(v content.Fragment) {
-	if r.out.Fragments == nil {
-		r.out.Fragments = map[string]BundleFragment{}
+	put(&r.out.Fragments, v.Name, BundleFragment{ItemBody: itemBody(v.ItemMeta), Premise: v.Description})
+}
+
+// put stores one item under its name, creating the kind's map on first use
+// so a kind the tree never declares stays nil, as a document bundle's would.
+func put[T any](m *map[string]T, name string, v T) {
+	if *m == nil {
+		*m = map[string]T{}
 	}
-	r.out.Fragments[v.Name] = BundleFragment{
-		ItemBody: itemBody(v.ItemMeta),
-		Premise:  v.Description,
-	}
+	(*m)[name] = v
 }
 
 // itemBody carries across everything a fragment and a command hold alike. It
@@ -177,48 +181,44 @@ func itemBody(m content.ItemMeta) ItemBody {
 	}
 }
 
-func (r *reader) addCommand(v content.Command) {
-	if r.out.Commands == nil {
-		r.out.Commands = map[string]BundleCommand{}
+func (r *reader) addCommand(v content.Command) error {
+	exports, err := engineBlocks(v.Exports)
+	if err != nil {
+		return fmt.Errorf("bundles: command %q in tree bundle %q: %w", v.Name, r.bundle, err)
 	}
-	r.out.Commands[v.Name] = BundleCommand{
-		ItemBody:    itemBody(v.ItemMeta),
-		Description: v.Description,
-		LLM:         commandLLM(v.Exports),
-	}
+	put(&r.out.Commands, v.Name, BundleCommand{ItemBody: itemBody(v.ItemMeta), Description: v.Description, Exports: exports})
+	return nil
 }
 
 func (r *reader) addMCP(v content.MCP) {
-	if r.out.MCP == nil {
-		r.out.MCP = map[string]BundleMCP{}
-	}
-	r.out.MCP[v.Name] = BundleMCP{
+	put(&r.out.MCP, v.Name, BundleMCP{
 		Command:      v.Command,
 		Args:         v.Args,
 		Env:          v.Env,
 		Notes:        v.Notes,
 		Installation: v.Installation,
 		ContentHash:  v.ContentHash,
-	}
+	})
 }
 
 func (r *reader) addSkill(v content.Skill) error {
-	if r.out.Skills == nil {
-		r.out.Skills = map[string]BundleSkill{}
-	}
 	files, err := skillManifest(v)
 	if err != nil {
 		return fmt.Errorf("bundles: skill %q in tree bundle %q: %w", v.Name, r.bundle, err)
 	}
-	r.out.Skills[v.Name] = BundleSkill{
+	exports, err := engineBlocks(v.Exports)
+	if err != nil {
+		return fmt.Errorf("bundles: skill %q in tree bundle %q: %w", v.Name, r.bundle, err)
+	}
+	put(&r.out.Skills, v.Name, BundleSkill{
 		// Path is left DEFAULT ("skills/<name>"), which is exactly where the
 		// tree puts it. Writing it out explicitly would pin a layout the
 		// surface type already owns, and the two could then disagree.
-		Tags:  v.Tags,
-		Notes: v.Notes,
-		Files: files,
-		LLM:   skillLLM(v.Exports),
-	}
+		Tags:    v.Tags,
+		Notes:   v.Notes,
+		Files:   files,
+		Exports: exports,
+	})
 	return nil
 }
 
@@ -321,35 +321,23 @@ func skillFilePerm(m content.ComponentMode) os.FileMode {
 	return 0o644
 }
 
-// commandLLM is the inverse of commandExports: one engine-keyed map back onto
-// internal/core/bundles' four near-identical per-engine structs. An engine absent
-// from the map is left zero; nothing is invented.
-//
-// It carries exactly the fields commandExports carries, no more: a field an
-// engine declares that the forward mapping drops must not be read back here,
-// or this would invent a value the tree never held — that asymmetry belongs in
-// commandExports, where the field is lost, not here.
-func commandLLM(e content.EngineExports) LLMExports {
-	var out LLMExports
-	if x, ok := e.For("claude-code"); ok {
-		out.ClaudeCode = ClaudeCodeConfig{
-			Enabled: x.Enabled, Description: x.Description,
-			ArgumentHint: x.ArgumentHint, AllowedTools: x.AllowedTools, Model: x.Model,
-		}
+// engineBlocks maps the tree form's per-engine blocks onto this package's,
+// block for block, each canonicalised to sorted-key JSON. Neither side reads
+// inside a block, so nothing is projected and nothing is invented; an item
+// declaring none yields nil.
+func engineBlocks(e content.EngineExports) (EngineBlocks, error) {
+	if len(e) == 0 {
+		return nil, nil
 	}
-	return out
-}
-
-// skillLLM is the same inverse for a skill, where only enablement is meaningful.
-func skillLLM(e content.EngineExports) SkillLLMExports {
-	var out SkillLLMExports
-	set := func(dst *SkillEngineExport, engine string) {
-		if x, ok := e.For(engine); ok {
-			dst.Enabled = x.Enabled
+	out := make(EngineBlocks, len(e))
+	for engine, block := range e {
+		raw, err := json.Marshal(block)
+		if err != nil {
+			return nil, fmt.Errorf("exports: engine %q: %w", engine, err)
 		}
+		out[engine] = raw
 	}
-	set(&out.ClaudeCode, "claude-code")
-	return out
+	return out, nil
 }
 
 // sortedTreeKeys keeps map iteration deterministic. It is a local copy rather

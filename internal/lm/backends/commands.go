@@ -1,9 +1,12 @@
 package backends
 
 import (
+	"encoding/json"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/resources"
@@ -178,20 +181,12 @@ func loadCuratedPrompts(pipe *bundles.Pipeline, refs []string) []*bundles.Loaded
 	return out
 }
 
-// forceExport marks a loaded prompt enabled for every backend's slash-command
-// export. A profile that curates a prompt is an explicit request to export it,
-// so the per-prompt opt-out flag is overridden; all other export metadata
-// (description, hints, model, …) is reused as-is. A profile-curated command
-// whose bundle set `{enabled: false}` for an engine must still export for
-// that engine, or the explicit curation would silently produce nothing.
-// Deliberately parallel with forceExportSkill (skillfiles.go): same shape by
-// design (force-enable every engine), different item types (LoadedContent vs
-// LoadedSkill) with no shared supertype to factor through without a
-// cross-file generics refactor outside this fix's scope.
-// reprise:ignore
+// forceExport marks a loaded prompt CURATED: a profile that curates a prompt
+// is an explicit request to export it, so every engine exports it even
+// where the bundle's block opts out — the block itself is opaque here and
+// is never rewritten.
 func forceExport(c *bundles.LoadedContent) *bundles.LoadedContent {
-	on := true
-	c.LLM.ClaudeCode.Enabled = &on
+	c.Curated = true
 	return c
 }
 
@@ -227,14 +222,17 @@ func builtinCommands() []*bundles.LoadedContent {
 		}
 
 		description, body := resources.SplitCommandFrontmatter(string(content))
+		block, err := json.Marshal(map[string]string{"description": description})
+		if err != nil {
+			clidiag.Warn("ctxloom", "builtin command %q unavailable: %v", name, err)
+			continue
+		}
 		prompts = append(prompts, &bundles.LoadedContent{
 			Name:    name,
 			Content: body,
-			LLM: bundles.LLMExports{
-				ClaudeCode: bundles.ClaudeCodeConfig{
-					Description: description,
-				},
-			},
+			// The frontmatter description is what claude-code shows in /help;
+			// it rides as this engine's block, the way a bundle would spell it.
+			Exports: bundles.EngineBlocks{claude.EngineName: block},
 		})
 	}
 	return prompts

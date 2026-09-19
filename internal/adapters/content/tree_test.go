@@ -662,24 +662,22 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 	if cmd.Description == "" || cmd.Installation == "" {
 		t.Errorf("command = %+v", cmd)
 	}
-	// Per-engine keys are TYPED and readable, not an opaque passthrough.
+	// Per-engine blocks are carried as authored — every key, every engine —
+	// and read by nobody here: the named engine decodes its own block.
 	cc, ok := cmd.Exports.For("claude-code")
 	if !ok {
 		t.Fatalf("claude-code exports missing: %+v", cmd.Exports)
 	}
-	if !cc.IsEnabled() || cc.Description != "Review the staged diff" || cc.ArgumentHint != "[path]" ||
-		!slices.Equal(cc.AllowedTools, []string{"Read", "Grep"}) || cc.Model != "sonnet" {
+	if cc["enabled"] != true || cc["description"] != "Review the staged diff" || cc["argument_hint"] != "[path]" ||
+		!slices.Equal(anyStrings(cc["allowed_tools"]), []string{"Read", "Grep"}) || cc["model"] != "sonnet" {
 		t.Errorf("claude-code export = %+v", cc)
 	}
-	if cmd.Exports.IsEnabledFor("disabled-engine") {
-		t.Error("an explicitly disabled export was read as enabled")
-	}
-	if cmd.Exports.IsEnabledFor("engine-with-no-settings") != true {
-		t.Error("an engine with no declared settings must be enabled (opt-out model)")
+	if dis, ok := cmd.Exports.For("disabled-engine"); !ok || dis["enabled"] != false {
+		t.Errorf("an explicitly disabled block was not carried: %+v", cmd.Exports)
 	}
 	// An engine this build has never heard of is carried, not dropped: an older
 	// ctxloom must not silently discard a newer bundle's configuration.
-	if fut, ok := cmd.Exports.For("some-future-engine"); !ok || fut.Description == "" {
+	if fut, ok := cmd.Exports.For("some-future-engine"); !ok || fut["description"] == "" {
 		t.Errorf("unknown engine's settings were dropped: %+v", cmd.Exports)
 	}
 
@@ -698,8 +696,11 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 	if len(skill.Files) != 3 || skill.Notes == "" {
 		t.Errorf("skill = %+v", skill)
 	}
-	if !skill.Exports.IsEnabledFor("claude-code") || skill.Exports.IsEnabledFor("other-engine") {
-		t.Errorf("skill per-engine enablement = %+v", skill.Exports)
+	if on, _ := skill.Exports.For("claude-code"); on["enabled"] != true {
+		t.Errorf("skill claude-code block = %+v", skill.Exports)
+	}
+	if off, _ := skill.Exports.For("other-engine"); off["enabled"] != false {
+		t.Errorf("skill other-engine block = %+v", skill.Exports)
 	}
 	var execCount int
 	for _, f := range skill.Files {
@@ -894,11 +895,11 @@ func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 // every signature. This fails loudly if that ever changes.
 func TestEngineExports_EncodeIsDeterministic(t *testing.T) {
 	exports := EngineExports{
-		"engine-e":    {Description: "e"},
-		"claude-code": {Description: "c"},
-		"engine-d":    {Description: "d"},
-		"engine-b":    {Description: "b"},
-		"engine-a":    {Description: "a"},
+		"engine-e":    {"description": "e"},
+		"claude-code": {"description": "c"},
+		"engine-d":    {"description": "d"},
+		"engine-b":    {"description": "b"},
+		"engine-a":    {"description": "a"},
 	}
 	first, err := marshalYAML(skillMeta{Exports: exports})
 	if err != nil {
@@ -969,4 +970,14 @@ func TestSurfaceType_MetaResidencyIsPerType(t *testing.T) {
 			t.Errorf("%s: Accepts = %v, want %v", tc.kind, accepts, tc.wantSidecar)
 		}
 	}
+}
+
+// anyStrings reads a YAML-decoded sequence of scalars as strings.
+func anyStrings(v any) []string {
+	seq, _ := v.([]any)
+	out := make([]string, 0, len(seq))
+	for _, s := range seq {
+		out = append(out, s.(string))
+	}
+	return out
 }

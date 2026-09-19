@@ -66,6 +66,7 @@ package convert
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -160,7 +161,9 @@ func PlanWithReport(id content.BundleID, b *bundles.Bundle, opts Options) ([]Ite
 	// Kind order is fixed so a conversion is reproducible from the same
 	// document.
 	p.fragments(b)
-	p.commands(b)
+	if err := p.commands(b); err != nil {
+		return nil, nil, err
+	}
 	p.mcp(b)
 	p.hooks(b)
 	if err := p.skills(b, opts); err != nil {
@@ -201,44 +204,39 @@ func (p *planner) addForms(kind trust.ItemKind, name, distilled string, s conten
 func (p *planner) fragments(b *bundles.Bundle) {
 	for _, name := range collections.SortedKeys(b.Fragments) {
 		f := b.Fragments[name]
-		p.addForms(trust.KindFragment, name, f.Distilled, content.Fragment{
-			Name: name,
-			ItemMeta: content.ItemMeta{
-				Tags: f.Tags,
-				// A fragment authors its applicability condition as `premise`;
-				// the tree format calls the same idea `description`, as it
-				// already does for commands and skills.
-				Description:  f.Premise,
-				Notes:        f.Notes,
-				Installation: f.Installation,
-				ContentHash:  f.ContentHash,
-				Body:         f.Content,
-				NoDistill:    f.NoDistill,
-				Distilled:    f.Distilled,
-				DistilledBy:  f.DistilledBy,
-			},
-		})
+		// A fragment authors its applicability condition as `premise`; the
+		// tree format calls the same idea `description`, as it already does
+		// for commands and skills.
+		p.addForms(trust.KindFragment, name, f.Distilled, content.Fragment{Name: name, ItemMeta: itemMeta(f.ItemBody, f.Premise)})
 	}
 }
 
-func (p *planner) commands(b *bundles.Bundle) {
+func (p *planner) commands(b *bundles.Bundle) error {
 	for _, name := range collections.SortedKeys(b.Commands) {
 		c := b.Commands[name]
-		p.addForms(trust.KindPrompt, name, c.Distilled, content.Command{
-			Name: name,
-			ItemMeta: content.ItemMeta{
-				Tags:         c.Tags,
-				Description:  c.Description,
-				Notes:        c.Notes,
-				Installation: c.Installation,
-				ContentHash:  c.ContentHash,
-				Body:         c.Content,
-				NoDistill:    c.NoDistill,
-				Distilled:    c.Distilled,
-				DistilledBy:  c.DistilledBy,
-			},
-			Exports: commandExports(c.LLM),
-		})
+		exports, err := exportBlocks(c.Exports)
+		if err != nil {
+			return fmt.Errorf("command %q: %w", name, err)
+		}
+		p.addForms(trust.KindPrompt, name, c.Distilled, content.Command{Name: name, ItemMeta: itemMeta(c.ItemBody, c.Description), Exports: exports})
+	}
+	return nil
+}
+
+// itemMeta carries across everything a fragment and a command hold alike —
+// the inverse of the tree reader's itemBody — so neither planner restates
+// the shared payload and the two cannot disagree about a field.
+func itemMeta(body bundles.ItemBody, description string) content.ItemMeta {
+	return content.ItemMeta{
+		Tags:         body.Tags,
+		Description:  description,
+		Notes:        body.Notes,
+		Installation: body.Installation,
+		ContentHash:  body.ContentHash,
+		Body:         body.Content,
+		NoDistill:    body.NoDistill,
+		Distilled:    body.Distilled,
+		DistilledBy:  body.DistilledBy,
 	}
 }
 
@@ -305,11 +303,15 @@ func (p *planner) skills(b *bundles.Bundle, opts Options) error {
 		if err != nil {
 			return err
 		}
+		exports, err := exportBlocks(s.Exports)
+		if err != nil {
+			return fmt.Errorf("skill %q: %w", name, err)
+		}
 		p.add(trust.KindSkill, name, signing.FormRaw, content.Skill{
 			Name:    name,
 			Tags:    s.Tags,
 			Notes:   s.Notes,
-			Exports: skillExports(s.LLM),
+			Exports: exports,
 			Files:   files,
 		})
 	}
@@ -468,41 +470,20 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// commandExports maps internal/core/bundles' four near-identical per-engine structs
-// onto the content package's one engine-keyed map. Engines absent from the
-// source struct simply do not appear; nothing is invented.
-func commandExports(l bundles.LLMExports) content.EngineExports {
-	out := content.EngineExports{}
-	add := func(engine string, e content.EngineExport) {
-		if e.Enabled == nil && e.Description == "" && e.ArgumentHint == "" && e.Model == "" && len(e.AllowedTools) == 0 {
-			return
+// exportBlocks maps the bundle package's opaque per-engine blocks onto the
+// tree form's, block for block: neither side reads inside one, so nothing
+// is projected and nothing is lost. nil when the item declares none.
+func exportBlocks(blocks bundles.EngineBlocks) (content.EngineExports, error) {
+	if len(blocks) == 0 {
+		return nil, nil
+	}
+	out := make(content.EngineExports, len(blocks))
+	for engine, raw := range blocks {
+		var block content.EngineExport
+		if err := json.Unmarshal(raw, &block); err != nil {
+			return nil, fmt.Errorf("exports: engine %q: %w", engine, err)
 		}
-		out[engine] = e
+		out[engine] = block
 	}
-	add("claude-code", content.EngineExport{
-		Enabled: l.ClaudeCode.Enabled, Description: l.ClaudeCode.Description,
-		ArgumentHint: l.ClaudeCode.ArgumentHint, AllowedTools: l.ClaudeCode.AllowedTools, Model: l.ClaudeCode.Model,
-	})
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// skillExports is the same mapping for a skill, where only enablement is
-// meaningful (a skill's name and description are SKILL.md front-matter, the
-// single source of truth, and are never duplicated into the sidecar).
-func skillExports(l bundles.SkillLLMExports) content.EngineExports {
-	out := content.EngineExports{}
-	add := func(engine string, e bundles.SkillEngineExport) {
-		if e.Enabled == nil {
-			return
-		}
-		out[engine] = content.EngineExport{Enabled: e.Enabled}
-	}
-	add("claude-code", l.ClaudeCode)
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return out, nil
 }

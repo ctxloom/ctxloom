@@ -42,25 +42,18 @@ func TestBuiltinCommands_RealResourcesLoad(t *testing.T) {
 	require.NotEmpty(t, prompts, "the real embedded builtin commands must still load")
 }
 
-// forceExport must force-enable a curated command for EVERY engine with a
-// per-prompt opt-out flag. Before the fix, a bundle that set
-// `<engine>: {enabled: false}` on a prompt a profile explicitly curates via
-// `commands:` still exported nothing for that engine — contradicting
-// forceExport's own doc ("the per-prompt opt-out flag is overridden").
-// forceExportSkill (skillfiles.go) is its skill-side twin and must match.
-//
-// NOTE ON REACH: one engine declares a per-prompt opt-out today, so "every
-// engine" is currently one row. A second engine's field belongs here the day
-// it exists — the bug this pins was precisely a per-engine field the loop
-// forgot.
-func TestForceExport_EnablesEveryEngine(t *testing.T) {
-	off := false
-	c := &bundles.LoadedContent{Name: "x", Content: "body"}
-	c.LLM.ClaudeCode.Enabled = &off
+// forceExport marks a curated command CURATED and leaves its blocks alone:
+// the block is opaque here, and every engine reads Curated as "export it
+// even where my block opts out". forceExportSkill (skillfiles.go) is its
+// skill-side twin and must match.
+func TestForceExport_MarksCuratedWithoutTouchingTheBlocks(t *testing.T) {
+	c := &bundles.LoadedContent{Name: "x", Content: "body", Exports: optOut()}
+	before := c.Exports.Clone()
 
 	forceExport(c)
 
-	assert.True(t, c.LLM.ClaudeCode.IsEnabled(), "forceExport must override the per-prompt opt-out")
+	assert.True(t, c.Curated, "forceExport must mark the item curated")
+	assert.Equal(t, before, c.Exports, "the opaque blocks are never rewritten")
 }
 
 // LoadCommandExports(nil, ...) must not panic. Before the fix, it

@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -162,11 +163,9 @@ func TestAssembleManagedDenyTools_ExplicitProfileWarningOmitsDefault(t *testing.
 // TestCommandExportsFor resolves each backend's per-prompt enablement + metadata
 // from the same bundle content, and returns nil for an unknown backend.
 func TestCommandExportsFor(t *testing.T) {
-	enabled := true
-	c := &bundles.LoadedContent{Name: "x", Content: "body"}
-	c.LLM.ClaudeCode.Enabled = &enabled
-	c.LLM.ClaudeCode.Description = "claude desc"
-	c.LLM.ClaudeCode.ArgumentHint = "hint"
+	c := &bundles.LoadedContent{Name: "x", Content: "body", Exports: bundles.EngineBlocks{
+		claude.EngineName: []byte(`{"enabled":true,"description":"claude desc","argument_hint":"hint"}`),
+	}}
 	prompts := []*bundles.LoadedContent{c}
 
 	claudeEx := CommandExportsFor("claude-code", prompts)

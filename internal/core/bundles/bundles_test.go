@@ -907,31 +907,6 @@ func TestExtractBundleName(t *testing.T) {
 }
 
 // =============================================================================
-// ClaudeCodeConfig Tests
-// =============================================================================
-
-func TestClaudeCodeConfig_IsEnabled(t *testing.T) {
-	trueBool := true
-	falseBool := false
-
-	tests := []struct {
-		name   string
-		config ClaudeCodeConfig
-		want   bool
-	}{
-		{"nil enabled (default true)", ClaudeCodeConfig{}, true},
-		{"explicitly enabled", ClaudeCodeConfig{Enabled: &trueBool}, true},
-		{"explicitly disabled", ClaudeCodeConfig{Enabled: &falseBool}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.config.IsEnabled())
-		})
-	}
-}
-
-// =============================================================================
 // Loader Tests
 // =============================================================================
 

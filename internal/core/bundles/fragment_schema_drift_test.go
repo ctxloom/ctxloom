@@ -49,75 +49,58 @@ func TestFragmentSchema_PermitsEveryBundleFragmentField(t *testing.T) {
 	}
 }
 
-// TestFragmentSchema_LLMBlockPermitsEveryEngine is the same drift gate as
-// above, one level deeper: LLMExports (internal/core/bundles/loader_content.go) is
-// the Go struct backing a bundle item's `llm:` export-settings block, and it
-// already carries all four engines (claude-code, codex, kiro,
-// opencode). fragment-schema.json's own `llm` property only listed
-// claude-code and opencode — with additionalProperties:false one level down,
-// an otherwise-valid `llm: { codex: {...} }` / `kiro:` / `antigravity:` block
-// failed schema validation even though the Go loader accepted it fine
-// (rabid-daily). This walks LLMExports' own yaml tags, the same reflection
-// approach the top-level test above uses, so a sixth engine added to the Go
-// struct without a matching schema entry fails here too.
-func TestFragmentSchema_LLMBlockPermitsEveryEngine(t *testing.T) {
+// TestFragmentSchema_ExportsBlockIsOpaque: the per-engine export block is
+// OPAQUE — keyed by whatever engine name the registry knows, each block an
+// object the named engine decodes against its own ExportSchema. The schema
+// must therefore permit ANY engine key (the registry, not the schema, names
+// engines) and constrain each value only to an object. Both spellings —
+// `exports:` and the retired `llm:` an older bundle still carries — read.
+func TestFragmentSchema_ExportsBlockIsOpaque(t *testing.T) {
 	raw, err := resources.GetSchema("input/fragment-schema.json")
 	require.NoError(t, err)
 
 	var doc struct {
-		Properties struct {
-			LLM struct {
-				AdditionalProperties bool                       `json:"additionalProperties"`
-				Properties           map[string]json.RawMessage `json:"properties"`
-			} `json:"llm"`
-		} `json:"properties"`
+		Properties map[string]json.RawMessage `json:"properties"`
 	}
 	require.NoError(t, json.Unmarshal(raw, &doc))
-	assert.False(t, doc.Properties.LLM.AdditionalProperties,
-		"fragment-schema's llm block additionalProperties must be false so an unknown engine key is rejected")
-
-	rt := reflect.TypeFor[LLMExports]()
-	for i := 0; i < rt.NumField(); i++ {
-		tag := rt.Field(i).Tag.Get("yaml")
-		name, _, _ := strings.Cut(tag, ",")
-		if name == "" {
-			continue
+	for _, key := range []string{"exports", "llm"} {
+		rawBlock, ok := doc.Properties[key]
+		require.True(t, ok, "fragment-schema must model the %q block", key)
+		var block struct {
+			Type                 string          `json:"type"`
+			Properties           json.RawMessage `json:"properties"`
+			AdditionalProperties json.RawMessage `json:"additionalProperties"`
 		}
-		_, ok := doc.Properties.LLM.Properties[name]
-		assert.Truef(t, ok,
-			"LLMExports has a %q engine field that fragment-schema's llm block does not permit; "+
-				"add it to resources/schema/input/fragment-schema.json.", name)
+		require.NoError(t, json.Unmarshal(rawBlock, &block))
+		assert.Equal(t, "object", block.Type)
+		assert.Empty(t, block.Properties, "%q must name no engine: the registry does", key)
+		assert.JSONEq(t, `{"type":"object"}`, string(block.AdditionalProperties),
+			"%q permits any engine key and constrains each block only to an object", key)
 	}
 }
 
-// TestFragmentSchema_ValidatesLLMBlockForEveryEngine is the payload-level
-// counterpart to the reflection check above: it compiles the real schema and
-// validates an actual fragment document carrying an `llm:` block for every
-// engine, proving the schema doesn't merely list the property name but truly
-// accepts a realistic per-engine export config (mirroring each engine's own
-// Config struct in loader_content.go: codex additionally carries
-// argument_hint, the others carry enabled+description only).
-func TestFragmentSchema_ValidatesLLMBlockForEveryEngine(t *testing.T) {
+// TestFragmentSchema_ValidatesAnyEngineBlock is the payload-level
+// counterpart: a document carrying blocks for a registered engine and for
+// one nobody registers validates, under either key; a scalar where a block
+// belongs does not.
+func TestFragmentSchema_ValidatesAnyEngineBlock(t *testing.T) {
 	raw, err := resources.GetSchema("input/fragment-schema.json")
 	require.NoError(t, err)
 
 	v, err := schema.NewValidatorFromSchema(raw)
 	require.NoError(t, err)
 
-	doc := []byte(`
+	for _, key := range []string{"exports", "llm"} {
+		doc := []byte(`
 content: "some content"
-llm:
+` + key + `:
   claude-code:
     enabled: true
     description: "Review code"
-  codex:
-    enabled: true
-    description: "Review code"
-    argument_hint: "[file]"
-  opencode:
-    enabled: true
-    description: "Review code"
+  some-future-engine:
+    anything: [1, 2]
 `)
-	assert.NoError(t, v.ValidateBytes(doc),
-		"a fragment's llm block naming every engine LLMExports supports must validate cleanly")
+		assert.NoError(t, v.ValidateBytes(doc), "%s: any engine's block must validate", key)
+		assert.Error(t, v.ValidateBytes([]byte("content: x\n"+key+":\n  claude-code: yes\n")), "%s: a scalar is not a block", key)
+	}
 }

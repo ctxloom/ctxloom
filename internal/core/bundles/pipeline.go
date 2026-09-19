@@ -202,7 +202,7 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 		// never served.
 		IsDistilled: s.Form == FormDistilled,
 		DistilledBy: r.DistilledBy,
-		LLM:         r.LLM,
+		Exports:     r.Exports,
 		Form:        s.Form,
 		TrustRef:    r.TrustRef,
 		Signer:      r.Signer,

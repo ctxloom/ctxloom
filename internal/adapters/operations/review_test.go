@@ -169,9 +169,9 @@ func TestPendingReview_ContentAndRendering(t *testing.T) {
 	// so the manifest is generated from the bytes actually present: what is
 	// checked now is that EVERY listed file carries a real, full-length digest.
 	//
-	// The enablement header comes first — it is in the preimage, so it is on
-	// the screen — and the tree listing follows it.
-	assert.Contains(t, skill.CurrentContent, "claude-code: enabled")
+	// The export blocks come first — they are in the preimage, so they are
+	// on the screen — and the tree listing follows them.
+	assert.Contains(t, skill.CurrentContent, "exports:")
 	for _, line := range strings.Split(skillTree(t, skill.CurrentContent), "\n") {
 		_, rest, ok := strings.Cut(line, "sha256:")
 		require.True(t, ok, "every manifest line names a digest: %q", line)
@@ -181,11 +181,11 @@ func TestPendingReview_ContentAndRendering(t *testing.T) {
 }
 
 // skillTree returns the per-file listing of a rendered skill surface: what
-// follows the enablement header renderSkillSurface opens with.
+// follows the exports header renderSkillSurface opens with.
 func skillTree(t *testing.T, rendered string) string {
 	t.Helper()
 	_, tree, ok := strings.Cut(rendered, "\n\n")
-	require.True(t, ok, "a rendered skill surface opens with an enablement header: %q", rendered)
+	require.True(t, ok, "a rendered skill surface opens with an exports header: %q", rendered)
 	return strings.TrimSpace(tree)
 }
 
@@ -602,22 +602,21 @@ func TestRenderMCPSurface_EmptyServerShowsMarker(t *testing.T) {
 // renderSkillSurface returned "" outright for a skill whose
 // (effective) manifest has zero file entries.
 func TestRenderSkillSurface_EmptyManifestShowsMarker(t *testing.T) {
-	rendered := renderSkillSurface(bundles.SkillLLMExports{}, bundles.SkillManifest{})
+	rendered := renderSkillSurface(nil, bundles.SkillManifest{})
 	assert.Contains(t, rendered, "nothing to display",
 		"an empty skill manifest must say so explicitly rather than rendering an empty string")
 }
 
-// A skill's per-engine enablement is inside its trust preimage, so review
-// must display it: what the reviewer is shown is exactly what they approve,
+// A skill's per-engine blocks are inside its trust preimage, so review must
+// display them: what the reviewer is shown is exactly what they approve,
 // and a flip from enabled to disabled must appear in the diff rather than
 // re-gating the skill with nothing visibly changed.
-func TestRenderSkillSurface_ShowsEnablement(t *testing.T) {
+func TestRenderSkillSurface_ShowsTheEngineBlocks(t *testing.T) {
 	manifest := bundles.SkillManifest{{Path: "SKILL.md", SHA256: "sha256:a", Mode: "0644"}}
-	assert.Contains(t, renderSkillSurface(bundles.SkillLLMExports{}, manifest), "claude-code: enabled")
+	assert.Contains(t, renderSkillSurface(nil, manifest), "exports: none")
 
-	disabled := false
-	off := bundles.SkillLLMExports{ClaudeCode: bundles.SkillEngineExport{Enabled: &disabled}}
-	assert.Contains(t, renderSkillSurface(off, manifest), "claude-code: disabled")
+	off := bundles.EngineBlocks{"claude-code": []byte(`{"enabled":false}`)}
+	assert.Contains(t, renderSkillSurface(off, manifest), `claude-code: {"enabled":false}`)
 }
 
 // TestRenderHookSurface_NoCommandOrPromptShowsMarker is a regression guard:

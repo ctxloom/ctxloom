@@ -66,13 +66,6 @@ var doctorDepBinariesRequired = []string{"git"}
 // Detail text below says what they're actually for, not "signing".
 var doctorDepBinariesRecommended = []string{"ssh", "ssh-keygen"}
 
-// doctorEngineBinaries maps each registered engine backend name to the
-// native CLI ctxloom would launch for it, for the DOCTOR-CHECK-DEPS-a1 PATH
-// probe. Only backends with a real external client binary are listed.
-var doctorEngineBinaries = map[string]string{
-	config.BackendClaudeCode: "claude",
-}
-
 // doctorStatus is one check's verdict, and there are exactly three of them. It
 // is a named type rather than a bare string because the value set IS the
 // contract: it is shared with the "ctxloom-doctor" Agent Skill and with every
@@ -313,14 +306,15 @@ func doctorMissingFromPath(bins []string) []string {
 }
 
 // doctorMissingEngineClients returns "<binary> (<engine>)" for every CONFIGURED
-// engine whose native client is not on PATH. Engines with no external client
-// binary (none listed in doctorEngineBinaries) are skipped rather than reported
-// as missing.
+// engine whose native client is not on PATH, for the DOCTOR-CHECK-DEPS-a1 PATH
+// probe. The binary is the one the engine's own grammar declares
+// (backends.EngineBinary); a test double declares none and is skipped rather
+// than reported as missing.
 func doctorMissingEngineClients(cfg *config.Config) []string {
 	var missing []string
 	for _, engine := range doctorConfiguredEngines(cfg) {
-		bin, ok := doctorEngineBinaries[engine]
-		if !ok {
+		bin := backends.EngineBinary(engine)
+		if bin == "" || backends.IsTestOnly(engine) {
 			continue
 		}
 		if _, err := exec.LookPath(bin); err != nil {

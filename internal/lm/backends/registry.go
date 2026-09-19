@@ -129,6 +129,43 @@ func Engines() engine.Registry {
 	return reg
 }
 
+// DefaultEngineName is the name of the one engine shipped by default — what
+// an untyped llm entry, an init with no choice made, or a scaffold records.
+// "" when no engine ships by default, which the composition refuses
+// upstream.
+func DefaultEngineName() string {
+	def, err := Engines().Default()
+	if err != nil {
+		return ""
+	}
+	return string(def.Root().Name)
+}
+
+// DefaultEngines lists, sorted, the engines shipped by default: the curated
+// head of any engine menu.
+func DefaultEngines() []string {
+	var out []string
+	for _, n := range Engines().Names(func(d engine.Definition) bool { return d.Distribution == engine.DistributionDefault }) {
+		out = append(out, string(n))
+	}
+	return out
+}
+
+// EngineBinary is the native client binary the named engine's interactive
+// grammar launches, "" for an engine with no declared grammar for it (a
+// double, or an unregistered name).
+func EngineBinary(name string) string {
+	d, ok := Definition(name)
+	if !ok {
+		return ""
+	}
+	g, ok := engine.CLIFor(d.CLI, engine.Interactive)
+	if !ok {
+		return ""
+	}
+	return g.Binary
+}
+
 // Definition returns the named engine's root — its Definition and views —
 // by EXACT match on the registered name.
 func Definition(name string) (engine.Base, bool) {
@@ -215,16 +252,25 @@ func Exists(name string) bool {
 	return ok
 }
 
+// PermissionFactsFor reads the named engine's declared permission facts off
+// its Definition: the host default posture and whether plan is a genuine
+// read-only tier. An unregistered name has the zero facts, which resolve to
+// prompt-per-call and collapse plan.
+func PermissionFactsFor(name string) engine.PermissionFacts {
+	d, ok := Definition(name)
+	if !ok {
+		return engine.PermissionFacts{}
+	}
+	return d.Permissions
+}
+
 // EnforcesReadOnlyPlan reports whether the named engine declares
 // PermissionPlan as a genuinely read-only, non-prompting mode
 // (Definition.Permissions.ReadOnlyPlan). An engine that doesn't would run
 // plan unrestrained and can't be trusted to be headless-safe for it, so the
 // run resolver collapses plan to default for it instead. An unregistered name
 // reports false.
-func EnforcesReadOnlyPlan(name string) bool {
-	d, ok := Definition(name)
-	return ok && d.Permissions.ReadOnlyPlan
-}
+func EnforcesReadOnlyPlan(name string) bool { return PermissionFactsFor(name).ReadOnlyPlan }
 
 // BinaryPathProvider is implemented by backends that expose their binary path.
 // agent.BaseBackend satisfies it (see agent.BaseBackend.GetBinaryPath), so

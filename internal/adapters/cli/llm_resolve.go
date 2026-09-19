@@ -28,7 +28,7 @@ func isTestOnlyBackend(name string) bool { return backends.IsTestOnly(name) }
 func decodeBackendConfigForType(cfg *config.Config, backendType string) agent.BackendConfig {
 	matchesType := func(label string) bool {
 		entry, ok := cfg.GetLLMEntry(label)
-		return ok && entry.EffectiveType() == backendType
+		return ok && cfg.EffectiveType(entry) == backendType
 	}
 	// Short-circuit on the primary label only when it actually decodes; an
 	// undecodable primary (operations.DecodeBackendConfig warns and returns nil)

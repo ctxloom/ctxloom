@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
@@ -339,7 +340,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, dirtyTreeHandler string, dirtyTreeCommitAck bool, err error) {
 	if selected == "" && noEnginesInstalled() {
 		warnNoEnginesDetected()
-		selected = "claude-code"
+		selected = backends.DefaultEngineName()
 	}
 
 	if interactive && selected == "" {

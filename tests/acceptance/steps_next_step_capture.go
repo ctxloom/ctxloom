@@ -74,7 +74,7 @@ func vendorTranscriptLines(engine, closing string) (string, error) {
 		return "", err
 	}
 	switch engine {
-	case config.BackendClaudeCode:
+	case "claude-code":
 		user := `{"type":"user","isSidechain":false,"cwd":"/repo","sessionId":"s","version":"2.1.44","message":{"role":"user","content":[{"type":"text","text":"go"}]},"uuid":"u1","timestamp":"2026-08-22T10:00:00.000Z"}`
 		assistant := `{"type":"assistant","isSidechain":false,"cwd":"/repo","sessionId":"s","version":"2.1.44","message":{"model":"m","id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":` + string(text) +
 			`}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}},"uuid":"a1","timestamp":"2026-08-22T10:00:02.000Z"}`

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
@@ -76,11 +77,24 @@ type Sources interface {
 	TrustPorts(ctx context.Context, cfg *Config) (bundles.Authorizer, error)
 }
 
+// Option adjusts an Owner at Open.
+type Option func(*Owner)
+
+// WithEngines names the engines the process was composed with: every
+// generation the owner publishes is validated against them (Config.Validate),
+// an unknown name surfacing as a validate warning — the config still opens;
+// the strict gate records the warning as a finding. A process that opens
+// the config without engines (the tests' one read) validates nothing.
+func WithEngines(reg engine.Registry) Option {
+	return func(o *Owner) { o.engines = &reg }
+}
+
 // Owner is the one owner of the loaded configuration in a process (the
 // originator; the runner has none). Exactly one exists, constructed at the
 // composition root by Open, reaching every consumer as a *Snapshot parameter.
 type Owner struct {
 	src     Sources
+	engines *engine.Registry // the engines each generation is validated against; nil = none composed
 	current atomic.Pointer[Snapshot]
 	gen     atomic.Uint64
 	// writeMu serializes generation builds (Reload, Update): generation
@@ -92,8 +106,11 @@ type Owner struct {
 // Open constructs the owner and publishes its first generation. A process
 // whose configuration cannot be read gets no owner: the error is the one
 // Sources.Read returned.
-func Open(ctx context.Context, src Sources) (*Owner, error) {
+func Open(ctx context.Context, src Sources, opts ...Option) (*Owner, error) {
 	o := &Owner{src: src}
+	for _, opt := range opts {
+		opt(o)
+	}
 	if _, err := o.Reload(ctx); err != nil {
 		return nil, err
 	}
@@ -128,6 +145,11 @@ func (o *Owner) reloadLocked(ctx context.Context) (*Snapshot, error) {
 // binds both to cfg, so a consumer that reaches this generation through its
 // *Config sees the same catalog and gate the Snapshot carries.
 func (o *Owner) build(ctx context.Context, cfg *Config, warnings []Warning) (*Snapshot, error) {
+	if o.engines != nil {
+		if err := cfg.Validate(*o.engines); err != nil {
+			warnings = append(warnings, Warning{Kind: WarnKindValidate, Text: err.Error()})
+		}
+	}
 	readers, err := o.src.Readers(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving bundle sources: %w", err)

@@ -306,7 +306,7 @@ func claudeChatPrepareRequest(rs *ResolvedAgent) AgentChatRequest {
 // child is spawned with is exactly what the user pinned.
 func TestPrepareAgentChat_ClaudeModelPinnedConcretePassesThrough(t *testing.T) {
 	resetStrictness(t)
-	rs := &ResolvedAgent{Name: "coordinator", Backend: config.BackendClaudeCode, Label: "claude-code", Model: "claude-opus-4-8"}
+	rs := &ResolvedAgent{Name: "coordinator", Backend: "claude-code", Label: "claude-code", Model: "claude-opus-4-8"}
 	p, err := PrepareAgentChat(context.Background(), &config.Config{}, claudeChatPrepareRequest(rs))
 	require.NoError(t, err)
 	defer p.Abort()

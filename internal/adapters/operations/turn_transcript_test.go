@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -51,7 +50,7 @@ func TestResolveTurnTranscript_SelectsTheReaderForTheSessionsOwnEngine(t *testin
 		version string
 		want    any
 	}{
-		{config.BackendClaudeCode, "2.1.214", claudereader.VersionedAdapters[0].Adapter},
+		{"claude-code", "2.1.214", claudereader.VersionedAdapters[0].Adapter},
 	}
 	for _, tc := range tests {
 		t.Run(tc.backend, func(t *testing.T) {
@@ -83,7 +82,7 @@ func TestResolveTurnTranscript_RefusesAnUnrecordedEngineVersion(t *testing.T) {
 	testsupport.Isolate(t)
 	mgr, err := sessions.Open()
 	require.NoError(t, err)
-	entry, err := mgr.AssignHarp(t.TempDir(), config.BackendClaudeCode)
+	entry, err := mgr.AssignHarp(t.TempDir(), "claude-code")
 	require.NoError(t, err)
 
 	src := filepath.Join(t.TempDir(), "vendor-transcript")

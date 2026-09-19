@@ -29,6 +29,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -1360,7 +1361,7 @@ func (st *runState) resolvePostureAndAxes(permissionsFlag string) error {
 	labelEntry, _ := st.cfg.GetLLMEntry(st.label)
 	st.labelPerm = labelEntry.Permissions
 	st.projectPerm = st.cfg.GetPermissions()
-	st.permMode = resolvePermissionMode(permissionsFlag, st.agentPermissions, st.labelPerm, st.projectPerm, st.backendName, st.mode, backends.EnforcesReadOnlyPlan(st.backendName))
+	st.permMode = resolvePermissionMode(permissionsFlag, st.agentPermissions, st.labelPerm, st.projectPerm, backends.PermissionFactsFor(st.backendName), st.mode)
 	st.requestedPerm = requestedPermission(permissionsFlag, st.agentPermissions, st.labelPerm, st.projectPerm)
 	return nil
 }
@@ -1397,13 +1398,15 @@ func (st *runState) warnPlanOneshotCancels() {
 	}
 }
 
-// warnHostBypassStopgap surfaces the claude-code host-bypass stopgap: blanket
-// auto-approval on the bare host. It's the default path, so surface it only
-// under -v to avoid warning fatigue while still making the posture
-// discoverable.
+// warnHostBypassStopgap surfaces an engine's declared host-bypass stopgap:
+// blanket auto-approval on the bare host, with the reason the engine
+// declares beside it (engine.PermissionFacts.HostDefaultReason). It's the
+// default path, so surface it only under -v to avoid warning fatigue while
+// still making the posture discoverable.
 func (st *runState) warnHostBypassStopgap() {
-	if st.requestedPerm == agent.PermissionNotRequested && st.permMode == agent.PermissionBypass && st.backendName == config.BackendClaudeCode && runVerbosity > 0 {
-		clidiag.Warn("ctxloom", "permissions bypassed on the host (claude-code stopgap)")
+	facts := backends.PermissionFactsFor(st.backendName)
+	if st.requestedPerm == agent.PermissionNotRequested && st.permMode == agent.PermissionBypass && facts.HostDefault == agent.PermissionBypass && runVerbosity > 0 {
+		clidiag.Warn("ctxloom", "%s", facts.HostDefaultReason)
 	}
 }
 
@@ -1517,7 +1520,7 @@ func (st *runState) stampWorkspaceOnRequest() {
 	// policy prepared) never warns. In strict mode a lost boundary recorded
 	// a ClassIsolation finding and gate 2 already aborted, so this warning
 	// fires only in degraded mode (or if a degrade recorded nothing).
-	if warnBypassOnLostContainer(st.runAxes, st.policy.Name(), st.permMode, st.backendName) {
+	if warnBypassOnLostContainer(st.runAxes, st.policy.Name(), st.permMode, backends.PermissionFactsFor(st.backendName)) {
 		clidiag.Warn("ctxloom", "container isolation unavailable; running %s with bypass on the host", st.backendName)
 	}
 
@@ -2045,43 +2048,45 @@ func mergeWorkspaceEnv(existing, workspaceEnv map[string]string) map[string]stri
 // host: the runtime axis asked for a container, the PREPARED policy is not
 // container-backed (neither container nor container-worktree — a satisfied
 // request, including a successful container-worktree, never warns), and the
-// resolved posture is bypass. The claude-code host stopgap is exempt:
-// bypass-on-host is its intended posture.
-func warnBypassOnLostContainer(axes isolation.Axes, preparedName string, permMode agent.PermissionMode, backendName string) bool {
+// resolved posture is bypass. An engine whose declared host default IS
+// bypass (the host stopgap) is exempt: bypass-on-host is its intended
+// posture.
+func warnBypassOnLostContainer(axes isolation.Axes, preparedName string, permMode agent.PermissionMode, facts engine.PermissionFacts) bool {
 	return axes.WantsContainer() && !isolation.IsContainerPolicyName(preparedName) &&
-		permMode == agent.PermissionBypass && backendName != config.BackendClaudeCode
+		permMode == agent.PermissionBypass && facts.HostDefault != agent.PermissionBypass
 }
 
 // resolvePermissionMode picks the launch-time permission posture for the top-level
 // run. Precedence: the explicit --permissions flag, then the --agent binding, then
 // the engine label's configured permissions, then THIS PROJECT DIRECTORY's
-// declared default (config.yaml's top-level `permissions:`), then the built-in
-// default. The built-in default is bypass for claude-code (the host stopgap while
-// container isolation isn't relied on) and default (prompt) for every other
-// backend. Config/CLI is authoritative: the isolation boundary no longer earns or
-// drops bypass. A non-interactive ONESHOT has no human to answer the engine, so a
-// would-block posture (default/acceptEdits) upgrades to bypass or it hangs.
+// declared default (config.yaml's top-level `permissions:`), then the engine's
+// declared host default (facts.HostDefault: bypass for the engine that declares
+// the host stopgap while container isolation isn't relied on, prompt-per-call
+// for every other). Config/CLI is authoritative: the isolation boundary no
+// longer earns or drops bypass. A non-interactive ONESHOT has no human to
+// answer the engine, so a would-block posture (default/acceptEdits) upgrades to
+// bypass or it hangs.
 //
-// projectPerm sits LAST among the declarations and BEFORE the built-in default,
+// projectPerm sits LAST among the declarations and BEFORE the engine's default,
 // and both halves of that placement are load-bearing:
 //
 //   - Below flag/agent/label, so a project default can never widen a posture
 //     someone declared somewhere more specific. Precedence, not "most
 //     restrictive wins": a binding may still declare a WIDER posture than the
-//     project default, exactly as it may today against the built-in one.
-//   - Above the built-in default, so a declared project posture beats the
-//     claude-code host stopgap. The stopgap exists for the case where nobody
-//     stated a posture at all; a project that states one has answered the
-//     question it was standing in for, and leaving the stopgap on top would
-//     make `permissions: plan` in a claude-code project silently mean bypass —
-//     the exact silent widening this chain is built to prevent.
+//     project default, exactly as it may today against the engine's default.
+//   - Above the engine's default, so a declared project posture beats the host
+//     stopgap. The stopgap exists for the case where nobody stated a posture at
+//     all; a project that states one has answered the question it was standing
+//     in for, and leaving the stopgap on top would make `permissions: plan` in
+//     a project on that engine silently mean bypass — the exact silent widening
+//     this chain is built to prevent.
 //
 // projectPerm reaches here from config.GetPermissions(), which can only ever
 // carry a value THIS project's .ctxloom/config.yaml (or an explicit
 // --config-set) wrote: layerscope drops the key from a home config or the
 // environment before the merge. See config.Config.permissions.
-func resolvePermissionMode(flag, agentPerm, labelPerm, projectPerm, backendType string, mode pb.ExecutionMode, backendEnforcesPlan bool) agent.PermissionMode {
-	m, honoured := agent.ResolveDefault([]string{flag, agentPerm, labelPerm, projectPerm}, backendType == config.BackendClaudeCode)
+func resolvePermissionMode(flag, agentPerm, labelPerm, projectPerm string, facts engine.PermissionFacts, mode pb.ExecutionMode) agent.PermissionMode {
+	m, honoured := agent.ResolveDefault([]string{flag, agentPerm, labelPerm, projectPerm}, facts.HostDefault)
 	if !honoured {
 		// A declared posture that does not parse is already floored to the most
 		// restrictive tier and reported as a fatal finding. It returns AS IS:
@@ -2096,7 +2101,7 @@ func resolvePermissionMode(flag, agentPerm, labelPerm, projectPerm, backendType 
 	// that still gates each tool call on a human. Interactive: that prompts; a
 	// headless ONESHOT then floors default up to bypass below (it can't hang),
 	// which the caller warns about.
-	m = m.CollapsePlanIfUnenforced(backendEnforcesPlan)
+	m = m.CollapsePlanIfUnenforced(facts.ReadOnlyPlan)
 	if mode == pb.ExecutionMode_ONESHOT && !m.SafeHeadless() {
 		m = agent.PermissionBypass
 	}

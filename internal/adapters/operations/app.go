@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // App is the process's composition: the ONE config.Owner, opened on first
@@ -98,7 +99,7 @@ func (a *App) Owner(ctx context.Context) (*config.Owner, error) {
 		a.mu.Lock()
 		a.opened = true
 		a.mu.Unlock()
-		a.owner, a.err = config.Open(ctx, a.src)
+		a.owner, a.err = config.Open(ctx, a.src, config.WithEngines(backends.Engines()))
 	})
 	return a.owner, a.err
 }

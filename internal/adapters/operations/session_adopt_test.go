@@ -60,7 +60,7 @@ func TestScanAdoptCandidates_OrdersByInternalTimestampNeverMtime(t *testing.T) {
 	mgr := newAdoptManager(t)
 	dir := t.TempDir()
 
-	entry, err := mgr.AssignHarp("/proj", config.BackendClaudeCode)
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	harp := entry.HarpName
 
@@ -117,7 +117,7 @@ func TestScanAdoptCandidates_OrdersByInternalTimestampNeverMtime(t *testing.T) {
 func TestScanAdoptCandidates_SkipsOverlappingSpan(t *testing.T) {
 	mgr := newAdoptManager(t)
 	dir := t.TempDir()
-	entry, err := mgr.AssignHarp("/proj", config.BackendClaudeCode)
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	harp := entry.HarpName
 
@@ -159,7 +159,7 @@ func TestScanAdoptCandidates_SkipsAlreadyKnownAndAnotherHarp(t *testing.T) {
 	mgr := newAdoptManager(t)
 	dir := t.TempDir()
 
-	entry, err := mgr.AssignHarp("/proj", config.BackendClaudeCode)
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	harp := entry.HarpName
 	livePath := writeClaudeVendorFile(t, dir, "id-live",
@@ -172,7 +172,7 @@ func TestScanAdoptCandidates_SkipsAlreadyKnownAndAnotherHarp(t *testing.T) {
 		{SessionID: "id-rotated", TranscriptPath: rotatedPath, RotatedAt: time.Date(2026, 2, 1, 1, 0, 0, 0, time.UTC)},
 	}))
 
-	other, err := mgr.AssignHarp("/proj", config.BackendClaudeCode)
+	other, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	otherPath := writeClaudeVendorFile(t, dir, "id-other-harp",
 		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC), nil)
@@ -233,7 +233,7 @@ func TestScanAdoptCandidates_UnknownHarpErrors(t *testing.T) {
 // "not-yet-rebuilt" cwd->slug warning for why guessing is the wrong move).
 func TestScanAdoptCandidates_NoTranscriptPathErrors(t *testing.T) {
 	mgr := newAdoptManager(t)
-	entry, err := mgr.AssignHarp("/proj", config.BackendClaudeCode)
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	_, err = ScanAdoptCandidates(entry.HarpName)
 	require.Error(t, err)

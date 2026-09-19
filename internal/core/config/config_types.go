@@ -46,13 +46,6 @@ type LMConfig struct {
 	Defaults RoleDefaults         `mapstructure:"defaults" yaml:"defaults,omitempty"`
 }
 
-// BackendClaudeCode is the claude-code backend type — the reference engine with
-// ambient host auth, and the subject of the host-bypass permission stopgap.
-// Compare a backend type against THIS (not DefaultLLM) when the intent is
-// "is this claude-code specifically", so the check doesn't silently follow a
-// change to the default-label concept.
-const BackendClaudeCode = "claude-code"
-
 // BackendMock is the test/development double's registry name. It is a real
 // registered backend (internal/lm/backends holds a Declaration for it), and
 // it is the SECOND implementation that keeps engine-facing ports honest —
@@ -114,21 +107,6 @@ const BackendMockLaunch = "mock-launch"
 // predicate while leaving the predicate itself unexercised — the shape that
 // lets a gate pass while proving nothing.
 const BackendMockNoSkills = "mock-noskills"
-
-// DefaultLLM is the backend type used when no config resolves a label. It is
-// claude-code today; DefaultLLM and BackendClaudeCode name distinct concepts
-// (the default fallback vs. the claude-code engine) that happen to coincide.
-const DefaultLLM = BackendClaudeCode
-
-// EffectiveType returns the backend type the entry drives, degrading to
-// DefaultLLM when Type is unset. Every consumer of LLMConfig.Type must
-// resolve it through this method so the defaulting rule lives in one place.
-func (c LLMConfig) EffectiveType() string {
-	if c.Type == "" {
-		return DefaultLLM
-	}
-	return c.Type
-}
 
 // hasAny reports whether the LM config carries anything worth persisting.
 func (c LMConfig) hasAny() bool {

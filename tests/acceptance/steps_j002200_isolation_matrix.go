@@ -185,7 +185,7 @@ const isoFixtureClaudeCred = `{"claudeAiOauth":{"accessToken":"` + isoFixtureAcc
 // verbatim and keeps the opaque marker.
 func isoCredFixtureContent(engine string) (string, error) {
 	switch engine {
-	case config.BackendClaudeCode:
+	case "claude-code":
 		return isoFixtureClaudeCred, nil
 	default:
 		return "", fmt.Errorf("iso matrix: no credential fixture content for engine %q", engine)
@@ -209,7 +209,7 @@ const (
 // spy script must answer to on the sanitized PATH.
 func isoBinaryNames(engine string) ([]string, error) {
 	switch engine {
-	case config.BackendClaudeCode:
+	case "claude-code":
 		return []string{"claude"}, nil
 	default:
 		return nil, fmt.Errorf("iso matrix: unknown engine %q", engine)
@@ -248,7 +248,7 @@ func isoCredHostPath(engine string) (string, error) {
 // must stop reading and writing. Relative to $HOME.
 func isoHostHomeDirRel(engine string) (string, error) {
 	switch engine {
-	case config.BackendClaudeCode:
+	case "claude-code":
 		return ".claude", nil
 	default:
 		return "", fmt.Errorf("iso matrix: no known host config home for engine %q", engine)
@@ -263,7 +263,7 @@ func isoHostHomeDirRel(engine string) (string, error) {
 // the production code uses would make the assertion tautological.
 func isoInstanceLeaf(engine string) (string, error) {
 	switch engine {
-	case config.BackendClaudeCode:
+	case "claude-code":
 		return "claude", nil
 	default:
 		return "", fmt.Errorf("iso matrix: engine %q has no ctxloom-controlled in-tree home", engine)
@@ -322,7 +322,7 @@ func mustIsoCredHostPath(engine string) string {
 // preceding its credential dump (see isoMatrixSpyScript).
 func isoCredsSectionMarker(engine string) (string, error) {
 	switch engine {
-	case config.BackendClaudeCode:
+	case "claude-code":
 		return "===CLAUDE_CONFIG_DIR_CREDS===", nil
 	default:
 		return "", fmt.Errorf("iso matrix: no credential section marker for engine %q", engine)
@@ -687,7 +687,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice has whatever host credentials "([^"]*)" needs to authenticate$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
 		switch engine {
-		case config.BackendClaudeCode:
+		case "claude-code":
 			rel, err := isoCredHostPath(engine)
 			if err != nil {
 				return err

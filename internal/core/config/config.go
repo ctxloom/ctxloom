@@ -91,6 +91,12 @@ type Config struct {
 	// composes (DefaultAgentProfiles). Empty or naming an undefined agent degrades
 	// to empty context (a warning, never a hard stop — CLAUDE.md fault tolerance).
 	defaultAgent string
+	// defaultEngine is the engine an untyped llm entry or a missed label
+	// resolves to: the one default-distribution engine of the registry the
+	// config was validated against (Validate). Never a literal here; empty
+	// until a registry is bound, and then every resolution refuses loudly
+	// downstream.
+	defaultEngine string
 	// workspace is the project-wide DEFAULT for the SESSION-level workspace
 	// axis (none | worktree): where a session's working directory lives.
 	// Empty means "none" (the shared live project dir — today's behaviour).
@@ -754,7 +760,7 @@ func (c *Config) FastLabel() string {
 // itself may also return "" (no defaults.primary and not exactly one
 // configured label), in which case the lookup below simply misses.
 //
-// A MISS RETURNS DefaultLLM AND RAISES NOTHING HERE, and the reason is worth
+// A MISS RETURNS THE BOUND DEFAULT ENGINE AND RAISES NOTHING HERE, and the reason is worth
 // keeping: this function cannot tell a broken label from a legitimate one.
 //
 // A label that is not an `llm:` entry but IS a known BACKEND NAME is fully
@@ -774,9 +780,9 @@ func (c *Config) ResolveLLM(label string) (backend, model string) {
 	}
 	entry, ok := c.lm.Configs[label]
 	if !ok {
-		return DefaultLLM, ""
+		return c.defaultEngine, ""
 	}
-	backend = entry.EffectiveType()
+	backend = c.EffectiveType(entry)
 	if m, ok := entry.Body["model"].(string); ok {
 		model = m
 	}

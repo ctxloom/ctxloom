@@ -103,7 +103,7 @@ func j001000FixturePath(engineKey string) (string, error) {
 // feed, so its adapter's own ValidatedVersion is the authority.
 func j001000SeededEngineVersion(backend string) string {
 	switch backend {
-	case config.BackendClaudeCode:
+	case "claude-code":
 		return enginePinFromLock("CLAUDE_CODE_CLI_VERSION")
 	case config.BackendMock:
 		if len(mockreader.VersionedAdapters) == 0 {

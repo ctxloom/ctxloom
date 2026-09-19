@@ -1,0 +1,97 @@
+package config_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+)
+
+// stubKind is the smallest engine kind a registry can hold.
+type stubKind struct{ engine.Base }
+
+func (stubKind) Instance(engine.Session) (engine.Instance, error) { return nil, nil }
+
+// registryOf composes stub kinds; the first named ships by default.
+func registryOf(names ...engine.Name) engine.Registry {
+	kinds := make([]engine.Engine, 0, len(names))
+	for i, n := range names {
+		dist := engine.DistributionTestOnly
+		if i == 0 {
+			dist = engine.DistributionDefault
+		}
+		kinds = append(kinds, stubKind{engine.Base{Definition: engine.Definition{Name: n, Distribution: dist}}})
+	}
+	reg, err := engine.NewRegistry(kinds...)
+	if err != nil {
+		panic(err)
+	}
+	return reg
+}
+
+// TestConfig_Validate_ChecksEveryConfiguredEngineNameAgainstTheRegistry:
+// an llm entry's type and an isolation engine name must be engines the
+// process was composed with; an untyped entry declares no engine and is
+// not checked; the refusal names the entry and the engines ctxloom knows.
+func TestConfig_Validate_ChecksEveryConfiguredEngineNameAgainstTheRegistry(t *testing.T) {
+	reg := registryOf("alpha", "beta")
+	cfg := config.NewFixture(config.Fixture{
+		LM: config.LMConfig{Configs: map[string]config.LLMConfig{
+			"typed":   {Type: "alpha"},
+			"untyped": {},
+		}},
+		IsolationEngines: []string{"beta"},
+	})
+	require.NoError(t, cfg.Validate(reg))
+	assert.Equal(t, "alpha", cfg.DefaultEngine(), "the registry's default is bound as the engine an untyped entry drives")
+	assert.Equal(t, "alpha", cfg.EffectiveType(config.LLMConfig{}))
+	assert.Equal(t, "beta", cfg.EffectiveType(config.LLMConfig{Type: "beta"}))
+
+	bad := config.NewFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{"stale": {Type: "gamma"}}}})
+	err := bad.Validate(reg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `llm.configs.stale`)
+	assert.Contains(t, err.Error(), `"gamma"`)
+	assert.Contains(t, err.Error(), "alpha, beta")
+
+	badIso := config.NewFixture(config.Fixture{IsolationEngines: []string{"gamma"}})
+	assert.ErrorContains(t, badIso.Validate(reg), "isolation.engines")
+
+	noDefault, _ := engine.NewRegistry(stubKind{engine.Base{Definition: engine.Definition{Name: "t", Distribution: engine.DistributionTestOnly}}})
+	assert.ErrorContains(t, cfg.Validate(noDefault), "ship by default", "a registry with no default engine cannot resolve an untyped entry")
+}
+
+// stubSources serves one parsed config with no bundles and no trust gate.
+type stubSources struct{ yaml string }
+
+func (s stubSources) Read(context.Context) (*config.Config, []config.Warning, error) {
+	cfg, err := config.ParseConfig([]byte(s.yaml))
+	return cfg, nil, err
+}
+func (stubSources) Readers(context.Context, *config.Config) ([]bundles.Reader, error) { return nil, nil }
+func (stubSources) TrustPorts(context.Context, *config.Config) (bundles.Authorizer, error) {
+	return nil, nil
+}
+
+// TestOpen_WithEngines_ValidatesEveryGeneration: a process composed with
+// engines validates each published generation against them, surfacing an
+// unknown name as a validate warning — the config still opens, and the
+// strict gate records the warning as a finding.
+func TestOpen_WithEngines_ValidatesEveryGeneration(t *testing.T) {
+	src := stubSources{yaml: "llm:\n  configs:\n    stale:\n      type: gamma\n"}
+	owner, err := config.Open(context.Background(), src, config.WithEngines(registryOf("alpha")))
+	require.NoError(t, err)
+	snap := owner.Current()
+	require.Len(t, snap.Warnings, 1)
+	assert.Equal(t, config.WarnKindValidate, snap.Warnings[0].Kind)
+	assert.Contains(t, snap.Warnings[0].Text, `"gamma"`)
+
+	unvalidated, err := config.Open(context.Background(), src)
+	require.NoError(t, err)
+	assert.Empty(t, unvalidated.Current().Warnings, "without engines there is nothing to validate against")
+}

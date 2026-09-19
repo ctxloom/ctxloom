@@ -62,7 +62,10 @@ func withDefaultProfiles(cfg *Config, names ...string) *Config {
 // Default Plugin Tests
 // =============================================================================
 // The default LLM plugin determines which AI backend is used when none is
-// explicitly specified. Falls back to claude-code for backwards compatibility.
+// explicitly specified. With no label resolving, the engine the config was
+// validated against as the registry's default answers; an unvalidated
+// config has no default engine and resolves to "", which every downstream
+// consumer refuses loudly as an unknown backend.
 
 func TestGetDefaultLLM(t *testing.T) {
 	t.Run("resolves the primary label's backend type", func(t *testing.T) {
@@ -75,9 +78,14 @@ func TestGetDefaultLLM(t *testing.T) {
 		assert.Equal(t, "mock", cfg.GetDefaultLLM())
 	})
 
-	t.Run("returns claude-code as fallback when no label resolves", func(t *testing.T) {
+	t.Run("returns the bound default engine when no label resolves", func(t *testing.T) {
+		cfg := &Config{defaultEngine: "fixture-default"}
+		assert.Equal(t, "fixture-default", cfg.GetDefaultLLM())
+	})
+
+	t.Run("an unvalidated config has no default engine", func(t *testing.T) {
 		cfg := &Config{}
-		assert.Equal(t, "claude-code", cfg.GetDefaultLLM())
+		assert.Empty(t, cfg.GetDefaultLLM())
 	})
 }
 
@@ -99,9 +107,10 @@ func TestFastLabel_FallsBackToPrimary(t *testing.T) {
 // ResolveLLM reads backend type + model straight from the labeled entry; an
 // unknown label degrades to the built-in default backend with no model.
 func TestResolveLLM(t *testing.T) {
-	cfg := &Config{lm: LMConfig{Configs: map[string]LLMConfig{
-		"g":    {Type: "mock", Body: map[string]interface{}{"model": "gemini-3-pro"}},
-		"bare": {Type: "claude-code"},
+	cfg := &Config{defaultEngine: "fixture-default", lm: LMConfig{Configs: map[string]LLMConfig{
+		"g":       {Type: "mock", Body: map[string]interface{}{"model": "gemini-3-pro"}},
+		"bare":    {Type: "claude-code"},
+		"untyped": {Body: map[string]interface{}{"model": "m"}},
 	}}}
 
 	backend, model := cfg.ResolveLLM("g")
@@ -112,8 +121,12 @@ func TestResolveLLM(t *testing.T) {
 	assert.Equal(t, "claude-code", backend)
 	assert.Empty(t, model)
 
+	backend, model = cfg.ResolveLLM("untyped")
+	assert.Equal(t, "fixture-default", backend, "an untyped entry drives the bound default engine")
+	assert.Equal(t, "m", model)
+
 	backend, model = cfg.ResolveLLM("missing")
-	assert.Equal(t, "claude-code", backend, "unknown label degrades to default backend")
+	assert.Equal(t, "fixture-default", backend, "unknown label degrades to the bound default engine")
 	assert.Empty(t, model)
 }
 
@@ -139,13 +152,13 @@ func TestResolveLLM_EmptyLabelHonoursPrimary(t *testing.T) {
 // configured label), an empty label must still degrade to the built-in
 // default backend rather than crash or loop.
 func TestResolveLLM_EmptyLabelNoDefaultDegradesToBuiltin(t *testing.T) {
-	cfg := &Config{lm: LMConfig{Configs: map[string]LLMConfig{
+	cfg := &Config{defaultEngine: "fixture-default", lm: LMConfig{Configs: map[string]LLMConfig{
 		"a": {Type: "mock"},
 		"b": {Type: "claude-code"},
 	}}}
 
 	backend, model := cfg.ResolveLLM("")
-	assert.Equal(t, "claude-code", backend, "no resolvable primary: empty label degrades to the built-in default backend")
+	assert.Equal(t, "fixture-default", backend, "no resolvable primary: empty label degrades to the bound default engine")
 	assert.Empty(t, model)
 }
 
@@ -1212,9 +1225,9 @@ func TestGetCompactionLLM(t *testing.T) {
 		assert.Equal(t, "claude-code", cfg.GetCompactionLLM())
 	})
 
-	t.Run("falls back to claude-code", func(t *testing.T) {
-		cfg := &Config{}
-		assert.Equal(t, "claude-code", cfg.GetCompactionLLM())
+	t.Run("falls back to the bound default engine", func(t *testing.T) {
+		cfg := &Config{defaultEngine: "fixture-default"}
+		assert.Equal(t, "fixture-default", cfg.GetCompactionLLM())
 	})
 }
 

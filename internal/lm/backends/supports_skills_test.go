@@ -22,6 +22,6 @@ func TestSupportsSkills_HasATrueArmAndAFalseArm(t *testing.T) {
 		"mock declares skillExports and must report true")
 	assert.False(t, SupportsSkills(config.BackendMockNoSkills),
 		"mock-noskills declares NO skillExports and must report false — it is the only subject the missing-surface arm has")
-	assert.True(t, SupportsSkills(config.BackendClaudeCode),
+	assert.True(t, SupportsSkills("claude-code"),
 		"the real backend still reports true; the new double must not have changed it")
 }

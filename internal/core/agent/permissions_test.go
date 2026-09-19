@@ -86,35 +86,35 @@ func TestWireMode(t *testing.T) {
 }
 
 // TestResolveDefault pins the shared base resolution: first declared source
-// wins; otherwise claude-code falls to bypass (host stopgap) and everything else
-// to default (prompt).
+// wins; otherwise the engine's declared host default answers (bypass for an
+// engine with the host stopgap, prompt-per-call for one without).
 func TestResolveDefault(t *testing.T) {
 	// First declared wins, in order.
-	mode, honoured := ResolveDefault([]string{"plan", "bypass"}, true)
+	mode, honoured := ResolveDefault([]string{"plan", "bypass"}, PermissionBypass)
 	assert.Equal(t, PermissionPlan, mode)
 	assert.True(t, honoured)
 
-	mode, honoured = ResolveDefault([]string{"", "bypass", "plan"}, false)
+	mode, honoured = ResolveDefault([]string{"", "bypass", "plan"}, PermissionDefault)
 	assert.Equal(t, PermissionBypass, mode)
 	assert.True(t, honoured)
 }
 
 // TestResolveDefault_UnsetIsUnchanged is the regression control for the
 // unparseable floor below: an ABSENT declaration must keep resolving exactly as
-// it always has — claude-code to its host-bypass stopgap, every other backend to
-// prompt-per-call — and must report itself honoured, so no caller mistakes "no
+// it always has — to the engine's declared host default — and must report
+// itself honoured, so no caller mistakes "no
 // posture was declared" for "a declared posture was refused". Whitespace is
 // absence, not a misspelling.
 func TestResolveDefault_UnsetIsUnchanged(t *testing.T) {
 	strictness.Reset()
 
 	for _, sources := range [][]string{{"", ""}, nil, {}, {"   ", "\t"}} {
-		mode, honoured := ResolveDefault(sources, true)
-		assert.Equal(t, PermissionBypass, mode, "claude-code stopgap for %#v", sources)
+		mode, honoured := ResolveDefault(sources, PermissionBypass)
+		assert.Equal(t, PermissionBypass, mode, "a bypass host default for %#v", sources)
 		assert.True(t, honoured, "unset is honoured for %#v", sources)
 
-		mode, honoured = ResolveDefault(sources, false)
-		assert.Equal(t, PermissionDefault, mode, "non-claude prompt default for %#v", sources)
+		mode, honoured = ResolveDefault(sources, PermissionDefault)
+		assert.Equal(t, PermissionDefault, mode, "a prompting host default for %#v", sources)
 		assert.True(t, honoured, "unset is honoured for %#v", sources)
 	}
 
@@ -123,26 +123,26 @@ func TestResolveDefault_UnsetIsUnchanged(t *testing.T) {
 
 // TestResolveDefault_UnparseableFloorsAndFails pins the silent-escalation fix:
 // `permissions: plann` used to be SKIPPED like an unset source, so resolution
-// walked on down the chain and landed on the claude-code host stopgap —
+// walked on down the chain and landed on the engine's host stopgap —
 // bypass, i.e. --dangerously-skip-permissions, from a value that obviously
 // meant the read-only posture. A declaration that missed now stops the chain at
 // the most restrictive posture and records a fatal ClassConfig finding.
 func TestResolveDefault_UnparseableFloorsAndFails(t *testing.T) {
 	cases := []struct {
-		name              string
-		sources           []string
-		claudeCodeDefault bool
+		name        string
+		sources     []string
+		hostDefault PermissionMode
 	}{
-		{"claude-code, nothing else declared", []string{"plann"}, true},
-		{"a wider source below must not answer for it", []string{"plann", "bypass"}, true},
-		{"non-claude backend floors the same way", []string{"plann"}, false},
-		{"a later rung's typo floors too", []string{"", "yolo"}, true},
+		{"a bypass host default, nothing else declared", []string{"plann"}, PermissionBypass},
+		{"a wider source below must not answer for it", []string{"plann", "bypass"}, PermissionBypass},
+		{"a prompting host default floors the same way", []string{"plann"}, PermissionDefault},
+		{"a later rung's typo floors too", []string{"", "yolo"}, PermissionBypass},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			strictness.Reset()
 
-			mode, honoured := ResolveDefault(tc.sources, tc.claudeCodeDefault)
+			mode, honoured := ResolveDefault(tc.sources, tc.hostDefault)
 
 			assert.Equal(t, PermissionFloor, mode, "an unhonourable declaration floors to the most restrictive posture")
 			assert.NotEqual(t, PermissionBypass, mode, "a typo must never resolve MORE privileged than what was typed")
@@ -165,7 +165,7 @@ func TestResolveDefault_UnparseableFloorsUnderDegraded(t *testing.T) {
 	strictness.SetDegraded(true)
 	defer strictness.SetDegraded(false)
 
-	mode, honoured := ResolveDefault([]string{"plann"}, true)
+	mode, honoured := ResolveDefault([]string{"plann"}, PermissionBypass)
 	assert.Equal(t, PermissionFloor, mode, "degraded narrows, it never widens")
 	assert.False(t, honoured)
 	// Degraded suppresses FATALITY, not RECORDING: the finding is still

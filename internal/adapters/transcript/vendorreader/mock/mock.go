@@ -34,6 +34,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // Adapter converts the mock transcript format. Stateless by construction:
@@ -42,9 +43,10 @@ type Adapter struct{}
 
 var _ vendorreader.VendorAdapter = Adapter{}
 
-// vendorName is the string this adapter reports in wrapped errors. It is the
-// VENDOR label, matching the registry name mock is registered under.
-const vendorName = "mock"
+// vendorName is the string this adapter reports in wrapped errors: the
+// registry name mock is registered under, read from config data rather than
+// spelled here.
+const vendorName = config.BackendMock
 
 // VersionedAdapters declares the version span this adapter reads.
 //

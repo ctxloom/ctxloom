@@ -90,7 +90,7 @@ func (l Locator) Discover(workDir string) ([]vendorreader.Located, error) {
 				continue
 			}
 			out = append(out, vendorreader.Located{
-				Engine:     "claude-code",
+				Engine:     claudecli.EngineName,
 				SessionID:  strings.TrimSuffix(f.Name(), ".jsonl"),
 				Path:       path,
 				WorkDir:    cwd,
@@ -104,7 +104,7 @@ func (l Locator) Discover(workDir string) ([]vendorreader.Located, error) {
 	// reporting zero would be indistinguishable from having none.
 	if !sawProjectDir && len(entries) > 0 {
 		return nil, &vendorreader.UnrecognizedStoreError{
-			Engine:   "claude-code",
+			Engine:   claudecli.EngineName,
 			Root:     root,
 			Expected: "per-project directories holding <session-id>.jsonl",
 			Found:    "only files",

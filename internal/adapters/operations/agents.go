@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -693,7 +694,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	// launch would use, so it prints the floor rather than re-diagnosing it.
 	effectivePerm, _ := agent.ResolveDefault(
 		[]string{sub.Permissions, labelEntry.Permissions, cfg.GetPermissions()},
-		backend == config.BackendClaudeCode)
+		backends.PermissionFactsFor(backend).HostDefault)
 
 	return &ResolvedAgent{
 		Name:                 name,

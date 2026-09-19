@@ -153,8 +153,8 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	// engine regardless, materializing config dirs in a project that uses one.
 	// Omitting the flag now means THIS PROJECT'S CONFIGURED ENGINES (see
 	// operations.ConfiguredEngines) rather than every engine ctxloom knows:
-	// manageInstallEngine always holds a value (its flag default is
-	// "claude-code"), so Changed is the only reliable signal that the user
+	// manageInstallEngine always holds a value (its flag default is the
+	// engine shipped by default), so Changed is the only reliable signal that the user
 	// actually asked for one engine — see checkInstallEngineApplies above,
 	// which gates on the same Changed() check for the same reason.
 	hookBackend := ""
@@ -953,7 +953,10 @@ func init() {
 	manageCmd.AddCommand(manageInstallCmd)
 	manageCmd.AddCommand(manageUninstallCmd)
 	manageCmd.AddCommand(manageCheckCmd)
-	manageInstallCmd.Flags().StringVar(&manageInstallEngine, "engine", "claude-code", "AI engine to record when scaffolding")
+	// The default is the engine shipped by default, filled in once the
+	// registry is composed (applyEngineNamedHelp): flags are declared at
+	// init, before any engine is registered.
+	manageInstallCmd.Flags().StringVar(&manageInstallEngine, "engine", "", "AI engine to record when scaffolding")
 	manageInstallCmd.Flags().BoolVar(&manageInstallPrint, "print", false, "Print the steps that would run, without executing")
 
 	// hooks.

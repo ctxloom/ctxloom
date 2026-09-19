@@ -280,5 +280,8 @@ func init() {
 	configCmd.AddCommand(configGetCmd)
 	configCmd.AddCommand(configEditCmd)
 	configCmd.AddCommand(configCreateCmd)
-	configCreateCmd.Flags().StringVar(&configCreateEngine, "engine", "claude-code", "AI engine to record in the scaffolded config")
+	// The default is the engine shipped by default, filled in once the
+	// registry is composed (applyEngineNamedHelp): flags are declared at
+	// init, before any engine is registered.
+	configCreateCmd.Flags().StringVar(&configCreateEngine, "engine", "", "AI engine to record in the scaffolded config")
 }

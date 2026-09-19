@@ -28,6 +28,27 @@ func TestMode_TwoWaysToDriveARun(t *testing.T) {
 	assert.Equal(t, "mode(99)", Mode(99).String(), "an unknown mode must be visibly bad, not silently one of the two")
 }
 
+func TestPermissionMode_ZeroIsNotRequested(t *testing.T) {
+	// Named numerically on purpose: the zero must render as "not requested"
+	// and default must be 1, whatever the constants are called.
+	assert.Equal(t, "not requested", PermissionMode(0).String(), "the zero value asks for nothing and renders as what it is, never as one of the four modes")
+	assert.Equal(t, PermissionMode(1), PermissionDefault, "default is a POSTURE a caller can ask for by name, so it cannot share the unset value")
+	for _, n := range PermissionModeNames() {
+		assert.NotEqual(t, n, PermissionMode(0).String(), "the zero is not a mode a caller can spell")
+	}
+	_, ok := ParsePermissionMode(PermissionMode(0).String())
+	assert.False(t, ok, "the zero is not a declaration and must not parse as one")
+
+	m, ok := ParsePermissionMode("default")
+	require.True(t, ok)
+	assert.Equal(t, PermissionDefault, m, "an explicit \"default\" is a declaration, distinguishable from nothing")
+	assert.NotEqual(t, PermissionMode(0), m)
+
+	m, ok = ParsePermissionMode("")
+	assert.False(t, ok)
+	assert.Equal(t, PermissionMode(0), m, "unset parses to the zero, not to a posture")
+}
+
 func TestPermissionMode_StringAndParse_RoundTrip(t *testing.T) {
 	for _, m := range []PermissionMode{PermissionDefault, PermissionAcceptEdits, PermissionPlan, PermissionBypass} {
 		got, ok := ParsePermissionMode(m.String())

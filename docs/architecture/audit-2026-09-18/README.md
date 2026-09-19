@@ -29,6 +29,10 @@ References are by symbol and file, never line numbers.
   divergence table with the review's bearing on each
 - `24-adversarial-review-b.md` — the attack on design B against the rulings made after
   the comparison, added when it lands
+- `25-target-architecture-c.md` — THE RECONCILED DESIGN: B as base, both reviews'
+  refutations closed or rejected by name, every ruling applied, port signatures
+  type-checked acyclic, claim-check package transport, a 17-slice migration with the
+  test-determinism rule and a reach-back scenario per slice, and the rulings still open
 - `briefs/` — what each analyst was asked, for scope
 
 These are a snapshot: they describe the tree they were read from. Findings that land

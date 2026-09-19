@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	taskpaths "github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 )
@@ -31,8 +32,8 @@ type SessionState struct {
 // keys yield zero fields.
 func SessionStateFromEnv(env map[string]string) SessionState {
 	return SessionState{
-		Harp:      env["CTXLOOM_SESSION_HARP"],
-		ProjectID: env["CTXLOOM_PROJECT_ID"],
+		Harp:      env[sessions.EnvHarp],
+		ProjectID: env[sessions.EnvProjectID],
 	}
 }
 

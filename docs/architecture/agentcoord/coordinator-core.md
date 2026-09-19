@@ -100,9 +100,10 @@ because both are fixed at enqueue and never mutated.
 | `Identity.IsChild` | `Depth > 0` — the recursion and authorization predicate, 5 call sites |
 | `runsFold.activeRunsForCred` | non-ended runs for a credential, used by runner-loss synthesis |
 
-`identity.go` is the canonical explanation of the reach-back seam (the `Env*` block);
-three other packages duplicate the *values* to avoid an import cycle
-(`lm/isolation/none.go`, `mcp/mcp_forward.go`).
+`Identity` and the `Env*` block are `core/sessions`' (its `identity.go` and `env.go`,
+with the two env codecs `EncodeReach`/`DecodeReach` and `HookEnv`/`DecodeHookEnv`);
+this package's `identity.go` re-exports them under the coordinator's names, and
+`runnerEnv` renders the reach-back trio through `sessions.EncodeReach`.
 
 **Divergences.**
 - `RevokeSessionOwner` has **zero call sites anywhere,

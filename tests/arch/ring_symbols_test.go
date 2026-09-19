@@ -431,11 +431,10 @@ func TestArch_NoEngineNameInCore_AllowlistIsLive(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // envKeysDeclaringDir is the package that declares the CTXLOOM_* environment
-// keys the runner reads (today internal/core/coord; core/sessions
-// after slice 2). The keys themselves are READ from its package-level
+// keys the runner reads. The keys themselves are READ from its package-level
 // consts, never listed here: a key added there is covered the moment it is
 // declared.
-const envKeysDeclaringDir = "internal/core/coord"
+const envKeysDeclaringDir = "internal/core/sessions"
 
 // envReadHomes are the directories that may spell those keys or read the
 // process environment (home, cwd, temp, the current user): the declaring
@@ -463,14 +462,14 @@ var envReadCalls = [][2]string{
 // mapped to the slice in which the site leaves.
 var envLiteralsOnceAllowed = map[string]string{
 	// re-spelled keys: the drift this rule exists to catch
-	"internal/adapters/isolation/none.go": "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
-	"internal/shared/procsec/procsec.go":  "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
+	"internal/shared/procsec/procsec.go": "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
 
 	// core reading the environment for itself
-	"internal/core/paths/homeguard.go":  "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
-	"internal/core/paths/paths.go":      "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
-	"internal/core/config/config.go":    "slice 4: adapters/configload owns the file chain; core/config reads no environment",
-	"internal/core/agent/rendezvous.go": "slice 14a: the rendezvous is the engine host's (adapters/runner), handed its temp root",
+	"internal/core/paths/homeguard.go":   "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
+	"internal/core/paths/paths.go":       "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
+	"internal/core/config/config.go":     "slice 4: adapters/configload owns the file chain; core/config reads no environment",
+	"internal/core/agent/rendezvous.go":  "slice 14a: the rendezvous is the engine host's (adapters/runner), handed its temp root",
+	"internal/core/coord/coordinator.go": "slice 14a: the ephemeral state dir for a second coordinator in one project is a launch.HostFacts temp root, not a read of its own (measured; masked while coord was the declaring package)",
 
 	// the CLI: HostFacts are computed once by the composition root
 	"internal/adapters/cli/bundle_items.go":    "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",

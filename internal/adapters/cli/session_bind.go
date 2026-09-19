@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harpmarker"
@@ -44,7 +45,7 @@ var sessionBindCmd = &cobra.Command{
 }
 
 func runSessionBind(cmd *cobra.Command, args []string) error {
-	harp := os.Getenv("CTXLOOM_SESSION_HARP")
+	harp := os.Getenv(sessions.EnvHarp)
 	// Read the hook payload once: the marker doesn't need it, the bind does.
 	raw, _ := io.ReadAll(cmd.InOrStdin())
 	// Emit the deterministic harp self-id marker as SessionStart context so

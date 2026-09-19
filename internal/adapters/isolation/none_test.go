@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
@@ -54,9 +55,9 @@ func TestNoneSpawnEnv_BothHalvesStampTheCellWorkDir(t *testing.T) {
 	caller := map[string]string{"CTXLOOM_COORD_URL": "http://host:9000"}
 	_, _ = None{}.StartRunner(context.Background(), "mock", "m", 0, hostWorkspace{dir: "/ws"}, caller)
 
-	assert.Equal(t, "/ws", got[envCellWorkDir], "the workspace dir is stamped for the runner's discovery marker")
+	assert.Equal(t, "/ws", got[sessions.EnvCellWorkDir], "the workspace dir is stamped for the runner's discovery marker")
 	assert.Equal(t, "http://host:9000", got["CTXLOOM_COORD_URL"], "the caller's per-spawn env rides along")
-	assert.NotContains(t, caller, envCellWorkDir, "the caller's map is copied, never mutated")
+	assert.NotContains(t, caller, sessions.EnvCellWorkDir, "the caller's map is copied, never mutated")
 }
 
 // TestSpawnEnvWithCellWorkDir covers every arm of the shared assembly the two
@@ -68,10 +69,10 @@ func TestSpawnEnvWithCellWorkDir(t *testing.T) {
 	assert.Empty(t, spawnEnvWithCellWorkDir(nil, hostWorkspace{dir: ""}),
 		"a workspace with no directory stamps nothing (an empty marker key would not discover anything)")
 
-	assert.Equal(t, map[string]string{envCellWorkDir: "/ws"}, spawnEnvWithCellWorkDir(nil, hostWorkspace{dir: "/ws"}))
+	assert.Equal(t, map[string]string{sessions.EnvCellWorkDir: "/ws"}, spawnEnvWithCellWorkDir(nil, hostWorkspace{dir: "/ws"}))
 
 	caller := map[string]string{"A": "1"}
-	assert.Equal(t, map[string]string{"A": "1", envCellWorkDir: "/ws"},
+	assert.Equal(t, map[string]string{"A": "1", sessions.EnvCellWorkDir: "/ws"},
 		spawnEnvWithCellWorkDir(caller, hostWorkspace{dir: "/ws"}))
 	assert.Equal(t, map[string]string{"A": "1"}, caller, "the caller's map is never mutated")
 }

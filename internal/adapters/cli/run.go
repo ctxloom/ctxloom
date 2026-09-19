@@ -29,6 +29,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -245,7 +246,7 @@ func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 	}
 	res, err := taskops.SetTaskStatus(taskops.TaskContext{
 		WorkDir:     workDir,
-		ProjectID:   os.Getenv("CTXLOOM_PROJECT_ID"),
+		ProjectID:   os.Getenv(sessions.EnvProjectID),
 		SessionHarp: activeHarp,
 	}, harpID, status, "")
 	if err != nil {
@@ -714,11 +715,11 @@ func (st *runState) resolveLaunchSource() error {
 
 	switch {
 	case runAgent != "":
-		return st.resolveNamedAgent()
+		return st.resolveNamedAgent(runAgent, runLLM)
 	case runProfile == "" && len(runFragments) == 0 && len(runTags) == 0:
-		return st.resolveDefaultAgent()
+		return st.resolveDefaultAgent(runLLM)
 	default:
-		return st.resolveClassicAssembly()
+		return st.resolveClassicAssembly(runProfile, runFragments, runTags, runLLM)
 	}
 }
 
@@ -741,12 +742,14 @@ func (st *runState) applyResolvedAgent(rs *operations.ResolvedAgent, name string
 
 // resolveNamedAgent is the --agent arm. An unknown name is a HARD error: an
 // explicit name is user intent, unlike acp's editor-serving degrade.
-func (st *runState) resolveNamedAgent() error {
-	rs, rerr := operations.ResolveAgent(st.ctx, st.cfg, runAgent, runLLM)
+// llmOverride is the caller-level --llm label that beats the binding's own
+// engine; empty leaves the binding's engine in force.
+func (st *runState) resolveNamedAgent(name, llmOverride string) error {
+	rs, rerr := operations.ResolveAgent(st.ctx, st.cfg, name, llmOverride)
 	if rerr != nil {
 		return rerr
 	}
-	st.applyResolvedAgent(rs, runAgent)
+	st.applyResolvedAgent(rs, name)
 	return nil
 }
 
@@ -782,8 +785,8 @@ func (st *runState) resolveNamedAgent() error {
 // refusal is narrow: it fires only when something was actually declared and is
 // actually about to be dropped. An absent, empty, or axis-free default agent
 // still warns and continues exactly as before.
-func (st *runState) resolveDefaultAgent() error {
-	rs, rerr := operations.ResolveAgent(st.ctx, st.cfg, st.cfg.GetDefaultAgent(), runLLM)
+func (st *runState) resolveDefaultAgent(llmOverride string) error {
+	rs, rerr := operations.ResolveAgent(st.ctx, st.cfg, st.cfg.GetDefaultAgent(), llmOverride)
 	if rerr == nil {
 		st.applyResolvedAgent(rs, st.cfg.GetDefaultAgent())
 		return nil
@@ -822,7 +825,7 @@ func (st *runState) resolveDefaultAgent() error {
 	st.ctxResult = &operations.AssembleContextResult{}
 	var lerr error
 	// resolveRunLLM: --llm override, else the project primary label.
-	st.label, lerr = resolveRunLLM(st.cfg, runLLM, "")
+	st.label, lerr = resolveRunLLM(st.cfg, llmOverride, "")
 	if lerr != nil {
 		return lerr
 	}
@@ -836,12 +839,12 @@ func (st *runState) resolveDefaultAgent() error {
 }
 
 // resolveClassicAssembly is the explicit-context-selection arm (-p / -f / -t).
-func (st *runState) resolveClassicAssembly() error {
+func (st *runState) resolveClassicAssembly(profile string, fragments, tags []string, llmOverride string) error {
 	var aerr error
 	st.ctxResult, aerr = operations.AssembleContext(st.ctx, st.cfg, operations.AssembleContextRequest{
-		Profile:   runProfile,
-		Fragments: runFragments,
-		Tags:      runTags,
+		Profile:   profile,
+		Fragments: fragments,
+		Tags:      tags,
 	})
 	if aerr != nil {
 		return fmt.Errorf("failed to assemble context: %w", aerr)
@@ -851,14 +854,14 @@ func (st *runState) resolveClassicAssembly() error {
 	// that's an error. Checked via MissingFragments — the always-on
 	// builtin companion fragments mean FragmentsLoaded is never empty,
 	// so a bare count can't see the miss.
-	if len(runFragments) > 0 && len(st.ctxResult.MissingFragments) == len(runFragments) {
+	if len(fragments) > 0 && len(st.ctxResult.MissingFragments) == len(fragments) {
 		return fmt.Errorf("no fragments loaded: requested fragments not found: %s", strings.Join(st.ctxResult.MissingFragments, ", "))
 	}
 
 	// The tag counterpart of the guard above — an explicit
 	// -t selection that matches zero fragments must not silently
 	// exit 0 having delivered no context.
-	if len(runTags) > 0 && len(st.ctxResult.MissingTags) == len(runTags) {
+	if len(tags) > 0 && len(st.ctxResult.MissingTags) == len(tags) {
 		return fmt.Errorf("no fragments loaded: no fragment matches tag(s): %s", strings.Join(st.ctxResult.MissingTags, ", "))
 	}
 
@@ -869,7 +872,7 @@ func (st *runState) resolveClassicAssembly() error {
 	// label resolves to a backend type + model; the backend name (not the
 	// label) drives session naming and transport.
 	var lerr error
-	st.label, lerr = resolveRunLLM(st.cfg, runLLM, st.ctxResult.ProfileLLM)
+	st.label, lerr = resolveRunLLM(st.cfg, llmOverride, st.ctxResult.ProfileLLM)
 	if lerr != nil {
 		return lerr
 	}
@@ -906,13 +909,7 @@ func (st *runState) gateStartup() error {
 func (st *runState) prepareRequestInputs() {
 	st.llmEnv = operations.MockControlFor(st.cfg, st.label)
 
-	// The session's WORKSPACE axis: the invocation flag wins, else the
-	// project `workspace:` default. A session trait — never read from the
-	// agent binding.
-	st.sessionWorkspace = runWorkspace
-	if st.sessionWorkspace == "" {
-		st.sessionWorkspace = st.cfg.GetWorkspace()
-	}
+	st.resolveSessionWorkspace(runWorkspace)
 
 	// --session (full resume — no --distill): prime the assembled context
 	// with the resumed harp's full recorded transcript before it's split
@@ -941,11 +938,7 @@ func (st *runState) prepareRequestInputs() {
 		})
 	}
 
-	// Determine execution mode
-	st.mode = pb.ExecutionMode_INTERACTIVE
-	if runOneShot {
-		st.mode = pb.ExecutionMode_ONESHOT
-	}
+	st.resolveMode(runOneShot)
 
 	// Build prompt fragment
 	if st.prompt != "" {
@@ -965,6 +958,24 @@ func (st *runState) prepareRequestInputs() {
 	// never block (CLAUDE.md fault tolerance).
 	if projectroot.RootFromFallback() {
 		clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", st.workDir)
+	}
+}
+
+// resolveSessionWorkspace sets the session's WORKSPACE axis: the invocation
+// flag wins, else the project `workspace:` default. A session trait — never
+// read from the agent binding.
+func (st *runState) resolveSessionWorkspace(flag string) {
+	st.sessionWorkspace = flag
+	if st.sessionWorkspace == "" {
+		st.sessionWorkspace = st.cfg.GetWorkspace()
+	}
+}
+
+// resolveMode sets the execution mode: one turn and exit, else interactive.
+func (st *runState) resolveMode(oneShot bool) {
+	st.mode = pb.ExecutionMode_INTERACTIVE
+	if oneShot {
+		st.mode = pb.ExecutionMode_ONESHOT
 	}
 }
 
@@ -1048,7 +1059,7 @@ func (st *runState) openSession() func() {
 	}
 
 	st.activeHarp = entry.HarpName
-	st.runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
+	st.runEnv[sessions.EnvHarp] = entry.HarpName
 	st.applyResumeEnv()
 
 	// Start-session display: a read-only summary of this session,
@@ -1131,7 +1142,7 @@ func (st *runState) exportProjectIdentity() {
 		clidiag.Warn("ctxloom", "project identity unresolved: %v", err)
 		return
 	}
-	st.runEnv["CTXLOOM_PROJECT_ID"] = pid
+	st.runEnv[sessions.EnvProjectID] = pid
 	if warning != "" {
 		clidiag.Warn("ctxloom", "%s", warning)
 	}
@@ -1276,6 +1287,46 @@ func (st *runState) buildRunRequest() error {
 	// DENY omits the executable). Surfaced below.
 	execGate := operations.NewExecutableTrustGate(st.cfg)
 
+	if err := st.resolvePostureAndAxes(runPermissions); err != nil {
+		return err
+	}
+	st.warnPermissionCollapse()
+	st.warnHostBypassStopgap()
+	st.warnPlanOneshotCancels()
+
+	st.managed = backends.AssembleManagedConfig(st.backendName, st.workDir, execGate.Authorizer(), st.ctxResult.Profiles)
+	// The binding's delivery preference rides the managed payload to the
+	// backend, which is the only place with the argv sink system-prompt needs.
+	// Set AFTER assembly rather than inside it: AssembleManagedConfig resolves
+	// PROFILE state and knows nothing about which agent is being launched.
+	if st.managed != nil && len(st.agentSurfaces) > 0 {
+		st.managed.Surfaces = st.agentSurfaces
+	}
+	st.req = &pb.RunStart{
+		Fragments: st.protoFragments,
+		Prompt:    st.promptFragment,
+		Options: &pb.RunOptions{
+			WorkDir:        st.workDir,
+			PermissionMode: st.permMode.String(),
+			Mode:           st.mode,
+			Env:            st.runEnv,
+			Verbosity:      agent.WireVerbosity(runVerbosity),
+			// The model comes from the resolved label's config; empty lets the
+			// backend pick its own default. e.g., "opus", "sonnet", "haiku".
+			Model: st.labelModel,
+		},
+		ManagedConfig: pb.ManagedConfigToProto(st.managed),
+	}
+	// Advisory: tell the user if a bundle executable was withheld (content-free).
+	execGate.WarnWithheld()
+	return nil
+}
+
+// resolvePostureAndAxes decides the session's isolation axes and its
+// launch-time permission posture from what the launch source resolved and
+// the --permissions flag. It is the one place the two meet; buildRunRequest
+// calls it before assembling the wire payload.
+func (st *runState) resolvePostureAndAxes(permissionsFlag string) error {
 	// The session's isolation axes: the SESSION-level workspace (--workspace,
 	// else the project `workspace:` default) x the runtime the launch source
 	// resolved (the agent's binding, or the project default). The managed path
@@ -1310,37 +1361,8 @@ func (st *runState) buildRunRequest() error {
 	labelEntry, _ := st.cfg.GetLLMEntry(st.label)
 	st.labelPerm = labelEntry.Permissions
 	st.projectPerm = st.cfg.GetPermissions()
-	st.permMode = resolvePermissionMode(runPermissions, st.agentPermissions, st.labelPerm, st.projectPerm, st.backendName, st.mode, backends.EnforcesReadOnlyPlan(st.backendName))
-	st.requestedPerm, st.hasRequestedPerm = requestedPermission(runPermissions, st.agentPermissions, st.labelPerm, st.projectPerm)
-	st.warnPermissionCollapse()
-	st.warnHostBypassStopgap()
-	st.warnPlanOneshotCancels()
-
-	st.managed = backends.AssembleManagedConfig(st.backendName, st.workDir, execGate.Authorizer(), st.ctxResult.Profiles)
-	// The binding's delivery preference rides the managed payload to the
-	// backend, which is the only place with the argv sink system-prompt needs.
-	// Set AFTER assembly rather than inside it: AssembleManagedConfig resolves
-	// PROFILE state and knows nothing about which agent is being launched.
-	if st.managed != nil && len(st.agentSurfaces) > 0 {
-		st.managed.Surfaces = st.agentSurfaces
-	}
-	st.req = &pb.RunStart{
-		Fragments: st.protoFragments,
-		Prompt:    st.promptFragment,
-		Options: &pb.RunOptions{
-			WorkDir:        st.workDir,
-			PermissionMode: st.permMode.String(),
-			Mode:           st.mode,
-			Env:            st.runEnv,
-			Verbosity:      agent.WireVerbosity(runVerbosity),
-			// The model comes from the resolved label's config; empty lets the
-			// backend pick its own default. e.g., "opus", "sonnet", "haiku".
-			Model: st.labelModel,
-		},
-		ManagedConfig: pb.ManagedConfigToProto(st.managed),
-	}
-	// Advisory: tell the user if a bundle executable was withheld (content-free).
-	execGate.WarnWithheld()
+	st.permMode = resolvePermissionMode(permissionsFlag, st.agentPermissions, st.labelPerm, st.projectPerm, st.backendName, st.mode, backends.EnforcesReadOnlyPlan(st.backendName))
+	st.requestedPerm, st.hasRequestedPerm = requestedPermission(permissionsFlag, st.agentPermissions, st.labelPerm, st.projectPerm)
 	return nil
 }
 
@@ -1956,7 +1978,7 @@ func startContainerInteractive(ctx context.Context, policy isolation.Policy, ws 
 	// workspace's own mounts+env, not this map.
 	keepaliveEnv := map[string]string{}
 	if harp != "" {
-		keepaliveEnv["CTXLOOM_SESSION_HARP"] = harp
+		keepaliveEnv[sessions.EnvHarp] = harp
 	}
 	handle, err := policy.StartRunner(ctx, backendName, label, verbosity, ws, keepaliveEnv)
 	if err != nil {

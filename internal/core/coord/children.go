@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -671,13 +672,13 @@ func waitAnyClosed(ctx context.Context, chs []chan struct{}) error {
 // holder, one egress).
 func (c *Coordinator) childEnv(harp string) map[string]string {
 	env := map[string]string{
-		"CTXLOOM_SESSION_HARP": harp,
+		sessions.EnvHarp: harp,
 	}
 	// Ambient project identity, inherited from this process's env (the
 	// parent run exported it): a containerized child's taskloom must key
 	// the SAME shared host log.
-	if pid := os.Getenv("CTXLOOM_PROJECT_ID"); pid != "" {
-		env["CTXLOOM_PROJECT_ID"] = pid
+	if pid := os.Getenv(sessions.EnvProjectID); pid != "" {
+		env[sessions.EnvProjectID] = pid
 	}
 	return env
 }
@@ -702,14 +703,14 @@ func (c *Coordinator) childEnv(harp string) map[string]string {
 // regardless of depth (Identity.OneShot's doc).
 func runnerEnv(harp, runID, token, url string, depth int, oneshot bool) map[string]string {
 	env := map[string]string{
-		"CTXLOOM_SESSION_HARP": harp,
-		EnvRunDepth:            strconv.Itoa(depth),
-		EnvRunOneShot:          strconv.FormatBool(oneshot),
+		sessions.EnvHarp: harp,
+		EnvRunDepth:      strconv.Itoa(depth),
+		EnvRunOneShot:    strconv.FormatBool(oneshot),
 	}
 	if url != "" {
-		env[EnvCoordURL] = url
-		env[EnvCoordCred] = token
-		env[EnvRunID] = runID
+		for k, v := range sessions.EncodeReach(sessions.Endpoint{URL: url, Credential: token}, runID) {
+			env[k] = v
+		}
 	}
 	return env
 }

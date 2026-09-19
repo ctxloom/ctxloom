@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // Ref.Bundle and Ref.Name are set directly — Ref is a plain struct, and every
@@ -49,13 +49,13 @@ func TestRefKey_StripsControlCharacters(t *testing.T) {
 
 // TestRefCanonicalURL_StripsControlCharacters covers the other half of the
 // countersign ref (CanonicalURL + "|" + Key): a repo URL routes through
-// remote.NormalizeURL, which normalises at its own entry.
+// refuri.NormalizeURL, which normalises at its own entry.
 func TestRefCanonicalURL_StripsControlCharacters(t *testing.T) {
 	r := Ref{RepoURL: "https://github.com/acme/repo\nevil", Bundle: "b", Kind: KindFragment, Name: "n"}
 	assert.NotContains(t, r.CanonicalURL(), "\n")
 
 	local := Ref{IsLocal: true}
-	assert.Equal(t, remote.LocalSource, local.CanonicalURL())
+	assert.Equal(t, refuri.LocalSource, local.CanonicalURL())
 
 	builtin := Ref{IsBuiltin: true}
 	assert.Equal(t, BuiltinSigner, builtin.CanonicalURL())

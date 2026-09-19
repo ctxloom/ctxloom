@@ -113,12 +113,15 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
   NOT sit below an executor — the executor only REQUESTS it and the orchestrator
   spawns it, so the two are PEERS.
 
-  There are exactly TWO agent depths, and that is the fact the mechanism uses:
-  the orchestrating agent is depth 0 — containerized or not, since a top-level
-  container run is enqueued at the owner's depth — and executors and subagents
-  are both depth 1, leaves under the default `delegation.depth`. Everything in
-  the section below turns on there being two, so do not infer a third from the
-  names. An orchestrator MAY itself
+  Depth is an INTEGER on the session identity (`sessions.Identity.Depth`),
+  and leafness is one rule, `Identity.IsLeaf(cap)` against the configured cap
+  `delegation.depth` (today's runner-side check, `runnerIsLeaf`, makes the
+  same comparison); nothing in the mechanism says how many depths exist. What
+  the DEFAULT cap yields is two: the orchestrating agent is depth 0 —
+  containerized or not, since a top-level container run is enqueued at the
+  owner's depth — and executors and subagents are both depth 1, leaves under
+  that default. Everything in the section below turns on the tree being flat,
+  so do not infer a third depth from the names. An orchestrator MAY itself
   run in a container ("level 2"), and that shape is **2a**: the orchestrating
   agent is an ordinary depth-1 child cell, while the runtime coordinator stays
   in the originator. Its container therefore needs no container runtime, no
@@ -131,11 +134,11 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
   WHY TRUE RECURSION IS UNWANTED (ruled 2026-09-12, after a feasibility study
   and an independent adversarial review of it). Not because it is hard. Because
   FLATNESS IS LOAD-BEARING: four properties this design relies on are bought by
-  having exactly two agent depths — the orchestrator, and everything it spawns.
+  the tree being flat — the orchestrator, and everything it spawns.
 
-  1. POSITION IMPLIES PRIVILEGE. `runnerIsLeaf` decides delegation from depth
-     against `delegation.depth`. That works only while there are two depths. Add
-     recursion and there is an orchestrator at depth n and executors at n+1 for
+  1. POSITION IMPLIES PRIVILEGE. Leafness is decided from depth against
+     `delegation.depth`. Position expresses privilege only while the tree is
+     flat. Add recursion and there is an orchestrator at depth n and executors at n+1 for
      every n, so no global cap can express "orchestrators may delegate,
      executors may not" — which revives the per-binding flag
      `agents.RetiredCoordinatorKey` deliberately REMOVED in favour of position.

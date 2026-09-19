@@ -831,7 +831,7 @@ func (c *Compactor) resolveHarpName() string {
 	if c.config.HarpName != "" {
 		return c.config.HarpName
 	}
-	return os.Getenv("CTXLOOM_SESSION_HARP")
+	return os.Getenv(sessions.EnvHarp)
 }
 
 // identityBoundSessionID returns the session id bound to this compactor's harp

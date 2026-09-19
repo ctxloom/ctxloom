@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -24,7 +25,7 @@ var stampPlanCmd = &cobra.Command{
 }
 
 func runStampPlan(cmd *cobra.Command, args []string) error {
-	harp := os.Getenv("CTXLOOM_SESSION_HARP")
+	harp := os.Getenv(sessions.EnvHarp)
 	if harp == "" {
 		// No active session — silent no-op so the hook is safe to
 		// install before Phase 3's session naming ships.

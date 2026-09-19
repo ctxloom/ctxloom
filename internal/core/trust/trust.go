@@ -26,7 +26,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // Decision is the outcome of a trust evaluation.
@@ -237,7 +237,7 @@ type Ref struct {
 	// builtin first, while the decision function reaches its local tier first,
 	// so a Ref carrying both would key under one identity and report the
 	// other. Builtin
-	// items key under BuiltinSigner (never remote.LocalSource) so they cannot
+	// items key under BuiltinSigner (never refuri.LocalSource) so they cannot
 	// collide with a project-local bundle of the same name, and so a rejection
 	// recorded against a builtin item is addressed unambiguously.
 	IsBuiltin bool
@@ -250,7 +250,7 @@ type Ref struct {
 	//
 	// Every production site that sets it
 	// copies remote.Reference.IsCompanion, which the reference grammar sets
-	// only for the fixed remote.CompanionSource token — never for a URL or
+	// only for the fixed refuri.CompanionSource token — never for a URL or
 	// bundle name an author can choose — and which never coincides with
 	// IsLocal (pinned by remote's own reference_companion_test). The Ref keys
 	// under that same token, so a companion item can no more collide with a
@@ -259,7 +259,7 @@ type Ref struct {
 }
 
 // BuiltinSigner is the synthetic identity builtin items key under —
-// distinct from remote.LocalSource, so a builtin bundle can never collide
+// distinct from refuri.LocalSource, so a builtin bundle can never collide
 // with a project-local bundle sharing its name. It names WHO vouches for the
 // content (the ctxloom binary itself), matching the identity a future signed
 // builtin loadout would carry — it is a plain identity string here, not a
@@ -281,7 +281,7 @@ const BuiltinSigner = "builtin:ctxloom"
 // signing.CountersignHeader.Validate). Normalising here covers every
 // construction site at once, including ones not yet written.
 func (r Ref) Key() string {
-	return remote.NormalizeRef(r.Bundle) + "#" + r.Kind.Dir() + "/" + remote.NormalizeRef(r.Name)
+	return refuri.NormalizeRef(r.Bundle) + "#" + r.Kind.Dir() + "/" + refuri.NormalizeRef(r.Name)
 }
 
 // CanonicalURL returns the canonical repo URL used for keying. Local items key
@@ -292,7 +292,7 @@ func (r Ref) CanonicalURL() string {
 		return BuiltinSigner
 	}
 	if r.IsLocal {
-		return remote.LocalSource
+		return refuri.LocalSource
 	}
 	return CanonicalRepoURL(r.RepoURL)
 }
@@ -309,7 +309,7 @@ func (r Ref) CanonicalURL() string {
 // rejection" as an addressed threat; this function is where that claim is
 // either true or false.
 //
-// It builds on remote.NormalizeURL (unifies scheme, rewrites git@ → https)
+// It builds on refuri.NormalizeURL (unifies scheme, rewrites git@ → https)
 // and then, for http(s) URLs: normalizes http → https, lowercases the host,
 // drops userinfo/query/fragment and trims trailing slashes. Empty input, the
 // ctxloom:local token, and the ctxloom:companion token pass through unchanged.
@@ -327,20 +327,20 @@ func CanonicalRepoURL(raw string) string {
 	if raw == "" {
 		return ""
 	}
-	if raw == remote.LocalSource {
-		return remote.LocalSource
+	if raw == refuri.LocalSource {
+		return refuri.LocalSource
 	}
-	if raw == remote.CompanionSource {
+	if raw == refuri.CompanionSource {
 		// A companion loadout's RepoURL is the fixed CompanionSource token
 		// (differentiated by Bundle=<bin>, mirroring how every local bundle
-		// shares remote.LocalSource) — never a real URL. Without this early
-		// return, remote.NormalizeURL's "no scheme, no slash" fallback would
+		// shares refuri.LocalSource) — never a real URL. Without this early
+		// return, refuri.NormalizeURL's "no scheme, no slash" fallback would
 		// mangle it into "https://ctxloom:companion", the same bug the
 		// ctxloom:local case above exists to avoid.
-		return remote.CompanionSource
+		return refuri.CompanionSource
 	}
 
-	normalized := remote.NormalizeURL(raw)
+	normalized := refuri.NormalizeURL(raw)
 
 	// PARSE FIRST, then branch on the parsed scheme. The old order
 	// was a HasPrefix check on the raw string, which is case-SENSITIVE: an
@@ -442,9 +442,9 @@ func (r Ref) bundleRefBase() (BundleRef, error) {
 	switch canon {
 	case "":
 		return BundleRef{}, fmt.Errorf("%w: empty repository URL", ErrRefSyntax)
-	case remote.LocalSource:
+	case refuri.LocalSource:
 		return LocalRef(r.Bundle)
-	case remote.CompanionSource:
+	case refuri.CompanionSource:
 		return CompanionRef(r.Bundle)
 	}
 
@@ -474,7 +474,7 @@ func (r Ref) bundleRefBase() (BundleRef, error) {
 // the two conversions cannot independently drift on what "file" vs.
 // everything-else means for a repo URL.
 //
-// A companion's RepoURL is stamped to remote.CompanionSource rather than left
+// A companion's RepoURL is stamped to refuri.CompanionSource rather than left
 // empty: Ref.CanonicalURL has no IsCompanion branch of its own and falls
 // through to CanonicalRepoURL(r.RepoURL), which recognizes that exact token —
 // so a round-tripped companion Ref must carry it to key the same way one
@@ -488,7 +488,7 @@ func RefFromBundleRef(br BundleRef) Ref {
 		r.IsLocal = true
 	case ClassCompanion:
 		r.IsCompanion = true
-		r.RepoURL = remote.CompanionSource
+		r.RepoURL = refuri.CompanionSource
 	case ClassGit, ClassFile:
 		r.RepoURL = repoURLBranch{class: br.Class, host: br.Host, repoPath: br.RepoPath}.repoURL()
 	}

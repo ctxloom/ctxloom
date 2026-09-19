@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // TestRefAsBundleRef_InternalClasses pins that each of the three flag-carried
@@ -150,7 +150,7 @@ func TestRefFromBundleRef_RoundTripsWithAsBundleRef(t *testing.T) {
 
 // TestRefFromBundleRef_CompanionCarriesCanonicalURLToken pins the one field
 // mapping that is NOT a bare copy for ClassCompanion: RepoURL must be stamped
-// to remote.CompanionSource, because Ref.CanonicalURL has no IsCompanion
+// to refuri.CompanionSource, because Ref.CanonicalURL has no IsCompanion
 // branch of its own and falls through to CanonicalRepoURL(r.RepoURL), which
 // only recognizes that exact token. Without this stamp a round-tripped
 // companion Ref would key under a DIFFERENT CanonicalURL than one built
@@ -159,8 +159,8 @@ func TestRefFromBundleRef_CompanionCarriesCanonicalURLToken(t *testing.T) {
 	br, err := CompanionRef("taskloom")
 	require.NoError(t, err)
 	ref := RefFromBundleRef(br)
-	assert.Equal(t, remote.CompanionSource, ref.RepoURL)
-	assert.Equal(t, remote.CompanionSource, ref.CanonicalURL())
+	assert.Equal(t, refuri.CompanionSource, ref.RepoURL)
+	assert.Equal(t, refuri.CompanionSource, ref.CanonicalURL())
 }
 
 // TestRefDisplayRef_RendersGrammarA pins DisplayRef's normal path: it mints

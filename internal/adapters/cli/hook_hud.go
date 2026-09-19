@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/contextmetrics"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 var hookHudCmd = &cobra.Command{
@@ -167,7 +168,7 @@ func contextSample(session agentSessionJSON, harp string, now time.Time) (contex
 // hidden from the agent — a series that was never written reads back through
 // `context_status` as an explicit "no samples yet", never as 0%.
 func recordContextSample(session agentSessionJSON) {
-	s, ok := contextSample(session, os.Getenv("CTXLOOM_SESSION_HARP"), time.Now().UTC())
+	s, ok := contextSample(session, os.Getenv(sessions.EnvHarp), time.Now().UTC())
 	if !ok {
 		return
 	}
@@ -261,7 +262,7 @@ func formatHud(session agentSessionJSON, info ctxloomHudInfo) string {
 
 	// Harp session name (Phase 3.5.1). Surfaced here so the user sees
 	// the session's identity in the status bar at all times.
-	if harp := os.Getenv("CTXLOOM_SESSION_HARP"); harp != "" {
+	if harp := os.Getenv(sessions.EnvHarp); harp != "" {
 		parts = append(parts, fmt.Sprintf("%s⌁ %s%s", colorDim, harp, colorReset))
 	}
 

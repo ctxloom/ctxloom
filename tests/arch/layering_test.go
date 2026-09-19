@@ -154,16 +154,11 @@ var layeringRules = []layeringRule{
 			"internal/shared/liveness",
 		},
 		allowed: map[string]string{
-			// core/trust
-			"internal/core/trust -> internal/adapters/remote": "slice 2: URL normalisation already lives in refuri; the remote import goes",
-
 			// core/sessions
 			"internal/core/sessions -> internal/shared/clidiag": "slice 15: clidiag becomes typed reports",
 
-			// core/profiles — Part 1.0 lists remote and shared/agent; shared/agent is a
-			// from-package here (its contract half becomes core/engine in 6b), so that
-			// edge is not a violation under the prefix rule. The other three were
-			// MEASURED, not listed.
+			// core/profiles — Part 1.0 lists remote; the other three were MEASURED,
+			// not listed.
 			"internal/core/profiles -> internal/adapters/remote":   "slice 5: the pull-walk reader moves to adapters/remote",
 			"internal/core/profiles -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports (measured; not in Part 1.0's profiles row)",
 			"internal/core/profiles -> internal/shared/strictness": "slice 15: strictness becomes a value (measured; not in Part 1.0's profiles row)",

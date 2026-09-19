@@ -53,6 +53,9 @@ type fixture struct {
 	// profileLLM is the label the "base" profile declares, reported by the
 	// assembler double.
 	profileLLM string
+	// noReadOnlyPlan makes the fixture engine declare no read-only tier, so
+	// a declared plan collapses to default.
+	noReadOnlyPlan bool
 	// noStructured drops Structured from the fixture engine's Modes.
 	noStructured bool
 	// withoutContainer makes the fake Cells refuse a container axis with
@@ -114,6 +117,9 @@ func ProjectRuntime(s string) Option { return func(f *fixture) { f.projectRuntim
 // ProjectPermissions sets the project's `permissions:` default.
 func ProjectPermissions(s string) Option { return func(f *fixture) { f.projectPermissions = s } }
 
+// NoReadOnlyPlan makes the fixture engine declare no read-only tier.
+func NoReadOnlyPlan() Option { return func(f *fixture) { f.noReadOnlyPlan = true } }
+
 // ProfileLLM makes the composed profiles declare a label.
 func ProfileLLM(label string) Option { return func(f *fixture) { f.profileLLM = label } }
 
@@ -157,7 +163,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 	if f.noStructured {
 		modes = []engine.Mode{engine.Interactive}
 	}
-	reg, err := engine.NewRegistry(newFixtureEngine(modes))
+	reg, err := engine.NewRegistry(newFixtureEngine(modes, !f.noReadOnlyPlan))
 	require.NoError(t, err)
 
 	store := sessions.NewMemStore()
@@ -219,13 +225,13 @@ const EngineName engine.Name = "fixture"
 // drops Structured.
 type fixtureEngine struct{ engine.Base }
 
-func newFixtureEngine(modes []engine.Mode) engine.Engine {
+func newFixtureEngine(modes []engine.Mode, readOnlyPlan bool) engine.Engine {
 	a := &approach{}
 	d := engine.Definition{
 		Name:         EngineName,
 		Distribution: engine.DistributionDefault,
 		Modes:        modes,
-		Permissions:  engine.PermissionFacts{ReadOnlyPlan: true, HostDefault: engine.PermissionDefault},
+		Permissions:  engine.PermissionFacts{ReadOnlyPlan: readOnlyPlan, HostDefault: engine.PermissionDefault},
 		ModelAliases: map[string]string{"fast-model": "fixture-fast-2"},
 		Context:      a, MCP: a, Settings: a, Hooks: a, Commands: a, Skills: a,
 	}

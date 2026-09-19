@@ -244,3 +244,25 @@ func (emptyAssembler) LabelEnv(*config.Snapshot, string) map[string]string { ret
 func (emptyAssembler) Surfaces(context.Context, *config.Snapshot, engine.Name, string, []string, map[string]string) (launch.Surfaces, error) {
 	return nil, nil
 }
+
+// TestResolve_Permission_PlanCollapsesOnEveryPath: on an engine with no
+// read-only tier a declared plan is not enforced and collapses to default —
+// on the originator's interactive run, on its structured run (then floored
+// to bypass at depth 0) and on a delegated child, which is REFUSED rather
+// than launched at a posture it cannot honour. One floor, no path skips
+// the collapse.
+func TestResolve_Permission_PlanCollapsesOnEveryPath(t *testing.T) {
+	env := launchtest.Deps(t, launchtest.WithAgent("planner", launchtest.Permissions("plan")), launchtest.NoReadOnlyPlan())
+	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "planner", Mode: engine.Interactive, WorkDir: env.Project})
+	require.NoError(t, err)
+	require.Equal(t, engine.PermissionDefault, l.Permission, "interactive: plan collapses to default, which prompts")
+
+	l, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "planner", Mode: engine.Structured, WorkDir: env.Project})
+	require.NoError(t, err)
+	require.Equal(t, engine.PermissionBypass, l.Permission, "the originator's structured run: collapsed, then floored up at depth 0")
+
+	child := env.Identity
+	child.Depth = 1
+	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: child, Agent: "planner", Mode: engine.Structured, WorkDir: env.Project})
+	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "a delegated child declaring an unenforceable plan is refused, never launched with a flag the engine ignores")
+}

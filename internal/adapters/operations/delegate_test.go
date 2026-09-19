@@ -184,11 +184,11 @@ func TestHandleDirtyParentTree_Fail_UnaffectedByMissingAck(t *testing.T) {
 	assert.NotContains(t, err.Error(), "dirty_tree_commit_ack", "fail's refusal has nothing to do with the commit ack")
 }
 
-// TestPrepareAgentChat_DirtyParentTree_DegradedDoesNotSoftenFail is the
+// TestCellsPrepare_DirtyParentTree_DegradedDoesNotSoftenFail is the
 // direct proof that --degraded no longer softens this gate at all: before
 // this change, --degraded downgraded the (then-only) refusal to a warning.
 // Now the handler governs, and --degraded changes nothing about it.
-func TestPrepareAgentChat_DirtyParentTree_DegradedDoesNotSoftenFail(t *testing.T) {
+func TestCellsPrepare_DirtyParentTree_DegradedDoesNotSoftenFail(t *testing.T) {
 	resetStrictness(t)
 	strictness.SetDegraded(true)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M internal/foo.go"}}
@@ -205,12 +205,12 @@ func TestPrepareAgentChat_DirtyParentTree_DegradedDoesNotSoftenFail(t *testing.T
 
 // ----- workspace: none / clean tree escape hatches (unchanged shape) -----
 
-// TestPrepareAgentChat_DirtyParentTree_ExplicitNoneStillAllowed is the
+// TestCellsPrepare_DirtyParentTree_ExplicitNoneStillAllowed is the
 // escape hatch every handler's message names: a dirty parent tree never
 // blocks a spawn that explicitly opts OUT of worktree isolation, because a
 // shared-checkout child sees the live tree exactly as-is — dirtiness is
 // irrelevant to it, and the dirty-tree handler never even runs.
-func TestPrepareAgentChat_DirtyParentTree_ExplicitNoneStillAllowed(t *testing.T) {
+func TestCellsPrepare_DirtyParentTree_ExplicitNoneStillAllowed(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}}
 	cfg := config.NewFixture(config.Fixture{})
@@ -225,10 +225,10 @@ func TestPrepareAgentChat_DirtyParentTree_ExplicitNoneStillAllowed(t *testing.T)
 	assert.Empty(t, fake.Calls, "the none axis never even probes commit-related git operations")
 }
 
-// TestPrepareAgentChat_CleanParentTree_WorktreeAllowed is the negative
+// TestCellsPrepare_CleanParentTree_WorktreeAllowed is the negative
 // control: a clean parent tree never trips any handler, even when the
 // resolved axis IS worktree.
-func TestPrepareAgentChat_CleanParentTree_WorktreeAllowed(t *testing.T) {
+func TestCellsPrepare_CleanParentTree_WorktreeAllowed(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": false}}
 	prev := prepareIsolation
@@ -307,12 +307,12 @@ func TestHandleDirtyParentTree_Copy_CapturesPatchAndUntrackedList(t *testing.T) 
 	assert.Empty(t, fake.AppliedPatches, "capture never applies — that's applyCopySnapshot's job, run later against the worktree")
 }
 
-// TestPrepareAgentChat_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree is the
+// TestCellsPrepare_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree is the
 // end-to-end proof: BOTH tracked (via ApplyPatch, asserted on the exact
 // patch text and target dir) AND untracked (via a REAL byte-for-byte
 // filesystem copy, asserted on actual file content — this half never
 // touches git.Fake at all) land in the worktree.
-func TestPrepareAgentChat_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *testing.T) {
+func TestCellsPrepare_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *testing.T) {
 	resetStrictness(t)
 	parent := t.TempDir()
 	target := t.TempDir() // a REAL, separate directory standing in for the created worktree
@@ -359,9 +359,9 @@ func TestPrepareAgentChat_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *tes
 	require.NoError(t, err, "the PARENT's own copy is untouched — copy only ever reads it")
 }
 
-// TestPrepareAgentChat_Copy_ApplyPatchFailureFailsLoud pins "FAIL LOUDLY; do
+// TestCellsPrepare_Copy_ApplyPatchFailureFailsLoud pins "FAIL LOUDLY; do
 // not half-apply and continue": an ApplyPatch error refuses the whole spawn.
-func TestPrepareAgentChat_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
+func TestCellsPrepare_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
 	resetStrictness(t)
 	parent := t.TempDir()
 	target := t.TempDir()
@@ -390,11 +390,11 @@ func TestPrepareAgentChat_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
 	assert.Contains(t, err.Error(), "patch does not apply")
 }
 
-// TestPrepareAgentChat_Copy_UntrackedFileMissingFailsLoud pins the same
+// TestCellsPrepare_Copy_UntrackedFileMissingFailsLoud pins the same
 // no-half-apply contract for the untracked-file half: a file the snapshot
 // named but that vanished before application refuses the whole spawn rather
 // than silently reproducing a partial WIP set.
-func TestPrepareAgentChat_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
+func TestCellsPrepare_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
 	resetStrictness(t)
 	parent := t.TempDir() // deliberately never write untracked.go here
 	target := t.TempDir()
@@ -612,13 +612,13 @@ func TestHandleDirtyParentTree_Commit_CommitAllErrorPropagates(t *testing.T) {
 	assert.Contains(t, err.Error(), "index.lock exists")
 }
 
-// TestPrepareAgentChat_Commit_ChildSeesCommittedContent is the full,
+// TestCellsPrepare_Commit_ChildSeesCommittedContent is the full,
 // REAL-git end-to-end proof that "commit" actually achieves its purpose: an
 // uncommitted file on the parent's branch, once auto-committed, is visible
 // to a FRESH worktree checked out from HEAD afterward — exactly what a
 // delegated child's own worktree creation does next. Skips cleanly when git
 // is unavailable.
-func TestPrepareAgentChat_Commit_ChildSeesCommittedContent(t *testing.T) {
+func TestCellsPrepare_Commit_ChildSeesCommittedContent(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH; skipping real-git commit-handler integration test")
 	}
@@ -718,7 +718,7 @@ func TestParseDirtyTreeHandler(t *testing.T) {
 	}
 }
 
-// TestPrepareAgentChat_DirtyTreeHandler_TypoDoesNotCommit is the EFFECT
+// TestCellsPrepare_DirtyTreeHandler_TypoDoesNotCommit is the EFFECT
 // proof, at the seam that actually touches git: an unrecognized
 // dirty_tree_handler must leave the user's working tree alone.
 //
@@ -728,7 +728,7 @@ func TestParseDirtyTreeHandler(t *testing.T) {
 // subtest is the vacuity guard: it proves this fixture DOES commit when the
 // handler parses, so the refusal below cannot be passing because the commit
 // path was never reachable in the first place.
-func TestPrepareAgentChat_DirtyTreeHandler_TypoDoesNotCommit(t *testing.T) {
+func TestCellsPrepare_DirtyTreeHandler_TypoDoesNotCommit(t *testing.T) {
 	newFake := func() *git.Fake {
 		return &git.Fake{
 			Dirty:              map[string]bool{"/proj": true},
@@ -774,11 +774,11 @@ func TestPrepareAgentChat_DirtyTreeHandler_TypoDoesNotCommit(t *testing.T) {
 	})
 }
 
-// TestPrepareAgentChat_DirtyTreeHandler_PerCallOverridesProject proves the
-// precedence at the PrepareAgentChat seam (not just the resolver in
+// TestCellsPrepare_DirtyTreeHandler_PerCallOverridesProject proves the
+// precedence at the Cells.Prepare seam (not just the resolver in
 // isolation): a project default of "fail" is overridden by a per-call
 // "stale", so the spawn proceeds (with a warning) instead of refusing.
-func TestPrepareAgentChat_DirtyTreeHandler_PerCallOverridesProject(t *testing.T) {
+func TestCellsPrepare_DirtyTreeHandler_PerCallOverridesProject(t *testing.T) {
 	resetStrictness(t)
 	captureWarnings(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
@@ -794,10 +794,10 @@ func TestPrepareAgentChat_DirtyTreeHandler_PerCallOverridesProject(t *testing.T)
 	defer func() { _ = p.Cleanup() }()
 }
 
-// TestPrepareAgentChat_DirtyTreeHandler_EmptyFallsBackToProjectDefault is
+// TestCellsPrepare_DirtyTreeHandler_EmptyFallsBackToProjectDefault is
 // the other half: an agent_run call that never sets dirty_tree_handler
 // changes nothing — the project default still decides.
-func TestPrepareAgentChat_DirtyTreeHandler_EmptyFallsBackToProjectDefault(t *testing.T) {
+func TestCellsPrepare_DirtyTreeHandler_EmptyFallsBackToProjectDefault(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
 	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(launch.DirtyTreeHandlerFail)})

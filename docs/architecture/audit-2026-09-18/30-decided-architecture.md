@@ -3088,20 +3088,20 @@ flowchart LR
     RID -->|CARRIED| HOOKENV
     CRED -->|PASSED per frame| VERBS
   end
-  subgraph RL["RESOLVED LAUNCH"]
+  subgraph RL["RESOLVED LAUNCH (landed 7: Resolve, the Cells port, Route, the endpoint; 5, 8, 9, 11b, 12 remain)"]
     SNAP["config.Owner.Current() → *Snapshot{Config, Catalog(), Trust, Generation} — captured ONCE per operation; Reload after a pull, after a scaffold, once per spawn (landed 4)"]:::decide
-    PKG["composite.Assemble(cat, sel, snapshot.Trust) → Package (+ Attestation, Index)"]:::decide
-    EXP["engine.Exports(pkg.EngineItems(name))"]:::decide
-    CELL["launch.Cells.Prepare(CellRequest{…, Engine, Host}) → Cell{Paths advised once, Mounts}"]:::decide
-    PLAN["delivery.Route(pkg, def, pref, cell roots) → Plan (routes) | ErrUncarried | Unrootable"]:::decide
-    ENC["composite.Encode(pkg) → Encoded; Resolve measures → Inline.Carry | ClaimCheck.Carry → Carrier"]:::decide
-    RES["launch.Resolve → Launch — permission floored HERE, home decided HERE, endpoint minted HERE"]:::decide
-    WIRE["coordgrpc.EncodeLaunch → StartRun.launch → DecodeLaunch (field-parity-tested)"]:::carrier
-    RED["runner: Inline.Redeem | ClaimCheck.Redeem (by the carrier's shape; a claim reads the mounted session dir) → Decode → Package"]:::consume
-    LO["runner: Loadout{Plan, Package, Exports, MCP, Index}"]:::consume
-    DELIV["Static.Deliver(lo, def.Surfaces(), Target{Cell.Paths, ownership, session:<harp>})"]:::consume
-    DYN["Dynamic.Serve(lo, ServePolicy) — BINDS Launch.MCP"]:::consume
-    INST["engine.Instance(l.Session()) → Exec(presented) → runner execs (identity env stamped by the runner)"]:::consume
+    PKG["Deps.Assembler.Assemble(snap, Selection) → Assembled; .Surfaces → Package{Context, Managed (opaque launch.Surfaces)} (landed 7 as a PORT over AssembleContext + AssembleManagedConfig; composite.Assemble → Package is 5's)"]:::decide
+    EXP["engine.Exports(pkg.EngineItems(name)) (11b; Launch.Exports declared, zero)"]:::decide
+    CELL["launch.Cells.Prepare(CellRequest{Axes, Engine, Identity, ProjectRoot, SessionDir, DirtyTree, Image, Host, HomeMode, Env}) → Cell{Paths advised once, Env, Home, Container, Cleanup, Handle} (landed 7: operations.Cells over isolation.Prepare + the dirty tree + BindAgentHome)"]:::decide
+    PLAN["delivery.Route(items, def, pref, cell roots) → Plan (routes) | ErrUncarried | Unrootable (landed 7 over engine.Items; AcceptLoss total until 12)"]:::decide
+    ENC["composite.Encode(pkg) → Encoded; Resolve measures → Inline.Carry | ClaimCheck.Carry → Carrier (5)"]:::decide
+    RES["launch.Resolve → Launch — permission floored HERE (depth 0 widens to bypass, a child is refused), home decided HERE, endpoint minted HERE (Store.BindMCP, Store.BindEngine) (landed 7)"]:::decide
+    WIRE["coordgrpc.EncodeLaunch → today's RunStart (landed 7, field-set-tested); the Launch message + DecodeLaunch are 8's"]:::carrier
+    RED["runner: Inline.Redeem | ClaimCheck.Redeem (by the carrier's shape; a claim reads the mounted session dir) → Decode → Package (9)"]:::consume
+    LO["runner: Loadout{Plan, Package, Exports, MCP, Index} (9)"]:::consume
+    DELIV["Static.Deliver(lo, def.Surfaces(), Target{Cell.Paths, ownership, session:<harp>}) (12)"]:::consume
+    DYN["Dynamic.Serve(lo, ServePolicy) — BINDS Launch.MCP (9)"]:::consume
+    INST["engine.Instance(l.Session()) → Exec(presented) → runner execs (identity env stamped by the runner) (9)"]:::consume
     SNAP -->|PASSED Deps.Snapshot| RES
     RES -->|PASSED| PKG --> EXP
     RES -->|PASSED| CELL --> PLAN
@@ -3133,15 +3133,16 @@ sequenceDiagram
   participant DL as delivery (Static + Dynamic)
   participant EN as engine.Instance
 
-  Note over CLI,EN: A — `ctxloom run` on the host (Interactive, depth 0)
-  CLI->>OPS: Source fields (agent, prompt, mode, workspace, permission flag)
-  OPS->>CFG: Current() → *Snapshot (captured once)
-  OPS->>CO: RegisterOwner → sessions.Mint → Identity; run credential minted
-  OPS->>LR: Resolve(Deps{Snapshot, Engines, Cells, Endpoints, Inline, ClaimCheck, Host}, Source{Identity, …})
-  LR->>CELLS: Prepare(CellRequest{Axes{none,host}, Engine, Identity, Host}) → Cell (OnHost advice)
-  LR->>LR: Select → Assemble → Exports → Route over the cell's roots → permission floored · home decided · MintMCP once (BindMCP) · Encode → carry by size
+  Note over CLI,EN: A — `ctxloom run` on the host (Interactive, depth 0) — landed 7 through the Launch; the runner legs are 9/13
+  CLI->>OPS: launch.Source (agent | profiles+fragments+tags, label, model, prompt, mode, workspace, permission flag, --env, --session resume) (landed 7: cli run.go's source())
+  OPS->>CFG: Current() → *Snapshot (captured once) (landed 4)
+  OPS->>OPS: StartRun: MintIdentity (AssignHarp + the liveness lock) → Identity (landed 7; sessions.Mint and the run credential at mint are 2's/9's)
+  OPS->>LR: Resolve(Deps{Snapshot, Engines, Assembler, Cells, Endpoints, Sessions, Host}, Source{Identity, …}) (landed 7)
+  LR->>CELLS: Prepare(CellRequest{Axes{none,host}, Engine, Identity, ProjectRoot, SessionDir, HomeMode, Host}) → Cell (OnHost advice; the transport handle) (landed 7: operations.Cells)
+  LR->>LR: Select → Assemble (port) → engine+mode → axes → permission floored ONCE → surfaces → Route over the cell's roots → MintMCP once (BindMCP, BindEngine) (landed 7; Exports 11b, Encode/carry 5)
   LR-->>OPS: Launch
-  OPS->>SP: StartRunner(ctx, Launch, ReachURL(host)) — spawns `ctxloom runner` with a pty; env = EncodeReach(trio); ctx scopes prepare+attach only
+  OPS-->>CLI: Launch → bindLaunch; hostCoordinator(harp, Axes.Runtime); EncodeLaunch(l) + the resumed transcript + the startup findings → today's RunStart (landed 7)
+  CLI->>SP: today's transport over the cell's handle (go-plugin | docker-exec | the owned run) — StartRunner with a pty is 13's; ctx scopes prepare+attach only (9)
   RN->>RN: DecodeReach once → Endpoint, run id
   RN->>CO: RunnerChannel Hello (credential) → Identify → Identity
   CO->>RN: StartRun{launch: EncodeLaunch(Launch)}
@@ -3166,13 +3167,13 @@ sequenceDiagram
   CO->>RN: RunnerTransport.Turn(runID, Turn{Prompt: next mail, Resume: key}) — the SAME runner; a discrete engine process per turn; the endpoint never moves
   Note over CO,RN: idle reaper: no turn for delegation.idle_timeout → StopRun → RunExited; the next mail resumes the harp through Spawner.Resume (endpoint reused; rebind only on ErrEndpointUnavailable)
 
-  Note over CLI,EN: C — a distill one-shot (Structured, depth 0) — diverges only at the Source (1)
-  OPS->>CO: sessions.Mint{OneShot: true, Lifetime: Ephemeral}
-  OPS->>LR: Resolve(Deps, Source{Identity, Agent: "distiller", Mode: Structured, Prompt: payload})
-  LR-->>OPS: Launch (a real harp; a real session home; the distiller binding's own Plan; hooks ON)
-  OPS->>SP: StartRunner(ctx, Launch, ReachURL(host)) — host runner with pipes
-  RN->>CO: Hello → StartRun{launch} → Redeem/Decode → Deliver → Serve
-  RN->>EN: Drivers()[0].Turn once → answer → RunExited; the session dir is Ephemeral-lifetime
+  Note over CLI,EN: C — a distill one-shot (Structured, depth 0) — diverges only at the Source (1) — landed 7 as operations.OneShot
+  OPS->>OPS: StartOneShot: MintIdentity{OneShot: true} (landed 7; Lifetime: Ephemeral on the entry is later)
+  OPS->>LR: Resolve(Deps, Source{Identity, Internal: true, Label: the fast label, Mode: Structured}) (landed 7; Agent: "distiller" once a shipped binding names it)
+  LR-->>OPS: Launch (a real harp; a real session home; the label's managed surfaces; the headless floor → bypass at depth 0)
+  OPS->>OPS: Turn(prompt): EncodeLaunch(l with this turn's prompt) → today's transport over the cell's handle → the answer captured, recorded on the session's transcript; End releases the cell and ends the session (landed 7; the runner that parks between turns is 9's)
+  RN->>CO: Hello → StartRun{launch} → Redeem/Decode → Deliver → Serve (9)
+  RN->>EN: Drivers()[0].Turn once → answer → RunExited; the session dir is Ephemeral-lifetime (9)
 ```
 
 Where each diverges and why it is legitimate: **who asks** — a human through the CLI, or an orchestrating agent through a verb the coordinator validated; both mint through the same store. **Where the runner runs** — the host or a container's foreground; the Launch is identical and only the spawner's wrapper and the roots' advice differ. **How the turn is driven** — a pty for an interactive human, or a driver frame for a structured child; the engine's own mode declaration decides which is legal. **The Source** — an internal one-shot names an internal agent and a prompt and nothing else. One-shot turns are frames to a live runner, not new runs, which is what keeps the endpoint one per session: the runner parks between turns instead of exiting.

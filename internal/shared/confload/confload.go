@@ -86,7 +86,7 @@
 //
 // # Config files and merging are never routed through viper
 //
-// This package (and internal/config's own file-layer loading) reads config
+// This package (and internal/core/config's own file-layer loading) reads config
 // FILES with yaml.Unmarshal only, never viper: viper lowercases every map
 // key it decodes (confirmed empirically — MyCoder becomes mycoder,
 // CTXLOOM_MOCK_RESPONSE becomes ctxloom_mock_response), which is silently
@@ -94,7 +94,7 @@
 // `mock_control` block: the lower-cased key reaches the launched process and
 // the engine never sees the variable it was given. That regression shipped
 // once, against the map that carried an engine's credentials at the time.
-// TestConfig_BodyMapKeyCasePreserved (internal/config) is the end-to-end guard
+// TestConfig_BodyMapKeyCasePreserved (internal/core/config) is the end-to-end guard
 // for this on ctxloom's own adoption of this package. koanf (github.com/
 // knadh/koanf/v2) is deliberately CASE-SENSITIVE by design — its own docs
 // state `app.server.port` and `APP.SERVER.port` are different keys — which
@@ -151,7 +151,7 @@ const delim = "\x1f"
 //     emit (e.g. "taskloom: warning: ...").
 //   - DirName/FileName are the conventional per-user/per-project config
 //     location (e.g. ".ctxloom"/"config.yaml"); each product resolves its own
-//     home-directory path from these today (internal/config's ctxloomProduct,
+//     home-directory path from these today (internal/core/config's ctxloomProduct,
 //     internal/taskloom/config's product) rather than through a shared helper
 //     here.
 //   - EnvPrefix is the literal prefix an override env var must start with
@@ -190,7 +190,7 @@ const delim = "\x1f"
 //     reproduces Merge's documented default exactly. This is confload's
 //     koanf.WithMergeFunc seam: a product whose schema has a key that must
 //     NOT deep-merge across layers at all (ctxloom's agents.<name> binding —
-//     see internal/config's agentBindingMergeFunc) supplies its own
+//     see internal/core/config's agentBindingMergeFunc) supplies its own
 //     schema-aware func here rather than confload hard-coding any product's
 //     key names, keeping this package free of ctxloom-specific (or
 //     taskloom-specific, or...) knowledge exactly as KnownPath already does.
@@ -260,7 +260,7 @@ type Overrides struct {
 // struct — each product owns its own schema and Go type, so that stays the
 // caller's job on the returned map. A product whose file layers need their
 // own per-layer processing before merging (ctxloom's upgrade pipeline +
-// per-layer schema validation, see internal/config's loadLayeredConfig) skips
+// per-layer schema validation, see internal/core/config's loadLayeredConfig) skips
 // Load and calls ApplyOverrides directly against its own already-merged base
 // instead — ApplyOverrides is independently exported for exactly that
 // reason.
@@ -363,7 +363,7 @@ func Merge(layers ...map[string]any) (map[string]any, error) {
 // across layers at all — ctxloom's agents.<name> binding, where the highest
 // layer NAMING an agent must define it entirely rather than being fused
 // field-by-field with a lower layer's same-named entry (see
-// internal/config's agentBindingMergeFunc, wired in via Product.MergeFunc /
+// internal/core/config's agentBindingMergeFunc, wired in via Product.MergeFunc /
 // Product.MergeLayers) — while every OTHER documented merge rule continues to
 // hold, because fn is expected to preserve them for every path it does not
 // itself special-case (typically by delegating to koanf/maps.Merge, or by

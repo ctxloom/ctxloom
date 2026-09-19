@@ -18,7 +18,7 @@
 set -eu
 
 for d in resources cmd/ltk cmd/taskloom internal/shared/harp container \
-         internal/agentcoord/mcpschema/schemas internal/config; do
+         internal/adapters/coordgrpc/mcpschema/schemas internal/core/config; do
   [ -d "$d" ] || continue
   find "$d" -type l | while IFS= read -r f; do
     tgt=$(readlink -f "$f")

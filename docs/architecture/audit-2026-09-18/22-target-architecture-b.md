@@ -128,8 +128,8 @@ Every package, one line each. "Absorbs / splits / deletes" names today's package
 | `delivery` (core, NEW) | plan which package items go STATIC and which DYNAMIC for an engine; the two delivery ports; the ONE ownership record | engine argv, transport, config | absorbs `shared/agent/cells.go`, the `setupViaCells`/`deliverSet` half of `launch_backend.go`, `delivery.go`, `delivery_state.go`, `managed_commands.go`, `managed_skill_packages.go`, `managedcontext.go`, `packagefiles.go`, `commandfiles.go`, `settings.go`/`settings_io.go`, `chat_mcp_config.go`; `confpatch` becomes its ownership adapter; deletes `shared/ledger` and the CLAUDE.md marker parser (`splitManagedSection`/`managedSection`), `lm/backends/uninstall.go`, `agent.SettingsWriter`, `SurfaceSelection.reroot`, `preferOutOfCwd`, `ensureRootable`, `PresentsUnderProjectRoot` |
 | `agentcoord/coord` (core) | the runtime coordinator library: `Verbs`, run folds, credential minting, slots, depth, one `spoolInbox`, drain | MCP, docker, cobra, transcripts | KEPT name; splits `grpcserver.go`, `runchannel.go`, `runnerlink.go`, `httpserver.go`, `consumer.go`, `controlwire.go` → `coord/grpc`; `spawner.go`, `owner_run.go` → `coord/spawn`; deletes the `transcript` and `isolation` and `mcpschema` imports, `ownerrecv.go`/`spoolowner.go` (second inbox), `publish.go`, `CapPeerMessaging` |
 | `agentcoord/spool` (core) | the file mailbox substrate | who the parties are | KEPT; `PathMapper` is carried as a field by its two holders (ML-C) |
-| `engines/claude` (adapter) | the claude-code plugin | config, bundles, operations, coord, isolation, cobra | today's `internal/claude` + `claude/engine`; `SessionConfigDir` deleted; `mcpEntries` → `delivery`'s one projector; `GlobalCommandsDir`/`recordStore` path computation → declared facts |
-| `engines/mock` (adapter) | the conformance double, with its lossy and no-skills variants | as claude | today's `internal/mockengine` + `lm/backends/mock*.go` |
+| `engines/claude` (adapter) | the claude-code plugin | config, bundles, operations, coord, isolation, cobra | today's `internal/engines/claude` + `claude/engine`; `SessionConfigDir` deleted; `mcpEntries` → `delivery`'s one projector; `GlobalCommandsDir`/`recordStore` path computation → declared facts |
+| `engines/mock` (adapter) | the conformance double, with its lossy and no-skills variants | as claude | today's `internal/engines/mock` + `lm/backends/mock*.go` |
 | `engines/codex`, `engines/opencode` (adapter) | the polymorphism proof: a second and third `engine.Engine` whose facts differ on every axis | as claude | re-added behind the interface (they are absent from the tree today); each is one package, gated by the conformance suite |
 | `engines` (adapter) | builds the `engine.Registry` value at the composition root | — | today's `lm/engines`; `Register()` returns the value instead of populating a global |
 | `runner` (adapter, NEW) | the process that receives ONE `Launch`, delivers, hosts the session's MCP endpoint, drives the engine, records the transcript | config files, bundles, flags beyond its one entry | absorbs `cli/llm_serve.go`, `llm_host.go`, `llm_turn.go`, `llm_runner_common.go`, `lm/grpc/server.go`'s `RunTurn`, `coord/enginehost*.go`, the `Execute` tail of `launch_backend.go`, `lm/backends/launcher.go`, `shared/agent/oneshot_turn.go`, `chat.go`; deletes `cli.writeRunStartHandoff`/`readRunStartHandoff`, `consumeCoordinatorReachBack`'s double read and `Unsetenv`, `runnerIsLeaf`, `exportRunnerMCPSocket` |
@@ -154,7 +154,7 @@ Layering rules added to `tests/arch/layering_test.go` (each a row in `layeringRu
 
 - `core-imports-only-core`: every `coreSet` package forbids every non-core in-repo import.
 - `engines-import-nothing-above-the-port`: `internal/engines/**` forbids `config`, `bundles`, `composite`, `launch`, `delivery`, `operations`, `coord`, `isolation`, `cli`, `mcp`; zero allowlist from day one.
-- `cli-through-operations`: `internal/cli` forbids `launch`, `delivery`, `isolation`, `coord`, `mcp`, `runner`, `engines/**`, `remote`, `signing`, `memory`, `sessions/fsstore`, `transcript`; dated shrinking allowlist.
+- `cli-through-operations`: `internal/adapters/cli` forbids `launch`, `delivery`, `isolation`, `coord`, `mcp`, `runner`, `engines/**`, `remote`, `signing`, `memory`, `sessions/fsstore`, `transcript`; dated shrinking allowlist.
 - `runner-owns-the-engine`: `internal/runner` is the ONLY package outside `engines/**` that may call `engine.Engine.Exec`; nothing outside `runner` imports `mcp`.
 - `one-launch-constructor`: `launch.Launch{` literals and the proto `Launch` message's constructor appear only in `internal/launch` and the codec in `coord/grpc` (the N2 gate, widened).
 
@@ -480,7 +480,7 @@ type Delivered struct {
 }
 
 // Dynamic serves the dynamic items on the session's ONE MCP endpoint. The
-// implementation lives in internal/mcp inside the runner.
+// implementation lives in internal/adapters/mcp inside the runner.
 type Dynamic interface {
 	Serve(ctx context.Context, plan Plan, ep sessions.Endpoint) (Served, error)
 }
@@ -822,7 +822,7 @@ type RunnerTransport interface {
 
 What each frontend becomes:
 
-- **The MCP handlers** (`internal/mcp`, inside the runner): for the coordination tools (`agent_run`, `agent_send`, `agent_recv`, `agent_stop`, `roster`, `agent_report`, `agent_fetch_artifact`) each handler decodes the tool arguments into the `coord` request type (the schema is generated from it — `mcpschema` keeps that job), calls `coord.Home.Request`, which puts it on `RunChannel`; the coordinator side decodes the frame into the same request type and calls `Verbs`. The result travels back as the typed result and is rendered ONCE (`mcpschema`'s projection). There is one schema per verb, one result shape, one leaf rule (`Identity.Depth`). PATH A (`mcp_tools_agents.go`, `agentDelegation`, `NewHostedCoordinator` reachable from a shim) is deleted: no MCP server can construct a coordinator, because the only MCP server is the one inside a runner that already holds a `Home`.
+- **The MCP handlers** (`internal/adapters/mcp`, inside the runner): for the coordination tools (`agent_run`, `agent_send`, `agent_recv`, `agent_stop`, `roster`, `agent_report`, `agent_fetch_artifact`) each handler decodes the tool arguments into the `coord` request type (the schema is generated from it — `mcpschema` keeps that job), calls `coord.Home.Request`, which puts it on `RunChannel`; the coordinator side decodes the frame into the same request type and calls `Verbs`. The result travels back as the typed result and is rendered ONCE (`mcpschema`'s projection). There is one schema per verb, one result shape, one leaf rule (`Identity.Depth`). PATH A (`mcp_tools_agents.go`, `agentDelegation`, `NewHostedCoordinator` reachable from a shim) is deleted: no MCP server can construct a coordinator, because the only MCP server is the one inside a runner that already holds a `Home`.
 - **The gRPC handlers** (`coord/grpc`): `RunChannel`'s `serveAgentRequest` decodes `AgentRequest` → `coord.SpawnRequest` etc. and calls `Verbs`; the ownership re-check in `serveStopRun`, the re-validation in `serveSpawnAgent` and the workspace re-parse are gone because `Validate` and the typed axis live on the request. `RunnerChannel` is `RunnerTransport`'s server half. Both share `bidiSession` (hello, ack watermark, heartbeat, tracked goroutines joined by `trackedGroup`; `c.streams` and `waitBounded` deleted).
 - **The CLI** (`ctxloom agent run|send|recv|stop`, `session inject`, viewer commands): calls `operations`, which holds a `Verbs` — in-process when the CLI IS the originator, over `ConsumerService`/`RunChannel` with an owner credential otherwise. The CLI never validates a verb's arguments beyond parsing.
 
@@ -1192,19 +1192,19 @@ Net LOC direction per package (estimate; the direction is what this document sta
 
 | Package | Direction | Basis |
 |---|---|---|
-| `internal/cli` | −2,500 | `run.go`'s phases, `run_owned.go`, `init_launch.go`, `llm_*.go`, the hook-verb scaffolds, 22 config loads, `bundle_distill.go`'s launch body |
-| `internal/operations` | −900 net | `oneshot.go`, `delegate.go`, `enginehome.go`, `context.go`'s assembler, `trust*.go` holders, `session_home_reap.go`, `harp_artifacts.go` classifications OUT; doctor/deps-check/review orchestrators IN |
+| `internal/adapters/cli` | −2,500 | `run.go`'s phases, `run_owned.go`, `init_launch.go`, `llm_*.go`, the hook-verb scaffolds, 22 config loads, `bundle_distill.go`'s launch body |
+| `internal/adapters/operations` | −900 net | `oneshot.go`, `delegate.go`, `enginehome.go`, `context.go`'s assembler, `trust*.go` holders, `session_home_reap.go`, `harp_artifacts.go` classifications OUT; doctor/deps-check/review orchestrators IN |
 | `internal/lm/backends` | −1,800 | the whole package |
 | `internal/lm/grpc` | −3,000 (generated code included) | the whole package; `Launch` proto lands in `agentcoord` (+400 generated) |
 | `internal/vpio/goplugin`, `vpio/dockerexec` | −600 | replaced by `hostpty` (+150) and `attach` (+150) |
-| `internal/mcp` | −1,200 | stdio server, forward, discovery, coord host, PATH A tools |
-| `internal/agentcoord/coord` | −900 | second inbox, second scaffold, harness spec codec, spawner plan, owner-run tail, `discover` |
-| `internal/shared/agent` | −2,000 | split three ways; `launch_backend.go`'s selection/reroot, `contextfile.go`, `settings_io.go`, `chat*.go` deleted |
-| `internal/config` | −700 | bundle loaders, gate, companions, globals, memo |
-| `internal/lm/isolation` | −500 | four registries, `SpawnClient`/`FactoryForWorkspace`/`containerRunner`, env parsing, own predicates |
-| `internal/memory` | −300 | `CompactionConfig` seams, store re-opens, `defaultLLMPlugin`, `distill.go`'s request body |
-| `internal/sessions` | −200 | `MigrateIndex`, `index_upgrade.go`; the `fsstore` split is a move |
-| `internal/claude` → `engines/claude` | −400 | `SessionConfigDir`, `mcpEntries`, path computation, the `settingsRecord.desired` round-trip |
+| `internal/adapters/mcp` | −1,200 | stdio server, forward, discovery, coord host, PATH A tools |
+| `internal/core/coord` | −900 | second inbox, second scaffold, harness spec codec, spawner plan, owner-run tail, `discover` |
+| `internal/core/agent` | −2,000 | split three ways; `launch_backend.go`'s selection/reroot, `contextfile.go`, `settings_io.go`, `chat*.go` deleted |
+| `internal/core/config` | −700 | bundle loaders, gate, companions, globals, memo |
+| `internal/adapters/isolation` | −500 | four registries, `SpawnClient`/`FactoryForWorkspace`/`containerRunner`, env parsing, own predicates |
+| `internal/adapters/memory` | −300 | `CompactionConfig` seams, store re-opens, `defaultLLMPlugin`, `distill.go`'s request body |
+| `internal/core/sessions` | −200 | `MigrateIndex`, `index_upgrade.go`; the `fsstore` split is a move |
+| `internal/engines/claude` → `engines/claude` | −400 | `SessionConfigDir`, `mcpEntries`, path computation, the `settingsRecord.desired` round-trip |
 | NEW `composite` | +900 | mostly moves from config/backends/operations; net new is `Trust`, `Package`, `Select`, `Assemble` |
 | NEW `launch` | +600 | mostly moves; net new is `Source`, `Launch`, `Cell`, `Resolve` |
 | NEW `delivery` | +500 | mostly moves; net new is `Plan`, `Route`, `Target`, `Ownership` |
@@ -1327,7 +1327,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engine/conformance"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/launch"
-	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
 // TestEngine_Mock_Conforms is the shape every engine package copies verbatim
@@ -1427,7 +1427,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/delivery/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
 // TestRoute_UncarriedKind_RefusesUnlessAccepted proposes the no-fallback rule:
@@ -1523,12 +1523,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord/grpc/coordgrpc"
+	"github.com/ctxloom/ctxloom/internal/core/coord/grpc/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/engine"
 	"github.com/ctxloom/ctxloom/internal/launch"
 	"github.com/ctxloom/ctxloom/internal/launch/launchtest"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // TestResolve_FiveSources_OneResolver is the table the audit asked for: every

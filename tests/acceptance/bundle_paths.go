@@ -38,7 +38,7 @@
 package acceptance
 
 import (
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -61,7 +61,7 @@ func treeBundlesRoot() string {
 //
 // It is NOT where `ctxloom bundle create` puts a bundle it created for you:
 // that command still writes the bare single-file form by DEFAULT (no --tree —
-// see internal/cli/bundle_edit.go's bundleCreateTree, and singleFileBundlePath
+// see internal/adapters/cli/bundle_edit.go's bundleCreateTree, and singleFileBundlePath
 // below). A fixture that creates a bundle through the real CLI and then wants
 // to read or rewrite the file that command produced must use
 // singleFileBundlePath, not this one — the two name genuinely different
@@ -99,10 +99,10 @@ func singleFileBundlePath(name string) string {
 //
 // A body written raw at this path (no "/bundle.yaml" suffix, no manifest) is
 // exactly what a real single-file `bundle push` produces, and it remains
-// FETCHABLE: internal/remote's Puller.fetchItemBytes tries a single file at
+// FETCHABLE: internal/adapters/remote's Puller.fetchItemBytes tries a single file at
 // exactly this composed path first, before ever probing for a tree, which is
 // the mechanism `ctxloom deps pull`/`remote sync` exercise. It is NOT
-// reachable through remote.BundleReader.ReadBundleBytes, which internal/config
+// reachable through remote.BundleReader.ReadBundleBytes, which internal/core/config
 // uses for a different, now-dead read path (see that package's v1-removal
 // commit) — a fixture seeded here is honest input for a PULL-shaped journey,
 // not for anything that reads through BundleReader directly.

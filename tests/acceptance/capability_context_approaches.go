@@ -62,7 +62,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 )
 
 // approachFamily is P1's name in a skip line, a failure message and the evidence
@@ -197,7 +197,7 @@ var approachDegradeMarkers = []approachDegradeMarker{
 	},
 	{
 		Marker: "launching without managed hooks/commands",
-		Why:    "backends.AssembleManagedConfig returned nil (config.Load failed), and internal/cli/run.go only attaches the binding's Surfaces preference to a NON-nil managed payload — so the pin was dropped on the way to the wire and the engine's default delivery ran instead.",
+		Why:    "backends.AssembleManagedConfig returned nil (config.Load failed), and internal/adapters/cli/run.go only attaches the binding's Surfaces preference to a NON-nil managed payload — so the pin was dropped on the way to the wire and the engine's default delivery ran instead.",
 	},
 }
 

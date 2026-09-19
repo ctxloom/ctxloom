@@ -15,17 +15,17 @@ import (
 	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/content"
-	"github.com/ctxloom/ctxloom/internal/content/attest"
-	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // TestSigner is a generated ed25519 identity for the J000200 trust scenarios: a
 // signer that can sign bundle bytes (SeedSignedRemote) and be trusted
 // (TrustSigner), without any real ssh-agent or on-disk private key — the same
-// approach internal/operations/sign_test.go's testSigner uses at the unit
+// approach internal/adapters/operations/sign_test.go's testSigner uses at the unit
 // level, lifted here for the acceptance harness.
 type TestSigner struct {
 	Signer ssh.Signer
@@ -77,7 +77,7 @@ func (s *TestSigner) Fingerprint() string { return ssh.FingerprintSHA256(s.Publi
 // SingleFileBundlePath composes) gets a "<path>.sig" sibling
 // carrying an armored PROTOCOL.sshsig blob over its EXACT bytes, produced by
 // signer under the publish namespace — the same detached-sibling contract
-// verifyBundlePublisher reads (internal/remote.SignatureSuffix). A caller that
+// verifyBundlePublisher reads (internal/adapters/remote.SignatureSuffix). A caller that
 // wants unsigned content simply uses SeedRemote directly; this helper exists
 // for the signed/trusted J000200 scenarios.
 func (e *TestEnvironment) SeedSignedRemote(files map[string]string, signPaths []string, signer *TestSigner) (string, error) {
@@ -132,7 +132,7 @@ func (e *TestEnvironment) AdvanceSignedRemote(bareDir string, files map[string]s
 // remote. root is the remote-relative directory the tree lands in (e.g.
 // remoteSingleFilePublishPath(name) in the acceptance package); envelope is
 // the bundle.yaml body (no inline item keys — see
-// internal/bundles/tree_read.go's readEnvelope); items maps each item's path
+// internal/core/bundles/tree_read.go's readEnvelope); items maps each item's path
 // relative to the tree root (e.g. "fragments/marker.md") to its content.
 //
 // It goes through the PRODUCT's own signing path — content.NewTreeStore plus

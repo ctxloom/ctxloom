@@ -5,7 +5,7 @@ lockfile that pins what was pulled. Nine subcommands cover the whole lifecycle:
 register a remote, browse or discover its catalog, pull dependencies at their
 pinned commits, detect and apply updates within a version constraint, advance
 unheld pins, and clean up content that vanished upstream. The tree is a thin
-frontend over `internal/operations` and `internal/remote` — with one exception,
+frontend over `internal/adapters/operations` and `internal/adapters/remote` — with one exception,
 `remote_update.go`, which carries real logic: reference resolution, network
 refresh, lockfile mutation, destructive local cleanup, and six report printers in
 one 651-line file.
@@ -110,7 +110,7 @@ first, `detectUpdates` both.
 
 ## Documented vs real
 
-- **None of the nine `remote` commands calls `emit()`** (`rg 'emit\(' internal/cli/remote_*.go`
+- **None of the nine `remote` commands calls `emit()`** (`rg 'emit\(' internal/adapters/cli/remote_*.go`
   → zero hits). All write with `fmt.Printf` to raw `os.Stdout`, so `--format json`
   is accepted and answered with an ASCII table, and the commands have no
   output-capture seam.
@@ -127,7 +127,7 @@ first, `detectUpdates` both.
   closure could not be expanded: `operations.UpgradeDependencies` returns only
   `(int, error)`, an unreachable parent profile lands in `unexpanded` with no
   error, and the side-channel warning is itself gated on `preserved > 0`
-  (`internal/operations/upgrade.go:85-87`).
+  (`internal/adapters/operations/upgrade.go:85-87`).
 - `remote discover` prints "No ctxloom repositories found." and exits 0 when the
   forge search failed entirely — `operations.DiscoverRemotes` puts the error in
   `result.Errors` and returns a nil error with `Count: 0`.
@@ -158,7 +158,7 @@ first, `detectUpdates` both.
   two calls in `remote_update_apply_test.go`.
 - `refreshRemoteClone` (`:172`) is `refreshRemoteRepos` (`:319`) specialised to
   one URL; the bodies are the same. `shortSHA` (`:573`) is a third copy of the
-  same 4-line truncation (also in `internal/operations/helpers.go:17` and
+  same 4-line truncation (also in `internal/adapters/operations/helpers.go:17` and
   `internal/shared/tasks/triggers/prompt.go:219`).
 - `-r/--recursive` on `remote browse` defaults to `true`, so passing `-r` does
   nothing and the only way to get non-recursive behaviour is `--recursive=false`.

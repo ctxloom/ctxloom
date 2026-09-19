@@ -10,7 +10,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
 // Distinctive marker strings j000300_source_augmentation.feature's sources ship as
@@ -211,7 +211,7 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		}
 		// The composed agent-setup guidance (built-in + the company command's
 		// codeword instruction) is exactly what `ctxloom init prompt` emits
-		// (internal/cli/agent.go, via the SAME operations.ResolveSetupPrompt
+		// (internal/adapters/cli/agent.go, via the SAME operations.ResolveSetupPrompt
 		// this scenario is proving) — driving it straight into the real
 		// assistant as its prompt is the equivalent of the interactive
 		// discovery session launching it, without needing a real pty here.

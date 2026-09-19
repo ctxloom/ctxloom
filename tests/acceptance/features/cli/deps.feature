@@ -339,7 +339,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
     # pull. `--force` puts the pull back on the path a hold has to defend:
     # the reference IS re-resolved against the advanced remote, on the very
     # same lockfile-write path `upgrade` uses
-    # (internal/remote/pull.go:Puller.updateLockfile's `hadExisting &&
+    # (internal/adapters/remote/pull.go:Puller.updateLockfile's `hadExisting &&
     # existing.Pinned` branch) — and the hold has to hold it back there too,
     # not just on `upgrade`'s.
     Scenario: A held dependency's content survives even a pull forced to re-resolve

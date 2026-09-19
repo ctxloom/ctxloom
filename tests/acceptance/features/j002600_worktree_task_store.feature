@@ -3,7 +3,7 @@ Feature: A linked worktree's tasks land in the primary checkout's store
   "Tasks aren't context": an agent working in a throwaway linked git
   worktree that finds something outside its own remit needs to file it
   somewhere the coordinator — running from the primary checkout — will
-  actually see, or the finding dies with the worktree. internal/projectroot's
+  actually see, or the finding dies with the worktree. internal/adapters/projectroot's
   TaskStoreRoot redirects a linked worktree's task-store identity to its
   primary checkout for exactly this reason, unless that worktree carries its
   own .ctxloom (an explicit `ctxloom init` there opts it out as a

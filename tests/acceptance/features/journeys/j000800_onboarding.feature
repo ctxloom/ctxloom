@@ -122,7 +122,7 @@ Feature: A new engineer clones the repo and is already set up
   #
   # UNTAGGED: backends.UncarriedSurfaces (declared per-backend as
   # `noHooksReason`) is the delivery report's
-  # inverse over the same inputs, and internal/cli's materialize renderer prints
+  # inverse over the same inputs, and internal/adapters/cli's materialize renderer prints
   # its lines among the `wrote` lines rather than in a trailing pass — so a
   # reader who scans only the top no longer comes away with "wrote four things"
   # as the whole story. Confirmed to BITE: making UncarriedSurfaces return nil

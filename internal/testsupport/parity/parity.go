@@ -2,8 +2,8 @@
 //
 // ctxloom projects agent.ChatEvent (and its variant structs) onto several
 // hand-written mirrors: the canonical transcript's on-disk payloads
-// (internal/transcript) and the `--format json` NDJSON DTOs the VSCode
-// frontend consumes (internal/cli). Each mirror is edited in three places at
+// (internal/adapters/transcript) and the `--format json` NDJSON DTOs the VSCode
+// frontend consumes (internal/adapters/cli). Each mirror is edited in three places at
 // once — mirror struct, converter, published schema — and every time one of
 // those was forgotten the result was SILENT field loss: the writer succeeded,
 // the bytes went out, and the field simply was not in them. That has now
@@ -533,7 +533,7 @@ func trueKeys(t *testing.T, raw []byte) []string {
 // sorted. Exported because bool ISOLATION — set one bool alone, require exactly
 // one true leaf, at a key no other bool lands on — is the only shape that can
 // tell a carried bool from a fanned one, and gates outside this package need
-// it: internal/config's T10 signed-preimage↔wire parity reuses it rather than
+// it: internal/core/config's T10 signed-preimage↔wire parity reuses it rather than
 // keeping a second copy that could drift in what it counts as a leaf.
 func TrueKeys(t *testing.T, raw []byte) []string {
 	t.Helper()

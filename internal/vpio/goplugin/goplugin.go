@@ -1,13 +1,13 @@
 // Package goplugin is the go-plugin implementation of the
-// VIRTUALIZED-PROCESS-IO seam (internal/vpio): it wraps the existing
+// VIRTUALIZED-PROCESS-IO seam (internal/adapters/vpio): it wraps the existing
 // hashicorp/go-plugin-backed bidirectional Run RPC (internal/lm/grpc,
 // llm.proto's `Run`) behind vpio.Launcher/vpio.Session.
 //
 // SWAP POINT: this is the seam's go-plugin transport. internal/vpio/dockerexec
 // is a second, SHIPPED implementation of vpio.Launcher/vpio.Session (the
 // `docker exec -it` transport for the container-isolation runtime) — above-
-// the-seam callers (internal/cli/run.go, internal/cli/init.go,
-// internal/termui) reference only vpio types and never this package's
+// the-seam callers (internal/adapters/cli/run.go, internal/adapters/cli/init.go,
+// internal/adapters/termui) reference only vpio types and never this package's
 // concrete types, so they needed no change when it landed. Only a host-pty
 // implementation remains registered future work.
 //
@@ -23,8 +23,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/vpio"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/vpio"
 )
 
 // Launcher binds an already-spawned plugin client (spawned upstream via
@@ -82,7 +82,7 @@ func (l *Launcher) Start(ctx context.Context, spec vpio.ProcessSpec) (vpio.Sessi
 	// resize-pump goroutine (internal/lm/grpc's RunWithModelInfo, unchanged)
 	// doesn't park forever — mirrors the pre-extraction contract, where the
 	// SIGWINCH-sourced channel itself closed on ctx.Done() (see
-	// internal/cli/run_resize_unix.go).
+	// internal/adapters/cli/run_resize_unix.go).
 	//
 	// INVARIANT: Session.Resize is independent of ProcessSpec.Stdin, so a
 	// Launcher may NOT infer "no resize is ever coming" from a nil Stdin —
@@ -98,7 +98,7 @@ func (l *Launcher) Start(ctx context.Context, spec vpio.ProcessSpec) (vpio.Sessi
 	// the goroutine to the CALLER's context, so a completed session left it
 	// parked for as long as that context lived — one goroutine and one open
 	// channel per turn for a caller holding one context across several turns,
-	// which internal/cli/run.go does.
+	// which internal/adapters/cli/run.go does.
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -136,7 +136,7 @@ type Session struct {
 var _ vpio.Session = (*Session)(nil)
 
 // Resize relays onto the bidi stream's resize channel — the same
-// latest-wins coalescing send watchResize (internal/cli/run_resize_unix.go)
+// latest-wins coalescing send watchResize (internal/adapters/cli/run_resize_unix.go)
 // performed before extraction, now done here since Resize is a method call
 // rather than a channel the transport ranges over directly. Never blocks: a
 // full buffer evicts the pending (stale) size, and a session that has

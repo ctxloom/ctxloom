@@ -4,8 +4,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 // The two export loops below are the engine-agnostic half of command and

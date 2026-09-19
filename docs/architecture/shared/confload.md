@@ -2,7 +2,7 @@
 
 `confload` closes the config precedence chain — **home file < project file < env vars < `--config-set` flags** — for any ctxloom-family binary without knowing any product's schema. A `Product` names one binary's conventions (env prefix, an optional `KnownPath` schema predicate); `Sources` names the two file paths stage-1 bootstrap already resolved; `Overrides` carries the once-captured raw env/CLI pairs, deliberately unresolved. The package owns two contracts nobody else may re-implement: the koanf **merge semantics** (presence beats truthiness, maps deep-merge, everything else replaces) and the **override path resolution** that turns `CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME` into `["agents","mycoder","runtime"]`.
 
-Consumers: `cmd/taskloom` uses `Product.Load` end-to-end; `internal/config` drives its own per-layer upgrade+validation pipeline and calls `Merge` + `ApplyOverrides` directly for identical override semantics; `internal/testsupport` and `internal/shared/tasks/taskstest` use the `process.go` holder for test isolation.
+Consumers: `cmd/taskloom` uses `Product.Load` end-to-end; `internal/core/config` drives its own per-layer upgrade+validation pipeline and calls `Merge` + `ApplyOverrides` directly for identical override semantics; `internal/testsupport` and `internal/shared/tasks/taskstest` use the `process.go` holder for test isolation.
 
 ## Structure
 
@@ -37,7 +37,7 @@ flowchart TD
   subgraph PROC["process.go — package-global holder"]
     SPO["SetProcessOverrides / ProcessOverrides / ResetProcessOverrides<br/>mutex guards the STRUCT, not the maps"]
   end
-  SPO -.->|"internal/config wrappers"| OV
+  SPO -.->|"internal/core/config wrappers"| OV
 ```
 
 ## Inventory — types
@@ -64,7 +64,7 @@ flowchart TD
 | `readYAMLFile` | `internal/shared/confload/confload.go:249` | `os.ReadFile` + `yaml.Unmarshal` into `map[string]any`. `path == ""` and `os.IsNotExist` both return `(nil, nil)`; parse errors and non-map roots are wrapped with the path and returned. |
 | `Merge` | `internal/shared/confload/confload.go:303` | Loads each non-empty layer into one koanf instance in ascending precedence and unmarshals back to a plain map. No error return. |
 | `Product.ReadOverrides` | `internal/shared/confload/overlay.go:72` | Scans env via koanf's env provider (stripping `EnvPrefix`) and parses `--config-set k=v` entries into a flat map. Malformed `--config-set` entries are collected and joined into one error. |
-| `Overrides.Stamp` | `internal/shared/confload/overlay.go:125` | `"env:"+stampFlat(Env)+"|cli:"+stampFlat(Flags)` — the memo-invalidation key `internal/config` keys its config cache on. |
+| `Overrides.Stamp` | `internal/shared/confload/overlay.go:125` | `"env:"+stampFlat(Env)+"|cli:"+stampFlat(Flags)` — the memo-invalidation key `internal/core/config` keys its config cache on. |
 | `stampFlat` | `internal/shared/confload/overlay.go:130` | Sorted `k=v;` rendering of a flat map; the sort is what makes `Stamp` deterministic. |
 | `Product.ApplyOverrides` | `internal/shared/confload/overlay.go:197` | Resolves env then flags against `base`, `Merge`s each resolved layer in turn, joins per-key errors. Partial application with a non-fatal joined error is the designed policy. |
 | `Product.envSourceName` | `internal/shared/confload/overlay.go:222` | `EnvPrefix + suffix` — display name for env diagnostics. |
@@ -127,7 +127,7 @@ flowchart TD
 **Must-call-before / lifecycle**
 
 - Stage 1 (path resolution, per product) must run before stage 2 (this package): `Sources` is an input, never computed here.
-- `ReadOverrides` must be called after cobra/pflag parsing, once per process; `internal/config` stores the result via `SetProcessOverrides` (`internal/config/config.go:474`) and reads it back via `ProcessOverrides` (`:481`).
+- `ReadOverrides` must be called after cobra/pflag parsing, once per process; `internal/core/config` stores the result via `SetProcessOverrides` (`internal/core/config/config.go:474`) and reads it back via `ProcessOverrides` (`:481`).
 - `EnvPrefix` **must** contain a `_CONFIG_` segment (e.g. `CTXLOOM_CONFIG_`). A bare family prefix would pull bootstrap vars such as `CTXLOOM_ROOT` — which selects *which config file is read* — into the config chain it determines. Nothing validates this.
 - `ProcessOverrides()` returns a struct copy that **shares its map headers** with the process-wide value. The mutex guards the struct header only; treat the returned maps as read-only.
 - `ResetProcessOverrides` is the test-isolation seam; test packages call it in setup/teardown (`internal/shared/tasks/taskstest/taskstest.go:54-55`).
@@ -135,6 +135,6 @@ flowchart TD
 ## Real vs documented
 
 - `Product.KnownPath`'s doc says "Nil is treated as 'no schema knowledge available'"; in production the nil branch is **unreachable** — both products pass a method value bound to a possibly-nil pointer, which is never a nil func, so the full partition search always runs and merely returns false for every candidate.
-- `Product.HomeConfigPath` (and with it `DirName`/`FileName`) is documented as the home-path convention but has **no production reader**: `internal/taskloom/config` defines and calls its own `HomeConfigPath()`, and `internal/config` calls neither.
+- `Product.HomeConfigPath` (and with it `DirName`/`FileName`) is documented as the home-path convention but has **no production reader**: `internal/taskloom/config` defines and calls its own `HomeConfigPath()`, and `internal/core/config` calls neither.
 - `Merge`'s comment says the unmarshal failure is "guarded rather than ignored"; the real behaviour is to return `map[string]any{}`, discarding every layer that did load.
 - `ReadOverrides`' comment asserts a non-nil `GetStringArray` error "means fs has no `--config-set` flag registered at all"; `pflag` also returns that error on a **type mismatch** (e.g. registering `--config-set` as `StringSlice`), in which case every CLI override is dropped.

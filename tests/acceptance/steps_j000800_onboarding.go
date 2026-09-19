@@ -27,7 +27,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -101,7 +101,7 @@ func j000800LockedSHA(raw string) (string, error) {
 }
 
 // j000800GuidanceEnvelope is the tree envelope every signed j000800 remote
-// bundle carries — no inline item keys (internal/bundles/tree_read.go's
+// bundle carries — no inline item keys (internal/core/bundles/tree_read.go's
 // readEnvelope refuses one that still declares items inline), the single
 // "guidance" fragment living in its own file instead (j000800GuidanceTreeItems).
 const j000800GuidanceEnvelope = "version: \"1.0.0\"\n"
@@ -142,7 +142,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		}
 		// Team's own first-party fragment (LOCAL — authored straight into the
 		// project bundle, so it is allowed unconditionally, no signing/trust
-		// needed — see internal/operations/trust.go's EffectiveTrust step 3).
+		// needed — see internal/adapters/operations/trust.go's EffectiveTrust step 3).
 		if err := w.env.WriteFile(bundleFilePath(j000700Bundle), j000700FragmentBundleYAML(j000800TeamMarker)); err != nil {
 			return err
 		}
@@ -281,7 +281,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		// The explicit pin: `deps hold` freezes the lockfile entry's SHA/
 		// version so a later pull (even a FRESH one with no local cache, e.g.
 		// Bob's) restores this exact content instead of drifting to whatever
-		// the upstream branch's tip has moved to (internal/remote/pull.go's
+		// the upstream branch's tip has moved to (internal/adapters/remote/pull.go's
 		// updateLockfile: hadExisting && existing.Pinned restores the old
 		// SHA/version regardless of what this pull just resolved/fetched).
 		if err := runOK(w, "deps", "hold", "upstream/"+j000800UpstreamBundle); err != nil {

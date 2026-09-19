@@ -88,7 +88,7 @@ The bigger structural issue: ~2400 lines maintaining envelope types, dispatch ta
 
 - [x] Parent-PID death poll — not needed (superseded). The SDK stdio transport returns on stdin EOF when the parent dies; `signal.NotifyContext` in `mcp_server.go` handles shutdown, so the legacy poll has no role.
 - [x] `map[string]any` audit — done. MCP tool args are typed Input structs (one per tool); the remaining raw maps are JSON-RPC test envelopes where maps are correct.
-- [x] `bundleDistiller` moved into `internal/operations` — `operations.DistillBundleFile` + an injected `Distiller` interface, reusable from the CLI bundle subcommand.
+- [x] `bundleDistiller` moved into `internal/adapters/operations` — `operations.DistillBundleFile` + an injected `Distiller` interface, reusable from the CLI bundle subcommand.
 - [ ] Update `docs/bundle-review-plan.md` Phase 1.3 cross-reference if any bundle-extraction work shifts because of this migration. (Tracking note: the SDK migration doesn't touch the BundleReader design but the bundle handlers' file layout changed.)
 
 ## Out of scope (won't do as part of this migration)

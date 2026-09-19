@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
+	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -18,7 +18,7 @@ import (
 // closes both.
 //
 // It composes the shipped engines into this package's registry directly
-// (this package cannot import the composition root, internal/lm/engines,
+// (this package cannot import the composition root, internal/engines,
 // which imports it): the same descriptors, registered once per test binary.
 func TestMain(m *testing.M) {
 	os.Exit(func() int {

@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
 )
@@ -56,7 +56,7 @@ func planFilesFromProto(in []*PlanFile) []agent.PlanFile {
 // The tolerance is kept, but it is no longer SILENT: every degraded path is
 // warned about. A distill or cross-agent handoff that omitted plan documents
 // which exist on disk used to be indistinguishable from a session that has no
-// plans, and the consumers (GetPlans, internal/memory's compactor) fold the
+// plans, and the consumers (GetPlans, internal/adapters/memory's compactor) fold the
 // empty result straight into distilled output where the omission is invisible
 // forever after.
 func ReadPlanFiles(harp string) []agent.PlanFile {

@@ -1,0 +1,386 @@
+package operations
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/triggers"
+)
+
+func writeRepoFile(t *testing.T, repoDir, rel, content string) {
+	t.Helper()
+	full := filepath.Join(repoDir, rel)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+	require.NoError(t, os.WriteFile(full, []byte(content), 0o644))
+}
+
+func TestExecuteQuery_PathExists(t *testing.T) {
+	repo := t.TempDir()
+	writeRepoFile(t, repo, "internal/foo/bar.go", "package foo\n")
+
+	got := executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryPathExists, Path: "internal/foo/bar.go"})
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "exists")
+
+	got = executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryPathExists, Path: "internal/foo/nope.go"})
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "does not exist")
+}
+
+// A path that syntactically passed Validate but resolves outside the repo via
+// a symlink must still be rejected — the syntactic check alone (no "..",
+// not absolute) cannot see this; only resolving the actual filesystem entry
+// can.
+func TestExecuteQuery_PathExists_RejectsSymlinkEscape(t *testing.T) {
+	repo := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.txt")
+	require.NoError(t, os.WriteFile(outsideFile, []byte("shh"), 0o644))
+
+	linkPath := filepath.Join(repo, "escape-link")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Skipf("symlinks unsupported in this environment: %v", err)
+	}
+
+	got := executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryPathExists, Path: "escape-link"})
+	assert.NotEmpty(t, got.Err, "a symlink escaping the repo must be rejected, not followed")
+}
+
+// safeRepoPath treated EVERY EvalSymlinks error as "doesn't exist
+// yet" and returned the unresolved path unresolved-but-unrejected — including
+// a genuine resolution failure like a symlink loop (ELOOP), where the
+// containment question was never actually answered. A symlink loop is a
+// reliable way to trigger a non-ENOENT EvalSymlinks error without relying on
+// filesystem permissions (which root bypasses).
+func TestSafeRepoPath_SymlinkLoopIsRejectedNotTreatedAsMissing(t *testing.T) {
+	repo := t.TempDir()
+	a := filepath.Join(repo, "loop-a")
+	b := filepath.Join(repo, "loop-b")
+	require.NoError(t, os.Symlink(b, a))
+	if err := os.Symlink(a, b); err != nil {
+		t.Skipf("symlinks unsupported in this environment: %v", err)
+	}
+
+	_, err := safeRepoPath(repo, "loop-a")
+	assert.Error(t, err, "a symlink loop is a genuine resolution failure, not \"doesn't exist yet\" — it must not be waved through as an unresolved path")
+}
+
+func TestExecuteQuery_PathExists_NoRepoDirDegradesToError(t *testing.T) {
+	got := executeQuery(context.Background(), &git.Fake{}, "", nil, triggers.Query{Type: triggers.QueryPathExists, Path: "x"})
+	assert.NotEmpty(t, got.Err)
+}
+
+func TestExecuteQuery_Grep_FindsMatch(t *testing.T) {
+	repo := t.TempDir()
+	writeRepoFile(t, repo, "internal/foo/bar.go", "package foo\n\nfunc Bar() {}\n")
+	writeRepoFile(t, repo, "internal/foo/baz.go", "package foo\n\nfunc Baz() {}\n")
+
+	got := executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryGrep, Pattern: "func Bar"})
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "bar.go")
+	assert.NotContains(t, got.Output, "baz.go")
+}
+
+func TestExecuteQuery_Grep_ScopedToPathGlob(t *testing.T) {
+	repo := t.TempDir()
+	writeRepoFile(t, repo, "internal/foo/bar.go", "TODO: fix this\n")
+	writeRepoFile(t, repo, "internal/other/baz.go", "TODO: fix that\n")
+
+	got := executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryGrep, Pattern: "TODO", PathGlob: "internal/foo"})
+	assert.Contains(t, got.Output, "bar.go")
+	assert.NotContains(t, got.Output, "baz.go")
+}
+
+// A model naturally writes a GLOB into a field named path_glob ("**/*.go").
+// Live regression: treating that string as a literal directory silently
+// walked nothing and reported "(no matches)" — which the model then read as
+// positive evidence and returned a confident, WRONG not-fired. A glob must
+// actually filter files, and a scope that matches nothing on disk must never
+// masquerade as a searched-and-empty result.
+func TestExecuteQuery_Grep_PathGlobIsAGlob(t *testing.T) {
+	repo := t.TempDir()
+	writeRepoFile(t, repo, "internal/foo/bar.go", "SENTINEL here\n")
+	writeRepoFile(t, repo, "internal/foo/notes.txt", "SENTINEL there\n")
+
+	goOnly := executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryGrep, Pattern: "SENTINEL", PathGlob: "**/*.go"})
+	assert.Empty(t, goOnly.Err)
+	assert.Contains(t, goOnly.Output, "bar.go")
+	assert.NotContains(t, goOnly.Output, "notes.txt")
+
+	txtOnly := executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryGrep, Pattern: "SENTINEL", PathGlob: "**/*.txt"})
+	assert.Empty(t, txtOnly.Err)
+	assert.Contains(t, txtOnly.Output, "notes.txt")
+	assert.NotContains(t, txtOnly.Output, "bar.go")
+}
+
+// The safety-critical half of the same regression: a scope naming something
+// that does not exist is an ERROR, never an empty "(no matches)" — a query
+// that never ran must not read as evidence of absence.
+func TestExecuteQuery_Grep_NonexistentScopeIsAnErrorNotAnEmptyResult(t *testing.T) {
+	repo := t.TempDir()
+	writeRepoFile(t, repo, "internal/foo/bar.go", "SENTINEL here\n")
+
+	got := executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryGrep, Pattern: "SENTINEL", PathGlob: "no/such/dir"})
+	assert.NotEmpty(t, got.Err, "a scope that matches nothing on disk must be an error, not a silent no-match")
+	assert.Empty(t, got.Output)
+}
+
+// The counterpart: a scan that COMPLETES and genuinely finds nothing is a real
+// "no matches" — that is legitimate positive evidence and must stay available.
+func TestQueryGrep_CompletedScanWithNoHitsIsARealNoMatch(t *testing.T) {
+	repo := t.TempDir()
+	writeRepoFile(t, repo, "a.go", "package a\n")
+
+	got := queryGrep(repo, triggers.Query{Type: triggers.QueryGrep, Pattern: "NOPE"}, defaultGrepBudget())
+	assert.Empty(t, got.Err, "a completed exhaustive scan that found nothing is a valid result, not an error")
+	assert.Empty(t, got.Output)
+}
+
+// A literal (non-glob) path_glob naming a hidden directory (e.g.
+// ".github") must actually be searched. skipGrepDir exists to keep tool/
+// vendor state encountered while DESCENDING out of the search, but it used
+// to be applied to the walk ROOT too — so a scope naming a hidden directory
+// by name walked ZERO files and reported a plain empty "(no matches)",
+// which reads to the model as positive evidence of absence for a search
+// that never actually ran.
+func TestQueryGrep_LiteralScopeNamingAHiddenDirectoryIsSearched(t *testing.T) {
+	repo := t.TempDir()
+	writeRepoFile(t, repo, ".github/workflows/ci.yml", "SENTINEL_SETTING: true\n")
+
+	got := queryGrep(repo, triggers.Query{Type: triggers.QueryGrep, Pattern: "SENTINEL_SETTING", PathGlob: ".github"}, defaultGrepBudget())
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "ci.yml", "a literal path_glob naming a hidden directory must actually be searched, not silently voided")
+}
+
+// Tool/vendor state is not "the codebase": .git, .claude (worktrees!), and
+// node_modules must be skipped, so they neither pollute results nor burn the
+// scan budget that the real source tree needs.
+func TestQueryGrep_SkipsToolStateAndVendorDirs(t *testing.T) {
+	repo := t.TempDir()
+	writeRepoFile(t, repo, "internal/real.go", "REAL_HIT\n")
+	writeRepoFile(t, repo, ".claude/worktrees/agent-x/copy.go", "REAL_HIT\n")
+	writeRepoFile(t, repo, "node_modules/pkg/index.js", "REAL_HIT\n")
+
+	got := queryGrep(repo, triggers.Query{Type: triggers.QueryGrep, Pattern: "REAL_HIT"}, defaultGrepBudget())
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "internal/real.go")
+	assert.NotContains(t, got.Output, "worktrees", "gitignored worktree copies are not the codebase")
+	assert.NotContains(t, got.Output, "node_modules")
+}
+
+// os.ReadFile FOLLOWS a symlink even though fs.WalkDir does not descend into
+// one. Without skipping non-regular files, a symlink planted in the repo
+// would pull outside-repo content straight into the model's prompt.
+func TestExecuteQuery_Grep_DoesNotReadThroughASymlinkOutOfTheRepo(t *testing.T) {
+	repo := t.TempDir()
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	require.NoError(t, os.WriteFile(secret, []byte("SUPERSECRET value\n"), 0o644))
+
+	if err := os.Symlink(secret, filepath.Join(repo, "innocent.txt")); err != nil {
+		t.Skipf("symlinks unsupported in this environment: %v", err)
+	}
+
+	got := executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryGrep, Pattern: "SUPERSECRET"})
+	assert.NotContains(t, got.Output, "SUPERSECRET", "grep must not read through a symlink that escapes the repo")
+}
+
+func TestExecuteQuery_Grep_NoMatchesIsNotAnError(t *testing.T) {
+	repo := t.TempDir()
+	writeRepoFile(t, repo, "internal/foo/bar.go", "package foo\n")
+
+	got := executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryGrep, Pattern: "NoSuchSymbolAnywhere"})
+	assert.Empty(t, got.Err)
+	assert.Empty(t, got.Output)
+}
+
+// Go's regexp is RE2-based (linear time, no catastrophic backtracking), so an
+// adversarial pattern cannot hang the query — this proves a pathological
+// pattern still returns promptly rather than being rejected outright (it's
+// safe to just run).
+func TestExecuteQuery_Grep_PathologicalPatternDoesNotHang(t *testing.T) {
+	repo := t.TempDir()
+	writeRepoFile(t, repo, "big.go", strings.Repeat("aaaaaaaaaa", 500)+"\n")
+
+	got := executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryGrep, Pattern: "(a+)+b"})
+	assert.Empty(t, got.Err)
+}
+
+func TestExecuteQuery_Grep_InvalidPatternIsAnError(t *testing.T) {
+	repo := t.TempDir()
+	got := executeQuery(context.Background(), &git.Fake{}, repo, nil, triggers.Query{Type: triggers.QueryGrep, Pattern: "(unterminated["})
+	assert.NotEmpty(t, got.Err)
+}
+
+func TestExecuteQuery_GitLogPath_FiltersToMatchingCommits(t *testing.T) {
+	repo := t.TempDir()
+	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{
+		repo: {
+			{SHA: "aaaa1111", Subject: "touch signing", Files: []string{"internal/adapters/signing/cli.go"}},
+			{SHA: "bbbb2222", Subject: "touch unrelated", Files: []string{"internal/other/x.go"}},
+		},
+	}}
+	got := executeQuery(context.Background(), gitFake, repo, nil, triggers.Query{Type: triggers.QueryGitLogPath, Path: "internal/adapters/signing"})
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "touch signing")
+	assert.NotContains(t, got.Output, "touch unrelated")
+}
+
+func TestExecuteQuery_GitLogPath_NoMatchesSaysSo(t *testing.T) {
+	repo := t.TempDir()
+	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{repo: {{SHA: "a", Subject: "x", Files: []string{"unrelated.go"}}}}}
+	got := executeQuery(context.Background(), gitFake, repo, nil, triggers.Query{Type: triggers.QueryGitLogPath, Path: "internal/adapters/signing"})
+	assert.Empty(t, got.Err)
+	assert.NotEmpty(t, got.Output)
+}
+
+// queryGitLogPath scans only the most recent gitLogPathScanCap
+// commits (via LogSince). A zero-match result from a window that hit that
+// cap did not finish looking, so it must not read as a confident "no commits
+// found touching this path" — the exact hazard queryGrep already guards
+// against for its own file-count bound.
+func TestExecuteQuery_GitLogPath_TruncatedWindowIsInconclusive(t *testing.T) {
+	repo := t.TempDir()
+	entries := make([]git.LogEntry, gitLogPathScanCap)
+	for i := range entries {
+		entries[i] = git.LogEntry{SHA: fmt.Sprintf("sha%d", i), Subject: "unrelated change", Files: []string{"unrelated.go"}}
+	}
+	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{repo: entries}}
+
+	got := executeQuery(context.Background(), gitFake, repo, nil, triggers.Query{Type: triggers.QueryGitLogPath, Path: "internal/adapters/signing"})
+	assert.Empty(t, got.Output, "a truncated window must not present a completed, confident search")
+	assert.NotEmpty(t, got.Err, "a fully-truncated commit window with zero matches is inconclusive, not evidence of absence")
+}
+
+// A commit whose changed-file list could not be gathered
+// (FilesUnknown) is not a commit that touched nothing. Filtering it out
+// silently turns "we never found out" into "it did not touch the path", so a
+// zero-match result over such a window is inconclusive, exactly like the
+// truncated window above.
+func TestExecuteQuery_GitLogPath_UnknownFileListIsInconclusive(t *testing.T) {
+	repo := t.TempDir()
+	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{repo: {
+		{SHA: "aaaa1111", Subject: "unrelated change", Files: []string{"unrelated.go"}},
+		{SHA: "bbbb2222", Subject: "file list unavailable", FilesUnknown: true},
+	}}}
+
+	got := executeQuery(context.Background(), gitFake, repo, nil, triggers.Query{Type: triggers.QueryGitLogPath, Path: "internal/adapters/signing"})
+	assert.Empty(t, got.Output, "a search that could not read every commit must not present a completed result")
+	assert.NotEmpty(t, got.Err, "zero matches over a window with an unreadable commit is inconclusive, not evidence of absence")
+}
+
+// A MATCH found elsewhere in the window still answers the question, even when
+// another commit's file list was unavailable — the inconclusive guard must
+// not suppress evidence that was actually found.
+func TestExecuteQuery_GitLogPath_UnknownFileListDoesNotSuppressAMatch(t *testing.T) {
+	repo := t.TempDir()
+	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{repo: {
+		{SHA: "aaaa1111", Subject: "touch signing", Files: []string{"internal/adapters/signing/cli.go"}},
+		{SHA: "bbbb2222", Subject: "file list unavailable", FilesUnknown: true},
+	}}}
+
+	got := executeQuery(context.Background(), gitFake, repo, nil, triggers.Query{Type: triggers.QueryGitLogPath, Path: "internal/adapters/signing"})
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "touch signing")
+}
+
+// TestBuildBatch_DeclaresTruncatedRepoState pins the gathering half: the
+// repo-state lists are bounded, and only the caller that owns
+// the bound can notice a listing that hit it. A batch built from a full-cap
+// result must carry the truncation flags the prompt renders, or the model is
+// handed a partial inventory presented as a complete one.
+func TestBuildBatch_DeclaresTruncatedRepoState(t *testing.T) {
+	repo := t.TempDir()
+
+	dirs := make([]string, repoDirsScanCap+50)
+	for i := range dirs {
+		dirs[i] = fmt.Sprintf("internal/pkg%04d", i)
+	}
+	changes := make([]string, workingChangesScanCap+50)
+	for i := range changes {
+		changes[i] = fmt.Sprintf("?? internal/new%04d.go", i)
+	}
+	gitFake := &git.Fake{Dirs: dirs, Changes: changes}
+
+	batch := buildBatch(context.Background(), nil, nil, nil, EvaluateTriggersRequest{RepoDir: repo, Git: gitFake})
+	assert.Len(t, batch.Repo.Dirs, repoDirsScanCap)
+	assert.True(t, batch.Repo.DirsTruncated, "a directory inventory that hit its bound must be declared truncated")
+	assert.Len(t, batch.Repo.WorkingChanges, workingChangesScanCap)
+	assert.True(t, batch.Repo.WorkingChangesTruncated, "a working-changes list that hit its bound must be declared truncated")
+
+	small := &git.Fake{Dirs: []string{"internal/a"}, Changes: []string{"?? a.go"}}
+	batch = buildBatch(context.Background(), nil, nil, nil, EvaluateTriggersRequest{RepoDir: repo, Git: small})
+	assert.False(t, batch.Repo.DirsTruncated, "a complete listing must not claim truncation")
+	assert.False(t, batch.Repo.WorkingChangesTruncated)
+}
+
+func TestExecuteQuery_TaskStatus_Found(t *testing.T) {
+	byHarp := map[string]tasks.Task{"other-task": {HarpID: "other-task", Status: "Done", Text: "shipped it"}}
+	got := executeQuery(context.Background(), &git.Fake{}, "", byHarp, triggers.Query{Type: triggers.QueryTaskStatus, HarpID: "other-task"})
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "Done")
+}
+
+func TestExecuteQuery_TaskStatus_NotFound(t *testing.T) {
+	got := executeQuery(context.Background(), &git.Fake{}, "", map[string]tasks.Task{}, triggers.Query{Type: triggers.QueryTaskStatus, HarpID: "ghost"})
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "no task")
+}
+
+// executeQuery re-validates every query itself (defense in depth: a caller
+// must not be able to skip sanitize-then-execute by calling this directly).
+func TestExecuteQuery_RevalidatesAndRejectsUnsafeInput(t *testing.T) {
+	repo := t.TempDir()
+	cases := []triggers.Query{
+		{Type: triggers.QueryPathExists, Path: "../../../etc/passwd"},
+		{Type: triggers.QueryPathExists, Path: "/etc/passwd"},
+		{Type: "shell_exec", Path: "x"},
+		{Type: triggers.QueryGrep, PathGlob: "../../etc"},
+	}
+	for _, q := range cases {
+		got := executeQuery(context.Background(), &git.Fake{}, repo, nil, q)
+		assert.NotEmpty(t, got.Err, "%+v must be rejected", q)
+	}
+}
+
+func TestExecuteQuery_NeverPanicsOnGarbledInput(t *testing.T) {
+	repo := t.TempDir()
+	garbled := []triggers.Query{
+		{},
+		{Type: triggers.QueryPathExists},
+		{Type: triggers.QueryGrep},
+		{Type: triggers.QueryGitLogPath},
+		{Type: triggers.QueryTaskStatus},
+		{Type: triggers.QueryPathExists, Path: strings.Repeat("a/", 10000)},
+	}
+	assert.NotPanics(t, func() {
+		for _, q := range garbled {
+			executeQuery(context.Background(), &git.Fake{}, repo, nil, q)
+		}
+	})
+}
+
+func TestExecuteQueries_RespectsBatchBudget(t *testing.T) {
+	repo := t.TempDir()
+	qs := []triggers.Query{
+		{Type: triggers.QueryPathExists, Path: "a"},
+		{Type: triggers.QueryPathExists, Path: "b"},
+		{Type: triggers.QueryPathExists, Path: "c"},
+	}
+	budget := 2
+	results := executeQueries(context.Background(), &git.Fake{}, repo, nil, qs, &budget)
+	require.Len(t, results, 3, "one result per query, even budget-exhausted ones")
+	assert.Empty(t, results[0].Err)
+	assert.Empty(t, results[1].Err)
+	assert.NotEmpty(t, results[2].Err, "the third query exceeds the batch budget")
+	assert.Equal(t, 0, budget)
+}

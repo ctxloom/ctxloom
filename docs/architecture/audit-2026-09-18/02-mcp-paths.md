@@ -6,30 +6,30 @@ Architecture audit, read-only. Repository: `/home/babbitt/workspace/ctxloom/ctxl
 
 **Seam.** Everything MCP: ctxloom AS an MCP server (three server flavours plus the stdio forward shim and the docgen clone), and ctxloom CONFIGURING MCP for engines (`.mcp.json` / settings delivery, bundle-authored MCP entries, the `ctxloom://mcp-servers` resource).
 
-**Packages read.** `internal/mcp` (all non-test files), `internal/agentcoord/coord` (`runchannel.go`, `home.go`, `spooldelivery.go`, `children.go`, `identity.go`, `coordinator.go`, `drain.go`), `internal/agentcoord/mcpschema` (`binding.go`, `schemas.go`), `internal/cli` (`mcp.go`, `mcp_server.go`, `llm_runner_common.go`, `run.go` coordinator standup), `internal/shared/wire/mcp.go`, `internal/shared/mcpsocket`, `internal/config` (LinkGrant / extractMCPFromBundle), `internal/operations` (mcpEntry, ApplyHooks MCP surface), `internal/shared/agent` (settings_io), engine backends' MCP writers. Stated architecture: `docs/architecture/cli/mcp.md`, `docs/architecture/agentcoord/mcp-tool-surface.md`, `docs/architecture/agentcoord/transport.md`, `GLOSSARY.md`, `tests/arch/layering_test.go`.
+**Packages read.** `internal/adapters/mcp` (all non-test files), `internal/core/coord` (`runchannel.go`, `home.go`, `spooldelivery.go`, `children.go`, `identity.go`, `coordinator.go`, `drain.go`), `internal/adapters/coordgrpc/mcpschema` (`binding.go`, `schemas.go`), `internal/adapters/cli` (`mcp.go`, `mcp_server.go`, `llm_runner_common.go`, `run.go` coordinator standup), `internal/core/wire/mcp.go`, `internal/shared/mcpsocket`, `internal/core/config` (LinkGrant / extractMCPFromBundle), `internal/adapters/operations` (mcpEntry, ApplyHooks MCP surface), `internal/core/agent` (settings_io), engine backends' MCP writers. Stated architecture: `docs/architecture/cli/mcp.md`, `docs/architecture/agentcoord/mcp-tool-surface.md`, `docs/architecture/agentcoord/transport.md`, `GLOSSARY.md`, `tests/arch/layering_test.go`.
 
-**Layering gate coverage.** `tests/arch/layering_test.go`'s `layeringRules` table contains NO rule whose `from` or `forbid` names `internal/mcp`. The only rule touching this seam is `internal/operations` must-not-import `internal/cli`. Everything `internal/mcp` imports (24 first-party packages including `lm/backends`, `lm/isolation`, `memory`, `sessions`, `transcript`) is ungated.
+**Layering gate coverage.** `tests/arch/layering_test.go`'s `layeringRules` table contains NO rule whose `from` or `forbid` names `internal/adapters/mcp`. The only rule touching this seam is `internal/adapters/operations` must-not-import `internal/adapters/cli`. Everything `internal/adapters/mcp` imports (24 first-party packages including `lm/backends`, `lm/isolation`, `memory`, `sessions`, `transcript`) is ungated.
 
 ### Entry points traced
 
 | # | Entry point | Symbol | File | Process boundary reached |
 |---|---|---|---|---|
-| E1 | `ctxloom mcp` / `ctxloom mcp serve` (cobra) | `cli.runMCPServerSDK` → `mcp.ServeStdio` | `internal/cli/mcp_server.go`, `internal/mcp/mcp_server.go` | stdio (MCP client); env read; marker file read; unix/tcp dial; OR local: config load, 4 reapers (worktree rm, container kill, dir moves), remote sync, `operations.ApplyHooks` (writes managed settings), `coord.New`+`Serve` (h2c listener, `endpoint.json`) |
-| E1a | forward shim (branch of E1) | `mcp.runMCPForward` → `mcp.prepareForward` → `mcp.buildForwardServer` | `internal/mcp/mcp_forward.go` | stdio in; HTTP-over-unix or `tcp://` out (`mcp.dialReachBackSocket`) |
-| E1b | marker discovery (branch of E1) | `mcp.probeWellKnownRunner` | `internal/mcp/mcp_discovery.go` | reads `/run/ctxloom/local/current.json` or `$XDG_RUNTIME_DIR/ctxloom/cell-<sha>.json`; `pidalive.Probe`; unix dial; may `os.Remove` markers |
-| E2 | runner-hosted server (`ctxloom llm serve <engine>` standup) | `cli.attachRunnerMCP` → `mcp.ServeRunnerMCP` → `mcp.newRunnerMCPServer` | `internal/cli/llm_runner_common.go`, `internal/mcp/mcp_runner.go` | binds unix socket (3-tier dir), writes discovery marker, serves streamable HTTP at `/mcp`; `os.Setenv(CTXLOOM_MCP_SOCKET)` for the engine child |
-| E3 | coordinator standup for a session (`ctxloom run`) | `cli.run…` → `mcp.HostCoordinatorForSession` → `mcp.NewHostedCoordinator` → `coord.New`/`Serve` + `mcp.SessionOwnerEnv` | `internal/cli/run.go`, `internal/mcp/coord_host.go` | h2c gRPC listener(s), `~/.ctxloom/coord/<key>/endpoint.json`, minted owner credential into the run env |
-| E4 | docgen clone | `mcp.NewDocMCPServer` | `internal/mcp/mcp_docgen.go` | none (dead endpoint `127.0.0.1:1`) — but leaks a `coord.Home` |
-| T1 | tool: `assemble_context` / `search_content` / `search_library` | `ctxServer.registerContextTools` handlers | `internal/mcp/mcp_tools_context.go` | `operations.*` → filesystem reads under the project |
-| T2 | tool: `context_status` | `ctxServer.handleContextStatus` | `internal/mcp/mcp_tools_contextstatus.go` | session/transcript reads |
-| T3 | tools: `compact_session`, `load_session`, `recover_session`, `get_previous_session`, `list_sessions` | `ctxServer.handle*` in `mcp_tools_memory.go` | `internal/mcp/mcp_tools_memory.go` | `memory.Compactor` (LLM exec), session store reads/writes |
-| T4 | tool: `evaluate_triggers` | `ctxServer.handleEvaluateTriggers` | `internal/mcp/mcp_tools_triggers.go` | taskloom store |
-| T5 | tools: `agent_run`, `agent_send`, `agent_recv`, `agent_stop` (stdio flavour) | `ctxServer.handleAgentRun/Send/Recv/Stop` | `internal/mcp/mcp_tools_agents.go` | in-process `coord.Coordinator` → child process spawn / spool files |
-| T6 | tools: `agent_run`, `agent_send`, `agent_stop`, `roster`, `agent_recv`, `agent_report`, `agent_fetch_artifact` (runner flavour) | `mcp.coordinationHandler`, `mcp.recvHandler`, `mcp.reportHandler`, `mcp.artifactFetchHandler` | `internal/mcp/mcp_runner.go` | `coord.Home.Request` → gRPC `RunChannel` → coordinator; `Home.sendPeerViaSpool` → spool file; `Home.Recv`; `Home.Report` |
-| T7 | host-relay tools (7): T2+T3+T4 names on the runner flavour | `mcp.relayTyped[In]` → `coord.Home.Request(CustomRequest "ctxloom/<tool>")` → `coord.serveCustom` → `mcp.relayHost` → the T2–T4 handlers | `internal/mcp/mcp_runner.go`, `internal/agentcoord/coord/runchannel.go`, `internal/mcp/coord_host.go` | gRPC round trip, then whatever T2–T4 touch, on the HOST |
-| R1 | resources: 9 concrete + 5 templated `ctxloom://` URIs | `ctxServer.registerResources` | `internal/mcp/mcp_resources.go` | `operations.*` reads |
-| C1 | `ctxloom mcp add/remove/show/list/register/unregister` (+ `mcp server *`, + `manage mcp *`) | `cli.runMCPAdd/Remove/Show/List`, `cli.setMcpAutoRegister` | `internal/cli/mcp.go`, `internal/cli/manage.go` | `~/.ctxloom` config writes |
-| C2 | MCP config delivery to engines | `operations.ApplyHooks` → per-backend MCP surface writers → `.mcp.json` / settings | `internal/operations/*`, `internal/shared/wire/mcp.go`, engine backends | project / session-home file writes |
+| E1 | `ctxloom mcp` / `ctxloom mcp serve` (cobra) | `cli.runMCPServerSDK` → `mcp.ServeStdio` | `internal/adapters/cli/mcp_server.go`, `internal/adapters/mcp/mcp_server.go` | stdio (MCP client); env read; marker file read; unix/tcp dial; OR local: config load, 4 reapers (worktree rm, container kill, dir moves), remote sync, `operations.ApplyHooks` (writes managed settings), `coord.New`+`Serve` (h2c listener, `endpoint.json`) |
+| E1a | forward shim (branch of E1) | `mcp.runMCPForward` → `mcp.prepareForward` → `mcp.buildForwardServer` | `internal/adapters/mcp/mcp_forward.go` | stdio in; HTTP-over-unix or `tcp://` out (`mcp.dialReachBackSocket`) |
+| E1b | marker discovery (branch of E1) | `mcp.probeWellKnownRunner` | `internal/adapters/mcp/mcp_discovery.go` | reads `/run/ctxloom/local/current.json` or `$XDG_RUNTIME_DIR/ctxloom/cell-<sha>.json`; `pidalive.Probe`; unix dial; may `os.Remove` markers |
+| E2 | runner-hosted server (`ctxloom llm serve <engine>` standup) | `cli.attachRunnerMCP` → `mcp.ServeRunnerMCP` → `mcp.newRunnerMCPServer` | `internal/adapters/cli/llm_runner_common.go`, `internal/adapters/mcp/mcp_runner.go` | binds unix socket (3-tier dir), writes discovery marker, serves streamable HTTP at `/mcp`; `os.Setenv(CTXLOOM_MCP_SOCKET)` for the engine child |
+| E3 | coordinator standup for a session (`ctxloom run`) | `cli.run…` → `mcp.HostCoordinatorForSession` → `mcp.NewHostedCoordinator` → `coord.New`/`Serve` + `mcp.SessionOwnerEnv` | `internal/adapters/cli/run.go`, `internal/adapters/mcp/coord_host.go` | h2c gRPC listener(s), `~/.ctxloom/coord/<key>/endpoint.json`, minted owner credential into the run env |
+| E4 | docgen clone | `mcp.NewDocMCPServer` | `internal/adapters/mcp/mcp_docgen.go` | none (dead endpoint `127.0.0.1:1`) — but leaks a `coord.Home` |
+| T1 | tool: `assemble_context` / `search_content` / `search_library` | `ctxServer.registerContextTools` handlers | `internal/adapters/mcp/mcp_tools_context.go` | `operations.*` → filesystem reads under the project |
+| T2 | tool: `context_status` | `ctxServer.handleContextStatus` | `internal/adapters/mcp/mcp_tools_contextstatus.go` | session/transcript reads |
+| T3 | tools: `compact_session`, `load_session`, `recover_session`, `get_previous_session`, `list_sessions` | `ctxServer.handle*` in `mcp_tools_memory.go` | `internal/adapters/mcp/mcp_tools_memory.go` | `memory.Compactor` (LLM exec), session store reads/writes |
+| T4 | tool: `evaluate_triggers` | `ctxServer.handleEvaluateTriggers` | `internal/adapters/mcp/mcp_tools_triggers.go` | taskloom store |
+| T5 | tools: `agent_run`, `agent_send`, `agent_recv`, `agent_stop` (stdio flavour) | `ctxServer.handleAgentRun/Send/Recv/Stop` | `internal/adapters/mcp/mcp_tools_agents.go` | in-process `coord.Coordinator` → child process spawn / spool files |
+| T6 | tools: `agent_run`, `agent_send`, `agent_stop`, `roster`, `agent_recv`, `agent_report`, `agent_fetch_artifact` (runner flavour) | `mcp.coordinationHandler`, `mcp.recvHandler`, `mcp.reportHandler`, `mcp.artifactFetchHandler` | `internal/adapters/mcp/mcp_runner.go` | `coord.Home.Request` → gRPC `RunChannel` → coordinator; `Home.sendPeerViaSpool` → spool file; `Home.Recv`; `Home.Report` |
+| T7 | host-relay tools (7): T2+T3+T4 names on the runner flavour | `mcp.relayTyped[In]` → `coord.Home.Request(CustomRequest "ctxloom/<tool>")` → `coord.serveCustom` → `mcp.relayHost` → the T2–T4 handlers | `internal/adapters/mcp/mcp_runner.go`, `internal/core/coord/runchannel.go`, `internal/adapters/mcp/coord_host.go` | gRPC round trip, then whatever T2–T4 touch, on the HOST |
+| R1 | resources: 9 concrete + 5 templated `ctxloom://` URIs | `ctxServer.registerResources` | `internal/adapters/mcp/mcp_resources.go` | `operations.*` reads |
+| C1 | `ctxloom mcp add/remove/show/list/register/unregister` (+ `mcp server *`, + `manage mcp *`) | `cli.runMCPAdd/Remove/Show/List`, `cli.setMcpAutoRegister` | `internal/adapters/cli/mcp.go`, `internal/adapters/cli/manage.go` | `~/.ctxloom` config writes |
+| C2 | MCP config delivery to engines | `operations.ApplyHooks` → per-backend MCP surface writers → `.mcp.json` / settings | `internal/adapters/operations/*`, `internal/core/wire/mcp.go`, engine backends | project / session-home file writes |
 
 (Section 1 continues below as C2 is traced.)
 
@@ -259,7 +259,7 @@ flowchart LR
   NDS -- "cfg=nil, harp, home, leaf=false, cwd" --> NRS
 ```
 
-**What crosses.** `mcp.NewHostedCoordinator` is the ONE constructor for a session coordinator, called by both `ctxloom run` (E3) and lazily by the standalone stdio server's `ctxServer.delegation()` (E1 local mode). It lives in `internal/mcp`, not in `cli` or `coord`: the MCP package owns coordinator lifecycle for the whole binary.
+**What crosses.** `mcp.NewHostedCoordinator` is the ONE constructor for a session coordinator, called by both `ctxloom run` (E3) and lazily by the standalone stdio server's `ctxServer.delegation()` (E1 local mode). It lives in `internal/adapters/mcp`, not in `cli` or `coord`: the MCP package owns coordinator lifecycle for the whole binary.
 
 ### 2.4 MCP config delivery to engines (C2) — the value's four types
 
@@ -469,7 +469,7 @@ flowchart LR
   R2 -. "never reached" .-> W1
 ```
 
-Both paths converge on `Coordinator.peerSend`, but PATH A does it synchronously with the coordinator's full correlation state, and PATH B does it as a local file write whose refusals are a hand-copied subset (the comment in `Home.sendPeerViaSpool`, `internal/agentcoord/coord/spooldelivery.go`, cites `servePeerSend` as the source it duplicates; that function no longer exists — `serveAgentRequest` answers `PeerSend` with `Unimplemented`).
+Both paths converge on `Coordinator.peerSend`, but PATH A does it synchronously with the coordinator's full correlation state, and PATH B does it as a local file write whose refusals are a hand-copied subset (the comment in `Home.sendPeerViaSpool`, `internal/core/coord/spooldelivery.go`, cites `servePeerSend` as the source it duplicates; that function no longer exists — `serveAgentRequest` answers `PeerSend` with `Unimplemented`).
 
 **`agent_recv` — two parking state machines:**
 
@@ -488,24 +488,24 @@ Both paths converge on `Coordinator.peerSend`, but PATH A does it synchronously 
 
 ## 3. Delegation / layer graph
 
-Stated layering (from `docs/architecture/cli/mcp.md`, `GLOSSARY.md` "runtime coordinator", `layering_test.go`): `cli` is wiring; `mcp` is "the boundary where an external MCP client meets `internal/operations` (content), `internal/agentcoord/coord` (delegation), and `mcpschema`"; `operations` is the frontend-agnostic layer and must not import `cli`; the coordinator is "hosted by every session-owning process". Solid arrows = as stated. Thick/dotted `==>`/`-.->` with labels = against or past a layer.
+Stated layering (from `docs/architecture/cli/mcp.md`, `GLOSSARY.md` "runtime coordinator", `layering_test.go`): `cli` is wiring; `mcp` is "the boundary where an external MCP client meets `internal/adapters/operations` (content), `internal/core/coord` (delegation), and `mcpschema`"; `operations` is the frontend-agnostic layer and must not import `cli`; the coordinator is "hosted by every session-owning process". Solid arrows = as stated. Thick/dotted `==>`/`-.->` with labels = against or past a layer.
 
 ```mermaid
 flowchart TD
-  CLI[internal/cli]
-  MCP[internal/mcp]
-  OPS[internal/operations]
-  COORD[internal/agentcoord/coord]
-  SCHEMA[internal/agentcoord/mcpschema]
-  CFG[internal/config]
-  AGENT[internal/shared/agent]
-  WIRE[internal/shared/wire]
+  CLI[internal/adapters/cli]
+  MCP[internal/adapters/mcp]
+  OPS[internal/adapters/operations]
+  COORD[internal/core/coord]
+  SCHEMA[internal/adapters/coordgrpc/mcpschema]
+  CFG[internal/core/config]
+  AGENT[internal/core/agent]
+  WIRE[internal/core/wire]
   BACK[internal/lm/backends]
-  ISO[internal/lm/isolation]
-  MEM[internal/memory]
-  SESS[internal/sessions]
-  TRANS[internal/transcript]
-  CLAUDE[internal/claude]
+  ISO[internal/adapters/isolation]
+  MEM[internal/adapters/memory]
+  SESS[internal/core/sessions]
+  TRANS[internal/adapters/transcript]
+  CLAUDE[internal/engines/claude]
   TASKOPS[internal/shared/tasks/operations]
   DISC[internal/agentcoord/discover]
   GEN[scripts/gendocs]
@@ -581,10 +581,10 @@ flowchart TD
 ```
 
 **Data-flow smells on identity (each cited):**
-- **Re-derived from env at five sites in one process** instead of passed: `mcp.sessionInstructions`, `mcp.probeWellKnownRunner`, `mcp.verifyForwardTarget`, `mcp.selfIdentityFromEnv` (`internal/mcp/mcp_server.go`, `mcp_discovery.go`, `mcp_forward.go`, `mcp_tools_agents.go`), and `cli.consumeCoordinatorReachBack` (`internal/cli/llm_runner_common.go`) reads it twice into two fields of one struct.
-- **Two names for one value**: the string literal `"CTXLOOM_SESSION_HARP"` (17 non-test sites) and the constant `agent.SessionHarpEnv` (23 sites), both used inside `internal/mcp` itself. A rename of the variable is unfindable by symbol.
+- **Re-derived from env at five sites in one process** instead of passed: `mcp.sessionInstructions`, `mcp.probeWellKnownRunner`, `mcp.verifyForwardTarget`, `mcp.selfIdentityFromEnv` (`internal/adapters/mcp/mcp_server.go`, `mcp_discovery.go`, `mcp_forward.go`, `mcp_tools_agents.go`), and `cli.consumeCoordinatorReachBack` (`internal/adapters/cli/llm_runner_common.go`) reads it twice into two fields of one struct.
+- **Two names for one value**: the string literal `"CTXLOOM_SESSION_HARP"` (17 non-test sites) and the constant `agent.SessionHarpEnv` (23 sites), both used inside `internal/adapters/mcp` itself. A rename of the variable is unfindable by symbol.
 - **Same value, two types**: `harp string` and `coord.Identity.Harp`; `ServeRunnerMCP` takes the string and builds an `Identity` with `Depth` unset (always 0) even for a child runner — the runner's `ctxServer.self` therefore says `IsChild()==false` for every child; only the coordinator-side credential identity is right. The runner-side `leaf` bool is a separate derivation (`cli.runnerIsLeaf`) threaded through `newRunnerMCPServer → registerGeneratedTools → coordinationHandler → recvHandler` (feature-flag layering).
-- **Hidden parameter via env in the same process**: `cli.exportRunnerMCPSocket` does `os.Setenv(CTXLOOM_MCP_SOCKET)` and `coord.injectMCPSocketEnv` does `os.Getenv(EnvMCPSocket)` later in the same runner process (`internal/agentcoord/coord/enginehost.go`) — the socket path is a return value of `ServeRunnerMCP` that is dropped into the environment rather than passed.
+- **Hidden parameter via env in the same process**: `cli.exportRunnerMCPSocket` does `os.Setenv(CTXLOOM_MCP_SOCKET)` and `coord.injectMCPSocketEnv` does `os.Getenv(EnvMCPSocket)` later in the same runner process (`internal/core/coord/enginehost.go`) — the socket path is a return value of `ServeRunnerMCP` that is dropped into the environment rather than passed.
 - **Fabricated identity**: `mcp.selfIdentityFromEnv` mints a random harp when the env is absent, so a standalone `mcp serve` audits, spools and spawns under a name no session directory, registry or transcript ever recorded.
 
 ### 3.2 DATA-FLOW — the MCP tool request itself (PATH B)
@@ -612,15 +612,15 @@ flowchart LR
 ## 4. Findings (ranked by blast radius)
 
 ### F1 — DUPLICATION / MISSING LAYER: two `agent_*` orchestrators, no "delegation verb" layer
-**Sites.** (a) `ctxServer.handleAgentRun/Send/Recv/Stop` + `agentDelegation` in `internal/mcp/mcp_tools_agents.go` → `coord.Coordinator.AgentRun/AgentSend/AgentRecv/AgentStop/StopChildren` in-process. (b) `mcp.coordinationHandler/recvHandler/reportHandler` in `internal/mcp/mcp_runner.go` → `coord.Home.Request/Recv/Report` → gRPC → `Coordinator.serveSpawnAgent/serveListRuns/serveStopRun/serveStopChildren` in `internal/agentcoord/coord/runchannel.go` → (sometimes) the same `Coordinator.Agent*` methods, (sometimes) lower-level `c.stopRun`, `listRunsSnapshot`, and for `agent_send` a third terminus `Home.sendPeerViaSpool` (`spooldelivery.go`).
+**Sites.** (a) `ctxServer.handleAgentRun/Send/Recv/Stop` + `agentDelegation` in `internal/adapters/mcp/mcp_tools_agents.go` → `coord.Coordinator.AgentRun/AgentSend/AgentRecv/AgentStop/StopChildren` in-process. (b) `mcp.coordinationHandler/recvHandler/reportHandler` in `internal/adapters/mcp/mcp_runner.go` → `coord.Home.Request/Recv/Report` → gRPC → `Coordinator.serveSpawnAgent/serveListRuns/serveStopRun/serveStopChildren` in `internal/core/coord/runchannel.go` → (sometimes) the same `Coordinator.Agent*` methods, (sometimes) lower-level `c.stopRun`, `listRunsSnapshot`, and for `agent_send` a third terminus `Home.sendPeerViaSpool` (`spooldelivery.go`).
 **Which is more complete.** (b): it has `roster`, `agent_report`, `agent_fetch_artifact`, launch-failure surfacing (`spawnDisposition`+`settledFailureCause`), workspace-axis parsing, a credential-minted `Identity` with Depth/OneShot, and the leaf gate. (a) is a subset with a hand-written schema, a fabricated identity and no report path.
 **Missing layer.** There is no "delegation verb" API that takes `(Identity, typed request) → typed result` and owns validation. Today validation is smeared across `Coordinator.AgentRun` (agent/prompt required), `serveSpawnAgent` (role/prompt required again, workspace parse), `mcp.handleAgentRun` (dirty-tree parse), `mcp.handleAgentSend` (to/body), `Home.sendPeerViaSpool` (to/text/kind), `Coordinator.peerSend` (kind again). The layer would be `coord.Verbs` (or the proto messages themselves as the ONE request type) with both transports as thin adapters; sites (a) and (b) and the six validation sites collapse into it.
 **Settles it.** Delete `registerAgentTools` and `agentDelegation` (row `tacky-padding` already rules the stdio path must not own a coordinator; with no coordinator there is nothing for PATH A's agent tools to call) and make `serveSpawnAgent`/`serveStopRun` call only `Coordinator.AgentRun`/`AgentStop`; a test that both transports produce byte-identical `CoordinatorResponse` for the same request.
 
-### F2 — LAYER BYPASS / MISSING BOUNDARY: `internal/mcp` owns coordinator lifecycle
-**Site.** `mcp.NewHostedCoordinator`, `mcp.HostCoordinatorForSession`, `mcp.SessionOwnerEnv` (`internal/mcp/coord_host.go`) — `coord.New` + `SetCustomHandlers` + `Serve` + `RegisterSessionOwner` + `ReachURL` + `OwnerRunnerEnv`. Called from `cli.run` (`internal/cli/run.go`) for every `ctxloom run`, and lazily from `ctxServer.delegation()` for a standalone `mcp serve`.
-**Why it matters.** The MCP package is a protocol adapter; it should be a CONSUMER of a coordinator, never its constructor. Because construction lives here, (1) `cli.run` must import `internal/mcp` to start a session that may never speak MCP, (2) any MCP process can promote itself into a session owner (the `tacky-padding` ruling: "ownership becomes a property of the process KIND"), and (3) the host-relay handler table (`coordCustomHandlers`) is wired at construction, so the coordinator's custom-verb vocabulary is defined by the MCP package.
-**Settles it.** Move `NewHostedCoordinator`/`SessionOwnerEnv` to `coord` (or a `cli/session` package), pass the custom-handler map in from the caller, delete `ctxServer.delegation()`; add `internal/mcp` to `layeringRules` with `forbid: coord.New` reachable only from the session host. Cite `tacky-padding`.
+### F2 — LAYER BYPASS / MISSING BOUNDARY: `internal/adapters/mcp` owns coordinator lifecycle
+**Site.** `mcp.NewHostedCoordinator`, `mcp.HostCoordinatorForSession`, `mcp.SessionOwnerEnv` (`internal/adapters/mcp/coord_host.go`) — `coord.New` + `SetCustomHandlers` + `Serve` + `RegisterSessionOwner` + `ReachURL` + `OwnerRunnerEnv`. Called from `cli.run` (`internal/adapters/cli/run.go`) for every `ctxloom run`, and lazily from `ctxServer.delegation()` for a standalone `mcp serve`.
+**Why it matters.** The MCP package is a protocol adapter; it should be a CONSUMER of a coordinator, never its constructor. Because construction lives here, (1) `cli.run` must import `internal/adapters/mcp` to start a session that may never speak MCP, (2) any MCP process can promote itself into a session owner (the `tacky-padding` ruling: "ownership becomes a property of the process KIND"), and (3) the host-relay handler table (`coordCustomHandlers`) is wired at construction, so the coordinator's custom-verb vocabulary is defined by the MCP package.
+**Settles it.** Move `NewHostedCoordinator`/`SessionOwnerEnv` to `coord` (or a `cli/session` package), pass the custom-handler map in from the caller, delete `ctxServer.delegation()`; add `internal/adapters/mcp` to `layeringRules` with `forbid: coord.New` reachable only from the session host. Cite `tacky-padding`.
 
 ### F3 — DIVERGENT PATHS: a REFUSED forward runs the full local startup under a possibly fabricated identity
 **Shared trunk / branches.**
@@ -642,12 +642,12 @@ flowchart TD
 **Settles it.** Make `forwardOutcomeRefused` a hard error like the marker's live-but-unreachable case (one refusal policy for both triggers), or delete local mode entirely per `blissful-blah`.
 
 ### F4 — DATA-FLOW SMELL / STATED-VS-ACTUAL: relayed host tools use the HOST's `os.Getwd()`, not the caller's project
-**Sites.** `ctxServer.handleCompactSession`, `handleLoadSession`, `handleRecoverSession`, `handleGetPreviousSession`, `handleListSessions` (`internal/mcp/mcp_tools_memory.go`, five `os.Getwd()` calls) and `ctxServer.handleEvaluateTriggers` (`internal/mcp/mcp_tools_triggers.go`). On PATH B these execute in the COORDINATOR process via `mcp.relayHost` with `serverFor(caller)` giving them `s.self.Project` = the caller's cell — which they ignore in favour of the host's cwd. `ctxServer.resourceProjectDir` (`mcp_resources.go`) does it right (prefers `s.self.Project`); the tool handlers in the same package do not. `evaluateTriggersTaskContext` additionally reads `os.Getenv("CTXLOOM_PROJECT_ID")` process-wide while its own comment explains why env must not be read on a multi-caller path.
+**Sites.** `ctxServer.handleCompactSession`, `handleLoadSession`, `handleRecoverSession`, `handleGetPreviousSession`, `handleListSessions` (`internal/adapters/mcp/mcp_tools_memory.go`, five `os.Getwd()` calls) and `ctxServer.handleEvaluateTriggers` (`internal/adapters/mcp/mcp_tools_triggers.go`). On PATH B these execute in the COORDINATOR process via `mcp.relayHost` with `serverFor(caller)` giving them `s.self.Project` = the caller's cell — which they ignore in favour of the host's cwd. `ctxServer.resourceProjectDir` (`mcp_resources.go`) does it right (prefers `s.self.Project`); the tool handlers in the same package do not. `evaluateTriggersTaskContext` additionally reads `os.Getenv("CTXLOOM_PROJECT_ID")` process-wide while its own comment explains why env must not be read on a multi-caller path.
 **Stated.** `ctxServer` doc: "identity-consuming surfaces must read `s.self`"; `docs/architecture/cli/mcp.md` Invariants: "Identity comes from `s.self`, never from process env."
 **Settles it.** Replace every `os.Getwd()` in tool handlers with `s.resourceProjectDir()`; a relay test where coordinator cwd ≠ caller cell asserts the session resolved is the caller's.
 
 ### F5 — WORKAROUND: `coord.injectMCPSocketEnv` vs `agent.ctxloomOwnMCPServer` — env stripped at one layer, injected at another
-**Quote.** `internal/agentcoord/coord/enginehost.go`: "a vendor shim may NOT [pass env] — it then found no socket, fell back to its LOCAL surface, stood up a second rogue coordinator in-process … Injecting the value into the entry's declared env removes the dependency on adapter behavior entirely". `internal/shared/agent/settings_io.go` `ctxloomOwnMCPServer`: "ignoring the env declared for the %q MCP server … ctxloom's own MCP server runs with the environment ctxloom gives it, never one supplied by whatever declared the entry".
+**Quote.** `internal/core/coord/enginehost.go`: "a vendor shim may NOT [pass env] — it then found no socket, fell back to its LOCAL surface, stood up a second rogue coordinator in-process … Injecting the value into the entry's declared env removes the dependency on adapter behavior entirely". `internal/core/agent/settings_io.go` `ctxloomOwnMCPServer`: "ignoring the env declared for the %q MCP server … ctxloom's own MCP server runs with the environment ctxloom gives it, never one supplied by whatever declared the entry".
 **Why it is a bug.** Two layers hold opposite policies for the same field of the same entry. The file-delivery path (`claude.mcpEntries` → `.mcp.json`) can never carry the socket, so the shim needs marker discovery (`mcp_discovery.go`) — the whole 200-line subsystem plus `reapStaleDiscoveryMarkers`/`reapDeadRunnerSockets` exists to compensate for a value that one function strips. Row `blissful-blah` rules the replacement (URL+token in the session home's `.mcp.json`); until then this is the unfiled root cause of every "hijack" row (`mcp-serve-forwarding-hijack`).
 **Settles it.** Implement `blissful-blah`; delete `injectMCPSocketEnv`, `mcp_discovery.go`, `runnerSocketPath` tiers, and the env-strip warning together.
 
@@ -657,11 +657,11 @@ flowchart TD
 **Settles it.** One `agentcoordpb.PeerSendRequest.Validate()` (or `ValidateMessageKind` extended) called by both; delete the stale comment.
 
 ### F7 — DUPLICATION: two identity-derivation rules for "is this caller a leaf/child"
-**Sites.** PATH A: `Identity.IsChild()` = `Depth > 0` (`coord/identity.go`), used by `mcp.handleAgentRecv`. PATH B: `cli.runnerIsLeaf(depth, oneshot, cfg)` = `oneshot || depth >= cfg.GetDelegationDepth()` (`internal/cli/llm_runner_common.go`), threaded as `leaf bool` through `ServeRunnerMCP → newRunnerMCPServer → registerGeneratedTools → coordinationHandler → recvHandler`, and gating `mcpschema.CoordinatorOnlyTools`. Both feed `mcp.recvOutcome(err, wait, leaf)`. Meanwhile the runner's own `ctxServer.self` is built with `Depth` unset, so `self.IsChild()` is false for every child runner.
+**Sites.** PATH A: `Identity.IsChild()` = `Depth > 0` (`coord/identity.go`), used by `mcp.handleAgentRecv`. PATH B: `cli.runnerIsLeaf(depth, oneshot, cfg)` = `oneshot || depth >= cfg.GetDelegationDepth()` (`internal/adapters/cli/llm_runner_common.go`), threaded as `leaf bool` through `ServeRunnerMCP → newRunnerMCPServer → registerGeneratedTools → coordinationHandler → recvHandler`, and gating `mcpschema.CoordinatorOnlyTools`. Both feed `mcp.recvOutcome(err, wait, leaf)`. Meanwhile the runner's own `ctxServer.self` is built with `Depth` unset, so `self.IsChild()` is false for every child runner.
 **Settles it.** Put depth/oneshot into the `Identity` the runner builds (it has `reach.depth`, `reach.oneshot`) and derive leaf from `Identity` in one method; delete the `leaf` parameter chain.
 
 ### F8 — DUPLICATION: MCP config projection helpers
-**Sites.** `claude.ClaudeCodeHookWriter.mcpEntries` (`internal/claude/claude.go`) re-implements `agent.MCPServerJSONEntry` (`internal/shared/agent/mcp_bytes.go`) step for step (Validate → `ChatMCPServerFromWire` → `ChatMCPConfigEntryOf` → `GenericMCPEntry`), differing only by `entry.Cwd = "${CLAUDE_PROJECT_DIR}"` on the ctxloom entry. `agent.ResolveManagedMCPServers` is applied independently at `claude.mcpEntries`, `agent.ComposeChatMCPServers`, and `operations.registeredMCPServers` rather than once inside `Config.ResolveBundleMCPServers`. `Config.ResolveBundleMCPServers` (full trust-gated resolve) is called from 8+ sites; a single `ctxloom run` with delegation resolves it in `operations.ApplyHooks`, `backends.managed`, `coord.childMCPServers`, and `Config.LinkGrant`.
+**Sites.** `claude.ClaudeCodeHookWriter.mcpEntries` (`internal/engines/claude/claude.go`) re-implements `agent.MCPServerJSONEntry` (`internal/core/agent/mcp_bytes.go`) step for step (Validate → `ChatMCPServerFromWire` → `ChatMCPConfigEntryOf` → `GenericMCPEntry`), differing only by `entry.Cwd = "${CLAUDE_PROJECT_DIR}"` on the ctxloom entry. `agent.ResolveManagedMCPServers` is applied independently at `claude.mcpEntries`, `agent.ComposeChatMCPServers`, and `operations.registeredMCPServers` rather than once inside `Config.ResolveBundleMCPServers`. `Config.ResolveBundleMCPServers` (full trust-gated resolve) is called from 8+ sites; a single `ctxloom run` with delegation resolves it in `operations.ApplyHooks`, `backends.managed`, `coord.childMCPServers`, and `Config.LinkGrant`.
 **Most complete.** `agent.MCPServerJSONEntry` + a `Cwd` option.
 **Settles it.** `mcpEntries` calls `MCPServerJSONEntry`; `ResolveBundleMCPServers` applies `ResolveManagedMCPServers` itself; `reprise check` should already flag the first.
 
@@ -670,7 +670,7 @@ flowchart TD
 **Settles it.** One constant; an arch test forbidding the literal outside its definition (the `vocabulary_adoption_test.go` pattern already exists in `tests/arch/`).
 
 ### F10 — STATED-VS-ACTUAL: the forward shim drops resource TEMPLATES
-**Site.** `mcp.forwardResources` (`internal/mcp/mcp_forward.go`) paginates `cs.ListResources` only; it never calls `ListResourceTemplates`, so the five `server.AddResourceTemplate` URIs registered by `ctxServer.registerResources` (`ctxloom://fragments/{name}`, `profiles/{name}`, `commands/{name}`, `skills/{name}`, `remotes/{name}/contents`) are absent behind the shim. `mcp.premiseCatalogInstruction` (`mcp_server.go`) tells every forwarded session to read `ctxloom://fragments/{name}` for the body of a chosen fragment; the project's own guidance fragment ("Not all of this project's guidance is in your context") says the same.
+**Site.** `mcp.forwardResources` (`internal/adapters/mcp/mcp_forward.go`) paginates `cs.ListResources` only; it never calls `ListResourceTemplates`, so the five `server.AddResourceTemplate` URIs registered by `ctxServer.registerResources` (`ctxloom://fragments/{name}`, `profiles/{name}`, `commands/{name}`, `skills/{name}`, `remotes/{name}/contents`) are absent behind the shim. `mcp.premiseCatalogInstruction` (`mcp_server.go`) tells every forwarded session to read `ctxloom://fragments/{name}` for the body of a chosen fragment; the project's own guidance fragment ("Not all of this project's guidance is in your context") says the same.
 **Settles it.** Forward templates too; a shim test that reads a templated URI through the proxy.
 
 ### F11 — WORKAROUNDS (each an unfiled bug; quote + symbol)
@@ -695,20 +695,20 @@ The `tacky-padding` ruling (2026-09-14) says the opposite — one coordinator pe
 Already carried by `boned-monoxide` (GLOSSARY GAP: "`claude.go` still writes `.mcp.json` to `projectDir`"). Not re-derived; noted because F5's fix (`blissful-blah`) writes the URL INTO the session home's `.mcp.json`, so F5 depends on `boned-monoxide` item 2 landing first.
 
 ### F15 — LAYER BYPASS (upward): the coordinator composes engine MCP config
-`prodSpawner.childMCPServers` (`internal/agentcoord/coord/spawner.go`) calls `Config.ResolveBundleMCPServers(plan.Profiles)` and `agent.ComposeChatMCPServers`, then `coord.encodeMCPServers` puts it on the wire; `coord.injectMCPSocketEnv` patches it on the runner. Config resolution and delivery-shape decisions are inside transport/scheduling code. The stated split (`docs/architecture/agentcoord/transport.md`: "coord imports operations, so operations cannot import coord") is the reason; the effect is that `discover` hand-copies four coord constants and the spawner does config's job. **Settles it.** A `SpawnPlan` should arrive with its `[]ChatMCPServer` already composed by `operations` (the same `ManagedConfig.ChatMCPServers` `cli.run` uses), so coord only encodes.
+`prodSpawner.childMCPServers` (`internal/core/coord/spawner.go`) calls `Config.ResolveBundleMCPServers(plan.Profiles)` and `agent.ComposeChatMCPServers`, then `coord.encodeMCPServers` puts it on the wire; `coord.injectMCPSocketEnv` patches it on the runner. Config resolution and delivery-shape decisions are inside transport/scheduling code. The stated split (`docs/architecture/agentcoord/transport.md`: "coord imports operations, so operations cannot import coord") is the reason; the effect is that `discover` hand-copies four coord constants and the spawner does config's job. **Settles it.** A `SpawnPlan` should arrive with its `[]ChatMCPServer` already composed by `operations` (the same `ManagedConfig.ChatMCPServers` `cli.run` uses), so coord only encodes.
 
 ## 5. Signatures that matter
 
 For each: INPUT state / OUTPUT / HIDDEN inputs (env, globals, files read inside).
 
 ```go
-// internal/mcp/mcp_server.go
+// internal/adapters/mcp/mcp_server.go
 func ServeStdio(ctx context.Context, cwd string, gate func() error, dryRun bool) error
 ```
 IN: `cwd` (marker key + `self.Project`), `gate` (cli's exit-3 closure), `dryRun`. OUT: error only. HIDDEN: env `CTXLOOM_MCP_SOCKET`, `CTXLOOM_SESSION_HARP` (three reads), `CTXLOOM_RESUMED_FROM/PARTS`, `XDG_RUNTIME_DIR`; marker files; `config.Load()` (all config files); every file `ApplyHooks` and the four reapers touch; the `strictness` global finding ledger the gate reads.
 
 ```go
-// internal/mcp/mcp_runner.go
+// internal/adapters/mcp/mcp_runner.go
 func ServeRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*RunnerMCP, error)
 func (r *RunnerMCP) Close()
 type RunnerMCP struct { SocketPath string; httpSrv *http.Server; cleanup func() }
@@ -716,7 +716,7 @@ type RunnerMCP struct { SocketPath string; httpSrv *http.Server; cleanup func() 
 IN: `cfg`, `harp`, `home` (the gRPC reach-back), `leaf` (tool gate), `cellWorkDir` (marker key + `self.Project` + `publish_paths` root). OUT: `SocketPath`. HIDDEN: `os.Getwd()` when `cellWorkDir==""`; `os.Getpid()`; `XDG_RUNTIME_DIR`; `/run/ctxloom/local` mkdir probe; `version.Version`. Side effects: socket bind, marker write, reaping of sibling markers/sockets.
 
 ```go
-// internal/mcp/coord_host.go
+// internal/adapters/mcp/coord_host.go
 func NewHostedCoordinator(cfg *config.Config, projectDir, ownerHarp string) (*coord.Coordinator, error)
 func HostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp string, runtimeAxis agent.RuntimeAxis) (*coord.Coordinator, map[string]string, error)
 func SessionOwnerEnv(c *coord.Coordinator, ownerHarp string, runtimeAxis agent.RuntimeAxis) (map[string]string, error)
@@ -724,14 +724,14 @@ func SessionOwnerEnv(c *coord.Coordinator, ownerHarp string, runtimeAxis agent.R
 IN: `cfg` (delegation caps), `projectDir`, `ownerHarp`, `runtimeAxis`. OUT: live coordinator; the owner env map (`CTXLOOM_COORD_URL/CRED`, …). HIDDEN: `taskops.ResolveProjectIdentity(projectDir)` (reads taskloom project files; failure silently → `""`); `coord.New` reads/creates `~/.ctxloom/coord/<key>/`; `Serve` writes `endpoint.json`; the custom-handler table is built here with a package-private `singleflight.Group`.
 
 ```go
-// internal/mcp/mcp_docgen.go
+// internal/adapters/mcp/mcp_docgen.go
 func NewDocMCPServer() (server *mcp.Server, closeHome func(), err error)
 func ListDocMCPToolNames(ctx context.Context) ([]string, error)
 ```
 IN: none. OUT: a runner-flavour server with `cfg=nil`, `harp=""`, `leaf=false`. HIDDEN: `os.Getwd()` via `resolveCellWorkDir("")`; a `coord.Home` retrying `127.0.0.1:1` until `closeHome`.
 
 ```go
-// internal/agentcoord/coord/home.go, homeartifacts.go
+// internal/core/coord/home.go, homeartifacts.go
 func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error)
 func (h *Home) Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.PeerMessage, error)
 func (h *Home) Report(ctx context.Context, summary *agentcoordpb.Summary, artifacts []*agentcoordpb.ArtifactProduced) error
@@ -740,14 +740,14 @@ func (h *Home) UploadArtifact(ctx context.Context, artifactID, name, mediaType s
 IN: proto requests. OUT: proto responses. HIDDEN: `Request` intercepts `PeerSend` and writes a spool file instead of sending (`sendPeerViaSpool`); `Recv` acks the PREVIOUS call's batch as a side effect (`ackReturned`); `defaultRequestTimeout` applied when ctx has no deadline; `h.cfg.Harp` as the sender.
 
 ```go
-// internal/agentcoord/coord/runchannel.go
+// internal/core/coord/runchannel.go
 type CustomHandler func(ctx context.Context, caller Identity, args json.RawMessage) (json.RawMessage, error)
 func (c *Coordinator) SetCustomHandlers(handlers map[string]CustomHandler)
 ```
 IN: `caller` minted from the bearer credential (the ONE trustworthy identity on PATH B). HIDDEN in every registered handler (F4): `os.Getwd()`, `CTXLOOM_PROJECT_ID`.
 
 ```go
-// internal/agentcoord/coord (verbs reached by PATH A)
+// internal/core/coord (verbs reached by PATH A)
 func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt, workspace string, dirtyTreeHandler operations.DirtyTreeHandler) (*RunOutcome, error)
 func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error)
 func (c *Coordinator) AgentRecv(ctx context.Context, caller Identity, wait time.Duration) ([]Message, error)
@@ -757,7 +757,7 @@ func (c *Coordinator) StopChildren(ctx context.Context, caller Identity, reason 
 IN: `caller` — on PATH A this is `selfIdentityFromEnv`, i.e. env or a random name, `Depth:0`. `workspace` is an unparsed string here and a parsed `isolation.WorkspaceAxis` on PATH B. OUT: Go structs that PATH A re-maps to hand-written DTOs and PATH B maps to protos. Note `AgentSend` has no `ctx`.
 
 ```go
-// internal/agentcoord/mcpschema
+// internal/adapters/coordgrpc/mcpschema
 func Routes() map[string]Route
 func Tools() ([]ToolSpec, error)
 func CoordinatorOnlyTools() map[string]bool
@@ -767,7 +767,7 @@ func ClampRecvWait(seconds int) time.Duration
 IN: none. OUT: the routing table, embedded goldens (returned by reference; partial slice on error), the leaf denylist (hand-maintained), relay budgets, the clamped wait (silent clamp, not a refusal).
 
 ```go
-// internal/cli/llm_runner_common.go
+// internal/adapters/cli/llm_runner_common.go
 func consumeCoordinatorReachBack(backendName string, getenv func(string) string, unset func(string) error) (coordinatorReachBack, error)
 func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, cfgErr error, reach coordinatorReachBack, h *coord.Home) error
 func runnerIsLeaf(depth int, oneshot bool, cfg *config.Config) bool
@@ -775,21 +775,21 @@ func runnerIsLeaf(depth int, oneshot bool, cfg *config.Config) bool
 IN: seven env values (via injected `getenv`, testable) → `coordinatorReachBack{home HomeConfig, harp, depth, oneshot, cellWorkDir}`. OUT: the struct; the coordinator env keys UNSET (but not `CTXLOOM_SESSION_HARP`). HIDDEN in `attachRunnerMCP`: `os.Setenv(CTXLOOM_MCP_SOCKET)` — an output smuggled through the process env to `coord.injectMCPSocketEnv`.
 
 ```go
-// internal/agentcoord/coord/enginehost.go
+// internal/core/coord/enginehost.go
 func injectMCPSocketEnv(servers []agent.ChatMCPServer, socket string)
 ```
 IN: the decoded harness-spec MCP list, `socket` = `os.Getenv(EnvMCPSocket)` at the call site. OUT: mutates the `ctxloom` entry's `Env` in place.
 
 ```go
-// internal/shared/wire/mcp.go
+// internal/core/wire/mcp.go
 type MCPServer struct { Command string; Args []string; Env map[string]string; URL string; Headers map[string]string; Notes string; Installation string; SCM string }
 func (s MCPServer) Validate() error
 func (s MCPServer) IsRemote() bool
-// internal/config/config_bundles.go
+// internal/core/config/config_bundles.go
 func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.MCPServer
 func (c *Config) LinkGrant(profileNames []string) bundles.LinkGrant
 func extractMCPFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bundles.Authorizer) map[string]wire.MCPServer
-// internal/shared/agent
+// internal/core/agent
 func ResolveManagedMCPServers(servers map[string]wire.MCPServer) map[string]wire.MCPServer
 func ComposeChatMCPServers(bundleMCP map[string]wire.MCPServer, existing []ChatMCPServer) []ChatMCPServer
 func MCPServerJSONEntry(name string, server wire.MCPServer) (map[string]any, error)

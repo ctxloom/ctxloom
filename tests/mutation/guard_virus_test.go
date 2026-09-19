@@ -61,7 +61,7 @@ func TestGuardNegate_MissingTargets_EmptyWhenEveryGuardFired(t *testing.T) {
 	}
 }
 
-// TestGuardNegate_MatchesRealTrustGo walks the REAL internal/operations/
+// TestGuardNegate_MatchesRealTrustGo walks the REAL internal/adapters/operations/
 // trust.go (not a synthetic snippet) and confirms every one of the
 // cascade guards' rendered source text still matches — a cheap
 // (no-rebuild, no-subprocess) sanity check that the census-time keys

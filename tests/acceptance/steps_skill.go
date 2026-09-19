@@ -18,7 +18,7 @@
 // Signing here mirrors steps_j000200_common.go/signing_acceptance.go's approach
 // (a generated ed25519 TestSigner + signing.Sign / TrustSigner) rather than
 // driving `ctxloom skill export --sign`: that flag resolves a key through a
-// real ssh-agent (internal/signing/agentkey), which is not something a
+// real ssh-agent (internal/adapters/signing/agentkey), which is not something a
 // hermetic acceptance run can assume is present. Signing the manifest bytes
 // directly with a TestSigner is the exact preimage
 // bundles.PublisherSkillSignatureVerifier verifies against
@@ -38,8 +38,8 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 

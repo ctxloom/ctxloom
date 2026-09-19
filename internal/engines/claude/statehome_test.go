@@ -1,0 +1,91 @@
+package claude
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+)
+
+const (
+	harpA = "ugly-icy-squid"
+	harpB = "brave-warm-otter"
+)
+
+func testWorkDir() string { return filepath.Join(string(filepath.Separator), "proj") }
+
+// TestSessionConfigDir_IsUnderTheSessionInstanceHome pins claude's instance to
+// the ONE location the per-session model names — <workDir>/.ctxloom/state/
+// <harp>/home/claude — derived from paths.SessionHomePath rather than from a
+// literal spelled twice.
+func TestSessionConfigDir_IsUnderTheSessionInstanceHome(t *testing.T) {
+	workDir := testWorkDir()
+	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harpA)
+	if err != nil {
+		t.Fatalf("paths.SessionHomePath() error = %v", err)
+	}
+	got, err := SessionConfigDir(workDir, harpA)
+	if err != nil {
+		t.Fatalf("SessionConfigDir() error = %v", err)
+	}
+	if want := filepath.Join(root, HomeLeaf); got != want {
+		t.Errorf("SessionConfigDir(%q, %q) = %q, want %q", workDir, harpA, got, want)
+	}
+}
+
+// TestSessionConfigDir_IsPerSession is the property the per-project home did
+// not have: two concurrent sessions in ONE checkout get two homes, so neither
+// reads the other's copied credentials or clobbers its generated config.
+func TestSessionConfigDir_IsPerSession(t *testing.T) {
+	workDir := testWorkDir()
+	a, err := SessionConfigDir(workDir, harpA)
+	if err != nil {
+		t.Fatalf("SessionConfigDir(A) error = %v", err)
+	}
+	b, err := SessionConfigDir(workDir, harpB)
+	if err != nil {
+		t.Fatalf("SessionConfigDir(B) error = %v", err)
+	}
+	if a == b {
+		t.Errorf("two sessions share one CLAUDE_CONFIG_DIR (%q); the instance must be keyed by harp, not by project", a)
+	}
+	if !strings.Contains(a, harpA) {
+		t.Errorf("SessionConfigDir(%q) = %q does not contain the harp", harpA, a)
+	}
+}
+
+// TestSessionConfigDir_RefusesAHarplessCaller is gate (b) at this engine's own
+// resolver: there is no session-less instance, and no shared fallback, because
+// a shared fallback is exactly the durable per-project home the model retired.
+func TestSessionConfigDir_RefusesAHarplessCaller(t *testing.T) {
+	for _, bad := range []string{"", "..", "../.."} {
+		got, err := SessionConfigDir(testWorkDir(), bad)
+		if err == nil {
+			t.Errorf("SessionConfigDir(harp=%q) = %q with no error", bad, got)
+		}
+		if got != "" {
+			t.Errorf("SessionConfigDir(harp=%q) returned %q alongside its error", bad, got)
+		}
+	}
+}
+
+// TestSessionConfigDir_NeverTheRealHostHome is the regression the whole model
+// exists to avoid: the instance is under the PROJECT's .ctxloom/state tier,
+// never the user's own ~/.claude. Asserted structurally (a relative project
+// path stays relative) so it holds without consulting a real HOME.
+func TestSessionConfigDir_NeverTheRealHostHome(t *testing.T) {
+	got, err := SessionConfigDir("proj", harpA)
+	if err != nil {
+		t.Fatalf("SessionConfigDir() error = %v", err)
+	}
+	if filepath.IsAbs(got) {
+		t.Errorf("SessionConfigDir(%q) = %q, want a project-relative path — an absolute one means the instance escaped the checkout", "proj", got)
+	}
+	if want := filepath.Join("proj", paths.AppDirName, paths.StateDir); !strings.HasPrefix(got, want) {
+		t.Errorf("SessionConfigDir(%q) = %q, want it under %q", "proj", got, want)
+	}
+	if filepath.Base(got) == ConfigDirName {
+		t.Errorf("SessionConfigDir(%q) = %q — the instance must not be spelled like claude's own cwd-keyed %q surface", "proj", got, ConfigDirName)
+	}
+}

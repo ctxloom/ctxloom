@@ -1,0 +1,248 @@
+package coord
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+)
+
+// The mailbox `kind` vocabulary. It is CLOSED and split in two: kinds a SENDER
+// may set on agent_send, and kinds only the coordinator itself constructs.
+//
+// The split is a security boundary, not a naming convention. A reserved kind is
+// one a receiving model is expected to act on BECAUSE the coordinator authored
+// it — approval_request is relayed to a human as a trust decision — so a sender
+// able to set it phishes that decision. The kind also renders into the
+// provenance header of a delivered turn (frameCoordinatorDelivery), which is
+// why nothing outside this set may reach the frame.
+const (
+	// KindMessage is the plain sender-to-sender message kind.
+	KindMessage = "message"
+	// KindResult carries a sender's own findings/verdict, and is also the
+	// automatic turn report's kind (spoolturnresult.go).
+	KindResult = "result"
+	// KindError reports a failure — a sender's own, or a coordinator-synthesized
+	// launch/resume failure.
+	KindError = "error"
+	// KindQuestion asks the recipient something and expects an answer back.
+	KindQuestion = "question"
+
+	// KindReport is COORDINATOR-RESERVED: the notice a child's FINAL
+	// agent_report queues to its parent.
+	//
+	// It exists because a report and a message are stored in different places.
+	// recordSummary journals a factSummary into the REPORTS fold, which is what
+	// roster reads — so a parent could see "FINAL: ..." in roster for a report
+	// agent_recv had nothing to return, because the fold and the mailbox are
+	// different stores. A child filing the report its instructions call "the
+	// deliverable" was, from a parent's waiting receive, silent.
+	//
+	// Distinct from KindResult, which is a sender's own findings and the
+	// turn-boundary bridge's kind: this one is specifically a report's arrival,
+	// and the reports fold remains the store of record for its content.
+	KindReport = "report"
+
+	// KindApprovalRequest is COORDINATOR-RESERVED so a sender cannot mint one.
+	// Nothing produces it: the coordinator does not relay approvals.
+	KindApprovalRequest = "approval_request"
+
+	// KindSteer is COORDINATOR-RESERVED: an instruction injected into a
+	// running target (control.go's ControlSteer). Under the spool cutover a
+	// steer IS ordinary mail — a durable, withdrawable file in the target's
+	// in/ — rather than a wire request whose body is parked and pulled, which
+	// is why it needs a mailbox spelling at all. Reserved because a delivered
+	// steer renders its kind into the turn's provenance header: a sender able
+	// to set it could make its own message read as the human's instruction.
+	KindSteer = "steer"
+
+	// KindSummarize is COORDINATOR-RESERVED: the on-demand summary ask
+	// (spoolcontrol.go). Its sibling KindQuestion is sender-allowed because an
+	// agent may legitimately ask a peer a question; a summarize ask carries
+	// the coordinator's own request for a report and is answered by
+	// correlation, so it is not a sender's to mint.
+	KindSummarize = "summarize"
+
+	// KindUserControl is COORDINATOR-RESERVED: a control action taken against
+	// the recipient (pause/resume/...) reported as mail. Nothing produces it
+	// yet; it has a mailbox spelling anyway because the wire enum is the single
+	// vocabulary and every member of it maps here 1:1 — the day a producer
+	// arrives, the frame already renders it as a name from the closed set.
+	KindUserControl = "user_control"
+)
+
+// senderMailKinds is the vocabulary agent_send documents and accepts — the
+// enum's sender-allowed members in their mailbox spelling. Derived, not
+// listed: the wire enum is the single vocabulary and coord keeps no literal
+// of its own beside it.
+var senderMailKinds = agentcoordpb.LegacySenderKindNames()
+
+// reservedMailKinds are constructed by the coordinator only. Every one of them
+// asks the recipient to trust its provenance, so accepting one from a sender
+// would let the sender borrow the coordinator's authority. Derived from the
+// enum for the same reason senderMailKinds is.
+var reservedMailKinds = agentcoordpb.LegacyReservedKindNames()
+
+// ErrSenderMailKind rejects a sender-supplied mail kind outside the
+// sender-allowed vocabulary — including an absent one. Typed so the plane-2
+// ingress answers INVALID_ARGUMENT (statusFromErr) rather than an opaque
+// internal error.
+var ErrSenderMailKind = errors.New("agent_send: unusable message kind")
+
+// SenderMailKind validates one sender-supplied mail kind. `kind` is REQUIRED:
+// an absent value used to be accepted as "claims no authority", but that made
+// unkinded the single most common thing on the wire and gave every consumer a
+// silent default to fall into. It must now be one of the four names in the
+// sender-allowed vocabulary, which every refusal enumerates so the sender can
+// correct itself without guessing.
+//
+// This is the string-level form of the closed vocabulary, applied at the
+// peerSend chokepoint AFTER the approval/ask-reply correlation check; the typed
+// guard (agentcoordpb.ValidateMessageKind) refuses the same set at ingress, and
+// both draw their membership from the one enum.
+func SenderMailKind(kind string) error {
+	for _, ok := range senderMailKinds {
+		if kind == ok {
+			return nil
+		}
+	}
+	vocab := strings.Join(senderMailKinds, " | ")
+	if kind == "" {
+		return fmt.Errorf("%w: kind is required; use one of: %s", ErrSenderMailKind, vocab)
+	}
+	for _, reserved := range reservedMailKinds {
+		if kind == reserved {
+			return fmt.Errorf("%w: %q is reserved for the coordinator and cannot be set by a sender "+
+				"(a sender-set %q would let a message borrow the coordinator's authority); use one of: %s",
+				ErrSenderMailKind, kind, kind, vocab)
+		}
+	}
+	return fmt.Errorf("%w: %q is not a message kind; use one of: %s",
+		ErrSenderMailKind, kind, vocab)
+}
+
+// MailKinds returns every kind a mailbox message can carry, in a stable
+// order: the UNKINDED value first, then the sender-allowed vocabulary, then
+// the coordinator-reserved one.
+//
+// It exists so a table in another file can be checked for exhaustiveness
+// against the authority instead of against a second hand-kept list — the same
+// reason spool.Dirs() exists. A member added to the wire enum and to nothing
+// else must make the mapping test RED, not quietly travel unmapped.
+//
+// The empty string is a member of the closed vocabulary, not something
+// ingress can ever produce: SenderMailKind refuses it from a sender, and
+// coordinator-internal producers no longer mint it either (control.go's Inject
+// — historically the "" traffic's single biggest source — now names KindSteer
+// on its mailbox fallback). It stays a member because the frontmatter
+// round-trip (SpoolKindForMail/MailKindForSpool below) and knownMailKind need
+// a defined answer for a Message whose Kind field was never set — the Go zero
+// value — rather than a lookup miss on data this build did not itself create.
+func MailKinds() []string {
+	out := make([]string, 0, 1+len(senderMailKinds)+len(reservedMailKinds))
+	out = append(out, KindUnset)
+	out = append(out, senderMailKinds...)
+	return append(out, reservedMailKinds...)
+}
+
+// KindUnset is the mailbox kind of a Message whose Kind field was never set —
+// the Go zero value, not something any producer in this build now mints on
+// purpose. It is refused at every sender ingress (SenderMailKind,
+// ValidateMessageKind) and is no longer emitted by any coordinator-internal
+// path either; it remains a declared member of the closed vocabulary only so
+// the spool round-trip and knownMailKind have a defined mapping for it rather
+// than an undefined one.
+const KindUnset = ""
+
+// SpoolKindUnkinded is the FRONTMATTER spelling of KindUnset.
+//
+// The spool cannot spell it as the empty string: frontmatter kind is the
+// routing discriminator, spool.Writer refuses a message without one, and
+// spool.Parse refuses a file without one. It is equally not spelled "message":
+// the two are observably different today — knownMailKind("") is false, so an
+// unkinded delivery renders NO provenance header on the turn it becomes, while
+// a "message" one does — and collapsing them here would make the tee's files
+// disagree with the mailbox about what the recipient actually saw.
+const SpoolKindUnkinded = "unkinded"
+
+// mailKindToSpool maps the closed mailbox vocabulary onto the frontmatter
+// kind vocabulary. Every named kind maps to ITSELF: the mailbox's names are
+// already the vocabulary the design's frontmatter examples use, and renaming
+// them in transit would buy nothing and cost every grep.
+//
+// A map rather than a switch for the same reason spoolDirToWire is one: the
+// inverse is DERIVED from it below instead of hand-written, so the two
+// directions cannot disagree.
+var mailKindToSpool = map[string]string{
+	KindUnset:           SpoolKindUnkinded,
+	KindMessage:         KindMessage,
+	KindResult:          KindResult,
+	KindError:           KindError,
+	KindQuestion:        KindQuestion,
+	KindApprovalRequest: KindApprovalRequest,
+	KindUserInjected:    KindUserInjected,
+	KindExited:          KindExited,
+	KindSteer:           KindSteer,
+	KindSummarize:       KindSummarize,
+	KindReport:          KindReport,
+	KindUserControl:     KindUserControl,
+}
+
+// spoolKindToMail inverts mailKindToSpool, built once at init. A collision is
+// a build-time panic rather than a runtime condition: two mailbox kinds
+// sharing one frontmatter spelling would make the reverse mapping pick a
+// winner, and the first symptom in production would be a message arriving
+// under a kind its sender never set.
+var spoolKindToMail = func() map[string]string {
+	inv := make(map[string]string, len(mailKindToSpool))
+	for mail, spoolKind := range mailKindToSpool {
+		if prev, dup := inv[spoolKind]; dup {
+			panic(fmt.Sprintf("coord: mail kind table maps %q and %q onto the same frontmatter kind %q", prev, mail, spoolKind))
+		}
+		inv[spoolKind] = mail
+	}
+	return inv
+}()
+
+// SpoolKindForMail projects a mailbox kind onto its frontmatter kind. A kind
+// outside the closed vocabulary is an ERROR, never a pass-through: writing an
+// unmapped kind verbatim would let a table gap reach disk as a message no
+// reader routes, which is precisely the silent-drop the mapping exists to
+// prevent.
+func SpoolKindForMail(kind string) (string, error) {
+	k, ok := mailKindToSpool[kind]
+	if !ok {
+		return "", fmt.Errorf("coord: mail kind %q has no frontmatter representation (the vocabulary is %s)", kind, strings.Join(MailKinds(), " | "))
+	}
+	return k, nil
+}
+
+// MailKindForSpool resolves a frontmatter kind back to its mailbox kind — the
+// inverse SpoolKindForMail's round trip is asserted against, and what a reader
+// of a teed file uses to recover what the mailbox held.
+func MailKindForSpool(kind string) (string, error) {
+	k, ok := spoolKindToMail[kind]
+	if !ok {
+		return "", fmt.Errorf("coord: frontmatter kind %q is not a mailbox kind this build knows", kind)
+	}
+	return k, nil
+}
+
+// knownMailKind reports whether kind is a name from the closed vocabulary —
+// sender-allowed or coordinator-reserved. It gates what may render into a
+// delivered turn's provenance header: a value from a closed set is unforgeable
+// as header text, an arbitrary string is not.
+func knownMailKind(kind string) bool {
+	for _, ok := range senderMailKinds {
+		if kind == ok {
+			return true
+		}
+	}
+	for _, ok := range reservedMailKinds {
+		if kind == ok {
+			return true
+		}
+	}
+	return false
+}

@@ -130,7 +130,7 @@ release-publish:
 #
 # .devcontainer/tool-versions.env is the single source of truth. Its consumers
 # each need it in a different shape; the recipes below are those shapes. Keep
-# deriving from the file — internal/buildpins' drift gate fails if a consumer
+# deriving from the file — internal/shared/buildpins' drift gate fails if a consumer
 # starts hand-copying version numbers instead.
 
 # Emit tool-versions.env as bare KEY=VALUE lines (comments and blanks stripped).
@@ -165,7 +165,7 @@ tool-version-args:
 # `local:` plugins, so protoc-gen-go/protoc-gen-go-grpc must be on PATH at the
 # SAME versions CI generated against, and a release whose codegen silently used
 # whatever happened to be installed is the failure this guards
-# (internal/buildpins package doc).
+# (internal/shared/buildpins package doc).
 release-install-tools:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -351,11 +351,11 @@ engine-drift-alert ENGINE PINNED LATEST RUN_URL:
     This is an **alert-only** notification (P0 of the self-healing engine-format
     pipeline) -- nothing has been installed, captured, or changed. A human should:
 
-    1. Confirm \`internal/transcript/vendorreader/$engine\` (or the closest match --
+    1. Confirm \`internal/adapters/transcript/vendorreader/$engine\` (or the closest match --
        \`claude-code\` -> the \`claude\` reader package) still parses a transcript
        produced by \`$latest\`.
     2. If it does, bump \`$engine\`'s key in \`.github/engine-versions.env\` to
-       \`$latest\` in a PR (internal/enginepins will fail CI if the bump isn't a
+       \`$latest\` in a PR (internal/shared/enginepins will fail CI if the bump isn't a
        valid semver or the workflow stops referencing the key by name).
     3. If it does not, file/track the parser fix separately -- this issue is only
        the drift signal, not the fix.

@@ -8,7 +8,7 @@ and routes an interactive or oneshot launch. Capabilities — including the
 engine's `Declaration` of the approaches it delivers at launch — are injected
 once via `InitLaunch` and probed at use.
 
-Authority: `internal/shared/agent/launch_backend.go`; the selection and cell
+Authority: `internal/core/agent/launch_backend.go`; the selection and cell
 machinery it drives is described in [surface delivery](agent-surface-delivery.md).
 
 ```mermaid

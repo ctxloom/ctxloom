@@ -67,7 +67,7 @@ type Verdict struct {
 
 	// Cached reports whether this verdict was served from ctxloom's local
 	// verdict cache rather than produced by a fresh model call this run (see
-	// the ctxloom-side cache in internal/operations). ParseVerdicts always
+	// the ctxloom-side cache in internal/adapters/operations). ParseVerdicts always
 	// resets this to false after unmarshaling — even if a model response
 	// happens to include a "cached" field — so stray model output can never
 	// masquerade as a real cache hit; only the caller, after an actual cache

@@ -41,7 +41,7 @@ func (t QueryType) Valid() bool {
 
 // Query is one evidence request a model may attach to a round-1
 // needs-investigation verdict. It is untrusted model output: nothing in it is
-// executed as-is — the ctxloom-side executor (internal/operations) only ever
+// executed as-is — the ctxloom-side executor (internal/adapters/operations) only ever
 // dispatches on Type and reads the named fields, and every path here MUST
 // pass Validate before it touches the filesystem or git. This shape carries
 // every query type's fields; a given Type only uses the subset it needs (see

@@ -4,9 +4,9 @@
 // separate CLI invocation from whatever process hosts the coordinator for a
 // given project's session).
 //
-// Deliberately a LEAF package: internal/agentcoord/coord imports
-// internal/operations (children.go's AgentChatLaunch/JoinLeadBlocks), so
-// internal/operations — this discovery mechanism's only production consumer
+// Deliberately a LEAF package: internal/core/coord imports
+// internal/adapters/operations (children.go's AgentChatLaunch/JoinLeadBlocks), so
+// internal/adapters/operations — this discovery mechanism's only production consumer
 // (sessionfeed.go) — cannot import coord without a cycle.
 //
 // That constraint fixes the direction of the endpoint.json contract: the file's
@@ -25,13 +25,13 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 const (
 	// DirName is the per-user directory holding one subdirectory of coordinator
 	// state per project: ~/.ctxloom/<DirName>/<project-key>/. Re-exports
-	// paths.CoordDirName: internal/paths is the single declarative source of
+	// paths.CoordDirName: internal/core/paths is the single declarative source of
 	// truth for path SEGMENTS (docs/architecture/core/paths.md), while this
 	// package stays the LAYOUT owner (see the package doc above) that coord,
 	// the writer, imports.

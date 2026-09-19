@@ -17,7 +17,7 @@ import (
 // `profile materialize` telling someone, at the terminal, that the engine
 // they picked cannot carry part of what they just materialized.
 //
-// The unit tests (internal/operations) prove the loss reaches the result; these
+// The unit tests (internal/adapters/operations) prove the loss reaches the result; these
 // drive the real binary, because the finding was never that the data was
 // missing — it was that nobody was TOLD. A structured field no CLI prints is
 // the same silence with extra steps.

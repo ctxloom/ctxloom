@@ -7,11 +7,11 @@
 // The publication AND consumption halves are GREEN. A directory-form bundle
 // used to be unfetchable — fetchAtLockedSHA resolved a ref to ONE file and
 // called FetchFile on it — while skills REQUIRE the directory form
-// (internal/bundles/loader.go:389). `deps pull` now probes the directory
-// form, walks the tree at the pinned SHA through internal/content/remotetree,
+// (internal/core/bundles/loader.go:389). `deps pull` now probes the directory
+// form, walks the tree at the pinned SHA through internal/adapters/content/remotetree,
 // and installs it under the consumer's cache with the publisher's exec bit
 // intact; config.loadRemoteBundleSeed then reads the installed tree back into a
-// bundle through convert.Read, verified by internal/content/attest.
+// bundle through convert.Read, verified by internal/adapters/content/attest.
 //
 // THE DELIVERY HALF IS NOW HERMETIC TOO, on the host runtime. The vehicle is
 // `profile materialize --backend mock`, over the mock backend's own context and
@@ -84,13 +84,13 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/content"
-	"github.com/ctxloom/ctxloom/internal/content/attest"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
-	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // j001400State is this journey's fixture state.
@@ -189,8 +189,8 @@ default_agent: default
 }
 
 // j001400AuthoredTree is the fixture: one artifact of EVERY surface kind a bundle
-// can hold, in the canonical tree layout that internal/content already reads
-// (see internal/content/testdata/tree). Two spellings are easy to get wrong
+// can hold, in the canonical tree layout that internal/adapters/content already reads
+// (see internal/adapters/content/testdata/tree). Two spellings are easy to get wrong
 // and are pinned here deliberately:
 //
 //   - a command lives under "prompts/", not "commands/" — trust.KindPrompt's
@@ -254,7 +254,7 @@ func j001400AuthoredTree() map[string]j001400File {
 		//
 		// The tree format's ONLY order carrier is content.Hook.Order, a sparse
 		// int living in each hook's own ".<name>.meta.yaml" sidecar (see
-		// content.SortHooks / internal/content/convert.go's hookOrder — a
+		// content.SortHooks / internal/adapters/content/convert.go's hookOrder — a
 		// directory has no list, so a tree-form bundle that wants "stamp" before
 		// "audit" has no way to say so except this field). "stamp" is declared
 		// first (order 100) and "audit" second (order 200) — the reverse of
@@ -366,7 +366,7 @@ func j001400Git(dir string, args ...string) error {
 // j001400WriteTree writes the authored bundle tree into a working clone WITH each
 // file's declared mode. The explicit Chmod is not redundant: os.WriteFile
 // applies a mode only at CREATION, so a rewrite would silently drop the exec
-// bit — the same trap internal/shared/agent/packagefiles.go documents on the
+// bit — the same trap internal/core/agent/packagefiles.go documents on the
 // delivery side.
 func j001400WriteTree(work string, authored map[string]j001400File) error {
 	for rel, file := range authored {
@@ -1106,8 +1106,8 @@ func j001400DeclaredHookEvents(authored map[string]j001400File) map[string]strin
 
 // j001400OpenPulledBundle opens the consumer's pulled "atelier" tree through the
 // SAME read path the product itself uses to turn a tree back into items
-// (content.NewTreeStore + Bundle.Refs/Item/Surface — see internal/bundles's
-// ReadTree, which internal/bundles/reader_repofs.go's readTreeForm calls for
+// (content.NewTreeStore + Bundle.Refs/Item/Surface — see internal/core/bundles's
+// ReadTree, which internal/core/bundles/reader_repofs.go's readTreeForm calls for
 // every pulled tree), rather than a raw directory walk. That distinction is
 // the whole point of this scenario: os.ReadDir yields entries sorted BY NAME,
 // which silently agrees with a tree whose hooks are the right bytes in the
@@ -1135,7 +1135,7 @@ func j001400OpenPulledBundle(w *World) (content.Bundle, error) {
 // j001400ConsumerHooks decodes every hook the consumer's pulled tree holds,
 // through Bundle.Item + Item.Surface — i.e. through hookType.Decode, the
 // SAME production code that assigns each hook's Event and Name when
-// internal/bundles.ReadTree turns a pulled tree into the bundle the product
+// internal/core/bundles.ReadTree turns a pulled tree into the bundle the product
 // actually merges (reader.add's `case content.Hook: r.hooks[v.Event] =
 // append(...)` keys purely off the DECODED Event field, not off the ref's
 // path string). Deriving bucket membership from the ref path instead would
@@ -1199,7 +1199,7 @@ func j001400CheckHookBuckets(w *World, declared map[string]string) error {
 // j001400ConsumerHookOrder returns the hook names the consumer received under one
 // event, resolved into EXECUTION order via content.SortHooks over each hook's
 // content.Hook.Order — the same resolution the product applies when it reads a
-// pulled tree back into a bundle (internal/bundles.ReadTree's finishHooks). A
+// pulled tree back into a bundle (internal/core/bundles.ReadTree's finishHooks). A
 // raw directory listing would return the same names sorted BY FILENAME, which
 // is exactly the wrong-order failure this scenario is written to catch.
 func j001400ConsumerHookOrder(w *World, event string) ([]string, error) {

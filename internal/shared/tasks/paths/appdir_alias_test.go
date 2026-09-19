@@ -5,10 +5,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	corepaths "github.com/ctxloom/ctxloom/internal/paths"
+	corepaths "github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
-// The ctxloom dot-dir name is a const ALIAS of internal/paths.AppDirName, not
+// The ctxloom dot-dir name is a const ALIAS of internal/core/paths.AppDirName, not
 // an independent ".ctxloom" literal declared in this package too. Two unrelated
 // literals stay consistent right up until one drifts, at which point
 // projectroot.TaskStoreRoot's documented opt-out silently stops matching the

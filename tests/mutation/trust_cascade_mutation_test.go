@@ -233,7 +233,7 @@ func (u unitJudge) label() string {
 // cascade and none of these three notice is a hollow SECURITY claim.
 var trustCascadeTarget = mutationTarget{
 	Name:          "trust_cascade",
-	SourceRelPath: "internal/operations/trust.go",
+	SourceRelPath: "internal/adapters/operations/trust.go",
 	Judge: acceptanceJudge{Features: []string{
 		"features/journeys/trust_surface.feature",
 		"features/journeys/j001500_corporate_signed.feature",
@@ -250,7 +250,7 @@ var trustCascadeTarget = mutationTarget{
 //     Every pairing below was checked by grepping the whole feature corpus
 //     for the CLI surface the file implements and confirming the named
 //     features are where those invocations actually live.
-//  2. Check the file has live callers at all. internal/operations/
+//  2. Check the file has live callers at all. internal/adapters/operations/
 //     lockfile.go was a candidate here (LockDependencies, paired with the
 //     remote features) and was REJECTED: `grep -rn "LockDependencies("
 //     internal` finds no caller outside its own file, so no feature can
@@ -261,9 +261,9 @@ var mutationTargets = []mutationTarget{
 	{
 		// `ctxloom sign` / `ctxloom bundle sign`: ResolveSignTarget,
 		// SignBundleFile, signBundleTree, ListLocalBundleNames — reached
-		// from internal/cli/sign.go (resolveSignTargets ->
+		// from internal/adapters/cli/sign.go (resolveSignTargets ->
 		// ListLocalBundleNames for --all; operations.SignBundleFile per
-		// target) and internal/cli/bundle_push_cli.go.
+		// target) and internal/adapters/cli/bundle_push_cli.go.
 		//
 		// EVIDENCE: of the 12 `ctxloom sign`/`bundle sign` occurrences in
 		// the entire feature corpus, 11 are in j001600_signing.feature and the
@@ -276,7 +276,7 @@ var mutationTargets = []mutationTarget{
 		// not authorise, and refuse --all with nothing to sign rather than
 		// report success over zero bytes.
 		Name:          "bundle_sign",
-		SourceRelPath: "internal/operations/sign.go",
+		SourceRelPath: "internal/adapters/operations/sign.go",
 		Judge:         acceptanceJudge{Features: []string{"features/journeys/j001600_signing.feature"}},
 	},
 	{
@@ -284,7 +284,7 @@ var mutationTargets = []mutationTarget{
 		// ListSigners, ShowSigner, RemoveSigner, and the allowed_signers
 		// line editing beneath them (appendAllowedSignersLine,
 		// removeFromAllowedSignersFile, suppressEmbeddedPrincipal) —
-		// reached from internal/cli/signer.go.
+		// reached from internal/adapters/cli/signer.go.
 		//
 		// EVIDENCE: `trust signer` appears in exactly two feature files;
 		// all three occurrences in j001900_diagnosis.feature are COMMENTS, so
@@ -299,7 +299,7 @@ var mutationTargets = []mutationTarget{
 		// from whether a signature was written. Sharing the feature scope
 		// means the two runs cost the same suite per mutant.
 		Name:          "signer_store",
-		SourceRelPath: "internal/operations/signer.go",
+		SourceRelPath: "internal/adapters/operations/signer.go",
 		Judge:         acceptanceJudge{Features: []string{"features/journeys/j001600_signing.feature"}},
 	},
 	{
@@ -325,7 +325,7 @@ var mutationTargets = []mutationTarget{
 		// a container runtime. That is a true statement about the
 		// acceptance suite's reach, which is the measurement.
 		Name:          "isolation_axes",
-		SourceRelPath: "internal/lm/isolation/isolation.go",
+		SourceRelPath: "internal/adapters/isolation/isolation.go",
 		Judge:         acceptanceJudge{Features: []string{"features/journeys/j002200_isolation.feature"}},
 	},
 	{
@@ -352,7 +352,7 @@ var mutationTargets = []mutationTarget{
 		// reachable only through a real forge API has no scenario that can
 		// kill it. That is a true statement about the suite's reach.
 		Name:          "remote_registry",
-		SourceRelPath: "internal/remote/registry.go",
+		SourceRelPath: "internal/adapters/remote/registry.go",
 		Judge: acceptanceJudge{Features: []string{
 			"features/cli/remote.feature",
 			"features/cli/deps.feature",

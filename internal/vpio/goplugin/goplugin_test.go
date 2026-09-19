@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/vpio"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/vpio"
 )
 
 // fakeClient is a minimal pb.Client double that captures the interactive
@@ -176,7 +176,7 @@ func TestSession_ResizeRelaysOntoTheWire(t *testing.T) {
 // `go func() { <-ctx.Done(); s.stop() }()`), so both outlive a session that
 // has already completed — Wait returning releases nothing. For a one-shot
 // `ctxloom run` this is harmless, but any caller holding one long-lived ctx
-// across multiple turns (internal/cli/run.go does exactly this) accumulates
+// across multiple turns (internal/adapters/cli/run.go does exactly this) accumulates
 // a goroutine and an open channel per turn.
 //
 // The correct contract: once Wait returns, the session is DONE and its

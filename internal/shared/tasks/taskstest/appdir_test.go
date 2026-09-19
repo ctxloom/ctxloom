@@ -163,39 +163,39 @@ func TestCallerPackageFrom_KeysOnTheTestNotTheHelper(t *testing.T) {
 			stack: []string{
 				prefix + "internal/shared/tasks/taskstest.Isolate",
 				prefix + "internal/fixtures/envfix.Setup",
-				prefix + "internal/memory.TestStore",
+				prefix + "internal/adapters/memory.TestStore",
 				"testing.tRunner",
 				"runtime.goexit",
 			},
-			want: "internal/memory",
+			want: "internal/adapters/memory",
 		},
 		{
 			name: "the testsupport delegate is looked past",
 			stack: []string{
 				prefix + "internal/shared/tasks/taskstest.Isolate",
 				prefix + "internal/testsupport.Isolate",
-				prefix + "internal/config.TestLoad.func1",
+				prefix + "internal/core/config.TestLoad.func1",
 				"testing.tRunner",
 			},
-			want: "internal/config",
+			want: "internal/core/config",
 		},
 		{
 			name: "an external test package folds into the package it tests",
 			stack: []string{
 				prefix + "internal/shared/tasks/taskstest.Isolate",
-				prefix + "internal/paths_test.TestResolve",
+				prefix + "internal/core/paths_test.TestResolve",
 				"testing.tRunner",
 			},
-			want: "internal/paths",
+			want: "internal/core/paths",
 		},
 		{
 			name: "no testing frame falls back to the innermost foreign package",
 			stack: []string{
 				prefix + "internal/shared/tasks/taskstest.Isolate",
 				prefix + "internal/testsupport.Isolate",
-				prefix + "internal/sessions.setupMain",
+				prefix + "internal/core/sessions.setupMain",
 			},
-			want: "internal/sessions",
+			want: "internal/core/sessions",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

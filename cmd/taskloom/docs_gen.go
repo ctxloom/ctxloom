@@ -5,11 +5,11 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/docsgen"
+	"github.com/ctxloom/ctxloom/internal/shared/docsgen"
 	taskloomconfig "github.com/ctxloom/ctxloom/internal/taskloom/config"
 )
 
-// registerDocsCmd mounts the shared documentation generator (internal/docsgen,
+// registerDocsCmd mounts the shared documentation generator (internal/shared/docsgen,
 // the same one ctxloom and ltk use) as a hidden `taskloom gendocs` subcommand.
 //
 // taskloom's cobra tree lives in `package main` and so cannot be imported by a
@@ -32,7 +32,7 @@ func registerDocsCmd(root *cobra.Command) {
 		ManManual: "User Commands",
 		// taskloom's own config surface (internal/taskloom/config): the
 		// hand-authored schema is the source of truth GenConfig walks (see
-		// internal/docsgen/config.go's doc), same as ctxloom's.
+		// internal/shared/docsgen/config.go's doc), same as ctxloom's.
 		ConfigSchema: taskloomconfig.SchemaPath,
 
 		MCPServer:  newMCPServer(),

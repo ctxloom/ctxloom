@@ -42,7 +42,7 @@ import (
 // what the journey claims.
 //
 // cwd and workdir deliberately play no part: whether they agree between the
-// two legs depends on the runtime's pathMapper (internal/lm/isolation/
+// two legs depends on the runtime's pathMapper (internal/adapters/isolation/
 // runtime.go) — identical-path is only that seam's default configuration,
 // not a guaranteed contract — and under today's only implemented mapper
 // (identityMapper) they ARE byte-identical (measured), which would make a

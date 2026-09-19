@@ -47,7 +47,7 @@ import (
 
 // flagSite is one `Changed()` call in the CLI source.
 type flagSite struct {
-	File    string // module-relative, "internal/cli/root.go"
+	File    string // module-relative, "internal/adapters/cli/root.go"
 	Line    int    // line of the Changed() call
 	Flag    string // the literal flag name
 	Func    string // enclosing function, for the failure message
@@ -459,7 +459,7 @@ func literalFlagName(c *ast.CallExpr) (string, bool) {
 	return name, true
 }
 
-// cliSourceDir locates internal/cli relative to THIS source file, the
+// cliSourceDir locates internal/adapters/cli relative to THIS source file, the
 // precedent steps_j001000_transcript_capture.go sets. The working directory of
 // a `go test` run is the test's own package, which says nothing about where
 // the module is checked out.
@@ -469,7 +469,7 @@ func cliSourceDir(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("could not locate the module root, so the census has no tree to read: %v", err)
 	}
-	dir := filepath.Join(root, "internal", "cli")
+	dir := filepath.Join(root, "internal", "adapters", "cli")
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatalf("the CLI source at %s is unreadable (%v); this gate censuses the tree and "+
 			"cannot proceed over an absent one", dir, err)

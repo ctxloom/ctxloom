@@ -3,7 +3,7 @@
 //
 // WHICH LAYER TO REACH FOR. ctxloom has two, and they are not interchangeable:
 //
-//   - internal/git EXECUTES the git binary. Use it to DO things — commit,
+//   - internal/adapters/git EXECUTES the git binary. Use it to DO things — commit,
 //     fetch, diff, list worktrees — and for anything whose answer must match
 //     what git itself would say, because it is git saying it. It inherits
 //     git's own repository discovery and its config (including whatever the
@@ -25,7 +25,7 @@
 // ENVIRONMENT SANITIZATION. Both layers depend on this package for one thing
 // in common: RepoLocationEnvVars and SanitizedEnviron are the single home of
 // the environment variables that override WHICH repository git operates on.
-// internal/git and internal/remote build every git child process's environment
+// internal/adapters/git and internal/adapters/remote build every git child process's environment
 // from SanitizedEnviron so that cmd.Dir is the only thing selecting a
 // repository. That list lives here, in the layer that spawns nothing, so there
 // is exactly one of it.
@@ -54,8 +54,8 @@ var RepoLocationEnvVars = []string{
 // SanitizedEnviron returns os.Environ() with RepoLocationEnvVars stripped —
 // removed outright, not set to empty (git treats GIT_DIR="" as still
 // present) — so cmd.Dir is the only thing that can select which repository a
-// git child process operates on. Shared by internal/git (the exec.Cmd-based
-// git.Git implementation) and internal/remote (clone/fetch over the network)
+// git child process operates on. Shared by internal/adapters/git (the exec.Cmd-based
+// git.Git implementation) and internal/adapters/remote (clone/fetch over the network)
 // so the one list of dangerous env vars lives in one place.
 func SanitizedEnviron() []string {
 	env := os.Environ()

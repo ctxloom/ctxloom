@@ -6,16 +6,16 @@ Living plan for [ADR 0026](adr/0026-ports-and-adapters.md) (the architecture) an
 
 Phases A–E executed; full offline suite green (`just test-verbose`, 0 failures). Phase E covers profiles, sessions, and the lockfile; the tasks `Store` port is intentionally omitted (the append-only JSONL log is the only backend by design).
 
-- **A — tasks → operations: done.** `internal/operations/tasks.go` (`TaskContext`, `ListTasks`/`AddTask`/`SetTaskStatus`, `ResolveProjectIdentity`, resolution + migration). MCP handlers, CLI commands, the `tasks run` picker, `run.go` `--seed-task`, and the task-summary resource all route through it; `cmd` no longer touches the task store.
+- **A — tasks → operations: done.** `internal/adapters/operations/tasks.go` (`TaskContext`, `ListTasks`/`AddTask`/`SetTaskStatus`, `ResolveProjectIdentity`, resolution + migration). MCP handlers, CLI commands, the `tasks run` picker, `run.go` `--seed-task`, and the task-summary resource all route through it; `cmd` no longer touches the task store.
 - **B — bundle storage port: done.** `bundles.Source`/`Store` ports + `fsStore` (which also fixes the latent os-vs-afero write split) + `MemStore`. `Bundle.Save` removed; all 8 write ops inject `req.Store` (default filesystem). `ListBundles`/`GetBundle` added.
-- **C — sessions → operations: done for the standalone surface.** `internal/operations/sessions.go` (List/Get/ListForProject/Rename/Forget/Bind). `session_cmd.go`, `mcp_resources.go`, `mcp_tools_memory.go` rerouted. **Deferred:** `run.go`'s session orchestration (the held `Manager`, the interactive schema-upgrade confirm, `AssignHarp`/`MarkEnded`/adopt) — a focused launch-path pass, kept out to avoid risking the fault-tolerant hot path.
-- **D — read-path → operations: done.** `bundle list`/`bundle show` route through `operations.ListBundles`/`GetBundle` (the latter on the Phase B port). The long tail is closed too: `profile list/show/default`, `completion.go`, `item_helpers.go`, `bundle_distill.go`, `bundle_transfer.go`, and `run.go`'s context-assembly all route through `internal/operations`.
+- **C — sessions → operations: done for the standalone surface.** `internal/adapters/operations/sessions.go` (List/Get/ListForProject/Rename/Forget/Bind). `session_cmd.go`, `mcp_resources.go`, `mcp_tools_memory.go` rerouted. **Deferred:** `run.go`'s session orchestration (the held `Manager`, the interactive schema-upgrade confirm, `AssignHarp`/`MarkEnded`/adopt) — a focused launch-path pass, kept out to avoid risking the fault-tolerant hot path.
+- **D — read-path → operations: done.** `bundle list`/`bundle show` route through `operations.ListBundles`/`GetBundle` (the latter on the Phase B port). The long tail is closed too: `profile list/show/default`, `completion.go`, `item_helpers.go`, `bundle_distill.go`, `bundle_transfer.go`, and `run.go`'s context-assembly all route through `internal/adapters/operations`.
 
 ## Two intertwined threads
 
 This work has two distinct edges, often confused because the same refactor touches both:
 
-- **0019 — where logic lives.** Domain logic belongs in `internal/operations`, not in `cmd`. Closing a gap means *creating the operations function* and making the frontend call it.
+- **0019 — where logic lives.** Domain logic belongs in `internal/adapters/operations`, not in `cmd`. Closing a gap means *creating the operations function* and making the frontend call it.
 - **0026 — how the core reaches storage.** Operations should depend on a *port* (interface), not construct a concrete loader or call `os.WriteFile`. Closing a gap means *introducing the interface + a filesystem adapter* and injecting it.
 
 A domain can be 0019-clean but 0026-concrete (operations owns the logic, but reaches the disk directly), or 0019-dirty (logic still in `cmd`). The plan sequences both.
@@ -47,9 +47,9 @@ Ordered by the two explicit asks first (tasks 0019 fix, bundle port), then the b
 
 ### Phase A — tasks → operations (0019 closure; the worked example) — PRIORITY
 
-Move all task domain logic out of `cmd` into a new `internal/operations/tasks.go`. Frontends become pure.
+Move all task domain logic out of `cmd` into a new `internal/adapters/operations/tasks.go`. Frontends become pure.
 
-- [ ] `internal/operations/tasks.go`:
+- [ ] `internal/adapters/operations/tasks.go`:
   - `type TaskContext struct { WorkDir, ProjectID, SessionHarp string }` — the resolved inputs a frontend gathers (git-root, `CTXLOOM_PROJECT_ID`, `CTXLOOM_SESSION_HARP`).
   - internal `resolveTaskStore(tc) (store *tasks.Store, warning string, err error)` — moves `resolveProjectID` (projectid.Resolve when `ProjectID==""`) + `migrateLegacyTasks` (sessions.ListForProject → `tasks.MigrateLegacyIfNeeded`) + `tasks.OpenLog` here. The project-resolution warning is *returned*, not printed (operations doesn't render).
   - `ListTasks(tc, statuses, term, includeSummary) (*TaskListResult, error)`, `AddTask(tc, text, status) (*TaskResult, error)`, `SetTaskStatus(tc, harpID, status) (*TaskResult, error)`. Results carry `Path`, the task data, and `Warning`.
@@ -63,11 +63,11 @@ Scope note: Phase A is 0019-only. It calls the concrete `tasks.Store` (which alr
 
 Introduce the polymorphic bundle loader the ADR names: a port operations depends on, FS adapter today, DB-swappable tomorrow.
 
-- [ ] `internal/bundles`: define the port.
+- [ ] `internal/core/bundles`: define the port.
   - `type Source interface { Load(name) (*Bundle, error); List() ([]*Bundle, error); LoadFile(path) (*Bundle, error) }` — the concrete `Loader` already satisfies this.
   - `type Store interface { Source; Save(*Bundle) error; Delete(name string) error }`.
   - **Untie persistence from the data type:** move `Bundle.Save()`'s `os.WriteFile` into an `fsStore.Save(b)` adapter (FS adapter wrapping `Loader` for reads + write/delete). `Bundle` becomes pure data (a DB adapter keys by name, not `Bundle.Path`). This is the crux and the riskiest edit.
-- [ ] `internal/operations`: depend on the port. Provide `cfg.BundleStore()` (or a `req.Store bundles.Store` field, matching the existing `req.Loader` seam) and reroute the write ops (`CreateBundle`, `UpdateBundle`, `DeleteBundle`, `AddItem`, `DeleteItem`, `SetItemContent`, `DistillItem`, `SetBundleMCP`, `DistillBundleFile`) and the read ops (`ReadBundle`, `GetItemContent`, `loadBundleForUpdate`) off inline `NewLoader`/`bundle.Save()` and onto the injected port.
+- [ ] `internal/adapters/operations`: depend on the port. Provide `cfg.BundleStore()` (or a `req.Store bundles.Store` field, matching the existing `req.Loader` seam) and reroute the write ops (`CreateBundle`, `UpdateBundle`, `DeleteBundle`, `AddItem`, `DeleteItem`, `SetItemContent`, `DistillItem`, `SetBundleMCP`, `DistillBundleFile`) and the read ops (`ReadBundle`, `GetItemContent`, `loadBundleForUpdate`) off inline `NewLoader`/`bundle.Save()` and onto the injected port.
 - [ ] (Optional) an in-memory `Store` adapter — proves swappability and sharpens the operations tests.
 - [ ] Tests: operations bundle ops against the in-memory adapter; an FS-adapter conformance test.
 
@@ -77,7 +77,7 @@ Decision to confirm (see open questions): Phase B establishes the port **before*
 
 Largest 0019 gap after tasks; sessions are mutated in the hot `run` path and the SessionStart bind hook.
 
-- [ ] `internal/operations/sessions.go`: `RenameSession`, `ForgetSession`, `BindSession`, `AssignSession` (mints a harp), plus reads (`ListSessions`, `GetSession`, `ListSessionsForProject`).
+- [ ] `internal/adapters/operations/sessions.go`: `RenameSession`, `ForgetSession`, `BindSession`, `AssignSession` (mints a harp), plus reads (`ListSessions`, `GetSession`, `ListSessionsForProject`).
 - [ ] Reroute `session_cmd.go`, `run.go` (`AssignHarp`), `mcp_resources.go`, `mcp_tools_memory.go`. Care: the bind hook and run path are fault-tolerant — preserve warn-and-continue.
 
 ### Phase D — bundle/profile read-path → operations (0019 closure)

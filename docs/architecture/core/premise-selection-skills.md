@@ -147,7 +147,7 @@ either from a skills dir/bundled or carrying an explicit description or `when_to
 
 [premise-selection.md](premise-selection.md) records that the fixture, runs and scorer were
 deliberately removed. They were recovered from `e7005efbc^` for this trial:
-`scripts/score_premises.py`, `internal/operations/testdata/premise_runs/README.md` (the 15
+`scripts/score_premises.py`, `internal/adapters/operations/testdata/premise_runs/README.md` (the 15
 runs), and `premise_situations_mined.yaml` (the format). The scorer's invocation:
 
     score_premises.py <situations.yaml> <answers.txt> [corpus.yaml] [premised_corpus.yaml]
@@ -158,7 +158,7 @@ fire on nothing-applies rows, and exact-set count. The runs it scored were produ
 separate model judging each premise ALONE against every situation — the per-premise protocol,
 the best-scoring configuration the prior trial found.
 
-The corpus here, `internal/operations/testdata/premise_corpus_skills_v0.yaml`, carries both
+The corpus here, `internal/adapters/operations/testdata/premise_corpus_skills_v0.yaml`, carries both
 `fragments` (v3's shape: ref, content, premise, tags — plus the skill's existing
 `description`, which is what measurement #1 compares against) and `situations` (the
 situations-file shape) so the recovered scorer reads it unchanged.

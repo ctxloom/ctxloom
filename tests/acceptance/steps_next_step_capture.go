@@ -18,9 +18,9 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/memory"
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/adapters/memory"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // nextStepState carries what a scenario generated or observed so a later step
@@ -66,7 +66,7 @@ const mockRecordPromptHeader = "\n=== Prompt ===\n"
 // Hand-rendered rather than produced through the reader packages' own types
 // so a format change surfaces as a deliberate fixture update instead of the
 // fixture silently reshaping itself to match. The claude-code lines mirror the
-// minimal shape internal/cli's hook tests use; the mock line is the whole of
+// minimal shape internal/adapters/cli's hook tests use; the mock line is the whole of
 // the mock adapter's format.
 func vendorTranscriptLines(engine, closing string) (string, error) {
 	text, err := json.Marshal(closing)

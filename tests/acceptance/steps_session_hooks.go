@@ -23,7 +23,7 @@ import (
 )
 
 // hookEnvelope is the SessionStart hook output shape both inject-context and
-// session-bind emit. Declared here rather than imported from internal/cli so a
+// session-bind emit. Declared here rather than imported from internal/adapters/cli so a
 // change to the wire shape shows up as a deliberate update on the test side
 // too — this is the contract with a THIRD party (the host engine), and a
 // shared struct would let both ends move together without anything failing.

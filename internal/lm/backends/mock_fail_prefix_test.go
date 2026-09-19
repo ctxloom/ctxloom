@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // CTXLOOM_MOCK_FAIL_PREFIX exists so a NEGATIVE scenario can assert POSITIVELY.
@@ -23,7 +23,7 @@ import (
 //
 // The three tests below are deliberately one contract each, and the pair of
 // "prefix present" / "prefix absent" is load-bearing: per the mock's class gate
-// (internal/mockengine/arch_test.go) a limb of evidence must be able to say NO,
+// (internal/engines/mock/arch_test.go) a limb of evidence must be able to say NO,
 // so the run where the knob was set and the run where it was not have to render
 // DIFFERENTLY. A test for only the set case would still pass against a mock
 // that prefixed unconditionally.

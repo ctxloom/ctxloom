@@ -16,7 +16,7 @@ import (
 
 // SandboxOffEnv disables SandboxedMain's process-wide sandbox. It exists for
 // ONE caller: the self-test that proves the guard below can go red (see
-// internal/cli's TestCLITestBinary_FailsClosedWithoutTheSandbox). Nothing in a
+// internal/adapters/cli's TestCLITestBinary_FailsClosedWithoutTheSandbox). Nothing in a
 // normal test run may set it — with the sandbox off, SandboxedMain refuses to
 // run any test at all rather than letting the binary loose on the real home.
 const SandboxOffEnv = "CTXLOOM_TEST_SANDBOX_OFF"
@@ -60,7 +60,7 @@ const maxOrphanAge = 2 * time.Hour
 // .ctxloom (a developer's ~/workspace/... under $HOME is the ordinary case)
 // the walk-up finds the USER'S OWN ~/.ctxloom and adopts it as the project app
 // dir — HOME isolation is simply bypassed. That is not hypothetical: it is how
-// a `cmd.RunE` driven from internal/cli's tests created ~/.ctxloom/content/
+// a `cmd.RunE` driven from internal/adapters/cli's tests created ~/.ctxloom/content/
 // and wrote default_agent into the user's real global config.yaml.
 //
 // A per-test helper cannot close that hole, because the hole is open for tests
@@ -75,7 +75,7 @@ const maxOrphanAge = 2 * time.Hour
 // silently does nothing when it is bypassed is worth less than no guard.
 func SandboxedMain(m *testing.M) int {
 	// sandboxRootEnv already set: this process was spawned BY a sandboxed test
-	// (internal/cli has commands that re-exec os.Executable(), which under
+	// (internal/adapters/cli has commands that re-exec os.Executable(), which under
 	// test is the test binary itself). It inherited that sandbox's HOME and
 	// cwd, so it is already isolated — minting a second one would only leave a
 	// directory behind, since such a child is routinely killed by its parent's
@@ -112,7 +112,7 @@ func SandboxedMain(m *testing.M) int {
 		}()
 	}
 
-	// A `go test` binary gets no ldflags, so internal/version.Version is empty
+	// A `go test` binary gets no ldflags, so internal/shared/version.Version is empty
 	// and every ctxloom command this binary drives would refuse to start over
 	// its missing stamp. Stamp it here, in the one seam that runs whether a
 	// test opts in or not, for the same reason the sandbox is installed here:
@@ -293,7 +293,7 @@ func reapSandboxes(root string) {
 //
 // HOME is overloaded: it is where ctxloom finds ~/.ctxloom AND where the go
 // command finds its module cache, build cache and env file. A test that shells
-// out to `go build` (internal/cli's MCP wire-protocol test does) inherits the
+// out to `go build` (internal/adapters/cli's MCP wire-protocol test does) inherits the
 // sandbox HOME, so without this the toolchain treats every run as a cold
 // machine and re-downloads the entire module cache into the sandbox —
 // measured at 596 MB, per run, over the network. It also makes the sandbox

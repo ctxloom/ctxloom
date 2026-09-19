@@ -15,7 +15,7 @@ import (
 
 // THE ARCHITECTURAL RULES' ANTI-VACUITY FLOORS. DO NOT DELETE THIS FILE.
 //
-// ctxloom's architectural rules live in internal/archlint as go/analysis
+// ctxloom's architectural rules live in internal/shared/archlint as go/analysis
 // analyzers, run by `just lint-arch` and the pre-commit hook. This file is
 // what CANNOT live there, and it is not leftover scaffolding.
 //
@@ -87,8 +87,8 @@ type corpusCounts struct {
 // They are counted separately because a rule scoped to a handful of packages
 // can be broken by a bad prefix while the module-wide count stays healthy.
 var engineScopes = []string{
-	"internal/claude",
-	"internal/shared/agent",
+	"internal/engines/claude",
+	"internal/core/agent",
 }
 
 // walkCorpus reads the module once and counts what the rules depend on seeing.
@@ -238,7 +238,7 @@ func TestArch_CorpusFloors_TheSweepActuallyReadsTheModule(t *testing.T) {
 // tick. The rule itself cannot check this: the file is in another package, and
 // an analyzer that is never handed that package never runs at all.
 func TestArch_CorpusFloors_GeneratedFrameEncoderExists(t *testing.T) {
-	const encoder = "internal/agentcoord/xmllike_gen.go"
+	const encoder = "internal/adapters/coordgrpc/pb/xmllike_gen.go"
 	if _, err := os.Stat(filepath.Join(corpusRoot(t), encoder)); err != nil {
 		t.Fatalf("%s is missing: run `just gen-mcp-schemas`. Without it the reminder-frame rule "+
 			"proves nothing, because no frames exist to be constructed anywhere: %v", encoder, err)

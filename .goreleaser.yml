@@ -51,7 +51,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{.Version}}
 
   # Full build - adds tree-sitter (31MB)
   # Requires CGO and cross-compilers. Statically linked on linux/windows (see
@@ -96,7 +96,7 @@ builds:
       - goos: windows
         goarch: arm64 # /llvm-mingw aarch64 cross-compiler unavailable in build image
     ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{.Version}}
       # Static linking for linux/windows; macOS cannot fully static-link system
       # libraries, so leave darwin dynamic.
       - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
@@ -124,7 +124,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{.Version}}
 
   # UPX-compressed twin of `ctxloom-full`. Compression is a post hook rather
   # than goreleaser's `upx:` pipe, which runs AFTER build hooks and so would
@@ -171,7 +171,7 @@ builds:
       - goos: windows
         goarch: arm64 # /llvm-mingw aarch64 cross-compiler unavailable in build image
     ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{.Version}}
       # Static linking for linux/windows; macOS cannot fully static-link system
       # libraries, so leave darwin dynamic.
       - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
@@ -441,7 +441,7 @@ archives:
 # No cask handles `<binary>.sig` explicitly, and none needs to: a cask stages
 # the WHOLE archive and links the binary into the prefix, so the signature the
 # archive already carries stays a sibling of the staged binary. Admission
-# resolves symlinks before appending the suffix (internal/config's
+# resolves symlinks before appending the suffix (internal/core/config's
 # resolveCompanionPath and companionSigSuffix), so it looks beside the staged
 # copy rather than beside the link.
 homebrew_casks:

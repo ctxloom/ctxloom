@@ -21,8 +21,8 @@
 //
 // It provides that probe once for the whole repo, consolidating what used to
 // be three near-identical copies
-// (agentcoord/coord.PidAlive, internal/operations' test-only pidAlive, and
-// internal/lm/isolation's startup-reaper pidAlive) into a single leaf package
+// (agentcoord/coord.PidAlive, internal/adapters/operations' test-only pidAlive, and
+// internal/adapters/isolation's startup-reaper pidAlive) into a single leaf package
 // with no internal dependencies — safe for any package to import without
 // creating a cycle. Probe itself is platform-specific (pidalive_unix.go,
 // pidalive_windows.go); State and MaybeAlive here are the shared,

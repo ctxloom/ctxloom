@@ -5,7 +5,7 @@ MCP servers and hooks — the unit `ctxloom run -p` and every agent binding
 compose. An **agent** is a named local binding of `{profiles, engine, runtime,
 workspace, permissions, driving, coordinator}` that `ctxloom run --agent`,
 and `agent_run` (MCP delegation) all resolve
-through. Both trees are thin cobra frontends over `internal/operations`; the
+through. Both trees are thin cobra frontends over `internal/adapters/operations`; the
 resolution logic itself lives there, not here.
 
 ## Structure
@@ -32,8 +32,8 @@ flowchart TD
         ASETUP["agent setup :214"] --> RSPC["runSetupPromptCmd :195"] --> RSP[["operations.ResolveSetupPrompt"]]
     end
 
-    OPSP[["internal/operations profile ops"]]
-    OPSA[["internal/operations agents:<br/>GetAgent · ResolveAgent · SetAgent"]]
+    OPSP[["internal/adapters/operations profile ops"]]
+    OPSA[["internal/adapters/operations agents:<br/>GetAgent · ResolveAgent · SetAgent"]]
     prof --> OPSP
     agent --> OPSA
 
@@ -125,7 +125,7 @@ shell script to `os.Stdout`, bypassing `emit()` by design.
   `Resolved` (`omitempty`), so a JSON consumer sees a well-formed object with
   `resolved` absent and exit 0.
 - `agent set` is documented as "update" and implemented as a **whole-record
-  replace** (`internal/operations/agents.go:191`): unflagged fields are zeroed,
+  replace** (`internal/adapters/operations/agents.go:191`): unflagged fields are zeroed,
   and `SetAgentRequest` has no `Escalation` field at all, so re-running
   `agent set` to change one thing destroys the agent's declared approval-request
   ladder along with its engine and profiles.

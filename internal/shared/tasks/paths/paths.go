@@ -15,13 +15,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 const (
 	// AppDirName is the name of the ctxloom directory; the task store shares
 	// it rather than minting a parallel dot-dir. It is an ALIAS of
-	// internal/paths.AppDirName, not a second declaration of ".ctxloom":
+	// internal/core/paths.AppDirName, not a second declaration of ".ctxloom":
 	// independent literals in two packages let a drift in either silently stop
 	// TaskStoreRoot's documented opt-out from matching the directory
 	// `ctxloom init` creates, with no error at either end. Both packages are

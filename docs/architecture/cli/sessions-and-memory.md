@@ -39,7 +39,7 @@ flowchart TD
         LOD --> DS["distillSession :733 → singleflightDistill :715 → distillSessionOnce :754"]
         PBH --> DS
         H --> RSS
-        DS --> COMP[["internal/memory.Compactor"]]
+        DS --> COMP[["internal/adapters/memory.Compactor"]]
         ET["evaluate_triggers — mcp_tools_triggers.go:54"] --> OPST[["operations.EvaluateTriggers"]]
     end
 
@@ -140,7 +140,7 @@ emitted up front so a subscriber never sits on an empty stream. Debounce is
   with `make(..., 0, n)`.
 - **`session list --all` uses the ordered lister.** `operations.ListAllSessions`
   is the ordered all-projects listing; `ListSessions` (unsorted) exists only for
-  the raw `ctxloom://sessions` resource dump (`internal/operations/sessions.go:76-82`).
+  the raw `ctxloom://sessions` resource dump (`internal/adapters/operations/sessions.go:76-82`).
 - **The previous-session reference shown in `run`'s banner comes from the same
   primitive the `get_previous_session` tool reads** (`operations.ResolvePreviousSession`),
   never re-derived (`run.go:790-797`).

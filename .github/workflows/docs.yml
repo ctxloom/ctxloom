@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     # The living-docs step below needs a real `ctxloom` binary (the godog
     # suite execs it as a subprocess), which needs generated protobuf code
-    # (buf/protoc-gen-go, gitignored — see internal/agentcoord) that only the
+    # (buf/protoc-gen-go, gitignored — see internal/adapters/coordgrpc/pb) that only the
     # devcontainer image carries. Reuses the SAME image ci.yml's build-container
     # job publishes. That job tags ":latest" with
     # enable={{is_default_branch}}, and the default branch IS release/0.7 — the

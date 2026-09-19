@@ -23,7 +23,7 @@
 package acceptance
 
 import (
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"os"
 	"path/filepath"
 	"strings"

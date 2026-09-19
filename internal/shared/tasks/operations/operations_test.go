@@ -87,14 +87,14 @@ func TestResolveProjectIdentity(t *testing.T) {
 }
 
 // TestResolveProjectIdentity_UnchangedForCoordinator pins ResolveProjectIdentity's
-// behavior for its coordinator caller (internal/mcp/coord_host.go, which derives
+// behavior for its coordinator caller (internal/adapters/mcp/coord_host.go, which derives
 // the coordinator state-dir key from it -- an exclusive owner.pid lock): a
 // linked git worktree and its primary checkout must resolve to DIFFERENT
 // project ids, exactly as before the task-store worktree redirect (2026-07-10).
 // The task-store seam (workdir.ResolveBoundary /
 // projectroot.TaskStoreRoot) lives entirely outside this package specifically
 // so this function never has to choose between its two callers' conflicting
-// needs -- see internal/cli/run.go, which redirects its OWN workDir argument
+// needs -- see internal/adapters/cli/run.go, which redirects its OWN workDir argument
 // before calling this same, unmodified function.
 func TestResolveProjectIdentity_UnchangedForCoordinator(t *testing.T) {
 	taskstest.Isolate(t)
@@ -1561,7 +1561,7 @@ func writeHostileMarker(t *testing.T, dir string) {
 
 // TestResolveProjectIdentity_NamesTheStageThatFailed pins the fix: this
 // function returned both of its failure modes bare, so its callers
-// (internal/cli/run.go's pre-launch export and coord_host.go's state-dir key)
+// (internal/adapters/cli/run.go's pre-launch export and coord_host.go's state-dir key)
 // could not tell "the project registry would not open" from "this tree's
 // identity could not be resolved" — two different operator actions. Every
 // other resolver in this file already wraps; this one now does too.

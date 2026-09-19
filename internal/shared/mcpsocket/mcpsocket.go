@@ -5,7 +5,7 @@
 // It is a LEAF — no imports of its own, of any kind — because the two sides of
 // that address are on opposite sides of a layering boundary and neither may
 // import the other: the container transport that WRITES the value, and the
-// `ctxloom mcp` forward shim in internal/cli that READS it. A CLI frontend
+// `ctxloom mcp` forward shim in internal/adapters/cli that READS it. A CLI frontend
 // must reach an engine only through pb.Client.Chat (the one-door invariant),
 // so the shim may not import the engine-client side just to learn the
 // encoding. A shared leaf below both is the only home where the contract can

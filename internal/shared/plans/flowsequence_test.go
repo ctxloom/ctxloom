@@ -8,7 +8,7 @@ import (
 
 // TestParseFrontmatter_FlowSessions covers the flow-sequence branch at the
 // public seam, including the shapes the cross-package round-trip test in
-// internal/memory cannot produce: a value containing a comma, and a
+// internal/adapters/memory cannot produce: a value containing a comma, and a
 // `sessions:` value that is not a sequence at all.
 func TestParseFrontmatter_FlowSessions(t *testing.T) {
 	cases := []struct {

@@ -1,8 +1,8 @@
-# `internal/transcript` — canonical conversation capture
+# `internal/adapters/transcript` — canonical conversation capture
 
-**What it is.** `internal/transcript` owns ctxloom's **own** record of a conversation: a
+**What it is.** `internal/adapters/transcript` owns ctxloom's **own** record of a conversation: a
 versioned, append-only JSONL envelope schema, the writer that stamps it, and the reader that
-turns the file back into an `agent.Session`. `internal/transcript/vendorreader` and its
+turns the file back into an `agent.Session`. `internal/adapters/transcript/vendorreader` and its
 per-engine adapters convert a **vendor-native** transcript into the same
 canonical stream through the same writer.
 
@@ -65,7 +65,7 @@ flowchart TD
     CH["CanonicalHistory<br/>history.go:51<br/>{workDir, sessions.Store}"] --> PTF
     CH -.structurally satisfies.-> PBS["pb.SessionSource"]
     IDX[("sessions/index.yaml<br/>Entry.CanonicalTranscriptPath")] --> CH
-    SESS --> CONS["lm/grpc/canonical_source.go<br/>lm/grpc/sessionwatch.go<br/>operations/sessionfeed.go<br/>internal/memory compaction"]
+    SESS --> CONS["lm/grpc/canonical_source.go<br/>lm/grpc/sessionwatch.go<br/>operations/sessionfeed.go<br/>internal/adapters/memory compaction"]
 ```
 
 **The two things to hold in mind:**
@@ -97,7 +97,7 @@ flowchart TD
 | `RawPolicy` | `record.go:269` | `off \| lossy-only \| all`, applied by `fileRecorder.rawToPersist` (`recorder.go:105`) |
 
 **Why the mirrors exist.** `agent.SessionEntry` & co. carry **no json tags**
-(`internal/shared/agent/backend.go`, `chat.go`), so marshalling the in-memory types directly
+(`internal/core/agent/backend.go`, `chat.go`), so marshalling the in-memory types directly
 would make the on-disk format hostage to Go field renames. That is a legitimate schema boundary.
 The cost is **four hand-edited sites per field** (agent type → payload struct → to-payload
 converter at `record.go:308-414` → from-payload converter at `history.go:239-285`) with nothing
@@ -279,7 +279,7 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
   omitted; without it, `json.Marshal` **errors**. The function is still correct normalization; the
   reason given for it is not.
 - **`vendorreader/adapter.go:9` still names the on-disk file `transcript.acp.jsonl`**, the pre-rename
-  leaf; the fixtures under `internal/transcript/testdata/fixtures/` carry the same stale suffix.
+  leaf; the fixtures under `internal/adapters/transcript/testdata/fixtures/` carry the same stale suffix.
 - **`RawPolicy` is unreachable in production** — nothing sets `agent.ChatRequest.TranscriptRawPolicy`,
   so `RawOff`/`RawAll` are test-only constants and the default `RawLossyOnly` always applies.
 
@@ -287,13 +287,13 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
 
 ## 7. Where this subsystem meets others
 
-- **`internal/sessions`** supplies the harp→project index `CanonicalHistory` enumerates, and
+- **`internal/core/sessions`** supplies the harp→project index `CanonicalHistory` enumerates, and
   `Entry.CanonicalTranscriptPath` is filled by `sessions.fillCanonicalTranscript` using the same
   resolver `GetSession` calls independently.
-- **`internal/operations/vendorreader*.go`** owns adapter registration, locator discovery, the
+- **`internal/adapters/operations/vendorreader*.go`** owns adapter registration, locator discovery, the
   `hasCanonicalTranscript` idempotency guard, and the `BackfillResult` bucketing — every
   consequence of "the vendor reader cannot report a count" surfaces there, not here.
-- **`internal/memory`** reads through `pb.SessionSource`, which `CanonicalHistory` satisfies via
+- **`internal/adapters/memory`** reads through `pb.SessionSource`, which `CanonicalHistory` satisfies via
   `pb.NewCanonicalFallbackSource` (canonical first, legacy second).
 - **`internal/lm/grpc`** owns both live producers (`chat.go`'s `CoordinatedRecorder` wiring) and
   the reader adapters (`canonical_source.go`, `sessionwatch.go`).

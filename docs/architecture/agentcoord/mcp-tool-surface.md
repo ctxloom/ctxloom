@@ -1,6 +1,6 @@
 # MCP tool surface — `mcpschema`
 
-`internal/agentcoord/mcpschema` owns **the contract an LLM sees for the
+`internal/adapters/coordgrpc/mcpschema` owns **the contract an LLM sees for the
 agent-coordination tools**: which proto message backs each tool (the binding table),
 how proto descriptors project into JSON Schema (the projector and its seven lettered
 rules), where every tool on the ctxloom MCP surface terminates (the routing table), and
@@ -85,7 +85,7 @@ flowchart TD
 | M6 | Every classified tool must be served by some route, checked at runner startup | `mcp/mcp_runner.go` |
 
 The drift gate is `just gen-mcp-schemas-check` — regenerate, then
-`git diff --exit-code -- internal/agentcoord/mcpschema/schemas` — wired at
+`git diff --exit-code -- internal/adapters/coordgrpc/mcpschema/schemas` — wired at
 `.github/workflows/ci.yml:187`. `binding_test.go` runs in the unit-test job where
 regeneration does *not* happen, and catches the two cases `git diff --exit-code`
 structurally cannot: a new untracked golden, and a stale golden for a deleted binding.

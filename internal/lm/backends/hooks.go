@@ -3,14 +3,14 @@ package backends
 import (
 	"sort"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/spf13/afero"
 )
 
 // Settings options + shared write helpers live in shared/agent (the
 // engine-agnostic core) so the per-agent writers can use them without importing
 // backends. SettingsOption and the With* funcs are re-exported for external
-// callers (internal/operations) that reach the KEPT settings-writer dispatch —
+// callers (internal/adapters/operations) that reach the KEPT settings-writer dispatch —
 // GetSettingsWriter / RemoveSettings / BackendStatus. (The cross-backend settings
 // WRITE now rides the surfaces × cells seam — see BuildSurfaces + agent.Select.)
 type SettingsOption = agent.SettingsOption

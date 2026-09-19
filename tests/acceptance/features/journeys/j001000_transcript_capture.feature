@@ -42,7 +42,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #     launching any backend. Every hermetic scenario below builds on exactly
   #     that: seed an index entry whose transcript_path points at a
   #     vendor-native fixture this repo ALREADY ships in-tree
-  #     (internal/transcript/vendorreader/claude/testdata/
+  #     (internal/adapters/transcript/vendorreader/claude/testdata/
   #     *-fixture.jsonl), then ask for that session's memory. The conversion
   #     (vendorreader.VendorAdapter.Convert) is a PURE file->file transform
   #     through a transcript.Recorder — it spawns no engine — so this is
@@ -88,7 +88,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
     Given an initialized ctxloom project
 
   # THE CRUX CLAIM, with the exact real payloads verified against
-  # internal/transcript/vendorreader/claude/testdata/ and its MANIFEST.json (a
+  # internal/adapters/transcript/vendorreader/claude/testdata/ and its MANIFEST.json (a
   # real interrupted docs-audit session on this box). A claude-code session's
   # native project JSONL becomes the canonical schema through the real
   # claudereader.VendorAdapter: its user turn, its assistant reply, its

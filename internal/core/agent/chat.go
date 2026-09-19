@@ -1,0 +1,419 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+)
+
+// StructuredChat is an OPTIONAL backend capability: a persistent, multi-turn
+// structured conversation over the backend's NATIVE programmatic protocol — not
+// a pty/TUI. A backend implements it only if it can speak such a protocol; the
+// host discovers support via a type assertion (backend.(StructuredChat)) and
+// reports the feature unavailable otherwise.
+//
+// This is deliberately separate from the core Backend interface: adding a
+// required method would break every backend, and structured chat is a capability
+// some agents simply lack.
+type StructuredChat interface {
+	// Chat runs one conversation for the lifetime of the call.
+	//
+	// Contract:
+	//   - The caller owns `in` and CLOSES it to signal "no more input".
+	//   - The implementation produces on `out` and CLOSES `out` exactly once,
+	//     before returning (producer owns the close).
+	//   - Chat returns when `in` is closed and drained and the final response has
+	//     completed, when ctx is cancelled (returning ctx.Err()), or on a fatal
+	//     error. The caller ranges over `out` until it closes to consume events.
+	//   - The implementation owns its subprocess for the call's duration and must
+	//     not close anything the caller owns.
+	Chat(ctx context.Context, req ChatRequest, in <-chan ChatMessage, out chan<- ChatEvent) error
+}
+
+// ChatRequest configures a structured chat run. Mirrors the subset of
+// ExecuteRequest a programmatic (non-pty) conversation needs.
+type ChatRequest struct {
+	WorkDir     string
+	Model       string
+	Env         map[string]string
+	Permissions PermissionMode
+	// ForwardPermissions asks the backend to surface each engine permission
+	// request as a ChatEvent.Permission and park the engine until the matching
+	// ChatMessage.Permission answer arrives.
+	//
+	// A driver may IGNORE this and forward unconditionally: ctxloom is a
+	// pass-through proxy for a permission request and keeps no local decider
+	// to fall back to.
+	// A request nobody answers parks the engine — the protocol's own semantics,
+	// and preferable to ctxloom filing an approval or a refusal under the
+	// operator's name. The field remains for backends that do consult it.
+	ForwardPermissions bool
+	// ForwardTerminal asks the backend to surface each engine terminal/*
+	// request (terminal/create, terminal/output, terminal/wait_for_exit,
+	// terminal/kill, terminal/release) as a ChatEvent.Terminal and park the
+	// engine until the matching ChatMessage.Terminal answer arrives (B1, gap
+	// G6) — the exact same carrier shape as ForwardPermissions, applied to a
+	// different upstream callback. Unlike ForwardPermissions (always
+	// answerable — session/request_permission is a core, ungated ACP method),
+	// this is only honest when the caller actually has a live upstream editor
+	// that ADVERTISED the terminal capability at ITS OWN initialize: a
+	// backend must NEVER advertise ClientCapabilities.Terminal: true to the
+	// engine unless this is true AND actually wired — ctxloom brokers
+	// terminal/* to a real editor, it never implements a terminal of its own.
+	// A populator must set this from the connected editor's own
+	// clientCapabilities.terminal; a caller with no editor upstream (delegated
+	// child agents, e.g. agentcoord's HarnessSpec) leaves it false, which is
+	// exactly correct: there is nothing to broker to.
+	ForwardTerminal bool
+	// MCPServers are caller-supplied MCP servers to attach to the conversation
+	// (e.g. the ACP client's session/new mcpServers), in addition to whatever
+	// native config the engine reads from its cwd.
+	MCPServers []ChatMCPServer
+	// ResumeSessionID, when set, asks the backend to resume a prior native
+	// session instead of starting fresh (claude --resume <id>, codex
+	// thread/resume, ACP session/load). A backend that cannot resume (no
+	// native support, or the specific id is unknown to it) fails the call
+	// loudly rather than silently starting a fresh session under the old
+	// id's name — a delegated child's resumed context is load-bearing.
+	ResumeSessionID string
+	// TranscriptRawPolicy names the transcript.raw capture policy this chat's
+	// canonical-transcript Recorder should honor (transcript.RawPolicy: off |
+	// lossy-only | all — see internal/adapters/transcript/recorder.go). Empty means
+	// "use the default" (lossy-only). This is a CAPTURE-layer setting riding
+	// ChatRequest purely as a convenient existing carrier from host to the
+	// point a Recorder gets constructed (internal/lm/grpc/chat.go,
+	// internal/core/coord/enginehost.go) — it has nothing to do with
+	// the chat itself and a backend implementation never reads it. NOTE:
+	// nothing yet POPULATES this from user config (that CLI-boundary wiring
+	// — reading config.Config's transcript.raw key at run_structured/oneshot/
+	// acp call sites — is deferred); every current caller leaves it empty, so
+	// every current transcript keeps recording under the default policy
+	// exactly as before this field existed.
+	TranscriptRawPolicy string
+	// Runtime asks the backend to run the underlying engine SUBPROCESS inside
+	// a container instead of directly on the host: either of
+	// RuntimeContainerRootless / RuntimeContainerRootful containerizes it,
+	// RuntimeHost (the zero value) means host — today's behavior, unchanged.
+	// Ask IsContainerRuntimeAxis rather than comparing against one const. It
+	// carries the AGENT BINDING's resolved runtime axis (see
+	// ResolvedAgent.Runtime, parsed once in resolveAgentBinding) into a
+	// structured chat — this package is where RuntimeAxis itself is declared
+	// (isolation.RuntimeAxis is an alias of it), so the axis rides as the
+	// TYPED value all the way from resolution to here; only the gRPC wire
+	// crossing (chatStartToProto/chatStartFromProto, internal/lm/grpc/chat.go)
+	// converts to and parses from a string, since a proto field cannot carry
+	// a Go type. Only a backend whose StructuredChat transport actually
+	// implements container isolation consults it; every other backend ignores
+	// it — additive, host stays the default everywhere else.
+	Runtime RuntimeAxis
+	// ModelQuirk optionally names a per-engine escape hatch (see
+	// ModelDeliveryQuirk) that forces Model onto the session via a non-spec
+	// call the structured-chat driver makes right after setup,
+	// before the first prompt. nil — every backend today — means
+	// no such call: the spec-standard delivery (--model / an env var / a
+	// future session/set_config_option) is trusted to work.
+	ModelQuirk *ModelDeliveryQuirk
+}
+
+// ModelDeliveryQuirk names a single, VERSION-SCOPED per-engine model-delivery
+// defect that a structured-chat driver routes around with a non-spec call,
+// instead of trusting the spec-standard channel every other engine uses. It
+// exists ONLY because CO1's controlled experiment proved claude-code-acp
+// 0.16.2 silently ignores every spec-standard model channel (argv, env, and
+// it does not implement session/set_config_option at all — zero hits in its
+// dist/*.js). This type is deliberately backend-neutral (it lives alongside
+// ChatRequest, not inside any one backend) so the driver that executes it
+// never needs to
+// know which engine it is talking to — it just compares the connected
+// agent's self-reported identity against these fields.
+type ModelDeliveryQuirk struct {
+	// Method is the non-spec JSON-RPC method to call with
+	// {sessionId, modelId: <the requested model>}.
+	Method string
+	// AgentName/AdapterVersions restrict the call to the connected agent's
+	// self-reported initialize agentInfo.name and an EXACT agentInfo.version
+	// match — an unlisted version (including a hoped-for future fix that
+	// finally speaks session/set_config_option) is left on the spec-standard
+	// path untouched.
+	AgentName       string
+	AdapterVersions []string
+}
+
+// MCPTransport selects the wire-transport variant of one ChatMCPServer entry.
+// The zero value (MCPTransportStdio, "") is the protocol's unconditional
+// baseline — every EXISTING construction site (ComposeChatMCPServers and
+// everything that feeds it: ctxloom's own bundle/config-managed servers,
+// which are stdio-only today — see wire.MCPServer) leaves this field unset
+// and is therefore completely unaffected by its addition. Http/Sse carry an
+// EDITOR-supplied remote MCP server instead of a local command (ACP's
+// session/new mcpServers, B3/gap G11): ctxloom's own materialized bundle
+// servers never populate these, only an editor-passthrough path does.
+type MCPTransport string
+
+const (
+	// MCPTransportStdio is the explicit zero value: a local command ctxloom
+	// (or the editor) spawns as a subprocess. Every ACP agent MUST support
+	// this transport per spec, so it carries no capability gate.
+	MCPTransportStdio MCPTransport = ""
+	// MCPTransportHTTP is a remote MCP server reached over streamable HTTP.
+	// Only meaningful when the RECEIVING engine advertises
+	// mcpCapabilities.http.
+	MCPTransportHTTP MCPTransport = "http"
+	// MCPTransportSSE is a remote MCP server reached over Server-Sent
+	// Events. Only meaningful when the RECEIVING engine advertises
+	// mcpCapabilities.sse.
+	MCPTransportSSE MCPTransport = "sse"
+)
+
+// ChatMCPServer is one caller-supplied MCP server for a chat run: a stdio
+// command (the default, Transport == MCPTransportStdio, Command/Args/Env
+// meaningful) or a remote Http/Sse server (Transport set, URL/Headers
+// meaningful, Command/Args/Env empty).
+type ChatMCPServer struct {
+	Name    string
+	Command string
+	Args    []string
+	Env     map[string]string
+
+	// Transport is MCPTransportStdio (default) for a local command, or
+	// MCPTransportHTTP/MCPTransportSSE for a remote server.
+	Transport MCPTransport
+	// URL is the remote endpoint for an Http/Sse Transport entry. Empty for stdio.
+	URL string
+	// Headers are HTTP headers to send when connecting an Http/Sse Transport
+	// entry (e.g. Authorization). Empty for stdio.
+	Headers map[string]string
+}
+
+// ChatMessage is one inbound message on a chat's input channel. Exactly one
+// field is meaningful: Text is a user turn; Permission answers a pending
+// ChatEvent.Permission request; CancelTurn asks the backend to abandon the
+// in-flight turn (the conversation stays alive and the turn completes with
+// StopReason "cancelled"). Richer content blocks (e.g. images) are a later
+// addition.
+type ChatMessage struct {
+	Text       string
+	Permission *PermissionAnswer
+	CancelTurn bool
+	// ContentBlocks carries structured content blocks for a richer turn than
+	// plain Text (e.g. multiple blocks). Additive: a caller that only sends
+	// Text need not change, and no backend consumes this yet — populating
+	// non-text blocks (image/audio) is multimodal intake, a later slice
+	// (B2). It exists now so the wire can carry them ahead of that slice.
+	ContentBlocks []ContentBlock
+	// Terminal answers a pending ChatEvent.Terminal request (B1, gap G6) —
+	// the upstream editor's reply to one brokered terminal/* call, keyed by
+	// the same ID. Mirrors Permission's carrier shape exactly.
+	Terminal *TerminalResponse
+}
+
+// ChatEvent is one normalized outbound event. The variants are distinct in
+// payload, cardinality, and timing — NOT duplicative; exactly one field is set:
+//
+//   - Entry      — conversation CONTENT, one atomic piece, MANY per response
+//     (assistant text block, tool_use, tool_result). This is the turn's substance.
+//   - Complete   — the response's COMPLETION marker, ONE after the entries, carrying
+//     only accounting (tokens/context/cost/timing), NO content. Lets a client end
+//     the turn (re-enable input) and update a context-window gauge.
+//   - Session    — one-time session metadata, emitted once at the start.
+//   - Permission — the engine is asking for authorization mid-turn (only under
+//     ChatRequest.ForwardPermissions); the caller answers with a
+//     ChatMessage.Permission carrying the same ID. The turn stays parked until
+//     the answer arrives.
+//   - Terminal    — the engine is asking to broker one terminal/* operation to
+//     the upstream editor (only under ChatRequest.ForwardTerminal, B1 gap G6);
+//     the caller answers with a ChatMessage.Terminal carrying the same ID.
+//     Same shape and parking discipline as Permission, applied to a different
+//     upstream callback — ctxloom never implements a terminal of its own, it
+//     only relays.
+type ChatEvent struct {
+	Entry      *SessionEntry
+	Complete   *TurnMeta
+	Session    *ChatSessionInfo
+	Permission *PermissionRequest
+	Terminal   *TerminalRequest
+
+	// Raw is IR3's side channel: the ORIGINAL ACP session/update frame (or
+	// just its `_meta` object), verbatim, for the CURATED ALLOWLIST of things
+	// that have no IR projection of their own — today: available_commands_
+	// update, current_mode_update, and any variant's `_meta` property (ACP's
+	// vendor-extension escape hatch). It is what keeps those from being
+	// SILENTLY LOST in transit (the conformance audit's gap G9): unlike
+	// Entry/Complete/Session/Permission, Raw is not part of the "exactly one
+	// set" union above — it may ride ALONGSIDE Entry (a `_meta` supplement to
+	// an otherwise-fully-mapped entry) or stand ALONE (Entry/Complete/
+	// Session/Permission all nil — a pure passthrough frame, e.g.
+	// available_commands_update, that the IR has no other shape for at all).
+	//
+	// PERMISSIONS NEVER RIDE HERE. session/request_permission is not even a
+	// session/update variant (it is a separate agent→client REQUEST,
+	// mediated end to end via Permission above), so it structurally cannot
+	// reach Raw — this is not a filter that could be bypassed, permission
+	// requests are never in the candidate set to begin with. Never add a
+	// producer that marshals a permission-shaped frame into Raw: mediation is
+	// exactly where ctxloom's trust layer injects, and a byte tunnel would
+	// defeat it.
+	//
+	// Raw is NOT internal/adapters/transcript's Record.Raw (record.go). That is a
+	// SEPARATE capture-layer field, populated FROM this one under the
+	// transcript.raw capture policy (off | lossy-only | all, default
+	// lossy-only) — a decision about what gets written to DISK, unrelated to
+	// what crosses the WIRE. Do not conflate the two in code or docs; see
+	// internal/adapters/transcript/recorder.go's RawPolicy doc comment.
+	Raw json.RawMessage
+}
+
+// PermissionRequest is a forwarded engine permission request: the engine wants
+// to run ToolName and offers the given decision options. ID correlates the
+// eventual PermissionAnswer (unique within one chat).
+type PermissionRequest struct {
+	ID        string
+	ToolName  string
+	ToolInput json.RawMessage
+	Options   []PermissionOption
+	// Kind is the connector-classified tool category, when the backend's
+	// native protocol supplies one (ACP's ToolCallKind: "execute" | "edit" |
+	// "delete" | "move" | "read" | "search" | "fetch" | "think" | "other").
+	// Empty means unclassified. Purely advisory metadata carried through to
+	// whatever buckets the request under a policy (e.g. the agentcoord
+	// escalation ladder's ApprovalKind, Wave C2) — backends that cannot
+	// classify simply leave it empty.
+	Kind string
+	// ToolCallID is the engine-native tool-call id this permission request
+	// refers to, when the backend's protocol supplies one (ACP's
+	// RequestPermissionRequest.toolCall.toolCallId). Carried through so a
+	// re-emission can target the SAME id instead of guessing one by tool
+	// name — the same fix as SessionEntry.ToolCallID, applied to the
+	// permission-forwarding path. Empty means unknown; a consumer falls back
+	// to its own name-based lookup exactly as before this field existed.
+	ToolCallID string
+}
+
+// PermissionOption is one decision the engine offers for a permission request.
+// Kind is the ACP option-kind vocabulary: allow_once | allow_always |
+// reject_once | reject_always.
+type PermissionOption struct {
+	ID   string
+	Kind string
+	Name string
+}
+
+// PermissionAnswer resolves the PermissionRequest with the same ID: OptionID
+// names the chosen option; empty means the request was dismissed/cancelled
+// (the engine treats that as neither an approval nor a remembered rejection).
+type PermissionAnswer struct {
+	ID       string
+	OptionID string
+}
+
+// Terminal op vocabulary (B1, gap G6): the five ACP terminal/* methods a
+// TerminalRequest/TerminalResponse pair can broker. Mirrors the ACP method
+// names (terminal/create → "create", etc.) without importing the ACP SDK
+// into this package (same discipline as ContentBlock.Kind / MCPTransport's
+// plain-string vocabularies).
+const (
+	TerminalOpCreate      = "create"
+	TerminalOpOutput      = "output"
+	TerminalOpWaitForExit = "wait_for_exit"
+	TerminalOpKill        = "kill"
+	TerminalOpRelease     = "release"
+)
+
+// TerminalRequest is a forwarded engine terminal/* request (B1, gap G6): the
+// engine wants ctxloom to broker ONE terminal operation to the connected
+// upstream editor. This carrier never implements a terminal itself. ID
+// correlates the eventual TerminalResponse (unique within one chat, same
+// discipline as PermissionRequest.ID). Op names which ACP terminal/* method
+// this is (the TerminalOp* constants above). Params carries that method's
+// ACP request body VERBATIM as JSON, WITH THE SESSION ID STRIPPED: the id in
+// there is the CLIENT-role driver's own opaque session with the ENGINE,
+// which the upstream editor does not share and must never see — an
+// agent-role broker substitutes ITS OWN editor-facing session id before
+// relaying, rather than carrying the engine's own id through, exactly as it
+// must for a forwarded permission request. Params/Result ride as raw JSON (not five
+// duplicated typed structs, one per op, in both this package and its proto
+// mirror) — the same established pattern as PermissionRequest.ToolInput and
+// ChatEvent.Raw: this hub layer relays bytes, it never needs to construct or
+// validate the ACP-typed terminal shapes itself.
+type TerminalRequest struct {
+	ID     string
+	Op     string
+	Params json.RawMessage
+}
+
+// TerminalResponse resolves the TerminalRequest with the same ID: on
+// success, Result carries the op's ACP response body verbatim as JSON
+// (e.g. `{"terminalId":"..."}` for create, `{}` for kill/release); on
+// failure (the editor declined, errored, or the brokering channel died
+// before an answer arrived), Error carries a human-readable reason and
+// Result is empty. Exactly one of Result/Error is meaningful — never both
+// empty, which would be this codebase's signature silent-no-op bug wearing
+// a new hat.
+type TerminalResponse struct {
+	ID     string
+	Result json.RawMessage
+	Error  string
+}
+
+// TurnMeta is backend-agnostic completion metadata, emitted once per response:
+// a client can surface a context-window gauge, cost, and timing. Backends fill
+// what they can; a zero field means "unknown".
+//
+// EMITTED per turn; MEASURED per SESSION. The token and cost fields report the
+// conversation's running totals as of this turn, NOT that turn's own
+// consumption — the field names say "this response" and the values do not, so
+// the distinction is spelled out here rather than left to be rediscovered.
+// It is what every reader already assumes: the gauge renders
+// InputTokens/ContextWindow as "used out of the window", ACP's own
+// usage_update is cumulative by specification (its `used` is "tokens currently
+// in context", its `cost` "cumulative session cost") and round-trips through
+// this struct, and agentcoord bills the LAST turn's meta as the session total.
+// A backend that reports per-turn deltas here therefore under-reports the
+// session everywhere at once, and silently.
+//
+// StopReason, DurationMs and Model are the per-turn exceptions, as their names
+// suggest: each describes the one response this meta completes.
+type TurnMeta struct {
+	InputTokens         int // session total: tokens in context as of this turn
+	OutputTokens        int // session total
+	CacheReadTokens     int // session total
+	CacheCreationTokens int // session total
+	ContextWindow       int // model's context window (for an "x / N" gauge)
+	MaxOutputTokens     int
+	CostUSD             float64 // session total, in USD
+	Model               string
+	StopReason          string
+	DurationMs          int
+	NumTurns            int
+}
+
+// ChatSessionInfo is one-time metadata emitted at the start of a chat (kept
+// distinct from SessionMeta, which is transcript-store metadata).
+type ChatSessionInfo struct {
+	// SessionID is the harness-NATIVE session id this conversation runs
+	// under (the ACP session id from session/new or session/load) — the
+	// resume handle a coordinator journals so a later respawn can continue
+	// the same native session (ChatRequest.ResumeSessionID). Empty when the
+	// backend exposes none.
+	SessionID string
+	// Resumable reports that the backend advertised it can RESUME this native
+	// session by its SessionID key on a later spawn (ACP: the engine's
+	// initialize-time loadSession capability). It is
+	// the LIVE half of the one-shot resume gate (one-shot-resume plan, Slice 4
+	// / Fork 3): the static per-backend table says a backend COULD resume, but
+	// only the connected adapter's own handshake proves THIS engine actually
+	// advertises it — a mismatch (statically capable, live-unadvertised) must
+	// fall back to the persistent warm-engine model rather than tear down at a
+	// turn boundary and then fail loud at session/load. False when the backend
+	// exposes no such capability (or has not reported one yet).
+	Resumable      bool
+	Model          string
+	PermissionMode string
+	ContextWindow  int
+	MCPServers     []MCPStatus
+}
+
+// MCPStatus is the connection status of one MCP server at session start.
+type MCPStatus struct {
+	Name   string
+	Status string
+}

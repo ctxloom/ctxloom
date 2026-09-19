@@ -8,17 +8,17 @@
 // external `_test` package (`coord_test`, `termui_test`, `transcript_test`,
 // `agent_test`) rather than in any non-test file:
 //
-//	internal/cli/tui        -> internal/agentcoord/coord   (production)
-//	internal/agentcoord/coord_test -> internal/cli/tui      (test-only)
+//	internal/adapters/cli/tui        -> internal/core/coord   (production)
+//	internal/adapters/coordgrpc/pb/coord_test -> internal/adapters/cli/tui      (test-only)
 //
-//	internal/cli/tui        -> internal/termui              (production)
-//	internal/termui_test     -> internal/cli/tui             (test-only)
+//	internal/adapters/cli/tui        -> internal/adapters/termui              (production)
+//	internal/termui_test     -> internal/adapters/cli/tui             (test-only)
 //
-//	internal/lm/grpc        -> internal/transcript           (production)
+//	internal/lm/grpc        -> internal/adapters/transcript           (production)
 //	internal/transcript_test -> internal/lm/grpc             (test-only)
 //
-//	internal/claude            -> internal/shared/agent      (production)
-//	internal/shared/agent_test -> internal/claude            (test-only)
+//	internal/engines/claude            -> internal/core/agent      (production)
+//	internal/shared/agent_test -> internal/engines/claude            (test-only)
 //
 // The Go compiler already refuses a real cycle, but only once BOTH edges
 // exist in production code — which means the developer who adds the SECOND
@@ -60,7 +60,7 @@ import (
 // lists it. `allowed` is this rule's shrinking allowlist, keyed by EDGE —
 // "<from dir> -> <dep dir>" — mapped to the fix required to remove it, in
 // the same spirit as arch_test.go's testSupportImporters and
-// internal/cli's formatDebtAllowlist. An edge key rather than a package key
+// internal/adapters/cli's formatDebtAllowlist. An edge key rather than a package key
 // is what makes the ratchet fine-grained: a package with five forbidden
 // imports has five entries, each deleted (by TestArch_LayeringAllowlist_IsLive)
 // the moment its own import leaves, instead of one entry that stays live —
@@ -83,42 +83,41 @@ func edgeKey(from, dep string) string { return from + " -> " + dep }
 var layeringRules = []layeringRule{
 	{
 		name:   "coord-must-not-import-cli/tui",
-		from:   []string{"internal/agentcoord/coord"},
-		forbid: []string{"internal/cli/tui"},
+		from:   []string{"internal/core/coord"},
+		forbid: []string{"internal/adapters/cli/tui"},
 	},
 	{
 		name:   "termui-must-not-import-cli/tui",
-		from:   []string{"internal/termui"},
-		forbid: []string{"internal/cli/tui"},
+		from:   []string{"internal/adapters/termui"},
+		forbid: []string{"internal/adapters/cli/tui"},
 	},
 	{
 		name:   "transcript-must-not-import-lm/grpc",
-		from:   []string{"internal/transcript"},
+		from:   []string{"internal/adapters/transcript"},
 		forbid: []string{"internal/lm/grpc"},
 	},
 	{
 		name:   "shared/agent-must-not-import-engine-plugins",
-		from:   []string{"internal/shared/agent"},
-		forbid: []string{"internal/claude"},
+		from:   []string{"internal/core/agent"},
+		forbid: []string{"internal/engines/claude"},
 	},
 	{
 		// The coarse ancestor of T20's future `cli/<flow> -> operations/<flow>
-		// -> domain` rule: internal/operations is the frontend-agnostic layer
+		// -> domain` rule: internal/adapters/operations is the frontend-agnostic layer
 		// both the CLI and MCP call into, so it must never import back up
-		// into internal/cli. When the per-flow split lands, this entry can
-		// be replaced by one per flow (`internal/operations/<flow>` must not
-		// import `internal/cli/<other-flow>`) without touching the mechanism.
+		// into internal/adapters/cli. When the per-flow split lands, this entry can
+		// be replaced by one per flow (`internal/adapters/operations/<flow>` must not
+		// import `internal/adapters/cli/<other-flow>`) without touching the mechanism.
 		name:   "operations-must-not-import-cli",
-		from:   []string{"internal/operations"},
-		forbid: []string{"internal/cli"},
+		from:   []string{"internal/adapters/operations"},
+		forbid: []string{"internal/adapters/cli"},
 	},
 	{
 		// THE DECIDED ARCHITECTURE'S CORE RING (docs/architecture/audit-2026-09-18/
 		// 30-decided-architecture.md, Part 1.0): the packages that become
-		// internal/core/* import only each other and the toolbox. Until the
-		// rename slice makes the rings directories, `from` and `except` name
-		// today's paths one by one; after it, each collapses to a prefix.
-		// `forbid` is every in-repo root, so anything that is neither core
+		// internal/core/* import only each other and the toolbox. The rename
+		// slice made the ring a directory, so `from` and `except` are the
+		// prefix. `forbid` is every in-repo root, so anything that is neither core
 		// nor toolbox is forbidden by default — a new package needs no row.
 		// The allowlist is the MEASURED import list, one edge per entry,
 		// each naming the slice in which it leaves; it is a ratchet, not a
@@ -126,33 +125,20 @@ var layeringRules = []layeringRule{
 		// deletes an entry the moment its import is gone.
 		name: "core-imports-only-core",
 		from: []string{
-			"internal/trust",
-			"internal/sessions",
-			"internal/profiles",
-			"internal/bundles",
-			"internal/config",
-			"internal/paths",
-			"internal/shared/wire",
-			"internal/shared/agent",
-			"internal/agentcoord/spool",
-			"internal/agentcoord/coord",
+			"internal/core",
+			// measured core, retired in place (slice 6b): outside the prefix
+			// until it is deleted, so it is named on its own.
 			"internal/lm/engine",
 		},
 		forbid: []string{"cmd", "container", "internal", "pkg", "resources", "scripts"},
 		except: []string{
 			// core (the from-set again: core may import core)
-			"internal/trust",
-			"internal/sessions",
-			"internal/profiles",
-			"internal/bundles",
-			"internal/config",
-			"internal/paths",
-			"internal/shared/wire",
-			"internal/shared/agent",
-			"internal/agentcoord/spool",
-			"internal/agentcoord/coord",
+			"internal/core",
 			"internal/lm/engine",
-			// the toolbox (Part 0: domain-free leaf libraries)
+			// the toolbox (Part 0: domain-free leaf libraries), listed by
+			// member rather than as the internal/shared prefix: a package
+			// that merely sits under that directory is not thereby a
+			// toolbox member core may reach.
 			"internal/shared/iox",
 			"internal/shared/lockwait",
 			"internal/shared/collections",
@@ -162,90 +148,91 @@ var layeringRules = []layeringRule{
 			"internal/shared/realpath",
 			"internal/shared/harp",
 			"internal/shared/pidalive",
-			"internal/errs",
-			"internal/refuri",
-			"internal/schema",
-			"internal/liveness",
+			"internal/shared/errs",
+			"internal/shared/refuri",
+			"internal/shared/schema",
+			"internal/shared/liveness",
 		},
 		allowed: map[string]string{
 			// core/trust
-			"internal/trust -> internal/remote": "slice 2: URL normalisation already lives in refuri; the remote import goes",
+			"internal/core/trust -> internal/adapters/remote": "slice 2: URL normalisation already lives in refuri; the remote import goes",
 
 			// core/sessions
-			"internal/sessions -> internal/shared/upgrade": "slice 1a: the index migrations are deleted",
-			"internal/sessions -> internal/shared/clidiag": "slice 15: clidiag becomes typed reports",
+			"internal/core/sessions -> internal/shared/upgrade": "slice 1a: the index migrations are deleted",
+			"internal/core/sessions -> internal/shared/clidiag": "slice 15: clidiag becomes typed reports",
 
 			// core/profiles — Part 1.0 lists remote and shared/agent; shared/agent is a
 			// from-package here (its contract half becomes core/engine in 6b), so that
 			// edge is not a violation under the prefix rule. The other three were
 			// MEASURED, not listed.
-			"internal/profiles -> internal/remote":            "slice 5: the pull-walk reader moves to adapters/remote",
-			"internal/profiles -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports (measured; not in Part 1.0's profiles row)",
-			"internal/profiles -> internal/shared/strictness": "slice 15: strictness becomes a value (measured; not in Part 1.0's profiles row)",
-			"internal/profiles -> internal/shared/upgrade":    "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's profiles row)",
-			"internal/profiles -> resources":                  "slice 5: the embedded builtin profiles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
+			"internal/core/profiles -> internal/adapters/remote":   "slice 5: the pull-walk reader moves to adapters/remote",
+			"internal/core/profiles -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports (measured; not in Part 1.0's profiles row)",
+			"internal/core/profiles -> internal/shared/strictness": "slice 15: strictness becomes a value (measured; not in Part 1.0's profiles row)",
+			"internal/core/profiles -> internal/shared/upgrade":    "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's profiles row)",
+			"internal/core/profiles -> resources":                  "slice 5: the embedded builtin profiles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
 
 			// core/bundles
-			"internal/bundles -> internal/content":            "slice 5: readers become adapters behind bundles.Reader",
-			"internal/bundles -> internal/content/attest":     "slice 5: attest.VerifyBundle is called by the reader adapters",
-			"internal/bundles -> internal/content/remotetree": "slice 5: readers become adapters behind bundles.Reader",
-			"internal/bundles -> internal/remote":             "slice 5: readers become adapters behind bundles.Reader",
-			"internal/bundles -> internal/signing":            "slice 5: one verifier, behind the trust ports",
-			"internal/bundles -> internal/shared/admission":   "slice 5: admission is decided by composite.Trust, not by the bundle package",
-			"internal/bundles -> internal/shared/upgrade":     "slice 1a: the permanent migrations are deleted",
-			"internal/bundles -> internal/shared/clidiag":     "slice 15: clidiag becomes typed reports",
-			"internal/bundles -> internal/shared/strictness":  "slice 15: strictness becomes a value (measured; not in Part 1.0's bundles row)",
-			"internal/bundles -> resources":                   "slice 5: the embedded builtin bundles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
+			"internal/core/bundles -> internal/adapters/content":            "slice 5: readers become adapters behind bundles.Reader",
+			"internal/core/bundles -> internal/adapters/content/attest":     "slice 5: attest.VerifyBundle is called by the reader adapters",
+			"internal/core/bundles -> internal/adapters/content/remotetree": "slice 5: readers become adapters behind bundles.Reader",
+			"internal/core/bundles -> internal/adapters/remote":             "slice 5: readers become adapters behind bundles.Reader",
+			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
+			"internal/core/bundles -> internal/shared/admission":            "slice 5: admission is decided by composite.Trust, not by the bundle package",
+			"internal/core/bundles -> internal/shared/upgrade":              "slice 1a: the permanent migrations are deleted",
+			"internal/core/bundles -> internal/shared/clidiag":              "slice 15: clidiag becomes typed reports",
+			"internal/core/bundles -> internal/shared/strictness":           "slice 15: strictness becomes a value (measured; not in Part 1.0's bundles row)",
+			"internal/core/bundles -> resources":                            "slice 5: the embedded builtin bundles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
 
 			// core/config — Part 1.0 also lists config/layerscope, which is under the
 			// from-prefix today and so not a violation until the rename moves it to
 			// adapters/configload/layerscope.
-			"internal/config -> internal/agents":                  "slice 4: the adapters/configload split",
-			"internal/config -> internal/content":                 "slice 4: the adapters/configload split",
-			"internal/config -> internal/content/remotetree":      "slice 4: the adapters/configload split",
-			"internal/config -> internal/projectroot":             "slice 4: the adapters/configload split; config no longer finds its own root",
-			"internal/config -> internal/remote":                  "slice 5: trust ports behind Sources.TrustPorts",
-			"internal/config -> internal/shared/admission":        "slice 5: admission is decided by composite.Trust",
-			"internal/config -> internal/shared/cliversion":       "slice 4: the adapters/configload split",
-			"internal/config -> internal/shared/companionloadout": "slice 4: companion probing moves to adapters/companions",
-			"internal/config -> internal/shared/confload":         "slice 4: the file/env/flag chain is adapters/configload's (measured; not in Part 1.0's config row)",
-			"internal/config -> internal/signing":                 "slice 5: trust ports behind Sources.TrustPorts",
-			"internal/config -> internal/signing/allowedsigners":  "slice 5: trust ports behind Sources.TrustPorts",
-			"internal/config -> internal/shared/upgrade":          "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's config row)",
-			"internal/config -> internal/shared/clidiag":          "slice 15: clidiag becomes typed reports",
-			"internal/config -> internal/shared/strictness":       "slice 15: strictness becomes a value (measured; not in Part 1.0's config row)",
-			"internal/config -> resources":                        "slice 4: the embedded default config is data adapters/configload supplies (measured; Part 1.0 does not classify resources)",
+			"internal/core/config -> internal/adapters/agents":                 "slice 4: the adapters/configload split",
+			"internal/core/config -> internal/adapters/content":                "slice 4: the adapters/configload split",
+			"internal/core/config -> internal/adapters/content/remotetree":     "slice 4: the adapters/configload split",
+			"internal/core/config -> internal/adapters/projectroot":            "slice 4: the adapters/configload split; config no longer finds its own root",
+			"internal/core/config -> internal/adapters/remote":                 "slice 5: trust ports behind Sources.TrustPorts",
+			"internal/core/config -> internal/shared/admission":                "slice 5: admission is decided by composite.Trust",
+			"internal/core/config -> internal/shared/cliversion":               "slice 4: the adapters/configload split",
+			"internal/core/config -> internal/adapters/configload/layerscope":  "slice 4: the adapters/configload split; layerscope is configload's",
+			"internal/core/config -> internal/adapters/companions":             "slice 4: companion probing moves to adapters/companions",
+			"internal/core/config -> internal/shared/confload":                 "slice 4: the file/env/flag chain is adapters/configload's (measured; not in Part 1.0's config row)",
+			"internal/core/config -> internal/adapters/signing":                "slice 5: trust ports behind Sources.TrustPorts",
+			"internal/core/config -> internal/adapters/signing/allowedsigners": "slice 5: trust ports behind Sources.TrustPorts",
+			"internal/core/config -> internal/shared/upgrade":                  "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's config row)",
+			"internal/core/config -> internal/shared/clidiag":                  "slice 15: clidiag becomes typed reports",
+			"internal/core/config -> internal/shared/strictness":               "slice 15: strictness becomes a value (measured; not in Part 1.0's config row)",
+			"internal/core/config -> resources":                                "slice 4: the embedded default config is data adapters/configload supplies (measured; Part 1.0 does not classify resources)",
 
 			// core/coord — Part 1.0 also lists shared/agent, a from-package here (see
 			// profiles). envswitch is listed there without a slice.
-			"internal/agentcoord/coord -> internal/agentcoord":           "slice 10: every generated-type reference re-typed on Go values; the proto goes to adapters/coordgrpc",
-			"internal/agentcoord/coord -> internal/agentcoord/discover":  "slice 10: discover moves to adapters/coordgrpc",
-			"internal/agentcoord/coord -> internal/agentcoord/mcpschema": "slice 10: mcpschema moves to adapters/coordgrpc",
-			"internal/agentcoord/coord -> internal/agents":               "slice 8: harnessspec/SpawnPlan become core/launch types",
-			"internal/agentcoord/coord -> internal/lm/isolation":         "slice 8: the isolation axes become core/launch value types",
-			"internal/agentcoord/coord -> internal/operations":           "slice 8: operations.DirtyTreeHandler becomes launch.DirtyTreeHandler; operations implements coord.HostApp",
-			"internal/agentcoord/coord -> internal/transcript":           "slice 14a: the engine-host files move to adapters/runner",
-			"internal/agentcoord/coord -> internal/shared/envswitch":     "Part 1.0 lists this edge without a slice; it leaves with the engine host (14a), which is what reads the switched env",
-			"internal/agentcoord/coord -> internal/shared/clidiag":       "slice 15: clidiag becomes typed reports",
-			"internal/agentcoord/coord -> internal/shared/strictness":    "slice 15: strictness becomes a value",
+			"internal/core/coord -> internal/adapters/coordgrpc/pb":        "slice 10: every generated-type reference re-typed on Go values; the proto goes to adapters/coordgrpc",
+			"internal/core/coord -> internal/agentcoord/discover":          "slice 10: discover moves to adapters/coordgrpc",
+			"internal/core/coord -> internal/adapters/coordgrpc/mcpschema": "slice 10: mcpschema moves to adapters/coordgrpc",
+			"internal/core/coord -> internal/adapters/agents":              "slice 8: harnessspec/SpawnPlan become core/launch types",
+			"internal/core/coord -> internal/adapters/isolation":           "slice 8: the isolation axes become core/launch value types",
+			"internal/core/coord -> internal/adapters/operations":          "slice 8: operations.DirtyTreeHandler becomes launch.DirtyTreeHandler; operations implements coord.HostApp",
+			"internal/core/coord -> internal/adapters/transcript":          "slice 14a: the engine-host files move to adapters/runner",
+			"internal/core/coord -> internal/shared/envswitch":             "Part 1.0 lists this edge without a slice; it leaves with the engine host (14a), which is what reads the switched env",
+			"internal/core/coord -> internal/shared/clidiag":               "slice 15: clidiag becomes typed reports",
+			"internal/core/coord -> internal/shared/strictness":            "slice 15: strictness becomes a value",
 
 			// coord/coordtest is the in-process runner double compiled into no binary;
 			// Part 1.0 does not mention it. It stands up the real runner half, so it
 			// imports what the runner imports until the runner is a package of its own.
-			"internal/agentcoord/coord/coordtest -> internal/lm/backends":  "slice 14a: the double stands up adapters/runner instead of the backends seam (measured; Part 1.0 does not mention coordtest)",
-			"internal/agentcoord/coord/coordtest -> internal/lm/isolation": "slice 14a: the double stands up adapters/runner instead of reaching isolation (measured; Part 1.0 does not mention coordtest)",
+			"internal/core/coord/coordtest -> internal/lm/backends":        "slice 14a: the double stands up adapters/runner instead of the backends seam (measured; Part 1.0 does not mention coordtest)",
+			"internal/core/coord/coordtest -> internal/adapters/isolation": "slice 14a: the double stands up adapters/runner instead of reaching isolation (measured; Part 1.0 does not mention coordtest)",
 
 			// shared/agent → its contract half becomes core/engine. Part 1.0 also
 			// lists lockwait and iox, which Part 0 names as toolbox; the toolbox is
 			// excepted, so those two are not violations.
-			"internal/shared/agent -> internal/shared/ledger":     "slice 12: shared/ledger is deleted",
-			"internal/shared/agent -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports",
-			"internal/shared/agent -> internal/shared/strictness": "slice 15: strictness becomes a value",
+			"internal/core/agent -> internal/shared/ledger":     "slice 12: shared/ledger is deleted",
+			"internal/core/agent -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports",
+			"internal/core/agent -> internal/shared/strictness": "slice 15: strictness becomes a value",
 
 			// lm/engine → folded into core/engine. Part 1.0 also lists bundles, a
 			// from-package here, so that edge is not a violation.
-			"internal/lm/engine -> internal/engineversion":           "slice 6b: Descriptor becomes Definition; the version command is the engine's own",
-			"internal/lm/engine -> internal/transcript/vendorreader": "slice 6b: the readers become engine.TranscriptReader values the adapter supplies",
+			"internal/lm/engine -> internal/adapters/engineversion":           "slice 6b: Descriptor becomes Definition; the version command is the engine's own",
+			"internal/lm/engine -> internal/adapters/transcript/vendorreader": "slice 6b: the readers become engine.TranscriptReader values the adapter supplies",
 		},
 	},
 	{
@@ -261,146 +248,191 @@ var layeringRules = []layeringRule{
 		// edge is MEASURED and leaves in the slice its reason names.
 		name: "adapters-import-core-not-each-other",
 		from: []string{
-			"internal/cli",
-			"internal/termui",
-			"internal/operations",
+			"internal/adapters",
+			// measured adapters, retired in place (slice 13): outside the
+			// prefix until they are deleted, so they are named on their own.
 			"internal/lm/grpc",
-			"internal/lm/isolation",
-			"internal/vpio",
-			"internal/remote",
-			"internal/shared/companionloadout",
-			"internal/signing",
-			"internal/content/attest",
-			"internal/config/layerscope",
-			"internal/transcript",
-			"internal/memory",
-			"internal/confpatch",
-			"internal/mcp",
+			"internal/vpio/dockerexec",
+			"internal/vpio/goplugin",
 		},
 		forbid: []string{
 			// the adapters (the from-set again)
-			"internal/cli",
-			"internal/termui",
-			"internal/operations",
+			"internal/adapters",
 			"internal/lm/grpc",
-			"internal/lm/isolation",
-			"internal/vpio",
-			"internal/remote",
-			"internal/shared/companionloadout",
-			"internal/signing",
-			"internal/content/attest",
-			"internal/config/layerscope",
-			"internal/transcript",
-			"internal/memory",
-			"internal/confpatch",
-			"internal/mcp",
-			// the engines
-			"internal/claude",
-			"internal/mockengine",
-			"internal/lm/engines",
+			"internal/vpio/dockerexec",
+			"internal/vpio/goplugin",
+			// the engines, and the retired-in-place backends (slice 11b)
+			"internal/engines",
 			"internal/lm/backends",
 		},
 		allowed: map[string]string{
 			// sanctioned (Part 1.1): the CLI is a frontend over operations; a
 			// package may import its own subpackage.
-			"internal/cli -> internal/operations":                                         "sanctioned: cli → operations is one of the two adapter-to-adapter edges Part 0 keeps",
-			"internal/cli -> internal/cli/tui":                                            "sanctioned: a package's own subpackage",
-			"internal/signing -> internal/signing/allowedsigners":                         "sanctioned: a package's own subpackage",
-			"internal/transcript/vendorreader/claude -> internal/transcript/vendorreader": "sanctioned: a package's own parent tree (transcript/*)",
-			"internal/transcript/vendorreader/mock -> internal/transcript/vendorreader":   "sanctioned: a package's own parent tree (transcript/*)",
-			"internal/transcript/vendorreader/claude -> internal/transcript":              "sanctioned: a package's own parent tree (transcript/*)",
-			"internal/transcript/vendorreader/mock -> internal/transcript":                "sanctioned: a package's own parent tree (transcript/*)",
-			"internal/transcript/vendorreader -> internal/transcript":                     "sanctioned: a package's own parent tree (transcript/*)",
-			"internal/signing/countersign -> internal/signing":                            "sanctioned: a package's own parent tree (signing/*)",
-			"internal/vpio/dockerexec -> internal/vpio":                                   "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
-			"internal/vpio/goplugin -> internal/vpio":                                     "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
+			"internal/adapters/cli -> internal/adapters/operations":                                         "sanctioned: cli → operations is one of the two adapter-to-adapter edges Part 0 keeps",
+			"internal/adapters/cli -> internal/adapters/cli/tui":                                            "sanctioned: a package's own subpackage",
+			"internal/adapters/signing -> internal/adapters/signing/allowedsigners":                         "sanctioned: a package's own subpackage",
+			"internal/adapters/transcript/vendorreader/claude -> internal/adapters/transcript/vendorreader": "sanctioned: a package's own parent tree (transcript/*)",
+			"internal/adapters/transcript/vendorreader/mock -> internal/adapters/transcript/vendorreader":   "sanctioned: a package's own parent tree (transcript/*)",
+			"internal/adapters/transcript/vendorreader/claude -> internal/adapters/transcript":              "sanctioned: a package's own parent tree (transcript/*)",
+			"internal/adapters/transcript/vendorreader/mock -> internal/adapters/transcript":                "sanctioned: a package's own parent tree (transcript/*)",
+			"internal/adapters/transcript/vendorreader -> internal/adapters/transcript":                     "sanctioned: a package's own parent tree (transcript/*)",
+			"internal/adapters/signing/countersign -> internal/adapters/signing":                            "sanctioned: a package's own parent tree (signing/*)",
+			"internal/adapters/content/archive -> internal/adapters/content":                                "sanctioned: a package's own parent tree (content/*)",
+			"internal/adapters/content/attest -> internal/adapters/content":                                 "sanctioned: a package's own parent tree (content/*)",
+			"internal/adapters/content/convert -> internal/adapters/content":                                "sanctioned: a package's own parent tree (content/*)",
+			"internal/adapters/content/remotetree -> internal/adapters/content":                             "sanctioned: a package's own parent tree (content/*)",
+			"internal/adapters/coordgrpc/mcpschema/gen -> internal/adapters/coordgrpc/mcpschema":            "sanctioned: a package's own parent tree (coordgrpc/*)",
+			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb":                       "sanctioned: the proto is coordgrpc's own subpackage (slice 10 folds mcpschema into coordgrpc)",
+			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":                                   "sanctioned: cli/tui is the watch UI on the coordination proto",
+			"internal/adapters/mcp -> internal/adapters/coordgrpc/pb":                                       "sanctioned: today's MCP server is the future runner/mcp, which speaks the wire",
+			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/mcp speaks the wire through it (measured)",
+
+			// edges the prefix form surfaced (packages unit A's explicit
+			// lists did not name); each MEASURED, with the slice that
+			// removes it where Part 1.1 names one
+			"internal/adapters/cli -> internal/adapters/agents":                         "slice 4: the adapters/configload split; the agent binding is read through operations.App's Snapshot (measured; Part 1.1 does not place agents)",
+			"internal/adapters/cli -> internal/adapters/contextmetrics":                 "measured; Part 1.1 does not place contextmetrics — no slice names this edge",
+			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                   "slice 13: allowlisted until then per Part 1.0",
+			"internal/adapters/cli -> internal/adapters/git":                            "measured; Part 1.1 does not place git — no slice names this edge",
+			"internal/adapters/cli -> internal/adapters/gitignore":                      "measured; Part 1.1 does not place gitignore — no slice names this edge",
+			"internal/adapters/cli -> internal/adapters/projectroot":                    "slice 7: launch.HostFacts carries the project root from cmd/*",
+			"internal/adapters/cli -> internal/adapters/selfexec":                       "slice 13: hostpty spawns the runner; the self-exec path is a HostFacts value (measured; Part 1.1 does not place selfexec)",
+			"internal/adapters/cli -> internal/adapters/tmuxhost":                       "slice 13: tmuxhost goes with vpio; adapters/hostpty replaces it",
+			"internal/adapters/cli -> internal/adapters/turnchange":                     "measured; Part 1.1 does not place turnchange — no slice names this edge",
+			"internal/adapters/content -> internal/adapters/signing":                    "slice 5: one verifier behind the trust ports",
+			"internal/adapters/content/convert -> internal/adapters/signing":            "slice 5: one verifier behind the trust ports",
+			"internal/adapters/content/remotetree -> internal/adapters/remote":          "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
+			"internal/adapters/isolation -> internal/adapters/git":                      "measured; Part 1.1 does not place git — no slice names this edge",
+			"internal/adapters/isolation -> internal/adapters/gitignore":                "measured; Part 1.1 does not place gitignore — no slice names this edge",
+			"internal/adapters/mcp -> internal/adapters/contextmetrics":                 "slice 9: runner/mcp serves delivery.Dynamic (measured; Part 1.1 does not place contextmetrics)",
+			"internal/adapters/operations -> internal/adapters/agents":                  "slice 4: the adapters/configload split (measured; Part 1.1 does not place agents)",
+			"internal/adapters/operations -> internal/adapters/content":                 "slice 5: readers become adapters behind bundles.Reader",
+			"internal/adapters/operations -> internal/adapters/content/convert":         "slice 5: readers become adapters behind bundles.Reader",
+			"internal/adapters/operations -> internal/adapters/content/remotetree":      "slice 5: readers become adapters behind bundles.Reader",
+			"internal/adapters/operations -> internal/adapters/coordgrpc/pb":            "slice 13: allowlisted until then per Part 1.0",
+			"internal/adapters/operations -> internal/adapters/engineversion":           "slice 6b: Descriptor becomes Definition; the version command is the engine's own",
+			"internal/adapters/operations -> internal/adapters/git":                     "measured; Part 1.1 does not place git — no slice names this edge",
+			"internal/adapters/operations -> internal/adapters/projectroot":             "slice 7: launch.HostFacts carries the project root from cmd/*",
+			"internal/adapters/remote -> internal/adapters/git":                         "measured; Part 1.1 does not place git — no slice names this edge",
+			"internal/adapters/turnchange -> internal/adapters/transcript/vendorreader": "slice 6b: the readers become engine.TranscriptReader values",
+			"internal/lm/grpc -> internal/adapters/projectroot":                         "slice 13: the go-plugin protocol is deleted whole",
+			"internal/lm/grpc -> internal/adapters/selfexec":                            "slice 13: the go-plugin protocol is deleted whole",
+			"internal/vpio/dockerexec -> internal/adapters/vpio":                        "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
+			"internal/vpio/goplugin -> internal/adapters/vpio":                          "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
 
 			// cli reaching past operations
-			"internal/cli -> internal/claude":                  "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
-			"internal/cli -> internal/claude/engine":           "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
-			"internal/cli -> internal/lm/backends":             "slice 11b: lm/backends is deleted whole",
-			"internal/cli -> internal/lm/engines":              "slice 11b: engines.Build() is called by the composition root, cmd/*",
-			"internal/cli -> internal/lm/grpc":                 "slice 13: the go-plugin protocol is deleted whole",
-			"internal/cli -> internal/lm/isolation":            "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
-			"internal/cli -> internal/mcp":                     "slice 9: the stdio MCP server is deleted; the endpoint lives in runner/mcp",
-			"internal/cli -> internal/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm) is called by operations.Compact",
-			"internal/cli -> internal/remote":                  "slice 15: operations.ReviewWalk/ResolveLocalSigner take the orchestration out of the CLI",
-			"internal/cli -> internal/signing":                 "slice 15: operations.ResolveLocalSigner takes the orchestration out of the CLI",
-			"internal/cli -> internal/signing/agentkey":        "slice 15: operations.ResolveLocalSigner takes the orchestration out of the CLI",
-			"internal/cli -> internal/termui":                  "slice 13: termui sits over the pty master the runner owns",
-			"internal/cli -> internal/transcript":              "slice 13: cli/tui reads the transcript file; the CLI does not open transcripts itself",
-			"internal/cli -> internal/transcript/vendorreader": "slice 6b: the readers become engine.TranscriptReader values",
-			"internal/cli -> internal/vpio":                    "slice 13: adapters/hostpty and adapters/attach replace vpio; the CLI reaches them through operations",
-			"internal/cli -> internal/vpio/dockerexec":         "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
-			"internal/cli -> internal/vpio/goplugin":           "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
-			"internal/cli -> internal/confpatch":               "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the CLI",
+			"internal/adapters/cli -> internal/engines/claude":                   "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
+			"internal/adapters/cli -> internal/engines/claude/engine":            "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
+			"internal/adapters/cli -> internal/lm/backends":                      "slice 11b: lm/backends is deleted whole",
+			"internal/adapters/cli -> internal/engines":                          "slice 11b: engines.Build() is called by the composition root, cmd/*",
+			"internal/adapters/cli -> internal/lm/grpc":                          "slice 13: the go-plugin protocol is deleted whole",
+			"internal/adapters/cli -> internal/adapters/isolation":               "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
+			"internal/adapters/cli -> internal/adapters/mcp":                     "slice 9: the stdio MCP server is deleted; the endpoint lives in runner/mcp",
+			"internal/adapters/cli -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm) is called by operations.Compact",
+			"internal/adapters/cli -> internal/adapters/remote":                  "slice 15: operations.ReviewWalk/ResolveLocalSigner take the orchestration out of the CLI",
+			"internal/adapters/cli -> internal/adapters/signing":                 "slice 15: operations.ResolveLocalSigner takes the orchestration out of the CLI",
+			"internal/adapters/cli -> internal/adapters/signing/agentkey":        "slice 15: operations.ResolveLocalSigner takes the orchestration out of the CLI",
+			"internal/adapters/cli -> internal/adapters/termui":                  "slice 13: termui sits over the pty master the runner owns",
+			"internal/adapters/cli -> internal/adapters/transcript":              "slice 13: cli/tui reads the transcript file; the CLI does not open transcripts itself",
+			"internal/adapters/cli -> internal/adapters/transcript/vendorreader": "slice 6b: the readers become engine.TranscriptReader values",
+			"internal/adapters/cli -> internal/adapters/vpio":                    "slice 13: adapters/hostpty and adapters/attach replace vpio; the CLI reaches them through operations",
+			"internal/adapters/cli -> internal/vpio/dockerexec":                  "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
+			"internal/adapters/cli -> internal/vpio/goplugin":                    "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
+			"internal/adapters/cli -> internal/adapters/confpatch":               "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the CLI",
 
 			// cli/tui and termui
-			"internal/cli/tui -> internal/lm/grpc":    "slice 13: cli/tui sits on the coordination proto and the transcript file; the plugin wire is deleted",
-			"internal/cli/tui -> internal/operations": "slice 13: the watch UI reads the coordination proto and the transcript file, not the application services",
-			"internal/cli/tui -> internal/termui":     "slice 13: termui sits over the pty master; the TUI no longer composes it",
-			"internal/termui -> internal/lm/grpc":     "slice 13: the go-plugin protocol is deleted whole",
+			"internal/adapters/cli/tui -> internal/lm/grpc":             "slice 13: cli/tui sits on the coordination proto and the transcript file; the plugin wire is deleted",
+			"internal/adapters/cli/tui -> internal/adapters/operations": "slice 13: the watch UI reads the coordination proto and the transcript file, not the application services",
+			"internal/adapters/cli/tui -> internal/adapters/termui":     "slice 13: termui sits over the pty master; the TUI no longer composes it",
+			"internal/adapters/termui -> internal/lm/grpc":              "slice 13: the go-plugin protocol is deleted whole",
 
 			// operations reaching sibling adapters (it is the application-services
 			// layer; it holds ports, not adapters)
-			"internal/operations -> internal/content/attest":          "slice 5: attest.VerifyBundle is behind the trust ports composite.Trust holds",
-			"internal/operations -> internal/lm/backends":             "slice 11b: lm/backends is deleted whole",
-			"internal/operations -> internal/lm/grpc":                 "slice 13: the go-plugin protocol is deleted whole",
-			"internal/operations -> internal/lm/isolation":            "slice 7: launch.Cells is the port; isolation is injected at cmd/*",
-			"internal/operations -> internal/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm); the compactor is injected",
-			"internal/operations -> internal/remote":                  "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
-			"internal/operations -> internal/signing":                 "slice 5: one verifier behind the trust ports",
-			"internal/operations -> internal/signing/agentkey":        "slice 5: one verifier behind the trust ports",
-			"internal/operations -> internal/signing/allowedsigners":  "slice 5: composite.SignerDecision is core-owned; the adapter is injected",
-			"internal/operations -> internal/signing/countersign":     "slice 5: one signature (the .sigs/ manifest); countersigning goes",
-			"internal/operations -> internal/transcript":              "slice 14a: sessions.Entry.NativeSession is the one record; transcript is an injected reader",
-			"internal/operations -> internal/transcript/policy":       "slice 14a: transcript policy rides with the reader adapter",
-			"internal/operations -> internal/transcript/vendorreader": "slice 6b: the readers become engine.TranscriptReader values",
+			"internal/adapters/operations -> internal/adapters/content/attest":          "slice 5: attest.VerifyBundle is behind the trust ports composite.Trust holds",
+			"internal/adapters/operations -> internal/lm/backends":                      "slice 11b: lm/backends is deleted whole",
+			"internal/adapters/operations -> internal/lm/grpc":                          "slice 13: the go-plugin protocol is deleted whole",
+			"internal/adapters/operations -> internal/adapters/isolation":               "slice 7: launch.Cells is the port; isolation is injected at cmd/*",
+			"internal/adapters/operations -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm); the compactor is injected",
+			"internal/adapters/operations -> internal/adapters/remote":                  "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
+			"internal/adapters/operations -> internal/adapters/signing":                 "slice 5: one verifier behind the trust ports",
+			"internal/adapters/operations -> internal/adapters/signing/agentkey":        "slice 5: one verifier behind the trust ports",
+			"internal/adapters/operations -> internal/adapters/signing/allowedsigners":  "slice 5: composite.SignerDecision is core-owned; the adapter is injected",
+			"internal/adapters/operations -> internal/adapters/signing/countersign":     "slice 5: one signature (the .sigs/ manifest); countersigning goes",
+			"internal/adapters/operations -> internal/adapters/transcript":              "slice 14a: sessions.Entry.NativeSession is the one record; transcript is an injected reader",
+			"internal/adapters/operations -> internal/adapters/transcript/policy":       "slice 14a: transcript policy rides with the reader adapter",
+			"internal/adapters/operations -> internal/adapters/transcript/vendorreader": "slice 6b: the readers become engine.TranscriptReader values",
 
 			// the runner's two halves today
-			"internal/lm/grpc -> internal/transcript":        "slice 13: the go-plugin protocol is deleted whole",
-			"internal/lm/grpc -> internal/transcript/policy": "slice 13: the go-plugin protocol is deleted whole",
-			"internal/mcp -> internal/lm/backends":           "slice 9: runner/mcp serves delivery.Dynamic; it holds no backend",
-			"internal/mcp -> internal/lm/isolation":          "slice 9: runner/mcp serves delivery.Dynamic; the cell is resolved before it exists",
-			"internal/mcp -> internal/memory":                "slice 14a: memory off the plugin; the compactor is an operation",
-			"internal/mcp -> internal/operations":            "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which operations implements",
-			"internal/mcp -> internal/transcript":            "slice 14a: the engine-host half of the runner records the transcript",
+			"internal/lm/grpc -> internal/adapters/transcript":        "slice 13: the go-plugin protocol is deleted whole",
+			"internal/lm/grpc -> internal/adapters/transcript/policy": "slice 13: the go-plugin protocol is deleted whole",
+			"internal/adapters/mcp -> internal/lm/backends":           "slice 9: runner/mcp serves delivery.Dynamic; it holds no backend",
+			"internal/adapters/mcp -> internal/adapters/isolation":    "slice 9: runner/mcp serves delivery.Dynamic; the cell is resolved before it exists",
+			"internal/adapters/mcp -> internal/adapters/memory":       "slice 14a: memory off the plugin; the compactor is an operation",
+			"internal/adapters/mcp -> internal/adapters/operations":   "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which operations implements",
+			"internal/adapters/mcp -> internal/adapters/transcript":   "slice 14a: the engine-host half of the runner records the transcript",
 
 			// isolation, memory, and the leaf adapters
-			"internal/lm/isolation -> internal/lm/grpc":                  "slice 13: the go-plugin protocol is deleted whole",
-			"internal/memory -> internal/lm/backends":                    "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
-			"internal/memory -> internal/lm/grpc":                        "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
-			"internal/vpio/dockerexec -> internal/lm/isolation":          "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
-			"internal/vpio/goplugin -> internal/lm/grpc":                 "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
-			"internal/shared/companionloadout -> internal/signing":       "slice 4: adapters/companions probes; signing is reached through the trust ports",
-			"internal/content/attest -> internal/signing":                "slice 5: attest.VerifyBundle is the one verifier over the signing adapter — a `must never know: each other` edge Part 1.1 does not resolve; measured",
-			"internal/transcript/vendorreader/claude -> internal/claude": "slice 6b: the claude reader becomes an engine.TranscriptReader the engine package supplies",
+			"internal/adapters/isolation -> internal/lm/grpc":                             "slice 13: the go-plugin protocol is deleted whole",
+			"internal/adapters/memory -> internal/lm/backends":                            "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
+			"internal/adapters/memory -> internal/lm/grpc":                                "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
+			"internal/vpio/dockerexec -> internal/adapters/isolation":                     "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
+			"internal/vpio/goplugin -> internal/lm/grpc":                                  "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
+			"internal/adapters/companions -> internal/adapters/signing":                   "slice 4: adapters/companions probes; signing is reached through the trust ports",
+			"internal/adapters/content/attest -> internal/adapters/signing":               "slice 5: attest.VerifyBundle is the one verifier over the signing adapter — a `must never know: each other` edge Part 1.1 does not resolve; measured",
+			"internal/adapters/transcript/vendorreader/claude -> internal/engines/claude": "slice 6b: the claude reader becomes an engine.TranscriptReader the engine package supplies",
 		},
 	},
 	{
-		// THE GENERATED COORDINATION PROTO (today internal/agentcoord itself;
-		// adapters/coordgrpc/pb after the rename) is a wire codec's private
-		// vocabulary: only the packages that speak the wire may import it. The
-		// proto's sibling subpackages under internal/agentcoord are not the
-		// proto, hence the except list — after the rename the proto is a leaf
-		// and the list goes. from is the whole module so a new importer is
-		// caught wherever it appears.
-		name:   "proto-only-in-adapters",
-		from:   []string{"cmd", "internal", "pkg"},
-		forbid: []string{"internal/agentcoord"},
+		// THE ENGINES RING (Part 1.1, `engines-import-nothing-above-the-port`):
+		// an engine package imports the port and the leaves its vocabulary
+		// names, and no adapter. Today the port is core/agent (the engine base
+		// that slice 6b turns into core/engine), so it stands in the except
+		// list beside present, sessions and wire. Every allowlisted edge is
+		// MEASURED and leaves in the slice its reason names; lm/backends is
+		// measured engines-ring and retired in place (slice 11b).
+		name:   "engines-import-nothing-above-the-port",
+		from:   []string{"internal/engines", "internal/lm/backends"},
+		forbid: []string{"internal/core", "internal/adapters"},
 		except: []string{
-			"internal/agentcoord/coord",
-			"internal/agentcoord/discover",
-			"internal/agentcoord/mcpschema",
-			"internal/agentcoord/spool",
+			"internal/core/agent",
+			"internal/core/present",
+			"internal/core/sessions",
+			"internal/core/wire",
 		},
 		allowed: map[string]string{
-			"internal/cli/tui -> internal/agentcoord":              "sanctioned: cli/tui is the watch UI on the coordination proto",
-			"internal/mcp -> internal/agentcoord":                  "sanctioned: today's MCP server is the future runner/mcp, which speaks the wire",
-			"internal/agentcoord/coord -> internal/agentcoord":     "slice 10: every remaining generated-type reference in core/coord is re-typed on Go values",
-			"internal/agentcoord/mcpschema -> internal/agentcoord": "slice 10: mcpschema moves into adapters/coordgrpc beside the proto",
-			"internal/cli -> internal/agentcoord":                  "slice 13: allowlisted until then per Part 1.0",
-			"internal/operations -> internal/agentcoord":           "slice 13: allowlisted until then per Part 1.0",
+			"internal/engines/claude/engine -> internal/adapters/engineversion":                  "slice 6b: Descriptor becomes Definition; the version command is the engine's own",
+			"internal/engines/claude/engine -> internal/adapters/transcript/vendorreader/claude": "slice 6b: the reader becomes an engine.TranscriptReader the engine package supplies",
+			"internal/engines/claude/engine -> internal/core/bundles":                            "slice 6: bundles.LLMExports become opaque; Exports(items engine.Items) imports only core/engine",
+			"internal/engines/claude -> internal/adapters/confpatch":                             "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the engine",
+			"internal/engines/claude -> internal/core/paths":                                     "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no paths",
+			"internal/lm/backends -> internal/adapters/engineversion":                            "slice 11b: lm/backends is deleted whole",
+			"internal/lm/backends -> internal/adapters/isolation":                                "slice 11b: lm/backends is deleted whole",
+			"internal/lm/backends -> internal/adapters/remote":                                   "slice 11b: lm/backends is deleted whole",
+			"internal/lm/backends -> internal/adapters/tmuxhost":                                 "slice 11b: lm/backends is deleted whole",
+			"internal/lm/backends -> internal/adapters/transcript/vendorreader":                  "slice 11b: lm/backends is deleted whole",
+			"internal/lm/backends -> internal/adapters/transcript/vendorreader/mock":             "slice 11b: lm/backends is deleted whole",
+			"internal/lm/backends -> internal/core/bundles":                                      "slice 11b: lm/backends is deleted whole",
+			"internal/lm/backends -> internal/core/config":                                       "slice 11b: lm/backends is deleted whole",
+			"internal/lm/backends -> internal/core/paths":                                        "slice 11b: lm/backends is deleted whole",
+			"internal/lm/backends -> internal/core/profiles":                                     "slice 11b: lm/backends is deleted whole",
+			"internal/lm/backends -> internal/core/trust":                                        "slice 11b: lm/backends is deleted whole",
+		},
+	},
+	{
+		// THE GENERATED COORDINATION PROTO (adapters/coordgrpc/pb) is a wire
+		// codec's private vocabulary: only the packages that speak the wire
+		// may import it. from is the whole module so a new importer is caught
+		// wherever it appears.
+		name:   "proto-only-in-adapters",
+		from:   []string{"cmd", "internal", "pkg"},
+		forbid: []string{"internal/adapters/coordgrpc/pb"},
+		allowed: map[string]string{
+			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":             "sanctioned: cli/tui is the watch UI on the coordination proto",
+			"internal/adapters/mcp -> internal/adapters/coordgrpc/pb":                 "sanctioned: today's MCP server is the future runner/mcp, which speaks the wire",
+			"internal/core/coord -> internal/adapters/coordgrpc/pb":                   "slice 10: every remaining generated-type reference in core/coord is re-typed on Go values",
+			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb": "slice 10: mcpschema moves into adapters/coordgrpc beside the proto",
+			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                 "slice 13: allowlisted until then per Part 1.0",
+			"internal/adapters/operations -> internal/adapters/coordgrpc/pb":          "slice 13: allowlisted until then per Part 1.0",
 		},
 	},
 	{

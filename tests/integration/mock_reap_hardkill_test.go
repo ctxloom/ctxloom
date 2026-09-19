@@ -65,7 +65,7 @@ const hardKillSentinel = "hardkill-sentinel"
 // engine turn open for their own pty/exec proofs; a real pty (testenv.RunPTY,
 // aymanbagabas/go-pty — the F2 binary-level harness viewer_pty_test.go
 // established) is what makes the CLI take the interactive path at all
-// (internal/cli/run_terminal.go's interactiveTerminal requires stdin to be an
+// (internal/adapters/cli/run_terminal.go's interactiveTerminal requires stdin to be an
 // actual tty, which a plain io.Pipe is not).
 //
 // The echo mode is only load-bearing if the test PROVES the child is parked

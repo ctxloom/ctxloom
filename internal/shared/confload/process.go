@@ -7,18 +7,18 @@ import "sync"
 // its root command's PersistentPreRun, right after flags are parsed) so every
 // later config load in the process — however deep, however many call sites —
 // can find it without threading a *pflag.FlagSet or an env snapshot through
-// every intermediate call. This lives here (not in internal/config) so a
-// caller with no dependency on internal/config at all — internal/testsupport,
+// every intermediate call. This lives here (not in internal/core/config) so a
+// caller with no dependency on internal/core/config at all — internal/testsupport,
 // most importantly, which must be able to reset it for test isolation without
-// creating an import cycle back through internal/config's own test files —
-// can still reach it. internal/config's SetOverrides/currentOverrides/
+// creating an import cycle back through internal/core/config's own test files —
+// can still reach it. internal/core/config's SetOverrides/currentOverrides/
 // ResetOverrides are thin wrappers around this for its own callers'
 // convenience (SetOverrides additionally invalidates its ambient memo, which
-// only internal/config knows how to do).
+// only internal/core/config knows how to do).
 //
 // A production binary calls SetProcessOverrides exactly once per process; a
 // test that wants a specific Overrides resolved for ONE load without
-// mutating this shared state uses internal/config's WithOverrides option
+// mutating this shared state uses internal/core/config's WithOverrides option
 // instead.
 var (
 	processMu  sync.Mutex
@@ -27,7 +27,7 @@ var (
 
 // SetProcessOverrides installs o as the process-wide Overrides every
 // subsequent resolution (that doesn't explicitly override it, e.g. via
-// internal/config's WithOverrides test seam) consults.
+// internal/core/config's WithOverrides test seam) consults.
 //
 // o's maps are COPIED in. Storing them directly would leave the caller
 // holding live references to state this mutex is supposed to own, so the

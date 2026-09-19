@@ -5,12 +5,12 @@ loadout protocol (signature-envelope spec §4.3/§6). `ltk.yaml` and
 `taskloom.yaml` used to live here, vendored into the ctxloom binary; they
 have been deleted. That content now ships from the companions' own
 binaries via `<bin> loadout --format json` — see `cmd/ltk/loadout.yaml` and
-`cmd/taskloom/loadout.yaml`, and `internal/config/companions.go`
+`cmd/taskloom/loadout.yaml`, and `internal/core/config/companions.go`
 (`DiscoverCompanions`, `ProbeCompanionLoadouts`).
 
 The mechanism this directory feeds (`resources.ListBuiltinBundles`,
 `resources.GetBuiltinBundle`, and their consumers in
-`internal/config/config_bundles.go`: `resolveBuiltinBundleHooks`,
+`internal/core/config/config_bundles.go`: `resolveBuiltinBundleHooks`,
 `resolveBuiltinBundleMCPServers`, `Config.ResolveBuiltinBundleFragments`) is
 kept for a FUTURE bundle that genuinely needs to ship compiled into the
 binary itself — core ctxloom functionality with no companion binary of its

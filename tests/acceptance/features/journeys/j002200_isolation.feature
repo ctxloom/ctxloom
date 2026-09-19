@@ -35,7 +35,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #
   #   1. isolation.Prepare's Worktree policy never os.Chdir's the PLUGIN
   #      subprocess itself (`ctxloom llm serve mock` — see
-  #      internal/lm/isolation/{none,worktree}.go's SpawnClient, both of
+  #      internal/adapters/isolation/{none,worktree}.go's SpawnClient, both of
   #      which spawn via exec.Command with no Cmd.Dir). A REAL engine honors
   #      the workspace by having ITS OWN Execute spawn a grandchild process
   #      with Cmd.Dir = the resolved WorkDir; the mock never spawns a
@@ -65,7 +65,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # recording spy script this suite writes, NEVER to a real installed engine
   # — no live credential, no network call, ever, in any scenario in this
   # file. The spy dumps its OWN os.Environ() (exactly what a real engine
-  # process receives — internal/shared/agent/base.go's BuildEnv) plus a `cat`
+  # process receives — internal/core/agent/base.go's BuildEnv) plus a `cat`
   # of whatever credential file its own env points it at, captured from
   # INSIDE the spawned process — the per-agent scratch config-home does not
   # survive past the run (Cleanup removes it unconditionally), so this is the
@@ -257,7 +257,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # because ctxloom's read-write bind mount is one file on both sides, not a
   # copy. The credential-SPECIFIC facts are pinned where they are observable: the
   # mount SOURCE = real ~/.claude/.credentials.json, rw, refresh token PRESENT is
-  # a hermetic Go test (internal/lm/isolation/auth_test.go's
+  # a hermetic Go test (internal/adapters/isolation/auth_test.go's
   # TestClaudeCredentialMounts_PresentAndAbsent), and a real claude refreshing in
   # place is the @live isolation probe (@claude-code @container). This scenario
   # is the runtime-lane half; those two are the credential half.

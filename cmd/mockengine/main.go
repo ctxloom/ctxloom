@@ -1,5 +1,5 @@
 // Command mockengine is the standalone deterministic stand-in for a real vendor
-// coding-agent CLI (see internal/mockengine's package doc). It is installed
+// coding-agent CLI (see internal/engines/mock's package doc). It is installed
 // UNDER a vendor's name via ctxloom's injection seam — an oneshot config's
 // binary_path, or COPY'd over the resolved binary in a fixture image — so its
 // own name is deliberately vendor-NEUTRAL: nothing here should read as a real
@@ -18,13 +18,13 @@ package main
 
 import (
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/lm/engines"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"os"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/mockengine"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // envPersonality selects the personality when no --<backend>/--personality flag is

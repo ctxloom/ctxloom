@@ -21,7 +21,7 @@ import (
 // Every case asserts the title AND the sessions slice, including when the
 // expectation is "nothing": a shape that yields nothing today and nothing
 // tomorrow is a real claim, and asserting only the half that has a value is
-// how the parity test in internal/memory managed to pass while checking almost
+// how the parity test in internal/adapters/memory managed to pass while checking almost
 // nothing.
 func TestParseFrontmatter_Characterization(t *testing.T) {
 	cases := []struct {

@@ -133,7 +133,7 @@ what actually exists is worth telling you about.
 Two more home-rooted paths exist and are deliberately **not** in the table
 above: `~/.ctxloom/tasks/` is taskloom's own per-project task-log store
 (`internal/shared/tasks/paths.HomeTasksDir`) — a sibling vocabulary that
-shares the `.ctxloom` dot-dir without folding into `internal/paths`, the same
+shares the `.ctxloom` dot-dir without folding into `internal/core/paths`, the same
 boundary [architecture/core/paths.md](architecture/core/paths.md) draws for
 `IndexFileName` — and `~/.ctxloom/logs/ctxloom.log` is the structured log
 every ctxloom process writes at startup: diagnostic output, not state whose
@@ -293,7 +293,7 @@ launch-only reason for exactly that purpose.
 ## See also
 
 - [architecture/core/paths.md](architecture/core/paths.md) — the
-  `internal/paths` package: every constant and join, and the invariants over
+  `internal/core/paths` package: every constant and join, and the invariants over
   them.
 - [architecture/engines/isolation.md](architecture/engines/isolation.md) — the
   isolation axes, `engine_home`, and the per-engine home variables.

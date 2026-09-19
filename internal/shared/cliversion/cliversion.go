@@ -6,8 +6,8 @@
 // re-declared per caller.
 //
 // There are two production readers — boot-time companion discovery
-// (internal/config.ProbeCompanions) and the agent image's version key
-// (internal/lm/isolation.companionVersionKey) — and one probe. A second
+// (internal/core/config.ProbeCompanions) and the agent image's version key
+// (internal/adapters/isolation.companionVersionKey) — and one probe. A second
 // implementation would let the two disagree about what a companion's version
 // IS, which is exactly the drift the image key exists to catch.
 package cliversion
@@ -72,8 +72,8 @@ func Parse(raw []byte) (string, error) {
 }
 
 // Probe runs the version probe at path and returns the reported version. It
-// is the whole probe — exec, then decode — and the only one: internal/config's
-// boot-time companion discovery and internal/lm/isolation's agent-image
+// is the whole probe — exec, then decode — and the only one: internal/core/config's
+// boot-time companion discovery and internal/adapters/isolation's agent-image
 // version key both read a companion's version through THIS function, so the
 // two cannot disagree about what that version is.
 func Probe(path string) (string, error) {

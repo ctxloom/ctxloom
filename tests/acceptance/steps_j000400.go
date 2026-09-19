@@ -21,9 +21,9 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // Distinctive marker strings the shared "team" bundle carries, so a
@@ -52,7 +52,7 @@ type j000400State struct {
 }
 
 // j000400 managed-section markers, written out as literals rather than imported
-// from internal/shared/agent. They are a USER-VISIBLE contract — these exact
+// from internal/core/agent. They are a USER-VISIBLE contract — these exact
 // bytes land in a team's own CLAUDE.md/AGENTS.md — so the regression that
 // guards a team's hand-authored content must not be able to move in lockstep
 // with the production code it is guarding. If ctxloom ever changes its marker

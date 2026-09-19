@@ -10,7 +10,7 @@ set positional-arguments := true
 # test-docker-integration (and its package list), test-arch, plus the
 # generated-protobuf precondition. Imported, not duplicated — the
 # docker-integration recipe used to exist in both files under the same name with different package lists,
-# which is how the whole internal/agentcoord/coord docker suite went unrun in
+# which is how the whole internal/core/coord docker suite went unrun in
 # CI. See build/gates.justfile.
 import "build/gates.justfile"
 
@@ -144,7 +144,7 @@ release-snapshot: dev-image
 #
 # bin/archlint is built here, and that is not a convenience: lefthook's
 # pre-commit step REFUSES to commit when bin/archlint is missing or older than
-# the rules in internal/archlint. A gate that cannot pass by not running is the
+# the rules in internal/shared/archlint. A gate that cannot pass by not running is the
 # correct design, but it leaves a fresh checkout one `--no-verify` away from
 # never running the architectural rules at all. Building it on the path everyone
 # already takes is what keeps the gate armed by default rather than on purpose.
@@ -195,7 +195,7 @@ build-harp: dev-image
 # Regenerate the committed publish-signature siblings for the in-repo
 # companion loadouts (cmd/ltk/loadout.yaml, cmd/taskloom/loadout.yaml) using
 # the ctxloom release key, so `<bin> loadout --format json` verifies as a
-# trusted publisher (internal/config/embedded_signers.allowed_signers)
+# trusted publisher (internal/core/config/embedded_signers.allowed_signers)
 # instead of landing in ctxloom's review-pending path. Runs on the HOST (not
 # delegated to the devcontainer): it needs the private key from ~/.ssh, which
 # the devcontainer never mounts. Unlike `just build` — which only ever reads
@@ -255,7 +255,7 @@ plugin-list:
 
 # Build with verbose output (local, for debugging)
 build-verbose:
-    go build -v -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
+    go build -v -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
 
 # Regenerate the published JSON Schemas for ctxloom's JSON output into the
 # gitignored resources/schema/gen/ by reflecting their producing Go structs.
@@ -451,15 +451,15 @@ test-coverage: cover
 # the shared agent.SettingsWriter contract). Tag-gated so it's excluded from the
 # default `go test ./...`; run it explicitly here.
 test-conformance:
-    go test -trimpath -race -tags conformance ./internal/lm/conformance/...
+    go test -trimpath -race -tags conformance ./internal/engines/conformance/...
 
 # Validate ONE vendor-transcript reader in isolation (its own package,
 # already part of `go test ./...`, but named here so a release-monitoring job
 # can point at exactly this engine's parser against a fresh vendor transcript
 # without pulling in the rest of the suite). Add a sibling target per engine
-# as internal/transcript/vendorreader/<engine> lands.
+# as internal/adapters/transcript/vendorreader/<engine> lands.
 test-vendor-claude:
-    go test -trimpath -race ./internal/transcript/vendorreader/claude/...
+    go test -trimpath -race ./internal/adapters/transcript/vendorreader/claude/...
 
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
@@ -530,7 +530,7 @@ vet-integration: _require-generated
 #
 # COMPILE, NEVER THE SUITE. Running the tests against a detached copy of HEAD
 # produces failures that do not reproduce in the primary checkout (measured:
-# internal/cli's sandbox fail-closed guard, and coord's reannounce escalation),
+# internal/adapters/cli's sandbox fail-closed guard, and coord's reannounce escalation),
 # because those tests depend on being in the primary worktree — the same family
 # as the version stamp breaking in linked worktrees. A gate with false reds is
 # a gate people switch off, so this one only ever compiles.
@@ -550,7 +550,7 @@ check-head-builds REF="HEAD": _require-generated _ensure-gotmpdir
 
     protos=()
     while IFS= read -r proto; do
-        case "$proto" in internal/agentcoord/google/*) continue ;; esac
+        case "$proto" in internal/adapters/coordgrpc/pb/google/*) continue ;; esac
         protos+=("$proto")
     done < <(git ls-tree -r --name-only "$tree" | grep '\.proto$' || true)
 
@@ -914,10 +914,10 @@ test-acceptance-container: build _ensure-gotmpdir
 # test-docker-integration lives in build/gates.justfile, imported at the top
 # of this file and by justfile.container, so the host recipe and the one CI
 # runs are the SAME recipe over the SAME package list. What it covers:
-#   internal/lm/isolation      — the gRPC container transport + the
+#   internal/adapters/isolation      — the gRPC container transport + the
 #                                force-removal-on-Kill boundary end to end,
 #                                including a real git worktree mounted in;
-#   internal/agentcoord/coord  — the docker-direct delegated spawn
+#   internal/core/coord  — the docker-direct delegated spawn
 #                                (TestCoordContainerDirect_NoPluginNoPort),
 #                                the owner-owned top-level container runs
 #                                (TestCoordOwnerRun_*) and the container
@@ -1194,8 +1194,8 @@ plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
 # under this invocation's own -tags, does the package have *_test.go sitting
 # in IgnoredGoFiles? None means the package really has no tests and it stays
 # green exactly as before; some means a tag hid them, and the run measured
-# nothing. Measured 2026-08-22: internal/lm/conformance was live in that
-# state — `just test-pkg ./internal/lm/conformance/` exited 0 in 1s having
+# nothing. Measured 2026-08-22: internal/engines/conformance was live in that
+# state — `just test-pkg ./internal/engines/conformance/` exited 0 in 1s having
 # compiled not one test.
 #
 # Symptom 2 — PART of the package is hidden, which is tests/acceptance, the
@@ -1208,7 +1208,7 @@ plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
 # touched them; that is how an acceptance-suite audit came to report on 25
 # assertions it had not executed. There is no general signal to infer here —
 # a partially tagged package is normal and correct everywhere else in this
-# repo (internal/config, internal/compression and 17 more have tagged test
+# repo (internal/core/config, internal/shared/compression and 17 more have tagged test
 # files that a plain run rightly skips) — so the guard is scoped to the one
 # path whose entire purpose IS the tagged suite, alongside the build case
 # below that already special-cases it. It demands the tag AND a -run filter:
@@ -1756,7 +1756,7 @@ deadcode *ARGS="-test":
 
 # Per-function cyclomatic complexity as a human-readable table + warnings.
 # Defaults to the repo root; pass paths/flags to scope, e.g.
-#   just complexity internal/remote
+#   just complexity internal/adapters/remote
 #   just complexity -C 15 .           (warn on functions over CCN 15)
 complexity *ARGS: dev-image
     just _run complexity {{ARGS}}
@@ -1785,7 +1785,7 @@ complexity-baseline-update: dev-image
 run *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    go build -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
+    go build -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
     exec ./ctxloom {{ARGS}}
 
 # Build, compress, and install all three binaries to ~/go/bin (standard Go
@@ -1817,7 +1817,7 @@ uninstall:
     rm -f ~/go/bin/ctxloom ~/go/bin/ltk ~/go/bin/taskloom
 
 # Regenerate the proto-canonical MCP tool schemas (checked-in goldens under
-# internal/agentcoord/mcpschema/schemas/) from a buf-built FileDescriptorSet
+# internal/adapters/coordgrpc/mcpschema/schemas/) from a buf-built FileDescriptorSet
 # WITH source info (buf includes SourceCodeInfo by default; the protoc
 # fallback is --descriptor_set_out --include_source_info). CI fails on drift
 # (gen-mcp-schemas-check in justfile.container).
@@ -1827,9 +1827,9 @@ gen-mcp-schemas:
     tmp=$(mktemp)
     trap 'rm -f "$tmp"' EXIT
     buf build -o "$tmp"
-    go run ./internal/agentcoord/mcpschema/gen -descriptor "$tmp" \
-        -out internal/agentcoord/mcpschema/schemas \
-        -xmllike-out internal/agentcoord/xmllike_gen.go
+    go run ./internal/adapters/coordgrpc/mcpschema/gen -descriptor "$tmp" \
+        -out internal/adapters/coordgrpc/mcpschema/schemas \
+        -xmllike-out internal/adapters/coordgrpc/pb/xmllike_gen.go
 
 # Generate the reference docs for all three binaries from their sources of
 # truth: the CLI reference (man pages + website markdown) from each cobra
@@ -1849,7 +1849,7 @@ gen-mcp-schemas-check: dev-image
 
 # command tree, the MCP reference from the live tool/resource registrations, and
 # ctxloom's and taskloom's config references from their tracked JSON Schemas. One generator
-# (internal/docsgen) serves all three; taskloom and ltk keep their trees in
+# (internal/shared/docsgen) serves all three; taskloom and ltk keep their trees in
 # `package main`, so it mounts on them as a hidden `gendocs` subcommand compiled
 # only under `-tags docsgen`. CI fails on drift (gen-docs-check in
 # justfile.container).
@@ -1992,7 +1992,7 @@ container-build-minimal:
     ctx=$(mktemp -d)
     trap 'rm -rf "$ctx"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o "$ctx/ctxloom" ./cmd/ctxloom
     cp container/minimal/Containerfile "$ctx/Containerfile"
     {{container_cmd}} build -t ctxloom-agent:latest -f "$ctx/Containerfile" "$ctx"
@@ -2029,7 +2029,7 @@ _container-build-via-cli backend *engines:
     bin="./ctxloom-build-tmp-$$"
     trap 'rm -f "$bin"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o "$bin" ./cmd/ctxloom
     args=(container build {{backend}} --no-devcontainer-base)
     if [ -n "{{engines}}" ]; then args+=(--engines "{{engines}}"); fi
@@ -2084,7 +2084,7 @@ devcontainer_tag := `t=$(sha256sum .devcontainer/tool-versions.env 2>/dev/null |
 # .github/workflows/ci.yml's build-container job builds the same Dockerfile
 # without going through `just` (via docker/build-push-action), so it loads
 # the same file into that action's build-args input instead of this recipe —
-# see that workflow. internal/buildpins' drift-gate test fails if either
+# see that workflow. internal/shared/buildpins' drift-gate test fails if either
 # consumer's build-args stop matching this file.
 #
 # Guarded on the same DEVCONTAINER/CI/GITHUB_ACTIONS check _run uses below.

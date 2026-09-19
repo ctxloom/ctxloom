@@ -9,14 +9,14 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // This file lands the mock backend on the unified surface-delivery seam
-// (internal/shared/agent/cells.go) — the CONTEXT and SKILLS surfaces (see
+// (internal/core/agent/cells.go) — the CONTEXT and SKILLS surfaces (see
 // docs/design/engine-delivery-seam.design.md, "The mock engine implements
 // both halves").
 //

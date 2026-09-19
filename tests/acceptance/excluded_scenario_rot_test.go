@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/cli"
+	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 )
 
 // runStepCommand matches the command a `When I run "ctxloom ..."` step drives.
@@ -34,7 +34,7 @@ var excludedScenarioTags = []string{"@wip", "@live", "@future", "@network", "@co
 //
 // That is not hypothetical. init.feature drove `ctxloom manage init` behind a
 // @network tag; `manage init` was deleted outright, and
-// internal/cli/manage_test.go asserted its absence. The repo therefore held one
+// internal/adapters/cli/manage_test.go asserted its absence. The repo therefore held one
 // test asserting the command was gone and another asserting it worked, green,
 // for as long as both existed. It would have failed instantly had it ever run.
 //

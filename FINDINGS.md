@@ -44,7 +44,7 @@ Every finding carries a verification provenance. **This is the most important co
 The per-unit reviews cannot see a **hand-mirrored struct that drops a field**, and this
 was demonstrated rather than theorised.
 
-`chatEventToJSON` (`internal/cli/run_structured.go`) mirrors `agent.ChatEvent` onto the
+`chatEventToJSON` (`internal/adapters/cli/run_structured.go`) mirrors `agent.ChatEvent` onto the
 `--format json` stream the VSCode frontend consumes. It dropped **ten** fields, including
 `sessionId` — the resume handle, so the frontend could not offer "continue this
 conversation" at all. **U041 §3 reviewed those exact DTOs and returned "KEEP."**
@@ -99,7 +99,7 @@ Seven of the review's biggest claims moved. This is the argument for the registe
 | claim as filed | verdict after verification |
 |---|---|
 | X10 "THE CENTRAL FINDING" — hand-mirrored converters, one root cause | **Two** root causes needing **two different fixes**. Warranted on evidence (11 confirmed drops, 0 refutations), **overstated on consequence** |
-| `internal/operations` returns nil-error-with-failure-in-result → one structural fix | **REFUTED.** 12 of 16 result types *are* read by their caller. **Five** independent root causes |
+| `internal/adapters/operations` returns nil-error-with-failure-in-result → one structural fix | **REFUTED.** 12 of 16 result types *are* read by their caller. **Five** independent root causes |
 | X27 — tests bypass the serialization boundary | **Mechanism replaced.** Both converters are at 100% statement coverage. The round-trip test asserts one *named field*, not struct equality |
 | R3 — ltk has no unanalyzed state, fails open | Downgraded by the coordinator, then **re-confirmed against the coordinator**. See X-D2. **S1 stands** |
 | U041 — container leaked on error path | **Qualified.** Not leaked today; the documented backstop is false and a real publication window exists |
@@ -158,7 +158,7 @@ Consequences closed: a configured `deny_tools` entry now reaches the backend on 
 
 **No signature, hash, grant or countersignature changed, and no `ExecPreimageContract` bump** — the exec preimage already included `pre_tool_fallback` and is built host-side before `ManagedConfigToProto` runs, so the trust gate never hashed a wrong value. What was broken was the other half of the correspondence: the hook *delivered* had the flag cleared.
 
-> **Scope correction (coordinator, phase 4).** An earlier statement of this finding — including mine — said these fields "never reach any backend, on any path." **That over-claimed.** They DO reach engines by other routes: `DenyTools` via `internal/operations/profile_materialize.go:115` and `internal/operations/hooks.go:452` (both `AssembleManagedDenyTools`, writing settings files directly), and `Skills` via each engine's own `surfaces.go` (kiro `:237`, opencode `:136`, antigravity `:231`). **What is broken is the LAUNCH path specifically.** State it that way; the narrower claim is the true one and is still serious.
+> **Scope correction (coordinator, phase 4).** An earlier statement of this finding — including mine — said these fields "never reach any backend, on any path." **That over-claimed.** They DO reach engines by other routes: `DenyTools` via `internal/adapters/operations/profile_materialize.go:115` and `internal/adapters/operations/hooks.go:452` (both `AssembleManagedDenyTools`, writing settings files directly), and `Skills` via each engine's own `surfaces.go` (kiro `:237`, opencode `:136`, antigravity `:231`). **What is broken is the LAUNCH path specifically.** State it that way; the narrower claim is the true one and is still serious.
 
 `agent.ManagedConfig` (`shared/agent/backend.go:348-363`) declares 7 fields including `Skills` and `DenyTools`. The proto `ManagedConfig` (`lm/grpc/llm.proto:425`) declares 5. `ManagedConfigToProto` (`lm/grpc/managed.go:22-28`) and `managedConfigFromProto` (`:37-43`) drop both, in both directions. The consumer (`shared/agent/launch_backend.go:253-257`) reads them and always receives nil.
 
@@ -223,7 +223,7 @@ A dropped field is an **absent statement**, and no coverage, mutation, or comple
 - **T9. The exit-0-on-failure family: five independent root causes**, not one and not thirty (R1–R5). R1 no exit-code policy for management commands (`strictness` is deliberately launch-only: 57 producers, 7 drains, all launch-path). R2 failure not representable in the return type. R3 see T3. R4 "absent" vs "unreadable" conflated. R5 empty input parses as valid — underlies the whole zero-payload family.
 - **T10. Trust store designed fail-closed, implemented fail-open** (F6) — CONFIRMED.
 - **T11. Six real import cycles deferred into external `_test` packages** — VERIFIED (L1): `coord↔cli/tui`, `termui↔cli/tui`, `transcript↔lm/grpc`, `shared/agent↔{claude,codex,kiro}`. **Four were invisible to every unit review** — each is only visible from outside a single unit. Zero production cycles.
-- **T12. Engine identity enumerated in four rosters with four different memberships** — CONFIRMED (L3). `internal/operations` importing `claude`/`codex`/`kiro` is a literal ADR-0026 violation in the core.
+- **T12. Engine identity enumerated in four rosters with four different memberships** — CONFIRMED (L3). `internal/adapters/operations` importing `claude`/`codex`/`kiro` is a literal ADR-0026 violation in the core.
 - **T13. `internal/acp` fs handlers serve any absolute host path** — CONFIRMED (S3). Was masked by the `ChatStart.runtime` drop; that mask is now gone (`40b49a7f`), which is why the ordering mattered. **See fix-ordering constraint 1.** **RESOLVED `73ea8d7f`**: one boundary, `confineToWorkspace` in `internal/acp/fsconfine.go`, applied **before** the fs-upstream branch in both handlers so the editor-chained axis is confined too; symlinks resolved on both root and candidate including dangling links; unresolvable root, unreadable ancestor, stat error and symlink loops all deny; relative paths refused rather than resolved, per the ACP schema. Root is `agent.ChatRequest.WorkDir`, the same value handed to the engine subprocess as `cmd.Dir`, so the boundary and the engine's cwd cannot drift. 18 confinement tests. **Still open, filed as `loud-guide`:** `internal/acpagent/fsupstream.go`'s relay is itself unconfined and its unix socket is locally callable; TOCTOU between check and syscall (needs `openat2` `RESOLVE_BENEATH`); the unconditional `Fs` capability advertisement.
 - **T14. Container credential fail-open** — CONFIRMED (S4): `containerProfileFor`'s default hands claude credentials to any unrecognized engine; the registered `acp` backend reaches it.
 - **T15. Codex credentials copied into the repo tree, unignored, write follows a tracked symlink** — CONFIRMED + REPRODUCED (S5); phase-2's downgrade reversed.
@@ -259,7 +259,7 @@ CONFIRMED by hand-classifying every `rg` hit as declaration / doc / test / real 
 
 | tier | LOC | notes |
 |---|---|---|
-| safe | ~890 | `ContentCommands` ~165 (6 implementations, **0 invocations**); `internal/claude/agentfiles.go` whole file 162; lockfile 113; operations 150; launch-settlement 120; `Chroot` 50 |
+| safe | ~890 | `ContentCommands` ~165 (6 implementations, **0 invocations**); `internal/engines/claude/agentfiles.go` whole file 162; lockfile 113; operations 150; launch-settlement 120; `Chroot` 50 |
 | needs interface change | ~345 | incl. 5 `Kind()` methods + `SurfaceSet.Deliveries()` — implemented across 5 backends purely to satisfy an interface used only by tests |
 | breaks a public contract | ~440 | decide deliberately |
 

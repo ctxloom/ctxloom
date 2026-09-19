@@ -109,13 +109,13 @@ Two facts the graph makes checkable: `engine` imports exactly `sessions`, `prese
 | `profiles` | `shared/agent`, `remote` | 2 (`MergeHooksConfig` → `wire`), 5 (the pull-walk reader → `remote`) |
 | `bundles` | `content`, `content/attest`, `content/remotetree`, `remote`, `signing`, `shared/admission`, `shared/upgrade`, `clidiag` | 5 (readers become adapters behind `bundles.Reader`; `attest.VerifyBundle` called by them), 1 (`upgrade`), 15 (`clidiag`) |
 | `config` | `agents`, `remote`, `signing`, `signing/allowedsigners`, `shared/companionloadout`, `projectroot`, `cliversion`, `content`, `content/remotetree`, `config/layerscope`, `shared/admission`, `clidiag` | 4 (`config/load` split; companions probing → `companions`), 5 (trust ports behind `Sources.TrustPorts`), 15 |
-| `agentcoord/coord` | `internal/agentcoord` (the proto), `discover`, `mcpschema`, `agents`, `lm/isolation`, `operations`, `transcript`, `shared/agent`, `envswitch`, `clidiag`, `strictness` | 8 (`harnessspec`/`SpawnPlan` → `launch` types; `operations.DirtyTreeHandler` → `launch`), 10 (`grpcserver`, `runchannel`, `runnerlink`, `httpserver`, `consumer`, `controlwire` → `coord/grpc`; `discover`, `mcpschema` with them; `home.go`, `spooldoorbell.go`, `artifacts.go` and the other ~190 `agentcoordpb.` references re-typed on Go values — the whole of `coord` is the allowlist until then), 14a (`transcript`, `enginehost*.go` → `runner`), 6b (`shared/agent` → `engine`) |
+| `agentcoord/coord` | `internal/adapters/coordgrpc/pb` (the proto), `discover`, `mcpschema`, `agents`, `lm/isolation`, `operations`, `transcript`, `shared/agent`, `envswitch`, `clidiag`, `strictness` | 8 (`harnessspec`/`SpawnPlan` → `launch` types; `operations.DirtyTreeHandler` → `launch`), 10 (`grpcserver`, `runchannel`, `runnerlink`, `httpserver`, `consumer`, `controlwire` → `coord/grpc`; `discover`, `mcpschema` with them; `home.go`, `spooldoorbell.go`, `artifacts.go` and the other ~190 `agentcoordpb.` references re-typed on Go values — the whole of `coord` is the allowlist until then), 14a (`transcript`, `enginehost*.go` → `runner`), 6b (`shared/agent` → `engine`) |
 | `shared/agent` → the contract half becomes `engine` | `ledger`, `lockwait`, `iox`, `clidiag`, `strictness` | 6b (the split), 12 (`ledger` deleted), 15 |
 | `lm/engine` → folded into `engine` | `bundles`, `engineversion`, `transcript/vendorreader` | 6b (`Descriptor` becomes `Definition`; the readers become `engine.TranscriptReader` values the adapter supplies) |
 | `paths`, `shared/wire`, `shared/agent/present`, `shared/harp`, `agentcoord/spool` | none | pure today |
 | `composite`, `delivery`, `launch` | do not exist | born pure in slices 6, 12, 7; zero allowlist from their first commit |
 
-The rule as a row: `{name: "core-imports-only-core", from: <each core package>, forbid: <every non-core, non-toolbox in-repo path>, allowed: <the table above, one entry per package with the slice number as the reason>}`. The proto package (`internal/agentcoord`) is imported by `coord/grpc`, `mcp`, `cli/tui` and (until slice 13) `cli` and `operations`; a sibling rule `proto-only-in-adapters` pins it. `afero.Fs` is permitted in `engine` and `delivery` as the filesystem port; `afero.NewOsFs`/`afero.OsFs` are referenced only under `delivery/fsstatic`, `sessions/fsstore`, `config/load` and `cmd/*` (21-* R10's symbol rule, adopted).
+The rule as a row: `{name: "core-imports-only-core", from: <each core package>, forbid: <every non-core, non-toolbox in-repo path>, allowed: <the table above, one entry per package with the slice number as the reason>}`. The proto package (`internal/adapters/coordgrpc/pb`) is imported by `coord/grpc`, `mcp`, `cli/tui` and (until slice 13) `cli` and `operations`; a sibling rule `proto-only-in-adapters` pins it. `afero.Fs` is permitted in `engine` and `delivery` as the filesystem port; `afero.NewOsFs`/`afero.OsFs` are referenced only under `delivery/fsstatic`, `sessions/fsstore`, `config/load` and `cmd/*` (21-* R10's symbol rule, adopted).
 
 ### 1.1 Package map
 
@@ -194,7 +194,7 @@ Layering rules added to `tests/arch/layering_test.go` (each a row; B's five kept
 - `core-imports-only-core` — with the Part 1.0 allowlist; `TestArch_LayeringAllowlist_IsLive` deletes exhausted entries.
 - `engines-import-nothing-above-the-port` — `internal/engines/**` forbids `config`, `bundles`, `composite`, `launch`, `delivery`, `operations`, `coord`, `isolation`, `cli`, `mcp`, `sessions/fsstore`; zero allowlist from day one (now satisfiable: `Exports` takes `engine.Items`).
 - `cli-through-operations`, `runner-owns-the-engine`, `one-launch-constructor` — as B, with the evasions 24-* A6 listed closed: the constructor rule also matches `new(launch.Launch)` and `var l launch.Launch` outside `launch`/`coordgrpc` (an `ast` walk, not a `git grep`); the exec rule also matches method values (`e.Exec` as a value) and interface assertions to a narrower type.
-- `proto-only-in-adapters` — `internal/agentcoord` (the generated package) imported only by `coord/grpc`, `mcp`, `cli/tui`, and (allowlisted until slice 13) `cli`, `operations`; `internal/lm/grpc` by nobody after slice 13.
+- `proto-only-in-adapters` — `internal/adapters/coordgrpc/pb` (the generated package) imported only by `coord/grpc`, `mcp`, `cli/tui`, and (allowlisted until slice 13) `cli`, `operations`; `internal/lm/grpc` by nobody after slice 13.
 - `one-mint-one-owner` — `sessions.Mint` called only from `operations.StartRun` and `coord.Coordinator.AgentRun`; `coord.New` and `config.Open` constructed only under `cmd/` (21-* R24's ownership leak: a runner-hosted MCP server cannot reach a mint).
 - `no-engine-name-in-core` — `engine.Name` literals appear only under `engines/**`, in config DATA and in the init prompts that write config data (`cli/init*.go` choose a default from `engine.Registry.Names(default-distribution)`, not a literal).
 
@@ -222,7 +222,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"ctxloom.example/c/internal/shared/agent/present"
+	"ctxloom.example/c/internal/core/present"
 )
 
 // Name is the registry key and the ONLY spelling of an engine.
@@ -494,8 +494,8 @@ package engine
 import (
 	"github.com/spf13/afero"
 
-	"ctxloom.example/c/internal/shared/agent/present"
-	"ctxloom.example/c/internal/shared/wire"
+	"ctxloom.example/c/internal/core/present"
+	"ctxloom.example/c/internal/core/wire"
 )
 
 // Surfaces is the engine's static approach table per Kind. A Kind absent
@@ -633,9 +633,9 @@ package engine
 import (
 	"encoding/json"
 
-	"ctxloom.example/c/internal/sessions"
-	"ctxloom.example/c/internal/shared/agent/present"
-	"ctxloom.example/c/internal/shared/wire"
+	"ctxloom.example/c/internal/core/sessions"
+	"ctxloom.example/c/internal/core/present"
+	"ctxloom.example/c/internal/core/wire"
 )
 
 // Session is the ENGINE-FACING projection of a resolved launch: what the
@@ -748,7 +748,7 @@ func (r Registry) Names(keep func(Definition) bool) []Name {
 
 What the core PULLS: `Definition` fields (modes, permissions, resume, home, container, transcripts, version, surfaces, CLI, uncarried, model aliases, export schema, hook codec) and `Exports(items)`. What the core HANDS: one `Session` to `New`, then `[]present.Presentation` to `Exec`. The runner stamps `sessions.HookEnv(identity)` on top of `Exec.Env`; the engine never sees the identity constants.
 
-**Every site that branches on an engine NAME today, and the declaration it reads instead.** The review of B held that no core code branches on a name in B's signatures; the brief asks for the list of today's sites. Measured with `git grep '"claude-code"'` outside `internal/claude` and the tests:
+**Every site that branches on an engine NAME today, and the declaration it reads instead.** The review of B held that no core code branches on a name in B's signatures; the brief asks for the list of today's sites. Measured with `git grep '"claude-code"'` outside `internal/engines/claude` and the tests:
 
 | Today (site) | Reads instead |
 |---|---|
@@ -791,8 +791,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"ctxloom.example/c/internal/bundles"
-	"ctxloom.example/c/internal/trust"
+	"ctxloom.example/c/internal/core/bundles"
+	"ctxloom.example/c/internal/core/trust"
 )
 
 // Trust is the gate holder. It is built PER CONFIG GENERATION by
@@ -858,11 +858,11 @@ import (
 	"context"
 	"errors"
 
-	"ctxloom.example/c/internal/bundles"
+	"ctxloom.example/c/internal/core/bundles"
 	"ctxloom.example/c/internal/engine"
-	"ctxloom.example/c/internal/profiles"
-	"ctxloom.example/c/internal/shared/wire"
-	"ctxloom.example/c/internal/trust"
+	"ctxloom.example/c/internal/core/profiles"
+	"ctxloom.example/c/internal/core/wire"
+	"ctxloom.example/c/internal/core/trust"
 )
 
 var (
@@ -1197,8 +1197,8 @@ import (
 
 	"ctxloom.example/c/internal/composite"
 	"ctxloom.example/c/internal/engine"
-	"ctxloom.example/c/internal/sessions"
-	"ctxloom.example/c/internal/shared/agent/present"
+	"ctxloom.example/c/internal/core/sessions"
+	"ctxloom.example/c/internal/core/present"
 )
 
 // DynamicKind is a kind only the session's MCP endpoint can carry. Closed.
@@ -1327,7 +1327,7 @@ type Build func(current []byte) (desired []byte, entries []string, err error)
 type Result struct{ Changed bool }
 
 // Dynamic serves the dynamic kinds on the session's ONE MCP endpoint. The
-// implementation lives in internal/mcp inside the runner. It BINDS the
+// implementation lives in internal/adapters/mcp inside the runner. It BINDS the
 // endpoint the Launch carries; it never mints one. ServePolicy is the
 // deceased-yoga contract: bearer on every request, Origin allowlist with 403
 // on a miss — part of the port, not an option.
@@ -1375,11 +1375,11 @@ import (
 	"time"
 
 	"ctxloom.example/c/internal/composite"
-	"ctxloom.example/c/internal/config"
+	"ctxloom.example/c/internal/core/config"
 	"ctxloom.example/c/internal/delivery"
 	"ctxloom.example/c/internal/engine"
-	"ctxloom.example/c/internal/sessions"
-	"ctxloom.example/c/internal/shared/agent/present"
+	"ctxloom.example/c/internal/core/sessions"
+	"ctxloom.example/c/internal/core/present"
 )
 
 // The two isolation axes, as core value types (today's isolation.Axes /
@@ -1578,12 +1578,12 @@ package runner
 import (
 	"context"
 
-	"ctxloom.example/c/internal/agentcoord/coord"
+	"ctxloom.example/c/internal/core/coord"
 	"ctxloom.example/c/internal/composite"
 	"ctxloom.example/c/internal/delivery"
 	"ctxloom.example/c/internal/engine"
 	"ctxloom.example/c/internal/launch"
-	"ctxloom.example/c/internal/sessions"
+	"ctxloom.example/c/internal/core/sessions"
 )
 
 type Deps struct {
@@ -1664,9 +1664,9 @@ package spawn
 import (
 	"context"
 
-	"ctxloom.example/c/internal/agentcoord/coord"
+	"ctxloom.example/c/internal/core/coord"
 	"ctxloom.example/c/internal/launch"
-	"ctxloom.example/c/internal/sessions"
+	"ctxloom.example/c/internal/core/sessions"
 )
 
 type Spawner struct {
@@ -1761,7 +1761,7 @@ import (
 	"context"
 	"time"
 
-	"ctxloom.example/c/internal/paths"
+	"ctxloom.example/c/internal/core/paths"
 	"ctxloom.example/c/internal/shared/harp"
 )
 
@@ -1933,11 +1933,11 @@ import (
 	"encoding/json"
 	"time"
 
-	"ctxloom.example/c/internal/agentcoord/spool"
-	"ctxloom.example/c/internal/config"
+	"ctxloom.example/c/internal/core/spool"
+	"ctxloom.example/c/internal/core/config"
 	"ctxloom.example/c/internal/engine"
 	"ctxloom.example/c/internal/launch"
-	"ctxloom.example/c/internal/sessions"
+	"ctxloom.example/c/internal/core/sessions"
 )
 
 // Verbs is the coordination verb set — the ONE place a verb is validated and
@@ -2113,7 +2113,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"ctxloom.example/c/internal/bundles"
+	"ctxloom.example/c/internal/core/bundles"
 	"ctxloom.example/c/internal/composite"
 	"ctxloom.example/c/internal/engine"
 )
@@ -2269,7 +2269,7 @@ import (
 	"io"
 	"time"
 
-	"ctxloom.example/c/internal/paths"
+	"ctxloom.example/c/internal/core/paths"
 )
 
 // ReapPolicy is THE reaper's policy value. Lifetime is the only axis it
@@ -2610,7 +2610,7 @@ import (
 	"ctxloom.example/c/internal/engine"
 	"ctxloom.example/c/internal/engine/conformance"
 	"ctxloom.example/c/internal/engines/mock"
-	"ctxloom.example/c/internal/shared/agent/present"
+	"ctxloom.example/c/internal/core/present"
 )
 
 // TestEngine_Mock_Conforms is the shape every engine package copies verbatim
@@ -2727,7 +2727,7 @@ import (
 	"ctxloom.example/c/internal/delivery/fsstatic"
 	"ctxloom.example/c/internal/engine"
 	"ctxloom.example/c/internal/engines/mock"
-	"ctxloom.example/c/internal/shared/agent/present"
+	"ctxloom.example/c/internal/core/present"
 )
 
 // TestRoute_UncarriedKind_RefusesUnlessAccepted proposes the no-fallback
@@ -2876,12 +2876,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"ctxloom.example/c/internal/agentcoord/coord/grpc/coordgrpc"
+	"ctxloom.example/c/internal/core/coord/grpc/coordgrpc"
 	"ctxloom.example/c/internal/composite"
 	"ctxloom.example/c/internal/engine"
 	"ctxloom.example/c/internal/launch"
 	"ctxloom.example/c/internal/launch/launchtest"
-	"ctxloom.example/c/internal/sessions"
+	"ctxloom.example/c/internal/core/sessions"
 )
 
 // TestResolve_FiveSources_OneResolver: every way a launch is asked for goes

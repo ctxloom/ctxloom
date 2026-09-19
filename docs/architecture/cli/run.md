@@ -4,8 +4,8 @@
 and which of three mutually-exclusive transports* a top-level session launches
 on, then owns the user's terminal (or their stdin/stdout pipes) until the engine
 exits. It is the top of the launch architecture: `cmd/ctxloom` → `runCmd.RunE`
-→ (`operations.*` for assembly, `internal/lm/isolation` for the boundary,
-`internal/agentcoord/coord` for the hosted coordinator, `internal/vpio` for the
+→ (`operations.*` for assembly, `internal/adapters/isolation` for the boundary,
+`internal/core/coord` for the hosted coordinator, `internal/adapters/vpio` for the
 process seam) → the engine binary. Its contract is that the engine is spawned
 exactly once, with exactly one assembled context, under exactly one resolved
 permission posture, and that its exit code reaches the shell.
@@ -167,7 +167,7 @@ CLI path override applied by `agent.ApplyLocalCLIConfig`.
 | `runOneshotViaCoord` | `:178` | Streams the FINAL answer, records the oneshot transcript. No tests. |
 | `renderOwnedRunEvents` | `:226` | CCN 21. Filters FINAL deltas out of the run's `AgentEvent` stream to text/NDJSON. No tests. |
 
-The whole file has zero test coverage (`rg "ViaCoord|ownedRunSession|renderOwnedRunEvents" internal/cli/*_test.go` → nothing), unlike every other non-trivial function in the unit.
+The whole file has zero test coverage (`rg "ViaCoord|ownedRunSession|renderOwnedRunEvents" internal/adapters/cli/*_test.go` → nothing), unlike every other non-trivial function in the unit.
 
 ### Chat-session internals (`run_structured.go`)
 
@@ -244,7 +244,7 @@ driver, over `pb.Client.Chat`.
   with an empty pipe launches a headless run with nothing to do.
 - `run_owned.go:86` subscribes with `c.WatchRuns(nil)` — a nil filter means
   *every* run, on a 256-slot ring that drops on overflow, with no sequence-gap
-  detection. `operations.adaptConsumerFeed` (`internal/operations/sessionfeed.go:255-268`)
+  detection. `operations.adaptConsumerFeed` (`internal/adapters/operations/sessionfeed.go:255-268`)
   does that accounting for the same stream; this renderer does not.
 - The container oneshot arm's `renderOwnedRunEvents` emits only `entry` events;
   the `complete` and `session` halves of the documented NDJSON contract are

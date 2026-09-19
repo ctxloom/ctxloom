@@ -31,7 +31,7 @@ import (
 // carrying DOCTOR-SKILL-MARKER-7d4e21 in its description (the primary,
 // progressive-disclosure payload every engine's loader reads first) plus a
 // body of four independently-greppable DOCTOR-CHECK-* sections — the same
-// marker vocabulary internal/cli/doctor_cmd.go's `ctxloom doctor` command
+// marker vocabulary internal/adapters/cli/doctor_cmd.go's `ctxloom doctor` command
 // emits, so a skill body and the CLI's own output read as one language.
 const doctorSkillMD = `---
 name: ctxloom-doctor

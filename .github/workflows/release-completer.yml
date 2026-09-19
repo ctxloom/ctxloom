@@ -61,7 +61,7 @@ jobs:
       # devcontainer image, so it can't inherit the toolchain and must install
       # its own copies — `release-install-tools` sources that same file rather
       # than hand-copying version numbers, which is what makes drift
-      # impossible instead of merely checked for. internal/buildpins' drift
+      # impossible instead of merely checked for. internal/shared/buildpins' drift
       # gate fails if this workflow stops routing through that recipe, or if
       # the recipe stops deriving from the file.
       - name: Install build tools (versionator, buf, protoc plugins)
@@ -73,7 +73,7 @@ jobs:
       # installed them and put GOPATH/bin on PATH. Before the local-plugin
       # switch (commit b334605) codegen here ran on remote BSR plugins needing
       # no local install, and a release's codegen silently depending on
-      # whatever happened to be on PATH is the failure internal/buildpins
+      # whatever happened to be on PATH is the failure internal/shared/buildpins
       # exists to prevent.
       - name: Generate protobuf code
         run: just proto

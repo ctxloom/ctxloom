@@ -332,7 +332,7 @@ hooks.json-shaped engine would share.
 | `manageFlags` | `manage.go:25` | Shared flag bundle for install/uninstall; `resolve` (`:48`) picks engine + settings path |
 | `scaffoldConfig` / `writeFile` | `manage.go:167`, `:219` | `--force` backs up to `.bak` first; `writeFile` is `MkdirAll` + `iox.WriteFileAtomic` |
 | `newLoadoutCmd` | `loadout.go:39` | `companionloadout.NewCommand` over the embedded `loadout.yaml` + `.sig` — this is ctxloom's companion-discovery entry point |
-| `registerDocsCmd` | `docs_gen.go:18` / `docs_off.go:10` | Build-tag pair; `internal/docsgen` is mounted only under `-tags docsgen` |
+| `registerDocsCmd` | `docs_gen.go:18` / `docs_off.go:10` | Build-tag pair; `internal/shared/docsgen` is mounted only under `-tags docsgen` |
 
 **`--format` has two vocabularies on one tree.** Root registers a persistent
 `--format {json,yaml,toml,text,markdown}` default `text` (`main.go:53`); `companionloadout`

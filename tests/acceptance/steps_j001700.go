@@ -33,7 +33,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -52,7 +52,7 @@ const (
 	// materialize output.
 	j001700RetractReason = "shipped an incorrect deploy step; do not use"
 	// j001700EmbeddedPrincipal is ctxloom's OWN compiled-in publisher principal
-	// (internal/config/embedded_signers.allowed_signers) — scenario 2 targets
+	// (internal/core/config/embedded_signers.allowed_signers) — scenario 2 targets
 	// this REAL identity, not a stand-in, so the finding is about the actual
 	// production trust root.
 	j001700EmbeddedPrincipal = "ben+ctxloom@abbitt.me"
@@ -294,7 +294,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		// it away breaks every subsequent fetch/clone against it exactly like a
 		// real network partition or outage would: the fetcher gets an
 		// undifferentiated failure, indistinguishable at that seam from any other
-		// unreachable remote (see internal/remote/retract.go CheckRetracted's doc).
+		// unreachable remote (see internal/adapters/remote/retract.go CheckRetracted's doc).
 		broken := j001700.companyBare + ".unreachable"
 		if err := os.Rename(j001700.companyBare, broken); err != nil {
 			return fmt.Errorf("break the company remote: %w", err)

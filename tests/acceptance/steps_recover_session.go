@@ -13,9 +13,9 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/transcript"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // registerRecoverSessionSteps wires the fixture/assertion steps for the
@@ -252,7 +252,7 @@ func seedClearedHarpLineage(w *World, harp string) error {
 
 // writeMockVendorTranscript writes turns to relPath under the fake home in the
 // mock vendor format ({"role","text","ts"} per line — the one
-// internal/transcript/vendorreader/mock parses), alternating user/assistant so
+// internal/adapters/transcript/vendorreader/mock parses), alternating user/assistant so
 // every line converts to an entry (the adapter's checkFloor refuses a file that
 // yields none). Unlike j001200WriteMockVendorTranscript this takes an explicit
 // path, because the lineage fixture needs two vendor files named for their
@@ -297,7 +297,7 @@ func linkEngineTranscript(w *World, harp, sessionID, targetAbs string) error {
 }
 
 // syntheticCanonicalTranscript builds a valid transcript.jsonl document (one
-// JSON Record per line, matching internal/transcript's real on-disk schema —
+// JSON Record per line, matching internal/adapters/transcript's real on-disk schema —
 // constructed via its own exported types, not hand-written JSON strings, so
 // it can never drift from what CanonicalHistory actually parses) for harp,
 // repeating a user/assistant/tool_use/tool_result/complete turn until at

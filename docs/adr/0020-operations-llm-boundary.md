@@ -8,13 +8,13 @@ Accepted.
 
 ## Context
 
-Task `bats-moody-rake` asked whether `internal/operations` delegates all LLM
+Task `bats-moody-rake` asked whether `internal/adapters/operations` delegates all LLM
 specifics to the polymorphic, configured backend rather than hardcoding them.
 The stated bar: no plugin names, model IDs, prompts, or backend-specific
 behavior baked into operations; operations depends only on the provider-agnostic
 seam.
 
-An audit of every `.go` file under `internal/operations/` (2026-06-01) found:
+An audit of every `.go` file under `internal/adapters/operations/` (2026-06-01) found:
 
 - **Distillation** goes entirely through the injected `Distiller` interface
   (`bundles.go:54`). Every caller — `CreateBundle`, `UpdateBundle`,
@@ -34,7 +34,7 @@ An audit of every `.go` file under `internal/operations/` (2026-06-01) found:
 
 The question this ADR settles is whether that last item is a leak to remediate.
 
-It is not LLM behavior. `LLMExports` (`internal/bundles/loader_content.go`; was
+It is not LLM behavior. `LLMExports` (`internal/core/bundles/loader_content.go`; was
 `LMPluginConfig` before the plugin→llm rename / bundle-schema flatten in ADR 0022)
 is a *typed, per-backend* config schema: `ClaudeCode` and `Gemini` are named
 struct fields carrying **different** data (Claude has `ArgumentHint`,
@@ -78,7 +78,7 @@ to pretend otherwise behind a neutral-description indirection.
 
 **Revive trigger:** ANY of —
 - A model ID, system prompt, or prompt template appears as a literal in
-  `internal/operations` (that IS a leak — route it through `Distiller` or a new
+  `internal/adapters/operations` (that IS a leak — route it through `Distiller` or a new
   injected seam).
 - Operations branches on backend/plugin *identity* to change behavior (not just
   populate a config field).

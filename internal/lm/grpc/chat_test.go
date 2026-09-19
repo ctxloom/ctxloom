@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	googlegrpc "google.golang.org/grpc"
@@ -467,7 +467,7 @@ func TestGRPCClient_Chat_DialErrorReturned(t *testing.T) {
 
 // readCanonicalTranscript reads back harp's canonical transcript file
 // (paths.HarpCanonicalTranscriptPath) into transcript.Record values, in file
-// order. Record's fields are exported (unlike internal/transcript's own test
+// order. Record's fields are exported (unlike internal/adapters/transcript's own test
 // helper), so this package reads the file directly rather than importing a
 // test-only helper.
 func readCanonicalTranscript(t *testing.T, harp string) []transcript.Record {

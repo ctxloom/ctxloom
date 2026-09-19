@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
@@ -81,7 +81,7 @@ func TestRegistry_List(t *testing.T) {
 
 // List() must return a deterministic (sorted) order on its own — callers
 // must not have to defensively sort a randomised Go map-iteration order
-// themselves (e.g. shell-completion filtering, internal/cli/completion.go,
+// themselves (e.g. shell-completion filtering, internal/adapters/cli/completion.go,
 // does not sort today). Run repeatedly since a single run cannot distinguish
 // "sorted" from "map iteration happened to come out sorted."
 func TestRegistry_List_IsSorted(t *testing.T) {

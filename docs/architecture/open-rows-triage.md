@@ -35,16 +35,16 @@ the ledger.
 
 ---
 
-## U020 — `internal/agentcoord/coord` (`children.go`, `consumer.go`)
+## U020 — `internal/core/coord` (`children.go`, `consumer.go`)
 
 `children.go` grew from ~1,800 to 2,086 lines since the census, so **every** U020 line
 citation has drifted. All twelve were re-located by behaviour.
 
 ### U020-F05 — STILL LIVE — mailbox message journaled consumed before delivery
 
-`internal/agentcoord/coord/children.go:1282-1294` (`wakeChild`),
+`internal/core/coord/children.go:1282-1294` (`wakeChild`),
 `:1316-1327` (`sendTurn`), `:1230-1237` (`onTurnBoundary`);
-`internal/agentcoord/coord/mailbox.go:205-232` (`takeNextMail`).
+`internal/core/coord/mailbox.go:205-232` (`takeNextMail`).
 *Drift: cited `1135-1141, 1152-1161, 1088-1090`.*
 
 `takeNextMail` appends `factMailConsumed` (mailbox.go:217-219) and unreserves
@@ -79,7 +79,7 @@ consume→deliver window as a *crash* window; these are ordinary in-process retu
 
 ### U020-F06 — STILL LIVE — "the parent ALWAYS learns of a child death" is warn-only
 
-`internal/agentcoord/coord/children.go:1646-1648`. *Drift: cited `1424-1426`.*
+`internal/core/coord/children.go:1646-1648`. *Drift: cited `1424-1426`.*
 
 ```go
 if _, _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
@@ -100,7 +100,7 @@ voids a documented absolute invariant, and the parent's failure mode is a hang.
 
 ### U020-F07 — FIXED @ `c2c4195d`
 
-`internal/agentcoord/coord/children.go:1840-1845` now reads:
+`internal/core/coord/children.go:1840-1845` now reads:
 
 ```go
 // U020-F07: read under c.mu — rt is already published (enqueueRun) at
@@ -129,13 +129,13 @@ The same commit also renamed the field: `slotHeld bool` → `slot slotState`
 
 ### U020-F08 — STILL LIVE — comment claims no production backend takes the legacy path
 
-`internal/agentcoord/coord/children.go:596-597`. *Drift: cited `551-554`.*
+`internal/core/coord/children.go:596-597`. *Drift: cited `551-554`.*
 
 > `the dial's other reachable case is a StructuredChat backend outside the allowlist
 > (today: none in production, only test doubles).`
 
 Refutation attempted and failed. The allowlist
-(`internal/agentcoord/coord/spawner.go:189-194`) is exactly
+(`internal/core/coord/spawner.go:189-194`) is exactly
 `{claude-code, codex, kiro, acp}`. Two production backends implement `Chat` and are
 absent from it:
 
@@ -163,7 +163,7 @@ live-observable?), not just a comment edit.
 
 ### U020-F09 — STILL LIVE — `sendTerminal` eviction is payload-blind
 
-`internal/agentcoord/coord/consumer.go:203-206`. *Drift: cited `188-191`.*
+`internal/core/coord/consumer.go:203-206`. *Drift: cited `188-191`.*
 
 ```go
 select {
@@ -177,7 +177,7 @@ No inspection of what was evicted. The evicted event may be **another run's**
 
 Reachability survives the adversarial check. A `narrow(runID)` re-scoping affordance was
 added since the census (U041-F06, `consumer.go:117-131`), and
-`internal/cli/run_owned.go:110` does use it. But `internal/cli/acp_children.go:32` still
+`internal/adapters/cli/run_owned.go:110` does use it. But `internal/adapters/cli/acp_children.go:32` still
 calls `c.WatchRuns(nil)` and **discards** `narrow` (`_`) — deliberately, per
 `consumer.go:115-116` ("a caller that never needs it … which legitimately wants every run
 in the project"). So one production subscriber's single ring still carries every run's
@@ -193,7 +193,7 @@ prevent that hang. Requires a lagging consumer, which is the normal condition un
 
 ### U020-F10 — STILL LIVE — exhausted terminal retry drops silently
 
-`internal/agentcoord/coord/consumer.go:195-202`. *Drift: cited `180-187`.*
+`internal/core/coord/consumer.go:195-202`. *Drift: cited `180-187`.*
 
 ```go
 if attempt == terminalEvictAttempts {
@@ -215,13 +215,13 @@ attached.
 
 ### U020-F13 — STILL LIVE — `terminateRun` is CCN 16 against a CI gate of 10
 
-`internal/agentcoord/coord/children.go:1517-1662`. *Drift: cited `1299-1440`.*
+`internal/core/coord/children.go:1517-1662`. *Drift: cited `1299-1440`.*
 
 **Measured**, not asserted. `lizard -x "*.pb.go" -x "*/website/*" -C 10` at `d4c7da2c`:
 
 ```
 NLOC  CCN  token  PARAM  length  location
-  61   16    413      1     146  @1517-1662@internal/agentcoord/coord/children.go
+  61   16    413      1     146  @1517-1662@internal/core/coord/children.go
 ```
 
 CCN 16 — exactly the claimed figure. The gate is real and enforcing:
@@ -242,7 +242,7 @@ finding is that a declared CI invariant is violated 278 times and nobody is bein
 
 ### U020-F14 — STILL LIVE — `rt.oneshot` read outside `c.mu`
 
-`internal/agentcoord/coord/children.go:1193`. *Drift: cited `1055`.*
+`internal/core/coord/children.go:1193`. *Drift: cited `1055`.*
 
 ```go
 if ev.Entry.Content != "" && (rt.oneshot || ev.Entry.Type == agent.EntryTypeAssistant) {
@@ -263,7 +263,7 @@ down, inside the lock that is already taken).
 
 ### U020-F15 — STILL LIVE — assigned harp leaks into session accounting on early failure
 
-`internal/agentcoord/coord/children.go:262-277`. *Drift: cited `222-232`; the ordering is
+`internal/core/coord/children.go:262-277`. *Drift: cited `222-232`; the ordering is
 unchanged.*
 
 ```go
@@ -293,7 +293,7 @@ fix the finding proposes (a `defer`red conditional `MarkSessionEnded` disarmed o
 
 ### U020-F16 — STILL LIVE — `RunOutcome.Queued` is read after the driver is dispatched
 
-`internal/agentcoord/coord/children.go:280` then `:286-288`. *Drift: cited `246-248`.*
+`internal/core/coord/children.go:280` then `:286-288`. *Drift: cited `246-248`.*
 
 ```go
 c.goTracked(func() { c.runChild(rt, prompt, token, url) })   // :280
@@ -319,7 +319,7 @@ queueing, so an operator diagnosing cap pressure is told there is none.
 
 ### U020-F17 — STILL LIVE (marginal) — `_ = c.issueStartRun(...)` discards an error
 
-`internal/agentcoord/coord/children.go:691`. *Drift: cited `646`.*
+`internal/core/coord/children.go:691`. *Drift: cited `646`.*
 
 Unchanged: `_ = c.issueStartRun(ctx, rt, hashToken(token), spec, first, engine.Model, resumeSessionID)`
 with no adjacent comment. The sibling call site `owner_run.go:147` still checks it.
@@ -337,7 +337,7 @@ weakest of the 24 and could reasonably be closed as WONTFIX rather than fixed.
 
 ### U020-F18 — STILL LIVE — `agent_stop` cannot abort an in-flight `StartRun`
 
-`internal/agentcoord/coord/children.go:760`. *Drift: cited `677-678`.*
+`internal/core/coord/children.go:760`. *Drift: cited `677-678`.*
 
 ```go
 actx, acancel := context.WithTimeout(ctx, c.runnerAwaitTimeout)          // :741  ← cancellable
@@ -425,11 +425,11 @@ carrying it as an open defect.
 
 ---
 
-## U049 — `internal/config`
+## U049 — `internal/core/config`
 
 ### U049-F16 — STILL LIVE — every config write destroys comments and reorders keys
 
-`internal/config/config_save.go:145` (`yaml.Unmarshal(existingData, &existing)` into
+`internal/core/config/config_save.go:145` (`yaml.Unmarshal(existingData, &existing)` into
 `map[string]interface{}`) and `:89` (`yaml.Marshal(existing)`).
 *Drift: cited `:126` and `:165`.*
 
@@ -476,12 +476,12 @@ codebase already knows how to do this correctly, twenty lines away.
 
 ### U049-F14 — STILL LIVE (via a different mechanism than the row states)
 
-`internal/config/config_migrate.go:24-27` (package-global `migrationWarnMu` /
+`internal/core/config/config_migrate.go:24-27` (package-global `migrationWarnMu` /
 `migrationWarnings`), drained at `config.go:1574` inside `loadConfigLayer` — per-*layer*.
 `Load()` takes `ambientMu` only on the no-arg path; `config.go:1101-1105` returns
 `loadUncached(opts...)` **before** the lock whenever any option is passed.
 
-**Failure path.** `internal/agentcoord/coord/spawner.go:323` calls
+**Failure path.** `internal/core/coord/spawner.go:323` calls
 `loadConfig(config.WithAppDir(appPaths[0]))` — `Load` *with* options, so `ambientMu` is
 bypassed. That runs under `prodSpawner.resolveCfg` → `Resolve` → `Coordinator.AgentRun`
 (`children.go:255`), one goroutine per concurrent child spawn. Two concurrent `agent_run`
@@ -503,7 +503,7 @@ real concurrency is in-process `AgentRun` handlers.
 
 ### U049-F18 — STILL LIVE — v3→v4 deletes three user-set keys with no lossy warning
 
-`internal/config/config_migrate.go:336-338` — `upgrade.MapDelete(entry, "trust_workspace")`
+`internal/core/config/config_migrate.go:336-338` — `upgrade.MapDelete(entry, "trust_workspace")`
 / `"approval_mode"` / `"binary_path"`, with no `recordMigrationWarning`.
 *Drift: cited `:322-324`; the sibling call is `:233`, not `:219`.*
 
@@ -523,7 +523,7 @@ run. **The defect is the silence, not the deletion.** Cheap to fix.
 
 ### U049-F13 — STILL LIVE — exponential parent resolution
 
-`internal/config/config_resolve.go:306` —
+`internal/core/config/config_resolve.go:306` —
 `resolveProfileRecursive(profiles, parentName, visited.Clone(), builder, depth+1)`
 inside `resolveProfileParents`'s per-parent loop. No memoization. `maxProfileDepth = 64`
 at `:270`.
@@ -547,12 +547,12 @@ hang-your-own-shell bug.
 
 ### U049-F24 — STILL LIVE, but not a defect
 
-`internal/config/home.go:17` (no drift — `HomeConfigDir` is still on line 17). One
+`internal/core/config/home.go:17` (no drift — `HomeConfigDir` is still on line 17). One
 production caller, `config.go:1399` *(drift: cited `:1319`)*.
 
-Refutation attempted and failed, independently on both sides: `internal/paths` does **not**
-import `internal/config`, and `config.AppDirName` is merely an alias of
-`paths.AppDirName` (`config.go:38`), so the move is unblocked by any cycle. `internal/paths`
+Refutation attempted and failed, independently on both sides: `internal/core/paths` does **not**
+import `internal/core/config`, and `config.AppDirName` is merely an alias of
+`paths.AppDirName` (`config.go:38`), so the move is unblocked by any cycle. `internal/core/paths`
 still holds `HomeSessionsDir:170`, `HomeApprovalsPath:399`, `HomeAllowedSignersPath:419`,
 `HomeDistrustedSignersPath:444` in the identical shape.
 
@@ -619,7 +619,7 @@ named, not to the class. Whether any of those five reach a hashed or written art
 
 `config_bundles.go:699` and `:745` *(drift: cited `:671`, `:717`)* withhold on a bare
 `continue` when `ContentPayload()` errors — but that error branch is unreachable.
-`BundleHook.ContentPayload` (`internal/bundles/bundles.go:783`) and `BundleMCP.ContentPayload`
+`BundleHook.ContentPayload` (`internal/core/bundles/bundles.go:783`) and `BundleMCP.ContentPayload`
 (`:722`) are `json.Marshal` over structs holding only `string`, `[]string`,
 `map[string]string` and `bool` — no chan, func, cyclic reference or NaN, none of which
 `json.Marshal` can fail on.
@@ -646,14 +646,14 @@ each `fragments` item to be either a string with `minLength: 1` or an object wit
 `minLength: 1` name. `validator.ValidateBytes(data)` runs on **every** layer load
 (`config.go:1588`, inside `loadConfigLayer`) and appends the classified result to
 `cfg.warnings` (`:1589`); `classifyValidationError`'s terminal branch
-(`internal/config/unknown_keys.go:124`) unconditionally appends a `WarnKindValidate`,
+(`internal/core/config/unknown_keys.go:124`) unconditionally appends a `WarnKindValidate`,
 which is fatal-class in strict mode. The YAML null converts to a JSON null and fails the
 `oneOf`.
 
 That constraint landed in `07a365f7` (2026-06-11), **six weeks before** the census base
 `0f59fbae` (2026-07-24) — so the claim was wrong when written, not fixed since.
 
-**Found while refuting it — a real gap no row covers.** `internal/profiles/profiles.go:40-47`
+**Found while refuting it — a real gap no row covers.** `internal/core/profiles/profiles.go:40-47`
 carries the byte-identical `UnmarshalYAML` with no emptiness check, and directory profiles
 have **no schema file at all**: `resources/schema/input/` holds only `config-schema.json`,
 `fragment-schema.json` and `taskloom-config-schema.json`. **That** path is genuinely
@@ -729,7 +729,7 @@ was shape-driven, that is the failure mode to expect elsewhere in the index.
 
 ### Scope note — one uncited defect found while refuting a row
 
-`internal/profiles/profiles.go:40-47` carries `U049-F19`'s exact claim on the
+`internal/core/profiles/profiles.go:40-47` carries `U049-F19`'s exact claim on the
 directory-profile path, where — unlike `config.yaml` — **no schema validator exists**.
 That path is genuinely silent. It is not covered by any row in the index. Flagged, not
 filed; filing is the human's call.

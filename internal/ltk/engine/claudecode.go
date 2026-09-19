@@ -9,14 +9,14 @@ import (
 	"slices"
 	"strings"
 
-	claudecli "github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	claudecli "github.com/ctxloom/ctxloom/internal/engines/claude"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
 
 // ClaudeCode adapts the Claude Code PreToolUse hook protocol. The wire types
-// — stdin payload, decision JSON — live in the shared github.com/ctxloom/ctxloom/internal/claude
+// — stdin payload, decision JSON — live in the shared github.com/ctxloom/ctxloom/internal/engines/claude
 // module (the org's single source of truth for the contract); this adapter
 // only maps them onto ltk's Request/Response.
 //

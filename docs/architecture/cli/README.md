@@ -1,10 +1,10 @@
-# `internal/cli` — architecture
+# `internal/adapters/cli` — architecture
 
-`internal/cli` is ctxloom's entire command surface: one flat Go package holding
+`internal/adapters/cli` is ctxloom's entire command surface: one flat Go package holding
 every cobra command, its flags, its rendering, and a handful of runtime helpers
 that happen to live here because that is where the cobra tree is. It is the
-outermost layer — the intended direction is `cmd/ctxloom` → `internal/cli` →
-`internal/operations` → domain, and no file in the package reaches past
+outermost layer — the intended direction is `cmd/ctxloom` → `internal/adapters/cli` →
+`internal/adapters/operations` → domain, and no file in the package reaches past
 `operations`, `config`, `isolation`, or `resources` into domain internals. Its
 contract to callers is: parse flags, load config, call exactly one `operations`
 function, and render the result through `emit()` in the format the global
@@ -25,7 +25,7 @@ flowchart TD
     GD --> ROOT
     ACC --> ROOT
 
-    subgraph cli["internal/cli — 93 files, 22.5 kLOC, one flat package"]
+    subgraph cli["internal/adapters/cli — 93 files, 22.5 kLOC, one flat package"]
         ROOT["root.go — rootCmd · Execute · ExitError<br/>GetConfig · PersistentPreRun"]
         ROOT --> FMT["format.go — emit() chokepoint"]
         ROOT --> SH["startup_helpers.go — failOnFindings gate"]
@@ -34,11 +34,11 @@ flowchart TD
         CMDS --> THICK["real logic (6 files):<br/>run.go (930-line RunE) · run_owned.go<br/>mcp_*.go · init.go · coord_*.go"]
     end
 
-    THIN --> OPS[["internal/operations — frontend-neutral core"]]
+    THIN --> OPS[["internal/adapters/operations — frontend-neutral core"]]
     THICK --> OPS
-    THICK --> ISO[["internal/lm/isolation"]]
-    THICK --> COORD[["internal/agentcoord/coord"]]
-    THICK --> VPIO[["internal/vpio"]]
+    THICK --> ISO[["internal/adapters/isolation"]]
+    THICK --> COORD[["internal/core/coord"]]
+    THICK --> VPIO[["internal/adapters/vpio"]]
     OPS --> DOM[["domain: bundles · config · memory · remote · signing · transcript"]]
     FMT --> CE[["shared/cliemit → pkg/clifmt"]]
     SH --> STR[["shared/strictness"]]
@@ -48,7 +48,7 @@ flowchart TD
 
 | Fact | Value |
 |---|---|
-| Production files in `internal/cli` | 93 |
+| Production files in `internal/adapters/cli` | 93 |
 | Production LOC | 22,479 |
 | Test files | 85 |
 | `cmd/ctxloom/main.go` | 48 lines — env pre-flight + zap logger + `cli.Execute()` |
@@ -95,7 +95,7 @@ the rule lives.
 
 | # | Invariant | Owned by |
 |---|---|---|
-| I1 | **`internal/cli` owns config loading for commands.** Every command reads config through `GetConfig()` (`root.go:50`) or `GetConfigForUpdate()` (`root.go:66`); both echo `cfg.GetWarnings()` through `printConfigWarnings` (`startup_helpers.go:55`). `operations` never loads config itself. | `root.go:50,66` |
+| I1 | **`internal/adapters/cli` owns config loading for commands.** Every command reads config through `GetConfig()` (`root.go:50`) or `GetConfigForUpdate()` (`root.go:66`); both echo `cfg.GetWarnings()` through `printConfigWarnings` (`startup_helpers.go:55`). `operations` never loads config itself. | `root.go:50,66` |
 | I2 | **Read/write config split.** `GetConfig` returns the *memoized, shared* config (~35 call sites share one parse); `GetConfigForUpdate` returns a *fresh* instance via `config.LoadFresh`. Any command that mutates and saves config must use the latter, so an abandoned edit cannot leak into later readers in the same process (an MCP server, the coordinator). | `root.go:62-73` |
 | I3 | **One buffered reader over stdin.** `stdinReader` (`run.go:1692-1696`) is the single `bufio.Reader` over `os.Stdin`; every interactive y/N prompt goes through `promptLine`/`promptYesNo` (`run.go:1703,1716`). A fresh `bufio.Reader` per prompt would discard bytes a previous reader buffered past its line. *Real behaviour:* `remote_discover.go:110` opens its own `bufio.NewReader(os.Stdin)` — the only violation in the package. | `run.go:1692-1696` |
 | I4 | **`--format` is a presentation choice, never a branch in business logic.** Commands build one result value and hand both it and a text closure to `emit()` (`format.go:43`). See [output-and-format.md](output-and-format.md) for the (large) set of commands that accept `--format` and ignore it. | `format.go:43,62` |

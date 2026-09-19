@@ -107,11 +107,11 @@ var degradeBranchAllowed = map[string]degradeExemption{
 		"gates pass their findings through it instead of testing the mode themselves; " +
 		"NonDegradable findings survive that downgrade, which is what makes a refusal " +
 		"non-bypassable at all"},
-	"internal/agentcoord/coord/spawner.go": {sites: 1, why: "TIGHTENS rather than bypasses — " +
+	"internal/core/coord/spawner.go": {sites: 1, why: "TIGHTENS rather than bypasses — " +
 		"after failing a non-headless-safe permission declaration, degraded launches the child " +
 		"at PermissionPlan, the most restrictive headless-safe posture, so the degraded path is " +
 		"strictly safer than the declared one it replaces"},
-	"internal/operations/delegate.go": {sites: 1, why: "no boundary is crossed — an " +
+	"internal/adapters/operations/delegate.go": {sites: 1, why: "no boundary is crossed — an " +
 		"unresolvable model is a CONFIG fault, and degraded launches with the model exactly as " +
 		"configured (rs.Model unchanged). The cost is an opaque engine-side error later instead " +
 		"of a clear one here; nothing is granted that strict mode withholds"},

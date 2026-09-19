@@ -52,7 +52,7 @@ func TestListEmbeddedNames(t *testing.T) {
 // NOTHING is reported rather than returned as an empty set. These directories
 // are embedded at build time, so zero names never means "the user has none" —
 // it means the binary shipped without content it is supposed to carry. Every
-// caller (internal/lm/backends.builtinCommands, internal/config's three
+// caller (internal/lm/backends.builtinCommands, internal/core/config's three
 // builtin-bundle resolvers, config.companion listing) already warns and
 // degrades on an error and did nothing at all on the silent nil.
 func TestListEmbeddedNamesRefusesEmptyResult(t *testing.T) {

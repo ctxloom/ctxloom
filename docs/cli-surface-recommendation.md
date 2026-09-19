@@ -1,7 +1,7 @@
 # CLI surface recommendation: one verb spine, no aliases
 
 **Status:** design recommendation, 2026-08-01. No code changes accompany this
-document. Verified against the tree at `6ee1bcfb` (`internal/cli/*.go`,
+document. Verified against the tree at `6ee1bcfb` (`internal/adapters/cli/*.go`,
 `website/src/content/docs/reference/cli/` — 130 generated pages,
 `tests/acceptance/completeness_test.go`).
 
@@ -194,7 +194,7 @@ instance address, and this proposal leans on it harder:
 
 ## 5. Every place today's surface violates the spine
 
-Verified against `internal/cli` at `6ee1bcfb`. Each row is a rename in this
+Verified against `internal/adapters/cli` at `6ee1bcfb`. Each row is a rename in this
 proposal (deprecated aliases are in §6 instead).
 
 | Today | Canonical | Note |
@@ -248,7 +248,7 @@ inverse of an export).
 ## 6. Deleted outright, and what it costs
 
 **All 20 deprecated command aliases** (confirmed: 20 command-level
-`Deprecated:` marks + 1 flag, `run --run-prompt`, in `internal/cli`):
+`Deprecated:` marks + 1 flag, `run --run-prompt`, in `internal/adapters/cli`):
 
 `manage mcp install`, `manage mcp uninstall`, `manage mcp servers`,
 `manage config show`, `manage config get`, `manage config edit`,
@@ -385,7 +385,7 @@ right tool).
 ### Order of work
 
 1. J001600 lands on current spellings (in flight, don't touch).
-2. One reorg commit: rename/delete/add in `internal/cli`, re-spell the whole
+2. One reorg commit: rename/delete/add in `internal/adapters/cli`, re-spell the whole
    corpus, update the gate's three lists, regenerate docs.
 3. J000100–J001200 authored against the new surface using the §5 table.
 

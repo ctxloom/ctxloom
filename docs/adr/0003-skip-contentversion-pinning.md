@@ -6,7 +6,7 @@
 
 Superseded.
 
-**Superseded by:** the 2026-05-27 implementation of `pin_bundle` / `unpin_bundle` MCP tools, which set a `Pinned` flag on the active `LockEntry`. See `cmd/mcp_tools_review.go`, `internal/remote/types.go::LockEntry.Pinned`, `internal/operations/lockfile_pending.go::SetBundlePin`.
+**Superseded by:** the 2026-05-27 implementation of `pin_bundle` / `unpin_bundle` MCP tools, which set a `Pinned` flag on the active `LockEntry`. See `cmd/mcp_tools_review.go`, `internal/adapters/remote/types.go::LockEntry.Pinned`, `internal/adapters/operations/lockfile_pending.go::SetBundlePin`.
 
 ## Context
 

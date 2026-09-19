@@ -9,8 +9,8 @@
 // mechanism ctxloom itself runs. That gap is exactly what ctxloom's
 // companions (ltk, reprise) exist to close, and this journey is where their
 // loadout delivery finally gets acceptance coverage —
-// internal/config/companions.go's DiscoverCompanions/ProbeCompanionLoadouts
-// is thoroughly unit-tested (internal/config/companion_loadout_test.go) but
+// internal/core/config/companions.go's DiscoverCompanions/ProbeCompanionLoadouts
+// is thoroughly unit-tested (internal/core/config/companion_loadout_test.go) but
 // had ZERO acceptance coverage before this file, in either direction (a
 // companion's content reaching the assembled surface, or its absence
 // degrading gracefully).
@@ -63,7 +63,7 @@ import (
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -211,7 +211,7 @@ func j001800LtkShippedPreToolMatcher() (string, error) {
 }
 
 // j001800ClaudeSettings is the minimal shape this journey needs to parse out of
-// the generated .claude/settings.json — matches internal/claude/claude.go's
+// the generated .claude/settings.json — matches internal/engines/claude/claude.go's
 // claudeCodeSettings/claudeCodeHookMatcher/claudeCodeHook exactly (only the
 // fields this journey asserts on), so scenario 1's hook-wiring assertion
 // PARSES the generated file rather than a bare substring/exists check.

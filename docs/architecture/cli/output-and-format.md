@@ -75,7 +75,7 @@ always human text or always YAML):
 | `profile create`, `delete`, `edit`, `modify`, `export`, `import` | `profile.go:129,214,410,326,429,463` |
 | `mcp server add`, `mcp server remove` (+ `manage mcp servers *` aliases) | `mcp.go:217,271` |
 | `manage install`, `uninstall`, `hooks install`/`uninstall`/`status`, `gitignore install` | `manage.go:81,144,251,277,465` |
-| `remote add`, `remove`, `list`, `default`, `pull`, `browse`, `discover`, `update`, `upgrade` | `rg 'emit\(' internal/cli/remote_*.go` → **zero hits**; all write `fmt.Printf` to raw `os.Stdout` |
+| `remote add`, `remove`, `list`, `default`, `pull`, `browse`, `discover`, `update`, `upgrade` | `rg 'emit\(' internal/adapters/cli/remote_*.go` → **zero hits**; all write `fmt.Printf` to raw `os.Stdout` |
 | `session rename`, `session forget`, `session distill` | `session_cmd.go:204,218,374` |
 | `init`, `init prompt` | `init.go` |
 | `memory list`/`show`/`compact` (deprecated) | `memory.go` |

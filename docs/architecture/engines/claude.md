@@ -1,4 +1,4 @@
-# `claude-code` — `internal/claude`
+# `claude-code` — `internal/engines/claude`
 
 ctxloom's adapter for Anthropic's `claude` CLI. It declares the CLI's process
 contract (argv, flags, probes, env), builds its argv, materializes claude's native
@@ -26,20 +26,20 @@ the one place claude's surface membership is stated.
 | `Configure` | `claudecode.go:96` | `agent.Configurable`: binary/args/env + thinking level |
 | `Execute` | `claudecode.go:114` | Minimal-oneshot JSON branch, else `ExecuteCLI` |
 | `buildArgs` | `claudecode.go:231` | The whole claude argv |
-| `ResolveModel` | `chat.go:254` | Nickname → concrete model id; `ok=false` fails loud. Sole production caller `internal/operations/delegate.go:317` |
+| `ResolveModel` | `chat.go:254` | Nickname → concrete model id; `ok=false` fails loud. Sole production caller `internal/adapters/operations/delegate.go:317` |
 | `EngineCLIs` / `ClaudeEngineCLIs` | `enginecli.go:172` / `:178` | Oneshot + interactive surface declarations |
 | `ClaudeCodeHookWriter` | `claude.go:26` | `agent.SettingsWriter` + `agent.ContextWriter` |
 | `NewWriter` | `claude.go:20` | Registry `newWriter` seam (`registry.go:276`) |
 | `WriteSettings` / `RemoveSettings` / `Status` | `claude.go:161` / `:744` / `:798` | The `SettingsWriter` trio. `WriteSettings` has **zero production callers for claude** — live only via the conformance suite |
 | `WriteContext` | `claude.go:243` | Marker-merge into `CLAUDE.md` |
-| `ProjectSettingsPath` / `GlobalSettingsPath` / `GlobalCommandsDir` / `SettingsPath` / `MCPConfigPath` | `claude.go:48` / `:54` / `:67` / `:76` / `:83` | Path vocabulary consumed by `internal/operations/hooks.go:272,277` and `internal/ltk/engine/claudecode.go:151,153` |
+| `ProjectSettingsPath` / `GlobalSettingsPath` / `GlobalCommandsDir` / `SettingsPath` / `MCPConfigPath` | `claude.go:48` / `:54` / `:67` / `:76` / `:83` | Path vocabulary consumed by `internal/adapters/operations/hooks.go:272,277` and `internal/ltk/engine/claudecode.go:151,153` |
 | `MCPRegistrar` | `mcp_registrar.go` | taskloom's `engine.Engine`; `Register` patches one `mcpServers` member through a taskloom-owned `confpatch.Store` via the same `applyMCPServers` as `writeMCPConfig` |
 | `WriteCommandFiles` / `TransformToClaudeCommand` | `commandfiles.go:18` / `:44` | `.claude/commands/*.md` manifest write + renderer |
 | `WriteSkillFiles` | `skillfiles.go:21` | `.claude/skills/<name>/**` manifest write |
 | `Surfaces` | `surfaces.go` | claude's `agent.Declaration`: per surface kind, the approaches claude can construct and its default. Every approach wraps an existing claude writer verbatim |
 | `ApproachSystemPrompt` | `surfaces.go` | claude's own name for its out-of-cwd framed context consumed via `--append-system-prompt-file`. Declared here and nowhere shared: no other engine has it |
 | `flagArgs` | `surfaces.go` | Reads the out-of-cwd launch flags off the run's `Resolved()` selection — flag name from each approach's own `Present`, path from what it recorded — and contributes nothing for an approach that delivered nothing |
-| `HookPayload` / `HookOutput` / `DecodeHookPayload` / `EncodeDeny` | `hooks_wire.go:33` / `:103` / `:110` | The hook wire contract `internal/ltk/engine` and `internal/cli` import rather than redefine |
+| `HookPayload` / `HookOutput` / `DecodeHookPayload` / `EncodeDeny` | `hooks_wire.go:33` / `:103` / `:110` | The hook wire contract `internal/ltk/engine` and `internal/adapters/cli` import rather than redefine |
 
 **Stubbed or absent:** `SessionHistory` is `nil` (`claudecode.go:67`). There is no
 `Setup` override — the shared `LaunchBackend` path is used.
@@ -71,10 +71,10 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 | MCP | Project `.mcp.json` (`writeMCPConfig`, `claude.go:460`; `mcpSurface`, `surfaces.go:105`). In a shared cell it is an out-of-cwd file passed as `--mcp-config` **without** `--strict-mcp-config`, so ctxloom's servers **layer over** the user's project `.mcp.json` (`claudecode.go:288-292`). Global via `MCPRegistrar.ConfigPath` → `~/.claude.json` |
 | Commands | `.claude/commands/*.md`, frontmatter + mustache→`$N` body (`commandfiles.go:18`, `:44`); optional home dedup against `~/.claude/commands` (`surfacedelivery.go:99-104`) |
 | Skills | `.claude/skills/<name>/**` (`skillfiles.go:21`) |
-| One-shot / resume | **Supported.** In both `resumeCapableBackends` and `oneShotSupportedBackends` (`internal/agentcoord/coord/spawner.go:225`, `:248`). This adapter's only session-identity lever is `--name <harp>` (display name only) |
-| Transcript | **No scrape.** `SessionHistory` is `nil`; the `~/.claude/projects/<encoded-cwd>/*.jsonl` scraper was deleted (`capabilities.go:17-27`) after its cwd→slug encoder produced non-existent dirs for any path with a dot, underscore, or space. An opt-in vendor reader exists for the interactive-pty gap (`internal/operations/vendorreader.go:71`) |
+| One-shot / resume | **Supported.** In both `resumeCapableBackends` and `oneShotSupportedBackends` (`internal/core/coord/spawner.go:225`, `:248`). This adapter's only session-identity lever is `--name <harp>` (display name only) |
+| Transcript | **No scrape.** `SessionHistory` is `nil`; the `~/.claude/projects/<encoded-cwd>/*.jsonl` scraper was deleted (`capabilities.go:17-27`) after its cwd→slug encoder produced non-existent dirs for any path with a dot, underscore, or space. An opt-in vendor reader exists for the interactive-pty gap (`internal/adapters/operations/vendorreader.go:71`) |
 | Model + auth | `--model` emitted when non-empty; empty lets the CLI pick (`claudecode.go:263-266`). Auth is **ambient subscription** by default |
-| Isolation | **Supported, no auth gap.** Scoped host env passthrough plus a **copy-then-mount-read-write** of `~/.claude/.credentials.json` — RW because claude refreshes its OAuth token in place (`internal/lm/isolation/auth.go:423-468`). `~/.claude.json` is deliberately not copied. Additionally, claude is the one engine that can isolate a *shared* cwd without a container, via the out-of-cwd flag trio |
+| Isolation | **Supported, no auth gap.** Scoped host env passthrough plus a **copy-then-mount-read-write** of `~/.claude/.credentials.json` — RW because claude refreshes its OAuth token in place (`internal/adapters/isolation/auth.go:423-468`). `~/.claude.json` is deliberately not copied. Additionally, claude is the one engine that can isolate a *shared* cwd without a container, via the out-of-cwd flag trio |
 | Status | **Supported — the exercised default** |
 
 ## Invariants
@@ -100,7 +100,7 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 - **`agentfiles.go` — the entire sub-agent-roster writer (`ClaudeAgents`, `AgentExport`, `WriteAgentFiles`, `TransformToClaudeAgent`) plus a 219-line test suite — has zero production callers**; `enginecli.go:149` states it outright. It predates claude's own native `--agents <json>` flag.
 - **A `minimalSettings` marshal failure returns `"{}"`, dropping `permissions.defaultMode: bypassPermissions`** — the setting that keeps a headless distill run from blocking (`claudecode.go:375-378`).
 - **Four `exists, _ := afero.Exists(...)` sites treat an I/O error as "absent"** (`claude.go:759`, `:781`, `:803`, `:814`; `commandfiles.go:24`), so a permission-denied `settings.json` makes `RemoveSettings` a silent no-op and `Status` report "not installed".
-- **`internal/claude/docs/design/*.md` carries 357 lines describing deleted symbols** (`chat_stream.go`, `chat_run.go`, `ClaudeSessionHistory.parseEntries`) and the unwired `agentfiles.go`.
+- **`internal/engines/claude/docs/design/*.md` carries 357 lines describing deleted symbols** (`chat_stream.go`, `chat_run.go`, `ClaudeSessionHistory.parseEntries`) and the unwired `agentfiles.go`.
 
 ## See also
 

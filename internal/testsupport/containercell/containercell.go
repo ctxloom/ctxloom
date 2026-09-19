@@ -28,7 +28,7 @@
 // the scratch overlay it lays over the engine's managed-config directory. For
 // that, the cell is a supplier rather than the launcher: EnsureRunPolicyImage
 // builds the image the PRODUCT's Container policy launches, and
-// internal/lm/isolation's TestContainerRun_* pair drives the real run.
+// internal/adapters/isolation's TestContainerRun_* pair drives the real run.
 //
 // # THE THREE DESIGN DECISIONS
 //
@@ -266,7 +266,7 @@ const ImageTag = "ctxloom-cell:latest"
 const RunPolicyImageTag = "ctxloom-cell-runpolicy:latest"
 
 // RunPolicyBinary is where RunPolicyImageTag carries ctxloom: the path
-// internal/lm/isolation's container policy hardcodes as the in-container
+// internal/adapters/isolation's container policy hardcodes as the in-container
 // ctxloom (its defaultContainerBinary). The literal is duplicated here rather
 // than imported because the isolation package must not depend on testsupport
 // in the other direction; the isolation-side test asserts the two agree, so a

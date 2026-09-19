@@ -40,9 +40,9 @@ import (
 	messages "github.com/cucumber/messages/go/v21"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/schema"
 )
 
 // approachCellFixture is a green P1 run, used as the baseline every check below
@@ -308,9 +308,9 @@ func TestApproachConfigYAML_ActuallyPinsTheApproach(t *testing.T) {
 // TestApproachConfigYAML_ActuallyPinsTheApproach above only proves the rendered
 // binding PARSES, and agents.ParseAgent is deliberately lenient — it accepts
 // any string into Runtime, so a retired spelling survives it. This test runs
-// the SAME rendered bytes through internal/schema.NewConfigValidator, the
+// the SAME rendered bytes through internal/shared/schema.NewConfigValidator, the
 // validator the production config loader uses and the seam
-// internal/config/unknown_keys.go's classifyValidationError sits on top of, so
+// internal/core/config/unknown_keys.go's classifyValidationError sits on top of, so
 // a P1 fixture cannot drift back to a value the schema rejects even if
 // ParseAgent stays lenient forever.
 //

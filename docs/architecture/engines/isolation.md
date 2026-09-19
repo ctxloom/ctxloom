@@ -1,6 +1,6 @@
-# Isolation — `internal/lm/isolation`
+# Isolation — `internal/adapters/isolation`
 
-`internal/lm/isolation` decides **where an agent's working directory lives** and
+`internal/adapters/isolation` decides **where an agent's working directory lives** and
 **where its engine process executes**, prepares that workspace, and hands back
 either a `pb.Client` (go-plugin transport) or a transport-free `RunnerHandle`. It
 owns an **ordered degrade chain whose floor is always the host**, and the rule that
@@ -10,7 +10,7 @@ never a weaker cell. `--degraded` does not reach these: it means "deliver less",
 not "drop the sandbox". It also owns the agent container image lifecycle and the
 host-side half of credential delivery.
 
-It deliberately does **not** import `internal/lm/backends` or `internal/operations`.
+It deliberately does **not** import `internal/lm/backends` or `internal/adapters/operations`.
 Backend names cross as bare string keys (documented connascence of name), and
 `EngineStarter` and `SetBinaryVersion` exist purely to keep the dependency
 direction one-way.
@@ -493,7 +493,7 @@ credentials, so neither is offered.
 
 ## Per-engine container specs
 
-`engineContainerSpecFor(backend)` (`internal/lm/isolation/enginespec.go`; called
+`engineContainerSpecFor(backend)` (`internal/adapters/isolation/enginespec.go`; called
 `containerProfileFor` in a since-removed `profile.go` until 0.7.0 — renamed
 because "profile" is ctxloom's *context-composition* concept and the collision is
 what let two call sites key this table on an agent label instead of an engine).
@@ -512,7 +512,7 @@ loops over them.
 | **fail-closed default** (an engine with no container declaration) | `ctxloom-agent:latest` | none | none | `.ctxloom/cache` only | `""` (no store is guessed) |
 
 Every row above is the engine's OWN declaration (`engine.Descriptor.Container`),
-pushed into `internal/lm/isolation` at registration; isolation keeps no table.
+pushed into `internal/adapters/isolation` at registration; isolation keeps no table.
 
 The default arm's `resolveAuth` is `noContainerAuth`: an engine with no mapping
 gets **no credentials at all** and its containerized run aborts at
@@ -557,7 +557,7 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 | `Prepare` | `isolation.go` | Public entry; never returns an error |
 | `IsContainerPolicyName` | `isolation.go` | The security predicate: "did we keep the boundary?" |
 | `Isolated` | `isolation.go` | `p.Name() != "none"`; gates per-member config writes |
-| `StarterForWorkspace` / `FactoryForWorkspace` / `WorkspaceEnv` | `isolation.go` | Binding adapters for `internal/operations` |
+| `StarterForWorkspace` / `FactoryForWorkspace` / `WorkspaceEnv` | `isolation.go` | Binding adapters for `internal/adapters/operations` |
 | `EngineStarter` / `RunnerHandle` | `isolation.go` | Launch closure; `{Name, Kill func(), Wait, StderrTail}` |
 | `ImageConfig` | `isolation.go` | `Image`, `BaseContainerfile`, `AppRoot`, `NoDevcontainerBase`, `DevcontainerService`, `Engines` |
 | `None` / `Container` / `Worktree` | `none.go` / `container.go` / `worktree.go` | The three policy types (four policy identities, six requestable postures) |

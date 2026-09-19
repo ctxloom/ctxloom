@@ -100,7 +100,7 @@ elicitation-forward feature. Do not merge. Merging it breaks the `internal/acpag
 Self-described "wip: mock engine exploration, halted pending architecture revision". Three
 files, two fates:
 
-- `internal/shared/agent/enginecli.go` (204 lines) — SUPERSEDED. `release/0.7` carries a
+- `internal/core/agent/enginecli.go` (204 lines) — SUPERSEDED. `release/0.7` carries a
   568-line matured version added by `b4944b9b` "feat(agent): EngineCLI contract". 677 diff
   lines apart. This is the `add/add` merge conflict. Discard.
 - `internal/acp/argv.go` + `argv_test.go` (130 lines) — GENUINELY UNIQUE and NOT adopted.
@@ -108,7 +108,7 @@ files, two fates:
   `TestChatArgv_EmitsOnlyDeclaredFlags` anti-drift gate. `release/0.7` still hardcodes
   `"--agent"`, `"--model"`, `"--agent-engine"` as string literals in `internal/acp/acp.go`
   (lines 330, 350, 354), and no `EmitsOnlyDeclaredFlags` test exists anywhere. The
-  per-backend half of the idea did land (`internal/claude/enginecli.go:83 flagModel =
+  per-backend half of the idea did land (`internal/engines/claude/enginecli.go:83 flagModel =
   "--model"`); the driver-side central grammar did not.
 
 The vendor-behaviour notes embedded in `argv.go` are measured facts worth keeping regardless
@@ -134,9 +134,9 @@ Nothing unique. Only dirt is gendocs debris (see below).
 - `5a94c9fa` "refactor(config): route agent/mcp/statusline/container writes through
   Manager.Update" → **`e5e9ee26`** (2026-07-21), identical subject, identical file set.
   `git cherry` marks it `+` only because upstream deleted 27 more lines from
-  `internal/operations/helpers.go` — an intervening `release/0.7` fix (the `getFS`/
+  `internal/adapters/operations/helpers.go` — an intervening `release/0.7` fix (the `getFS`/
   `injectedFS` lock-skip and the `Load` → `LoadFresh` change) had enlarged the block being
-  removed. Corroborated: `internal/config/interim_setters.go`, whose deletion is the point
+  removed. Corroborated: `internal/core/config/interim_setters.go`, whose deletion is the point
   of the commit, does not exist on `release/0.7`.
 - `20ee7ce4` "refactor(config): migrate the seventh write site, SetDefaultLLM, onto
   Manager.Update" → **`5c23a03c`** (patch-equivalent, `-`).

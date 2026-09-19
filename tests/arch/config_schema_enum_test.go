@@ -1,7 +1,7 @@
 //go:build arch
 
 // resources/schema/input/config-schema.json is HAND-AUTHORED (see
-// internal/config/arch_test.go's own comment: the schema, not a struct, is
+// internal/core/config/arch_test.go's own comment: the schema, not a struct, is
 // the source of truth for enums, and reflection cannot derive them). Every
 // enum array in it that mirrors a closed Go vocabulary is therefore a SECOND
 // COPY of that vocabulary's member list, kept in sync by nobody but a human
@@ -33,10 +33,10 @@
 // field, which is registry-only display metadata the schema itself says is
 // "stripped from persisted user configs and ignored otherwise"; and the
 // escalation ladder's `kinds`/`action`, whose real vocabulary
-// (internal/agentcoord/coord.approvalKindNames, coord.LadderAction) is
+// (internal/core/coord.approvalKindNames, coord.LadderAction) is
 // unexported in a package this test cannot reach without either a production
 // export change (out of scope for a test-only gate) or an import cycle
-// (coord depends on internal/config, which depends on internal/schema).
+// (coord depends on internal/core/config, which depends on internal/shared/schema).
 package arch
 
 import (
@@ -46,10 +46,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/operations"
-	agentaxis "github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	agentaxis "github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -131,17 +131,17 @@ var schemaEnumBindings = []schemaEnumBinding{
 	{path: "properties/agents/additionalProperties/properties/engine_home", goNames: agents.HomeModeNames},
 
 	// Escalation ladder: real Go vocabulary exists but is unexported inside
-	// internal/agentcoord/coord (approvalKindNames, LadderAction), a package
+	// internal/core/coord (approvalKindNames, LadderAction), a package
 	// this test cannot import without an export change to production code —
-	// out of scope for a test-only gate — or, for internal/schema, an import
-	// cycle (coord -> internal/config -> internal/schema).
+	// out of scope for a test-only gate — or, for internal/shared/schema, an import
+	// cycle (coord -> internal/core/config -> internal/shared/schema).
 	{
 		path:          "properties/agents/additionalProperties/properties/escalation/items/properties/kinds/items",
-		excludeReason: "real vocabulary is internal/agentcoord/coord.approvalKindNames, unexported; no reachable Names() accessor without a production export change",
+		excludeReason: "real vocabulary is internal/core/coord.approvalKindNames, unexported; no reachable Names() accessor without a production export change",
 	},
 	{
 		path:          "properties/agents/additionalProperties/properties/escalation/items/properties/action",
-		excludeReason: "real vocabulary is internal/agentcoord/coord.LadderAction's consts, unexported; no reachable Names() accessor without a production export change",
+		excludeReason: "real vocabulary is internal/core/coord.LadderAction's consts, unexported; no reachable Names() accessor without a production export change",
 	},
 
 	// $defs/hook: claude-code's own hook-handler type vocabulary, passed

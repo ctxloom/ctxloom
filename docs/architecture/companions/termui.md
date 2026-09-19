@@ -1,4 +1,4 @@
-# `internal/termui` — raw-ANSI terminal frontend
+# `internal/adapters/termui` — raw-ANSI terminal frontend
 
 **What it is.** The terminal layer for an interactive `ctxloom run`. It wraps the three seams the
 plugin client already owns — stdin reader, stdout writer, resize channel — with four things: a
@@ -7,9 +7,9 @@ engine output while the observation overlay is open, and a **VT-sequence guard**
 child engine from clobbering the reserved row.
 
 **The contract it owns.** *One terminal, one lock (`ttyMu`), and a bottom row the child engine can
-never scroll into or erase without the bar being repainted.* `internal/cli/run_terminal_ui.go`
+never scroll into or erase without the bar being repainted.* `internal/adapters/cli/run_terminal_ui.go`
 constructs a `Controller` and swaps its `Stdin()`/`Stdout()`/`Resize()` into the plugin client at
-`run.go:1232`; `internal/cli/tui` supplies the bubbletea `Overlay` implementation, so this package
+`run.go:1232`; `internal/adapters/cli/tui` supplies the bubbletea `Overlay` implementation, so this package
 never links bubbletea.
 
 ---
@@ -63,9 +63,9 @@ include the bar row.
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `Overlay` (interface) | `controller.go:18` | `Run(io.Reader, io.Writer, OverlayGeometry) error` + `Abort()`. The framework firewall — implemented by `internal/cli/tui` |
+| `Overlay` (interface) | `controller.go:18` | `Run(io.Reader, io.Writer, OverlayGeometry) error` + `Abort()`. The framework firewall — implemented by `internal/adapters/cli/tui` |
 | `OverlayFactory` | `controller.go:29` | `func() Overlay` — one fresh overlay per engagement |
-| `OverlayGeometry` | `controller.go:40` | `{Cols, Rows, PanelRows}`. **`Rows` means real rows minus the reserve**, and the panel occupies `Rows-PanelRows+1 .. Rows`. That arithmetic is computed independently in `panelClearSeq` (`controller.go:297`) and in `internal/cli/tui` |
+| `OverlayGeometry` | `controller.go:40` | `{Cols, Rows, PanelRows}`. **`Rows` means real rows minus the reserve**, and the panel occupies `Rows-PanelRows+1 .. Rows`. That arithmetic is computed independently in `panelClearSeq` (`controller.go:297`) and in `internal/adapters/cli/tui` |
 | `Options` | `controller.go:64` | 11 knobs: `{Stdin, TTY, Resize}` wiring, `{Prefix, Surround, Bar, NewOverlay}` behaviour, `{FetchRoster, RosterInterval}` poller, `Warn`, `HoldCapacity` |
 | `Controller` | `controller.go:89` | Owns `ttyMu` and the four sub-components. Two nearly-disjoint method groups: seam wiring/teardown (`Stdin`/`Stdout`/`Resize`/`Close`) and the engagement state machine (`engage`/`buildOverlay`/`runOverlay`/`release`/`abortLiteral`/`degrade`), plus an independent roster poller |
 | `OutputGate` | `gate.go:16` | Engine-output writer that can be diverted into a ring and replayed. Shares `*sync.Mutex` with `Surround` **by pointer** |
@@ -184,6 +184,6 @@ include the bar row.
   `Interceptor`/`NewInterceptor`, `ResizeTranslator`/`NewResizeTranslator` and `RosterDigest` have
   zero external references. The genuine external contract is `Controller`, `Options`, `BarInfo`,
   `RosterEntry`, `OverlayGeometry`, `Overlay`, `OverlayFactory`, `ParsePrefixKey`, `CaretHint`.
-- **`RosterEntry.State` is connascent of meaning with `internal/agentcoord/coord`** — the string
+- **`RosterEntry.State` is connascent of meaning with `internal/core/coord`** — the string
   values (`"executing"`, `"ended"`, everything-else) are produced there and consumed by
   `RosterDigest` here, with no shared constant linking them.

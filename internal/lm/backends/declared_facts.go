@@ -1,9 +1,9 @@
 package backends
 
 import (
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 )
 
 // The accessors in this file hand a descriptor's DECLARED slots to the

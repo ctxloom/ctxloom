@@ -6,7 +6,7 @@ sidebar:
 
 Complete reference for all ctxloom commands.
 
-The per-command pages in this section are **generated** from the command definitions in `internal/cli` (`just gen-docs`) — the same text as `ctxloom <command> --help` and `man ctxloom`, so they always match the binary. This page keeps the narrative that doesn't fit a `--help` screen.
+The per-command pages in this section are **generated** from the command definitions in `internal/adapters/cli` (`just gen-docs`) — the same text as `ctxloom <command> --help` and `man ctxloom`, so they always match the binary. This page keeps the narrative that doesn't fit a `--help` screen.
 
 Every command accepts the global `--format text|json` flag; `json` emits machine-readable output for scripting and frontends.
 

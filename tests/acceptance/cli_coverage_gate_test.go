@@ -15,7 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/cli"
+	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 )
 
 // The completeness gate, answered from what the CLI's own code DID rather than
@@ -220,7 +220,7 @@ func indexOfBlock(blocks []coverBlock, b coverBlock) int {
 
 // readCoverProfile parses a textfmt coverage profile into blocks keyed by the
 // package-relative file path the profile uses (e.g.
-// "github.com/ctxloom/ctxloom/internal/cli/remote.go").
+// "github.com/ctxloom/ctxloom/internal/adapters/cli/remote.go").
 func readCoverProfile(path string) (map[string][]coverBlock, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -251,7 +251,7 @@ func readCoverProfile(path string) (map[string][]coverBlock, error) {
 			continue
 		}
 		// A textfmt profile names files by IMPORT PATH
-		// ("github.com/ctxloom/ctxloom/internal/cli/remote.go") while the
+		// ("github.com/ctxloom/ctxloom/internal/adapters/cli/remote.go") while the
 		// runtime reports an absolute filesystem path. Strip the module prefix
 		// so the two can be matched by suffix.
 		file := strings.TrimPrefix(fields[0][:colon], modulePath+"/")

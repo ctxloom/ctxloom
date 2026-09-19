@@ -1,10 +1,10 @@
 package testsupport
 
-import "github.com/ctxloom/ctxloom/internal/version"
+import "github.com/ctxloom/ctxloom/internal/shared/version"
 
 // TestBinaryStamp is the build stamp a TEST BINARY carries.
 //
-// internal/version.Version has no default: an unstamped ctxloom refuses to
+// internal/shared/version.Version has no default: an unstamped ctxloom refuses to
 // start, because a binary that cannot name its own build is what lets
 // confident wrong work through. A `go test` binary is unstamped by
 // construction — no ldflags reach it — so every test that drives a ctxloom
@@ -48,4 +48,4 @@ func StampTestBinary() {
 // name and the import path cannot drift apart across those suites; a wrong path
 // in an -X flag is silently ignored by the linker, which would leave the binary
 // unstamped and the failure looking like the gate misfiring.
-const TestBinaryLDFlags = "-X github.com/ctxloom/ctxloom/internal/version.Version=" + TestBinaryStamp
+const TestBinaryLDFlags = "-X github.com/ctxloom/ctxloom/internal/shared/version.Version=" + TestBinaryStamp

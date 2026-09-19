@@ -11,15 +11,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/cli"
-	"github.com/ctxloom/ctxloom/internal/docsgen"
-	"github.com/ctxloom/ctxloom/internal/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
+	"github.com/ctxloom/ctxloom/internal/shared/docsgen"
 )
 
 // TestCtxloomProduct pins the wiring this entrypoint is responsible for: the
 // real ctxloom command tree, a documentation MCP server, and the two site/man
 // conventions the checked-in pages were generated under. The generator behaviour
-// itself is tested in internal/docsgen.
+// itself is tested in internal/shared/docsgen.
 func TestCtxloomProduct(t *testing.T) {
 	p, closeMCP, err := ctxloomProduct()
 	if err != nil {
@@ -44,7 +44,7 @@ func TestCtxloomProduct(t *testing.T) {
 	}
 
 	// `bundle` roots ~30 of the checked-in reference pages, so it must survive
-	// PrepareTree visible. It is no longer hidden in internal/cli, so this is a
+	// PrepareTree visible. It is no longer hidden in internal/adapters/cli, so this is a
 	// characterization of the ordinary case; the hidden-command decision itself
 	// is enforced by TestEveryHiddenTopLevelCommandIsDecided.
 	var bundle *cobra.Command
@@ -116,7 +116,7 @@ func TestRun_ReportsAnAssemblyFailureInsteadOfPanicking(t *testing.T) {
 }
 
 // pristineHidden records every top-level command's Hidden flag exactly as
-// internal/cli declares it, snapshotted at package init. It has to be a
+// internal/adapters/cli declares it, snapshotted at package init. It has to be a
 // snapshot: cli.GetRootCmd() returns a process-wide singleton and PrepareTree
 // MUTATES it, so a test that reads c.Hidden directly is reading whatever an
 // earlier test in the same binary left behind.
@@ -142,7 +142,7 @@ var undocumentedHidden = map[string]bool{
 
 // TestEveryHiddenTopLevelCommandIsDecided pins that `Unhide` is a
 // hand-maintained list in THIS package keyed on a `Hidden` flag set in
-// internal/cli, and the two are joined by nothing. The coupling fails in both
+// internal/adapters/cli, and the two are joined by nothing. The coupling fails in both
 // directions and both are silent: a command newly marked `Hidden: true` for the
 // same "advanced but documented" reason simply loses its reference pages with
 // the generator still reporting success, and an Unhide entry for a command that
@@ -182,12 +182,12 @@ func TestEveryHiddenTopLevelCommandIsDecided(t *testing.T) {
 		if _, ok := pristineHidden[name]; !ok {
 			t.Errorf("Product.Unhide names %q, which is not a top-level command -- a rename left it dangling", name)
 		} else if !pristineHidden[name] {
-			t.Errorf("Product.Unhide names %q, which internal/cli does not hide -- the unhide is a no-op and the list has gone stale", name)
+			t.Errorf("Product.Unhide names %q, which internal/adapters/cli does not hide -- the unhide is a no-op and the list has gone stale", name)
 		}
 	}
 	for name := range undocumentedHidden {
 		if !pristineHidden[name] {
-			t.Errorf("undocumentedHidden names %q, which internal/cli does not hide -- this list has gone stale", name)
+			t.Errorf("undocumentedHidden names %q, which internal/adapters/cli does not hide -- this list has gone stale", name)
 		}
 	}
 }

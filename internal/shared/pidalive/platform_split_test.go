@@ -15,7 +15,7 @@ import (
 // platform split", concluding the build tags bought nothing. No such pair
 // exists any more: that consolidation is what CREATED this package (see the
 // package doc — three near-identical copies in agentcoord/coord,
-// internal/operations and internal/lm/isolation were folded into one leaf
+// internal/adapters/operations and internal/adapters/isolation were folded into one leaf
 // package), `pidAlive` survives in the repo only inside comments and one
 // test-name mention, and `Alive` is a State CONSTANT, not a function anything
 // can delegate to.

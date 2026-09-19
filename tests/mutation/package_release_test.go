@@ -23,7 +23,7 @@ func fakeGremlins(t *testing.T, exit string) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-var releaseProbe = packageMutationTarget{Name: "probe", Pkg: "internal/lm/isolation"}
+var releaseProbe = packageMutationTarget{Name: "probe", Pkg: "internal/adapters/isolation"}
 
 // The marker precedes the tally on the same writer: that ordering is the whole
 // contract with the ratchet, which attributes a tally to the marker before it.
@@ -42,7 +42,7 @@ func TestPackageRelease_AnnouncesTheTargetBeforeTheTally(t *testing.T) {
 	if marker < 0 || tally < 0 || marker > tally {
 		t.Errorf("marker must precede the tally on the same stream; got:\n%s", got)
 	}
-	if !strings.Contains(got, "fake gremlins unleash ./internal/lm/isolation") {
+	if !strings.Contains(got, "fake gremlins unleash ./internal/adapters/isolation") {
 		t.Errorf("gremlins must be handed \"./\"+Pkg; got:\n%s", got)
 	}
 }

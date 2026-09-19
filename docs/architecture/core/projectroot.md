@@ -1,14 +1,14 @@
-# internal/projectroot
+# internal/adapters/projectroot
 
-`internal/projectroot` answers "which directory is this project rooted at?" — resolving the
+`internal/adapters/projectroot` answers "which directory is this project rooted at?" — resolving the
 `CTXLOOM_ROOT` override above git-root detection above cwd, classifying whether a directory
 is a **linked git worktree**, and applying the one deliberate exception where a linked
 worktree redirects to its primary checkout (the task store). It writes nothing; it returns
 a root that every downstream writer then writes to, which is why a wrong answer here does not
 fail — it silently writes the right data to the wrong project.
 
-Seven functions, three files, 15 production call sites across `internal/cli`,
-`internal/config`, `internal/operations`, `internal/lm/grpc` and `internal/taskloom/workdir`.
+Seven functions, three files, 15 production call sites across `internal/adapters/cli`,
+`internal/core/config`, `internal/adapters/operations`, `internal/lm/grpc` and `internal/taskloom/workdir`.
 
 ## Responsibilities
 
@@ -19,10 +19,10 @@ Seven functions, three files, 15 production call sites across `internal/cli`,
 
 ## Non-responsibilities
 
-- What lives at a root — `internal/paths`; see [paths.md](./paths.md).
-- Finding the `.ctxloom` directory itself — `internal/config` (`findAppDir`), which calls
+- What lives at a root — `internal/core/paths`; see [paths.md](./paths.md).
+- Finding the `.ctxloom` directory itself — `internal/core/config` (`findAppDir`), which calls
   `DetectWorktree` per ancestor; see [config.md](./config.md).
-- Git operations — `internal/git` / `gitutil`.
+- Git operations — `internal/adapters/git` / `gitutil`.
 
 ## Resolution chain
 
@@ -93,8 +93,8 @@ flowchart TD
 ## Boundaries
 
 - **Imports:** `gitutil` (go-git `PlainOpen`), `afero`.
-- **Imported by:** `internal/config` (`findAppDir`, `worktreeSignpost` — called per ancestor on every
-  `config.Load`), `internal/cli`, `internal/operations` (`manage.go`, `hooks.go`),
+- **Imported by:** `internal/core/config` (`findAppDir`, `worktreeSignpost` — called per ancestor on every
+  `config.Load`), `internal/adapters/cli`, `internal/adapters/operations` (`manage.go`, `hooks.go`),
   `internal/lm/grpc`, `internal/taskloom/workdir`.
 
 ## Where documented and real behavior diverge

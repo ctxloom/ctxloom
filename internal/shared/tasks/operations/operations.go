@@ -52,7 +52,7 @@ type TaskContext struct {
 	// project tree at WorkDir/.taskloom/tasks.jsonl, no project-id involved).
 	// The zero value "" behaves exactly like paths.ModeHome — today's sole
 	// behavior — so every caller that predates homing-mode selection (every
-	// existing internal/cli, internal/operations, and internal/lm/isolation
+	// existing internal/adapters/cli, internal/adapters/operations, and internal/adapters/isolation
 	// call site) keeps working completely unchanged. cmd/taskloom's own
 	// frontend resolves this explicitly via internal/taskloom/config.
 	// ResolveMode, which resolves to the SAME paths.ModeHome default when
@@ -67,7 +67,7 @@ type TaskContext struct {
 	// key) targets are arity=scalar. nil (the zero value) means "no schema
 	// at all": AddTaskWithTags/TagTask skip scalar-collapse entirely in that
 	// case, so every caller that predates this feature (every existing
-	// internal/cli, internal/operations, and internal/lm/isolation call
+	// internal/adapters/cli, internal/adapters/operations, and internal/adapters/isolation call
 	// site, none of which construct a schema) keeps behaving exactly as
 	// before. Only cmd/taskloom's own frontend populates this today, via
 	// internal/taskloom/config.Config.ParsedTagSchema.

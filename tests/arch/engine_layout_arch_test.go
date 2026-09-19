@@ -9,16 +9,16 @@
 //   - the credential seed (env var, dest subdir, host source-file paths).
 //     This one is no longer a literal outside the engine: each engine
 //     declares it on its own descriptor (engine.Descriptor.Home.Credentials)
-//     and the registry pushes it into internal/lm/isolation. What this gate
+//     and the registry pushes it into internal/adapters/isolation. What this gate
 //     still checks is the DECLARATION itself against the engine's constants —
 //     a descriptor can hand-type a path as easily as a table could.
 //   - the container-axis overlay dirs and transcript-store root. Also no
 //     longer isolation literals: each engine declares them on its descriptor
 //     (engine.Descriptor.Container) and the registry pushes them into
-//     internal/lm/isolation, which is read back here through
+//     internal/adapters/isolation, which is read back here through
 //     ContainerOverlayDirsFor / ContainerTranscriptStoreRelFor — so the
 //     check covers the declaration AND that the push delivered it.
-//   - internal/gitignore/gitignore.go's WorktreeArtifactPatterns (the LIVE
+//   - internal/adapters/gitignore/gitignore.go's WorktreeArtifactPatterns (the LIVE
 //     per-agent-worktree exclude set) and TransientArtifactPatterns/
 //     WorktreeArtifactPatterns' pinned LEGACY .codex/* entries (the
 //     pre-relocation project-root home, superseded by the per-session
@@ -26,7 +26,7 @@
 //     re-opens — see that file's own "THE .codex ENTRIES ARE NOW LEGACY"
 //     comment).
 //
-// internal/gitignore still carries its facts as literals rather than
+// internal/adapters/gitignore still carries its facts as literals rather than
 // importing the engine packages, so nothing in PRODUCTION code makes the two
 // sides agree there. The isolation-side facts are now DECLARED by each
 // engine from its own constants; what remains checkable is that the
@@ -65,10 +65,10 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/gitignore"
+	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 )
 
 // legacyCodexConfigFileName and legacyCodexAuthFileName are gitignore.go's
@@ -218,7 +218,7 @@ func testGitignoreLivePatterns(t *testing.T) {
 	}
 	for _, w := range want {
 		if !slices.Contains(patterns, w.pattern) {
-			t.Errorf("internal/gitignore.WorktreeArtifactPatterns is missing %q (%s) — every ctxloom-written per-agent artifact must be excluded from a worktree merge-back",
+			t.Errorf("internal/adapters/gitignore.WorktreeArtifactPatterns is missing %q (%s) — every ctxloom-written per-agent artifact must be excluded from a worktree merge-back",
 				w.pattern, w.why)
 		}
 	}

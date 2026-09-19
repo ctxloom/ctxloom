@@ -1,4 +1,4 @@
-# `internal/memory` — session compaction
+# `internal/adapters/memory` — session compaction
 
 **What it is.** The single-pass distillation pipeline that turns a session transcript into a
 persisted **essence** document (`~/.ctxloom/sessions/<harp>/essence.md`), plus verbatim
@@ -13,7 +13,7 @@ Distillation is deliberately NOT hierarchical. An oversized transcript is reduce
 by `fitToBudget` — oldest content compressed hardest, the tail left intact — rather than split into
 chunks whose separate summaries are merged by a pass that never sees the source.
 
-`internal/cli` is the only internal consumer: `cli/memory.go` (`ctxloom memory
+`internal/adapters/cli` is the only internal consumer: `cli/memory.go` (`ctxloom memory
 compact|show|list`), `cli/session_cmd.go` (`compactEntry`, the `session distill` path), `mcp/mcp_tools_memory.go` (`compact_session`, `load_session`, `get_previous_session`), and
 `cli/hook_stamp_plan.go` (the PostToolUse plan-stamping hook).
 
@@ -192,6 +192,6 @@ flowchart TD
   temp file to the requested perm and renames, so the original mode is lost and any hardlink is
   broken.
 - **`runDistill` and `parseLLMFrontmatter` have acknowledged copies elsewhere** —
-  `internal/operations/task_triggers.go` ("This mirrors internal/memory/compactor.go's
+  `internal/adapters/operations/task_triggers.go` ("This mirrors internal/adapters/memory/compactor.go's
   runDistill"), its bounded fan-out, and `internal/shared/tasks/triggers/parse.go`
   (the frontmatter peel).

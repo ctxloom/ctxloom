@@ -1,6 +1,6 @@
 package backends
 
-import "github.com/ctxloom/ctxloom/internal/shared/agent"
+import "github.com/ctxloom/ctxloom/internal/core/agent"
 
 // This file is the name→EngineCLI seam: the single place a caller that holds
 // only a backend NAME turns it into that backend's engine-CLI declarations
@@ -11,7 +11,7 @@ import "github.com/ctxloom/ctxloom/internal/shared/agent"
 // driver reads (which flags exist, where the prompt travels, which files the
 // engine probes), so a fake carrying its own copy cannot drift out of step with
 // the driver. Routing that through Get + a type assertion here keeps the mock
-// depending on the backend registry, not on internal/claude directly — the
+// depending on the backend registry, not on internal/engines/claude directly — the
 // mirror of Declared (name→Declaration) and GetSettingsWriter
 // (name→settings writer).
 

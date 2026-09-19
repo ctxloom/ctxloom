@@ -408,7 +408,7 @@ Feature: The day the assistant goes blind
   # (docs/design/engine-delivery-seam.design.md step 3 —
   # agent.StateReader/agent.DeliveryState) over every backend's native context
   # surface that is actually materialized under the project root
-  # (operations.surfaceCurrencies, internal/cli/manage.go's
+  # (operations.surfaceCurrencies, internal/adapters/cli/manage.go's
   # printSurfaceCurrencies). claude-code's CLAUDE.md gained the read half
   # (claude.contextSurface.State) alongside the mock backend's, which already
   # had one. A surface with nothing materialized stays silent (no false
@@ -458,7 +458,7 @@ Feature: The day the assistant goes blind
   # silence a reader could misread as "nothing to report" instead of "this
   # cannot be known". `ctxloom doctor` now carries a new check,
   # DOCTOR-CHECK-INGESTION-q7 (cli.doctorCheckIngestionLimit,
-  # internal/cli/doctor_cmd.go), an "info" line — like SETUP-AUTHPING-j0
+  # internal/adapters/cli/doctor_cmd.go), an "info" line — like SETUP-AUTHPING-j0
   # beside it, a stated boundary rather than a probe with a pass/fail outcome
   # — reading "ctxloom writes the assembled context onto <engine>'s own
   # on-disk agent surface; whether <engine> actually reads what was written

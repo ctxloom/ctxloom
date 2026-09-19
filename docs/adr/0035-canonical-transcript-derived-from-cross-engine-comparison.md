@@ -118,7 +118,7 @@ field was chosen **by meaning**, never by source label:
 No new vocabulary was invented anywhere in this table: every canonical name
 on the right is exactly an `agent.SessionEntryType` value or an
 `agent.ChatEvent` variant name that already existed in
-`internal/shared/agent`.
+`internal/core/agent`.
 
 ## Decision
 

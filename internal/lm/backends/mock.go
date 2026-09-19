@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 )
 
@@ -54,14 +54,14 @@ type Mock struct {
 // evidence of what the engine actually observed. It is deliberately additive: a
 // failure that replaced the response with a constant would render identically
 // whether or not ctxloom delivered anything, and the mock's class gate
-// (internal/mockengine/arch_test.go) forbids exactly that — "a limb that renders
+// (internal/engines/mock/arch_test.go) forbids exactly that — "a limb that renders
 // identically either way is not evidence". Prefixing instead of replacing is
 // what lets a NEGATIVE scenario assert positively: the run can only produce
 // "FAIL" followed by the observed context if the engine was actually reached and
 // the value actually flowed, where asserting the ABSENCE of something is
 // satisfied just as well by an engine that never launched.
 //
-// internal/mockengine references this constant rather than re-typing it, so the
+// internal/engines/mock references this constant rather than re-typing it, so the
 // two mock halves cannot drift to different markers.
 const MockFailPrefix = "FAIL"
 
@@ -131,7 +131,7 @@ func (c MockLaunchConfig) MockControl() map[string]string { return c.Control }
 
 // MockControl returns the labeled entry's test-control map. Shared code (see
 // operations.MockControlFor) reaches it through an interface assertion rather
-// than a concrete-type switch: internal/operations must not branch on a
+// than a concrete-type switch: internal/adapters/operations must not branch on a
 // backend's identity (ADR-0026), and the four mock doubles each carry their
 // own config type, so one structural accessor serves them all.
 func (c MockConfig) MockControl() map[string]string { return c.Control }
@@ -277,7 +277,7 @@ func ConfigHomeEnvKeys() []string {
 // isolation workspace axis. On the Host runtime, isolation.Prepare's Worktree
 // policy never os.Chdir's the plugin subprocess itself (SpawnClient spawns
 // `ctxloom llm serve <backend>` with no Cmd.Dir — see
-// internal/lm/isolation/none.go / worktree.go's SpawnClient and
+// internal/adapters/isolation/none.go / worktree.go's SpawnClient and
 // internal/lm/grpc/client.go's dialLLMConnection) — real engines honor
 // isolation by having THEIR OWN Execute spawn a grandchild process with
 // Cmd.Dir = req.WorkDir (agent.ExecuteRequest.WorkDir's own doc: "the passed
@@ -337,7 +337,7 @@ func writeMockRecord(recordFile string, in mockRecordFields, managed *agent.Mana
 	// namespace regardless of how paths are mapped, so it never matches the
 	// launching process's hostname, nested or not. cwd and workdir cannot
 	// serve here: whether they agree between host and container is a
-	// property of the runtime's pathMapper seam (internal/lm/isolation/
+	// property of the runtime's pathMapper seam (internal/adapters/isolation/
 	// runtime.go) — identical-path is only that seam's default
 	// configuration, not a guaranteed contract — so a signal built on their
 	// equality would break under a non-identity mapper.
@@ -535,7 +535,7 @@ func getEnvFromMap(env map[string]string, key string) string {
 // produces — exit 0, a success message, nothing written. A mock that cannot be
 // asked for one cannot be used to prove ctxloom surfaces it rather than
 // papering over it, so "set to empty" and "unset" have to be distinguishable.
-// internal/mockengine's Dispatch takes a two-value reader for the same reason.
+// internal/engines/mock's Dispatch takes a two-value reader for the same reason.
 //
 // The lookup ORDER lives here alone (exact key, then the lowercase the config
 // parser may produce, then the process environment) rather than being written

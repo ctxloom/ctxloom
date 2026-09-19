@@ -17,9 +17,9 @@ import (
 func TestArch_LeanBinaries_DoNotLinkEngineDescriptors(t *testing.T) {
 	forbidden := []string{
 		modulePath + "/internal/lm/engine",
-		modulePath + "/internal/lm/engines",
+		modulePath + "/internal/engines",
 		modulePath + "/internal/lm/backends",
-		modulePath + "/internal/bundles",
+		modulePath + "/internal/core/bundles",
 	}
 	for _, bin := range []string{"./cmd/ltk", "./cmd/taskloom"} {
 		t.Run(bin, func(t *testing.T) {

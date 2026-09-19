@@ -170,7 +170,7 @@ code execution at review time. Acknowledged and accepted, as it is in every tool
 execute code on your host.** ctxloom gives an agent its own git worktree, and the
 repository's git *common* directory is exposed to that agent read-write: in a container it
 is bind-mounted at its identical host path (`gitCommonDirMount` in
-`internal/lm/isolation/container.go`, which mounts it with `ReadOnly` false), and on the
+`internal/adapters/isolation/container.go`, which mounts it with `ReadOnly` false), and on the
 host runtime there is no boundary in the way at all. That directory is not only objects and
 refs. It holds `hooks/`, and it holds the repo-local `config`, whose `core.hooksPath`,
 `core.fsmonitor`, `core.sshCommand`, `core.pager` and `[alias]` keys all name commands git

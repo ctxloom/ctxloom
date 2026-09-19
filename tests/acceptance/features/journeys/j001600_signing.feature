@@ -18,7 +18,7 @@ Feature: A signature somebody can check
   # re-proves tamper detection.
   #
   # Every signature assertion below reads the bundle bytes and the .sig sibling
-  # FRESH OFF DISK and verifies them with internal/signing's own verifier —
+  # FRESH OFF DISK and verifies them with internal/adapters/signing's own verifier —
   # never by trusting ctxloom's "signed by ..." success line. `ctxloom bundle
   # sign` had never produced a byte in an acceptance run before this file: an
   # empty .sig, a silently no-op --all, or a trust root written to the wrong
@@ -27,7 +27,7 @@ Feature: A signature somebody can check
   Background:
     Given Trent's signing key is in his ssh-agent, and git already knows it is his signing key
 
-  # The zero-config claim, stated by internal/signing/agentkey's own package
+  # The zero-config claim, stated by internal/adapters/signing/agentkey's own package
   # doc: anyone already signing commits with SSH needs no ctxloom setup at all.
   # The output must NAME which link of the discovery chain answered, so a
   # signature produced by an ambient developer agent could never be mistaken

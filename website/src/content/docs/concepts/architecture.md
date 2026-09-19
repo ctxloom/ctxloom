@@ -351,7 +351,7 @@ live operation is not fully verified. Use it knowing the live path may have gaps
 ### Custom Engines
 
 An engine is driven through the `Backend` contract
-(`internal/shared/agent/backend.go`):
+(`internal/core/agent/backend.go`):
 
 ```go
 type Backend interface {
@@ -377,7 +377,7 @@ backend in the engine registry.
 
 ### Custom Fetchers
 
-Remote fetchers implement (`internal/remote/fetcher.go`):
+Remote fetchers implement (`internal/adapters/remote/fetcher.go`):
 
 ```go
 type Fetcher interface {

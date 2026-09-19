@@ -40,7 +40,7 @@ Guide for contributing to ctxloom development.
 
 ## Documentation Pipeline
 
-The CLI reference is generated: the cobra command definitions in `internal/cli` (the `Short`/`Long`/`Example` fields) are the single source of truth. `just gen-docs` regenerates the man pages and the per-command website pages under `/reference/cli/`; CI fails on drift (`gen-docs-check`). Never hand-edit the generated `ctxloom_*.md` pages — edit the command definitions and regenerate. When adding or changing a command, write good `Long` and `Example` fields: they *are* the docs.
+The CLI reference is generated: the cobra command definitions in `internal/adapters/cli` (the `Short`/`Long`/`Example` fields) are the single source of truth. `just gen-docs` regenerates the man pages and the per-command website pages under `/reference/cli/`; CI fails on drift (`gen-docs-check`). Never hand-edit the generated `ctxloom_*.md` pages — edit the command definitions and regenerate. When adding or changing a command, write good `Long` and `Example` fields: they *are* the docs.
 
 ## Development Guidelines
 

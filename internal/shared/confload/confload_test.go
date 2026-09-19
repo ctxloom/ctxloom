@@ -43,7 +43,7 @@ func writeFile(t *testing.T, path, body string) {
 
 // configSetFlagSet builds a *pflag.FlagSet carrying only the --config-set flag
 // (confload.ConfigSetFlagName), pre-populated with entries -- the shape every real
-// caller (internal/cli/root.go's PersistentPreRun) hands ReadOverrides.
+// caller (internal/adapters/cli/root.go's PersistentPreRun) hands ReadOverrides.
 func configSetFlagSet(t *testing.T, entries ...string) *pflag.FlagSet {
 	t.Helper()
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
@@ -527,7 +527,7 @@ func TestConfload_SecondProductReusesPattern(t *testing.T) {
 
 // TestOverrides_Stamp_ChangesWithContent proves Stamp is sensitive to both
 // the env and cli override content, and stable (equal) for identical content
-// -- the property internal/config's ambientStamp folding depends on.
+// -- the property internal/core/config's ambientStamp folding depends on.
 func TestOverrides_Stamp_ChangesWithContent(t *testing.T) {
 	empty := Overrides{}
 	withEnv := Overrides{Env: map[string]any{"FOO": "bar"}}

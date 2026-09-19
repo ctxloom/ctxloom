@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/lm/engines"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // reexecEnv, when set to "1" in the test binary's environment, makes TestMain

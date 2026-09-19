@@ -8,11 +8,11 @@
 #
 # They drifted. Before this file, `test-docker-integration` existed twice
 # under the same NAME with different package lists — the host copy ran
-# ./internal/lm/isolation/..., ./internal/agentcoord/coord/... and
+# ./internal/adapters/isolation/..., ./internal/core/coord/... and
 # ./internal/vpio/dockerexec/...; the container copy (the one
 # .github/workflows/ci.yml actually invokes) ran only
-# ./internal/lm/isolation/.... Every docker-gated test under
-# internal/agentcoord/coord — TestCoordContainerDirect_NoPluginNoPort, the
+# ./internal/adapters/isolation/.... Every docker-gated test under
+# internal/core/coord — TestCoordContainerDirect_NoPluginNoPort, the
 # whole TestCoordOwnerRun_* suite, the TestCoordContainerProgress_* trio —
 # had therefore NEVER executed in CI. Nobody noticed because the two recipes
 # shared a name, and a name is what you grep for.
@@ -28,13 +28,13 @@
 # such a test cannot silently fall outside the gate either.
 #
 # Cost (measured 2026-07-24, rootless docker, warm image cache): the
-# internal/agentcoord/coord suite is ~115s of which the
+# internal/core/coord suite is ~115s of which the
 # TestCoordContainerProgress_* trio is ~75s. That is per-commit money, not
 # nightly money: these guard a defect class that ships SILENTLY (a container
 # child that never receives its prompt looks identical to a healthy one from
 # every cheap signal), and a red nightly on a branch nobody is standing on is
 # noise, not a gate.
-docker_integration_pkgs := "./internal/lm/isolation/... ./internal/agentcoord/coord/... ./internal/agentcoord/spool/... ./internal/vpio/dockerexec/... ./internal/mockengine/... ./internal/testsupport/containercell/..."
+docker_integration_pkgs := "./internal/adapters/isolation/... ./internal/core/coord/... ./internal/core/spool/... ./internal/vpio/dockerexec/... ./internal/engines/mock/... ./internal/testsupport/containercell/..."
 
 # Run the docker-gated container integration tests: they build minimal images,
 # spawn real containers, and prove the transport / coordinator bus / progress
@@ -197,7 +197,7 @@ test-arch: _require-generated
 # repo says to work, so the friction sat on the common path.
 #
 # What this replaced was worse than a manual step: an enumeration of
-# `git ls-files '*.proto'`, a hard-coded skip of internal/agentcoord/google/*,
+# `git ls-files '*.proto'`, a hard-coded skip of internal/adapters/coordgrpc/pb/google/*,
 # and a derivation of "<stem>.pb.go plus <stem>_grpc.pb.go when the file
 # declares a service" — three separate re-implementations of what buf actually
 # emits, maintained by nobody and caught by nothing when buf.gen.yaml changes.
@@ -207,7 +207,7 @@ _require-generated: proto
 # ===== Coverage / test-isolation gates =====
 
 # Fail (and clean up) if any test wrote a nested internal/**/.ctxloom into the
-# source tree instead of isolating through t.TempDir(). internal/operations'
+# source tree instead of isolating through t.TempDir(). internal/adapters/operations'
 # TestMain catches this for itself; other packages had no such guard, so a
 # regression there was caught by nothing but a .gitignore rule for
 # internal/**/.ctxloom — which hides the symptom (git status stays clean) but

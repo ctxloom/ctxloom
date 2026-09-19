@@ -1,0 +1,338 @@
+package bundles
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/spf13/afero"
+	"gopkg.in/yaml.v3"
+)
+
+// This file holds Part B, slice B1 of the skill/command split: the SKILL
+// PACKAGE DATA MODEL. A skill is a directory (SKILL.md + optional sibling
+// files), not a single text blob — ParseSkillPackage reads that tree off an
+// afero.Fs into a manifest-bearing SkillPackage. Archive codec
+// (zip pack/unpack), signing/trust wiring, and per-engine materialization are
+// deliberately NOT here — those are B1b/B2/B3+.
+
+// SkillLLMExports holds per-engine enablement for a skill, keyed by backend
+// name. Unlike LLMExports (fragments/commands), a skill export carries only
+// Enabled — a skill's name and description are SKILL.md frontmatter, the
+// single source of truth, and never duplicated into bundle.yaml.
+type SkillLLMExports struct {
+	ClaudeCode SkillEngineExport `yaml:"claude-code"`
+}
+
+// SkillEngineExport is one engine's enablement setting for a skill.
+type SkillEngineExport struct {
+	Enabled *bool `yaml:"enabled"` // nil = true (opt-out model, mirrors ClaudeCodeConfig etc.)
+}
+
+// IsEnabled returns true unless explicitly disabled (opt-out model).
+func (c SkillEngineExport) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
+// DefaultMaxSkillPackageBytes is the total package size cap (Anthropic's
+// Skills-API upload constraint, <30MB) applied when ParseSkillPackage is
+// called with maxBytes<=0. Exceeding it fails LOUD at parse time; nothing here
+// silently truncates or skips.
+const DefaultMaxSkillPackageBytes int64 = 30 * 1024 * 1024
+
+// SkillFrontmatter is SKILL.md's YAML frontmatter block, carried VERBATIM:
+// nothing in it is validated on load. A vendor's rules for `name` and
+// `description` (length caps, character set, reserved words) are that
+// vendor's acceptance criteria, not a property of the package, so they are
+// enforced where the package is emitted for that engine — a package one
+// engine refuses still loads, and can still be delivered to another. license,
+// compatibility, metadata, and allowed-tools are optional passthrough, never
+// interpreted by ctxloom.
+type SkillFrontmatter struct {
+	Name          string            `yaml:"name"`
+	Description   string            `yaml:"description"`
+	License       string            `yaml:"license,omitempty"`
+	Compatibility string            `yaml:"compatibility,omitempty"`
+	Metadata      map[string]string `yaml:"metadata,omitempty"`
+	AllowedTools  []string          `yaml:"allowed-tools,omitempty"`
+}
+
+// SkillManifestEntry is one file's identity within a skill package: its path
+// relative to the package directory, content hash, and POSIX permission mode.
+//
+// Only the mode's EXEC BIT is semantically part of a skill's content, and it
+// is the only part VerifyExtractedManifest compares — see skillModeExecutable.
+// It is load-bearing for scripts/ entries: it must survive
+// tree -> archive -> extract -> materialize. The remaining bits are recorded
+// verbatim for diagnostics only; they are set by whatever umask, filesystem,
+// or platform the file last passed through and mean nothing about the package.
+type SkillManifestEntry struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Mode   string `json:"mode"`
+}
+
+// SkillManifest is a skill package's full per-file manifest — what B2's
+// signing will cover and B1b's archive codec will pack. Serialize is
+// deterministic (entries sorted by path before encoding), so the same tree
+// always produces the same bytes, and therefore the same hash, regardless of
+// directory-walk or map-iteration order.
+type SkillManifest []SkillManifestEntry
+
+// sorted returns a copy of m sorted by Path, leaving m untouched.
+func (m SkillManifest) sorted() SkillManifest {
+	out := slices.Clone(m)
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// Serialize returns the canonical, deterministic encoding of the manifest:
+// entries sorted by path, then JSON-marshaled (struct field order is fixed by
+// declaration order, the same contract mcpContentPayload/hookContentPayload
+// rely on). Two SkillManifest values holding the same entries — in any
+// insertion order — produce byte-identical Serialize() output.
+func (m SkillManifest) Serialize() []byte {
+	data, err := json.Marshal(m.sorted())
+	if err != nil {
+		return skillManifestSerializeFallback(m, err)
+	}
+	return data
+}
+
+// skillManifestSerializeFallback is Serialize's fallback for a marshal error
+// that cannot currently happen: SkillManifestEntry holds only strings, and
+// encoding/json cannot fail on those (pinned by
+// TestSkillManifestEntry_HoldsOnlyStringsSoMarshalCannotFail).
+//
+// It is factored out so it can be exercised directly, and it is DISTINCT per
+// manifest rather than a shared constant, for the same reason BundleMCP/
+// BundleHook's ComputeContentHash fallbacks are distinct per server: these
+// bytes are a signature PREIMAGE, so one constant standing in for many
+// different manifests would make a single signature verify against all of them.
+func skillManifestSerializeFallback(m SkillManifest, err error) []byte {
+	identity := make([]string, 0, len(m))
+	for _, e := range m.sorted() {
+		identity = append(identity, e.Path+"@"+e.SHA256+"@"+e.Mode)
+	}
+	return fmt.Appendf(nil, "ctxloom:skill-manifest-serialize-error:%d:%s:%v",
+		len(m), strings.Join(identity, ","), err)
+}
+
+// Hash returns the sha256 digest of Serialize() — the manifest hash B2's
+// signing preimage will cover.
+func (m SkillManifest) Hash() string {
+	return hashContent(m.Serialize())
+}
+
+// SkillPackage is an Agent Skill package parsed from its source-tree
+// directory: SKILL.md's frontmatter + body, plus the deterministic
+// per-file manifest of every file in the tree (SKILL.md included). It is the
+// parsed/runtime twin of BundleSkill (the authored bundle.yaml entry) — B1b's
+// archive codec and B2's signing both operate on a SkillPackage, never on the
+// directory directly.
+type SkillPackage struct {
+	Name        string // the package directory's basename
+	Frontmatter SkillFrontmatter
+	Body        string // SKILL.md content after the frontmatter block
+	Manifest    SkillManifest
+}
+
+// frontmatterPattern splits a SKILL.md file into its YAML frontmatter block
+// and body: a leading "---" line, YAML until a closing "---" line, then the
+// rest of the file as body.
+var frontmatterPattern = regexp.MustCompile(`(?s)\A---\r?\n(.*?)\r?\n---[ \t]*\r?\n?(.*)\z`)
+
+// splitFrontmatter separates SKILL.md's YAML frontmatter from its body.
+func splitFrontmatter(raw []byte) (frontmatter []byte, body string, err error) {
+	text := strings.TrimPrefix(string(raw), "\ufeff") // tolerate a BOM
+	m := frontmatterPattern.FindStringSubmatch(text)
+	if m == nil {
+		return nil, "", fmt.Errorf("SKILL.md must have YAML frontmatter delimited by `---` lines")
+	}
+	return []byte(m[1]), m[2], nil
+}
+
+// ParseSkillPackage parses an Agent Skill package rooted at dir (the skill's
+// own directory, e.g. "<bundle-dir>/skills/<name>") on fsys: it reads
+// SKILL.md's frontmatter, then enumerates every file in the tree (SKILL.md
+// included) into a deterministic, sha256+mode-stamped manifest. This is the
+// one parse both authoring (skill create/sync) and the loader (resolving a
+// bundle's skill from its source tree) go through.
+//
+// The package's Name is the DIRECTORY's basename, not the frontmatter's: the
+// frontmatter is carried verbatim (see SkillFrontmatter) and may say anything,
+// including something an engine will refuse at emit time.
+//
+// maxBytes caps the total package size (Anthropic's Skills-API <30MB
+// constraint, simulate a smaller cap in tests rather than building a 30MB
+// fixture); maxBytes<=0 uses DefaultMaxSkillPackageBytes.
+//
+// Every failure returns a loud, actionable error — a missing SKILL.md,
+// unparseable frontmatter, or an oversized package are never silently skipped
+// or truncated (silent-no-op is this codebase's characteristic bug).
+func ParseSkillPackage(fsys afero.Fs, dir string, maxBytes int64) (*SkillPackage, error) {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxSkillPackageBytes
+	}
+	name := filepath.Base(filepath.Clean(dir))
+
+	skillMDPath := filepath.Join(dir, "SKILL.md")
+	raw, err := afero.ReadFile(fsys, skillMDPath)
+	if err != nil {
+		return nil, fmt.Errorf("skill directory %q: SKILL.md is required: %w", name, err)
+	}
+
+	frontRaw, body, err := splitFrontmatter(raw)
+	if err != nil {
+		return nil, fmt.Errorf("skill directory %q: %w", name, err)
+	}
+	var fm SkillFrontmatter
+	if err := yaml.Unmarshal(frontRaw, &fm); err != nil {
+		return nil, fmt.Errorf("skill directory %q: invalid SKILL.md frontmatter: %w", name, err)
+	}
+
+	manifest, err := buildSkillManifest(fsys, dir, name, maxBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SkillPackage{
+		Name:        name,
+		Frontmatter: fm,
+		Body:        body,
+		Manifest:    manifest,
+	}, nil
+}
+
+// SkillManifestEntryFor renders one skill package file's manifest entry from its
+// bytes and POSIX permission mode.
+//
+// It exists because a skill manifest is now built from TWO places — a directory
+// walk (buildSkillManifest, below) and a tree read that has bytes but no
+// filesystem (internal/adapters/content/convert.Read) — and the two must agree on the
+// parts VerifyExtractedManifest compares. The hash must agree EXACTLY, carrying
+// its "sha256:" prefix; a second site spelling that from memory produces a
+// package that extracts, verifies, fails, and is withheld with an integrity
+// error that looks like tampering. The mode is four-digit octal and need only
+// agree on its EXEC BIT, because that is all the comparison reads — the walk
+// sees a real filesystem's umask-shaped bits, the tree read sees a declaration,
+// and requiring those to be the same string made ordinary 0664 checkouts
+// undeliverable.
+func SkillManifestEntryFor(relPath string, data []byte, perm os.FileMode) SkillManifestEntry {
+	return SkillManifestEntry{
+		Path:   filepath.ToSlash(relPath),
+		SHA256: hashContent(data),
+		Mode:   fmt.Sprintf("%04o", perm.Perm()),
+	}
+}
+
+// skillModeExecutable reports whether a manifest mode string — the four-digit
+// octal SkillManifestEntryFor writes — carries an execute bit for anybody.
+//
+// It is the ONLY thing a skill's two mode values are ever compared on. A full
+// mode compare is not a property a skill package can hold: `chmod 0644`
+// followed by `git add` stages nothing, because git records the exec bit and
+// nothing else, so a tree can never be made to agree with a 0644 declaration
+// for the next person who clones it. Every other bit is umask, filesystem, and
+// platform noise — a fresh clone under umask 002 lands at 0664 and carries no
+// different meaning than 0644.
+//
+// A mode that does not parse is an ERROR, never "not executable": these strings
+// are a signature preimage's neighbours, and a silently-false answer for a
+// garbage declaration would make a package that declares nonsense verify.
+func skillModeExecutable(mode string) (bool, error) {
+	perm, err := strconv.ParseUint(mode, 8, 32)
+	if err != nil {
+		return false, fmt.Errorf("mode %q is not the four-digit octal a skill manifest records: %w", mode, err)
+	}
+	return os.FileMode(perm).Perm()&0o111 != 0, nil
+}
+
+// buildSkillManifest walks dir on fsys, hashing every regular file into a
+// SkillManifestEntry (path relative to dir, sha256, POSIX perm mode),
+// enforcing maxBytes against the running total size as it goes.
+func buildSkillManifest(fsys afero.Fs, dir, name string, maxBytes int64) (SkillManifest, error) {
+	var manifest SkillManifest
+	var total int64
+
+	// Every failure below names the skill and the file, like the size-cap error
+	// does: a bundle ships many skills, and a bare "permission denied" says
+	// which of them the caller must go fix only by accident.
+	err := afero.Walk(fsys, dir, func(p string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("skill directory %q: walking %s: %w", name, p, walkErr)
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(dir, p)
+		if relErr != nil {
+			return fmt.Errorf("skill directory %q: locating %s within the package: %w", name, p, relErr)
+		}
+		rel = filepath.ToSlash(rel)
+
+		total += info.Size()
+		if total > maxBytes {
+			return fmt.Errorf("skill directory %q: package size exceeds the %d byte limit", name, maxBytes)
+		}
+
+		data, readErr := afero.ReadFile(fsys, p)
+		if readErr != nil {
+			return fmt.Errorf("skill directory %q: reading %s: %w", name, rel, readErr)
+		}
+
+		manifest = append(manifest, SkillManifestEntryFor(rel, data, info.Mode()))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return manifest.sorted(), nil
+}
+
+// ResolveSkillDir returns the on-disk directory for a bundle's skill entry:
+// entry.Path if set, defaulting to "skills/<skillName>", confined to
+// bundleDir. A skill's Path is bundle-tree data — potentially
+// remote-originated — so it must never escape the bundle directory on join;
+// this mirrors agent.SafeCommandRelPath's confinement contract (empty/absolute
+// paths and any ".." path element are rejected, and the joined result is
+// re-verified to stay under bundleDir).
+func ResolveSkillDir(bundleDir, skillName string, entry BundleSkill) (string, error) {
+	rel := entry.Path
+	if rel == "" {
+		rel = path.Join("skills", skillName)
+	}
+	dir, ok := safeSkillRelJoin(bundleDir, rel)
+	if !ok {
+		return "", fmt.Errorf("skill %q: path %q escapes the bundle directory", skillName, rel)
+	}
+	return dir, nil
+}
+
+// safeSkillRelJoin joins rel onto base only if the result is a relative path
+// confined to base: rejects empty/absolute rel, any ".." path element, and any
+// join whose cleaned result resolves outside base.
+func safeSkillRelJoin(base, rel string) (string, bool) {
+	if rel == "" || filepath.IsAbs(rel) || filepath.IsAbs(filepath.FromSlash(rel)) {
+		return "", false
+	}
+	for part := range strings.SplitSeq(filepath.ToSlash(rel), "/") {
+		if part == ".." {
+			return "", false
+		}
+	}
+	joined := filepath.Join(base, filepath.FromSlash(rel))
+	relCheck, err := filepath.Rel(base, joined)
+	if err != nil || relCheck == ".." || strings.HasPrefix(relCheck, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return joined, true
+}

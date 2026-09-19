@@ -36,11 +36,11 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/signing/countersign"
-	"github.com/ctxloom/ctxloom/internal/trust"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -89,7 +89,7 @@ func tsOf(w *World) *tsState {
 // tsTreeEnvelope is every trust-surface fixture's tree envelope — no inline
 // item keys, because `deps pull` refuses a single-file bundle outright now
 // (nothing materializes a document — remote.Puller.installPulledItem) and a
-// remote tree bundle is read through internal/bundles/tree_read.go's
+// remote tree bundle is read through internal/core/bundles/tree_read.go's
 // readEnvelope, which refuses one that still declares items inline.
 const tsTreeEnvelope = "version: \"1.0.0\"\n"
 
@@ -98,7 +98,7 @@ const tsTreeEnvelope = "version: \"1.0.0\"\n"
 // exact bytes), one command, one MCP server, one
 // hook, and one profile — one of each trust-addressable kind, plus the one
 // that isn't. distilled == "" omits the fragment's distilled sibling file
-// (internal/content/paths.go: "fragments/<stem>.distilled.md").
+// (internal/adapters/content/paths.go: "fragments/<stem>.distilled.md").
 //
 // fragName/distilled let GAP A (a renamed fragment key) and GAP B (an added
 // distilled form) vary just the fragment while the other four items stay
@@ -106,7 +106,7 @@ const tsTreeEnvelope = "version: \"1.0.0\"\n"
 // caller hands in, deliberately: tsAssertRecordedContentRejects computes the
 // SAME content-payload hash a fixture's markers produce, over the marker
 // STRING verbatim (bundles.BundleFragment.ContentPayload), and a body read
-// off disk is never trimmed — internal/content/frontmatter.go's
+// off disk is never trimmed — internal/adapters/content/frontmatter.go's
 // splitFrontMatter returns a body-only file's bytes exactly as they sit,
 // trailing newline included. An appended "\n" here would make the tree's
 // stored payload and the assertion's computed one disagree on nothing but
@@ -172,7 +172,7 @@ func tsRef(w *World, selector string) string {
 }
 
 // tsSelector maps a Scenario Outline's <element> column to the item's
-// "<kind>/<name>" selector (internal/operations/trust.go's trust.ParseSelector
+// "<kind>/<name>" selector (internal/adapters/operations/trust.go's trust.ParseSelector
 // vocabulary: fragments|commands|mcp|hooks).
 func tsSelector(element string) (string, error) {
 	switch element {
@@ -543,7 +543,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	// remote.BundleReader.readableEntry — the ErrBundleNotInLockfile that
 	// serves a remote bundle only at its pinned SHA — is never asked anything
 	// on this path. A mutation aimed at readableEntry therefore SURVIVES here
-	// (the internal/remote unit suite is what kills it); a mutation that
+	// (the internal/adapters/remote unit suite is what kills it); a mutation that
 	// degrades the load refusal to "nothing is pinned" is the one these
 	// assertions kill.
 	//
@@ -783,7 +783,7 @@ func tsReportedContentForms(w *World) string {
 // block to the project's config.yaml (which ensureProjectWithEngine's
 // buildJ000200Config never emits one of, so this is additive, never a collision —
 // see steps_j000200_common.go's addMockAlongside for the same read-then-append
-// convention). internal/config has no CLI setter for this value; a direct
+// convention). internal/core/config has no CLI setter for this value; a direct
 // config.yaml edit is the only way a black-box CLI-driving test can toggle it.
 func tsSetUseDistilled(w *World, use bool) error {
 	body, err := w.env.ReadFile(".ctxloom/config.yaml")
@@ -795,7 +795,7 @@ func tsSetUseDistilled(w *World, use bool) error {
 }
 
 // tsFragmentListState runs `ctxloom fragment list --format json` and returns
-// the named fragment's "state" field (internal/cli/item_helpers.go's itemRow,
+// the named fragment's "state" field (internal/adapters/cli/item_helpers.go's itemRow,
 // stamped by operations.NewTrustStamper — the SAME TrustStamper/EffectiveTrust
 // path materialize uses) — the review-state LABEL a human sees in `ctxloom
 // review`/list JSON, as distinct from whether the payload happens to be
@@ -915,7 +915,7 @@ func tsAssertFragment(w *World, present bool) error {
 }
 
 // tsAssertCommand reads the exported slash-command file (claude flattens
-// "<bundle>/<item>" to "<bundle>-<item>.md" — internal/claude/commandfiles.go)
+// "<bundle>/<item>" to "<bundle>-<item>.md" — internal/engines/claude/commandfiles.go)
 // and asserts the command's body landed (or the export never happened at all —
 // a withheld command is never written, not written-then-emptied).
 func tsAssertCommand(w *World, present bool) error {

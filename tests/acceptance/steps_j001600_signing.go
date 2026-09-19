@@ -55,14 +55,14 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/content"
-	"github.com/ctxloom/ctxloom/internal/content/attest"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
-	"github.com/ctxloom/ctxloom/internal/signing/countersign"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -158,7 +158,7 @@ func j001600BundleYAML(frags ...j001600Fragment) string {
 
 // j001600VerifyDetachedSignature is THE assertion this journey exists for: read
 // the bundle bytes and the `.sig` sibling FRESH OFF DISK and verify the pair
-// with internal/signing's own verifier against Trent's public key — never by
+// with internal/adapters/signing's own verifier against Trent's public key — never by
 // trusting ctxloom's own "signed by ..." success line, which is printed before
 // anyone has checked anything.
 //
@@ -327,7 +327,7 @@ func j001600ListBundles(w *World) ([]string, error) {
 // j001600ListSignatures returns the names of the bundles (see j001600ListBundles)
 // carrying a detached bundle.yaml.sig sibling — the document-level signature
 // signBundleTree always refreshes alongside a tree's own SHA256SUMS/.sigs
-// attestation (internal/operations/sign.go's signBundleTree doc: "the sibling
+// attestation (internal/adapters/operations/sign.go's signBundleTree doc: "the sibling
 // is written FIRST"). Exactly one per signed bundle, which is what keeps this
 // COUNT comparable against j001600ListBundles's.
 func j001600ListSignatures(w *World) ([]string, error) {
@@ -429,7 +429,7 @@ func j001600FragmentFileBody(content string) string {
 // This is a TREE and not the document j001600BundleYAML renders (the shape
 // every OTHER bundle in this file still uses, which is fine: those are never
 // published — see j001600SeedFromDisk's callers) because this one is. A
-// remote bundle is read through internal/bundles/tree_read.go's readEnvelope,
+// remote bundle is read through internal/core/bundles/tree_read.go's readEnvelope,
 // which REFUSES an envelope that still declares items inline — and `deps
 // pull` refuses a single-file bundle outright before that (nothing
 // materializes a document; remote.Puller.installPulledItem). Both refusals

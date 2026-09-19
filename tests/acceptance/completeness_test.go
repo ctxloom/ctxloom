@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -200,8 +200,8 @@ var excludedTemplates = map[string]string{}
 // child's runner socket, which is the same reason roster, agent_report and
 // agent_fetch_artifact sit in knownUncoveredRunnerOnlyTools. Their behaviour
 // is pinned at the runner surface against a live coordinator in
-// internal/mcp (mcp_runner_control_test.go) and on the wire in
-// internal/agentcoord/coord (controlwire_test.go); the backfill this ratchet
+// internal/adapters/mcp (mcp_runner_control_test.go) and on the wire in
+// internal/core/coord (controlwire_test.go); the backfill this ratchet
 // waits for is a harness that can drive the runner surface at all.
 const maxKnownUncoveredTotal = 8
 

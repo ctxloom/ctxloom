@@ -12,7 +12,7 @@ import (
 
 // sanctionedWorktreeFixtureFiles are the only files allowed to build a real
 // linked worktree by hand, and they must match RealGitWorktreeFixture's doc:
-// this package (the canonical body), internal/config's frozen acceptance gate
+// this package (the canonical body), internal/core/config's frozen acceptance gate
 // (byte-for-byte unmodifiable, so it keeps its own copy), the acceptance
 // suite's TestEnvironment, which must route git through its own isolated
 // env/dir plumbing and so cannot call the canonical body at all, and J001300's
@@ -27,7 +27,7 @@ import (
 // the rest. RealGitWorktreeFixture builds exactly one main/linked pair in one
 // state, which is the right shape for a caller that needs A worktree and the
 // wrong shape for a caller whose subject is the difference between several.
-// internal/cli/session_worktrees_test.go needs the identical population (the
+// internal/adapters/cli/session_worktrees_test.go needs the identical population (the
 // CLI's own fast, non-acceptance-harness coverage of the same taxonomy) for
 // the identical reason.
 //
@@ -42,10 +42,10 @@ import (
 var sanctionedWorktreeFixtureFiles = map[string]bool{
 	filepath.Join("internal", "shared", "tasks", "taskstest", "gitfixture.go"):      true,
 	filepath.Join("internal", "shared", "tasks", "taskstest", "gitfixture_test.go"): true,
-	filepath.Join("internal", "config", "worktree_signpost_test.go"):                true,
+	filepath.Join("internal", "core", "config", "worktree_signpost_test.go"):        true,
 	filepath.Join("tests", "integration", "testenv", "environment.go"):              true,
 	filepath.Join("tests", "acceptance", "steps_j001300_closeout.go"):               true,
-	filepath.Join("internal", "cli", "session_worktrees_test.go"):                   true,
+	filepath.Join("internal", "adapters", "cli", "session_worktrees_test.go"):       true,
 	filepath.Join("tests", "acceptance", "scratch_worktree_fixture.go"):             true,
 }
 

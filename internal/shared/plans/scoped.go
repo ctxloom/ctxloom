@@ -3,7 +3,7 @@ package plans
 import (
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // ProjectIndex is the harp → project-directory join table read from the

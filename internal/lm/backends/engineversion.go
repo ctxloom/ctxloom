@@ -1,7 +1,7 @@
 // This file is the registry half of the version probe: it pairs an engine's
 // resolved binary with the version command its descriptor declares. The
 // mechanism — lazy probing, fingerprint-keyed caching, the typed refusals —
-// lives in internal/engineversion; the per-engine facts (which flag, how to
+// lives in internal/adapters/engineversion; the per-engine facts (which flag, how to
 // read the answer — vendors print three different shapes, so one shared
 // regex would be a guess) live in each engine's own descriptor.
 package backends
@@ -9,7 +9,7 @@ package backends
 import (
 	"context"
 
-	"github.com/ctxloom/ctxloom/internal/engineversion"
+	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 )
 
 // engineVersionProber is the process-wide probe cache. One instance, so the
@@ -50,7 +50,7 @@ func ResolveEngineVersionCommand(engine string) (string, engineversion.Command, 
 
 // ProbeEngineVersion reports the version the named engine's installed CLI says
 // it is, through the shared cached prober. Every error is one of
-// internal/engineversion's typed refusals; there is no fallback value.
+// internal/adapters/engineversion's typed refusals; there is no fallback value.
 func ProbeEngineVersion(ctx context.Context, engine string) (string, error) {
 	return engineVersionProber.Probe(ctx, engine)
 }

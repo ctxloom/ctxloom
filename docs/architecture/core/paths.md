@@ -1,6 +1,6 @@
-# internal/paths
+# internal/core/paths
 
-`internal/paths` is the single declarative source of truth for ctxloom's on-disk layout: 36
+`internal/core/paths` is the single declarative source of truth for ctxloom's on-disk layout: 36
 constants naming every directory and file, 39 pure functions joining them under two
 roots — the **home root** (`~/.ctxloom/...`, keyed by harp) and a **project app dir**
 (`<appPath>/...`, supplied by the caller) — and the layout classification itself
@@ -22,7 +22,7 @@ what it costs — is [docs/layout.md](../../layout.md). This page is about the p
 
 ## Non-responsibilities
 
-- Deciding *which* project directory is the root — `internal/projectroot`; see
+- Deciding *which* project directory is the root — `internal/adapters/projectroot`; see
   [projectroot.md](./projectroot.md).
 - Creating, reading or writing anything at these paths — every caller.
 - Validating that an `appPath` is real: this package accepts and blesses empty input
@@ -150,7 +150,7 @@ this package.
 | `HomeDistrustedSignersPath` | `~/.ctxloom/distrusted_signers` | 1 |
 | `TriggerCacheDir` | `~/.ctxloom/cache/triggers` | 1 |
 | `HomeCoordDir` | `~/.ctxloom/coord` — root of one project-keyed subdirectory per live/recent coordinator | 1 |
-| `CoordProjectStateDir` | `~/.ctxloom/coord/<project-key>` — one project's coordinator state dir (`internal/agentcoord/coord`'s owner lock + journals) | 1 |
+| `CoordProjectStateDir` | `~/.ctxloom/coord/<project-key>` — one project's coordinator state dir (`internal/core/coord`'s owner lock + journals) | 1 |
 
 ### Project app dir (pure, no error return unless noted)
 
@@ -232,7 +232,7 @@ whole derivation here removed the need for that copy entirely.
    that may vanish when a cell is torn down (including the worktree axis's per-agent config
    homes); `HarpPersistDir` holds state that must not, including the canonical transcript.
 5. **The countersignature stores are a user/project pair**: `HomeApprovalsPath` and
-   `ApprovalsPath`. `internal/operations`' countersign-record builder reads their union.
+   `ApprovalsPath`. `internal/adapters/operations`' countersign-record builder reads their union.
 6. **Every function accepts an empty `appPath` and returns a plausible, wrong path.**
    `ConfigPath("")` is the cwd-relative `"config.yaml"`; `CachePath("")` is `"cache"`. The
    harp-keyed functions are the exception: `HarpDir`, `SessionStatePath` and

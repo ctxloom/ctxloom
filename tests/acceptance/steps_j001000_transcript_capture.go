@@ -27,10 +27,10 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	mockreader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/mock"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
-	"github.com/ctxloom/ctxloom/internal/transcript"
-	mockreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/mock"
 )
 
 // j001000State accumulates this journey's fixture state across a scenario's
@@ -62,7 +62,7 @@ func j001000From(w *World) *j001000State {
 // production — the same file each package's own _test.go golden-compares
 // against, never a hand-rolled duplicate.
 var j001000FixtureFile = map[string]string{
-	"claude": filepath.Join("internal", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl"),
+	"claude": filepath.Join("internal", "adapters", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl"),
 }
 
 // j001000RepoRoot resolves the repo root by walking up from where the test
@@ -258,7 +258,7 @@ type j001000EngineTurnCheck struct {
 
 // j001000EngineTurnChecks pins the Scenario Outline's per-<engine> real-turn
 // assertions, grounded in each package's own shipped golden
-// (internal/transcript/vendorreader/codex/testdata/): codex's
+// (internal/adapters/transcript/vendorreader/codex/testdata/): codex's
 // exec_command call/result/reply carry the real "HELLO_FROM_TOOL_CALL_42"
 // sentinel. kiro is deliberately absent — see the feature file's own
 // deferral note.

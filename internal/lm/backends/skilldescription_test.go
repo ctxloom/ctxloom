@@ -1,13 +1,13 @@
 package backends
 
 import (
-	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
+	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 // TestSkillExports_DescriptionReachesTheEngineInSKILLmd is the coverage that

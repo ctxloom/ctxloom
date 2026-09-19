@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/transcript/policy"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript/policy"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // stubSource is a SessionSource returning a fixed session, so these tests

@@ -205,7 +205,7 @@ message ChatStart {
   repeated ChatMCPServer mcp_servers = 6;
   // transcript_raw_policy names the transcript.raw capture policy the
   // canonical-transcript Recorder should honor for this chat (off |
-  // lossy-only | all — see internal/transcript/recorder.go's RawPolicy).
+  // lossy-only | all — see internal/adapters/transcript/recorder.go's RawPolicy).
   // Empty means "use the default" (lossy-only). Mirrors
   // agent.ChatRequest.TranscriptRawPolicy; see that field's doc comment —
   // nothing populates this from user config yet (deferred), every current
@@ -425,7 +425,7 @@ message LLMInfo {
   string version = 2; // the BACKEND ENGINE's own version (e.g. claude's), not ctxloom's
   repeated ExecutionMode supported_modes = 3;
   // ctxloom_version is the SERVING PROCESS's own ctxloom build stamp
-  // (internal/version.Version), distinct from `version` above. A client
+  // (internal/shared/version.Version), distinct from `version` above. A client
   // compares this against its own build stamp right after connecting
   // (runnerFromConn's version handshake) and refuses a mismatched daemon
   // rather than silently running turns against stale compiled-in behavior —

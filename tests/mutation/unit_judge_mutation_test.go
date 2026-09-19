@@ -17,9 +17,9 @@ import "testing"
 var unitMutationTargets = []mutationTarget{
 	{
 		Name:          "premise_instruction",
-		SourceRelPath: "internal/operations/premise.go",
+		SourceRelPath: "internal/adapters/operations/premise.go",
 		Judge: unitJudge{
-			Pkg: "./internal/operations",
+			Pkg: "./internal/adapters/operations",
 			Run: "^TestRenderPremiseIndex_KeepsTheThreeMeasuredProperties$",
 		},
 	},

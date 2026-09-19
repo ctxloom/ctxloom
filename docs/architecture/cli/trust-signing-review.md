@@ -161,7 +161,7 @@ decision against).
   has no direct test.
 - `ctxloom sign --all` over a project whose bundle dirs resolve to an empty or
   absent location prints "no local bundles to sign" and exits **0**;
-  `operations.ListLocalBundleNames` (`internal/operations/sign.go:176-179`)
+  `operations.ListLocalBundleNames` (`internal/adapters/operations/sign.go:176-179`)
   swallows every per-directory `ReadDir` error, so a misconfigured
   `GetBundleDirs` is indistinguishable from an empty one.
 - The zero-target sign path emits `signCmdResult{}` (nil slice → `"signed": null`)

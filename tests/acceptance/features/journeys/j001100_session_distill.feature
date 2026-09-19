@@ -25,8 +25,8 @@ Feature: Plain `session distill` drives a real transcript through the distiller 
   # rows) — that surface does not exist yet and is out of scope here. This
   # journey covers only the flagless command every other distillation path
   # (list --distill, --skill extraction once it lands)
-  # ultimately funnels through: internal/cli/session_distill.go's
-  # compactEntry -> internal/memory/compactor.go's Compact.
+  # ultimately funnels through: internal/adapters/cli/session_distill.go's
+  # compactEntry -> internal/adapters/memory/compactor.go's Compact.
   #
   # THE SILENT-NO-OP TRAP THIS GUARDS AGAINST. Compact short-circuits an
   # EMPTY session (or one with an existing essence and nothing new to add)

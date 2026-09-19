@@ -145,8 +145,8 @@ func TestMutationTargets_IgnorePatternScopesToTheEntry(t *testing.T) {
 // TestBuildIgnorePattern_AnchorsWholePaths pins that the pattern is anchored
 // and matches whole relative paths, not substrings: an unanchored alternation
 // would let a path that merely CONTAINS another path's text be ignored, and
-// the target itself is the likeliest victim (internal/operations/trust.go is
-// a substring of nothing today, but internal/operations/sign.go is a
+// the target itself is the likeliest victim (internal/adapters/operations/trust.go is
+// a substring of nothing today, but internal/adapters/operations/sign.go is a
 // substring of no path only by luck of naming).
 func TestBuildIgnorePattern_AnchorsWholePaths(t *testing.T) {
 	root := repoRoot(t)
@@ -154,7 +154,7 @@ func TestBuildIgnorePattern_AnchorsWholePaths(t *testing.T) {
 
 	// A real ignored file matches; the same path with anything appended or
 	// prepended does not.
-	const ignored = "internal/operations/sign.go"
+	const ignored = "internal/adapters/operations/sign.go"
 	if !pattern.MatchString(ignored) {
 		t.Fatalf("expected %q to be ignored when the target is %q", ignored, trustCascadeTarget.SourceRelPath)
 	}
@@ -182,7 +182,7 @@ func TestBuildIgnorePattern_RefusesAnUnknownTarget(t *testing.T) {
 		defer close(done)
 		// buildIgnorePattern calls t.Fatalf, which runtime.Goexit()s this
 		// goroutine; the deferred close still runs.
-		buildIgnorePattern(fake, root, "internal/operations/no_such_file.go")
+		buildIgnorePattern(fake, root, "internal/adapters/operations/no_such_file.go")
 	}()
 	<-done
 

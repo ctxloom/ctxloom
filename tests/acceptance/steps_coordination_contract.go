@@ -10,7 +10,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 )
 
 // Steps for the coordination-contract feature: what the agent-delegation tools
@@ -20,14 +20,14 @@ import (
 // documents, and the reason these steps do not go through w.agent(). The rest of
 // this suite drives a `ctxloom mcp serve` SUBPROCESS, whose agent-delegation
 // tools are a deliberately reduced surface with DIFFERENT, hand-written schemas
-// (internal/mcp/mcp_tools_agents.go) and no output schemas at all. The
+// (internal/adapters/mcp/mcp_tools_agents.go) and no output schemas at all. The
 // proto-canonical surface — the one `ctxloom run` gives a real
 // harness, generated from coordination.proto — is a spawned session's own
 // per-cell runner socket, which no external MCP client here can reach.
 //
 // So these steps enumerate that surface the way the published reference page
 // does: the in-memory MCP client round trip against the registered runner tool
-// set (internal/mcp's NewDocMCPServer, no handler invoked, nothing dialed). It is
+// set (internal/adapters/mcp's NewDocMCPServer, no handler invoked, nothing dialed). It is
 // a genuine ListTools response over a real MCP transport, not a Go struct
 // capture — and it is the ONLY thing in the repo that can observe a coordination
 // tool's advertised RESULT shape.

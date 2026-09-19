@@ -55,14 +55,14 @@ Feature: Content my company has validated
   # LOCKED — REVOCATION (publisher retract): the publisher withdraws ONE version
   # and it stops reaching engineers on the next sync, with a notice.
   #
-  # Verified: EffectiveTrust (internal/operations/trust.go) now has a RETRACTED
+  # Verified: EffectiveTrust (internal/adapters/operations/trust.go) now has a RETRACTED
   # step (a peer of REJECTED, beating the trusted-signer exemption) that
   # consults a LOCAL record — never the network — so exposure-time evaluation
   # never dials out. That local record is written by operations.syncItem
-  # (internal/operations/sync.go), which now re-evaluates retraction for
+  # (internal/adapters/operations/sync.go), which now re-evaluates retraction for
   # ALREADY-INSTALLED refs too (previously it skipped them before
   # Puller.confirmRetraction ever ran), and by Puller.Pull itself on a fresh
-  # pull (internal/remote/pull.go), persisting onto the lockfile entry
+  # pull (internal/adapters/remote/pull.go), persisting onto the lockfile entry
   # (remote.LockEntry.Retracted) either way. Formerly @wip: retraction had NO
   # effect on already-distributed content through any CLI path. Fixed;
   # was filed as taskloom task outer-shut.

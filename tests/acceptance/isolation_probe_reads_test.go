@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 )
 
 // baseContainerPass is a probeResult that satisfies container guarantees (a)–(d)

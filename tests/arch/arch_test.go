@@ -78,7 +78,7 @@ var testSupportImporters = map[string]string{
 
 // pkg is one directory's worth of parsed, non-test Go source.
 type pkg struct {
-	// dir is the module-relative directory ("internal/config").
+	// dir is the module-relative directory ("internal/core/config").
 	dir string
 	// imports are the import paths of every non-_test.go file in it.
 	imports []string

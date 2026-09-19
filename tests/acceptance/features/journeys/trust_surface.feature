@@ -7,7 +7,7 @@ Feature: The trust surface — what "review" actually controls
   be approved, can it be denied, and does that denial actually hold — in the
   payload the assistant receives?
 
-  A bundle ships five kinds of thing (internal/bundles/bundles.go:38-59):
+  A bundle ships five kinds of thing (internal/core/bundles/bundles.go:38-59):
   fragments, commands, mcp servers, hooks, and profiles. They are not equally
   dangerous. A hook is a shell command the harness runs on a matching tool
   call, with no model in the loop — straight RCE. An MCP server is a binary
@@ -24,7 +24,7 @@ Feature: The trust surface — what "review" actually controls
   it APPEARS.
 
   ENGINE SCOPE: the executable trust gate is applied UPSTREAM of every engine
-  writer (internal/config/config_bundles.go's ResolveBundleMCPServers /
+  writer (internal/core/config/config_bundles.go's ResolveBundleMCPServers /
   ResolveBundleHooks route through one shared c.execGate before any backend
   ever sees the result), so a per-engine bypass is not structurally possible.
   This feature proves the gate on ONE engine (claude-code) and makes no claim
@@ -44,8 +44,8 @@ Feature: The trust surface — what "review" actually controls
 
   PROFILES ARE A DIFFERENT CASE, not a fifth row of the same table: a bundle
   profile is never trust-gated at all (no trust.ItemKind for it — see
-  internal/trust/trust.go's ItemKind: fragment | prompt | mcp | hook, and
-  internal/bundles/bundles.go:46-51's comment). "ctxloom bundle trust"/"ctxloom
+  internal/core/trust/trust.go's ItemKind: fragment | prompt | mcp | hook, and
+  internal/core/bundles/bundles.go:46-51's comment). "ctxloom bundle trust"/"ctxloom
   blacklist" cannot even parse a "#profiles/<name>" selector. The final
   scenario below proves that refusal directly, rather than asserting a
   decision that does not exist.
@@ -86,7 +86,7 @@ Feature: The trust surface — what "review" actually controls
     Then ctxloom refuses, because profiles are not a trust-addressable kind
 
   # GAP A — the sharpest untested claim on this whole page: "a rejection is of
-  # BYTES, not provenance" (internal/operations/trust.go's ReviewRecords.Rejected
+  # BYTES, not provenance" (internal/adapters/operations/trust.go's ReviewRecords.Rejected
   # doc). Every scenario above rejects at the REF (this exact bundle, this exact
   # name); none of them prove the CONTENT-level block a renamed or moved copy
   # still has to clear. Proven the same way the REJECT outline above proves
@@ -147,8 +147,8 @@ Feature: The trust surface — what "review" actually controls
   # place. A scenario needs a fixture that collides through the production
   # builders, and none can be built: the fixture's own guard ("does not
   # actually collide") is what retired it. The role binding is pinned where it
-  # lives, at the store, by the attestation-form tests in internal/operations
-  # and internal/signing; the contract distinctness by
+  # lives, at the store, by the attestation-form tests in internal/adapters/operations
+  # and internal/adapters/signing; the contract distinctness by
   # signing.TestPreimageContracts_AreDistinctAndPrefixFree.
 
   # STALING. The composite form is a change to what gets signed, so it bumps the
@@ -248,7 +248,7 @@ Feature: The trust surface — what "review" actually controls
       | --format text |
 
   # GAP D — WAS a confirmed vulnerability (taskloom rocky-motto), NOW FIXED.
-  # internal/operations/trust.go's "approvals store unreadable -> deny
+  # internal/adapters/operations/trust.go's "approvals store unreadable -> deny
   # EVERYTHING" guard used to only run when EffectiveTrustRequest.Records was
   # nil — and NO real caller ever left it nil. TrustStamper, the
   # content/executable gates (trust_gate.go), and PendingReview (`ctxloom
@@ -259,7 +259,7 @@ Feature: The trust surface — what "review" actually controls
   # file. Fixed by checking readability via an optional capability
   # (readableRecords) unconditionally — whichever way records was obtained,
   # not only the records-built-fresh branch — so the fail-closed gate now
-  # covers every production call site (internal/operations/trust_test.go and
+  # covers every production call site (internal/adapters/operations/trust_test.go and
   # trust_approvals_readable_test.go carry the unit-level proof, including
   # the boundary that a fresh/never-created store must NOT trip it).
   # This scenario proves the fix end to end: the previously-rejected fragment
@@ -281,7 +281,7 @@ Feature: The trust surface — what "review" actually controls
   # record of publisher retractions, so overwriting it un-retracts silently).
   # The READ side is EffectiveTrust's fail-closed arm: an unparseable lock.yaml
   # must not degrade to "nothing is retracted". That arm is a unit claim, and
-  # it is pinned as one, in internal/operations/trust_retraction_readable_test.go
+  # it is pinned as one, in internal/adapters/operations/trust_retraction_readable_test.go
   # — together with the BOUNDARY that must not trip, a project with no lock.yaml
   # at all, which has nothing retracted and keeps working.
   #

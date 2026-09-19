@@ -17,7 +17,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # are produced by the child's OWN runner process, never by the coordinator:
   # each child's canonical transcript
   # (~/.ctxloom/sessions/<harp>/persist/transcript.jsonl —
-  # internal/transcript/record.go's documented, first-party schema, not a
+  # internal/adapters/transcript/record.go's documented, first-party schema, not a
   # scrape) proves distinct context and the coordinator->child half of the
   # bus (a REAL agent_send call, content verified in the child's own recorded
   # next turn); the coordinator's own mailbox, read through agent_recv, proves
@@ -172,7 +172,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # (90s+, twice) — never resolved despite a `[{"action":"auto_accept"}]`
   # ladder. ROOT CAUSE was NOT the approval ladder (a full-stack
   # reproduction resolved it every time). It was runner WIRING:
-  # internal/cli/llm_serve.go bound the engine host (which unblocks
+  # internal/adapters/cli/llm_serve.go bound the engine host (which unblocks
   # StartRun -> the engine spawn) BEFORE exporting CTXLOOM_MCP_SOCKET, so
   # the child engine could spawn with no reach-back socket; its `ctxloom
   # mcp` shim then ran its LOCAL surface — a second, rogue in-process
@@ -185,7 +185,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # AN EMPTY COORDINATOR HARP SILENTLY EATS MAIL, and it is
   # ENGINE-INDEPENDENT: the bare-`ctxloom mcp` coordinator can run with an
   # EMPTY Identity.Harp
-  # (internal/cli's selfIdentityFromEnv read CTXLOOM_SESSION_HARP, which
+  # (internal/adapters/cli's selfIdentityFromEnv read CTXLOOM_SESSION_HARP, which
   # `ctxloom run` exports but the .mcp.json entry `manage install` writes
   # does not). The harp IS the coordinator's mailbox address, so with it
   # empty, bridgeTurnResult's mail is refused at queueMailPayloadID's

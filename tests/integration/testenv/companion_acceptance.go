@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
 // InstallFakeCompanion writes an executable shell script named bin (e.g.
@@ -24,7 +24,7 @@ import (
 // versionJSON/loadoutJSON are the literal stdout this fake emits for
 // `<bin> version --format json` / `<bin> loadout --format json` — the two
 // companion-loadout-protocol subcommands config.DiscoverCompanions/
-// ProbeCompanionLoadouts actually exec (see internal/config/companions.go).
+// ProbeCompanionLoadouts actually exec (see internal/core/config/companions.go).
 //
 // The PATH change is applied via storeAndSetEnv, the SAME mechanism Setup
 // uses for HOME/XDG — so TestEnvironment.Cleanup restores the original PATH

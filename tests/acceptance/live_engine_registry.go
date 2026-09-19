@@ -34,7 +34,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // realHomeDir is the user's actual home, captured in TestMain (acceptance_test.go)

@@ -15,13 +15,13 @@ its own documentation.
 |---|---|---|
 | [ltk.md](ltk.md) | `cmd/ltk` + `internal/ltk/{app,engine,frontend,frontend/shell,frontend/pwsh,frontend/cmd,ir,rules,state,scm,shellenv,tools/extract-defaults}` | The command guard: a PreToolUse hook that parses a tool call into a shell-agnostic IR, matches it against a YAML rule file, and emits an allow-or-deny decision in the harness's own wire format |
 | [taskloom.md](taskloom.md) | `cmd/taskloom` + `internal/taskloom/{config,engine,workdir}` | Per-project task tracking over an append-only harp-keyed log, exposed as both a CLI and an MCP server, with its own config surface and project-root resolution that do not depend on ctxloom |
-| [transcript.md](transcript.md) | `internal/transcript` + `internal/transcript/vendorreader` and its per-engine readers | ctxloom's own canonical conversation record: the versioned append-only JSONL schema, the writer every capture path shares, the reader, and the vendor-format readers |
-| [sessions.md](sessions.md) | `internal/sessions` | The harp-keyed session index (`~/.ctxloom/sessions/index.yaml`) binding harp → backend session ID → project dir → transcript path → summary, behind a two-adapter storage port |
-| [memory.md](memory.md) | `internal/memory` | Map/reduce compaction of a session transcript into a persisted essence document, plus the index projection `session list` renders, plus plan-file harp stamping |
-| [termui.md](termui.md) | `internal/termui` | The raw-ANSI terminal frontend for an interactive run: prefix-key interceptor, reserved status row, output hold gate, and a VT-sequence guard |
-| [vpio.md](vpio.md) | `internal/vpio` + `internal/vpio/{goplugin,dockerexec}` | The transport seam for one interactive agent turn, and its two implementations (go-plugin gRPC stream, `docker exec -it` under a host pty) |
-| [docsgen.md](docsgen.md) | `internal/docsgen` | Deterministic generation of man pages, per-command markdown, an MCP tool page, and a config page from a product's live cobra tree, live MCP registrations, and tracked JSON Schema |
-| [selfexec.md](selfexec.md) | `internal/selfexec` | Resolving the path of the running ctxloom binary, so a materialized engine surface names the binary that materialized it |
+| [transcript.md](transcript.md) | `internal/adapters/transcript` + `internal/adapters/transcript/vendorreader` and its per-engine readers | ctxloom's own canonical conversation record: the versioned append-only JSONL schema, the writer every capture path shares, the reader, and the vendor-format readers |
+| [sessions.md](sessions.md) | `internal/core/sessions` | The harp-keyed session index (`~/.ctxloom/sessions/index.yaml`) binding harp → backend session ID → project dir → transcript path → summary, behind a two-adapter storage port |
+| [memory.md](memory.md) | `internal/adapters/memory` | Map/reduce compaction of a session transcript into a persisted essence document, plus the index projection `session list` renders, plus plan-file harp stamping |
+| [termui.md](termui.md) | `internal/adapters/termui` | The raw-ANSI terminal frontend for an interactive run: prefix-key interceptor, reserved status row, output hold gate, and a VT-sequence guard |
+| [vpio.md](vpio.md) | `internal/adapters/vpio` + `internal/adapters/vpio/{goplugin,dockerexec}` | The transport seam for one interactive agent turn, and its two implementations (go-plugin gRPC stream, `docker exec -it` under a host pty) |
+| [docsgen.md](docsgen.md) | `internal/shared/docsgen` | Deterministic generation of man pages, per-command markdown, an MCP tool page, and a config page from a product's live cobra tree, live MCP registrations, and tracked JSON Schema |
+| [selfexec.md](selfexec.md) | `internal/adapters/selfexec` | Resolving the path of the running ctxloom binary, so a materialized engine surface names the binary that materialized it |
 | [clifmt.md](clifmt.md) | `pkg/clifmt` | Rendering an arbitrary Go value to json / yaml / toml / text / markdown for first-party CLI commands |
 
 ## How these fit together
@@ -34,17 +34,17 @@ flowchart TD
     end
 
     subgraph run["A ctxloom run"]
-      SESS["internal/sessions<br/>mint harp → bind session ID"]
-      TERM["internal/termui<br/>terminal frontend"]
-      VP["internal/vpio<br/>transport seam"]
-      TR["internal/transcript<br/>capture"]
-      MEM["internal/memory<br/>compaction"]
+      SESS["internal/core/sessions<br/>mint harp → bind session ID"]
+      TERM["internal/adapters/termui<br/>terminal frontend"]
+      VP["internal/adapters/vpio<br/>transport seam"]
+      TR["internal/adapters/transcript<br/>capture"]
+      MEM["internal/adapters/memory<br/>compaction"]
     end
 
     subgraph leaves["Shared leaves"]
       CF["pkg/clifmt"]
-      SE["internal/selfexec"]
-      DG["internal/docsgen"]
+      SE["internal/adapters/selfexec"]
+      DG["internal/shared/docsgen"]
     end
 
     SESS -->|"harp"| TR
@@ -77,9 +77,9 @@ shorter to read:
 
 2. **A guard whose precondition is checked at the call site, not in the writer.**
    `sessions.BindSession` accepts an empty session ID and the guard lives in
-   `internal/operations`, reachable through a second caller that does not replicate it.
+   `internal/adapters/operations`, reachable through a second caller that does not replicate it.
    The sibling instance — `sessions.SetSummary` erasing `Summary`/`Detail`/`SourceSize`
-   unconditionally while `internal/memory` held the non-empty guard — is **RESOLVED
+   unconditionally while `internal/adapters/memory` held the non-empty guard — is **RESOLVED
    `07abd892`**: the refusal moved into the writer. The pattern is left described here
    because `BindSession` still has it, and because the fix is the pattern's answer:
    move the guard to the writer rather than replicating it at each call site.

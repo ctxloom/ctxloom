@@ -21,7 +21,7 @@
 # below).
 #
 # WHY tmux IS HERE, and what it is NOT for. It hosts processes on a real pty in
-# their own tmux window (internal/tmuxhost). For a CONTAINERIZED engine that
+# their own tmux window (internal/adapters/tmuxhost). For a CONTAINERIZED engine that
 # process runs in the container, so tmux has to be here or the capability
 # simply cannot work there.
 #

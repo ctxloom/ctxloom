@@ -8,7 +8,7 @@ below is what the code **does**, with a `file:line`.
 Registered backend ids are what `backends.List()` returns: `claude-code`
 (`config.BackendClaudeCode`) and the test doubles (`config.BackendMock` and its
 `config.BackendMock*` siblings) — all in one `init()` in
-`internal/lm/backends/registry.go`. `internal/mockengine` is **not** a
+`internal/lm/backends/registry.go`. `internal/engines/mock` is **not** a
 registered backend; it is a fake vendor CLI (see [mockengine](mockengine.md)).
 Where a row below says "the doubles", the mock family behaves alike unless the
 cell says otherwise.
@@ -20,7 +20,7 @@ cell says otherwise.
 | Binary | `claude` |
 | Oneshot subcommand | none (`claude --print`) |
 | Prompt channel | **stdin** (oneshot); trailing positional (interactive) |
-| Prompt-channel decl | `internal/claude/enginecli.go:182`,`:194` |
+| Prompt-channel decl | `internal/engines/claude/enginecli.go:182`,`:194` |
 | Session name at launch | `--name <harp>` (interactive only) |
 
 `agent.EngineCLI` is the single declaration of a vendor's flags, prompt channel
@@ -29,7 +29,7 @@ its own copy, which is what keeps a fake in step with the driver.
 
 ## 2. Permission tiers — what each `PermissionMode` becomes
 
-`agent.PermissionMode` (`internal/shared/agent/permissions.go:15-33`) is one
+`agent.PermissionMode` (`internal/core/agent/permissions.go:15-33`) is one
 vocabulary; an engine maps it to its own mechanism.
 
 | Tier | claude-code |
@@ -38,14 +38,14 @@ vocabulary; an engine maps it to its own mechanism.
 | `acceptEdits` | `--permission-mode acceptEdits` |
 | `plan` | `--permission-mode plan` **+** `--disallowedTools "Bash,Edit,Write,NotebookEdit"` |
 | `bypass` | `--dangerously-skip-permissions` |
-| `buildArgs` | `internal/claude/claudecode.go:253-258` |
+| `buildArgs` | `internal/engines/claude/claudecode.go:253-258` |
 
 ### `EnforcesReadOnlyPlan` — where `plan` collapses
 
-`CollapsePlanIfUnenforced` (`internal/shared/agent/permissions.go:116-121`) turns
+`CollapsePlanIfUnenforced` (`internal/core/agent/permissions.go:116-121`) turns
 `plan` into `default` for any backend that cannot enforce a genuine read-only tier,
-so `plan` never runs unrestrained. Applied at `internal/cli/run.go:1499`
-(interactive) and `internal/operations/oneshot.go:417` (headless fan-out).
+so `plan` never runs unrestrained. Applied at `internal/adapters/cli/run.go:1499`
+(interactive) and `internal/adapters/operations/oneshot.go:417` (headless fan-out).
 
 | Backend | `enforcesReadOnlyPlan` | Does `plan` survive? | Evidence |
 |---|---|---|---|
@@ -65,13 +65,13 @@ One further permission fact:
 
 | Backend | Native per-tool deny list? | Mechanism |
 |---|---|---|
-| `claude-code` | **yes** | (a) fixed plan-tier `--disallowedTools "Bash,Edit,Write,NotebookEdit"` (`claudecode.go:258`); (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` — `SurfaceInputs.DenyTools` → `internal/claude/surfaces.go:271` → `surfacedelivery.go:47` → `mergeDenyTools` (`internal/claude/claude.go:536`), monotonic union only |
+| `claude-code` | **yes** | (a) fixed plan-tier `--disallowedTools "Bash,Edit,Write,NotebookEdit"` (`claudecode.go:258`); (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` — `SurfaceInputs.DenyTools` → `internal/engines/claude/surfaces.go:271` → `surfacedelivery.go:47` → `mergeDenyTools` (`internal/engines/claude/claude.go:536`), monotonic union only |
 | the doubles | **no** | there are no tools; the double executes nothing |
 
 ### The deny-list reality check
 
 **`ManagedConfig.DenyTools` reaches the launch path** since `40b49a7f`. The Go
-struct carries it (`internal/shared/agent/backend.go:362`) and so does the proto
+struct carries it (`internal/core/agent/backend.go:362`) and so does the proto
 (`repeated string deny_tools = 7`, `internal/lm/grpc/llm.proto`); `ManagedConfigToProto`
 and `managedConfigFromProto` both carry it. See [the plugin wire](grpc-wire.md).
 
@@ -80,8 +80,8 @@ All three delivery paths now carry it:
 | Path | Carries `DenyTools`? | Carries `Skills`? | Site |
 |---|---|---|---|
 | `ctxloom run` / oneshot (gRPC launch) | yes — **since `40b49a7f`** | yes — **since `40b49a7f`** | `internal/lm/grpc/managed.go` |
-| `ctxloom apply-hooks` | yes | **no** | `internal/operations/hooks.go:452` |
-| `ctxloom profile materialize` | yes | yes | `internal/operations/profile_materialize.go:129`, `:131` |
+| `ctxloom apply-hooks` | yes | **no** | `internal/adapters/operations/hooks.go:452` |
+| `ctxloom profile materialize` | yes | yes | `internal/adapters/operations/profile_materialize.go:129`, `:131` |
 
 **Whether the engine then *honours* it is a separate question** — the per-engine
 table above is the one that answers it. An engine whose surface constructors
@@ -100,11 +100,11 @@ never had.
 
 | Backend | Mechanism | Reads `AGENTS.md`? | Hook-mediated? | Site |
 |---|---|---|---|---|
-| `claude-code` | **two realizations of one surface**: isolated cell → marker-merge into `CLAUDE.md`; shared cell → out-of-cwd `<hash>.sysprompt.md` passed as `--append-system-prompt-file` | **no — deliberate** (`enginecli.go:34-38`) | no (apply path uses a SessionStart injection hook) | `internal/claude/surfaces.go:81`, `contextdelivery.go:50`, `claudecode.go:294-299` |
+| `claude-code` | **two realizations of one surface**: isolated cell → marker-merge into `CLAUDE.md`; shared cell → out-of-cwd `<hash>.sysprompt.md` passed as `--append-system-prompt-file` | **no — deliberate** (`enginecli.go:34-38`) | no (apply path uses a SessionStart injection hook) | `internal/engines/claude/surfaces.go:81`, `contextdelivery.go:50`, `claudecode.go:294-299` |
 | the doubles | a single project-root file (`mockContextPath`) whose bytes the mock engine hashes and reports | no | no | `internal/lm/backends/mock_surfaces.go` |
 
 **`agent.OutOfCwd` — the out-of-cwd form.** `claude-code`'s approaches carry
-one (`internal/claude/surfaces.go`): flag-pointed scratch files for context,
+one (`internal/engines/claude/surfaces.go`): flag-pointed scratch files for context,
 MCP and settings, so a live shared cwd is never written into. An engine whose
 approaches lack it gets the loudly-warned well-known write on a shared cell.
 **Consequence: for such an engine, concurrent per-agent isolation requires a
@@ -128,7 +128,7 @@ arm of every caller has a subject.
 
 | Backend | Hooks land in | Routed by |
 |---|---|---|
-| `claude-code` | `.claude/settings.json` | `internal/claude/claude.go:680` |
+| `claude-code` | `.claude/settings.json` | `internal/engines/claude/claude.go:680` |
 | the doubles | `.mock/settings.json` (`NewMockSettingsWriter`) | not routed — the unified `HooksConfig` is marshalled whole under `mockSettingsHooksKey` |
 
 A descriptor declares what it *cannot* carry in one of two fields:
@@ -168,16 +168,16 @@ an engine with a declared loss and say nothing — neither calls
 
 `RetiredScraperBackendNames` (`internal/lm/grpc/canonical_source.go`) lists the
 backends whose legacy scraper was deleted rather than demoted. A `nil` history
-**fails loudly** at both consumers (`internal/operations/sessionfeed.go`,
+**fails loudly** at both consumers (`internal/adapters/operations/sessionfeed.go`,
 `internal/lm/grpc/sessionhistory.go`). Canonical capture is written runner-side
-into `internal/transcript`'s canonical JSONL; each engine declares its own
+into `internal/adapters/transcript`'s canonical JSONL; each engine declares its own
 vendor reader on its descriptor (`engine.Descriptor.TranscriptReaders`), and
-`internal/operations/vendorreader.go` reads that declaration for the
+`internal/adapters/operations/vendorreader.go` reads that declaration for the
 interactive-pty gap.
 
 ## 7. One-shot driving and resume
 
-Two gates in `internal/agentcoord/coord/spawner.go`, `resumeCapableBackends`
+Two gates in `internal/core/coord/spawner.go`, `resumeCapableBackends`
 and `oneShotSupportedBackends`; both name `claude-code` alone.
 
 `driving: oneshot` on a backend outside their intersection **fails loud** rather
@@ -196,7 +196,7 @@ Full detail in [isolation](isolation.md). Summary:
 | `claude-code` | `CLAUDE_CONFIG_DIR` | `ctxloom-agent:latest` | `ANTHROPIC_*` env, else **RW copy-mount** of `~/.claude/.credentials.json` (RW because claude refreshes the token in place) | none |
 | the doubles | none needed — mock's descriptor declares `Home` absent (a bare echo that never touches disk), a NAMED exemption; a double that declared nothing would be refused at registration | `ctxloom-agent:latest`, installing no vendor CLI (its descriptor's install fragment asserts `cat` only) | a `Vendorless` auth declaration — the one plan that never fails to resolve | none |
 
-`composableEngines()` (`internal/lm/isolation/enginespec.go`) names the engines
+`composableEngines()` (`internal/adapters/isolation/enginespec.go`) names the engines
 with a container install fragment; an engine absent from
 `engineContainerSpecFor`'s switch gets the default arm, whose auth resolver
 `noContainerAuth` **fails closed**.

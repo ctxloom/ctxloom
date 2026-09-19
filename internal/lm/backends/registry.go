@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
 
@@ -72,7 +72,7 @@ func Register(descs ...engine.Descriptor) error {
 	for i := range descs {
 		d := descs[i]
 		descriptors[d.Name] = &d
-		// Push the engine-owned isolation facts down to internal/lm/isolation
+		// Push the engine-owned isolation facts down to internal/adapters/isolation
 		// at the same moment, so a backend can never be launchable here while
 		// invisible there. isolation resolves engines by NAME (CopyAmbient is
 		// handed a backend name, never an engine value) and cannot import the

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """U2 mutation harness.
 
-For each mutation: patch internal/trust/bundleref.go (PRODUCTION ONLY, never a
+For each mutation: patch internal/core/trust/bundleref.go (PRODUCTION ONLY, never a
 test), run the trust package, record which tests died, revert.
 
 A SURVIVING mutation means the test that names that rule is a tautology.
@@ -9,7 +9,7 @@ A SURVIVING mutation means the test that names that rule is a tautology.
 import subprocess
 import sys
 
-SRC = "internal/trust/bundleref.go"
+SRC = "internal/core/trust/bundleref.go"
 
 # (id, rule, description, old, new)
 MUTATIONS = [
@@ -105,7 +105,7 @@ MUTATIONS = [
 
 
 def run_tests():
-    p = subprocess.run(["just", "test-pkg", "./internal/trust/"],
+    p = subprocess.run(["just", "test-pkg", "./internal/core/trust/"],
                        capture_output=True, text=True)
     return p.returncode, p.stdout + p.stderr
 

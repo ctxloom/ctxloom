@@ -122,15 +122,15 @@ func underAnyRoot(path string, roots []string) bool {
 }
 
 // appDirName duplicates paths.AppDirName rather than importing it: the shared
-// tree is self-contained and cannot reach internal/paths, and this package is
-// imported BY internal/config's own tests, so any edge into the config/paths
+// tree is self-contained and cannot reach internal/core/paths, and this package is
+// imported BY internal/core/config's own tests, so any edge into the config/paths
 // tree also risks an import cycle.
 const appDirName = ".ctxloom"
 
 // testTempRoots duplicates operations.testTempRoots (see its doc for the
 // mechanism) rather than importing it: this package must stay self-contained
 // (see the realpath.Resolve / appDirName notes above for why), and
-// internal/operations already imports this package's Isolate/ChangeDir for
+// internal/adapters/operations already imports this package's Isolate/ChangeDir for
 // its own tests, so the reverse edge would cycle.
 //
 // In one sentence: os.TempDir() is what a TestMain-style sandbox
@@ -207,7 +207,7 @@ func requireIsolatedAppDir(t appDirReporter, pkg string) {
 }
 
 // callerPackage names the package of the TEST that is calling Isolate, as a
-// repository-relative import path ("internal/config"). See callerPackageFrom
+// repository-relative import path ("internal/core/config"). See callerPackageFrom
 // for the rule; this half only collects the stack.
 func callerPackage() string {
 	pcs := make([]uintptr, 64)
@@ -260,8 +260,8 @@ func callerPackageFrom(names []string) string {
 const testingPackage = "testing"
 
 // packageOfFunc extracts the import path from a runtime frame's function name
-// ("github.com/ctxloom/ctxloom/internal/config.TestLoad.func1" ->
-// "github.com/ctxloom/ctxloom/internal/config").
+// ("github.com/ctxloom/ctxloom/internal/core/config.TestLoad.func1" ->
+// "github.com/ctxloom/ctxloom/internal/core/config").
 func packageOfFunc(name string) string {
 	slash := strings.LastIndex(name, "/")
 	dot := strings.Index(name[slash+1:], ".")

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/transcript"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // This file is the S4 consumer cutover: CanonicalFallbackSource is
@@ -22,7 +22,7 @@ import (
 // tees every structured Chat), so the fallback decays to zero over time; it
 // is deliberately NOT removed here (that is S5's job).
 //
-// This type lives in internal/lm/grpc, not internal/transcript, because
+// This type lives in internal/lm/grpc, not internal/adapters/transcript, because
 // CanonicalHistory's own package doc forbids importing this package (would
 // create transcript -> grpc -> transcript, since chat.go already imports
 // transcript for Tee) — but the reverse direction is fine, and pb.SessionSource

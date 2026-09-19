@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/selfexec"
+	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
 

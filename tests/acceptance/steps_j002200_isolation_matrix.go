@@ -27,7 +27,7 @@
 // was actually handed (isoSpyEnvAllowlist — a CLOSED allowlist, never the
 // whole environment; see that list's doc for the secret-leak hazard the
 // allowlist closes) out of what a real engine process would receive, per
-// internal/shared/agent/base.go's BuildEnv (os.Environ() of the plugin
+// internal/core/agent/base.go's BuildEnv (os.Environ() of the plugin
 // subprocess + the backend's own env + the request env) — plus a `cat` of
 // whatever credential file its own env vars point it at. This is captured
 // from INSIDE the spawned process because the
@@ -48,7 +48,7 @@
 // cooperation), but the exact spawned-env PAYLOAD (the
 // XDG_DATA_HOME-vs-XDG_DATA_HOME/opencode nesting subtlety) is not
 // independently re-proven here. It is already pinned at the Go level by
-// internal/lm/isolation/auth_test.go's
+// internal/adapters/isolation/auth_test.go's
 // TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode. See
 // j002200_isolation.doc.md for the full accounting of what is and is not proven
 // where.
@@ -77,7 +77,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -802,7 +802,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// (the durable per-project home the per-session model retired).
 	//
 	// The expectation is built component by component here rather than derived
-	// from internal/claude.SessionConfigDir: an assertion that computes its
+	// from internal/engines/claude.SessionConfigDir: an assertion that computes its
 	// expectation with the same function the production code used cannot fail
 	// when that function is wrong.
 	//
@@ -927,7 +927,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// S8's teardown, pinned at the acceptance layer for the first time. An
 	// instance holds a COPY of the user's live credential inside the project
 	// tree, so reaping it is a security requirement, not hygiene — and until
-	// this step existed, nothing outside internal/operations proved the
+	// this step existed, nothing outside internal/adapters/operations proved the
 	// removal actually happened at the end of a real run.
 	ctx.Step(`^the "([^"]*)" config-home instance is gone once the session ends$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)

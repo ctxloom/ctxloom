@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	ctxloomconfig "github.com/ctxloom/ctxloom/internal/config"
+	ctxloomconfig "github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
@@ -86,7 +86,7 @@ func (m *MockLM) WriteConfig() error {
 	// a stale version here would make loading apply an in-memory upgrade,
 	// which on a real pty (both stdin and stdout a tty) fires the
 	// interactive "rewrite to the current format?" confirmUpgrade prompt
-	// (internal/cli/run.go) — exactly what forced the F2 pty tests to carry
+	// (internal/adapters/cli/run.go) — exactly what forced the F2 pty tests to carry
 	// -y.
 	upgrade.SetVersion(root, "version", ctxloomconfig.CurrentConfigVersion)
 

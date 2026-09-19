@@ -4,7 +4,7 @@
 and 2 of `operable-bright` (order-as-data, `manage hooks list`) ARE built; this is
 part 3, which was explicitly scoped as design-and-stop.
 
-Written against `internal/config.extractHooksFromBundle`,
+Written against `internal/core/config.extractHooksFromBundle`,
 `backends.AssembleManagedHooks`, `operations.ResolveHooks`, and
 `wire.HookOrderLess` as they exist at this commit.
 
@@ -90,7 +90,7 @@ Rejected alternatives, with the reason each loses:
 
 ## 4. Signatures
 
-New, in `internal/config`:
+New, in `internal/core/config`:
 
 ```go
 // HookOrderOverride is one project-level ordering rule for one event.
@@ -110,7 +110,7 @@ type HookOrderConfig map[string][]HookOrderOverride
 func (c *Config) GetHookOrder() HookOrderConfig
 ```
 
-New, in `internal/shared/wire` (beside `HookOrderLess`, so the whole ordering
+New, in `internal/core/wire` (beside `HookOrderLess`, so the whole ordering
 vocabulary stays in one package):
 
 ```go

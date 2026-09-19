@@ -18,7 +18,7 @@ so neither is enforced.
 `config.decodeMergedLayers` marshals the merged map and unmarshals it into
 `config.Config`, nothing downstream can tell which layer a value came from.
 `config.loadConfigLayer` is the last place layer identity exists, and it uses it
-only to name the file in a diagnostic. (VERIFIED: `internal/config/config.go`,
+only to name the file in a diagnostic. (VERIFIED: `internal/core/config/config.go`,
 `loadLayeredConfig` → `decodeMergedLayers`.)
 
 Three properties of the layers that no code knows:
@@ -26,7 +26,7 @@ Three properties of the layers that no code knows:
 - **The project config file is COMMITTED and multi-author.**
   `gitignore.PrivateStatePatterns` deliberately excludes `.ctxloom/config.yaml`
   — "committed by omission — it's content, config, or trust state the project
-  depends on" (VERIFIED, `internal/gitignore/gitignore.go`). Anything written
+  depends on" (VERIFIED, `internal/adapters/gitignore/gitignore.go`). Anything written
   there arrives, pre-set, in every clone.
 - **The env layer is AMBIENT and inherited by children.** `confload`'s own
   package doc says so: "Env vars are inherited by child processes, so
@@ -246,7 +246,7 @@ existing keys — is a silent-no-op with extra steps.
 
 ## The `.ctxloom` classification
 
-VERIFIED by reading `internal/paths/paths.go`, `internal/gitignore/gitignore.go`,
+VERIFIED by reading `internal/core/paths/paths.go`, `internal/adapters/gitignore/gitignore.go`,
 the root `.gitignore`, and by listing a live `.ctxloom` and `~/.ctxloom`.
 
 `content/` is committed and `cache/` is derived, as stated. The model is TRUE
@@ -353,7 +353,7 @@ state it does not have.
 // Package layerscope states which config LAYER may set which config KEY, and
 // why: a value is a fact about a machine, a user, a project, or one
 // invocation, and a layer that cannot carry that fact must not set it.
-package layerscope // internal/config/layerscope
+package layerscope // internal/adapters/configload/layerscope
 
 // Layer is one rung of the resolution chain, in ascending precedence.
 type Layer uint8
@@ -437,13 +437,13 @@ func (v Violation) FixIt(appPath, homeAppPath string) string
 layer and applies the policy where it already applies schema validation.
 
 ```go
-// internal/config — signature change, unexported
+// internal/core/config — signature change, unexported
 func loadConfigLayer(cfg *Config, layer layerscope.Layer, configPath string,
 	validator *schema.ConfigValidator, fs afero.Fs) (values map[string]any, pending *upgrade.Pending, err error)
 ```
 
 ```go
-// internal/config — new warning kind, joining the five in warnings.go.
+// internal/core/config — new warning kind, joining the five in warnings.go.
 //
 // WarnKindLayerScope: the layer carries a key whose value cannot be a fact
 // about that layer — a machine path in a committed project file, a project
@@ -492,14 +492,14 @@ ScopeAllows func(source OverrideSource, path []string) (ok bool, why string)
 The caller-side predicate lives beside `ctxloomProduct`'s existing `KnownPath`:
 
 ```go
-// internal/config
+// internal/core/config
 func scopeAllows(source confload.OverrideSource, path []string) (bool, string)
 ```
 
 ### 4. The third `.ctxloom` tier
 
 ```go
-// internal/paths
+// internal/core/paths
 
 // StateDir is the THIRD tier under .ctxloom, beside ContentDir (committed) and
 // CacheDir (derived). It holds LOCAL-ONLY state: a fact about this checkout on
@@ -520,7 +520,7 @@ func DirtyTreeCommitAckPath(appPath string) string
 ```
 
 ```go
-// internal/paths
+// internal/core/paths
 
 // Tier classifies one .ctxloom path by WHAT A FRESH CLONE GETS.
 type Tier uint8

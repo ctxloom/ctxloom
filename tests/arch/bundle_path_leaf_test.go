@@ -61,7 +61,7 @@ var bundlePrefixAccessors = map[string]bool{
 // bundlePrefixAllowed are the module-relative files permitted to name them.
 // Empty of exemptions by design — see the package doc.
 var bundlePrefixAllowed = map[string]string{
-	"internal/remote/repo_layout.go": "declares the accessors AND the composed " +
+	"internal/adapters/remote/repo_layout.go": "declares the accessors AND the composed " +
 		"RepoItemPath/ContentItemPath that are the only sanctioned way to use them",
 }
 

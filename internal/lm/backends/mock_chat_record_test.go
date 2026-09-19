@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // chatOneTurn drives one default (echo) turn through Chat and returns once the
@@ -107,7 +107,7 @@ func TestMockChat_RecordFileWriteFailurePropagates(t *testing.T) {
 // container gets its own UTS namespace regardless of how paths are mapped, so
 // it never matches the launching process's hostname. cwd and workdir cannot
 // serve at all: whether they agree between host and container is a property
-// of the runtime's pathMapper seam (internal/lm/isolation/runtime.go), not a
+// of the runtime's pathMapper seam (internal/adapters/isolation/runtime.go), not a
 // guaranteed contract — under today's only implemented mapper (identityMapper)
 // they ARE byte-identical (measured: a containerized run's record showed cwd
 // and workdir byte-identical to the host run's, while hostname and

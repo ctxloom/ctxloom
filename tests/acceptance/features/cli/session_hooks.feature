@@ -144,7 +144,7 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
 
   # turn-changed classifies a finishing turn as "changed" or "unchanged". It
   # exists for completeness of the hook vocabulary this feature covers, not to
-  # serve any particular consumer; internal/cli/hook_turn_changed.go carries
+  # serve any particular consumer; internal/adapters/cli/hook_turn_changed.go carries
   # that ruling and is the one place to read it.
   #
   # What is pinned HERE is the DIRECTION of its failure: it fails SAFE,
@@ -152,7 +152,7 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
   # transcript never masquerades as a quiet turn. The two scenarios below pin
   # that from both approaches — a transcript named but absent, and a payload
   # naming none at all. Classification of a real transcript's CONTENTS is a
-  # unit concern in internal/turnchange; what is asserted here is the CLI
+  # unit concern in internal/adapters/turnchange; what is asserted here is the CLI
   # contract.
   Scenario: A transcript the hook cannot read is reported changed, never unchanged
     When I run "ctxloom hook turn-changed" with input:

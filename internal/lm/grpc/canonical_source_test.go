@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
 // fakeSessionSource is a minimal in-memory pb.SessionSource stand-in for the
@@ -113,7 +113,7 @@ func TestCanonicalFallbackSource_GetSession_NoLegacy_AbsentCanonicalStaysAbsent(
 
 // mintBoundHarp registers harp under projectDir in store with the given
 // bound backend session id — AssignHarp mints its own name, so Rename
-// retargets it to the exact name the test wants (mirrors internal/transcript's
+// retargets it to the exact name the test wants (mirrors internal/adapters/transcript's
 // own history_test.go `mint` helper).
 func mintBoundHarp(t *testing.T, store *sessions.MemStore, harp, projectDir, sessionID string) {
 	t.Helper()

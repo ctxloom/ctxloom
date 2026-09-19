@@ -36,7 +36,7 @@ The planned-not-implemented set, in full, as of 2026-07-13:
 | § | Claim | Actual state |
 |---|---|---|
 | §4.4, §7A.6 | Org drop-in channel: a signed `(x.yaml, x.yaml.sig)` pair dropped into a directory ctxloom reads is verified | **No filesystem load path verifies a `.sig`.** Verification is wired for the remote-git seed and the companion loadout only. A local pair is treated as first-party (allowed unverified); a dropped-in one gets no signer. |
-| §6 | Three keys, three pipelines (release / bundle / per-companion) | **One key.** `internal/config/embedded_signers.allowed_signers` ships a single publish key, which signs both the ctxloom-default bundles and both companion loadouts. `.goreleaser.yml` has **no `signs:` block** — release artifacts are unsigned. |
+| §6 | Three keys, three pipelines (release / bundle / per-companion) | **One key.** `internal/core/config/embedded_signers.allowed_signers` ships a single publish key, which signs both the ctxloom-default bundles and both companion loadouts. `.goreleaser.yml` has **no `signs:` block** — release artifacts are unsigned. |
 | §7 | The embedded defaults are removable (`signer remove` writes a negative entry) | **Not removable.** The embedded trust root is compiled in and unconditionally unioned (`config.TrustRoot`). `operations.RemoveSigner` rewrites only the user/project *file*; there is no negative-entry mechanism, so ctxloom's own key cannot be untrusted. |
 | §7A.4 | `--key` / `sign.key` honored on `review` | **Honored by `sign`, not by `review`.** `resolveReviewSigner` passes an empty explicit key into the discovery chain, so `review` resolves via git config → ssh-agent only. (trust-model.md Known gap 6.) |
 | §9.1.2 | Persisted posture acknowledgment (`approvals.posture`, the `[c]/[p]/[q]` prompt, "warn once ever") | **Warns once per `review` invocation.** There is no `approvals.posture` config key and no three-way prompt. (trust-model.md Known gap 5.) |
@@ -231,9 +231,9 @@ Here is the impedance mismatch that must be understood, or the implementation wi
 be wrong:
 
 **The publisher signs a *file*. The gate exposes an *item*.**
-`Loader.gateContent` (`internal/bundles/loader.go`) never sees file bytes. It is
+`Loader.gateContent` (`internal/core/bundles/loader.go`) never sees file bytes. It is
 fed, from the fragment and command resolution paths in
-`internal/bundles/loader_content.go`, the *decoded scalar value* of one item —
+`internal/core/bundles/loader_content.go`, the *decoded scalar value* of one item —
 `BundleFragment.ContentPayload` / `BundleCommand.ContentPayload` — and the gate
 covers exactly those bytes. A human approves *that fragment*, in *that form*, not
 the whole file.
@@ -625,15 +625,15 @@ the refutation is what this carrier rests on. A sibling path is just another pat
 in the same git tree at the same SHA, and the read path already takes an arbitrary
 path:
 
-- `Fetcher.FetchFile(ctx, owner, repo, path, ref)` (`internal/remote/fetcher.go`)
+- `Fetcher.FetchFile(ctx, owner, repo, path, ref)` (`internal/adapters/remote/fetcher.go`)
   takes an **arbitrary repo-relative path** and an arbitrary ref.
-- `GitCloneFetcher.FetchFile` (`internal/remote/git_clone_fetcher.go`) implements
+- `GitCloneFetcher.FetchFile` (`internal/adapters/remote/git_clone_fetcher.go`) implements
   it as `tree.File(filePath)` against the tree at that ref. Zero network calls.
-- `cacheFetcher.FetchFile` (`internal/remote/cached_fetcher_factory.go`) routes
-  through `RepoCache.EnsureRef` / `ensureClone` (`internal/remote/repo_cache.go`):
+- `cacheFetcher.FetchFile` (`internal/adapters/remote/cached_fetcher_factory.go`) routes
+  through `RepoCache.EnsureRef` / `ensureClone` (`internal/adapters/remote/repo_cache.go`):
   an existing clone is used as-is. The SHA is already present, because the bundle
   bytes were just read from it.
-- `BundleReader.ReadBundleBytes` (`internal/remote/bundle_reader.go`) computes
+- `BundleReader.ReadBundleBytes` (`internal/adapters/remote/bundle_reader.go`) computes
   `filePath := ref.BuildFilePath(ref.ItemType)` and calls
   `fetcher.FetchFile(ctx, owner, repo, filePath, entry.SHA)`. **Reading the
   signature is the identical call with `filePath + ".sig"`.**
@@ -683,7 +683,7 @@ envelope rather than a sibling file.
 
 The companion binary owns and emits its own bundle (`cmd/ltk/loadout.go`,
 `cmd/taskloom/loadout.go`), mirroring the `<bin> version --format json` probe
-convention, and ctxloom discovers it at boot (`internal/config/companions.go`).
+convention, and ctxloom discovers it at boot (`internal/core/config/companions.go`).
 This replaced an earlier design in which companion bundles were vendored into
 ctxloom's own binary under `resources/builtin_bundles/`; **those vendored bundles
 are deleted** — that directory now holds only a README.
@@ -800,7 +800,7 @@ rejection. See §8.
 
 ### 5.3 reject — two components, mirroring today's two-component rejection
 
-`operations.SetBlacklist` (`internal/operations/trust.go`) records **both** a
+`operations.SetBlacklist` (`internal/adapters/operations/trust.go`) records **both** a
 ref-level block and the item's content bytes. The countersigned form keeps both, as
 two distinct signatures:
 
@@ -832,7 +832,7 @@ not close it and does not widen it.
 ## 6. Three signing surfaces — separate keys, separate pipelines, do not fuse
 
 > **PLANNED — not yet implemented.** The **key separation described here does not
-> exist.** `internal/config/embedded_signers.allowed_signers` ships **exactly one
+> exist.** `internal/core/config/embedded_signers.allowed_signers` ships **exactly one
 > key**, trusted for the publish namespace, and that single key signs both the
 > ctxloom-default bundles (surface 2) and both companion loadouts (surface 3).
 > `.goreleaser.yml` has **no `signs:` block at all** — surface 1 does not exist:
@@ -1049,7 +1049,7 @@ ctxloom sign my-tools                                          # bare = local bu
 ```
 
 `ctxloom sign` reuses the **existing** item-ref parser
-(`operations.parseTrustItemRef`, `internal/operations/trust.go`), which already
+(`operations.parseTrustItemRef`, `internal/adapters/operations/trust.go`), which already
 implements exactly this grammar for `trust`/`blacklist`. **No second grammar is
 introduced** — which is the trap ADR 0032 exists to prevent, and which the malformed
 examples above show is a live risk.
@@ -1088,7 +1088,7 @@ signing git commits with SSH has a key configured, and we find it:
 | 2 | **ssh-agent**, when it holds exactly **one** identity | Unambiguous → use it. |
 | 3 | **`sign.key`** in ctxloom config, or **`--key`** | Explicit override; wins over 1 and 2 when given. |
 
-The chain itself is one implementation (`internal/signing/agentkey.Discoverer`) and
+The chain itself is one implementation (`internal/adapters/signing/agentkey.Discoverer`) and
 both `ctxloom sign` and `ctxloom review` resolve through it.
 
 > **PARTIALLY IMPLEMENTED.** Row 3 is honored by **`ctxloom sign`** (which passes
@@ -1211,7 +1211,7 @@ own, no prompts, and no secrets** (§9.5).
 
 ## 8. The new decision function
 
-Implemented as `operations.EffectiveTrust` (`internal/operations/trust.go`).
+Implemented as `operations.EffectiveTrust` (`internal/adapters/operations/trust.go`).
 First-match-wins. Fail-closed. The request gains one field —
 `Signer` (the verified publisher identity attached to the item's source document at
 load, or `builtin:ctxloom`, or empty for unsigned) — and the store lookups become
@@ -1268,7 +1268,7 @@ rejected bundle **succeeds**, and its content is then withheld at exposure.
 
 ### 8.1 Plumbing the signer to the gate
 
-`ContentGate` (`internal/bundles/loader.go`) is:
+`ContentGate` (`internal/core/bundles/loader.go`) is:
 
 ```go
 type ContentGate func(ref string, payload []byte, form, signer string) bool
@@ -1317,7 +1317,7 @@ glossed.**
 to sign arbitrary bytes under any namespace. It cannot exfiltrate the key — and it
 does not need to. It needs one signature, and a bare agent gives it one, silently.
 The coding agents this feature defends against are *exactly* the processes that
-hold `SSH_AUTH_SOCK` on a host run: the host runner (`internal/lm/isolation/runner.go`)
+hold `SSH_AUTH_SOCK` on a host run: the host runner (`internal/adapters/isolation/runner.go`)
 builds the child environment as `cmd.Env = append(os.Environ(), kv...)`, so a host-run
 agent inherits the full parent environment — **`SSH_AUTH_SOCK` included. Nothing
 strips it, and nothing gates it.** That is the deliberate decision of §9.1.1, not an
@@ -1357,7 +1357,7 @@ argument for SSH signatures over a hash ledger. Put it in the README.
 
 **P4 — containerized agents structurally cannot countersign. This is intended
 behavior, specified, not an accident.** The container path forwards env by a
-*scoped name-allowlist* (`envPassthrough` in `internal/lm/isolation/auth.go` —
+*scoped name-allowlist* (`envPassthrough` in `internal/adapters/isolation/auth.go` —
 it carries names, not the whole environ) and does not mount the agent socket, so
 `SSH_AUTH_SOCK` is absent inside the container and there is no signing oracle to
 reach. **Do not "fix" this by forwarding the socket into containers.** A
@@ -1574,7 +1574,7 @@ matters for a committable, team-written store:
   <index_hash>.<assertion>.<key_tag>.sig
 ```
 
-where, normatively (`internal/signing/countersign/store.go`):
+where, normatively (`internal/adapters/signing/countersign/store.go`):
 
 ```
 index_hash := hex(sha256( CountersignPayload(header, payload_bytes) ))   # the FULL FRAMED payload — §3.2
@@ -1733,7 +1733,7 @@ Realistic session: ~10-30 bundles, ~50-200 exposed items.
 | Store index build (readdir) | once per process | one `readdir`, ~ms |
 
 **Worst case is well under 20ms on a cold session.** For comparison, the boot-time
-companion probe (`companionProbeTimeout`, `internal/config/companions.go`) budgets **3 seconds**. This is
+companion probe (`companionProbeTimeout`, `internal/core/config/companions.go`) budgets **3 seconds**. This is
 two orders of magnitude below anything the user can perceive, and it is dwarfed by
 the git object reads happening alongside it.
 
@@ -1773,7 +1773,7 @@ in `allowed_signers`, or an actual attack.
   withheld entirely (not merely un-attributed), and it is a **fatal-class finding
   in strict mode** via `strictness.Fail(strictness.ClassTrust, ...)`, the same
   channel `EffectiveTrust` already uses for an unreadable trust store
-  (`internal/operations/trust.go`). "The bytes do not match the signature that
+  (`internal/adapters/operations/trust.go`). "The bytes do not match the signature that
   claims to cover them" is never a benign condition, and silently degrading it to
   "unsigned, please review" would let an attacker downgrade a signed bundle to an
   unsigned one by corrupting its signature.
@@ -1874,7 +1874,7 @@ project's standing rule is to break old users rather than carry legacy formats.
 | `trust_bundles: true` in `remotes.yaml` | a publisher key in `allowed_signers` |
 | `ctxloom remote trust <name>` / `untrust` | `ctxloom signer add` / `signer remove` |
 | `EffectiveTrust` step 3 (trusted source → hash-blind ALLOW) | step 4 (trusted **signer** → ALLOW) |
-| `remoteTrusted()` (deleted from `internal/operations/trust.go`) | `allowed_signers` lookup |
+| `remoteTrusted()` (deleted from `internal/adapters/operations/trust.go`) | `allowed_signers` lookup |
 | `Remote.TrustBundles` field | *(gone)* |
 | `trust.yaml` v2 (`items[]` + `denylist[]`) | the countersignature stores (§9.2) |
 | `trust.Store` v1→v2 in-memory migration | *(gone — delete it)* |
@@ -1941,7 +1941,7 @@ separator (§1); `ssh.Signer` is satisfied by `x/crypto/ssh/agent`'s client, so
 
 **`hiddeco/sshsig` v0.2.0 is the shipped dependency** (a direct requirement in
 `go.mod`), and the `allowed_signers` parser of §11A.3 is ours
-(`internal/signing/allowedsigners`). The evaluation below is retained as the
+(`internal/adapters/signing/allowedsigners`). The evaluation below is retained as the
 rationale record.
 
 Rationale: it is the only candidate with a **tagged release** (an unreleased

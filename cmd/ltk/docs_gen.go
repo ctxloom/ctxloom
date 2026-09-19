@@ -5,10 +5,10 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/docsgen"
+	"github.com/ctxloom/ctxloom/internal/shared/docsgen"
 )
 
-// registerDocsCmd mounts the shared documentation generator (internal/docsgen,
+// registerDocsCmd mounts the shared documentation generator (internal/shared/docsgen,
 // the same one ctxloom and taskloom use) as a hidden `ltk gendocs` subcommand.
 //
 // ltk's cobra tree lives in `package main` and so cannot be imported by a

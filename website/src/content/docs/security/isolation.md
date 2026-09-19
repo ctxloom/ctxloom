@@ -250,7 +250,7 @@ Gemini CLI, which happens to share Antigravity's `~/.gemini` directory, not an A
 credential at all.
 
 That correction closes what used to be an open question here. **`resolveAntigravityContainerAuth`
-(`internal/lm/isolation/auth.go`) is no longer a stub.** It seeds the host's
+(`internal/adapters/isolation/auth.go`) is no longer a stub.** It seeds the host's
 `antigravity-oauth-token` file — the correct one — into scratch and mounts the copy read-write
 into the container's fresh `HOME`, at the identical relative path agy itself reads, mirroring
 the read-write posture Claude Code's OAuth mount uses for the same reason: the token carries a
@@ -503,7 +503,7 @@ story on this page: the credential store is not merely *read* from outside an is
 environment, it is *written to* — two "isolated" kiro agents share a mutable file, not just an
 identity.
 
-**The credentialed-CI trap.** `internal/lm/isolation/auth.go`'s own precedence — an API key riding
+**The credentialed-CI trap.** `internal/adapters/isolation/auth.go`'s own precedence — an API key riding
 the environment bypasses credential seeding entirely, a host credential file is only ever copied
 when no key is present — means a CI runner armed with only secrets (the normal shape: no
 `~/.claude` on a fresh runner) will *always* take the bypass path, and a bypass-path cell proves

@@ -55,30 +55,30 @@ classDiagram
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `StructuredChat` | `internal/shared/agent/chat.go:20` | Optional capability interface for multi-turn structured chat; discovered by type assertion on a `Backend`. |
-| `ChatRequest` | `internal/shared/agent/chat.go:37` | Configuration for one chat session (12 fields including `Runtime`, `MCPServers`, `TranscriptRawPolicy`). |
-| `ModelDeliveryQuirk` | `internal/shared/agent/chat.go:117` | Version-scoped escape hatch for a model-delivery defect. Both its producer and its executor went with the ACP removal, so the type survives with **no reader**. |
-| `MCPTransport` | `internal/shared/agent/chat.go:231` | stdio vs http vs sse. |
-| `ChatMCPServer` | `internal/shared/agent/chat.go:252` | One MCP server entry for a chat run. |
-| `ChatMessage` | `internal/shared/agent/chat.go:274` | The inbound (host → engine) union. |
-| `ChatEvent` | `internal/shared/agent/chat.go:309` | The outbound (engine → host) union, plus a `Raw` sidecar field explicitly outside the union. |
-| `PermissionRequest` | `internal/shared/agent/chat.go:351` | An engine's request for a permission decision, correlated by `ID`. |
-| `PermissionOption` | `internal/shared/agent/chat.go:377` | One selectable option on a permission request. |
-| `PermissionAnswer` | `internal/shared/agent/chat.go:386` | The host's decision, correlated back by `ID`. |
-| `TerminalRequest` | `internal/shared/agent/chat.go:421` | An engine's request to run a terminal command. |
-| `TerminalResponse` | `internal/shared/agent/chat.go:435` | The result, correlated by `ID`. |
-| `TurnMeta` | `internal/shared/agent/chat.go:444` | Per-turn completion metadata. |
-| `ChatSessionInfo` | `internal/shared/agent/chat.go:460` | Session identity/resume information emitted by the engine. |
-| `MCPStatus` | `internal/shared/agent/chat.go:485` | Per-server MCP connection status reported into the chat stream. |
+| `StructuredChat` | `internal/core/agent/chat.go:20` | Optional capability interface for multi-turn structured chat; discovered by type assertion on a `Backend`. |
+| `ChatRequest` | `internal/core/agent/chat.go:37` | Configuration for one chat session (12 fields including `Runtime`, `MCPServers`, `TranscriptRawPolicy`). |
+| `ModelDeliveryQuirk` | `internal/core/agent/chat.go:117` | Version-scoped escape hatch for a model-delivery defect. Both its producer and its executor went with the ACP removal, so the type survives with **no reader**. |
+| `MCPTransport` | `internal/core/agent/chat.go:231` | stdio vs http vs sse. |
+| `ChatMCPServer` | `internal/core/agent/chat.go:252` | One MCP server entry for a chat run. |
+| `ChatMessage` | `internal/core/agent/chat.go:274` | The inbound (host → engine) union. |
+| `ChatEvent` | `internal/core/agent/chat.go:309` | The outbound (engine → host) union, plus a `Raw` sidecar field explicitly outside the union. |
+| `PermissionRequest` | `internal/core/agent/chat.go:351` | An engine's request for a permission decision, correlated by `ID`. |
+| `PermissionOption` | `internal/core/agent/chat.go:377` | One selectable option on a permission request. |
+| `PermissionAnswer` | `internal/core/agent/chat.go:386` | The host's decision, correlated back by `ID`. |
+| `TerminalRequest` | `internal/core/agent/chat.go:421` | An engine's request to run a terminal command. |
+| `TerminalResponse` | `internal/core/agent/chat.go:435` | The result, correlated by `ID`. |
+| `TurnMeta` | `internal/core/agent/chat.go:444` | Per-turn completion metadata. |
+| `ChatSessionInfo` | `internal/core/agent/chat.go:460` | Session identity/resume information emitted by the engine. |
+| `MCPStatus` | `internal/core/agent/chat.go:485` | Per-server MCP connection status reported into the chat stream. |
 
 ## Functions
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `ComposeChatMCPServers` | `internal/shared/agent/chat_mcp.go:28` | Merges the ctxloom server + bundle MCP + config MCP + plugin MCP, minus an `existing` set, sorted by name. |
-| `ManagedConfig.ChatMCPServers` | `internal/shared/agent/chat_mcp.go:70` | Nil-safe delegate to `ComposeChatMCPServers`; the nil-receiver guard is the point. |
+| `ComposeChatMCPServers` | `internal/core/agent/chat_mcp.go:28` | Merges the ctxloom server + bundle MCP + config MCP + plugin MCP, minus an `existing` set, sorted by name. |
+| `ManagedConfig.ChatMCPServers` | `internal/core/agent/chat_mcp.go:70` | Nil-safe delegate to `ComposeChatMCPServers`; the nil-receiver guard is the point. |
 
-Callers of `ComposeChatMCPServers`: `internal/agentcoord/spawner.go:511` (delegated children) and `BaseLifecycle.ChatMCPServers` (`base_lifecycle.go:91`).
+Callers of `ComposeChatMCPServers`: `internal/adapters/coordgrpc/pb/spawner.go:511` (delegated children) and `BaseLifecycle.ChatMCPServers` (`base_lifecycle.go:91`).
 
 ## Invariants and contracts
 

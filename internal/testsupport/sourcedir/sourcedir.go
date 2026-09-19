@@ -6,7 +6,7 @@
 // `_, file, _, _ := runtime.Caller(0); filepath.Dir(file)`. That works only
 // because, without -trimpath, the compiler records each file's ABSOLUTE path
 // in the binary. Under -trimpath it records the MODULE-RELATIVE path instead
-// ("github.com/ctxloom/ctxloom/internal/cli/main_test.go"), so filepath.Dir
+// ("github.com/ctxloom/ctxloom/internal/adapters/cli/main_test.go"), so filepath.Dir
 // yields a directory that does not exist and every read through it fails with
 // "no such file or directory". Those absolute paths are also part of the
 // compiler's action ID, which is why identical source checked out in two

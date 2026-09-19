@@ -319,7 +319,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
 
     # NOT TABLED BY FORMAT, and the reason is a tracked debt rather than a
     # choice: `agent default` never routes its result through emit(), so it is
-    # carried in internal/cli's formatDebtAllowlist. It renders prose whatever
+    # carried in internal/adapters/cli's formatDebtAllowlist. It renders prose whatever
     # format resolves, and asking it for a structured one FAILS the command
     # outright — so the derived default off a terminal cannot be used here
     # either. `--format text` is stated explicitly to name the only encoding

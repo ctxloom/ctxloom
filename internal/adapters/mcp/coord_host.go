@@ -1,0 +1,173 @@
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"golang.org/x/sync/singleflight"
+
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
+	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+)
+
+// Coordinator hosting: every session-owning process — `ctxloom run` and the
+// bare `ctxloom mcp` fallback — stands the runtime
+// coordinator up as a LIBRARY. Since the B1.6 surface shrink the gRPC
+// channels are the ONLY agent ingress (tool surfaces live at each runner's
+// local socket); this process keeps the host-relay handlers, each bound to
+// the CALLER's credential-derived identity — never the host process's env
+// (review R12f).
+
+// NewHostedCoordinator builds and serves the coordinator for projectDir.
+// ownerHarp is the session owner's harp — the inbox this process drains
+// (coord.Options.OwnerHarp); every hosting site knows it before standing the
+// coordinator up.
+func NewHostedCoordinator(cfg *config.Config, projectDir, ownerHarp string) (*coord.Coordinator, error) {
+	key := ""
+	if pid, _, err := taskops.ResolveProjectIdentity(projectDir); err == nil {
+		key = pid
+	} // best-effort: "" falls back to a path-derived key inside coord.New
+	c, err := coord.New(coord.Options{
+		Cfg:        cfg,
+		ProjectDir: projectDir,
+		ProjectKey: key,
+		// A configurable RESOURCE ceiling (concurrent live engine
+		// processes), not a correctness gate — see coord.agentConcurrencyCap's
+		// doc. <= 0 (unset project config) falls back to the built-in
+		// default inside coord.New.
+		ConcurrencyCap: cfg.GetDelegationConcurrency(),
+		// A configurable STRUCTURAL ceiling on the delegation tree's depth —
+		// see coord.agentDepthCap's doc. <= 0 (unset project config) falls
+		// back to the built-in default inside coord.New.
+		Depth:     cfg.GetDelegationDepth(),
+		OwnerHarp: ownerHarp,
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Host-relay tool handlers (B1.6 three-way routing): host-resident
+	// tools relayed by runners as CustomRequest{ctxloom/<tool>} terminate
+	// in THIS process, on a per-caller-identity ctxServer.
+	c.SetCustomHandlers(coordCustomHandlers(cfg, c))
+	if err := c.Serve(); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
+// coordCustomHandlers builds the coordinator-side handlers for the
+// host-resident tools (cross-session history, distillation — host session
+// dirs are not mounted into children). Each call runs on a ctxServer bound
+// to the CALLER's credential-derived identity, exactly like the stdio
+// handlers — never the host process's env.
+func coordCustomHandlers(cfg *config.Config, c *coord.Coordinator) map[string]coord.CustomHandler {
+	// One dedupe group ACROSS the per-call ctxServers: a distillation already
+	// in flight for a session is joined, not duplicated. Owned here because
+	// serverFor mints a fresh ctxServer per relayed call — a group hung off
+	// that would dedupe nothing.
+	distill := &singleflight.Group{}
+	serverFor := func(id coord.Identity) *ctxServer {
+		return &ctxServer{cfg: cfg, self: id, agents: &agentDelegation{self: id, c: c}, distill: distill}
+	}
+	return map[string]coord.CustomHandler{
+		coord.CustomToolPrefix + "compact_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in compactSessionInput) (any, error) {
+			_, out, err := s.handleCompactSession(ctx, nil, in)
+			return out, err
+		}),
+		coord.CustomToolPrefix + "load_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in loadSessionInput) (any, error) {
+			_, out, err := s.handleLoadSession(ctx, nil, in)
+			return out, err
+		}),
+		coord.CustomToolPrefix + "recover_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in recoverSessionInput) (any, error) {
+			_, out, err := s.handleRecoverSession(ctx, nil, in)
+			return out, err
+		}),
+		coord.CustomToolPrefix + "get_previous_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in getPreviousSessionInput) (any, error) {
+			_, out, err := s.handleGetPreviousSession(ctx, nil, in)
+			return out, err
+		}),
+		coord.CustomToolPrefix + "list_sessions": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in listSessionsInput) (any, error) {
+			_, out, err := s.handleListSessions(ctx, nil, in)
+			return out, err
+		}),
+		coord.CustomToolPrefix + "evaluate_triggers": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in evaluateTriggersInput) (any, error) {
+			_, out, err := s.handleEvaluateTriggers(ctx, nil, in)
+			return out, err
+		}),
+		coord.CustomToolPrefix + "context_status": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in contextStatusInput) (any, error) {
+			_, out, err := s.handleContextStatus(ctx, nil, in)
+			return out, err
+		}),
+	}
+}
+
+// relayHost adapts one typed stdio handler onto the coordinator's relay
+// seam: decode the relayed args into the SAME input struct, run the handler
+// under the caller's identity, re-encode the result.
+func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context.Context, *ctxServer, In) (any, error)) coord.CustomHandler {
+	return func(ctx context.Context, caller coord.Identity, args json.RawMessage) (json.RawMessage, error) {
+		var in In
+		if len(args) > 0 {
+			if err := json.Unmarshal(args, &in); err != nil {
+				return nil, fmt.Errorf("decode arguments: %w", err)
+			}
+		}
+		out, err := h(ctx, serverFor(caller), in)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := json.Marshal(out)
+		if err != nil {
+			return nil, fmt.Errorf("encode result: %w", err)
+		}
+		return raw, nil
+	}
+}
+
+// HostCoordinatorForSession is the run/acp hosting helper: coordinator up,
+// viewer socket bound under the owner harp, owner credential minted, and the
+// owner's full per-spawn RUNNER env (SessionOwnerEnv → coord.OwnerRunnerEnv:
+// the reach-back trio, the session harp, and this coordinator's depth/oneshot/
+// spool stamps) returned for injection at launch. A standup failure returns
+// the error for the caller's fail-loud gate; the caller decides degraded
+// behavior.
+func HostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp string, runtimeAxis agent.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
+	c, err := NewHostedCoordinator(cfg, projectDir, ownerHarp)
+	if err != nil {
+		return nil, nil, err
+	}
+	env, err := SessionOwnerEnv(c, ownerHarp, runtimeAxis)
+	if err != nil {
+		c.Close()
+		return nil, nil, err
+	}
+	return c, env, nil
+}
+
+// SessionOwnerEnv mints one session-owner credential on an already-hosted
+// coordinator and returns the per-spawn env for that owner's RUNNER. D2 retired
+// the per-owner-harp agent-bus.sock bind step: observe/roster/inject now
+// ride ConsumerService, a single coordinator-wide surface Serve() already
+// stood up — nothing left to bind here.
+//
+// The env itself is the coordinator's to build, not this function's: it calls
+// coord.OwnerRunnerEnv, the same constructor every child spawn goes through.
+// This function used to hand-build a two-key map here, which made it a SECOND
+// producer of the runner env that silently omitted every stamp it had not been
+// told about (see OwnerRunnerEnv's doc for what that cost). Mint the
+// credential, resolve the endpoint, hand both to the one producer.
+func SessionOwnerEnv(c *coord.Coordinator, ownerHarp string, runtimeAxis agent.RuntimeAxis) (map[string]string, error) {
+	token, err := c.RegisterSessionOwner(ownerHarp)
+	if err != nil {
+		return nil, err
+	}
+	url, err := c.ReachURL(runtimeAxis)
+	if err != nil {
+		return nil, err
+	}
+	return c.OwnerRunnerEnv(ownerHarp, token, url), nil
+}

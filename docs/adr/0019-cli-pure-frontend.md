@@ -1,4 +1,4 @@
-# 0019 — The CLI (and every frontend) is a pure frontend over internal/operations
+# 0019 — The CLI (and every frontend) is a pure frontend over internal/adapters/operations
 
 **Date:** 2026-06-01.
 
@@ -8,13 +8,13 @@ Accepted.
 
 ## Context
 
-Through Seam B the CLI and MCP server increasingly delegated domain writes to `internal/operations`, but pockets of domain logic remained in `cmd/`: direct bundle/profile file I/O, loader `.Save()`/`.Delete()` calls, raw domain YAML, and business decisions (default promotion, parent validation, add-only semantics). The same drift that motivated the seam — two implementations of one operation — recurs whenever a frontend does the work itself instead of calling the shared core.
+Through Seam B the CLI and MCP server increasingly delegated domain writes to `internal/adapters/operations`, but pockets of domain logic remained in `cmd/`: direct bundle/profile file I/O, loader `.Save()`/`.Delete()` calls, raw domain YAML, and business decisions (default promotion, parent validation, add-only semantics). The same drift that motivated the seam — two implementations of one operation — recurs whenever a frontend does the work itself instead of calling the shared core.
 
 ADR [0018](0018-bundle-edit-keeps-add-only-semantics.md) carved out one exception: `bundle edit` kept its in-CLI mutation because its add-only flag semantics couldn't map onto `UpdateBundle`'s upsert `SetFragments`.
 
 ## Decision
 
-Adopt a single invariant: **a frontend (CLI, MCP, future) parses input, calls `internal/operations`, and renders output — it does no domain logic itself.** Frontend-only concerns remain in the frontend: argument parsing, printing, `$EDITOR`, TTY detection, stdin confirms, constructing requests, and building the `operations.Distiller`. Everything that reads or mutates domain state (bundles, profiles, fragments, prompts, remotes, config, sessions) goes through operations — reads included, so operations is the sole component that touches domain files.
+Adopt a single invariant: **a frontend (CLI, MCP, future) parses input, calls `internal/adapters/operations`, and renders output — it does no domain logic itself.** Frontend-only concerns remain in the frontend: argument parsing, printing, `$EDITOR`, TTY detection, stdin confirms, constructing requests, and building the `operations.Distiller`. Everything that reads or mutates domain state (bundles, profiles, fragments, prompts, remotes, config, sessions) goes through operations — reads included, so operations is the sole component that touches domain files.
 
 To remove the 0018 exception, `UpdateBundleRequest` gained create-if-absent `AddFragments`/`AddPrompts`/`AddMCPServers` (the add-only counterpart of the upsert `Set*`). `bundle edit` now builds an `UpdateBundleRequest` and calls `UpdateBundle` — no in-CLI bundle mutation, no separate guard call.
 

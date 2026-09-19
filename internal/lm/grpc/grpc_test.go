@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
 )

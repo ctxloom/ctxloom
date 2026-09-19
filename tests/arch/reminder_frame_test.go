@@ -38,7 +38,7 @@ import (
 // "Code generated" header, because a hand-written file can carry that header
 // too — and the point of the gate is that the allowlist is a decision.
 var generatedFrameEncoders = map[string]bool{
-	"internal/agentcoord/xmllike_gen.go": true,
+	"internal/adapters/coordgrpc/pb/xmllike_gen.go": true,
 }
 
 // frameDeclarers are the files allowed to mention the tag WITHOUT constructing
@@ -47,14 +47,14 @@ var generatedFrameEncoders = map[string]bool{
 // Each is listed with why, so a new entry has to be argued for.
 var frameDeclarers = map[string]string{
 	// Emits the encoders; holds the tag as the ReminderTag constant.
-	"internal/agentcoord/mcpschema/xmllike.go": "the generator itself",
+	"internal/adapters/coordgrpc/mcpschema/xmllike.go": "the generator itself",
 	// The generator's CLI: names the tag in its -xmllike-out flag help.
-	"internal/agentcoord/mcpschema/gen/main.go": "the generator's entry point",
+	"internal/adapters/coordgrpc/mcpschema/gen/main.go": "the generator's entry point",
 	// This gate.
 	"tests/arch/reminder_frame_test.go": "this gate",
 	// The analyzer enforcing the same rule in the lint channel; it must name
 	// the tag in order to search for it.
-	"internal/archlint/reminderframe.go": "the archreminderframe analyzer",
+	"internal/shared/archlint/reminderframe.go": "the archreminderframe analyzer",
 }
 
 // skipUninterestingDir prunes trees that hold no Go source this gate is about.
@@ -63,7 +63,7 @@ var frameDeclarers = map[string]string{
 // `.claude/worktrees/agent-*/`, each a full copy of this repo. Walking into one
 // re-reads every source file under a path the allowlist cannot match — the
 // allowlist is keyed on module-relative paths like
-// "internal/agentcoord/mcpschema/xmllike.go", and the same file inside a
+// "internal/adapters/coordgrpc/mcpschema/xmllike.go", and the same file inside a
 // worktree arrives as ".claude/worktrees/agent-xxxx/internal/…". The gate then
 // reports the generator itself as a hand-rolled frame, once per live worktree.
 // Measured: five concurrent agents turned one clean tree into fifteen spurious
@@ -143,7 +143,7 @@ func TestArch_ReminderFramesAreConstructedOnlyByGeneratedCode(t *testing.T) {
 	// passed by finding nothing at all — which is the failure it exists to
 	// catch, wearing a green tick.
 	if !sawGenerated {
-		t.Fatal("internal/agentcoord/xmllike_gen.go is missing: run `just gen-mcp-schemas`. " +
+		t.Fatal("internal/adapters/coordgrpc/pb/xmllike_gen.go is missing: run `just gen-mcp-schemas`. " +
 			"Without it this gate proves nothing (no frames exist to be constructed anywhere)")
 	}
 	if len(offenders) > 0 {

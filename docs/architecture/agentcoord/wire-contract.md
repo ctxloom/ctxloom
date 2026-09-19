@@ -1,11 +1,11 @@
 # Wire contract — `agentcoord.v1`
 
-The hand-written protos in `internal/agentcoord/` are the normative contract for
+The hand-written protos in `internal/adapters/coordgrpc/pb/` are the normative contract for
 agent delegation: three gRPC services, 82 messages and 13 enums in
 `coordination.proto` (1348 lines), 9 messages and 1 service in `artifacts.proto`
 (207 lines), plus a vendored `google/rpc/status.proto`. The contract has **three**
 consumer classes, and the third is what makes a dead field expensive: six of these
-messages are projected by `internal/agentcoord/mcpschema` into the **JSON Schemas an
+messages are projected by `internal/adapters/coordgrpc/mcpschema` into the **JSON Schemas an
 LLM reads and fills in**, so a field with no handler is a model-facing argument that
 silently does nothing.
 

@@ -12,7 +12,7 @@ package tokens
 // 2-4x (a CJK rune is three bytes in UTF-8, an emoji four), so a constant
 // named for characters but applied to bytes silently means something other
 // than what every consumer reads it as. The byte reading is also the one the
-// budget arithmetic needs: callers slice by byte offset (see internal/memory's
+// budget arithmetic needs: callers slice by byte offset (see internal/adapters/memory's
 // fitToBudget and its use of textutil.TruncateBytes), so a character-based
 // budget compared against a byte length would under-count exactly the text
 // that is already hardest to fit.

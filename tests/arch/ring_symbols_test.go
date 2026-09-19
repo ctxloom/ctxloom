@@ -222,7 +222,7 @@ var pinnedCalls = []pinnedCall{
 			return selectorCall(c, "harp", "GenerateName") || selectorCall(c, "harp", "GenerateNameWithOptions") ||
 				selectorCall(c, "harp", "GenerateShortName") || selectorCall(c, "harp", "UniqueFrom")
 		},
-		permitted: []string{"internal/sessions", "internal/operations", "internal/shared/harp", "cmd/harp"},
+		permitted: []string{"internal/core/sessions", "internal/adapters/operations", "internal/shared/harp", "cmd/harp"},
 	},
 	{
 		what:      "constructs the coordinator (coord.New)",
@@ -241,42 +241,42 @@ var pinnedCalls = []pinnedCall{
 var oneMintOneOwnerAllowed = map[string]string{
 	// the second mint: agent_run makes the child's harp itself instead of
 	// asking the store
-	"internal/mcp/mcp_tools_agents.go#selfIdentityFromEnv": "slice 2 introduces sessions.Mint; coord.Coordinator.AgentRun calls it and the MCP server stops minting",
+	"internal/adapters/mcp/mcp_tools_agents.go#selfIdentityFromEnv": "slice 2 introduces sessions.Mint; coord.Coordinator.AgentRun calls it and the MCP server stops minting",
 
 	// the coordinator is constructed by the MCP server, not the composition root
-	"internal/mcp/coord_host.go#NewHostedCoordinator": "Part 1.1 one-mint-one-owner: coord.New moves under cmd/*; Part 4.1 names no slice for the move (measured)",
+	"internal/adapters/mcp/coord_host.go#NewHostedCoordinator": "Part 1.1 one-mint-one-owner: coord.New moves under cmd/*; Part 4.1 names no slice for the move (measured)",
 
 	// config.Load in the CLI: slice 4 gives operations.App the one
 	// config.Owner and the CLI stops opening the config itself
-	"internal/cli/agent.go#completeAgentNames":                  "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/clean_cmd.go#sessionReapCutoff":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/completion.go#completeFragmentNames":          "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/completion.go#completeLLMNames":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/completion.go#completeProfileNames":           "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/completion.go#completePromptNames":            "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/completion.go#completeTagNames":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/hook_hud.go#gatherCtxloomInfo":                "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/hook_inject_context.go#agentSetupNudge":       "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/hook_skill_mates.go#skillMatesOutput":         "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/init.go#addPersonalRemotes":                   "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/cli/init.go#applyInitHooks":                       "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/cli/init.go#cloneConfiguredRemotes":               "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/cli/init.go#engineForExistingDir":                 "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/cli/init.go#pullSeededDependencies":               "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/cli/init.go#setupNewCtxloomDir":                   "slice 4: init writes config data through a Draft; the Owner is operations.App's",
-	"internal/cli/llm_runner_common.go#loadAndConfigureBackend": "slice 4: one Reload per spawn, owned by operations.App",
-	"internal/cli/run.go#runState.loadConfig":                   "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/session_cmd.go#runSessionDistill":             "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/session_cmd.go#sessionAppDir":                 "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/session_distill.go#distillMissingOrStale":     "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
-	"internal/cli/session_query.go#runSessionQuery":             "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/agent.go#completeAgentNames":                  "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/clean_cmd.go#sessionReapCutoff":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/completion.go#completeFragmentNames":          "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/completion.go#completeLLMNames":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/completion.go#completeProfileNames":           "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/completion.go#completePromptNames":            "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/completion.go#completeTagNames":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/hook_hud.go#gatherCtxloomInfo":                "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/hook_inject_context.go#agentSetupNudge":       "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/hook_skill_mates.go#skillMatesOutput":         "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/init.go#addPersonalRemotes":                   "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/adapters/cli/init.go#applyInitHooks":                       "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/adapters/cli/init.go#cloneConfiguredRemotes":               "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/adapters/cli/init.go#engineForExistingDir":                 "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/adapters/cli/init.go#pullSeededDependencies":               "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/adapters/cli/init.go#setupNewCtxloomDir":                   "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/adapters/cli/llm_runner_common.go#loadAndConfigureBackend": "slice 4: one Reload per spawn, owned by operations.App",
+	"internal/adapters/cli/run.go#runState.loadConfig":                   "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/session_cmd.go#runSessionDistill":             "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/session_cmd.go#sessionAppDir":                 "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/session_distill.go#distillMissingOrStale":     "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/adapters/cli/session_query.go#runSessionQuery":             "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
 
 	// config.Load inside operations: the memoized loader each service opens
 	// for itself becomes the one Owner the App is constructed with
-	"internal/operations/hooks.go#resolveHookConfig":       "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
-	"internal/operations/llm.go#SetLLM":                    "slice 4: operations.App is constructed with the one config.Owner; SetLLM writes a Draft",
-	"internal/operations/mcp_servers.go#resolveListConfig": "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
-	"internal/operations/sessionfeed.go#WatchSessionFeed":  "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
+	"internal/adapters/operations/hooks.go#resolveHookConfig":       "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
+	"internal/adapters/operations/llm.go#SetLLM":                    "slice 4: operations.App is constructed with the one config.Owner; SetLLM writes a Draft",
+	"internal/adapters/operations/mcp_servers.go#resolveListConfig": "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
+	"internal/adapters/operations/sessionfeed.go#WatchSessionFeed":  "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
 }
 
 func scanOneMintOneOwner(t *testing.T) []ringSite {
@@ -334,9 +334,9 @@ func TestArch_OneMintOneOwner_AllowlistIsLive(t *testing.T) {
 // be a string literal: the engine packages themselves (today's spellings;
 // internal/engines/* after the rename) and the mock engine's binary.
 var engineNameHomes = []string{
-	"internal/claude",
-	"internal/mockengine",
-	"internal/lm/engines",
+	"internal/engines/claude",
+	"internal/engines/mock",
+	"internal/engines",
 	"internal/lm/backends",
 	"cmd/mockengine",
 }
@@ -345,7 +345,7 @@ var engineNameHomes = []string{
 // WRITE config data (Part 1.1 permits the literal there, until init chooses
 // its default from engine.Registry.Names instead).
 func engineNameInitPrompt(rel string) bool {
-	return filepath.Dir(rel) == "internal/cli" && strings.HasPrefix(filepath.Base(rel), "init")
+	return filepath.Dir(rel) == "internal/adapters/cli" && strings.HasPrefix(filepath.Base(rel), "init")
 }
 
 // noEngineNameInCoreAllowed is the rule's shrinking allowlist, keyed by
@@ -354,22 +354,22 @@ func engineNameInitPrompt(rel string) bool {
 // leaves.
 var noEngineNameInCoreAllowed = map[string]string{
 	// core packages that name the default engine
-	"internal/config/config_types.go":            "slice 6b: Config.Validate(engine.Registry) checks a configured name against the registry; no default is a literal in core",
-	"internal/bundles/tree_read.go":              "slice 6: bundles.LLMExports become opaque map[string]json.RawMessage keyed by whatever the registry names; no engine key is spelled here",
-	"internal/memory/compactor.go":               "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
-	"internal/memory/distill.go":                 "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
-	"internal/operations/profile_materialize.go": "slice 12: materialize takes the engine from the Target; no default is a literal in the application services",
+	"internal/core/config/config_types.go":                "slice 6b: Config.Validate(engine.Registry) checks a configured name against the registry; no default is a literal in core",
+	"internal/core/bundles/tree_read.go":                  "slice 6: bundles.LLMExports become opaque map[string]json.RawMessage keyed by whatever the registry names; no engine key is spelled here",
+	"internal/adapters/memory/compactor.go":               "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
+	"internal/adapters/memory/distill.go":                 "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
+	"internal/adapters/operations/profile_materialize.go": "slice 12: materialize takes the engine from the Target; no default is a literal in the application services",
 
 	// adapters and the CLI choosing a default by name
-	"internal/cli/config.go":              "slice 6b: the CLI's default is engine.Registry.Names(default-distribution), not a literal",
-	"internal/cli/manage.go":              "slice 6b: the CLI's default is engine.Registry.Names(default-distribution), not a literal",
-	"internal/content/convert/convert.go": "slice 6: the per-engine export fields become opaque; the converter keys on the registry's names",
-	"internal/tmuxhost/paneinject.go":     "slice 13: hostpty spawns the runner; the pane-injection table keyed by engine name goes with tmuxhost",
+	"internal/adapters/cli/config.go":              "slice 6b: the CLI's default is engine.Registry.Names(default-distribution), not a literal",
+	"internal/adapters/cli/manage.go":              "slice 6b: the CLI's default is engine.Registry.Names(default-distribution), not a literal",
+	"internal/adapters/content/convert/convert.go": "slice 6: the per-engine export fields become opaque; the converter keys on the registry's names",
+	"internal/adapters/tmuxhost/paneinject.go":     "slice 13: hostpty spawns the runner; the pane-injection table keyed by engine name goes with tmuxhost",
 
 	// the retiring plugin wire and the vendor readers
-	"internal/lm/grpc/mock_client.go":                   "slice 13: the go-plugin protocol is deleted whole",
-	"internal/transcript/vendorreader/claude/locate.go": "slice 6b: the reader becomes an engine.TranscriptReader the engine package supplies, which knows its own name",
-	"internal/transcript/vendorreader/mock/mock.go":     "slice 6b: the reader becomes an engine.TranscriptReader the engine package supplies, which knows its own name",
+	"internal/lm/grpc/mock_client.go":                            "slice 13: the go-plugin protocol is deleted whole",
+	"internal/adapters/transcript/vendorreader/claude/locate.go": "slice 6b: the reader becomes an engine.TranscriptReader the engine package supplies, which knows its own name",
+	"internal/adapters/transcript/vendorreader/mock/mock.go":     "slice 6b: the reader becomes an engine.TranscriptReader the engine package supplies, which knows its own name",
 }
 
 // scanEngineNameLiterals finds every string literal equal to a registered
@@ -431,11 +431,11 @@ func TestArch_NoEngineNameInCore_AllowlistIsLive(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // envKeysDeclaringDir is the package that declares the CTXLOOM_* environment
-// keys the runner reads (today internal/agentcoord/coord; core/sessions
+// keys the runner reads (today internal/core/coord; core/sessions
 // after slice 2). The keys themselves are READ from its package-level
 // consts, never listed here: a key added there is covered the moment it is
 // declared.
-const envKeysDeclaringDir = "internal/agentcoord/coord"
+const envKeysDeclaringDir = "internal/core/coord"
 
 // envReadHomes are the directories that may spell those keys or read the
 // process environment (home, cwd, temp, the current user): the declaring
@@ -444,7 +444,7 @@ const envKeysDeclaringDir = "internal/agentcoord/coord"
 var envReadHomes = []string{
 	envKeysDeclaringDir,
 	"cmd",
-	"internal/projectroot",
+	"internal/adapters/projectroot",
 	"internal/shared/shellenv",
 	"internal/shared/envswitch",
 }
@@ -463,53 +463,53 @@ var envReadCalls = [][2]string{
 // mapped to the slice in which the site leaves.
 var envLiteralsOnceAllowed = map[string]string{
 	// re-spelled keys: the drift this rule exists to catch
-	"internal/lm/isolation/none.go":      "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
-	"internal/shared/procsec/procsec.go": "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
+	"internal/adapters/isolation/none.go": "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
+	"internal/shared/procsec/procsec.go":  "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
 
 	// core reading the environment for itself
-	"internal/paths/homeguard.go":         "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
-	"internal/paths/paths.go":             "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
-	"internal/config/config.go":           "slice 4: adapters/configload owns the file chain; core/config reads no environment",
-	"internal/shared/agent/rendezvous.go": "slice 14a: the rendezvous is the engine host's (adapters/runner), handed its temp root",
+	"internal/core/paths/homeguard.go":  "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
+	"internal/core/paths/paths.go":      "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
+	"internal/core/config/config.go":    "slice 4: adapters/configload owns the file chain; core/config reads no environment",
+	"internal/core/agent/rendezvous.go": "slice 14a: the rendezvous is the engine host's (adapters/runner), handed its temp root",
 
 	// the CLI: HostFacts are computed once by the composition root
-	"internal/cli/bundle_items.go":    "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/cli/clean_cmd.go":       "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/cli/doctor_cmd.go":      "slice 15: operations.Doctor takes the facts it checks as values",
-	"internal/cli/init.go":            "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/cli/mcp_server.go":      "slice 9: the stdio MCP server is deleted",
-	"internal/cli/session_cmd.go":     "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/cli/session_distill.go": "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/cli/session_query.go":   "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/bundle_items.go":    "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/clean_cmd.go":       "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/doctor_cmd.go":      "slice 15: operations.Doctor takes the facts it checks as values",
+	"internal/adapters/cli/init.go":            "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/mcp_server.go":      "slice 9: the stdio MCP server is deleted",
+	"internal/adapters/cli/session_cmd.go":     "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/session_distill.go": "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/session_query.go":   "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 
 	// the engines: Home() is a HomeSpec the runner realises
-	"internal/claude/chat_run.go":                       "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
-	"internal/claude/claude.go":                         "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
-	"internal/claude/mcp_registrar.go":                  "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
-	"internal/lm/backends/mock.go":                      "slice 11b: lm/backends is deleted whole",
-	"internal/lm/backends/panelaunch.go":                "slice 11b: lm/backends is deleted whole",
-	"internal/transcript/vendorreader/claude/locate.go": "slice 6b: the reader becomes an engine.TranscriptReader handed the home it reads",
+	"internal/engines/claude/chat_run.go":                        "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
+	"internal/engines/claude/claude.go":                          "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
+	"internal/engines/claude/mcp_registrar.go":                   "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
+	"internal/lm/backends/mock.go":                               "slice 11b: lm/backends is deleted whole",
+	"internal/lm/backends/panelaunch.go":                         "slice 11b: lm/backends is deleted whole",
+	"internal/adapters/transcript/vendorreader/claude/locate.go": "slice 6b: the reader becomes an engine.TranscriptReader handed the home it reads",
 
 	// the runner's halves today
-	"internal/lm/grpc/client.go":         "slice 13: the go-plugin protocol is deleted whole",
-	"internal/mcp/mcp_resources.go":      "slice 9: runner/mcp serves Loadout.Index; the cwd is the launch's",
-	"internal/mcp/mcp_runner.go":         "slice 9: runner/mcp is bound by the runner, which holds the session home",
-	"internal/mcp/mcp_tools_agents.go":   "slice 8: agent_run is a Verbs.Host frame carrying the launch; no cwd is read",
-	"internal/mcp/mcp_tools_memory.go":   "slice 14a: memory.NewCompactor(entry, source, llm) is handed its paths",
-	"internal/mcp/mcp_tools_triggers.go": "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which holds the project root",
+	"internal/lm/grpc/client.go":                  "slice 13: the go-plugin protocol is deleted whole",
+	"internal/adapters/mcp/mcp_resources.go":      "slice 9: runner/mcp serves Loadout.Index; the cwd is the launch's",
+	"internal/adapters/mcp/mcp_runner.go":         "slice 9: runner/mcp is bound by the runner, which holds the session home",
+	"internal/adapters/mcp/mcp_tools_agents.go":   "slice 8: agent_run is a Verbs.Host frame carrying the launch; no cwd is read",
+	"internal/adapters/mcp/mcp_tools_memory.go":   "slice 14a: memory.NewCompactor(entry, source, llm) is handed its paths",
+	"internal/adapters/mcp/mcp_tools_triggers.go": "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which holds the project root",
 
 	// isolation: handed HostFacts and a CellRequest
-	"internal/lm/isolation/container.go":       "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
-	"internal/lm/isolation/diagnose.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
-	"internal/lm/isolation/imagebuild.go":      "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
-	"internal/lm/isolation/provisionselect.go": "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
-	"internal/lm/isolation/sharedfs.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
-	"internal/lm/isolation/worktree.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/adapters/isolation/container.go":       "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/adapters/isolation/diagnose.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/adapters/isolation/imagebuild.go":      "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/adapters/isolation/provisionselect.go": "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/adapters/isolation/sharedfs.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/adapters/isolation/worktree.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 
 	// leaf adapters Part 1.1 does not permit and no slice names (measured)
-	"internal/remote/git_publisher.go":         "Part 1.1 permits temp reads in the fs adapters only; adapters/remote (slice 5) is not one — no slice names this read",
-	"internal/shared/mountns/mountns_linux.go": "Part 1.1 does not name mountns; its shim scratch dir is a temp read no slice removes — measured",
-	"internal/signing/agentkey/agentkey.go":    "slice 5: the signer's key path is a config.Sources fact, not a home lookup in the signing adapter",
+	"internal/adapters/remote/git_publisher.go":      "Part 1.1 permits temp reads in the fs adapters only; adapters/remote (slice 5) is not one — no slice names this read",
+	"internal/shared/mountns/mountns_linux.go":       "Part 1.1 does not name mountns; its shim scratch dir is a temp read no slice removes — measured",
+	"internal/adapters/signing/agentkey/agentkey.go": "slice 5: the signer's key path is a config.Sources fact, not a home lookup in the signing adapter",
 }
 
 // declaredEnvKeys collects the CTXLOOM_* string values of the package-level

@@ -37,8 +37,8 @@ Status of the remaining threads:
 | MCP handlers | `cmd/mcp_tools_tasks.go:84` | `handleTaskList/Add/SetStatus` → `openSessionTaskStore()` (no operations layer; ADR 0019 gap) |
 | CLI commands | `cmd/tasks_cmd.go:40` | `tasksList/Add/Status/Summary` → `openSessionTaskStore()` |
 | Identity assignment | `cmd/run.go:478` | `sessMgr.AssignHarp(workDir, llmName)`, then `runEnv["CTXLOOM_SESSION_HARP"]` at ~482 |
-| Harp allocator | `internal/sessions/index.go:427` | `generateUniqueHarp(used)` — mint-with-check, file-locked; reuse pattern for project-id and task harps |
-| Paths | `internal/paths/paths.go:62` | `HomeSessionsDir`, `SessionIndexPath`, `HarpDir`; constants `AppDirName`, `SessionsDir`, `IndexFileName` |
+| Harp allocator | `internal/core/sessions/index.go:427` | `generateUniqueHarp(used)` — mint-with-check, file-locked; reuse pattern for project-id and task harps |
+| Paths | `internal/core/paths/paths.go:62` | `HomeSessionsDir`, `SessionIndexPath`, `HarpDir`; constants `AppDirName`, `SessionsDir`, `IndexFileName` |
 | Gitignore | `cmd/init.go:67` | `ensureGitignoreEntry` appends `.ctxloom/ephemeral/`; idempotent check+append |
 | Prior art | — | No existing project-id/registry/marker. `internal/harpmarker` is the session-transcript self-ID, unrelated |
 
@@ -117,7 +117,7 @@ Point the one integration seam at the new backend; optionally close the 0019 gap
 
 - [ ] `Task.OriginSession` populated from the `add` event; surfaced in `List`/`Snapshot` so `task_list` can annotate provenance.
 - [ ] Rewrite `cmd/tasks_cmd.go:openSessionTaskStore`: resolve project-id (`CTXLOOM_PROJECT_ID`, else `projectid.Resolve(wd)`), map to `paths.TasksLogPath(id)`, return `tasks.OpenLog(path, os.Getenv("CTXLOOM_SESSION_HARP"))`. Drop the `SessionsRoot/ResumedFrom/RestoreTasks` plumbing.
-- [ ] (Optional, ADR 0019) add `internal/operations/tasks.go` — `List/Add/SetStatus` thin wrappers over the store — and route both `cmd/mcp_tools_tasks.go` and `cmd/tasks_cmd.go` through it, so the two frontends share one path.
+- [ ] (Optional, ADR 0019) add `internal/adapters/operations/tasks.go` — `List/Add/SetStatus` thin wrappers over the store — and route both `cmd/mcp_tools_tasks.go` and `cmd/tasks_cmd.go` through it, so the two frontends share one path.
 - [ ] MCP/CLI handler bodies unchanged beyond the store source (same method surface).
 - [ ] Tests: MCP `handleTaskAdd` stamps the env harp as `OriginSession`; `task_list` round-trips through the log.
 
@@ -149,6 +149,6 @@ Not built in the core. Stub only the reconcile target that Phase 0/1 fork warnin
 ## Open questions to settle during implementation
 
 - `Remove` semantics in an append-only log: `status: Archived` vs a dedicated `remove` op (and whether Removed harps stay reserved — they should).
-- Whether Phase 2 lands the `internal/operations/tasks.go` layer now or defers the 0019 cleanup to a follow-up.
+- Whether Phase 2 lands the `internal/adapters/operations/tasks.go` layer now or defers the 0019 cleanup to a follow-up.
 - Registry filename (`index.yaml` to match sessions, vs `registry.yaml`).
 - Should session `Entry.ProjectDir` start resolving through project-id now, or stay raw until a move actually breaks matching (ADR defers this).

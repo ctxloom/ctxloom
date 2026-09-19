@@ -10,7 +10,7 @@
 // the child itself emits, not a config diff), and that `agent_send`/
 // `agent_recv` carry real content between coordinator and child —
 // previously exercised only at the unit level
-// (internal/agentcoord/coord/*_test.go).
+// (internal/core/coord/*_test.go).
 //
 // j002600 was already taken (steps_j002600_worktree_task_store.go, landed on this
 // base — not one of the features-draft/ placeholders j001000-j002400 reserve), so
@@ -18,7 +18,7 @@
 //
 // Both hermetic observables are produced by the child's OWN runner process —
 // the coordinator writes neither: the child's canonical transcript
-// (internal/transcript/record.go's transcript.jsonl, a first-party ctxloom
+// (internal/adapters/transcript/record.go's transcript.jsonl, a first-party ctxloom
 // artifact of the same durable, disk-backed class j002100_delegation.feature
 // established for runs.jsonl) proves requirement 3 (distinct context) and
 // the coordinator->child half of requirement 4 (a real agent_send call,
@@ -45,8 +45,8 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // j002300AgentSpec is one delegated child's fixture identity: which profile/
@@ -244,12 +244,12 @@ func j002300WriteAgent(w *World, s *j002300AgentSpec) error {
 // --- Canonical transcript reading (hermetic observable) ---------------------
 //
 // ~/.ctxloom/sessions/<harp>/persist/transcript.jsonl is ctxloom's OWN
-// captured conversation record (internal/transcript/record.go's documented
+// captured conversation record (internal/adapters/transcript/record.go's documented
 // schema) — a first-party, durable, disk-backed artifact every structured
 // engine (mock included) writes through, not a private format being
 // scraped. Decoded locally here (mirroring steps_j002100_delegation.go's
 // j002100RunFact/j002100JournalLine — a minimal local shadow of the on-disk shape,
-// not an import of the internal/transcript package) rather than trusting an
+// not an import of the internal/adapters/transcript package) rather than trusting an
 // in-process struct.
 
 // j002300TranscriptEntry is one KindEntry line's payload
@@ -268,7 +268,7 @@ type j002300TranscriptLine struct {
 
 // j002300TranscriptPath returns harp's canonical transcript path under this
 // scenario's isolated HOME (w.env.HomeDir) — built directly rather than via
-// internal/paths' resolver, which would read the OUTER test process's own
+// internal/core/paths' resolver, which would read the OUTER test process's own
 // ambient HOME, not the isolated one a spawned `ctxloom mcp` subprocess
 // actually wrote under (the identical reasoning steps_j002100_delegation.go's
 // j002100JournalRaw already documents for runs.jsonl).

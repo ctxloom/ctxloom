@@ -274,7 +274,7 @@ var p6SpoolDirs = []string{"in", "in/consumed", "in/withdrawn", "out", "out/cons
 
 // p6SpoolRoot is one session's spool root under an isolated home:
 // <home>/.ctxloom/sessions/<harp>/persist/spool. Built by joining rather than
-// through internal/paths' resolver for the reason j002300TranscriptPath already
+// through internal/core/paths' resolver for the reason j002300TranscriptPath already
 // documents — the resolver reads the OUTER test process's ambient HOME, not the
 // isolated one the spawned coordinator actually wrote under.
 func p6SpoolRoot(homeDir, harp string) string {

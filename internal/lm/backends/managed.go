@@ -109,17 +109,6 @@ func SkillExportsFor(backendName string, skills []*bundles.LoadedSkill) []agent.
 	return exports(skills)
 }
 
-// scopedProfiles returns the caller's selected profiles, or the default agent's
-// composed profiles when none are passed — the host-side mirror of
-// config.resolveProfileScope (MUST stay byte-identical to it), so the
-// managed-config assembly scopes to the SAME set the bundle resolvers do.
-func scopedProfiles(cfg *config.Config, profileNames []string) []string {
-	if len(profileNames) > 0 {
-		return profileNames
-	}
-	return cfg.DefaultAgentProfiles()
-}
-
 // AssembleManagedHooks builds the COMPLETE ctxloom-managed hook set that every
 // writer of a backend settings file must produce identically: config-level
 // hooks, default-profile-shipped hooks, bundle-shipped hooks, and (when
@@ -144,22 +133,27 @@ func scopedProfiles(cfg *config.Config, profileNames []string) []string {
 // ORDERING has to act on. Writers take the projection, ManagedHooks.Wire, which
 // is byte-for-byte the wire config this function used to return.
 func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profileNames []string) *ManagedHooks {
+	if cfg == nil {
+		return newManagedHooks()
+	}
+	return AssembleManagedHooksFor(cfg, workDir, contextHash, cfg.ResolveProfileSet(profileNames))
+}
+
+// AssembleManagedHooksFor is AssembleManagedHooks over an already resolved
+// profile set — the one assembly resolved, so its faults are reported once.
+func AssembleManagedHooksFor(cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) *ManagedHooks {
 	hooks := newManagedHooks()
 	if cfg == nil {
 		return hooks
 	}
-	// Selected-profile-shipped hooks (defaults when none are passed). A
-	// profile's directly-declared hooks pass the executable trust gate first —
-	// the SAME gate bundle hooks pass — since the profile may be remote-sourced.
-	// There is no ungated arm: every declared hook is evaluated.
+	// Selected-profile-shipped hooks. A profile's directly-declared hooks
+	// pass the executable trust gate first — the SAME gate bundle hooks pass
+	// — since the profile may be remote-sourced. There is no ungated arm:
+	// every declared hook is evaluated.
 	gate := cfg.ExecutableTrustGate()
-	profiles := scopedProfiles(cfg, profileNames)
-	for _, profileName := range profiles {
-		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
-		if err != nil {
-			clidiag.Warn("ctxloom", "profile %q unresolved; its hooks omitted: %v", profileName, err)
-			continue
-		}
+	for i := range set {
+		resolved := &set[i]
+		profileName := resolved.Name
 		gated := gateProfileHooks(profileGateRefFor(cfg, resolved, profileName), resolved.Hooks, gate)
 		// Ref carries the ORIGIN BUNDLE for a bundle-shipped profile (empty for
 		// a genuinely local one) — the same distinction the gate keys on, so the
@@ -172,7 +166,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 		}))
 	}
 	// Bundle-shipped hooks + (optional) the context-injection hook.
-	appendManagedDynamicHooks(hooks, cfg, workDir, contextHash, profiles)
+	appendManagedDynamicHooks(hooks, cfg, workDir, contextHash, set)
 	return hooks
 }
 
@@ -186,11 +180,11 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 // The bundle set arrives FLAT — builtins, companion loadouts, and each selected
 // profile's bundles in one slice — so it is attributed per hook off the marker
 // config.extractHooksFromBundle stamped (bundleSource), not from this call site.
-func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, contextHash string, profileNames []string) {
+func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) {
 	if m == nil || cfg == nil {
 		return
 	}
-	m.mergeUnified(cfg.ResolveBundleHooks(profileNames), bundleSource)
+	m.mergeUnified(cfg.ResolveBundleHooksFor(set), bundleSource)
 	// The PostToolUse reflect hook rides the same managed set as context
 	// injection, and for the same reason: it exists to keep the distilled
 	// essence honest, so it belongs to ctxloom rather than to any bundle.

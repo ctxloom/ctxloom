@@ -94,6 +94,10 @@ type ProfileHooks struct {
 type SelectRequest struct {
 	Fragments []string
 	Tags      []string
+	// Versions materialises a pinned historical version of a bundle for a
+	// whole-bundle ask carrying "@<commit>", so its fragment set can be
+	// enumerated; nil leaves such an ask unexpanded.
+	Versions bundles.BundleVersionResolver
 }
 
 // Package is the composed loadout SOURCE: every admitted item, the assembled
@@ -144,7 +148,9 @@ type Fragment struct {
 // that engine's Exports decodes its own block against its ExportSchema.
 type Command struct {
 	Name        string
+	Bundle      string // the owning bundle's loader name ("" for an injected command)
 	Item        string
+	Tags        []string // the effective tags (bundle tags merged onto the item's)
 	Description string
 	Body        string
 	Exports     map[string][]byte
@@ -156,7 +162,9 @@ type Command struct {
 // Skill is one Agent Skill package.
 type Skill struct {
 	Name        string
+	Bundle      string
 	Item        string
+	Tags        []string
 	Description string
 	Files       []engine.SkillFile
 	Exports     map[string][]byte
@@ -238,6 +246,10 @@ type IndexEntry struct {
 type Options struct {
 	// PreferDistilled picks the distilled form where a bundle offers one.
 	PreferDistilled bool
+	// Versions materialises a pinned historical version of a bundle for an
+	// ask carrying "@<commit>" — a fetch beyond the resolved set, so it is an
+	// adapter's and rides in here; nil refuses every pinned ask.
+	Versions bundles.BundleVersionResolver
 	// Pipeline is the injected-stage seam: a process stage built elsewhere
 	// (a test's, over its own gate and link grant) that Assemble reads
 	// through instead of building one from cat and tr. tr still decides

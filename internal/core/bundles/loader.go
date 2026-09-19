@@ -63,6 +63,10 @@ func LoaderOf(cat Catalog) *Loader {
 	return &Loader{cat: cat, warnOut: os.Stderr}
 }
 
+// VersionResolver is the pinned-version resolver this loader fetches
+// historical versions through; nil when it is version-unaware.
+func (l *Loader) VersionResolver() BundleVersionResolver { return l.versionResolver }
+
 // WithWarnWriter redirects the read-time diagnostics (stale local signature,
 // unresolved ref, ambiguous bare ask — the same lines clidiag prints as
 // "ctxloom: warning:") away from stderr, so tests can read what the user

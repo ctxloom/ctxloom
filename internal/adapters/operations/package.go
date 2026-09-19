@@ -67,13 +67,15 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		cat  bundles.Catalog
 		opts = composite.Options{DropWithheld: true, Static: static}
 	)
+	var versions bundles.BundleVersionResolver
 	if req.Pipeline != nil {
-		// An injected stage carries its own gate, links and form.
+		// An injected stage carries its own gate, links, form and versions.
 		opts.Pipeline = req.Pipeline
 		opts.PreferDistilled = req.Pipeline.PreferDistilled()
 		gate = req.Pipeline.Authorizer()
 		tr = composite.Gated(gate)
 		cat = req.Pipeline.Loader().Catalog()
+		versions = req.Pipeline.Loader().VersionResolver()
 	} else {
 		// A generation with no gate cannot deliver: refused at entry, by
 		// sentinel.
@@ -82,20 +84,26 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 			return composite.Package{}, fmt.Errorf("assemble context: %w", err)
 		}
 		gate = tr.Authorizer()
-		cat = cfg.BundleLoader().Catalog()
+		cat = cfg.Catalog()
 		opts.PreferDistilled = cfgPreferDistilled(cfg)
-		// The run's granted MCP set decides the link groups: a linked
-		// fragment or skill is delivered exactly when its server is.
-		opts.MCP = cfg.ResolveBundleMCPServers(profileNames)
-		opts.Hooks = *backends.AssembleManagedHooks(cfg, req.WorkDir, "", profileNames).Wire()
-		opts.Statusline = managedStatuslineEnabled(cfg)
+		versions = cfg.VersionResolver()
+		opts.Versions = versions
 	}
 
 	resolved, err := resolveProfiles(cfg, profileNames, fromDefaults, req.ProfileLoaderFunc)
 	if err != nil {
 		return composite.Package{}, err
 	}
-	sel, err := composite.Select(resolved, cat, composite.SelectRequest{Fragments: req.Fragments, Tags: req.Tags})
+	if req.Pipeline == nil {
+		// The run's granted MCP set decides the link groups: a linked
+		// fragment or skill is delivered exactly when its server is. Both
+		// resolvers take the set THIS assembly resolved, so a profile that
+		// did not resolve is reported once, here.
+		opts.MCP = cfg.ResolveBundleMCPServersFor(resolved)
+		opts.Hooks = *backends.AssembleManagedHooksFor(cfg, req.WorkDir, "", resolved).Wire()
+		opts.Statusline = managedStatuslineEnabled(cfg)
+	}
+	sel, err := composite.Select(resolved, cat, composite.SelectRequest{Fragments: req.Fragments, Tags: req.Tags, Versions: versions})
 	if err != nil {
 		return composite.Package{}, err
 	}
@@ -266,7 +274,9 @@ func loadedCommands(pkg composite.Package) []*bundles.LoadedContent {
 	for _, c := range pkg.Commands {
 		out = append(out, &bundles.LoadedContent{
 			Name:        c.Value.Name,
+			Bundle:      c.Value.Bundle,
 			Item:        c.Value.Item,
+			Tags:        c.Value.Tags,
 			Content:     c.Value.Body,
 			Description: c.Value.Description,
 			Exports:     engineBlocks(c.Value.Exports),
@@ -290,7 +300,9 @@ func LoadedSkills(pkg composite.Package) []*bundles.LoadedSkill {
 		}
 		out = append(out, &bundles.LoadedSkill{
 			Name:        s.Value.Name,
+			Bundle:      s.Value.Bundle,
 			Item:        s.Value.Item,
+			Tags:        s.Value.Tags,
 			Frontmatter: bundles.SkillFrontmatter{Name: s.Value.Name, Description: s.Value.Description},
 			Files:       files,
 			Exports:     engineBlocks(s.Value.Exports),

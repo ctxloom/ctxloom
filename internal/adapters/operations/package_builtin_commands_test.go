@@ -28,7 +28,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -65,7 +64,7 @@ func TestLoadCommandExports_CtxloomInitAlwaysPresent(t *testing.T) {
 	prompts := commandsOf(t, cfg, nil)
 	found := findByName(prompts, "ctxloom-init")
 	require.NotNil(t, found, "ctxloom-init missing from LoadCommandExports; got names: %v", promptNames(prompts))
-	assert.Contains(t, string(found.Exports[claude.EngineName]), `"description":"`, "ctxloom-init must carry its frontmatter description for /help listings")
+	assert.NotEmpty(t, found.Description, "ctxloom-init must carry its frontmatter description for /help listings")
 	assert.Contains(t, found.Content, "Phase 2", "ctxloom-init's exported content must be the five-phase body, not a placeholder")
 }
 

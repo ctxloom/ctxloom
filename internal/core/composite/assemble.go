@@ -42,7 +42,11 @@ func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, tr Trust,
 	}
 	pipe := opts.Pipeline
 	if pipe == nil {
-		pipe = bundles.NewPipeline(bundles.LoaderOf(cat), tr.Authorizer(), linkGrant(opts.MCP), opts.PreferDistilled)
+		loader := bundles.LoaderOf(cat)
+		if opts.Versions != nil {
+			loader.WithVersionResolver(opts.Versions)
+		}
+		pipe = bundles.NewPipeline(loader, tr.Authorizer(), linkGrant(opts.MCP), opts.PreferDistilled)
 	}
 	a := &assembly{sel: sel, opts: opts, pipe: pipe, ingest: newIngest()}
 
@@ -205,7 +209,9 @@ func (a *assembly) commands() {
 	fromLoaded := func(lc *bundles.LoadedContent, curated bool) {
 		add(Command{
 			Name:        lc.Name,
+			Bundle:      lc.Bundle,
 			Item:        lc.Item,
+			Tags:        slices.Clone(lc.Tags),
 			Description: lc.Description,
 			Body:        lc.Content,
 			Exports:     blocks(lc.Exports),
@@ -268,7 +274,9 @@ func (a *assembly) skills() {
 		a.skillItems = append(a.skillItems, Item[Skill]{
 			Value: Skill{
 				Name:        ls.Frontmatter.Name,
+				Bundle:      ls.Bundle,
 				Item:        ls.Item,
+				Tags:        slices.Clone(ls.Tags),
 				Description: ls.Frontmatter.Description,
 				Files:       files,
 				Exports:     blocks(ls.Exports),

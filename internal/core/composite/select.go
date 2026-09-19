@@ -28,6 +28,9 @@ func Select(resolved []profiles.ResolvedProfile, cat bundles.Catalog, req Select
 		Declared:   map[string][]string{},
 	}
 	loader := bundles.LoaderOf(cat)
+	if req.Versions != nil {
+		loader.WithVersionResolver(req.Versions)
+	}
 	var asks []FragmentAsk
 	seenBundle := map[string]bool{}
 	seenDeny := map[string]bool{}

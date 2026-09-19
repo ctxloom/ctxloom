@@ -1,0 +1,88 @@
+//go:build arch
+
+package arch
+
+import (
+	"go/ast"
+	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/archrules"
+)
+
+// one-launch-constructor (docs/architecture/audit-2026-09-18/
+// 30-decided-architecture.md, Part 1.1): the resolved launch has ONE
+// constructor, launch.Resolve. Outside its own package and the wire codec
+// that decodes one back, no production code BUILDS a launch.Launch — by
+// composite literal with fields, by new, or by declaring a variable of the
+// type to fill in — because a Launch someone assembled by hand carries no
+// guarantee Resolve makes (the floor applied, the cell prepared, the
+// endpoint minted once). A zero-value `launch.Launch{}` on an error return
+// constructs nothing and is not a site.
+
+// launchConstructorHomes are the directories that may construct a Launch:
+// the resolver, and the codec that decodes the wire form.
+var launchConstructorHomes = []string{"internal/core/launch", "internal/adapters/coordgrpc"}
+
+// oneLaunchConstructorAllowed is the rule's shrinking allowlist: "file.go"
+// mapped to the slice in which the site leaves. Empty: the rule holds.
+var oneLaunchConstructorAllowed = map[string]string{}
+
+// isLaunchType reports whether expr spells launch.Launch.
+func isLaunchType(expr ast.Expr) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Launch" {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == "launch"
+}
+
+func scanLaunchConstructions(t *testing.T) []ringSite {
+	t.Helper()
+	var out []ringSite
+	var seen int
+	walkRingFiles(t, func(rf ringFile) {
+		ast.Inspect(rf.f, func(n ast.Node) bool {
+			var what string
+			var pos ast.Node
+			switch x := n.(type) {
+			case *ast.CompositeLit:
+				if isLaunchType(x.Type) && len(x.Elts) > 0 {
+					what, pos = "builds a launch.Launch by composite literal", x
+				}
+			case *ast.CallExpr:
+				if fn, ok := x.Fun.(*ast.Ident); ok && fn.Name == "new" && len(x.Args) == 1 && isLaunchType(x.Args[0]) {
+					what, pos = "builds a launch.Launch with new", x
+				}
+			case *ast.ValueSpec:
+				if x.Type != nil && isLaunchType(x.Type) && len(x.Values) == 0 {
+					what, pos = "declares a launch.Launch variable to fill in", x
+				}
+			}
+			if what == "" {
+				return true
+			}
+			seen++
+			if archrules.UnderAny(rf.dir, launchConstructorHomes) {
+				return true
+			}
+			out = append(out, ringSite{file: rf.rel, what: what, line: rf.fset.Position(pos.Pos()).Line})
+			return true
+		})
+	})
+	if seen == 0 {
+		t.Fatal("the walk found no launch.Launch construction anywhere, not even in the resolver — the spelling this rule keys on is stale, not the module clean")
+	}
+	return out
+}
+
+// TestArch_OneLaunchConstructor is the gate: outside core/launch and the
+// wire codec, no production code constructs a launch.Launch.
+func TestArch_OneLaunchConstructor(t *testing.T) {
+	checkRingAllowlist(t, "one-launch-constructor", scanLaunchConstructions(t), oneLaunchConstructorAllowed,
+		"Part 1.1: launch.Resolve is the one constructor; a launch assembled by hand carries none of its guarantees")
+}
+
+func TestArch_OneLaunchConstructor_AllowlistIsLive(t *testing.T) {
+	checkRingAllowlistIsLive(t, "one-launch-constructor", scanLaunchConstructions(t), oneLaunchConstructorAllowed)
+}

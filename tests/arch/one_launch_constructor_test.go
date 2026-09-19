@@ -27,14 +27,17 @@ var launchConstructorHomes = []string{"internal/core/launch", "internal/adapters
 // mapped to the slice in which the site leaves. Empty: the rule holds.
 var oneLaunchConstructorAllowed = map[string]string{}
 
-// isLaunchType reports whether expr spells launch.Launch.
-func isLaunchType(expr ast.Expr) bool {
-	sel, ok := expr.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != "Launch" {
-		return false
+// isLaunchType reports whether expr spells launch.Launch — qualified from
+// another package, or bare inside package launch itself.
+func isLaunchType(expr ast.Expr, inLaunchPkg bool) bool {
+	switch x := expr.(type) {
+	case *ast.SelectorExpr:
+		pkg, ok := x.X.(*ast.Ident)
+		return ok && pkg.Name == "launch" && x.Sel.Name == "Launch"
+	case *ast.Ident:
+		return inLaunchPkg && x.Name == "Launch"
 	}
-	pkg, ok := sel.X.(*ast.Ident)
-	return ok && pkg.Name == "launch"
+	return false
 }
 
 func scanLaunchConstructions(t *testing.T) []ringSite {
@@ -42,20 +45,21 @@ func scanLaunchConstructions(t *testing.T) []ringSite {
 	var out []ringSite
 	var seen int
 	walkRingFiles(t, func(rf ringFile) {
+		inLaunch := rf.f.Name.Name == "launch"
 		ast.Inspect(rf.f, func(n ast.Node) bool {
 			var what string
 			var pos ast.Node
 			switch x := n.(type) {
 			case *ast.CompositeLit:
-				if isLaunchType(x.Type) && len(x.Elts) > 0 {
+				if isLaunchType(x.Type, inLaunch) && len(x.Elts) > 0 {
 					what, pos = "builds a launch.Launch by composite literal", x
 				}
 			case *ast.CallExpr:
-				if fn, ok := x.Fun.(*ast.Ident); ok && fn.Name == "new" && len(x.Args) == 1 && isLaunchType(x.Args[0]) {
+				if fn, ok := x.Fun.(*ast.Ident); ok && fn.Name == "new" && len(x.Args) == 1 && isLaunchType(x.Args[0], inLaunch) {
 					what, pos = "builds a launch.Launch with new", x
 				}
 			case *ast.ValueSpec:
-				if x.Type != nil && isLaunchType(x.Type) && len(x.Values) == 0 {
+				if x.Type != nil && isLaunchType(x.Type, inLaunch) && len(x.Values) == 0 {
 					what, pos = "declares a launch.Launch variable to fill in", x
 				}
 			}

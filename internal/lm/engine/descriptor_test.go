@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 type fixtureConfig struct{}
@@ -22,7 +23,7 @@ func (fixtureConfig) BackendType() string { return "fixture" }
 func validDescriptor() Descriptor {
 	return Descriptor{
 		Name:         "fixture",
-		Distribution: agent.DistributionDefault,
+		Distribution: engine.DistributionDefault,
 		NewBackend:   func(agent.Launcher) agent.Backend { return nil },
 		NewConfig:    func() agent.BackendConfig { return &fixtureConfig{} },
 		Surfaces:     agent.Declaration{},

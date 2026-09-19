@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // Descriptor is one engine's complete registration record.
@@ -29,8 +30,8 @@ type Descriptor struct {
 	Name string
 	// Distribution is the engine's shipping policy — offered by default,
 	// offered on request, or a test double hidden from every user-facing
-	// enumeration. Unset is refused: see agent.Distribution.
-	Distribution agent.Distribution
+	// enumeration. Unset is refused: see engine.Distribution.
+	Distribution engine.Distribution
 
 	// NewBackend constructs a fresh backend, with the registry's launcher
 	// injected — the substrate that execs processes lives with the registry,

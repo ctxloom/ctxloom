@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
@@ -19,7 +20,7 @@ func TestDescriptor_Validates(t *testing.T) {
 func TestDescriptor_NameIsTheEnginePackagesOwn(t *testing.T) {
 	d := Descriptor()
 	assert.Equal(t, claude.EngineName, d.Name)
-	assert.Equal(t, agent.DistributionDefault, d.Distribution)
+	assert.Equal(t, engine.DistributionDefault, d.Distribution)
 }
 
 // The home declaration is built from the engine's own constants, so the

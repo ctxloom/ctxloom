@@ -6,6 +6,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
@@ -111,15 +112,15 @@ func lookup(name string) (*engine.Descriptor, bool) {
 // "engine you may not pick" separately, and folding the two here would turn a
 // typo into a silent omission.
 func IsTestOnly(name string) bool {
-	return DistributionFor(name) == agent.DistributionTestOnly
+	return DistributionFor(name) == coreengine.DistributionTestOnly
 }
 
 // DistributionFor returns the named engine's shipping policy, or Unset for a
 // name nobody registered — which no policy check reads as any decision.
-func DistributionFor(name string) agent.Distribution {
+func DistributionFor(name string) coreengine.Distribution {
 	d, ok := lookup(name)
 	if !ok {
-		return agent.DistributionUnset
+		return coreengine.DistributionUnset
 	}
 	return d.Distribution
 }

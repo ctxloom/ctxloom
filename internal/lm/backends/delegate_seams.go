@@ -6,6 +6,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -89,7 +90,7 @@ func UnregisterForTesting(name string) {
 	if d, ok := descriptors[name]; ok {
 		isolation.RegisterCredentialSeed(name, agent.Declared[agent.CredentialSeed]{})
 		isolation.RegisterProvisioningPolicy(name, agent.Declared[agent.ProvisioningPolicy]{})
-		isolation.RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, agent.DistributionUnset)
+		isolation.RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, engine.DistributionUnset)
 		if _, had := d.InstanceConfig.Get(); had {
 			isolation.RegisterInstanceConfigWriter(name, nil)
 		}

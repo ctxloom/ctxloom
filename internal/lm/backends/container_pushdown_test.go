@@ -8,13 +8,14 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // containerFixture is a synthetic engine with a full container story: an
 // installer, a validate gate, and an env-passthrough auth plan.
-func containerFixture(name string, dist agent.Distribution) engine.Descriptor {
+func containerFixture(name string, dist coreengine.Distribution) engine.Descriptor {
 	d := enginefixture.Descriptor(name)
 	d.Distribution = dist
 	d.Container = agent.Provide(agent.EngineContainer{
@@ -38,12 +39,12 @@ func containerFixture(name string, dist agent.Distribution) engine.Descriptor {
 func TestRegister_PushesTheContainerDeclarationToIsolation(t *testing.T) {
 	cases := []struct {
 		name                string
-		dist                agent.Distribution
+		dist                coreengine.Distribution
 		composable, offered bool
 	}{
-		{"fixture-container-default", agent.DistributionDefault, true, true},
-		{"fixture-container-optin", agent.DistributionOptIn, false, true},
-		{"fixture-container-testonly", agent.DistributionTestOnly, false, false},
+		{"fixture-container-default", coreengine.DistributionDefault, true, true},
+		{"fixture-container-optin", coreengine.DistributionOptIn, false, true},
+		{"fixture-container-testonly", coreengine.DistributionTestOnly, false, false},
 	}
 	for _, c := range cases {
 		t.Run(c.dist.String(), func(t *testing.T) {
@@ -80,7 +81,7 @@ func TestRegister_DeclaredAbsentContainerFailsClosed(t *testing.T) {
 // Unregistering unwinds the container seam too.
 func TestUnregisterForTesting_RemovesTheContainerDeclaration(t *testing.T) {
 	const name = "fixture-container-unwound"
-	require.NoError(t, Register(containerFixture(name, agent.DistributionDefault)))
+	require.NoError(t, Register(containerFixture(name, coreengine.DistributionDefault)))
 	require.True(t, isolation.HasContainerAuth(name))
 	UnregisterForTesting(name)
 	assert.False(t, isolation.HasContainerAuth(name))

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
 )
 
@@ -35,7 +36,7 @@ func Descriptor(name string) engine.Descriptor {
 			name + " (fixture) has no credential material to provision"),
 		Container:         agent.Absent[agent.EngineContainer](name + " (fixture) has no container story"),
 		TranscriptReaders: agent.Absent[[]vendorreader.VersionedAdapter](name + " (fixture) keeps no transcripts"),
-		Distribution:      agent.DistributionTestOnly,
+		Distribution:      coreengine.DistributionTestOnly,
 	}
 }
 

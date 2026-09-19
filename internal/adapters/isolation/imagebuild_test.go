@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
 
 	containerfiles "github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -185,7 +185,7 @@ func TestBuildSources_Composable(t *testing.T) {
 // buildSources from empty to composableBuildSources' output — this pins the
 // OUTCOME (buildSources itself), not just the fragment's non-nilness.
 func TestBuildSources_VendorlessIsComposable(t *testing.T) {
-	registerVendorlessFixture(t, "vendorless-build", agent.DistributionTestOnly)
+	registerVendorlessFixture(t, "vendorless-build", coreengine.DistributionTestOnly)
 	p := engineContainerSpecFor("vendorless-build")
 	require.NotNil(t, p.engineInstall, "precondition: the fixture declares a fragment")
 
@@ -1197,7 +1197,7 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 // engine that roster leaves out.
 func TestComposeAgentContainerfile_TestOnlyEngineBakesOnlyItself(t *testing.T) {
 	const engine = "vendorless-lean"
-	registerVendorlessFixture(t, engine, agent.DistributionTestOnly)
+	registerVendorlessFixture(t, engine, coreengine.DistributionTestOnly)
 	require.NotContains(t, composableEngines(), engine, "precondition: a double is never on the default-composed roster")
 
 	cf := string(composeAgentContainerfile(engine))

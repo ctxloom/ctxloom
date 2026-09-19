@@ -6,6 +6,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
 )
 
@@ -64,7 +65,7 @@ func MockDescriptors() []engine.Descriptor {
 func mockDescriptor(name string, ctor func() *Mock, newConfig func() agent.BackendConfig) engine.Descriptor {
 	return engine.Descriptor{
 		Name:           name,
-		Distribution:   agent.DistributionTestOnly,
+		Distribution:   coreengine.DistributionTestOnly,
 		NewBackend:     func(agent.Launcher) agent.Backend { return ctor() },
 		NewConfig:      newConfig,
 		Surfaces:       mockDeclaration(name),

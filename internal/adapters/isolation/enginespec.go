@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // engineContainerSpec is this package's working form of ONE engine's
@@ -97,7 +98,7 @@ var ctxloomCacheOverlayDir = filepath.FromSlash(".ctxloom/cache")
 // user-facing rosters it appears in.
 type engineContainerRegistration struct {
 	container    agent.Declared[agent.EngineContainer]
-	distribution agent.Distribution
+	distribution engine.Distribution
 }
 
 var (
@@ -110,7 +111,7 @@ var (
 // descriptor, whether the container story is provided or declared absent;
 // re-registering a name replaces it, and an undecided (zero) declaration
 // deletes the entry, so a test can unwind its synthetic engine.
-func RegisterEngineContainer(engine string, container agent.Declared[agent.EngineContainer], distribution agent.Distribution) {
+func RegisterEngineContainer(engine string, container agent.Declared[agent.EngineContainer], distribution engine.Distribution) {
 	engineContainerMu.Lock()
 	defer engineContainerMu.Unlock()
 	if !container.Decided() {
@@ -154,7 +155,7 @@ func composableEngines() []string {
 	var names []string
 	for name, r := range registeredEngineContainers() {
 		c, ok := r.container.Get()
-		if ok && c.Install != nil && r.distribution == agent.DistributionDefault {
+		if ok && c.Install != nil && r.distribution == engine.DistributionDefault {
 			names = append(names, name)
 		}
 	}
@@ -343,7 +344,7 @@ func HasContainerAuth(backend string) bool {
 func ContainerAuthEngines() []string {
 	var names []string
 	for name, r := range registeredEngineContainers() {
-		if r.distribution == agent.DistributionTestOnly {
+		if r.distribution == engine.DistributionTestOnly {
 			continue
 		}
 		if c, ok := r.container.Get(); ok {

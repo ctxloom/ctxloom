@@ -17,6 +17,7 @@ import (
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
 )
@@ -27,7 +28,7 @@ func Descriptor() engine.Descriptor {
 	credentialRelHome := filepath.ToSlash(filepath.Join(claude.ConfigDirName, claude.CredentialsFileName))
 	return engine.Descriptor{
 		Name:         claude.EngineName,
-		Distribution: agent.DistributionDefault,
+		Distribution: coreengine.DistributionDefault,
 		NewBackend: func(launch agent.Launcher) agent.Backend {
 			b := claude.NewClaudeCode()
 			b.SetLauncher(launch)

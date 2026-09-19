@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // An engine's NoLegacyHistoryReason and its constructed backend's History()
@@ -44,8 +44,8 @@ func TestNoLegacyHistoryReason_AgreesWithEveryBackendsHistory(t *testing.T) {
 // nothing else reads as test-only — not an OptIn engine, not an unknown name.
 func TestIsTestOnly_ReadsTheDistributionEnum(t *testing.T) {
 	for _, name := range List() {
-		assert.Equal(t, DistributionFor(name) == agent.DistributionTestOnly, IsTestOnly(name), name)
+		assert.Equal(t, DistributionFor(name) == engine.DistributionTestOnly, IsTestOnly(name), name)
 	}
 	assert.False(t, IsTestOnly("never-registered"))
-	assert.Equal(t, agent.DistributionUnset, DistributionFor("never-registered"))
+	assert.Equal(t, engine.DistributionUnset, DistributionFor("never-registered"))
 }

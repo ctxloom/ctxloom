@@ -1,4 +1,4 @@
-package agent
+package engine
 
 import "fmt"
 
@@ -7,18 +7,18 @@ import "fmt"
 // It is one enum rather than a pair of booleans (test-only? composable?)
 // because two booleans can spell a state that means nothing — a test double
 // that default-ships — and because CAPABILITY is declared elsewhere: whether
-// an engine CAN be composed is EngineContainer.Install (nil = no installer),
-// and the default image set is the conjunction of that capability with this
-// policy, each read from where it is declared.
+// an engine CAN be composed is its container story's installer (nil = no
+// installer), and the default image set is the conjunction of that
+// capability with this policy, each read from where it is declared.
 //
-// The zero value is UNSET, and the descriptor gate refuses it. That is the
+// The zero value is UNSET, and Base.Validate refuses it. That is the
 // invariant, not a style choice: if shipping were the zero value, an engine
 // that declared nothing would silently default-ship — the forgotten-entry
-// failure the descriptor exists to close.
+// failure the constructor exists to close.
 type Distribution int
 
 const (
-	// DistributionUnset is nobody's decision; a registration gate refuses it.
+	// DistributionUnset is nobody's decision; Base.Validate refuses it.
 	DistributionUnset Distribution = iota
 	// DistributionDefault ships, is offered to users, and is in the default
 	// composed image set (given an installer).
@@ -49,7 +49,7 @@ func (d Distribution) String() string {
 }
 
 // Decided reports whether d is a member of the enum other than Unset — the
-// question a registration gate asks.
+// question Base.Validate asks.
 func (d Distribution) Decided() bool {
 	switch d {
 	case DistributionDefault, DistributionOptIn, DistributionTestOnly:

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -588,7 +588,7 @@ func TestParseWorkspaceAxis(t *testing.T) {
 // vendorless auth) is what a container run actually needs.
 func TestChainFor_TestOnlyVendorlessEngine_ReachesTheRuntimeProbe(t *testing.T) {
 	const engine = "vendorless-chain"
-	registerVendorlessFixture(t, engine, agent.DistributionTestOnly)
+	registerVendorlessFixture(t, engine, coreengine.DistributionTestOnly)
 	require.NotContains(t, ContainerAuthEngines(), engine, "precondition: the double is not on the offered roster")
 	require.NotContains(t, composableEngines(), engine, "precondition: nor on the composed one")
 

@@ -355,17 +355,19 @@ var LayeringRules = []LayeringRule{
 	},
 	{
 		// THE ENGINES RING (Part 1.1, `engines-import-nothing-above-the-port`):
-		// an engine package imports the port and the leaves its vocabulary
-		// names, and no adapter. Today the port is core/agent (the engine base
-		// that slice 6b turns into core/engine), so it stands in the except
-		// list beside present, sessions and wire. Every allowlisted edge is
-		// MEASURED and leaves in the slice its reason names; lm/backends is
-		// measured engines-ring and retired in place (slice 11b).
+		// an engine package imports the port (core/engine) and the leaves its
+		// vocabulary names, and no adapter. core/agent still carries the
+		// instance half's contract (Backend, the writers) until slice 11b
+		// moves it, so it stands in the except list beside the port. Every
+		// allowlisted edge is MEASURED and leaves in the slice its reason
+		// names; lm/backends is measured engines-ring and retired in place
+		// (slice 11b).
 		Name:   "engines-import-nothing-above-the-port",
 		From:   []string{"internal/engines", "internal/lm/backends"},
 		Forbid: []string{"internal/core", "internal/adapters"},
 		Except: []string{
 			"internal/core/agent",
+			"internal/core/engine",
 			"internal/core/present",
 			"internal/core/sessions",
 			"internal/core/wire",

@@ -78,9 +78,7 @@ func (e *endpointEntry) Name() string { return e.name }
 func (e *endpointEntry) Traits() present.Traits {
 	return present.Traits{Roots: []present.RootKind{present.RootSessionHome}, Channel: present.ChannelFile}
 }
-func (e *endpointEntry) Endpoint(ep sessions.Endpoint) wire.MCPServer {
-	return wire.MCPServer{URL: ep.URL, Headers: map[string]string{"Authorization": "Bearer " + ep.Credential}}
-}
+func (e *endpointEntry) Endpoint(ep sessions.Endpoint) wire.MCPServer { return engine.BearerEntry(ep) }
 
 // WithoutGrammar drops a mode's argv grammar (the incoherence test uses it).
 func WithoutGrammar(mode engine.Mode) Option {

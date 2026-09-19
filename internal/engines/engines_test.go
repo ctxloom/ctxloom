@@ -6,6 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/engine/conformance"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -31,4 +33,28 @@ func TestRegister_IsIdempotent(t *testing.T) {
 	require.NoError(t, Register())
 	assert.NoError(t, Register())
 	assert.NotPanics(t, MustRegister)
+}
+
+// TestBuild_EveryShippedEngineConforms is the registry-level half of the
+// conformance gate: every kind the composition root builds passes the
+// declarative suite, exactly one ships by default, and the two registries
+// (the kinds and the hosting records) name the same engines.
+func TestBuild_EveryShippedEngineConforms(t *testing.T) {
+	reg, err := Build()
+	require.NoError(t, err)
+	for _, name := range reg.Names(nil) {
+		e, ok := reg.Lookup(name)
+		require.True(t, ok)
+		t.Run(string(name), func(t *testing.T) { conformance.Run(t, e) })
+	}
+	def, err := reg.Default()
+	require.NoError(t, err)
+	assert.Equal(t, engine.DistributionDefault, def.Root().Distribution)
+
+	require.NoError(t, Register())
+	var kinds []string
+	for _, n := range reg.Names(nil) {
+		kinds = append(kinds, string(n))
+	}
+	assert.Equal(t, backends.List(), kinds, "the hosting registry and the kind registry name the same engines")
 }

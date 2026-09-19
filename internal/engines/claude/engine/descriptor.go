@@ -35,7 +35,7 @@ func Descriptor() engine.Descriptor {
 			return b
 		},
 		NewConfig:      func() agent.BackendConfig { return &claude.ClaudeConfig{} },
-		Surfaces:       claude.Surfaces,
+		Surfaces:       claude.Declaration(),
 		SettingsWriter: agent.Provide(claude.NewWriter),
 		InstanceConfig: agent.Provide(claude.NewInstanceConfigWriter),
 		CommandExports: agent.Provide(CommandExports),

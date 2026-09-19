@@ -106,9 +106,12 @@ type CommandExport struct {
 	Meta    map[string]string
 }
 
-// SkillExport is one skill package as the engine enables it.
+// SkillExport is one skill package as the engine enables it. Name and
+// Description are the package's own frontmatter, carried so an engine's
+// writer can refuse a package its rules reject before it emits.
 type SkillExport struct {
-	Name    string
-	Files   []SkillFile
-	Enabled bool
+	Name        string
+	Description string
+	Files       []SkillFile
+	Enabled     bool
 }

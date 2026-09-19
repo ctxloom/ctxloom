@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
@@ -206,4 +207,25 @@ func (d Declaration) AllNames() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Forms is implemented by a typed engine approach (a field of
+// engine.Definition) that still delivers through this seam's named
+// Presentations: the runtime forms the launch path constructs by name. It is
+// how DeclarationOf derives the Declaration from the Definition, so an
+// engine keeps ONE table. It leaves with this seam.
+type Forms interface{ Forms() Presentations }
+
+// DeclarationOf derives the Declaration this seam reads from an engine's
+// derived surface table: every typed approach that carries Forms contributes
+// its named Presentations under its kind. An approach without Forms has no
+// runtime form here and is simply absent from the Declaration.
+func DeclarationOf(s engine.Surfaces) Declaration {
+	d := Declaration{}
+	for kind, a := range s {
+		if f, ok := a.(Forms); ok {
+			d[kind] = f.Forms()
+		}
+	}
+	return d
 }

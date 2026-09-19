@@ -77,8 +77,8 @@ func NewClaudeCode() *ClaudeCode {
 	b.InitLaunch(
 		agent.NewBaseLifecycle(EngineName),
 		agent.NewBaseContextProvider(),
-		nil, // SessionHistory: retired; the descriptor's NoLegacyHistoryReason says why
-		Surfaces,
+		nil, // SessionHistory: retired; the hosting record's NoLegacyHistoryReason says why
+		Declaration(),
 	)
 	// The run's CLAUDE_CONFIG_DIR is the engine home the record-backed
 	// settings write (surfaces_hewrecord.go) lands beneath; a run without one
@@ -374,7 +374,7 @@ func permissionArgs(mode agent.PermissionMode, mcpServers []string) []string {
 // reads the argv THIS RUN BUILT rather than any request flag that implies it,
 // so the decode cannot get out of step with the emission: the mock engine
 // discriminates the same way, off the same token, at the other end of the
-// process boundary (mockengine.oneshotWantsJSON).
+// process boundary (the mock runtime's oneshotWantsJSON).
 func wantsJSONEnvelope(args []string) bool {
 	return argPair(args, flagOutputFormat, "json")
 }

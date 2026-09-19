@@ -17,6 +17,14 @@ type DynamicApproach interface {
 	Endpoint(ep sessions.Endpoint) wire.MCPServer
 }
 
+// BearerEntry is the one projection of the session endpoint as an MCP file
+// entry: its URL with the bearer on the Authorization header. Every dynamic
+// approach whose native form is a URL entry returns it rather than spelling
+// the header itself.
+func BearerEntry(ep sessions.Endpoint) wire.MCPServer {
+	return wire.MCPServer{URL: ep.URL, Headers: map[string]string{"Authorization": "Bearer " + ep.Credential}}
+}
+
 // The per-kind approach interfaces. Each embeds present.Approach (name and
 // traits) and adds the typed Deliver for its kind, so the Definition's typed
 // fields cannot receive another kind's approach. Deliver writes the kind's
@@ -75,9 +83,9 @@ type ContextInputs struct {
 	Hash string
 }
 
-// MCPInputs is the MCP server set, the session's own endpoint included as a
-// URL entry.
-type MCPInputs struct{ Servers []wire.MCPServer }
+// MCPInputs is the MCP server set keyed by the name the engine's file
+// registers each under, the session's own endpoint included as a URL entry.
+type MCPInputs struct{ Servers map[string]wire.MCPServer }
 
 // SettingsInputs is what the settings surface carries.
 type SettingsInputs struct {
@@ -86,9 +94,10 @@ type SettingsInputs struct {
 	Exports    Exports
 }
 
-// HooksInputs is the hook set and the unified→native event map.
+// HooksInputs is the hook set by unified event and the unified→native
+// event map.
 type HooksInputs struct {
-	Hooks     []wire.Hook
+	Hooks     wire.UnifiedHooks
 	HookEvent map[string]string
 }
 

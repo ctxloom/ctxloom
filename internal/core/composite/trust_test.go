@@ -200,3 +200,54 @@ func TestTrust_ZeroValue_HasNoPermissiveAnswer(t *testing.T) {
 	require.Nil(t, zero.Authorizer(), "a zero Trust holds no gate: the nil authorizer is the spelling bundles.Decide withholds on loudly")
 	assert.True(t, zero.Gates(), "a zero Trust is not an ungated surface; it is a surface that forgot its gate")
 }
+
+// --- the locality rule ------------------------------------------------------
+
+// invalidlySigned is a bundle read whose signature does not cover its files
+// — an author's edit after signing — in the given trust context and
+// provenance.
+func invalidlySigned(t *testing.T, refStr string, ctx bundles.TrustCtx, prov bundles.ProvenanceClass) bundles.Exposure {
+	t.Helper()
+	br, err := trust.ParseBundleRef(refStr)
+	require.NoError(t, err)
+	b := &bundles.Bundle{Name: br.Bundle}
+	read := bundles.NewRead(br.Bundle, b, prov, ctx,
+		bundles.SignatureFacts{Signature: bundles.SignatureInvalid, Signer: bundles.SignerUntrusted, Detail: "its files no longer match SHA256SUMS"})
+	return bundles.Exposure{Read: read, Ref: trust.RefFromBundleRef(br), RefStr: refStr, Bytes: []byte("echo deploy"), Form: bundles.FormRaw}
+}
+
+// TestNewTrust_LocalityRule_AProjectLocalBundleWithAnInvalidSignatureIsAdmittedAsUnsigned:
+// locality is the trust boundary for a bundle the human already controls
+// under source control; the signature is for what travels. An author editing
+// a bundle in place breaks its signature on every keystroke, and refusing it
+// would make local iteration impossible — so the signature is treated as
+// absent, the admit reason stays ReasonStaleLocalSignature so the surface
+// can warn, and the author is told how to re-sign.
+func TestNewTrust_LocalityRule_AProjectLocalBundleWithAnInvalidSignatureIsAdmittedAsUnsigned(t *testing.T) {
+	tr := mustTrust(t, noRecords(), noRetraction())
+	e := invalidlySigned(t, "ctxloom+local:tools#prompts/deploy", bundles.TrustCtxLocal, bundles.ProvenanceProject)
+
+	v := tr.Authorizer().Admit(e)
+
+	assert.True(t, v.Allow, "locality already answered the trust question")
+	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
+	assert.True(t, bundles.Warns(v), "the verdict carries the warning the surface prints")
+	assert.Contains(t, v.Detail, "ctxloom bundle sign tools", "the author is told how to re-sign")
+	assert.Empty(t, tr.Withheld())
+}
+
+// TestNewTrust_LocalityRule_TheSameBundleFromARemoteSourceIsWithheld: the
+// same facts over content that TRAVELLED admit nothing — the signature is
+// for what travels, and one that does not cover its bytes justifies no
+// exposure. (The reader adapters refuse such a tree before it becomes a
+// read at all; the gate withholds it if one ever arrives.)
+func TestNewTrust_LocalityRule_TheSameBundleFromARemoteSourceIsWithheld(t *testing.T) {
+	tr := mustTrust(t, noRecords(), noRetraction())
+	e := invalidlySigned(t, "ctxloom+git://github.com/acme/repo//bundles/tools#prompts/deploy", bundles.TrustCtxRemote, bundles.ProvenanceRemote)
+
+	v := tr.Authorizer().Admit(e)
+
+	assert.False(t, v.Allow, "a signature that does not cover what travelled admits nothing")
+	assert.NotEqual(t, bundles.ReasonStaleLocalSignature, v.Reason, "stale-local is a LOCAL row and never names remote content")
+	assert.Equal(t, []string{e.RefStr}, tr.Withheld())
+}

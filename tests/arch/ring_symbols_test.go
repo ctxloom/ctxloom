@@ -321,35 +321,26 @@ var engineNameHomes = []string{
 	"cmd/mockengine",
 }
 
-// engineNameInitPrompt reports whether rel is one of the init prompts that
-// WRITE config data (Part 1.1 permits the literal there, until init chooses
-// its default from engine.Registry.Names instead).
-func engineNameInitPrompt(rel string) bool {
-	return filepath.Dir(rel) == "internal/adapters/cli" && strings.HasPrefix(filepath.Base(rel), "init")
-}
-
 // noEngineNameInCoreAllowed is the rule's shrinking allowlist, keyed by
 // FILE (the brief's granularity for a literal rule: a file either spells
 // the name or it does not), mapped to the slice in which the spelling
 // leaves.
 var noEngineNameInCoreAllowed = map[string]string{
-	// core packages that name the default engine
-	"internal/core/config/config_types.go":                "slice 6b: Config.Validate(engine.Registry) checks a configured name against the registry; no default is a literal in core",
+	// core packages that name an engine
+	"internal/core/config/config_types.go":                "slice 11b: the mock doubles' names are config data the tests and lm/backends spell through these constants; they leave with lm/backends",
+	"internal/core/coord/spawner.go":                      "slice 11b: Instance.Resume(key) succeeds or refuses; Resolve invokes it for a one-shot or a resume, and the three name-keyed tables go",
+	"internal/adapters/operations/session_adopt.go":       "slice 11b: adopt scans the engine's own store through Engine.Transcripts(); the reader knows its own format",
 	"internal/core/bundles/tree_read.go":                  "slice 6: bundles.LLMExports become opaque map[string]json.RawMessage keyed by whatever the registry names; no engine key is spelled here",
 	"internal/adapters/memory/compactor.go":               "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
 	"internal/adapters/memory/distill.go":                 "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
 	"internal/adapters/operations/profile_materialize.go": "slice 12: materialize takes the engine from the Target; no default is a literal in the application services",
 
-	// adapters and the CLI choosing a default by name
-	"internal/adapters/cli/config.go":              "slice 6b: the CLI's default is engine.Registry.Names(default-distribution), not a literal",
-	"internal/adapters/cli/manage.go":              "slice 6b: the CLI's default is engine.Registry.Names(default-distribution), not a literal",
+	// adapters choosing a default by name
 	"internal/adapters/content/convert/convert.go": "slice 6: the per-engine export fields become opaque; the converter keys on the registry's names",
 	"internal/adapters/tmuxhost/paneinject.go":     "slice 13: hostpty spawns the runner; the pane-injection table keyed by engine name goes with tmuxhost",
 
 	// the retiring plugin wire and the vendor readers
-	"internal/lm/grpc/mock_client.go":                            "slice 13: the go-plugin protocol is deleted whole",
-	"internal/adapters/transcript/vendorreader/claude/locate.go": "slice 6b: the reader becomes an engine.TranscriptReader the engine package supplies, which knows its own name",
-	"internal/adapters/transcript/vendorreader/mock/mock.go":     "slice 6b: the reader becomes an engine.TranscriptReader the engine package supplies, which knows its own name",
+	"internal/lm/grpc/mock_client.go": "slice 13: the go-plugin protocol is deleted whole",
 }
 
 // scanEngineNameLiterals finds every string literal equal to a registered
@@ -369,7 +360,7 @@ func scanEngineNameLiterals(t *testing.T) []ringSite {
 	var out []ringSite
 	seen := map[string]bool{}
 	walkRingFiles(t, func(rf ringFile) {
-		if archrules.UnderAny(rf.dir, engineNameHomes) || engineNameInitPrompt(rf.rel) {
+		if archrules.UnderAny(rf.dir, engineNameHomes) {
 			return
 		}
 		ast.Inspect(rf.f, func(n ast.Node) bool {
@@ -395,8 +386,7 @@ func scanEngineNameLiterals(t *testing.T) []ringSite {
 }
 
 // TestArch_NoEngineNameInCore is the gate: a registered engine name is a
-// string literal only where the engine lives, in config data and in the
-// init prompts that write config data.
+// string literal only where the engine lives and in config data.
 func TestArch_NoEngineNameInCore(t *testing.T) {
 	checkRingAllowlist(t, "no-engine-name-in-core", scanEngineNameLiterals(t), noEngineNameInCoreAllowed,
 		"Part 1.1: the core reads the engine's declarations and never branches on its name")
@@ -467,7 +457,7 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/engines/claude/mcp_registrar.go":                   "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
 	"internal/lm/backends/mock.go":                               "slice 11b: lm/backends is deleted whole",
 	"internal/lm/backends/panelaunch.go":                         "slice 11b: lm/backends is deleted whole",
-	"internal/adapters/transcript/vendorreader/claude/locate.go": "slice 6b: the reader becomes an engine.TranscriptReader handed the home it reads",
+	"internal/adapters/transcript/vendorreader/claude/locate.go": "slice 11b: the reader becomes an engine.TranscriptReader handed the home it reads",
 
 	// the runner's halves today
 	"internal/lm/grpc/client.go":                  "slice 13: the go-plugin protocol is deleted whole",

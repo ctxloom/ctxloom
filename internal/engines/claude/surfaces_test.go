@@ -109,7 +109,7 @@ type builtSurfaces struct {
 // ones, so a test that reaches a field is reaching what a launch would.
 func newSurfaces(in agent.SurfaceInputs, fs afero.Fs) builtSurfaces {
 	must := func(kind agent.SurfaceKind, name string) agent.Approach {
-		a, ok := Surfaces.Construct(kind, name, in, fs)
+		a, ok := Declaration().Construct(kind, name, in, fs)
 		if !ok {
 			panic("claude does not declare " + kind.String() + "=" + name)
 		}
@@ -315,7 +315,7 @@ func TestCommandsSurface_DeliverWritesCommands(t *testing.T) {
 func TestCommandsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := t.TempDir()
 
-	r, err := agent.Select(Surfaces).With(agent.SurfaceCommands, agent.ApproachUnsafeFile).Build(sampleInputs(), nil)
+	r, err := agent.Select(Declaration()).With(agent.SurfaceCommands, agent.ApproachUnsafeFile).Build(sampleInputs(), nil)
 	require.NoError(t, err)
 
 	var delivered []agent.Delivered
@@ -372,7 +372,7 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 // PROCEEDING.
 func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := t.TempDir()
-	r, err := agent.Select(Surfaces).With(agent.SurfaceSkills, agent.ApproachUnsafeFile).Build(sampleInputs(), nil)
+	r, err := agent.Select(Declaration()).With(agent.SurfaceSkills, agent.ApproachUnsafeFile).Build(sampleInputs(), nil)
 	require.NoError(t, err)
 
 	var delivered []agent.Delivered
@@ -405,7 +405,7 @@ func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 // that set for iteration.
 func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 	cwd, scratch, home := t.TempDir(), t.TempDir(), t.TempDir()
-	r, err := agent.Select(Surfaces).WithEverything().Build(sampleInputs(), nil)
+	r, err := agent.Select(Declaration()).WithEverything().Build(sampleInputs(), nil)
 	require.NoError(t, err)
 
 	var delivered []agent.Delivered
@@ -435,7 +435,7 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 	// same path the launch path drives. There is deliberately no raw,
 	// unresolved SurfaceSet.Deliveries() to call instead: it materializes the
 	// identical tree and has no production caller.
-	resolved, err := agent.Select(Surfaces).WithEverything().Build(sampleInputs(), nil)
+	resolved, err := agent.Select(Declaration()).WithEverything().Build(sampleInputs(), nil)
 	require.NoError(t, err)
 	ds := resolved.Deliveries()
 	require.Len(t, ds, 5, "context, MCP, settings, commands, skills")
@@ -478,19 +478,19 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 // a declaration.
 func TestSurfaces_DeclaresContextThreeWaysMCPTwoSettingsTwoAndTheRestOnce(t *testing.T) {
 	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt, agent.ApproachHook},
-		Surfaces.Names(agent.SurfaceContext))
-	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachHewRecord}, Surfaces.Names(agent.SurfaceSettings))
-	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachMCPConfig}, Surfaces.Names(agent.SurfaceMCP))
+		Declaration().Names(agent.SurfaceContext))
+	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachHewRecord}, Declaration().Names(agent.SurfaceSettings))
+	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachMCPConfig}, Declaration().Names(agent.SurfaceMCP))
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceCommands, agent.SurfaceSkills} {
-		assert.Equal(t, []string{agent.ApproachUnsafeFile}, Surfaces.Names(kind), "%s", kind)
+		assert.Equal(t, []string{agent.ApproachUnsafeFile}, Declaration().Names(kind), "%s", kind)
 	}
 
-	mcpDef, ok := Surfaces.Default(agent.SurfaceMCP)
+	mcpDef, ok := Declaration().Default(agent.SurfaceMCP)
 	require.True(t, ok)
 	assert.Equal(t, ApproachMCPConfig, mcpDef,
 		"the project .mcp.json must never be the default — it is reachable only by name")
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
-		def, ok := Surfaces.Default(kind)
+		def, ok := Declaration().Default(kind)
 		require.True(t, ok, "%s has a default approach", kind)
 		assert.Equal(t, agent.ApproachUnsafeFile, def)
 	}
@@ -557,7 +557,7 @@ func TestSurfaces_SharedCwdSafetyAndLaunchOnly(t *testing.T) {
 // An approach claude does not declare for a surface is refused by Build,
 // naming what IS declared.
 func TestSurfaces_UndeclaredApproachIsRefused(t *testing.T) {
-	_, err := agent.Select(Surfaces).With(agent.SurfaceMCP, ApproachSystemPrompt).Build(sampleInputs(), nil)
+	_, err := agent.Select(Declaration()).With(agent.SurfaceMCP, ApproachSystemPrompt).Build(sampleInputs(), nil)
 	require.Error(t, err, "claude's MCP surface has no system-prompt approach")
 	assert.Contains(t, err.Error(), agent.ApproachUnsafeFile)
 }
@@ -624,7 +624,7 @@ func TestDeliverShared_ContextHook_DoesNotWriteSyspromptScratch(t *testing.T) {
 
 	// Settings must ride along: the hook approach is carried by the settings
 	// surface, and Build() enforces that pairing.
-	resolved, err := agent.Select(Surfaces).
+	resolved, err := agent.Select(Declaration()).
 		With(agent.SurfaceContext, agent.ApproachHook).
 		With(agent.SurfaceSettings, agent.ApproachUnsafeFile).
 		Build(sampleInputs(), nil)
@@ -693,7 +693,7 @@ func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
 	fs := armedFailFs{Fs: afero.NewMemMapFs(), armed: &armed}
 	// Built through the Declaration so flagArgs below reads the very
 	// instances that delivered — the way buildArgs does after Setup.
-	resolved, err := agent.Select(Surfaces).WithEverything().With(agent.SurfaceContext, ApproachSystemPrompt).Build(sampleInputs(), fs)
+	resolved, err := agent.Select(Declaration()).WithEverything().With(agent.SurfaceContext, ApproachSystemPrompt).Build(sampleInputs(), fs)
 	require.NoError(t, err)
 	var s builtSurfaces
 	for _, ra := range resolved.Approaches() {
@@ -746,12 +746,12 @@ func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
 // It walks the DECLARATION rather than a list repeated here, so a surface
 // added to Surfaces is covered the moment it is declared.
 func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
-	for kind := range Surfaces {
+	for kind := range Declaration() {
 		t.Run(kind.String(), func(t *testing.T) {
 			dir := t.TempDir()
-			def, ok := Surfaces.Default(kind)
+			def, ok := Declaration().Default(kind)
 			require.True(t, ok, "%s is declared, so it must have a default", kind)
-			a, ok := Surfaces.Construct(kind, def, sampleInputs(), nil)
+			a, ok := Declaration().Construct(kind, def, sampleInputs(), nil)
 			require.True(t, ok)
 
 			// Every root advised: a default approach may root under any of
@@ -774,14 +774,14 @@ func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
 // construction — which is what keeps a worktree-isolated agent out of the
 // coordinator's checkout. Enumerating the declaration needs neither root.
 func TestSurfaces_RootsBindPerLaunchNotAtConstruction(t *testing.T) {
-	a, ok := Surfaces.Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, sampleInputs(), nil)
+	a, ok := Declaration().Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, sampleInputs(), nil)
 	require.True(t, ok)
 	host := a.Present(present.ProjectOnHost("/home/dev/project")).HostPath
 	worktree := a.Present(present.ProjectOnHost("/home/dev/worktrees/project--feat")).HostPath
 	assert.NotEqual(t, host, worktree)
 	assert.Equal(t, filepath.Join("/home/dev/project", ContextFileName), host)
 	assert.Equal(t, filepath.Join("/home/dev/worktrees/project--feat", ContextFileName), worktree)
-	assert.NotEmpty(t, Surfaces.Names(agent.SurfaceContext), "enumeration needs no root and no construction")
+	assert.NotEmpty(t, Declaration().Names(agent.SurfaceContext), "enumeration needs no root and no construction")
 }
 
 // contextPathOf, mcpPathOf and settingsPathOf read, after Setup, the
@@ -869,7 +869,7 @@ func TestMCPConfig_PresentExisting_RefusesWithoutAnEngineHome(t *testing.T) {
 func TestMCPSurface_UnsafeFile_IsHonouredAndWarned(t *testing.T) {
 	cwd := t.TempDir()
 
-	r, err := agent.Select(Surfaces).With(agent.SurfaceMCP, agent.ApproachUnsafeFile).Build(sampleInputs(), nil)
+	r, err := agent.Select(Declaration()).With(agent.SurfaceMCP, agent.ApproachUnsafeFile).Build(sampleInputs(), nil)
 	require.NoError(t, err)
 
 	var delivered []agent.Delivered
@@ -899,9 +899,9 @@ func TestMCPSurface_UnsafeFile_IsHonouredAndWarned(t *testing.T) {
 func TestMCPSurface_DefaultIsThePrivateConfigFileOnEveryCell(t *testing.T) {
 	project, scratch, private := t.TempDir(), t.TempDir(), t.TempDir()
 
-	def, ok := Surfaces.Default(agent.SurfaceMCP)
+	def, ok := Declaration().Default(agent.SurfaceMCP)
 	require.True(t, ok)
-	r, err := agent.Select(Surfaces).With(agent.SurfaceMCP, def).Build(sampleInputs(), nil)
+	r, err := agent.Select(Declaration()).With(agent.SurfaceMCP, def).Build(sampleInputs(), nil)
 	require.NoError(t, err)
 
 	stderr := captureStderr(t, func() {

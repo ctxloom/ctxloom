@@ -101,8 +101,8 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 		// permission resolution — headless-safe so effectiveMemberPermission's
 		// refusal doesn't collide with unrelated coverage.
 		LM: config.LMConfig{
-			Configs:  map[string]config.LLMConfig{config.DefaultLLM: {Type: config.DefaultLLM, Permissions: "bypass"}},
-			Defaults: config.RoleDefaults{Primary: config.DefaultLLM},
+			Configs:  map[string]config.LLMConfig{"claude-code": {Type: "claude-code", Permissions: "bypass"}},
+			Defaults: config.RoleDefaults{Primary: "claude-code"},
 		},
 	})
 }

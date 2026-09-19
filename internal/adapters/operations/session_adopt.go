@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
@@ -126,7 +125,10 @@ func ScanAdoptCandidates(harp string) (*AdoptScan, error) {
 	if entry == nil {
 		return nil, fmt.Errorf("harp not found: %q", harp)
 	}
-	if entry.Backend != config.BackendClaudeCode {
+	// TODO(slice 11b): adopt scans the engine's own transcript store through
+	// Engine.Transcripts(); until the readers are the engine's, only claude's
+	// store format is known here, and the name is the discriminator.
+	if entry.Backend != "claude-code" {
 		return nil, fmt.Errorf("session adopt: backend %q not supported yet", entry.Backend)
 	}
 	if entry.TranscriptPath == "" {

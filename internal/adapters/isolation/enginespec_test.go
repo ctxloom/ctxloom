@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -69,7 +70,7 @@ func TestEngineContainerSpecFor_UnknownIsDefault(t *testing.T) {
 // overlay dir, and no transcript store. It is what internal/lm/backends'
 // mock declares; this binary cannot link that package, so the shape is
 // authored here and registered under a fixture name.
-func registerVendorlessFixture(t *testing.T, name string, dist agent.Distribution) {
+func registerVendorlessFixture(t *testing.T, name string, dist engine.Distribution) {
 	t.Helper()
 	RegisterEngineContainer(name, agent.Provide(agent.EngineContainer{
 		Install:            []byte("RUN command -v cat\n"),
@@ -79,7 +80,7 @@ func registerVendorlessFixture(t *testing.T, name string, dist agent.Distributio
 		TranscriptStoreRel: "",
 	}), dist)
 	t.Cleanup(func() {
-		RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, agent.DistributionUnset)
+		RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, engine.DistributionUnset)
 	})
 }
 
@@ -92,7 +93,7 @@ func registerVendorlessFixture(t *testing.T, name string, dist agent.Distributio
 // reads as "nothing to mount", the correct value for an engine that keeps
 // none.
 func TestEngineContainerSpecFor_Vendorless(t *testing.T) {
-	registerVendorlessFixture(t, "vendorless-fixture", agent.DistributionTestOnly)
+	registerVendorlessFixture(t, "vendorless-fixture", engine.DistributionTestOnly)
 	p := engineContainerSpecFor("vendorless-fixture")
 	assert.Equal(t, defaultContainerImage, p.image)
 	assert.NotNil(t, p.engineInstall, "a declared fragment makes the spec composable")
@@ -127,9 +128,9 @@ func TestEngineContainerSpecFor_Vendorless(t *testing.T) {
 // it is a declaration, and reads as one.
 func TestEngineContainerSpecFor_DeclaredAbsentFailsClosed(t *testing.T) {
 	const name = "no-container-fixture"
-	RegisterEngineContainer(name, agent.Absent[agent.EngineContainer](name+" has no container story"), agent.DistributionDefault)
+	RegisterEngineContainer(name, agent.Absent[agent.EngineContainer](name+" has no container story"), engine.DistributionDefault)
 	t.Cleanup(func() {
-		RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, agent.DistributionUnset)
+		RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, engine.DistributionUnset)
 	})
 
 	assert.False(t, HasContainerAuth(name))
@@ -146,9 +147,9 @@ func TestEngineContainerSpecFor_DeclaredAbsentFailsClosed(t *testing.T) {
 // set is an auth plan AND not a test double. Capability comes from the
 // declaration, policy from Distribution, and neither roster is a list.
 func TestRosters_ReadCapabilityAndPolicy(t *testing.T) {
-	registerVendorlessFixture(t, "roster-default", agent.DistributionDefault)
-	registerVendorlessFixture(t, "roster-optin", agent.DistributionOptIn)
-	registerVendorlessFixture(t, "roster-testonly", agent.DistributionTestOnly)
+	registerVendorlessFixture(t, "roster-default", engine.DistributionDefault)
+	registerVendorlessFixture(t, "roster-optin", engine.DistributionOptIn)
+	registerVendorlessFixture(t, "roster-testonly", engine.DistributionTestOnly)
 
 	assert.Contains(t, composableEngines(), "roster-default")
 	assert.NotContains(t, composableEngines(), "roster-optin", "opt-in composes only when asked for")
@@ -269,10 +270,10 @@ func registerRenamingCredentialFixture(t *testing.T, name string) {
 			},
 			Hint: name + " has no credential to authenticate with",
 		}),
-	}), agent.DistributionTestOnly)
+	}), engine.DistributionTestOnly)
 	t.Cleanup(func() {
 		RegisterCredentialSeed(name, agent.Declared[agent.CredentialSeed]{})
-		RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, agent.DistributionUnset)
+		RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, engine.DistributionUnset)
 	})
 }
 

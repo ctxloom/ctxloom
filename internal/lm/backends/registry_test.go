@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
@@ -66,7 +68,7 @@ func TestRegistry_List(t *testing.T) {
 	names := List()
 
 	var want []string
-	for name := range descriptors {
+	for name := range records {
 		want = append(want, name)
 	}
 	sort.Strings(want)
@@ -191,10 +193,11 @@ func TestDecodeLLMConfig_DecodeFailureNamesBackend(t *testing.T) {
 // shipped engine carries settings, surfaces and command export. mock is NOT
 // exempt: it is a complete engine with no real model behind it.
 func TestDescriptorTable_Invariants(t *testing.T) {
-	require.NotEmpty(t, descriptors)
-	for name, d := range descriptors {
+	require.NotEmpty(t, records)
+	for name, r := range records {
+		d := &r.host
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, name, d.Name, "descriptor keyed under a different name than it carries")
+			require.Equal(t, name, string(d.Engine), "descriptor keyed under a different name than it carries")
 			assert.Equal(t, name, d.NewBackend(RunLaunchSpec).Name(),
 				"registry name must match the module's Name()")
 			_, hasWriter := d.SettingsWriter.Get()
@@ -218,7 +221,7 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 // mismatch is silent by construction: the wrong-typed config would be dropped
 // whole, and the run would launch on defaults with every override ignored.
 func TestDescriptorTable_ConfigDecodesToItsOwnType(t *testing.T) {
-	for name := range descriptors {
+	for name := range records {
 		t.Run(name, func(t *testing.T) {
 			cfg, err := DecodeLLMConfig(name, map[string]interface{}{})
 			require.NoError(t, err)
@@ -240,8 +243,8 @@ func TestRegister_DuplicateNameIsAnError(t *testing.T) {
 	const name = "u057-f25-dup-test"
 	t.Cleanup(func() { UnregisterForTesting(name) })
 
-	require.NoError(t, Register(enginefixture.Descriptor(name)))
-	err := Register(enginefixture.Descriptor(name))
+	require.NoError(t, registerFixtures(enginefixture.Hosting(name)))
+	err := registerFixtures(enginefixture.Hosting(name))
 	require.Error(t, err, "a second Register call for the same name must be refused, not silently win")
 	assert.Contains(t, err.Error(), name)
 }
@@ -251,19 +254,19 @@ func TestRegister_DuplicateNameIsAnError(t *testing.T) {
 func TestRegister_BatchIsAllOrNothing(t *testing.T) {
 	const good = "u057-batch-good"
 	t.Cleanup(func() { UnregisterForTesting(good) })
-	bad := enginefixture.Descriptor("u057-batch-bad")
+	bad := enginefixture.Hosting("u057-batch-bad")
 	bad.NewBackend = nil
 
-	require.Error(t, Register(enginefixture.Descriptor(good), bad))
+	require.Error(t, registerFixtures(enginefixture.Hosting(good), bad))
 	assert.False(t, Exists(good), "the valid descriptor must not be installed when its batch is refused")
 }
 
 // A refused descriptor's error names the engine and the slot, so the
 // composition root's message says what to fix.
 func TestRegister_UndeclaredSlotIsRefusedByName(t *testing.T) {
-	d := enginefixture.Descriptor("u057-undeclared")
+	d := enginefixture.Hosting("u057-undeclared")
 	d.Home = agent.Declared[agent.EngineHome]{}
-	err := Register(d)
+	err := registerFixtures(d)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "u057-undeclared")
 	assert.Contains(t, err.Error(), "Home")
@@ -277,4 +280,54 @@ func TestConfiguredBackend(t *testing.T) {
 	bp, ok := b.(BinaryPathProvider)
 	require.True(t, ok)
 	assert.Equal(t, "/custom/claude", bp.GetBinaryPath())
+}
+
+// Register pairs every hosting record with a composed kind and every
+// composed kind with a hosting record: an engine can be neither declared
+// here and unrunnable, nor runnable and undeclared.
+func TestRegister_PairsEveryHostingWithItsKind(t *testing.T) {
+	const name = "u6b-unpaired"
+	t.Cleanup(func() { UnregisterForTesting(name) })
+
+	err := Register(enginefixture.RegistryOf(), enginefixture.Hosting(name))
+	require.Error(t, err, "a hosting record for a kind nobody composed is refused")
+	assert.Contains(t, err.Error(), name)
+	assert.False(t, Exists(name))
+
+	err = Register(enginefixture.RegistryOf(enginefixture.Kind(name)))
+	require.Error(t, err, "a composed kind with no hosting record is refused")
+	assert.Contains(t, err.Error(), name)
+	assert.False(t, Exists(name))
+}
+
+// The declarative facts are read off the KIND: the distribution, the
+// read-only plan, the model aliases, and the Definition itself; Engines
+// returns every registered kind.
+func TestRegistry_DeclarativeFactsAreTheKinds(t *testing.T) {
+	const name = "u6b-facts"
+	t.Cleanup(func() { UnregisterForTesting(name) })
+	kind := enginefixture.Kind(name, mock.WithDistribution(engine.DistributionOptIn), func(d *engine.Definition) {
+		d.Permissions.ReadOnlyPlan = true
+		d.ModelAliases = map[string]string{"fast": "fixture-fast-1"}
+	})
+	require.NoError(t, Register(enginefixture.RegistryOf(kind), enginefixture.Hosting(name)))
+
+	def, ok := Definition(name)
+	require.True(t, ok)
+	assert.Equal(t, engine.Name(name), def.Name)
+	assert.Equal(t, engine.DistributionOptIn, DistributionFor(name))
+	assert.False(t, IsTestOnly(name))
+	assert.True(t, EnforcesReadOnlyPlan(name))
+	resolved, ok := ResolveModelFor(name, "fast")
+	require.True(t, ok)
+	assert.Equal(t, "fixture-fast-1", resolved)
+	resolved, ok = ResolveModelFor(name, "other")
+	require.True(t, ok)
+	assert.Equal(t, "other", resolved, "an unaliased model passes through")
+
+	_, ok = Engines().Lookup(name)
+	assert.True(t, ok, "Engines lists every registered kind")
+	_, ok = Definition("never-registered")
+	assert.False(t, ok)
+	assert.False(t, EnforcesReadOnlyPlan("never-registered"))
 }

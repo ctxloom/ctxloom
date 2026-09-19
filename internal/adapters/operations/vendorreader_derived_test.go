@@ -38,7 +38,7 @@ func TestVendorReaderAdaptersFor_AgreesWithEveryRegisteredDeclaration(t *testing
 // forgotten entry is that the former can be read back.
 func TestVendorReaderAdaptersFor_DeclaredAbsentEngineIsNotReadable(t *testing.T) {
 	const name = "fixture-no-transcripts"
-	require.NoError(t, backends.Register(enginefixture.Descriptor(name)))
+	require.NoError(t, backends.Register(enginefixture.Registry(enginefixture.Hosting(name)), enginefixture.Hosting(name)))
 	t.Cleanup(func() { backends.UnregisterForTesting(name) })
 
 	_, ok := VendorReaderAdaptersFor(name)

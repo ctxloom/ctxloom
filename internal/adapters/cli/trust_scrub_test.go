@@ -81,7 +81,7 @@ func TestTrustMutations_RefreshManagedArtifacts(t *testing.T) {
 	// auto-trust and are written into settings immediately — no manual trust step.
 	_, err = operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
 		Cfg:               cfg,
-		Backend:           config.BackendClaudeCode,
+		Backend:           "claude-code",
 		RegenerateContext: true,
 	})
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestTrustMutations_RefreshFailureDoesNotBlock(t *testing.T) {
 	// refresh actually reaches ApplyHooks rather than being skipped.
 	_, err = operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
 		Cfg:               cfg,
-		Backend:           config.BackendClaudeCode,
+		Backend:           "claude-code",
 		RegenerateContext: true,
 	})
 	require.NoError(t, err)

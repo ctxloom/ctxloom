@@ -60,7 +60,7 @@ var _ vendorreader.VendorAdapter = Adapter{}
 // A declared var, in the shape of claude.ClaudeACPTransport and the other
 // per-engine declarations this repo keeps beside their engine: it is a FACT
 // this package states about itself, declared once on the engine's descriptor
-// (engine.Descriptor.TranscriptReaders), not a computation.
+// (hosting.Hosting.TranscriptReaders), not a computation.
 var VersionedAdapters = []vendorreader.VersionedAdapter{{
 	Adapter:          Adapter{},
 	Versions:         vendorreader.VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"},

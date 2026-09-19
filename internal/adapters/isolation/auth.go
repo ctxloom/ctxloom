@@ -111,7 +111,7 @@ func resolveEnvOrMountAuth(triggers []string, envVars []string, mountFn func() (
 // (a fatal ClassIsolation finding down the isolation chain, same as any other
 // unresolvable auth) instead of silently inheriting another engine's
 // credentials into a foreign engine's container. Every backend that SHOULD
-// authenticate declares its own plan (engine.Descriptor.Container.Auth).
+// authenticate declares its own plan (hosting.Hosting.Container.Auth).
 func noContainerAuth(_ string, _ string) (containerAuth, bool) {
 	return containerAuth{mode: authNone}, false
 }

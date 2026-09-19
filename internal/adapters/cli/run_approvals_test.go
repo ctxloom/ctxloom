@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -19,52 +19,53 @@ import (
 // and the headless-ONESHOT floor that upgrades a would-block posture to bypass so a
 // run with no human can't hang.
 func TestResolvePermissionMode(t *testing.T) {
-	const claude = config.DefaultLLM // "claude-code"
+	// The two declared host defaults: the host-bypass stopgap and prompt-per-call.
+	const stopgap, prompting = agent.PermissionBypass, agent.PermissionDefault
 	cases := []struct {
 		name         string
 		flag         string
 		agentPerm    string
 		labelPerm    string
 		projectPerm  string
-		backend      string
+		hostDefault  agent.PermissionMode
 		mode         pb.ExecutionMode
 		enforcesPlan bool
 		want         agent.PermissionMode
 	}{
-		{"flag beats agent, label, and default", "plan", "bypass", "default", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
-		{"agent beats label and default", "", "acceptEdits", "bypass", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionAcceptEdits},
-		{"label beats default", "", "", "plan", "", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
-		{"claude-code default bypasses on the host", "", "", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
+		{"flag beats agent, label, and default", "plan", "bypass", "default", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"agent beats label and default", "", "acceptEdits", "bypass", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionAcceptEdits},
+		{"label beats default", "", "", "plan", "", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"a stopgap host default bypasses on the host", "", "", "", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
 		// The opt-out path: an EXPLICIT default must beat claude's host-bypass
 		// default (ParsePermissionMode distinguishes explicit "default" from unset).
-		{"explicit default beats claude host-bypass", "default", "", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
-		{"explicit default via label beats claude host-bypass", "", "", "default", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
-		{"other backend default prompts", "", "", "", "", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
+		{"explicit default beats the host-bypass stopgap", "default", "", "", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
+		{"explicit default via label beats the host-bypass stopgap", "", "", "default", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
+		{"other backend default prompts", "", "", "", "", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
 		// An unparseable config-sourced value (agent/label) is a declaration that
 		// MISSED, not an absent one: it stops the chain at the most restrictive
 		// posture instead of falling through to the claude-code host stopgap. The
 		// typed --permissions flag is rejected up front instead (see
 		// TestValidatePermissionFlag), so it never reaches here unparseable.
-		{"unparseable agent value floors to read-only, never the claude stopgap", "", "nonsense", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
-		{"unparseable value does not defer to a wider source below it", "", "nonsense", "bypass", "bypass", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
+		{"unparseable agent value floors to read-only, never the stopgap", "", "nonsense", "", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
+		{"unparseable value does not defer to a wider source below it", "", "nonsense", "bypass", "bypass", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
 		// The floor survives BOTH widening steps below it: the plan collapse on a
 		// backend with no read-only tier, and the ONESHOT floor that follows it.
 		// Letting either apply walks a typo back up to bypass.
-		{"unparseable value is not collapsed on a non-enforcing backend", "", "nonsense", "", "", "mock", pb.ExecutionMode_INTERACTIVE, false, agent.PermissionFloor},
-		{"unparseable value is not widened by the oneshot floor", "", "nonsense", "", "", "mock", pb.ExecutionMode_ONESHOT, false, agent.PermissionFloor},
-		{"oneshot upgrades a would-block default to bypass", "default", "", "", "", "mock", pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
-		{"oneshot keeps safe-headless plan on an enforcing backend", "plan", "", "", "", "mock", pb.ExecutionMode_ONESHOT, true, agent.PermissionPlan},
-		{"oneshot upgrades acceptEdits to bypass", "acceptEdits", "", "", "", claude, pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
+		{"unparseable value is not collapsed on a non-enforcing backend", "", "nonsense", "", "", prompting, pb.ExecutionMode_INTERACTIVE, false, agent.PermissionFloor},
+		{"unparseable value is not widened by the oneshot floor", "", "nonsense", "", "", prompting, pb.ExecutionMode_ONESHOT, false, agent.PermissionFloor},
+		{"oneshot upgrades a would-block default to bypass", "default", "", "", "", prompting, pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
+		{"oneshot keeps safe-headless plan on an enforcing backend", "plan", "", "", "", prompting, pb.ExecutionMode_ONESHOT, true, agent.PermissionPlan},
+		{"oneshot upgrades acceptEdits to bypass", "acceptEdits", "", "", "", stopgap, pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
 		// Fix A: a backend with no read-only tier can't honor plan. Interactively it
 		// collapses to default (a human still gates each tool call — no silent
 		// read-write); headless it then upgrades to bypass so it can't hang.
-		{"plan on a non-enforcing backend collapses to prompt", "plan", "", "", "", "mock", pb.ExecutionMode_INTERACTIVE, false, agent.PermissionDefault},
-		{"headless plan on a non-enforcing backend upgrades to bypass", "plan", "", "", "", "mock", pb.ExecutionMode_ONESHOT, false, agent.PermissionBypass},
-		{"plan on an enforcing backend stays plan interactively", "plan", "", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"plan on a non-enforcing backend collapses to prompt", "plan", "", "", "", prompting, pb.ExecutionMode_INTERACTIVE, false, agent.PermissionDefault},
+		{"headless plan on a non-enforcing backend upgrades to bypass", "plan", "", "", "", prompting, pb.ExecutionMode_ONESHOT, false, agent.PermissionBypass},
+		{"plan on an enforcing backend stays plan interactively", "plan", "", "", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := resolvePermissionMode(tc.flag, tc.agentPerm, tc.labelPerm, tc.projectPerm, tc.backend, tc.mode, tc.enforcesPlan)
+			got := resolvePermissionMode(tc.flag, tc.agentPerm, tc.labelPerm, tc.projectPerm, engine.PermissionFacts{HostDefault: tc.hostDefault, ReadOnlyPlan: tc.enforcesPlan}, tc.mode)
 			assert.Equal(t, tc.want, got)
 		})
 	}

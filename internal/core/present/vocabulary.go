@@ -1,5 +1,7 @@
 package present
 
+import "github.com/spf13/afero"
+
 // Kind is a surface category: the CROSS-ENGINE union of every engine's
 // surfaces. The set is closed. It is deliberately NOT a dispatch key — no
 // code branches on a surface's kind to decide HOW to write it (that stays
@@ -99,4 +101,24 @@ func (t Traits) Offers(r RootKind) bool {
 		}
 	}
 	return false
+}
+
+// Approach is the MARKER interface every per-kind approach embeds: the few
+// shared parameters (a name, the declared Traits) and nothing else. The
+// per-kind interfaces in engine (ContextApproach, MCPApproach, …) extend it
+// with that kind's typed Deliver, so an approach for one kind cannot be
+// assigned to another kind's field. The Traits the planner reads sit on the
+// same value as the Deliver that honours them.
+type Approach interface {
+	Name() string
+	Traits() Traits
+}
+
+// Delivered is what a typed Deliver reports: where the bytes landed on both
+// sides, what was written, and how to undo it. A nil Undo means nothing was
+// written.
+type Delivered struct {
+	Presented Presentation
+	Wrote     []string
+	Undo      func(fs afero.Fs) error
 }

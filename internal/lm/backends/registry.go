@@ -6,7 +6,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
 
@@ -17,10 +18,19 @@ type Configurable interface {
 	Configure(cfg agent.BackendConfig)
 }
 
-// descriptors is the per-engine descriptor table, keyed by the engine's one
-// registered name. It holds engine.Descriptor values authored in each
-// engine's OWN package; nothing in this package names an engine.
-var descriptors = make(map[string]*engine.Descriptor)
+// record pairs one engine KIND (its Definition and views, built by the
+// engine package's constructor) with the hosting record this package still
+// needs to run it. Everything declarative is read off the kind; the
+// hosting record is the instance half until the runner lands.
+type record struct {
+	kind engine.Engine
+	host hosting.Hosting
+}
+
+// records is the per-engine table, keyed by the engine's one registered
+// name. It holds values authored in each engine's OWN package; nothing in
+// this package names an engine.
+var records = make(map[string]*record)
 
 // Every backend registered here reaches its model by spawning the VENDOR'S OWN
 // agent binary. ctxloom holds no provider SDK and makes no direct call to any
@@ -48,30 +58,39 @@ var descriptors = make(map[string]*engine.Descriptor)
 // but a gateway serves Anthropic *models*, never Claude *Code*, and a
 // subscription-authenticated CLI cannot be pointed at one.
 
-// Register installs complete engine descriptors. It returns an error rather
-// than panicking: registration runs from a composition root that can surface
-// it, not from package init, so a bad declaration is found at composition
-// time and named — never at package-load time in whichever engine package
-// happened to init first.
+// Register installs the composed engine kinds with their hosting records:
+// every hosting.Hosting must name a kind in reg and every kind must have exactly
+// one hosting.Hosting, so an engine can never be declared here and unrunnable, or
+// runnable and undeclared. It returns an error rather than panicking:
+// registration runs from a composition root that can surface it, not from
+// package init.
 //
-// Two-phase: every descriptor is validated (engine.Descriptor.Validate, plus
-// the duplicate-name rule, which needs the table) before any is installed,
-// so a failed batch leaves the tables as they were.
-func Register(descs ...engine.Descriptor) error {
-	batch := map[string]bool{}
-	for i := range descs {
-		d := descs[i]
-		if err := d.Validate(); err != nil {
+// Two-phase: every record is validated (hosting.Hosting.Validate, plus the
+// pairing rules) before any is installed, so a failed batch leaves the
+// tables as they were. The kinds were validated by their constructors.
+func Register(reg engine.Registry, hostings ...hosting.Hosting) error {
+	batch := map[engine.Name]*record{}
+	for i := range hostings {
+		h := hostings[i]
+		if err := h.Validate(); err != nil {
 			return err
 		}
-		if _, dup := descriptors[d.Name]; dup || batch[d.Name] {
-			return fmt.Errorf("descriptor %s: already registered", d.Name)
+		kind, ok := reg.Lookup(h.Engine)
+		if !ok {
+			return fmt.Errorf("hosting %s: no engine kind of that name was composed", h.Engine)
 		}
-		batch[d.Name] = true
+		if _, dup := records[string(h.Engine)]; dup || batch[h.Engine] != nil {
+			return fmt.Errorf("hosting %s: already registered", h.Engine)
+		}
+		batch[h.Engine] = &record{kind: kind, host: h}
 	}
-	for i := range descs {
-		d := descs[i]
-		descriptors[d.Name] = &d
+	for _, name := range reg.Names(nil) {
+		if batch[name] == nil && records[string(name)] == nil {
+			return fmt.Errorf("engine %s: composed without a hosting record", name)
+		}
+	}
+	for name, r := range batch {
+		records[string(name)] = r
 		// Push the engine-owned isolation facts down to internal/adapters/isolation
 		// at the same moment, so a backend can never be launchable here while
 		// invisible there. isolation resolves engines by NAME (CopyAmbient is
@@ -79,27 +98,94 @@ func Register(descs ...engine.Descriptor) error {
 		// engine packages, so this is the only direction the wiring can run.
 		//
 		// The credential seed and the container story are pushed for EVERY
-		// descriptor, absent ones included: isolation's rosters are then the
+		// record, absent ones included: isolation's rosters are then the
 		// registry by construction, and an engine with nothing to seed or no
 		// container story is a declaration it can read back, not a lookup
 		// miss.
-		isolation.RegisterCredentialSeed(d.Name, credentialSeedOf(&d))
-		isolation.RegisterProvisioningPolicy(d.Name, d.Provisioning)
-		isolation.RegisterEngineContainer(d.Name, d.Container, d.Distribution)
-		if w, ok := d.InstanceConfig.Get(); ok {
-			isolation.RegisterInstanceConfigWriter(d.Name, w(agent.SettingsOptions{}))
+		h := &r.host
+		isolation.RegisterCredentialSeed(string(name), credentialSeedOf(h))
+		isolation.RegisterProvisioningPolicy(string(name), h.Provisioning)
+		isolation.RegisterEngineContainer(string(name), h.Container, r.kind.Root().Distribution)
+		if w, ok := h.InstanceConfig.Get(); ok {
+			isolation.RegisterInstanceConfigWriter(string(name), w(agent.SettingsOptions{}))
 		}
 	}
 	return nil
 }
 
-// lookup resolves name to its descriptor by EXACT match on the registered
-// name. No alias, case or prefix resolution: an engine has one spelling, and
-// any other reaches the caller unresolved so it is refused rather than
-// rounded to a real backend.
-func lookup(name string) (*engine.Descriptor, bool) {
-	d, ok := descriptors[name]
-	return d, ok
+// Engines is the engine.Registry of every kind registered here: for a
+// reader that wants Definitions (a default, a filtered name list) rather
+// than a hosting record. Names are unique by construction, so composing
+// them cannot fail.
+func Engines() engine.Registry {
+	kinds := make([]engine.Engine, 0, len(records))
+	for _, r := range records {
+		kinds = append(kinds, r.kind)
+	}
+	reg, err := engine.NewRegistry(kinds...)
+	if err != nil {
+		panic("backends: " + err.Error())
+	}
+	return reg
+}
+
+// DefaultEngineName is the name of the one engine shipped by default — what
+// an untyped llm entry, an init with no choice made, or a scaffold records.
+// "" when no engine ships by default, which the composition refuses
+// upstream.
+func DefaultEngineName() string {
+	def, err := Engines().Default()
+	if err != nil {
+		return ""
+	}
+	return string(def.Root().Name)
+}
+
+// DefaultEngines lists, sorted, the engines shipped by default: the curated
+// head of any engine menu.
+func DefaultEngines() []string {
+	var out []string
+	for _, n := range Engines().Names(func(d engine.Definition) bool { return d.Distribution == engine.DistributionDefault }) {
+		out = append(out, string(n))
+	}
+	return out
+}
+
+// EngineBinary is the native client binary the named engine's interactive
+// grammar launches, "" for an engine with no declared grammar for it (a
+// double, or an unregistered name).
+func EngineBinary(name string) string {
+	d, ok := Definition(name)
+	if !ok {
+		return ""
+	}
+	g, ok := engine.CLIFor(d.CLI, engine.Interactive)
+	if !ok {
+		return ""
+	}
+	return g.Binary
+}
+
+// Definition returns the named engine's root — its Definition and views —
+// by EXACT match on the registered name.
+func Definition(name string) (engine.Base, bool) {
+	r, ok := records[name]
+	if !ok {
+		return engine.Base{}, false
+	}
+	return r.kind.Root(), true
+}
+
+// lookup resolves name to its hosting record by EXACT match on the
+// registered name. No alias, case or prefix resolution: an engine has one
+// spelling, and any other reaches the caller unresolved so it is refused
+// rather than rounded to a real backend.
+func lookup(name string) (*hosting.Hosting, bool) {
+	r, ok := records[name]
+	if !ok {
+		return nil, false
+	}
+	return &r.host, true
 }
 
 // IsTestOnly reports whether name is a registered test/development double
@@ -111,15 +197,15 @@ func lookup(name string) (*engine.Descriptor, bool) {
 // "engine you may not pick" separately, and folding the two here would turn a
 // typo into a silent omission.
 func IsTestOnly(name string) bool {
-	return DistributionFor(name) == agent.DistributionTestOnly
+	return DistributionFor(name) == engine.DistributionTestOnly
 }
 
 // DistributionFor returns the named engine's shipping policy, or Unset for a
 // name nobody registered — which no policy check reads as any decision.
-func DistributionFor(name string) agent.Distribution {
-	d, ok := lookup(name)
+func DistributionFor(name string) engine.Distribution {
+	d, ok := Definition(name)
 	if !ok {
-		return agent.DistributionUnset
+		return engine.DistributionUnset
 	}
 	return d.Distribution
 }
@@ -138,8 +224,8 @@ func Get(name string) agent.Backend {
 // randomized per Go's spec, so every caller (shell completion, help output)
 // would otherwise have to sort defensively.
 func List() []string {
-	names := make([]string, 0, len(descriptors))
-	for name := range descriptors {
+	names := make([]string, 0, len(records))
+	for name := range records {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -166,16 +252,25 @@ func Exists(name string) bool {
 	return ok
 }
 
-// EnforcesReadOnlyPlan reports whether the named backend maps
-// agent.PermissionPlan to a genuinely read-only, non-prompting mode (claude
-// --permission-mode plan, for instance). A backend that doesn't would run
+// PermissionFactsFor reads the named engine's declared permission facts off
+// its Definition: the host default posture and whether plan is a genuine
+// read-only tier. An unregistered name has the zero facts, which resolve to
+// prompt-per-call and collapse plan.
+func PermissionFactsFor(name string) engine.PermissionFacts {
+	d, ok := Definition(name)
+	if !ok {
+		return engine.PermissionFacts{}
+	}
+	return d.Permissions
+}
+
+// EnforcesReadOnlyPlan reports whether the named engine declares
+// PermissionPlan as a genuinely read-only, non-prompting mode
+// (Definition.Permissions.ReadOnlyPlan). An engine that doesn't would run
 // plan unrestrained and can't be trusted to be headless-safe for it, so the
 // run resolver collapses plan to default for it instead. An unregistered name
 // reports false.
-func EnforcesReadOnlyPlan(name string) bool {
-	d, ok := lookup(name)
-	return ok && d.EnforcesReadOnlyPlan
-}
+func EnforcesReadOnlyPlan(name string) bool { return PermissionFactsFor(name).ReadOnlyPlan }
 
 // BinaryPathProvider is implemented by backends that expose their binary path.
 // agent.BaseBackend satisfies it (see agent.BaseBackend.GetBinaryPath), so

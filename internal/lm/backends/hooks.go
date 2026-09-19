@@ -36,8 +36,9 @@ func GetSettingsWriter(name string, fs afero.Fs) agent.SettingsWriter {
 // BackendsWithSettings returns the names of all backends that support
 // settings, sorted (List()'s settings-scoped twin).
 func BackendsWithSettings() []string {
-	names := make([]string, 0, len(descriptors))
-	for name, d := range descriptors {
+	names := make([]string, 0, len(records))
+	for name, r := range records {
+		d := &r.host
 		if _, ok := d.SettingsWriter.Get(); ok {
 			names = append(names, name)
 		}

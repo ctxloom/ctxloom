@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -54,7 +53,7 @@ func withoutRecordTimes(lines []string) []string {
 func claudeEntry(harp, vendorPath string) sessions.Entry {
 	return sessions.Entry{
 		HarpName:       harp,
-		Backend:        config.BackendClaudeCode,
+		Backend:        "claude-code",
 		TranscriptPath: vendorPath,
 		EngineVersion:  "2.1.225",
 	}
@@ -170,7 +169,7 @@ func TestRefreshVendorTranscript_KeepsExistingTranscriptWhenNothingToConvert(t *
 func TestRefreshVendorTranscript_FailedRefreshKeepsTheTranscriptItHad(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "refresh-failure-harp"
-	e := sessions.Entry{HarpName: harp, Backend: config.BackendClaudeCode, TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
+	e := sessions.Entry{HarpName: harp, Backend: "claude-code", TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	require.NoError(t, err)

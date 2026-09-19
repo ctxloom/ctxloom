@@ -7,7 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 )
 
 // This file is the name→Declaration seam: the single place a caller that
@@ -50,18 +50,11 @@ func SurfacesFor(engine string) (agent.Declaration, error) {
 // backend declares, sorted — what a CLI offers as "names that exist at all"
 // before an engine is chosen. Derived from the declarations, never listed.
 func KnownApproachNames() []string {
-	seen := map[string]bool{}
-	for _, d := range descriptors {
-		for _, n := range d.Surfaces.AllNames() {
-			seen[n] = true
-		}
+	decls := make([]agent.Declaration, 0, len(records))
+	for _, r := range records {
+		decls = append(decls, r.host.Surfaces)
 	}
-	out := make([]string, 0, len(seen))
-	for n := range seen {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
+	return agent.ApproachNames(decls...)
 }
 
 // UncarriedSurfaces is the delivery's inverse over the SAME inputs: the parts of
@@ -100,8 +93,8 @@ func UncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss 
 // parts of a run's assembled loadout the named backend delivers ONLY at launch,
 // into a per-session engine home, and which a HARPLESS caller (`ctxloom profile
 // materialize`, `ctxloom manage install`, a hooks apply outside a run)
-// therefore cannot write anywhere (agentDescriptor.launchOnlySettingsReason —
-// codex, and only codex).
+// therefore cannot write anywhere (hosting.Hosting.LaunchOnlySettingsReason —
+// the launch-delivered mock double declares it).
 //
 // THE TWO ARE NOT INTERCHANGEABLE and must not be merged. UncarriedSurfaces
 // answers "what can this ENGINE never carry" — a fact about the engine, true
@@ -159,11 +152,11 @@ func managedMCPDetail(in agent.SurfaceInputs) string {
 
 // unsupportedHookKindLosses reports, for a backend that carries hooks
 // generally but declares specific unified KINDS it has no native event for
-// (agentDescriptor.unsupportedHookKinds), the ones the inputs actually
+// (hosting.Hosting.UnsupportedHookKinds), the ones the inputs actually
 // configure — same "only when it costs something" rule as the whole-backend
 // case above. Sorted by kind so the report is stable across a map's
 // randomized range order.
-func unsupportedHookKindLosses(d *engine.Descriptor, hooks wire.HooksConfig) []agent.SurfaceLoss {
+func unsupportedHookKindLosses(d *hosting.Hosting, hooks wire.HooksConfig) []agent.SurfaceLoss {
 	if len(d.UnsupportedHookKinds) == 0 {
 		return nil
 	}

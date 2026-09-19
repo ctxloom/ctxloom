@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -136,7 +137,7 @@ func renderLLMWritten(out io.Writer, entry *operations.LLMEntry, edited bool) er
 	}
 	typ := entry.Type
 	if typ == "" {
-		typ = config.DefaultLLM
+		typ = backends.DefaultEngineName()
 	}
 	w.Printf("%s llm %q (type: %s", verb, entry.Label, typ)
 	if entry.Model != "" {
@@ -178,6 +179,11 @@ func registerLLMWriteFlags(cmd *cobra.Command) {
 // is the one place that is reached only after registration.
 func applyEngineNamedHelp() {
 	engines := userEngineNames()
+	// The scaffolding flags' HELP names the engine shipped by default — a
+	// registry fact; the value itself is resolved where each command runs.
+	for _, f := range []*pflag.Flag{configCreateCmd.Flags().Lookup("engine"), manageInstallCmd.Flags().Lookup("engine")} {
+		f.DefValue = backends.DefaultEngineName()
+	}
 	llmCreateCmd.Long = `Create a NEW labeled LLM engine config under the 'llm.configs' key of
 .ctxloom/config.yaml. Refuses a label that already names a config entry OR a
 registered backend (` + engines + `) — change an

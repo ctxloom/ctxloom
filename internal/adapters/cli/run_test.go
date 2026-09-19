@@ -11,7 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // =============================================================================
@@ -178,30 +178,34 @@ func TestRunCommand_Integration(t *testing.T) {
 // container-worktree run warned "running with bypass on the host" — false.
 func TestWarnBypassOnLostContainer(t *testing.T) {
 	containerAxes := isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeContainerRootless}
+	// The two declared host defaults an engine can carry: prompt-per-call,
+	// and the host-bypass stopgap.
+	prompting := engine.PermissionFacts{HostDefault: agent.PermissionDefault}
+	stopgap := engine.PermissionFacts{HostDefault: agent.PermissionBypass}
 
 	t.Run("successful container-worktree run does not warn", func(t *testing.T) {
-		assert.False(t, warnBypassOnLostContainer(containerAxes, "container-worktree", agent.PermissionBypass, "mock"),
+		assert.False(t, warnBypassOnLostContainer(containerAxes, "container-worktree", agent.PermissionBypass, prompting),
 			"container-worktree IS a container boundary — a successful sandboxed run must not warn")
 	})
 
 	t.Run("successful plain-container run does not warn", func(t *testing.T) {
-		assert.False(t, warnBypassOnLostContainer(containerAxes, "container", agent.PermissionBypass, "mock"))
+		assert.False(t, warnBypassOnLostContainer(containerAxes, "container", agent.PermissionBypass, prompting))
 	})
 
 	t.Run("genuine degrade to the host warns", func(t *testing.T) {
-		assert.True(t, warnBypassOnLostContainer(containerAxes, "worktree", agent.PermissionBypass, "mock"),
+		assert.True(t, warnBypassOnLostContainer(containerAxes, "worktree", agent.PermissionBypass, prompting),
 			"container requested, worktree prepared → the boundary is lost; bypass on the host must warn")
-		assert.True(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionBypass, "mock"))
+		assert.True(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionBypass, prompting))
 	})
 
-	t.Run("no warning without a container request, without bypass, or for the claude-code stopgap", func(t *testing.T) {
+	t.Run("no warning without a container request, without bypass, or for an engine whose host default is the stopgap", func(t *testing.T) {
 		hostAxes := isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost}
-		assert.False(t, warnBypassOnLostContainer(hostAxes, "worktree", agent.PermissionBypass, "mock"),
+		assert.False(t, warnBypassOnLostContainer(hostAxes, "worktree", agent.PermissionBypass, prompting),
 			"no container was requested — nothing was lost")
-		assert.False(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionDefault, "mock"),
+		assert.False(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionDefault, prompting),
 			"a prompting posture on the host is the normal degrade, not a silent full-auto")
-		assert.False(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionBypass, config.BackendClaudeCode),
-			"bypass-on-host is the claude-code stopgap's intended posture")
+		assert.False(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionBypass, stopgap),
+			"bypass-on-host is the stopgap engine's intended posture")
 	})
 }
 

@@ -127,7 +127,7 @@ func TestSettingsRecord_Deliver_PatchesEngineHomeSettingsAndWritesTheRecord(t *t
 
 	in := sampleInputs()
 	in.DenyTools = []string{"Task"}
-	a, ok := Surfaces.Construct(agent.SurfaceSettings, ApproachHewRecord, in, fs)
+	a, ok := Declaration().Construct(agent.SurfaceSettings, ApproachHewRecord, in, fs)
 	require.True(t, ok, "claude declares settings=hew-record")
 
 	p := a.Present(recordStart())
@@ -216,7 +216,7 @@ func TestSettingsRecord_Deliver_RefusesAnUnresolvedEngineHome(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const recordsDir = "/home/.ctxloom/records"
 	t.Cleanup(paths.SetHomeRecordsDirForTesting(recordsDir))
-	a, ok := Surfaces.Construct(agent.SurfaceSettings, ApproachHewRecord, sampleInputs(), fs)
+	a, ok := Declaration().Construct(agent.SurfaceSettings, ApproachHewRecord, sampleInputs(), fs)
 	require.True(t, ok)
 
 	d, err := a.Deliver(present.ProjectOnHost("/proj"))
@@ -239,19 +239,19 @@ func TestSettingsRecord_Deliver_RefusesAnUnresolvedEngineHome(t *testing.T) {
 // their presenters land the bytes — the plain writer under the project root,
 // the record writer not.
 func TestSurfaces_SettingsDefaultStaysUnsafeFile_HewRecordIsNamed(t *testing.T) {
-	def, ok := Surfaces.Default(agent.SurfaceSettings)
+	def, ok := Declaration().Default(agent.SurfaceSettings)
 	require.True(t, ok)
 	assert.Equal(t, agent.ApproachUnsafeFile, def)
-	assert.Contains(t, Surfaces.Names(agent.SurfaceSettings), ApproachHewRecord)
+	assert.Contains(t, Declaration().Names(agent.SurfaceSettings), ApproachHewRecord)
 
 	fs := afero.NewMemMapFs()
-	record, ok := Surfaces.Construct(agent.SurfaceSettings, ApproachHewRecord, sampleInputs(), fs)
+	record, ok := Declaration().Construct(agent.SurfaceSettings, ApproachHewRecord, sampleInputs(), fs)
 	require.True(t, ok)
 	_, isRecord := record.(*settingsRecord)
 	assert.True(t, isRecord, "hew-record constructs the record writer, not the plain one with a flag")
 	assert.False(t, agent.PresentsUnderProjectRoot(record), "the record writer is not a project file")
 
-	plain, ok := Surfaces.Construct(agent.SurfaceSettings, agent.ApproachUnsafeFile, sampleInputs(), fs)
+	plain, ok := Declaration().Construct(agent.SurfaceSettings, agent.ApproachUnsafeFile, sampleInputs(), fs)
 	require.True(t, ok)
 	assert.True(t, agent.PresentsUnderProjectRoot(plain), "the plain writer is")
 }
@@ -262,7 +262,7 @@ func TestSurfaces_SettingsDefaultStaysUnsafeFile_HewRecordIsNamed(t *testing.T) 
 // engine home.
 func TestSettingsRecord_Deliver_TwiceDoesNotDuplicate(t *testing.T) {
 	fs, target, recordsDir := recordFixture(t)
-	a, ok := Surfaces.Construct(agent.SurfaceSettings, ApproachHewRecord, sampleInputs(), fs)
+	a, ok := Declaration().Construct(agent.SurfaceSettings, ApproachHewRecord, sampleInputs(), fs)
 	require.True(t, ok)
 
 	for i := 0; i < 2; i++ {
@@ -284,7 +284,7 @@ func TestSettingsRecord_Deliver_CreatesTheFileWhenTheHomeHasNone(t *testing.T) {
 	const recordsDir = "/home/.ctxloom/records"
 	t.Cleanup(paths.SetHomeRecordsDirForTesting(recordsDir))
 	target := filepath.Join(recordHome, SettingsFileName)
-	a, ok := Surfaces.Construct(agent.SurfaceSettings, ApproachHewRecord, sampleInputs(), fs)
+	a, ok := Declaration().Construct(agent.SurfaceSettings, ApproachHewRecord, sampleInputs(), fs)
 	require.True(t, ok)
 
 	d, err := a.Deliver(recordStart())
@@ -325,7 +325,7 @@ func TestSettingsRecord_Deliver_RefusesToInsertBesideAnExistingHookEvent(t *test
 		},
 	})
 	testsupport.WriteFile(t, fs, target, seeded, 0o644)
-	a, ok := Surfaces.Construct(agent.SurfaceSettings, ApproachHewRecord, sampleInputs(), fs)
+	a, ok := Declaration().Construct(agent.SurfaceSettings, ApproachHewRecord, sampleInputs(), fs)
 	require.True(t, ok)
 
 	d, err := a.Deliver(recordStart())

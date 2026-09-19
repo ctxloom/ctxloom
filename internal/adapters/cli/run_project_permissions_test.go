@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
@@ -32,14 +33,15 @@ import (
 // resolvePermissionMode's source list turns every "beats the project default"
 // row below red.
 func TestResolvePermissionMode_ProjectDefault(t *testing.T) {
-	const claude = config.DefaultLLM // "claude-code"
+	// The two declared host defaults: the host-bypass stopgap and prompt-per-call.
+	const stopgap, prompting = agent.PermissionBypass, agent.PermissionDefault
 	cases := []struct {
 		name         string
 		flag         string
 		agentPerm    string
 		labelPerm    string
 		projectPerm  string
-		backend      string
+		hostDefault  agent.PermissionMode
 		mode         pb.ExecutionMode
 		enforcesPlan bool
 		want         agent.PermissionMode
@@ -47,40 +49,40 @@ func TestResolvePermissionMode_ProjectDefault(t *testing.T) {
 		// The rung itself: nothing narrower declared, so the project default is
 		// what the run launches at — on a NON-claude backend (no stopgap in
 		// play) this is the plain "the project widened its own dir" case.
-		{"project default is honored when nothing narrower is declared", "", "", "", "bypass", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
-		{"project default can also narrow", "", "", "", "plan", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"project default is honored when nothing narrower is declared", "", "", "", "bypass", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
+		{"project default can also narrow", "", "", "", "plan", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
 
 		// Narrower always wins — one row per rung above the project default.
-		{"label beats the project default", "", "", "plan", "bypass", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
-		{"agent binding beats the project default", "", "plan", "", "bypass", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
-		{"flag beats the project default", "plan", "", "", "bypass", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"label beats the project default", "", "", "plan", "bypass", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"agent binding beats the project default", "", "plan", "", "bypass", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"flag beats the project default", "plan", "", "", "bypass", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
 		// ...and an explicitly-declared WIDER posture above still wins too: the
 		// rule is precedence, not "most restrictive". A project that pinned plan
 		// has not taken away a binding's right to declare bypass for itself.
-		{"a wider label still beats a narrow project default", "", "", "bypass", "plan", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
+		{"a wider label still beats a narrow project default", "", "", "bypass", "plan", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
 
 		// The stopgap interaction, both directions.
-		{"a declared project default beats the claude-code host stopgap", "", "", "", "plan", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
-		{"an explicit project default:default opts out of the stopgap", "", "", "", "default", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
-		{"an undeclared project default leaves the stopgap standing", "", "", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
-		{"an undeclared project default leaves a non-claude backend prompting", "", "", "", "", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
+		{"a declared project default beats the host stopgap", "", "", "", "plan", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
+		{"an explicit project default:default opts out of the stopgap", "", "", "", "default", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
+		{"an undeclared project default leaves the stopgap standing", "", "", "", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
+		{"an undeclared project default leaves a prompting engine prompting", "", "", "", "", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
 
 		// A hand-edited misspelling is refused as a fatal finding rather than
 		// hard-failing the launch here (only the typed --permissions flag is
 		// strict — validatePermissionFlag), and the posture it lands on is the
 		// floor: falling THROUGH would hand the run whatever the rung below
 		// happens to say, up to and including the claude-code host stopgap.
-		{"an unparseable project default floors to read-only", "", "", "", "nonsense", "mock", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
-		{"an unparseable project default floors on claude-code too", "", "", "", "nonsense", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
+		{"an unparseable project default floors to read-only", "", "", "", "nonsense", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
+		{"an unparseable project default floors on the stopgap engine too", "", "", "", "nonsense", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
 
 		// The collapses/floors that sit downstream of the whole chain apply to a
 		// project-sourced posture exactly as to any other.
-		{"a project plan collapses on a backend with no read-only tier", "", "", "", "plan", "mock", pb.ExecutionMode_INTERACTIVE, false, agent.PermissionDefault},
-		{"a project default floors up for a headless oneshot", "", "", "", "default", "mock", pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
+		{"a project plan collapses on a backend with no read-only tier", "", "", "", "plan", prompting, pb.ExecutionMode_INTERACTIVE, false, agent.PermissionDefault},
+		{"a project default floors up for a headless oneshot", "", "", "", "default", prompting, pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := resolvePermissionMode(tc.flag, tc.agentPerm, tc.labelPerm, tc.projectPerm, tc.backend, tc.mode, tc.enforcesPlan)
+			got := resolvePermissionMode(tc.flag, tc.agentPerm, tc.labelPerm, tc.projectPerm, engine.PermissionFacts{HostDefault: tc.hostDefault, ReadOnlyPlan: tc.enforcesPlan}, tc.mode)
 			assert.Equal(t, tc.want, got)
 		})
 	}

@@ -31,7 +31,7 @@ import (
 // S5: a broken per-engine scraper is DELETED outright (the user's explicit
 // decision — not demoted to a fixture-pinned vendor reader, §4c/§4d of the
 // removal plan). An engine that lost its scraper DECLARES that on its own
-// descriptor (engine.Descriptor.NoLegacyHistoryReason; read through
+// descriptor (hosting.Hosting.NoLegacyHistoryReason; read through
 // backends.NoLegacyHistoryReason), and a caller building a source for it
 // passes legacy=nil: canonical capture is the ONLY source, matching the
 // delete decision (no legacy leg to ever fall back to, since there is no

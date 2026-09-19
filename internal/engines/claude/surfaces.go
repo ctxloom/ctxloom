@@ -10,31 +10,28 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
-// This file is claude's DECLARATION on the unified surface-delivery seam
-// (internal/core/agent/cells.go, declaration.go): each approach claude
-// supports as a value implementing agent.Approach, and Surfaces — the one
-// place claude's surface membership is stated. Every approach here WRAPS an
-// existing claude writer verbatim — appendFlagDelivery (contextdelivery.go),
-// fileTemplateDelivery (surfacedelivery.go), and the ContextWriter core
-// WriteContext (claude.go); the record-backed settings approach, which
-// writes through confpatch instead, lives in surfaces_hewrecord.go.
-// buildArgs (claudecode.go) reads each flag-announced approach's Path() after
-// delivery, on every cell.
+// This file holds claude's runtime FORMS on the surface-delivery seam
+// (internal/core/agent/cells.go, declaration.go): each form is a value
+// implementing agent.Approach, constructed by name from the Forms the typed
+// approaches in definition.go carry. claude's surface membership itself is
+// stated ONCE, by the typed fields of its engine.Definition (Build); the
+// named table this seam reads is derived from it (Declaration). Every form
+// here WRAPS an existing claude writer verbatim — appendFlagDelivery
+// (contextdelivery.go), fileTemplateDelivery (surfacedelivery.go), and the
+// ContextWriter core WriteContext (claude.go); the record-backed settings
+// form, which writes through confpatch instead, lives in
+// surfaces_hewrecord.go. buildArgs (claudecode.go) reads each
+// flag-announced form's Path() after delivery, on every cell.
 //
-// Capability recap. A surface with TWO approaches names both: which one runs
-// is the caller's selection (or, on a shared launch with no preference, the
-// derivation in preferOutOfCwd), never a conversion applied underneath it.
+// A surface with TWO forms names both: which one runs is the caller's
+// selection (or, on a shared launch with no preference, the derivation in
+// preferOutOfCwd), never a conversion applied underneath it. Where each
+// form's bytes land is stated on the form (Present); which forms a kind
+// has is stated on its typed approach (Forms).
 //
-//	surface   | approaches                                  | where its bytes land
-//	----------|---------------------------------------------|----------------------------------------
-//	context   | unsafe-file (default) / system-prompt / hook | CLAUDE.md / <hash>.sysprompt.md announced on --append-system-prompt-file / rides settings
-//	MCP       | .mcp.json                                   | project file, announced on --mcp-config when out of cwd
-//	settings  | unsafe-file (default) / hew-record          | .claude/settings.json (--settings when out of cwd) / <EngineHome>/settings.json
-//	commands  | .claude/commands/                           | ❌ no flag form → loud native write when shared
-//	skills    | .claude/skills/<name>/                      | ❌ no flag form → loud native write when shared
-//
-// claude folds "settings + hooks" into ONE surface because claude's hooks live
-// inside .claude/settings.json — there is no separate hooks file to deliver.
+// Hooks are delivered through the settings forms: claude keeps hook
+// registrations inside .claude/settings.json, so the hooks approach
+// (definition.go) writes through the same writer as settings.
 
 // ApproachSystemPrompt names claude's out-of-cwd framed context consumed via
 // --append-system-prompt-file — semantically distinct from the native file
@@ -457,49 +454,6 @@ func newSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 	return agent.NewManagedSkillPackagesDelivery("claude/skills", relSkills, in.Skills, func(dir string, skills []agent.SkillExport) error {
 		return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs))
 	})
-}
-
-// Surfaces is claude's DECLARATION: per surface, every approach it can
-// construct and which is the default — the ONE place claude's surface
-// membership is stated. Construction is ROOT-FREE: every write, well-known
-// and out-of-cwd alike, receives the run's advised roots when it runs, so
-// nothing here binds a directory.
-//
-// context is a multi-approach surface — the native file (the DEFAULT,
-// named explicitly rather than inferred from declaration order), the
-// out-of-cwd system prompt, and the settings-carried hook (the shared
-// implementation; claude registers it, it does not own it). settings is the
-// other: the project file (the DEFAULT) and the record-backed write into the
-// engine's private home (surfaces_hewrecord.go), which a binding selects by
-// name. Every other surface has exactly one approach.
-//
-// A name here is known IF AND ONLY IF a constructor is registered under it, so
-// "supported" and "constructible" cannot disagree — which is the whole reason
-// this replaced a capability list beside a construction map. Every
-// constructor takes the SHARED agent.SurfaceInputs directly rather than a
-// local copy: two hand-maintained field-by-field mappers drift apart. claude
-// simply ignores the fields it has no use for (Fragments, AgentName).
-var Surfaces = agent.Declaration{
-	agent.SurfaceContext: agent.Presents("claude", agent.SurfaceContext, agent.ApproachUnsafeFile,
-		agent.NativeContextFile("claude/context", ContextFileName, claudeContextWriter)).
-		Or(ApproachSystemPrompt, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-			return &systemPromptContext{content: in.Context, fs: agent.GetFS(fs)}
-		}).
-		Or(agent.ApproachHook, agent.HookCarriedContext),
-	agent.SurfaceMCP: agent.Presents("claude", agent.SurfaceMCP, ApproachMCPConfig, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &mcpConfig{mcpWriter: newMCPWriter(in, fs)}
-	}).Or(agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &mcpUnsafeFile{mcpWriter: newMCPWriter(in, fs)}
-	}),
-	agent.SurfaceSettings: agent.Presents("claude", agent.SurfaceSettings, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: agent.GetFS(fs)}
-	}).Or(ApproachHewRecord, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &settingsRecord{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: agent.GetFS(fs)}
-	}),
-	agent.SurfaceCommands: agent.Presents("claude", agent.SurfaceCommands, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &commandsSurface{commands: in.Commands, fs: agent.GetFS(fs), selfContainedCommands: in.SelfContainedCommands}
-	}),
-	agent.SurfaceSkills: agent.Presents("claude", agent.SurfaceSkills, agent.ApproachUnsafeFile, newSkillsSurface),
 }
 
 // Compile-time capability contracts. Every approach is an agent.Approach.

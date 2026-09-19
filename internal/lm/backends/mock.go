@@ -54,14 +54,14 @@ type Mock struct {
 // evidence of what the engine actually observed. It is deliberately additive: a
 // failure that replaced the response with a constant would render identically
 // whether or not ctxloom delivered anything, and the mock's class gate
-// (internal/engines/mock/arch_test.go) forbids exactly that — "a limb that renders
+// (internal/engines/mock/runtime/arch_test.go) forbids exactly that — "a limb that renders
 // identically either way is not evidence". Prefixing instead of replacing is
 // what lets a NEGATIVE scenario assert positively: the run can only produce
 // "FAIL" followed by the observed context if the engine was actually reached and
 // the value actually flowed, where asserting the ABSENCE of something is
 // satisfied just as well by an engine that never launched.
 //
-// internal/engines/mock references this constant rather than re-typing it, so the
+// internal/engines/mock/runtime references this constant rather than re-typing it, so the
 // two mock halves cannot drift to different markers.
 const MockFailPrefix = "FAIL"
 
@@ -158,7 +158,7 @@ func NewMockLaunch() *Mock { return newMockBackend(config.BackendMockLaunch) }
 func NewMockNoSkills() *Mock { return newMockBackend(config.BackendMockNoSkills) }
 
 // newMockBackend builds a mock-family backend under the given registry name.
-// The doubles differ ONLY in that name and in what their descriptors declare,
+// The doubles differ ONLY in that name and in what their records declare,
 // so they share one constructor rather than a body each that could drift into
 // behaving differently.
 //
@@ -244,14 +244,14 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 
 // ConfigHomeEnvKeys returns the config-home env vars a run can thread into
 // RunOptions.Env — each registered engine's own home-relocation var(s),
-// DERIVED from the descriptors' Home declarations so the roster cannot miss
+// DERIVED from the records' Home declarations so the roster cannot miss
 // an engine that declared one. mock records whichever of these are set so a
 // hermetic test can prove what config-home env the engine received.
 func ConfigHomeEnvKeys() []string {
 	var keys []string
 	seen := map[string]bool{}
 	for _, name := range List() {
-		home, ok := descriptors[name].Home.Get()
+		home, ok := records[name].host.Home.Get()
 		if !ok {
 			continue
 		}
@@ -535,7 +535,7 @@ func getEnvFromMap(env map[string]string, key string) string {
 // produces — exit 0, a success message, nothing written. A mock that cannot be
 // asked for one cannot be used to prove ctxloom surfaces it rather than
 // papering over it, so "set to empty" and "unset" have to be distinguishable.
-// internal/engines/mock's Dispatch takes a two-value reader for the same reason.
+// internal/engines/mock/runtime's Dispatch takes a two-value reader for the same reason.
 //
 // The lookup ORDER lives here alone (exact key, then the lowercase the config
 // parser may produce, then the process environment) rather than being written

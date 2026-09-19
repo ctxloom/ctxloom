@@ -218,7 +218,7 @@ func TestCredentialSymlink_IsRefusedByAnONOFOLLOWReader(t *testing.T) {
 // engine which later SPLITS the two leaves makes this test fail and reopens
 // the option deliberately.
 func TestClaudeCredentialSharesItsLeafWithTheInstanceConfig(t *testing.T) {
-	desc := claudeengine.Descriptor()
+	desc := claudeengine.Hosting()
 
 	home, ok := desc.Home.Get()
 	require.True(t, ok, "claude declares an engine home")

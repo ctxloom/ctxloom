@@ -63,7 +63,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"io"
 	"os"
 	"os/exec"
@@ -718,7 +717,7 @@ func probeWorktreeAuthAvailable(backendType string) (probeAuthPath, string) {
 //     container axis too.
 func probeContainerAuthAvailable(backendType string) (probeAuthPath, string) {
 	switch backendType {
-	case config.BackendClaudeCode:
+	case "claude-code":
 		return probeDecideAuthPath(backendType)
 	default:
 		return probeAuthNone, fmt.Sprintf("unknown engine %q", backendType)

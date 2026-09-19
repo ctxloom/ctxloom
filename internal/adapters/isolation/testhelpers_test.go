@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -59,7 +60,7 @@ func TestMain(m *testing.M) {
 	// from here is an import cycle. Calling the seam directly keeps the seed
 	// these tests exercise the one the engine authors on its descriptor,
 	// rather than a fixture that mirrors it and drifts.
-	claudeHome, ok := claudeengine.Descriptor().Home.Get()
+	claudeHome, ok := claudeengine.Hosting().Home.Get()
 	if !ok {
 		panic("isolation tests: claude's descriptor declares no Home; the seed tests have nothing to exercise")
 	}
@@ -69,11 +70,11 @@ func TestMain(m *testing.M) {
 	// reaches the instance. With it unregistered every seed would refuse, and
 	// with a fixture standing in for it the tests would exercise an acceptance
 	// order claude never declared.
-	RegisterProvisioningPolicy(claude.EngineName, claudeengine.Descriptor().Provisioning)
+	RegisterProvisioningPolicy(claude.EngineName, claudeengine.Hosting().Provisioning)
 	// And its container story with its shipping policy, for the same reason:
 	// the spec the container tests build is the one claude declares.
-	claudeDesc := claudeengine.Descriptor()
-	RegisterEngineContainer(claude.EngineName, claudeDesc.Container, claudeDesc.Distribution)
+	claudeDesc := claudeengine.Hosting()
+	RegisterEngineContainer(claude.EngineName, claudeDesc.Container, engine.DistributionDefault)
 	os.Exit(testsupport.SandboxedMain(m))
 }
 

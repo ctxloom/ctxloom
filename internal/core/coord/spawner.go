@@ -194,8 +194,14 @@ func newProdSpawner(app *operations.App, projectDir string, starter StarterFunc)
 // name a backend at all, and a delegated child's context rides the FIRST
 // TURN (runChildViaStartRun's JoinLeadBlocks into StartRun.input) rather than
 // through any backend-specific config file a Setup step would have to write.
+//
+// TODO(slice 11b): these three tables are the last name-keyed capability
+// declarations in core. They read Instance.Resume(key) — real or refused —
+// once the instance half of the engine port lands; until then the engine's
+// name is spelled here, and the no-engine-name-in-core gate allows it by
+// that slice.
 var viaStartRunBackends = map[string]bool{
-	config.BackendClaudeCode: true,
+	"claude-code": true,
 	// mock is reviewed onto StartRun because the binary can HOST it: `ctxloom
 	// llm host mock` stands up a real runner around the deterministic echo, so
 	// a mock child is a driveable run, not a run nothing can answer. That is
@@ -248,7 +254,7 @@ func checkStartRunAllowlist(backend string) error {
 //     exactly like viaStartRunBackends, so a new backend is reviewed onto
 //     resume explicitly rather than swept in by implementing StructuredChat.
 var resumeCapableBackends = map[string]bool{
-	config.BackendClaudeCode: true,
+	"claude-code": true,
 }
 
 // oneShotSupportedBackends is the set of backends whose driving:oneshot turn
@@ -262,7 +268,7 @@ var resumeCapableBackends = map[string]bool{
 // A backend in neither table never reaches the gate at all: resolveResumeMode
 // already fails it loud on the capability reason.
 var oneShotSupportedBackends = map[string]bool{
-	config.BackendClaudeCode: true,
+	"claude-code": true,
 }
 
 // resolveResumeMode is the per-engine resume-capability gate (Fork 3's

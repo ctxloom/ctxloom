@@ -34,13 +34,13 @@ import (
 // performs inside the instance is a refresh the host has too.
 //
 // WHICH mechanism is not decided here either. The engine DECLARES the
-// deliveries it accepts, best first (engine.Descriptor.Provisioning), Select
+// deliveries it accepts, best first (hosting.Hosting.Provisioning), Select
 // walks that declaration, and a platform that can honour none of it is a
 // REFUSAL naming every candidate tried — never a quiet downgrade to something
 // the engine did not agree to.
 //
 // WHAT to place is not decided here. Each engine declares its seed on its own
-// descriptor (engine.Descriptor.Home.Credentials), and internal/lm/backends
+// descriptor (hosting.Hosting.Home.Credentials), and internal/lm/backends
 // pushes that declaration — provided OR declared absent — into this package
 // for every engine it registers, alongside the provisioning policy. This
 // package cannot import the registry (backends imports it), and CopyAmbient is

@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -238,7 +239,7 @@ func promptForEngineAndRepos() (engine string, repos []string, dirtyTreeHandler 
 			return "", nil, "", false, err
 		}
 		clidiag.Warn("ctxloom", "failed to read engine selection: %v", err)
-		engine = "claude-code"
+		engine = backends.DefaultEngineName()
 	}
 
 	repos, repoErr := prompts.promptPersonalRepos()

@@ -12,17 +12,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// primaryEngines are shown first in the selection menu (curated list). Every
-// entry must be a REGISTERED backend name: an unregistered one is offered to
-// the user, accepted, and then fails at launch on an engine ctxloom cannot
-// run — the menu is the last place that should name something that is not
-// there.
-var primaryEngines = []string{config.BackendClaudeCode}
+// primaryEngines are shown first in the selection menu: the engines shipped
+// by default (engine.DistributionDefault), read off the registry so the menu
+// cannot name an engine that is not there.
+func primaryEngines() []string { return backends.DefaultEngines() }
 
 // getAvailableEngines returns engines filtered by what's actually installed.
 // Primary engines come first, then secondary engines, all sorted.
@@ -36,12 +33,12 @@ func userEngineNames() string {
 
 func getAvailableEngines() (primary, secondary []string) {
 	primarySet := make(map[string]bool)
-	for _, e := range primaryEngines {
+	for _, e := range primaryEngines() {
 		primarySet[e] = true
 	}
 
 	// Check which primary engines are available
-	for _, name := range primaryEngines {
+	for _, name := range primaryEngines() {
 		if backends.IsAvailable(name) {
 			primary = append(primary, name)
 		}
@@ -185,8 +182,8 @@ func (p *initPrompts) promptAllEngines(primary, secondary []string) (string, err
 }
 
 // pickDefaultEngine resolves the engine to use: an explicit selection wins;
-// otherwise the first available primary engine; otherwise "claude-code" so init
-// never dead-ends without an engine.
+// otherwise the first available primary engine; otherwise the engine shipped
+// by default, so init never dead-ends without an engine.
 func pickDefaultEngine(selected string, primary []string) string {
 	if selected != "" {
 		return selected
@@ -194,7 +191,7 @@ func pickDefaultEngine(selected string, primary []string) string {
 	if len(primary) > 0 {
 		return primary[0]
 	}
-	return "claude-code"
+	return backends.DefaultEngineName()
 }
 
 // noEnginesInstalled reports whether neither a primary nor a secondary engine

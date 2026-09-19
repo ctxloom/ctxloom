@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // This file defines the ENGINE CLI CONTRACT: a backend's single declaration of
@@ -568,4 +570,26 @@ func EngineCLIFor(clis []EngineCLI, surface CLISurface) (EngineCLI, bool) {
 		return EngineCLI{}, false
 	}
 	return clis[i], true
+}
+
+// GrammarOf derives the port's argv grammar (engine.CLIGrammar) from this
+// L1 declaration, so an engine's Definition.CLI is a projection of the one
+// EngineCLI it already declares, never a second table: the surface names the
+// Mode, each flag's value shape says whether it consumes a value, and a
+// positional prompt (plus a leading subcommand) is a positional.
+func GrammarOf(c EngineCLI) engine.CLIGrammar {
+	g := engine.CLIGrammar{Mode: engine.Interactive, Binary: c.Binary}
+	if c.Surface == CLISurfaceOneshot {
+		g.Mode = engine.Structured
+	}
+	for _, f := range c.Flags {
+		g.Flags = append(g.Flags, engine.Flag{Name: f.Name, HasValue: f.TakesValue()})
+	}
+	if c.Subcommand != "" {
+		g.Positional++
+	}
+	if c.Prompt == PromptPositional {
+		g.Positional++
+	}
+	return g
 }

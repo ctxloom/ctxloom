@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/spf13/afero"
 )
@@ -185,6 +186,9 @@ func TestResolveBackend(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
 		"agy-code": {Type: "mock", Body: map[string]any{"model": "gemini-3-pro"}},
 	}}})
+	// The degrade target is the engine shipped by default, bound by
+	// validating against the composed registry — never a literal in config.
+	require.NoError(t, cfg.Validate(backends.Engines()))
 
 	t.Run("configured label resolves to its type and model", func(t *testing.T) {
 		backend, model := ResolveBackend(cfg, "agy-code")
@@ -194,7 +198,7 @@ func TestResolveBackend(t *testing.T) {
 
 	t.Run("unknown non-backend label degrades to the default", func(t *testing.T) {
 		backend, model := ResolveBackend(cfg, "no-such-label")
-		assert.Equal(t, config.DefaultLLM, backend)
+		assert.Equal(t, "claude-code", backend)
 		assert.Empty(t, model)
 	})
 
@@ -211,7 +215,7 @@ func TestResolveBackend(t *testing.T) {
 	t.Run("a retired short spelling is an unknown label, not a backend", func(t *testing.T) {
 		for _, spelling := range []string{"claude", "CLAUDE", "claudecode", "Claude-Code"} {
 			backend, model := ResolveBackend(cfg, spelling)
-			assert.Equal(t, config.DefaultLLM, backend, "ResolveBackend(%q) degrades like any unknown label", spelling)
+			assert.Equal(t, "claude-code", backend, "ResolveBackend(%q) degrades like any unknown label", spelling)
 			assert.Empty(t, model)
 		}
 	})

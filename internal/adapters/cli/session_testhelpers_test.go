@@ -85,7 +85,7 @@ func pinnedEngineVersion(t *testing.T, backend string) (string, bool) {
 	case config.BackendMock:
 		require.NotEmpty(t, mockreader.VersionedAdapters, "mock declares no versioned adapter")
 		return mockreader.VersionedAdapters[0].ValidatedVersion, true
-	case config.BackendClaudeCode:
+	case "claude-code":
 		return enginePinFromLock(t, "CLAUDE_CODE_CLI_VERSION"), true
 	}
 	return "", false

@@ -23,11 +23,12 @@
 package acceptance
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/stretchr/testify/require"
 )
@@ -261,13 +262,13 @@ func TestP6Mint_IsLedgeredAndUniquePerCell(t *testing.T) {
 	// PX able to tell a leak from a collision. Both properties are asserted here
 	// against the SAME ledger the cells use, because a probe minting outside it
 	// would be invisible to the leak scanner.
-	a, err := probeHarps.Mint(p6Cell(config.BackendClaudeCode, "host", "none"))
+	a, err := probeHarps.Mint(p6Cell("claude-code", "host", "none"))
 	require.NoError(t, err)
 	b, err := probeHarps.Mint(p6Cell(config.BackendMock, "host", "none"))
 	require.NoError(t, err)
 	require.NotEqual(t, a, b, "two cells sharing a harp would make the leak scanner report a collision as contamination")
 
-	again, err := probeHarps.Mint(p6Cell(config.BackendClaudeCode, "host", "none"))
+	again, err := probeHarps.Mint(p6Cell("claude-code", "host", "none"))
 	require.NoError(t, err)
 	require.Equal(t, a, again, "the fixture step and the assertion step are separate steps and must agree on the value")
 

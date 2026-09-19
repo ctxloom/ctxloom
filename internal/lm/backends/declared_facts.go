@@ -3,7 +3,7 @@ package backends
 import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 )
 
 // The accessors in this file hand a descriptor's DECLARED slots to the
@@ -39,7 +39,7 @@ func CredentialSeedFor(name string) agent.Declared[agent.CredentialSeed] {
 
 // credentialSeedOf is CredentialSeedFor on a descriptor in hand — what
 // Register pushes to isolation before the descriptor is reachable by name.
-func credentialSeedOf(d *engine.Descriptor) agent.Declared[agent.CredentialSeed] {
+func credentialSeedOf(d *hosting.Hosting) agent.Declared[agent.CredentialSeed] {
 	home, ok := d.Home.Get()
 	if !ok {
 		return agent.Absent[agent.CredentialSeed](d.Home.AbsentReason())
@@ -59,7 +59,7 @@ func NoLegacyHistoryReason(name string) string {
 }
 
 // RetiredScraperBackendNames lists the registered engines whose legacy
-// scraper was retired, sorted — a view over the descriptors, for a gate that
+// scraper was retired, sorted — a view over the records, for a gate that
 // wants the set rather than one answer.
 func RetiredScraperBackendNames() []string {
 	return ListWhere(func(name string) bool { return NoLegacyHistoryReason(name) != "" })

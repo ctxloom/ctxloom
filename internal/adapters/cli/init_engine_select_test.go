@@ -18,11 +18,11 @@ import (
 // adding a correctly-registered engine never requires editing it; only a
 // roster entry that has drifted out of registration trips it.
 func TestPrimaryEngines_AreAllRegisteredBackends(t *testing.T) {
-	require.NotEmpty(t, primaryEngines, "an empty curated menu offers the user nothing")
+	require.NotEmpty(t, primaryEngines(), "an empty curated menu offers the user nothing")
 	registered := backends.List()
 	require.NotEmpty(t, registered, "no backend is registered; this comparison would be vacuous")
 
-	for _, name := range primaryEngines {
+	for _, name := range primaryEngines() {
 		assert.Contains(t, registered, name,
 			"primaryEngines offers %q, which is not a registered backend — init would accept a choice that cannot launch", name)
 	}

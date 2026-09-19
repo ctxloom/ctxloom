@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -80,7 +79,7 @@ func TestConvertVendorTranscriptOnExit_UnregisteredBackend(t *testing.T) {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/tmp/project", "not-a-registered-engine")
 	require.NoError(t, err)
-	claudeVersion, ok := pinnedEngineVersion(t, config.BackendClaudeCode)
+	claudeVersion, ok := pinnedEngineVersion(t, "claude-code")
 	require.True(t, ok)
 	require.NoError(t, mgr.RecordEngineVersion(entry.HarpName, claudeVersion))
 	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", claudeVendorFixturePath(t)))

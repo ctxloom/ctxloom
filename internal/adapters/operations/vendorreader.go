@@ -65,7 +65,7 @@ type vendorReaderEntry struct {
 
 // vendorReaderFor resolves engine's reader entry as a VIEW over the backend
 // registry: the adapters are the ones the engine's own descriptor declares
-// (engine.Descriptor.TranscriptReaders), so an engine cannot be registered
+// (hosting.Hosting.TranscriptReaders), so an engine cannot be registered
 // and launchable yet missing here — the roster is the registry, filtered by
 // what each engine declared. ok=false is a DECLARED absence (the descriptor
 // said, with a reason, that the engine keeps no vendor-native transcript) or

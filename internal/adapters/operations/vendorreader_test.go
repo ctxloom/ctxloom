@@ -68,7 +68,7 @@ func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 	harp := "convert-claude-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        config.BackendClaudeCode,
+		Backend:        "claude-code",
 		TranscriptPath: claudeFixturePath,
 		EngineVersion:  "2.1.225",
 	}
@@ -80,7 +80,7 @@ func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 	lines := canonicalLines(t, harp)
 	require.NotEmpty(t, lines, "Convert should have produced canonical lines from a real fixture")
 	// Every written record must carry the REGISTRY backend name
-	// (config.BackendClaudeCode == "claude-code"), not the reader
+	// ("claude-code" == "claude-code"), not the reader
 	// package's own short test-fixture name ("claude") — see
 	// vendorReaderFor's doc comment for why: RecordOneshot and the live
 	// structured-chat tee (lm/grpc/chat.go's openRecorder, keyed off the
@@ -110,7 +110,7 @@ func TestConvertVendorTranscript_UnregisteredBackend(t *testing.T) {
 func TestConvertVendorTranscript_NoBoundTranscript(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "convert-no-transcript-harp"
-	e := sessions.Entry{HarpName: harp, Backend: config.BackendClaudeCode} // never bound
+	e := sessions.Entry{HarpName: harp, Backend: "claude-code"} // never bound
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestConvertVendorTranscript_DanglingBoundPath(t *testing.T) {
 	harp := "convert-dangling-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        config.BackendClaudeCode,
+		Backend:        "claude-code",
 		TranscriptPath: filepath.Join(t.TempDir(), "does-not-exist.jsonl"),
 	}
 
@@ -142,7 +142,7 @@ func TestConvertVendorTranscript_Idempotent(t *testing.T) {
 	harp := "convert-idempotent-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        config.BackendClaudeCode,
+		Backend:        "claude-code",
 		TranscriptPath: claudeFixturePath,
 		EngineVersion:  stubEngineVersion,
 	}
@@ -177,7 +177,7 @@ func TestConvertVendorTranscript_PreRenameFileIsNotACanonicalTranscript(t *testi
 
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        config.BackendClaudeCode,
+		Backend:        "claude-code",
 		TranscriptPath: claudeFixturePath,
 		EngineVersion:  stubEngineVersion,
 	}
@@ -202,7 +202,7 @@ func TestConvertVendorTranscript_BestEffortOnFailure(t *testing.T) {
 	harp := "convert-failure-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        config.BackendClaudeCode,
+		Backend:        "claude-code",
 		TranscriptPath: t.TempDir(), // exists (os.Stat succeeds) but is not a file
 		EngineVersion:  stubEngineVersion,
 	}
@@ -214,7 +214,7 @@ func TestConvertVendorTranscript_BestEffortOnFailure(t *testing.T) {
 
 func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 	testsupport.Isolate(t)
-	e := sessions.Entry{Backend: config.BackendClaudeCode, TranscriptPath: claudeFixturePath}
+	e := sessions.Entry{Backend: "claude-code", TranscriptPath: claudeFixturePath}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	require.NoError(t, err)
@@ -233,7 +233,7 @@ func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 // declaring a reader, the change must explain what replaced the polymorphism.
 func TestVendorReaderRegistry_IsAPortWithARealAndADegenerateMember(t *testing.T) {
 	got := VendorReaderEngineNames()
-	assert.Contains(t, got, config.BackendClaudeCode)
+	assert.Contains(t, got, "claude-code")
 	assert.Contains(t, got, config.BackendMock)
 	assert.GreaterOrEqual(t, len(got), 2)
 }
@@ -311,7 +311,7 @@ func TestConvertVendorTranscript_RotationLineage_ConcatenatesSegmentAndLive(t *t
 	harp := "rotation-concat-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        config.BackendClaudeCode,
+		Backend:        "claude-code",
 		EngineVersion:  "2.1.225",
 		TranscriptPath: liveFixturePath, // the CURRENT (post-clear) binding
 		Rotations: []sessions.Rotation{
@@ -359,7 +359,7 @@ func TestConvertVendorTranscript_CachedSegmentIsReused(t *testing.T) {
 	harp := "rotation-cache-reuse-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        config.BackendClaudeCode,
+		Backend:        "claude-code",
 		EngineVersion:  "2.1.225",
 		TranscriptPath: liveFixturePath,
 		Rotations: []sessions.Rotation{
@@ -401,7 +401,7 @@ func TestConvertVendorTranscript_RotationVendorFileGone_SkipsSegmentWithoutFaili
 	gone := filepath.Join(t.TempDir(), "does-not-exist.jsonl")
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        config.BackendClaudeCode,
+		Backend:        "claude-code",
 		EngineVersion:  "2.1.225",
 		TranscriptPath: liveFixturePath,
 		Rotations: []sessions.Rotation{
@@ -440,7 +440,7 @@ func TestConvertVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySuc
 	goneRotation := filepath.Join(t.TempDir(), "rotation-gone.jsonl")
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        config.BackendClaudeCode,
+		Backend:        "claude-code",
 		EngineVersion:  stubEngineVersion,
 		TranscriptPath: goneLive,
 		Rotations: []sessions.Rotation{
@@ -473,7 +473,7 @@ func TestConvertVendorTranscript_Refresh_ReplacesExistingSymlinkWithARegularFile
 	harp := "rotation-symlink-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        config.BackendClaudeCode,
+		Backend:        "claude-code",
 		EngineVersion:  "2.1.225",
 		TranscriptPath: liveFixturePath,
 	}

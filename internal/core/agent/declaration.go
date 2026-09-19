@@ -1,10 +1,12 @@
 package agent
 
 import (
-	"sort"
+	"maps"
+	"slices"
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
@@ -193,17 +195,40 @@ func (d Declaration) Construct(kind SurfaceKind, name string, in SurfaceInputs, 
 // AllNames is the union of every approach name across every kind, sorted:
 // what a CLI can offer as "names that exist at all" before an engine is
 // chosen. Pure.
-func (d Declaration) AllNames() []string {
-	seen := map[string]bool{}
-	for _, p := range d {
-		for _, n := range p.Names() {
-			seen[n] = true
+func (d Declaration) AllNames() []string { return ApproachNames(d) }
+
+// ApproachNames is the union of every approach name across every kind of
+// every declaration handed to it, sorted — the one union, whether over one
+// engine's declaration or every registered engine's.
+func ApproachNames(decls ...Declaration) []string {
+	seen := map[string]struct{}{}
+	for _, d := range decls {
+		for _, p := range d {
+			for _, n := range p.Names() {
+				seen[n] = struct{}{}
+			}
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for n := range seen {
-		out = append(out, n)
+	return slices.Sorted(maps.Keys(seen))
+}
+
+// Forms is implemented by a typed engine approach (a field of
+// engine.Definition) that still delivers through this seam's named
+// Presentations: the runtime forms the launch path constructs by name. It is
+// how DeclarationOf derives the Declaration from the Definition, so an
+// engine keeps ONE table. It leaves with this seam.
+type Forms interface{ Forms() Presentations }
+
+// DeclarationOf derives the Declaration this seam reads from an engine's
+// derived surface table: every typed approach that carries Forms contributes
+// its named Presentations under its kind. An approach without Forms has no
+// runtime form here and is simply absent from the Declaration.
+func DeclarationOf(s engine.Surfaces) Declaration {
+	d := Declaration{}
+	for kind, a := range s {
+		if f, ok := a.(Forms); ok {
+			d[kind] = f.Forms()
+		}
 	}
-	sort.Strings(out)
-	return out
+	return d
 }

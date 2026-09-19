@@ -18,7 +18,7 @@ import (
 // would have to be remembered in.
 func TestEngineAuthFixHint_NamesTheEngineDeclaredLoginAndEnvVar(t *testing.T) {
 	const name = "fixture-authfix"
-	d := enginefixture.Descriptor(name)
+	d := enginefixture.Hosting(name)
 	d.Home = agent.Provide(agent.EngineHome{
 		Vars: []agent.HomeVar{{EnvVar: "FIXTURE_HOME", Subdir: "fixture"}},
 		Credentials: agent.Provide(agent.CredentialSeed{
@@ -28,7 +28,7 @@ func TestEngineAuthFixHint_NamesTheEngineDeclaredLoginAndEnvVar(t *testing.T) {
 			Files:      []agent.SeedFile{{HostRelHome: ".fixture/creds", DestName: "creds", Required: true}},
 		}),
 	})
-	require.NoError(t, backends.Register(d))
+	require.NoError(t, backends.Register(enginefixture.Registry(d), d))
 	t.Cleanup(func() { backends.UnregisterForTesting(name) })
 
 	hint := engineAuthFixHint(name)

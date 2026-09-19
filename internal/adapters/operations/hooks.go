@@ -497,8 +497,8 @@ func ConfiguredEngines(cfg *config.Config) []string {
 	// default — so it is what an unqualified apply targets. Returning nothing
 	// here would silently write nothing for the simplest possible project.
 	if len(seen) == 0 {
-		if backends.Exists(config.DefaultLLM) {
-			seen[config.DefaultLLM] = true
+		if def := backends.DefaultEngineName(); def != "" {
+			seen[def] = true
 		}
 	}
 

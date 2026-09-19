@@ -47,7 +47,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
@@ -342,7 +342,7 @@ func TestApplyHooks_NamedBackendTargetsOnlyThatOne(t *testing.T) {
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend: config.BackendClaudeCode,
+		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, mockConfigLoader),
 		WorkDir: tmpDir,
@@ -416,7 +416,7 @@ func TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched(t *testing
 			},
 			LM: config.LMConfig{
 				Configs: map[string]config.LLMConfig{
-					"claude": {Type: config.BackendClaudeCode},
+					"claude": {Type: "claude-code"},
 					"backup": {Type: config.BackendMock},
 				},
 				// Explicit, so PrimaryLabel doesn't fall back to "the only
@@ -430,17 +430,17 @@ func TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched(t *testing
 
 	cfg, cerr := mockConfigLoader()
 	require.NoError(t, cerr)
-	require.ElementsMatch(t, []string{config.BackendClaudeCode, config.BackendMock}, ConfiguredEngines(cfg),
+	require.ElementsMatch(t, []string{"claude-code", config.BackendMock}, ConfiguredEngines(cfg),
 		"fixture must configure BOTH engines, or this test proves nothing")
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend: config.BackendClaudeCode,
+		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, mockConfigLoader),
 		WorkDir: tmpDir,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{config.BackendClaudeCode}, result.Backends,
+	assert.Equal(t, []string{"claude-code"}, result.Backends,
 		"a named apply must report exactly the one backend it targeted")
 
 	claudeExists, err := afero.Exists(fs, "/project/.claude/settings.json")
@@ -593,14 +593,14 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 	// A collision class shaped exactly like the guarded engines' own: the
 	// "project" path is a workDir join that happens to equal the "global"
 	// path whenever workDir == HOME.
-	fake := enginefixture.Descriptor(fakeBackend)
-	fake.HookGlobalScope = agent.Provide(engine.HookGlobalScope{
+	fake := enginefixture.Hosting(fakeBackend)
+	fake.HookGlobalScope = agent.Provide(hosting.HookGlobalScope{
 		Paths: func(workDir string) (string, string, error) {
 			return filepath.Join(workDir, ".t12fake", "settings.json"), filepath.Join(home, ".t12fake", "settings.json"), nil
 		},
 		Label: "the T12 fake engine's global settings",
 	})
-	require.NoError(t, backends.Register(fake))
+	require.NoError(t, backends.Register(enginefixture.Registry(fake), fake))
 	t.Cleanup(func() { backends.UnregisterForTesting(fakeBackend) })
 
 	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{

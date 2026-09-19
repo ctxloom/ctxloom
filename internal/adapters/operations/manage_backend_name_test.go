@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
-
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +33,7 @@ func TestRemoveHooks_UnknownBackendIsRejected(t *testing.T) {
 
 // A known backend, and the all/empty filters, still work.
 func TestRemoveHooks_KnownBackendStillRuns(t *testing.T) {
-	for _, backend := range []string{"", config.BackendClaudeCode} {
+	for _, backend := range []string{"", "claude-code"} {
 		res, err := RemoveHooks(context.Background(), nil, RemoveHooksRequest{
 			Backend: backend,
 			FS:      afero.NewMemMapFs(),

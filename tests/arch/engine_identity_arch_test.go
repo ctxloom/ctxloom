@@ -64,6 +64,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -198,11 +199,11 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 		{
 			source:  "internal/adapters/isolation.ComposableEngines (pushed engine.Descriptor.Container + Distribution)",
 			members: isolation.ComposableEngines(),
-			absence: containerAbsence(func(c agent.EngineContainer, dist agent.Distribution) string {
+			absence: containerAbsence(func(c agent.EngineContainer, dist engine.Distribution) string {
 				switch {
 				case c.Install == nil:
 					return "declares no container installer"
-				case dist != agent.DistributionDefault:
+				case dist != engine.DistributionDefault:
 					return "ships " + dist.String() + ", so it is not default-composed"
 				}
 				return ""
@@ -211,11 +212,11 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 		{
 			source:  "internal/adapters/isolation.ContainerAuthEngines (pushed engine.Descriptor.Container + Distribution)",
 			members: isolation.ContainerAuthEngines(),
-			absence: containerAbsence(func(c agent.EngineContainer, dist agent.Distribution) string {
+			absence: containerAbsence(func(c agent.EngineContainer, dist engine.Distribution) string {
 				switch {
 				case c.Auth.AbsentReason() != "":
 					return c.Auth.AbsentReason()
-				case dist == agent.DistributionTestOnly:
+				case dist == engine.DistributionTestOnly:
 					return "a test double is never offered"
 				}
 				return ""
@@ -243,7 +244,7 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 // containerAbsence explains why a registered backend is outside a
 // container roster: its Container is declared absent (that reason), or the
 // roster's own filter — capability or policy — excludes it, per why.
-func containerAbsence(why func(agent.EngineContainer, agent.Distribution) string) func(string) string {
+func containerAbsence(why func(agent.EngineContainer, engine.Distribution) string) func(string) string {
 	return func(name string) string {
 		declared := backends.ContainerFor(name)
 		if reason := declared.AbsentReason(); reason != "" {

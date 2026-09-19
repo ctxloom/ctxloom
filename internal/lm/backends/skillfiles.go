@@ -4,7 +4,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
@@ -117,5 +117,5 @@ func forceExportSkill(ls *bundles.LoadedSkill) *bundles.LoadedSkill {
 // rather than mapping bundles.LoadedSkill to agent.SkillExport itself, so the
 // file bytes and the DECLARED modes reach the surface by the one path.
 func mockSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return engine.BuildSkillExports(skills, func(*bundles.LoadedSkill) bool { return true })
+	return hosting.BuildSkillExports(skills, func(*bundles.LoadedSkill) bool { return true })
 }

@@ -6,7 +6,7 @@ change. This is the contract between the two: what a companion must emit, how ct
 asks for it, and what each side may assume.
 
 It is a standalone document because the contract is a CROSS-PROCESS one. It was previously
-stated in four places — `internal/shared/companionloadout`'s package doc, each companion's
+stated in four places — `internal/adapters/companions`'s package doc, each companion's
 own `loadout.yaml` header, `docs/signature-envelope.spec.md` §4.3, and
 `internal/core/config/companions.go` — and a contract asserted in four places with nothing
 reconciling them is how the two sides drift.
@@ -18,7 +18,7 @@ ctxloom execs the companion at boot:
     <bin> loadout --format json
 
 The three strings are a wire contract and are exported from
-`internal/shared/companionloadout` (`Subcommand`, `FormatFlag`, `FormatJSON`) so BOTH
+`internal/adapters/companions` (`Subcommand`, `FormatFlag`, `FormatJSON`) so BOTH
 sides build the argv from one declaration. This is not tidiness. They were once bare
 literals on both sides with no shared constant and no test exercising the real pair, and
 because a broken probe took a silent bare-return path, renaming either side alone passed

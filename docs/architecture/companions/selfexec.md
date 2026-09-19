@@ -1,4 +1,4 @@
-# `internal/selfexec` — self-path resolution
+# `internal/adapters/selfexec` — self-path resolution
 
 **What it is.** A 68-line, zero-dependency leaf package with one job: resolve the filesystem path
 this process should use when **re-invoking the running ctxloom binary**, surviving an in-place
@@ -22,7 +22,7 @@ on other machines (`.claude/settings.json` is tracked) and inside containers, so
 
 ```mermaid
 flowchart TD
-  subgraph unit["internal/selfexec"]
+  subgraph unit["internal/adapters/selfexec"]
     OVR["var override string<br/>selfexec.go:15 (test-only)"]
     SEAM["var osExecutable = os.Executable<br/>var osStat = os.Stat<br/>selfexec.go:20-22"]
     PATH["Path() string<br/>selfexec.go:51"]
@@ -53,8 +53,8 @@ flowchart TD
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `Path` | `selfexec.go:51` | The whole package. 4 production call sites: `internal/core/agent/settings_io.go:44`, `internal/cli/run.go:290`, `internal/lm/grpc/client.go:364`, `internal/lm/grpc/host_runner.go:60` |
-| `SetPathForTesting` | `selfexec.go:32` | Sets `override`, returns a closure restoring the *previous* value, so it nests correctly. **Zero production call sites**; 4 external test packages use it (`internal/operations`, `internal/claude`, `internal/lm/backends`, `internal/cli`) |
+| `Path` | `selfexec.go:51` | The whole package. 4 production call sites: `internal/core/agent/settings_io.go:44`, `internal/adapters/cli/run.go:290`, `internal/lm/grpc/client.go:364`, `internal/lm/grpc/host_runner.go:60` |
+| `SetPathForTesting` | `selfexec.go:32` | Sets `override`, returns a closure restoring the *previous* value, so it nests correctly. **Zero production call sites**; 4 external test packages use it (`internal/adapters/operations`, `internal/claude`, `internal/lm/backends`, `internal/adapters/cli`) |
 | `override` / `osExecutable` / `osStat` | `selfexec.go:15`, `:20`, `:22` | Package-level state. `{osExecutable, osStat}` are the in-package seams over the two syscalls; `override` is the cross-package short-circuit that bypasses both — it exists *because* the syscall seams are unexported and therefore unreachable from the four packages that need a stable answer |
 
 ---
@@ -96,11 +96,11 @@ flowchart TD
   So after an in-place upgrade, `WarnOnCtxloomPathSkew` compares a `" (deleted)"`-suffixed running
   path against a PATH lookup and reports skew that `Path` deliberately hides.
 - **A second `…ForTesting` mutator is reachable from a production entry point.**
-  `internal/operations/hooks.go:64-65` calls `agent.SetExecutablePathForTesting(req.ExecPath)`
+  `internal/adapters/operations/hooks.go:64-65` calls `agent.SetExecutablePathForTesting(req.ExecPath)`
   inside the exported `ApplyHooks` whenever `ApplyHooksRequest.ExecPath` is non-empty; that setter
   assigns the process-lifetime `cachedExecPath` with no lock and **no restore**. Latent today —
   every assignment to `ExecPath` is in a test — but a production request struct carrying a field
   whose only job is to mutate a global is a live hazard, and poisoning that cache makes the
   skew warning lie for the rest of the process.
-- **`internal/cli.resolveSelfExecutable` (`run.go:289`) is a one-line pass-through** to
+- **`internal/adapters/cli.resolveSelfExecutable` (`run.go:289`) is a one-line pass-through** to
   `selfexec.Path()` with a single caller, whose 6-line doc comment duplicates `Path`'s own.

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -173,7 +173,7 @@ func newProdSpawner(cfg *config.Config, projectDir string, starter StarterFunc) 
 // that may run delegated children at all. Every child's engine control rides
 // the StartRun path (spawn the runner process, await its dial-home, issue
 // StartRun on its RunnerChannel). The runner-side EngineHost
-// (internal/cli/llm_serve.go) gates on the agent.StructuredChat type
+// (internal/adapters/cli/llm_serve.go) gates on the agent.StructuredChat type
 // assertion alone, never a backend name, so every member of this set gets
 // the identical StartRun/adaptation/approval-forwarding/resume machinery;
 // the per-backend deltas were only ever in model delivery.
@@ -185,7 +185,7 @@ func newProdSpawner(cfg *config.Config, projectDir string, starter StarterFunc) 
 //
 // The bar for admitting one is a per-backend recon showing that delta is
 // empty. What makes it empty generally: the runner-side standup
-// (internal/cli's standUpRunner), the isolation starter
+// (internal/adapters/cli's standUpRunner), the isolation starter
 // (`ctxloom llm host <backend> --label ...`) and the HarnessSpec codec never
 // name a backend at all, and a delegated child's context rides the FIRST
 // TURN (runChildViaStartRun's JoinLeadBlocks into StartRun.input) rather than

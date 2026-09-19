@@ -22,7 +22,7 @@ import (
 // applying overrides inside loadUncached (the single funnel), a second Load
 // that hits the "stamp unchanged" fast path would silently drop them.
 func TestOverrides_SurviveMemoReread(t *testing.T) {
-	// editor.command is ScopePreference (see internal/config/layerscope):
+	// editor.command is ScopePreference (see internal/adapters/configload/layerscope):
 	// harmless personal taste, settable from every layer, unlike
 	// default_agent (ScopeShared -- project+flag only, since which agent a
 	// bare `ctxloom run` resolves is project policy an env var must not be
@@ -153,7 +153,7 @@ llm:
 }
 
 // TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag exercises
-// internal/cli/root.go's PersistentPreRun hook end to end: it must read both
+// internal/adapters/cli/root.go's PersistentPreRun hook end to end: it must read both
 // an env override and a --config-set flag and install them process-wide,
 // ready to be resolved by the very next Load. The FlagSet ALSO carries an
 // unrelated business flag sharing its name with a real config key

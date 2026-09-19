@@ -104,7 +104,7 @@ flowchart TD
 | Symbol | file:line | Contract |
 |---|---|---|
 | `Target` | `internal/schemagen/schemagen.go:29` | `{Type reflect.Type, Name string}`. An empty `Name` falls back to `kebab(Type.Name())`. |
-| `Of(t, name)` | `internal/schemagen/schemagen.go:35` | Struct-literal constructor. Used only at `internal/cli/schematargets.go:18,19,20`; `internal/operations/schematargets.go:15` uses the literal form. |
+| `Of(t, name)` | `internal/schemagen/schemagen.go:35` | Struct-literal constructor. Used only at `internal/adapters/cli/schematargets.go:18,19,20`; `internal/adapters/operations/schematargets.go:15` uses the literal form. |
 | `Generate(dir, targets)` | `internal/schemagen/schemagen.go:43` | `MkdirAll`, sort, then per target: reflect via `jsonschema.ForType`, stamp, `MarshalIndent`, append a newline, `WriteFile 0o644`. Every one of the four failure modes is wrapped with context. Caller: `cmd/gen-schemas/main.go:33`. |
 | `name` / `kebab` | `internal/schemagen/schemagen.go:76,85` | The name fallback and the CamelCase→kebab rule that keeps acronym runs intact (`MCPServer` → `mcp-server`). |
 
@@ -113,11 +113,11 @@ flowchart TD
 1. **Build-tagged `schemagen`** (`schemagen.go:1`); `doc.go` carries the package declaration for
    untagged builds so `go build ./...` still sees a valid package. Untagged dependency scans cannot
    see its three importers (`cmd/gen-schemas/main.go:16`,
-   `internal/operations/schematargets.go`, `internal/cli/schematargets.go`).
+   `internal/adapters/operations/schematargets.go`, `internal/adapters/cli/schematargets.go`).
 2. **An unrepresentable type is a hard error, never a dropped field** (`schemagen.go:41-42,52-54`):
    a silently dropped field would be a lying contract.
 3. **The target list is hand-maintained.** `operations.SchemaTargets()`
-   (`internal/operations/schematargets.go:14`) returns ~62 `reflect.Type`s and
+   (`internal/adapters/operations/schematargets.go:14`) returns ~62 `reflect.Type`s and
    `cli.SchemaTargets()` adds three; nothing checks completeness against the DTOs that actually
    exist.
 4. **Output is generated, not committed.** `resources/schema/gen/` is gitignored

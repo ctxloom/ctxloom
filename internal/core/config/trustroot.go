@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
 
 // embeddedAllowedSigners is ctxloom's compiled-in trust root in the real

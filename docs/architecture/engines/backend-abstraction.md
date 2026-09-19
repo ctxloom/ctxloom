@@ -157,8 +157,8 @@ Supporting functions: `String()` (`:36`), `AllowsWithoutPrompt()` (`:53` — onl
 read-only tier — so `plan` **never runs unrestrained**. Its input comes from
 `backends.EnforcesReadOnlyPlan` (`registry.go:148`). Two call sites apply it:
 
-- `internal/cli/run.go:1499` (interactive run resolver, fed at `run.go:952`)
-- `internal/operations/oneshot.go:417` (headless fan-out)
+- `internal/adapters/cli/run.go:1499` (interactive run resolver, fed at `run.go:952`)
+- `internal/adapters/operations/oneshot.go:417` (headless fan-out)
 
 Per-engine truth comes from the descriptor's `enforcesReadOnlyPlan` field:
 `claude-code` declares it `true` (`--permission-mode plan` is a genuine

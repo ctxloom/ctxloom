@@ -48,7 +48,7 @@ flowchart TD
   WFA --> stores
   WFAF --> stores
   stores -.->|"change signal, no payload"| W
-  EW --> cli["internal/cli + cmd/taskloom renderers<br/>(55 construction sites, 155 Printf calls)"]
+  EW --> cli["internal/adapters/cli + cmd/taskloom renderers<br/>(55 construction sites, 155 Printf calls)"]
 ```
 
 ## `internal/shared/iox`
@@ -68,7 +68,7 @@ Two unrelated primitives in one package: crash-safe atomic replace, and a sticky
 | `(*ErrWriter).Write(p []byte) (int, error)` | `internal/shared/iox/errwriter.go:73` | `io.Writer` implementation; returns `(0, e.err)` once latched. Reached through interface dispatch (`clidiag.Fwarn`, `compactEntry`) — gopls under-reports its references |
 | `(*ErrWriter).Err() error` | `internal/shared/iox/errwriter.go:83` | The terminal step of the pattern. 68 call sites |
 
-Principal `WriteFileAtomic` consumers: `internal/core/sessions/index.go:214,763`, `internal/memory/stamp.go:50,99`, `internal/memory/compactor.go:1001,1021,1032`, `internal/shared/tasks/projectid/registry.go:99`, `internal/shared/tasks/projectid/marker.go:51`, `cmd/taskloom/manage.go:200`, `cmd/ltk/manage.go:228`. `WriteFileAtomicFs` consumers: `internal/core/config/config_save.go:60,131`, `internal/ltk/state/state.go:116`, `internal/remote/lockfile.go:124`, `internal/core/agent/mcpfile.go:270`.
+Principal `WriteFileAtomic` consumers: `internal/core/sessions/index.go:214,763`, `internal/adapters/memory/stamp.go:50,99`, `internal/adapters/memory/compactor.go:1001,1021,1032`, `internal/shared/tasks/projectid/registry.go:99`, `internal/shared/tasks/projectid/marker.go:51`, `cmd/taskloom/manage.go:200`, `cmd/ltk/manage.go:228`. `WriteFileAtomicFs` consumers: `internal/core/config/config_save.go:60,131`, `internal/ltk/state/state.go:116`, `internal/adapters/remote/lockfile.go:124`, `internal/core/agent/mcpfile.go:270`.
 
 ## Advisory locking (`github.com/gofrs/flock` + `internal/core/paths`)
 
@@ -92,7 +92,7 @@ defer func() { _ = fl.Unlock() }()
 
 `PathFor(protected) string`, `ProjectPathFor(protected) (string, error)` and `HomePathFor(protected) (string, error)` (`internal/core/paths/lockpath.go`) are the protected-path→lock-name derivation the deleted package used to own — PATH POLICY, not locking, which is why they live in `internal/core/paths` rather than beside the lock calls. `PathFor` sits beside the protected file (home-rooted stores); `ProjectPathFor` maps into a project `.ctxloom/state/locks/`; `HomePathFor` maps into `~/.ctxloom/locks/` for a FOREIGN file (an engine's own settings.json/config.toml) more than one ctxloom-family binary may read-modify-write. See their doc comments for the full reasoning, including the deliberately-accepted flattening collisions.
 
-Call sites, by protected store: `internal/core/sessions/index.go` (index, `lock()`); `internal/core/config/config_manager.go` (`Update`); `internal/shared/tasks/log.go` (`lock()` exclusive, event-log mutation; `lockShared()` for the three read paths); `internal/shared/tasks/projectid/registry.go` (`mutate`); `internal/shared/admission/store.go` (`lockedRMW`); `internal/core/agent/rmw_lock.go` (`WithFileLock`, the `SettingsWriter`/R6 family's shared lock idiom); `internal/lm/isolation/ambient.go` (`lockInstanceHome`, warn-and-proceed rather than fail-closed); `internal/operations/vendorreader.go` (`TryLock` ownership probe); `internal/transcript/recorder.go` (`RLock` ownership, held for the recorder's lifetime).
+Call sites, by protected store: `internal/core/sessions/index.go` (index, `lock()`); `internal/core/config/config_manager.go` (`Update`); `internal/shared/tasks/log.go` (`lock()` exclusive, event-log mutation; `lockShared()` for the three read paths); `internal/shared/tasks/projectid/registry.go` (`mutate`); `internal/shared/admission/store.go` (`lockedRMW`); `internal/core/agent/rmw_lock.go` (`WithFileLock`, the `SettingsWriter`/R6 family's shared lock idiom); `internal/adapters/isolation/ambient.go` (`lockInstanceHome`, warn-and-proceed rather than fail-closed); `internal/adapters/operations/vendorreader.go` (`TryLock` ownership probe); `internal/adapters/transcript/recorder.go` (`RLock` ownership, held for the recorder's lifetime).
 
 ## `internal/shared/watch`
 
@@ -115,7 +115,7 @@ An fsnotify wrapper: watch a root, optionally recursively including directories 
 | Consumer | Site | Mode | Filter |
 |---|---|---|---|
 | `taskloom watch` | `cmd/taskloom/watch.go:55` | non-recursive, on `filepath.Dir(logPath)` | `p == logPath` |
-| `ctxloom plan watch` | `internal/cli/plan_watch.go:57` | recursive, on `~/.ctxloom/sessions` | `strings.HasSuffix(p, ".plan.md")` |
+| `ctxloom plan watch` | `internal/adapters/cli/plan_watch.go:57` | recursive, on `~/.ctxloom/sessions` | `strings.HasSuffix(p, ".plan.md")` |
 
 Both debounce at 100ms and emit a content-free `{"event":"changed","kind":…}` line on which the frontend re-queries.
 
@@ -157,5 +157,5 @@ Both debounce at 100ms and emit a content-free `{"event":"changed","kind":…}` 
 - `errs` is buffered at 1 and the send is non-blocking with an empty `default:` — errors after the first buffered one are discarded, and if a consumer never selects on `Errors()`, all of them are. When `fsw.Errors` closes, `pump` returns without closing `errs`, so a consumer selecting on `Errors()` waits forever.
 - Recursive adoption is inherently racy: files written into a new directory between its `mkdir` and the `fsw.Add` produce no event, and there is no rescan.
 - `normalize`'s `default` arm returns `OpChmod`, so an unrecognised or zero op is reported as a confident "chmod".
-- Real vs documented: the package doc justifies `Op`'s five-verb vocabulary as being "for the wire", but neither consumer reads `Event.Op` — both discard the whole event (`internal/cli/plan_watch.go:88`, `cmd/taskloom/watch.go:79`) and emit a fixed `{"event":"changed"}` line.
+- Real vs documented: the package doc justifies `Op`'s five-verb vocabulary as being "for the wire", but neither consumer reads `Event.Op` — both discard the whole event (`internal/adapters/cli/plan_watch.go:88`, `cmd/taskloom/watch.go:79`) and emit a fixed `{"event":"changed"}` line.
 - Depth contract mismatch worth knowing when reading `plan watch`: the watcher is recursive at any depth while `internal/shared/plans.List` (`plans.go:60-80`) enumerates exactly `<root>/<harp>/*.plan.md` and skips second-level subdirectories, so nested plan files fire events that the list they trigger cannot show.

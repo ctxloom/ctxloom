@@ -26,7 +26,7 @@ import (
 // "may I descend", so the two cannot come apart again.
 //
 // It sits in internal/core/paths because it is a fact about on-disk LAYOUT, and
-// because internal/core/bundles imports internal/remote — the two heaviest callers
+// because internal/core/bundles imports internal/adapters/remote — the two heaviest callers
 // are on opposite sides of that edge, and only a package below both can be
 // shared by both. It stays filesystem-free for the same reason: the manifest's
 // presence arrives as an argument, so an afero walker (stat) and a forge-tree

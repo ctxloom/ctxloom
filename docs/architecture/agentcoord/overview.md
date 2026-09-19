@@ -1,6 +1,6 @@
 # agentcoord — overview
 
-`internal/agentcoord` is the **agent-delegation subsystem**: the wire contract
+`internal/adapters/coordgrpc/pb` is the **agent-delegation subsystem**: the wire contract
 (`agentcoord.v1` in `coordination.proto` / `artifacts.proto`, plus `seqwatch.go` and
 `messagekind.go`), the runtime (`coord` — both the coordinator half and the runner
 half compile from this one package), the file substrate messages live in (`spool`),
@@ -38,19 +38,19 @@ dotted are hidden couplings through the environment or the filesystem.
 
 ```mermaid
 flowchart TD
-  CLI["internal/cli<br/>(run.go, llm_runner_common.go, llm_serve.go)"]
-  TUI["internal/cli/tui"]
-  MCP["internal/mcp<br/>(mcp_runner.go coordinationHandler;<br/>mcp_tools_agents.go local surface;<br/>coord_host.go NewHostedCoordinator)"]
+  CLI["internal/adapters/cli<br/>(run.go, llm_runner_common.go, llm_serve.go)"]
+  TUI["internal/adapters/cli/tui"]
+  MCP["internal/adapters/mcp<br/>(mcp_runner.go coordinationHandler;<br/>mcp_tools_agents.go local surface;<br/>coord_host.go NewHostedCoordinator)"]
   COORD["internal/core/coord"]
-  PROTO["internal/agentcoord (proto, seqwatch, messagekind)"]
-  SCHEMA["internal/agentcoord/mcpschema"]
+  PROTO["internal/adapters/coordgrpc/pb (proto, seqwatch, messagekind)"]
+  SCHEMA["internal/adapters/coordgrpc/mcpschema"]
   SPOOL["internal/core/spool"]
   DISC["internal/agentcoord/discover"]
-  OPS["internal/operations"]
-  ISO["internal/lm/isolation"]
-  TRANS["internal/transcript"]
+  OPS["internal/adapters/operations"]
+  ISO["internal/adapters/isolation"]
+  TRANS["internal/adapters/transcript"]
   CFG["internal/core/config"]
-  AGENTS["internal/agents"]
+  AGENTS["internal/adapters/agents"]
   LIVE["internal/liveness"]
   PATHS["internal/core/paths"]
   FS[("$HOME/.ctxloom/… spool dirs<br/>(spool.HomeMapper)")]
@@ -113,7 +113,7 @@ generated from `mcpschema` and dispatches to `mcp.coordinationHandler`,
 runner-side `spoolReactor`, `RunnerLink.heartbeatLoop`/`receiveLoop`, `Home.turnPump`
 and `EngineHost.adapt`.
 
-**Read-only consumers** (`internal/operations`' session feed, `ctxloom session
+**Read-only consumers** (`internal/adapters/operations`' session feed, `ctxloom session
 transcript watch`, the TUI) reach `ConsumerService` on the same listener, located
 through `discover` when they have no coordinator of their own.
 

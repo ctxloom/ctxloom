@@ -78,7 +78,7 @@ classDiagram
 | `ComposeChatMCPServers` | `internal/core/agent/chat_mcp.go:28` | Merges the ctxloom server + bundle MCP + config MCP + plugin MCP, minus an `existing` set, sorted by name. |
 | `ManagedConfig.ChatMCPServers` | `internal/core/agent/chat_mcp.go:70` | Nil-safe delegate to `ComposeChatMCPServers`; the nil-receiver guard is the point. |
 
-Callers of `ComposeChatMCPServers`: `internal/agentcoord/spawner.go:511` (delegated children) and `BaseLifecycle.ChatMCPServers` (`base_lifecycle.go:91`).
+Callers of `ComposeChatMCPServers`: `internal/adapters/coordgrpc/pb/spawner.go:511` (delegated children) and `BaseLifecycle.ChatMCPServers` (`base_lifecycle.go:91`).
 
 ## Invariants and contracts
 

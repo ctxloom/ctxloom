@@ -553,9 +553,9 @@ credentials, a real leak found by running kiro), and J002200's own comments say 
 ### J001300 ensemble — **right story, stale surface. Do not wire as written.**
 
 The brief flagged J001100 as the stale draft. **J001300 is stale too, and nobody
-noticed.** It narrates `ctxloom map` throughout and cites `internal/cli/map.go`.
+noticed.** It narrates `ctxloom map` throughout and cites `internal/adapters/cli/map.go`.
 Neither exists. There is no `map` leaf in this tree and no `map.go` in
-`internal/cli`. The surface is now `ctxloom weave --map-only` (its own help
+`internal/adapters/cli`. The surface is now `ctxloom weave --map-only` (its own help
 names `--map-only` as an alias for `--no-synthesize`), with members supplied by
 `--agents a,b` or `-p prof1,prof2` and the synthesizer by `-s`.
 
@@ -578,7 +578,7 @@ when this lands.
 Two problems, and the second is worse than the rename.
 
 The known one: it narrates `ctxloom memory compact/list/show` and cites
-`internal/cli/memory.go`. That group is gone; the surface is `ctxloom session
+`internal/adapters/cli/memory.go`. That group is gone; the surface is `ctxloom session
 distill` / `session list` / `session show`, plus `ctxloom session search`.
 
 The unknown one: **the draft rules out the only part anyone cares about.** Its

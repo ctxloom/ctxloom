@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // PendingApproval is the shape the terminal UI's approvals pane reads.
@@ -13,9 +13,9 @@ import (
 // to park approvals for a human decision is gone: ctxloom no longer brokers a
 // second approval UI, because a human can attach to the agent's own tmux
 // window and answer the ENGINE'S NATIVE prompt. The type survives only so
-// internal/cli/tui and internal/termui keep compiling until they are deleted
+// internal/adapters/cli/tui and internal/adapters/termui keep compiling until they are deleted
 // (that deletion is gated on `ctxloom attach` being proven in use); it goes
-// with them. internal/cli/run_terminal_ui.go no longer wires the pane, so
+// with them. internal/adapters/cli/run_terminal_ui.go no longer wires the pane, so
 // tui.Sources.PendingApprovals is nil — its documented "pane disabled" state.
 type PendingApproval struct {
 	MessageID string

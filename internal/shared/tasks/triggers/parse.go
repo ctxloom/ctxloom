@@ -8,7 +8,7 @@ import (
 
 // ParseVerdicts parses the model's batch-triage response into verdicts.
 // There is no schema-constrained output anywhere in this codebase (see
-// parseLLMFrontmatter in internal/memory/compactor.go for the established
+// parseLLMFrontmatter in internal/adapters/memory/compactor.go for the established
 // prompt-in/text-out precedent) — the model is ASKED for strict JSON, but the
 // response may still carry a markdown code fence or a leading sentence of
 // prose, so both are stripped defensively before unmarshaling.

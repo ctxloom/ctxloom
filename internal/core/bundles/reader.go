@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // Reader is the read half of the delivery seam: everything one SOURCE of

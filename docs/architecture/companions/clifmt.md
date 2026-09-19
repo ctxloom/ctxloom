@@ -9,7 +9,7 @@ It has **no flag plumbing at all** — `internal/shared/cliemit` is the cobra gl
 `--format`, calls `ParseFormat`, and dispatches to `Render`. `internal/shared/clidiag` uses only
 the warning envelope.
 
-Six internal consumers: `cmd/harp`, `cmd/ltk`, `cmd/taskloom`, `internal/cli`,
+Six internal consumers: `cmd/harp`, `cmd/ltk`, `cmd/taskloom`, `internal/adapters/cli`,
 `internal/shared/clidiag`, `internal/shared/cliemit`. `pkg/clifmt` is the **only** package under
 `pkg/`, and there is no consumer outside the module.
 
@@ -67,11 +67,11 @@ scalars→sections→tables ordering are written once.
 | Symbol | file:line | Notes |
 |---|---|---|
 | `Format` | `format.go:9` | String-kinded enum; constants at `:11-17`. Methods `Valid` (`:25`), `String` (`:34`), `Structured` (`:44`) |
-| `Format.Structured` | `format.go:44` | json/yaml/toml vs text/markdown — used to gate the diagnostics channel (`internal/cli/root.go:118`, `cmd/taskloom/root.go:47`) |
+| `Format.Structured` | `format.go:44` | json/yaml/toml vs text/markdown — used to gate the diagnostics channel (`internal/adapters/cli/root.go:118`, `cmd/taskloom/root.go:47`) |
 | `ParseFormat` | `format.go:57` | Case/space-insensitive, with `yml`/`txt`/`md` aliases. Wraps `ErrUnsupportedFormat` and includes the offending input |
 | `ErrUnsupportedFormat` | `format.go:22` | |
 | `Render` | `render.go:17` | The public entry: `Renderer` hook, then a five-way dispatch. **12 production call sites repo-wide** |
-| `RenderError` | `errors.go:17` | Wraps an error in `ErrorEnvelope` and delegates to `Render`. One caller: `internal/cli/root.go:187`, which discards the result |
+| `RenderError` | `errors.go:17` | Wraps an error in `ErrorEnvelope` and delegates to `Render`. One caller: `internal/adapters/cli/root.go:187`, which discards the result |
 | `ErrorEnvelope` | `errors.go:9` | `{Error string}` — the `{"error": "..."}` shape |
 | `WarningEnvelope` | `warnings.go:14` | `{Prog, Warning}` — a JSON-Lines record. **The only type here with a genuine cross-package contract**: `clidiag` encodes it and `clidiag`'s tests decode it |
 | `EncodeWarning` | `warnings.go:30` | One compact JSON object + newline. **Deliberately bypasses the whole `Format` machinery** (rationale at `warnings.go:19-29`) — a warning is a line on a stream, not a rendered document |
@@ -175,6 +175,6 @@ scalars→sections→tables ordering are written once.
 - **Silently-ignored `--format` flags do not originate here.** `clifmt` receives an already-parsed
   `Format` and always renders; there are only 12 `Render`/`RenderError` call sites repo-wide, far
   fewer than the number of `--format`-bearing commands, so the broken commands simply never call
-  it. The gap is at the cobra layer (`internal/shared/cliemit`, `internal/cli`), where
-  `internal/cli/format.go:11-19` additionally documents a **fourth** format vocabulary — a
+  it. The gap is at the cobra layer (`internal/shared/cliemit`, `internal/adapters/cli`), where
+  `internal/adapters/cli/format.go:11-19` additionally documents a **fourth** format vocabulary — a
   text/json-only pair used by the streaming commands.

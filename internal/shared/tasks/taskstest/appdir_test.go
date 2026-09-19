@@ -163,11 +163,11 @@ func TestCallerPackageFrom_KeysOnTheTestNotTheHelper(t *testing.T) {
 			stack: []string{
 				prefix + "internal/shared/tasks/taskstest.Isolate",
 				prefix + "internal/fixtures/envfix.Setup",
-				prefix + "internal/memory.TestStore",
+				prefix + "internal/adapters/memory.TestStore",
 				"testing.tRunner",
 				"runtime.goexit",
 			},
-			want: "internal/memory",
+			want: "internal/adapters/memory",
 		},
 		{
 			name: "the testsupport delegate is looked past",

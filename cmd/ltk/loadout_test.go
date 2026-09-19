@@ -11,11 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
-	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // TestLoadout_YAML_IsAValidBundle proves the embedded loadout.yaml itself

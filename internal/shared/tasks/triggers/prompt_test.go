@@ -23,7 +23,7 @@ func sampleBatch() Batch {
 				CommitsSince: []CommitSummary{
 					{SHA: "abcdef1234567890", Date: time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC), Subject: "feat(signing): ship the CLI"},
 				},
-				ChangedFiles: []string{"internal/signing/cli.go", "internal/signing/cli_test.go"},
+				ChangedFiles: []string{"internal/adapters/signing/cli.go", "internal/adapters/signing/cli_test.go"},
 			},
 			{
 				HarpID:  "quiet-teal-otter",
@@ -35,7 +35,7 @@ func sampleBatch() Batch {
 			{HarpID: "bold-gray-wren", Text: "ship the signing CLI", Status: "Done"},
 		},
 		Repo: RepoState{
-			Dirs:           []string{"internal/signing", "internal/shared/tasks/triggers"},
+			Dirs:           []string{"internal/adapters/signing", "internal/shared/tasks/triggers"},
 			WorkingChanges: []string{"?? internal/shared/tasks/triggers/parse.go"},
 		},
 	}
@@ -72,7 +72,7 @@ func TestBuildPrompt_IncludesEveryTaskField(t *testing.T) {
 	assert.Contains(t, p, "when the signing CLI ships")
 	assert.Contains(t, p, "2026-06-01")
 	assert.Contains(t, p, "feat(signing): ship the CLI")
-	assert.Contains(t, p, "internal/signing/cli.go")
+	assert.Contains(t, p, "internal/adapters/signing/cli.go")
 
 	assert.Contains(t, p, "quiet-teal-otter")
 	assert.Contains(t, p, "revisit once the customer confirms")
@@ -174,7 +174,7 @@ func TestWriteRepoState_RendersOnlyTheHalvesThatHaveContent(t *testing.T) {
 		{name: "nothing gathered", repo: RepoState{}},
 		{
 			name:        "directories only",
-			repo:        RepoState{Dirs: []string{"internal/signing"}},
+			repo:        RepoState{Dirs: []string{"internal/adapters/signing"}},
 			wantSection: true, wantDirs: true,
 		},
 		{
@@ -184,7 +184,7 @@ func TestWriteRepoState_RendersOnlyTheHalvesThatHaveContent(t *testing.T) {
 		},
 		{
 			name:        "both",
-			repo:        RepoState{Dirs: []string{"internal/signing"}, WorkingChanges: []string{"?? internal/new.go"}},
+			repo:        RepoState{Dirs: []string{"internal/adapters/signing"}, WorkingChanges: []string{"?? internal/new.go"}},
 			wantSection: true, wantDirs: true, wantChanges: true,
 		},
 	}
@@ -259,7 +259,7 @@ func TestDescribeQuery(t *testing.T) {
 		{"path_exists", Query{Type: QueryPathExists, Path: "internal/foo.go"}, "path_exists(internal/foo.go)"},
 		{"grep without a glob", Query{Type: QueryGrep, Pattern: "func Sign"}, `grep("func Sign")`},
 		{"grep with a glob", Query{Type: QueryGrep, Pattern: "func Sign", PathGlob: "internal"}, `grep("func Sign", internal)`},
-		{"git_log_path", Query{Type: QueryGitLogPath, Path: "internal/signing"}, "git_log_path(internal/signing)"},
+		{"git_log_path", Query{Type: QueryGitLogPath, Path: "internal/adapters/signing"}, "git_log_path(internal/adapters/signing)"},
 		{"task_status", Query{Type: QueryTaskStatus, HarpID: "bold-gray-wren"}, "task_status(bold-gray-wren)"},
 		{"unknown type falls back to the raw type", Query{Type: "shell_exec"}, "shell_exec"},
 	}
@@ -308,7 +308,7 @@ func sampleFollowupBatch() FollowupBatch {
 					Trigger: "when the signing CLI ships",
 				},
 				Results: []QueryResult{
-					{Query: Query{Type: QueryPathExists, Path: "internal/signing/cli.go"}, Output: "exists"},
+					{Query: Query{Type: QueryPathExists, Path: "internal/adapters/signing/cli.go"}, Output: "exists"},
 					{Query: Query{Type: QueryGrep, Pattern: "func Sign"}, Err: "pattern did not compile"},
 				},
 			},
@@ -319,7 +319,7 @@ func sampleFollowupBatch() FollowupBatch {
 func TestBuildFollowupPrompt_IncludesQueryResults(t *testing.T) {
 	p := BuildFollowupPrompt(sampleFollowupBatch())
 	assert.Contains(t, p, "swift-amber-falcon")
-	assert.Contains(t, p, "path_exists(internal/signing/cli.go)")
+	assert.Contains(t, p, "path_exists(internal/adapters/signing/cli.go)")
 	assert.Contains(t, p, "exists")
 	assert.Contains(t, p, "pattern did not compile")
 }
@@ -348,16 +348,16 @@ func TestBuildFollowupPrompt_EmptyBatchDoesNotPanic(t *testing.T) {
 func TestBuildFollowupPrompt_CarriesTheSameGlobalEvidenceAsRound1(t *testing.T) {
 	b := sampleFollowupBatch()
 	b.Repo = RepoState{
-		Dirs:           []string{"internal/signing"},
-		WorkingChanges: []string{"?? internal/signing/cli.go"},
+		Dirs:           []string{"internal/adapters/signing"},
+		WorkingChanges: []string{"?? internal/adapters/signing/cli.go"},
 	}
 	b.OtherTasks = []OtherTask{{HarpID: "other-task-id", Text: "ship the signing CLI", Status: "Done"}}
 
 	p := BuildFollowupPrompt(b)
 
 	assert.Contains(t, p, "=== Repository state right now ===", "round 2 must see what exists NOW")
-	assert.Contains(t, p, "internal/signing", "the directory inventory answers existence-style triggers")
-	assert.Contains(t, p, "?? internal/signing/cli.go", "uncommitted work is in no commit at all")
+	assert.Contains(t, p, "internal/adapters/signing", "the directory inventory answers existence-style triggers")
+	assert.Contains(t, p, "?? internal/adapters/signing/cli.go", "uncommitted work is in no commit at all")
 	assert.Contains(t, p, "other-task-id", "the cross-reference is evidence round 1 had and round 2 needs")
 }
 

@@ -17,12 +17,12 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // Bundle represents a versioned collection of related content.
@@ -256,7 +256,7 @@ func (b *Bundle) StampUntrustedSignerFingerprint(fingerprint string) {
 // written that dies to restoring the fallback here on its own: with newRead
 // stamping, the fallback is unreachable. Its removal is trap removal — the
 // stamp is the load-bearing half, and the tests that die are the ones that die
-// when the stamp goes (internal/operations/declared_name_trust_test.go).
+// when the stamp goes (internal/adapters/operations/declared_name_trust_test.go).
 func (b *Bundle) contentSourceRef() trust.BundleRef {
 	if b == nil {
 		return trust.BundleRef{}

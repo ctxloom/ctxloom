@@ -57,13 +57,13 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # THE PRIMARY BLOCKER IS FIXED. It was: a directory-form bundle could not be
   # fetched from a remote at all — fetchAtLockedSHA resolved a ref to ONE file
   # path and called FetchFile on it, there was no tree fetch anywhere in
-  # internal/remote, and a remote bundle WAS "<name>.yaml" by construction —
+  # internal/adapters/remote, and a remote bundle WAS "<name>.yaml" by construction —
   # while internal/core/bundles/loader.go:389 refuses skills in a single-file
   # bundle. Jointly unsatisfiable, which is what taskloom task
   # `engaged-chivalry` recorded as impossible.
   #
   # `deps pull` now probes the directory form when the single file is absent,
-  # walks the tree at the pinned SHA through internal/content/remotetree, and
+  # walks the tree at the pinned SHA through internal/adapters/content/remotetree, and
   # installs it under the consumer's cache with the publisher's exec bit
   # intact. Every scenario asserting the PUBLICATION SIDE — the payload landing
   # in the consumer's tree, per-kind metadata placement, MCP structure, and the
@@ -71,9 +71,9 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   #
   # THE TREE READ PATH IS ALSO FIXED. It was the second blocker: the bytes
   # arrived but nothing read a bundle's ITEMS back out of a tree.
-  # internal/content/convert now goes both ways (convert.Read), and
+  # internal/adapters/content/convert now goes both ways (convert.Read), and
   # config.loadRemoteBundleSeed reads a tree-shaped lockfile entry from its
-  # installed tree, verifying it through internal/content/attest — the manifest
+  # installed tree, verifying it through internal/adapters/content/attest — the manifest
   # signature plus a two-directional contents check — instead of dead-ending at
   # remote.ErrTreeBundleUnreadable.
   #
@@ -96,7 +96,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   #     `profile materialize` INSIDE a container against a bind-mounted target,
   #     asserting bytes, mode and OWNERSHIP from the host side. What they do not
   #     reach — ctxloom's OWN container launch and its containerConfigOverlay —
-  #     is covered by internal/lm/isolation's TestContainerRun_* pair instead,
+  #     is covered by internal/adapters/isolation's TestContainerRun_* pair instead,
   #     for the reason stated at that scenario (the delivery is only observable
   #     mid-turn, which a godog step over a shelled-out `run` cannot hold open).
   #
@@ -125,7 +125,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # PUBLICATION: one artifact per surface kind, each a genuinely different case.
   #
   # The kinds are read from internal/core/bundles/bundles.go's Bundle struct, and
-  # the tree paths from internal/content/testdata/tree — the canonical layout
+  # the tree paths from internal/adapters/content/testdata/tree — the canonical layout
   # the shipped content package already reads. NOTE two corrections to the
   # obvious guesses, both verified in code rather than assumed:
   #
@@ -253,7 +253,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # a directory has no list — so its ONLY order carrier is content.Hook.Order,
   # a sparse integer in the hook's own ".<name>.meta.yaml" sidecar, resolved by
   # content.SortHooks (an earlier "NN-" filename-prefix scheme was retracted in
-  # favour of it — see internal/content/convert's package doc). Without that
+  # favour of it — see internal/adapters/content/convert's package doc). Without that
   # field a reader has nothing to sort by except the filename, and nothing
   # about the BYTES would show the disagreement: a tree that round-trips four
   # hooks under one event with their sequence permuted is byte-identical, file
@@ -444,7 +444,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # exercise a container that ctxloom's own isolation machinery did not build:
   # the cell mounts and launches directly, so these rows say nothing about
   # containerConfigOverlay either way. That half is closed in
-  # internal/lm/isolation's docker_integration lane, by
+  # internal/adapters/isolation's docker_integration lane, by
   # TestContainerRun_DeliversIntoTheMountedWorkspace and
   # TestContainerRun_OverlaidConfigDirIsSwallowedByTheScratchOverlay: the same
   # cell, wired to a container the PRODUCT builds (Container.PrepareWorkspace →

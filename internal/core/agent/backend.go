@@ -236,7 +236,7 @@ type SessionEntry struct {
 	// IR has flattened Content to a string: an ACP `plan` update
 	// (SystemKindPlan; Plan carries the structured entries, Content is a
 	// rendered fallback for a consumer that only reads text) and the
-	// delegated-turn-failure notice (internal/operations/delegate.go;
+	// delegated-turn-failure notice (internal/adapters/operations/delegate.go;
 	// SystemKindNotice, the zero value, so every entry that predates this
 	// field decodes as a notice exactly like before). A consumer that only
 	// wants to know "is this content" (not which kind) can keep ignoring
@@ -253,7 +253,7 @@ type SessionSystemKind string
 
 const (
 	// SystemKindNotice is a freeform system notice with no structured payload
-	// (e.g. internal/operations/delegate.go's delegated-turn-failure notice).
+	// (e.g. internal/adapters/operations/delegate.go's delegated-turn-failure notice).
 	// The zero value, so pre-existing entries (written before this field
 	// existed) decode as notices, matching their actual prior behavior.
 	SystemKindNotice SessionSystemKind = ""
@@ -307,7 +307,7 @@ type ContentBlock struct {
 // Canonical ToolContentBlock.Kind values.
 //
 // These are named BY PURPOSE, never after the vendor field that produced
-// them, because the transcript policy layer (internal/transcript/policy)
+// them, because the transcript policy layer (internal/adapters/transcript/policy)
 // discriminates on them and a policy rule naming a vendor field is a defect:
 // the same rule has to read correctly for claude, codex, kiro and whatever
 // comes next.

@@ -4,7 +4,7 @@
 // above it.
 //
 // It sits below both internal/core/trust (which interprets the fragment as a trust
-// item kind and mints BundleRef identities) and internal/remote (which turns a
+// item kind and mints BundleRef identities) and internal/adapters/remote (which turns a
 // reference into a FETCH). Those two packages cannot share the grammar by
 // importing each other: trust already imports remote, so the shared syntax has
 // to live under both or be written twice. Written twice is the failure this

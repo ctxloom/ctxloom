@@ -12,9 +12,9 @@ import (
 // Manager's and MemStore's own definitions are function DECLARATIONS, not
 // calls, so internal/core/sessions never needs an entry.
 var bindSessionAllowedCallers = map[string]string{
-	"internal/cli/session_bind.go":    "the SessionStart hook target; calls operations.BindSession, which calls Manager.BindSession",
-	"internal/operations/sessions.go": "the BindSession façade itself, wrapping Manager.BindSession",
-	"internal/memory/compactor.go":    "the compactor's forward-bind backstop; only binds an UNBOUND entry (entry.SessionID == \"\"), so it never reaches the displacement branch",
+	"internal/adapters/cli/session_bind.go":    "the SessionStart hook target; calls operations.BindSession, which calls Manager.BindSession",
+	"internal/adapters/operations/sessions.go": "the BindSession façade itself, wrapping Manager.BindSession",
+	"internal/adapters/memory/compactor.go":    "the compactor's forward-bind backstop; only binds an UNBOUND entry (entry.SessionID == \"\"), so it never reaches the displacement branch",
 }
 
 // SessionBindAnalyzer enforces that every writer of a harp's session binding

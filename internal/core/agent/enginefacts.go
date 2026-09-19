@@ -6,7 +6,7 @@ import (
 )
 
 // This file is the vocabulary an ENGINE PACKAGE uses to declare the facts
-// internal/lm/isolation needs about it: how its global home relocates, what
+// internal/adapters/isolation needs about it: how its global home relocates, what
 // credential material seeds an isolated home, and how a containerized run of
 // it is built and authenticated. The engine authors VALUES of these types in
 // its own package; isolation interprets them by NAME after the registry has

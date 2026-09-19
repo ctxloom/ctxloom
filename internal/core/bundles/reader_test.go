@@ -17,11 +17,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
 
 // The bundle document every reader test reads, and its exact bytes — a
@@ -365,7 +365,7 @@ func TestNewCompanionReader_UnparseableLoadoutIsWarnedAndSkipped(t *testing.T) {
 // That is the half asserted here: the read carries remote|invalid honestly, the
 // delivery path answers ErrFragmentWithheld, and the withhold raises a trust
 // finding rather than vanishing. The production decision that returns
-// ReasonTampered lives in internal/operations and is pinned there.
+// ReasonTampered lives in internal/adapters/operations and is pinned there.
 func TestLoader_RemoteTamperedTreeIsRefusedNotDegradedToUnsigned(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(strictness.Reset)

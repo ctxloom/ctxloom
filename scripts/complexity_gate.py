@@ -33,7 +33,7 @@ Known blind spots (do not try to fix here; see .complexity-baseline.txt and the 
 notes this script was written against):
 
   * lizard's Go parser does not see a func-literal assigned inside a composite literal
-    (e.g. every `&cobra.Command{RunE: func(...) {...}}` in internal/cli) as a function.
+    (e.g. every `&cobra.Command{RunE: func(...) {...}}` in internal/adapters/cli) as a function.
     It only walks the closures nested *inside* that literal. Every cobra command body in
     this repo is invisible to this gate for that reason — the 282-function baseline is
     a floor on known debt, not the true count. If someone later extracts a RunE body
@@ -70,7 +70,7 @@ BASELINE_HEADER = """\
 #
 # The true complexity debt is HIGHER than what's listed here: lizard's Go parser
 # cannot see a func-literal assigned inside a composite literal (every cobra
-# `RunE: func(...) {...}` in internal/cli), so those command bodies are invisible to
+# `RunE: func(...) {...}` in internal/adapters/cli), so those command bodies are invisible to
 # this baseline entirely. See scripts/complexity_gate.py's module docstring.
 #
 # Format (pipe-separated, one violation per line):

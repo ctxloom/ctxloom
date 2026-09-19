@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )

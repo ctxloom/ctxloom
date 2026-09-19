@@ -15,11 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
 // fakeEngineHome records everything the engine host emits, standing in for a

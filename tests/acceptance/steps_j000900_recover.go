@@ -25,7 +25,7 @@ import (
 // systemMessageEnvelope is the half of the SessionStart output that reaches the
 // USER rather than the model. Declared separately from steps_session_hooks.go's
 // hookEnvelope for the reason that file gives for declaring its own: this is a
-// contract with a third party, and a struct shared with internal/cli would let
+// contract with a third party, and a struct shared with internal/adapters/cli would let
 // both ends move together without anything failing.
 type systemMessageEnvelope struct {
 	SystemMessage string `json:"systemMessage"`

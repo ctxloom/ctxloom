@@ -13,7 +13,7 @@ import (
 // WriteFile creates path's parent directory (mode dirPermFor(perm)) on fs and
 // then writes data through iox.WriteFileAtomicFs — the same MkdirAll-then-
 // atomic-write sequence production writers use (e.g.
-// internal/operations/signer.go#appendAllowedSignersLine).
+// internal/adapters/operations/signer.go#appendAllowedSignersLine).
 //
 // A fixture calling afero.WriteFile directly does not create parents, which
 // only stays invisible on a MemMapFs (it auto-creates them); the moment the

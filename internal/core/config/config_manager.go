@@ -23,7 +23,7 @@ const (
 
 // Draft is the mutable view a Manager.Update transaction sees: every
 // PERSISTED Config field (the same set configDoc/Fixture carry), exported so
-// domain logic in internal/operations can mutate it directly —
+// domain logic in internal/adapters/operations can mutate it directly —
 // d.Agents[name] = ..., d.Settings.Statusline =
 // &enabled — exactly the shapes the six production write sites already used
 // before Config's fields were unexported (Phase 3). Runtime-only fields

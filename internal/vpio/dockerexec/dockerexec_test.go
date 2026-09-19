@@ -18,9 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/vpio"
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
-	"github.com/ctxloom/ctxloom/internal/vpio"
 )
 
 // TestBuildExecCmd_RendersTurnArgv: Start's exec CLI invocation is

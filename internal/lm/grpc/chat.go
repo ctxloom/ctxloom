@@ -9,9 +9,9 @@ import (
 	"math"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/transcript"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

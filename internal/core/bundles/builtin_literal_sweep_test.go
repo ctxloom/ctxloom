@@ -23,7 +23,7 @@ import (
 // executable's SCM/source ref — internal/core/bundles, internal/core/config,
 // internal/lm/backends — which is where every genuine producer lives.
 // Deliberately NOT a whole-repo sweep: internal/core/trust.IsRetiredBuiltinSpelling
-// and internal/operations.ResolveSignTarget both still recognize the RETIRED
+// and internal/adapters/operations.ResolveSignTarget both still recognize the RETIRED
 // "builtin:<name>" ASK spelling on purpose — recognizing it is what lets it be
 // REFUSED by name instead of silently re-read as a bundle name — and
 // sweeping those in would fail on code that is correct by design, not

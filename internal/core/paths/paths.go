@@ -50,7 +50,7 @@ const (
 	AllowedSignersFileName = "allowed_signers"
 
 	// GitignoreFileName is the name of the ignore file ctxloom owns INSIDE the
-	// .ctxloom directory (internal/gitignore's EnsureNested writes it). Unlike
+	// .ctxloom directory (internal/adapters/gitignore's EnsureNested writes it). Unlike
 	// every other generated path here it is TierCommitted on purpose: tracking
 	// it is what carries the private-state rules into clones and into linked
 	// worktrees, which a rule living only in the superproject's root .gitignore
@@ -271,7 +271,7 @@ const (
 	TranscriptStoreDirName = "transcripts"
 
 	// CanonicalTranscriptFileName is the persist/ leaf holding ctxloom's OWN
-	// captured transcript (internal/transcript.Recorder's output): one JSONL
+	// captured transcript (internal/adapters/transcript.Recorder's output): one JSONL
 	// line per agent.ChatEvent, engine-agnostic. Deliberately a DIFFERENT name
 	// from TranscriptStoreDirName so the two never collide — that one is a
 	// bind-mount DIRECTORY holding an engine's native file(s); this one is a
@@ -281,7 +281,7 @@ const (
 	// Named "transcript.jsonl", NOT "transcript.acp.jsonl" (the pre-rename
 	// name): the file is fed by every structured/ACP engine AND the oneshot
 	// regime (transcript.RecordOneshot) AND the vendor readers
-	// (internal/transcript/vendorreader/*) — engine-agnostic by construction, per
+	// (internal/adapters/transcript/vendorreader/*) — engine-agnostic by construction, per
 	// this constant's own doc comment above. The old name read as "an ACP
 	// artifact" to anyone browsing a session's persist/ dir, which it never
 	// was. See LegacyCanonicalTranscriptFileName for the back-compat reader
@@ -353,7 +353,7 @@ const (
 	// HomeRecordsDirName is the home-rooted directory holding hew §9.7
 	// application records: one file per successful `util config-write`
 	// apply against a JSON target, naming what changed, to what bytes,
-	// from which patch (see internal/cli/util_config_write.go's record
+	// from which patch (see internal/adapters/cli/util_config_write.go's record
 	// builder). It is the audit trail distinct-bullpen's "config-write has
 	// no recovery path for a foreign file" asked for, to the degree hew's
 	// v0 library currently supports (a full `hew revert` is future work per
@@ -688,8 +688,8 @@ func HarpEngineTranscriptLinkPath(harp, engine, sessionID string) (string, error
 // HarpCanonicalTranscriptPath returns
 // ~/.ctxloom/sessions/<harp>/persist/transcript.jsonl — the canonical,
 // engine-agnostic transcript ctxloom captures itself (see
-// CanonicalTranscriptFileName). This is the file internal/transcript.Recorder
-// appends to and internal/transcript.CanonicalHistory (a later slice) reads
+// CanonicalTranscriptFileName). This is the file internal/adapters/transcript.Recorder
+// appends to and internal/adapters/transcript.CanonicalHistory (a later slice) reads
 // from; it is distinct from HarpTranscriptStoreDir, which bind-mounts an
 // engine's own native store.
 //
@@ -762,7 +762,7 @@ func ResolveHarpCanonicalTranscriptPath(harp string) (string, error) {
 
 // TriggerCacheDir returns ~/.ctxloom/cache/triggers — the home-rooted
 // directory holding ctxloom's cached revive-trigger verdicts, one file per
-// project (see internal/operations' verdict cache). It deliberately lives
+// project (see internal/adapters/operations' verdict cache). It deliberately lives
 // OUTSIDE any project tree and outside taskloom's own store
 // (~/.ctxloom/tasks/<project-id>.jsonl, internal/shared/tasks/paths): a
 // verdict cache is pure derived scratch, safe to delete at any time, and
@@ -990,7 +990,7 @@ func TrustObjectsPath(appPath string) string {
 
 // LegacyTrustObjectsPath returns the pre-relocation snapshot directory under
 // cache/. It exists for ONE reader — the one-time migration in
-// internal/operations' snapshot store — so the retired location is named once,
+// internal/adapters/operations' snapshot store — so the retired location is named once,
 // beside its replacement, instead of being re-derived as a literal wherever
 // somebody remembers it. Nothing writes here.
 func LegacyTrustObjectsPath(appPath string) string {

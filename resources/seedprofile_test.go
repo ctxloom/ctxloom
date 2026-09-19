@@ -14,7 +14,7 @@ import (
 // This existed as an untested claim until 2026-08-07: the seeded profile's
 // parent list is what `ctxloom init` composes into a user's very first
 // context, and NOTHING asserted it. The only two references anywhere were a
-// ref-PARSING fixture string in internal/remote and a file-exists check in
+// ref-PARSING fixture string in internal/adapters/remote and a file-exists check in
 // j001400 — so a parent could be removed, renamed, or pointed at a bundle that no
 // longer exists, and every gate would stay green while new projects silently
 // got different context.

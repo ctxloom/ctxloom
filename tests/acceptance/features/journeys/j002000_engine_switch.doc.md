@@ -69,7 +69,7 @@ never told a user typing an unfamiliar engine name was that they typed it
 wrong. The error fired about directory state, on the day the user is thinking
 about engines.
 
-`cli.checkEngineKnown` (`internal/cli/manage.go`) now runs BEFORE that
+`cli.checkEngineKnown` (`internal/adapters/cli/manage.go`) now runs BEFORE that
 already-exists check, so the diagnosis is about the argument even when
 `.ctxloom` already exists. Its roster is `backends.List()`, not
 `operations.AvailableLLMNames`: unlike the agent-binding case above, this flag

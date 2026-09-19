@@ -53,7 +53,7 @@ func Analyzers() []*analysis.Analyzer {
 }
 
 // PkgDir is the module-relative directory of the package under analysis
-// ("internal/operations"), or "" for a package outside this module.
+// ("internal/adapters/operations"), or "" for a package outside this module.
 //
 // Derived from the package path rather than from a file path so it is
 // unaffected by where the driver was invoked from, and so a linked worktree
@@ -105,7 +105,7 @@ func LocalDir(importPath string) string {
 }
 
 // UnderSubtree reports whether dir is subtree itself or lies beneath it. Rules
-// are written against subtrees, so "internal/cli" covers "internal/cli/tui"
+// are written against subtrees, so "internal/adapters/cli" covers "internal/adapters/cli/tui"
 // while never matching a sibling like "internal/clifmt".
 func UnderSubtree(dir, subtree string) bool {
 	return dir == subtree || strings.HasPrefix(dir, subtree+"/")

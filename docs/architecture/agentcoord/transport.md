@@ -67,7 +67,7 @@ flowchart TD
 | `discover.List` | out-of-process discovery: glob `~/.ctxloom/coord/*/endpoint.json`, sort by mtime newest-first, return `(URL, Cred)` pairs |
 
 `internal/agentcoord/discover` is a deliberate **leaf**: `coord` imports
-`internal/operations`, so `operations` cannot import `coord`. `discover` therefore
+`internal/adapters/operations`, so `operations` cannot import `coord`. `discover` therefore
 re-declares four things by hand — the state-dir name (`coord/statedir.go`), the MCP
 path (`coord/httpserver.go`), the `endpoint.json` shape (`coord/httpserver.go`)
 and the URL format (`coord/httpserver.go`) — with no compiler link. A third copy of

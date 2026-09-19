@@ -32,7 +32,7 @@ type Product struct {
 	// Root is the cobra root command. It is the single source of truth for the
 	// CLI reference.
 	Root *cobra.Command
-	// CLISource is the package the tree is defined in ("internal/cli"), cited in
+	// CLISource is the package the tree is defined in ("internal/adapters/cli"), cited in
 	// the generated-file banner.
 	CLISource string
 	// LinkBase is the site route prefix for this product's CLI pages

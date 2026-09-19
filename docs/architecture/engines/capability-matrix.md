@@ -44,8 +44,8 @@ vocabulary; an engine maps it to its own mechanism.
 
 `CollapsePlanIfUnenforced` (`internal/core/agent/permissions.go:116-121`) turns
 `plan` into `default` for any backend that cannot enforce a genuine read-only tier,
-so `plan` never runs unrestrained. Applied at `internal/cli/run.go:1499`
-(interactive) and `internal/operations/oneshot.go:417` (headless fan-out).
+so `plan` never runs unrestrained. Applied at `internal/adapters/cli/run.go:1499`
+(interactive) and `internal/adapters/operations/oneshot.go:417` (headless fan-out).
 
 | Backend | `enforcesReadOnlyPlan` | Does `plan` survive? | Evidence |
 |---|---|---|---|
@@ -80,8 +80,8 @@ All three delivery paths now carry it:
 | Path | Carries `DenyTools`? | Carries `Skills`? | Site |
 |---|---|---|---|
 | `ctxloom run` / oneshot (gRPC launch) | yes — **since `40b49a7f`** | yes — **since `40b49a7f`** | `internal/lm/grpc/managed.go` |
-| `ctxloom apply-hooks` | yes | **no** | `internal/operations/hooks.go:452` |
-| `ctxloom profile materialize` | yes | yes | `internal/operations/profile_materialize.go:129`, `:131` |
+| `ctxloom apply-hooks` | yes | **no** | `internal/adapters/operations/hooks.go:452` |
+| `ctxloom profile materialize` | yes | yes | `internal/adapters/operations/profile_materialize.go:129`, `:131` |
 
 **Whether the engine then *honours* it is a separate question** — the per-engine
 table above is the one that answers it. An engine whose surface constructors
@@ -168,11 +168,11 @@ an engine with a declared loss and say nothing — neither calls
 
 `RetiredScraperBackendNames` (`internal/lm/grpc/canonical_source.go`) lists the
 backends whose legacy scraper was deleted rather than demoted. A `nil` history
-**fails loudly** at both consumers (`internal/operations/sessionfeed.go`,
+**fails loudly** at both consumers (`internal/adapters/operations/sessionfeed.go`,
 `internal/lm/grpc/sessionhistory.go`). Canonical capture is written runner-side
-into `internal/transcript`'s canonical JSONL; each engine declares its own
+into `internal/adapters/transcript`'s canonical JSONL; each engine declares its own
 vendor reader on its descriptor (`engine.Descriptor.TranscriptReaders`), and
-`internal/operations/vendorreader.go` reads that declaration for the
+`internal/adapters/operations/vendorreader.go` reads that declaration for the
 interactive-pty gap.
 
 ## 7. One-shot driving and resume
@@ -196,7 +196,7 @@ Full detail in [isolation](isolation.md). Summary:
 | `claude-code` | `CLAUDE_CONFIG_DIR` | `ctxloom-agent:latest` | `ANTHROPIC_*` env, else **RW copy-mount** of `~/.claude/.credentials.json` (RW because claude refreshes the token in place) | none |
 | the doubles | none needed — mock's descriptor declares `Home` absent (a bare echo that never touches disk), a NAMED exemption; a double that declared nothing would be refused at registration | `ctxloom-agent:latest`, installing no vendor CLI (its descriptor's install fragment asserts `cat` only) | a `Vendorless` auth declaration — the one plan that never fails to resolve | none |
 
-`composableEngines()` (`internal/lm/isolation/enginespec.go`) names the engines
+`composableEngines()` (`internal/adapters/isolation/enginespec.go`) names the engines
 with a container install fragment; an engine absent from
 `engineContainerSpecFor`'s switch gets the default arm, whose auth resolver
 `noContainerAuth` **fails closed**.

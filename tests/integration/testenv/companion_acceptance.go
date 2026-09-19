@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
 // InstallFakeCompanion writes an executable shell script named bin (e.g.

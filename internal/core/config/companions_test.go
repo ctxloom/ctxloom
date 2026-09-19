@@ -16,11 +16,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
-	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 func TestProbeCompanions_ReportsVersionFromJSONProbe(t *testing.T) {
@@ -398,7 +398,7 @@ func TestDisableCompanionProbe_BeatsGlobalEnabled(t *testing.T) {
 // TestCompanionVersion_ReadsTheCliversionContract pins the cross-binary
 // version contract from BOTH ends at once: the payload is produced the way
 // every companion actually produces it — by marshalling a cliversion.Info,
-// which is what cmd/ltk, cmd/taskloom, cmd/harp and internal/cli all hand to
+// which is what cmd/ltk, cmd/taskloom, cmd/harp and internal/adapters/cli all hand to
 // their renderer — and consumed by the reader ctxloom boots with. The
 // package doc on cliversion calls Info "the single source of truth rather
 // than being re-declared per binary"; this test is what makes that true of

@@ -11,7 +11,7 @@ import (
 //
 // ItemKinds() documents the vocabulary as CLOSED at this package's core and
 // OPEN at the surface-type registry: a kind may be declared outside package
-// trust, and internal/content.KindProfile ("profiles") is a live instance —
+// trust, and internal/adapters/content.KindProfile ("profiles") is a live instance —
 // its surface type names its own directory as KindProfile.Dir(). Removing the
 // passthrough, so an unregistered kind resolved to an error or an empty
 // segment, would take the registry's extension point with it.
@@ -38,7 +38,7 @@ func TestItemKindDir_RegistryDeclaredKindsPassThrough(t *testing.T) {
 		assert.Containsf(t, core, kind, "ItemKinds() declares %q with no pinned directory here", kind)
 	}
 
-	// Declared elsewhere: internal/content.KindProfile. Spelled as a literal
+	// Declared elsewhere: internal/adapters/content.KindProfile. Spelled as a literal
 	// because package content imports this one.
 	const registryDeclared ItemKind = "profiles"
 	assert.NotContains(t, ItemKinds(), registryDeclared,

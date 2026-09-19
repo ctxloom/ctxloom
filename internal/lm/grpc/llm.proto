@@ -205,7 +205,7 @@ message ChatStart {
   repeated ChatMCPServer mcp_servers = 6;
   // transcript_raw_policy names the transcript.raw capture policy the
   // canonical-transcript Recorder should honor for this chat (off |
-  // lossy-only | all — see internal/transcript/recorder.go's RawPolicy).
+  // lossy-only | all — see internal/adapters/transcript/recorder.go's RawPolicy).
   // Empty means "use the default" (lossy-only). Mirrors
   // agent.ChatRequest.TranscriptRawPolicy; see that field's doc comment —
   // nothing populates this from user config yet (deferred), every current

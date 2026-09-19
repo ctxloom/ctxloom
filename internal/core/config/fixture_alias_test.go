@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 )
 
 // Fixture's own doc promises "a Fixture-built Config never aliases a

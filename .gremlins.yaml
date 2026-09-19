@@ -10,7 +10,7 @@ unleash:
   # viper path "unleash.exclude-files"; a TOP-LEVEL exclude-files key is parsed
   # as valid YAML, silently ignored, and excludes nothing. It sat at the top
   # level here and generated protobuf was being mutated the whole time —
-  # internal/agentcoord alone produced 1,261 .pb.go mutants. Generated code is
+  # internal/adapters/coordgrpc/pb alone produced 1,261 .pb.go mutants. Generated code is
   # never tested, so those land NOT COVERED/LIVED and drag both efficacy and
   # mutant-coverage down, which means every published number was computed over
   # a file set nobody intended to measure.

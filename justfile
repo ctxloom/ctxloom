@@ -457,9 +457,9 @@ test-conformance:
 # already part of `go test ./...`, but named here so a release-monitoring job
 # can point at exactly this engine's parser against a fresh vendor transcript
 # without pulling in the rest of the suite). Add a sibling target per engine
-# as internal/transcript/vendorreader/<engine> lands.
+# as internal/adapters/transcript/vendorreader/<engine> lands.
 test-vendor-claude:
-    go test -trimpath -race ./internal/transcript/vendorreader/claude/...
+    go test -trimpath -race ./internal/adapters/transcript/vendorreader/claude/...
 
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
@@ -530,7 +530,7 @@ vet-integration: _require-generated
 #
 # COMPILE, NEVER THE SUITE. Running the tests against a detached copy of HEAD
 # produces failures that do not reproduce in the primary checkout (measured:
-# internal/cli's sandbox fail-closed guard, and coord's reannounce escalation),
+# internal/adapters/cli's sandbox fail-closed guard, and coord's reannounce escalation),
 # because those tests depend on being in the primary worktree — the same family
 # as the version stamp breaking in linked worktrees. A gate with false reds is
 # a gate people switch off, so this one only ever compiles.
@@ -550,7 +550,7 @@ check-head-builds REF="HEAD": _require-generated _ensure-gotmpdir
 
     protos=()
     while IFS= read -r proto; do
-        case "$proto" in internal/agentcoord/google/*) continue ;; esac
+        case "$proto" in internal/adapters/coordgrpc/pb/google/*) continue ;; esac
         protos+=("$proto")
     done < <(git ls-tree -r --name-only "$tree" | grep '\.proto$' || true)
 
@@ -914,7 +914,7 @@ test-acceptance-container: build _ensure-gotmpdir
 # test-docker-integration lives in build/gates.justfile, imported at the top
 # of this file and by justfile.container, so the host recipe and the one CI
 # runs are the SAME recipe over the SAME package list. What it covers:
-#   internal/lm/isolation      — the gRPC container transport + the
+#   internal/adapters/isolation      — the gRPC container transport + the
 #                                force-removal-on-Kill boundary end to end,
 #                                including a real git worktree mounted in;
 #   internal/core/coord  — the docker-direct delegated spawn
@@ -1756,7 +1756,7 @@ deadcode *ARGS="-test":
 
 # Per-function cyclomatic complexity as a human-readable table + warnings.
 # Defaults to the repo root; pass paths/flags to scope, e.g.
-#   just complexity internal/remote
+#   just complexity internal/adapters/remote
 #   just complexity -C 15 .           (warn on functions over CCN 15)
 complexity *ARGS: dev-image
     just _run complexity {{ARGS}}
@@ -1817,7 +1817,7 @@ uninstall:
     rm -f ~/go/bin/ctxloom ~/go/bin/ltk ~/go/bin/taskloom
 
 # Regenerate the proto-canonical MCP tool schemas (checked-in goldens under
-# internal/agentcoord/mcpschema/schemas/) from a buf-built FileDescriptorSet
+# internal/adapters/coordgrpc/mcpschema/schemas/) from a buf-built FileDescriptorSet
 # WITH source info (buf includes SourceCodeInfo by default; the protoc
 # fallback is --descriptor_set_out --include_source_info). CI fails on drift
 # (gen-mcp-schemas-check in justfile.container).
@@ -1827,9 +1827,9 @@ gen-mcp-schemas:
     tmp=$(mktemp)
     trap 'rm -f "$tmp"' EXIT
     buf build -o "$tmp"
-    go run ./internal/agentcoord/mcpschema/gen -descriptor "$tmp" \
-        -out internal/agentcoord/mcpschema/schemas \
-        -xmllike-out internal/agentcoord/xmllike_gen.go
+    go run ./internal/adapters/coordgrpc/mcpschema/gen -descriptor "$tmp" \
+        -out internal/adapters/coordgrpc/mcpschema/schemas \
+        -xmllike-out internal/adapters/coordgrpc/pb/xmllike_gen.go
 
 # Generate the reference docs for all three binaries from their sources of
 # truth: the CLI reference (man pages + website markdown) from each cobra

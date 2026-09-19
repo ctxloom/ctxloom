@@ -261,4 +261,4 @@ TOML integer round-trip does not fail verification.
   doc comment for a `generateConfig` function that no longer exists.
 - `initPrompts.oldState` (`init.go:151`) is written once and never read.
 - `DoctorCheck` and `DoctorReport` are exported from an `internal/` package with
-  zero references outside `internal/cli`.
+  zero references outside `internal/adapters/cli`.

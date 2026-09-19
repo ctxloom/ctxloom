@@ -10,7 +10,7 @@ import (
 // RevokeSessionOwner had ZERO call sites anywhere in the repo
 // (production or test), so depth-0 session-owner credentials — minted once
 // per `ctxloom run` process by SessionOwnerEnv
-// (internal/mcp/coord_host.go) — were never revoked. Since runsFold.apply
+// (internal/adapters/mcp/coord_host.go) — were never revoked. Since runsFold.apply
 // re-applies every factSessionCred fact on replay/adoption, every owner
 // token ever minted for a project stayed valid forever in that project's
 // coordinator state, contradicting doc.go's own "revocation at run end
@@ -20,7 +20,7 @@ import (
 // This pins the mechanism itself, previously completely unexercised: a
 // revoked session-owner token must stop identifying, and a re-registration
 // of the same harp (a fresh `ctxloom run` on the same project) must mint an
-// INDEPENDENT credential — the fix is wired into internal/cli/run.go's
+// INDEPENDENT credential — the fix is wired into internal/adapters/cli/run.go's
 // coordinator teardown (defer sessionCoord.RevokeSessionOwner(ownerToken),
 // ordered to fire before the coordinator Close so the journal is still
 // open to accept the write).

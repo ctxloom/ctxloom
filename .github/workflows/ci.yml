@@ -259,7 +259,7 @@ jobs:
 
       # Docker-gated container proof: builds minimal images, spawns real
       # containers, and proves the gRPC transport + force-removal boundary
-      # (internal/lm/isolation), the coordinator<->containerized-child bus,
+      # (internal/adapters/isolation), the coordinator<->containerized-child bus,
       # top-level owner runs and progress/liveness (internal/core/coord),
       # the interactive docker-exec turn (internal/vpio/dockerexec) and the ACP
       # container transport (internal/acp) end to end. GitHub-hosted runners

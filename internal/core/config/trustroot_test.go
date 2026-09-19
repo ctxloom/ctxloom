@@ -17,10 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // newTestKey returns an ephemeral ed25519 public key and its authorized_keys

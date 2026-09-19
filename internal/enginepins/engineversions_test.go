@@ -7,7 +7,7 @@
 // consumer can't silently stop deriving from the lock file.
 //
 // engine-versions.env pins the last-known-good CLI version per engine that
-// ctxloom's reader (internal/transcript/vendorreader/{codex,claude})
+// ctxloom's reader (internal/adapters/transcript/vendorreader/{codex,claude})
 // has been validated against. It is deliberately NOT
 // folded into .devcontainer/tool-versions.env / buildpins: that file pins
 // build/codegen tooling baked into the devcontainer image, and engine CLIs
@@ -64,7 +64,7 @@ func parseEngineVersionsEnv(t *testing.T, path string) map[string]string {
 func TestEngineVersionsEnvIsWellFormed(t *testing.T) {
 	versions := parseEngineVersionsEnv(t, engineVersionsPath)
 
-	// One key, because one engine has a vendor reader. internal/transcript/
+	// One key, because one engine has a vendor reader. internal/adapters/transcript/
 	// vendorreader ships a claude adapter and nothing else, and this file locks
 	// the versions those readers are known to parse — so an entry here without
 	// a reader behind it would pin a claim nothing can check.

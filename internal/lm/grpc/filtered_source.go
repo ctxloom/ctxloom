@@ -3,8 +3,8 @@ package grpc
 import (
 	"context"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript/policy"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/transcript/policy"
 )
 
 // FilteredSource applies a content policy to every session it reads, on the

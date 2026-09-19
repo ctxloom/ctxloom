@@ -53,7 +53,7 @@ const (
 //
 // No frontend reads this type as JSON today, and none should be assumed to:
 // `ctxloom session list --format json` renders a separate rendering-time
-// projection (internal/cli.SessionRow — harp/summary/start/end/essence_path),
+// projection (internal/adapters/cli.SessionRow — harp/summary/start/end/essence_path),
 // the list_sessions MCP tool renders its own sessionSummary, and the
 // ctxloom://sessions/recent resource builds its own YAML row type. The json
 // tags are therefore a shape guarantee, not a wire in use.
@@ -120,12 +120,12 @@ type Entry struct {
 	LastActivity time.Time `yaml:"-" json:"-"`
 
 	// CanonicalTranscriptPath is the harp's OWN captured transcript
-	// (paths.HarpCanonicalTranscriptPath — internal/transcript.Recorder's
+	// (paths.HarpCanonicalTranscriptPath — internal/adapters/transcript.Recorder's
 	// output), computed on read — never persisted — by stat'ing the file (see
 	// fillCanonicalTranscript). Empty means no canonical transcript has
 	// landed for this harp yet: a pre-capture session, an interactive-pty-only
 	// session (§2d/§4d — not tee'd), or a chat that produced zero ChatEvents.
-	// This is the enumeration key internal/transcript.CanonicalHistory (S3)
+	// This is the enumeration key internal/adapters/transcript.CanonicalHistory (S3)
 	// uses to discover which of a project's sessions it can serve,
 	// independent of the legacy per-engine TranscriptPath.
 	CanonicalTranscriptPath string `yaml:"-" json:"canonical_transcript_path,omitempty"`

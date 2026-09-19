@@ -15,12 +15,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/cli/tui"
+	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/termui"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -48,7 +48,7 @@ func tuiGeo() termui.OverlayGeometry {
 // package-private to coord's own tests, so this file re-derives the same
 // idiom using only coord's EXPORTED Spawner surface (Resolve/AssignSession/
 // StartEngine/...) — the same seam fakeSpawner.StartEngine itself is built
-// from. Because internal/cli/tui already imports internal/core/coord
+// from. Because internal/adapters/cli/tui already imports internal/core/coord
 // in production (roster.go), an INTERNAL coord test importing tui would
 // cycle; an EXTERNAL coord_test package importing tui does not (tui is a
 // consumer of coord, not the reverse), so package coord_test is required

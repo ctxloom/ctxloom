@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/engineversion"
-	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 )
 
 type fixtureConfig struct{}

@@ -171,7 +171,7 @@ func TestRestoreDir_SilentOnSuccess(t *testing.T) {
 // The scan root comes from where the test binary STARTED, NOT the current
 // working directory. A source-scanning gate rooted at "." walks whatever temp
 // directory the binary happens to be in, finds nothing, and passes — a gate
-// that evaporates rather than fails. This is the same idiom internal/cli's
+// that evaporates rather than fails. This is the same idiom internal/adapters/cli's
 // pkgSourceDir documents.
 func TestPackageDoc_GeneralPurposeClaimHolds(t *testing.T) {
 	repo, rootErr := sourcedir.RepoRoot()

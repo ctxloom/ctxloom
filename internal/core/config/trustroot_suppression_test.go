@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
 
 // newSuppressionTestSigner returns an ephemeral in-memory ed25519 ssh.Signer
@@ -145,7 +145,7 @@ func TestTrustRoot_SuppressedEmbeddedPrincipal_NoLongerTrusted(t *testing.T) {
 	// --project` would (operations.RemoveSigner) directly to the project
 	// distrusted_signers file, to isolate the TrustRoot()-side read from the
 	// CLI/operations write path (that round trip is proven separately in
-	// internal/operations).
+	// internal/adapters/operations).
 	require.NoError(t, afero.WriteFile(fs, paths.DistrustedSignersPath(appDir), []byte("ben+ctxloom@abbitt.me\n"), 0o600))
 
 	after := cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now)

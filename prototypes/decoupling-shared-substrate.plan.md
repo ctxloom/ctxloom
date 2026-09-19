@@ -65,7 +65,7 @@ session/transcript wire-format. ALL engine-specific knowledge lives here. The
 
 ### `ctxloom/sessions`
 Project-root + per-project state dir + session identity, IDs from `ctxloom/harp`.
-Pieces already exist: `internal/projectroot` (CTXLOOM_ROOT) + the session
+Pieces already exist: `internal/adapters/projectroot` (CTXLOOM_ROOT) + the session
 machinery + the task-store path resolution (`paths.TasksLogPath`,
 `HarpStorePath`). Resolves "where is my state for THIS project" with fallback
 when no `.ctxloom` exists. ctxloom, ltk (project-root only), and ctxtask consume
@@ -112,7 +112,7 @@ Known limit: env-prefix / `sh -c` — production delegates to ltk's parser.
 
 - **P0 — extract `ctxloom/agent` + the agent packages.** Move `internal/lm/backends` into `ctxloom/agent` (interfaces, `UnifiedHooks`, owner predicate, `Reconcile`, canonical marshaller, detection) + `ctxloom/claude` (Backend + SettingsWriter + capabilities). `ctxloom/gemini` follows, riding `feat/gemini-parity`. ltk writes its hook via `ctxloom/agent`'s `SettingsWriter` (claude agent). *Exit:* ctxloom launches + writes settings via the agent packages; ltk uses the same writer; serializer churn gone; existing hook/backend tests pass; user keys preserved.
 - **P1 — `ctxloom/sessions` extraction.** Pull `projectroot` + state-dir + session + task-store path resolution into `ctxloom/sessions`; replace the `session-bind` hook with lazy binding; adopt the `.ctxloom` layout (any path/dir moves done as registered migrations in the migrations layer, not inline in the resolver). *Exit:* all three tools resolve state through one lib; the session-bind hook is gone; standalone mode still works.
-- **P2 — carve `ctxtask` out of ctxloom.** Move `internal/tasks` + `internal/operations/tasks.go` + `cmd/tasks_cmd.go` + `cmd/mcp_tools_tasks.go` into `ctxloom/ctxtask`: own CLI + MCP server, consuming `ctxloom/sessions` for paths; **owns the `stamp-plan` hook** (`ctxloom hook stamp-plan` → `ctxtask hook stamp-plan`). *Exit:* ctxtask runs standalone; ctxloom no longer ships task code or the stamp-plan hook. (No data migration — the `tasks/` path is unchanged.)
+- **P2 — carve `ctxtask` out of ctxloom.** Move `internal/tasks` + `internal/adapters/operations/tasks.go` + `cmd/tasks_cmd.go` + `cmd/mcp_tools_tasks.go` into `ctxloom/ctxtask`: own CLI + MCP server, consuming `ctxloom/sessions` for paths; **owns the `stamp-plan` hook** (`ctxloom hook stamp-plan` → `ctxtask hook stamp-plan`). *Exit:* ctxtask runs standalone; ctxloom no longer ships task code or the stamp-plan hook. (No data migration — the `tasks/` path is unchanged.)
 - **P3 — slim ctxloom + ltk onto the libs.** Remove the now-duplicated writer/projectroot code from both. *Exit:* no settings-writing or root-resolution logic outside the shared libs.
 
 Depends: P0 → P1 → P2 → P3.

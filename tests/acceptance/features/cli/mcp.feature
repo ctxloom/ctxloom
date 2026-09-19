@@ -222,7 +222,7 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
 
     # Every command in this suite is a subprocess on pipes, which IS the
     # machine side — the harness has no terminal to offer. The human half, the
-    # listing itself, is driven in internal/cli's mcp_bare_test.go, where the
+    # listing itself, is driven in internal/adapters/cli's mcp_bare_test.go, where the
     # terminal predicate can be presented either way.
     # The invocation is asserted BACKTICKED. A bare "ctxloom mcp serve" is a
     # substring of "ctxloom mcp server list", which this same message also

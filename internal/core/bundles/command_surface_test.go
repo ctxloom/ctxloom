@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
 // The command surface is the MODEL of what an agent is shown of a command —

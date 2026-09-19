@@ -16,14 +16,14 @@ import (
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/go-plugin/runner"
 
-	"github.com/ctxloom/ctxloom/internal/selfexec"
+	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/version"
 )
 
 // ContainerRunnerFunc is go-plugin's RunnerFunc shape: given the (env-populated)
 // spec command and the host temp dir go-plugin created for unix sockets, it
 // returns a runner.Runner that launches the plugin — for the container transport,
-// inside a container. A DEFINED type, not an alias: callers (internal/lm/isolation)
+// inside a container. A DEFINED type, not an alias: callers (internal/adapters/isolation)
 // name the contract without importing go-plugin's exact signature, and a value
 // carrying that name is a distinct type rather than any three-argument function
 // that happens to match. go-plugin's own ClientConfig.RunnerFunc field is an
@@ -501,7 +501,7 @@ func runnerFromConn(conn llmConnection) (*LLMRunner, error) {
 //
 // There is no unstamped exemption, and that is the whole design. A ctxloom
 // that cannot name its own build does not run at all: the stamp is required at
-// startup (internal/cli's stamp gate, on internal/version.ValidStamp), so a
+// startup (internal/adapters/cli's stamp gate, on internal/version.ValidStamp), so a
 // client reaching this call is always stamped, and a daemon answering without
 // one is not "an old build we cannot verify" — it is a process whose identity
 // cannot be established, which is precisely what this check exists to refuse.

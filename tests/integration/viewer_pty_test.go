@@ -17,17 +17,17 @@ import (
 // it drives the actual COMPILED ctxloom binary's `run` command over a real
 // pty (testenv.RunPTY — aymanbagabas/go-pty, no tmux/expect/vt10x, matching
 // the playbook's binding tooling constraint), proving the terminal
-// observation layer (internal/termui's surround bar + prefix-key viewer)
+// observation layer (internal/adapters/termui's surround bar + prefix-key viewer)
 // engages through the REAL CLI dispatch and process lifecycle — the one seam
-// F1's in-process harnesses (internal/termui/overlay_composition_test.go,
-// internal/cli/tui/overlay_test.go) cannot reach, since those construct
+// F1's in-process harnesses (internal/adapters/termui/overlay_composition_test.go,
+// internal/adapters/cli/tui/overlay_test.go) cannot reach, since those construct
 // termui.Controller/tui.Overlay directly rather than through `ctxloom run`.
 //
 // Gotcha for anyone extending this file: SetupMockLM writes config.yaml at
 // ctxloomconfig.CurrentConfigVersion, so loading it never triggers the
 // interactive "rewrite to the current schema?" confirmation. A config
 // version behind CurrentConfigVersion WOULD trigger it the moment BOTH
-// stdin and stdout are a real tty (internal/cli/run.go's confirmUpgrade /
+// stdin and stdout are a real tty (internal/adapters/cli/run.go's confirmUpgrade /
 // isInteractiveTerminal) — which a pty always is — hanging every RunPTY
 // invocation below on an unanswered prompt. If MockLM ever falls behind the
 // schema again, pass -y (runAssumeYes) to auto-commit the upgrade rather

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // The mailbox `kind` vocabulary. It is CLOSED and split in two: kinds a SENDER

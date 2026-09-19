@@ -45,7 +45,7 @@ Feature: content decisions — ctxloom review, bundle trust, bundle reject, bund
 
   The interactive walk's own keystrokes ([t]rust / [r]eject / [s]kip, [T]/[R]
   for the rest of a bundle) are pinned by unit tests — TestParseReviewChoice
-  and TestRunReviewWalk_* in internal/cli — because `ctxloom review` degrades
+  and TestRunReviewWalk_* in internal/adapters/cli — because `ctxloom review` degrades
   to the pending table off a TTY and cannot be driven interactively from here.
   What this file covers of the porcelain is that table and its agreement with
   the plumbing.

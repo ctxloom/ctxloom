@@ -7,7 +7,7 @@ plus its parent graph into one flattened `ResolvedProfile` listing the bundles, 
 commands, skills, hooks, MCP servers, tags, variables and exclusions a session should get.
 
 It is the **fallback leg of a two-source resolver**. `operations.resolveProfile`
-(`internal/operations/context.go:567`) and `lm/backends.assembleManaged*` first try
+(`internal/adapters/operations/context.go:567`) and `lm/backends.assembleManaged*` first try
 `config.ResolveProfile` over the inline `profiles:` map in `config.yaml`, and only fall
 through to `Loader.ResolveProfile` when the name is not inline. Every semantic here therefore
 has a twin in `internal/core/config/config_resolve.go`, kept in lockstep by hand.
@@ -23,10 +23,10 @@ has a twin in `internal/core/config/config_resolve.go`, kept in lockstep by hand
 ## Non-responsibilities
 
 - Inline `profiles:` in `config.yaml` — `internal/core/config` (`ResolveProfile`); see [config.md](./config.md).
-- Profile CRUD *operations* and import/export — `internal/operations`
+- Profile CRUD *operations* and import/export — `internal/adapters/operations`
   (`profiles.go`, `profile_transfer.go`); see [operations.md](./operations.md).
 - Turning a resolved profile into delivered text — `operations.AssembleContext`.
-- The reference grammar itself — `internal/remote`; see [remote.md](./remote.md).
+- The reference grammar itself — `internal/adapters/remote`; see [remote.md](./remote.md).
 
 ## Data flow
 
@@ -146,10 +146,10 @@ flowchart TD
 ## Boundaries
 
 - **Called by:** `internal/core/config` (`GetProfileLoader`, `loadBundleProfileSeed`),
-  `internal/operations` (`profileLoader`, `profileLoaderFS`, the CRUD operations),
-  `internal/cli` (`profile.go`, `run.go`'s upgrade-consent prompt), `internal/core/bundles`,
+  `internal/adapters/operations` (`profileLoader`, `profileLoaderFS`, the CRUD operations),
+  `internal/adapters/cli` (`profile.go`, `run.go`'s upgrade-consent prompt), `internal/core/bundles`,
   `internal/lm/backends` (`assembleManagedMCP`, `assembleManagedHooks`, `assembleManagedDenyTools`).
-- **Calls:** `internal/remote` (7 symbols: `CanonicalKey`, `CanonicalProfileKey`,
+- **Calls:** `internal/adapters/remote` (7 symbols: `CanonicalKey`, `CanonicalProfileKey`,
   `SplitBundleProfileRef`, …), `internal/shared/upgrade`, `internal/shared/strictness`,
   `internal/errs`, `internal/core/paths`, `clidiag`.
 

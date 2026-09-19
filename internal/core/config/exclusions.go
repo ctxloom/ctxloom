@@ -1,7 +1,7 @@
 package config
 
 import (
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 

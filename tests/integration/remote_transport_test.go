@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

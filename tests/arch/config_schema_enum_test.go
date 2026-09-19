@@ -46,10 +46,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	agentaxis "github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/resources"
 )
 

@@ -155,7 +155,7 @@ flowchart TD
 
 ## Inventory — `internal/shared/tasks/paths`
 
-Pure leaf: zero internal imports, no I/O beyond `os.UserHomeDir`. Consumed by `cmd/taskloom`, `operations`, `projectid`, `internal/taskloom/config`, `internal/shared/plans`, `internal/projectroot`, `internal/lm/isolation`.
+Pure leaf: zero internal imports, no I/O beyond `os.UserHomeDir`. Consumed by `cmd/taskloom`, `operations`, `projectid`, `internal/taskloom/config`, `internal/shared/plans`, `internal/adapters/projectroot`, `internal/adapters/isolation`.
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -186,7 +186,7 @@ Pure leaf: zero internal imports, no I/O beyond `os.UserHomeDir`. Consumed by `c
 | `TagCount` | `internal/shared/tasks/operations/operations.go:604` | `{Tag, Active, Total}` — split counts so a finished workstream is distinguishable from a typo. The only JSON-tagged type here (serialized by the MCP tag-vocabulary resource). |
 | `TagListResult` | `internal/shared/tasks/operations/operations.go:611` | `{Path, Tags, Warning, ProjectID, ProjectDir}`. |
 | `projectIdentity` | `internal/shared/tasks/operations/operations.go:726` | Unexported `{ID, Dir}` pair naming the resolved project and its registered root. |
-| `ResolveProjectIdentity` | `internal/shared/tasks/operations/operations.go:115` | Opens the registry and resolves `workDir` to `(projectID, warning)`, minting on first sight. Hides `projectid` from `internal/cli`. |
+| `ResolveProjectIdentity` | `internal/shared/tasks/operations/operations.go:115` | Opens the registry and resolves `workDir` to `(projectID, warning)`, minting on first sight. Hides `projectid` from `internal/adapters/cli`. |
 | `ResolveLogPath` | `internal/shared/tasks/operations/operations.go:135` | Resolves the log path without opening the store; returns `("", path)` in repo mode. |
 | `ListTasks` | `internal/shared/tasks/operations/operations.go:166` | `listTasks` with no tag query. |
 | `ListTasksWithTagQuery` | `internal/shared/tasks/operations/operations.go:175` | `listTasks` with a postfix tag query. |

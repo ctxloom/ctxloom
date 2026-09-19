@@ -8,7 +8,7 @@ each canonical field is the one it is — is
 this page does not repeat it.
 
 The machine-checkable shape is `docs/transcript.schema.json`; the Go types are
-`internal/transcript/record.go`. Where this page and those disagree, they win.
+`internal/adapters/transcript/record.go`. Where this page and those disagree, they win.
 
 ---
 
@@ -150,7 +150,7 @@ engine's private files after the fact.
 
 ## 6. Schema evolution
 
-`v` gates it. `CanonicalHistory` (`internal/transcript/history.go`) fails loud
+`v` gates it. `CanonicalHistory` (`internal/adapters/transcript/history.go`) fails loud
 on a `Record.V` it does not recognize — never a silent mis-parse. The current
 version is `transcript.SchemaVersion`.
 
@@ -163,5 +163,5 @@ version is `transcript.SchemaVersion`.
 compaction, the MCP memory tools and `ctxloom session`.
 
 No reader validates a line against `docs/transcript.schema.json` at runtime;
-the schema is enforced by the `internal/transcript` tests, which validate
+the schema is enforced by the `internal/adapters/transcript` tests, which validate
 every fixture and every recorder-written line against it.

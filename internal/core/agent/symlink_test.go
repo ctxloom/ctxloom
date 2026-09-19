@@ -58,7 +58,7 @@ func TestGetExecutablePath_ResolvedAndMemoized(t *testing.T) {
 // cachedExecPath is a package global read by GetExecutablePath and
 // written by both GetExecutablePath (memoizing) and
 // SetExecutablePathForTesting, with no synchronization. A production caller
-// of the ForTesting mutator, internal/operations/hooks.go's
+// of the ForTesting mutator, internal/adapters/operations/hooks.go's
 // ApplyHooksRequest.ExecPath, was already deleted (a0c17295), so the remaining
 // exposure is the unguarded global itself: the package is a dependency of every
 // engine backend and nothing about the seam stops a second goroutine reaching

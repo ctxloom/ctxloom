@@ -27,7 +27,7 @@ var stampShape = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+-[0-9a-f]+-[0-9]{8}
 // than tolerated (see Version).
 //
 // It is the one authority on the shape, read by both gates that enforce it:
-// cmd/validate refuses to bake a malformed stamp into a binary, and internal/cli's
+// cmd/validate refuses to bake a malformed stamp into a binary, and internal/adapters/cli's
 // root gate refuses to RUN a binary that did not get one. The shape lives here,
 // in the package that owns Version, so those two assert against one authority
 // rather than two regexes that will eventually disagree.

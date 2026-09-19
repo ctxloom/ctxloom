@@ -30,12 +30,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // busIntegrationImage is this file's own minimal image (a distinct tag from
-// internal/lm/isolation's ctxloom-iso-itest — different package, own
+// internal/adapters/isolation's ctxloom-iso-itest — different package, own
 // namespace) — alpine + the freshly built static ctxloom binary, exactly
 // mirroring isolation's buildIntegrationImage so the tree-under-test is
 // always what this run actually built.
@@ -57,7 +57,7 @@ func buildBusIntegrationImage(t *testing.T) string {
 	}
 
 	// WORKDIR is deliberate, not cosmetic: a bare "/" cwd trips a confirmed
-	// latent bug in internal/mcp/mcp_runner.go's resolveCellPath (root=="/"
+	// latent bug in internal/adapters/mcp/mcp_runner.go's resolveCellPath (root=="/"
 	// makes the "absRoot+separator" containment check compare against "//",
 	// which no real absolute path ever has a prefix of, so EVERY relative
 	// publish_paths/dest_path is rejected as "escapes the working

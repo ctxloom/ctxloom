@@ -1,8 +1,8 @@
-# Entrypoints — `cmd/*` and `internal/cli/root.go`
+# Entrypoints — `cmd/*` and `internal/adapters/cli/root.go`
 
 Every ctxloom binary is a `main` that does almost nothing: `cmd/ctxloom/main.go`
 is 48 lines of environment pre-flight plus `cli.Execute()`, and the entire
-command tree lives in `internal/cli`. `root.go` owns the root cobra command, the
+command tree lives in `internal/adapters/cli`. `root.go` owns the root cobra command, the
 three persistent flags, the process-wide `PersistentPreRun` side effects, config
 loading for the whole package, and top-level error rendering + exit-code
 mapping. `startup_helpers.go` owns the shared startup reporting and the strict
@@ -13,14 +13,14 @@ gate that process-owning commands must pass before they spawn anything.
 | Binary | Lines (prod) | Role |
 |---|---|---|
 | `cmd/ctxloom` | 48 | The product. Env pre-flight → `cli.Execute()`. |
-| `cmd/harp` | 116 + 31 + 33 | Standalone harp-name generator; defines its own `resolveFormat` (`cmd/harp/root.go:113`), a name collision with `internal/cli/format.go:51`. |
-| `cmd/taskloom` | ~2,900 | The task-tracking companion — separate cobra root, its own MCP server. Not part of `internal/cli`. |
+| `cmd/harp` | 116 + 31 + 33 | Standalone harp-name generator; defines its own `resolveFormat` (`cmd/harp/root.go:113`), a name collision with `internal/adapters/cli/format.go:51`. |
+| `cmd/taskloom` | ~2,900 | The task-tracking companion — separate cobra root, its own MCP server. Not part of `internal/adapters/cli`. |
 | `cmd/ltk` | ~1,100 | The tool-rule hook companion. Separate root. |
 | `cmd/gen-schemas` | 43 | Reflects over `cli.SchemaTargets()` (`schematargets.go:16`) to emit JSON schemas. Build-tagged. |
 | `cmd/mockengine` | 122 | Test double engine used by the conformance suites. |
 | `cmd/validate` | 48 | Schema validation utility. |
 
-Only two things import `internal/cli`: `cmd/ctxloom` (via `cli.Execute`) and
+Only two things import `internal/adapters/cli`: `cmd/ctxloom` (via `cli.Execute`) and
 `scripts/gendocs` (via `cli.GetRootCmd()`, `root.go:155`). `tests/acceptance`
 also walks `GetRootCmd()`.
 
@@ -116,12 +116,12 @@ state — a side effect their names disclaim.
 
 ## Invariants owned here
 
-- **I1/I2 (config loading).** `internal/cli` is the only layer that loads config
+- **I1/I2 (config loading).** `internal/adapters/cli` is the only layer that loads config
   for a command. `operations` takes a `*config.Config` it is handed.
 - **I5 (`PersistentPreRun` runs for everything).** Cobra runs only the closest
   `PersistentPreRun` unless `cobra.EnableTraverseRunHooks` is set. It is not set
   anywhere in the repo (`rg EnableTraverseRunHooks` → 0 hits). The invariant
-  holds today because no `internal/cli` subcommand defines one — asserted only in
+  holds today because no `internal/adapters/cli` subcommand defines one — asserted only in
   a comment at `root.go:86`. The day one does, `--degraded`, `--no-companions`,
   `--config-set` and structured `clidiag` silently stop working for that whole
   subtree, with no build or test failure.
@@ -139,7 +139,7 @@ state — a side effect their names disclaim.
 
 - `root.go:86` asserts "No subcommand defines its own `PersistentPreRun`, so this
   runs for all" — true today, unenforced by anything.
-- `resolveFormat` exists twice under the same name: `internal/cli/format.go:51`
+- `resolveFormat` exists twice under the same name: `internal/adapters/cli/format.go:51`
   and `cmd/harp/root.go:113`.
 - `childExitCode` (`exitcode_unix.go:15`, `exitcode_windows.go:10`) has zero
   production call sites on either platform; its sole caller was deleted in

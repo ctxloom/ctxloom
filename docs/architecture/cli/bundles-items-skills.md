@@ -66,7 +66,7 @@ flowchart TD
         RUS --> PUR["printUnifiedResults :256"]
     end
 
-    OPS[["internal/operations"]]
+    OPS[["internal/adapters/operations"]]
     items --> OPS
     bundle --> OPS
 ```
@@ -172,7 +172,7 @@ the built-in prompt.
 
 - `bundle mcp edit` with an emptied editor buffer destroys the entry and reports
   success: `yaml.Unmarshal("")` returns a nil error and a zero struct,
-  `operations.applyMCPEdits` (`internal/operations/bundles.go:477-483`) overwrites
+  `operations.applyMCPEdits` (`internal/adapters/operations/bundles.go:477-483`) overwrites
   `Command`/`Args`/`Env`/`Notes`/`Installation` unconditionally, and
   `bundle_items.go:98` prints "Updated MCP server …". `editItem`
   (`item_helpers.go:437-455`) has the same shape for fragments and commands —
@@ -197,7 +197,7 @@ the built-in prompt.
   run-to-run. `renderBundleMCPEntry` (`bundle_list.go:240-242`) iterates `Env`
   unsorted for the same reason.
 - `cli.ItemType` (`item_helpers.go:31`) is a verbatim duplicate of
-  `operations.ItemKind` (`internal/operations/items.go:22-27`), cross-converted at
+  `operations.ItemKind` (`internal/adapters/operations/items.go:22-27`), cross-converted at
   four sites. Both switches over it (`listItemRows:180`, `itemDisplayContent:306`)
   fall through to a success-with-empty-payload return rather than erroring.
 - `loadBundleForItem` + `itemDisplayContent` re-implement

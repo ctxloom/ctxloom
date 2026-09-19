@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 )
 
 // This file is the UNTAGGED half of the config-save completeness pair. Its

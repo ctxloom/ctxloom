@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // E1 — the RUNNER side of artifact transfer: Home dials

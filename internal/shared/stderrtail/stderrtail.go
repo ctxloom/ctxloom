@@ -3,7 +3,7 @@
 //
 // It is the one implementation of a pattern this repo had already grown
 // twice, independently, for the same reason: internal/lm/grpc's host runner
-// and internal/lm/isolation's docker-direct runner each kept their own
+// and internal/adapters/isolation's docker-direct runner each kept their own
 // private ring so a runner dying pre-dial-home surfaced its stderr instead of
 // a bare "exit status 1". The 2026-07-24 containerized-agent incident showed
 // the pattern was missing at the layer where it mattered MOST — the engine

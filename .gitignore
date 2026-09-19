@@ -75,9 +75,9 @@ __debug_bin*
 
 # Plan files
 .plan/
-internal/memory/vectordb/onnxlib/libonnxruntime.so
-internal/memory/vectordb/onnxlib/onnxruntime.dll
-internal/memory/vectordb/onnxlib/libonnxruntime.dylib
+internal/adapters/memory/vectordb/onnxlib/libonnxruntime.so
+internal/adapters/memory/vectordb/onnxlib/onnxruntime.dll
+internal/adapters/memory/vectordb/onnxlib/libonnxruntime.dylib
 coverage.html
 coverage.raw.out
 coverage.raw.*.out
@@ -102,7 +102,7 @@ resources/schema/gen/
 # EXCLUDED from the tracked exceptions below (white-dawn §2.2B): codex itself
 # appends a machine-specific `[projects."<abs-path>"] trust_level` entry into
 # it on first run, so a file codex mutates every run should not be tracked —
-# matches internal/gitignore/gitignore.go's TransientArtifactPatterns, which
+# matches internal/adapters/gitignore/gitignore.go's TransientArtifactPatterns, which
 # already ignores .codex/config.toml for every OTHER project's generated
 # .gitignore; this repo's own hand-authored block had drifted from that
 # policy (it used to un-ignore config.toml) and a `[projects...]` entry for

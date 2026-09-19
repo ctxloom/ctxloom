@@ -114,7 +114,7 @@ type Redelivery struct {
 // a LOCAL, minimal struct rather than an import of transcript.Record: the
 // monitor must survive a transcript written by a newer schema version without
 // failing to parse (unknown fields are ignored by encoding/json), and it must
-// not acquire a dependency edge that would make internal/transcript unable to
+// not acquire a dependency edge that would make internal/adapters/transcript unable to
 // ever depend on liveness.
 type envelope struct {
 	Seq   int       `json:"seq"`

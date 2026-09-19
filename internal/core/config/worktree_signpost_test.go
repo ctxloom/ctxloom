@@ -142,7 +142,7 @@ func TestFindAppDir_WorktreeSignpost(t *testing.T) {
 
 // resetStrictness restores pristine strict-mode state for a test and registers
 // cleanup, so the package-global finding collector never bleeds between tests
-// (mirrors internal/operations' helper of the same name).
+// (mirrors internal/adapters/operations' helper of the same name).
 func resetStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()
@@ -158,7 +158,7 @@ func resetStrictness(t *testing.T) {
 // fresh t.TempDir(). Skips the test if git isn't on PATH. Returns both roots
 // as absolute, symlink-resolved paths so they compare equal to whatever git
 // itself resolved into the gitdir pointer (mirrors
-// internal/projectroot's identically-named test helper; kept local here since
+// internal/adapters/projectroot's identically-named test helper; kept local here since
 // Go does not let a _test.go file export helpers across packages).
 func realGitWorktreeFixture(t *testing.T) (main, linked string) {
 	t.Helper()

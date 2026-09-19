@@ -6,11 +6,11 @@ import (
 	"path"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/content"
-	"github.com/ctxloom/ctxloom/internal/content/attest"
-	"github.com/ctxloom/ctxloom/internal/content/remotetree"
-	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
 // ReadRemoteRef reads the WHOLE bundle a canonical remote ref names at a pinned
@@ -33,7 +33,7 @@ import (
 //
 // # Why it lives in this package and not beside the fetch
 //
-// The composition needs the content layer, which sits ABOVE internal/remote and
+// The composition needs the content layer, which sits ABOVE internal/adapters/remote and
 // imports it (see remote.TreeFetchFunc). A tree-to-bundle sibling inside remote
 // would be an import cycle. This package already imports remote, content,
 // content/attest and signing, so the seam costs no new edge in either

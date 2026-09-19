@@ -1,4 +1,4 @@
-# `internal/vpio` — the virtualized-process-IO seam
+# `internal/adapters/vpio` — the virtualized-process-IO seam
 
 **What it is.** Four declarations — `ProcessSpec`, `ExitStatus`, `Session`, `Launcher` — that let
 above-the-seam code drive **one interactive agent turn** without naming a transport. The package
@@ -8,7 +8,7 @@ declarations.
 **The contract it owns.** *Bind everything turn-invariant (backend identity, container name,
 `RunStart`) into a `Launcher` at construction; pass only the three stdio streams per turn.* Two
 implementations ship — `internal/vpio/goplugin` (the default) and `internal/vpio/dockerexec` (the
-container-interactive transport) — and one package consumes the seam: `internal/cli`, at
+container-interactive transport) — and one package consumes the seam: `internal/adapters/cli`, at
 `run.go:1257` (`launcher.Start`), `run.go:1266` (`session.Wait`), `init.go:586`, and
 `run_terminal.go:51` (`pumpResize`).
 
@@ -41,7 +41,7 @@ classDiagram
     Launcher <|.. goplugin_Launcher
     Launcher <|.. dockerexec_Launcher
 
-    class cli["internal/cli — the ONLY consumer<br/>run.go:1253-1266 · init.go:586 · run_terminal.go:51"]
+    class cli["internal/adapters/cli — the ONLY consumer<br/>run.go:1253-1266 · init.go:586 · run_terminal.go:51"]
     cli ..> Launcher
     cli ..> Session
 ```
@@ -165,7 +165,7 @@ carry the same drift ("the current (only) implementation is internal/vpio/goplug
 as a **host subprocess under a host-side pty pair**. Rather than publishing a port or running an
 in-container listener, it rides the daemon's own control socket and runs the Run-RPC body directly
 on the exec TTY (`dockerexec.go:13-21`). Its one production caller is
-`internal/cli/run.go:1418` (`startContainerInteractive`), which has already started a keepalive
+`internal/adapters/cli/run.go:1418` (`startContainerInteractive`), which has already started a keepalive
 container via `policy.StartRunner`.
 
 | Symbol | file:line | Notes |
@@ -186,7 +186,7 @@ container via `policy.StartRunner`.
 
 1. **Secrets never ride the argv.** `buildExecCmd` puts env *names* on the command line and values
    on `cmd.Env`, so the daemon forwards the value from the CLI's own environment. (This is the
-   opposite of what the container `run` path does in `internal/lm/isolation/runtime.go:548-556`.)
+   opposite of what the container `run` path does in `internal/adapters/isolation/runtime.go:548-556`.)
 2. **`RunStart` rides a 0600 file, never argv or env.**
 3. **The exec argv is deterministic** — `sort.Strings(names)` at `:116`.
 4. **A docker-level failure is never misreported as an engine failure** (`Wait`'s 125/126/127
@@ -200,7 +200,7 @@ container via `policy.StartRunner`.
 - **`exec.CommandContext` is used with neither `cmd.Cancel` nor `cmd.WaitDelay`**
   (`dockerexec.go:119`), so on context cancellation the `docker exec` CLI is SIGKILLed with zero
   grace. The repo's own pattern exists twice elsewhere: `internal/lm/grpc/host_runner.go:74`
-  (`WaitDelay = 10s`) and `internal/lm/isolation/sharedfs.go:37` (`5s`). `outputDrainGrace`
+  (`WaitDelay = 10s`) and `internal/adapters/isolation/sharedfs.go:37` (`5s`). `outputDrainGrace`
   mitigates host-side buffered bytes but not what the in-container turn had not yet flushed.
 - **The pty master fd is never closed on the normal exit path.** `s.master.Close()` appears only in
   `Wait`'s timeout arm (`dockerexec.go:212`); when the drain completes normally the first select

@@ -26,7 +26,7 @@ Three properties of the layers that no code knows:
 - **The project config file is COMMITTED and multi-author.**
   `gitignore.PrivateStatePatterns` deliberately excludes `.ctxloom/config.yaml`
   — "committed by omission — it's content, config, or trust state the project
-  depends on" (VERIFIED, `internal/gitignore/gitignore.go`). Anything written
+  depends on" (VERIFIED, `internal/adapters/gitignore/gitignore.go`). Anything written
   there arrives, pre-set, in every clone.
 - **The env layer is AMBIENT and inherited by children.** `confload`'s own
   package doc says so: "Env vars are inherited by child processes, so
@@ -246,7 +246,7 @@ existing keys — is a silent-no-op with extra steps.
 
 ## The `.ctxloom` classification
 
-VERIFIED by reading `internal/core/paths/paths.go`, `internal/gitignore/gitignore.go`,
+VERIFIED by reading `internal/core/paths/paths.go`, `internal/adapters/gitignore/gitignore.go`,
 the root `.gitignore`, and by listing a live `.ctxloom` and `~/.ctxloom`.
 
 `content/` is committed and `cache/` is derived, as stated. The model is TRUE
@@ -353,7 +353,7 @@ state it does not have.
 // Package layerscope states which config LAYER may set which config KEY, and
 // why: a value is a fact about a machine, a user, a project, or one
 // invocation, and a layer that cannot carry that fact must not set it.
-package layerscope // internal/config/layerscope
+package layerscope // internal/adapters/configload/layerscope
 
 // Layer is one rung of the resolution chain, in ascending precedence.
 type Layer uint8

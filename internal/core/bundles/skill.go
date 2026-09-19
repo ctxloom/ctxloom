@@ -216,7 +216,7 @@ func ParseSkillPackage(fsys afero.Fs, dir string, maxBytes int64) (*SkillPackage
 //
 // It exists because a skill manifest is now built from TWO places — a directory
 // walk (buildSkillManifest, below) and a tree read that has bytes but no
-// filesystem (internal/content/convert.Read) — and the two must agree on the
+// filesystem (internal/adapters/content/convert.Read) — and the two must agree on the
 // parts VerifyExtractedManifest compares. The hash must agree EXACTLY, carrying
 // its "sha256:" prefix; a second site spelling that from memory produces a
 // package that extracts, verifies, fails, and is withheld with an integrity

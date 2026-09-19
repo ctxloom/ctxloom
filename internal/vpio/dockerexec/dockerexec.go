@@ -1,11 +1,11 @@
 // Package dockerexec is the docker-exec implementation of the
-// VIRTUALIZED-PROCESS-IO seam (internal/vpio): it drives an interactive agent
+// VIRTUALIZED-PROCESS-IO seam (internal/adapters/vpio): it drives an interactive agent
 // turn over `docker|podman exec -it` into an ALREADY-RUNNING container, for the
 // container-isolation runtime — the swap registered as future work at
-// internal/vpio/vpio.go:27-28 and internal/vpio/goplugin/goplugin.go:6-11.
+// internal/adapters/vpio/vpio.go:27-28 and internal/vpio/goplugin/goplugin.go:6-11.
 //
 // It is the sibling of internal/vpio/goplugin: above-the-seam callers
-// (internal/cli/run.go) reference only vpio.Launcher/vpio.Session, so selecting
+// (internal/adapters/cli/run.go) reference only vpio.Launcher/vpio.Session, so selecting
 // this transport for a container-policy interactive top-level run needs no
 // change above the seam (the Ctrl-] observation surround + injection wrap stay
 // host-side, applied to the streams BEFORE the Launcher is constructed).
@@ -35,10 +35,10 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/vpio"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
-	"github.com/ctxloom/ctxloom/internal/vpio"
 )
 
 // outputDrainGrace bounds Wait's wait for the output pump to finish on its own

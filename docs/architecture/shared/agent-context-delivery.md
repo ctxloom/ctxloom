@@ -28,7 +28,7 @@ flowchart TD
 | `WriteContextFile` | `internal/core/agent/contextfile.go:137` | Writes the deduped context to `.ctxloom/cache/context/<hash>.md` and returns the hash. |
 | `ReadContextFile` | `internal/core/agent/contextfile.go:169` | Reads `<hash>.md` back. |
 | `contextFileOptions` | `internal/core/agent/contextfile.go:39` | Options bag: `{fs afero.Fs, stderr io.Writer}`. |
-| `ContextFileOption` | `internal/core/agent/contextfile.go:45` | Functional-option type; threaded cross-package by `internal/operations/hooks.go`. |
+| `ContextFileOption` | `internal/core/agent/contextfile.go:45` | Functional-option type; threaded cross-package by `internal/adapters/operations/hooks.go`. |
 | `WithContextFS` | `internal/core/agent/contextfile.go:49` | Injects the filesystem. |
 | `WithContextStderr` | `internal/core/agent/contextfile.go:57` | Redirects the warning sink (test-only in practice). |
 | `applyContextOptions` | `internal/core/agent/contextfile.go:64` | Applies options over the `OsFs` / `os.Stderr` defaults. |
@@ -80,5 +80,5 @@ flowchart TD
 - **`MergeHooksConfig` returns silently when `dest` is nil**, dropping the entire source hook set with no error — the signature gives it no way to report the loss. All five production callers pass a non-nil dest today.
 - **`RouteUnifiedHooks`' `emit` callback returns nothing**, so a failed emit is invisible to the walker; a caller with zero hooks writes a hook-less settings file with no warning.
 - **`AwaitTurn` degrades to "emit now" on every failure path** — this is the stated design (fault tolerance over ordering) and each degradation is an explicit branch. A failed `writeMarker` makes the successor spin to the full 5s timeout rather than degrade fast.
-- **`heldRendezvousLocks`** (`rendezvous.go:34`) is a package-level slice appended without synchronization at `:73`. Safe only because the sole production caller, `internal/cli/hook_inject_context.go:102`, runs once per hook process — one call per process is an unenforced precondition.
+- **`heldRendezvousLocks`** (`rendezvous.go:34`) is a package-level slice appended without synchronization at `:73`. Safe only because the sole production caller, `internal/adapters/cli/hook_inject_context.go:102`, runs once per hook process — one call per process is an unenforced precondition.
 - **`shellSingleQuote` and `sanitizeSessionID` are security boundaries**, not cosmetics: hook commands are shell strings and rendezvous dirs are built from a session ID.

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 )
 
 // slotsIdleWith reports whether the execution-slot semaphore has EXACTLY

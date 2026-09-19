@@ -29,16 +29,16 @@ var layeringRules = []layeringRule{
 	{
 		Name:   "coord-must-not-import-cli/tui",
 		From:   "internal/core/coord",
-		Forbid: []string{"internal/cli/tui"},
+		Forbid: []string{"internal/adapters/cli/tui"},
 	},
 	{
 		Name:   "termui-must-not-import-cli/tui",
-		From:   "internal/termui",
-		Forbid: []string{"internal/cli/tui"},
+		From:   "internal/adapters/termui",
+		Forbid: []string{"internal/adapters/cli/tui"},
 	},
 	{
 		Name:   "transcript-must-not-import-lm/grpc",
-		From:   "internal/transcript",
+		From:   "internal/adapters/transcript",
 		Forbid: []string{"internal/lm/grpc"},
 	},
 	{
@@ -47,11 +47,11 @@ var layeringRules = []layeringRule{
 		Forbid: []string{"internal/claude"},
 	},
 	{
-		// internal/operations is the frontend-agnostic layer both the CLI and
-		// MCP call into, so it must never import back up into internal/cli.
+		// internal/adapters/operations is the frontend-agnostic layer both the CLI and
+		// MCP call into, so it must never import back up into internal/adapters/cli.
 		Name:   "operations-must-not-import-cli",
-		From:   "internal/operations",
-		Forbid: []string{"internal/cli"},
+		From:   "internal/adapters/operations",
+		Forbid: []string{"internal/adapters/cli"},
 	},
 	{
 		// pkg/clifmt is the CLI output layer, and it SHIPS AS A STANDALONE
@@ -72,7 +72,7 @@ var layeringRules = []layeringRule{
 		// injected, polymorphic internal/lm/backends seam, never on a concrete
 		// engine package, so backend identity cannot be branched on directly.
 		Name:   "operations-must-not-import-engine-plugins",
-		From:   "internal/operations",
+		From:   "internal/adapters/operations",
 		Forbid: []string{"internal/claude"},
 	},
 }

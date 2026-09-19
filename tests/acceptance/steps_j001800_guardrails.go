@@ -63,7 +63,7 @@ import (
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )

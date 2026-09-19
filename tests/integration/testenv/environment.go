@@ -610,7 +610,7 @@ func (e *TestEnvironment) InitGitRepo() error {
 // the fake home instead of the developer's.
 //
 // It exists for `user.signingkey`: J001600 drives ctxloom's zero-config
-// key-discovery chain (internal/signing/agentkey step 2, `git config
+// key-discovery chain (internal/adapters/signing/agentkey step 2, `git config
 // user.signingkey`), which reads the REPOSITORY's own .git/config, so the
 // fixture must write there — repository-local, never global, never the host's.
 func (e *TestEnvironment) GitConfigLocal(key, value string) error {

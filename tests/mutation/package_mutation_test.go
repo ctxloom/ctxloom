@@ -56,7 +56,7 @@ var packageMutationTargets = []packageMutationTarget{
 		// invisible to gremlins (.gremlins.yaml runs untagged), so mutants in
 		// the paths only those reach are expected NOT COVERED survivors.
 		Name: "isolation",
-		Pkg:  "internal/lm/isolation",
+		Pkg:  "internal/adapters/isolation",
 	},
 }
 

@@ -3,7 +3,7 @@
 The canonical specification for how ctxloom references are spelled and
 resolved. When behavior and this document disagree, one of them is a bug —
 the entry-point tests in `internal/core/profiles/grammar_test.go` and
-`internal/remote/profile_selector_test.go` pin the rules below.
+`internal/adapters/remote/profile_selector_test.go` pin the rules below.
 
 ## Client compatibility — canonical refs require ctxloom 0.7
 

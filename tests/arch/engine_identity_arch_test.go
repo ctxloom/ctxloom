@@ -2,9 +2,9 @@
 
 // T12: engine identity was enumerated in (at least) four independently
 // maintained rosters with four different memberships —
-// internal/lm/grpc.RetiredScraperBackendNames, internal/operations'
-// vendorReaderRegistry, internal/lm/isolation's composableEngines, and
-// internal/lm/isolation's credentialSeedSpecs — and internal/operations (the
+// internal/lm/grpc.RetiredScraperBackendNames, internal/adapters/operations'
+// vendorReaderRegistry, internal/adapters/isolation's composableEngines, and
+// internal/adapters/isolation's credentialSeedSpecs — and internal/adapters/operations (the
 // ADR-0026 core) imported concrete engine plugin packages directly to branch
 // on backend identity (hooks.go's checkHookTargetScope, delegate.go's
 // resolveChatModel), a literal violation of the ports-and-adapters boundary
@@ -17,7 +17,7 @@
 //
 //   - TestArch_Operations_DoesNotImportEnginePlugins is the layering gate: it
 //     re-catches the confirmed violation the moment a future change
-//     reintroduces a direct internal/operations -> engine-plugin import
+//     reintroduces a direct internal/adapters/operations -> engine-plugin import
 //     edge (the packages enginePluginImportPaths names), by the same
 //     AST-parse technique TestArch_NonTestPackages_DoNotImportTestSupport
 //     already uses
@@ -61,22 +61,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // enginePluginImportPaths are the concrete, engine-identity-branching plugin
 // packages ADR-0020/0026 reserve for internal/lm/backends (and each plugin's
 // own family). Nothing else in the module's core may import them directly;
-// internal/operations doing so was T12's confirmed violation.
+// internal/adapters/operations doing so was T12's confirmed violation.
 var enginePluginImportPaths = []string{
 	modulePath + "/internal/claude",
 }
 
 // TestArch_Operations_DoesNotImportEnginePlugins is the layering half of
-// T12's fix: internal/operations (the ADR-0026 core) must depend only on the
+// T12's fix: internal/adapters/operations (the ADR-0026 core) must depend only on the
 // injected, polymorphic internal/lm/backends seam for anything
 // engine-identity-shaped, never construct or branch on a concrete engine
 // package itself. Scans production (non-_test.go) source only, via this
@@ -87,19 +87,19 @@ func TestArch_Operations_DoesNotImportEnginePlugins(t *testing.T) {
 
 	dirs := make([]string, 0, len(pkgs))
 	for dir := range pkgs {
-		if dir == "internal/operations" || strings.HasPrefix(dir, "internal/operations/") {
+		if dir == "internal/adapters/operations" || strings.HasPrefix(dir, "internal/adapters/operations/") {
 			dirs = append(dirs, dir)
 		}
 	}
 	sort.Strings(dirs)
 	if len(dirs) == 0 {
-		t.Fatal("the scan found no internal/operations package(s) — the gate is looking at the wrong tree")
+		t.Fatal("the scan found no internal/adapters/operations package(s) — the gate is looking at the wrong tree")
 	}
 
 	for _, dir := range dirs {
 		for _, ip := range pkgs[dir].imports {
 			if slices.Contains(enginePluginImportPaths, ip) {
-				t.Errorf("package %s imports %s directly — internal/operations is the ADR-0026 core and may "+
+				t.Errorf("package %s imports %s directly — internal/adapters/operations is the ADR-0026 core and may "+
 					"only reach engine-identity-branching behavior through the injected internal/lm/backends "+
 					"seam (see registry.go's agentDescriptor: resolveModel, hookGlobalScopePaths, and friends), "+
 					"never by importing a concrete engine plugin package itself", dir, ip)
@@ -134,9 +134,9 @@ func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
 
 	rosters := []rosterCheck{
 		{source: "internal/lm/backends.RetiredScraperBackendNames (engine.Descriptor.NoLegacyHistoryReason)", members: backends.RetiredScraperBackendNames()},
-		{source: "internal/operations.VendorReaderEngineNames (vendorReaderRegistry)", members: operations.VendorReaderEngineNames()},
-		{source: "internal/lm/isolation.ComposableEngines (pushed engine.Descriptor.Container)", members: isolation.ComposableEngines()},
-		{source: "internal/lm/isolation.CredentialSeedEngineNames (pushed engine.Descriptor.Home.Credentials)", members: isolation.CredentialSeedEngineNames()},
+		{source: "internal/adapters/operations.VendorReaderEngineNames (vendorReaderRegistry)", members: operations.VendorReaderEngineNames()},
+		{source: "internal/adapters/isolation.ComposableEngines (pushed engine.Descriptor.Container)", members: isolation.ComposableEngines()},
+		{source: "internal/adapters/isolation.CredentialSeedEngineNames (pushed engine.Descriptor.Home.Credentials)", members: isolation.CredentialSeedEngineNames()},
 	}
 
 	for _, r := range rosters {
@@ -186,17 +186,17 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 
 	rosters := []derivedRoster{
 		{
-			source:  "internal/operations.VendorReaderEngineNames (engine.Descriptor.TranscriptReaders)",
+			source:  "internal/adapters/operations.VendorReaderEngineNames (engine.Descriptor.TranscriptReaders)",
 			members: operations.VendorReaderEngineNames(),
 			absence: declaredAbsence(backends.TranscriptReadersFor),
 		},
 		{
-			source:  "internal/lm/isolation.AmbientSet (pushed engine.Descriptor.Home.Credentials)",
+			source:  "internal/adapters/isolation.AmbientSet (pushed engine.Descriptor.Home.Credentials)",
 			members: seededEngines(),
 			absence: declaredAbsence(backends.CredentialSeedFor),
 		},
 		{
-			source:  "internal/lm/isolation.ComposableEngines (pushed engine.Descriptor.Container + Distribution)",
+			source:  "internal/adapters/isolation.ComposableEngines (pushed engine.Descriptor.Container + Distribution)",
 			members: isolation.ComposableEngines(),
 			absence: containerAbsence(func(c agent.EngineContainer, dist agent.Distribution) string {
 				switch {
@@ -209,7 +209,7 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 			}),
 		},
 		{
-			source:  "internal/lm/isolation.ContainerAuthEngines (pushed engine.Descriptor.Container + Distribution)",
+			source:  "internal/adapters/isolation.ContainerAuthEngines (pushed engine.Descriptor.Container + Distribution)",
 			members: isolation.ContainerAuthEngines(),
 			absence: containerAbsence(func(c agent.EngineContainer, dist agent.Distribution) string {
 				switch {
@@ -277,7 +277,7 @@ const transcriptSchemaRelPath = "docs/transcript.schema.json"
 // TestArch_TranscriptSchemaEngineEnum_EqualsBackendRegistry holds the schema's
 // `engine` enum to EQUALITY with backends.List(), not just the floor the
 // rosters gate above applies. The recorder writes the registered backend name
-// verbatim (internal/transcript.Record.Engine) and every registered backend
+// verbatim (internal/adapters/transcript.Record.Engine) and every registered backend
 // reaches it (a oneshot run records under whatever `--llm` resolved to), so
 // the set of names a transcript can carry IS the registry: a name in the enum
 // that nothing registers admits fixtures no writer could produce, and a

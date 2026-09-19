@@ -6,11 +6,11 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // The PROCESS stage of the delivery pipeline

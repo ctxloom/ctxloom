@@ -2,7 +2,7 @@
 
 // Fixtures and assertions for context_status (features/cli/context_status.feature).
 //
-// The seeding steps write through internal/contextmetrics' OWN writer rather
+// The seeding steps write through internal/adapters/contextmetrics' OWN writer rather
 // than emitting JSONL by hand. That is the point of them: this suite drives
 // the tool across a process boundary (the MCP server is a real `ctxloom mcp
 // serve` child), so the only thing tying the fixture to the product is the
@@ -26,7 +26,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/contextmetrics"
+	"github.com/ctxloom/ctxloom/internal/adapters/contextmetrics"
 )
 
 // contextSampleBase is the timestamp the seeded series starts from. Fixed

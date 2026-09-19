@@ -45,7 +45,7 @@ Adopt the **familiar package-manager model**, three layers with one invariant:
 Mechanics:
 
 - **Version space** = the source repo's git tags, ordered by semver (`Masterminds/semver/v3`); branches are channels; an exact tag/SHA is the tightest constraint. Repos that don't tag still work via branch/exact/default constraints.
-- **Resolution precedence** (`internal/operations/constraint_resolve.go`): held entry → carried forward; unchanged constraint in lock mode → carried forward (stability); a bare commit → recorded verbatim with no clone; otherwise resolve the constraint against the repo; on failure, fall back to the last locked SHA, else skip with a warning (never an empty pin).
+- **Resolution precedence** (`internal/adapters/operations/constraint_resolve.go`): held entry → carried forward; unchanged constraint in lock mode → carried forward (stability); a bare commit → recorded verbatim with no clone; otherwise resolve the constraint against the repo; on failure, fall back to the last locked SHA, else skip with a warning (never an empty pin).
 - **`sync`** installs exactly what the lock pins. **`lock`** resolves constraints (carry-forward stable). **`update`** reports the newest commit *within each constraint*. **`upgrade`** re-resolves within constraints and moves the **lock only** — trusted remotes apply to the active lock, untrusted stage to pending for `bundle review`/`approve`. **`bundle hold`/`unhold`** toggle the hold.
 - The manifest ref is **never** rewritten by `upgrade`/`approve`/`install` — only by an explicit author edit or `profile update --add-bundle x@^2`.
 

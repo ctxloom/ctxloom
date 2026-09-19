@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // This file holds the two polymorphic seams T12 moved out of
-// internal/operations (hooks.go's checkHookTargetScope, delegate.go's
+// internal/adapters/operations (hooks.go's checkHookTargetScope, delegate.go's
 // resolveChatModel): both used to branch on backend identity and call
 // claude/codex package functions directly from the operations core — a
 // literal ADR-0026 violation (operations, the core, reaching across the

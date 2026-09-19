@@ -7,10 +7,10 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // treeBundleReaders builds one reader per lockfile entry, over the tree

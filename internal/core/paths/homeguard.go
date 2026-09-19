@@ -83,7 +83,7 @@ func UnsandboxedHomeError(what, dir, remedy string) error {
 //
 //   - os.TempDir() itself — what a TestMain-style sandbox mkdirs into
 //     directly via os.MkdirTemp("", ...) (testsupport.enterSandbox,
-//     internal/operations' own acquireSandbox), independent of the go tool
+//     internal/adapters/operations' own acquireSandbox), independent of the go tool
 //     and unaffected by GOTMPDIR.
 //   - GOTMPDIR, when set — what testing.T.TempDir() actually allocates
 //     under. go1.26.8's testing.(*common).makeTempDir builds a test's temp

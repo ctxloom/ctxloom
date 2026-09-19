@@ -35,7 +35,7 @@ import (
 // editor.command used to live HERE, pinned to a no-op so `edit` commands run
 // non-interactively. It moved to minimalHomeEditorConfig (written via
 // writeMinimalConfig): editor.command/args are ScopeMachine
-// (internal/config/layerscope) — a binary on THIS box — so a committed
+// (internal/adapters/configload/layerscope) — a binary on THIS box — so a committed
 // project-file value no longer survives a real Load.
 var minimalConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)
 
@@ -77,7 +77,7 @@ var markerEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersio
 // given to zero bytes — standing in for a crashed editor, a truncated write, or
 // a wrapper script that never actually saved. `command edit`/`fragment edit`
 // must refuse this rather than overwrite the item's stored content with
-// nothing (checkEditedContent in internal/cli/item_crud.go); this fixture is
+// nothing (checkEditedContent in internal/adapters/cli/item_crud.go); this fixture is
 // what makes that refusal path reachable hermetically.
 //
 // Lives entirely in the HOME layer — see markerEditorConfig's doc for why.

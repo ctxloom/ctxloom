@@ -1,0 +1,330 @@
+package isolation
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestWorktreePolicy_RealGitLifecycle is the P1 integration gate against a REAL
+// git repo (default exec Git): the policy adds a worktree, we run a no-op in it,
+// then the WIP-safe teardown removes it with no leftover in `git worktree list`.
+// Also asserts the config-out-of-merge excludes land in the common-dir
+// info/exclude (§3.1). Skips cleanly when git is unavailable so the normal suite
+// stays green.
+func TestWorktreePolicy_RealGitLifecycle(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping the worktree policy integration test")
+	}
+	ctx := context.Background()
+	repo := initRealRepo(t)
+
+	pol := NewWorktree(git.NewExec())
+	ws, err := pol.PrepareWorkspace(ctx, repo, "member-int")
+	require.NoError(t, err, "PrepareWorkspace must add a worktree in a real repo")
+	wtDir := ws.Dir()
+	// Safety net: the test below calls ws.Cleanup() itself and asserts the dir
+	// is gone, but that call is plain sequential code, not a defer/t.Cleanup —
+	// any earlier require/assert failure or panic in a later mutation-testing
+	// run would skip it and leak this checkout under the OS temp dir. Register
+	// the removal now so it always runs regardless of how the test exits.
+	// os.RemoveAll on an already-removed dir (the normal, asserted path) is a
+	// harmless no-op.
+	t.Cleanup(func() { _ = os.RemoveAll(wtDir) })
+
+	// The worktree exists, is under the OS temp dir, and carries the seed file.
+	info, err := os.Stat(ws.Dir())
+	require.NoError(t, err)
+	require.True(t, info.IsDir(), "the worktree dir exists")
+	assert.True(t, strings.HasPrefix(ws.Dir(), os.TempDir()), "worktree is outside the repo tree")
+	assert.FileExists(t, filepath.Join(ws.Dir(), "README.md"), "the worktree is a checkout of the repo")
+
+	// §3.1: the broadened ctxloom-config excludes are written to the common-dir
+	// info/exclude (NOT the tracked .gitignore).
+	excl, err := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude"))
+	require.NoError(t, err, "the common-dir info/exclude must exist")
+	for _, pat := range []string{".mcp.json", ".claude/", ".ctxloom/cache/"} {
+		assert.Contains(t, string(excl), pat, "exclude covers %q", pat)
+	}
+	assert.NoFileExists(t, filepath.Join(repo, ".gitignore"), "excludes must NOT touch the tracked .gitignore")
+
+	// wtDir (captured above, before teardown clears Cleanup) is reused here.
+
+	// Run a "no-op" in the worktree — it stays clean, so the WIP-safe teardown
+	// removes it.
+	require.NoError(t, ws.Cleanup(), "WIP-safe teardown removes a clean worktree")
+	assert.NoDirExists(t, wtDir, "the worktree dir is gone after cleanup")
+
+	// `git worktree list` has no leftover pointing at our path.
+	out := gitOut(t, repo, "worktree", "list", "--porcelain")
+	assert.NotContains(t, out, wtDir, "no leftover worktree after WIP-safe teardown")
+}
+
+// TestWorktreePolicy_RealGitPreservesInnerWIP proves the nested-worktree WIP guard
+// against real git: a nested inner worktree with an uncommitted file aborts the
+// teardown, so BOTH the inner and outer survive (the exact footgun git's own
+// dirty-check misses).
+func TestWorktreePolicy_RealGitPreservesInnerWIP(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping the nested-WIP integration test")
+	}
+	ctx := context.Background()
+	repo := initRealRepo(t)
+
+	pol := NewWorktree(git.NewExec())
+	ws, err := pol.PrepareWorkspace(ctx, repo, "member-nest")
+	require.NoError(t, err)
+	outer := ws.Dir()
+	// Safety net registered IMMEDIATELY: the test's own manual cleanup below
+	// (gitRun ... worktree remove --force) is plain sequential code, not a
+	// defer/t.Cleanup — this test's whole point is proving the outer/inner
+	// dirs survive an intentional WIP guard, so any earlier require/assert
+	// failure or panic skips that manual cleanup entirely and leaks both
+	// checkouts under the OS temp dir. A raw RemoveAll here is safe even
+	// though these are real `git worktree add` targets: the repo (and its
+	// .git metadata) is a throwaway t.TempDir() that vanishes right after,
+	// so leftover `git worktree list` bookkeeping doesn't matter — only the
+	// disk space does. LIFO cleanup order removes inner before outer.
+	t.Cleanup(func() { _ = os.RemoveAll(outer) })
+
+	// Simulate claude's EnterWorktree: a nested worktree INSIDE ours, with WIP.
+	inner := filepath.Join(outer, ".claude", "worktrees", "inner")
+	require.NoError(t, os.MkdirAll(filepath.Dir(inner), 0o755))
+	gitRun(t, repo, "worktree", "add", "--detach", inner, "HEAD")
+	require.NoError(t, os.WriteFile(filepath.Join(inner, "wip.txt"), []byte("uncommitted"), 0o644))
+	t.Cleanup(func() { _ = os.RemoveAll(inner) })
+
+	require.NoError(t, ws.Cleanup(), "cleanup never errors")
+
+	// Both survive — WIP is sacred.
+	assert.DirExists(t, inner, "the nested inner worktree with WIP is preserved")
+	assert.FileExists(t, filepath.Join(inner, "wip.txt"), "the inner's uncommitted work is intact")
+	assert.DirExists(t, outer, "the outer is left in place because removing it would destroy the inner")
+
+	// Manual cleanup so the test leaves no worktrees behind on the normal path
+	// (keeps git's own worktree bookkeeping tidy); the t.Cleanup registrations
+	// above are the leak-safety net for the abnormal paths.
+	gitRun(t, repo, "worktree", "remove", "--force", inner)
+	gitRun(t, repo, "worktree", "remove", "--force", outer)
+}
+
+// TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan is the
+// red-first proof for a bug: a per-agent worktree's CLAUDE.md is a
+// TRACKED context surface the claude engine's WriteContext genuinely mutates —
+// and, per its own doc, DELETES outright when the merged content is empty and
+// the file was wholly ctxloom's (internal/claude/claude.go). Before
+// WorktreeArtifactPatterns covered "CLAUDE.md", skipTrackedConfig never set the
+// skip-worktree bit on it, so that deletion left `git status` showing
+// " D CLAUDE.md" — a real, correctly-detected dirty tree — and the WIP-safe
+// teardown (correctly) refused `git worktree remove`, permanently orphaning
+// the checkout. This test simulates exactly that deletion (standing in for the
+// engine's Setup/materialize step, which this policy test doesn't otherwise
+// drive) and asserts the worktree is STILL reaped: skipTrackedConfig hiding
+// the tracked mutation is what makes the tree read as clean again.
+func TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping the managed-context-deletion integration test")
+	}
+	ctx := context.Background()
+	repo := initRealRepo(t)
+	// CLAUDE.md is tracked in the SOURCE repo, exactly like a real project's
+	// committed context file — the worktree checkout below inherits it.
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "CLAUDE.md"), []byte("# managed\nctxloom content\n"), 0o644))
+	gitRun(t, repo, "add", "CLAUDE.md")
+	gitRun(t, repo, "commit", "-m", "seed CLAUDE.md")
+
+	pol := NewWorktree(git.NewExec())
+	ws, err := pol.PrepareWorkspace(ctx, repo, "member-ctx")
+	require.NoError(t, err)
+	wtDir := ws.Dir()
+	t.Cleanup(func() { _ = os.RemoveAll(wtDir) })
+
+	require.FileExists(t, filepath.Join(wtDir, "CLAUDE.md"), "the worktree checkout carries the tracked CLAUDE.md")
+
+	// Simulate the claude engine's WriteContext deleting CLAUDE.md (empty
+	// assembled content, and the file was wholly ctxloom's — claude.go's
+	// WriteContext/agent.WriteManagedContext contract).
+	require.NoError(t, os.Remove(filepath.Join(wtDir, "CLAUDE.md")))
+
+	// Without skipTrackedConfig covering CLAUDE.md, this would show " D CLAUDE.md".
+	status := gitOut(t, wtDir, "status", "--porcelain")
+	assert.Empty(t, strings.TrimSpace(status), "skip-worktree must hide the managed-context deletion, or the WIP guard reads it as real work")
+
+	require.NoError(t, ws.Cleanup(), "cleanup never errors")
+	assert.NoDirExists(t, wtDir, "the worktree is reaped: the managed-context deletion is ctxloom's own artifact, not user WIP")
+
+	out := gitOut(t, repo, "worktree", "list", "--porcelain")
+	assert.NotContains(t, out, wtDir, "no leftover worktree registration after teardown")
+}
+
+// requireCleanWorkspace registers unconditional, mutation-proof safety-net
+// removal for every REAL on-disk scratch resource a prepared workspace may
+// hold, for tests across this package that call PrepareWorkspace directly
+// (not just the worktree-integration ones above). Call it IMMEDIATELY after a
+// successful PrepareWorkspace, before any other test code that could
+// fail/panic and skip a later manual/mid-test cleanup.
+//
+//   - *worktreeWorkspace: the checkout (ws.Dir()) plus the toolchain
+//     scratchDir (TMPDIR/GOTMPDIR — spawner-env). The checkout is WIP-gated
+//     in ws.Cleanup() by design
+//     (production code, correctly conservative for a real developer); tests
+//     that deliberately dirty their own throwaway checkout must not rely on
+//     that guard clearing it.
+//   - *containerWorkspace: ONLY scratchRoot (the host socket/config-overlay
+//     scratch from containerScratchBase(), always OS-temp on Linux regardless
+//     of session/harp scoping). Dir() is intentionally EXCLUDED here: for a
+//     container workspace it is the *identical-path* live project directory
+//     (or a composed worktree checkout, itself already handled by the
+//     worktreeWorkspace case via baseCleanup's own type), never a dedicated
+//     scratch path — force-removing it would risk deleting the very repo the
+//     test is using.
+func requireCleanWorkspace(t *testing.T, ws Workspace) {
+	t.Helper()
+	if ws == nil {
+		return
+	}
+	switch concrete := ws.(type) {
+	case *worktreeWorkspace:
+		if dir := concrete.dir; dir != "" {
+			t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		}
+		if scratch := concrete.scratchDir; scratch != "" {
+			t.Cleanup(func() { _ = os.RemoveAll(scratch) })
+		}
+	case *containerWorkspace:
+		if root := concrete.scratchRoot; root != "" {
+			t.Cleanup(func() { _ = os.RemoveAll(root) })
+		}
+	}
+}
+
+// initRealRepo creates a temp git repo with one commit and returns its path.
+func initRealRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-b", "main")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("seed"), 0o644))
+	gitRun(t, dir, "add", "README.md")
+	gitRun(t, dir, "commit", "-m", "seed")
+	return dir
+}
+
+// gitRun runs a git command in dir with a stable identity, failing the test on
+// error.
+func gitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if out, err := gitCmd(dir, args...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// gitOut runs a git command in dir and returns its combined output.
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := gitCmd(dir, args...).CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, out)
+	return string(out)
+}
+
+func gitCmd(dir string, args ...string) *exec.Cmd {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=ctxloom", "GIT_AUTHOR_EMAIL=ctxloom@example.com",
+		"GIT_COMMITTER_NAME=ctxloom", "GIT_COMMITTER_EMAIL=ctxloom@example.com",
+		// Isolate from the developer's / CI's GLOBAL and SYSTEM git config: a
+		// global commit.gpgsign, core.hooksPath, or init.templateDir would
+		// otherwise leak in and corrupt these real-git init/commit/worktree
+		// operations (this file is UN-tagged, so it also runs under `just test`).
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	return cmd
+}
+
+// TestGitIdentity_HostileAgentIDStillCommitsCleanly pins a claim, and the
+// row is REFUTED on its consequence. The claim: gitIdentity sanitizes agentID
+// for the email local-part but interpolates the RAW agentID into
+// GIT_AUTHOR_NAME/GIT_COMMITTER_NAME, so "a name containing a newline or
+// `<`/`>` would produce a malformed identity".
+//
+// The mechanism is true — the name really is raw. The consequence is not, and
+// it is git that decides, not us: git's own fmt_ident feeds every ident through
+// strbuf_addstr_without_crud, which trims edge crud and SILENTLY DROPS '\n',
+// '<' and '>' anywhere in the string, precisely because those three delimit an
+// identification line. Measured here against real git rather than reasoned
+// about: an agentID carrying all three commits successfully and records a
+// well-formed, single-line author.
+//
+// This pins the property the refutation rests on. If git ever stopped
+// sanitizing — or if gitIdentity started emitting something git rejects — the
+// commit fails or the recorded name grows a delimiter, and this goes red.
+func TestGitIdentity_HostileAgentIDStillCommitsCleanly(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping the git-identity integration test")
+	}
+	repo := initRealRepo(t)
+
+	const hostileID = "rev<iew>er\nspoofed"
+	name, email := gitIdentity(hostileID)
+	require.True(t, strings.ContainsAny(name, "<>\n"),
+		"the fixture must actually carry the delimiters the row is about")
+
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "work.txt"), []byte("agent work"), 0o644))
+	gitRunAsIdentity(t, repo, name, email, "add", "work.txt")
+	gitRunAsIdentity(t, repo, name, email, "commit", "-m", "agent commit")
+
+	got := strings.TrimRight(gitOutAsIdentity(t, repo, name, email, "log", "-1", "--format=%an%n%ae"), "\n")
+	lines := strings.Split(got, "\n")
+	require.Len(t, lines, 2, "the recorded ident is exactly one author line and one email line")
+	assert.NotContains(t, lines[0], "<", "git drops the ident delimiters itself")
+	assert.NotContains(t, lines[0], ">", "git drops the ident delimiters itself")
+	assert.True(t, strings.HasPrefix(lines[0], "ctxloom agent "),
+		"the surviving name still self-identifies as an agent: %q", lines[0])
+	assert.Equal(t, email, lines[1], "the email was already sanitized by gitIdentity itself")
+}
+
+// gitIdentTestEnv builds a git child environment carrying exactly the identity
+// under test. It strips any inherited GIT_AUTHOR_*/GIT_COMMITTER_* rather than
+// appending over them: this suite runs inside per-agent worktrees that export
+// those very vars, and duplicate keys are resolved by libc, not by us.
+func gitIdentTestEnv(name, email string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		switch key, _, _ := strings.Cut(kv, "="); key {
+		case "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL":
+			continue
+		default:
+			env = append(env, kv)
+		}
+	}
+	return append(env,
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_AUTHOR_NAME="+name, "GIT_AUTHOR_EMAIL="+email,
+		"GIT_COMMITTER_NAME="+name, "GIT_COMMITTER_EMAIL="+email)
+}
+
+func gitRunAsIdentity(t *testing.T, dir, name, email string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = gitIdentTestEnv(name, email)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func gitOutAsIdentity(t *testing.T, dir, name, email string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = gitIdentTestEnv(name, email)
+	out, err := cmd.Output()
+	require.NoError(t, err, "git %v", args)
+	return string(out)
+}

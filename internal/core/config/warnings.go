@@ -42,7 +42,7 @@ const (
 	// home config (which does not lose the merge, it fills a gap the project
 	// left — the escalation this exists to close); a value from the ambient
 	// environment, which every child process this one spawns inherits. See
-	// internal/config/layerscope. The value is DROPPED, exactly like
+	// internal/adapters/configload/layerscope. The value is DROPPED, exactly like
 	// WarnKindUnknownKey and for the identical reason: a setting that looks
 	// applied and is not is the worse outcome.
 	WarnKindLayerScope WarningKind = "layer-scope"

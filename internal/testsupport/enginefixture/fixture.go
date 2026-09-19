@@ -8,11 +8,11 @@ import (
 	"context"
 	"io"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/engineversion"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
-	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 )
 
 // Descriptor returns a valid descriptor for a synthetic engine named name.

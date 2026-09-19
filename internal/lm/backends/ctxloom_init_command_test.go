@@ -10,7 +10,7 @@
 // context forever. This file proves the "invocable" half from the backends
 // package that builds the command catalog; the "not always-on" half is
 // proven from the operations package (see
-// internal/operations/context_test.go's
+// internal/adapters/operations/context_test.go's
 // TestAssembleContext_ExcludesCtxloomInitCommandBody), since AssembleContext
 // lives there and never imports this package's command-export machinery in
 // the first place — the strongest form of "these are different doors".

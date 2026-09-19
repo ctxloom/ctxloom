@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
-	"github.com/ctxloom/ctxloom/internal/operations"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 )
 
 // spawnInput builds agent_run's free-form input Struct — the channel a MODEL

@@ -5,8 +5,8 @@
 // given project's session).
 //
 // Deliberately a LEAF package: internal/core/coord imports
-// internal/operations (children.go's AgentChatLaunch/JoinLeadBlocks), so
-// internal/operations — this discovery mechanism's only production consumer
+// internal/adapters/operations (children.go's AgentChatLaunch/JoinLeadBlocks), so
+// internal/adapters/operations — this discovery mechanism's only production consumer
 // (sessionfeed.go) — cannot import coord without a cycle.
 //
 // That constraint fixes the direction of the endpoint.json contract: the file's

@@ -49,7 +49,7 @@ func seedLayers(t *testing.T, fs afero.Fs, home, homeBody, projectBody string) s
 // project config.yaml that never mentions a key must inherit it from home,
 // where the pre-layering project-XOR-home resolution silently dropped it
 // (home was never even read once a project config.yaml existed). Both keys
-// here are ScopeMachine (internal/config/layerscope), which home is allowed
+// here are ScopeMachine (internal/adapters/configload/layerscope), which home is allowed
 // to carry — unlike `workspace` (ScopeShared), which this test used to
 // exercise before layerscope closed home's ability to gap-fill a
 // project-policy key (see TestLoad_EscalationPath3_HomeCannotEscalateProjectAgent

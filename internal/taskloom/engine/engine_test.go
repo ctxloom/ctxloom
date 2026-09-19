@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/confpatch"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 

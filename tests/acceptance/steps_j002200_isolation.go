@@ -27,7 +27,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/gitignore"
+	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 
@@ -119,7 +119,7 @@ func j002200HomeConfigYAML(recordFile string) string {
 // mentions containers.
 const (
 	// j002200RuntimeGateFinding is chainFor's runtime-unreachable finding
-	// (internal/lm/isolation/isolation.go): no docker/podman resolves, so no
+	// (internal/adapters/isolation/isolation.go): no docker/podman resolves, so no
 	// container policy is ever selected. This row's subject.
 	// The ownership clause is load-bearing, not incidental: it is what
 	// distinguishes chainFor's RUNTIME gate from prepareChain's START gate now

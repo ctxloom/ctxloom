@@ -17,7 +17,7 @@ import (
 //
 // These types live here, beside EngineHome and CredentialSeed, for the reason
 // stated in enginefacts.go: an engine package must be able to author its own
-// facts without linking the isolation machinery. internal/lm/isolation aliases
+// facts without linking the isolation machinery. internal/adapters/isolation aliases
 // them, so there is one enum and not a copy on each side of that boundary.
 
 // MaterialDelivery is the GUARANTEE a provisioning mechanism provides. It is the

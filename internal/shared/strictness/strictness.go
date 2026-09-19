@@ -392,8 +392,8 @@ func Close(mark Mark) {
 // per finding — or nil when nothing was collected or the process is
 // degraded. This is the one shared owner for the per-call, keeps-running
 // error-render variant (as opposed to a process-exit abort, which prints a
-// richer class-tagged listing and belongs to its own callers): internal/cli,
-// internal/core/coord, and internal/operations each used to carry a
+// richer class-tagged listing and belongs to its own callers): internal/adapters/cli,
+// internal/core/coord, and internal/adapters/operations each used to carry a
 // byte-identical copy of this rendering because none of those three may
 // import one another — but all three already import this leaf package, so
 // hoisting the render here removes the duplication without an import cycle.

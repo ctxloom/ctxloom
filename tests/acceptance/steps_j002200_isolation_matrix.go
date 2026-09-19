@@ -48,7 +48,7 @@
 // cooperation), but the exact spawned-env PAYLOAD (the
 // XDG_DATA_HOME-vs-XDG_DATA_HOME/opencode nesting subtlety) is not
 // independently re-proven here. It is already pinned at the Go level by
-// internal/lm/isolation/auth_test.go's
+// internal/adapters/isolation/auth_test.go's
 // TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode. See
 // j002200_isolation.doc.md for the full accounting of what is and is not proven
 // where.
@@ -927,7 +927,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// S8's teardown, pinned at the acceptance layer for the first time. An
 	// instance holds a COPY of the user's live credential inside the project
 	// tree, so reaping it is a security requirement, not hygiene — and until
-	// this step existed, nothing outside internal/operations proved the
+	// this step existed, nothing outside internal/adapters/operations proved the
 	// removal actually happened at the end of a real run.
 	ctx.Step(`^the "([^"]*)" config-home instance is gone once the session ends$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)

@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 )
 
 // loadoutYAML is ltk's own ctxloom loadout — the bundle content ltk

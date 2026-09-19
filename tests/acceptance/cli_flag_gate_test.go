@@ -47,7 +47,7 @@ import (
 
 // flagSite is one `Changed()` call in the CLI source.
 type flagSite struct {
-	File    string // module-relative, "internal/cli/root.go"
+	File    string // module-relative, "internal/adapters/cli/root.go"
 	Line    int    // line of the Changed() call
 	Flag    string // the literal flag name
 	Func    string // enclosing function, for the failure message
@@ -459,7 +459,7 @@ func literalFlagName(c *ast.CallExpr) (string, bool) {
 	return name, true
 }
 
-// cliSourceDir locates internal/cli relative to THIS source file, the
+// cliSourceDir locates internal/adapters/cli relative to THIS source file, the
 // precedent steps_j001000_transcript_capture.go sets. The working directory of
 // a `go test` run is the test's own package, which says nothing about where
 // the module is checked out.

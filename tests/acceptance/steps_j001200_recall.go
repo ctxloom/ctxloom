@@ -101,7 +101,7 @@ func j001200WriteEssence(w *World, harp, summary, body string) error {
 }
 
 // j001200WriteCanonicalTranscript writes a harp's canonical transcript in the real
-// on-disk schema (internal/transcript.Record), at the path
+// on-disk schema (internal/adapters/transcript.Record), at the path
 // paths.ResolveHarpCanonicalTranscriptPath resolves — hand-rendered as JSON
 // rather than marshalled through the production type so that a schema change
 // shows up here as a deliberate fixture update instead of silently reshaping
@@ -152,7 +152,7 @@ func j001200VendorTranscriptPath(w *World, harp string) string {
 
 // j001200WriteMockVendorTranscript writes turns as MOCK-format vendor JSONL
 // ({"role":..,"text":..,"ts":..}), the format
-// internal/transcript/vendorreader/mock parses. Same turns as
+// internal/adapters/transcript/vendorreader/mock parses. Same turns as
 // j001200WriteCanonicalTranscript, one format earlier in the pipeline.
 func j001200WriteMockVendorTranscript(w *World, harp string, turns []string) error {
 	var b strings.Builder

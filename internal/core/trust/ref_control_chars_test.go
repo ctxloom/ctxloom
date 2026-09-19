@@ -5,13 +5,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 )
 
 // Ref.Bundle and Ref.Name are set directly — Ref is a plain struct, and every
-// surface type's RefFor in internal/content fills them from a bundle-manifest
+// surface type's RefFor in internal/adapters/content fills them from a bundle-manifest
 // item name or a filename, neither of which goes through the reference grammar
-// in internal/remote. A bundle pulled from a remote repo can therefore name a
+// in internal/adapters/remote. A bundle pulled from a remote repo can therefore name a
 // fragment with a control character in it.
 //
 // Key is where those fields become a ref string, and

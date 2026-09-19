@@ -2,8 +2,8 @@
 
 `internal/lm/grpc` is the **host ↔ engine-backend plugin seam**: a HashiCorp
 go-plugin / gRPC transport plus the complete Go⇄proto marshalling layer for it.
-Everything above it (`internal/cli`, `internal/operations`, `internal/memory`,
-`internal/core/coord`, `internal/lm/isolation`) thinks purely in
+Everything above it (`internal/adapters/cli`, `internal/adapters/operations`, `internal/adapters/memory`,
+`internal/core/coord`, `internal/adapters/isolation`) thinks purely in
 `internal/core/agent` types; everything below it — the launch backends — receives
 `agent.SetupRequest` / `agent.ExecuteRequest` / `agent.ChatRequest`. The seam exists
 so a backend can run host-local, self-invoked, or containerized without any caller
@@ -69,7 +69,7 @@ sequenceDiagram
 | Path | Entry point | Used by |
 |---|---|---|
 | Self-invoked (production default) | `NewSelfInvokingClientForLabelEnv` (`client.go:359`) via `DefaultClientFactory` (`interface.go:65`) | 8 production callers |
-| Container | `NewContainerClient` (`client.go:334`) → `dialContainerConnection` (`client.go:261`) with `plugin.UnixSocketConfig` + an `AddrTranslator` mapping the in-container socket back to the host mount | `internal/lm/isolation/runtime.go:309` |
+| Container | `NewContainerClient` (`client.go:334`) → `dialContainerConnection` (`client.go:261`) with `plugin.UnixSocketConfig` + an `AddrTranslator` mapping the in-container socket back to the host mount | `internal/adapters/isolation/runtime.go:309` |
 | Bare self-exec (**no handshake**) | `StartHostRunner` (`host_runner.go:56`) | coordinator; readiness observed by `RunnerChannel` dial-home, not here (`host_runner.go:22-30`) |
 
 ### Teardown
@@ -132,7 +132,7 @@ exclusions each carry a written reason and an anti-rot test.
 
 **The full chain, end to end:**
 
-1. The host populates both fields — `internal/lm/backends/managed.go:52` (`Skills:`) and `:57` (`DenyTools:`), reached from `internal/cli/run.go` and `internal/operations/oneshot.go`.
+1. The host populates both fields — `internal/lm/backends/managed.go:52` (`Skills:`) and `:57` (`DenyTools:`), reached from `internal/adapters/cli/run.go` and `internal/adapters/operations/oneshot.go`.
 2. `ManagedConfigToProto` carries them (`managed.go:26`, `:31`).
 3. `managedConfigFromProto` restores them (`managed.go:43`, `:48`).
 4. `internal/lm/grpc/server.go` is the **only** site in the repo that constructs `SetupRequest.Managed`, so there is no in-process bypass — and no bypass is needed any more.
@@ -312,11 +312,11 @@ Values **added or defaulted on decode**, none of which the caller sent:
 
 - ~~`ManagedConfig` carries 5 of its 7 documented fields~~ · ~~`wire.Hook.PreToolFallback` is always `false` on the far side~~ · ~~`ChatRequest.Runtime` is dropped~~ · ~~`ChatRequest.ResumeSessionID` is dropped~~ — **all RESOLVED in `40b49a7f`**, along with `ChatPermissionRequest.kind`, `ChatSessionInfo.session_id` and `ChatSessionInfo.resumable`. Eight fields, one proto change, one regen. Kept struck rather than deleted because the parity sweep above exists *because of* these, and a reader who finds the sweep should be able to find what it was built to catch.
 - **`CanonicalFallbackSource.ListSessions` returns `(nil, nil)` on a failed index read** for any retired-scraper backend (`canonical_source.go:185`, `:187-192`), which consumers render as "no sessions".
-- **`CanonicalFallbackSource.GetSession` discards the first canonical error** (`canonical_source.go:131`), collapsing three distinct causes that `internal/transcript/history.go:81,83,85` distinguishes into one "no canonical transcript" message.
+- **`CanonicalFallbackSource.GetSession` discards the first canonical error** (`canonical_source.go:131`), collapsing three distinct causes that `internal/adapters/transcript/history.go:81,83,85` distinguishes into one "no canonical transcript" message.
 - **`RunWithModelInfo` cannot distinguish "exit 0" from "stream ended with no exit code"** (`client.go:134`, `:137-139`, `:156`) — there is no seen-flag. Defensive today, since `server.go:138` always sends it.
 - **`NewContainerClient`'s `backendName` and `label` parameters are documented as "carried for parity/diagnostics" and the body reads neither** (`client.go:334-336`), though the caller passes real values.
 - **`ReadPlanFiles` returns "no plans" for four distinct failures with zero diagnostic** (`plans.go:50-52`, `:53-56`, `:57-60`, `:66-69`), while the rest of the package warns on every degraded path.
-- **`WatchHistoryByPath` / `WatchCanonicalTranscript` return an `errs` channel that is never written to** (`sessionwatch.go:155`, `:201`; error branches only `clidiag.Warn` at `:165`, `:211`), yet it is plumbed to callers as a real error source via `internal/operations/sessionfeed.go:470,482,499`.
+- **`WatchHistoryByPath` / `WatchCanonicalTranscript` return an `errs` channel that is never written to** (`sessionwatch.go:155`, `:201`; error branches only `clidiag.Warn` at `:165`, `:211`), yet it is plumbed to callers as a real error source via `internal/adapters/operations/sessionfeed.go:470,482,499`.
 - **The `Chat` inbound pump swallows `stream.Send` errors and exits** without pushing to `errs` (`chat.go:402-406`), leaving the unbuffered `in` channel (`chat.go:336`) with no reader.
 - **The chat user-turn tap requires `msg.Text != ""`** (`chat.go:396`), so a `ContentBlocks`-only turn reaches the engine but is recorded nowhere.
 - **`GRPCServer.GetSession` returning a typed-nil `SessionData` decodes client-side to a non-nil empty `agent.Session`** (`sessionhistory.go:155-158`, `:171-174`, `:243-252`).

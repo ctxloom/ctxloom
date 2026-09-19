@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 )
 
 // =============================================================================
@@ -885,7 +885,7 @@ func testSkillSigner(t *testing.T) (ssh.Signer, ssh.PublicKey) {
 
 // skillPublisherRoot builds a real allowed_signers store trusting pub as
 // principal for the publish namespace only — mirrors
-// internal/signing/publisher_test.go's rootWith helper (a real store is used
+// internal/adapters/signing/publisher_test.go's rootWith helper (a real store is used
 // on purpose: the namespace/role check is part of what these tests exercise).
 func skillPublisherRoot(principal string, pub ssh.PublicKey) *allowedsigners.Store {
 	return allowedsigners.NewStore(allowedsigners.Entry{
@@ -920,7 +920,7 @@ func TestPublisherSkillSignatureVerifier_SignedManifestVerifies(t *testing.T) {
 // key the trust root does NOT authorize for the publish namespace must
 // withhold — mirroring the command/prompt contract that an untrusted
 // publisher's content is not trusted until a human reviews and accepts it
-// (see TestSetItemTrust_ApprovesSkillCurrentVersion in internal/operations
+// (see TestSetItemTrust_ApprovesSkillCurrentVersion in internal/adapters/operations
 // for that review+accept path).
 func TestPublisherSkillSignatureVerifier_UntrustedPublisherWithholds(t *testing.T) {
 	_, pkg, _ := buildValidSkillZip(t, "humanize")

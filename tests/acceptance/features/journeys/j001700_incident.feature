@@ -29,7 +29,7 @@ Feature: An incident — a bad command ships and must be pulled
   # Trent retracts it. Both stop receiving it on their own next routine sync,
   # with neither of them doing anything beyond an ordinary `deps pull` — no
   # special "acknowledge the incident" step exists or is needed.
-  # Verified: internal/operations/sync.go's checkInstalledRetraction (called
+  # Verified: internal/adapters/operations/sync.go's checkInstalledRetraction (called
   # from syncItem at :493) re-evaluates retraction for a ref already marked
   # installed — the exact code path that was a silent no-op before it was
   # fixed. NOT restating: single-developer retraction, key-compromise
@@ -52,9 +52,9 @@ Feature: An incident — a bad command ships and must be pulled
   # partition, an outage, or anyone sitting between a developer and the
   # publisher could resurrect retracted content merely by making the
   # retraction check fail. Fixed FAIL-STALE: the last known verdict is
-  # persisted with its own timestamp (internal/remote/types.go
+  # persisted with its own timestamp (internal/adapters/remote/types.go
   # LockEntry.RetractionCheckedAt) and is what gets delivered when the remote
-  # cannot be reached (internal/remote/pull.go Puller.resolveRetraction). This
+  # cannot be reached (internal/adapters/remote/pull.go Puller.resolveRetraction). This
   # is the security-critical direction to prove: a bundle already marked
   # RETRACTED must stay withheld even when the retraction check itself can no
   # longer run — the opposite failure (fail-open, today's pre-fix behavior)

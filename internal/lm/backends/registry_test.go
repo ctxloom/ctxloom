@@ -81,7 +81,7 @@ func TestRegistry_List(t *testing.T) {
 
 // List() must return a deterministic (sorted) order on its own — callers
 // must not have to defensively sort a randomised Go map-iteration order
-// themselves (e.g. shell-completion filtering, internal/cli/completion.go,
+// themselves (e.g. shell-completion filtering, internal/adapters/cli/completion.go,
 // does not sort today). Run repeatedly since a single run cannot distinguish
 // "sorted" from "map iteration happened to come out sorted."
 func TestRegistry_List_IsSorted(t *testing.T) {

@@ -13,12 +13,12 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
+	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/engineversion"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
-	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
 )
 
 // Descriptor returns claude-code's complete declaration. Every fact is built

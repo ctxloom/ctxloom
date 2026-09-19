@@ -304,7 +304,7 @@ should not land during the tree-format migration.
    that rewrites the surface it inspects is its own bug.
 4. Name the PROCESS stage and give it one boundary: profiles + stores in,
    resolved ordered forms out. Today it is spread across `internal/core/config` and
-   `internal/operations`.
+   `internal/adapters/operations`.
 5. `EngineDelivery` — the wide change, landed per engine behind the existing
    `Declaration` / `Approach` seam, once the process stage emits resolved
    forms.

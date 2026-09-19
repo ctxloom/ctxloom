@@ -112,7 +112,7 @@ Feature: The archaeologist — what did we decide in March?
   # turns this red — the row asserts the REMEDY, not merely that an error
   # happened, which is what keeps a user from concluding the capture failed.
   #
-  # Tabled by format: `session show` is wired to emit(), and (internal/cli/
+  # Tabled by format: `session show` is wired to emit(), and (internal/adapters/cli/
   # session_cmd.go's runSessionShow / undistilledSessionError) documents the
   # divergence outright — the structured shape reports distilled:false rather
   # than erroring, so a caller can show a hint without branching on an exit

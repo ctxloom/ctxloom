@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -430,7 +430,7 @@ func TestBeginDrain_IsIdempotentAndReturnsTheSameDrain(t *testing.T) {
 
 // TestDrainBound_NoSecondLiteralExists pins the other half of (d) at the
 // source: across the drain's reader (this package), agent_recv's readers
-// (internal/mcp) and the declaring package, the only duration expression
+// (internal/adapters/mcp) and the declaring package, the only duration expression
 // equal to the bound is mcpschema.RecvWaitMax's own declaration — and this
 // package reaches the bound by that name. A second number, however it is
 // spelled, is the drift this test exists to refuse.

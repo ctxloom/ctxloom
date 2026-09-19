@@ -27,7 +27,7 @@ import (
 // the rest. RealGitWorktreeFixture builds exactly one main/linked pair in one
 // state, which is the right shape for a caller that needs A worktree and the
 // wrong shape for a caller whose subject is the difference between several.
-// internal/cli/session_worktrees_test.go needs the identical population (the
+// internal/adapters/cli/session_worktrees_test.go needs the identical population (the
 // CLI's own fast, non-acceptance-harness coverage of the same taxonomy) for
 // the identical reason.
 //

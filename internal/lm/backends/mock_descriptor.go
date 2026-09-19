@@ -1,12 +1,12 @@
 package backends
 
 import (
+	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
+	mockreader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/mock"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/engineversion"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
-	mockreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/mock"
 )
 
 // MockDescriptors returns the mock engine and its three doubles. mock is the
@@ -115,7 +115,7 @@ func mockDescriptor(name string, ctor func() *Mock, newConfig func() agent.Backe
 		// mock has no vendor-native transcript store; it carries a DEGENERATE
 		// reader anyway because a single-entry reader registry cannot fail —
 		// version dispatch and lookup have no branch to take wrongly with one
-		// engine. See internal/transcript/vendorreader/mock.
+		// engine. See internal/adapters/transcript/vendorreader/mock.
 		TranscriptReaders: agent.Provide(mockreader.VersionedAdapters),
 	}
 }

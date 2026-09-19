@@ -14,7 +14,7 @@ import (
 // owner-session binding of the one ctxloom-owned step that closes that gap: at
 // a skill's completion, name its link-group mates the session has not invoked
 // yet. The membership comes from the group (bundles.UninvokedSkillMates, joined
-// to these pieces by the hook verb in internal/cli -- this package must not
+// to these pieces by the hook verb in internal/adapters/cli -- this package must not
 // link the bundle model, the lean binaries reach it); the moment comes from
 // the engine's PostToolUse event; "not yet invoked" comes from the engine's
 // own transcript, so no state is persisted anywhere.

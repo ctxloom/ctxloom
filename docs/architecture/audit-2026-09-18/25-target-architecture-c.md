@@ -109,13 +109,13 @@ Two facts the graph makes checkable: `engine` imports exactly `sessions`, `prese
 | `profiles` | `shared/agent`, `remote` | 2 (`MergeHooksConfig` → `wire`), 5 (the pull-walk reader → `remote`) |
 | `bundles` | `content`, `content/attest`, `content/remotetree`, `remote`, `signing`, `shared/admission`, `shared/upgrade`, `clidiag` | 5 (readers become adapters behind `bundles.Reader`; `attest.VerifyBundle` called by them), 1 (`upgrade`), 15 (`clidiag`) |
 | `config` | `agents`, `remote`, `signing`, `signing/allowedsigners`, `shared/companionloadout`, `projectroot`, `cliversion`, `content`, `content/remotetree`, `config/layerscope`, `shared/admission`, `clidiag` | 4 (`config/load` split; companions probing → `companions`), 5 (trust ports behind `Sources.TrustPorts`), 15 |
-| `agentcoord/coord` | `internal/agentcoord` (the proto), `discover`, `mcpschema`, `agents`, `lm/isolation`, `operations`, `transcript`, `shared/agent`, `envswitch`, `clidiag`, `strictness` | 8 (`harnessspec`/`SpawnPlan` → `launch` types; `operations.DirtyTreeHandler` → `launch`), 10 (`grpcserver`, `runchannel`, `runnerlink`, `httpserver`, `consumer`, `controlwire` → `coord/grpc`; `discover`, `mcpschema` with them; `home.go`, `spooldoorbell.go`, `artifacts.go` and the other ~190 `agentcoordpb.` references re-typed on Go values — the whole of `coord` is the allowlist until then), 14a (`transcript`, `enginehost*.go` → `runner`), 6b (`shared/agent` → `engine`) |
+| `agentcoord/coord` | `internal/adapters/coordgrpc/pb` (the proto), `discover`, `mcpschema`, `agents`, `lm/isolation`, `operations`, `transcript`, `shared/agent`, `envswitch`, `clidiag`, `strictness` | 8 (`harnessspec`/`SpawnPlan` → `launch` types; `operations.DirtyTreeHandler` → `launch`), 10 (`grpcserver`, `runchannel`, `runnerlink`, `httpserver`, `consumer`, `controlwire` → `coord/grpc`; `discover`, `mcpschema` with them; `home.go`, `spooldoorbell.go`, `artifacts.go` and the other ~190 `agentcoordpb.` references re-typed on Go values — the whole of `coord` is the allowlist until then), 14a (`transcript`, `enginehost*.go` → `runner`), 6b (`shared/agent` → `engine`) |
 | `shared/agent` → the contract half becomes `engine` | `ledger`, `lockwait`, `iox`, `clidiag`, `strictness` | 6b (the split), 12 (`ledger` deleted), 15 |
 | `lm/engine` → folded into `engine` | `bundles`, `engineversion`, `transcript/vendorreader` | 6b (`Descriptor` becomes `Definition`; the readers become `engine.TranscriptReader` values the adapter supplies) |
 | `paths`, `shared/wire`, `shared/agent/present`, `shared/harp`, `agentcoord/spool` | none | pure today |
 | `composite`, `delivery`, `launch` | do not exist | born pure in slices 6, 12, 7; zero allowlist from their first commit |
 
-The rule as a row: `{name: "core-imports-only-core", from: <each core package>, forbid: <every non-core, non-toolbox in-repo path>, allowed: <the table above, one entry per package with the slice number as the reason>}`. The proto package (`internal/agentcoord`) is imported by `coord/grpc`, `mcp`, `cli/tui` and (until slice 13) `cli` and `operations`; a sibling rule `proto-only-in-adapters` pins it. `afero.Fs` is permitted in `engine` and `delivery` as the filesystem port; `afero.NewOsFs`/`afero.OsFs` are referenced only under `delivery/fsstatic`, `sessions/fsstore`, `config/load` and `cmd/*` (21-* R10's symbol rule, adopted).
+The rule as a row: `{name: "core-imports-only-core", from: <each core package>, forbid: <every non-core, non-toolbox in-repo path>, allowed: <the table above, one entry per package with the slice number as the reason>}`. The proto package (`internal/adapters/coordgrpc/pb`) is imported by `coord/grpc`, `mcp`, `cli/tui` and (until slice 13) `cli` and `operations`; a sibling rule `proto-only-in-adapters` pins it. `afero.Fs` is permitted in `engine` and `delivery` as the filesystem port; `afero.NewOsFs`/`afero.OsFs` are referenced only under `delivery/fsstatic`, `sessions/fsstore`, `config/load` and `cmd/*` (21-* R10's symbol rule, adopted).
 
 ### 1.1 Package map
 
@@ -194,7 +194,7 @@ Layering rules added to `tests/arch/layering_test.go` (each a row; B's five kept
 - `core-imports-only-core` — with the Part 1.0 allowlist; `TestArch_LayeringAllowlist_IsLive` deletes exhausted entries.
 - `engines-import-nothing-above-the-port` — `internal/engines/**` forbids `config`, `bundles`, `composite`, `launch`, `delivery`, `operations`, `coord`, `isolation`, `cli`, `mcp`, `sessions/fsstore`; zero allowlist from day one (now satisfiable: `Exports` takes `engine.Items`).
 - `cli-through-operations`, `runner-owns-the-engine`, `one-launch-constructor` — as B, with the evasions 24-* A6 listed closed: the constructor rule also matches `new(launch.Launch)` and `var l launch.Launch` outside `launch`/`coordgrpc` (an `ast` walk, not a `git grep`); the exec rule also matches method values (`e.Exec` as a value) and interface assertions to a narrower type.
-- `proto-only-in-adapters` — `internal/agentcoord` (the generated package) imported only by `coord/grpc`, `mcp`, `cli/tui`, and (allowlisted until slice 13) `cli`, `operations`; `internal/lm/grpc` by nobody after slice 13.
+- `proto-only-in-adapters` — `internal/adapters/coordgrpc/pb` (the generated package) imported only by `coord/grpc`, `mcp`, `cli/tui`, and (allowlisted until slice 13) `cli`, `operations`; `internal/lm/grpc` by nobody after slice 13.
 - `one-mint-one-owner` — `sessions.Mint` called only from `operations.StartRun` and `coord.Coordinator.AgentRun`; `coord.New` and `config.Open` constructed only under `cmd/` (21-* R24's ownership leak: a runner-hosted MCP server cannot reach a mint).
 - `no-engine-name-in-core` — `engine.Name` literals appear only under `engines/**`, in config DATA and in the init prompts that write config data (`cli/init*.go` choose a default from `engine.Registry.Names(default-distribution)`, not a literal).
 
@@ -1327,7 +1327,7 @@ type Build func(current []byte) (desired []byte, entries []string, err error)
 type Result struct{ Changed bool }
 
 // Dynamic serves the dynamic kinds on the session's ONE MCP endpoint. The
-// implementation lives in internal/mcp inside the runner. It BINDS the
+// implementation lives in internal/adapters/mcp inside the runner. It BINDS the
 // endpoint the Launch carries; it never mints one. ServePolicy is the
 // deceased-yoga contract: bearer on every request, Origin allowlist with 403
 // on a miss — part of the port, not an option.

@@ -177,7 +177,7 @@ No inspection of what was evicted. The evicted event may be **another run's**
 
 Reachability survives the adversarial check. A `narrow(runID)` re-scoping affordance was
 added since the census (U041-F06, `consumer.go:117-131`), and
-`internal/cli/run_owned.go:110` does use it. But `internal/cli/acp_children.go:32` still
+`internal/adapters/cli/run_owned.go:110` does use it. But `internal/adapters/cli/acp_children.go:32` still
 calls `c.WatchRuns(nil)` and **discards** `narrow` (`_`) — deliberately, per
 `consumer.go:115-116` ("a caller that never needs it … which legitimately wants every run
 in the project"). So one production subscriber's single ring still carries every run's

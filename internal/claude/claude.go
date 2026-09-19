@@ -14,7 +14,7 @@ import (
 	_ "github.com/benjaminabbitt/hew/go/ext/json"
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/confpatch"
+	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"

@@ -71,7 +71,7 @@ classDiagram
 flowchart LR
   RUN["ctxloom run"] -->|AssignHarp| IDX[("index.yaml")]
   HOOK["SessionStart hook"] -->|BindSession| IDX
-  COMP["internal/memory compactor"] -->|SetSummary| IDX
+  COMP["internal/adapters/memory compactor"] -->|SetSummary| IDX
   IDX -->|Find / ListForProject / ListAll| READ["session list · MCP memory tools ·<br/>transcript.CanonicalHistory"]
   IDX -->|Reconcile isDead| REAP["operations.isUnrecoverable"]
   IDX -->|"linkEngineTranscript"| LINK[("&lt;harp&gt;/engine-transcript-&lt;engine&gt;-&lt;session-id&gt;.jsonl<br/>→ symlink to the engine's native transcript,<br/>one PER vendor log, immutable once created")]
@@ -85,10 +85,10 @@ flowchart LR
 |---|---|---|
 | `Entry` | `index.go:38` | Three field groups: the **binding** (`HarpName`, `SessionID`, `Backend`, `ProjectDir`, `StartedAt`, `EndedAt`, `TranscriptPath`), the **summary cache** (`Summary`, `Detail`, `SourceSize`), and **read-time enrichment** (`LastActivity`, `CanonicalTranscriptPath`, both `yaml:"-"`) |
 | `Entry.SourceStale` | `index.go:588` | Picks canonical-over-legacy path, delegates to `TranscriptStale` |
-| `Index` | `index.go:95` | `{Sessions []Entry}` — a one-field wrapper so the YAML has a named `sessions:` key. Marshalled directly as the `ctxloom://sessions/all` MCP resource (`internal/mcp/mcp_resources.go`, `ctxServer.handleResourceSessionsAll`) |
+| `Index` | `index.go:95` | `{Sessions []Entry}` — a one-field wrapper so the YAML has a named `sessions:` key. Marshalled directly as the `ctxloom://sessions/all` MCP resource (`internal/adapters/mcp/mcp_resources.go`, `ctxServer.handleResourceSessionsAll`) |
 | `Store` | `store.go:19` | The storage port; twelve methods, deliberately narrower than `*Manager` (`Path` and `SetSummary` stay off it). Compile-time assertions at `store.go:35-38` |
 | `Manager` | `index.go:102` | The filesystem adapter: `{path, mu, pendingUpgrade}` |
-| `MemStore` | `memstore.go:18` | The in-memory adapter (ADR 0026). 22 external test call sites of `NewMemStore`; `internal/transcript/history_test.go` and `internal/lm/grpc/canonical_source_test.go` both build against it |
+| `MemStore` | `memstore.go:18` | The in-memory adapter (ADR 0026). 22 external test call sites of `NewMemStore`; `internal/adapters/transcript/history_test.go` and `internal/lm/grpc/canonical_source_test.go` both build against it |
 | `tsNormalizeUpgrade` | `index_upgrade.go:25` | The one registered index upgrade: rewrites `started_at`/`ended_at` scalars to canonical RFC3339Nano so Go's RFC3339-only decoder stops rejecting externally-written timestamps |
 
 ---
@@ -112,7 +112,7 @@ flowchart LR
 | `TranscriptStale` | `index.go:567` | Size-compare against the stamped fingerprint; `(false, false)` when undeterminable — the tri-state return *is* the error channel |
 | `MarkEnded` / `Rename` / `Forget` | `index.go:597`, `:625`, `:661` | flock → load → mutate → save; unknown harp errors actionably |
 | `Reconcile` | `index.go:691` | flock → load → filter by the caller's `isDead` predicate → **save only if something was dropped** → fill located transcripts on the survivors |
-| `SetSummary` | `index.go:732` | Overwrites `Summary`, `Detail`, `SourceSize`. One production call site: `internal/memory/compactor.go:579` |
+| `SetSummary` | `index.go:732` | Overwrites `Summary`, `Detail`, `SourceSize`. One production call site: `internal/adapters/memory/compactor.go:579` |
 | `saveLocked` | `index.go:758` | Marshal + `iox.WriteFileAtomic` + clear `pendingUpgrade` |
 | `generateUniqueHarp` | `index.go:775` | 100 tries against a used-set, then one unredeemed fallback — a verbatim reimplementation of the shared `harp.UniqueFrom` (`internal/shared/harp/harp.go:185-193`) |
 | `normalizeTimestampNode` / `parseTimestamp` | `index_upgrade.go:66`, `:91` | |
@@ -136,7 +136,7 @@ flowchart LR
 7. **The harp-dir symlink is skipped when the transcript already lives inside the harp dir**
    (`index.go:325-331`), so ctxloom never symlinks a file to itself.
 8. **`Distilled` / `EssencePath` are documented as computed at list/show time** — the real
-   computation lives in `internal/cli`'s `sessionEssenceInfo` → `SessionRow`.
+   computation lives in `internal/adapters/cli`'s `sessionEssenceInfo` → `SessionRow`.
 
 **Do not hold, or are narrower than documented:**
 
@@ -146,11 +146,11 @@ flowchart LR
   doc drift, not touched by fs-consolidation C12: `paths.HarpDir` now runs `harp.Validate`
   before joining — worth re-checking whether this whole invariant still holds.] The reachable
   path is
-  `ctxloom session rename <old> <arbitrary-string>` → `internal/cli/session_cmd.go:201-209` →
+  `ctxloom session rename <old> <arbitrary-string>` → `internal/adapters/cli/session_cmd.go:201-209` →
   `operations/sessions.go:181` → `mgr.Rename`.
 - **`BindSession(harp, "", "")` succeeds having changed nothing** — it finds the entry, assigns
   `SessionID = ""`, performs a full index rewrite, and returns nil. The only empty-id guard lives
-  one layer out at `operations/sessions.go:255`; `internal/memory/compactor.go:570` calls
+  one layer out at `operations/sessions.go:255`; `internal/adapters/memory/compactor.go:570` calls
   `mgr.BindSession` **directly on the Manager**, bypassing it. `MemStore.BindSession`
   (`memstore.go:137-144`) has the identical hole.
 - ~~**`SetSummary(harp, "", nil, 0)` succeeds and *erases* a good summary, its detail lines, and its
@@ -158,7 +158,7 @@ flowchart LR
   **RESOLVED `07abd892`** (U099-F20). `SetSummary` (`index.go:742-744`) now refuses an
   empty summary outright, naming exactly what the write would have erased. The guard
   moved into the **writer**, which is the point: the call-site guard in
-  `internal/memory` was correct and a second caller reaching the writer directly would
+  `internal/adapters/memory` was correct and a second caller reaching the writer directly would
   not have replicated it.
 - **`Reconcile` is the only entry-returning method that never fills
   `CanonicalTranscriptPath`**, so its `isDead` predicate always sees `""`. A session whose legacy
@@ -180,7 +180,7 @@ flowchart LR
   carries `json:"distilled"` with no `omitempty`, so it is a constant `false` on any JSON marshal.
 - **`Entry`'s doc claims the json tags are a shared snake_case contract for
   `session list --format json` and the VSCode companion** — no code path marshals `sessions.Entry`
-  to JSON. `internal/cli/session_row.go:36-40` says the opposite explicitly, and
+  to JSON. `internal/adapters/cli/session_row.go:36-40` says the opposite explicitly, and
   `ctxloom://sessions/all` marshals as **YAML**, where all four computed fields are dropped.
 - **`MemStore`'s doc claims it mirrors `*Manager` "without touching disk"** — `ListForProject`,
   `ListAll` and `Find` all call `fillCanonicalTranscript` → `paths.ResolveHarpCanonicalTranscriptPath`

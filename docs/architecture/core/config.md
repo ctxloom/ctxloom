@@ -23,10 +23,10 @@ The contract it owns: one `*Config` value that every other package reads, whose 
 
 - Bundle parsing, item resolution and the trust gate mechanism — `internal/core/bundles`, see `./bundles.md`. This package builds the `Loader` and supplies the seed maps; it does not resolve items.
 - Profile *loading* from disk, the `profiles.Loader`, and the resolved-profile type used by bundle-shipped profiles — `internal/core/profiles`, see `./profiles.md`. Only inline (`profiles.definitions`) inheritance is resolved here.
-- Remote registries, lockfiles and clone caches — `internal/remote`, see `./remote.md`. This package reads the lockfile only to seed pinned bundles.
-- Signature verification, trust decisions and grant records — `internal/signing` and `internal/core/trust`, see `./trust.md`. This package assembles the trust root and calls `signing.VerifyPublisher`; it does not decide.
-- Printing warnings and arming the strict gate — `internal/cli` (`printConfigWarnings`, `failOnFindings`) and `internal/shared/strictness`.
-- Applying resolved config to a launched engine (settings files, hooks, MCP wiring) — `internal/lm/backends` and `internal/operations`, see `./operations.md`.
+- Remote registries, lockfiles and clone caches — `internal/adapters/remote`, see `./remote.md`. This package reads the lockfile only to seed pinned bundles.
+- Signature verification, trust decisions and grant records — `internal/adapters/signing` and `internal/core/trust`, see `./trust.md`. This package assembles the trust root and calls `signing.VerifyPublisher`; it does not decide.
+- Printing warnings and arming the strict gate — `internal/adapters/cli` (`printConfigWarnings`, `failOnFindings`) and `internal/shared/strictness`.
+- Applying resolved config to a launched engine (settings files, hooks, MCP wiring) — `internal/lm/backends` and `internal/adapters/operations`, see `./operations.md`.
 - Path construction — `internal/core/paths` owns every `.ctxloom` subpath, including the home root (`paths.HomeConfigDir`).
 
 ## Data flow
@@ -266,9 +266,9 @@ flowchart TD
 
 ## Boundaries
 
-**Called in by:** `cmd/ctxloom` (override install, companion switch), `internal/cli` (~35 `Load` sites, `Manager.Update` writes, doctor, startup reporting), `internal/operations` (agent management, context assembly, profiles, trust, init), `internal/lm/backends` (the four `ResolveBundle*` resolvers, `ExecutableTrustGate`, statusline settings), `internal/core/coord` (trust gate injection before spawning children, `GetDelegationConcurrency`/`GetDelegationDepth`), `tests/integration/testenv`.
+**Called in by:** `cmd/ctxloom` (override install, companion switch), `internal/adapters/cli` (~35 `Load` sites, `Manager.Update` writes, doctor, startup reporting), `internal/adapters/operations` (agent management, context assembly, profiles, trust, init), `internal/lm/backends` (the four `ResolveBundle*` resolvers, `ExecutableTrustGate`, statusline settings), `internal/core/coord` (trust gate injection before spawning children, `GetDelegationConcurrency`/`GetDelegationDepth`), `tests/integration/testenv`.
 
-**Calls out to:** `internal/core/paths` (every `.ctxloom` subpath), `internal/schema` (`ConfigValidator`), `internal/shared/confload` (overrides, merge), `internal/shared/upgrade` (the pipeline and `yaml.Node` helpers), `internal/shared/strictness` (fatal findings), `internal/core/wire` (MCP and hooks types), `internal/shared/collections`, `internal/core/bundles` (`Loader`, `ParseBundle`, `ContentGate`) — see `./bundles.md`, `internal/core/profiles` (`Loader`, `Profile`) — see `./profiles.md`, `internal/remote` (registry, lockfile, clone cache) — see `./remote.md`, `internal/signing` (`VerifyPublisher`, loadout envelopes) and `internal/allowedsigners` — see `./trust.md`, `internal/agents`, `internal/projectroot`, `internal/clidiag`, `resources` (embedded default config, schema, builtin bundles), plus `$PATH` subprocess execs of companion binaries.
+**Calls out to:** `internal/core/paths` (every `.ctxloom` subpath), `internal/schema` (`ConfigValidator`), `internal/shared/confload` (overrides, merge), `internal/shared/upgrade` (the pipeline and `yaml.Node` helpers), `internal/shared/strictness` (fatal findings), `internal/core/wire` (MCP and hooks types), `internal/shared/collections`, `internal/core/bundles` (`Loader`, `ParseBundle`, `ContentGate`) — see `./bundles.md`, `internal/core/profiles` (`Loader`, `Profile`) — see `./profiles.md`, `internal/adapters/remote` (registry, lockfile, clone cache) — see `./remote.md`, `internal/adapters/signing` (`VerifyPublisher`, loadout envelopes) and `internal/allowedsigners` — see `./trust.md`, `internal/adapters/agents`, `internal/adapters/projectroot`, `internal/clidiag`, `resources` (embedded default config, schema, builtin bundles), plus `$PATH` subprocess execs of companion binaries.
 
 ## Where documented and real behavior diverge
 

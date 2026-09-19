@@ -14,10 +14,10 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -25,7 +25,7 @@ const (
 	// agentDepthCap is the BUILT-IN DEFAULT for the delegation tree's DEPTH
 	// cap — the single policy knob both the "may this run spawn" guard
 	// (AgentRun, below) and the runner-side leaf computation
-	// (internal/cli/attachRunnerMCP, via config.Config.GetDelegationDepth)
+	// (internal/adapters/cli/attachRunnerMCP, via config.Config.GetDelegationDepth)
 	// derive from: a run may spawn iff its depth < the resolved cap, and it
 	// is a LEAF (receives none of the coordinator-only MCP tools) iff its
 	// depth >= the resolved cap. The session owner is depth 0; a spawned
@@ -39,7 +39,7 @@ const (
 	// terms of config.DefaultDelegationDepth, never a separate literal: a
 	// spawned runner resolves the SAME cap independently, from its own
 	// loaded config, with no coordinator round-trip (attachRunnerMCP,
-	// internal/cli/llm_runner_common.go) — GetDelegationDepth already
+	// internal/adapters/cli/llm_runner_common.go) — GetDelegationDepth already
 	// applies this identical default, so the two can never drift apart.
 	// Currently 1 — flat fan-out: the owner (depth 0) may spawn subagents
 	// (depth 1), and a depth-1 subagent may not itself spawn (no
@@ -694,7 +694,7 @@ func (c *Coordinator) childEnv(harp string) map[string]string {
 // genuine child) and is stamped UNCONDITIONALLY via EnvRunDepth — unlike the
 // trio, leafness must not depend on reach-back being present. Replaces the
 // retired per-agent Coordinator flag/EnvAgentCoordinator: the runner
-// (internal/cli/standUpRunner/attachRunnerMCP) compares this depth against
+// (internal/adapters/cli/standUpRunner/attachRunnerMCP) compares this depth against
 // the resolved delegation-depth cap to decide leaf-vs-not and gate the
 // coordinator-only MCP tools (mcp_runner.go). oneshot is this run's own
 // SpawnPlan.ResumeMode == ResumeModeOneShot, stamped via EnvRunOneShot on

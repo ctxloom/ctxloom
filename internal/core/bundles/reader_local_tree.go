@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/content"
-	"github.com/ctxloom/ctxloom/internal/content/attest"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 

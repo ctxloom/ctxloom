@@ -29,7 +29,7 @@ template and called the right tool, turning a configuration decision into an
 in-conversation interruption.
 
 ADR [0019](0019-cli-pure-frontend.md) already established that every frontend is a
-thin shell over `internal/operations`, so the same operation is reachable from the
+thin shell over `internal/adapters/operations`, so the same operation is reachable from the
 CLI and from MCP with no duplicated logic. That means a management capability does
 not need to live in MCP to exist — the CLI already covers it (or trivially can).
 What was missing was a principle for *which* capabilities belong in MCP at all.
@@ -95,7 +95,7 @@ and loading fragments, prompts (skills), and history, plus tasks.
   on a review. Configuration is preferably fronted at init, but the model can still
   run the CLI mid-session when needed.
 - No capability is lost — every removed tool has a CLI equivalent over the same
-  `internal/operations` core (ADR 0019), so there is still one implementation per
+  `internal/adapters/operations` core (ADR 0019), so there is still one implementation per
   operation, exercised identically by the user and the model.
 - Read-only **resources** are kept (e.g. `ctxloom://remotes`,
   `ctxloom://mcp-servers`). They are not management *actions*, and discovery — an

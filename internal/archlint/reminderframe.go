@@ -15,15 +15,15 @@ const ReminderTagText = "<ctxloom-reminder"
 // "Code generated" header, because a hand-written file can carry that header
 // too — the allowlist is a decision.
 var generatedFrameEncoders = map[string]bool{
-	"internal/agentcoord/xmllike_gen.go": true,
+	"internal/adapters/coordgrpc/pb/xmllike_gen.go": true,
 }
 
 // frameDeclarers are the files allowed to mention the tag WITHOUT
 // constructing a frame: the generator that emits the encoders, and its CLI.
 var frameDeclarers = map[string]string{
-	"internal/agentcoord/mcpschema/xmllike.go":  "the generator itself",
-	"internal/agentcoord/mcpschema/gen/main.go": "the generator's entry point",
-	"internal/archlint/reminderframe.go":        "this rule, which must name the tag to search for it",
+	"internal/adapters/coordgrpc/mcpschema/xmllike.go":  "the generator itself",
+	"internal/adapters/coordgrpc/mcpschema/gen/main.go": "the generator's entry point",
+	"internal/archlint/reminderframe.go":                "this rule, which must name the tag to search for it",
 }
 
 // ReminderFrameAnalyzer enforces that <ctxloom-reminder> frames are rendered

@@ -20,7 +20,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 )
 
 // ResolveBoundary returns the project work root, and also reports whether a

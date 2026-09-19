@@ -67,7 +67,7 @@ func TestGitutil_SpawnsNoSubprocesses(t *testing.T) {
 	for _, forbidden := range []string{`"os/exec"`, "exec.Command"} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("gitutil.go references %s: this layer answers in process; "+
-				"anything that must run the git binary belongs in internal/git", forbidden)
+				"anything that must run the git binary belongs in internal/adapters/git", forbidden)
 		}
 	}
 }

@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 
 	"github.com/stretchr/testify/require"
 

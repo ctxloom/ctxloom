@@ -284,7 +284,7 @@ func TestSkillContent_RefusesNonFilesystemBundlePath(t *testing.T) {
 // TestSkillPreimageDir_RefusesToDeriveFromCwd widens the same fix.
 //
 // The original fix covered ONE call site (the loader). Eight more in
-// internal/operations took filepath.Dir(bundle.Path) the same way, including
+// internal/adapters/operations took filepath.Dir(bundle.Path) the same way, including
 // three on TRUST paths — `ctxloom review`'s approval surface, SetItemTrust's
 // grant preimage, and the review snapshot. On a pathless bundle those hashed
 // whatever sat in the process working directory into a trust decision.

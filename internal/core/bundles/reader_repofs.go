@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/content"
-	"github.com/ctxloom/ctxloom/internal/content/attest"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // TreeFS is the pinned-tree seam a repofs reader reads through: LIST a

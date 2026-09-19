@@ -1,6 +1,6 @@
-# internal/signing
+# internal/adapters/signing
 
-`internal/signing` is the ctxloom signature envelope: a thin sshsig sign/verify wrapper, the
+`internal/adapters/signing` is the ctxloom signature envelope: a thin sshsig sign/verify wrapper, the
 exact byte framing a countersignature covers, the publisher-verification state machine
 (unsigned / verified / tampered), and the JSON envelope a companion binary emits to carry a
 bundle plus a detached signature over stdout. It is the bottom of the trust stack — it
@@ -10,21 +10,21 @@ namespace", and nothing else. It decides no policy: the policy question is deleg
 
 ## Responsibilities
 
-- sshsig primitive wrapper: `Sign`, `Verify` (`internal/signing/sign.go`).
+- sshsig primitive wrapper: `Sign`, `Verify` (`internal/adapters/signing/sign.go`).
 - The countersignature preimage — the exact framing an approve/reject signature covers
-  (`internal/signing/payload.go`).
-- Publisher verification as a three-outcome state machine (`internal/signing/publisher.go`).
-- Countersignature verification, including namespace separation (`internal/signing/countersign_verify.go`).
-- The companion loadout JSON envelope (`internal/signing/loadout.go`).
+  (`internal/adapters/signing/payload.go`).
+- Publisher verification as a three-outcome state machine (`internal/adapters/signing/publisher.go`).
+- Countersignature verification, including namespace separation (`internal/adapters/signing/countersign_verify.go`).
+- The companion loadout JSON envelope (`internal/adapters/signing/loadout.go`).
 
 ## Non-responsibilities
 
-- Which principals are authorized — `internal/signing/allowedsigners` (behind the `TrustRoot`
+- Which principals are authorized — `internal/adapters/signing/allowedsigners` (behind the `TrustRoot`
   interface) and `internal/core/config`'s trust-root union; see [config.md](./config.md).
-- Where countersignatures are stored — `internal/signing/countersign` (`Store`).
-- What an item's payload bytes *are* — `internal/operations.computeItemPayloadPair`; see
+- Where countersignatures are stored — `internal/adapters/signing/countersign` (`Store`).
+- What an item's payload bytes *are* — `internal/adapters/operations.computeItemPayloadPair`; see
   [trust.md](./trust.md).
-- The trust decision itself — `internal/operations.EffectiveTrust`.
+- The trust decision itself — `internal/adapters/operations.EffectiveTrust`.
 
 ## Data flow
 
@@ -75,28 +75,28 @@ flowchart TD
 
 | Type | file:line | What it carries |
 |---|---|---|
-| `Assertion` | `internal/signing/payload.go:59` | `approve` \| `reject`; also selects the signing namespace via `namespaceForAssertion`. |
-| `ItemKind` | `internal/signing/payload.go:72` | `fragments`, `skills` (LEGACY = command), `mcp`, `hooks`, `agentskills`. Deliberately duplicates `trust.ItemKind` to avoid importing `trust`. |
-| `Form` | `internal/signing/payload.go:101` | `raw` \| `distilled` \| `exec`, or `""` for a ref-reject. Mirrors `bundles.ContentForm` by convention only. |
-| `CountersignHeader` | `internal/signing/payload.go:115` | The closed field set bound into a countersignature's preimage: `Assertion`, `Kind`, `Ref`, `Form`. |
-| `LoadoutEnvelope` | `internal/signing/loadout.go:23` | Companion `loadout --format json` output: `Contract` (identity-matched), `Bundle` (base64 of the exact YAML), `Signature` (armored, optional), `Signer` (**advisory only, never trusted**). |
-| `TrustRoot` (interface) | `internal/signing/publisher.go:74` | One method — `TrustedForNamespace` — returning `allowedsigners.Decision`. Declared at the consumer so the namespace check is a mandatory argument, not a forgettable step. |
-| `ErrSignatureTampered` | `internal/signing/publisher.go:41` | The one publisher outcome that is never benign; matched with `errors.Is` at `internal/core/config/config.go:1953`. |
+| `Assertion` | `internal/adapters/signing/payload.go:59` | `approve` \| `reject`; also selects the signing namespace via `namespaceForAssertion`. |
+| `ItemKind` | `internal/adapters/signing/payload.go:72` | `fragments`, `skills` (LEGACY = command), `mcp`, `hooks`, `agentskills`. Deliberately duplicates `trust.ItemKind` to avoid importing `trust`. |
+| `Form` | `internal/adapters/signing/payload.go:101` | `raw` \| `distilled` \| `exec`, or `""` for a ref-reject. Mirrors `bundles.ContentForm` by convention only. |
+| `CountersignHeader` | `internal/adapters/signing/payload.go:115` | The closed field set bound into a countersignature's preimage: `Assertion`, `Kind`, `Ref`, `Form`. |
+| `LoadoutEnvelope` | `internal/adapters/signing/loadout.go:23` | Companion `loadout --format json` output: `Contract` (identity-matched), `Bundle` (base64 of the exact YAML), `Signature` (armored, optional), `Signer` (**advisory only, never trusted**). |
+| `TrustRoot` (interface) | `internal/adapters/signing/publisher.go:74` | One method — `TrustedForNamespace` — returning `allowedsigners.Decision`. Declared at the consumer so the namespace check is a mandatory argument, not a forgettable step. |
+| `ErrSignatureTampered` | `internal/adapters/signing/publisher.go:41` | The one publisher outcome that is never benign; matched with `errors.Is` at `internal/core/config/config.go:1953`. |
 
 ## Key functions
 
 | Signature | file:line | Contract |
 |---|---|---|
-| `Sign(payload, signer, ns) ([]byte, error)` | `internal/signing/sign.go:29` | sshsig-signs under a namespace; pins hash algorithm and armor format. Callers: `countersign/store.go:149`, `operations/sign.go:145`, `operations/skills.go:459`, `operations/bundles.go:743`. |
-| `Verify(payload, armored, pub, ns) error` | `internal/signing/sign.go:49` | Unarmors, then verifies using the algorithm embedded in the blob (sshsig restricts it to sha256/sha512 at unarmor time). No external production callers — reached only via the three verifiers below. |
-| `CountersignPayload(h, bytes) []byte` | `internal/signing/payload.go:146` | **The signed-bytes definition.** Emits a fixed LF-delimited ASCII frame followed by the payload. Not a canonicalization — the framing is the contract. |
-| `ApproveCountersignPayload` / `ContentRejectCountersignPayload` / `RefRejectCountersignPayload` | `internal/signing/payload.go:175,192,206` | Trap-proofed wrappers naming which fields belong to which assertion shape. No production callers; `countersign.Store` calls `CountersignPayload` directly. |
-| `namespaceForAssertion(a) string` | `internal/signing/countersign_verify.go:12` | Assertion → domain separator; `default: ""` is a deliberate fail-closed guard. |
-| `VerifyCountersignature(...) (principal string, ok bool)` | `internal/signing/countersign_verify.go:42` | Empty/nil-root guard → unarmor → namespace → trust → re-derive frame → verify. **Trust is decided before the bytes are verified.** Six distinct failure modes all collapse to `("", false)` with no diagnostics. Caller: `countersign/store.go:223`. |
-| `VerifyPublisher(payload, armoredSig, root, ns) (string, error)` | `internal/signing/publisher.go:110` | The three-outcome state machine: key from the blob, trust from the root, bytes checked only against an already-authorized key. Callers: `config/config.go:1993`, `bundles/skill_archive.go:702`, `loadout.go:114`. |
-| `CoversBytes(payload, armoredSig, ns) error` | `internal/signing/publisher.go:60` | Trust-free "does this blob cover exactly these bytes". Callers: `bundles/store.go:105`, `operations/bundles.go:648`, `operations/bundle_transfer.go:85` — the stale-signature detectors. |
-| `EncodeLoadoutEnvelope(bundleBytes, armoredSig, signer) ([]byte, error)` | `internal/signing/loadout.go:59` | Builds the companion JSON envelope; owns the contract string and the base64 discipline. Caller: `shared/companionloadout/cli.go:82`. |
-| `DecodeLoadoutEnvelope(data, root, ns) ([]byte, string, error)` | `internal/signing/loadout.go:97` | Parse → exact contract match → base64 → `VerifyPublisher`. Never degrades a parse failure to "unsigned". Caller: `config/companions.go:344`. |
+| `Sign(payload, signer, ns) ([]byte, error)` | `internal/adapters/signing/sign.go:29` | sshsig-signs under a namespace; pins hash algorithm and armor format. Callers: `countersign/store.go:149`, `operations/sign.go:145`, `operations/skills.go:459`, `operations/bundles.go:743`. |
+| `Verify(payload, armored, pub, ns) error` | `internal/adapters/signing/sign.go:49` | Unarmors, then verifies using the algorithm embedded in the blob (sshsig restricts it to sha256/sha512 at unarmor time). No external production callers — reached only via the three verifiers below. |
+| `CountersignPayload(h, bytes) []byte` | `internal/adapters/signing/payload.go:146` | **The signed-bytes definition.** Emits a fixed LF-delimited ASCII frame followed by the payload. Not a canonicalization — the framing is the contract. |
+| `ApproveCountersignPayload` / `ContentRejectCountersignPayload` / `RefRejectCountersignPayload` | `internal/adapters/signing/payload.go:175,192,206` | Trap-proofed wrappers naming which fields belong to which assertion shape. No production callers; `countersign.Store` calls `CountersignPayload` directly. |
+| `namespaceForAssertion(a) string` | `internal/adapters/signing/countersign_verify.go:12` | Assertion → domain separator; `default: ""` is a deliberate fail-closed guard. |
+| `VerifyCountersignature(...) (principal string, ok bool)` | `internal/adapters/signing/countersign_verify.go:42` | Empty/nil-root guard → unarmor → namespace → trust → re-derive frame → verify. **Trust is decided before the bytes are verified.** Six distinct failure modes all collapse to `("", false)` with no diagnostics. Caller: `countersign/store.go:223`. |
+| `VerifyPublisher(payload, armoredSig, root, ns) (string, error)` | `internal/adapters/signing/publisher.go:110` | The three-outcome state machine: key from the blob, trust from the root, bytes checked only against an already-authorized key. Callers: `config/config.go:1993`, `bundles/skill_archive.go:702`, `loadout.go:114`. |
+| `CoversBytes(payload, armoredSig, ns) error` | `internal/adapters/signing/publisher.go:60` | Trust-free "does this blob cover exactly these bytes". Callers: `bundles/store.go:105`, `operations/bundles.go:648`, `operations/bundle_transfer.go:85` — the stale-signature detectors. |
+| `EncodeLoadoutEnvelope(bundleBytes, armoredSig, signer) ([]byte, error)` | `internal/adapters/signing/loadout.go:59` | Builds the companion JSON envelope; owns the contract string and the base64 discipline. Caller: `shared/companionloadout/cli.go:82`. |
+| `DecodeLoadoutEnvelope(data, root, ns) ([]byte, string, error)` | `internal/adapters/signing/loadout.go:97` | Parse → exact contract match → base64 → `VerifyPublisher`. Never degrades a parse failure to "unsigned". Caller: `config/companions.go:344`. |
 
 ## Invariants
 
@@ -116,7 +116,7 @@ flowchart TD
 6. **`CoversBytes` answers integrity only, `VerifyPublisher` answers integrity plus authorization.**
    The stale-signature detectors deliberately use the former: a bundle whose bytes changed since
    signing must be refused regardless of who signed it.
-7. **This package imports exactly one internal package** (`internal/signing/allowedsigners`, and
+7. **This package imports exactly one internal package** (`internal/adapters/signing/allowedsigners`, and
    only for `Decision` as the `TrustRoot` return type) and one crypto library
    (`github.com/hiddeco/sshsig@v0.2.0`).
 
@@ -124,9 +124,9 @@ flowchart TD
 
 - **Depended on by:** `internal/core/bundles` (stale-signature invalidation, skill-archive install gate),
   `internal/core/config` (remote bundle publisher verification, companion loadout probe),
-  `internal/operations` (`sign`, `push`, `export`, skill publishing, countersign records),
-  `internal/cli`, `internal/shared/companionloadout`, `internal/signing/countersign`.
-- **Depends on:** `internal/signing/allowedsigners` (type only), `hiddeco/sshsig`.
+  `internal/adapters/operations` (`sign`, `push`, `export`, skill publishing, countersign records),
+  `internal/adapters/cli`, `internal/adapters/companions`, `internal/adapters/signing/countersign`.
+- **Depends on:** `internal/adapters/signing/allowedsigners` (type only), `hiddeco/sshsig`.
 
 ## Where documented and real behavior diverge
 
@@ -138,9 +138,9 @@ flowchart TD
   layout form has no derivation, so it withholds.
 - `Sign`, `EncodeLoadoutEnvelope`, `DecodeLoadoutEnvelope`, `CountersignPayload` and all four
   verifiers operate successfully over zero-byte payloads; the only length floor is in a different
-  package (`internal/operations/countersign_records.go:127,142`).
+  package (`internal/adapters/operations/countersign_records.go:127,142`).
 - `VerifyPublisher` with a `nil` root returns `("", nil)` — "unsigned" — for every input including
-  an unparseable signature blob (`internal/signing/publisher.go:116-120`).
+  an unparseable signature blob (`internal/adapters/signing/publisher.go:116-120`).
 - `LoadoutEnvelope.Signer`'s doc says it exists for the withhold error message;
   `loadout.go:116` formats only the wrapped error and never reads the field.
 - The three named payload wrappers (`ApproveCountersignPayload`, `ContentRejectCountersignPayload`,

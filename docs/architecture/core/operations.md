@@ -1,8 +1,8 @@
-# internal/operations
+# internal/adapters/operations
 
-`internal/operations` is the frontend-neutral orchestration layer: every CLI command, MCP
+`internal/adapters/operations` is the frontend-neutral orchestration layer: every CLI command, MCP
 tool call routes through a function here rather than touching `internal/core/bundles`,
-`internal/core/config`, `internal/remote`, `internal/core/profiles` or `internal/lm` directly. Its
+`internal/core/config`, `internal/adapters/remote`, `internal/core/profiles` or `internal/lm` directly. Its
 contract is the package ABI — `f(ctx, cfg|mgr, XxxRequest) (*XxxResult, error)` with
 JSON-tagged DTOs — which is what lets one implementation back three frontends. It owns no
 storage; it owns *sequencing*: bootstrap, sync, lock, trust, assemble, apply, launch.
@@ -35,9 +35,9 @@ session can grep straight to it.
 
 ## Non-responsibilities
 
-- Rendering and output formatting — `internal/cli` (the ABI's stated rule).
+- Rendering and output formatting — `internal/adapters/cli` (the ABI's stated rule).
 - Storage: bundle files (`internal/core/bundles`), config (`internal/core/config`), lockfile and clones
-  (`internal/remote`), profiles (`internal/core/profiles`), countersignatures (`internal/signing/countersign`).
+  (`internal/adapters/remote`), profiles (`internal/core/profiles`), countersignatures (`internal/adapters/signing/countersign`).
 - Path vocabulary — `internal/core/paths`; see [paths.md](./paths.md).
 - Engine process management — `internal/lm/*`.
 
@@ -49,7 +49,7 @@ flowchart TD
 
     CFG --> COLLECT["collectRemoteReferences<br/>sync.go:318<br/>(profiles + default agent)"]
     COLLECT --> SYNC["SyncDependencies<br/>sync.go:101<br/>fixed point, <= 10 passes"]
-    SYNC --> PULL["Puller.Pull<br/>internal/remote"]
+    SYNC --> PULL["Puller.Pull<br/>internal/adapters/remote"]
     SYNC --> RETR["checkInstalledRetraction<br/>sync.go:554"]
     SYNC --> POST["runSyncPostSteps<br/>sync.go:266"]
 
@@ -247,7 +247,7 @@ flowchart LR
 | `runResolvedAgent` | `oneshot.go:315` | **The single choke point** for delegated child turns and `run --one-shot`: prepare isolation, gate it, assemble the per-member managed config, floor the headless posture, run the plugin once, capture stdout, record the one-shot transcript. |
 | `resolvedRunRequest` | `oneshot.go:122` | The already-resolved run; `Factory == nil` selects the isolating path. |
 | `ResolveBackend` / `resolveOneshotLabel` | `oneshot.go:490,502` | Label → (backend, model); three-level precedence: override → profile LLM → primary role. |
-| `IsolationImageConfig` / `CellKindForPolicy` / `RuntimeForPolicy` / `ContainerPersistDirForPolicy` | `oneshot.go` | Capability probes over `isolation.Policy`, declared here so `internal/lm/isolation` need not import `agent`. |
+| `IsolationImageConfig` / `CellKindForPolicy` / `RuntimeForPolicy` / `ContainerPersistDirForPolicy` | `oneshot.go` | Capability probes over `isolation.Policy`, declared here so `internal/adapters/isolation` need not import `agent`. |
 | `isolationGateErr` | `oneshot.go:286` | Turns `ClassIsolation` strictness findings into a member-fatal error unless degraded — the fail-loud isolation gate. |
 | `PrepareAgentChat` | `delegate.go:167` | Resolves the workspace axis, handles a dirty parent tree (commit / copy-snapshot / fail), prepares isolation, and picks the chat vs one-shot path. Callers: `coord/spawner.go:410,458`. |
 | `handleDirtyParentTree` / `commitDirtyTree` / `applyCopySnapshot` | `delegate.go:494,581,652` | The dirty-tree policy: a detached HEAD or a missing acknowledgement refuses to auto-commit; `copySnapshot` captures patch + untracked list once so there is no drift window. |
@@ -319,12 +319,12 @@ flowchart LR
 
 ## Boundaries
 
-- **Called by:** `internal/cli` (all porcelain), the MCP server,
-  `internal/cli/tui`, and `internal/core/coord` (`AssignSession`, `MarkSessionEnded`,
+- **Called by:** `internal/adapters/cli` (all porcelain), the MCP server,
+  `internal/adapters/cli/tui`, and `internal/core/coord` (`AssignSession`, `MarkSessionEnded`,
   `WatchSessionFeed`, `ResolveAgent`, `PrepareAgentChat`).
-- **Calls:** `internal/core/bundles`, `internal/core/config`, `internal/remote`, `internal/core/profiles`,
-  `internal/core/trust`, `internal/signing`, `internal/agents`, `internal/core/sessions`, `internal/lm/*`,
-  `internal/git`, `internal/core/paths`, `internal/projectroot`, `internal/shared/*`.
+- **Calls:** `internal/core/bundles`, `internal/core/config`, `internal/adapters/remote`, `internal/core/profiles`,
+  `internal/core/trust`, `internal/adapters/signing`, `internal/adapters/agents`, `internal/core/sessions`, `internal/lm/*`,
+  `internal/adapters/git`, `internal/core/paths`, `internal/adapters/projectroot`, `internal/shared/*`.
 - **Injected downward:** the content gate into `internal/core/bundles`, the executable gate into
   `internal/core/config` — so neither domain package imports the trust decision.
 - **One inward consumer:** `internal/core/coord` imports `operations`, so `sessionfeed.go`

@@ -377,7 +377,7 @@ backend in the engine registry.
 
 ### Custom Fetchers
 
-Remote fetchers implement (`internal/remote/fetcher.go`):
+Remote fetchers implement (`internal/adapters/remote/fetcher.go`):
 
 ```go
 type Fetcher interface {

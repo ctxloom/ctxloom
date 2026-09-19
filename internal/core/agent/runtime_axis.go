@@ -9,7 +9,7 @@ import (
 // host, or inside a container under one of two ownership modes. This is the
 // SINGLE declaration of the runtime-axis vocabulary — defined here, in the
 // lowest package every consumer can already import, so nothing above it
-// (internal/lm/isolation included) declares a second, independently-spelled
+// (internal/adapters/isolation included) declares a second, independently-spelled
 // copy. isolation.RuntimeAxis is a type ALIAS of this type, not a new one:
 // the two names are the same type, immune to drift by construction, so
 // nothing pins their agreement with a test — there is nothing left to drift.

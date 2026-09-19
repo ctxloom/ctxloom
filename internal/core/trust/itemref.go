@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 )
 
 // The item-selector GRAMMAR: the "#<kind>/<name>" half of a reference, and

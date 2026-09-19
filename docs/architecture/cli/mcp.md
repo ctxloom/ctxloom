@@ -1,18 +1,18 @@
 # `ctxloom mcp` and the MCP server surfaces
 
-`internal/mcp` builds and serves **five different MCP surfaces**: the
+`internal/adapters/mcp` builds and serves **five different MCP surfaces**: the
 runner-terminated HTTP-on-unix server that a real session's harness actually
 talks to, the stdio shim that forwards onto it, the legacy standalone stdio
 server that stands a coordinator up itself, the read-only `ctxloom://` resource
 surface, and a handler-free clone of the whole thing for docs generation. This
-is the boundary where an external MCP client meets `internal/operations`
+is the boundary where an external MCP client meets `internal/adapters/operations`
 (content), `internal/core/coord` (delegation), and
-`internal/agentcoord/mcpschema` (the proto-canonical tool routing table). The
+`internal/adapters/coordgrpc/mcpschema` (the proto-canonical tool routing table). The
 `ctxloom mcp *` command tree — server CRUD and registration — is a much smaller
 concern that happens to share the prefix, and is the only part still in
-`internal/cli` (`mcp.go`, plus `mcp_server.go`'s cobra `RunE`, which hands
+`internal/adapters/cli` (`mcp.go`, plus `mcp_server.go`'s cobra `RunE`, which hands
 `mcp.ServeStdio` the fail-loud gate that builds cli's exit-3 `ExitError`).
-Unqualified filenames below are relative to `internal/mcp`.
+Unqualified filenames below are relative to `internal/adapters/mcp`.
 
 ## Entry points and topology
 
@@ -44,7 +44,7 @@ flowchart TD
     AT --> AD["agentDelegation :39 → coord.Coordinator"]
 
     N -.->|"schemas + routing"| MS[["mcpschema.Routes / Tools"]]
-    R1 -.-> OPS[["internal/operations"]]
+    R1 -.-> OPS[["internal/adapters/operations"]]
     R2 -.-> HOME[["coord.Home"]]
 
     subgraph disc["runner discovery (mcp_discovery.go)"]

@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
-	"github.com/ctxloom/ctxloom/internal/cli/tui"
+	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -36,7 +36,7 @@ import (
 // real network-timing race would trade a fast, certain proof for a slow,
 // flaky one that proves the same thing less clearly. Instead this test
 // stands up a minimal fake ConsumerService (the same hermetic-double idiom
-// internal/operations/sessionfeed_test.go's fakeConsumerServer uses,
+// internal/adapters/operations/sessionfeed_test.go's fakeConsumerServer uses,
 // re-derived here — that type is unexported to package operations) and
 // hands it a seq that skips two numbers: exactly the wire shape a real hub
 // drop produces. What is proven here is the CONSUMER side of the contract

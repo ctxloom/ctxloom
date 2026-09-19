@@ -14,8 +14,8 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/spool"

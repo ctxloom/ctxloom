@@ -18,14 +18,14 @@ import (
 // point SSH_AUTH_SOCK at.
 //
 // WHY THIS EXISTS. `ctxloom bundle sign` resolves WHO signs through
-// internal/signing/agentkey, whose every branch ends at a live ssh-agent
+// internal/adapters/signing/agentkey, whose every branch ends at a live ssh-agent
 // connection (agentkey's package doc: "every Discovered.Signer returned here
 // is backed by a live ssh-agent connection ... never a file on disk"). Without
 // an agent the acceptance suite can only ever sign IN GO, with
 // signing.Sign + TestSigner (SeedSignedRemote above), which bypasses key
 // discovery, the ssh-agent transport and the `.sig` writer entirely — so the
 // production publishing path had never executed in an acceptance run at all.
-// internal/signing/agent_signer_test.go already proves the same wiring over a
+// internal/adapters/signing/agent_signer_test.go already proves the same wiring over a
 // net.Pipe; the only thing that pipe cannot do is be dialled by a SUBPROCESS,
 // which is exactly what an acceptance scenario runs. Hence a real socket.
 //

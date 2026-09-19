@@ -5,7 +5,7 @@
 journal the enqueue → acquire an execution slot → spawn the engine → deliver turns from
 the mailbox), drives that child's turn boundaries, bridges each turn's result back to
 the parent, and funnels every death through **one exactly-once terminal**. `spawner.go`
-is the only place `coord` touches `internal/operations`' launch tail; `launchgate.go`
+is the only place `coord` touches `internal/adapters/operations`' launch tail; `launchgate.go`
 owns the per-harp retry budget and stop flag; `owner_run.go` is the parent-less
 top-level container run.
 

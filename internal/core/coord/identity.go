@@ -30,7 +30,7 @@ const (
 	// Docker Desktop VM boundary off Linux (macOS/Windows), so there it
 	// instead carries "tcp://host:port" — a host-loopback TCP bridge onto the
 	// same unix socket. The marker is mcpsocket.TCPPrefix and the shim's
-	// forward mode dials on it (internal/mcp/mcp_forward.go's
+	// forward mode dials on it (internal/adapters/mcp/mcp_forward.go's
 	// dialReachBackSocket). This package's runner always emits a plain unix
 	// path.
 	EnvMCPSocket = "CTXLOOM_MCP_SOCKET"
@@ -41,7 +41,7 @@ const (
 	// the wire (RunnerEnv is an untyped map[string]string; no proto change)
 	// — and is stamped UNCONDITIONALLY (unlike the trio, which is omitted
 	// whole when url == ""): leafness must not depend on reach-back. The
-	// runner (internal/cli/standUpRunner/attachRunnerMCP) reads it, defaulting
+	// runner (internal/adapters/cli/standUpRunner/attachRunnerMCP) reads it, defaulting
 	// unset/empty/unparseable to 0, and compares it against the resolved
 	// config.Config.GetDelegationDepth() cap to decide whether this session
 	// is a LEAF (depth >= cap) and gate the coordinator-only MCP tools
@@ -61,7 +61,7 @@ const (
 	// EnvCellWorkDir carries the prepared workspace directory
 	// (isolation.Workspace.Dir(), e.g. Worktree's per-agent checkout) to the
 	// runner process at spawn time. It rides the SAME per-spawn spawnEnv
-	// seam as the trio above (internal/lm/isolation/none.go's SpawnClient
+	// seam as the trio above (internal/adapters/isolation/none.go's SpawnClient
 	// choke point) — never the wire.
 	//
 	// It exists to close a host+worktree discovery-key mismatch
@@ -73,10 +73,10 @@ const (
 	// to key itself off its OWN os.Getwd() (the coordinator's cwd), while
 	// the shim keys off ITS cwd (the worktree) — for workspace:worktree
 	// these differ, so discovery misses and a delegated child can't reach
-	// its parent. The runner (internal/cli/llm_serve.go) reads this var and
+	// its parent. The runner (internal/adapters/cli/llm_serve.go) reads this var and
 	// passes it into ServeRunnerMCP so the marker is keyed by the SAME
 	// workspace directory the shim's cwd derives from
-	// (internal/mcp/mcp_runner.go), falling back to the runner's own
+	// (internal/adapters/mcp/mcp_runner.go), falling back to the runner's own
 	// os.Getwd() when this is unset (workspace:none / container, where
 	// runner cwd and child WorkDir already agree, or a container, which
 	// uses a fixed marker name and never consults this at all).

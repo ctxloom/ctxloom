@@ -2,7 +2,7 @@
 
 `strictness` is ctxloom's fail-loudly policy layer: it turns a warn-and-continue diagnostic at a startup choke into a classified, fix-it-carrying `Finding` that a gate owner can abort on, and it owns the single process-wide `--degraded` switch that reverts every choke back to pure warn-and-continue. Choke sites call `Fail`/`FailOnce`/`Record`; gate owners bracket a region with `Checkpoint()` and read it back with `Since`/`FindingsError`, then abort the process, refuse a session, refuse a delegated child, or refuse one fan member. Findings are collected **per goroutine** — the `window` type exists so a gate only ever sees faults its own goroutine recorded.
 
-It is a leaf package with one internal dependency (`internal/shared/clidiag`) precisely so that the three mutually-unimportable consumers — `internal/cli`, `internal/core/coord`, `internal/operations` — can all reach it. It does **not** gate parsing or validation itself: parsers and validators call into it, and the decision to stop is always the gate owner's.
+It is a leaf package with one internal dependency (`internal/shared/clidiag`) precisely so that the three mutually-unimportable consumers — `internal/adapters/cli`, `internal/core/coord`, `internal/adapters/operations` — can all reach it. It does **not** gate parsing or validation itself: parsers and validators call into it, and the decision to stop is always the gate owner's.
 
 ## Structure
 
@@ -63,7 +63,7 @@ flowchart TD
 |---|---|---|
 | `currentWindow` | `internal/shared/strictness/strictness.go:139` | Get-or-create the calling goroutine's `*window` under `windowsMu`. The whole per-goroutine ownership model. |
 | `goroutineID` | `internal/shared/strictness/strictness.go:158` | Parses the gid out of `runtime.Stack`'s `"goroutine N [running]:"` preamble. A `ParseInt` failure yields **0** for every affected goroutine, collapsing them into one shared window. |
-| `SetDegraded` | `internal/shared/strictness/strictness.go:172` | Sets the process-wide `degraded` flag under `mu`. Called from `cmd/ctxloom/main.go:22` and `internal/cli/root.go:89`. |
+| `SetDegraded` | `internal/shared/strictness/strictness.go:172` | Sets the process-wide `degraded` flag under `mu`. Called from `cmd/ctxloom/main.go:22` and `internal/adapters/cli/root.go:89`. |
 | `Degraded` | `internal/shared/strictness/strictness.go:180` | Reads `degraded` under `mu`. 6 production readers, some on hot paths, all contending with `record`. |
 | `Checkpoint` | `internal/shared/strictness/strictness.go:220` | Bumps the global `generation` and returns `Mark{w: currentWindow(), idx: len(w.findings)}` — opens a gate window on the calling goroutine. |
 | `Since` | `internal/shared/strictness/strictness.go:238` | Copies the mark's window findings from `idx` onward. Returns `nil` for a stale or zero mark. |
@@ -96,7 +96,7 @@ flowchart TD
 
 **Degraded mode**
 
-- `SetDegraded(true)` must be set before any choke runs — both callers do it at root-command setup (`cmd/ctxloom/main.go:22`, `internal/cli/root.go:89`).
+- `SetDegraded(true)` must be set before any choke runs — both callers do it at root-command setup (`cmd/ctxloom/main.go:22`, `internal/adapters/cli/root.go:89`).
 - When degraded, `record` returns having done nothing, and `FindingsError` returns `nil` unconditionally. `Fail`/`FailOnce` **still print**; only `Record` becomes a total no-op, and all three `Record` call sites own their own stderr line first, so no fault vanishes silently.
 
 **Rendering and gating**
@@ -104,7 +104,7 @@ flowchart TD
 - `nil` from `FindingsError`/`Since`/`All` is the documented "no faults, proceed" signal, never a swallowed error. The abort decision belongs to the gate owner, never to this package.
 - `FixIt == ""` is a sentinel meaning "the message already says how to fix it"; all three renderers check it identically.
 - `record` places no guard on an empty `msg`: an empty formatted message produces `"ctxloom: warning: "` on stderr and a `Finding{Message: ""}` that every renderer emits as a bare bullet.
-- There are three renderers of `[]Finding`, and they are genuinely distinct: `strictness.FindingsError` (a keeps-running error), `cli.formatFindings` (`internal/cli/startup_helpers.go:108`, a class-tagged abort listing with the `--degraded` hint), and `operations.isolationGateErr` (`internal/operations/oneshot.go:286`, a class-**filtered** member refusal).
+- There are three renderers of `[]Finding`, and they are genuinely distinct: `strictness.FindingsError` (a keeps-running error), `cli.formatFindings` (`internal/adapters/cli/startup_helpers.go:108`, a class-tagged abort listing with the `--degraded` hint), and `operations.isolationGateErr` (`internal/adapters/operations/oneshot.go:286`, a class-**filtered** member refusal).
 - The class→gate mapping is unwritten. `operations.isolationGateErr` hard-tests `f.Class == ClassIsolation`; adding a class that ought to refuse a fan member is a silent no-op unless that function is edited too.
 
 **Lifetime and locking**
@@ -117,4 +117,4 @@ flowchart TD
 
 - `FailOnce`'s doc claims "per-process dedup … the finding records at most once"; the real behaviour is that **print** dedup is process-wide (via `clidiag`) while **record** dedup is scoped to the current checkpoint generation, and `TestFailOnce_RefiresAcrossCheckpoints` pins the re-firing.
 - The comment at `strictness.go:106-113` claims "two concurrently-opened windows simply get two different generations … concurrency-safe as-is"; the generation is never captured into the `Mark`, so concurrent windows share the record-dedup scope.
-- `FindingsError`'s doc says all three of `internal/cli`, `internal/core/coord`, and `internal/operations` used to carry a byte-identical copy of its render; `internal/cli` does not call `FindingsError` today (it renders via `cli.formatFindings`).
+- `FindingsError`'s doc says all three of `internal/adapters/cli`, `internal/core/coord`, and `internal/adapters/operations` used to carry a byte-identical copy of its render; `internal/adapters/cli` does not call `FindingsError` today (it renders via `cli.formatFindings`).

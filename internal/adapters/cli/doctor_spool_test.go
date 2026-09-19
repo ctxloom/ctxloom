@@ -1,0 +1,488 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+)
+
+// --- DOCTOR-CHECK-SPOOL-BACKLOG-t0 -----------------------------------------
+
+// writeRawSpoolMessage drops a spool file directly onto disk with a caller-
+// chosen write stamp, bypassing spool.Writer (which always stamps time.Now)
+// so a test can construct a message that is already old the moment it
+// exists — exactly the "sat unconsumed since before the test even started"
+// shape a real stuck entry has. It writes minimal-but-legal frontmatter
+// (spool.Parse requires only kind and created) so spool.Sweep reads it as a
+// real Entry, not a Problem.
+func writeRawSpoolMessage(t *testing.T, mapper spool.PathMapper, harp string, dir spool.Dir, nanos int64, seq uint64, writer string, created time.Time) spool.Ref {
+	t.Helper()
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	dirPath, err := spool.DirPath(mapper, harp, dir)
+	require.NoError(t, err)
+	name := spool.Name{Nanos: nanos, Seq: seq, Writer: writer}
+	data := fmt.Sprintf("---\nkind: message\ncreated: %s\n---\nbody\n", created.UTC().Format(time.RFC3339Nano))
+	require.NoError(t, os.WriteFile(filepath.Join(dirPath, name.String()), []byte(data), 0o600))
+	return spool.Ref{Harp: harp, Dir: dir, Name: name.String()}
+}
+
+func TestDoctorCheckSpoolBacklog_RightState_NoSessionsDirYet(t *testing.T) {
+	testsupport.Isolate(t)
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "no session directories yet")
+}
+
+// TestDoctorCheckSpoolBacklog_SessionsExistButNoSpool_IsNotAPass: ZERO BYTES
+// EXAMINED IS NOT A PASS. A session exists and no spool directory does, so
+// nothing was checked — either no delegated run has happened, or this
+// process resolves a different home than the coordinator does. Reporting
+// doctorOK there is a success message over nothing looked at. Asserts the
+// STATUS, not the wording.
+func TestDoctorCheckSpoolBacklog_SessionsExistButNoSpool_IsNotAPass(t *testing.T) {
+	testsupport.Isolate(t)
+	harpDir, err := paths.HarpDir("amber-quiet-heron")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(harpDir, 0o755))
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status, "nothing was examined; that is not a healthy state")
+	assert.Contains(t, check.Detail, "nothing was examined")
+}
+
+// TestDoctorCheckSpoolBacklog_RightState_HealthySpoolNothingStuck constructs
+// a REAL spool with a message written moments ago (via the same Writer the
+// runner and coordinator use) and proves it is reported as checked-and-
+// healthy — the state actually observed — not just silently absent. This is
+// the "looked and found nothing wrong" half that TestDoctorCheckHarpDurability's
+// sibling proves for the durability check: it must read differently from
+// "didn't look" (the two tests above) even though both are doctorOK.
+func TestDoctorCheckSpoolBacklog_RightState_HealthySpoolNothingStuck(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	w, err := spool.NewWriter(mapper, harp, spool.DirIn, "coord")
+	require.NoError(t, err)
+	_, err = w.Write(&spool.Message{Kind: "message", Body: "hello"})
+	require.NoError(t, err)
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "1 session spool(s) checked")
+	assert.Contains(t, check.Detail, "0 entries stuck")
+	assert.Contains(t, check.Detail, "0 malformed entries",
+		"a clean spool must say so explicitly, distinguishably from a spool that was never examined")
+}
+
+// TestDoctorCheckSpoolBacklog_WrongState_NamesTheStuckEntry is this check's
+// core proof: an entry backdated well past doctorSpoolStuckAge, sitting
+// unconsumed in out/, must be named in a warn — while a FRESH entry in in/
+// (written moments ago, exactly like a message mid-flight) must NOT be
+// reported. Both directions are asserted so the check cannot pass by always
+// warning, and cannot pass by never looking at out/.
+func TestDoctorCheckSpoolBacklog_WrongState_NamesTheStuckEntry(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	old := time.Now().Add(-10 * time.Minute)
+	stuckRef := writeRawSpoolMessage(t, mapper, harp, spool.DirOut, old.UnixNano(), 1, "amber-quiet-heron", old)
+
+	fresh := time.Now()
+	_ = writeRawSpoolMessage(t, mapper, harp, spool.DirIn, fresh.UnixNano(), 1, "coord", fresh)
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, stuckRef.String(), "the stuck entry must be named by its ref")
+	assert.Contains(t, check.Detail, "1 spool entr(ies)")
+	assert.NotContains(t, check.Detail, "coord.md", "the fresh in/ entry must not be reported as stuck")
+}
+
+// TestDoctorCheckSpoolBacklog_CapsNamedListWithCount proves a machine with
+// many stuck entries gets a bounded, readable line rather than an unbounded
+// wall of refs — the same "cap at ~5 with a count" shape
+// doctorCheckHarpDurability uses.
+func TestDoctorCheckSpoolBacklog_CapsNamedListWithCount(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	old := time.Now().Add(-1 * time.Hour)
+	for i := range 8 {
+		writeRawSpoolMessage(t, mapper, harp, spool.DirOut, old.UnixNano()+int64(i), uint64(i+1), "amber-quiet-heron", old)
+	}
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "8 spool entr(ies)")
+	assert.Contains(t, check.Detail, "more")
+}
+
+// --- malformed entries: spool.Sweep's Problem, wired into this check -------
+
+// writeRawSpoolFile drops an arbitrary-named file straight into a spool
+// directory, bypassing spool.Writer AND spool.ParseName/spool.Parse's
+// grammar entirely, so a test can construct exactly the "not a message at
+// all" shape spool.Sweep reports as a Problem rather than an Entry.
+func writeRawSpoolFile(t *testing.T, mapper spool.PathMapper, harp string, dir spool.Dir, name string, content string) string {
+	t.Helper()
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	dirPath, err := spool.DirPath(mapper, harp, dir)
+	require.NoError(t, err)
+	full := filepath.Join(dirPath, name)
+	require.NoError(t, os.WriteFile(full, []byte(content), 0o600))
+	return full
+}
+
+// TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedFilename proves a
+// filename outside the "<unixnano>.<seq>.<writer>.md" grammar is reported
+// BY NAME, and worded distinctly from a stuck-but-valid entry (it must never
+// say "sat unconsumed" — no amount of waiting turns a bad filename into a
+// deliverable message). A fresh, validly-named entry in the same session's
+// in/ is asserted absent from the report, so the check cannot pass by
+// flagging everything it sees.
+func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedFilename(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	writeRawSpoolFile(t, mapper, harp, spool.DirOut, "not-a-spool-message.txt", "whatever, not a message")
+
+	fresh := time.Now()
+	_ = writeRawSpoolMessage(t, mapper, harp, spool.DirIn, fresh.UnixNano(), 1, "coord", fresh)
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
+	assert.Contains(t, check.Detail, "not-a-spool-message.txt", "the malformed entry must be named")
+	assert.Contains(t, check.Detail, harp+":out/", "malformed entries are located by harp and direction")
+	assert.NotContains(t, check.Detail, "sat unconsumed",
+		"a malformed filename is not a stuck-but-valid entry and must not be worded as one")
+}
+
+// TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedContent proves the
+// OTHER Problem path: a filename that DOES parse against the grammar, but
+// whose content spool.Parse refuses (no YAML frontmatter at all here) is
+// still reported by name — distinct from both a stuck entry and a bad
+// filename.
+func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedContent(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	name := spool.Name{Nanos: time.Now().UnixNano(), Seq: 1, Writer: "coord"}
+	writeRawSpoolFile(t, mapper, harp, spool.DirIn, name.String(), "no frontmatter here, just a body\n")
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
+	assert.Contains(t, check.Detail, name.String(), "the malformed entry must be named")
+	assert.NotContains(t, check.Detail, "sat unconsumed",
+		"malformed content is not a stuck-but-valid entry and must not be worded as one")
+}
+
+// TestDoctorCheckSpoolBacklog_RightState_MalformedFileDoesNotCountAsStuck
+// proves the flip side of the two tests above: a spool holding ONLY a
+// malformed entry (no stuck ones) must not be reported as having any stuck
+// entries — the two lists are independent, not one bucket wearing two
+// labels.
+func TestDoctorCheckSpoolBacklog_RightState_MalformedFileDoesNotCountAsStuck(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	writeRawSpoolFile(t, mapper, harp, spool.DirOut, "garbage.md.bak", "irrelevant")
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.NotContains(t, check.Detail, "0 spool entr(ies) sat unconsumed")
+	assert.NotContains(t, check.Detail, "sat unconsumed")
+}
+
+// --- in/failed/: spool.Fail's terminal directory, wired into this check ----
+
+// TestDoctorCheckSpoolBacklog_RightState_NoFailedDirIsNormal proves the
+// common case — no session has ever refused a message, so no in/failed/
+// directory exists anywhere — reads as an explicit, distinct sentence in an
+// otherwise-clean OK, not silence and not an error. in/failed/ is created
+// lazily on the first refusal (spool.Fail's doc), so its absence here must
+// never be mistaken for "we never looked".
+func TestDoctorCheckSpoolBacklog_RightState_NoFailedDirIsNormal(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "no session has a failed/ directory")
+	assert.NotContains(t, check.Detail, "checked, all empty",
+		"an absent in/failed/ dir must not be worded as an existing-but-empty one")
+}
+
+// TestDoctorCheckSpoolBacklog_RightState_EmptyFailedDirDistinctFromAbsent
+// proves the other clean state: an in/failed/ directory that DOES exist
+// (e.g. a prior refusal that was since cleaned up by hand) but currently
+// holds nothing is reported as "checked, all empty" — a different sentence
+// from "no session has an in/failed/ directory" so a reader can tell
+// "existing and empty" apart from "never created".
+func TestDoctorCheckSpoolBacklog_RightState_EmptyFailedDirDistinctFromAbsent(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	root, err := spool.Root(mapper, harp)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "in", "failed"), 0o755))
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "1 failed/ director(ies) checked, all empty")
+	assert.NotContains(t, check.Detail, "no session has a failed/ directory")
+}
+
+// TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry constructs a
+// REAL refusal via spool.Fail — the same call coord/spooldelivery.go's
+// failSpoolEntry makes — and proves the resulting in/failed/ entry is named
+// in a warn, worded as a fourth, distinct condition from stuck, malformed,
+// and sweep-I/O-error: it must say the message was REFUSED, never "sat
+// unconsumed" (it wasn't waiting) and never "malformed" (it parsed fine). A
+// second, live entry in in/ (never failed) is asserted absent from the
+// report so the check cannot pass by flagging everything under in/.
+func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+
+	failedRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano(), 1, "coord", time.Now())
+	require.NoError(t, spool.Fail(mapper, failedRef))
+
+	live := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano(), 2, "coord", time.Now())
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "1 spool entr(ies) were REFUSED into in/failed/")
+	assert.Contains(t, check.Detail, harp+":in/failed/"+failedRef.Name, "the refused entry must be named by harp and filename")
+	assert.Contains(t, check.Detail, "GIVEN this message and REFUSED to deliver it, permanently")
+	assert.NotContains(t, check.Detail, "sat unconsumed",
+		"a refused entry was actively rejected, not left waiting — must not read as stuck")
+	assert.NotContains(t, check.Detail, "are malformed",
+		"a refused entry parsed fine as a message — must not read as malformed")
+	assert.NotContains(t, check.Detail, "could not be swept",
+		"a refused entry is a deliberate classification, not an I/O failure reading the directory")
+	assert.NotContains(t, check.Detail, live.Name, "the still-live in/ entry must not be reported at all")
+}
+
+// TestDoctorCheckSpoolBacklog_CapsFailedListWithCount proves the failed-entry
+// list is bounded by the SAME doctorSpoolStuckMaxNamed the stuck and
+// malformed lists use, rather than a second, separately-tuned cap.
+func TestDoctorCheckSpoolBacklog_CapsFailedListWithCount(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+
+	for i := range 8 {
+		ref := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano()+int64(i), uint64(i+1), "coord", time.Now())
+		require.NoError(t, spool.Fail(mapper, ref))
+	}
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "8 spool entr(ies) were REFUSED")
+	assert.Contains(t, check.Detail, "more")
+}
+
+// TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry is the
+// out/ twin of the in/failed/ case, and the reason this check enumerates
+// spool.FailedDirNames instead of naming one directory.
+//
+// A child's REPORT that the coordinator's sweep could not route lands in
+// out/failed/ (coord/spooldelivery.go's failSpoolOut). It is exactly as lost
+// as a refused inbound message and exactly as invisible if nothing looks at
+// its directory — and an outbound refusal is the more consequential of the
+// two, because what it drops is a finished agent's findings.
+func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+
+	w, err := spool.NewWriter(mapper, harp, spool.DirOut, harp)
+	require.NoError(t, err)
+	ref, err := w.Write(&spool.Message{Kind: "result", FromHarp: harp, To: "parent", Body: "my findings"})
+	require.NoError(t, err)
+	require.NoError(t, spool.Fail(mapper, ref))
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status,
+		"a report ctxloom was given and refused to route must not read as a healthy spool")
+	assert.Contains(t, check.Detail, ref.Name, "the doctor must name the file an operator has to go and read")
+	assert.Contains(t, check.Detail, string(spool.FailedOutDirName))
+}
+
+// --- DOCTOR-CHECK-SPOOL-COUNTERS-w3 ----------------------------------------
+
+// writeDeadEndpoint records a coordinator endpoint nothing listens on — the
+// shape an endpoint.json has once its coordinator exits (the file is kept
+// for port re-bind, so this is the ordinary state, not corruption).
+func writeDeadEndpoint(t *testing.T, home, projectKey string) string {
+	t.Helper()
+	dir := filepath.Join(home, ".ctxloom", "coord", projectKey)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"),
+		[]byte(`{"loopback_port":1,"consumer_cred":"stale"}`), 0o600))
+	return discover.LoopbackURL(1)
+}
+
+// TestDoctorCheckSpoolCounters_NoCoordinatorRecorded_IsInfoNotPass: with no
+// endpoint.json anywhere there is nothing to ask, and the check must say so
+// as context (info), never as a pass — the counters only exist inside a
+// running coordinator, so "none recorded" examined zero of them.
+func TestDoctorCheckSpoolCounters_NoCoordinatorRecorded_IsInfoNotPass(t *testing.T) {
+	testsupport.Isolate(t)
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorSpoolCountersMarker, check.Marker)
+	assert.Equal(t, doctorInfo, check.Status)
+	assert.Contains(t, check.Detail, "no coordinator endpoint recorded")
+}
+
+// TestDoctorCheckSpoolCounters_RecordedButDead_IsInfoNamingEndpoint: an
+// endpoint that outlived its coordinator is the common case and must read as
+// "not live" — naming the endpoint — rather than as a warning or as zeros.
+func TestDoctorCheckSpoolCounters_RecordedButDead_IsInfoNamingEndpoint(t *testing.T) {
+	home := testsupport.Isolate(t)
+	url := writeDeadEndpoint(t, home, "gone")
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorInfo, check.Status)
+	assert.Contains(t, check.Detail, "none live")
+	assert.Contains(t, check.Detail, url)
+	assert.NotContains(t, check.Detail, "delivered=", "a dead coordinator has no counters to print")
+}
+
+// TestDoctorCheckSpoolCounters_LiveCleanCounters_OK is the state actually
+// observed: a live coordinator answered and every counter is printed by
+// name, so a reader can tell "0 failed because nothing ran" from "0 failed
+// across N delivered".
+func TestDoctorCheckSpoolCounters_LiveCleanCounters_OK(t *testing.T) {
+	home := testsupport.Isolate(t)
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 7, Consumed: 5}
+	startFakeCoordinator(t, home, f)
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorOK, check.Status)
+	for _, want := range []string{"1 live coordinator", "delivered=7", "consumed=5", "failed=0",
+		"doorbell_dropped=0", "doorbell_rejected=0"} {
+		assert.Contains(t, check.Detail, want)
+	}
+}
+
+// TestDoctorCheckSpoolCounters_FailedDelivery_Warns: a non-zero failed
+// tally is a message that has not arrived (spooldelivery.go's own words),
+// so it is the fail-loud signal, named with its count.
+func TestDoctorCheckSpoolCounters_FailedDelivery_Warns(t *testing.T) {
+	home := testsupport.Isolate(t)
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 9, Failed: 3}
+	startFakeCoordinator(t, home, f)
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "failed=3")
+	assert.Contains(t, check.Detail, "has not arrived")
+}
+
+// TestDoctorCheckSpoolCounters_RejectedDoorbell_Warns: a rejected doorbell is
+// a fault (a ref that did not parse — a broken or hostile sender), never a
+// race, so it warns even with every delivery counter clean.
+func TestDoctorCheckSpoolCounters_RejectedDoorbell_Warns(t *testing.T) {
+	home := testsupport.Isolate(t)
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{DoorbellRejected: 2}
+	startFakeCoordinator(t, home, f)
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "doorbell_rejected=2")
+}
+
+// TestDoctorCheckSpoolCounters_DropsAreNotFaults: a dropped doorbell costs
+// latency until the next sweep — reported by count, never a warn.
+func TestDoctorCheckSpoolCounters_DropsAreNotFaults(t *testing.T) {
+	home := testsupport.Isolate(t)
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{DoorbellDropped: 4}
+	startFakeCoordinator(t, home, f)
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "doorbell_dropped=4")
+}
+
+// TestDoctorCheckSpoolCounters_LiveAndDeadTogether: one live coordinator
+// beside a stale endpoint is still a read of the live one — its counters
+// decide the status, and the dead endpoint is listed as not live, not as an
+// error that masks the answer.
+func TestDoctorCheckSpoolCounters_LiveAndDeadTogether(t *testing.T) {
+	home := testsupport.Isolate(t)
+	deadURL := writeDeadEndpoint(t, home, "gone")
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 1}
+	startFakeCoordinator(t, home, f)
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "delivered=1")
+	assert.Contains(t, check.Detail, "1 not live")
+	assert.Contains(t, check.Detail, deadURL)
+}
+
+// TestDoctorCmd_ShowsLiveCoordinatorSpoolCounters is the row's settling
+// claim end to end: `ctxloom doctor` — the published command, JSON form —
+// carries the spool counters of a LIVE coordinator, read over its consumer
+// socket, not from any file.
+func TestDoctorCmd_ShowsLiveCoordinatorSpoolCounters(t *testing.T) {
+	root, _ := setupProject(t, "claude-code")
+	// isolateGitHostState is what runDoctor does internally; done here by
+	// hand so the fake coordinator's endpoint.json lands in the HOME the
+	// command will actually discover from.
+	home := t.TempDir()
+	isolateGitHostState(t, "", home)
+	f := newFakeConsumerServer()
+	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 42, Failed: 1}
+	startFakeCoordinator(t, home, f)
+
+	out, err := execDoctor(t, root, "--format", "json")
+	require.NoError(t, err)
+	check := doctorCheckNamed(t, out, doctorSpoolCountersMarker)
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "delivered=42")
+	assert.Contains(t, check.Detail, "failed=1")
+}
+
+// TestDoctorCheckSpoolCounters_UndecodableEndpointFile_Warns: an
+// endpoint.json that exists but does not parse is a real problem discovery
+// reports separately (a corrupt state dir), and must not be folded into
+// "nothing recorded" — the one silent case discovery keeps quiet on purpose
+// is a not-yet-minted credential, which is not this.
+func TestDoctorCheckSpoolCounters_UndecodableEndpointFile_Warns(t *testing.T) {
+	home := testsupport.Isolate(t)
+	dir := filepath.Join(home, ".ctxloom", "coord", "corrupt")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte("not json"), 0o600))
+
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "could not be read")
+	assert.Contains(t, check.Detail, "corrupt")
+}

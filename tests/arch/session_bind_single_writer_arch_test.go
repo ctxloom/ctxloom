@@ -17,11 +17,11 @@
 // '*.go' . | grep -v _test`) found exactly three non-test call sites, all of
 // which resolve to Manager.BindSession or MemStore.BindSession:
 //
-//   - internal/cli/session_bind.go (bindSessionFromPayload, the SessionStart
+//   - internal/adapters/cli/session_bind.go (bindSessionFromPayload, the SessionStart
 //     hook target) -> operations.BindSession -> mgr.BindSession
-//   - internal/operations/sessions.go (the BindSession façade itself)
+//   - internal/adapters/operations/sessions.go (the BindSession façade itself)
 //     -> mgr.BindSession
-//   - internal/memory/compactor.go (updateSessionIndex, the compactor's
+//   - internal/adapters/memory/compactor.go (updateSessionIndex, the compactor's
 //     forward-bind backstop) -> mgr.BindSession directly, and ONLY when the
 //     entry is not yet bound (entry.SessionID == "") — it can never reach
 //     the displacement branch at all, since a bound entry is left untouched.
@@ -51,9 +51,9 @@ import (
 // something named BindSession. Each entry is a deliberate admission with a
 // reason — see the package doc above for why each one preserves lineage.
 var bindSessionAllowedCallers = map[string]string{
-	"internal/cli/session_bind.go":    "the SessionStart hook target; calls operations.BindSession, which calls Manager.BindSession",
-	"internal/operations/sessions.go": "the BindSession façade itself, wrapping Manager.BindSession",
-	"internal/memory/compactor.go":    "the compactor's forward-bind backstop; only binds an UNBOUND entry (entry.SessionID == \"\"), so it never reaches the displacement branch",
+	"internal/adapters/cli/session_bind.go":    "the SessionStart hook target; calls operations.BindSession, which calls Manager.BindSession",
+	"internal/adapters/operations/sessions.go": "the BindSession façade itself, wrapping Manager.BindSession",
+	"internal/adapters/memory/compactor.go":    "the compactor's forward-bind backstop; only binds an UNBOUND entry (entry.SessionID == \"\"), so it never reaches the displacement branch",
 	// Manager's and MemStore's OWN definitions are function DECLARATIONS,
 	// not CallExpr — findBindSessionCallers below only matches calls, so
 	// Manager.BindSession and MemStore.BindSession never need an entry here.
@@ -131,7 +131,7 @@ func findBindSessionCallers(t *testing.T) map[string]bool {
 func TestArch_SessionBindHasNoUnreviewedCaller(t *testing.T) {
 	hits := findBindSessionCallers(t)
 	if len(hits) == 0 {
-		t.Fatal("found zero BindSession call sites in the whole module — the scan itself is broken (the known callers, e.g. internal/cli/session_bind.go, must be found), not a sign that no code binds sessions")
+		t.Fatal("found zero BindSession call sites in the whole module — the scan itself is broken (the known callers, e.g. internal/adapters/cli/session_bind.go, must be found), not a sign that no code binds sessions")
 	}
 
 	var unreviewed []string

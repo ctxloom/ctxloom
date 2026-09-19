@@ -43,7 +43,7 @@ const probeStderrBudget = 512
 
 // execCommandContext is the seam tests override to avoid actually spawning a
 // shell — production points it at exec.CommandContext (the same pattern
-// internal/cli/run.go's execCommand var uses for shellOutDistill).
+// internal/adapters/cli/run.go's execCommand var uses for shellOutDistill).
 var execCommandContext = exec.CommandContext
 
 // cache holds the login shell's resolved PATH, computed at most once per

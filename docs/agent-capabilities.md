@@ -42,7 +42,7 @@ surface but commands at a path ctxloom chooses, so it needs none of that for
 those surfaces.
 
 The `agent.StructuredChat` interface still exists and the runner still
-type-asserts for it (`internal/cli/llm_runner_common.go`), but **no shipped
+type-asserts for it (`internal/adapters/cli/llm_runner_common.go`), but **no shipped
 engine implements it** — the only implementation is the mock backend used by the
 conformance suites. Engines are driven through their own CLI instead.
 
@@ -84,7 +84,7 @@ engine's CLI offers the hook. They are not bugs or TODOs.
 ### Statusline / HUD
 Claude Code runs an external `statusLine` command and pipes session JSON to it;
 ctxloom wires `ctxloom hook hud` there. The HUD command
-(`internal/cli/hook_hud.go`) is written engine-neutrally and is ready the
+(`internal/adapters/cli/hook_hud.go`) is written engine-neutrally and is ready the
 moment another CLI ships a command-backed statusline.
 
 ### Resolved-model provenance

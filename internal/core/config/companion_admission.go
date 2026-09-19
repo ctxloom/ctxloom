@@ -4,9 +4,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // CompanionAdmissionReason names WHY a companion was or was not admitted to

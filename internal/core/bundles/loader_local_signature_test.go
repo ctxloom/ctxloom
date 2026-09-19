@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // A bundle in the project's own content tree is trusted BY VIRTUE OF BEING
@@ -41,7 +41,7 @@ import (
 // path prints Detail. So these tests drive a Pipeline, which is the only place
 // both halves are observable at once. signatureRowsAuthorizer below is the row
 // itself, spelled locally; the production decision that produces it is pinned
-// in internal/operations.
+// in internal/adapters/operations.
 
 // signatureRowsAuthorizer is the two decision-table rows that key on the signature
 // axis, and nothing else:
@@ -52,7 +52,7 @@ import (
 //
 // Everything else admits plainly. It is the ROWS, spelled here so a test can
 // observe the delivery path acting on a Verdict; the production decision that
-// produces these verdicts is pinned in internal/operations.
+// produces these verdicts is pinned in internal/adapters/operations.
 func signatureRowsAuthorizer() Authorizer {
 	return authorizerFunc(func(e Exposure) Verdict {
 		if e.Read.Signature() != SignatureInvalid {

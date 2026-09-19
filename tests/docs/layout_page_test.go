@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/gitignore"
 	tasksp "github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 )
 

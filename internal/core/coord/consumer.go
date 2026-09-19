@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -412,7 +412,7 @@ func (c *Coordinator) WatchRuns(runIDs []string) (snapshot *agentcoordpb.ListRun
 // listRunsSnapshot directly (consumerService.ListRuns, serveListRuns). This
 // was deleted once in this wave and reverted: repointing its in-package test
 // call sites at listRunsSnapshot compiled fine, but
-// internal/mcp/mcp_tools_agents_test.go (a different package) also calls it
+// internal/adapters/mcp/mcp_tools_agents_test.go (a different package) also calls it
 // via require.Eventually to poll for a roster change — `go vet ./...`, not a
 // package-scoped vet, is what caught that. Kept for that cross-package test
 // caller, the same reason as LoopbackURL.

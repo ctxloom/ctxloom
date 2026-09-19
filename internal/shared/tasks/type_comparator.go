@@ -54,7 +54,7 @@ func typeConfigTags(schema *tagschema.Schema) []tagma.Tag {
 // semverComparator is the tagma.TypeComparator this package registers under
 // tagschema.SemverTypeName (SPEC.md §9): full SemVer 2.0.0 precedence via
 // github.com/Masterminds/semver/v3's StrictNewVersion/Compare — already a
-// direct module dependency (see internal/remote/version_constraint.go), not
+// direct module dependency (see internal/adapters/remote/version_constraint.go), not
 // hand-rolled here. StrictNewVersion (not the lenient NewVersion, which
 // coerces a two-component "1.2" or a "v"-prefixed value into a version) is
 // the write-seam's own validator too (operations.validateTag), so a value

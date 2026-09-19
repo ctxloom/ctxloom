@@ -174,7 +174,7 @@ No grandfathering (pre-1.0, no-compat policy):
    a "partially superseded by trust-simplify (Slice 3, commit 192d4ef)" note
    retiring only the lockfile-as-review-surface half. The startup pending-count
    line needed no fold: `warnPendingTally`
-   (`internal/operations/trust_gate.go`) already emits
+   (`internal/adapters/operations/trust_gate.go`) already emits
    "N item(s) awaiting review — run 'ctxloom review'" with no reference to the
    removed pending-lockfile/`bundle approve` flow. Release-notes entry skipped:
    the repo keeps no CHANGELOG/release-notes file. Remaining stale references
@@ -183,7 +183,7 @@ No grandfathering (pre-1.0, no-compat policy):
 
    Deferred (stale references to removed commands/flow found outside the three
    rewritten docs, not fixed here):
-   - `internal/cli/remote.go` `remote trust` Long help still says untrusted
+   - `internal/adapters/cli/remote.go` `remote trust` Long help still says untrusted
      "staged bundle changes likewise stay pending until approved" — stale
      (staging + `bundle approve` are gone); feeds generated CLI docs, so a fix
      needs `just gen-docs`.
@@ -194,7 +194,7 @@ No grandfathering (pre-1.0, no-compat policy):
    - `website/src/content/docs/concepts/remotes.md` says untrusted-remote
      changes are "staged for review" (lock-staging is gone; content is per-item
      pending).
-   - `internal/cli/bundle_list.go` / `internal/cli/trust_interactive.go`:
+   - `internal/adapters/cli/bundle_list.go` / `internal/adapters/cli/trust_interactive.go`:
      `bundle show -i` help says "offer to mark the bundle trusted"; the
      interactive flow now shows per-item effective trust + per-hook
      trust/blacklist (no bundle posture) — help text is stale.

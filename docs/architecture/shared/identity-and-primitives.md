@@ -52,7 +52,7 @@ flowchart TD
     GOU --> GRU
     FR & GRU --> GG["PlainOpenWithOptions{DetectDotGit:true}<br/>EnableDotGitCommonDir FALSE"]
   end
-  GG -.->|"consults NO git env var"| OTHER["internal/git (exec.go)<br/>cmd.Env = os.Environ() — honours GIT_DIR"]
+  GG -.->|"consults NO git env var"| OTHER["internal/adapters/git (exec.go)<br/>cmd.Env = os.Environ() — honours GIT_DIR"]
 
   subgraph vals["value helpers"]
     SET["collections.Set[T] + SortedKeys"]
@@ -101,26 +101,26 @@ Formats and recovers a self-closing `<ctxloom name="…" kind="harp" />` element
 |---|---|---|
 | `markerRe` | `internal/shared/harpmarker/marker.go:29` | `` `<ctxloom\b[^>]*\bkind="harp"[^>]*?/?>` `` |
 | `nameRe` | `internal/shared/harpmarker/marker.go:32` | `` `\bname="([^"]+)"` `` |
-| `Format(harp string) string` | `internal/shared/harpmarker/marker.go` | `""` when `harp == ""` **or** when the name contains `"` or `>` (the characters that would make the element name a different harp, or no harp); else `` `<ctxloom name="` + harp + `" kind="harp" />` ``. Whatever it returns round-trips through `Find`. Sole production caller `emitHarpMarker`, `internal/cli/session_bind.go` |
+| `Format(harp string) string` | `internal/shared/harpmarker/marker.go` | `""` when `harp == ""` **or** when the name contains `"` or `>` (the characters that would make the element name a different harp, or no harp); else `` `<ctxloom name="` + harp + `" kind="harp" />` ``. Whatever it returns round-trips through `Find`. Sole production caller `emitHarpMarker`, `internal/adapters/cli/session_bind.go` |
 | `Find(s string) string` | `internal/shared/harpmarker/marker.go:45` | `FindAllString` over the input (`:46`), returns the `name` of the first matched element **that has one** (`:47`). No production caller |
 | `Scan(line []byte) string` | `internal/shared/harpmarker/marker.go:60` | `Find` on the raw bytes first (`:61`); on a miss, `json.Unmarshal` (error → `""`, `:65-67`) and delegate to `findInValue` (`:68`). No production caller |
 | `findInValue(v any) string` | `internal/shared/harpmarker/marker.go` | Recursive descent: string leaf → `Find`, then re-decode if it parses as JSON and recurse; `map[string]any` → recurse over values **in sorted key order**; `[]any` → recurse over elements in order |
 
-The write path is installed as the SessionStart hook for every ctxloom session (`emitHarpMarker`, `internal/cli/session_bind.go`). The read half (`Scan`/`Find`/`findInValue`) has no production caller: ADR 0017 names `ClaudeSessionHistory.harpFromTranscript` and `previousSessionByListing` as its consumers, and both were removed at `6683bc4c` with the four per-engine transcript scrapers. Its fate is the open decision recorded as U112-F01.
+The write path is installed as the SessionStart hook for every ctxloom session (`emitHarpMarker`, `internal/adapters/cli/session_bind.go`). The read half (`Scan`/`Find`/`findInValue`) has no production caller: ADR 0017 names `ClaudeSessionHistory.harpFromTranscript` and `previousSessionByListing` as its consumers, and both were removed at `6683bc4c` with the four per-engine transcript scrapers. Its fate is the open decision recorded as U112-F01.
 
 ## `internal/shared/gitutil`
 
-Read-only, in-process answers to two questions about the git repository enclosing a path, via go-git v5.19.1 rather than shelling out. Declares no types. `internal/cli/hook_inject_context.go:85` passes `FindRoot` as a `func(string) (string, error)` value, making that signature a de-facto interface with one implementation and one stub (`hook_inject_context.go:338`).
+Read-only, in-process answers to two questions about the git repository enclosing a path, via go-git v5.19.1 rather than shelling out. Declares no types. `internal/adapters/cli/hook_inject_context.go:85` passes `FindRoot` as a `func(string) (string, error)` value, making that signature a de-facto interface with one implementation and one stub (`hook_inject_context.go:338`).
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `GetOriginURL(startPath string) (string, error)` | `internal/shared/gitutil/gitutil.go:15` | `return GetRemoteURL(startPath, "origin")`. Sole production caller `internal/operations/bundles.go:856`, which discards the error |
+| `GetOriginURL(startPath string) (string, error)` | `internal/shared/gitutil/gitutil.go:15` | `return GetRemoteURL(startPath, "origin")`. Sole production caller `internal/adapters/operations/bundles.go:856`, which discards the error |
 | `GetRemoteURL(startPath, remoteName string) (string, error)` | `internal/shared/gitutil/gitutil.go:21` | Abs-path; `os.Stat` (error **ignored**, `:26`); demote a file path to its dir; `PlainOpenWithOptions{DetectDotGit: true}` (`:30-32`); `repo.Remote(name).Config().URLs[0]` (`:45`). Wraps four failure modes. No production caller outside `GetOriginURL` |
-| `FindRoot(startPath string) (string, error)` | `internal/shared/gitutil/gitutil.go:51` | Abs-path; `os.Stat` (error **returned** as `stat path: %w`, `:58-61`); demote a file path to its dir; open with the same options (`:66-68`); return `repo.Worktree().Filesystem.Root()`. Callers: `internal/projectroot/projectroot.go:82,102`, `internal/taskloom/workdir/workdir.go:118`, `internal/cli/hook_inject_context.go:85` |
+| `FindRoot(startPath string) (string, error)` | `internal/shared/gitutil/gitutil.go:51` | Abs-path; `os.Stat` (error **returned** as `stat path: %w`, `:58-61`); demote a file path to its dir; open with the same options (`:66-68`); return `repo.Worktree().Filesystem.Root()`. Callers: `internal/adapters/projectroot/projectroot.go:82,102`, `internal/taskloom/workdir/workdir.go:118`, `internal/adapters/cli/hook_inject_context.go:85` |
 
 ## `internal/shared/collections`
 
-A generic `Set[T]` over `map[T]struct{}` plus a map-key sorter, used as readability sugar by `internal/core/bundles`, `internal/core/config`, `internal/lm/backends`, `internal/operations`, `internal/remote`, and `internal/core/agent`. The dominant use is the "seen"/"visited" idiom in recursive resolvers (`internal/core/config/config_resolve.go`, `internal/operations/sync.go`, `internal/core/bundles/loader.go`).
+A generic `Set[T]` over `map[T]struct{}` plus a map-key sorter, used as readability sugar by `internal/core/bundles`, `internal/core/config`, `internal/lm/backends`, `internal/adapters/operations`, `internal/adapters/remote`, and `internal/core/agent`. The dominant use is the "seen"/"visited" idiom in recursive resolvers (`internal/core/config/config_resolve.go`, `internal/adapters/operations/sync.go`, `internal/core/bundles/loader.go`).
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -132,13 +132,13 @@ A generic `Set[T]` over `map[T]struct{}` plus a map-key sorter, used as readabil
 | `(Set[T]).Has(v T) bool` | `internal/shared/collections/set.go:61` | Membership. Passed as a *method value* at `internal/core/bundles/loader_content.go:485` (`slices.ContainsFunc(info.Tags, tagSet.Has)`). 20+ call sites |
 | `(Set[T]).Items() []T` | `internal/shared/collections/set.go:68` | Pre-sized slice; **order not guaranteed**. 6 call sites, incl. `internal/core/config/config_resolve.go:270,271,272` |
 | `(Set[T]).Clone() Set[T]` | `internal/shared/collections/set.go:77` | Pre-sized copy. 1 production call site: `internal/core/config/config_resolve.go:337` (`visited.Clone()` per DAG branch) |
-| `SortedKeys[K ~string, V](m map[K]V) []K` | `internal/shared/collections/sorted_keys.go:9` | Collects keys, `sort.Slice` by `<`. 3 call sites: `internal/core/config/accessors.go:363`, `internal/core/config/config_bundles.go:301`, `internal/operations/vendorreader_backfill.go:60` |
+| `SortedKeys[K ~string, V](m map[K]V) []K` | `internal/shared/collections/sorted_keys.go:9` | Collects keys, `sort.Slice` by `<`. 3 call sites: `internal/core/config/accessors.go:363`, `internal/core/config/config_bundles.go:301`, `internal/adapters/operations/vendorreader_backfill.go:60` |
 
 Go 1.25 equivalents, for reference when reading call sites: `NewSet` = `make(map[T]struct{})`, `Items` = `slices.Collect(maps.Keys(s))`, `Clone` = `maps.Clone(s)`, `SortedKeys` = `slices.Sorted(maps.Keys(m))`.
 
 ## `internal/shared/textutil`
 
-One function. Twelve production call sites across `internal/cli` (6), `internal/memory` (5), `internal/compression` (1).
+One function. Twelve production call sites across `internal/adapters/cli` (6), `internal/adapters/memory` (5), `internal/compression` (1).
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -148,9 +148,9 @@ Three distinct concepts share the one function:
 
 | Use | Sites |
 |---|---|
-| Ellipsize for a display column — the caller appends `"..."` itself | `internal/compression/json.go:221`, `internal/memory/compactor.go:679`, `internal/cli/search.go:315,320`, `internal/cli/remote_discover.go:83,88`, `internal/cli/bundle_distill.go:299`, `internal/cli/bundle_list.go:267`, `internal/cli/memory.go:302` |
-| Hard byte cap | `internal/memory/compactor.go:943` |
-| Rune-boundary **offset** — `len(TruncateBytes(s, n))` used as an `int`, string discarded | `internal/memory/compactor.go:774,793` |
+| Ellipsize for a display column — the caller appends `"..."` itself | `internal/compression/json.go:221`, `internal/adapters/memory/compactor.go:679`, `internal/adapters/cli/search.go:315,320`, `internal/adapters/cli/remote_discover.go:83,88`, `internal/adapters/cli/bundle_distill.go:299`, `internal/adapters/cli/bundle_list.go:267`, `internal/adapters/cli/memory.go:302` |
+| Hard byte cap | `internal/adapters/memory/compactor.go:943` |
+| Rune-boundary **offset** — `len(TruncateBytes(s, n))` used as an `int`, string discarded | `internal/adapters/memory/compactor.go:774,793` |
 
 ## `internal/shared/tokens`
 
@@ -158,8 +158,8 @@ One constant and one function; the package exists for *ownership*, not arithmeti
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `CharsPerToken = 4` | `internal/shared/tokens/tokens.go:9` | The ratio. Referenced at `internal/memory/compactor.go:35` (re-aliased as an exported `internal/memory` constant), used at `compactor.go:741,742` |
-| `Estimate(text string) int` | `internal/shared/tokens/tokens.go:12` | `len(text) / CharsPerToken`. Callers: `internal/cli/run.go:699,804`, `internal/memory/compactor.go:1128` (via the local `estimateTokens` wrapper at `compactor.go:1127-1129`, itself called from `:222,251,261`) |
+| `CharsPerToken = 4` | `internal/shared/tokens/tokens.go:9` | The ratio. Referenced at `internal/adapters/memory/compactor.go:35` (re-aliased as an exported `internal/adapters/memory` constant), used at `compactor.go:741,742` |
+| `Estimate(text string) int` | `internal/shared/tokens/tokens.go:12` | `len(text) / CharsPerToken`. Callers: `internal/adapters/cli/run.go:699,804`, `internal/adapters/memory/compactor.go:1128` (via the local `estimateTokens` wrapper at `compactor.go:1127-1129`, itself called from `:222,251,261`) |
 
 Two use classes with very different stakes: **reporting** (`cli/run.go:699,804`, `compactor.go:222,251,261` — a wrong number is cosmetic) and **control** (`compactor.go:741-742` converts a token budget into the byte offsets `chunkText` actually slices at, `compactor.go:778`).
 
@@ -182,7 +182,7 @@ Two use classes with very different stakes: **reporting** (`cli/run.go:699,804`,
 **Harp marker**
 
 - `Format` is the **single authoritative spelling** of a wire format that crosses a process boundary and a storage layer: a Go hook writes it, a backend nests and escapes it into a transcript, and a different Go process is meant to recover it.
-- `Format` returns `""` for a name it cannot represent, and the sole caller REPORTS every such case: `emitHarpMarker` (`internal/cli/session_bind.go`) warns on the diagnostic channel for an empty return, a marshal failure and a write failure alike, naming `CTXLOOM_SESSION_HARP`'s value. stdout stays the hook's contract channel and never carries a diagnostic.
+- `Format` returns `""` for a name it cannot represent, and the sole caller REPORTS every such case: `emitHarpMarker` (`internal/adapters/cli/session_bind.go`) warns on the diagnostic channel for an empty return, a marshal failure and a write failure alike, naming `CTXLOOM_SESSION_HARP`'s value. stdout stays the hook's contract channel and never carries a diagnostic.
 - `Format` **refuses** a name containing `"` or `>` rather than emitting a corrupt element. A `"` would truncate `nameRe`'s match (silently naming a different harp, and admitting attribute injection); a `>` would stop `markerRe` matching at all. `harp.Validate` is permissive enough to admit both, so the guard lives here.
 - `Find` returns the name of the first marker **that has one** — a `kind="harp"` element without `name=` is skipped, not treated as a match. `""` means "not present" and is indistinguishable from "present but malformed".
 - `Scan` checks the **raw bytes before** any structural interpretation (`:61`) and `findInValue` descends into every map value and slice element with no field-name filter, so the search covers user-authored message content as well as the hook envelope.
@@ -192,7 +192,7 @@ Two use classes with very different stakes: **reporting** (`cli/run.go:699,804`,
 
 **Git access**
 
-- `gitutil` is **read-only and environment-blind**: it constructs no `exec.Cmd` and consults no git environment variable — not `GIT_DIR`, `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`, or `GIT_COMMON_DIR`. `internal/git` (`exec.go:437`, `cmd.Env = os.Environ()`) is the other git layer and does honour all of them, so under a hook invocation (where git sets `GIT_DIR`) the two answer different questions. Nothing documents the boundary.
+- `gitutil` is **read-only and environment-blind**: it constructs no `exec.Cmd` and consults no git environment variable — not `GIT_DIR`, `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`, or `GIT_COMMON_DIR`. `internal/adapters/git` (`exec.go:437`, `cmd.Env = os.Environ()`) is the other git layer and does honour all of them, so under a hook invocation (where git sets `GIT_DIR`) the two answer different questions. Nothing documents the boundary.
 - `FindRoot`'s invariant: walk up from an arbitrary path — which may be a file, may be relative, may be inside a linked worktree or submodule — and return the absolute worktree root or a typed error, never a plausible-looking wrong directory. It handles `.git`-as-a-file, demotes a file argument to its directory, and rejects a bare repo.
 - All three functions return a **non-nil error rather than an empty string** on every failure path — there is no `return "", nil`.
 - The two functions handle the identical "is `startPath` a file or a directory?" precondition with **opposite error policies**: `FindRoot` returns `stat path: %w`, `GetRemoteURL` drops the stat error, so a nonexistent path yields a different (and for the remote path misleading) message from each.
@@ -201,7 +201,7 @@ Two use classes with very different stakes: **reporting** (`cli/run.go:699,804`,
 
 **Collections**
 
-- Real vs documented: `set.go:31` says "The zero value is not usable". In fact the **read methods (`Has`, `Items`, `Clone`) are nil-safe and the write methods (`Add`, `AddAll`) panic** on a nil receiver. `internal/operations/items.go:223` already depends on the nil-safe read: `var failed collections.Set[string]` is assigned only inside `switch req.Kind` arms and read unconditionally at `items.go:346`.
+- Real vs documented: `set.go:31` says "The zero value is not usable". In fact the **read methods (`Has`, `Items`, `Clone`) are nil-safe and the write methods (`Add`, `AddAll`) panic** on a nil receiver. `internal/adapters/operations/items.go:223` already depends on the nil-safe read: `var failed collections.Set[string]` is assigned only inside `switch req.Kind` arms and read unconditionally at `items.go:346`.
 - `Items()` returns map-iteration order and disclaims ordering. Three of its call sites feed `internal/core/config` resolved-profile fields (`config_resolve.go:270,271,272` → `ExcludeFragments`, `ExcludeMCP`, `DenyTools`), while the sibling `sortedCompanionRefs` (`config_bundles.go:295-301`) exists precisely because that package promises a stable result across runs.
 - `Items()` and `Clone()` return **empty non-nil** values for empty or nil input; neither can fail.
 - The package holds two unrelated concerns — `sorted_keys.go` shares no type, state, or caller pattern with `set.go`, and `SortedKeys` is never called on a `Set`.
@@ -209,7 +209,7 @@ Two use classes with very different stakes: **reporting** (`cli/run.go:699,804`,
 **Text truncation**
 
 - The invariant: **cutting to a byte budget never produces invalid UTF-8, and never destroys a legitimately-encoded U+FFFD.** The second half is the subtle one — `utf8.DecodeLastRuneInString` returns `RuneError` both for an incomplete sequence (`size == 1`) and for a correctly-encoded U+FFFD (`size == 3`), so the `size <= 1` qualifier at `:24` is what distinguishes the cut's own debris from real input. Testing only `r == utf8.RuneError` silently eats replacement characters.
-- Why it matters: a mid-rune split makes a chunk invalid UTF-8, which fails proto3 string marshaling and silently turns the chunk into a failure marker — documented content loss at `internal/memory/compactor.go:770-772`.
+- Why it matters: a mid-rune split makes a chunk invalid UTF-8, which fails proto3 string marshaling and silently turns the chunk into a failure marker — documented content loss at `internal/adapters/memory/compactor.go:770-772`.
 - `maxBytes <= 0` returns `""` **silently**, and every ellipsize caller immediately concatenates its suffix — so a zero budget renders as a bare `"..."` with the content gone. The one call site whose budget is configuration rather than a literal (`internal/compression/json.go:221`, `c.MaxValueLength`) is protected only by `NewJSONCompressor` supplying `30`; `&JSONCompressor{}` compiles and zeroes it.
 - The result **exceeds** the requested cap at every ellipsize site, because the caller appends the suffix afterward. Each has pre-compensated by subtracting 3 from its real column width (17, 15, 32, 16, 57, 67 for widths 20, 18, 35, 19, 60, 70), and nothing enforces that relationship.
 - The cap is a **byte** budget, not a display-width budget: 15 bytes of CJK is 5 characters occupying 10 terminal columns, versus 15 columns for ASCII.
@@ -220,5 +220,5 @@ Two use classes with very different stakes: **reporting** (`cli/run.go:699,804`,
 - The invariant is **agreement**, not arithmetic: the dry-run assembly preview and the distillation chunker must use the same ratio, or ctxloom reports one budget and chunks to another.
 - Real vs documented: `len()` counts **bytes**, but the constant is named `CharsPerToken` and its doc says "characters". `compactor.go:741` computes `targetTokens * CharsPerToken` and `chunkText` slices by byte offset, so for multi-byte text the chunk overshoots its token budget — the direction that overfills a model window, not the safe one.
 - Real vs documented: the promise that "a real tokenizer can replace the heuristic here without touching call sites" holds for `Estimate`'s three call sites but **not for `CharsPerToken`**, which is consumed as a bare arithmetic multiplier to answer the inverse question ("how many bytes is N tokens?"). A real tokenizer has no such ratio.
-- `internal/memory/compactor.go:33-35` re-exports the constant as its own exported `CharsPerToken`, and both uses inside `compactor.go` read the alias rather than the original — so "one place knows the heuristic" has a second spelling in front of it. The same re-alias habit applies to `stderrtail.DefaultBytes` at three sites.
+- `internal/adapters/memory/compactor.go:33-35` re-exports the constant as its own exported `CharsPerToken`, and both uses inside `compactor.go` read the alias rather than the original — so "one place knows the heuristic" has a second spelling in front of it. The same re-alias habit applies to `stderrtail.DefaultBytes` at three sites.
 - Integer division makes `Estimate` return `0` for any text of 1-3 bytes. No current caller gates on the result; all three assign it to a report field.

@@ -41,7 +41,7 @@
 //
 // Image runtime health is owned by a SEPARATE, non-skippable check —
 // adapterRunGate / the ACP adapter-runs execution probe in
-// internal/lm/isolation (profile.go, acpadapter_runs_docker_integration_test.go)
+// internal/adapters/isolation (profile.go, acpadapter_runs_docker_integration_test.go)
 // — which validates the REAL engine by execution. Neither substitutes for the
 // other, and a green mock run must never be offered as evidence that the image's
 // real engine works.

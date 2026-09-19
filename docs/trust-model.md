@@ -78,7 +78,7 @@ match wins; it is fail-closed:
      content a publisher deliberately withdrew. An *absent* record is not this
      case: a project with no pins legitimately has nothing retracted.
    - **2b. the sync-time network probe itself is FAIL-STALE, not fail-open.**
-     `internal/remote.CheckRetracted`'s remote-manifest read is three-valued
+     `internal/adapters/remote.CheckRetracted`'s remote-manifest read is three-valued
      (`RetractionVerdict`: clean / retracted / unknown), not a bool — a fetch
      failure (the remote is unreachable, or — indistinguishably at that seam —
      it simply publishes no manifest, the ordinary case) reports *unknown*,
@@ -437,7 +437,7 @@ bytes** with the reviewer's own SSH key:
   `a`/`A` spellings now skip rather than approve on muscle memory.
 - The countersigning key is resolved once per session, before the first item is
   shown, via the same zero-config discovery chain `ctxloom bundle sign` uses
-  (`internal/signing/agentkey`): `git config user.signingkey` first, then the
+  (`internal/adapters/signing/agentkey`): `git config user.signingkey` first, then the
   sole identity held by `ssh-agent` (`SSH_AUTH_SOCK`) when there is exactly
   one. (`--key` and the `sign.key` config default, which `ctxloom bundle sign` also
   honors, are not yet exposed on `ctxloom review` itself.) If the key is a
@@ -842,7 +842,7 @@ never permitted in the committable project store.
    work.
 6. **`ctxloom review` does not expose `--key` / `sign.key` config.** The
    discovery chain itself is unified: `ctxloom review` and `ctxloom bundle sign` both
-   resolve through the same `internal/signing/agentkey.Discoverer` (git
+   resolve through the same `internal/adapters/signing/agentkey.Discoverer` (git
    `user.signingkey` → sole `ssh-agent` identity). What `ctxloom review` does
    not do is pass an explicit key into that chain, so — unlike `ctxloom bundle sign`
    — an operator cannot override discovery with `--key` or the `sign.key`
@@ -876,7 +876,7 @@ never permitted in the committable project store.
     just data.** ctxloom runs an agent in its own git worktree, and the git
     *common* directory is exposed to that agent read-write: in a container it is
     bind-mounted through the runtime's path mapper (`gitCommonDirMount` in
-    `internal/lm/isolation/container.go` → `rt.ExposeMapped(common, false)`,
+    `internal/adapters/isolation/container.go` → `rt.ExposeMapped(common, false)`,
     and the project mount itself is `ExposeMapped(cw.dir, false)`) — identical
     host path under the default identity mapper — and on the host runtime
     nothing is in the way at all. That directory holds `hooks/` and
@@ -912,7 +912,7 @@ never permitted in the committable project store.
     because gap 10 leans on review as the upstream control: it is strong on one
     ingress, not on all of them.
 12. **Repo-local git config selects the signing identity.** Step 2 of the
-    zero-config chain (`internal/signing/agentkey`) resolves
+    zero-config chain (`internal/adapters/signing/agentkey`) resolves
     `git config --get user.signingkey`, and `execGitConfig` runs with `cmd.Dir`
     set to the working repository — so git answers from that repository's own
     `.git/config`, a file that arrives with a clone. A cloned repository can

@@ -12,9 +12,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/cli"
-	"github.com/ctxloom/ctxloom/internal/mcp"
-	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/schemagen"
 )
 

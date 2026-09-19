@@ -41,8 +41,8 @@ When the document is complete, file `agent_report` with scope FINAL containing: 
 # YOUR SEAM — 1. LAUNCH PATHS. Output file: 01-launch-paths.md
 
 Every way an engine process gets started, traced to the exec/spawn. Known symptom from the human: "one-shots not going through the same startup procedures". Entry points to trace (find more):
-- `ctxloom run` (internal/cli/run.go, run_owned.go; cli.launchEngineWithPrompt), `ctxloom init`'s launch (internal/cli/init_launch.go), oneshot (internal/operations/oneshot.go, operations.RunOneshot), distill/compact one-shots (internal/cli/distiller.go, cli.newLLMDistiller), task triage / init auth probe if they launch anything.
-- `ctxloom llm host <backend> --label` (internal/cli/llm_host.go, llm_runner_common.go) and who spawns it: internal/lm/isolation/none.go, direct_runner.go; the container runners in internal/lm/isolation.
+- `ctxloom run` (internal/adapters/cli/run.go, run_owned.go; cli.launchEngineWithPrompt), `ctxloom init`'s launch (internal/adapters/cli/init_launch.go), oneshot (internal/adapters/operations/oneshot.go, operations.RunOneshot), distill/compact one-shots (internal/adapters/cli/distiller.go, cli.newLLMDistiller), task triage / init auth probe if they launch anything.
+- `ctxloom llm host <backend> --label` (internal/adapters/cli/llm_host.go, llm_runner_common.go) and who spawns it: internal/adapters/isolation/none.go, direct_runner.go; the container runners in internal/adapters/isolation.
 - The coordinator's spawn: internal/core/coord/spawner.go (StartRun, Options.Starter), enginehost.go, owner_run.go; coordtest runners.
 - Engine backends: internal/lm/backends (managed.go, LoadSkillExports), internal/claude/chat_run.go, mockengine.
 - LaunchForm and the "resolved once host-side, carried to the plugin" principle (grep LaunchForm) — is it honoured by every path?

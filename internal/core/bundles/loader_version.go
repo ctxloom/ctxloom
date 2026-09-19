@@ -3,9 +3,9 @@ package bundles
 import (
 	"fmt"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/errs"
-	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // Multi-version coexistence (trust rework, TR5)

@@ -8,10 +8,10 @@
 // used to be unfetchable — fetchAtLockedSHA resolved a ref to ONE file and
 // called FetchFile on it — while skills REQUIRE the directory form
 // (internal/core/bundles/loader.go:389). `deps pull` now probes the directory
-// form, walks the tree at the pinned SHA through internal/content/remotetree,
+// form, walks the tree at the pinned SHA through internal/adapters/content/remotetree,
 // and installs it under the consumer's cache with the publisher's exec bit
 // intact; config.loadRemoteBundleSeed then reads the installed tree back into a
-// bundle through convert.Read, verified by internal/content/attest.
+// bundle through convert.Read, verified by internal/adapters/content/attest.
 //
 // THE DELIVERY HALF IS NOW HERMETIC TOO, on the host runtime. The vehicle is
 // `profile materialize --backend mock`, over the mock backend's own context and
@@ -84,8 +84,8 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/content"
-	"github.com/ctxloom/ctxloom/internal/content/attest"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
@@ -189,8 +189,8 @@ default_agent: default
 }
 
 // j001400AuthoredTree is the fixture: one artifact of EVERY surface kind a bundle
-// can hold, in the canonical tree layout that internal/content already reads
-// (see internal/content/testdata/tree). Two spellings are easy to get wrong
+// can hold, in the canonical tree layout that internal/adapters/content already reads
+// (see internal/adapters/content/testdata/tree). Two spellings are easy to get wrong
 // and are pinned here deliberately:
 //
 //   - a command lives under "prompts/", not "commands/" — trust.KindPrompt's
@@ -254,7 +254,7 @@ func j001400AuthoredTree() map[string]j001400File {
 		//
 		// The tree format's ONLY order carrier is content.Hook.Order, a sparse
 		// int living in each hook's own ".<name>.meta.yaml" sidecar (see
-		// content.SortHooks / internal/content/convert.go's hookOrder — a
+		// content.SortHooks / internal/adapters/content/convert.go's hookOrder — a
 		// directory has no list, so a tree-form bundle that wants "stamp" before
 		// "audit" has no way to say so except this field). "stamp" is declared
 		// first (order 100) and "audit" second (order 200) — the reverse of

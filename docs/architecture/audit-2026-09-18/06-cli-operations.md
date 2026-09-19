@@ -1,45 +1,45 @@
 # Seam 6 — CLI <-> OPERATIONS boundary, and the binaries
 
-Audit of `internal/cli` vs `internal/operations` (+ `internal/cliemit`, `internal/clifmt`), and the `cmd/*` binaries. Read-only; repository at `release/0.7` tip `d42cc4229` on 2026-09-18.
+Audit of `internal/adapters/cli` vs `internal/adapters/operations` (+ `internal/cliemit`, `internal/clifmt`), and the `cmd/*` binaries. Read-only; repository at `release/0.7` tip `d42cc4229` on 2026-09-18.
 
 Status: COMPLETE (see the tail for the section inventory).
 
 ## 1. Scope and entry points
 
-**Seam.** The boundary between `internal/cli` (the cobra command surface, one flat package + `internal/cli/tui`) and `internal/operations` (the frontend-neutral service layer, one flat package), the output layers (`internal/shared/cliemit`, `pkg/clifmt`), and the `cmd/*` binaries.
+**Seam.** The boundary between `internal/adapters/cli` (the cobra command surface, one flat package + `internal/adapters/cli/tui`) and `internal/adapters/operations` (the frontend-neutral service layer, one flat package), the output layers (`internal/shared/cliemit`, `pkg/clifmt`), and the `cmd/*` binaries.
 
 **Stated architecture read first.**
 - `tests/arch/layering_test.go` — `layeringRules` table. The rule governing this seam is `operations-must-not-import-cli` (zero allowlist entries) plus `clifmt-must-not-import-ctxloom` (`pkg/clifmt` is the outermost edge). Its doc comment records that T20's per-flow rule `cli/<flow> -> operations/<flow> -> domain` is FUTURE work "once the per-flow package split lands". **There is no rule that cli must go THROUGH operations** — only that operations may not import back.
 - `tests/arch/lean_binaries_arch_test.go` — `TestArch_LeanBinaries_DoNotLinkEngineDescriptors`: `go list -deps` of `./cmd/ltk` and `./cmd/taskloom` must not contain `internal/lm/engine`, `internal/lm/engines`, `internal/lm/backends`, `internal/core/bundles`. Only those two binaries are gated.
 - `tests/arch/engine_identity_arch_test.go` — `TestArch_Operations_DoesNotImportEnginePlugins` (operations must not import `internal/claude` etc.).
-- `docs/architecture/cli/README.md` (+ 13 sibling pages). Pinned to commit `0f59fbae` with line numbers. States: "the intended direction is `cmd/ctxloom` → `internal/cli` → `internal/operations` → domain, and no file in the package reaches past `operations`, `config`, `isolation`, or `resources` into domain internals. Its contract to callers is: parse flags, load config, call exactly one `operations` function, and render the result through `emit()`." It admits six thick files and lists invariants I1–I10.
+- `docs/architecture/cli/README.md` (+ 13 sibling pages). Pinned to commit `0f59fbae` with line numbers. States: "the intended direction is `cmd/ctxloom` → `internal/adapters/cli` → `internal/adapters/operations` → domain, and no file in the package reaches past `operations`, `config`, `isolation`, or `resources` into domain internals. Its contract to callers is: parse flags, load config, call exactly one `operations` function, and render the result through `emit()`." It admits six thick files and lists invariants I1–I10.
 - `GLOSSARY.md` — defines neither `operations`, `cliemit`, `clifmt` nor "thin surface"; the vocabulary doc is silent on this seam.
 
 **Measured shape at `d42cc4229`** (the README's numbers are stale):
 
 | Fact | README (`0f59fbae`) | Now |
 |---|---|---|
-| `internal/cli` production files / LOC | 93 / 22,479 | 120 / 28,581 |
-| `internal/operations` production files / LOC | — | 85 / 28,969 |
-| Sub-packages under `internal/cli` | none | `internal/cli/tui` only |
-| Sub-packages under `internal/operations` (the T20 per-flow split) | none | none — not landed |
-| In-repo packages imported by `internal/cli` | "operations, config, isolation, resources" | **60**, incl. `bundles`, `profiles`, `sessions`, `remote`, `trust`, `signing`, `memory`, `transcript`, `git`, `mcp`, `agentcoord{,/coord,/discover,/spool}`, `lm/{engines,backends,grpc,isolation}`, `vpio{,/dockerexec,/goplugin}`, `termui`, `tmuxhost`, `turnchange`, `compression`, `confpatch`, `contextmetrics`, and the engine plugin `internal/claude{,/engine}` |
-| In-repo packages imported by `internal/operations` | — | 47; none under `internal/cli` (rule holds); no engine plugin (rule holds) |
-| cobra `Use:` strings in `internal/cli` | — | 167 (≈150 leaf verbs in ~30 families) |
+| `internal/adapters/cli` production files / LOC | 93 / 22,479 | 120 / 28,581 |
+| `internal/adapters/operations` production files / LOC | — | 85 / 28,969 |
+| Sub-packages under `internal/adapters/cli` | none | `internal/adapters/cli/tui` only |
+| Sub-packages under `internal/adapters/operations` (the T20 per-flow split) | none | none — not landed |
+| In-repo packages imported by `internal/adapters/cli` | "operations, config, isolation, resources" | **60**, incl. `bundles`, `profiles`, `sessions`, `remote`, `trust`, `signing`, `memory`, `transcript`, `git`, `mcp`, `agentcoord{,/coord,/discover,/spool}`, `lm/{engines,backends,grpc,isolation}`, `vpio{,/dockerexec,/goplugin}`, `termui`, `tmuxhost`, `turnchange`, `compression`, `confpatch`, `contextmetrics`, and the engine plugin `internal/claude{,/engine}` |
+| In-repo packages imported by `internal/adapters/operations` | — | 47; none under `internal/adapters/cli` (rule holds); no engine plugin (rule holds) |
+| cobra `Use:` strings in `internal/adapters/cli` | — | 167 (≈150 leaf verbs in ~30 families) |
 | Files the README names that no longer exist | `mcp_runner.go`, `mcp_forward.go`, `coord_host.go`, `coord_*.go`, `mcp_tools_triggers.go`, `mcp_resources.go`, `memory.go` | moved/deleted |
 
-**Packages read.** `internal/cli/*.go` (all 120 production files, signatures + the RunE bodies of every verb), `internal/operations` (exported surface + the entry points cli calls), `internal/shared/cliemit`, `pkg/clifmt`, `internal/shared/clidiag`, `internal/shared/confload`, `internal/core/config` (Load/LoadFresh/overrides), `cmd/{ctxloom,taskloom,ltk,harp,archlint,mockengine,probe-mcp-server,gen-schemas,validate}/main.go`, `internal/taskloom`, `internal/ltk`, `internal/shared/*` touched by the binaries, `tests/arch/*`, `tests/acceptance/cli_coverage_gate_test.go`.
+**Packages read.** `internal/adapters/cli/*.go` (all 120 production files, signatures + the RunE bodies of every verb), `internal/adapters/operations` (exported surface + the entry points cli calls), `internal/shared/cliemit`, `pkg/clifmt`, `internal/shared/clidiag`, `internal/shared/confload`, `internal/core/config` (Load/LoadFresh/overrides), `cmd/{ctxloom,taskloom,ltk,harp,archlint,mockengine,probe-mcp-server,gen-schemas,validate}/main.go`, `internal/taskloom`, `internal/ltk`, `internal/shared/*` touched by the binaries, `tests/arch/*`, `tests/acceptance/cli_coverage_gate_test.go`.
 
 **Entry points traced** (each is `package.Symbol` + file; the graphs in §2 follow these):
 
 | Family | Entry symbol | File |
 |---|---|---|
-| process | `main.main` → `cli.Execute` | `cmd/ctxloom/main.go`, `internal/cli/root.go` |
-| every verb | `cli.rootCmd.PersistentPreRunE` (the flag/env funnel) → `cli.GetConfig` / `cli.GetConfigForUpdate` | `internal/cli/root.go` |
-| run | `cli.runCmd.RunE` (closure) → `cli.runOwned` / `cli.runStructured` / terminal arms | `internal/cli/run.go`, `run_owned.go`, `run_structured.go`, `run_terminal.go` |
-| hook (hidden) | `cli.hookHudCmd`, `cli.hookInjectContextCmd`, `cli.hookNextStepCmd`, `cli.hookSkillMatesCmd`, `cli.hookStampPlanCmd`, `cli.hookToolReflectCmd`, `cli.hookTurnChangedCmd`, `cli.sessionBindCmd` | `internal/cli/hook_*.go`, `session_bind.go` |
-| mcp | `cli.mcpServeCmd` → `mcp.*` | `internal/cli/mcp_server.go`, `mcp.go` |
-| llm | `cli.llmServeCmd`, `cli.llmHostCmd`, `cli.llmTurnCmd` → `cli.standUpRunner` | `internal/cli/llm_*.go` |
+| process | `main.main` → `cli.Execute` | `cmd/ctxloom/main.go`, `internal/adapters/cli/root.go` |
+| every verb | `cli.rootCmd.PersistentPreRunE` (the flag/env funnel) → `cli.GetConfig` / `cli.GetConfigForUpdate` | `internal/adapters/cli/root.go` |
+| run | `cli.runCmd.RunE` (closure) → `cli.runOwned` / `cli.runStructured` / terminal arms | `internal/adapters/cli/run.go`, `run_owned.go`, `run_structured.go`, `run_terminal.go` |
+| hook (hidden) | `cli.hookHudCmd`, `cli.hookInjectContextCmd`, `cli.hookNextStepCmd`, `cli.hookSkillMatesCmd`, `cli.hookStampPlanCmd`, `cli.hookToolReflectCmd`, `cli.hookTurnChangedCmd`, `cli.sessionBindCmd` | `internal/adapters/cli/hook_*.go`, `session_bind.go` |
+| mcp | `cli.mcpServeCmd` → `mcp.*` | `internal/adapters/cli/mcp_server.go`, `mcp.go` |
+| llm | `cli.llmServeCmd`, `cli.llmHostCmd`, `cli.llmTurnCmd` → `cli.standUpRunner` | `internal/adapters/cli/llm_*.go` |
 | content CRUD | `bundle|fragment|command|skill|profile|agent|remote|mcp|llm|deps|session|signer|sign|review|search|clean|doctor|manage|config|init|container|companion|attach|plan watch|util config-write|version|completion` | per-file, see the table in §4 |
 | other binaries | `cmd/taskloom` → `taskloom.Main`; `cmd/ltk` → `ltk.*`; `cmd/harp`; `cmd/archlint`; `cmd/mockengine`; `cmd/probe-mcp-server`; `cmd/gen-schemas`; `cmd/validate` | `cmd/*/main.go` |
 
@@ -67,7 +67,7 @@ flowchart LR
     CLIEMIT_RES["cliemit.Resolve"]
     CLIEMIT_ERR["cliemit.EmitError"]
   end
-  subgraph cli["internal/cli"]
+  subgraph cli["internal/adapters/cli"]
     RUN["cli.Run() int"]
     ROOTCMD["cli.rootCommand (sync.Once)"]
     PRE["cli.rootPersistentPreRunE"]
@@ -131,7 +131,7 @@ What crosses: the ONLY typed value that leaves this funnel is `*config.Config` (
 
 ```mermaid
 flowchart LR
-  subgraph cli["internal/cli (run.go, run_owned.go, run_terminal*.go, startup_helpers.go)"]
+  subgraph cli["internal/adapters/cli (run.go, run_owned.go, run_terminal*.go, startup_helpers.go)"]
     RR["cli.runRun"]
     ST["cli.runState (≈40 fields)"]
     VF["validateFlags"]
@@ -156,7 +156,7 @@ flowchart LR
     DRV["drive → driveTerminalSession / runOwned / runStructured"]
     CVT["convertVendorTranscriptOnExit"]
   end
-  subgraph ops["internal/operations"]
+  subgraph ops["internal/adapters/operations"]
     O_SYNC["operations.SyncOnStartup"]
     O_MISS["operations.CheckMissingDependencies"]
     O_COMP["operations.ReportCompanions(w)"]
@@ -227,10 +227,10 @@ flowchart LR
     MCPRUN["mcp agent_run → operations.PrepareAgentChat (delegate.go)"]
     COMPACT["memory.Compactor distillation run (memory/compactor.go)"]
   end
-  subgraph cli["internal/cli"]
+  subgraph cli["internal/adapters/cli"]
     RS["runState phases: loadConfig · runStartupTasks · gateStartup · openSession · hostCoordinator · seedTask · buildRunRequest · prepareWorkspace · gate2 · startTransport(oneshot arm | ownedRun arm) · drive · markSessionEnded · convertVendorTranscriptOnExit"]
   end
-  subgraph ops["internal/operations"]
+  subgraph ops["internal/adapters/operations"]
     RO["operations.RunOneshot"]
     RRA["operations.runResolvedAgent (private)"]
     PAC["operations.PrepareAgentChat → bindIsolatedSpawn → runResolvedAgent per turn"]
@@ -257,7 +257,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  subgraph cli["internal/cli/hook_*.go, session_bind.go"]
+  subgraph cli["internal/adapters/cli/hook_*.go, session_bind.go"]
     HUD["cli.runHookHud"]
     IC["cli.runHookInjectContext"]
     NS["cli.captureNextStep"]
@@ -280,7 +280,7 @@ flowchart LR
     SSP["claude.SessionStartPayload / SessionStartOutput"]
     INV["claude.InvokedSkill"]
   end
-  subgraph ops["internal/operations"]
+  subgraph ops["internal/adapters/operations"]
     RTT["operations.ResolveTurnTranscript"]
     GS["operations.GetSession / ReadHarpEssence / JoinLeadBlocks / AgentSetupNudge"]
   end
@@ -334,7 +334,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  subgraph cli["internal/cli"]
+  subgraph cli["internal/adapters/cli"]
     BC["cli.runBundleCreate (bundle_edit.go)"]
     SS["cli.runSkillSync (skill_cmd.go)"]
     SL["cli.runSessionList (session_cmd.go)"]
@@ -343,7 +343,7 @@ flowchart LR
     OFO["cli.outputFormatOf (streaming verbs)"]
     FMTG["cli.formatWasHonored"]
   end
-  subgraph ops["internal/operations"]
+  subgraph ops["internal/adapters/operations"]
     CB["operations.CreateBundle"]
     SY["operations.SyncSkill"]
     LS["operations.ListSessionsForProject"]
@@ -376,7 +376,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  subgraph cli["internal/cli/llm_*.go"]
+  subgraph cli["internal/adapters/cli/llm_*.go"]
     LSV["cli.runLLMServe"]
     LHO["cli.runLLMHost"]
     LTU["cli.runLLMTurn"]
@@ -393,7 +393,7 @@ flowchart LR
     TI["coord.NewTerminalInjector"]
     CAP["coord.RunnerCapabilities"]
   end
-  subgraph mcpp["internal/mcp"]
+  subgraph mcpp["internal/adapters/mcp"]
     RMCP["mcp runner-local server"]
   end
   subgraph cfg["config"]
@@ -451,13 +451,13 @@ flowchart LR
     IOX["iox"]
   end
   subgraph libs["engine-specific / domain"]
-    CLI["internal/cli"]
+    CLI["internal/adapters/cli"]
     TLE["internal/taskloom/{config,engine,workdir}"]
     LTKE["internal/ltk/{app,engine,ir,rules,scm,shellenv,state}"]
     TASKS["internal/shared/tasks/* (store, operations, tagschema…)"]
     ENG["internal/lm/engines + backends"]
     BUND["internal/core/bundles"]
-    CONFP["internal/confpatch"]
+    CONFP["internal/adapters/confpatch"]
   end
   CLIFMT["pkg/clifmt"]
 
@@ -491,18 +491,18 @@ flowchart LR
 
 ## 3. Delegation / layer graph
 
-Solid arrows are the STATED direction (`cmd → cli → operations → domain`, and `cli → shared/*` glue). Thick arrows labelled **BYPASS** are production edges from `internal/cli` straight into a package the README says operations mediates. Dashed arrows labelled **AGAINST** are edges that flow the wrong way (a lower layer rendering, or reaching for process env instead of a parameter). Every edge here is a real `go list` import or a grep-confirmed call; counts are reference counts from §1's per-file scan.
+Solid arrows are the STATED direction (`cmd → cli → operations → domain`, and `cli → shared/*` glue). Thick arrows labelled **BYPASS** are production edges from `internal/adapters/cli` straight into a package the README says operations mediates. Dashed arrows labelled **AGAINST** are edges that flow the wrong way (a lower layer rendering, or reaching for process env instead of a parameter). Every edge here is a real `go list` import or a grep-confirmed call; counts are reference counts from §1's per-file scan.
 
 ```mermaid
 flowchart TB
   CMD["cmd/ctxloom"]
-  CLI["internal/cli (120 files, 28.6k)"]
-  TUI["internal/cli/tui"]
-  OPS["internal/operations (85 files, 29.0k, flat)"]
+  CLI["internal/adapters/cli (120 files, 28.6k)"]
+  TUI["internal/adapters/cli/tui"]
+  OPS["internal/adapters/operations (85 files, 29.0k, flat)"]
   EMIT["shared/cliemit → pkg/clifmt"]
   GLUE["shared/{clidiag,strictness,confload,iox,harpmarker,tokens,upgrade,watch,…}"]
   CFG["internal/core/config"]
-  ISO["internal/lm/isolation"]
+  ISO["internal/adapters/isolation"]
   RES["resources"]
 
   subgraph domain["domain (README: reached only through operations)"]
@@ -514,7 +514,7 @@ flowchart TB
     MEM["memory"]
     TRN["transcript · vendorreader"]
     GIT["git · gitignore"]
-    MCP["internal/mcp"]
+    MCP["internal/adapters/mcp"]
     COORD["agentcoord · coord · discover · spool"]
     ENG["lm/engines · lm/backends · lm/grpc"]
     VPIO["vpio · dockerexec · goplugin"]
@@ -626,7 +626,7 @@ flowchart LR
 
 ### 4.0 The centrepiece: verb → operations entry point(s) → business logic that lives in cli
 
-Method: every production file in `internal/cli` was scanned for `operations.<Exported>` references and for direct references into domain packages; the RunE bodies and helpers of every family were read. "Business logic in cli" names the symbols that DECIDE something (resolve, validate, classify, diff, mint, plan) rather than parse/render. Rendering helpers (`render*`, `print*`) are omitted unless they carry a decision. `—` in the operations column means the verb calls NO operations function.
+Method: every production file in `internal/adapters/cli` was scanned for `operations.<Exported>` references and for direct references into domain packages; the RunE bodies and helpers of every family were read. "Business logic in cli" names the symbols that DECIDE something (resolve, validate, classify, diff, mint, plan) rather than parse/render. Rendering helpers (`render*`, `print*`) are omitted unless they carry a decision. `—` in the operations column means the verb calls NO operations function.
 
 | Verb (family) | operations entry point(s) | Business logic that lives in cli (symbol, file) | Emitter |
 |---|---|---|---|
@@ -676,10 +676,10 @@ Ranked by blast radius: how many entry points share the defect and whether a non
 #### F-1 · DIVERGENT PATHS + DUPLICATION — three launch tails for "run an engine once", and the decision ladders are implemented twice with different rungs
 
 **Sites.**
-- `cli.runRun` / `cli.runState` (`internal/cli/run.go`) — `ctxloom run` including `--one-shot`; the most complete.
-- `operations.RunOneshot` → `operations.runResolvedAgent` (`internal/operations/oneshot.go`) — single production caller: the `init` auth-ping in `internal/cli/init_launch.go`.
-- `operations.PrepareAgentChat` → `bindIsolatedSpawn` → `runResolvedAgent` per turn (`internal/operations/delegate.go`) — the MCP `agent_run` delegation path.
-- `memory.Compactor` (`internal/memory/compactor.go`) "mirrors" the same tail with its own client factory (the doc comment on `RunOneshot` says so).
+- `cli.runRun` / `cli.runState` (`internal/adapters/cli/run.go`) — `ctxloom run` including `--one-shot`; the most complete.
+- `operations.RunOneshot` → `operations.runResolvedAgent` (`internal/adapters/operations/oneshot.go`) — single production caller: the `init` auth-ping in `internal/adapters/cli/init_launch.go`.
+- `operations.PrepareAgentChat` → `bindIsolatedSpawn` → `runResolvedAgent` per turn (`internal/adapters/operations/delegate.go`) — the MCP `agent_run` delegation path.
+- `memory.Compactor` (`internal/adapters/memory/compactor.go`) "mirrors" the same tail with its own client factory (the doc comment on `RunOneshot` says so).
 
 The doc comment on `operations.RunOneshotRequest` states the divergence outright: *"The init auth-ping builds on it directly; a delegated child's oneshot fallback and `ctxloom run --print` mirror the same tail (runResolvedAgent) without going through this facade."*
 
@@ -732,7 +732,7 @@ flowchart TB
 
 **What the layer would be.** "Operations that are a sequence of operations": launch, runner standup, doctor, dependency check, review walk, config patching. Today each is a cli-resident function with no operations symbol.
 
-**Sites that would collapse into it** (all `internal/cli`):
+**Sites that would collapse into it** (all `internal/adapters/cli`):
 - `cli.runState` and its 35 phase methods (`run.go`, `run_owned.go`, `run_terminal*.go`) — the launch orchestrator; the `runState` struct is the seam-1 launch form and is unreachable from MCP.
 - `cli.standUpRunner`, `attachRunnerMCP`, `consumeCoordinatorReachBack`, `exportRunnerMCPSocket`, `runnerIsLeaf` (`llm_runner_common.go`) — runner-side coordinator standup, `coord` ×24 direct.
 - `cli.doctorCheck*` ×35 (`doctor_cmd.go` 1,456 lines, `doctor_spool.go`, `doctor_transcript_reader.go`, `doctor_mcp_invocation.go`) — every diagnostic is computed in cli against `git`, `agentkey`, `trust`, `remote`, `spool`, `bundles`, `paths` directly; `ctxloom doctor --format json` exists only because the whole report is built in cli.
@@ -741,7 +741,7 @@ flowchart TB
 - `cli.runReview`, `resolveReviewSigner`, `reviewApplier`, `runReviewWalk`, `unifiedReviewDiff` (`review.go`) — countersigning decisions.
 - `cli.runConfigWrite` and the hew pipeline (`util_config_write.go`, 747 lines).
 - `cli.ensureHarnessGitignore`, `ignoreLineDiff`, `ignoreRuleLines` (`manage.go`).
-- `cli.classifyHarpWorktrees`/`sweepHarpWorktrees` (`session_worktrees.go`, `isolation` ×8) beside `operations.SweepOrphanedWorktrees` (`internal/operations/startup_helpers.go`) — two worktree sweepers, the operations one taking an `io.Writer`.
+- `cli.classifyHarpWorktrees`/`sweepHarpWorktrees` (`session_worktrees.go`, `isolation` ×8) beside `operations.SweepOrphanedWorktrees` (`internal/adapters/operations/startup_helpers.go`) — two worktree sweepers, the operations one taking an `io.Writer`.
 - `cli.offerItemTrust`/`offerBundleTrust`/`offerBundleHookTrust` (`trust_interactive.go`) — the interactive trust decision.
 
 **Settles it.** For each row, an operations function returning a typed result (no `io.Writer`, no prompting) and a cli that only renders it. The measure of done is the table in §4.0 having an empty "business logic in cli" column for every row except interactive prompting.
@@ -750,19 +750,19 @@ flowchart TB
 
 #### F-3 · STATED-VS-ACTUAL — the README's layering sentence is false at 60 imports and nothing checks it
 
-`docs/architecture/cli/README.md`: *"no file in the package reaches past `operations`, `config`, `isolation`, or `resources` into domain internals."* Measured: `internal/cli` imports 60 in-repo packages (§1), including every domain package the sentence names as forbidden, and the engine plugin `internal/claude`. `tests/arch/layering_test.go` enforces only `operations-must-not-import-cli`; there is no `cli-must-not-import-<domain>` rule, and the T20 per-flow rule the test's comment anticipates cannot be written because neither package has flows (both are flat).
+`docs/architecture/cli/README.md`: *"no file in the package reaches past `operations`, `config`, `isolation`, or `resources` into domain internals."* Measured: `internal/adapters/cli` imports 60 in-repo packages (§1), including every domain package the sentence names as forbidden, and the engine plugin `internal/claude`. `tests/arch/layering_test.go` enforces only `operations-must-not-import-cli`; there is no `cli-must-not-import-<domain>` rule, and the T20 per-flow rule the test's comment anticipates cannot be written because neither package has flows (both are flat).
 
-Also stale in the same README (pinned to `0f59fbae`, with line numbers): `cli.Execute` (now `cli.Run() int`), `failOnFindings` (now `cli.phaseGates.close`), "five MCP server flavours in cli" (moved to `internal/mcp`; `mcp_server.go` is 40 lines), the 930-line `RunE` closure (now `runRun` + `runState`), I3's cited violation in `remote_discover.go` (fixed — it uses `stdinReader` from `prompt.go`), I6's claim that `llm serve/host/turn` skip the strictness gate (they call `newPhaseGates`), the five "deprecated alias trees" (deleted), file/LOC counts, and the named files `mcp_runner.go`, `mcp_forward.go`, `coord_host.go`, `memory.go`, `item_helpers.go` (gone).
+Also stale in the same README (pinned to `0f59fbae`, with line numbers): `cli.Execute` (now `cli.Run() int`), `failOnFindings` (now `cli.phaseGates.close`), "five MCP server flavours in cli" (moved to `internal/adapters/mcp`; `mcp_server.go` is 40 lines), the 930-line `RunE` closure (now `runRun` + `runState`), I3's cited violation in `remote_discover.go` (fixed — it uses `stdinReader` from `prompt.go`), I6's claim that `llm serve/host/turn` skip the strictness gate (they call `newPhaseGates`), the five "deprecated alias trees" (deleted), file/LOC counts, and the named files `mcp_runner.go`, `mcp_forward.go`, `coord_host.go`, `memory.go`, `item_helpers.go` (gone).
 
-**Settles it.** Either add a `layeringRule{from: "internal/cli", forbid: [...domain...], allowed: {…}}` with the current 60 as a shrinking allowlist (the mechanism already exists and has an `IsLive` staleness test), or delete the sentence. Delete the line-number-pinned README sections rather than correct them (per the project's own binding rule: correcting one entry makes the rest look verified).
+**Settles it.** Either add a `layeringRule{from: "internal/adapters/cli", forbid: [...domain...], allowed: {…}}` with the current 60 as a shrinking allowlist (the mechanism already exists and has an `IsLive` staleness test), or delete the sentence. Delete the line-number-pinned README sections rather than correct them (per the project's own binding rule: correcting one entry makes the rest look verified).
 
 ---
 
 #### F-4 · LAYER BYPASS — cli imports the engine plugin `internal/claude` that operations is gated from
 
-`TestArch_Operations_DoesNotImportEnginePlugins` (`tests/arch/engine_identity_arch_test.go`) keeps `internal/claude` out of operations. `internal/cli` imports `internal/claude` (and `internal/claude/engine`) in 8 production files — measured by import line, not by name: `hook_inject_context.go`, `hook_next_step.go`, `hook_skill_mates.go`, `hook_tool_reflect.go`, `hook_turn_changed.go`, `session_bind.go`, `skill_mates_decide.go`, `doctor_mcp_invocation.go`; `hook_stamp_plan.go` and `hook_hud.go` decode Claude-shaped payloads with local structs without importing the package. The hook verbs' types are all `claude.SessionStartOutput`, `claude.PostToolUseOutput`, `claude.StopPayload` — the hidden `hook` namespace is a Claude Code namespace in an engine-neutral binary, and adding a second engine's hooks would mean a second set of verbs or a `switch` on engine inside each.
+`TestArch_Operations_DoesNotImportEnginePlugins` (`tests/arch/engine_identity_arch_test.go`) keeps `internal/claude` out of operations. `internal/adapters/cli` imports `internal/claude` (and `internal/claude/engine`) in 8 production files — measured by import line, not by name: `hook_inject_context.go`, `hook_next_step.go`, `hook_skill_mates.go`, `hook_tool_reflect.go`, `hook_turn_changed.go`, `session_bind.go`, `skill_mates_decide.go`, `doctor_mcp_invocation.go`; `hook_stamp_plan.go` and `hook_hud.go` decode Claude-shaped payloads with local structs without importing the package. The hook verbs' types are all `claude.SessionStartOutput`, `claude.PostToolUseOutput`, `claude.StopPayload` — the hidden `hook` namespace is a Claude Code namespace in an engine-neutral binary, and adding a second engine's hooks would mean a second set of verbs or a `switch` on engine inside each.
 
-**Settles it.** Extend the engine-plugin rule to `internal/cli` with an allowlist naming the hook files and the fix ("decode the vendor payload in the engine's own package behind an engine-neutral `operations.HookEvent`"), so the set cannot grow silently.
+**Settles it.** Extend the engine-plugin rule to `internal/adapters/cli` with an allowlist naming the hook files and the fix ("decode the vendor payload in the engine's own package behind an engine-neutral `operations.HookEvent`"), so the set cannot grow silently.
 
 ---
 
@@ -786,12 +786,12 @@ The harp literal is not a cli-only problem: `"CTXLOOM_SESSION_HARP"` appears as 
 #### F-6 · DATA-FLOW SMELL — config is re-loaded at 25 sites outside the funnel, dropping the warning echo; README I1 is false on both sides
 
 README I1: *"Every command reads config through `GetConfig()` … `operations` never loads config itself."* Measured:
-- 22 direct `config.Load` calls in `internal/cli` production code outside `root.go`: `init.go` ×6 (`WithAppDir`, arguably legitimate — a different tree), `completion.go` ×5, `hook_hud.go`, `hook_skill_mates.go`, `hook_inject_context.go`, `agent.go`, `clean_cmd.go`, `llm_runner_common.go`, `run.go` (`runState.loadConfig` re-implements `loadWithWarnings` inline), `session_cmd.go` ×2, `session_distill.go` ×2, `session_query.go`.
+- 22 direct `config.Load` calls in `internal/adapters/cli` production code outside `root.go`: `init.go` ×6 (`WithAppDir`, arguably legitimate — a different tree), `completion.go` ×5, `hook_hud.go`, `hook_skill_mates.go`, `hook_inject_context.go`, `agent.go`, `clean_cmd.go`, `llm_runner_common.go`, `run.go` (`runState.loadConfig` re-implements `loadWithWarnings` inline), `session_cmd.go` ×2, `session_distill.go` ×2, `session_query.go`.
 - 3 inside operations: `operations.SetLLM` (re-read after save, `llm.go`), `operations.resolveListConfig` (`mcp_servers.go` — a nil `cfg` parameter means "load your own": an optional hidden input), `operations.WatchSessionFeed` (`sessionfeed.go` — loads config deep in the chain to recover a backend name the caller had).
 
 None of the 25 echo `cfg.GetWarnings()`; a malformed config is silently partial on those paths. The comment in `rootPersistentPreRun` already knows: *"config.Load is called from ~10 sites across the CLI — a per-Config toggle would only take effect on whichever one happened to be wired."*
 
-**Settles it.** Make the warning echo a property of loading (record once per process inside `config.Load`, or have `Load` return warnings the caller cannot drop), then a grep-style arch test that `config.Load(` appears in `internal/cli` only in `root.go` (and `init.go` with `WithAppDir`).
+**Settles it.** Make the warning echo a property of loading (record once per process inside `config.Load`, or have `Load` return warnings the caller cannot drop), then a grep-style arch test that `config.Load(` appears in `internal/adapters/cli` only in `root.go` (and `init.go` with `WithAppDir`).
 
 ---
 
@@ -805,7 +805,7 @@ The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRu
 
 #### F-8 · DUPLICATION — "who is the local signer" is resolved six times in cli, never in operations
 
-`agentkey.NewDiscoverer().Discover(ctx, cfg.SignKey()|keyFlag)` with surrounding fallback/warning logic at: `cli.runSign` + `resolveSignKeyOverride` (`sign.go`), `cli.resolveReviewSigner` + `warnIfSoftwareKey` (`review.go`), `cli.resolvePushSignature`/`mintPushSignature` (`bundle_push_cli.go` — comment: *"mirroring internal/cli/sign.go's runSign"*), `cli.signKeyResolutionDetail` (`doctor_cmd.go` — comment: *"see review.go's resolveReviewSigner"*), `cli.warnIfNoSignKey` (`init_systemdeps.go`), and `skill export` (`skill_cmd.go`). `operations.ResolveSignerKey` is a different thing (a publisher's key to trust). The most complete copy is `review.go`'s (handles unsigned confirmation and software-key warning).
+`agentkey.NewDiscoverer().Discover(ctx, cfg.SignKey()|keyFlag)` with surrounding fallback/warning logic at: `cli.runSign` + `resolveSignKeyOverride` (`sign.go`), `cli.resolveReviewSigner` + `warnIfSoftwareKey` (`review.go`), `cli.resolvePushSignature`/`mintPushSignature` (`bundle_push_cli.go` — comment: *"mirroring internal/adapters/cli/sign.go's runSign"*), `cli.signKeyResolutionDetail` (`doctor_cmd.go` — comment: *"see review.go's resolveReviewSigner"*), `cli.warnIfNoSignKey` (`init_systemdeps.go`), and `skill export` (`skill_cmd.go`). `operations.ResolveSignerKey` is a different thing (a publisher's key to trust). The most complete copy is `review.go`'s (handles unsigned confirmation and software-key warning).
 
 **Settles it.** `operations.ResolveLocalSigner(ctx, cfg, explicitKey string) (ssh.Signer, SignerOrigin, error)`; six call sites become one call each.
 
@@ -816,7 +816,7 @@ The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRu
 - **Three ways out.** `cli.emit` (≈90 verbs); `cli.outputFormatOf` streaming with a private text/json-only parser (`plan watch`, `session watch`, `run` structured); bare `fmt.Print*` to process stdout (`deps check` 9, `deps upgrade` 10, `init*` 45, `remote discover` 17, `run.go` 18, `manage.go` 5). `format.go`'s own comment: *"Widening those to the full five formats is out of scope here."* Row `lively-revision` holds the ruled design (0 of 82 emit sites use the reflective renderer; the missing piece is a role axis) — the session verbs show the local workaround: the text closure passed to `emit` is itself `clifmt.Render(w, narrowedSubfield, FormatText)` (`session_worktrees.go`, `session_artifacts.go`, `session_transcript.go`, `session_adopt.go`, `session_purge_cmd.go`), and `session_full.go` says of itself: *"a hand-rolled duplicate of emit()'s own format branch, so this marks the guard on their behalf"* (`formatWasHonored = true` set by hand).
 - **Stale ledger.** `cli.formatDebtAllowlist` and `formatCoverageRegistry` both carry `"agent setup"`, a verb deleted with the alias trees (`agent.go`'s comment: *"the `agent setup` spelling that used to share it was deleted with the rest of the deprecated aliases"*). `TestFormatCoverage_AllRootCmdDescendants` walks tree→registry only, so a registry key with no command is never reported. Ledger values cite `item_helpers.go`, which no longer exists (`showItem` is in `item_crud.go`).
 - **`--json` shorthand.** `cliemit.Resolve` honours a `--json` flag "a few commands still carry"; no ctxloom command registers it; only `cmd/taskloom/format.go` does. A compat shim the project rules forbid, living in the shared layer for one binary.
-- **Operations renders.** Six exported operations functions take `w io.Writer` and print prose (`SweepHarpArtifacts`, `SweepOrphanedSessionHomes`, `SweepOrphanedWorktrees`, `SweepOrphanedContainers`, `ReportCompanions`, `WriteAndRecordSyncSummary` — `internal/operations/startup_helpers.go`, `harp_artifacts.go`, `session_home_sweep.go`, `sync.go`), and 12+ operations files call `clidiag.Warn`/`os.Stderr` directly. Through MCP those lines land on the server's stderr.
+- **Operations renders.** Six exported operations functions take `w io.Writer` and print prose (`SweepHarpArtifacts`, `SweepOrphanedSessionHomes`, `SweepOrphanedWorktrees`, `SweepOrphanedContainers`, `ReportCompanions`, `WriteAndRecordSyncSummary` — `internal/adapters/operations/startup_helpers.go`, `harp_artifacts.go`, `session_home_sweep.go`, `sync.go`), and 12+ operations files call `clidiag.Warn`/`os.Stderr` directly. Through MCP those lines land on the server's stderr.
 
 **Settles it.** Add the registry→tree direction to the coverage test (fails on `agent setup`), delete `--json` from `cliemit` and taskloom, and have the six `Sweep*/Report*` functions return a typed report the caller renders. The design work is `lively-revision`; cite it rather than re-deriving.
 
@@ -828,16 +828,16 @@ The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRu
 
 | Scaffold | Copies |
 |---|---|
-| `--format` persistent flag registration | `internal/cli/format.go`, `cmd/taskloom/format.go`, `cmd/ltk/main.go`, `cmd/harp/root.go` |
+| `--format` persistent flag registration | `internal/adapters/cli/format.go`, `cmd/taskloom/format.go`, `cmd/ltk/main.go`, `cmd/harp/root.go` |
 | execute-error tail | `cli.Run` (EmitError), `cmd/ltk.reportExecuteError` (re-gates on `Explicit` which `EmitError` already does; text is `ltk: <err>`), `cmd/taskloom.reportExecuteError` (text is `Error: <err>`), `cmd/harp.main` (never structured) — two wordings, ltk's comment defers aligning them |
 | `version` | `cliemit.EmitVersion` used by taskloom + ltk; `cmd/harp/version.go` reimplements its body around its own `resolveFormat` |
 | root PreRun (degraded → strictness, format → clidiag) | `cli.rootPersistentPreRun`, `cmd/taskloom.rootPersistentPreRun` |
 | `manage install/uninstall/check` (patch a companion into an engine's settings) | `cli manage` (`operations.ApplyHooks`/`SetStatusline`), `cmd/taskloom/manage.go` (`confpatch.Store` + `taskloom/engine`), `cmd/ltk/manage.go` (`ltk/engine`); `readIfExists` copied in the last two; `util config-write` is a fourth confpatch front door |
 | process pre-flight (`procsec.HardenAtStartup`, `mountns`, zap sink) | `cmd/ctxloom` only — see F-11 |
 
-`cmd/ctxloom` is 48 lines over `internal/cli`; `cmd/taskloom` is ~30 production files and `cmd/ltk` ~20, both in `package main`, so nothing in `internal/` can compose or test them.
+`cmd/ctxloom` is 48 lines over `internal/adapters/cli`; `cmd/taskloom` is ~30 production files and `cmd/ltk` ~20, both in `package main`, so nothing in `internal/` can compose or test them.
 
-**Settles it.** Move the two trees to `internal/taskloom/cli` and `internal/ltk/cli` (mirroring `internal/cli`), then one `internal/shared/clifamily` (or grow `cliemit`) owning flag registration, PreRun, the error tail and docs mounting; delete the copies.
+**Settles it.** Move the two trees to `internal/taskloom/cli` and `internal/ltk/cli` (mirroring `internal/adapters/cli`), then one `internal/shared/clifamily` (or grow `cliemit`) owning flag registration, PreRun, the error tail and docs mounting; delete the copies.
 
 ---
 
@@ -847,7 +847,7 @@ The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRu
 - `cmd/harp`, `cmd/probe-mcp-server`, `cmd/validate`, `cmd/gen-schemas`, `cmd/archlint` are not in the gate. `cmd/validate` links `internal/schema` + `internal/version`; harmless today, unchecked.
 - `procsec.HardenAtStartup` (`cmd/ctxloom/main.go`) says *"first and for every ctxloom process without exception … any ctxloom process can be the one holding the coordinator credential"*, but `cmd/taskloom` and `cmd/ltk` — spawned inside sessions as MCP servers and hooks with the session env — do not call it. Whether the coordinator credential reaches their environment is a seam-2/4 question (handoff §7); if it does, the exception the comment denies exists.
 
-**Settles it.** A `layeringRule{from: "internal/claude", forbid: ["internal/core/bundles", "internal/core/config", "internal/lm", "internal/operations"]}` (zero allowlist) so the leak is caught where it is introduced; add the remaining binaries to the lean list with their own forbidden sets; call `procsec.HardenAtStartup` from every family `main`.
+**Settles it.** A `layeringRule{from: "internal/claude", forbid: ["internal/core/bundles", "internal/core/config", "internal/lm", "internal/adapters/operations"]}` (zero allowlist) so the leak is caught where it is introduced; add the remaining binaries to the lean list with their own forbidden sets; call `procsec.HardenAtStartup` from every family `main`.
 
 ---
 
@@ -855,18 +855,18 @@ The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRu
 
 | Symbol, file | Quote | What it is working around |
 |---|---|---|
-| `operations.RunOneshotRequest` doc, `internal/operations/oneshot.go` | *"a delegated child's oneshot fallback and `ctxloom run --print` mirror the same tail (runResolvedAgent) without going through this facade"* | F-1: no shared launch service |
+| `operations.RunOneshotRequest` doc, `internal/adapters/operations/oneshot.go` | *"a delegated child's oneshot fallback and `ctxloom run --print` mirror the same tail (runResolvedAgent) without going through this facade"* | F-1: no shared launch service |
 | `cli.session_full.go` | *"a hand-rolled duplicate of emit()'s own format branch, so this marks the guard on their behalf"* + `formatWasHonored = true` | F-9: emit cannot render one struct two ways |
 | `cmd/taskloom/docs_gen.go`, `cmd/ltk/docs_gen.go` | *"taskloom's cobra tree lives in `package main` and so cannot be imported"* | F-10: CLIs in package main |
-| `cli.pushBundleCfg`, `internal/cli/bundle_push_cli.go` | *"mirroring internal/cli/sign.go's runSign"*; `doctor_cmd.go`: *"see review.go's resolveReviewSigner"* | F-8: no local-signer operation |
-| `cli.rootPersistentPreRun`, `internal/cli/root.go` | *"config.Load is called from ~10 sites across the CLI — a per-Config toggle would only take effect on whichever one happened to be wired"* | F-6: no single load funnel, so the switch became a global |
-| `cli.rootCommand`, `internal/cli/root.go` | *"isolation could import internal/version directly (it's a leaf), but this stays a Set\* push for now rather than churning that wiring too"* | F-7: a global standing in for an import |
+| `cli.pushBundleCfg`, `internal/adapters/cli/bundle_push_cli.go` | *"mirroring internal/adapters/cli/sign.go's runSign"*; `doctor_cmd.go`: *"see review.go's resolveReviewSigner"* | F-8: no local-signer operation |
+| `cli.rootPersistentPreRun`, `internal/adapters/cli/root.go` | *"config.Load is called from ~10 sites across the CLI — a per-Config toggle would only take effect on whichever one happened to be wired"* | F-6: no single load funnel, so the switch became a global |
+| `cli.rootCommand`, `internal/adapters/cli/root.go` | *"isolation could import internal/version directly (it's a leaf), but this stays a Set\* push for now rather than churning that wiring too"* | F-7: a global standing in for an import |
 | `cli.format.go` const block | *"a handful of streaming commands … parse --format themselves via their own text/json-only switch … Widening those to the full five formats is out of scope here"* | F-9: second format parser |
-| `cli.runLLMTurn`, `internal/cli/llm_turn.go` | *"a standUpRunner ERROR here is deliberately downgraded to a warning below (interactive turn has no RunID, so no EngineHost, and an MCP hiccup degrades to the shim's local fallback rather than failing the turn)"* | a fallback masking a runner-standup failure for one of three verbs sharing `standUpRunner` |
-| `cli.warnHostBypassStopgap`, `internal/cli/run.go` | *"surfaces the claude-code host-bypass stopgap: blanket auto-approval on the bare host. It's the default path, so surface it only under -v to avoid warning fatigue"* | a security posture named "stopgap" that is the default and is hidden below `-v` |
+| `cli.runLLMTurn`, `internal/adapters/cli/llm_turn.go` | *"a standUpRunner ERROR here is deliberately downgraded to a warning below (interactive turn has no RunID, so no EngineHost, and an MCP hiccup degrades to the shim's local fallback rather than failing the turn)"* | a fallback masking a runner-standup failure for one of three verbs sharing `standUpRunner` |
+| `cli.warnHostBypassStopgap`, `internal/adapters/cli/run.go` | *"surfaces the claude-code host-bypass stopgap: blanket auto-approval on the bare host. It's the default path, so surface it only under -v to avoid warning fatigue"* | a security posture named "stopgap" that is the default and is hidden below `-v` |
 | `cliemit.Resolve`, `internal/shared/cliemit/cliemit.go` | *"A set --json flag (the backward-compatible shorthand a few commands still carry) is honored"* | F-9: compat shim in the shared layer |
-| `operations.resolveListConfig`, `internal/operations/mcp_servers.go` | *"returns cfg when the caller already has one loaded, or loads a fresh one when cfg is nil"* | F-6: optional config parameter |
-| `cli.rootCommand`, `internal/cli/root.go` | *"Compose the registry HERE as well as in Run() … a path that only DOCUMENTS the CLI (scripts/gendocs via GetRootCmd) never reaches Run()"* | two entry points into one tree (documented, guarded by sync.Once; recorded for seam 1's registry story) |
+| `operations.resolveListConfig`, `internal/adapters/operations/mcp_servers.go` | *"returns cfg when the caller already has one loaded, or loads a fresh one when cfg is nil"* | F-6: optional config parameter |
+| `cli.rootCommand`, `internal/adapters/cli/root.go` | *"Compose the registry HERE as well as in Run() … a path that only DOCUMENTS the CLI (scripts/gendocs via GetRootCmd) never reaches Run()"* | two entry points into one tree (documented, guarded by sync.Once; recorded for seam 1's registry story) |
 
 ---
 
@@ -896,7 +896,7 @@ The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRu
 func runCLI(construct func() (*zap.Logger, error), dispatch func() int, warn io.Writer) int
 // INPUT: logger ctor, dispatch (cli.Run). OUTPUT: exit code. HIDDEN: zap.ReplaceGlobals (writes a global).
 
-// internal/cli/root.go
+// internal/adapters/cli/root.go
 func Run() int
 // INPUT: none. OUTPUT: exit code. HIDDEN: os.Args (cobra), os.Stderr, engines.Register global registry, version.Version, every package global below.
 func GetConfig() (*config.Config, error)
@@ -921,7 +921,7 @@ func Fail(class Class, fixit, format string, args ...any)   // records a finding
 ### 5.2 Output
 
 ```go
-// internal/cli/format.go
+// internal/adapters/cli/format.go
 func emit(cmd *cobra.Command, data any, text func() error) error
 // INPUT: cmd (for --format), data (structured), text (closure for FormatText). OUTPUT: error. HIDDEN OUTPUT: formatWasHonored=true.
 func outputFormatOf(cmd *cobra.Command) string          // raw flag string; HIDDEN OUTPUT: formatWasHonored=true
@@ -943,7 +943,7 @@ func (f Format) Structured() bool
 ### 5.3 Launch (the three tails)
 
 ```go
-// internal/cli/run.go  — no exported signature; the boundary is the struct
+// internal/adapters/cli/run.go  — no exported signature; the boundary is the struct
 type runState struct { cmd *cobra.Command; args []string; ctx context.Context; gates *phaseGates; cfg *config.Config; prompt string; llmEnv map[string]string; ctxResult *operations.AssembleContextResult; label, backendName, labelModel, agentPermissions string; agentSurfaces map[agent.SurfaceKind]string; agentRuntime agent.RuntimeAxis; boundAgent string; agentHomeMode agents.HomeMode; sessionWorkspace string; mode pb.ExecutionMode; protoFragments []*pb.Fragment; promptFragment *pb.Fragment; workDir string; activeHarp string; runEnv, runnerSpawnEnv map[string]string; sessionCoord *coord.Coordinator; labelPerm, projectPerm string; requestedPerm agent.PermissionMode; hasRequestedPerm bool; permMode agent.PermissionMode; managed *agent.ManagedConfig; req *pb.RunStart; runAxes isolation.Axes; policy isolation.Policy; ws isolation.Workspace; client pb.Client; interactiveLauncher vpio.Launcher; runnerHandle *isolation.RunnerHandle; ownedRun *ownedRunSession }
 // HIDDEN INPUTS of the phases: 20+ package-level run* flag vars; os.Getenv(CTXLOOM_SESSION_HARP / CTXLOOM_PROJECT_ID / CTXLOOM_RESUMED_*); strictness global; config memo.
 func runRun(cmd *cobra.Command, args []string) error
@@ -954,7 +954,7 @@ func resolveRunLLM(cfg *config.Config, override, profileLLM string) (string, err
 func newPhaseGates(w io.Writer) *phaseGates
 func (g *phaseGates) close(p Phase) error              // HIDDEN INPUT: strictness ledger since last mark; OUTPUT: *ExitError{3}
 
-// internal/operations/oneshot.go
+// internal/adapters/operations/oneshot.go
 type RunOneshotRequest struct { Profile, Task, LLM, WorkDir string; Verbosity int; Permissions string; Harp string; Pipeline *bundles.Pipeline; Factory pb.ClientFactory }
 type RunOneshotResult struct { Profile, Output, Label, Backend, Model string }
 func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) (*RunOneshotResult, error)
@@ -964,10 +964,10 @@ func resolveOneshotLabel(cfg *config.Config, override, profileLLM string) string
 func resolveOneshotPermissions(reqPerm, labelPerm, projectPerm string) string      // no agent rung
 func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotResult, error)   // private; called by RunOneshot and delegate.go
 
-// internal/operations/delegate.go
+// internal/adapters/operations/delegate.go
 func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequest) (*PreparedAgentChat, error)
 
-// internal/operations
+// internal/adapters/operations
 func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContextRequest) (*AssembleContextResult, error)
 func ResolveAgent(ctx context.Context, cfg *config.Config, name, engineOverride string) (*ResolvedAgent, error)
 func AssignSession(ctx context.Context, projectDir, backend string) (sessions.Entry, error)   // HIDDEN OUTPUT: session index file
@@ -979,7 +979,7 @@ func SweepOrphanedWorktrees(ctx context.Context, w io.Writer)      // renders; n
 func ReportCompanions(w io.Writer, root signing.TrustRoot)          // renders; no return value
 func WriteAndRecordSyncSummary(w io.Writer, result *SyncDependenciesResult)
 
-// internal/lm/isolation
+// internal/adapters/isolation
 func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, projectDir, agentID string, state SessionState) (Policy, Workspace)
 // NOTE: no error return — a refused container request is reported through the strictness global and caught by the caller's NEXT gate (cli.phaseGates.close(PhaseWorkspace)); operations.RunOneshot reads it via isolationGateErr.
 ```
@@ -987,21 +987,21 @@ func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, pr
 ### 5.4 Hooks and runner
 
 ```go
-// internal/operations/turn_transcript.go
+// internal/adapters/operations/turn_transcript.go
 func ResolveTurnTranscript(ctx context.Context, harp, hookTranscriptPath string) (vendorreader.VendorAdapter, string, error)
 // INPUT: harp (from env at every caller), the vendor's transcript path from the hook payload. OUTPUT: adapter + resolved source path.
 
-// internal/cli/llm_runner_common.go
+// internal/adapters/cli/llm_runner_common.go
 func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label string) (*runnerStandup, error)
 // HIDDEN INPUTS: os.Getenv(coordinator credential, run depth, CTXLOOM_SESSION_HARP); config.Load() direct. HIDDEN OUTPUTS: os.Unsetenv(credential), os.Setenv(runner MCP socket).
 
-// internal/mcp/mcp_server.go
+// internal/adapters/mcp/mcp_server.go
 func ServeStdio(ctx context.Context, cwd string, gate func() error, dryRun bool) error   // gate = cli.phaseGates closure
 
 // internal/shared/tasks/operations
 func ResolveProjectIdentity(workDir string) (projectID, warning string, err error)
 func SetTaskStatus(tc TaskContext, harpID, status, trigger string) (*TaskResult, error)   // tc.ProjectID == "" → re-resolved from tc.WorkDir (see F-13)
-// internal/projectroot
+// internal/adapters/projectroot
 func TaskStoreRoot(fs afero.Fs, dir string) (string, error)   // the worktree→primary redirect duplicated in cli/taskstore_identity.go and taskloom/workdir
 ```
 
@@ -1037,7 +1037,7 @@ func resolveFormat(cmd *cobra.Command) (clifmt.Format, error)   // == cliemit.Re
 |---|---|---|
 | F-1 (three launch tails), F-13 God struct `runState` | **1 — launch form / resolved paths** | `runState` IS the launch form on the cli side; `resolvedRunRequest` is its operations twin. The ladders (label, permission) and `isolation.Prepare`'s no-error contract are seam 1's contract. |
 | F-1 branch C, §6 item 2 | **4 — delegation / mail / run record** | `PrepareAgentChat → runResolvedAgent` is the delegated child's launch; which startup steps a child skips is a seam-4 question. |
-| F-2 (`standUpRunner`), F-11 hardening, §6 item 3 | **2 — MCP tool request + session identity** | The runner-local MCP and credential scrub live in `cli.standUpRunner`; whether taskloom/ltk see the credential is decided there and in `internal/mcp`. |
+| F-2 (`standUpRunner`), F-11 hardening, §6 item 3 | **2 — MCP tool request + session identity** | The runner-local MCP and credential scrub live in `cli.standUpRunner`; whether taskloom/ltk see the credential is decided there and in `internal/adapters/mcp`. |
 | F-4, F-5 (hook verbs, `internal/claude` in cli), F-11 lean chain | **2 and the engines seam** | The hook verbs are Claude Code's callback surface; `internal/claude`'s import list is the lean-binaries front line. |
 | F-5 harp literal ×12, F-13 project-id, §6 item 1 | **7 — session harp and transcript path** | `CTXLOOM_SESSION_HARP` under two names; `ResolveTurnTranscript(harp, path)`; the seed-task project-id round trip. |
 | F-8 (local signer ×6), F-2 review walk | **5 — preimage and approval** | Countersigning and signature minting decisions are in cli; seam 5 owns what they sign. |

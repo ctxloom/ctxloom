@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // Store is the read+write port (ADR 0026): a backing store bundles persist

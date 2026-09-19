@@ -53,7 +53,7 @@ flowchart TD
   LAUNCH -->|"cmd.Stderr"| TEE
   RI -->|"stderr param ACCEPTED, NEVER READ"| VOID["/dev/null"]
   AU --> LIVE["internal/liveness/probe.go:75<br/>ProcState{Observed:true, Alive:alive}"]
-  AU --> REAP["internal/lm/isolation/worktree_reap.go:205<br/>dead ⇒ DELETE worktree"]
+  AU --> REAP["internal/adapters/isolation/worktree_reap.go:205<br/>dead ⇒ DELETE worktree"]
   AU --> SD["internal/core/coord/statedir.go:76"]
 
   style VOID fill:#fdd,stroke:#900
@@ -81,7 +81,7 @@ One child on a pty, with the caller supplying stdin, the output writer, and a re
 
 ## `internal/shared/pidalive`
 
-One function, two build-tagged implementations, no types and no state. Exists as a dependency-free leaf specifically to break an import cycle: `internal/lm/isolation` cannot import `agentcoord/coord` (which depends on isolation transitively via `lm/backends`).
+One function, two build-tagged implementations, no types and no state. Exists as a dependency-free leaf specifically to break an import cycle: `internal/adapters/isolation` cannot import `agentcoord/coord` (which depends on isolation transitively via `lm/backends`).
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -91,10 +91,10 @@ One function, two build-tagged implementations, no types and no state. Exists as
 | Consumer | Site | Cost of a false "dead" | Cost of a false "alive" |
 |---|---|---|---|
 | `internal/liveness` watchdog | `internal/liveness/probe.go:75` | a live child is declared `StateDied` | a reaped child is never noticed |
-| `internal/lm/isolation` reaper | `internal/lm/isolation/worktree_reap.go:205` | a live agent's worktree is deleted | an orphaned worktree lingers |
+| `internal/adapters/isolation` reaper | `internal/adapters/isolation/worktree_reap.go:205` | a live agent's worktree is deleted | an orphaned worktree lingers |
 | `internal/core/coord` state lock | `internal/core/coord/statedir.go:76` | two coordinators share a state dir | a coordinator is locked out of its state |
 
-Four one-line wrappers re-export it under local names: `coord.PidAlive` (`internal/core/coord/pidalive_unix.go:9` + `_windows` twin) and `isolation.pidAlive` (`internal/lm/isolation/pidalive_unix.go:12` + twin). The build tags on those four files are ceremony — the platform split already happened inside `pidalive`.
+Four one-line wrappers re-export it under local names: `coord.PidAlive` (`internal/core/coord/pidalive_unix.go:9` + `_windows` twin) and `isolation.pidAlive` (`internal/adapters/isolation/pidalive_unix.go:12` + twin). The build tags on those four files are ceremony — the platform split already happened inside `pidalive`.
 
 ## `internal/shared/stderrtail`
 
@@ -111,10 +111,10 @@ A bounded, mutex-guarded tail of a child's stderr, filled by the child's own std
 
 | Consumer | Site | Shape |
 |---|---|---|
-| `internal/lm/isolation` | `attach.go:85-86` (tee), `direct_runner.go:129-130` (`New`) | tail read via `AttachedContainer.StderrTail()` (`attach.go:36`) |
+| `internal/adapters/isolation` | `attach.go:85-86` (tee), `direct_runner.go:129-130` (`New`) | tail read via `AttachedContainer.StderrTail()` (`attach.go:36`) |
 | `internal/lm/grpc` | `host_runner.go:72-73` (`New`) | tail read via `HostRunner.StderrTail()` (`host_runner.go:123`) |
 
-Related but distinct implementations of the bounded-byte-tail concept live at `internal/vpio/dockerexec/dockerexec.go:255-277` (`tailRing`, byte-identical `Write`, `execTailBytes = 8192` at `dockerexec.go:44`, and without the `max <= 0` and nil-receiver guards) and `internal/termui/ring.go:6-54` (`Ring` — a true fixed-capacity circular buffer with a `dropped` counter and `Drain()`-and-reset, deliberately not goroutine-safe). Real vs documented: the package doc says it is "the one implementation of a pattern this repo had already grown twice"; the count at authoring was four — two were absorbed, the `dockerexec` copy was not.
+Related but distinct implementations of the bounded-byte-tail concept live at `internal/vpio/dockerexec/dockerexec.go:255-277` (`tailRing`, byte-identical `Write`, `execTailBytes = 8192` at `dockerexec.go:44`, and without the `max <= 0` and nil-receiver guards) and `internal/adapters/termui/ring.go:6-54` (`Ring` — a true fixed-capacity circular buffer with a `dropped` counter and `Drain()`-and-reset, deliberately not goroutine-safe). Real vs documented: the package doc says it is "the one implementation of a pattern this repo had already grown twice"; the count at authoring was four — two were absorbed, the `dockerexec` copy was not.
 
 ## `internal/shared/shellenv`
 
@@ -172,7 +172,7 @@ Widens binary resolution from the process's inherited `PATH` to the user's login
 - **Capture is ADDITIVE via `TeeStderr`.** The obvious `cmd.Stderr = ring` silently removes a passthrough an operator may depend on. Both spellings are offered; `direct_runner.go:130` and `host_runner.go:73` use plain `New` and do replace stderr.
 - `Tail()` is nil-receiver safe and returns `""` when the child said nothing; consumers guard on non-emptiness before wrapping it into an error.
 - Peak memory is bounded by the largest *single* write, not by `max`: `append` happens before the budget check, so one 50 MB line transiently grows `buf` to 50 MB before re-slicing to 8 KB.
-- `DefaultBytes` is re-aliased to a private constant at `internal/lm/isolation/direct_runner.go:25` and `internal/lm/grpc/host_runner.go:19`, while `internal/lm/isolation/attach.go:85` uses it directly.
+- `DefaultBytes` is re-aliased to a private constant at `internal/adapters/isolation/direct_runner.go:25` and `internal/lm/grpc/host_runner.go:19`, while `internal/adapters/isolation/attach.go:85` uses it directly.
 
 **PATH resolution (`shellenv`)**
 

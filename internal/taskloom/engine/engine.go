@@ -12,8 +12,8 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 

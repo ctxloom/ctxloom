@@ -14,9 +14,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/cli"
+	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/docsgen"
-	"github.com/ctxloom/ctxloom/internal/mcp"
 )
 
 func main() {
@@ -68,7 +68,7 @@ func ctxloomProduct() (*docsgen.Product, func(), error) {
 	return &docsgen.Product{
 		Bin:       "ctxloom",
 		Root:      cli.GetRootCmd(),
-		CLISource: "internal/cli",
+		CLISource: "internal/adapters/cli",
 		LinkBase:  "/reference/cli/",
 		ManTitle:  "CTXLOOM",
 		ManManual: "User Commands",
@@ -76,11 +76,11 @@ func ctxloomProduct() (*docsgen.Product, func(), error) {
 		// also deliberately undocumented (shell plumbing, hook endpoints,
 		// internal helpers). A command hidden for the "advanced but documented"
 		// reason belongs here, and the gate in main_test.go is what says so —
-		// this list and internal/cli's Hidden flags are joined by nothing else.
+		// this list and internal/adapters/cli's Hidden flags are joined by nothing else.
 		ConfigSchema: "resources/schema/input/config-schema.json",
 
 		MCPServer: mcpServer,
-		MCPSource: "internal/mcp",
+		MCPSource: "internal/adapters/mcp",
 		// The documented surface is the RUNNER-terminated one (NewDocMCPServer →
 		// newRunnerMCPServer): what a harness actually sees inside `ctxloom run`
 		// through its stdio `ctxloom mcp serve` shim. Naming

@@ -147,7 +147,7 @@ func TestListVanishedSessionDirIsNotAnError(t *testing.T) {
 
 // TestList_FindsNestedPlanFiles pins the fix: List enumerated only
 // <root>/<harp>/*.plan.md — exactly one level deep — while the paired
-// watcher (internal/shared/watch, wired in internal/cli/plan_watch.go) is
+// watcher (internal/shared/watch, wired in internal/adapters/cli/plan_watch.go) is
 // explicitly recursive. A plan nested one level deeper than that (this
 // project's own arch-review session directories are shaped exactly this
 // way) fired a change event with nothing in the re-queried list to show for

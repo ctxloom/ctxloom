@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -297,7 +297,7 @@ func TestUpdate_AbandonedMutationDoesNotLeak(t *testing.T) {
 // like a fresh process start would.
 // runtime (ScopeMachine) is the override target here, not workspace
 // (ScopeShared, this test's original target): env may not set a
-// ScopeShared key (internal/config/layerscope) — a project-policy key like
+// ScopeShared key (internal/adapters/configload/layerscope) — a project-policy key like
 // workspace must come from project/flag, never the ambient environment.
 // workspace still appears below as the "freshly-added, no-override" field,
 // since a plain project-file value stays legal there.
@@ -354,7 +354,7 @@ func TestReload_ExistingSnapshotHoldersUnaffected(t *testing.T) {
 // cfg.Agents, cfg.MCP, etc., let alone assign to them — there is no runtime
 // path to test here because the illegal statement never compiles. The
 // closest in-repo proof is negative: internal/lm/backends,
-// internal/operations, and internal/cli (85+ non-test files) read Config
+// internal/adapters/operations, and internal/adapters/cli (85+ non-test files) read Config
 // exclusively through Get<Field> accessors (see accessors.go) and the
 // package builds — grep confirms zero direct field references remain
 // outside internal/core/config. What CAN be asserted at runtime is the

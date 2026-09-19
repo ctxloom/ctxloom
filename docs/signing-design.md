@@ -34,7 +34,7 @@ nothing against a hostile publisher.
 Two holes follow directly, and both are worth naming plainly.
 
 **Source trust is hash-blind.** `EffectiveTrust` step 3
-(`internal/operations/trust.go:122-131`, resolving through `remoteTrusted` at
+(`internal/adapters/operations/trust.go:122-131`, resolving through `remoteTrusted` at
 `trust.go:170-180`) allows an item because its *repo URL* carries
 `trust_bundles: true`. It never looks at the content. A remote you trusted once
 can serve changed bytes forever, silently, and the gate will pass them. The
@@ -149,9 +149,9 @@ because its bytes crossed exactly the intermediary a loadout's do not. See
 `docs/trust-model.md`, "Companion loadouts".
 
 **They do not gate your own project's repo.** A bundle committed at
-`.ctxloom/bundles/*.yaml` is a `ctxloom:local` ref (`internal/remote/reference.go:17`)
+`.ctxloom/bundles/*.yaml` is a `ctxloom:local` ref (`internal/adapters/remote/reference.go:17`)
 for every teammate who clones the project, so it is allowed at step 2
-(`internal/operations/trust.go:119-121`) without review and without a signature
+(`internal/adapters/operations/trust.go:119-121`) without review and without a signature
 check. This is deliberate and it stays. Builtin bundles compiled into the binary
 are likewise allowed without review.
 
@@ -458,7 +458,7 @@ building the feature at all.
 it would break legitimate agent workflows (`git push` over SSH, an agent signing
 its own commits), and those are real and common, so we do not break them. A
 host-run agent inherits the full parent environment
-(`internal/lm/isolation/runner.go:65`).
+(`internal/adapters/isolation/runner.go:65`).
 
 ssh-agent is a signing oracle. Any process holding that socket can ask it to sign
 arbitrary bytes. It cannot *read* the key, and it does not need to: it needs a

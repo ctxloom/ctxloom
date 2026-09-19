@@ -56,7 +56,7 @@ const BackendClaudeCode = "claude-code"
 // BackendMock is the test/development double's registry name. It is a real
 // registered backend (internal/lm/backends holds a Declaration for it), and
 // it is the SECOND implementation that keeps engine-facing ports honest —
-// see internal/transcript/vendorreader/mock. Named here so the identity is
+// see internal/adapters/transcript/vendorreader/mock. Named here so the identity is
 // one constant rather than a literal re-typed at each site; a hand-written
 // == "mock" is the drift this replaces.
 const BackendMock = "mock"
@@ -295,7 +295,7 @@ type SettingsConfig struct {
 // §7A.3): `sign.default` makes signing ride every push the way `git commit
 // -S` rides every commit ("the best signing ceremony is the one that
 // already happened"), and `sign.key` pins the explicit key/fingerprint the
-// zero-config discovery chain (internal/signing/agentkey) should use when
+// zero-config discovery chain (internal/adapters/signing/agentkey) should use when
 // set, overriding git config user.signingkey and ssh-agent auto-detection.
 type SignConfig struct {
 	// Default: when true, `fragment push`/`command push` sign unless --no-sign

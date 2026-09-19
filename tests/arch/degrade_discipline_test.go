@@ -111,7 +111,7 @@ var degradeBranchAllowed = map[string]degradeExemption{
 		"after failing a non-headless-safe permission declaration, degraded launches the child " +
 		"at PermissionPlan, the most restrictive headless-safe posture, so the degraded path is " +
 		"strictly safer than the declared one it replaces"},
-	"internal/operations/delegate.go": {sites: 1, why: "no boundary is crossed — an " +
+	"internal/adapters/operations/delegate.go": {sites: 1, why: "no boundary is crossed — an " +
 		"unresolvable model is a CONFIG fault, and degraded launches with the model exactly as " +
 		"configured (rs.Model unchanged). The cost is an opaque engine-side error later instead " +
 		"of a clear one here; nothing is granted that strict mode withholds"},

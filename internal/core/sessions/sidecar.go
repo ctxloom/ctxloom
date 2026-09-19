@@ -154,7 +154,7 @@ func MigrateIndex(root string) (*MigrationReport, error) {
 }
 
 // essenceFrontmatter is the slice of essence.md's frontmatter a listing
-// needs. The file is written by internal/memory (distilledMeta); only the
+// needs. The file is written by internal/adapters/memory (distilledMeta); only the
 // summary is read back here.
 type essenceFrontmatter struct {
 	Summary string `yaml:"summary"`

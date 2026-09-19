@@ -330,7 +330,7 @@ func TranscriptStale(transcriptPath string, stampedEntries int) (stale, known bo
 // malformed line is skipped rather than fatal, matching how every transcript
 // reader in this project treats one.
 //
-// It lives here, not in internal/transcript, because internal/transcript
+// It lives here, not in internal/adapters/transcript, because internal/adapters/transcript
 // imports this package: the counter must be self-contained or the two form a
 // cycle. It needs nothing but stdlib, so that costs nothing.
 func CountTranscriptEntries(path string) (int, bool) {
@@ -367,7 +367,7 @@ func CountTranscriptEntries(path string) (int, bool) {
 
 // transcriptEntryKind is the canonical transcript's conversational record
 // kind. Named rather than inlined so the string appears once (see
-// internal/transcript.KindEntry, which this must agree with; this package
+// internal/adapters/transcript.KindEntry, which this must agree with; this package
 // cannot import that one without a cycle).
 const transcriptEntryKind = "entry"
 

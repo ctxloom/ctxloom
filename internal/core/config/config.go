@@ -16,15 +16,15 @@ import (
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/config/layerscope"
-	"github.com/ctxloom/ctxloom/internal/content/remotetree"
+	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/configload/layerscope"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
+	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/projectroot"
-	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
@@ -127,7 +127,7 @@ type Config struct {
 	// config-layer-scope design doc's "Consent leaves the chain": a config
 	// key is reachable from THREE channels an agent can write (a home file,
 	// an environment variable, an argv), and prior human consent needs a
-	// home with none. ScopeNever in internal/config/layerscope names the
+	// home with none. ScopeNever in internal/adapters/configload/layerscope names the
 	// scope this key would have needed and why no layer may carry it.
 	// runtime is the project-wide DEFAULT for the AGENT-level runtime axis
 	// (host | container): where an agent's engine process executes. Empty
@@ -341,7 +341,7 @@ type Config struct {
 // Config's MarshalYAML/UnmarshalYAML below round-trip through configDoc, so
 // EVERY existing yaml.Marshal(cfg)/yaml.Unmarshal(data, cfg) call site — both
 // of this package's own (loadLayeredConfig, ParseConfig) and the one external
-// site (internal/cli/config.go's renderConfigYAML) — keeps working completely
+// site (internal/adapters/cli/config.go's renderConfigYAML) — keeps working completely
 // unchanged, with byte-identical output, because yaml.v3 automatically
 // prefers a type's Marshaler/Unmarshaler methods over reflecting its fields
 // directly.
@@ -623,7 +623,7 @@ func WithOverrides(o confload.Overrides) LoadOption {
 
 // SetOverrides installs o as the process-wide env/CLI overrides every
 // subsequent Load/LoadFresh resolves (until the next SetOverrides call) —
-// internal/cli/root.go's PersistentPreRun calls it once, right after flags
+// internal/adapters/cli/root.go's PersistentPreRun calls it once, right after flags
 // are parsed, before any config Load. The actual storage lives in
 // confload.SetProcessOverrides (see that function's doc for why: mainly so
 // internal/testsupport can reset it without an import cycle through config's
@@ -704,7 +704,7 @@ func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
 }
 
 // InstallOverridesFromFlags is the CLI's own hook into the override chain:
-// internal/cli/root.go's PersistentPreRun calls this ONCE, right after cobra
+// internal/adapters/cli/root.go's PersistentPreRun calls this ONCE, right after cobra
 // has parsed the invoked command's flags, so it sees every --config-set value given
 // on THIS invocation (see confload.ConfigSetFlagName's doc for why --config-set, not the
 // invoked command's flags in general, is the only CLI-layer source). It
@@ -1058,7 +1058,7 @@ func (c *Config) ShouldSignByDefault() bool {
 
 // SignKey returns the configured sign.key override (a --key-equivalent
 // fingerprint, public key path, or ssh-agent key name/comment), or "" when
-// unset — meaning the zero-config discovery chain (internal/signing/agentkey)
+// unset — meaning the zero-config discovery chain (internal/adapters/signing/agentkey)
 // should be used instead.
 func (c *Config) SignKey() string {
 	return c.settings.SignKey()

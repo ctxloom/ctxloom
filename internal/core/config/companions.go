@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // companionProbeTimeout bounds the `<bin> loadout --format json` exec at
@@ -36,7 +36,7 @@ var (
 //
 // The seam lives with the probe, in cliversion — the owner of the
 // cross-binary `version --format json` contract, and the ONE implementation
-// the agent image's version key (internal/lm/isolation) reads through as
+// the agent image's version key (internal/adapters/isolation) reads through as
 // well. Two probes could disagree about what a companion's version IS, and
 // the disagreement would surface as an image that never rebuilds.
 func SetCompanionVersionOutputForTesting(fn func(string) ([]byte, error)) func() {

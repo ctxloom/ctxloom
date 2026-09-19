@@ -134,7 +134,7 @@ Nothing unique. Only dirt is gendocs debris (see below).
 - `5a94c9fa` "refactor(config): route agent/mcp/statusline/container writes through
   Manager.Update" → **`e5e9ee26`** (2026-07-21), identical subject, identical file set.
   `git cherry` marks it `+` only because upstream deleted 27 more lines from
-  `internal/operations/helpers.go` — an intervening `release/0.7` fix (the `getFS`/
+  `internal/adapters/operations/helpers.go` — an intervening `release/0.7` fix (the `getFS`/
   `injectedFS` lock-skip and the `Load` → `LoadFresh` change) had enlarged the block being
   removed. Corroborated: `internal/core/config/interim_setters.go`, whose deletion is the point
   of the commit, does not exist on `release/0.7`.

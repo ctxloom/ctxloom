@@ -2,8 +2,8 @@
 //
 // ctxloom projects agent.ChatEvent (and its variant structs) onto several
 // hand-written mirrors: the canonical transcript's on-disk payloads
-// (internal/transcript) and the `--format json` NDJSON DTOs the VSCode
-// frontend consumes (internal/cli). Each mirror is edited in three places at
+// (internal/adapters/transcript) and the `--format json` NDJSON DTOs the VSCode
+// frontend consumes (internal/adapters/cli). Each mirror is edited in three places at
 // once — mirror struct, converter, published schema — and every time one of
 // those was forgotten the result was SILENT field loss: the writer succeeded,
 // the bytes went out, and the field simply was not in them. That has now

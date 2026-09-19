@@ -1,13 +1,13 @@
 # CLI-side shared helpers — `clidiag`, `cliemit`, `cliversion`, `companionloadout`, `plans`, `upgrade`
 
-Six independent leaf packages under `internal/shared/` that the three CLI binaries (`ctxloom` via `internal/cli`, `cmd/taskloom`, `cmd/ltk` — plus `cmd/harp`, which opts out) share so a cross-binary convention is declared once instead of per binary. They own, respectively: the process-wide stderr **warning channel** (`clidiag`), the `--format` **success-output routing** (`cliemit`), the `version --format json` **wire shape** (`cliversion`), the companion `loadout` **subcommand and envelope** (`companionloadout`), the `*.plan.md` **reader** (`plans`), and the in-memory YAML **schema-upgrade primitive** (`upgrade`).
+Six independent leaf packages under `internal/shared/` that the three CLI binaries (`ctxloom` via `internal/adapters/cli`, `cmd/taskloom`, `cmd/ltk` — plus `cmd/harp`, which opts out) share so a cross-binary convention is declared once instead of per binary. They own, respectively: the process-wide stderr **warning channel** (`clidiag`), the `--format` **success-output routing** (`cliemit`), the `version --format json` **wire shape** (`cliversion`), the companion `loadout` **subcommand and envelope** (`companionloadout`), the `*.plan.md` **reader** (`plans`), and the in-memory YAML **schema-upgrade primitive** (`upgrade`).
 
 They do not depend on each other. The only shared substrate is `pkg/clifmt` (three of them) and `cobra` (two of them); `upgrade` and `plans` touch neither.
 
 ```mermaid
 flowchart TD
   subgraph binaries["binaries"]
-    CLI["internal/cli (ctxloom)"]
+    CLI["internal/adapters/cli (ctxloom)"]
     TL["cmd/taskloom"]
     LTK["cmd/ltk"]
     HARP["cmd/harp"]
@@ -23,7 +23,7 @@ flowchart TD
   end
 
   CFMT["pkg/clifmt<br/>Format, Render, EncodeWarning"]
-  SIGN["internal/signing<br/>EncodeLoadoutEnvelope"]
+  SIGN["internal/adapters/signing<br/>EncodeLoadoutEnvelope"]
   YAML["gopkg.in/yaml.v3"]
 
   CLI --> CD & CE & CV & PL
@@ -77,7 +77,7 @@ Decides, for one cobra command invocation, whether the user gets the bespoke hum
 | `Emit` | `internal/shared/cliemit/cliemit.go:25` | Resolves the format; if it is `text` **and** `text != nil`, runs the closure; otherwise `clifmt.Render(cmd.OutOrStdout(), data, format)`. A nil closure is the "reflective text render" affordance. |
 | `Resolve` | `internal/shared/cliemit/cliemit.go:42` | Three-way precedence: a `Changed` `--json` flag ⇒ `FormatJSON`; else raw `--format`, with `""` ⇒ `FormatText` and anything else through `clifmt.ParseFormat`. The `GetString` error is discarded. |
 
-Fan-out: 12 direct production `Emit` sites (`cmd/taskloom` ×10, `cmd/ltk/version.go`, `internal/cli/format.go:44`), and that last one fans out to 143 `emit(` calls inside `internal/cli`. `Resolve` has 4 direct production callers. `cmd/harp/root.go:113` keeps its own `resolveFormat` and does not import this package.
+Fan-out: 12 direct production `Emit` sites (`cmd/taskloom` ×10, `cmd/ltk/version.go`, `internal/adapters/cli/format.go:44`), and that last one fans out to 143 `emit(` calls inside `internal/adapters/cli`. `Resolve` has 4 direct production callers. `cmd/harp/root.go:113` keeps its own `resolveFormat` and does not import this package.
 
 ## `internal/shared/cliversion` — the `version --format json` wire shape
 
@@ -85,25 +85,25 @@ Owns the `{name, version}` JSON shape every family binary emits from `<binary> v
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `Info` | `internal/shared/cliversion/cliversion.go:15` | `{Name string \`json:"name"\`; Version string \`json:"version"\`}` — the wire shape. Constructed by `cmd/harp/version.go:30`, `cmd/ltk/version.go:20`, `cmd/taskloom/version.go:24`, `internal/cli/version.go:16`. |
+| `Info` | `internal/shared/cliversion/cliversion.go:15` | `{Name string \`json:"name"\`; Version string \`json:"version"\`}` — the wire shape. Constructed by `cmd/harp/version.go:30`, `cmd/ltk/version.go:20`, `cmd/taskloom/version.go:24`, `internal/adapters/cli/version.go:16`. |
 | `Render` | `internal/shared/cliversion/cliversion.go:23` | String-switch renderer: `""`/`"text"` writes `info.Version` + newline; `"json"` writes indented JSON; anything else returns an "unknown format" error listing the supported set. |
 
 All four production version commands render through `clifmt.Render` or `cliemit.Emit`, not through `Render`.
 
-## `internal/shared/companionloadout` — the companion `loadout` subcommand
+## `internal/adapters/companions` — the companion `loadout` subcommand
 
-The **emitter half** of the companion-loadout wire protocol: the single shared `loadout` cobra subcommand every in-repo companion binary registers, so ctxloom can exec `<bin> loadout --format json` and receive that companion's self-described bundle inside a signed JSON envelope (signature-envelope spec §4.3). It holds **dispatch only** — loadout *content* stays per-binary because `go:embed` can only embed files in the embedding package's own directory, so each companion embeds its own `loadout.yaml`/`loadout.yaml.sig` and passes the bytes in. Declares no types. Imported by exactly `cmd/ltk` and `cmd/taskloom`; its only internal dependency is `internal/signing`.
+The **emitter half** of the companion-loadout wire protocol: the single shared `loadout` cobra subcommand every in-repo companion binary registers, so ctxloom can exec `<bin> loadout --format json` and receive that companion's self-described bundle inside a signed JSON envelope (signature-envelope spec §4.3). It holds **dispatch only** — loadout *content* stays per-binary because `go:embed` can only embed files in the embedding package's own directory, so each companion embeds its own `loadout.yaml`/`loadout.yaml.sig` and passes the bytes in. Declares no types. Imported by exactly `cmd/ltk` and `cmd/taskloom`; its only internal dependency is `internal/adapters/signing`.
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `NewCommand` | `internal/shared/companionloadout/cli.go:35` | Builds the `loadout` cobra command: `Use: "loadout"`, help text interpolating `binName`, a `--format` string flag defaulting to `"yaml"`, and a `RunE` delegating to `Emit`. Registration is the caller's. |
-| `RunE` closure | `internal/shared/companionloadout/cli.go:49` | `Emit(cmd.OutOrStdout(), format, bundleYAML, sig)` — routes through cobra's writer, not `os.Stdout`. |
-| `ReadEmbeddedSig` | `internal/shared/companionloadout/cli.go:65` | `fs.ReadFile("loadout.yaml.sig")`, returning `nil` on any error. Exists because companions embed via the wildcard `//go:embed loadout.yaml*`; a literal `.sig` directive would hard-fail the build when no signature is committed. |
-| `Emit` | `internal/shared/companionloadout/cli.go:76` | The pure core. `"yaml"` writes `bundleYAML` **verbatim, no trailing newline**; `"json"` calls `signing.EncodeLoadoutEnvelope(bundleYAML, sig, "")` then writes the envelope plus a newline; anything else errors naming the bad value and the valid set. Exported so companion tests can bypass cobra. |
+| `NewCommand` | `internal/adapters/companions/cli.go:35` | Builds the `loadout` cobra command: `Use: "loadout"`, help text interpolating `binName`, a `--format` string flag defaulting to `"yaml"`, and a `RunE` delegating to `Emit`. Registration is the caller's. |
+| `RunE` closure | `internal/adapters/companions/cli.go:49` | `Emit(cmd.OutOrStdout(), format, bundleYAML, sig)` — routes through cobra's writer, not `os.Stdout`. |
+| `ReadEmbeddedSig` | `internal/adapters/companions/cli.go:65` | `fs.ReadFile("loadout.yaml.sig")`, returning `nil` on any error. Exists because companions embed via the wildcard `//go:embed loadout.yaml*`; a literal `.sig` directive would hard-fail the build when no signature is committed. |
+| `Emit` | `internal/adapters/companions/cli.go:76` | The pure core. `"yaml"` writes `bundleYAML` **verbatim, no trailing newline**; `"json"` calls `signing.EncodeLoadoutEnvelope(bundleYAML, sig, "")` then writes the envelope plus a newline; anything else errors naming the bad value and the valid set. Exported so companion tests can bypass cobra. |
 
 ## `internal/shared/plans` — the `*.plan.md` reader
 
-Locates, enumerates, and reads the `*.plan.md` session-plan documents under `~/.ctxloom/sessions/<harp>/`, extracting a display title and the `sessions:` stamp list from each file's YAML frontmatter. It is the **read half** of a read/write pair whose write half is `internal/memory.StampPlanFile` (`internal/memory/stamp.go:27`, driven by the `stamp-plan` hook at `internal/cli/hook_stamp_plan.go:47`). Consumers: `cmd/taskloom` (`plan list`/`plan show` — the only users of `ListHome`/`Show`) and `internal/cli` (`plan watch`, which uses only `HomeSessionsDir`). The `Plan` JSON DTO is the wire contract for the out-of-repo ctxloom VS Code Plan view.
+Locates, enumerates, and reads the `*.plan.md` session-plan documents under `~/.ctxloom/sessions/<harp>/`, extracting a display title and the `sessions:` stamp list from each file's YAML frontmatter. It is the **read half** of a read/write pair whose write half is `internal/adapters/memory.StampPlanFile` (`internal/adapters/memory/stamp.go:27`, driven by the `stamp-plan` hook at `internal/adapters/cli/hook_stamp_plan.go:47`). Consumers: `cmd/taskloom` (`plan list`/`plan show` — the only users of `ListHome`/`Show`) and `internal/adapters/cli` (`plan watch`, which uses only `HomeSessionsDir`). The `Plan` JSON DTO is the wire contract for the out-of-repo ctxloom VS Code Plan view.
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -123,7 +123,7 @@ Locates, enumerates, and reads the `*.plan.md` session-plan documents under `~/.
 
 ## `internal/shared/upgrade` — the in-memory YAML schema-upgrade primitive
 
-Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators over the root mapping, re-encodes only if some stage reported a change, and returns the new bytes plus the names of the stages that fired — **without ever writing to disk**. Four packages build a `Pipeline` and call `Run` on raw file bytes at load time (`internal/core/config` with five schema generations, `internal/core/sessions`, `internal/core/bundles`, `internal/core/profiles`); `internal/cli` and `internal/operations` consume only the `Pending` DTO to drive the "rewrite it? [y/N]" prompt. Leaf package, zero internal dependencies. Roughly half its API is a general `yaml.Node` DOM helper set that has nothing upgrade-specific about it (94 of the 105 cross-package references).
+Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators over the root mapping, re-encodes only if some stage reported a change, and returns the new bytes plus the names of the stages that fired — **without ever writing to disk**. Four packages build a `Pipeline` and call `Run` on raw file bytes at load time (`internal/core/config` with five schema generations, `internal/core/sessions`, `internal/core/bundles`, `internal/core/profiles`); `internal/adapters/cli` and `internal/adapters/operations` consume only the `Pending` DTO to drive the "rewrite it? [y/N]" prompt. Leaf package, zero internal dependencies. Roughly half its API is a general `yaml.Node` DOM helper set that has nothing upgrade-specific about it (94 of the 105 cross-package references).
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -145,11 +145,11 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 
 ### clidiag
 
-- `SetStructured` and `SetSink` must be called **before any warning is emitted** — both binaries do it from the root command (`internal/cli/root.go:118`, `cmd/taskloom/root.go:47`). Nothing enforces the ordering.
+- `SetStructured` and `SetSink` must be called **before any warning is emitted** — both binaries do it from the root command (`internal/adapters/cli/root.go:118`, `cmd/taskloom/root.go:47`). Nothing enforces the ordering.
 - `warnSink()` is the sole reader of `sink` and the sole place `nil ⇒ os.Stderr` is decided; never read `sink` directly.
 - `SetSink`'s `restore` closure does an unconditional `Store(prev)`, so it is correct **only under strict LIFO nesting**. Overlapping redirects restore the wrong sink. Five of six call sites use `defer restore()`.
 - `SetSink` guarantees "never a nil writer" only for an **untyped** `nil`; a typed nil (`var f *os.File; SetSink(f)`) takes the non-nil branch and installs a writer that panics on the next warning.
-- The dedup key is the fully-rendered line and **does not include the destination writer**. A message already emitted to a previous sink is permanently suppressed on every later sink — including a per-session diagnostics file installed by `internal/cli/run_terminal_ui.go:182`, which the user is explicitly pointed at.
+- The dedup key is the fully-rendered line and **does not include the destination writer**. A message already emitted to a previous sink is permanently suppressed on every later sink — including a per-session diagnostics file installed by `internal/adapters/cli/run_terminal_ui.go:182`, which the user is explicitly pointed at.
 - `onceSeen` has no reset and no cap. Several `WarnOnce` sites embed a varying `%v` error inside reconnect loops (`internal/core/coord/home.go:232,265,354`; `runnerlink.go:227`), so entries multiply in exactly the long-lived processes the package doc names.
 - Write errors are discarded on both paths, deliberately: warnings never block. The named out-of-band observer is `iox.ErrWriter`.
 - `prog` is a per-binary constant passed positionally at every site: 327 of 351 call sites pass the literal `"ctxloom"`, 4 `"taskloom"`, 3 `"ctxloom hook inject-context"`.
@@ -160,12 +160,12 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 - `Resolve` may only be called **after** cobra has merged parents' persistent flags into `cmd.Flags()` — i.e. from inside `RunE`/`PersistentPreRunE`. Called earlier it silently returns `FormatText`.
 - Precedence is fixed: a `Changed` `--json` shorthand beats an explicit `--format`, which beats the `""` ⇒ `FormatText` default.
 - A missing or wrongly-typed `--format` flag resolves to `FormatText`, identical to a deliberate `--format text` — the `GetString` error is discarded, so "this command was never wired for `--format`" is indistinguishable from "the user asked for text".
-- `--format` is registered as a **persistent** flag on each binary's root (`internal/cli/format.go:63`, `cmd/taskloom/format.go:11`, `cmd/ltk/main.go:53`), so every command in the tree *accepts* it; *honouring* it requires that command's `RunE` to voluntarily call `emit()`. Nothing binds acceptance to honouring — 36 entries in `internal/cli/format_coverage_test.go` self-declare "not wired to emit() yet" out of 154.
+- `--format` is registered as a **persistent** flag on each binary's root (`internal/adapters/cli/format.go:63`, `cmd/taskloom/format.go:11`, `cmd/ltk/main.go:53`), so every command in the tree *accepts* it; *honouring* it requires that command's `RunE` to voluntarily call `emit()`. Nothing binds acceptance to honouring — 36 entries in `internal/adapters/cli/format_coverage_test.go` self-declare "not wired to emit() yet" out of 154.
 - `Emit` is not a backstop: with a non-nil text closure it delegates entirely and cannot detect a closure that writes nothing.
 - With a nil closure over an **empty scalar slice**, the text path writes zero bytes while the same value under `--format json` writes `[]`.
-- Only the **success** half of `--format` lives here. The error half is `clifmt.RenderError`, called from exactly one place, `internal/cli/root.go:187`; `cmd/taskloom` and `cmd/ltk` render errors as plain text whatever `--format` says.
+- Only the **success** half of `--format` lives here. The error half is `clifmt.RenderError`, called from exactly one place, `internal/adapters/cli/root.go:187`; `cmd/taskloom` and `cmd/ltk` render errors as plain text whatever `--format` says.
 - `Emit(cmd, data, text)` cannot express "the payload shape depends on the format", so six call sites hand-roll the format branch (`cmd/taskloom/commands.go:190-195,226-231`, `cmd/taskloom/lint.go:63-71`).
-- Four format vocabularies coexist for one user-facing flag: `clifmt.Format`; the `formatText`/`formatJSON` string constants for streaming commands (`internal/cli/format.go:20-23`); the `--json` bool shorthand (registered by 5 `cmd/taskloom` commands only); and `cmd/harp`'s private `resolveFormat` (`cmd/harp/root.go:113`), which has no `""`⇒text fallback and no `--json` handling.
+- Four format vocabularies coexist for one user-facing flag: `clifmt.Format`; the `formatText`/`formatJSON` string constants for streaming commands (`internal/adapters/cli/format.go:20-23`); the `--json` bool shorthand (registered by 5 `cmd/taskloom` commands only); and `cmd/harp`'s private `resolveFormat` (`cmd/harp/root.go:113`), which has no `""`⇒text fallback and no `--json` handling.
 
 ### cliversion
 
@@ -186,11 +186,11 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 
 ### plans
 
-- Read/write pairing: this package **reads** the frontmatter that `internal/memory.StampPlanFile` **writes**. Neither side is tested against the other; both are tested against string literals.
+- Read/write pairing: this package **reads** the frontmatter that `internal/adapters/memory.StampPlanFile` **writes**. Neither side is tested against the other; both are tested against string literals.
 - `ParseFrontmatter` understands only a **block** sequence (`- item`) under `sessions:`. `StampPlanFile` round-trips through `yaml.Node` and preserves flow style, so a hand-written `sessions: [alpha, beta]` is stamped correctly on disk and then read back as having **no sessions at all**.
 - `unquote` is applied to the title but not to sequence items, so a quoted stamp entry (`- "alpha"`) is returned with its quote characters embedded — a value that can never match a real harp.
-- `ParseFrontmatter` does **not** require a closing `---`: an unterminated block is scanned to EOF, so `title:`-shaped lines anywhere in the body can become the title. The writer takes the opposite position and refuses to touch an unterminated block (`internal/memory/stamp.go:69-71`).
-- `List` descends **exactly one level** (`<root>/<harp>/*.plan.md`) and skips directories, while the paired watcher `ctxloom plan watch` (`internal/cli/plan_watch.go:57`) is explicitly recursive. Nested plans fire the watcher and are absent from the list it triggers.
+- `ParseFrontmatter` does **not** require a closing `---`: an unterminated block is scanned to EOF, so `title:`-shaped lines anywhere in the body can become the title. The writer takes the opposite position and refuses to touch an unterminated block (`internal/adapters/memory/stamp.go:69-71`).
+- `List` descends **exactly one level** (`<root>/<harp>/*.plan.md`) and skips directories, while the paired watcher `ctxloom plan watch` (`internal/adapters/cli/plan_watch.go:57`) is explicitly recursive. Nested plans fire the watcher and are absent from the list it triggers.
 - `List` never returns a partial-failure signal: a per-harp `os.ReadDir` error drops that harp's whole plan set, and a per-file `os.ReadFile` error still emits the entry with `Title` silently falling back to the filename and `Sessions` nil. A missing root deliberately yields an empty list, and `cmd/taskloom/plan.go:56` prints a loud `(no plans)` for it — so an unreadable tree and an empty tree render identically.
 - Sort order is `(Session, Name)`, stable across calls; `Session` is always derived from an `os.ReadDir` entry name, never from user input, so no traversal is reachable through `List`.
 - `Show` is the only user-input path. Containment is **lexical only** — `filepath.Abs` + prefix check, with no `EvalSymlinks` and no regular-file check — so a symlink named `*.plan.md` inside the sessions tree reads its target.

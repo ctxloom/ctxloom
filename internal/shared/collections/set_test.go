@@ -155,7 +155,7 @@ func TestSet_StructType(t *testing.T) {
 // semantics verbatim: every READ works and every WRITE panics. The doc used to
 // say flatly "the zero value is not usable", which is wrong in the read
 // direction and understates the write one — and callers in this tree already
-// rely on the read half (internal/operations declares `var failed
+// rely on the read half (internal/adapters/operations declares `var failed
 // collections.Set[string]` and calls Has on it when a switch left it
 // unassigned). This test is what makes the corrected prose checkable: if the
 // zero value ever stops reading cleanly, or Add ever stops panicking (a

@@ -26,8 +26,8 @@
 //
 // This default is completely uniform: every caller of
 // internal/shared/tasks/operations.TaskContext that never sets HomingMode at
-// all (ctxloom's own internal/cli, internal/operations,
-// internal/lm/isolation) already gets ModeHome via TaskContext's own zero
+// all (ctxloom's own internal/adapters/cli, internal/adapters/operations,
+// internal/adapters/isolation) already gets ModeHome via TaskContext's own zero
 // value, and cmd/taskloom's own frontend (via ResolveMode) now resolves to
 // the identical mode when it finds nothing configured either — there is no
 // longer a policy difference between "asked taskloom's own config" and

@@ -30,7 +30,7 @@ const (
 // and its module cache from $HOME, so a child build inheriting the sandbox
 // home rebuilds the whole module cache inside a throwaway directory that
 // os.RemoveAll then cannot remove (the cache marks its directories
-// read-only). internal/operations' TestMain carries the same variable for the
+// read-only). internal/adapters/operations' TestMain carries the same variable for the
 // same measured reason, and this package has already paid that bill once —
 // see the note on buildProbe.
 var realHOME = os.Getenv("HOME")

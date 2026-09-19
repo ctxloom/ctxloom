@@ -178,7 +178,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 // RunTurn runs one engine turn's Setup→Execute→Cleanup body against plain
 // stdio + a resize channel, returning the engine's result. It is the shared
 // core of the interactive transports: the go-plugin Run RPC (GRPCServer.Run,
-// stream-wired) and `ctxloom llm turn` (internal/cli, wired to the
+// stream-wired) and `ctxloom llm turn` (internal/adapters/cli, wired to the
 // docker-exec TTY's os.Stdin/os.Stdout + a SIGWINCH-fed resize) both drive it,
 // so the two never drift on fragment smuggling, headless flooring, cwd
 // delivery, or cleanup semantics. ctx bounds Setup/Execute/Cleanup; stdin may

@@ -41,7 +41,7 @@ import (
 
 // Name is the ONE marker filename, for every engine and every surface. It is
 // deliberately a single literal: the surface lives in the entries, not in the
-// filename, so `internal/gitignore` needs one pattern rather than a glob.
+// filename, so `internal/adapters/gitignore` needs one pattern rather than a glob.
 const Name = ".ctxloom-managed"
 
 // fieldSep separates an identifier from its surface. Identifiers can originate

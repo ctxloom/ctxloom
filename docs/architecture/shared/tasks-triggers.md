@@ -1,6 +1,6 @@
 # Revive triggers — evidence, prompt, parse, verdict
 
-`internal/shared/tasks/triggers` is the pure, I/O-free core of revive-trigger triage: it shapes gathered evidence into a batch-triage prompt, defines the closed vocabulary of outcomes and of the follow-up evidence queries a model may request, validates those queries for repo containment, and parses the model's JSON verdicts back out. It performs no I/O and makes no LLM call — `internal/operations` (`task_triggers.go`, `task_triggers_query.go`, `task_triggers_cache.go`) does all the git, filesystem, and model work and owns the verdict cache; `internal/mcp/mcp_tools_triggers.go` re-exports `Verdict` verbatim as the `evaluate_triggers` MCP wire type.
+`internal/shared/tasks/triggers` is the pure, I/O-free core of revive-trigger triage: it shapes gathered evidence into a batch-triage prompt, defines the closed vocabulary of outcomes and of the follow-up evidence queries a model may request, validates those queries for repo containment, and parses the model's JSON verdicts back out. It performs no I/O and makes no LLM call — `internal/adapters/operations` (`task_triggers.go`, `task_triggers_query.go`, `task_triggers_cache.go`) does all the git, filesystem, and model work and owns the verdict cache; `internal/adapters/mcp/mcp_tools_triggers.go` re-exports `Verdict` verbatim as the `evaluate_triggers` MCP wire type.
 
 The contract: everything here is deterministic. That purity is what makes this the only fuzz-tested, property-asserted part of the trigger path.
 
@@ -34,7 +34,7 @@ flowchart TD
 
     Batch -->|BuildPrompt| P1["round-1 prompt"]
     FollowupBatch -->|BuildFollowupPrompt| P2["round-2 prompt<br/>(no needs-investigation)"]
-    P1 --> LLM(("model — internal/operations"))
+    P1 --> LLM(("model — internal/adapters/operations"))
     P2 --> LLM
     LLM -->|raw text| PV["ParseVerdicts<br/>stripCodeFence → extractJSONArray →<br/>Unmarshal → validate → reset Cached"]
     PV --> Verdict
@@ -52,7 +52,7 @@ flowchart TD
 | Symbol | file:line | Purpose |
 |---|---|---|
 | `TaskInput` | `internal/shared/tasks/triggers/evidence.go:9` | One Deferred task plus its pre-gathered evidence: `{HarpID, Text, Trigger, DeferredAt, CommitsSince, ChangedFiles}`. Read only by `writeTaskEvidence`; populated by `operations.buildBatch` and hashed by `fingerprintTask`. |
-| `CommitSummary` | `internal/shared/tasks/triggers/evidence.go:29` | `{SHA, Date, Subject}` — one commit's evidence line. The seam that keeps `internal/git` out of this package's imports. |
+| `CommitSummary` | `internal/shared/tasks/triggers/evidence.go:29` | `{SHA, Date, Subject}` — one commit's evidence line. The seam that keeps `internal/adapters/git` out of this package's imports. |
 | `OtherTask` | `internal/shared/tasks/triggers/evidence.go:38` | `{HarpID, Text, Status}` — status snapshot of a task not under evaluation, for cross-reference. `Status` is a bare `string`, not `tasks.Status`, to keep the leaf a leaf. |
 | `RepoState` | `internal/shared/tasks/triggers/evidence.go:55` | `{Dirs, WorkingChanges}` — repo-global "what exists NOW", as distinct from "what changed since". Exists to stop existence-style triggers being answered `not-fired` from a silent history window. |
 | `Batch` | `internal/shared/tasks/triggers/evidence.go:71` | Round-1 prompt input `{Tasks, OtherTasks, Repo, Now}`. `Now` is injected, which is what makes `BuildPrompt` pure. |
@@ -117,14 +117,14 @@ flowchart TD
 
 **Purity**
 
-- This package performs no I/O, spawns no process, and makes no model call. All git, filesystem, and LLM work happens in `internal/operations`. `Batch.Now` and `FollowupBatch.Now` are injected so prompt building is deterministic and prompt tests are exact-string.
+- This package performs no I/O, spawns no process, and makes no model call. All git, filesystem, and LLM work happens in `internal/adapters/operations`. `Batch.Now` and `FollowupBatch.Now` are injected so prompt building is deterministic and prompt tests are exact-string.
 - The package doc justifies the purity with "so taskloom can import it safely". Nothing under `cmd/taskloom` imports it — the real, currently-paying justification is determinism and testability.
 
 **Ordering — the round-1 → round-2 pipeline**
 
 1. `BuildPrompt(Batch)` → model → `ParseVerdicts`.
 2. Verdicts with `Outcome == NeedsInvestigation` have their `Queries` passed through `SanitizeQueries` before *any* query is executed. `SanitizeQueries` must be called before the caller dispatches on `Query.Type` — it is the only place `Validate` runs in the live path.
-3. `internal/operations` executes the surviving queries and builds `FollowupBatch` → `BuildFollowupPrompt` → model → `ParseVerdicts`.
+3. `internal/adapters/operations` executes the surviving queries and builds `FollowupBatch` → `BuildFollowupPrompt` → model → `ParseVerdicts`.
 4. The caller nils out `Verdict.Queries` before the verdict escapes to the MCP result or the on-disk cache.
 
 **Trust directions inside `Verdict`**
@@ -134,7 +134,7 @@ The struct fuses three field groups with three different trust directions, each 
 | Fields | Direction | Policed by |
 |---|---|---|
 | `HarpID`, `Outcome`, `Evidence`, `Reasoning` | model → caller wire contract | `ParseVerdicts` validates `HarpID` and `Outcome` only |
-| `Queries` | internal round-1 → round-2 control signal; must never leave the process | `internal/operations/task_triggers.go:287` sets `verdicts[i].Queries = nil` |
+| `Queries` | internal round-1 → round-2 control signal; must never leave the process | `internal/adapters/operations/task_triggers.go:287` sets `verdicts[i].Queries = nil` |
 | `Cached` | caller-stamped provenance; must never come *in* | `internal/shared/tasks/triggers/parse.go:41` force-resets it |
 
 - If a future caller omits the `Queries = nil` line, model-authored `Query` paths leak into both the MCP result and the on-disk verdict cache. Nothing in this package prevents it.
@@ -142,14 +142,14 @@ The struct fuses three field groups with three different trust directions, each 
 
 **Security — model-authored paths**
 
-- Every `Query` is untrusted input. The containment contract is deliberately **split across two packages**: syntactic containment here (`validateRepoPath` — no absolute paths, no drive letters, no backslashes, no NUL, no post-`Clean` `..`), and symlink-resolved containment in `internal/operations` (`safeRepoPath`, `task_triggers_query.go:88`). Both doc comments name the other. Neither is sufficient alone.
+- Every `Query` is untrusted input. The containment contract is deliberately **split across two packages**: syntactic containment here (`validateRepoPath` — no absolute paths, no drive letters, no backslashes, no NUL, no post-`Clean` `..`), and symlink-resolved containment in `internal/adapters/operations` (`safeRepoPath`, `task_triggers_query.go:88`). Both doc comments name the other. Neither is sufficient alone.
 - `Validate`'s `default` arm is unreachable given the `Type.Valid()` gate above it, and it still returns an error rather than accepting — belt and braces on the whitelist.
 - `SanitizeQueries` swallows every `Validate` error, so the caller cannot distinguish "the model asked for nothing" from "the model asked for four things and all four were rejected". `escalateNeedsInvestigation` treats both as the former.
 
 **Prompt construction rules**
 
 - An empty section is not neutral: a header with nothing beneath it reads to the model as positive evidence. `writeRepoState` therefore writes nothing at all when both halves are empty, and `writeTaskEvidence` writes explicit `"unknown"` / `"(none gathered)"` rather than blanks.
-- **`BuildPrompt` and `BuildFollowupPrompt` violate that rule for an empty batch**: both emit the `=== Deferred tasks ===` header with nothing under it and return a full prompt with no error, asking a model to judge zero tasks. The behaviour is pinned as correct by `TestBuildPrompt_EmptyBatchDoesNotPanic`. No live path reaches it — the guards are in `internal/operations` (`chunkMissTasks` returns nil for an empty set; `escalateNeedsInvestigation` returns early) — so the invariant lives one package away from the builder.
+- **`BuildPrompt` and `BuildFollowupPrompt` violate that rule for an empty batch**: both emit the `=== Deferred tasks ===` header with nothing under it and return a full prompt with no error, asking a model to judge zero tasks. The behaviour is pinned as correct by `TestBuildPrompt_EmptyBatchDoesNotPanic`. No live path reaches it — the guards are in `internal/adapters/operations` (`chunkMissTasks` returns nil for an empty set; `escalateNeedsInvestigation` returns early) — so the invariant lives one package away from the builder.
 - Every executed query is accounted for in the round-2 prompt: a failed query still gets a line, and an empty result renders `"(no matches)"` rather than vanishing.
 - `writeQueryProtocol` enumerates `QueryType` values by constant. The **outcome** vocabulary is not treated the same way: the response contracts hardcode `"fired|not-fired|needs-investigation|cannot-determine"` (round 1) and `"fired|not-fired|cannot-determine"` (round 2) as string literals, with nothing pinning them to the `Outcome` constants.
 - Round 2 sees **less** global evidence than round 1: `FollowupBatch` carries no `RepoState` and no `OtherTasks`, so a task escalated because "does X exist" was ambiguous is re-asked without the directory inventory — unless the model happened to request a `path_exists`/`grep` query in round 1.
@@ -158,12 +158,12 @@ The struct fuses three field groups with three different trust directions, each 
 **Parsing robustness**
 
 - `ParseVerdicts` is all-or-nothing and wraps its errors with `%w`; there are no partial results (fuzz-asserted).
-- Empty or fence-only model output degrades **loudly**: no `[` means an error, and `internal/operations` additionally rejects a non-zero exit, retries, and only then falls the whole chunk back to `cannot-determine`. A content-free document is never written over a good one.
+- Empty or fence-only model output degrades **loudly**: no `[` means an error, and `internal/adapters/operations` additionally rejects a non-zero exit, retries, and only then falls the whole chunk back to `cannot-determine`. A content-free document is never written over a good one.
 - `stripCodeFence` unconditionally drops the entire fence-opener *line*. When the model puts the array on that same line (```` ```json [{…}]\n``` ````), the array is destroyed and `extractJSONArray` returns `""`, burning the chunk's retry.
 - `extractJSONArray`'s "first `[` to last `]`" scan is broken by any bracketed prose *before* the array (`Sure [see below]:\n[{…}]`), producing a span that fails to unmarshal.
 
 **Caller-side invariants this package cannot enforce**
 
-- `TaskInput.CommitsSince` and `ChangedFiles` are documented as already bounded by the caller (`maxFilesPerTask`, `defaultMaxCommitsPerTask` live in `internal/operations`); this package never re-truncates and never checks.
-- `internal/operations` chunks a batch by shallow-copying it and replacing only `Tasks` (`chunkBatch := batch; chunkBatch.Tasks = c.inputs`). That is safe only because `Repo` and `OtherTasks` are read-only downstream — an undocumented cross-package assumption about shared backing arrays.
-- The cache-eligibility invariant stated at `internal/operations/task_triggers.go:113` ("degraded / cannot-determine fallback verdicts are never written to the cache") does not hold: round 1 marks a `needs-investigation` harp cacheable, and a round-2 degradation or omission `continue`s without clearing the flag, so the fallback is written to disk. The same paths leave `result.Degraded` false and `result.Warning` empty, because both are set before escalation runs.
+- `TaskInput.CommitsSince` and `ChangedFiles` are documented as already bounded by the caller (`maxFilesPerTask`, `defaultMaxCommitsPerTask` live in `internal/adapters/operations`); this package never re-truncates and never checks.
+- `internal/adapters/operations` chunks a batch by shallow-copying it and replacing only `Tasks` (`chunkBatch := batch; chunkBatch.Tasks = c.inputs`). That is safe only because `Repo` and `OtherTasks` are read-only downstream — an undocumented cross-package assumption about shared backing arrays.
+- The cache-eligibility invariant stated at `internal/adapters/operations/task_triggers.go:113` ("degraded / cannot-determine fallback verdicts are never written to the cache") does not hold: round 1 marks a `needs-investigation` harp cacheable, and a round-2 degradation or omission `continue`s without clearing the flag, so the fallback is written to disk. The same paths leave `result.Degraded` false and `result.Warning` empty, because both are set before escalation runs.

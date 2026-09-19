@@ -27,17 +27,17 @@ flowchart TB
 
   subgraph L0["cli layer"]
     CMD["cmd/* (ctxloom, taskloom, ltk, harp, …)"]
-    CLI["internal/cli (+ cli/tui)"]
+    CLI["internal/adapters/cli (+ cli/tui)"]
   end
   subgraph L1["operations layer (stated: frontend-agnostic mediator)"]
-    OPS["internal/operations"]
+    OPS["internal/adapters/operations"]
   end
   subgraph L2["shared + delivery layer"]
-    MCP["internal/mcp"]
+    MCP["internal/adapters/mcp"]
     BE["internal/lm/backends"]
     AG["internal/core/agent (seam + toolbox)"]
     PRES["shared/agent/present"]
-    CP["internal/confpatch"]
+    CP["internal/adapters/confpatch"]
     LED["shared/ledger"]
     IOX["shared/iox"]
     EMIT["shared/cliemit → pkg/clifmt"]
@@ -45,9 +45,9 @@ flowchart TB
   end
   subgraph L3["engines + lm layer"]
     GRPC["internal/lm/grpc (pb + wire)"]
-    ISO["internal/lm/isolation"]
+    ISO["internal/adapters/isolation"]
     CL["internal/claude (+ claude/engine)"]
-    VPIO["internal/vpio{,/goplugin,/dockerexec}"]
+    VPIO["internal/adapters/vpio{,/goplugin,/dockerexec}"]
   end
   subgraph L4["agentcoord layer"]
     COORD["agentcoord/coord"]
@@ -58,16 +58,16 @@ flowchart TB
   end
   subgraph L5["trust + remote layer"]
     TR["internal/core/trust"]
-    SIG["internal/signing (+countersign, allowedsigners, agentkey)"]
+    SIG["internal/adapters/signing (+countersign, allowedsigners, agentkey)"]
     ATT["content/attest"]
-    REM["internal/remote"]
+    REM["internal/adapters/remote"]
     BUN["internal/core/bundles"]
   end
   subgraph L6["sessions + transcript layer"]
     SESS["internal/core/sessions"]
-    TRN["internal/transcript (+vendorreader)"]
-    MEM["internal/memory"]
-    TC["internal/turnchange"]
+    TRN["internal/adapters/transcript (+vendorreader)"]
+    MEM["internal/adapters/memory"]
+    TC["internal/adapters/turnchange"]
   end
   subgraph L7["paths + config layer"]
     CFG["internal/core/config"]
@@ -187,12 +187,12 @@ flowchart TB
   OPS ==>|"S6.F6: config.Load inside SetLLM, resolveListConfig, WatchSessionFeed"| CFG
 ```
 
-**Legend / aliases.** `pb` = `internal/lm/grpc` (seam 1 "grpc (pb)", seam 3 "wire", seam 7 "lm/grpc"). `AG` = seam 3's "the seam + toolbox" = seam 1's "runner core". `GLUE` collapses seam 6's `shared/*` list. `L2` = the brief's "shared+delivery"; `internal/mcp` is placed there because it is a protocol adapter in the stated picture, though §B1 argues it currently acts as a hub above `coord`.
+**Legend / aliases.** `pb` = `internal/lm/grpc` (seam 1 "grpc (pb)", seam 3 "wire", seam 7 "lm/grpc"). `AG` = seam 3's "the seam + toolbox" = seam 1's "runner core". `GLUE` collapses seam 6's `shared/*` list. `L2` = the brief's "shared+delivery"; `internal/adapters/mcp` is placed there because it is a protocol adapter in the stated picture, though §B1 argues it currently acts as a hub above `coord`.
 
 **What the assembled graph shows that no single seam did.**
 
 1. **`operations` is the stated mediator and is bypassed from above by every frontend and from below by every domain package.** The SKIP edges out of `CLI` and `MCP` number twelve; `layering_test.go` enforces exactly one rule in this direction (`operations ↛ cli`) and none that says a frontend must go THROUGH operations (S6.F3). The AGAINST edges show the mirror: `backends`, `config`, `coord`, `memory` and `lm/grpc` each do a job (config load, trust decision, MCP composition, engine launch, transcript recording) that the stated architecture assigns a layer above them.
-2. **Three packages are "two programs in one import path".** `agentcoord/coord` compiles the coordinator AND the runner (S4 §3); `shared/agent` is the delivery SEAM and a filesystem TOOLBOX (S3.F20); `internal/mcp` is three server flavours plus coordinator lifecycle (S2.F2). Every AGAINST edge into `AG` and out of `COORD` is a symptom of one of these.
+2. **Three packages are "two programs in one import path".** `agentcoord/coord` compiles the coordinator AND the runner (S4 §3); `shared/agent` is the delivery SEAM and a filesystem TOOLBOX (S3.F20); `internal/adapters/mcp` is three server flavours plus coordinator lifecycle (S2.F2). Every AGAINST edge into `AG` and out of `COORD` is a symptom of one of these.
 3. **`internal/core/config` is the universal carrier.** It is imported by every layer, and three things travel THROUGH it that are not configuration: the executable trust gate (`Config.execGate`, S5.ML-1), the `--config-set` override funnel (a process global, S6.F7), and the bundle readers/trust root (re-parsed per call, S5.DF-1). That is why the gate can be `AdmitAll` in one process and a real gate in a sibling copy of the same config (S5.DP-1, S5.DF-3 ✔).
 4. **The only enforced rules that hold** are `operations ↛ cli`, `coord ↛ cli/tui`, `operations ↛ internal/claude`, `transcript ↛ lm/grpc`, and the two lean-binary gates. Everything drawn as SKIP or AGAINST above is ungated (S2 §1, S5 §3, S6 §1, S7 §3).
 
@@ -274,7 +274,7 @@ flowchart TB
 **Reading the divergence map.**
 
 - **Which exec tail a run gets is decided by the ARM, not by the agent** (S1.F1, confirmed empirically by the coordinator: a live `agent_run` child ran with `HOME=/home/babbitt`, no `CLAUDE_CONFIG_DIR`, no `--settings`, a `/tmp/ctxloom-claude-chat-mcp-*` MCP config). E4 and E8 reach TAIL B; everything else reaches TAIL A. The same agent binding therefore gets its hooks, commands, skills and `surfaces:` preference on `ctxloom run --agent X` (host) and NONE of them on `agent_run X` or on `run --one-shot` under a container runtime. E4 is the more damning of the two: T6 RUNS and assembles the full `ManagedConfig`, then `startContainerOwnedRun` forwards `ChatMCPServers()` and discards the rest.
-- **Four of six branches skip the harp mint** (E5 shares, E6 borrows, EM none) and the trunk itself tolerates a failed mint (`openSession` → `clidiag.Warn` → continue, ✔ `internal/cli/run.go`). `coord.StartOwnedRun` is the one launch entry that REFUSES a harpless request (S1 §5).
+- **Four of six branches skip the harp mint** (E5 shares, E6 borrows, EM none) and the trunk itself tolerates a failed mint (`openSession` → `clidiag.Warn` → continue, ✔ `internal/adapters/cli/run.go`). `coord.StartOwnedRun` is the one launch entry that REFUSES a harpless request (S1 §5).
 - **The trust gate reaches delivery on four different terms**: always (E1), only when axes are non-zero (E6, S5.DP-2), once on a config shared across every child (E8), never (E5/EM). And on E1 itself it is attached to a config `AssembleManagedConfig` RELOADED, not the one `NewExecutableTrustGate` was built from (S5.DF-3 ✔ `internal/lm/backends/managed.go`).
 - **The runner re-derives what the host resolved**: config (second `config.Load`), backend binary/args/model (`serveBackendConfig(label)`), permission floor (sixth site), engine home (from `req.Env`), harp (from `req.Env`), MCP socket (from `os.Getenv` set by the same process). E3 does the host→runner derivation THREE times (host, keepalive, turn).
 
@@ -585,7 +585,7 @@ flowchart LR
   PIPE --> MCPRES
 
   %% ---- BYPASSES ----
-  GATEF -.->|"BYPASS 1 (S5.DP-1): any *config.Config nobody attached a gate to → AdmitAll → bundles.Decide SHORT-CIRCUITS (no ref, no preimage, no EffectiveTrust, no withheld tally) → MCP/hooks/commands/skills delivered UNGATED. Includes `ctxloom mcp serve`'s own cfg ✔ (no SetExecutableTrustGate in internal/mcp) until a coordinator is lazily built"| CMCP
+  GATEF -.->|"BYPASS 1 (S5.DP-1): any *config.Config nobody attached a gate to → AdmitAll → bundles.Decide SHORT-CIRCUITS (no ref, no preimage, no EffectiveTrust, no withheld tally) → MCP/hooks/commands/skills delivered UNGATED. Includes `ctxloom mcp serve`'s own cfg ✔ (no SetExecutableTrustGate in internal/adapters/mcp) until a coordinator is lazily built"| CMCP
   GATEF -.->|"BYPASS 1"| CHOOK
   GATEF -.->|"BYPASS 1"| PHOOK
   NEG -.->|"BYPASS 2 (S5.DP-2, S1.F8): operations.RunOneshot: gate := bundles.AdmitAll() when isolation axes are zero — 'nothing consults it' is FALSE, runResolvedAgent passes it to AssembleManagedConfig"| AMC
@@ -597,8 +597,8 @@ flowchart LR
 
 **What the assembled choke graph shows.**
 
-1. **The DECISION is single** (`EffectiveTrust` → `contentGate.Admit`, S5 SA-4 "stronger than stated") — but its **handle is fail-open and untyped**: `Config.ExecutableTrustGate()` returns `AdmitAll` unless one of five sites mutated the config, and `bundles.Decide` skips every step (including REJECTION and retraction) when the authorizer is `AdmitAll` (✔ `internal/core/config/config_bundles.go`). Fragments are safe from this — `AssembleContext` uses `exposurePipelineGated`'s own gate (✔ `internal/operations/context.go`) — so BYPASS 1 is specifically the EXEC surfaces (MCP, hooks) and the profile-scoped commands/skills loaders in `lm/backends`, which is the worse half.
-2. **`ctxloom mcp serve` in local mode never attaches a gate to its own config** (✔ no `SetExecutableTrustGate` under `internal/mcp`). Its startup `ApplyHooks` IS gated (`operations/hooks.go` sets the gate on a `freshCfg`), so the exposure is bounded: the server's own `ctxServer.cfg`, used by `registerResources`/`ListMCPServers` (`ctxloom://mcp-servers`) and by `handleAgentRun`'s in-process `NewHostedCoordinator → prodSpawner`, reads `AdmitAll` for MCP/hook items — UNTIL `ctxServer.delegation()` lazily constructs a coordinator, because `coord.newProdSpawner` calls `cfg.SetExecutableTrustGate` on the config it is handed (✔ `internal/core/coord/spawner.go`), i.e. the same `*config.Config` becomes gated as a SIDE EFFECT of the first `agent_run`. That order-dependence is the mutable-field defect (S5.LB-4) in its purest form, and it answers seam 5's open question to seam 2.
+1. **The DECISION is single** (`EffectiveTrust` → `contentGate.Admit`, S5 SA-4 "stronger than stated") — but its **handle is fail-open and untyped**: `Config.ExecutableTrustGate()` returns `AdmitAll` unless one of five sites mutated the config, and `bundles.Decide` skips every step (including REJECTION and retraction) when the authorizer is `AdmitAll` (✔ `internal/core/config/config_bundles.go`). Fragments are safe from this — `AssembleContext` uses `exposurePipelineGated`'s own gate (✔ `internal/adapters/operations/context.go`) — so BYPASS 1 is specifically the EXEC surfaces (MCP, hooks) and the profile-scoped commands/skills loaders in `lm/backends`, which is the worse half.
+2. **`ctxloom mcp serve` in local mode never attaches a gate to its own config** (✔ no `SetExecutableTrustGate` under `internal/adapters/mcp`). Its startup `ApplyHooks` IS gated (`operations/hooks.go` sets the gate on a `freshCfg`), so the exposure is bounded: the server's own `ctxServer.cfg`, used by `registerResources`/`ListMCPServers` (`ctxloom://mcp-servers`) and by `handleAgentRun`'s in-process `NewHostedCoordinator → prodSpawner`, reads `AdmitAll` for MCP/hook items — UNTIL `ctxServer.delegation()` lazily constructs a coordinator, because `coord.newProdSpawner` calls `cfg.SetExecutableTrustGate` on the config it is handed (✔ `internal/core/coord/spawner.go`), i.e. the same `*config.Config` becomes gated as a SIDE EFFECT of the first `agent_run`. That order-dependence is the mutable-field defect (S5.LB-4) in its purest form, and it answers seam 5's open question to seam 2.
 3. **Three verification adapters, three refusal policies** for one publisher signature (V0 refuses, V1 proceeds, `upgrade_verify` checks a different file) — S5.D-1/D-2/U2. The identity they produce is a `string` that `EffectiveTrust` allows on `!= ""`.
 4. **TAIL B (E4/E8) never reaches `AssembleManagedConfig`**, so the MCP servers a delegated child executes are gated by whatever `prodSpawner` attached at construction — and its `resolveCfg` re-reads config per spawn while `gate` was built from the construction-time config (S4.F-DF-7).
 
@@ -626,10 +626,10 @@ Every doc / glossary / arch-test / load-bearing-comment statement the seams foun
 | "Every `ctxloom run` opens a FRESH harp (Decision 11)" | `runState.openSession` warns and continues harpless on `AssignSession` failure ✔ | S1.F3 |
 | `--label` "carried by one global `llmServeLabel`"; "three runner transports skip the config-warning and strictness gates" | `standUpRunner(cmd, backend, backendName, label)`; `runLLMHost`/`runLLMTurn` call `gates.close(PhaseStartup)`; `loadAndConfigureBackend` calls `config.RecordWarningsTo` | S1.F9, S6.F3 |
 | `readRunStartHandoff` "registers `defer os.Remove` BEFORE the decode, so a corrupt handoff file is deleted" | `os.Remove` runs after a successful `protojson.Unmarshal` | S1.F9 |
-| README: "no file in the package reaches past `operations`, `config`, `isolation`, or `resources`"; "call exactly one `operations` function" | `internal/cli` imports 60 in-repo packages incl. `internal/claude`; `run`, `doctor` (35 checks), `deps check` (no operations counterpart), `review`, `util config-write` are cli-resident orchestrators | S6.F2/F3 |
+| README: "no file in the package reaches past `operations`, `config`, `isolation`, or `resources`"; "call exactly one `operations` function" | `internal/adapters/cli` imports 60 in-repo packages incl. `internal/claude`; `run`, `doctor` (35 checks), `deps check` (no operations counterpart), `review`, `util config-write` are cli-resident orchestrators | S6.F2/F3 |
 | README I1: "`operations` never loads config itself"; every command through `GetConfig()` | 22 direct `config.Load` in cli, 3 in operations (`SetLLM`, `resolveListConfig`, `WatchSessionFeed`) | S6.F6 |
 | README I3 violation "in `remote_discover.go`" (own `bufio.Reader`) | fixed — uses `stdinReader`; the README still cites it | S6.F3 |
-| "five MCP server flavours in cli"; files `mcp_runner.go`, `mcp_forward.go`, `coord_host.go`, `memory.go`, `item_helpers.go` | moved to `internal/mcp` or deleted | S6.F3 |
+| "five MCP server flavours in cli"; files `mcp_runner.go`, `mcp_forward.go`, `coord_host.go`, `memory.go`, `item_helpers.go` | moved to `internal/adapters/mcp` or deleted | S6.F3 |
 | `cli.Execute`, `failOnFindings`, "five deprecated alias trees" | `cli.Run() int`, `cli.phaseGates.close`, aliases deleted | S6.F3 |
 
 #### `docs/architecture/cli/mcp.md` — **DELETE the `file:line` tables**
@@ -890,7 +890,7 @@ Every duplicated concept across all seams, one row each. "More complete" names t
 | 65 | Canonical-JSONL reader ×2 | `transcript.ParseTranscriptFile` (schema-checked) · `sessions.CountTranscriptEntries` (kind-only) | `ParseTranscriptFile` | S7.F11 | slice 11 |
 | 66 | Hook-verb scaffold ×8 | `hook_hud/inject_context/next_step/skill_mates/turn_changed/tool_reflect/stamp_plan`, `session_bind`: 3 stdin readers, 5 decoders, 2 harp spellings, 3 config loaders | — (`cli.hookInvocation`) | S6.F5 | ML-F/ML-H |
 | 67 | Emitter family ×3 | `cli.emit` · `cli.outputFormatOf` (own parser) · bare `fmt.Print` (×100+); `session_full.go` hand-rolled format branch | `emit` (row `lively-revision`) | S6.F9 | row |
-| 68 | Family-binary scaffold ×4 | `--format` registration (`cli/format.go`, `cmd/taskloom/format.go`, `cmd/ltk/main.go`, `cmd/harp/root.go`) · execute-error tail ×4 · `version` ×2 · root PreRun ×2 · `manage install` ×3 · `docs_gen.go` ×2 | `internal/cli`'s | S6.F10 | slice 12 |
+| 68 | Family-binary scaffold ×4 | `--format` registration (`cli/format.go`, `cmd/taskloom/format.go`, `cmd/ltk/main.go`, `cmd/harp/root.go`) · execute-error tail ×4 · `version` ×2 · root PreRun ×2 · `manage install` ×3 · `docs_gen.go` ×2 | `internal/adapters/cli`'s | S6.F10 | slice 12 |
 | 69 | Worktree→primary redirect ×2 (+1 skipped) | `cli/taskstore_identity.go` · `internal/taskloom/workdir` · skipped at `cli.seedTaskIntoSession` | `projectroot.TaskStoreRoot` | S6.F13 | ML-F |
 | 70 | Arch rules ×2 | `tests/arch/*` · `internal/archlint/*` | — | row `unskilled-state` | slice 4 |
 | 71 | Path confinement ×6 | `acp.confineToWorkspace` · `bundles.confineEntryTarget` · `mcp.resolveCellPath` · +3 (row) | — | row `easeful-chump` | row |
@@ -974,7 +974,7 @@ Every quoted workaround comment, limit, sleep or fallback across the seams. "Tra
 | 69 | `cliemit.Resolve` `--json` | "the backward-compatible shorthand a few commands still carry" | a compat shim in the shared layer for one binary (taskloom) | — |
 | 70 | `operations.resolveListConfig` · `operations/mcp_servers.go` | "returns cfg when the caller already has one loaded, or loads a fresh one when cfg is nil" | optional hidden config parameter | — |
 | 71 | `cmd/taskloom/docs_gen.go`, `cmd/ltk/docs_gen.go` | "taskloom's cobra tree lives in `package main` and so cannot be imported" | two CLIs in `package main`; scaffold copied per binary | — (S6.F10) |
-| 72 | `cli.pushBundleCfg` "mirroring internal/cli/sign.go's runSign"; `doctor_cmd.go` "see review.go's resolveReviewSigner" | comments pointing at the copy they duplicate | no `operations.ResolveLocalSigner` | — (S6.F8) |
+| 72 | `cli.pushBundleCfg` "mirroring internal/adapters/cli/sign.go's runSign"; `doctor_cmd.go` "see review.go's resolveReviewSigner" | comments pointing at the copy they duplicate | no `operations.ResolveLocalSigner` | — (S6.F8) |
 | 73 | `cli.rootCommand` "Compose the registry HERE as well as in Run()" | two entry points into one tree, `sync.Once` guarded | gendocs never reaches `Run()` | documented; memory `explicit-registration-init-order` |
 | 74 | `cmd/ctxloom/main.go` `procsec.HardenAtStartup` "for every ctxloom process without exception" | taskloom/ltk do not call it | whether the coordinator credential reaches them is seam 2/4's unanswered question | — |
 
@@ -1014,13 +1014,13 @@ From A2 (launch) and A3 (bus). Each branch, what it skips, the USER-VISIBLE cons
 
 | Gate | Aimed at today | Re-aim | Would have caught |
 |---|---|---|---|
-| `tests/arch/layering_test.go` `layeringRules` | one rule: `operations ↛ cli` | add `from: internal/cli, forbid: [lm/isolation, lm/grpc, lm/backends, agentcoord/coord, memory, sessions, transcript, remote, signing, internal/claude, internal/mcp]` with today's files as a SHRINKING allowlist (the table already has an `IsLive` staleness test); add `internal/mcp` and `internal/memory` as `from` rows; add `internal/claude → forbid [bundles, config, lm, operations]` with ZERO allowlist | S1.F6, S2.F2, S3.F12, S5.LB-1/LB-2, S6.F3/F4/F11, S7.F8 — every SKIP edge in A1 |
+| `tests/arch/layering_test.go` `layeringRules` | one rule: `operations ↛ cli` | add `from: internal/adapters/cli, forbid: [lm/isolation, lm/grpc, lm/backends, agentcoord/coord, memory, sessions, transcript, remote, signing, internal/claude, internal/adapters/mcp]` with today's files as a SHRINKING allowlist (the table already has an `IsLive` staleness test); add `internal/adapters/mcp` and `internal/adapters/memory` as `from` rows; add `internal/claude → forbid [bundles, config, lm, operations]` with ZERO allowlist | S1.F6, S2.F2, S3.F12, S5.LB-1/LB-2, S6.F3/F4/F11, S7.F8 — every SKIP edge in A1 |
 | `tests/arch/degrade_discipline_test.go` | routes that spell `Degraded()` | ALSO flag `clidiag.Warn` followed by a return of a default/absent value inside `operations.ResolveAgent`, `ResolveInTreeAgentHome`, `InTreeAgentHomeFor`, `SurfaceSelection.reroot` (its own preamble names this blind spot) | S3.F4 (four silent substitutions) |
 | `tests/arch/path_authority_test.go` | `filepath.Join` calls that reference `paths.*` AND a literal in the SAME call | follow a local variable assigned from `paths.*`; or move `runstart.json`, `spool`, `context-metrics.jsonl` into `paths` | S7.F14 |
 | `tests/arch/lean_binaries_arch_test.go` | `cmd/ltk`, `cmd/taskloom` vs `lm/*`+`bundles` | pin `internal/claude`'s import list (the real front line); add `cmd/harp`, `probe-mcp-server`, `validate`, `archlint`, `gen-schemas` with their own forbidden sets | S6.F11 |
 | `tests/arch/write_discipline_test.go` allowlist | grandfathers `WriteContextFile`, `writeRunStartHandoff`, `contextmetrics.Append`, `writeMarker` as "pre-ratchet baseline" | date the allowlist; the hook cache is the writer every gate documents as out of scope | S3.F19, S7.F15 |
 | `tests/arch/lock_discipline_test.go`, `ledger_discipline_test.go` | allowlist reason cites `CodexHookWriter.save` (gone); "five packages" (two); the ledger's "third signal" is a `json:"-"` field | delete the stale reasons; assert ONE ownership mechanism per target path | S3.F5, S3.F15 |
-| `tests/arch/session_bind_single_writer_arch_test.go` (ratchet shape) | `BindSession` writers | reuse the shape: `memory.NewCompactor(` callers allowlisted to `internal/operations`; `os.RemoveAll` under either harp tree in ≤2 named symbols; `os.ReadDir(HomeSessionsDir)` only via two predicates | S7.F2, F5, F6 |
+| `tests/arch/session_bind_single_writer_arch_test.go` (ratchet shape) | `BindSession` writers | reuse the shape: `memory.NewCompactor(` callers allowlisted to `internal/adapters/operations`; `os.RemoveAll` under either harp tree in ≤2 named symbols; `os.ReadDir(HomeSessionsDir)` only via two predicates | S7.F2, F5, F6 |
 | `tests/arch/vocabulary_adoption_test.go` (pattern) | vocabulary literals | forbid the literal `"CTXLOOM_SESSION_HARP"` (and `CTXLOOM_CELL_WORKDIR`, `CTXLOOM_PROJECT_ID`) outside its const declaration | S2.F9, S6.F5, S7 §2.1 |
 | `internal/core/config/preimage_wire_parity_test.go` | `BundleHook → wire.Hook` | round-trip `BundleHook → wire.Hook → backends.hookExecPayload` and assert byte-equal preimages (or delete the reverse copy with ML-D) | S5.SA-5 |
 | `tests/arch/credential_gitignore_test.go` `credentialPaths` | engine credentials in-tree | add `.ctxloom/state/trust/objects/`, `approvals`, `allowed_signers` rows | S5.SA-9 |
@@ -1033,7 +1033,7 @@ From A2 (launch) and A3 (bus). Each branch, what it skips, the USER-VISIBLE cons
 | # | Gate | Rule | Settles |
 |---|---|---|---|
 | N1 | **Unresolvable-symbol prose gate** (the seams' proposal, S4.F1, S3.F15) | Every backticked identifier of the form `pkg.Symbol` or `Symbol(` in `docs/architecture/**`, `GLOSSARY.md`, `docs/trust-model.md` and in Go doc-comments under `internal/` must resolve via `gopls` (or `go/packages`) to a declared symbol; a `file:line` citation in any of those files is itself a failure. | Every row of A6 except the semantic ones; makes "delete the line tables" enforceable |
-| N2 | **Harp-required launch** | No production code path constructs a `pb.RunStart` or `agentcoordpb.HarnessSpec` except the two projection functions of `operations.Launch`, whose constructor returns an error when `Harp == ""`. (`git grep 'pb.RunStart{'` outside `internal/operations` is empty.) | S1.F3, F5; `scant-undoing` item 3 |
+| N2 | **Harp-required launch** | No production code path constructs a `pb.RunStart` or `agentcoordpb.HarnessSpec` except the two projection functions of `operations.Launch`, whose constructor returns an error when `Harp == ""`. (`git grep 'pb.RunStart{'` outside `internal/adapters/operations` is empty.) | S1.F3, F5; `scant-undoing` item 3 |
 | N3 | **Delivery parity across arms** (acceptance) | One agent launched via `run --agent X` (host) and via `agent_run X` produces an IDENTICAL delivered file set in the child's session home (hooks JSON present, commands dir present, `.mcp.json` under EngineHome, `settings.json` present); ALSO `run --one-shot` host vs container. | S1.F1, S3.F1, row `cold-fifth`, the coordinator-verified symptom |
 | N4 | **Launch-source table test** | The five launch sources (agent binding, profile set, label, init probe, minimal/internal) fed through ONE resolver yield `(label, backend, PermissionMode, axes, gate)` from a table; `run --one-shot` and the old `RunOneshot` inputs must agree. | S1.F10, S6.F1 |
 | N5 | **Fail-closed gate default** | `config.Config` has no trust-gate field; every `bundles.Decide` caller receives a `bundles.Authorizer` parameter; a test constructs the delivery path with no `TrustContext` and asserts every exec item is WITHHELD with `ReasonUngoverned`. | S5.DP-1, DP-2, LB-4, ML-1 |
@@ -1043,7 +1043,7 @@ From A2 (launch) and A3 (bus). Each branch, what it skips, the USER-VISIBLE cons
 | N9 | **Shim forwards templates** | Reading `ctxloom://fragments/<name>` through the forward shim returns the fragment body. | S2.F10 ✔ |
 | N10 | **Relay project resolution** | A relayed host tool invoked from a child whose cell ≠ the coordinator's cwd resolves the CHILD's session. | S2.F4 |
 | N11 | **Owner run is a run** | An owner run occupies a concurrency slot; `agent_stop` on an owner run cancels its launch context; a dying owner runner reports its exit reason. | S4.F4 |
-| N12 | **One config load per process** | `config.Load(` appears in `internal/cli` only in `root.go` (and `init.go` with `WithAppDir`); zero in `internal/operations`; warnings are a property of loading, not of one wrapper. | S6.F6, S3.F9 |
+| N12 | **One config load per process** | `config.Load(` appears in `internal/adapters/cli` only in `root.go` (and `init.go` with `WithAppDir`); zero in `internal/adapters/operations`; warnings are a property of loading, not of one wrapper. | S6.F6, S3.F9 |
 | N13 | **Hook-cache bytes = `AssembleContext`** | The SessionStart cache file bytes equal `AssembleContext(...).Context` for the same inputs (until `engaged-borrower` deletes the cache). | S3.F2, F3 |
 | N14 | **Harp member table completeness** | `HarpTopLevelArtifacts`, `classifyPurgeFile`, `ReclaimScope.members`, `IsSessionDir` all derive from `paths.HarpMember`; a dir seeded with every `paths.*FileName` constant yields zero "authored artifacts". | S7.F1 (pattern), F9 |
 | N15 | **Every sweep is report-first** | Every `os.RemoveAll`/`os.Rename` under a harp tree runs behind an `apply bool` that defaults false, honours the keep marker, and takes an age bound. | S7.F6 |
@@ -1090,7 +1090,7 @@ Ordered by blast radius ÷ risk. **Risk** names the stop conditions a slice trip
 - **⚠️ RE-RULE `nifty-rival`.** Its item 1 prescribes routing through `operations.runResolvedAgent`, which this slice DELETES per `scant-undoing`. The row should be re-pointed at `Launch` or closed as absorbed.
 - **Design (signature-level, for the human to argue with before code).**
   ```go
-  // internal/operations/launch.go
+  // internal/adapters/operations/launch.go
   type LaunchSource struct { Agent string; Profiles []string; Label string; Mode pb.ExecutionMode; Form agent.LaunchForm; Prompt string; WorkDir string; Workspace isolation.WorkspaceAxis }
   type Launch struct { Harp string; Backend, Label, Model string; Permission agent.PermissionMode; Axes isolation.Axes; Policy isolation.Policy; Workspace isolation.Workspace; Home AgentHomeResolution; Env map[string]string; Loadout *agent.ManagedConfig; Context string; Fragments []*pb.Fragment; CellKind agent.CellKind; Form agent.LaunchForm; Trust *TrustContext }
   func ResolveLaunch(ctx context.Context, cfg *config.Config, src LaunchSource, trust *TrustContext) (*Launch, error) // fails without a harp/home/permission/form
@@ -1110,7 +1110,7 @@ Ordered by blast radius ÷ risk. **Risk** names the stop conditions a slice trip
 - **Settles.** S2.F5, F9 (partly), F10 (obsoleted), F11 (rows 1–5), S4.F12 (`injectMCPSocketEnv`), `deceased-yoga` (unauthenticated socket, cwd-keyed marker), B3 #11–#18, B4 rows 6, 8, 11; B2 #29. ✅ `blissful-blah` (ruled, queued three nights).
 - **Depends on `boned-monoxide` item 2** (`.mcp.json` written to the session home, not `projectDir` — S2.F14) because the URL+token land in the session-home `.mcp.json`.
 - **Touches.** `mcp/mcp_discovery.go` (delete), `mcp_forward.go` (delete), `mcp_runner.go` (`runnerSocketPath` tiers → TCP listener + bearer), `mcp_server.go` (`ServeStdio` shrinks to local mode only… then slice 8 deletes that too), `coord/enginehost.go` `injectMCPSocketEnv`, `cli.exportRunnerMCPSocket`, `agent.ctxloomOwnMCPServer`'s env strip, `claude.go` `.mcp.json` placement.
-- **Net LOC.** −600 (the row's own estimate: "most of internal/mcp" is compensation). **Risk.** **wire** (engines dial TCP with a token instead of exec'ing a shim — every engine's `.mcp.json` entry changes shape), **on-disk** (`.mcp.json` location). **Prereq.** `boned-monoxide` item 2; slice 2b is subsumed. **Gate.** an engine started by `run` reaches `agent_run` with no `ctxloom mcp serve` process present; N9 by construction.
+- **Net LOC.** −600 (the row's own estimate: "most of internal/adapters/mcp" is compensation). **Risk.** **wire** (engines dial TCP with a token instead of exec'ing a shim — every engine's `.mcp.json` entry changes shape), **on-disk** (`.mcp.json` location). **Prereq.** `boned-monoxide` item 2; slice 2b is subsumed. **Gate.** an engine started by `run` reaches `agent_run` with no `ctxloom mcp serve` process present; N9 by construction.
 
 #### Slice 8 · `coord.Verbs` + delete PATH A (ML-B) and the shutdown race — **wire** (minor)
 - **Settles.** S2.F1, F2, F6, F7, F13; S4.F2, F5, F6, F7; B2 #12–#18, #20–#22, #26; B4 rows 8, 9. ✅ `tacky-padding` (ruled 2026-09-14: "a shim must never be able to become one").
@@ -1128,14 +1128,14 @@ Ordered by blast radius ÷ risk. **Risk** names the stop conditions a slice trip
 - **⚠️ RE-RULE `unsigned-marine` / S5.D-3.** Whether the sibling `bundle.yaml.sig` survives for tree bundles (two signatures per bundle today, two filename contracts). A human decision; either answer lets `signBundleTree` write ONE.
 - **Design.**
   ```go
-  // internal/operations/trust_context.go
+  // internal/adapters/operations/trust_context.go
   type TrustContext struct { root signing.TrustRoot; records ReviewRecords; retraction RetractionRecords; gate bundles.Authorizer; withheld *WithheldTally; now func() time.Time }
   func NewTrustContext(cfg *config.Config, opts ...TrustOption) (*TrustContext, error) // loads root + both stores + lockfile ONCE
   func (t *TrustContext) Gate() bundles.Authorizer
   func WithUngatedListing() TrustOption // the ONLY way to get AdmitAll
   // internal/core/config: delete execGate, SetExecutableTrustGate, ExecutableTrustGate; extractMCPFromBundle/extractHooksFromBundle take (gate bundles.Authorizer)
-  // internal/signing: type Principal struct{ name string } constructed only by VerifyInNamespace; EffectiveTrustRequest.Signer Principal
-  // internal/content/attest: export attestation; bundles.readSignatureFacts calls attest.resolvePublisher over a one-element SigSet; delete repoFSReader.verifyTree's converter
+  // internal/adapters/signing: type Principal struct{ name string } constructed only by VerifyInNamespace; EffectiveTrustRequest.Signer Principal
+  // internal/adapters/content/attest: export attestation; bundles.readSignatureFacts calls attest.resolvePublisher over a one-element SigSet; delete repoFSReader.verifyTree's converter
   ```
 - **Touches.** `config/config_bundles.go`, `operations/trust.go`, `trust_gate.go`, `countersign_records.go`, `review.go`, `profile_materialize.go`, `hooks.go`, `hooks_resolve.go`, `oneshot.go` (gone by slice 5), `lm/backends/managed.go` (`gateProfileHooks`/`hookExecPayload` → the profile resolver), `coord/spawner.go`, `bundles/reader.go`, `reader_repofs.go`, `remote_ref_read.go`, `content/attest/attest.go`, `signing/publisher.go`, `countersign_verify.go`, `docs/trust-model.md` (gaps #6/#7/#8, Storage table, enforcement table, `State` vocabulary).
 - **Net LOC.** −150 plus the DF-1 perf win (~14 `ReadDir`s per gated item → one `Resolve()` per process). **Risk.** **trust** (default flips fail-closed; a listing path that forgot to opt in now WITHHOLDS — loud, which is the point). **Prereq.** slice 5 (so `Launch` carries the context) — or can precede it with `Config` still the carrier for one release; slice 4 (N5). **Gate.** N5; the parity test round-trips or the reverse copy is gone; `just test-acceptance` (every journey that delivers bundle MCP/hooks).
@@ -1194,8 +1194,8 @@ Ordered by blast radius ÷ risk. **Risk** names the stop conditions a slice trip
 | # | Seams | Disagreement | Resolution (by reading code) |
 |---|---|---|---|
 | 1 | S1 vs S6 (and S3 E2) | S6 §2.3/F-1 and S3 E2 describe the `agent_run` child as `PrepareAgentChat → bindIsolatedSpawn → runResolvedAgent per turn` ("delegated / fan-out member"); S1.F2 says delegated children take `PreparedAgentChat.StartEngine → StartRun → ClaudeCode.Chat` and that `Start`/`startOneshot` are dead. | **S1 is right** ✔. `git grep`: `runResolvedAgent(` is called from `oneshot.go` (`RunOneshot`) and from `delegate.go` INSIDE `startOneshot`; `startOneshot` is called only by `PreparedAgentChat.Start`; `Start` has NO production caller. `prodSpawner.StartEngine` calls `prep.StartEngine`; `Coordinator.runChild` calls only `runChildViaStartRun`. S6's branch C and S3's E2 label describe the dead arm. Consequence: S6.F-1's "dirty-tree handling exists ONLY here" is still true (it is in `PrepareAgentChat`, which is live), but "per-turn isolation window inside `runResolvedAgent`" is dead code. A2 and B1 ML-A are drawn from the live path. |
-| 2 | S5 → S2 (open question) | Does `mcp serve` call `SetExecutableTrustGate`? | **No — but order-dependently gated** ✔. No setter in `internal/mcp`; the five setters are `coord/spawner.go` (`newProdSpawner`), `backends.AssembleManagedConfig`, `operations/hooks.go`, `hooks_resolve.go`, `profile_materialize.go`. `ctxServer.startup → ApplyHooks` sets it on a `freshCfg` (gated). The server's OWN `cfg` reads `AdmitAll` for bundle MCP/hook items until `ctxServer.delegation()` lazily builds a coordinator, whose `newProdSpawner` mutates that same `cfg`. Recorded in A5 point 2. |
-| 3 | S5 (fragments through the gate?) vs A5 | S5 §2.1 lists `NewPipeline(..., c.ExecutableTrustGate(), ...)` sites as exec chokes; the question for synthesis was whether `AssembleContext`'s fragment delivery is also fail-open. | **Fragments are NOT fail-open** ✔: `operations.AssembleContext` calls `exposurePipelineGated(cfg, …)`, which builds its own `contentGate` (`internal/operations/context.go`, `trust_gate.go`). The `c.ExecutableTrustGate()` pipelines are in `config_bundles.go` (MCP/hooks) and `lm/backends/commands.go`, `skillfiles.go` (commands/skills). A5 BYPASS 1 is scoped to those. |
+| 2 | S5 → S2 (open question) | Does `mcp serve` call `SetExecutableTrustGate`? | **No — but order-dependently gated** ✔. No setter in `internal/adapters/mcp`; the five setters are `coord/spawner.go` (`newProdSpawner`), `backends.AssembleManagedConfig`, `operations/hooks.go`, `hooks_resolve.go`, `profile_materialize.go`. `ctxServer.startup → ApplyHooks` sets it on a `freshCfg` (gated). The server's OWN `cfg` reads `AdmitAll` for bundle MCP/hook items until `ctxServer.delegation()` lazily builds a coordinator, whose `newProdSpawner` mutates that same `cfg`. Recorded in A5 point 2. |
+| 3 | S5 (fragments through the gate?) vs A5 | S5 §2.1 lists `NewPipeline(..., c.ExecutableTrustGate(), ...)` sites as exec chokes; the question for synthesis was whether `AssembleContext`'s fragment delivery is also fail-open. | **Fragments are NOT fail-open** ✔: `operations.AssembleContext` calls `exposurePipelineGated(cfg, …)`, which builds its own `contentGate` (`internal/adapters/operations/context.go`, `trust_gate.go`). The `c.ExecutableTrustGate()` pipelines are in `config_bundles.go` (MCP/hooks) and `lm/backends/commands.go`, `skillfiles.go` (commands/skills). A5 BYPASS 1 is scoped to those. |
 | 4 | S2.F14 vs S3 G2.3 | S2 (via `boned-monoxide`) says `claude.go` writes `.mcp.json` to `projectDir`; S3 shows `mcpConfig` (DEFAULT, `LaunchOnly`) delivering to `EngineHome/.mcp.json` and `mcpUnsafeFile` to the project root. | **Both true, different paths.** At LAUNCH the default approach roots under EngineHome; the at-rest `ApplyHooks`/`installRoute` path and `MCPRegistrar` write the project `.mcp.json`. `boned-monoxide` item 2 is about the at-rest/TAIL-B placement; the TAIL B `Chat` path writes to `os.MkdirTemp` ✔ (a third location). A5's writer node `W2` names both. |
 | 5 | S1.F3 vs S7 §2.1 | S1 calls `AssignSession` and `AssignSessionHarp` "two mint primitives"; S7's graph shows `AssignSession → AssignSessionHarp` (one wraps the other). | **S7's shape is right; S1's point stands.** `AssignSession` = `AssignSessionHarp` + `RecordSessionEngineVersion` (which opens the store a second time). Coord calls the inner one and records the version as a separate `Spawner` method. One mint, two entry points with different side effects (B2 #9). |
 | 6 | S2 §3.1 vs S6.F5 | Harp literal count: S2 says 17 non-test SITES; S6 says 12 production FILES. | Different units, consistent. Both cited in B2 #31. |
@@ -1210,10 +1210,10 @@ Ordered by blast radius ÷ risk. **Risk** names the stop conditions a slice trip
 
 1. **Whether TAIL B's missing surfaces are an ACCEPTED design for the StartRun path.** S1 U1 found no ruling that says "a StartRun child gets MCP only"; `earthly-city`, `cold-fifth` and `scant-undoing` say the opposite is wanted; the coordinator's live check confirms the behaviour. I treat it as undocumented divergence (slice 5's re-rule). If a ruling exists that I did not find, slice 5's prompt-risk becomes a design change rather than a fix.
 2. **`HarnessSpec` gaining a loadout field** (slice 5) is a wire change whose compatibility window with a stale runner binary (`catchy-easing`) I have not sized. The alternative — carrying the loadout by reference (a path in the session home the runner reads) — trips the on-disk condition instead. I chose the wire form because `HarnessSpec.config` is already an opaque `Struct` carrying env/MCP/transcript policy.
-3. **The LOC estimates in B6** are additive from the seams' per-site figures (S1's ~250 dead lines, `scant-undoing`'s 347+550 for `MCPFileConfig`, `blissful-blah`'s "most of internal/mcp") and my reading of the table sizes; none is measured. The DIRECTION (delete > add) is what I stand behind for slices 1–12; slice 9 and 13 are near-neutral moves.
+3. **The LOC estimates in B6** are additive from the seams' per-site figures (S1's ~250 dead lines, `scant-undoing`'s 347+550 for `MCPFileConfig`, `blissful-blah`'s "most of internal/adapters/mcp") and my reading of the table sizes; none is measured. The DIRECTION (delete > add) is what I stand behind for slices 1–12; slice 9 and 13 are near-neutral moves.
 4. **Slice ordering assumes `boned-monoxide` item 2 lands before `blissful-blah`** (slice 7). If the human prefers TCP+token first, the URL can land in the project `.mcp.json` temporarily — but that re-opens the S2.F14 finding and I would not recommend it.
 5. **B3's "unfiled" column** was checked against the eleven rows the brief named plus the rows the seams cited; a row I did not open could already carry one of the 56. The synthesis does not create rows (taskloom rule); the human should skim B3's `—` column before filing.
-6. **The A1 graph places `internal/mcp` in the shared+delivery layer** per the stated picture (a protocol adapter). Its actual role — constructor of the coordinator, host of `ApplyHooks` on startup, four server flavours — would put it in L4 beside `coord`. I kept the stated placement so the AGAINST/SKIP edges show the drift rather than normalise it.
+6. **The A1 graph places `internal/adapters/mcp` in the shared+delivery layer** per the stated picture (a protocol adapter). Its actual role — constructor of the coordinator, host of `ApplyHooks` on startup, four server flavours — would put it in L4 beside `coord`. I kept the stated placement so the AGAINST/SKIP edges show the drift rather than normalise it.
 7. **S4.F6's shutdown race** is placed by reading plus the night report's race stacks (S4 U1), not by running `-race`; N7 is the test that settles it, and slice 8 is where the fix lands.
 8. **Seam 7 F1 is closed** (`a9b61bfae`, coordinator-verified); I carried only the PATTERN (hand-listed member classification, S7.F9 → ML-G). If the fix also derived the exclusion from `paths`, N14 is already partly met — I did not read the fix's diff.
 

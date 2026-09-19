@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // SignCompanionForTesting makes the binary at path executable by ctxloom: it

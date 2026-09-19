@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
@@ -353,5 +353,5 @@ func skillLLM(e content.EngineExports) SkillLLMExports {
 }
 
 // sortedTreeKeys keeps map iteration deterministic. It is a local copy rather
-// than a shared helper because internal/content/convert owns the other
+// than a shared helper because internal/adapters/content/convert owns the other
 // direction and this package must not import it — convert imports this one.

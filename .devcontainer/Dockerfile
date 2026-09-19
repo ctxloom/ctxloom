@@ -9,11 +9,11 @@ FROM ubuntu:24.04
 # `just test-docker-integration` reach the host/CI runner's Docker daemon —
 # GitHub-hosted runners bind-mount /var/run/docker.sock into job containers,
 # so the CLI is the only thing missing to actually exercise
-# internal/lm/isolation's docker-gated container_integration_test.go /
+# internal/adapters/isolation's docker-gated container_integration_test.go /
 # container_worktree_integration_test.go (see justfile test-docker-integration).
 # Those tests self-skip when docker is unreachable, so this is a "make it
 # possible to pass" addition, not a hard requirement.
-# tmux is a TEST DEPENDENCY, not a convenience. internal/tmuxhost's tests drive a
+# tmux is a TEST DEPENDENCY, not a convenience. internal/adapters/tmuxhost's tests drive a
 # real tmux server, and without the binary they SKIP rather than fail — so the
 # package reports ok, the suite goes green, and the tmux-backed behaviour is
 # never exercised at all. That is how three of four rename mutations survived a

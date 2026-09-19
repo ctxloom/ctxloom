@@ -29,7 +29,7 @@
 //
 // THE TWO OBSERVATION PROBLEMS THIS FILE SOLVES:
 //
-//  1. Worktree axis: internal/lm/isolation/worktree.go's
+//  1. Worktree axis: internal/adapters/isolation/worktree.go's
 //     worktreeWorkspace.Cleanup removes the ENTIRE per-agent scratch tree
 //     (worktree checkout + config-home) unconditionally the moment the run's
 //     own process returns — there is no post-run inspection window at all.
@@ -38,7 +38,7 @@
 //     flight and keeps the last non-empty snapshot observed — the same
 //     "only vantage point is DURING the run" constraint
 //     steps_j002200_isolation_matrix.go's package doc states for its own spy.
-//  2. Container axis: `docker run --rm` (internal/lm/isolation/runtime.go)
+//  2. Container axis: `docker run --rm` (internal/adapters/isolation/runtime.go)
 //     auto-removes the container the instant its process exits, so
 //     `docker diff` after the run has nothing to inspect either.
 //     watchContainerDiff races the SAME way: it waits for the container to
@@ -72,7 +72,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 )
 
 // probeAxis names the isolation axis under test: the WORKSPACE axis
@@ -104,7 +104,7 @@ func isProbeContainerAxis(a probeAxis) bool {
 
 // probeAuthPath names WHICH of the two mutually exclusive auth resolution
 // paths a probe run actually took — THE TRAP a credentialed CI lane must not
-// fall into. internal/lm/isolation/auth.go's resolveEnvOrMountAuth (and
+// fall into. internal/adapters/isolation/auth.go's resolveEnvOrMountAuth (and
 // worktree.go's seedCredentials, which follows the identical envTrigger-first
 // precedence) prefers an API key riding the environment over a host
 // credential file; when the env key is present, SEEDING IS SKIPPED ENTIRELY.
@@ -431,7 +431,7 @@ type probeContainerSnapshot struct {
 }
 
 // watchContainerDiff waits for a container named "ctxloom-iso-*"
-// (internal/lm/isolation/container.go's containerName) to start, then polls
+// (internal/adapters/isolation/container.go's containerName) to start, then polls
 // `docker diff` on it every 40ms until ctx is cancelled, keeping the last
 // successful enumeration (a "no such container" error, expected once `--rm`
 // tears it down, never overwrites a good snapshot with nothing).
@@ -691,7 +691,7 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 // probeWorktreeAuthAvailable reports the worktree axis's auth gate for
 // backendType, the counterpart to probeContainerAuthAvailable's container
 // gate. It exists as a named seam because the two axes are separately
-// gated in production (internal/lm/isolation/auth.go): an engine may be
+// gated in production (internal/adapters/isolation/auth.go): an engine may be
 // probeable on one and not the other, and a caller must say which axis it
 // is asking about. No engine currently drives the worktree axis away from
 // the plain env-key-or-host-file precedence, so this defers wholly to
@@ -701,13 +701,13 @@ func probeWorktreeAuthAvailable(backendType string) (probeAuthPath, string) {
 	return probeDecideAuthPath(backendType)
 }
 
-// probeContainerAuthAvailable mirrors internal/lm/isolation/auth.go's
+// probeContainerAuthAvailable mirrors internal/adapters/isolation/auth.go's
 // resolveXContainerAuth precedence for EACH engine, deliberately re-derived
 // here rather than imported (this package cannot reach that package's
 // unexported resolvers) — a change to production container-auth resolution
 // and a change to this probe's understanding of it could, in principle,
 // drift; the isolation-probe doc page flags this as the one place to
-// re-verify by hand whenever internal/lm/isolation/auth.go's
+// re-verify by hand whenever internal/adapters/isolation/auth.go's
 // resolveXContainerAuth functions change.
 //
 //   - claude-code/codex/opencode: env key OR a mounted host credential file
@@ -938,7 +938,7 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 		res.ExitCode = -1
 	}
 
-	res.ContainerHome = "/home/ctxloom" // defaultContainerHome, internal/lm/isolation/container.go
+	res.ContainerHome = "/home/ctxloom" // defaultContainerHome, internal/adapters/isolation/container.go
 	res.Unexpected = probeContainerUnexpected(res.Container.Diff, res.ContainerHome)
 
 	// Parse the strace output the wrapped engine exec wrote INTO the bind-mounted

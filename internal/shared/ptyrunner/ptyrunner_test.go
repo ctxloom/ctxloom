@@ -377,7 +377,7 @@ func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
 // way coord's terminal-wake nudgeReader does in production once llm_serve.go
 // arms wrapStreams. It exists to deny RunInteractive the one thing the old
 // cleanup depended on — that stdin IS an *io.PipeReader — without dragging a
-// dependency on internal/agentcoord into the substrate.
+// dependency on internal/adapters/coordgrpc/pb into the substrate.
 type wrappedStdin struct{ r io.Reader }
 
 func (w wrappedStdin) Read(p []byte) (int, error) { return w.r.Read(p) }
@@ -685,7 +685,7 @@ func TestRunInteractive_NonBenignCloseFailureIsReported(t *testing.T) {
 // TestRunInteractive_SignalKilledChildYields128PlusSignum pins the POSIX
 // convention for a child that died on a signal. It replaces an earlier pin
 // that asserted the raw -1 os/exec reports for a signalled process: passing
-// that through meant internal/cli's ExitError carried -1 into os.Exit and the
+// that through meant internal/adapters/cli's ExitError carried -1 into os.Exit and the
 // OS truncated it to 255, which is indistinguishable both from an engine that
 // really exited 255 and from a runner-internal failure. -1 is not a valid
 // POSIX exit status at all. `ctxloom run` is a transparent wrapper around the

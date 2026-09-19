@@ -228,7 +228,7 @@ func TestWriteFileInPlace_DurableSyncsParentDirectory(t *testing.T) {
 // gitignore migration path, which removes the superseded blanket rule before
 // the replacement block is appended, so a silently-failed Close leaves the
 // project with FEWER ignore rules than it started with. (This test moved here
-// with that append: it pinned internal/gitignore's own closeChecked before
+// with that append: it pinned internal/adapters/gitignore's own closeChecked before
 // appendBlock delegated to this package.) Forcing a REAL ENOSPC is
 // impractical in a portable unit test, so this drives the exact propagation
 // path via an already-closed *os.File, whose second Close reliably errors.

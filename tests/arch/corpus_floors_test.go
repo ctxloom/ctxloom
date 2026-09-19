@@ -238,7 +238,7 @@ func TestArch_CorpusFloors_TheSweepActuallyReadsTheModule(t *testing.T) {
 // tick. The rule itself cannot check this: the file is in another package, and
 // an analyzer that is never handed that package never runs at all.
 func TestArch_CorpusFloors_GeneratedFrameEncoderExists(t *testing.T) {
-	const encoder = "internal/agentcoord/xmllike_gen.go"
+	const encoder = "internal/adapters/coordgrpc/pb/xmllike_gen.go"
 	if _, err := os.Stat(filepath.Join(corpusRoot(t), encoder)); err != nil {
 		t.Fatalf("%s is missing: run `just gen-mcp-schemas`. Without it the reminder-frame rule "+
 			"proves nothing, because no frames exist to be constructed anywhere: %v", encoder, err)

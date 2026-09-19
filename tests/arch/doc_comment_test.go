@@ -28,11 +28,11 @@ import (
 //   - scripts/gendocs/livingdocs' stepIsAssertion carried a first copy
 //     asserting the PRE-fix behaviour and a second explaining why that was
 //     backwards (found and fixed earlier);
-//   - internal/remote/repo_cache.go's safeRepoPath had a stale copy promising
+//   - internal/adapters/remote/repo_cache.go's safeRepoPath had a stale copy promising
 //     a "fall back to baseDir" that the current implementation deliberately
 //     REMOVED, because falling back to baseDir is what let RemoveAll wipe the
 //     entire clone cache;
-//   - internal/operations/hooks.go's maybeRegenerateContext had a stale copy
+//   - internal/adapters/operations/hooks.go's maybeRegenerateContext had a stale copy
 //     documenting a one-value return for a function that returns two.
 //
 // A reader who stops at the first paragraph — which is what a doc comment's

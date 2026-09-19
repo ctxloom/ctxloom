@@ -68,7 +68,7 @@ const (
 // and probe declarations both build paths from), these three describe how
 // claude relocates its home and where its OWN credential/transcript state
 // lives. The descriptor (internal/claude/engine) declares the credential
-// seed from them; internal/lm/isolation's engineContainerSpec table still
+// seed from them; internal/adapters/isolation's engineContainerSpec table still
 // duplicates the container-side facts as literals rather than importing this
 // package, so tests/arch's engine-layout gate cross-checks those literals
 // against these instead.

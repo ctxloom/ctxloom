@@ -101,7 +101,7 @@ func EmitVersion(cmd *cobra.Command, emitFn func(cmd *cobra.Command, data any, t
 // selection does not.
 //
 // A var rather than a plain func so tests can present either side of the
-// human/machine split without a real terminal — see internal/cli's
+// human/machine split without a real terminal — see internal/adapters/cli's
 // isInteractiveTerminal for the same seam technique and its rationale: a test
 // binary's stdout is never a terminal, so every unmocked test is permanently
 // on the machine side.
@@ -171,7 +171,7 @@ func Resolve(cmd *cobra.Command) (clifmt.Format, error) {
 // through emit() is a real defect when someone typed `--format json` and got
 // silence, and is nothing at all when the format was merely inferred from a
 // pipe. Collapsing the two makes every command carrying format debt fail for
-// every scripted caller. See internal/cli's checkFormatWasHonored, the one
+// every scripted caller. See internal/adapters/cli's checkFormatWasHonored, the one
 // consumer that depends on it.
 func Explicit(cmd *cobra.Command) bool {
 	if f := cmd.Flags().Lookup("json"); f != nil && f.Changed {

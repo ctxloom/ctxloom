@@ -18,7 +18,7 @@
 //
 // Both hermetic observables are produced by the child's OWN runner process —
 // the coordinator writes neither: the child's canonical transcript
-// (internal/transcript/record.go's transcript.jsonl, a first-party ctxloom
+// (internal/adapters/transcript/record.go's transcript.jsonl, a first-party ctxloom
 // artifact of the same durable, disk-backed class j002100_delegation.feature
 // established for runs.jsonl) proves requirement 3 (distinct context) and
 // the coordinator->child half of requirement 4 (a real agent_send call,
@@ -244,12 +244,12 @@ func j002300WriteAgent(w *World, s *j002300AgentSpec) error {
 // --- Canonical transcript reading (hermetic observable) ---------------------
 //
 // ~/.ctxloom/sessions/<harp>/persist/transcript.jsonl is ctxloom's OWN
-// captured conversation record (internal/transcript/record.go's documented
+// captured conversation record (internal/adapters/transcript/record.go's documented
 // schema) — a first-party, durable, disk-backed artifact every structured
 // engine (mock included) writes through, not a private format being
 // scraped. Decoded locally here (mirroring steps_j002100_delegation.go's
 // j002100RunFact/j002100JournalLine — a minimal local shadow of the on-disk shape,
-// not an import of the internal/transcript package) rather than trusting an
+// not an import of the internal/adapters/transcript package) rather than trusting an
 // in-process struct.
 
 // j002300TranscriptEntry is one KindEntry line's payload

@@ -1,4 +1,4 @@
-# Seam 4 — COORDINATION BUS (`internal/agentcoord`)
+# Seam 4 — COORDINATION BUS (`internal/adapters/coordgrpc/pb`)
 
 Architecture audit, read-only. Analyst: seam 4 of 7. Checkout: `~/workspace/ctxloom/ctxloom/main` at `release/0.7` (tip `d42cc4229`).
 Status: COMPLETE (see the footer for the section inventory).
@@ -9,14 +9,14 @@ References are by `package.Symbol` + file. No line numbers.
 
 ## 1. Scope and entry points
 
-**Seam:** the coordination bus — `internal/agentcoord` (proto + `seqwatch.go` + `messagekind.go`), `internal/core/coord` (the runtime, both coordinator and runner halves), `internal/core/spool` (the file substrate). Read in full: `coordinator.go`, `children.go`, `consumer.go`, `runchannel.go`, `grpcserver.go`, `httpserver.go`, `runnerlink.go`, `home.go`, `enginehost.go`, `enginehost_control.go`, `spooldelivery.go`, `spooldoorbell.go`, `spoolcourier.go`, `spoolwriter.go`, `spoolowner.go`, `spoolturnresult.go`, `spoolcontrol.go`, `ownerrecv.go`, `owner_run.go`, `launchgate.go`, `drain.go`, `tracked.go`, `liveness.go`, `journal.go`, `folds.go`, `reports.go`, `pendingapproval.go`, `spool/*.go`, `coordination.proto`, plus the callers in `internal/mcp/mcp_runner.go`, `internal/mcp/mcp_tools_agents.go`, `internal/mcp/coord_host.go`. Skimmed: `artifacts*.go`, `homeartifacts.go`, `publish.go`, `checkpoint.go`, `facts.go`, `items.go`, `spawner.go`, `harnessspec.go`, `capabilities.go`.
+**Seam:** the coordination bus — `internal/adapters/coordgrpc/pb` (proto + `seqwatch.go` + `messagekind.go`), `internal/core/coord` (the runtime, both coordinator and runner halves), `internal/core/spool` (the file substrate). Read in full: `coordinator.go`, `children.go`, `consumer.go`, `runchannel.go`, `grpcserver.go`, `httpserver.go`, `runnerlink.go`, `home.go`, `enginehost.go`, `enginehost_control.go`, `spooldelivery.go`, `spooldoorbell.go`, `spoolcourier.go`, `spoolwriter.go`, `spoolowner.go`, `spoolturnresult.go`, `spoolcontrol.go`, `ownerrecv.go`, `owner_run.go`, `launchgate.go`, `drain.go`, `tracked.go`, `liveness.go`, `journal.go`, `folds.go`, `reports.go`, `pendingapproval.go`, `spool/*.go`, `coordination.proto`, plus the callers in `internal/adapters/mcp/mcp_runner.go`, `internal/adapters/mcp/mcp_tools_agents.go`, `internal/adapters/mcp/coord_host.go`. Skimmed: `artifacts*.go`, `homeartifacts.go`, `publish.go`, `checkpoint.go`, `facts.go`, `items.go`, `spawner.go`, `harnessspec.go`, `capabilities.go`.
 
 ### Entry points traced (each to its process boundary)
 
 | # | Entry | Symbol | File | Boundary reached |
 |---|---|---|---|---|
-| E1 | MCP tool `agent_send` (runner-hosted, child or owner-as-runner) | `mcp.coordinationHandler` → `coord.Home.Request` → `coord.Home.sendPeerViaSpool` | `internal/mcp/mcp_runner.go`, `coord/home.go`, `coord/spooldelivery.go` | file write into `<harp>/out/` (`spool.Writer.Write`) + doorbell frame `AgentFrame.spool_changed` |
-| E2 | MCP tool `agent_send` (coordinator-local, bare `ctxloom mcp` fallback) | `mcp.ctxServer.delegation` → `coord.Coordinator.AgentSend` → `peerSend` | `internal/mcp/mcp_tools_agents.go`, `coord/coordinator.go` | file write into recipient `in/` (`spoolCourier.Send`) + `CoordinatorNotice.spool_changed` |
+| E1 | MCP tool `agent_send` (runner-hosted, child or owner-as-runner) | `mcp.coordinationHandler` → `coord.Home.Request` → `coord.Home.sendPeerViaSpool` | `internal/adapters/mcp/mcp_runner.go`, `coord/home.go`, `coord/spooldelivery.go` | file write into `<harp>/out/` (`spool.Writer.Write`) + doorbell frame `AgentFrame.spool_changed` |
+| E2 | MCP tool `agent_send` (coordinator-local, bare `ctxloom mcp` fallback) | `mcp.ctxServer.delegation` → `coord.Coordinator.AgentSend` → `peerSend` | `internal/adapters/mcp/mcp_tools_agents.go`, `coord/coordinator.go` | file write into recipient `in/` (`spoolCourier.Send`) + `CoordinatorNotice.spool_changed` |
 | E3 | MCP tool `agent_recv` (runner-hosted) | `mcp.recvHandler` → `coord.Home.Recv` | `mcp_runner.go`, `coord/home.go` | reads `h.buffer`; ack = `spool.Consume` rename into `in/consumed/` + doorbell |
 | E4 | MCP tool `agent_recv` (coordinator-local owner) | `coord.Coordinator.AgentRecv` → `recvMail` → `claimSpoolInbox`/`ackSpoolInbox` | `coord/coordinator.go`, `ownerrecv.go`, `spoolowner.go` | reads owner `in/`; rename on next recv |
 | E5 | MCP tool `agent_run` (runner-hosted) | `mcp.coordinationHandler` → `Home.Request` → wire `AgentRequest.spawn_agent` → `Coordinator.handleAgentRequest` → `serveSpawnAgent` → `AgentRun` | `mcp_runner.go`, `coord/runchannel.go`, `coord/children.go` | `Spawner.StartEngine` (exec / container) then `RunnerRequest.start_run` over `RunnerChannel` |
@@ -46,7 +46,7 @@ Edge labels carry the state that crosses the edge (`args / returns`); ctx and lo
 
 ```mermaid
 flowchart LR
-  subgraph mcp["internal/mcp (runner process)"]
+  subgraph mcp["internal/adapters/mcp (runner process)"]
     CH["mcp.coordinationHandler(ToolAgentSend)"]
   end
   subgraph homeR["coord.Home (runner process)"]
@@ -129,7 +129,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  subgraph mcpC["internal/mcp (coordinator process, bare-mcp local surface)"]
+  subgraph mcpC["internal/adapters/mcp (coordinator process, bare-mcp local surface)"]
     HAS["ctxServer.handleAgentSend"]
     DEL["ctxServer.delegation → newAgentDelegation → NewHostedCoordinator"]
   end
@@ -476,19 +476,19 @@ Solid arrows = the direction the stated architecture expects (README package map
 
 ```mermaid
 flowchart TD
-  CLI["internal/cli<br/>(run.go, llm_runner_common.go, llm_serve.go)"]
-  TUI["internal/cli/tui"]
-  MCP["internal/mcp<br/>(mcp_runner.go coordinationHandler;<br/>mcp_tools_agents.go local surface;<br/>coord_host.go NewHostedCoordinator)"]
+  CLI["internal/adapters/cli<br/>(run.go, llm_runner_common.go, llm_serve.go)"]
+  TUI["internal/adapters/cli/tui"]
+  MCP["internal/adapters/mcp<br/>(mcp_runner.go coordinationHandler;<br/>mcp_tools_agents.go local surface;<br/>coord_host.go NewHostedCoordinator)"]
   COORD["internal/core/coord"]
-  PROTO["internal/agentcoord (proto, seqwatch, messagekind)"]
-  SCHEMA["internal/agentcoord/mcpschema"]
+  PROTO["internal/adapters/coordgrpc/pb (proto, seqwatch, messagekind)"]
+  SCHEMA["internal/adapters/coordgrpc/mcpschema"]
   SPOOL["internal/core/spool"]
   DISC["internal/agentcoord/discover"]
-  OPS["internal/operations"]
-  ISO["internal/lm/isolation"]
-  TRANS["internal/transcript"]
+  OPS["internal/adapters/operations"]
+  ISO["internal/adapters/isolation"]
+  TRANS["internal/adapters/transcript"]
   CFG["internal/core/config"]
-  AGENTS["internal/agents"]
+  AGENTS["internal/adapters/agents"]
   LIVE["internal/liveness"]
   PATHS["internal/core/paths"]
   FS[("$HOME/.ctxloom/… spool dirs<br/>(spool.HomeMapper)")]
@@ -526,7 +526,7 @@ flowchart TD
 
 Reading the graph:
 
-- **Layer rule status.** `coord-must-not-import-cli/tui` holds (`go list` shows no `internal/cli` import from coord at all). The README's "`discover` is a leaf" holds. `operations` does not import coord — holds.
+- **Layer rule status.** `coord-must-not-import-cli/tui` holds (`go list` shows no `internal/adapters/cli` import from coord at all). The README's "`discover` is a leaf" holds. `operations` does not import coord — holds.
 - **The package is two programs in one import path.** Every file under `coord/` compiles into BOTH the coordinator process and the runner process: `Home`, `EngineHost`, `RunnerLink`, `spoolturnresult.go`, `enginehost_control.go`, and half of `spooldelivery.go`/`spooldoorbell.go` run only in the runner; `Coordinator`, `grpcserver.go`, `httpserver.go`, `children.go`, `drain.go`, `ownerrecv.go`, `spoolowner.go` run only in the coordinator. The shared vocabulary (`Message`, mail kinds, `spoolCourier`, the proto conversions) is the legitimate common core. Nothing enforces which side a symbol belongs to; `transcript` and `isolation` are pulled into the coordinator binary's dependency closure by runner-side code (F-ML-1).
 - **The relay-as-owner edge** (dotted, coord → mcp) is the tacky-padding boundary: `doc.go` blesses it ("as the orphaned-orchestrator fallback, a bare `ctxloom mcp`"), the row rules it a defect.
 
@@ -583,7 +583,7 @@ Each finding: category · sites by symbol+file · what it costs · what settles 
 **Settles it:** delete `docs/architecture/agentcoord/` (prefer deletion to correction per the project's own rule), and add an arch test that fails when any `docs/architecture/**` or `coord/*.go` comment names a symbol `gopls` cannot resolve — the checked binding the docs never had.
 
 ### F2 · MISSING LAYER · participant vs owner is not a type (row `tacky-padding`, To Do, ruled)
-**Sites:** `mcp.newAgentDelegation` → `mcp.NewHostedCoordinator` (`internal/mcp/mcp_tools_agents.go`, `coord_host.go`); `coord.doc.go`; `coord.New` (`acquireStateDir`, `openJournals`, `startSpoolReactor`, `runnerWatchdog`, `livenessWatchdog`).
+**Sites:** `mcp.newAgentDelegation` → `mcp.NewHostedCoordinator` (`internal/adapters/mcp/mcp_tools_agents.go`, `coord_host.go`); `coord.doc.go`; `coord.New` (`acquireStateDir`, `openJournals`, `startSpoolReactor`, `runnerWatchdog`, `livenessWatchdog`).
 **What:** nothing in `coord`'s types distinguishes a process that OWNS the state dir from one that merely relays; `coord.New` is the only constructor and it stands up everything. The runner-hosted path (`coordinationHandler` over `Home`) already never touches this. Not re-derived here — the row has the reproduction and the ruling ("ONE coordinator per project, hosted by a RUNNER").
 **Settles it:** the row's own settle clause (a shim with no runner constructs nothing — asserted on the absence of the lock and journals).
 
@@ -672,8 +672,8 @@ The CCN comes almost entirely from the cause branches in layers 2 and 3 (`cause 
 - Row `dreamless-ebony` (ruled: silent disconnect IS the contract; docs-only): the seam comment at `grpc.InstallRunnerTeardown` was not checked by this analyst (outside `agentcoord`); `coordService.RunnerChannel`'s deferred `runnerLost("RunnerChannel disconnected")` is the coordinator half of that contract and carries no pointer to the ruling.
 
 ### F12 · LAYER BYPASS
-- `coord` → `internal/transcript` from `EngineHost.startRun`/`enqueueTurn`: transcript recording is a runner-process concern (seam 7) compiled into the coordinator's package; the coordinator binary links the recorder it never uses.
-- `coord` → `internal/agentcoord/mcpschema` for one constant (`RecvWaitMax`): the runtime importing the LLM-facing projection to clamp a wait; the constant belongs in `coord` (or `agentcoord`) with `mcpschema` importing it, which is the direction the README draws.
+- `coord` → `internal/adapters/transcript` from `EngineHost.startRun`/`enqueueTurn`: transcript recording is a runner-process concern (seam 7) compiled into the coordinator's package; the coordinator binary links the recorder it never uses.
+- `coord` → `internal/adapters/coordgrpc/mcpschema` for one constant (`RecvWaitMax`): the runtime importing the LLM-facing projection to clamp a wait; the constant belongs in `coord` (or `agentcoord`) with `mcpschema` importing it, which is the direction the README draws.
 - `coord.EngineHost.startRun` → `injectMCPSocketEnv(dec.Chat.MCPServers, os.Getenv(EnvMCPSocket))`: the runner rewrites the child's MCP server env inside the coordination package, reading the socket from its own env; the row `tacky-padding` documents the consequence when the env is absent.
 
 ## 5. Signatures that matter (verbatim), with input / output / hidden-input annotations

@@ -23,7 +23,7 @@
 // one.
 //
 // The package deliberately does NOT probe for docker itself: callers pass the
-// availability bool. internal/lm/isolation owns the probe
+// availability bool. internal/adapters/isolation owns the probe
 // (isolation.Docker{}.Available()) and its own tests are in `package
 // isolation`, so a probing dockergate would import isolation and close a
 // cycle. A bool keeps one gate usable from all four packages.

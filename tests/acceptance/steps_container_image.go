@@ -11,7 +11,7 @@
 // 2026-09-03: build the image on demand rather than loosen the assertion.
 //
 // THE SUBJECT IS "mock", not a vendor engine. mockInstallFragment
-// (internal/lm/isolation/enginespec.go) installs no vendor CLI at all, so
+// (internal/adapters/isolation/enginespec.go) installs no vendor CLI at all, so
 // building it touches the network zero times beyond the base image layer —
 // unlike a claude-code/codex/opencode build, which pulls each engine's
 // official installer and costs minutes. container.feature's own header rules
@@ -25,7 +25,7 @@
 //
 // BUILT VIA THE CLI SUBPROCESS, NOT isolation.BuildAgentImage CALLED
 // DIRECTLY. The image tag folds in isolation.SetBinaryVersion's stamp, which
-// only internal/cli's root command sets, from the ldflags-injected version —
+// only internal/adapters/cli's root command sets, from the ldflags-injected version —
 // a Go-level call from this test BINARY would build under an unstamped
 // (omitted) version key and mint a DIFFERENT tag than the one the exec'd
 // ./ctxloom binary looks for. Shelling out to the SAME built binary this

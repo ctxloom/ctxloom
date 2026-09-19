@@ -360,7 +360,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 	})
 
 	// --- Scenario 5: RETRACTION — @wip, see the feature file's comment --------
-	// (internal/remote/retract.go's CheckRetracted is only ever consulted by
+	// (internal/adapters/remote/retract.go's CheckRetracted is only ever consulted by
 	// Puller.confirmRetraction, and operations.syncItem — the only caller —
 	// either skips already-installed refs before Pull ever runs, or hardcodes
 	// Force:true when it does. EffectiveTrust never consults retraction at

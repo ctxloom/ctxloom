@@ -135,7 +135,7 @@ func TestCoordProjectStateDir_UnderHomeCoordDir(t *testing.T) {
 
 // TestHomeLocksDir_HomeRootedLocksSegment pins ~/.ctxloom/locks — the
 // directory the isolation package's container lock-path fix mounts whole
-// into a container (internal/lm/isolation's sessionStateMounts), and the
+// into a container (internal/adapters/isolation's sessionStateMounts), and the
 // directory HomePathFor (lockpath.go) derives its lock sidecars under. The
 // literal "locks" (not HomeLocksDirName) is deliberate, mirroring
 // TestHomeCoordDir_HomeRootedCoordSegment: a mutation to the constant's

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	yamlv3 "gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/confpatch"
+	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"

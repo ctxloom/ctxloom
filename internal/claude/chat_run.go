@@ -85,7 +85,7 @@ func (b *ClaudeCode) Chat(parentCtx context.Context, req agent.ChatRequest, in <
 	// runner PROCESS this call executes inside has already been placed on the
 	// requested runtime axis by the starter seam (docker-direct `ctxloom llm
 	// host` for a container axis, a bare self-invoked `llm host` for host —
-	// see internal/operations/delegate.go's PreparedAgentChat.StartEngine).
+	// see internal/adapters/operations/delegate.go's PreparedAgentChat.StartEngine).
 	// Chat only ever spawns `claude` as an ordinary child of THIS process, so
 	// it inherits that isolation for free and needs no container logic of its
 	// own.

@@ -5,7 +5,7 @@ package integration
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

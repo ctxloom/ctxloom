@@ -30,7 +30,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
 // companionWitnessName is the file the fake companion appends to when it runs.

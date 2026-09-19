@@ -15,7 +15,7 @@
 > review-findings section at the end of this file.
 >
 > **ALSO (2026-07-30): S1 AND S2 ARE BUILT.** `bundle/s2` carries L0's bundle-level manifest API,
-> L1 (`BuildManifest`/`VerifyContents`), and L2 (`internal/content/attest`). Review findings F1, F2,
+> L1 (`BuildManifest`/`VerifyContents`), and L2 (`internal/adapters/content/attest`). Review findings F1, F2,
 > F3 and bundle-level F10 are CLOSED. Sections carrying a "BUILT 2026-07-30" banner state what
 > actually shipped; the code blocks above those banners are historical sketches. **And this
 > document NO LONGER SPECIFIES THE COUNTERSIGN KEY** — that vocabulary shipped separately at
@@ -96,7 +96,7 @@ All three flows go through the seam:
 - **(c) local item manifest-mismatch → warn + allow** — prototyping: an edited in-repo skill stays usable with a loud `clidiag.Warn`; remote unaffected.
 
 ## Confirmed constraints (from scouts)
-- NO new dependency (reuse `internal/signing`, ssh-agent, allowed_signers trust root, manifest serializer).
+- NO new dependency (reuse `internal/adapters/signing`, ssh-agent, allowed_signers trust root, manifest serializer).
 - NO new preimage contract for skills (reuse `manifest.Serialize()` under publish.v1) — existing `--sign` outputs stay valid.
 - Storage = detached `.sig` sibling (human-chosen), additive, NOT a bundle.yaml schema change.
 - Preimage binds content bytes only (not name/location) — correct for a content attestation.
@@ -283,14 +283,14 @@ Restructure monolithic bundle.yaml → on-disk DIRECTORY TREE (one file per item
       executable surfaces where identical bytes have entirely different consequences. That is the part
       that must not be simplified away. HOW it is encoded is the code's business.
       **CITATIONS (do not re-specify — read these):**
-      - `signing.AttestationForm` (`internal/signing/payload.go`) — the CLOSED COMPOSITE vocabulary
+      - `signing.AttestationForm` (`internal/adapters/signing/payload.go`) — the CLOSED COMPOSITE vocabulary
         that carries the role: `fragment/raw`, `fragment/distilled`, `command/raw`,
         `command/distilled`, `exec/mcp`, `exec/hook`, `skill`, plus `AttestNone("")` for a ref-reject.
         `kind` is GONE from the header as a separate field; the composite form value carries it.
       - `signing.CountersignContract = "ctxloom-countersign/2"` (same file) — the `/2` bump is what
         stales every pre-composite record.
       - `signing.CountersignHeader` (same file) — the shipped header shape.
-      - `attestationFormFor` (`internal/operations/countersign_records.go`) — the ONE exhaustive
+      - `attestationFormFor` (`internal/adapters/operations/countersign_records.go`) — the ONE exhaustive
         derivation site from (live item kind, layout form) to attestation form. Every read and every
         write goes through it, which is what makes the two sides agree.
       **SYMBOLS THIS DOCUMENT ONCE NAMED THAT NO LONGER EXIST:** `signing.ItemKind`, `signingKindOf`,
@@ -313,7 +313,7 @@ Restructure monolithic bundle.yaml → on-disk DIRECTORY TREE (one file per item
       2. signature-as-authority — ALREADY how it works (a record counts if it verifies against the
          trust root, not because of where it sits);
       3. **READ APPROVALS FROM REFERENCED REMOTES — the actual gap.** Verified cheap: the repo cache
-         is a FULL clone (no sparse/partial/depth flags anywhere in `internal/remote`), so if project
+         is a FULL clone (no sparse/partial/depth flags anywhere in `internal/adapters/remote`), so if project
          A commits `.ctxloom/approvals`, those records are ALREADY ON DISK in B's cache after a pull.
          Nothing reads them. (An earlier framing of this as "de-special-case the home dir" was WRONG —
          the home store is not the gap; unread remote stores are.)
@@ -415,7 +415,7 @@ Restructure monolithic bundle.yaml → on-disk DIRECTORY TREE (one file per item
    **no items at all** — a silent disappearance, not a fail-closed error.
 
 Signing model (decided):
-- Tool = internal sshsig (internal/signing), NOT the ssh-keygen binary (keeps ssh binary dep out; still ssh-keygen-compatible format). No new dep.
+- Tool = internal sshsig (internal/adapters/signing), NOT the ssh-keygen binary (keeps ssh binary dep out; still ssh-keygen-compatible format). No new dep.
 - Two granularities × two roles, freely combinable: publisher(initial) + approval(countersign), each per-file `.sig` AND/OR per-bundle signed manifest-of-hashes.
 - PRECEDENCE = MOST-SPECIFIC-WINS: per-bundle manifest is the blanket baseline (a changed file fails its manifest hash, manifest sig prevents re-forge); on conflict a per-file sig OVERRIDES the manifest.
 - RESIDENCY: publisher `.sig`s co-locate IN-TREE (travel with bundle); USER-level countersign approvals STAY out-of-tree (~/.ctxloom/approvals, never committed); project approvals may co-locate. No blanket collapse.
@@ -542,7 +542,7 @@ type Writer interface {                             // IN SCOPE (decided) — ne
 }
 ```
 
-> **[L0 AS BUILT — the block above is the pre-S1 sketch. Read `internal/content/content.go`.]**
+> **[L0 AS BUILT — the block above is the pre-S1 sketch. Read `internal/adapters/content/content.go`.]**
 > S1 nested `Store -> Bundle -> Item -> Form` (bytes and signatures hang off FORM, not Item, because
 > the attestable unit is (item, form)). S2 then added the BUNDLE-LEVEL half the F1 ruling called for:
 > ```go
@@ -768,7 +768,7 @@ Store stays purely about content; integrity is a layer above it.
 > **[BUILT 2026-07-30 on `bundle/s2` — the sketch above is superseded by the shipped shapes.]**
 > `LoadManifest` dissolved into `Bundle.Manifest(ctx)` per the human's F1 ruling (the manifest is a
 > FIRST-CLASS BUNDLE-LEVEL OBJECT reachable through the store, never a reserved item). L1 lives in
-> `internal/content/manifest.go` — same package as L0, because a manifest is integrity only and
+> `internal/adapters/content/manifest.go` — same package as L0, because a manifest is integrity only and
 > carries no trust semantics. `Manifest` is a VALUE, not a pointer. What shipped:
 > ```go
 > const ManifestPath  = "SHA256SUMS"   // bundle-relative; the Digest format, `sha256sum -c`-checkable
@@ -811,7 +811,7 @@ func VerifyItem(ctx context.Context, it Item, root signing.TrustRoot, now time.T
 func VerifyBundle(ctx context.Context, b Bundle, root signing.TrustRoot, now time.Time) (Verdict, error)
 ```
 
-> **[BUILT 2026-07-30 on `bundle/s2` — package `internal/content/attest`, beside `content` so L0
+> **[BUILT 2026-07-30 on `bundle/s2` — package `internal/adapters/content/attest`, beside `content` so L0
 > never imports a trust root.]** What shipped:
 > ```go
 > func SignBundle(ctx, w content.Writer, b content.Bundle, signer ssh.Signer) error

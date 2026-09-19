@@ -8,7 +8,7 @@
 // code is not the verdict" and pins, as tested behaviour, that NO check
 // content ever changes doctor's exit code — warn IS its fail-loud signal).
 // `run --dry-run` is the hermetic control instead: it needs no engine
-// credentials, and internal/cli/run.go's runRun calls gateStartup() (gate 1,
+// credentials, and internal/adapters/cli/run.go's runRun calls gateStartup() (gate 1,
 // which is where config.go's schema-validation warnings become a fatal
 // ClassConfig finding — internal/core/config/warnings.go's
 // WarningKind.StrictnessClass) BEFORE the --dry-run early return, so gate 1

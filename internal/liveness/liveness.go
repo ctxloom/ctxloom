@@ -16,7 +16,7 @@
 // invented by it (a docker-gated progress-asserting acceptance test is built
 // against the same words, so the monitor and the test cannot drift into two
 // different notions of "alive"). An agent is making PROGRESS when its
-// canonical transcript (internal/transcript, one JSON envelope per line at
+// canonical transcript (internal/adapters/transcript, one JSON envelope per line at
 // paths.HarpCanonicalTranscriptPath) shows all of:
 //
 //   - seq strictly advances past 0. Seq starts at 0 with no gaps for the

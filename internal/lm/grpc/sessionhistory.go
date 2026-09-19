@@ -6,8 +6,8 @@ import (
 	"math"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

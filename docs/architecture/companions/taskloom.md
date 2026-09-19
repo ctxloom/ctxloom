@@ -279,7 +279,7 @@ its primary checkout's task store rather than one that dies with the worktree.
 - **`--format` means two things on one tree** — root's persistent
   `{json,yaml,toml,text,markdown}` default `text`, and `loadout`'s local `{yaml,json}` default
   `yaml`, which shadows it. `taskloom loadout --format text` errors. `watch` accepts `--format`
-  and always emits JSONL regardless (its twin, `internal/cli/plan_watch.go:65-68`, validates and
+  and always emits JSONL regardless (its twin, `internal/adapters/cli/plan_watch.go:65-68`, validates and
   rejects).
 - **`--json` is registered on 5 commands and absent from 7** — `taskloom list --json` works,
   `taskloom summary --json` is "unknown flag".
@@ -290,7 +290,7 @@ its primary checkout's task store rather than one that dies with the worktree.
 - **`taskloom repair` and `taskloom remove` do not exist.** The fatal harp-collision error tells
   the user to run `Store.Repair()`, which no CLI command or MCP tool exposes; `Store.Remove`, an
   `opRemove` fold branch, and a tombstone rule are all implemented and unreachable.
-- **The `watch` loop is a line-for-line copy** of `internal/cli/plan_watch.go:87-112`, in a repo
+- **The `watch` loop is a line-for-line copy** of `internal/adapters/cli/plan_watch.go:87-112`, in a repo
   whose `internal/shared/watch` package doc says the logic lives there "rather than being
   reimplemented … per consumer". A closed events channel is treated as a clean shutdown
   (`watch.go:83-86` returns nil), although `internal/shared/watch`'s `pump` also closes it when the

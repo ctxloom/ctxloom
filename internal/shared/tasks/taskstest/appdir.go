@@ -130,7 +130,7 @@ const appDirName = ".ctxloom"
 // testTempRoots duplicates operations.testTempRoots (see its doc for the
 // mechanism) rather than importing it: this package must stay self-contained
 // (see the realpath.Resolve / appDirName notes above for why), and
-// internal/operations already imports this package's Isolate/ChangeDir for
+// internal/adapters/operations already imports this package's Isolate/ChangeDir for
 // its own tests, so the reverse edge would cycle.
 //
 // In one sentence: os.TempDir() is what a TestMain-style sandbox

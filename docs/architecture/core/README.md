@@ -14,16 +14,16 @@ here.
 
 | Page | Package | What it owns |
 |---|---|---|
-| [remote.md](./remote.md) | `internal/remote` | The reference grammar, the remotes registry, the git clone cache, selector→SHA resolution, and `lock.yaml`. |
+| [remote.md](./remote.md) | `internal/adapters/remote` | The reference grammar, the remotes registry, the git clone cache, selector→SHA resolution, and `lock.yaml`. |
 | [bundles.md](./bundles.md) | `internal/core/bundles` | The bundle document, the loader, item kinds, the **content-hash preimage**, skill packages, and the content trust choke. |
 | [config.md](./config.md) | `internal/core/config` | `config.yaml` discovery, layering, migration and persistence; inline profiles; bundle seeding; the trust root union. |
 | [profiles.md](./profiles.md) | `internal/core/profiles` | Directory profiles, the schema-upgrade pipeline, and parent-graph resolution into a `ResolvedProfile`. |
-| [operations.md](./operations.md) | `internal/operations` | The frontend-neutral orchestration layer: bootstrap, sync, lock, assemble, apply, review, launch. |
-| [premise-selection.md](./premise-selection.md) | `internal/operations` | Conditional fragments: withholding, the premise index an agent selects from, and what the mechanism measurably costs and saves. |
+| [operations.md](./operations.md) | `internal/adapters/operations` | The frontend-neutral orchestration layer: bootstrap, sync, lock, assemble, apply, review, launch. |
+| [premise-selection.md](./premise-selection.md) | `internal/adapters/operations` | Conditional fragments: withholding, the premise index an agent selects from, and what the mechanism measurably costs and saves. |
 | [trust.md](./trust.md) | `internal/core/trust` + the gate | The trust vocabulary and addressing, the seven-step decision cascade, the state machine, and the exposure chokes. |
-| [signing.md](./signing.md) | `internal/signing` | The signature envelope, the countersignature preimage, and the publisher state machine. |
+| [signing.md](./signing.md) | `internal/adapters/signing` | The signature envelope, the countersignature preimage, and the publisher state machine. |
 | [paths.md](./paths.md) | `internal/core/paths` | The on-disk layout vocabulary and the three tiers — `content/`, `cache/`, `state/` (user-facing account: [docs/layout.md](../../layout.md)). |
-| [projectroot.md](./projectroot.md) | `internal/projectroot` | Which directory is the project, worktree classification, and the task-store exception. |
+| [projectroot.md](./projectroot.md) | `internal/adapters/projectroot` | Which directory is the project, worktree classification, and the task-store exception. |
 | [schema.md](./schema.md) | `internal/schema`, `internal/schemagen` | JSON Schema validation and the path oracle; reflected schema publication. |
 
 ## The content pipeline, end to end
@@ -33,7 +33,7 @@ flowchart TD
     AUTHOR["publisher authors a bundle<br/>+ ctxloom sign -> bundle.yaml + bundle.yaml.sig"]
     AUTHOR --> FORGE[("git forge")]
 
-    subgraph acquire["ACQUIRE · internal/remote"]
+    subgraph acquire["ACQUIRE · internal/adapters/remote"]
         REG["remotes.yaml<br/>Registry (remote.Registry)"]
         REF["ref string -> CanonicalizeShortRef -> ParseReference"]
         CACHE["RepoCache: one clone dir per repo URL<br/>repo_cache.go:273"]
@@ -49,7 +49,7 @@ flowchart TD
         RESOLVE --> LOCK --> WRITE
     end
 
-    subgraph closure["CLOSURE · internal/operations"]
+    subgraph closure["CLOSURE · internal/adapters/operations"]
         SYNC["SyncDependencies<br/>collect -> pull -> re-collect (fixed point)<br/>sync.go:101"]
         FLAT["FlattenDependencies<br/>transitive closure over profiles<br/>depgraph.go:53"]
         SYNC --> FLAT --> LOCK
@@ -100,8 +100,8 @@ These hold across every page; each is restated with its citations on the page th
 
 2. **`lock.yaml` is authoritative for the pin, never for the content.** It records
    `{SHA, URL, RequestedVersion, Version, Kind, FetchedAt, Pinned, Retracted, RetractedReason}`
-   per bundle (`internal/remote/types.go:148`) and only for bundles
-   (`internal/remote/types.go:202`). Bytes are re-fetched from the clone cache at `entry.SHA`
+   per bundle (`internal/adapters/remote/types.go:148`) and only for bundles
+   (`internal/adapters/remote/types.go:202`). Bytes are re-fetched from the clone cache at `entry.SHA`
    on every read. `Retracted` is the one *trust-relevant* field it carries — step 2 of the
    cascade reads it and never dials the network.
 
@@ -109,15 +109,15 @@ These hold across every page; each is restated with its citations on the page th
 
    | File | Only writers |
    |---|---|
-   | `.ctxloom/config.yaml` | `Config.saveLocked` (`internal/core/config/config_save.go:118`, via `Manager.Update` / `Config.Save`), `commitPendingUpgrade` (`config_save.go:56`), and the initial creation by `operations.InitializeProject` (`internal/operations/init.go:76`) |
-   | `.ctxloom/remotes.yaml` | `Registry.save` (`internal/remote/registry.go:105`) and the initial creation by `operations.InitializeProject` (`internal/operations/init.go:84`) |
-   | `.ctxloom/lock.yaml` | `LockfileManager.write` (`internal/remote/lockfile.go`) — reached from `Save` (`:152`) and from the load-time self-heal in `Load` (`:66`). Callers: `Puller.updateLockfile`/`RecordRetraction` inside `internal/remote`, and `internal/operations/lockfile.go:147` through the `LockfileStore` port. **`Save` refuses destructive writes** since `fd0d87d6`: empty-over-populated (`ErrLockfileWouldErase`, opt out with `remote.AllowEmpty()`) and any write over a corrupt file (`ErrLockfileUnreadable`, no override) |
+   | `.ctxloom/config.yaml` | `Config.saveLocked` (`internal/core/config/config_save.go:118`, via `Manager.Update` / `Config.Save`), `commitPendingUpgrade` (`config_save.go:56`), and the initial creation by `operations.InitializeProject` (`internal/adapters/operations/init.go:76`) |
+   | `.ctxloom/remotes.yaml` | `Registry.save` (`internal/adapters/remote/registry.go:105`) and the initial creation by `operations.InitializeProject` (`internal/adapters/operations/init.go:84`) |
+   | `.ctxloom/lock.yaml` | `LockfileManager.write` (`internal/adapters/remote/lockfile.go`) — reached from `Save` (`:152`) and from the load-time self-heal in `Load` (`:66`). Callers: `Puller.updateLockfile`/`RecordRetraction` inside `internal/adapters/remote`, and `internal/adapters/operations/lockfile.go:147` through the `LockfileStore` port. **`Save` refuses destructive writes** since `fd0d87d6`: empty-over-populated (`ErrLockfileWouldErase`, opt out with `remote.AllowEmpty()`) and any write over a corrupt file (`ErrLockfileUnreadable`, no override) |
    | `.ctxloom/profiles/*.yaml` | `profiles.Loader.Save` / `.Delete` / `.CommitUpgrade` (`internal/core/profiles/profiles.go:612,679,400`) |
    | `content/bundles/**` | `bundles.fsStore.Save` / `.Delete` (`internal/core/bundles/store.go:57,119`) |
-   | countersignatures | `countersign.Store.write`, reached only from `operations.SetItemTrust` / `SetBlacklist` (`internal/operations/trust.go:554,667`) |
+   | countersignatures | `countersign.Store.write`, reached only from `operations.SetItemTrust` / `SetBlacklist` (`internal/adapters/operations/trust.go:554,667`) |
 
 4. **The trust gate keys on `Ref.CanonicalURL() + "|" + Ref.Key()`** — built by
-   `countersignRef` (`internal/operations/countersign_records.go:184`), where
+   `countersignRef` (`internal/adapters/operations/countersign_records.go:184`), where
    `Key() = <bundle>#<kindDir>/<name>`. A **rejection is bound to that address only**; an
    **approval is bound to the address plus the form plus the exact payload bytes**. That
    asymmetry is why editing an item clears its approval and never clears its rejection.
@@ -125,16 +125,16 @@ These hold across every page; each is restated with its citations on the page th
 5. **The content hash is computed over a per-kind preimage, never over the YAML file.**
    `hashContent` (`internal/core/bundles/bundles.go:349`) is the only hash site; the field order of
    the preimage structs is part of the `ctxloom-exec/1` contract. The identity digest in
-   `lock.yaml` is a *git commit SHA*, a different thing — `internal/remote` computes no content
+   `lock.yaml` is a *git commit SHA*, a different thing — `internal/adapters/remote` computes no content
    digest at all.
 
 6. **`Deny` is the default and the decision is recomputed at every exposure.** Nothing caches
    a trust verdict to disk, so there is no stale state to desynchronize; the cost control is
-   `TrustStamper` (`internal/operations/trust.go:970`), not a cache.
+   `TrustStamper` (`internal/adapters/operations/trust.go:970`), not a cache.
 
 7. **Exposure and management use different loaders.** Every path that hands bytes to an engine
-   goes through the gated `exposureLoader` (`internal/operations/trust_gate.go:223`); authoring
-   and listing paths use the ungated `bundleLoader` (`internal/operations/fragments.go:41`) on
+   goes through the gated `exposureLoader` (`internal/adapters/operations/trust_gate.go:223`); authoring
+   and listing paths use the ungated `bundleLoader` (`internal/adapters/operations/fragments.go:41`) on
    purpose, because a reviewer must be able to see pending content.
 
 ## Reading order

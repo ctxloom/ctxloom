@@ -8,7 +8,7 @@
 // It lives beside coord rather than inside it because it is built from
 // coord's EXPORTED surface (NewEngineHost, NewHome, BindHome,
 // RunnerCapabilities) and must be importable by every package that hosts a
-// coordinator in its tests (internal/mcp foremost). coord's own in-package
+// coordinator in its tests (internal/adapters/mcp foremost). coord's own in-package
 // tests cannot import it — that would be a cycle — and do not need to: they
 // reach unexported state and keep their own fake.
 //
@@ -25,10 +25,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 )
 
 // Runners is the set of runner doubles one coordinator spawned, in spawn

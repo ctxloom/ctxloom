@@ -5,7 +5,7 @@
 //
 // Deliberately does NOT drive a fresh `ctxloom init` for its hermetic
 // scenarios: a first-time init on a NEW .ctxloom dir always clones the seeded
-// "ctxloom-default" remote (internal/cli/init.go's setupNewCtxloomDir ->
+// "ctxloom-default" remote (internal/adapters/cli/init.go's setupNewCtxloomDir ->
 // cloneConfiguredRemotes/pullSeededDependencies), so any scenario driving a
 // first-time init reaches the network and cannot be hermetic. J000200's scenarios
 // are not @network, so this harness authors config.yaml/profile/agent
@@ -293,7 +293,7 @@ func runFreshMockSession(w *World) (string, error) {
 	// --agent (not --profile) is required to actually resolve THIS binding's
 	// engine (mock, just repointed above): --profile bypasses agent
 	// resolution entirely and runs against the project's own default LLM
-	// (internal/cli/run.go marks --agent/--profile mutually exclusive
+	// (internal/adapters/cli/run.go marks --agent/--profile mutually exclusive
 	// precisely because they are two different resolution paths).
 	_ = w.env.Run("run", "--one-shot", "--agent", "default", "continue")
 	data, err := os.ReadFile(recordFile)

@@ -1,4 +1,4 @@
-# `internal/agentcoord` — architecture
+# `internal/adapters/coordgrpc/pb` — architecture
 
 Agent delegation. Written so a future session can reason
 about this subsystem's design without re-reading the source; every claim names
@@ -21,13 +21,13 @@ the symbol it rests on, so `git grep` settles whether it still holds.
 
 ```mermaid
 flowchart TD
-  PROTO["internal/agentcoord<br/>*.proto — the wire contract"]
+  PROTO["internal/adapters/coordgrpc/pb<br/>*.proto — the wire contract"]
   COORD["internal/core/coord<br/>the delegation runtime"]
-  SCHEMA["internal/agentcoord/mcpschema<br/>the LLM-facing tool surface"]
-  GEN["internal/agentcoord/mcpschema/gen<br/>build-time generator"]
+  SCHEMA["internal/adapters/coordgrpc/mcpschema<br/>the LLM-facing tool surface"]
+  GEN["internal/adapters/coordgrpc/mcpschema/gen<br/>build-time generator"]
   DISC["internal/agentcoord/discover<br/>endpoint discovery (leaf)"]
-  OPS[["internal/operations"]]
-  CLI[["internal/cli · cli/tui"]]
+  OPS[["internal/adapters/operations"]]
+  CLI[["internal/adapters/cli · cli/tui"]]
 
   PROTO --> COORD
   PROTO --> SCHEMA --> GEN

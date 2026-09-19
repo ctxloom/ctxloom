@@ -10,10 +10,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 

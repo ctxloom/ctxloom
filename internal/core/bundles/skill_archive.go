@@ -16,8 +16,8 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // This file holds Part B, slice B1b of the skill/command split: the ARCHIVE

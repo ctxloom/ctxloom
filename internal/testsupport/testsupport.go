@@ -106,7 +106,7 @@ func ScrubbedEnv(t *testing.T) []string {
 
 // WriteFile creates path's parent directory and then writes data atomically,
 // matching the MkdirAll-then-iox sequence a production writer uses (e.g.
-// internal/operations/signer.go#appendAllowedSignersLine) — so a fixture
+// internal/adapters/operations/signer.go#appendAllowedSignersLine) — so a fixture
 // calling this never disagrees with production about what "write a file"
 // means. It fails the test immediately on error.
 //

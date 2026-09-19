@@ -1,8 +1,8 @@
 //go:build acceptance
 
 // J002600: "tasks aren't context" (j002600_worktree_task_store.feature).
-// internal/projectroot.TaskStoreRoot and its wiring through
-// internal/taskloom/workdir/workdir.go and internal/cli/taskstore_identity.go
+// internal/adapters/projectroot.TaskStoreRoot and its wiring through
+// internal/taskloom/workdir/workdir.go and internal/adapters/cli/taskstore_identity.go
 // are already unit-tested at the resolution tier (taskstest.
 // RealGitWorktreeFixture, TestTaskStoreWorkDir_*, workdir_test.go). This
 // journey does not re-prove that resolution logic — it proves the
@@ -83,7 +83,7 @@ func registerJ002600Steps(ctx *godog.ScenarioContext) {
 		if !ok {
 			return fmt.Errorf("no linked worktree named %q registered", name)
 		}
-		// TaskStoreRoot's opt-out (internal/projectroot/taskstore.go) keys on
+		// TaskStoreRoot's opt-out (internal/adapters/projectroot/taskstore.go) keys on
 		// the project-id MARKER, which is what an explicit `ctxloom init`
 		// here leaves behind and what a checkout can never supply.
 		if err := os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0755); err != nil {

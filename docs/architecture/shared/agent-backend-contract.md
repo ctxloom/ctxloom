@@ -1,6 +1,6 @@
 # agent — backend contract and base embeddables
 
-`internal/core/agent` is the engine-agnostic substrate: it declares what every LLM backend must implement (`Backend`, `ContextProvider`, `SessionHistory`, `SettingsWriter`, `ContextWriter`) and supplies the embeddable state every concrete engine reuses (`BaseBackend`, `BaseLifecycle`, `BaseContextProvider`). It owns the process-launch seam (`Launcher`/`LaunchSpec`), so `os/exec` and pty handling stay outside this package. It sits at the bottom of the import graph — 26 internal packages import it and it imports only `internal/core/paths`, `internal/selfexec`, `internal/shared/{clidiag,collections,iox,wire}`; nothing here reaches back up into config, bundles, or CLI.
+`internal/core/agent` is the engine-agnostic substrate: it declares what every LLM backend must implement (`Backend`, `ContextProvider`, `SessionHistory`, `SettingsWriter`, `ContextWriter`) and supplies the embeddable state every concrete engine reuses (`BaseBackend`, `BaseLifecycle`, `BaseContextProvider`). It owns the process-launch seam (`Launcher`/`LaunchSpec`), so `os/exec` and pty handling stay outside this package. It sits at the bottom of the import graph — 26 internal packages import it and it imports only `internal/core/paths`, `internal/adapters/selfexec`, `internal/shared/{clidiag,collections,iox,wire}`; nothing here reaches back up into config, bundles, or CLI.
 
 ```mermaid
 classDiagram

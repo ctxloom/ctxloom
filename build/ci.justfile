@@ -351,7 +351,7 @@ engine-drift-alert ENGINE PINNED LATEST RUN_URL:
     This is an **alert-only** notification (P0 of the self-healing engine-format
     pipeline) -- nothing has been installed, captured, or changed. A human should:
 
-    1. Confirm \`internal/transcript/vendorreader/$engine\` (or the closest match --
+    1. Confirm \`internal/adapters/transcript/vendorreader/$engine\` (or the closest match --
        \`claude-code\` -> the \`claude\` reader package) still parses a transcript
        produced by \`$latest\`.
     2. If it does, bump \`$engine\`'s key in \`.github/engine-versions.env\` to

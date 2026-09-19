@@ -41,8 +41,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/liveness"
-	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
 // progressVerdict is one liveness.Report, projected. Every method below is a

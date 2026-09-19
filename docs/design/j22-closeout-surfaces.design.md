@@ -14,7 +14,7 @@ Every claim below is labelled **[V]** (verified — I read the code named, at
 
 | Area | New code | Character |
 | --- | --- | --- |
-| 1. Worktrees | ~250 LOC | Refactor: split classify from act inside `internal/lm/isolation`. No new safety logic. |
+| 1. Worktrees | ~250 LOC | Refactor: split classify from act inside `internal/adapters/isolation`. No new safety logic. |
 | 2. Purge | ~350 LOC | Genuinely new, but it is a file-classifier plus a walk. One persisted-shape change. |
 | 3. Lessons | ~450 LOC | The only area with a real unsolved problem: transcript → N fragments has no existing producer. |
 | 4. Doctor (3 checks) | ~180 LOC | Three functions in the existing hardcoded slice + two small exports. |
@@ -36,7 +36,7 @@ exists to prevent. §3.4 proposes an answer and §6 flags it as the weakest part
 existing *silent index pruner*. `operations.ListSessionsForProject` calls
 `Manager.Reconcile(isUnrecoverable)` on every listing, and `isUnrecoverable`
 drops any entry whose `TranscriptPath` no longer exists **[V]**
-(`internal/operations/sessions.go:28-67`). So a purge that deletes a transcript
+(`internal/adapters/operations/sessions.go:28-67`). So a purge that deletes a transcript
 makes the next `session list` silently delete the index row — the exact outcome
 `j22_closeout.doc.md` forbids ("a session that vanishes from the index is
 indistinguishable from one that never existed"). The fixture happens to dodge
@@ -111,33 +111,33 @@ Everything in this table exists today and is cited by symbol.
 
 | Need | Existing symbol | File | Note |
 | --- | --- | --- | --- |
-| Find ctxloom scratch worktrees | `isolation.findEphemeralWorktrees` | `internal/lm/isolation/worktree_reap.go:174` | unexported **[V]**. Scans `HomeSessionsDir/*/ephemeral/ctxloom-wt-*`. |
+| Find ctxloom scratch worktrees | `isolation.findEphemeralWorktrees` | `internal/adapters/isolation/worktree_reap.go:174` | unexported **[V]**. Scans `HomeSessionsDir/*/ephemeral/ctxloom-wt-*`. |
 | Candidate prefix | `isolation.worktreeCandidatePrefix` = `"ctxloom-wt-"` | same:~27 | unexported **[V]** |
 | Owner marker | `isolation.readWorktreeOwner(wtDir) (pid int, ok bool)` | same:59 | unexported **[V]**. Sibling file `<wtDir>.owner.pid`. |
 | "Provably dead" | `pidalive.Probe(pid) State` / `State.MaybeAlive()` | `internal/shared/pidalive/` | exported **[V]**. `Dead/Alive/Unsure`. |
-| Dirty / ignored-content check | `isolation.unsafeToRemove(ctx, g, dir) (bool, string)` | `internal/lm/isolation/worktree.go:772` | unexported **[V]**. Error ⇒ treated as dirty. |
+| Dirty / ignored-content check | `isolation.unsafeToRemove(ctx, g, dir) (bool, string)` | `internal/adapters/isolation/worktree.go:772` | unexported **[V]**. Error ⇒ treated as dirty. |
 | Safe removal | `isolation.teardownWorktree(ctx, g, repoDir, target)` | same:711 | unexported **[V]**. Never `--force`, nested-first, re-checks safety. |
 | Whole sweep | `isolation.ReapOrphanedWorktrees(ctx, git.Git) WorktreeReapResult` | `worktree_reap.go:139` | exported **[V]**. Counts only. |
-| Existing CLI→isolation precedent | `cli.sweepOrphanedWorktrees(ctx, io.Writer)` | `internal/cli/startup_helpers.go:178` | **[V]** |
-| git primitives | `git.Git` iface: `WorktreeList`, `WorktreeRemove`, `WorktreePrune`, `IsDirty`, `HasIgnoredContent`, `CommonDir`, `CurrentBranch` | `internal/git/git.go` | **[V]**. `WorktreeRemove` deliberately has no force escape hatch **[V]**. |
+| Existing CLI→isolation precedent | `cli.sweepOrphanedWorktrees(ctx, io.Writer)` | `internal/adapters/cli/startup_helpers.go:178` | **[V]** |
+| git primitives | `git.Git` iface: `WorktreeList`, `WorktreeRemove`, `WorktreePrune`, `IsDirty`, `HasIgnoredContent`, `CommonDir`, `CurrentBranch` | `internal/adapters/git/git.go` | **[V]**. `WorktreeRemove` deliberately has no force escape hatch **[V]**. |
 | Harp paths | `paths.HarpDir/HarpPersistDir/HarpEphemeralDir/HarpEssencePath/HarpTranscriptStoreDir/HomeSessionsDir` | `internal/core/paths/paths.go` | **[V]**. `HarpDir` validates the harp — the traversal chokepoint **[V]**. |
 | Names | `paths.EssenceFileName="essence.md"`, `CanonicalTranscriptFileName="transcript.jsonl"`, `PlanFileExt=".plan.md"`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName` | same | **[V]** |
 | Session index | `sessions.Store` iface + `*Manager` + `*MemStore` | `internal/core/sessions/{store,index,memstore}.go` | **[V]** |
-| Session ops | `operations.GetSession/ForgetSession/ListSessionsForProject` | `internal/operations/sessions.go` | **[V]** |
-| Trust-gated skill read | `operations.GetSkill(ctx, cfg, GetSkillRequest{Name}) (*GetSkillResult, error)` | `internal/operations/skills.go:136` | **[V]**. Already parses `bundle#skills/name` and already returns `errs.ErrSkillWithheld`. |
+| Session ops | `operations.GetSession/ForgetSession/ListSessionsForProject` | `internal/adapters/operations/sessions.go` | **[V]** |
+| Trust-gated skill read | `operations.GetSkill(ctx, cfg, GetSkillRequest{Name}) (*GetSkillResult, error)` | `internal/adapters/operations/skills.go:136` | **[V]**. Already parses `bundle#skills/name` and already returns `errs.ErrSkillWithheld`. |
 | Withheld sentinels | `errs.ErrSkillWithheld`, `errs.ErrCommandWithheld` | `internal/errs/errors.go:33,38` | **[V]** |
-| Add a fragment | `operations.AddItem(ctx, cfg, AddItemRequest) (*AddItemResult, error)` | `internal/operations/items.go:121` | **[V]**. Add-only; `ErrItemExists` on collision. |
-| Create a bundle | `operations.CreateBundle(ctx, cfg, CreateBundleRequest)` | `internal/operations/bundles.go:144` | **[V]** |
-| Sign a bundle, in-process | `operations.SignBundleFile(cfg, SignBundleRequest) (*SignBundleResult, error)` | `internal/operations/sign.go:148` | **[V]**. Existing in-process caller: `cli.bundle_push_cli.go:155` **[V]**. |
-| Discover a signing key | `agentkey.NewDiscoverer().Discover(ctx, explicit)` | `internal/signing/agentkey/agentkey.go` | **[V]** |
-| Session→text plumbing | `cli.compactEntry`, `memory.NewCompactor`, `operations.HistoryForBackend` | `internal/cli/session_distill.go:138` | **[V]** |
-| Doctor check shape | `doctorCheck{Marker,Status,Detail}`, `doctorReport{Checks}` | `internal/cli/doctor_cmd.go:110-119` | **[V]**. No interface, no registry — a func plus one line in a slice literal **[V]**. |
-| Superseded-ignore detector | `gitignore.isSupersededBlanket(line) bool` | `internal/gitignore/gitignore.go:142` | unexported **[V]**, and every exported entry point mutates **[V]**. |
-| The fix command | `ctxloom manage gitignore install` | `internal/cli/manage.go:690,695` | exists **[V]** |
-| Machine output | `cli.emit(cmd, data, text)` + persistent `--format` | `internal/cli/format.go:47,140` | **[V]** |
-| Confirmation | `cli.promptYesNo(prompt) (bool, error)` | `internal/cli/prompt.go:39` | **[V]**. Shared `bufio.Reader` is load-bearing **[V]**. |
-| Row projection convention | `cli.SessionRow` with `json`/`label`/`col` tags | `internal/cli/session_row.go:42` | **[V]** |
-| Exit codes | `exitCodeRefused = 2`, `exitCodeFatalFindings = 3` | `internal/cli/startup_helpers.go:54,60` | **[V]** |
+| Add a fragment | `operations.AddItem(ctx, cfg, AddItemRequest) (*AddItemResult, error)` | `internal/adapters/operations/items.go:121` | **[V]**. Add-only; `ErrItemExists` on collision. |
+| Create a bundle | `operations.CreateBundle(ctx, cfg, CreateBundleRequest)` | `internal/adapters/operations/bundles.go:144` | **[V]** |
+| Sign a bundle, in-process | `operations.SignBundleFile(cfg, SignBundleRequest) (*SignBundleResult, error)` | `internal/adapters/operations/sign.go:148` | **[V]**. Existing in-process caller: `cli.bundle_push_cli.go:155` **[V]**. |
+| Discover a signing key | `agentkey.NewDiscoverer().Discover(ctx, explicit)` | `internal/adapters/signing/agentkey/agentkey.go` | **[V]** |
+| Session→text plumbing | `cli.compactEntry`, `memory.NewCompactor`, `operations.HistoryForBackend` | `internal/adapters/cli/session_distill.go:138` | **[V]** |
+| Doctor check shape | `doctorCheck{Marker,Status,Detail}`, `doctorReport{Checks}` | `internal/adapters/cli/doctor_cmd.go:110-119` | **[V]**. No interface, no registry — a func plus one line in a slice literal **[V]**. |
+| Superseded-ignore detector | `gitignore.isSupersededBlanket(line) bool` | `internal/adapters/gitignore/gitignore.go:142` | unexported **[V]**, and every exported entry point mutates **[V]**. |
+| The fix command | `ctxloom manage gitignore install` | `internal/adapters/cli/manage.go:690,695` | exists **[V]** |
+| Machine output | `cli.emit(cmd, data, text)` + persistent `--format` | `internal/adapters/cli/format.go:47,140` | **[V]** |
+| Confirmation | `cli.promptYesNo(prompt) (bool, error)` | `internal/adapters/cli/prompt.go:39` | **[V]**. Shared `bufio.Reader` is load-bearing **[V]**. |
+| Row projection convention | `cli.SessionRow` with `json`/`label`/`col` tags | `internal/adapters/cli/session_row.go:42` | **[V]** |
+| Exit codes | `exitCodeRefused = 2`, `exitCodeFatalFindings = 3` | `internal/adapters/cli/startup_helpers.go:54,60` | **[V]** |
 
 ### 2.1 Conventions this design is bound by
 
@@ -153,7 +153,7 @@ Everything in this table exists today and is cited by symbol.
   all already in that debt list **[V]**. **Every new command here wires
   `emit()` on day one**, and `session distill` gets wired as part of area 3
   (it must be, to report the `--to-bundle` payload).
-- **Layering.** ADR 0019: frontends do not touch storage; `internal/operations`
+- **Layering.** ADR 0019: frontends do not touch storage; `internal/adapters/operations`
   is the seam **[V]**. Purge (touches the session index) therefore goes through
   operations. Worktrees is argued in §3.1.6.
 - **Destructive-flag spelling.** Both `--yes/-y` (`trust signer create` **[V]**)
@@ -252,7 +252,7 @@ deliberately not copied.
 
 The first-vs-third rows are the one judgement call here; §6 attacks it.
 
-### 3.1.5 Go signatures — `internal/lm/isolation`
+### 3.1.5 Go signatures — `internal/adapters/isolation`
 
 ```go
 // WorktreeVerdict is one candidate's outcome, in the reaper's established
@@ -302,9 +302,9 @@ func ReapOrphanedWorktrees(ctx context.Context, g git.Git) WorktreeReapResult
 
 `WorktreeReapResult{Reaped, Spared, Skipped int}` stays as-is **[V]**.
 
-### 3.1.6 Go signatures — `internal/cli`
+### 3.1.6 Go signatures — `internal/adapters/cli`
 
-ADR 0019 says frontends go through `internal/operations`. But `internal/cli`
+ADR 0019 says frontends go through `internal/adapters/operations`. But `internal/adapters/cli`
 already calls `isolation.ReapOrphanedWorktrees` directly from
 `sweepOrphanedWorktrees` **[V]**, and an operations wrapper here would be a
 pure re-projection with no storage access to mediate. **Recommendation: call
@@ -442,7 +442,7 @@ The rule: **`2` when the invocation asked for the thing ctxloom withheld;
 
 Row 13 asserts exit ≠ 0 and the literal `undistilled` **[V]**. ✔
 
-### 4.4 Go signatures — `internal/operations`
+### 4.4 Go signatures — `internal/adapters/operations`
 
 ```go
 // PurgeClass names one content class in a harp directory (j22_closeout.doc.md
@@ -529,7 +529,7 @@ Fix — three lines, one persisted-shape change:
 
 // internal/core/sessions/index.go and memstore.go each implement it.
 
-// internal/operations/sessions.go — isUnrecoverable gains, first:
+// internal/adapters/operations/sessions.go — isUnrecoverable gains, first:
 	if e.PurgedAt != nil {
 		return false // purged on purpose: the row is the record now
 	}
@@ -555,7 +555,7 @@ doc's "stays in the index marked purged" holds for both.
 follows the feature file. ADR 0002 (`skip-ctxloom-gc`, status Deferred) declines
 a *cache* GC verb **[V]** and does not conflict, but should be cross-referenced.
 
-### 4.7 Go signatures — `internal/cli`
+### 4.7 Go signatures — `internal/adapters/cli`
 
 ```go
 var sessionPurgeCmd *cobra.Command
@@ -592,7 +592,7 @@ Rows 7, 8, 9, 10. The largest and least-certain area.
   the `session distill` path at all** **[V]**. Its only caller is
   `newLLMDistillerForLabel`, which serves `bundle distill` / `fragment distill`
   / item edits **[V]**. `session distill` goes `compactEntry → memory.NewCompactor`,
-  whose prompt is internal to `internal/memory` **[V]**.
+  whose prompt is internal to `internal/adapters/memory` **[V]**.
 
   **This is a factual correction to the specification prose.** The defect
   `loadDistillPrompt` embodies is real and exactly as described — it discards
@@ -700,7 +700,7 @@ alternative reading is `1` ("the extraction failed to deliver"). I chose `2`
 because ctxloom *completed the extraction* and then *deliberately declined the
 write*; the deliberate declining is what `2` names.
 
-### 5.6 Go signatures — `internal/memory`
+### 5.6 Go signatures — `internal/adapters/memory`
 
 The session text loader is inside `Compactor.loadSessionToCompact` and the
 text builder is `appendEntryText`, both unexported **[V]**. A narrow export
@@ -716,7 +716,7 @@ retired-scraper handling) instead of re-deriving it:
 func SessionText(ctx context.Context, cfg CompactionConfig) (string, error)
 ```
 
-### 5.7 Go signatures — `internal/operations`
+### 5.7 Go signatures — `internal/adapters/operations`
 
 ```go
 // LessonFragment is one candidate fragment an extraction produced.
@@ -783,7 +783,7 @@ var (
 )
 ```
 
-### 5.8 Go signatures — `internal/cli`
+### 5.8 Go signatures — `internal/adapters/cli`
 
 ```go
 var (
@@ -900,7 +900,7 @@ anything under `paths.HomeSessionsDir()` → per remaining tree report
 merged, and the two commands.
 
 **A merged-ness primitive does not exist** **[V]** — no `merge-base`,
-`branch --merged`, or `IsMerged` anywhere in `internal/git` or
+`branch --merged`, or `IsMerged` anywhere in `internal/adapters/git` or
 `internal/shared/gitutil`. Row 2 asserts the literal `unmerged` **[V]**, and
 printing it unconditionally would be a lie. One new method on the existing
 interface (no new dependency — `git` is already shelled out **[V]**):
@@ -968,7 +968,7 @@ Row 15. **This is not a matter of dropping a markdown file, and that is the
 finding.**
 
 `run -r <name>` resolves through `operations.GetCommand` **[V]**
-(`internal/cli/run.go:528`), which uses `Config.BundleLoader()` **[V]**.
+(`internal/adapters/cli/run.go:528`), which uses `Config.BundleLoader()` **[V]**.
 `BundleLoader` composes **project reader + remote readers + companion reader**
 **[V]** (`internal/core/config/config.go:2054-2057`). It does **not** include
 `bundles.NewBuiltinReader()` — whose only caller in the entire tree is

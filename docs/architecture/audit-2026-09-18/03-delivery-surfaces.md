@@ -6,9 +6,9 @@ Status: COMPLETE — 7 sections, 8 mermaid graphs (6 call graphs, 1 layer graph,
 
 ## 1. Scope and entry points
 
-**Seam.** How a bundle item (fragment, skill, command/prompt, MCP server, hook, deny-tool) becomes bytes an engine reads on disk, and how the engine is told where those bytes are. Traced from `internal/core/bundles` → `internal/core/profiles` → `internal/operations` (assembly) → `internal/lm/backends` (managed-payload assembly, registry) → wire (`pb.ManagedConfig`) → `internal/core/agent` (the surface-delivery seam: declaration, selection, cells, writers, ledger, locks, hooks) → `internal/claude` (the one live engine's declaration + writers) → `internal/confpatch` / `internal/shared/ledger` / `internal/shared/iox` (record, ownership, atomic write) → `internal/core/paths` + `internal/core/present` (where).
+**Seam.** How a bundle item (fragment, skill, command/prompt, MCP server, hook, deny-tool) becomes bytes an engine reads on disk, and how the engine is told where those bytes are. Traced from `internal/core/bundles` → `internal/core/profiles` → `internal/adapters/operations` (assembly) → `internal/lm/backends` (managed-payload assembly, registry) → wire (`pb.ManagedConfig`) → `internal/core/agent` (the surface-delivery seam: declaration, selection, cells, writers, ledger, locks, hooks) → `internal/claude` (the one live engine's declaration + writers) → `internal/adapters/confpatch` / `internal/shared/ledger` / `internal/shared/iox` (record, ownership, atomic write) → `internal/core/paths` + `internal/core/present` (where).
 
-**Packages read** (production files, not tests): `internal/core/agent` (cells.go, declaration.go, presentations.go, approach.go, approaches_generic.go, delivery.go, delivery_state.go, launchform.go, launch_backend.go, base_context.go, contextfile.go, managedcontext.go, packagefiles.go, commandfiles.go, managed_commands.go, managed_skill_packages.go, context_hooks.go, settings_io.go, rmw_lock.go, settings.go, skillexport.go, symlink.go, surface_loss.go), `internal/core/present`, `internal/claude` (surfaces.go, surfaces_hewrecord.go, surfacedelivery.go, contextdelivery.go, claude.go, commandfiles.go, skillfiles.go, skillmates.go, hooks_wire.go, instanceconfig.go, statehome.go, mcp_registrar.go), `internal/claude/engine`, `internal/lm/backends` (managed.go, managed_hooks.go, hooks.go, uninstall.go, registry.go, surfaces.go, commandfiles.go, skillfiles.go, premised_fragment_skills.go, mock_*.go), `internal/lm/engine`, `internal/operations` (context.go, profile_materialize.go, hooks.go, manage.go, agent_surfaces.go, oneshot.go, delegate.go), `internal/cli/run.go` (payload build only), `internal/confpatch`, `internal/shared/ledger`, `internal/core/paths`, `internal/core/bundles` (skill*, loader), `internal/core/profiles`, `internal/content/convert` (skill files).
+**Packages read** (production files, not tests): `internal/core/agent` (cells.go, declaration.go, presentations.go, approach.go, approaches_generic.go, delivery.go, delivery_state.go, launchform.go, launch_backend.go, base_context.go, contextfile.go, managedcontext.go, packagefiles.go, commandfiles.go, managed_commands.go, managed_skill_packages.go, context_hooks.go, settings_io.go, rmw_lock.go, settings.go, skillexport.go, symlink.go, surface_loss.go), `internal/core/present`, `internal/claude` (surfaces.go, surfaces_hewrecord.go, surfacedelivery.go, contextdelivery.go, claude.go, commandfiles.go, skillfiles.go, skillmates.go, hooks_wire.go, instanceconfig.go, statehome.go, mcp_registrar.go), `internal/claude/engine`, `internal/lm/backends` (managed.go, managed_hooks.go, hooks.go, uninstall.go, registry.go, surfaces.go, commandfiles.go, skillfiles.go, premised_fragment_skills.go, mock_*.go), `internal/lm/engine`, `internal/adapters/operations` (context.go, profile_materialize.go, hooks.go, manage.go, agent_surfaces.go, oneshot.go, delegate.go), `internal/adapters/cli/run.go` (payload build only), `internal/adapters/confpatch`, `internal/shared/ledger`, `internal/core/paths`, `internal/core/bundles` (skill*, loader), `internal/core/profiles`, `internal/adapters/content/convert` (skill files).
 
 **Stated architecture read first**: `docs/architecture/shared/agent-surface-delivery.md`, `agent-context-delivery.md`, `agent-managed-files.md`, `engines/claude.md`, `engines/backend-abstraction.md`, `core/paths.md`, `core/bundles.md`, `core/profiles.md`; gates `tests/arch/approach_vocabulary_arch_test.go`, `degrade_discipline_test.go`, `write_discipline_test.go`, `path_authority_test.go`, `ledger_discipline_test.go`, `lock_discipline_test.go`, `real_home_immutability_arch_test.go`, `session_home_arch_test.go`, `engine_layout_arch_test.go`, `layering_test.go`.
 
@@ -16,17 +16,17 @@ Status: COMPLETE — 7 sections, 8 mermaid graphs (6 call graphs, 1 layer graph,
 
 | # | Family | Entry | File | Reaches disk via |
 |---|---|---|---|---|
-| E1 | Launch (top-level `ctxloom run`) | `cli.runState` builds `pb.RunStart{ManagedConfig}` from `backends.AssembleManagedConfig` | `internal/cli/run.go` | plugin `agent.LaunchBackend.Setup` → `setupViaCells` → `deliverSet` |
-| E2 | Launch (delegated / fan-out member) | `operations.runResolvedAgent` builds `pb.RunStart{ManagedConfig, LaunchForm, CellKind}` | `internal/operations/oneshot.go` | same plugin path as E1 |
+| E1 | Launch (top-level `ctxloom run`) | `cli.runState` builds `pb.RunStart{ManagedConfig}` from `backends.AssembleManagedConfig` | `internal/adapters/cli/run.go` | plugin `agent.LaunchBackend.Setup` → `setupViaCells` → `deliverSet` |
+| E2 | Launch (delegated / fan-out member) | `operations.runResolvedAgent` builds `pb.RunStart{ManagedConfig, LaunchForm, CellKind}` | `internal/adapters/operations/oneshot.go` | same plugin path as E1 |
 | E3 | Plugin Setup (both launches land here) | `agent.LaunchBackend.Setup` → `setupViaCells` → `deliverSet` | `internal/core/agent/launch_backend.go` | `ResolvedSelection.deliverOneShared` (shared cell) / `IsolatedCell.Deliver` (isolated cell) / `presentExisting` (Present form) / nothing (Minimal form) |
 | E4 | Hook-carried context (a Rider selected for context) | `agent.LaunchBackend.installContextInjectionHook` → `BaseContextProvider.Provide` → `WriteContextFile` | `internal/core/agent/launch_backend.go`, `base_context.go`, `contextfile.go` | raw cache file `<hash>.md` under the ctxloom context dir + SessionStart hook appended to the merged hooks |
 | E5 | Engine argv | `claude.flagArgs(resolved)` reads each approach's `Path()` + `Present(noRoots).Args` | `internal/claude/surfaces.go` (consumed by `buildArgs`, claudecode.go) | exec of `claude --append-system-prompt-file/--mcp-config/--settings` |
-| E6 | At-rest materialize (`ctxloom profile materialize`) | `operations.MaterializeProfile` | `internal/operations/profile_materialize.go` | `SurfaceSelection.DeliverUnder` → `IsolatedCell` |
-| E7 | At-rest install (`ctxloom manage hooks install`) | `operations.ApplyHooks` → `applyHooksToBackend` | `internal/operations/hooks.go` | `SurfaceSelection.DeliverUnder`, plus `retractNativeContext`, plus `regenerateContext` → `WriteContextFile` |
+| E6 | At-rest materialize (`ctxloom profile materialize`) | `operations.MaterializeProfile` | `internal/adapters/operations/profile_materialize.go` | `SurfaceSelection.DeliverUnder` → `IsolatedCell` |
+| E7 | At-rest install (`ctxloom manage hooks install`) | `operations.ApplyHooks` → `applyHooksToBackend` | `internal/adapters/operations/hooks.go` | `SurfaceSelection.DeliverUnder`, plus `retractNativeContext`, plus `regenerateContext` → `WriteContextFile` |
 | E8 | At-rest remove (`ctxloom manage hooks uninstall`) | `backends.RemoveSettings` → `agent.SettingsWriter.RemoveSettings` | `internal/lm/backends/uninstall.go` → `claude.ClaudeCodeHookWriter.RemoveSettings` | `removeSettingsFile` + `removeMCPConfig`; NOT the surfaces seam |
-| E9 | At-rest status (`ctxloom manage check`) | `operations.surfaceCurrencies` + `backends.BackendStatus` | `internal/operations/manage.go`, `internal/lm/backends/uninstall.go` | read-only: `agent.StateReader.State`, `ClaudeCodeHookWriter.Status` |
-| E10 | Engine-home seeding (session `engine_home`) | `claude.NewInstanceConfigWriter` (`agent.InstanceConfigWriter`), registered from the descriptor into `isolation.RegisterInstanceConfigWriter` and called by `isolation.CopyAmbient` | `internal/claude/instanceconfig.go`, `internal/lm/isolation/ambient.go` | `WriteInstanceConfig` into `<EngineHome>/.claude.json` (seeded from `~/.claude.json` allow-list) |
-| E11 | Skill-mates hook (PostToolUse, new) | `agent.NewSkillMatesHook` installs `ctxloom hook skill-mates` (matcher `Skill`); at fire time the `internal/cli` hook verb joins `claude.InvokedSkill`/`SkillsInvoked` (transcript-derived) with `bundles.UninvokedSkillMates` | `internal/core/agent/context_hooks.go`, `internal/claude/skillmates.go` | no delivery write — emits `additionalContext`; the HOOK STRING is delivered via the settings surface like every other managed hook |
+| E9 | At-rest status (`ctxloom manage check`) | `operations.surfaceCurrencies` + `backends.BackendStatus` | `internal/adapters/operations/manage.go`, `internal/lm/backends/uninstall.go` | read-only: `agent.StateReader.State`, `ClaudeCodeHookWriter.Status` |
+| E10 | Engine-home seeding (session `engine_home`) | `claude.NewInstanceConfigWriter` (`agent.InstanceConfigWriter`), registered from the descriptor into `isolation.RegisterInstanceConfigWriter` and called by `isolation.CopyAmbient` | `internal/claude/instanceconfig.go`, `internal/adapters/isolation/ambient.go` | `WriteInstanceConfig` into `<EngineHome>/.claude.json` (seeded from `~/.claude.json` allow-list) |
+| E11 | Skill-mates hook (PostToolUse, new) | `agent.NewSkillMatesHook` installs `ctxloom hook skill-mates` (matcher `Skill`); at fire time the `internal/adapters/cli` hook verb joins `claude.InvokedSkill`/`SkillsInvoked` (transcript-derived) with `bundles.UninvokedSkillMates` | `internal/core/agent/context_hooks.go`, `internal/claude/skillmates.go` | no delivery write — emits `additionalContext`; the HOOK STRING is delivered via the settings surface like every other managed hook |
 | E12 | Companion MCP registrar (taskloom) | `claude.RegisterMCPServer` → `applyMCPServers` | `internal/claude/mcp_registrar.go` | `confpatch.Store.Apply` on `.mcp.json` |
 | E13 | Uninstall of engine-wide managed hooks (ltk/taskloom companions) | `agent.WithFileLock` users in `cmd/ltk`, `cmd/taskloom` | out of seam scope; noted for handoff (seam 6/1) | `.claude/settings.json` |
 
@@ -42,10 +42,10 @@ Two callers build the same payload; only one attaches the binding's surface pref
 
 ```mermaid
 flowchart LR
-  subgraph cli["internal/cli"]
+  subgraph cli["internal/adapters/cli"]
     RUN["runState (run.go)"]
   end
-  subgraph ops["internal/operations"]
+  subgraph ops["internal/adapters/operations"]
     RRA["runResolvedAgent (oneshot.go)"]
     RA["ResolveAgent (agents.go)"]
     RAS["ResolveAgentSurfaces (agent_surfaces.go)"]
@@ -321,7 +321,7 @@ flowchart LR
     CACHE["&lt;project&gt;/.ctxloom/cache/context/&lt;sha16&gt;.md"]
     SJ[".claude/settings.json: SessionStart: ctxloom hook inject-context &lt;hash&gt;"]
   end
-  subgraph fire["at fire time (internal/cli hook verb)"]
+  subgraph fire["at fire time (internal/adapters/cli hook verb)"]
     HIC["cli hook inject-context &lt;hash&gt; → resolveInjectContextWorkDir → ReadContextFile"]
   end
 
@@ -350,7 +350,7 @@ Ordering dependence: `installContextInjectionHook` runs inside the per-surface l
 
 ```mermaid
 flowchart LR
-  subgraph ops["internal/operations"]
+  subgraph ops["internal/adapters/operations"]
     MP["MaterializeProfile (profile_materialize.go)"]
     AH["ApplyHooks → applyHooksToBackends → applyHooksToBackend (hooks.go)"]
     IR["installRoute(decl, kind) — constructs every approach content-free to read markers"]
@@ -452,21 +452,21 @@ Solid arrows are the STATED direction (docs/architecture/shared/agent-surface-de
 
 ```mermaid
 flowchart TB
-  CLI["internal/cli"]
-  OPS["internal/operations"]
+  CLI["internal/adapters/cli"]
+  OPS["internal/adapters/operations"]
   BE["internal/lm/backends"]
   ENG["internal/lm/engine (Descriptor)"]
   CE["internal/claude/engine"]
   CL["internal/claude"]
   AG["internal/core/agent (seam + toolbox)"]
   PR["internal/core/present"]
-  ISO["internal/lm/isolation"]
+  ISO["internal/adapters/isolation"]
   GRPC["internal/lm/grpc (wire)"]
   CFG["internal/core/config"]
   PROF["internal/core/profiles"]
   BUN["internal/core/bundles"]
-  CONV["internal/content/convert"]
-  CP["internal/confpatch"]
+  CONV["internal/adapters/content/convert"]
+  CP["internal/adapters/confpatch"]
   LED["internal/shared/ledger"]
   IOX["internal/shared/iox"]
   PATHS["internal/core/paths"]
@@ -854,7 +854,7 @@ func GetSettingsWriter(name string, fs afero.Fs) agent.SettingsWriter
 func RemoveSettings(backendName, projectDir string, opts ...SettingsOption) error
 func InTreeAgentHomeFor(name, workDir, harp string) (InTreeAgentHomeSpec, bool)   // Hidden: paths.SessionHomePath; Warn on invalid harp
 
-// internal/operations
+// internal/adapters/operations
 func MaterializeProfile(ctx context.Context, cfg *config.Config, req MaterializeProfileRequest) (*MaterializeProfileResult, error)   // Hidden OUT: cfg.SetExecutableTrustGate (defer-restored); strictness.Fail per surface
 func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, error)
 func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContextRequest) (*AssembleContextResult, error)
@@ -863,7 +863,7 @@ func ResolveAgentSurfaces(engine string, declared map[string]string) (map[agent.
 func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution   // Hidden OUT: os.MkdirAll(home, 0700); strictness.FailAlways on Prepare, Warn+substitute on MkdirAll
 func installRoute(decl agent.Declaration, kind agent.SurfaceKind) (name string, route agent.Approach, ok bool)
 
-// internal/confpatch
+// internal/adapters/confpatch
 func NewStore(recordFS afero.Fs, dir, owner string) (*Store, error)
 func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...ApplyOption) (Result, error)   // Hidden: agent.WithFileLock, agent.AtomicWriteFile, renameLegacyRecords
 type Build func(doc *hew.Doc, cur hew.Document) (recorded int, err error)

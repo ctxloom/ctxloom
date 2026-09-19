@@ -14,7 +14,7 @@ guard call). See 0019 for the CLI-pure-frontend invariant.
 
 ## Context
 
-Seam B consolidates CLI write paths onto the `internal/operations` core so the CLI and MCP server share one implementation (symlink guard, re-distillation). Bundle `create` and `delete` route cleanly onto `operations.CreateBundle`/`DeleteBundle`.
+Seam B consolidates CLI write paths onto the `internal/adapters/operations` core so the CLI and MCP server share one implementation (symlink guard, re-distillation). Bundle `create` and `delete` route cleanly onto `operations.CreateBundle`/`DeleteBundle`.
 
 Bundle `edit` does not map cleanly. The CLI `--add-fragment`/`--add-prompt`/`--add-mcp` flags are **add-only**: an item that already exists is left untouched and reported ("Fragment already exists: X"). `operations.UpdateBundle`'s `SetFragments`/`SetPrompts`/`SetMCPServers` are **upsert** (set semantics): they overwrite. Routing the add flags onto `Set*` would make `ctxloom bundle edit my-bundle --add-fragment existing` silently replace a fragment's real content with the flag path's placeholder text — data loss.
 

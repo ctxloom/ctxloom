@@ -59,7 +59,7 @@ type coordServing struct {
 // (consumer.go's consumerCreds is never journaled, so this file IS its only
 // persistence).
 // The layout is discover.State: the reader cannot import this package (it is
-// upstream through internal/operations), so the shape lives with the reader and
+// upstream through internal/adapters/operations), so the shape lives with the reader and
 // a renamed field breaks the build rather than discovery, where a mismatch is
 // indistinguishable from "no coordinator is running".
 type endpointState = discover.State
@@ -187,7 +187,7 @@ func (s *coordServing) saveEndpointLocked() {
 // test-only: no production call site — production reaches the
 // same value through ReachURL("host"). Kept as its own accessor rather than
 // deleted because it has a genuine cross-package test consumer
-// (internal/mcp/mcp_runner_artifact_test.go), and every one of its 8 call
+// (internal/adapters/mcp/mcp_runner_artifact_test.go), and every one of its 8 call
 // sites would need to grow by a line to handle ReachURL's error return,
 // which costs more lines than this wrapper.
 func (c *Coordinator) LoopbackURL() string {

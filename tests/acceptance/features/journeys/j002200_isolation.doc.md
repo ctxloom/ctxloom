@@ -36,7 +36,7 @@ currently closed, this matrix goes red and says which cell moved.
 
 The matrix below is measured, not narrated: every cell traces to either a
 named cucumber scenario in this file's feature (steps_j002200_isolation_matrix.go)
-or a named Go unit test in internal/lm/isolation. Where cucumber could not
+or a named Go unit test in internal/adapters/isolation. Where cucumber could not
 independently prove a cell (opencode's exact spawned-env payload; the entire
 runtime:container column per engine), that is stated as NOT EXECUTED with the
 reason, never silently omitted.
@@ -81,7 +81,7 @@ scenario:
 2. **Per-engine container auth RESOLUTION** (does THIS engine's specific
    auth plan — env passthrough, credential mount, or "no lever at all" —
    resolve the way the matrix below claims) is pinned at the Go level,
-   thoroughly, in `internal/lm/isolation/auth_test.go` and
+   thoroughly, in `internal/adapters/isolation/auth_test.go` and
    `curatedhome_test.go`: `TestResolveClaudeContainerAuth_*`,
    `TestPrepareCodexHome_*` (codex's container-auth mount reuses the same
    spec). Run via
@@ -117,7 +117,7 @@ it, and what would go red if it closed.
     CONTRACT (the "refuses to start" / "proceeds once its API key rides the
     environment" scenarios) IS still proven for it — those fire before any
     engine spawn is attempted. The exact payload is pinned instead by
-    `internal/lm/isolation/auth_test.go`'s
+    `internal/adapters/isolation/auth_test.go`'s
     `TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode`.
   - The entire runtime:container column, every backend — see the table's
     own note above (cost/speed tradeoff; Go-pinned instead).

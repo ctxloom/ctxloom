@@ -369,7 +369,7 @@ func (m *Message) UnknownKeys() []string {
 // An UNTERMINATED block is not frontmatter — treating it as one would swallow
 // the whole document into metadata.
 //
-// (Deliberate small duplication of internal/content's unexported splitter:
+// (Deliberate small duplication of internal/adapters/content's unexported splitter:
 // this package's layering is paths+harp only, and exporting content's private
 // helper to share ~40 lines would couple the message substrate to the bundle
 // content model.)

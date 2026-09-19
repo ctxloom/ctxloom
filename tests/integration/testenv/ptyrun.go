@@ -26,8 +26,8 @@ const pollInterval = time.Millisecond
 
 // ptyCapture is a goroutine-safe accumulator for everything read off a pty's
 // master side: the pty's own io.Copy-draining goroutine writes into it while
-// the test reads it back at will. Same idiom as internal/termui's
-// overlay_composition_test.go syncBuf / internal/cli/tui's overlay_test.go
+// the test reads it back at will. Same idiom as internal/adapters/termui's
+// overlay_composition_test.go syncBuf / internal/adapters/cli/tui's overlay_test.go
 // syncBuffer — re-derived here (rather than exported and reused) because this
 // one backs a real subprocess's pty, not an in-process pty pair, and those
 // types are unexported to a different package besides.
@@ -79,7 +79,7 @@ type PTYSession struct {
 // query timeout on literally every invocation (measured: ~5.3s, dominating
 // and destabilizing suite runtime). TERM=dumb steers that detection away from
 // probing at all; it does not affect the surround bar/viewer's own escape
-// sequences, which internal/termui writes unconditionally and never gates on
+// sequences, which internal/adapters/termui writes unconditionally and never gates on
 // TERM.
 func (e *TestEnvironment) RunPTY(cols, rows int, extraEnv []string, args ...string) (*PTYSession, error) {
 	p, err := pty.New()

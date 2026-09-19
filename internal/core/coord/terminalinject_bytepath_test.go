@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/term"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/shared/ptyrunner"
 )
 

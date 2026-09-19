@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/liveness"
-	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
 // composedContext stands in for the block the incident's launcher re-delivered
@@ -35,7 +35,7 @@ const composedContext = "# Project context\n\nYou are a delegated agent. Here is
 // transcript.Recorder per relaunch restarts the numbering against the same
 // O_APPEND file), 100% `user` entries, zero assistant turns.
 //
-// This helper is that loop, driving the REAL internal/transcript recorder
+// This helper is that loop, driving the REAL internal/adapters/transcript recorder
 // against the REAL canonical path, so the monitor is tested against the actual
 // artifact rather than against a hand-rolled imitation of one.
 // ---------------------------------------------------------------------------

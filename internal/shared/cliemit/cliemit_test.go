@@ -27,7 +27,7 @@ func newCmd(withJSON bool) (*cobra.Command, *bytes.Buffer) {
 
 // withTTY overrides isInteractiveTerminal for the duration of one test,
 // restoring the original (production) implementation on cleanup — the same
-// seam technique internal/cli's terminal predicates use, since a test
+// seam technique internal/adapters/cli's terminal predicates use, since a test
 // binary's own stdout is never a real terminal.
 func withTTY(t *testing.T, interactive bool) {
 	t.Helper()
@@ -120,7 +120,7 @@ func TestResolve_UnknownFormatErrors(t *testing.T) {
 
 // TestResolve_AcceptsAllFiveEncodings pins Resolve's full accepted vocabulary
 // (json/yaml/toml/text/markdown), formerly covered only through
-// internal/cli's now-deleted resolveFormat pass-through.
+// internal/adapters/cli's now-deleted resolveFormat pass-through.
 func TestResolve_AcceptsAllFiveEncodings(t *testing.T) {
 	for _, want := range []clifmt.Format{
 		clifmt.FormatJSON, clifmt.FormatYAML, clifmt.FormatTOML, clifmt.FormatText, clifmt.FormatMarkdown,
@@ -174,7 +174,7 @@ func TestEmit_NilClosureOverEmptySliceIsNeverZeroBytes(t *testing.T) {
 //
 //   - flag ABSENT. Deliberate and documented: an unregistered --format reads
 //     as text, which is what lets a command be driven without a root
-//     (TestResolve_UnsetFormatIsText, and 30 internal/cli tests besides).
+//     (TestResolve_UnsetFormatIsText, and 30 internal/adapters/cli tests besides).
 //     Erroring here was tried and rejected — see the commit for the count.
 //   - flag registered with the WRONG TYPE. Not an affordance, a wiring bug:
 //     the value the user typed cannot be read at all, and text is asserted as
@@ -235,7 +235,7 @@ func TestResolve_OnlySeesInheritedFormatOnceExecutionHasBegun(t *testing.T) {
 
 // This package called itself "the cross-binary --format output
 // filter" while implementing only the SUCCESS half — clifmt.RenderError had
-// exactly one call site in the whole tree, inside internal/cli's Execute, so
+// exactly one call site in the whole tree, inside internal/adapters/cli's Execute, so
 // the error half lived in one binary and not in the package that claims it.
 // EmitError is that missing half. It must answer the same four questions Emit
 // does, plus one Emit never faces: a --format that will not parse must not

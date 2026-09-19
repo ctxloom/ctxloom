@@ -4,7 +4,7 @@
 // three states —
 // pending (never reviewed, or changed since approval — withheld), accepted (a
 // human COUNTERSIGNED this exact content with their own SSH key — see
-// internal/signing/countersign), or rejected (withheld permanently; the
+// internal/adapters/signing/countersign), or rejected (withheld permanently; the
 // rejection is itself a countersignature, and a content-scoped rejection
 // deliberately omits the ref so a renamed identical copy stays rejected —
 // signature-envelope spec §5.3). First-party sources — local content, builtin
@@ -16,7 +16,7 @@
 // (CanonicalRepoURL) primitives — it holds no persisted state of its own. The
 // decision function lives in operations.EffectiveTrust, which resolves the
 // countersignature stores (operations.ReviewRecords, backed by
-// internal/signing/countersign) together with the verified publisher signer.
+// internal/adapters/signing/countersign) together with the verified publisher signer.
 // Nothing here fetches, hashes, or signs content — callers pass in the exact
 // bytes (see bundles.ContentPayload) and this package never touches them.
 package trust
@@ -26,7 +26,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 )
 
 // Decision is the outcome of a trust evaluation.
@@ -82,7 +82,7 @@ const (
 	// unattributed rather than withholding.
 	SourceCompanion Source = "companion"
 	// SourceRetracted: the PUBLISHER withdrew this bundle (or this exact
-	// version of it) via its remote manifest — see internal/remote/retract.go
+	// version of it) via its remote manifest — see internal/adapters/remote/retract.go
 	// CheckRetracted. Retraction is recorded LOCALLY at sync time (sync has the
 	// network in hand) and consulted here with no network call of its own;
 	// like rejection, it beats every exemption below, including a trusted
@@ -273,8 +273,8 @@ const BuiltinSigner = "builtin:ctxloom"
 //
 // This is the ingest boundary for Bundle and Name, and the LAST one: a Ref is a
 // plain struct, so those two fields are set directly by every surface type's
-// RefFor (internal/content) from a bundle-manifest item name or a filename —
-// neither of which passes through the reference grammar in internal/remote.
+// RefFor (internal/adapters/content) from a bundle-manifest item name or a filename —
+// neither of which passes through the reference grammar in internal/adapters/remote.
 // Key is the single function that turns those fields into a ref string, and
 // operations.countersignRef composes its result straight into the countersign
 // preimage, where a control character forges the frame (see

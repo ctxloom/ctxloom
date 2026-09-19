@@ -12,18 +12,18 @@ Status: COMPLETE (see foot of document for the tally).
 
 | package | role in the seam | size |
 |---|---|---|
-| `internal/signing` | crypto primitives (`Sign`/`Verify` over sshsig), publisher + countersign verifiers, the five preimage CONTRACT strings, two preimage builders (fragment, command), the closed `AttestationForm` vocabulary, the countersign framing | ~1.1k |
-| `internal/signing/countersign` | the approvals STORE: content-addressed `.sig` files + unsigned markers + display `index.yaml`; readability state machine | ~1.1k |
-| `internal/signing/allowedsigners` | OpenSSH `allowed_signers` parser/store/union; `TrustedForNamespace` | ~1.4k |
-| `internal/signing/agentkey` | zero-config key discovery (git `user.signingkey` → sole ssh-agent identity) | ~0.8k |
+| `internal/adapters/signing` | crypto primitives (`Sign`/`Verify` over sshsig), publisher + countersign verifiers, the five preimage CONTRACT strings, two preimage builders (fragment, command), the closed `AttestationForm` vocabulary, the countersign framing | ~1.1k |
+| `internal/adapters/signing/countersign` | the approvals STORE: content-addressed `.sig` files + unsigned markers + display `index.yaml`; readability state machine | ~1.1k |
+| `internal/adapters/signing/allowedsigners` | OpenSSH `allowed_signers` parser/store/union; `TrustedForNamespace` | ~1.4k |
+| `internal/adapters/signing/agentkey` | zero-config key discovery (git `user.signingkey` → sole ssh-agent identity) | ~0.8k |
 | `internal/core/trust` | VOCABULARY only: `Decision`, `Source`, `State`, `ItemKind`, `Ref`, `BundleRef`, `CanonicalRepoURL`, `BuiltinSigner` | ~1.0k |
-| `internal/content/attest` | tree-form signing/verification over a manifest (`SignBundle`, `VerifyBundle`, `resolvePublisher`) | ~0.5k |
+| `internal/adapters/content/attest` | tree-form signing/verification over a manifest (`SignBundle`, `VerifyBundle`, `resolvePublisher`) | ~0.5k |
 | `internal/core/bundles` (readers, pipeline, admit, authorizer, `bundles.go` payload builders) | where publisher signatures are VERIFIED at read, where preimages are BUILT, where the gate is CONSULTED | partial |
-| `internal/operations` (`trust.go`, `trust_gate.go`, `countersign_records.go`, `review.go`, `sign.go`, `signable.go`, `publisher_declaration.go`, `forget.go`, `sync.go`) | the decision function `EffectiveTrust`, the gate, the review/sign/signer/sync operations | partial |
+| `internal/adapters/operations` (`trust.go`, `trust_gate.go`, `countersign_records.go`, `review.go`, `sign.go`, `signable.go`, `publisher_declaration.go`, `forget.go`, `sync.go`) | the decision function `EffectiveTrust`, the gate, the review/sign/signer/sync operations | partial |
 | `internal/core/config` (`trustroot.go`, `config_bundles.go`, `tree_bundles.go`, reader assembly in `config.go`) | trust-root assembly, reader wiring, the exec chokes (MCP/hooks), the gate-as-config-field | partial |
-| `internal/remote` (`pull.go`, `retract.go`, `bundle_reader.go`, `lockfile.go`) | fetch, pin, retraction probe | partial |
+| `internal/adapters/remote` (`pull.go`, `retract.go`, `bundle_reader.go`, `lockfile.go`) | fetch, pin, retraction probe | partial |
 | `internal/lm/backends` (`managed.go`) | the run-time delivery of gated MCP/hooks/commands to an engine | partial |
-| `internal/cli` (`review.go`, `sign.go`, `signer.go`, `bundle_trust.go`, `deps_pull.go`, `deps_check.go`, `deps_reconcile.go`, `bundle_push_cli.go`, `trust_interactive.go`) | the verbs | partial |
+| `internal/adapters/cli` (`review.go`, `sign.go`, `signer.go`, `bundle_trust.go`, `deps_pull.go`, `deps_check.go`, `deps_reconcile.go`, `bundle_push_cli.go`, `trust_interactive.go`) | the verbs | partial |
 
 Stated-architecture inputs read: `docs/trust-model.md` (all of §Item states, §Decision function, §Trusted publishers, §Review ceremony, §Countersignature gating, §Storage, §Enforcement points, §Known gaps), `internal/core/config/preimage_wire_parity_test.go` (the brief named it under `tests/arch/`; it lives in `internal/core/config`, build tag `arch`), `tests/arch/credential_gitignore_test.go`, `tests/arch/layering_test.go`. Taskloom rows read: varied-tinfoil, unhelpful-skeptic (Archived), accurate-fox (Done), backstage-rink (Done), unsigned-marine (To Do), delighted-cough (Ruled, open), surgical-written (seam 4 — agentcoord spool, not this seam).
 
@@ -33,28 +33,28 @@ CLI verbs (each `cobra` RunE → operations):
 
 | verb | CLI symbol | operations symbol | file |
 |---|---|---|---|
-| `ctxloom review` (interactive / `--list`) | `cli.runReview` | `operations.PendingReview`, then per decision `operations.SetItemTrust` / `operations.SetBlacklist` | `internal/cli/review.go`, `internal/operations/review.go`, `internal/operations/trust.go` |
-| `ctxloom bundle trust <ref>` | `cli.bundleTrustCmd` | `operations.SetItemTrust` | `internal/cli/bundle_trust.go` |
+| `ctxloom review` (interactive / `--list`) | `cli.runReview` | `operations.PendingReview`, then per decision `operations.SetItemTrust` / `operations.SetBlacklist` | `internal/adapters/cli/review.go`, `internal/adapters/operations/review.go`, `internal/adapters/operations/trust.go` |
+| `ctxloom bundle trust <ref>` | `cli.bundleTrustCmd` | `operations.SetItemTrust` | `internal/adapters/cli/bundle_trust.go` |
 | `ctxloom bundle reject <ref>` | `cli.bundleRejectCmd` | `operations.SetBlacklist` | same |
-| `ctxloom bundle forget <ref>` | `cli.bundleForgetCmd` | `operations.ForgetItemDecision` | same, `internal/operations/forget.go` |
-| `ctxloom bundle sign [ref]` | `cli.runSign` | `operations.SignBundleFile` (→ `operations.SignItem` for a document, `operations.signBundleTree` → `attest.SignBundle` for a tree), guarded by `operations.AuthorizePublisher` | `internal/cli/sign.go`, `internal/operations/sign.go` |
-| `ctxloom bundle push` | `cli.pushBundleCfg` | `operations.PushBundle`, `operations.PublisherSignature`, optional `operations.SignBundleFile` | `internal/cli/bundle_push_cli.go` |
-| `ctxloom signer trust\|list\|show\|untrust` | `cli.signerCmd` | `operations.AddSigner`, `ListSigners`, `ShowSigner`, `RemoveSigner`, `ResolveSignerKey`, `ResolveSignerNamespaces` | `internal/cli/signer.go` |
-| `ctxloom deps pull` | `cli.depsPullCmd` | `operations.SyncDependencies` → `remote.Puller.Pull` | `internal/cli/deps_pull.go`, `internal/operations/sync.go`, `internal/remote/pull.go` |
-| `ctxloom deps check` / `deps reconcile` | `cli.runDepsCheck`, `cli.upstreamProbes` | NONE — the CLI drives `remote.*` directly (see finding LB-1) | `internal/cli/deps_check.go`, `internal/cli/deps_reconcile.go` |
-| `ctxloom list ... --format json` (trust stamp) | `cli.stampedTrust` | `operations.NewTrustStamper(cfg).ForRef` → `operations.EffectiveTrust` | `internal/cli/trust_interactive.go` |
+| `ctxloom bundle forget <ref>` | `cli.bundleForgetCmd` | `operations.ForgetItemDecision` | same, `internal/adapters/operations/forget.go` |
+| `ctxloom bundle sign [ref]` | `cli.runSign` | `operations.SignBundleFile` (→ `operations.SignItem` for a document, `operations.signBundleTree` → `attest.SignBundle` for a tree), guarded by `operations.AuthorizePublisher` | `internal/adapters/cli/sign.go`, `internal/adapters/operations/sign.go` |
+| `ctxloom bundle push` | `cli.pushBundleCfg` | `operations.PushBundle`, `operations.PublisherSignature`, optional `operations.SignBundleFile` | `internal/adapters/cli/bundle_push_cli.go` |
+| `ctxloom signer trust\|list\|show\|untrust` | `cli.signerCmd` | `operations.AddSigner`, `ListSigners`, `ShowSigner`, `RemoveSigner`, `ResolveSignerKey`, `ResolveSignerNamespaces` | `internal/adapters/cli/signer.go` |
+| `ctxloom deps pull` | `cli.depsPullCmd` | `operations.SyncDependencies` → `remote.Puller.Pull` | `internal/adapters/cli/deps_pull.go`, `internal/adapters/operations/sync.go`, `internal/adapters/remote/pull.go` |
+| `ctxloom deps check` / `deps reconcile` | `cli.runDepsCheck`, `cli.upstreamProbes` | NONE — the CLI drives `remote.*` directly (see finding LB-1) | `internal/adapters/cli/deps_check.go`, `internal/adapters/cli/deps_reconcile.go` |
+| `ctxloom list ... --format json` (trust stamp) | `cli.stampedTrust` | `operations.NewTrustStamper(cfg).ForRef` → `operations.EffectiveTrust` | `internal/adapters/cli/trust_interactive.go` |
 
 Delivery-time chokes (no verb; reached from `run`, `context`, `hooks apply`, agent spawn):
 
 | choke | symbol | file |
 |---|---|---|
-| the single decision function | `operations.EffectiveTrust` | `internal/operations/trust.go` |
-| the single `bundles.Authorizer` implementation | `operations.contentGate.Admit` | `internal/operations/trust_gate.go` |
+| the single decision function | `operations.EffectiveTrust` | `internal/adapters/operations/trust.go` |
+| the single `bundles.Authorizer` implementation | `operations.contentGate.Admit` | `internal/adapters/operations/trust_gate.go` |
 | content pipeline (fragments, commands, skills) | `bundles.Pipeline.deliver` / `deliverSkill` → `bundles.Decide` → gate | `internal/core/bundles/pipeline.go`, `internal/core/bundles/authorizer.go` |
 | exec choke — bundle MCP | `config.extractMCPFromBundle` → `bundles.Decide` | `internal/core/config/config_bundles.go` |
 | exec choke — bundle hooks | `config.extractHooksFromBundle` → `bundles.Decide` | same |
 | exec choke — profile-declared hooks | `backends.gateProfileHooks` → `backends.gateProfileExec` → `bundles.Decide` | `internal/lm/backends/managed.go` |
-| gate construction for a run | `operations.NewExecutableTrustGate`, `operations.exposurePipelineGated` | `internal/operations/trust_gate.go` |
+| gate construction for a run | `operations.NewExecutableTrustGate`, `operations.exposurePipelineGated` | `internal/adapters/operations/trust_gate.go` |
 | gate hand-off to the engine payload | `backends.AssembleManagedConfig(backend, workDir, gate, profiles)` | `internal/lm/backends/managed.go` |
 | gate carried as config state | `config.Config.SetExecutableTrustGate` / `ExecutableTrustGate()` (default `bundles.AdmitAll()`) | `internal/core/config/config_bundles.go` |
 
@@ -406,18 +406,18 @@ Solid = direction the stated architecture expects (cli → operations → {confi
 
 ```mermaid
 flowchart TB
-  cli["internal/cli"]
-  ops["internal/operations"]
+  cli["internal/adapters/cli"]
+  ops["internal/adapters/operations"]
   cfg["internal/core/config"]
   bnd["internal/core/bundles"]
   lmb["internal/lm/backends"]
-  rem["internal/remote"]
-  att["internal/content/attest"]
-  cnt["internal/content"]
-  sig["internal/signing"]
-  cs["internal/signing/countersign"]
-  as["internal/signing/allowedsigners"]
-  ak["internal/signing/agentkey"]
+  rem["internal/adapters/remote"]
+  att["internal/adapters/content/attest"]
+  cnt["internal/adapters/content"]
+  sig["internal/adapters/signing"]
+  cs["internal/adapters/signing/countersign"]
+  as["internal/adapters/signing/allowedsigners"]
+  ak["internal/adapters/signing/agentkey"]
   tr["internal/core/trust"]
 
   cli --> ops
@@ -475,7 +475,7 @@ Ranked by blast radius within each category; the cross-category top three are ma
 ### 4.1 DUPLICATION
 
 **D-1 ★ Two publisher-verification adapters producing two structs for one concept.**
-`bundles.readSignatureFacts(payload, sig, root) signatureFacts` (`internal/core/bundles/reader.go`) and `attest.resolvePublisher(payload, sigs, root, now) attestation` (`internal/content/attest/attest.go`) both wrap `signing.VerifyPublisher` and both derive the same four-valued outcome {verified(principal) | tampered(detail) | untrusted(fingerprint) | none}. `bundles.signatureFacts{signature, signer, principal, detail, fingerprint}` and `attest.attestation{principal, detail, tamper, fingerprint}` are the same value under two names; `repoFSReader.verifyTree` is a hand-written converter from the second to the first. The `attest` form is the more complete (handles a SigSet, i.e. multiple signatures per namespace). `readSignatureFacts` additionally re-derives "was the key trusted?" from whether `SignatureKeyFingerprint` parses (`facts.signer = SignerTrusted` inside the `err != nil` arm) — a side-channel inference of a fact `VerifyInNamespace` already knew and discarded.
+`bundles.readSignatureFacts(payload, sig, root) signatureFacts` (`internal/core/bundles/reader.go`) and `attest.resolvePublisher(payload, sigs, root, now) attestation` (`internal/adapters/content/attest/attest.go`) both wrap `signing.VerifyPublisher` and both derive the same four-valued outcome {verified(principal) | tampered(detail) | untrusted(fingerprint) | none}. `bundles.signatureFacts{signature, signer, principal, detail, fingerprint}` and `attest.attestation{principal, detail, tamper, fingerprint}` are the same value under two names; `repoFSReader.verifyTree` is a hand-written converter from the second to the first. The `attest` form is the more complete (handles a SigSet, i.e. multiple signatures per namespace). `readSignatureFacts` additionally re-derives "was the key trusted?" from whether `SignatureKeyFingerprint` parses (`facts.signer = SignerTrusted` inside the `err != nil` arm) — a side-channel inference of a fact `VerifyInNamespace` already knew and discarded.
 Settle: make `attest.attestation` the one result type (export it), have `readSignatureFacts` call `attest.resolvePublisher` over a one-element SigSet, and delete the `verifyTree` converter.
 
 **D-2 ★ Two tree verifiers with two refusal policies.**
@@ -483,15 +483,15 @@ Settle: make `attest.attestation` the one result type (export it), have `readSig
 Settle: one `verdictToFacts(attest.BundleVerdict) signatureFacts` in `bundles`, used by all three; `verifyRemoteTree` decides refusal on the facts rather than on `OK()`. A test that feeds one unsigned tree through both readers and asserts identical facts.
 
 **D-3 Two signing models, both written by one command.**
-`operations.signBundleTree` (`internal/operations/sign.go`) signs the sibling `bundle.yaml.sig` over raw manifest bytes (`operations.SignItem` → `bundleSignable.PublisherPreimage`) AND then `attest.SignBundle` writes `.sigs/<contentKey>.<ns>.<sigtag>.sig` over the built manifest. The tree readers verify via `.sigs/` (`content.treeBundle.BundleSignatures`); `localFSReader.signatureFactsFor` verifies the sibling. Two signatures per bundle, two filename contracts (`countersign.filename` = `<indexHash>.<assertion>.<keyTag>.sig` keyed by KEY; `content.sigFileName` = `<contentKey>.<ns>.<sigtag>.sig` keyed by SIGNATURE bytes), and taskloom `unsigned-marine` already records that re-signing leaves the superseded `.sigs/` entry behind. The doc's Storage table names only `<bundle>.yaml.sig`.
+`operations.signBundleTree` (`internal/adapters/operations/sign.go`) signs the sibling `bundle.yaml.sig` over raw manifest bytes (`operations.SignItem` → `bundleSignable.PublisherPreimage`) AND then `attest.SignBundle` writes `.sigs/<contentKey>.<ns>.<sigtag>.sig` over the built manifest. The tree readers verify via `.sigs/` (`content.treeBundle.BundleSignatures`); `localFSReader.signatureFactsFor` verifies the sibling. Two signatures per bundle, two filename contracts (`countersign.filename` = `<indexHash>.<assertion>.<keyTag>.sig` keyed by KEY; `content.sigFileName` = `<contentKey>.<ns>.<sigtag>.sig` keyed by SIGNATURE bytes), and taskloom `unsigned-marine` already records that re-signing leaves the superseded `.sigs/` entry behind. The doc's Storage table names only `<bundle>.yaml.sig`.
 Settle: a human decision on whether the sibling `.sig` survives for tree bundles (if not, `signBundleTree` stops writing it and the Storage table gains `.sigs/`); either way one filename-index helper shared by `countersign` and `content`.
 
 **D-4 Signing-key resolution spelt twice.**
-`cli.resolveReviewSigner(ctx, discoverer, explicitKey, project)` (`internal/cli/review.go`) and `operations.resolveSignerOrUnsigned(cfg, injected, project)` (`internal/operations/trust.go`) implement the same discover → `project` requires a key → else unsigned algorithm. The CLI copy adds ambiguous-key rendering and the confirm prompt; the operations copy is what `bundle trust|reject` use. Because `review` passes a pre-resolved `Signer`, the namespace grant is checked in `resolveDecisionSigner` for both, so there is no behaviour gap today — but the two will drift (the CLI one ignores `AmbiguousKeyNameError` differently).
+`cli.resolveReviewSigner(ctx, discoverer, explicitKey, project)` (`internal/adapters/cli/review.go`) and `operations.resolveSignerOrUnsigned(cfg, injected, project)` (`internal/adapters/operations/trust.go`) implement the same discover → `project` requires a key → else unsigned algorithm. The CLI copy adds ambiguous-key rendering and the confirm prompt; the operations copy is what `bundle trust|reject` use. Because `review` passes a pre-resolved `Signer`, the namespace grant is checked in `resolveDecisionSigner` for both, so there is no behaviour gap today — but the two will drift (the CLI one ignores `AmbiguousKeyNameError` differently).
 Settle: `review` passes `Signer: nil` and an `Interactive` hook for the prompt; delete `cli.resolveReviewSigner`.
 
 **D-5 Verification order re-spelt in the countersign verifier.**
-`signing.VerifyCountersignature` (`internal/signing/countersign_verify.go`) repeats `VerifyInNamespace`'s unarmor → `TrustedForNamespace` → `Verify` sequence rather than calling `VerifyInNamespace(CountersignPreimage(h, payload), armored, root, ns, now)`. The doc-comment on `VerifyInNamespace` says "a second copy of that order is the thing most worth avoiding here".
+`signing.VerifyCountersignature` (`internal/adapters/signing/countersign_verify.go`) repeats `VerifyInNamespace`'s unarmor → `TrustedForNamespace` → `Verify` sequence rather than calling `VerifyInNamespace(CountersignPreimage(h, payload), armored, root, ns, now)`. The doc-comment on `VerifyInNamespace` says "a second copy of that order is the thing most worth avoiding here".
 Settle: `VerifyCountersignature` delegates; one order.
 
 **D-6 Locality carried twice on one path.**
@@ -537,8 +537,8 @@ Settle: delete the `BundleReader` construction and `LoadAllBytes` call; `treeBun
 
 ### 4.3 LAYER BYPASS
 
-**LB-1 cli → remote (deps check/reconcile).** As DP-3. Symbols: `cli.runDepsCheck`, `cli.checkAll`, `cli.fetchIntoClone`, `cli.upstreamProbes` (`internal/cli/deps_check.go`, `internal/cli/deps_reconcile.go`).
-Settle: the two operations functions named in DP-3; then add `internal/cli → internal/remote` to `layeringRules` in `tests/arch/layering_test.go` with an allowlist that shrinks to zero.
+**LB-1 cli → remote (deps check/reconcile).** As DP-3. Symbols: `cli.runDepsCheck`, `cli.checkAll`, `cli.fetchIntoClone`, `cli.upstreamProbes` (`internal/adapters/cli/deps_check.go`, `internal/adapters/cli/deps_reconcile.go`).
+Settle: the two operations functions named in DP-3; then add `internal/adapters/cli → internal/adapters/remote` to `layeringRules` in `tests/arch/layering_test.go` with an allowlist that shrinks to zero.
 
 **LB-2 cli → signing/agentkey (review key resolution).** As D-4. `cli.resolveReviewSigner`, `cli.confirmUnsignedReview`.
 Settle: as D-4.
@@ -549,7 +549,7 @@ Settle: profile hooks are gated where bundle hooks are — in the resolver that 
 **LB-4 config makes trust decisions.** `config.extractMCPFromBundle`, `config.extractHooksFromBundle`, `config.resolveBuiltinBundleMCPServers`, `config.resolveBuiltinBundleHooks` (`internal/core/config/config_bundles.go`) call `bundles.Decide` — the config layer consults the gate — and the gate reaches them as a MUTABLE FIELD (`Config.execGate`) set by operations/backends/coord. `operations.MaterializeProfile` has to save/replace/defer-restore that field to call into config. The config layer is below operations in the stated architecture; a trust decision consulted there means operations cannot see, test, or override it without mutating shared state.
 Settle: the exec extractors take the `bundles.Authorizer` as a parameter from their operations caller (they already do for builtin ones); delete `Config.execGate`, `SetExecutableTrustGate`, `ExecutableTrustGate`.
 
-**LB-5 trust → remote.** `internal/core/trust` (the vocabulary package) imports `internal/remote` for `NormalizeRef`, `NormalizeURL`, `LocalSource`, `CompanionSource`. Consequently `remote` cannot name `trust.Ref`, and `remote.LockEntry`/`Puller` speak in strings (`refStr`, `localName`, `canonical`) that every consumer re-parses (`remote.ParseReference` appears 8× in cli alone).
+**LB-5 trust → remote.** `internal/core/trust` (the vocabulary package) imports `internal/adapters/remote` for `NormalizeRef`, `NormalizeURL`, `LocalSource`, `CompanionSource`. Consequently `remote` cannot name `trust.Ref`, and `remote.LockEntry`/`Puller` speak in strings (`refStr`, `localName`, `canonical`) that every consumer re-parses (`remote.ParseReference` appears 8× in cli alone).
 Settle: move URL/ref normalisation into `internal/refuri` (which both already import) and have `trust` depend on `refuri` only.
 
 ### 4.4 MISSING LAYER
@@ -566,7 +566,7 @@ Settle: `remote.Installed(baseDir) []InstalledBundle{Canonical, Entry LockEntry,
 
 ### 4.5 WORKAROUNDS (each an unfiled bug unless a harp is cited)
 
-**W-1** `internal/operations/oneshot.go`: "must stay byte-identical to pre-P3; gate construction runs the trust baseline + opens the store" — a perf workaround that disables a security gate. → DP-2.
+**W-1** `internal/adapters/operations/oneshot.go`: "must stay byte-identical to pre-P3; gate construction runs the trust baseline + opens the store" — a perf workaround that disables a security gate. → DP-2.
 
 **W-2** `internal/core/config/config_bundles.go` (`Config.ExecutableTrustGate` doc): "a nil authorizer withholds everything downstream … and a management path asking for a config's gate is not a fault. A config nobody attached a gate to is a MANAGEMENT/LISTING config" — the fail-open default justified by a category the type system does not express. → DP-1.
 
@@ -574,21 +574,21 @@ Settle: `remote.Installed(baseDir) []InstalledBundle{Canonical, Entry LockEntry,
 
 **W-4** `internal/core/bundles/loader_skills.go`: `mode, perr := strconv.ParseUint(m.Mode, 8, 32); if perr != nil { mode = 0644 }` — a field of the signed skill manifest is defaulted on parse failure rather than withheld. Unfiled.
 
-**W-5** `internal/remote/pull.go` `resolveRetraction`: `lockfile, lerr := p.lockfileManager.Load(); if lerr != nil { return false, "", time.Time{}, nil }` — an unreadable lockfile at pull time reads as "not retracted", skips the confirm prompt, and `updateLockfile` then overwrites the entry with `Retracted:false`. The exposure-time twin (`lockfileRetraction.retractionReadable`) is fail-closed; the sync-time half is not. Unfiled.
+**W-5** `internal/adapters/remote/pull.go` `resolveRetraction`: `lockfile, lerr := p.lockfileManager.Load(); if lerr != nil { return false, "", time.Time{}, nil }` — an unreadable lockfile at pull time reads as "not retracted", skips the confirm prompt, and `updateLockfile` then overwrites the entry with `Retracted:false`. The exposure-time twin (`lockfileRetraction.retractionReadable`) is fail-closed; the sync-time half is not. Unfiled.
 
-**W-6** `internal/operations/sync.go` `checkInstalledRetraction`: `if err != nil { return false, "" }` and `puller.(RetractionChecker)` type assertion — an error or an injected puller without the interface silently means "not retracted" and nothing is recorded. Unfiled.
+**W-6** `internal/adapters/operations/sync.go` `checkInstalledRetraction`: `if err != nil { return false, "" }` and `puller.(RetractionChecker)` type assertion — an error or an injected puller without the interface silently means "not retracted" and nothing is recorded. Unfiled.
 
 **W-7** `internal/core/config/config.go` `remoteBundleReaders`: the discarded `LoadAllBytes` result. → DP-5.
 
-**W-8** `internal/operations/signable.go`: "PLACEMENT NOTE (escalate, do not restructure): trust.ItemKind today has no member for 'a whole bundle file' … bundleSignable.Kind() returns the literal trust.ItemKind("bundle") … a stage-2 placement question for a human to decide" — an escalation recorded in a comment; `Signable` has exactly one implementer. Unfiled decision.
+**W-8** `internal/adapters/operations/signable.go`: "PLACEMENT NOTE (escalate, do not restructure): trust.ItemKind today has no member for 'a whole bundle file' … bundleSignable.Kind() returns the literal trust.ItemKind("bundle") … a stage-2 placement question for a human to decide" — an escalation recorded in a comment; `Signable` has exactly one implementer. Unfiled decision.
 
 **W-9** `internal/core/config/trustroot.go` `filterSuppressedPrincipals` doc: cites `store.go:100` and `store.go:35` — line-number bindings in a comment (both already stale: `decide` is at a different line).
 
-**W-10** `internal/operations/trust.go` `SetItemTrust` / `SetBlacklist`: `_ = store.AppendIndex(...)` — ignored write error on the display index; a failed index write means `review --list` under-reports an UPDATE as NEW (`LatestApprove` reads it). Acceptable if documented as such at the call; it is not.
+**W-10** `internal/adapters/operations/trust.go` `SetItemTrust` / `SetBlacklist`: `_ = store.AppendIndex(...)` — ignored write error on the display index; a failed index write means `review --list` under-reports an UPDATE as NEW (`LatestApprove` reads it). Acceptable if documented as such at the call; it is not.
 
-**W-11** `internal/remote/retract.go` `CheckRetracted`: "Ambiguous at this seam … indistinguishable here without a not-found sentinel on Fetcher" — the fetcher interface lacks an `ErrNotFound` distinction for the manifest, so every remote that publishes no manifest (the ordinary case) takes the fail-stale fallback and warns after 14 days. Design gap, documented in the doc as accepted; unfiled as a `Fetcher` interface change.
+**W-11** `internal/adapters/remote/retract.go` `CheckRetracted`: "Ambiguous at this seam … indistinguishable here without a not-found sentinel on Fetcher" — the fetcher interface lacks an `ErrNotFound` distinction for the manifest, so every remote that publishes no manifest (the ordinary case) takes the fail-stale fallback and warns after 14 days. Design gap, documented in the doc as accepted; unfiled as a `Fetcher` interface change.
 
-**W-12** `internal/operations/sync.go`: `syncLockStep`, `syncHooksStep` package-level function variables; `internal/core/config/config_bundles.go`: `hookPreimage`, `mcpPreimage` package-level function variables; `internal/lm/backends/managed.go`: `loadConfigFn`. Test seams travelling as globals through the trust path.
+**W-12** `internal/adapters/operations/sync.go`: `syncLockStep`, `syncHooksStep` package-level function variables; `internal/core/config/config_bundles.go`: `hookPreimage`, `mcpPreimage` package-level function variables; `internal/lm/backends/managed.go`: `loadConfigFn`. Test seams travelling as globals through the trust path.
 
 ### 4.6 STATED-VS-ACTUAL (`docs/trust-model.md` vs code)
 
@@ -618,7 +618,7 @@ Settle: rename `StateAccepted`/`SourceAccepted` → `Approved`; the JSON `state`
 **SA-9 `credential_gitignore_test.go` is not a trust-model gate.** The brief lists it under this seam; it asserts that ENGINE credentials copied in-tree are gitignored. It says nothing about `.ctxloom/approvals`, `allowed_signers`, `.sig`, or `distrusted_signers` being committed or not. The doc's Storage table says the personal approvals store is "Never committed" and the project one is committable; nothing checks that `~/.ctxloom` state never lands under the project or that `state/trust/objects/` is ignored.
 Settle: a row per trust-state path in `credentialPaths` (or a sibling table) — `.ctxloom/state/trust/objects/` at least.
 
-**SA-10 Doc cites symbols that moved or never existed.** `config.loadRemoteBundleSeed` (SA-1), and taskloom `backstage-rink` records that `signing.FragmentPreimage` was cited by a row before it existed (it now does). The doc's references to `internal/remote.CheckRetracted`, `Puller.resolveRetraction`, `LockEntry.Retracted`, `RetractionCheckedAt`, `remote.RetractionStaleAfter`, `operations.resolveDecisionSigner`, `requireTrustedForAssertion`, `signing.NamespaceForAssertion`, `bundles.ContentPayload`, `Store.Verified` all resolve (`Store.Verified` is the unexported `verified`; close enough to grep).
+**SA-10 Doc cites symbols that moved or never existed.** `config.loadRemoteBundleSeed` (SA-1), and taskloom `backstage-rink` records that `signing.FragmentPreimage` was cited by a row before it existed (it now does). The doc's references to `internal/adapters/remote.CheckRetracted`, `Puller.resolveRetraction`, `LockEntry.Retracted`, `RetractionCheckedAt`, `remote.RetractionStaleAfter`, `operations.resolveDecisionSigner`, `requireTrustedForAssertion`, `signing.NamespaceForAssertion`, `bundles.ContentPayload`, `Store.Verified` all resolve (`Store.Verified` is the unexported `verified`; close enough to grep).
 
 ### 4.7 DATA-FLOW SMELLS (cited by symbol; feeds §5)
 
@@ -637,7 +637,7 @@ Settle: ML-1's `TrustContext` loads root, both stores (an in-memory index keyed 
 
 **DF-7 Hidden inputs.** `time.Now()` inside `readSignatureFacts`, `repoFSReader.verifyTree`, `verifyRemoteTree`, `treeIntegrityFacts`, `countersignRecords.Rejected/Approved`, `requireTrustedForAssertion`, `AuthorizePublisher` (allowed_signers `valid-after`/`valid-before` are evaluated against a clock nobody passes). `agentkey.Discoverer` reads `SSH_AUTH_SOCK` and `git config user.signingkey` (gap #12, accepted). `remote.LoadAuth` reads env/files. `lockfileRetraction` reads `lock.yaml`. `config.TrustRoot` reads three files + embedded.
 
-**DF-8 Same string re-parsed along one path.** A bundle ref: `remote.ParseReference` at pull (`Puller.Pull`), again in `fetchAtLockedSHA`, again in `treeBundleDir`, again in `isInstalled`, again in `syncItem`; then `trust.ParseBundleRef` in `bundles.Decide` per item; then `CountersignRef` re-mints a string from `trust.Ref` for the store. `remote.ParseReference` appears 8× in `internal/cli` alone.
+**DF-8 Same string re-parsed along one path.** A bundle ref: `remote.ParseReference` at pull (`Puller.Pull`), again in `fetchAtLockedSHA`, again in `treeBundleDir`, again in `isInstalled`, again in `syncItem`; then `trust.ParseBundleRef` in `bundles.Decide` per item; then `CountersignRef` re-mints a string from `trust.Ref` for the store. `remote.ParseReference` appears 8× in `internal/adapters/cli` alone.
 
 **DF-9 Boolean threaded and branched on at every layer.** `preferDistilled` (`cfg.ShouldUseDistilled()` → `Pipeline.preferDistilled` → `ItemRead.Resolve(bool)` → `Surface(bool)` → `ContentPayload(bool)` → `computeItemPayload` → `cfgPreferDistilled(cfg)` re-derived in `reviewEnumerator.pendingItems` and `deliverSkill`). `project bool` (`review --project` → `resolveCountersignStore` → `resolveSignerOrUnsigned` → `resolveDecisionSigner` → `ForgetItemDecision`), each branching.
 
@@ -651,19 +651,19 @@ Settle: ML-1's `TrustContext` loads root, both stores (an in-memory index keyed 
 `IN` = input state, `OUT` = output, `HID` = read inside without appearing in the signature.
 
 ```go
-// internal/signing/publisher.go
+// internal/adapters/signing/publisher.go
 func VerifyPublisher(bundleBytes, armoredSig []byte, root TrustRoot, now time.Time) (string, error)
 func VerifyInNamespace(payload, armoredSig []byte, root TrustRoot, namespace string, now time.Time) (string, error)
 //   IN: payload, armoredSig, root, namespace, now. OUT: principal ("" = unsigned-to-you), error (ErrSignatureTampered wraps). HID: none. Pure.
 func CoversBytes(payload, armoredSig []byte, namespace string) error   // trust-free integrity; IN only.
 type TrustRoot interface { TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) allowedsigners.Decision }
 
-// internal/signing/countersign_verify.go
+// internal/adapters/signing/countersign_verify.go
 func VerifyCountersignature(header CountersignHeader, payloadBytes, armored []byte, root TrustRoot, now time.Time) (principal string, ok bool)
 //   IN: all. OUT: (principal, ok) — deliberately no error channel. HID: none.
 func NamespaceForAssertion(a Assertion) string
 
-// internal/signing/payload.go
+// internal/adapters/signing/payload.go
 const CountersignContract = "ctxloom-countersign/2"; ExecPreimageContract = "ctxloom-exec/2"; FragmentPreimageContract = "ctxloom-fragment/1"; CommandPreimageContract = "ctxloom-command/1"; SkillPreimageContract = "ctxloom-skill/1"
 func FragmentPreimage(premise string, content []byte) []byte
 func CommandPreimage(description string, exports, content []byte) []byte
@@ -673,7 +673,7 @@ func CountersignPreimage(h CountersignHeader, payloadBytes []byte) []byte
 type Form string            // "raw" | "distilled" | ""
 type AttestationForm string // fragment/raw fragment/distilled command/raw command/distilled exec/mcp exec/hook skill ""
 
-// internal/signing/countersign/store.go
+// internal/adapters/signing/countersign/store.go
 func NewStore(dir string, fs afero.Fs) *Store
 func (s *Store) Readable() error                       // HID: lists + parses every file in dir
 func (s *Store) Resolve() (StoreState, error)
@@ -690,12 +690,12 @@ func (s *Store) ForgetApprove(ref string, form signing.AttestationForm, payload 
 func (s *Store) AppendIndex(e IndexEntry) error            // display-only index.yaml
 func (s *Store) LatestApprove(ref string, layout signing.Form) (IndexEntry, bool, error)
 
-// internal/signing/allowedsigners/store.go
+// internal/adapters/signing/allowedsigners/store.go
 type Decision struct { Trusted bool; Principal string }
 func (s *Store) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) Decision
 func Union(stores ...*Store) *Store
 
-// internal/signing/agentkey/agentkey.go
+// internal/adapters/signing/agentkey/agentkey.go
 func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discovered, error)
 //   IN: explicitKey. OUT: Discovered{Signer, Fingerprint,…}. HID: git config user.signingkey (cwd repo), SSH_AUTH_SOCK, key files.
 
@@ -707,7 +707,7 @@ const BuiltinSigner = "builtin:ctxloom"
 type State string  // pending | accepted | rejected   (doc says "approved")
 type Source string // rejected local builtin companion retracted trusted-signer accepted pending
 
-// internal/content/attest/attest.go
+// internal/adapters/content/attest/attest.go
 func SignBundle(ctx context.Context, w content.Writer, b content.Bundle, signer ssh.Signer) error   // writes manifest + .sigs/ entry
 func VerifyBundle(ctx context.Context, b content.Bundle, root signing.TrustRoot, now time.Time) (BundleVerdict, error)
 type BundleVerdict struct { Bundle BundleID; Manifest content.Manifest; Verdict Verdict; Contents error; Items []ItemVerdict }
@@ -734,7 +734,7 @@ func (m *BundleMCP) ContentPayload() ([]byte, error)
 func (h *BundleHook) ContentPayload() ([]byte, error)
 func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remote.AuthConfig, ref *remote.Reference, sha string, treeFetch remote.TreeFetchFunc, root signing.TrustRoot) (*Bundle, error)
 
-// internal/operations/trust.go
+// internal/adapters/operations/trust.go
 type EffectiveTrustRequest struct { Ref trust.Ref; Payload []byte; Form string; Signer string; Posture bundles.TrustCtx; Provenance bundles.ProvenanceClass; Records ReviewRecords; Retraction RetractionRecords; FS afero.Fs }
 func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTrustResult, error)
 //   IN: Ref, Payload, Form, Signer, Posture, Provenance. OUT: {Decision, Source, Detail}. HID: when Records nil → both approvals dirs + trust root files; when Retraction nil → lock.yaml; strictness.FailOnce side effect; time.Now() inside records.
@@ -748,7 +748,7 @@ func resolveDecisionSigner(cfg *config.Config, injected ssh.Signer, project bool
 func requireTrustedForAssertion(root signing.TrustRoot, key ssh.PublicKey, assertion signing.Assertion) error
 func NewExecutableTrustGate(cfg *config.Config) *ExecutableTrustGate; func (e *ExecutableTrustGate) Authorizer() bundles.Authorizer  // nil receiver → AdmitAll
 
-// internal/operations/sign.go, signable.go, publisher_declaration.go
+// internal/adapters/operations/sign.go, signable.go, publisher_declaration.go
 func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResult, error)
 func AuthorizePublisher(cfg *config.Config, fs afero.Fs, signer ssh.Signer, source string) error   // HID: .github/allowed_signers; nil signer/cfg → authorized
 type Signable interface { Kind() trust.ItemKind; PublisherPreimage() ([]byte, error); SigPath() string }   // one implementer
@@ -760,7 +760,7 @@ func (c *Config) TrustRoot() *allowedsigners.Store           // HID: embedded + 
 func (c *Config) SetExecutableTrustGate(gate bundles.Authorizer); func (c *Config) ExecutableTrustGate() bundles.Authorizer  // default AdmitAll
 func (c *Config) treeBundleReader(canonical string, entry remote.LockEntry, root signing.TrustRoot) (bundles.Reader, error)
 
-// internal/remote
+// internal/adapters/remote
 func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*PullResult, error)
 //   IN: refStr, opts{Force, ItemType, RequestedVersion, LocalDir}. OUT: PullResult{LocalPath, SHA, Overwritten, Content, Retracted, RetractedReason}. HID: opts.Stdout/Stdin default to os.*; registry; lockfile; clone cache; network; p.now().
 func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, itemType ItemType) (RetractionVerdict, string, error)
@@ -785,7 +785,7 @@ func hookExecPayload(h wire.Hook) []byte   // wire → BundleHook hand copy
 6. **`remote` → `shared/clidiag` in `resolveRetraction`**: whether the project treats `clidiag` as a library-safe sink or a CLI-only one (the package name suggests the latter; seam 6/7 may have ruled).
 7. **`.sigs/` accumulation (unsigned-marine)** — I confirmed the naming (`content.sigFileName`) is accumulative but did not read `TreeStore.PutBundleSignature`'s `writeSignature` for any pruning.
 8. **Whether the `distrusted_signers` mechanism is exercised by any acceptance journey**; the doc omits it entirely, so it may be untested end-to-end.
-9. gopls `call_hierarchy` was not used — `git grep` + reading sufficed for this seam's symbol set because the names are distinctive; aliased references to `ContentPayload` through interfaces (`ItemSurface`, `content.Item.Form`) may exist in `internal/content` that I did not walk.
+9. gopls `call_hierarchy` was not used — `git grep` + reading sufficed for this seam's symbol set because the names are distinctive; aliased references to `ContentPayload` through interfaces (`ItemSurface`, `content.Item.Form`) may exist in `internal/adapters/content` that I did not walk.
 
 ---
 

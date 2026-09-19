@@ -65,7 +65,7 @@ type RepoState struct {
 	// and therefore does NOT speak to the whole repository. Both bounds cut
 	// ALPHABETICALLY, so the tail of the repo is what disappears — silently
 	// rendering such a list as complete invites exactly the confident wrong
-	// not-fired this evidence exists to prevent ("internal/signing is absent,
+	// not-fired this evidence exists to prevent ("internal/adapters/signing is absent,
 	// so it was never built"). Absence from a truncated list is not evidence
 	// of absence, and the prompt must say so.
 	DirsTruncated           bool

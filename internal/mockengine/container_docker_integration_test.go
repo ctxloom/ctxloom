@@ -15,7 +15,7 @@
 // incident (an image whose Node was too old to load claude-code-acp) would have
 // sailed through this test green. Image runtime health is a SEPARATE,
 // non-skippable check: adapterRunGate / TestACPAdapterRuns_* in
-// internal/lm/isolation, which validates the real engine by EXECUTION. Do not
+// internal/adapters/isolation, which validates the real engine by EXECUTION. Do not
 // cite a green run here as evidence that the image's real engine works.
 // =======================================================================
 //
@@ -35,10 +35,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/mockengine"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )

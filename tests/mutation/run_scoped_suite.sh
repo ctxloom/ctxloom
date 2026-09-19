@@ -11,7 +11,7 @@
 #  1. go:embed refuses to embed a SYMLINK ("contains no embeddable files" /
 #     "irregular file") — verified empirically. This repo embeds resources/,
 #     container/, cmd/ltk, cmd/taskloom, internal/shared/harp,
-#     internal/agentcoord/mcpschema/schemas, and internal/core/config's
+#     internal/adapters/coordgrpc/mcpschema/schemas, and internal/core/config's
 #     allowed_signers. Every embed target must be a REAL file before `go
 #     build`, so this script re-materializes (symlink -> real copy) just
 #     those directories before building — a few hundred files, not the whole
@@ -22,7 +22,7 @@
 set -eu
 
 for d in resources cmd/ltk cmd/taskloom internal/shared/harp container \
-         internal/agentcoord/mcpschema/schemas internal/core/config; do
+         internal/adapters/coordgrpc/mcpschema/schemas internal/core/config; do
   [ -d "$d" ] || continue
   find "$d" -type l | while IFS= read -r f; do
     tgt=$(readlink -f "$f")

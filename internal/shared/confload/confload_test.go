@@ -43,7 +43,7 @@ func writeFile(t *testing.T, path, body string) {
 
 // configSetFlagSet builds a *pflag.FlagSet carrying only the --config-set flag
 // (confload.ConfigSetFlagName), pre-populated with entries -- the shape every real
-// caller (internal/cli/root.go's PersistentPreRun) hands ReadOverrides.
+// caller (internal/adapters/cli/root.go's PersistentPreRun) hands ReadOverrides.
 func configSetFlagSet(t *testing.T, entries ...string) *pflag.FlagSet {
 	t.Helper()
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)

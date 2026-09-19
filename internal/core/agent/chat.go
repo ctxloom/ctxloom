@@ -77,7 +77,7 @@ type ChatRequest struct {
 	ResumeSessionID string
 	// TranscriptRawPolicy names the transcript.raw capture policy this chat's
 	// canonical-transcript Recorder should honor (transcript.RawPolicy: off |
-	// lossy-only | all — see internal/transcript/recorder.go). Empty means
+	// lossy-only | all — see internal/adapters/transcript/recorder.go). Empty means
 	// "use the default" (lossy-only). This is a CAPTURE-layer setting riding
 	// ChatRequest purely as a convenient existing carrier from host to the
 	// point a Recorder gets constructed (internal/lm/grpc/chat.go,
@@ -253,12 +253,12 @@ type ChatEvent struct {
 	// exactly where ctxloom's trust layer injects, and a byte tunnel would
 	// defeat it.
 	//
-	// Raw is NOT internal/transcript's Record.Raw (record.go). That is a
+	// Raw is NOT internal/adapters/transcript's Record.Raw (record.go). That is a
 	// SEPARATE capture-layer field, populated FROM this one under the
 	// transcript.raw capture policy (off | lossy-only | all, default
 	// lossy-only) — a decision about what gets written to DISK, unrelated to
 	// what crosses the WIRE. Do not conflate the two in code or docs; see
-	// internal/transcript/recorder.go's RawPolicy doc comment.
+	// internal/adapters/transcript/recorder.go's RawPolicy doc comment.
 	Raw json.RawMessage
 }
 

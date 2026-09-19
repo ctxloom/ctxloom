@@ -183,7 +183,7 @@ func TestCallerPackageFrom_KeysOnTheTestNotTheHelper(t *testing.T) {
 			name: "an external test package folds into the package it tests",
 			stack: []string{
 				prefix + "internal/shared/tasks/taskstest.Isolate",
-				prefix + "internal/paths_test.TestResolve",
+				prefix + "internal/core/paths_test.TestResolve",
 				"testing.tRunner",
 			},
 			want: "internal/core/paths",

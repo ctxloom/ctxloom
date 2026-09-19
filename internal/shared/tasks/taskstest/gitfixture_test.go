@@ -42,10 +42,10 @@ import (
 var sanctionedWorktreeFixtureFiles = map[string]bool{
 	filepath.Join("internal", "shared", "tasks", "taskstest", "gitfixture.go"):      true,
 	filepath.Join("internal", "shared", "tasks", "taskstest", "gitfixture_test.go"): true,
-	filepath.Join("internal", "config", "worktree_signpost_test.go"):                true,
+	filepath.Join("internal", "core", "config", "worktree_signpost_test.go"):        true,
 	filepath.Join("tests", "integration", "testenv", "environment.go"):              true,
 	filepath.Join("tests", "acceptance", "steps_j001300_closeout.go"):               true,
-	filepath.Join("internal", "cli", "session_worktrees_test.go"):                   true,
+	filepath.Join("internal", "adapters", "cli", "session_worktrees_test.go"):       true,
 	filepath.Join("tests", "acceptance", "scratch_worktree_fixture.go"):             true,
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
@@ -25,5 +26,15 @@ func realGated(t *testing.T, cfg *config.Config) *config.Config {
 	tr, err := composite.NewTrust(root, records, retraction)
 	require.NoError(t, err)
 	cfg.BindTrustForTesting(tr)
+	return cfg
+}
+
+// gatedFixture is config.NewFixture with a gate bound that admits by
+// locality and withholds what travelled (compositetest.Trust): a fixture
+// that reaches a delivery entry point must state its gate, or the entry
+// refuses it (config.ErrTrustUnbound).
+func gatedFixture(f config.Fixture) *config.Config {
+	cfg := config.NewFixture(f)
+	cfg.BindTrustForTesting(compositetest.Trust())
 	return cfg
 }

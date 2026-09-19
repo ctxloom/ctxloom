@@ -96,5 +96,11 @@ func loaded(t *testing.T, load func() (*config.Config, error)) *config.Config {
 	t.Helper()
 	cfg, err := load()
 	require.NoError(t, err)
+	// A test's loader hands back a bare value; the generation it stands in
+	// for would carry its gate, so state the admitting one unless the loader
+	// bound its own.
+	if cfg.ExecutableTrustGate() == nil {
+		cfg.BindTrustForTesting(compositetest.Trust())
+	}
 	return cfg
 }

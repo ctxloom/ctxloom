@@ -91,6 +91,9 @@ func harpEnv(harp string) map[string]string {
 }
 
 func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) (*RunOneshotResult, error) {
+	if _, err := cfg.RequireTrust(); err != nil {
+		return nil, fmt.Errorf("oneshot: %w", err)
+	}
 	ctxResult, err := AssembleContext(ctx, cfg, AssembleContextRequest{
 		Profile:  req.Profile,
 		Pipeline: req.Pipeline,

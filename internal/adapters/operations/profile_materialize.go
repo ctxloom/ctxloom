@@ -148,6 +148,9 @@ func registeredBackend(name string) (string, error) {
 // ("partial success is success"). Bad arguments and a failed context assembly
 // (the core payload) stay hard errors regardless of mode.
 func MaterializeProfile(ctx context.Context, cfg *config.Config, req MaterializeProfileRequest) (*MaterializeProfileResult, error) {
+	if _, err := cfg.RequireTrust(); err != nil {
+		return nil, fmt.Errorf("materialize: %w", err)
+	}
 	backend, err := resolveMaterializeTarget(cfg, req)
 	if err != nil {
 		return nil, err

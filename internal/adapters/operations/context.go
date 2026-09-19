@@ -192,6 +192,13 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	profileNames := resolveContextProfileNames(cfg, req)
 
 	pipe := req.Pipeline
+	// A generation with no gate cannot deliver: refused at entry, by
+	// sentinel. An injected pipeline decides with a gate of its own.
+	if pipe == nil {
+		if _, err := cfg.RequireTrust(); err != nil {
+			return nil, fmt.Errorf("assemble context: %w", err)
+		}
+	}
 	// gate is the trust gate behind pipe, when this call built its own (nil
 	// for an injected test pipeline — see warnWithheld). Kept so the withheld
 	// advisory below can name WHY each item was withheld, not just that it was.

@@ -264,6 +264,9 @@ func resolveHookConfig(req ApplyHooksRequest) (*config.Config, error) {
 	if req.Cfg == nil {
 		return nil, fmt.Errorf("apply hooks: a config generation is required")
 	}
+	if _, err := req.Cfg.RequireTrust(); err != nil {
+		return nil, fmt.Errorf("apply hooks: %w", err)
+	}
 	return req.Cfg, nil
 }
 

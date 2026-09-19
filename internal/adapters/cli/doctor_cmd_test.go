@@ -421,7 +421,7 @@ func TestDoctorCheckSetupLockAndAssembly_WrongState_SkippedProfileRefs(t *testin
 	f.Agents = map[string]agents.Agent{
 		"default": {Profiles: []string{"doctor-missing-profile-one", "doctor-missing-profile-two"}},
 	}
-	cfg = config.NewFixture(f)
+	cfg = gatedFixture(f)
 
 	// Guard: prove this exact fixture makes assembly skip TWO refs, by
 	// capturing the real stderr warning lines a raw AssembleContext call

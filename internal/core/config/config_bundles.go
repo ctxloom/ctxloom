@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"slices"
 	"sort"
@@ -81,6 +82,23 @@ func (c *Config) Trust() composite.Trust { return c.trust }
 // decide with: the generation's Trust. Nil for a fixture nobody bound, which
 // bundles.Decide withholds on loudly.
 func (c *Config) ExecutableTrustGate() bundles.Authorizer { return c.trust.Authorizer() }
+
+// ErrTrustUnbound is the refusal a delivery entry point gives a Config that
+// carries no gate: it was constructed outside the Owner (config.Open
+// publishes every generation with its Trust) and never bound (a fixture
+// states its gate with BindTrustForTesting). Refused at the entry, by
+// sentinel — a construction bug is caught first, not surfaced as one
+// withheld item per executable later.
+var ErrTrustUnbound = errors.New("config: this configuration carries no trust gate — it was constructed outside the Owner and never bound")
+
+// RequireTrust returns the bound Trust, or ErrTrustUnbound for a Config
+// nobody bound. Every operation that delivers content asks this at entry.
+func (c *Config) RequireTrust() (composite.Trust, error) {
+	if c == nil || c.trust.Authorizer() == nil {
+		return composite.Trust{}, ErrTrustUnbound
+	}
+	return c.trust, nil
+}
 
 // BindTrustForTesting binds tr as this Config's generation gate, exactly as
 // the Owner does before publishing a Snapshot. A fixture that exercises an

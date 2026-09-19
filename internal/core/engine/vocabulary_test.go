@@ -29,24 +29,23 @@ func TestMode_TwoWaysToDriveARun(t *testing.T) {
 }
 
 func TestPermissionMode_ZeroIsNotRequested(t *testing.T) {
-	// Named numerically on purpose: the zero must render as "not requested"
-	// and default must be 1, whatever the constants are called.
-	assert.Equal(t, "not requested", PermissionMode(0).String(), "the zero value asks for nothing and renders as what it is, never as one of the four modes")
+	assert.Equal(t, PermissionMode(0), PermissionNotRequested, "the zero value asks for nothing: an unset launch.Source.Permission")
 	assert.Equal(t, PermissionMode(1), PermissionDefault, "default is a POSTURE a caller can ask for by name, so it cannot share the unset value")
+	assert.Equal(t, "not requested", PermissionNotRequested.String(), "the zero renders as what it is, never as one of the four modes")
 	for _, n := range PermissionModeNames() {
-		assert.NotEqual(t, n, PermissionMode(0).String(), "the zero is not a mode a caller can spell")
+		assert.NotEqual(t, n, PermissionNotRequested.String(), "NotRequested is not a mode a caller can spell")
 	}
-	_, ok := ParsePermissionMode(PermissionMode(0).String())
-	assert.False(t, ok, "the zero is not a declaration and must not parse as one")
+	_, ok := ParsePermissionMode(PermissionNotRequested.String())
+	assert.False(t, ok, "NotRequested is not a declaration and must not parse as one")
 
 	m, ok := ParsePermissionMode("default")
 	require.True(t, ok)
 	assert.Equal(t, PermissionDefault, m, "an explicit \"default\" is a declaration, distinguishable from nothing")
-	assert.NotEqual(t, PermissionMode(0), m)
+	assert.NotEqual(t, PermissionNotRequested, m)
 
 	m, ok = ParsePermissionMode("")
 	assert.False(t, ok)
-	assert.Equal(t, PermissionMode(0), m, "unset parses to the zero, not to a posture")
+	assert.Equal(t, PermissionNotRequested, m, "unset parses to the zero, not to a posture")
 }
 
 func TestPermissionMode_StringAndParse_RoundTrip(t *testing.T) {
@@ -71,10 +70,11 @@ func TestParsePermissionMode_UnsetAndUnknown_AreNotDeclarations(t *testing.T) {
 	for _, s := range []string{"", "   ", "plann", "yolo"} {
 		m, ok := ParsePermissionMode(s)
 		assert.False(t, ok, "%q must not count as a declaration", s)
-		assert.Equal(t, PermissionDefault, m)
+		assert.Equal(t, PermissionNotRequested, m, "the mode is never a posture when ok is false")
 	}
 	assert.Equal(t, PermissionPlan, WireMode("plan"))
 	assert.Equal(t, PermissionDefault, WireMode("nonsense"), "the wire fallback is the prompting posture")
+	assert.Equal(t, PermissionDefault, WireMode(""), "the wire never hands back NotRequested: the sender resolved")
 }
 
 func TestPermissionMode_Predicates(t *testing.T) {

@@ -127,8 +127,8 @@ func TestRunOneshot_SurfacesWithheldExecutable(t *testing.T) {
 
 // TestRunResolvedAgent_RejectsUnknownPermissionPosture pins that the ok
 // bool from agent.ParsePermissionMode was discarded, so a MISSPELLED posture
-// was indistinguishable from an unset one. Both parse to PermissionDefault,
-// which is not SafeHeadless, so both are refused (unroasted-spinning: this
+// was indistinguishable from an unset one. Both parse to
+// PermissionNotRequested, which is not SafeHeadless, so both are refused (unroasted-spinning: this
 // used to be "both floored to PermissionBypass" — a member whose author
 // wrote "plna" for "plan" ran with the MOST permissive setting; the floor
 // was itself the silent-elevation bug and was replaced with a refusal). The
@@ -163,7 +163,7 @@ func TestRunResolvedAgent_RejectsUnknownPermissionPosture(t *testing.T) {
 		stub, res, err := run(t, "")
 		require.Error(t, err, "unset is not SafeHeadless either; it must refuse, not silently run at bypass")
 		assert.Nil(t, res)
-		assert.Contains(t, err.Error(), `"default"`, "the error names the resolved posture, not a quoted typo")
+		assert.Contains(t, err.Error(), `"`+agent.PermissionNotRequested.String()+`"`, "the error names what was declared (nothing), not a quoted typo")
 		assert.NotContains(t, err.Error(), "expected one of", "unset must not be reported as an unrecognised posture")
 		assert.Nil(t, stub.gotReq, "the engine must never have run")
 	})

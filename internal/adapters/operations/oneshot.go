@@ -414,9 +414,10 @@ func resolveOneshotPermissions(reqPerm, labelPerm, projectPerm string) string {
 // posture could not be honoured headless is worse than refusing.
 //
 // A posture the parser does not RECOGNISE is a different input from an unset
-// one, even though both parse to PermissionDefault. Unset declares that nothing
-// was declared; a misspelling is a declaration that MISSED. Both are refused
-// now, but with distinct error text, so a misspelling that would have silently
+// one, even though both parse to PermissionNotRequested. Unset declares that
+// nothing was declared; a misspelling is a declaration that MISSED. Both are
+// refused — nothing here resolves an undeclared posture to a runnable one —
+// but with distinct error text, so a misspelling that would have silently
 // become the most permissive setting is still named as what it is (a typo),
 // not folded into the generic headless refusal. LLMEntry.Permissions arrives
 // straight from a hand-edited config.yaml with no validation on the way in, so

@@ -162,9 +162,10 @@ func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 	cases := []struct {
 		name    string
 		profile string
+		names   agent.PermissionMode // the posture the refusal names: what was declared, or what plan collapsed to
 	}{
-		{"no posture is refused, not floored to bypass", "floor-default"},
-		{"unenforceable plan collapses then is refused, not floored to bypass", "collapse-agy"},
+		{"no posture is refused, not floored to bypass", "floor-default", agent.PermissionNotRequested},
+		{"unenforceable plan collapses then is refused, not floored to bypass", "collapse-agy", agent.PermissionDefault},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -174,7 +175,7 @@ func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 				Profile: tc.profile, Task: "t", Pipeline: opPipe(cfg, loader), Factory: factory,
 			})
 			require.Error(t, err, "a would-block/unenforceable posture must refuse, not silently run at bypass")
-			assert.Contains(t, err.Error(), `"default"`, "the error names the resolved (collapsed) posture")
+			assert.Contains(t, err.Error(), `"`+tc.names.String()+`"`, "the error names the posture it refused")
 			assert.Nil(t, stub.gotReq, "the engine must never have run")
 		})
 	}

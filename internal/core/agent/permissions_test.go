@@ -22,8 +22,8 @@ func TestParsePermissionMode(t *testing.T) {
 		{"bypass", PermissionBypass, true},
 		{"BYPASS", PermissionBypass, true},
 		{"dangerously-skip-permissions", PermissionBypass, true},
-		{"", PermissionDefault, false},
-		{"nonsense", PermissionDefault, false},
+		{"", PermissionNotRequested, false},
+		{"nonsense", PermissionNotRequested, false},
 	}
 	for _, tc := range cases {
 		got, ok := ParsePermissionMode(tc.in)

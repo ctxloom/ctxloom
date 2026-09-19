@@ -88,6 +88,7 @@ func fiveSourceProject(t *testing.T) *config.Config {
 		},
 		Agents: map[string]agents.Agent{
 			"dev":       {LLM: "primary", Profiles: []string{"base"}, Permissions: "plan", Runtime: string(launch.RuntimeHost)},
+			"ops":       {LLM: "primary", Profiles: []string{"base"}, Permissions: "bypass", Runtime: string(launch.RuntimeHost)},
 			"setup":     {Profiles: []string{"base"}},
 			"distiller": {LLM: "fast", Profiles: []string{"base"}},
 		},
@@ -102,28 +103,43 @@ func TestResolveViaPhases_FiveSources_ParityWithToday(t *testing.T) {
 		name  string
 		src   launch.Source
 		today runFlags
+		// pin, when set, is the posture BOTH sides must resolve to — a parity
+		// assertion alone would pass if both sides agreed on the wrong answer.
+		pin engine.PermissionMode
 	}{
-		{"agent binding",
-			launch.Source{Identity: id, Agent: "dev", Mode: engine.Interactive, Prompt: "x"},
-			runFlags{agent: "dev"}},
-		{"profile set",
-			launch.Source{Identity: id, Profiles: []string{"base"}, Mode: engine.Interactive, Prompt: "x"},
-			runFlags{profile: "base"}},
-		{"label override",
-			launch.Source{Identity: id, Agent: "dev", Label: "fast", Mode: engine.Interactive, Prompt: "x"},
-			runFlags{agent: "dev", llm: "fast"}},
-		{"init probe",
-			launch.Source{Identity: id, Agent: "setup", Mode: engine.Structured, Prompt: "ping"},
-			runFlags{agent: "setup", oneShot: true}},
-		{"internal one-shot",
-			launch.Source{Identity: id, Agent: "distiller", Mode: engine.Structured, Prompt: "payload"},
-			runFlags{agent: "distiller", oneShot: true}},
+		{name: "agent binding",
+			src:   launch.Source{Identity: id, Agent: "dev", Mode: engine.Interactive, Prompt: "x"},
+			today: runFlags{agent: "dev"}},
+		{name: "profile set",
+			src:   launch.Source{Identity: id, Profiles: []string{"base"}, Mode: engine.Interactive, Prompt: "x"},
+			today: runFlags{profile: "base"}},
+		{name: "label override",
+			src:   launch.Source{Identity: id, Agent: "dev", Label: "fast", Mode: engine.Interactive, Prompt: "x"},
+			today: runFlags{agent: "dev", llm: "fast"}},
+		{name: "init probe",
+			src:   launch.Source{Identity: id, Agent: "setup", Mode: engine.Structured, Prompt: "ping"},
+			today: runFlags{agent: "setup", oneShot: true}},
+		{name: "internal one-shot",
+			src:   launch.Source{Identity: id, Agent: "distiller", Mode: engine.Structured, Prompt: "payload"},
+			today: runFlags{agent: "distiller", oneShot: true}},
 		// An EXPLICIT permission is the one input the other rows never carry:
 		// without it, the "was a permission requested" branch is never observed
 		// and an inverted test there survives the whole table.
-		{"explicit permission",
-			launch.Source{Identity: id, Agent: "dev", Mode: engine.Interactive, Prompt: "x", Permission: engine.PermissionBypass},
-			runFlags{agent: "dev", permissions: engine.PermissionBypass.String()}},
+		{name: "explicit permission",
+			src:   launch.Source{Identity: id, Agent: "dev", Mode: engine.Interactive, Prompt: "x", Permission: engine.PermissionBypass},
+			today: runFlags{agent: "dev", permissions: engine.PermissionBypass.String()},
+			pin:   engine.PermissionBypass},
+		// An explicit `--permissions default` is a REQUEST, not the absence of
+		// one: on a binding that declares bypass it must win, so it is only
+		// observable because PermissionDefault is not the zero value.
+		{name: "explicit default",
+			src:   launch.Source{Identity: id, Agent: "ops", Mode: engine.Interactive, Prompt: "x", Permission: engine.PermissionDefault},
+			today: runFlags{agent: "ops", permissions: engine.PermissionDefault.String()},
+			pin:   engine.PermissionDefault},
+		{name: "no flag on a bypass binding",
+			src:   launch.Source{Identity: id, Agent: "ops", Mode: engine.Interactive, Prompt: "x"},
+			today: runFlags{agent: "ops"},
+			pin:   engine.PermissionBypass},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -134,6 +150,9 @@ func TestResolveViaPhases_FiveSources_ParityWithToday(t *testing.T) {
 			assert.Equal(t, want.Label, got.Label, "label")
 			assert.Equal(t, want.Model, got.Model, "model")
 			assert.Equal(t, want.Permission, got.Permission, "permission")
+			if tc.pin != engine.PermissionNotRequested {
+				assert.Equal(t, tc.pin, got.Permission, "pinned posture")
+			}
 			assert.Equal(t, want.Axes, got.Axes, "axes")
 			t.Logf("%s: engine=%s label=%s permission=%s axes=%+v", tc.name, got.Engine, got.Label, got.Permission, got.Axes)
 		})

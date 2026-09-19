@@ -57,7 +57,7 @@ func resolveViaPhases(ctx context.Context, cfg *config.Config, src launch.Source
 	st.resolveSessionWorkspace(string(src.Workspace))
 	st.resolveMode(src.Mode == engine.Structured)
 	flag := ""
-	if src.Permission != 0 {
+	if src.Permission != engine.PermissionNotRequested {
 		flag = src.Permission.String()
 	}
 	if err := st.resolvePostureAndAxes(flag); err != nil {

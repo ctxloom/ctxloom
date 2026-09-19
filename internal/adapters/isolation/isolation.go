@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -433,102 +433,10 @@ func Isolated(p Policy) bool {
 	return p.Name() != None{}.Name()
 }
 
-// The isolation request is two INDEPENDENT enum axes, never bound together:
-// WHERE the agent's files live (workspace) and WHERE its engine process runs
-// (runtime). The four combinations map onto the four policies, and
-// degradation respects the axes: a runtime-axis failure (no container
-// runtime, image unbuildable) drops ONLY the runtime dimension — the
-// workspace dimension is preserved, never silently added or removed.
-
-// WorkspaceAxis says where the agent's working directory lives.
-type WorkspaceAxis string
-
-const (
-	// WorkspaceShared is the shared live project directory (the default;
-	// also the meaning of an empty value after defaulting).
-	WorkspaceShared WorkspaceAxis = "none"
-	// WorkspaceWorktree gives the agent its own git worktree.
-	WorkspaceWorktree WorkspaceAxis = "worktree"
-)
-
-// RuntimeAxis says where the agent's engine process executes. It is a type
-// ALIAS of agent.RuntimeAxis, not a second declaration: the vocabulary is
-// defined exactly once, in internal/core/agent (the lower package this one
-// already imports for other reasons — see ambient.go/auth.go — so there is no
-// cycle to route around). isolation.RuntimeAxis IS agent.RuntimeAxis; nothing
-// here can drift from it because there is nothing here to drift — the alias
-// and the re-exported consts/functions below just carry this package's
-// established names forward for its own callers.
-type RuntimeAxis = agent.RuntimeAxis
-
-const (
-	// RuntimeHost runs the engine directly on the host (the default; also
-	// the meaning of an empty value after defaulting).
-	RuntimeHost = agent.RuntimeHost
-	// RuntimeContainerRootless runs the engine inside a container on a
-	// runtime that maps the container's root to the INVOKING HOST USER.
-	RuntimeContainerRootless = agent.RuntimeContainerRootless
-	// RuntimeContainerRootful runs the engine inside a container on a
-	// runtime whose container-root is REAL root, with the image entrypoint
-	// remapping to the launching uid/gid (identityEnvArgs).
-	RuntimeContainerRootful = agent.RuntimeContainerRootful
-)
-
-// IsContainerRuntimeAxis reports whether v is one of the two CONTAINER runtime
-// axis values — the "is a container boundary requested at all?" question,
-// which is a DIFFERENT question from "which ownership mode?". Re-exports
-// agent.IsContainerRuntimeAxis under this package's established name.
-//
-// There is deliberately no "any container" axis value. Rootless and rootful
-// differ in UID mapping, so a workload can genuinely require one, and a config
-// that cannot say which one silently gets whichever the host happens to offer.
-// Every "did we keep the boundary?" check asks this predicate; every
-// SELECTION asks for a specific value.
-func IsContainerRuntimeAxis(v RuntimeAxis) bool {
-	return agent.IsContainerRuntimeAxis(v)
-}
-
-// ParseWorkspaceAxis is the ONE conversion between the workspace-axis string
-// vocabulary (config YAML, run/acp --workspace, an agent_run spawn's
-// workspace field) and the typed WorkspaceAxis. Every boundary that receives
-// a workspace string parses it exactly once, here — never a bare
-// WorkspaceAxis(s) conversion, which compiles for any string and hands the
-// axis a value nobody admitted.
-//
-// Empty passes through as "" (the zero value), meaning "this level said
-// nothing": each caller's own layering decides what silence resolves to, and
-// they do not agree — delegatedAxes defaults a delegated child to worktree
-// while Axes.WantsWorktree reads everything that is not WorkspaceWorktree as
-// the shared checkout. That disagreement is exactly why an unrecognized
-// value cannot be treated as silence: `workspace: "wroktree"` would not
-// merely fail to isolate a child, it would flip it from its own worktree
-// into the PARENT'S LIVE CHECKOUT — strictly further from safety than the
-// empty value it resembles, and past decideDirtyParentTree, which
-// short-circuits on any axis that is not WorkspaceWorktree. So anything
-// unrecognized is an error naming the bad value and the legal ones.
-//
-// This does NOT reclassify the workspace axis as a security boundary (see
-// warnUnknownAxes for why it is not one, and how the runtime axis differs).
-// It refuses TYPOS: a value the user typed that no code path can honor.
-func ParseWorkspaceAxis(s string) (WorkspaceAxis, error) {
-	switch WorkspaceAxis(s) {
-	case "", WorkspaceShared, WorkspaceWorktree:
-		return WorkspaceAxis(s), nil
-	default:
-		return "", fmt.Errorf("unknown workspace axis %q (known: %s)", s, strings.Join(WorkspaceNames(), "|"))
-	}
-}
-
-// Axes is a fully-defaulted isolation request. The two axes are declared at
-// DIFFERENT levels and meet only here: the runtime axis is an AGENT trait
-// (`runtime:` on the binding — a cost/environment call, like engine), while
-// the workspace axis is an ORCHESTRATION trait (the invocation decides —
-// run/acp `--workspace`, an agent_run spawn's workspace field, the project
-// default — because needing a private cwd is a property of how you fan, not
-// of who the agent is). Empty axis
-// values have already been resolved to defaults by the caller; unknown values
-// are treated as the axis default by Resolve/chainFor, with a warning
-// (CLAUDE.md fault tolerance).
+// The isolation axes are launch's value types: WorkspaceAxis, RuntimeAxis
+// and the Axes pair are declared once, in core/launch, and this package
+// carries its established names forward for its own callers. The four
+// combinations map onto the four policies:
 //
 //	{none, host}          → None
 //	{worktree, host}      → Worktree
@@ -537,36 +445,40 @@ func ParseWorkspaceAxis(s string) (WorkspaceAxis, error) {
 //
 // Both container-* values map onto the same POLICY: ownership decides which
 // RUNTIME may serve the request (SelectRuntime), not which policy realizes it.
-type Axes struct {
-	Workspace WorkspaceAxis
-	Runtime   RuntimeAxis
+type (
+	WorkspaceAxis = launch.WorkspaceAxis
+	RuntimeAxis   = launch.RuntimeAxis
+	Axes          = launch.Axes
+)
+
+const (
+	// WorkspaceShared is the shared live project directory (the default;
+	// also the meaning of an empty value after defaulting).
+	WorkspaceShared   = launch.WorkspaceNone
+	WorkspaceWorktree = launch.WorkspaceWorktree
+
+	RuntimeHost              = launch.RuntimeHost
+	RuntimeContainerRootless = launch.RuntimeRootless
+	RuntimeContainerRootful  = launch.RuntimeRootful
+)
+
+// IsContainerRuntimeAxis is launch.IsContainerRuntimeAxis under this
+// package's established name.
+func IsContainerRuntimeAxis(v RuntimeAxis) bool {
+	return launch.IsContainerRuntimeAxis(v)
 }
 
-// WantsWorktree reports the workspace axis asks for a worktree; anything else
-// (empty, "none", unknown) is the shared project dir.
-func (a Axes) WantsWorktree() bool { return a.Workspace == WorkspaceWorktree }
-
-// WantsContainer reports the runtime axis asks for a container in EITHER
-// ownership mode; anything else (empty, "host", unknown) is the host.
-func (a Axes) WantsContainer() bool { return IsContainerRuntimeAxis(a.Runtime) }
-
-// Zero reports no isolation on either axis (shared project dir, host).
-// Callers use it to skip isolation-only work (e.g. the fan-out's shared
-// executable trust gate) on the default path.
-func (a Axes) Zero() bool { return !a.WantsWorktree() && !a.WantsContainer() }
-
-// WorkspaceNames returns the recognized workspace-axis values; RuntimeNames
-// the runtime-axis values. Single source for writers (agent set validation,
-// CLI completion) and the schema so they never drift from the axes here.
-func WorkspaceNames() []string {
-	return []string{string(WorkspaceShared), string(WorkspaceWorktree)}
+// ParseWorkspaceAxis is launch.ParseWorkspaceAxis: the ONE conversion between
+// the workspace-axis string vocabulary and the typed axis.
+func ParseWorkspaceAxis(s string) (WorkspaceAxis, error) {
+	return launch.ParseWorkspaceAxis(s)
 }
 
-// RuntimeNames returns the recognized runtime-axis values. Re-exports
-// agent.RuntimeNames() under this package's established name.
-func RuntimeNames() []string {
-	return agent.RuntimeNames()
-}
+// WorkspaceNames is launch.WorkspaceNames; RuntimeNames is launch.RuntimeNames.
+func WorkspaceNames() []string { return launch.WorkspaceNames() }
+
+// RuntimeNames returns the recognized runtime-axis values.
+func RuntimeNames() []string { return launch.RuntimeNames() }
 
 // noRuntimeHint appends devcontainer-specific guidance to the no-runtime
 // degrade warnings when this process itself runs inside a container — the
@@ -606,35 +518,8 @@ func warnUnknownAxes(a Axes) {
 	}
 }
 
-// ImageConfig carries the user's image configuration for containerized
-// isolation: Image is the optional prebuilt agent-image override (config
-// isolation_images), run AS-IS and never built; BaseContainerfile is the
-// optional user base Containerfile (config isolation_base_containerfile) an
-// on-the-fly local build layers the engine's agent stage onto instead of an
-// auto-detected devcontainer / the embedded default base. AppRoot +
-// NoDevcontainerBase + DevcontainerService drive the auto-detected project
-// devcontainer base; Engines selects a COMPOSABLE backend's
-// engine set. Zero value = the backend spec's defaults (devcontainer
-// auto-detect ON, engines = every known official-installer fragment).
-type ImageConfig struct {
-	Image             string
-	BaseContainerfile string
-	// AppRoot is the project root devcontainer auto-detection resolves
-	// .devcontainer/devcontainer.json (or .devcontainer.json) against; ""
-	// disables auto-detection (same effect as NoDevcontainerBase).
-	AppRoot string
-	// NoDevcontainerBase opts out of devcontainer auto-detection (config
-	// isolation_devcontainer_base: false / --no-devcontainer-base).
-	NoDevcontainerBase bool
-	// DevcontainerService names the docker-compose service to use as the base
-	// when the detected devcontainer.json declares dockerComposeFile (config
-	// isolation_devcontainer_service).
-	DevcontainerService string
-	// Engines names WHICH per-engine images to build (config
-	// isolation_engines); empty = just this invocation's backend. It is NOT a
-	// composition set — an agent image carries exactly ONE engine.
-	Engines []string
-}
+// ImageConfig is launch.ImageConfig under this package's established name.
+type ImageConfig = launch.ImageConfig
 
 // selectRuntimeProbe is chainFor's seam onto the host runtime probe
 // (SelectRuntime), a package var so tests drive the no-runtime fatal path

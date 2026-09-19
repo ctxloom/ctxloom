@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -441,56 +442,25 @@ const maxDirtyFilesListed = 10
 // this gate exists to prevent. (resolveChatModel/isolationGateErr above DO
 // still respect --degraded; that is unchanged and unrelated to this gate.)
 //
-// DirtyTreeHandler is a DEFINED TYPE, and every boundary that receives one of
-// these spellings converts through ParseDirtyTreeHandler exactly once. The
-// vocabulary reaches ctxloom from a channel typed by a MODEL (agent_run's
-// free-form input Struct), and the fallback member WRITES TO THE USER'S
-// REPOSITORY: an unrecognized spelling that resolved to the default would
-// auto-commit the parent's working tree on the strength of a typo, past both
-// the caller's and the project's explicit choice. Unset and unparseable are
-// different inputs — unset takes the default below, unparseable stops.
-type DirtyTreeHandler string
+// DirtyTreeHandler is launch.DirtyTreeHandler under this package's
+// established name; the vocabulary, its names and its one parser are
+// declared in core/launch. Unset and unparseable are different inputs —
+// unset takes the default below, unparseable stops.
+type DirtyTreeHandler = launch.DirtyTreeHandler
 
 const (
-	DirtyTreeHandlerCommit DirtyTreeHandler = "commit"
-	DirtyTreeHandlerCopy   DirtyTreeHandler = "copy"
-	DirtyTreeHandlerStale  DirtyTreeHandler = "stale"
-	DirtyTreeHandlerFail   DirtyTreeHandler = "fail"
+	DirtyTreeHandlerCommit = launch.DirtyTreeHandlerCommit
+	DirtyTreeHandlerCopy   = launch.DirtyTreeHandlerCopy
+	DirtyTreeHandlerStale  = launch.DirtyTreeHandlerStale
+	DirtyTreeHandlerFail   = launch.DirtyTreeHandlerFail
 )
 
-// DirtyTreeHandlerNames returns the recognized handler values, in the order
-// they render into user-facing fix-it text and the wire schemas. Single
-// source for every writer (ParseDirtyTreeHandler's own error text, the MCP
-// tool schemas' enum) so none of them can drift from the vocabulary declared
-// above.
-func DirtyTreeHandlerNames() []string {
-	return []string{
-		string(DirtyTreeHandlerCommit),
-		string(DirtyTreeHandlerCopy),
-		string(DirtyTreeHandlerStale),
-		string(DirtyTreeHandlerFail),
-	}
-}
+// DirtyTreeHandlerNames is launch.DirtyTreeHandlerNames.
+func DirtyTreeHandlerNames() []string { return launch.DirtyTreeHandlerNames() }
 
-// ParseDirtyTreeHandler is the ONE conversion between the dirty-tree-handler
-// string vocabulary (project config, agent_run's per-call parameter on both
-// MCP surfaces) and the typed DirtyTreeHandler. Every boundary that receives
-// one parses it exactly once, here; past that parse only the typed value
-// travels and nothing downstream re-interprets a string.
-//
-// Empty passes through as "" (the zero value), meaning "this level said
-// nothing" — the caller applies its own precedence and lands on
-// defaultDirtyTreeHandler. Any other unrecognized spelling is an ERROR naming
-// the bad value and the legal ones. It never warns and never degrades: the
-// default member commits the user's working tree, so a spelling nobody
-// recognizes must stop the spawn rather than reach it.
+// ParseDirtyTreeHandler is launch.ParseDirtyTreeHandler.
 func ParseDirtyTreeHandler(s string) (DirtyTreeHandler, error) {
-	switch DirtyTreeHandler(s) {
-	case "", DirtyTreeHandlerCommit, DirtyTreeHandlerCopy, DirtyTreeHandlerStale, DirtyTreeHandlerFail:
-		return DirtyTreeHandler(s), nil
-	default:
-		return "", fmt.Errorf("unknown dirty_tree_handler %q (known: %s)", s, strings.Join(DirtyTreeHandlerNames(), "|"))
-	}
+	return launch.ParseDirtyTreeHandler(s)
 }
 
 // defaultDirtyTreeHandler is the built-in default when NEITHER the agent_run

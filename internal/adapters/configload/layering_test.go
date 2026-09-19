@@ -147,7 +147,7 @@ func TestLoad_ExplicitAppDirEqualToHome_ResolvesSourceHome(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	homeAppDir := filepath.Join(home, config.AppDirName)
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir), []byte("version: 6\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(homeAppDir), []byte("version: 6\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(homeAppDir))
 	require.NoError(t, err)
@@ -162,7 +162,7 @@ func TestLoad_ExplicitAppDirDifferentFromHome_StaysSourceProject(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	projectAppDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(projectAppDir), []byte("version: 6\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(projectAppDir), []byte("version: 6\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(projectAppDir))
 	require.NoError(t, err)

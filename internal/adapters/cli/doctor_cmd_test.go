@@ -23,6 +23,7 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
@@ -73,7 +74,7 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 		AppDir: appDir, Engine: engine,
 	})
 	require.NoError(t, err)
-	cfg, err = config.Load(config.WithAppDir(appDir))
+	cfg, err = configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	return root, cfg
 }
@@ -95,7 +96,7 @@ func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend stri
 	t.Helper()
 	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
 	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
-		Backend: backend, WorkDir: root, RegenerateContext: true,
+		Cfg: cfg, Backend: backend, WorkDir: root, RegenerateContext: true,
 	})
 	require.NoError(t, err)
 }
@@ -370,7 +371,7 @@ func TestDoctorCheckSetupLockAndAssembly_RightState(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
 	stubLocalDefaultProfile(t, root)
 	var err error
-	cfg, err = config.Load(config.WithAppDir(cfg.GetAppPaths()[0]))
+	cfg, err = configload.Load(configload.WithAppDir(cfg.GetAppPaths()[0]))
 	require.NoError(t, err)
 
 	check := doctorCheckSetupLockAndAssembly(context.Background(), cfg, nil)
@@ -448,7 +449,7 @@ func TestDoctorCheckSetupLockAndAssembly_WrongState_SkippedProfileRefs(t *testin
 func TestDoctorCheckHooksTrust_RightState(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
 	applyHooksHermetically(t, cfg, root, "claude-code")
-	t.Chdir(root) // HarnessStatus's default WorkDir path resolves off cwd
+	chdir(t, root) // HarnessStatus's default WorkDir path resolves off cwd
 
 	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
 	assert.Equal(t, doctorOK, check.Status)
@@ -457,7 +458,7 @@ func TestDoctorCheckHooksTrust_RightState(t *testing.T) {
 
 func TestDoctorCheckHooksTrust_WrongState_NotInstalled(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	t.Chdir(root) // no ApplyHooks call: hooks were never installed
+	chdir(t, root) // no ApplyHooks call: hooks were never installed
 
 	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
 	assert.Equal(t, doctorWarn, check.Status)
@@ -489,7 +490,7 @@ func TestDoctorCheckSetupCompanions_NeverWarns(t *testing.T) {
 // one resolved catalog rather than discovering companions a second time.
 func TestDoctorCheckSetupCompanions_TellsNotRunApartFromNotInstalled(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
-	cfg.SetCompanionProbeForTesting(func(context.Context) (bundles.CompanionProbe, error) {
+	cfg = withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
 		return bundles.CompanionProbe{
 			Loadouts: []bundles.CompanionLoadout{
 				{Bin: "ltk", Path: "/opt/bin/ltk", Bundle: []byte("version: \"1.0\"\n")},
@@ -706,7 +707,7 @@ func isolateGitHostState(t *testing.T, sshAuthSock, home string) {
 // bleeds into the next.
 func execDoctor(t *testing.T, root string, args ...string) (string, error) {
 	t.Helper()
-	t.Chdir(root)
+	chdir(t, root)
 	t.Cleanup(func() { doctorDepsOnlyFlag = false })
 	buf := &bytes.Buffer{}
 	c := &cobra.Command{Use: "doctor", RunE: doctorCmd.RunE, SilenceErrors: true, SilenceUsage: true}
@@ -993,9 +994,9 @@ func TestDoctorCmd_DepsFlag_JSONShapeIsDepsSignKeyAndGitIdentity(t *testing.T) {
 }
 
 func TestDoctorCmd_JSONShape(t *testing.T) {
-	root, _ := setupProject(t, "claude-code")
+	root, cfg := setupProject(t, "claude-code")
 	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
-		Backend: "claude-code", WorkDir: root,
+		Cfg: cfg, Backend: "claude-code", WorkDir: root,
 	})
 	require.NoError(t, err)
 
@@ -1033,9 +1034,9 @@ func TestDoctorCmd_JSONShape(t *testing.T) {
 // run, checked both on a healthy project and on a misconfigured one (a
 // write hidden behind either branch would still be caught).
 func TestDoctorCmd_ReadOnly(t *testing.T) {
-	root, _ := setupProject(t, "claude-code")
+	root, cfg := setupProject(t, "claude-code")
 	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
-		Backend: "claude-code", WorkDir: root,
+		Cfg: cfg, Backend: "claude-code", WorkDir: root,
 	})
 	require.NoError(t, err)
 

@@ -14,7 +14,7 @@ import (
 func remoteBareFixture(t *testing.T) {
 	t.Helper()
 	root, _ := setupProject(t, "mock")
-	t.Chdir(root)
+	chdir(t, root)
 }
 
 // helpMarker is the heading cobra puts above a namespace's subcommand table.

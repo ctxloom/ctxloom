@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,9 +136,9 @@ func TestOwner_Reload_TrustIsBuiltPerGenerationFromTrustPorts(t *testing.T) {
 
 func TestOwner_Reload_CatalogIsResolvedFromReaders(t *testing.T) {
 	memfs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(memfs,
+	testsupport.WriteFile(t, memfs,
 		filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), "only.yaml"),
-		[]byte("version: \"1.0\"\n"), 0o644))
+		[]byte("version: \"1.0\"\n"), 0o644)
 
 	src := sequenceSources(fixtureWithDefault("a"))
 	src.readers = func(*config.Config) []bundles.Reader {
@@ -145,7 +147,7 @@ func TestOwner_Reload_CatalogIsResolvedFromReaders(t *testing.T) {
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
 
-	reads := owner.Current().Catalog.Reads()
+	reads := owner.Current().Catalog().Reads()
 	require.Len(t, reads, 1, "the snapshot's catalog is resolved from Sources.Readers")
 	assert.Equal(t, "only", reads[0].Bundle.Name)
 }
@@ -154,7 +156,7 @@ func TestOwner_Update_WritesThroughAndReturnsNextGeneration(t *testing.T) {
 	memfs := afero.NewMemMapFs()
 	const appDir = "/proj/.ctxloom"
 	require.NoError(t, memfs.MkdirAll(appDir, 0o755))
-	require.NoError(t, afero.WriteFile(memfs, appDir+"/config.yaml", []byte("default_agent: first\n"), 0o644))
+	testsupport.WriteFile(t, memfs, appDir+"/config.yaml", []byte("default_agent: first\n"), 0o644)
 
 	// The fake's Read is a real parse of the file the fake owns, so a write
 	// that reached disk is observable as a changed value on the next Read.
@@ -196,7 +198,7 @@ func TestOwner_Update_WritesThroughAndReturnsNextGeneration(t *testing.T) {
 func TestOwner_Update_FnError_AbandonsWriteAndKeepsGeneration(t *testing.T) {
 	memfs := afero.NewMemMapFs()
 	const appDir = "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(memfs, appDir+"/config.yaml", []byte("default_agent: first\n"), 0o644))
+	testsupport.WriteFile(t, memfs, appDir+"/config.yaml", []byte("default_agent: first\n"), 0o644)
 	cfg := config.NewFixture(config.Fixture{DefaultAgent: "first", AppDir: appDir, AppPaths: []string{appDir}})
 	cfg.SetFS(memfs)
 	src := sequenceSources(cfg)
@@ -211,4 +213,32 @@ func TestOwner_Update_FnError_AbandonsWriteAndKeepsGeneration(t *testing.T) {
 	data, err := afero.ReadFile(memfs, appDir+"/config.yaml")
 	require.NoError(t, err)
 	assert.Equal(t, "default_agent: first\n", string(data), "an abandoned Update writes nothing")
+}
+
+// A generation captures its readers at Reload but resolves them on first
+// use: a consumer that never reads bundles never executes a reader — the
+// companion probe execs binaries, and merely reading a config value must
+// not run one.
+func TestOwner_Reload_CatalogResolvesOnFirstUseOnly(t *testing.T) {
+	var reads atomic.Int32
+	src := sequenceSources(fixtureWithDefault("a"))
+	src.readers = func(*config.Config) []bundles.Reader {
+		return []bundles.Reader{countingReader{reads: &reads}}
+	}
+	owner, err := config.Open(context.Background(), src)
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), reads.Load(), "Open captures the readers without resolving them")
+
+	snap := owner.Current()
+	_ = snap.Catalog()
+	_ = snap.Catalog()
+	_ = snap.Config.Catalog()
+	assert.Equal(t, int32(1), reads.Load(), "the generation resolves its readers exactly once, however many consumers ask")
+}
+
+type countingReader struct{ reads *atomic.Int32 }
+
+func (r countingReader) Read(context.Context) ([]bundles.BundleRead, error) {
+	r.reads.Add(1)
+	return nil, nil
 }

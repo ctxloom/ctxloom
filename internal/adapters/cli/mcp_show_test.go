@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -22,8 +21,8 @@ func TestMcpServerShow_NotFound_TextAndJSONAgree(t *testing.T) {
 	for _, format := range []string{"text", "json"} {
 		t.Run(format, func(t *testing.T) {
 			testsupport.ProjectDir(t)
-			config.Invalidate()
-			t.Cleanup(config.Invalidate)
+			resetApp()
+			t.Cleanup(resetApp)
 
 			var out bytes.Buffer
 			rootCmd.SetOut(&out)

@@ -28,7 +28,7 @@ func TestLoad_EscalationPath1_EnvCannotGrantDirtyTreeCommitAck(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644)
 
 	overrides := confload.Overrides{Env: map[string]any{"DIRTY_TREE_COMMIT_ACK": true}}
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
@@ -48,7 +48,7 @@ func TestLoad_EscalationPath1_ConfigSetCannotGrantDirtyTreeCommitAck(t *testing.
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{"dirty_tree_commit_ack": true}}
 	_, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
@@ -65,7 +65,7 @@ func TestLoad_EscalationPath2_EnvCannotMintPrivilegedAgent(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	// The project declares NO agents at all -- the measured case.
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644)
 
 	overrides := confload.Overrides{Env: map[string]any{
 		"AGENTS_EVIL_PERMISSIONS": "bypass",
@@ -98,7 +98,7 @@ func TestLoad_ConfigSetCanStillMintAPrivilegedAgent_ByDesign(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{
 		"agents.evil.permissions": "bypass",
@@ -126,11 +126,11 @@ agents:
 	fs := afero.NewOsFs()
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(`version: 1
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`version: 1
 agents:
   reviewer:
     profiles: [default]
-`), 0644))
+`), 0644)
 
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
@@ -260,12 +260,12 @@ func TestLoad_ConfigSetPatchesOneAgentFieldWithoutWipingSiblings(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(`version: 1
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`version: 1
 agents:
   reviewer:
     profiles: [default]
     llm: claude-code
-`), 0644))
+`), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions": "bypass"}}
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
@@ -295,10 +295,10 @@ agents:
 func TestManagerUpdate_DoesNotPersistHomeInheritedMachineValueIntoProjectFile(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(filepath.Join(home, ".ctxloom")), []byte("version: 1\neditor:\n  command: vim\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(filepath.Join(home, ".ctxloom")), []byte("version: 1\neditor:\n  command: vim\n"), 0644)
 
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644)
 
 	mgr := newUpdater(t, WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, mgr.Update(func(d *config.Draft) error {

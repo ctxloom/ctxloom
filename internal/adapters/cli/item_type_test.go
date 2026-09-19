@@ -74,7 +74,7 @@ func TestShowItem_MissingItemStillListsWhatExists(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join(root, ".ctxloom")}})
 	seedLocalFragment(t, cfg, "demo", "real-one", "body")
-	t.Chdir(root) // GetConfig() (config.Load) resolves <root>/.ctxloom
+	chdir(t, root) // GetConfig() (config.Load) resolves <root>/.ctxloom
 
 	cmd, _ := testCmd()
 	err := showItem(cmd, "demo#fragments/ghost", ItemTypeFragment, false, false)

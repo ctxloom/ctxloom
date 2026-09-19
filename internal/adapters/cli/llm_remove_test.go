@@ -8,8 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 func TestRunLLMRemove_BareReportsAndDestroysNothing(t *testing.T) {
@@ -20,7 +18,7 @@ func TestRunLLMRemove_BareReportsAndDestroysNothing(t *testing.T) {
 	assert.Contains(t, out.String(), "Nothing was removed")
 	assert.Contains(t, out.String(), "--yes")
 
-	config.Invalidate()
+	resetApp()
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	_, ok := cfg.GetLLMEntry("big")
@@ -37,7 +35,7 @@ func TestRunLLMRemove_YesRemovesAndReports(t *testing.T) {
 	require.NoError(t, runLLMRemove(cmd, []string{"big"}))
 	assert.Contains(t, out.String(), `Removed llm "big"`)
 
-	config.Invalidate()
+	resetApp()
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	_, ok := cfg.GetLLMEntry("big")

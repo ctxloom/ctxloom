@@ -202,7 +202,7 @@ func TestEmitSessionRows_QueryFull_MatchesAndCarriesBody(t *testing.T) {
 // row can never say "here is the essence" and "this session has no essence
 // file" at once. It used to bite because the row resolved the essence TWICE
 // through two different appDir sources — the caller's for EssencePath, and
-// readSessionEssence's own config.Load() for the body — which disagreed
+// readSessionEssence's own configload.Load() for the body — which disagreed
 // whenever the caller could not resolve one. Neither source exists now that an
 // essence is addressed under its harp, so the two cannot diverge by
 // construction; the invariant stays asserted because that is a claim about

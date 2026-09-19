@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+
 	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
@@ -25,7 +27,7 @@ func loadRefusalFindings(t *testing.T, body string) []strictness.Finding {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(body), 0o644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(body), 0o644)
 
 	mark := strictness.Checkpoint()
 	_, err := Load(WithFS(fs), WithAppDir(appDir))

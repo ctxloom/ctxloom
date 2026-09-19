@@ -40,15 +40,26 @@ type Draft = configDoc
 // in it re-reads the world; a consumer that holds one sees one state for the
 // whole operation it threads it through.
 type Snapshot struct {
-	Config  *Config
-	Catalog bundles.Catalog
+	Config *Config
 	// Trust is built per generation, so a retraction that lands in the
 	// lockfile is in force on the next Reload and never retroactively.
 	Trust      composite.Trust
 	Generation uint64
 	LoadedAt   time.Time
 	Warnings   []Warning
+
+	// catalog resolves the generation's readers exactly once, on first use.
+	// The readers are CAPTURED at Reload (a later pull changes nothing this
+	// generation sees), but resolving them executes every discovered
+	// companion's loadout probe — and a command that merely reads a config
+	// value must never run a foreign binary. So the set is one per
+	// generation, and it is resolved by the first consumer that asks.
+	catalog func() bundles.Catalog
 }
+
+// Catalog is the generation's resolved bundle set: every reader the sources
+// named at Reload, resolved once, on first use.
+func (s *Snapshot) Catalog() bundles.Catalog { return s.catalog() }
 
 // Sources is the port the reading half of configuration (adapters/configload)
 // implements. Built ONCE at the composition root from the process's flags
@@ -121,7 +132,7 @@ func (o *Owner) build(ctx context.Context, cfg *Config, warnings []Warning) (*Sn
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving bundle sources: %w", err)
 	}
-	cat := bundles.Resolve(ctx, readers...)
+	catalog := sync.OnceValue(func() bundles.Catalog { return bundles.Resolve(context.Background(), readers...) })
 	auth, err := o.src.TrustPorts(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving trust: %w", err)
@@ -130,14 +141,14 @@ func (o *Owner) build(ctx context.Context, cfg *Config, warnings []Warning) (*Sn
 		auth = bundles.AdmitAll()
 	}
 	trust := composite.FromAuthorizer(auth)
-	cfg.bindGeneration(cat, auth)
+	cfg.bindGeneration(catalog, auth)
 	return &Snapshot{
 		Config:     cfg,
-		Catalog:    cat,
 		Trust:      trust,
 		Generation: o.gen.Add(1),
 		LoadedAt:   time.Now(),
 		Warnings:   warnings,
+		catalog:    catalog,
 	}, nil
 }
 

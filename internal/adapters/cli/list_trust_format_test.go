@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	yaml "gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // trustFields is the slice of a listed row that carries the trust verdict —
@@ -36,7 +36,7 @@ func trustFieldsOf(t *testing.T, row map[string]any) trustFields {
 // "is this exactly json".
 func TestListItems_EveryStructuredFormatCarriesTheSameTrustStamp(t *testing.T) {
 	newIsolatedFlowProject(t)
-	cfg, err := config.LoadFresh()
+	cfg, err := configload.Load()
 	require.NoError(t, err)
 	_, err = operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
 		Name: "demo",

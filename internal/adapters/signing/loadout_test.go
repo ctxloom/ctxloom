@@ -35,7 +35,7 @@ func TestLoadoutEnvelope_RoundTrip_Unsigned(t *testing.T) {
 // decoded successfully to (zero bytes, "", nil): a companion malfunctioning
 // this way contributed nothing while looking exactly like a healthy,
 // successfully-decoded probe. In production this is currently caught one
-// layer up (companions.Emit floors the encode side; bundles.ParseBundle
+// layer up (loadout.Emit floors the encode side; bundles.ParseBundle
 // floors the decode side), but the primitive itself — the one place a FUTURE
 // caller (e.g. the org drop-in/MDM channel the trust model's Known Gap #7
 // describes) would also go through — had no floor of its own.

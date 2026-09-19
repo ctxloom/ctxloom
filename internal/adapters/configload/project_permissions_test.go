@@ -73,7 +73,7 @@ func TestProjectPermissions_EnvCannotGrantIt(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 6\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("version: 6\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir),
 		WithOverrides(confload.Overrides{Env: map[string]any{"PERMISSIONS": "bypass"}}))

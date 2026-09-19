@@ -36,7 +36,7 @@ import (
 // surfaces to a user under that gate.
 func TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml", []byte("version: 6\nagent_turn_cap: 3\n"), 0644))
+	testsupport.WriteFile(t, fs, "/proj/.ctxloom/config.yaml", []byte("version: 6\nagent_turn_cap: 3\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ agents:
   dev:
     profiles: [test]
 `
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(configContent), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {
 
 	current := "version: 6\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
 	cfgPath := paths.ConfigPath(appDir)
-	require.NoError(t, afero.WriteFile(fs, cfgPath, []byte(current), 0644))
+	testsupport.WriteFile(t, fs, cfgPath, []byte(current), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
@@ -210,7 +210,7 @@ func TestLoadConfigLayer_AbsentAndUnparsable(t *testing.T) {
 
 	t.Run("present unparsable file is refused by name", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		require.NoError(t, afero.WriteFile(fs, "/config.yaml", []byte("invalid: ["), 0644))
+		testsupport.WriteFile(t, fs, "/config.yaml", []byte("invalid: ["), 0644)
 		b := config.NewBuilder(fs, true, "/", config.SourceProject)
 		values, _, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/config.yaml", fs)
 		require.ErrorIs(t, err, ErrUnparsableLayer)
@@ -229,7 +229,7 @@ func TestLoad_SchemaValidationProducesWarning(t *testing.T) {
 llm:
   configs: "should be a map not string"
 `
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(configContent), 0644)
 
 	// Now returns config with warnings instead of error for resilient startup
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
@@ -256,7 +256,7 @@ func TestLoad_SchemaCompileFailureProducesWarning(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("llm:\n  default_agent: claude\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("llm:\n  default_agent: claude\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	assert.NoError(t, err, "a compile failure must degrade to a warning, not abort Load")
@@ -285,7 +285,7 @@ llm:
     - this is wrong format
     claude-code: {}
 `
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(malformedYAML), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(malformedYAML), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
@@ -301,7 +301,7 @@ func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
 
 	// Completely unparseable YAML: refused by name, before any schema
 	// judgement — a file that is not YAML has nothing to validate.
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("{{{{invalid"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("{{{{invalid"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
@@ -327,7 +327,7 @@ agents:
     profiles:
       - nonexistent-profile
 `, config.CurrentConfigVersion)
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(configYAML), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
@@ -348,7 +348,7 @@ func TestResilientStartup_EmptyConfig(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
 	// Empty config file - schema validation will warn but not fail
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(""), 0644))
+	testsupport.WriteFile(t, fs, filepath.Join(appDir, "config.yaml"), []byte(""), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
@@ -375,10 +375,10 @@ llm:
     claude-code:
       unknown_property: true
 `, config.CurrentConfigVersion)
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(configYAML), 0644)
 	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(appDir), 0755))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(paths.ProfilesPath(appDir), "valid-profile.yaml"),
-		[]byte("description: \"This is valid\"\n"), 0644))
+	testsupport.WriteFile(t, fs, filepath.Join(paths.ProfilesPath(appDir), "valid-profile.yaml"),
+		[]byte("description: \"This is valid\"\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
@@ -401,7 +401,7 @@ func TestResilientStartup_WarningsAreCollected(t *testing.T) {
 llm:
   configs: invalid-should-be-map
 `
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(configYAML), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 

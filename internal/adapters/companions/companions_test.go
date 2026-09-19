@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -310,24 +312,24 @@ func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
 
 // TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide bridges the two ends
 // of the cross-process wire contract this probe's argv and
-// NewCommand's cobra dispatch both have to agree on
+// loadout.NewCommand's cobra dispatch both have to agree on
 // (subcommand name, flag name, format value) — previously duplicated as
 // bare string literals with no shared constant and no test exercising both
 // real sides, so renaming any of the three passed the whole suite while
 // silently breaking every companion in production. Drives the REAL
-// NewCommand (the emitter side) with the EXACT argv
+// loadout.NewCommand (the emitter side) with the EXACT argv
 // companionLoadoutOutput builds (the consumer side) and checks the output
 // round-trips through the real signing.DecodeLoadoutEnvelope decoder.
 func TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide(t *testing.T) {
 	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  x:\n    content: hi\n")
-	// NewCommand returns the "loadout" command itself (it has no
+	// loadout.NewCommand returns the "loadout" command itself (it has no
 	// subcommands), so only the flag portion of companionLoadoutOutput's
-	// argv applies here — the Subcommand constant is what a real companion
+	// argv applies here — the loadout.Subcommand constant is what a real companion
 	// binary's root command would dispatch ON to reach this command in the
 	// first place.
-	cmd := NewCommand("acme", bundleYAML, nil)
-	require.Equal(t, Subcommand, cmd.Use, "the emitter side's command name must still match Subcommand")
-	cmd.SetArgs([]string{"--" + FormatFlag, FormatJSON})
+	cmd := loadout.NewCommand("acme", bundleYAML, nil)
+	require.Equal(t, loadout.Subcommand, cmd.Use, "the emitter side's command name must still match loadout.Subcommand")
+	cmd.SetArgs([]string{"--" + loadout.FormatFlag, loadout.FormatJSON})
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 	require.NoError(t, cmd.Execute())

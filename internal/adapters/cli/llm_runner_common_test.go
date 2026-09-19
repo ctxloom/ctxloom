@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -29,7 +30,7 @@ func testConfig() *config.Config {
 
 // TestLlmServe_MalformedConfigAbortsInsteadOfLaunching pins that `llm
 // serve`/`llm host`/`llm turn` are process-owning entry points that used to
-// call config.Load() directly and never surface its warnings (via
+// call configload.Load() directly and never surface its warnings (via
 // printAndRecordConfigWarnings) or gate on them (via failOnFindings) — so a
 // corrupted/malformed config.yaml silently downgraded to a warning and the
 // engine launched with an empty/partial context regardless. standUpRunner now
@@ -47,8 +48,8 @@ func TestLlmServe_MalformedConfigAbortsInsteadOfLaunching(t *testing.T) {
 	// (CLAUDE.md fault tolerance — it does not become a Load() error), which
 	// is exactly the class printAndRecordConfigWarnings/failOnFindings must catch.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), []byte("invalid: ["), 0o644))
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -77,10 +78,8 @@ func TestLlmServe_MalformedConfigAbortsInsteadOfLaunching(t *testing.T) {
 	require.NoError(t, rerr)
 
 	require.Error(t, err, "a malformed config.yaml must abort a process-owning runner entry point (llm serve), not silently launch the engine unconfigured")
-	var exitErr *ExitError
-	require.ErrorAs(t, err, &exitErr, "the abort must be failOnFindings' distinct fatal-findings exit, not an ordinary error")
-	require.Equal(t, exitCodeFatalFindings, exitErr.Code)
-	require.Contains(t, string(captured), "failed to parse config", "the finding must echo the underlying parse warning")
+	require.ErrorIs(t, err, configload.ErrUnparsableLayer, "the abort is the reader's refusal of a present unparsable config")
+	require.Contains(t, string(captured), "cannot be parsed", "the refusal names the fault")
 }
 
 // TestLlmServe_UnknownBackendConfigIsNotFatal is the negative control: a
@@ -90,8 +89,8 @@ func TestLlmServe_MalformedConfigAbortsInsteadOfLaunching(t *testing.T) {
 // finding, not on every invocation.
 func TestLlmServe_CleanConfigReachesUnknownBackendError(t *testing.T) {
 	testsupport.ProjectDir(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -106,33 +105,6 @@ func TestLlmServe_CleanConfigReachesUnknownBackendError(t *testing.T) {
 	err := rootCmd.Execute()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown backend")
-}
-
-// TestRunnerMustRefuseNoConfigReachBack pins that standUpRunner must not
-// silently BindHome (and let its caller launch the engine) when this runner
-// hosts a delegated run but config.Load() failed — there would be no
-// runner-local MCP endpoint, so CTXLOOM_MCP_SOCKET is never exported and the
-// child's shim would stand up a rogue local coordinator nobody reads, exactly
-// the condition the adjacent merr-driven fail-loud already refuses for.
-//
-// A live end-to-end repro of config.Load() returning a hard error (cfg ==
-// nil) is impractical to construct here: config.Load's own fault tolerance
-// (CLAUDE.md) downgrades essentially every real-world load fault — unreadable
-// file, malformed YAML, schema-invalid document — to a warning on a non-nil
-// Config (see TestLlmServe_MalformedConfigAbortsInsteadOfLaunching for that
-// class), not to a Load() error; the two remaining internal error returns
-// (confload.Merge's own doc calls them "believed unable to fail" for
-// in-memory input) are not reachable from a real config.yaml. So this test
-// pins the extracted decision directly rather than driving it through a real
-// config load.
-func TestRunnerMustRefuseNoConfigReachBack(t *testing.T) {
-	hostedRun := &coord.EngineHost{}
-	assert.True(t, runnerMustRefuseNoConfigReachBack(nil, hostedRun),
-		"no config + a hosted delegated run must refuse to launch (no reach-back)")
-	assert.False(t, runnerMustRefuseNoConfigReachBack(nil, nil),
-		"no config but no hosted run (e.g. `llm serve` with no RunID) has nothing to refuse for")
-	assert.False(t, runnerMustRefuseNoConfigReachBack(&config.Config{}, hostedRun),
-		"a loaded config (however degraded) takes the normal mcp.ServeRunnerMCP path instead")
 }
 
 // labelCapturingBackend is a Configurable agent.Backend double that records the
@@ -154,8 +126,8 @@ func twoMockLabelProject(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
 	body := "llm:\n  configs:\n    alpha:\n      type: mock\n      model: model-alpha\n    beta:\n      type: mock\n      model: model-beta\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), []byte(body), 0o644))
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 }
 
 // TestStandUpRunner_ConfiguresFromTheLabelItWasGiven pins that `llm
@@ -343,8 +315,8 @@ func TestExportRunnerMCPSocket(t *testing.T) {
 // EngineHost creation, and mcp.ServeRunnerMCP failure all need a real coordinator
 // endpoint (coord.NewHome retries with backoff), which is integration territory,
 // not a unit gate. The two fail-loud decisions those arms guard are pinned
-// directly instead — runnerMustRefuseNoConfigReachBack and
-// exportRunnerMCPSocket, above.
+// directly instead — exportRunnerMCPSocket, above; a config the reader
+// refuses aborts the standup before any of them (loadAndConfigureBackend).
 
 // TestStandUpRunner_NoReachBackIsAQuietNoOp: with no coordinator trio in the
 // environment there is nothing to dial or host, and that is a success — a

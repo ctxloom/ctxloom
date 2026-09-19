@@ -1,6 +1,4 @@
-// Package companions is the companion-binary adapter, both ends of the
-// contract: the probing ctxloom does (discover companions on PATH, admit
-// them against the trust root, exec each one's loadout) and the shared
+// Package loadout is the companion SIDE of the companion contract: the shared
 // `loadout` subcommand every in-repo companion binary wires in identically —
 // print the
 // companion's own ctxloom loadout (signature-envelope spec §4.3), either as
@@ -19,7 +17,7 @@
 // file's own package directory, so each companion embeds its own
 // loadout.yaml and loadout.yaml.sig (via the `loadout.yaml*` wildcard —
 // ReadEmbeddedSig below) and hands the resulting bytes to NewCommand.
-package companions
+package loadout
 
 import (
 	"fmt"

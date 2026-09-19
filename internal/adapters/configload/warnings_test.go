@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+
 	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
@@ -42,7 +44,7 @@ func TestLoad_UnreadableConfigTaggedRead(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, base.MkdirAll(appDir, 0755))
 	cfgPath := paths.ConfigPath(appDir)
-	require.NoError(t, afero.WriteFile(base, cfgPath, []byte("llm: {}\n"), 0644))
+	testsupport.WriteFile(t, base, cfgPath, []byte("llm: {}\n"), 0644)
 
 	cfg, err := Load(WithFS(failOpenFs{Fs: base, path: cfgPath}), WithAppDir(appDir))
 	require.NoError(t, err, "unreadable config must not hard-error the load itself")
@@ -58,7 +60,7 @@ func TestLoad_BrokenYAMLTaggedParse(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("llm: [unclosed\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("llm: [unclosed\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.ErrorIs(t, err, ErrUnparsableLayer, "a PRESENT file that cannot be parsed is refused, never dropped with a warning")

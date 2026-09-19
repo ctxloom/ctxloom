@@ -19,7 +19,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -654,7 +653,7 @@ func (st *runState) runStartupTasks() {
 	// Log which companion binaries (taskloom, ltk) this session is wired
 	// with, version-probed via `<bin> version --format json`.
 	if !runDryRun {
-		operations.ReportCompanions(os.Stderr, companions.Prober{Disabled: App().NoCompanions}, st.cfg.TrustRoot())
+		operations.ReportCompanions(os.Stderr, App().Prober(), st.cfg.TrustRoot())
 	}
 
 	// Startup reaper: sweep any per-agent worktree checkout left behind by a

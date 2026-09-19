@@ -273,11 +273,12 @@ type Config struct {
 	execGate bundles.Authorizer
 
 	// catalog and versionResolver are the generation's bundle view: the
-	// catalog resolved from the Sources' readers, bound by the Owner
-	// (bindGeneration) before the Snapshot carrying this Config is
-	// published; the resolver, attached by the reader (Builder.BindVersionResolver),
-	// materializes a pinned historical version of a remote bundle on demand.
-	catalog         *bundles.Catalog
+	// catalog resolved (once, on first use) from the Sources' readers, bound
+	// by the Owner (bindGeneration) before the Snapshot carrying this Config
+	// is published; the resolver, attached by the reader
+	// (Builder.BindVersionResolver), materializes a pinned historical
+	// version of a remote bundle on demand.
+	catalog         func() bundles.Catalog
 	versionResolver bundles.BundleVersionResolver
 
 	// lmDefaultOverlay snapshots what OverlayDefaultRegistry overlaid into LM (nil

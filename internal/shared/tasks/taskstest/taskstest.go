@@ -145,7 +145,30 @@ func Isolate(t *testing.T) string {
 	t.Helper()
 	home := isolateEnv(t)
 	requireIsolatedAppDir(t, callerPackage())
+	runIsolateHooks(t)
 	return home
+}
+
+// isolateHooks run at every Isolate and ChangeDir, and again at the test's
+// cleanup: a package whose process-wide state is keyed to the environment
+// or the working directory (the CLI's composition, opened from cwd)
+// registers its reset here, so a test that re-roots the process never
+// inherits the composition a previous test opened.
+var isolateHooks []func()
+
+// RegisterIsolateHook adds fn to the hooks Isolate and ChangeDir run.
+func RegisterIsolateHook(fn func()) { isolateHooks = append(isolateHooks, fn) }
+
+func runIsolateHooks(t *testing.T) {
+	t.Helper()
+	for _, fn := range isolateHooks {
+		fn()
+	}
+	t.Cleanup(func() {
+		for _, fn := range isolateHooks {
+			fn()
+		}
+	})
 }
 
 // isolateEnv is Isolate without the isolation CHECK: it installs the temp
@@ -202,6 +225,7 @@ func ChangeDir(t *testing.T, dir string) {
 		t.Fatalf("taskstest: chdir: %v", err)
 	}
 	t.Cleanup(func() { restoreDir(t, orig, dir) })
+	runIsolateHooks(t)
 }
 
 // errorReporter is the one method restoreDir needs from *testing.T. It exists

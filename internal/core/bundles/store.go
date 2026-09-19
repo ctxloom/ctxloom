@@ -34,6 +34,11 @@ var _ Store = (*fsStore)(nil)
 type fsStore struct {
 	*Loader
 	fs afero.Fs
+	// own, when set, is the reader this store built for itself (NewFSStore):
+	// a view with no generation to pin, so the store re-resolves it after its
+	// own writes. A store over a shared generation (NewStore) has nil here
+	// and leaves the next generation to its caller.
+	own Reader
 }
 
 // NewStore returns a Store over an EXISTING loader: it reads that loader's
@@ -55,13 +60,23 @@ func NewStore(loader *Loader) Store {
 }
 
 // NewFSStore returns a Store over its own project reader, for the callers that
-// have no session loader to share (a standalone distill over an explicit dir).
-// Prefer NewStore wherever a loader already exists.
+// have no session generation to share (a standalone distill over an explicit
+// dir). Its view has no generation to pin, so a write through it is visible
+// to its own next read. Prefer NewStore wherever a generation exists.
 func NewFSStore(fsys afero.Fs, dirs []string) Store {
 	if fsys == nil {
 		fsys = afero.NewOsFs()
 	}
-	return NewStore(NewLoader(NewProjectReader(fsys, dirs)))
+	own := NewProjectReader(fsys, dirs)
+	return &fsStore{Loader: NewLoader(own), fs: fsys, own: own}
+}
+
+// republish re-resolves a self-owned view after a write; a shared
+// generation is left to its caller.
+func (s *fsStore) republish() {
+	if s.own != nil {
+		s.Loader = NewLoader(s.own).WithWarnWriter(s.warnOut).WithVersionResolver(s.versionResolver)
+	}
 }
 
 // Load resolves a bundle this project AUTHORED, and only that.
@@ -105,6 +120,7 @@ func (s *fsStore) Save(b *Bundle) error {
 	if err := iox.WriteFileAtomicFs(s.fs, b.Path, data, 0o644); err != nil {
 		return fmt.Errorf("write bundle: %w", err)
 	}
+	s.republish()
 	return s.invalidateStaleSignature(b.Path, data)
 }
 
@@ -165,5 +181,9 @@ func (s *fsStore) Delete(name string) error {
 	if err != nil {
 		return err
 	}
-	return s.fs.Remove(path)
+	if err := s.fs.Remove(path); err != nil {
+		return err
+	}
+	s.republish()
+	return nil
 }

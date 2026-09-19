@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -125,8 +125,10 @@ func TestPrintCompanionStatus_DisabledSaysSoAndStillRunsNothing(t *testing.T) {
 	testsupport.SignCompanionForTesting(t, binPath,
 		filepath.Join(root, ".ctxloom", "allowed_signers"))
 
-	config.SetCompanionsDisabled(true)
-	t.Cleanup(func() { config.SetCompanionsDisabled(false) })
+	// The switch is a property of the process composition, not a global.
+	src, err := operations.ComposeSources(operations.Compose{NoCompanions: true})
+	require.NoError(t, err)
+	t.Cleanup(SetAppForTesting(operations.NewApp(src, true)))
 
 	var out bytes.Buffer
 	printCompanionStatus(&out)

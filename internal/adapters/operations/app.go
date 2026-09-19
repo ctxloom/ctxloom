@@ -78,6 +78,10 @@ func OpenedApp(owner *config.Owner) *App {
 	return a
 }
 
+// Prober is the companion-probing adapter for this invocation, carrying its
+// companion switch.
+func (a *App) Prober() companions.Prober { return companions.Prober{Disabled: a.NoCompanions} }
+
 // Opened reports whether the owner has been opened: a composition may be
 // replaced (init pinning its target directory) only before that.
 func (a *App) Opened() bool {

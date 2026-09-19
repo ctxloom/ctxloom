@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
@@ -43,7 +45,7 @@ func TestSources_Read_AbsentLayers_YieldShippedDefaultWithoutError(t *testing.T)
 func TestSources_Read_PresentUnparsableLayer_RefusesNamingTheFile(t *testing.T) {
 	fs := hermetic(t)
 	path := appDir + "/config.yaml"
-	require.NoError(t, afero.WriteFile(fs, path, []byte("default_agent: [unclosed\n  : nonsense\n"), 0o644))
+	testsupport.WriteFile(t, fs, path, []byte("default_agent: [unclosed\n  : nonsense\n"), 0o644)
 	src, err := configload.New(nil, nil, configload.WithFS(fs), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
@@ -59,7 +61,7 @@ func TestSources_Read_PresentUnparsableLayer_RefusesNamingTheFile(t *testing.T) 
 // overlaid with the shipped default entries.
 func TestSources_Read_LayersFilesIntoTheValue(t *testing.T) {
 	fs := hermetic(t)
-	require.NoError(t, afero.WriteFile(fs, appDir+"/config.yaml", []byte(`version: 6
+	testsupport.WriteFile(t, fs, appDir+"/config.yaml", []byte(`version: 6
 default_agent: coder
 agents:
   coder:
@@ -73,7 +75,7 @@ llm:
       backend: claude-code
       model: opus
 workspace: worktree
-`), 0o644))
+`), 0o644)
 
 	src, err := configload.New(nil, nil, configload.WithFS(fs), configload.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -96,7 +98,7 @@ workspace: worktree
 // key, and that refusal is a warning on the value, not a silent drop.
 func TestSources_Read_OverridesFromFlagsAndEnv_ReachTheValue(t *testing.T) {
 	fs := hermetic(t)
-	require.NoError(t, afero.WriteFile(fs, appDir+"/config.yaml", []byte("version: 6\ndefault_agent: fromfile\n"), 0o644))
+	testsupport.WriteFile(t, fs, appDir+"/config.yaml", []byte("version: 6\ndefault_agent: fromfile\n"), 0o644)
 
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	flags.StringArray(confload.ConfigSetFlagName, nil, "")

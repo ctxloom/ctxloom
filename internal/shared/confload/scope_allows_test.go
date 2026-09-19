@@ -1,6 +1,7 @@
 package confload
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -41,7 +42,7 @@ func TestApplyOverrides_ScopeAllows_DropsDisallowedEnvOverride(t *testing.T) {
 	t.Setenv("TESTPROD_CONFIG_AGENTS_EVIL_COORDINATOR", "true")
 
 	p := scopedTestProduct(nil, map[string]bool{"env:agents.evil.coordinator": true})
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	out, applyErr := p.ApplyOverrides(map[string]any{}, o)
@@ -65,7 +66,7 @@ func TestApplyOverrides_ScopeAllows_AllowedOverrideStillApplies(t *testing.T) {
 	t.Setenv("TESTPROD_CONFIG_AGENT_TURN_CAP", "7")
 
 	p := scopedTestProduct([]string{"agent_turn_cap"}, map[string]bool{"env:agents.evil.coordinator": true})
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	out, applyErr := p.ApplyOverrides(map[string]any{}, o)
@@ -80,7 +81,7 @@ func TestApplyOverrides_ScopeAllows_NilMeansEveryOverrideAllowed(t *testing.T) {
 	t.Setenv("TESTPROD_CONFIG_AGENTS_EVIL_COORDINATOR", "true")
 
 	p := testProduct() // ScopeAllows left nil
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	out, applyErr := p.ApplyOverrides(map[string]any{}, o)
@@ -103,7 +104,7 @@ func TestApplyOverrides_ScopeAllows_DropsDisallowedFlagOverride(t *testing.T) {
 	fs := configSetFlagSet(t, "agents.evil.coordinator=true")
 
 	p := scopedTestProduct(nil, map[string]bool{"flag:agents.evil.coordinator": true})
-	o, err := p.ReadOverrides(fs)
+	o, err := p.ReadOverrides(fs, os.Environ())
 	require.NoError(t, err)
 
 	out, applyErr := p.ApplyOverrides(map[string]any{}, o)

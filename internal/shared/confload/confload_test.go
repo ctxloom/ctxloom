@@ -688,7 +688,7 @@ func TestReadOverrides_NoConfigSetFlagRegisteredIsNotAnError(t *testing.T) {
 	fs.String("format", "text", "an ordinary business flag")
 	require.NoError(t, fs.Set("format", "json"))
 
-	o, err := testProduct().ReadOverrides(fs)
+	o, err := testProduct().ReadOverrides(fs, os.Environ())
 	require.NoError(t, err, "a FlagSet with no --config-set flag has nothing to contribute; that is not a fault")
 	assert.Empty(t, o.Flags)
 }
@@ -711,7 +711,7 @@ func TestReadOverrides_MisregisteredConfigSetFlagIsReported(t *testing.T) {
 	_, probeErr := fs.GetStringArray(ConfigSetFlagName)
 	require.Error(t, probeErr, "fixture must actually defeat GetStringArray, or this test proves nothing")
 
-	o, err := testProduct().ReadOverrides(fs)
+	o, err := testProduct().ReadOverrides(fs, os.Environ())
 	require.Error(t, err, "a --config-set flag that exists but cannot be read must be reported, never treated as absent")
 	assert.Contains(t, err.Error(), ConfigSetFlagName)
 	assert.Empty(t, o.Flags, "nothing was readable, so nothing may be silently half-applied")
@@ -742,14 +742,14 @@ func TestReadOverrides_BareFamilyEnvPrefixIsRefused(t *testing.T) {
 		"fixture must actually collide with a bootstrap var, or the refusal guards nothing")
 	require.NotContains(t, bare.EnvPrefix, EnvPrefixSegment)
 
-	o, err := bare.ReadOverrides(nil)
+	o, err := bare.ReadOverrides(nil, os.Environ())
 	require.Error(t, err, "a prefix that would swallow bootstrap vars must be refused, not used")
 	assert.Contains(t, err.Error(), EnvPrefixSegment)
 	assert.Empty(t, o.Env, "nothing may be captured under a prefix that was refused")
 
 	// The correctly-scoped prefix still works, so the guard is a guard and not
 	// a blanket refusal.
-	good, err := testProduct("default_agent").ReadOverrides(nil)
+	good, err := testProduct("default_agent").ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 	assert.Equal(t, "mycoder", good.Env["DEFAULT_AGENT"])
 	assert.NotContains(t, good.Env, "ROOT", "the bootstrap var must stay out of the chain")

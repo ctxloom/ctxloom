@@ -73,7 +73,7 @@ func TestGoldenFixture_CurrentEffectiveConfig_D3Characterization(t *testing.T) {
 
 	// ---- PRE-layering baseline: project alone, home absent from disk ----
 	fsProjectOnly := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsProjectOnly, paths.ConfigPath(projectAppDir), initConfig, 0644))
+	testsupport.WriteFile(t, fsProjectOnly, paths.ConfigPath(projectAppDir), initConfig, 0644)
 	projectOnly, err := Load(WithFS(fsProjectOnly), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 
@@ -92,9 +92,9 @@ func TestGoldenFixture_CurrentEffectiveConfig_D3Characterization(t *testing.T) {
 
 	// ---- POST-layering: identical project template, home now participates ----
 	fsLayered := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsLayered, paths.ConfigPath(projectAppDir), initConfig, 0644))
+	testsupport.WriteFile(t, fsLayered, paths.ConfigPath(projectAppDir), initConfig, 0644)
 	homeAppDir := filepath.Join(home, config.AppDirName)
-	require.NoError(t, afero.WriteFile(fsLayered, paths.ConfigPath(homeAppDir), []byte(goldenHomeConfigYAML), 0644))
+	testsupport.WriteFile(t, fsLayered, paths.ConfigPath(homeAppDir), []byte(goldenHomeConfigYAML), 0644)
 	layered, err := Load(WithFS(fsLayered), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 
@@ -142,14 +142,14 @@ func TestGoldenFixture_D3Drift_IsAdditiveOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	fsProjectOnly := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsProjectOnly, paths.ConfigPath(projectAppDir), initConfig, 0644))
+	testsupport.WriteFile(t, fsProjectOnly, paths.ConfigPath(projectAppDir), initConfig, 0644)
 	projectOnly, err := Load(WithFS(fsProjectOnly), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 
 	fsLayered := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsLayered, paths.ConfigPath(projectAppDir), initConfig, 0644))
+	testsupport.WriteFile(t, fsLayered, paths.ConfigPath(projectAppDir), initConfig, 0644)
 	homeAppDir := filepath.Join(home, config.AppDirName)
-	require.NoError(t, afero.WriteFile(fsLayered, paths.ConfigPath(homeAppDir), []byte(goldenHomeConfigYAML), 0644))
+	testsupport.WriteFile(t, fsLayered, paths.ConfigPath(homeAppDir), []byte(goldenHomeConfigYAML), 0644)
 	layered, err := Load(WithFS(fsLayered), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 

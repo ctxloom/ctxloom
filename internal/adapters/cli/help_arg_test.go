@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -132,8 +132,8 @@ func TestHelpArgShortcut_BehaviourForEveryNameTakingCommand(t *testing.T) {
 			// anywhere (the shortcut must not need one) and no leakage from
 			// the row before.
 			testsupport.ProjectDir(t)
-			config.Invalidate()
-			t.Cleanup(config.Invalidate)
+			resetApp()
+			t.Cleanup(resetApp)
 			if tc.seed != nil {
 				tc.seed(t)
 			}
@@ -202,7 +202,7 @@ func TestHelpArgShortcut_BehaviourForEveryNameTakingCommand(t *testing.T) {
 
 func bundleHelpExists(t *testing.T) bool {
 	t.Helper()
-	cfg, err := config.LoadFresh()
+	cfg, err := configload.Load()
 	require.NoError(t, err)
 	_, err = operations.GetBundle(cfg, "help")
 	return err == nil
@@ -218,7 +218,7 @@ func seedProjectConfig(t *testing.T) {
 
 func agentHelpExists(t *testing.T) bool {
 	t.Helper()
-	cfg, err := config.LoadFresh()
+	cfg, err := configload.Load()
 	require.NoError(t, err)
 	_, ok := cfg.Agent("help")
 	return ok

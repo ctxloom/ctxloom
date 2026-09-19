@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -389,19 +390,29 @@ func TestAgentSetupNudge_Wiring(t *testing.T) {
 		return root
 	}
 
+	// The hook process reads its own generation, pinned here to the project
+	// the test wrote — the composition a hook spawned in that project opens.
+	inProject := func(t *testing.T, root string) {
+		t.Helper()
+		testApp(t, configload.WithAppDir(filepath.Join(root, ".ctxloom")))
+	}
+
 	t.Run("profiles, no agents → nudge on first chunk", func(t *testing.T) {
 		root := writeRoot(t, "version: 6\n", "default")
-		assert.NotEmpty(t, agentSetupNudge(root, 1))
-		assert.Empty(t, agentSetupNudge(root, 2), "fires once, on the first chunk")
+		inProject(t, root)
+		assert.NotEmpty(t, agentSetupNudge(1))
+		assert.Empty(t, agentSetupNudge(2), "fires once, on the first chunk")
 	})
 
 	t.Run("agent configured → silent", func(t *testing.T) {
 		root := writeRoot(t, "version: 6\nagents:\n  dev:\n    profiles: [default]\n", "default")
-		assert.Empty(t, agentSetupNudge(root, 1))
+		inProject(t, root)
+		assert.Empty(t, agentSetupNudge(1))
 	})
 
 	t.Run("no .ctxloom → silent, never blocks", func(t *testing.T) {
-		assert.Empty(t, agentSetupNudge(t.TempDir(), 1))
+		inProject(t, t.TempDir())
+		assert.Empty(t, agentSetupNudge(1))
 	})
 }
 

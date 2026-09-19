@@ -266,7 +266,7 @@ func (errReader) Read([]byte) (int, error) {
 // distillMissingOrStale's per-entry chdir used to only ever go
 // FORWARD (into e.ProjectDir when non-empty) and never restore origWd for an
 // entry with no ProjectDir of its own — so an entry with an empty ProjectDir
-// silently ran config.Load() from whatever directory the PREVIOUS entry in
+// silently ran configload.Load() from whatever directory the PREVIOUS entry in
 // the loop happened to chdir into. situateForEntry is the extracted,
 // independently-testable cwd-management step that fixes this: it restores
 // origWd when the entry has no ProjectDir, rather than leaving the process
@@ -411,7 +411,7 @@ func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
 // per-project and the --all path, because --distill calls this twice.
 func TestLoadSessionEntries_NeverReturnsNil(t *testing.T) {
 	dir := t.TempDir()
-	t.Chdir(dir)
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 
 	for _, all := range []bool{false, true} {

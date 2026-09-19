@@ -38,11 +38,11 @@ func TestLoad_ConfigSetEnumTypoIsSchemaChecked(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(`version: 1
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`version: 1
 agents:
   reviewer:
     profiles: [default]
-`), 0644))
+`), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions": "plann"}}
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
@@ -69,12 +69,12 @@ func TestLoad_ConfigSetTypeGuessIsSchemaChecked(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(`version: 1
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`version: 1
 llm:
   configs:
     big:
       type: claude-code
-`), 0644))
+`), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{"llm.configs.big.model": []any{"opus", "sonnet"}}}
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
@@ -97,11 +97,11 @@ func TestLoad_ValidOverridesWarnNothing(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(`version: 1
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`version: 1
 agents:
   reviewer:
     profiles: [default]
-`), 0644))
+`), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{
 		"agents.reviewer.permissions": "plan",

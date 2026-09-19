@@ -199,10 +199,10 @@ func TestLoad_UnknownKeyInHomeLayer_StillWarns(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	homeAppDir := filepath.Join(home, config.AppDirName)
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir),
-		[]byte("version: 6\nagentz:\n  definitions: {}\n"), 0644))
-	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml",
-		[]byte("version: 6\ndefault_agent: dev\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(homeAppDir),
+		[]byte("version: 6\nagentz:\n  definitions: {}\n"), 0644)
+	testsupport.WriteFile(t, fs, "/proj/.ctxloom/config.yaml",
+		[]byte("version: 6\ndefault_agent: dev\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)
@@ -220,10 +220,10 @@ func TestLoad_UnknownKeyInProjectLayer_NotMaskedByValidHome(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	homeAppDir := filepath.Join(home, config.AppDirName)
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir),
-		[]byte("version: 6\ndefault_agent: dev\n"), 0644))
-	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml",
-		[]byte("version: 6\nagentz:\n  definitions: {}\n"), 0644))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(homeAppDir),
+		[]byte("version: 6\ndefault_agent: dev\n"), 0644)
+	testsupport.WriteFile(t, fs, "/proj/.ctxloom/config.yaml",
+		[]byte("version: 6\nagentz:\n  definitions: {}\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)

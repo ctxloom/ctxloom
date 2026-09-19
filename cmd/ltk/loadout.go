@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
 )
 
 // loadoutYAML is ltk's own ctxloom loadout — the bundle content ltk
@@ -33,9 +33,9 @@ var loadoutSigFiles embed.FS
 // signing.NamespacePublish), read from the embedded loadout.yaml.sig sibling
 // when `just sign-loadouts` has produced and committed one — never held or
 // computed at runtime (spec §4.3, §7A.5). Empty when no .sig is committed,
-// which companions.NewCommand already treats as "emit unsigned".
-var loadoutSig = companions.ReadEmbeddedSig(loadoutSigFiles)
+// which loadout.NewCommand already treats as "emit unsigned".
+var loadoutSig = loadout.ReadEmbeddedSig(loadoutSigFiles)
 
 func newLoadoutCmd() *cobra.Command {
-	return companions.NewCommand(progName, loadoutYAML, loadoutSig)
+	return loadout.NewCommand(progName, loadoutYAML, loadoutSig)
 }

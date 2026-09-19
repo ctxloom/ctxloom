@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -19,6 +18,9 @@ import (
 // formatCmd builds a bare command with the --format flag registered and set,
 // mirroring how the inherited persistent flag reaches a subcommand at runtime.
 func formatCmd(format string) (*cobra.Command, *bytes.Buffer) {
+	// One command is one invocation: the root composes the process afresh
+	// per Execute, so a command driven directly gets the same.
+	resetApp()
 	cmd := &cobra.Command{}
 	cmd.Flags().String("format", string(clifmt.FormatText), "")
 	_ = cmd.Flags().Set("format", format)
@@ -179,8 +181,8 @@ func TestOutputFormatOf_MarksFormatWasHonored(t *testing.T) {
 // guard exists to catch.
 func TestUnwiredCommand_FormatJSONErrorsLoudly(t *testing.T) {
 	testsupport.ProjectDir(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -202,8 +204,8 @@ func TestUnwiredCommand_FormatJSONErrorsLoudly(t *testing.T) {
 // as before — the guard only gates non-text formats.
 func TestUnwiredCommand_DefaultTextStillWorks(t *testing.T) {
 	testsupport.ProjectDir(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -280,8 +282,8 @@ func TestFormatDebtCommands_AreTrackedAndRefuseNonTextLoudly(t *testing.T) {
 	// returns nil and the guard's window — "exited 0 having silently ignored
 	// --format" — is exactly what is reached.
 	testsupport.ProjectDir(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)

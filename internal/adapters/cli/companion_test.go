@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -29,7 +29,7 @@ func writeFakeCompanionBinary(t *testing.T, name string) string {
 func TestRunCompanionShow_UnsignedIsReportedAsUnsigned(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	bin := writeFakeCompanionBinary(t, "acme-tool")
-	restore := config.SetLookPathForTesting(func(name string) (string, error) {
+	restore := companions.SetLookPathForTesting(func(name string) (string, error) {
 		if name == "acme-tool" || name == bin {
 			return bin, nil
 		}
@@ -52,7 +52,7 @@ func TestRunCompanionShow_UnsignedIsReportedAsUnsigned(t *testing.T) {
 func TestRunCompanionShow_TrustedThenShown(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	bin := writeFakeCompanionBinary(t, "acme-tool")
-	restore := config.SetLookPathForTesting(func(name string) (string, error) {
+	restore := companions.SetLookPathForTesting(func(name string) (string, error) {
 		if name == "acme-tool" || name == bin {
 			return bin, nil
 		}
@@ -78,7 +78,7 @@ func TestRunCompanionShow_TrustedThenShown(t *testing.T) {
 // is the ordinary, silent case every OTHER companion surface treats it as.
 func TestRunCompanionShow_NotOnPathReportsNotInstalled(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	restore := config.SetLookPathForTesting(func(string) (string, error) {
+	restore := companions.SetLookPathForTesting(func(string) (string, error) {
 		return "", os.ErrNotExist
 	})
 	t.Cleanup(restore)

@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // bundleShowTrustReviewHeader is the first line offerBundleTrust writes; its
@@ -35,7 +35,7 @@ func TestBundleShow_StructuredFormatsNeverTakeTheInteractiveWalk(t *testing.T) {
 	neutralizeRefresh(t)
 	withInteractiveTerminal(t)
 	withEmptyStdin(t)
-	cfg, err := config.LoadFresh()
+	cfg, err := configload.Load()
 	require.NoError(t, err)
 	_, err = operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
 		Name: "demo",

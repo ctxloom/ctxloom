@@ -29,7 +29,7 @@ func TestRunBundleDistill_AllFilesFailedExitsNonZero(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")
 	_ = config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-	t.Chdir(root)
+	chdir(t, root)
 
 	broken := filepath.Join(root, "broken.yaml")
 	require.NoError(t, os.WriteFile(broken, []byte(":::not valid yaml:::\n\tbad indent\n"), 0o644))
@@ -241,7 +241,7 @@ func TestRunBundleDistill_TextPathReportsWriteFailuresAndUsesCommandWriters(t *t
 	root := t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")
 	_ = config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-	t.Chdir(root)
+	chdir(t, root)
 
 	broken := filepath.Join(root, "broken.yaml")
 	require.NoError(t, os.WriteFile(broken, []byte(":::not valid yaml:::\n\tbad indent\n"), 0o644))
@@ -296,7 +296,7 @@ func TestLoadDistillPrompt_AlwaysYieldsAUsablePrompt(t *testing.T) {
 		agentProject(t, "version: 6\n")
 		cfg, err := GetConfig()
 		require.NoError(t, err)
-		seedDistillCommand(t, cfg)
+		cfg = seedDistillCommand(t, cfg)
 
 		got, err := loadDistillPrompt(cfg)
 		require.NoError(t, err)
@@ -312,10 +312,14 @@ const distillCommandBody = "COMPRESS THIS, project-specific rules apply."
 
 // seedDistillCommand creates a bundle carrying a `distill` command in the
 // project rooted at the current working directory.
-func seedDistillCommand(t *testing.T, cfg *config.Config) {
+// seedDistillCommand writes the distiller bundle and returns the generation
+// that holds it: a write announces the next generation, and the caller reads
+// from that one.
+func seedDistillCommand(t *testing.T, cfg *config.Config) *config.Config {
 	t.Helper()
 	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "distiller"})
 	require.NoError(t, err)
+	cfg = reloaded(t)
 	_, err = operations.AddItem(context.Background(), cfg, operations.AddItemRequest{
 		Kind:    operations.ItemKindCommand,
 		Bundle:  "distiller",
@@ -323,6 +327,18 @@ func seedDistillCommand(t *testing.T, cfg *config.Config) {
 		Content: distillCommandBody,
 	})
 	require.NoError(t, err)
+	return reloaded(t)
+}
+
+// reloaded publishes the next generation — the one that holds what was just
+// written — and returns its Config.
+func reloaded(t *testing.T) *config.Config {
+	t.Helper()
+	_, err := App().Reload(context.Background())
+	require.NoError(t, err)
+	cfg, err := GetConfig()
+	require.NoError(t, err)
+	return cfg
 }
 
 // withholdDistillCommand puts the seeded `distill` command into a genuinely
@@ -378,7 +394,7 @@ func TestBundleDistill_WithheldPromptRefuses(t *testing.T) {
 	root := agentProject(t, distillProjectYAML)
 	cfg, err := GetConfig()
 	require.NoError(t, err)
-	seedDistillCommand(t, cfg)
+	cfg = seedDistillCommand(t, cfg)
 	withholdDistillCommand(t, cfg)
 
 	target := filepath.Join(root, "target.yaml")
@@ -433,7 +449,7 @@ func TestDistillerForEdit_WithheldPromptRefusesUnlessNoDistill(t *testing.T) {
 	agentProject(t, distillProjectYAML)
 	cfg, err := GetConfig()
 	require.NoError(t, err)
-	seedDistillCommand(t, cfg)
+	cfg = seedDistillCommand(t, cfg)
 	withholdDistillCommand(t, cfg)
 
 	d, err := distillerForEdit(cfg, false)
@@ -455,7 +471,7 @@ func TestBundleDistill_TrustedPromptIsNotRefused(t *testing.T) {
 	agentProject(t, distillProjectYAML)
 	cfg, err := GetConfig()
 	require.NoError(t, err)
-	seedDistillCommand(t, cfg)
+	cfg = seedDistillCommand(t, cfg)
 
 	d, err := newLLMDistiller(cfg, "fast")
 	require.NoError(t, err, "an admitted prompt is not a refusal")

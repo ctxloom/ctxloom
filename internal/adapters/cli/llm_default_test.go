@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -69,11 +70,11 @@ func llmDefaultTestCmd(format string) (*cobra.Command, *bytes.Buffer) {
 //
 // The seeded config.yaml names an explicit starting primary ("mock") rather
 // than leaving llm.defaults.primary absent: an absent primary is filled
-// in-memory by the shipped-default overlay (mergeDefaultConfig) at load
-// time, which would make "claude-code" look already-current the moment
-// Manager.Update's transaction re-reads the file, turning every "set
-// claude-code" test below into an "unchanged" one instead.
-func memConfig(t *testing.T) (*config.Config, *config.Manager) {
+// in-memory by the shipped-default overlay at read time, which would make
+// "claude-code" look already-current the moment Update's transaction
+// re-reads the file, turning every "set claude-code" test below into an
+// "unchanged" one instead.
+func memConfig(t *testing.T) (*config.Config, *operations.App) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
@@ -81,8 +82,8 @@ func memConfig(t *testing.T) (*config.Config, *config.Manager) {
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 5\nllm:\n  defaults:\n    primary: codex\n"), 0o644))
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	cfg.SetFS(fs)
-	mgr := config.NewManager(config.WithFS(fs), config.WithAppDir(appDir))
-	return cfg, mgr
+	app := testApp(t, configload.WithFS(fs), configload.WithAppDir(appDir))
+	return cfg, app
 }
 
 func TestRunLLMDefault_Show_Text_PrintsCurrentDefault(t *testing.T) {

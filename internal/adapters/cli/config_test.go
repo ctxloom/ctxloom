@@ -18,7 +18,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -135,7 +134,7 @@ func TestRenderConfigYAML_OmitsRuntimeOnlyFields(t *testing.T) {
 	f := fixtureConfig().ToFixture()
 	f.AppRoot = "/tmp/should-not-appear"
 	f.Warnings = []config.Warning{{Kind: config.WarnKindValidate, Text: "leaky"}}
-	f.PendingUpgrade = &upgrade.Pending{Path: "/x", Data: []byte("version: 6\n")}
+	f.PendingUpgrade = &config.PendingUpgrade{Path: "/x", Data: []byte("version: 6\n")}
 	cfg := config.NewFixture(f)
 
 	var buf bytes.Buffer

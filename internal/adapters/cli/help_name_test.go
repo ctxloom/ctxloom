@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -27,15 +27,15 @@ func TestResourceNamedHelp_IsAddressable(t *testing.T) {
 	// those call the package-level GetConfig(), which resolves the REAL app
 	// paths (including $HOME/.ctxloom) unless the environment is isolated.
 	testsupport.ProjectDir(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	t.Run("bundle create help creates a bundle named help", func(t *testing.T) {
 		cmd, _ := formatCmd("text")
 		cmd.SetContext(context.Background())
 		require.NoError(t, runBundleCreate(cmd, []string{"help"}))
 
-		cfg, err := config.LoadFresh()
+		cfg, err := configload.Load()
 		require.NoError(t, err)
 		b, err := operations.GetBundle(cfg, "help")
 		require.NoError(t, err, "a bundle literally named help must actually be created")
@@ -60,7 +60,7 @@ func TestResourceNamedHelp_IsAddressable(t *testing.T) {
 		require.NoError(t, runBundleEdit(cmd, []string{"help"}))
 		assert.NotContains(t, out.String(), "Edit bundle metadata", "an existing bundle must be edited, not described")
 
-		cfg, err := config.LoadFresh()
+		cfg, err := configload.Load()
 		require.NoError(t, err)
 		b, err := operations.GetBundle(cfg, "help")
 		require.NoError(t, err)
@@ -73,8 +73,8 @@ func TestResourceNamedHelp_IsAddressable(t *testing.T) {
 // before.
 func TestNameHelp_StillPrintsHelpWhenNoSuchResourceExists(t *testing.T) {
 	testsupport.ProjectDir(t)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	cmd, out := formatCmd("text")
 	cmd.Use = "show <name>"
@@ -93,8 +93,8 @@ func TestAgentNamedHelp_IsShowable(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"),
 		[]byte("version: 5\nagents:\n  help:\n    llm: claude-code\n    profiles: [default]\n"), 0o644))
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 
 	cmd, out := formatCmd("text")
 	cmd.SetContext(context.Background())

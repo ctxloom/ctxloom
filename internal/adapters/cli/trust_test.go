@@ -33,6 +33,9 @@ func neutralizeRefresh(t *testing.T) {
 // Background context is set so cmd.Context() is non-nil, matching what cobra's
 // Execute installs in production (a bare command's Context() is otherwise nil).
 func testCmd() (*cobra.Command, *bytes.Buffer) {
+	// One command is one invocation: the root composes the process afresh
+	// per Execute, so a command driven directly gets the same.
+	resetApp()
 	c := &cobra.Command{}
 	c.SetContext(context.Background())
 	var buf bytes.Buffer

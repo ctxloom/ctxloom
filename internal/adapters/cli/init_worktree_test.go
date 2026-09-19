@@ -24,7 +24,7 @@ import (
 // pins it down rather than leaving it assumed.
 func TestResolveAppDir_LinkedWorktreeGetsItsOwnAppDir(t *testing.T) {
 	main, linked := taskstest.RealGitWorktreeFixture(t)
-	t.Chdir(linked)
+	chdir(t, linked)
 
 	got, err := resolveAppDir(false)
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestResolveAppDir_LinkedWorktreeGetsItsOwnAppDir(t *testing.T) {
 func TestResolveAppDir_LinkedWorktreeInitIsFullyIndependent(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	main, linked := taskstest.RealGitWorktreeFixture(t)
-	t.Chdir(linked)
+	chdir(t, linked)
 
 	appDir, err := resolveAppDir(false)
 	require.NoError(t, err)

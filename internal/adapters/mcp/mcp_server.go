@@ -13,7 +13,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -262,7 +261,7 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// Log which companion binaries (taskloom, ltk) this session is wired
 	// with, version-probed via `<bin> version --format json`. The wiring itself
 	// happens in applyStartupHooks below via the built-in bundles.
-	operations.ReportCompanions(os.Stderr, companions.Prober{Disabled: s.app.NoCompanions}, cfg.TrustRoot())
+	operations.ReportCompanions(os.Stderr, s.app.Prober(), cfg.TrustRoot())
 
 	// EVERYTHING BELOW MUTATES, so it is gated as one block. Config
 	// resolution and the companion report above do not, which is the

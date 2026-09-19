@@ -1,3 +1,9 @@
+// Package companions is ctxloom's side of the companion contract: discover
+// companion binaries on PATH, admit them against the trust root, exec each
+// admitted one's loadout, and hand the result to a generation as a bundle
+// reader. The companion side — the `loadout` subcommand a companion binary
+// wires in — is the loadout subpackage, so a lean binary links nothing of
+// the bundle model.
 package companions
 
 import (
@@ -9,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -223,7 +231,7 @@ func companionsOnPathByConvention() []string {
 var companionLoadoutOutput = func(path string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), companionProbeTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, Subcommand, "--"+FormatFlag, FormatJSON)
+	cmd := exec.CommandContext(ctx, path, loadout.Subcommand, "--"+loadout.FormatFlag, loadout.FormatJSON)
 	cmd.WaitDelay = companionProbeWaitDelay
 	return cmd.Output()
 }

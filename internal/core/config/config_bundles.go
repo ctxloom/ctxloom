@@ -57,8 +57,8 @@ func (c *Config) SetExecutableTrustGate(gate bundles.Authorizer) {
 // Config the Owner is about to publish, so a consumer reaching this
 // generation through its *Config sees exactly what the Snapshot carries.
 // Called once per generation, before publication; never on a published value.
-func (c *Config) bindGeneration(cat bundles.Catalog, gate bundles.Authorizer) {
-	c.catalog = &cat
+func (c *Config) bindGeneration(catalog func() bundles.Catalog, gate bundles.Authorizer) {
+	c.catalog = catalog
 	c.execGate = gate
 }
 
@@ -71,7 +71,7 @@ func (c *Config) bindGeneration(cat bundles.Catalog, gate bundles.Authorizer) {
 // composition root's Sources supply.
 func (c *Config) Catalog() bundles.Catalog {
 	if c.catalog != nil {
-		return *c.catalog
+		return c.catalog()
 	}
 	root := c.TrustRoot()
 	return bundles.Resolve(context.Background(),

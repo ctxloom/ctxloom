@@ -1,4 +1,4 @@
-package companions
+package loadout
 
 import (
 	"bytes"

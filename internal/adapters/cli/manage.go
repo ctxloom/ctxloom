@@ -130,6 +130,11 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		}); err != nil {
 			return err
 		}
+		// The scaffold is written: the generation the install applies from
+		// is the one that holds it.
+		if _, err := App().Reload(cmd.Context()); err != nil {
+			return err
+		}
 		initialized = true
 	}
 
@@ -137,10 +142,10 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// ApplyHooks reloads config from disk itself, so this load is
-	// not an input to it — it is the early guard + config-warning echo the
-	// command owes the user before doing any work.
-	if _, err := GetConfig(); err != nil {
+	// The generation the install applies from; the read is also the early
+	// guard + config-warning echo the command owes the user before any work.
+	cfg, err := GetConfig()
+	if err != nil {
 		return err
 	}
 	// An EXPLICIT --engine scopes the hook apply to that one backend — the flag
@@ -157,6 +162,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		hookBackend = manageInstallEngine
 	}
 	result, err := operations.ApplyHooks(cmd.Context(), operations.ApplyHooksRequest{
+		Cfg:               cfg,
 		Backend:           hookBackend,
 		RegenerateContext: true,
 	})
@@ -555,13 +561,13 @@ var manageHooksInstallCmd = &cobra.Command{
 }
 
 func runManageHooksInstall(cmd *cobra.Command, _ []string) error {
-	// Guard + config-warning echo only; ApplyHooks reloads from disk
-	// itself.
-	if _, err := GetConfig(); err != nil {
+	cfg, err := GetConfig()
+	if err != nil {
 		return err
 	}
 	workDir := projectroot.WorkDir()
 	result, err := operations.ApplyHooks(cmd.Context(), operations.ApplyHooksRequest{
+		Cfg:               cfg,
 		Backend:           manageHooksBackend,
 		RegenerateContext: true,
 		Force:             manageHooksForce,
@@ -661,10 +667,12 @@ place you can go and change.`,
 }
 
 func runManageHooksList(cmd *cobra.Command, _ []string) error {
-	if _, err := GetConfig(); err != nil {
+	cfg, err := GetConfig()
+	if err != nil {
 		return err
 	}
 	result, err := operations.ResolveHooks(cmd.Context(), operations.ResolveHooksRequest{
+		Cfg:      cfg,
 		Event:    manageHooksListEvent,
 		Profiles: manageHooksListProfiles,
 		WorkDir:  projectroot.WorkDir(),

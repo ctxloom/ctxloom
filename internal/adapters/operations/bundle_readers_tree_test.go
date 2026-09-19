@@ -75,8 +75,8 @@ func stageInstalledTree(t *testing.T) (*config.Config, *content.TreeStore, conte
 		},
 	}
 	require.NoError(t, convert.Convert(ctx, store, content.BundleID(filepath.Base(dir)), src, convert.Options{}))
-	require.NoError(t, afero.WriteFile(fsys,
-		filepath.Join(dir, bundles.DirectoryFormManifest), []byte("version: 1.0.0\ndescription: atelier\n"), 0o644))
+	testsupport.WriteFile(t, fsys,
+		filepath.Join(dir, bundles.DirectoryFormManifest), []byte("version: 1.0.0\ndescription: atelier\n"), 0o644)
 
 	tree, err := store.Open(ctx, content.BundleID(filepath.Base(dir)))
 	require.NoError(t, err)
@@ -200,8 +200,8 @@ func TestLoadTreeBundle_EditedAfterSigningIsWithheldNotDegradedToUnsigned(t *tes
 
 	dir, err := treeBundleDir(treeBase, treeCanonical)
 	require.NoError(t, err)
-	require.NoError(t, afero.WriteFile(fsys,
-		filepath.Join(dir, "fragments", "house-style.md"), []byte("SUBSTITUTED"), 0o644))
+	testsupport.WriteFile(t, fsys,
+		filepath.Join(dir, "fragments", "house-style.md"), []byte("SUBSTITUTED"), 0o644)
 
 	_, _, err = readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.Error(t, err)
@@ -219,7 +219,7 @@ func TestLoadTreeBundle_FileAddedAfterSigningIsWithheld(t *testing.T) {
 
 	dir, err := treeBundleDir(treeBase, treeCanonical)
 	require.NoError(t, err)
-	require.NoError(t, afero.WriteFile(fsys, filepath.Join(dir, "SMUGGLED.txt"), []byte("x"), 0o644))
+	testsupport.WriteFile(t, fsys, filepath.Join(dir, "SMUGGLED.txt"), []byte("x"), 0o644)
 
 	_, _, err = readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.Error(t, err)
@@ -320,10 +320,10 @@ func stageLoaderFormTree(t *testing.T) (*config.Config, afero.Fs, string) {
 	dir, err := treeBundleDir(treeBase, treeCanonical)
 	require.NoError(t, err)
 	require.NoError(t, fsys.MkdirAll(filepath.Join(dir, "skills", "good-night"), 0o755))
-	require.NoError(t, afero.WriteFile(fsys, filepath.Join(dir, "bundle.yaml"), []byte(
-		"version: 1.0.0\ndescription: unattended\nskills:\n  good-night:\n    notes: overnight\n"), 0o644))
-	require.NoError(t, afero.WriteFile(fsys, filepath.Join(dir, "skills", "good-night", "SKILL.md"),
-		[]byte("---\nname: good-night\ndescription: d\n---\n\nGOOD-NIGHT-BODY\n"), 0o644))
+	testsupport.WriteFile(t, fsys, filepath.Join(dir, "bundle.yaml"), []byte(
+		"version: 1.0.0\ndescription: unattended\nskills:\n  good-night:\n    notes: overnight\n"), 0o644)
+	testsupport.WriteFile(t, fsys, filepath.Join(dir, "skills", "good-night", "SKILL.md"),
+		[]byte("---\nname: good-night\ndescription: d\n---\n\nGOOD-NIGHT-BODY\n"), 0o644)
 
 	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
 	c.SetFS(fsys)

@@ -12,7 +12,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -30,8 +29,8 @@ func brokenConfigProject(t *testing.T, configBody string) string {
 		filepath.Join(dir, paths.AppDirName, paths.ConfigFileName+".yaml"), []byte(configBody), 0o644))
 
 	t.Setenv(projectroot.EnvVar, dir)
-	config.Invalidate()
-	t.Cleanup(config.Invalidate)
+	resetApp()
+	t.Cleanup(resetApp)
 	return dir
 }
 

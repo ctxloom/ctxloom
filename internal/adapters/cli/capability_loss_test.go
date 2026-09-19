@@ -179,7 +179,7 @@ func execManageCheck(t *testing.T, root string) (string, error) {
 // execManageCheckAs drives manage check in a named format.
 func execManageCheckAs(t *testing.T, root, format string) (string, error) {
 	t.Helper()
-	t.Chdir(root)
+	chdir(t, root)
 	buf := &bytes.Buffer{}
 	c := &cobra.Command{Use: "check", RunE: manageCheckCmd.RunE, SilenceErrors: true, SilenceUsage: true}
 	addFlagOnce := func(name string, declare func()) {

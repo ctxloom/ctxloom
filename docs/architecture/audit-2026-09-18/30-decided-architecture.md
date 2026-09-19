@@ -68,13 +68,13 @@ flowchart RL
   PRES[core/present]:::leaf
   SPOOL[core/spool]:::leaf
   SESS[core/sessions]:::core
-  ENG["core/engine (born 6b; today core/agent stands here)"]:::later
+  ENG["core/engine (born (slice 2): the vocabulary; the contract half arrives in 6b — today core/agent stands beside it)"]:::core
   BUN[core/bundles]:::core
   PROF[core/profiles]:::core
-  COMP["core/composite (born 6)"]:::later
+  COMP["core/composite (born (slice 2): Trust; the package arrives in 6)"]:::core
   CFG[core/config]:::core
   DELIV["core/delivery (born 12)"]:::later
-  LAUNCH["core/launch (born 7)"]:::later
+  LAUNCH["core/launch (born (slice 2): the axes and Source; Resolve arrives in 7)"]:::core
   COORD[core/coord]:::core
   SESS --> PATHS & HARP
   ENG --> SESS & PRES & WIRE
@@ -88,7 +88,7 @@ flowchart RL
   SPOOL --> PATHS & HARP
 ```
 
-Solid nodes are directories in the tree since the rename slice; dashed nodes are born in the slice their label names. Today's engine base (`core/agent`, the former `shared/agent`) occupies `core/engine`'s place until slice 6b splits its contract half out.
+Solid nodes are directories in the tree; dashed nodes are born in the slice their label names. The edges are the TARGET's: a node born early (slice 2's vocabulary packages) holds a subset of its edges until the slice that fills it. Today's engine base (`core/agent`, the former `shared/agent`) stands beside `core/engine` until slice 6b splits its contract half out.
 
 Two facts the graph makes checkable, measured with `go list -f '{{.Imports}}'` on the module: `core/engine` imports exactly `core/present`, `core/sessions`, `core/wire`; `engines/mock` and `engines/claude` import exactly `core/engine` and those same three leaves. That is the `engines-import-nothing-above-the-port` rule with a ZERO allowlist, satisfiable by construction because nothing an engine implements names a type above `core/engine`.
 
@@ -96,7 +96,6 @@ Two facts the graph makes checkable, measured with `go list -f '{{.Imports}}'` o
 
 | Core package (landed path) | Forbidden imports it holds TODAY (the rule's `allowed` map, one edge each) | Leaves in slice |
 |---|---|---|
-| `core/trust` | `adapters/remote` | `adapters/remote`: slice 2: URL normalisation already lives in refuri; the remote import goes |
 | `core/sessions` | `shared/clidiag` | `shared/clidiag`: slice 15: clidiag becomes typed reports |
 | `core/profiles` | `adapters/remote`, `shared/clidiag`, `shared/strictness`, `shared/upgrade`, `resources` | `adapters/remote`: slice 5: the pull-walk reader moves to adapters/remote; `shared/clidiag`: slice 15: clidiag becomes typed reports (measured; not in Part 1.0's profiles row); `shared/strictness`: slice 15: strictness becomes a value (measured; not in Part 1.0's profiles row); `shared/upgrade`: slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's profiles row); `resources`: slice 5: the embedded builtin profiles are data a reader adapter supplies (measured; Part 1.0 does not classify resources) |
 | `core/bundles` | `adapters/content`, `adapters/content/attest`, `adapters/content/remotetree`, `adapters/remote`, `adapters/signing`, `shared/admission`, `shared/upgrade`, `shared/clidiag`, `shared/strictness`, `resources` | `adapters/content`: slice 5: readers become adapters behind bundles.Reader; `adapters/content/attest`: slice 5: attest.VerifyBundle is called by the reader adapters; `adapters/content/remotetree`: slice 5: readers become adapters behind bundles.Reader; `adapters/remote`: slice 5: readers become adapters behind bundles.Reader; `adapters/signing`: slice 5: one verifier, behind the trust ports; `shared/admission`: slice 5: admission is decided by composite.Trust, not by the bundle package; `shared/upgrade`: slice 1a: the permanent migrations are deleted; `shared/clidiag`: slice 15: clidiag becomes typed reports; `shared/strictness`: slice 15: strictness becomes a value (measured; not in Part 1.0's bundles row); `resources`: slice 5: the embedded builtin bundles are data a reader adapter supplies (measured; Part 1.0 does not classify resources) |
@@ -105,8 +104,9 @@ Two facts the graph makes checkable, measured with `go list -f '{{.Imports}}'` o
 | `core/coord/coordtest` | `lm/backends`, `adapters/isolation` | `lm/backends`: slice 14a: the double stands up adapters/runner instead of the backends seam (measured; Part 1.0 does not mention coordtest); `adapters/isolation`: slice 14a: the double stands up adapters/runner instead of reaching isolation (measured; Part 1.0 does not mention coordtest) |
 | `core/agent` (today's engine base; its contract half becomes `core/engine`) | `shared/ledger`, `shared/clidiag`, `shared/strictness` | `shared/ledger`: slice 12: shared/ledger is deleted; `shared/clidiag`: slice 15: clidiag becomes typed reports; `shared/strictness`: slice 15: strictness becomes a value |
 | `lm/engine` (retired in place; folded into `core/engine`) | `adapters/engineversion`, `adapters/transcript/vendorreader` | `adapters/engineversion`: slice 6b: Descriptor becomes Definition; the version command is the engine's own; `adapters/transcript/vendorreader`: slice 6b: the readers become engine.TranscriptReader values the adapter supplies |
-| `core/paths`, `core/wire`, `core/present`, `core/spool`, `shared/harp` | none | pure today |
-| `core/composite`, `core/delivery`, `core/launch` | do not exist | born pure in slices 6, 12, 7; zero allowlist from their first commit |
+| `core/trust`, `core/paths`, `core/wire`, `core/present`, `core/spool`, `shared/harp` | none | pure today |
+| `core/engine`, `core/composite`, `core/launch` | none | born pure in slice 2; zero allowlist from their first commit |
+| `core/delivery` | does not exist | born pure in slice 12; zero allowlist from its first commit |
 
 The rule as a row: `{name: "core-imports-only-core", from: "internal/core/", forbid: ["internal/adapters/", "internal/engines/", "internal/adapters/cli", "internal/adapters/operations", …every non-core, non-toolbox in-repo prefix], allowed: <the table above, one entry per edge with the slice number as the reason>}`. Because the rings are directories, `from` and `forbid` are path PREFIXES, which is what the rename buys: a new core package is covered the moment it exists, with no row to add; until the rename, `from` and `except` name today's core and toolbox packages one by one, and `forbid` is every in-repo root, so a package that is neither is forbidden by default. The generated proto is imported by `adapters/coordgrpc`, the runner's `mcp` and `cli/tui`, and (until slice 13) `cli` and `operations`; a sibling rule `proto-only-in-adapters` pins it. `afero.Fs` is permitted in `core/present`, `core/engine`, `core/delivery` and `core/sessions` as the filesystem port; `afero.NewOsFs`/`afero.OsFs` are referenced only under `adapters/fsstatic`, `adapters/fsstore`, `adapters/configload` and `cmd/*` (a symbol rule in the same test file).
 
@@ -121,12 +121,12 @@ flowchart TB
   subgraph CORE["internal/core — imports only core + toolbox (ratchet: Part 1.0)"]
     L1["trust · wire · paths · present · spool"]:::core
     SESS["sessions"]:::core
-    ENG["engine (port + contract) — born 6b; today: agent, the engine base"]:::later
+    ENG["engine (port + contract) — born (slice 2): the vocabulary; the contract half arrives in 6b; today: agent, the engine base, beside it"]:::core
     BP["bundles · profiles"]:::core
-    COMP["composite — born 6"]:::later
+    COMP["composite — born (slice 2): Trust; the package arrives in 6"]:::core
     CFG["config"]:::core
     DELIV["delivery — born 12"]:::later
-    LAUNCH["launch — born 7"]:::later
+    LAUNCH["launch — born (slice 2): the axes and Source; Resolve arrives in 7"]:::core
     COORD["coord"]:::core
   end
   subgraph PORTS["PORTS declared in core"]

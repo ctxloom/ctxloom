@@ -154,7 +154,7 @@ flowchart TD
 |---|---|---|
 | `DetectForge(url) (ForgeType, string, error)` | `internal/adapters/remote/detect.go:66` | URL → forge type + base URL. Errors on scp-style SSH input. |
 | `ParseRepoURL(url) (owner, repo string, err error)` | `internal/adapters/remote/detect.go:93` | URL or `owner/repo` shorthand → owner and repo. |
-| `NormalizeURL(url) string` | `internal/adapters/remote/detect.go:141` | Canonicalise a repo URL; used by `registry`, `trust` and `operations` for URL identity. |
+| `NormalizeURL(url) string` | `internal/adapters/remote/repourl.go` | `refuri.NormalizeURL` under this package's name: the repo-URL grammar and its identity rendering live in `internal/shared/refuri`, below both this package and `trust`. |
 | `NewFetcher(url, auth) (Fetcher, error)` | `internal/adapters/remote/detect.go:12` | `DetectForge` → GitHub adapter, explicit error for the generic adapter. |
 | `NewForgeFetcher(rf, auth) (Fetcher, error)` | `internal/adapters/remote/detect.go:32` | Build a fetcher against a `ResolvedForge`'s API URL. |
 | `ResolvedForge.Token(auth) string` | `internal/adapters/remote/detect.go:50` | `token_env` env lookup, else `auth.GitHub`. Reads `os.Getenv` directly. |
@@ -381,8 +381,6 @@ flowchart TD
 - `internal/adapters/operations` — owns pull/sync/lock/upgrade/publish command flows, constructs
   `Puller`, `PublishManager`, `RepoCache`, `Resolver` and `LockfileStore`, and is the only
   other writer of `lock.yaml`.
-- `internal/core/trust` — consumes `NormalizeURL` and canonical reference strings for publisher
-  identity.
 - `internal/core/bundles`, `internal/core/profiles`, `internal/lm/backends`, `internal/adapters/cli` —
   consume the reference grammar (`CanonicalBundleRef`, `CanonicalizeShortRef`,
   `ParseReference`) and registry/lockfile reads.

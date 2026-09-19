@@ -44,11 +44,11 @@ constructor for every approval and rejection address.
 
 | Half | Produced by | Values |
 |---|---|---|
-| `CanonicalURL()` | `internal/core/trust/trust.go:211` | `remote.LocalSource` (`ctxloom:local`) when `IsLocal`; `BuiltinSigner` (`builtin:ctxloom`) when `IsBuiltin`; else `CanonicalRepoURL(RepoURL)` |
+| `CanonicalURL()` | `internal/core/trust/trust.go:211` | `refuri.LocalSource` (`ctxloom:local`) when `IsLocal`; `BuiltinSigner` (`builtin:ctxloom`) when `IsBuiltin`; else `CanonicalRepoURL(RepoURL)` |
 | `Key()` | `internal/core/trust/trust.go:204` | `<bundle>#<dir>/<name>`, where `dir` comes from `ItemKind.Dir()` (`trust.go:131`): `fragments`, `prompts`, `mcp`, `hooks`, `skills` |
 
 `CanonicalRepoURL` (`internal/core/trust/trust.go:239`) passes through `""`, `ctxloom:local` and
-`ctxloom:companion`; otherwise it runs `remote.NormalizeURL`, then for `http`/`https` lowercases
+`ctxloom:companion`; otherwise it runs `refuri.NormalizeURL`, then for `http`/`https` lowercases
 the host, trims a trailing `/`, and lowercases the path only for hosts in
 `knownCaseFoldForges` (`internal/core/trust/trust.go:224`).
 
@@ -253,7 +253,7 @@ approved, so the next review can show a diff rather than the whole item:
 
 ## Boundaries
 
-- **Depends on:** `internal/adapters/remote` only (for `NormalizeURL`, `LocalSource`, `CompanionSource`).
+- **Depends on:** `internal/shared/refuri` only (for `NormalizeURL`, `NormalizeRef`, `LocalSource`, `CompanionSource`, `IsSelfContainedRef`); it imports no adapter.
   `internal/core/trust` has no I/O, no allocation of consequence, and 275 lines.
 - **Depended on by:** `internal/adapters/cli`, `internal/adapters/operations`. The gates are injected *downward*
   into `internal/core/bundles` (`bundles.WithTrustGate`) and `internal/core/config`

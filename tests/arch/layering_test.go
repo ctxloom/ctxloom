@@ -394,7 +394,14 @@ var layeringRules = []layeringRule{
 			"internal/agentcoord/mcpschema",
 			"internal/agentcoord/spool",
 		},
-		allowed: map[string]string{},
+		allowed: map[string]string{
+			"internal/cli/tui -> internal/agentcoord":              "sanctioned: cli/tui is the watch UI on the coordination proto",
+			"internal/mcp -> internal/agentcoord":                  "sanctioned: today's MCP server is the future runner/mcp, which speaks the wire",
+			"internal/agentcoord/coord -> internal/agentcoord":     "slice 10: every remaining generated-type reference in core/coord is re-typed on Go values",
+			"internal/agentcoord/mcpschema -> internal/agentcoord": "slice 10: mcpschema moves into adapters/coordgrpc beside the proto",
+			"internal/cli -> internal/agentcoord":                  "slice 13: allowlisted until then per Part 1.0",
+			"internal/operations -> internal/agentcoord":           "slice 13: allowlisted until then per Part 1.0",
+		},
 	},
 	{
 		// pkg/clifmt is the CLI output layer and SHIPS AS A STANDALONE

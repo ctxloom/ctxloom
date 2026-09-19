@@ -34,8 +34,12 @@ pre-commit:
       run: env -u GIT_INDEX_FILE reprise check --base HEAD .
 
     archlint:
-      # Architectural gate: ctxloom's structural rules (internal/shared/archlint) run
-      # as go/analysis analyzers over the whole module. An import that crosses
+      # Architectural gate: ctxloom's structural rules run as go/analysis
+      # analyzers (internal/shared/archlint) over the whole module. The rule
+      # TABLES the analyzers enforce are declared once, in
+      # internal/shared/archrules, and tests/arch reads the same declaration —
+      # so what this hook enforces and what `just test-arch` enforces cannot
+      # drift apart. An import that crosses
       # a layer, a path segment spelled outside internal/core/paths, a raw
       # filesystem write, an unlocked read-modify-write, a hand-built
       # <ctxloom-reminder> frame — each fails here with the rule and the fix.
@@ -70,8 +74,8 @@ pre-commit:
           echo "The architectural gate cannot pass by not running." >&2
           exit 1
         fi
-        if [ -n "$(find internal/shared/archlint cmd/archlint -name '*.go' -newer bin/archlint -print -quit)" ]; then
-          echo "bin/archlint is older than the rules in internal/shared/archlint — run 'just build-archlint'." >&2
+        if [ -n "$(find internal/shared/archrules internal/shared/archlint cmd/archlint -name '*.go' -newer bin/archlint -print -quit)" ]; then
+          echo "bin/archlint is older than the rules in internal/shared/archrules or the analyzers in internal/shared/archlint — run 'just build-archlint'." >&2
           echo "A stale linter enforces the rules it was built with, not the ones on disk." >&2
           exit 1
         fi

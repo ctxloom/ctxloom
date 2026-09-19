@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"strconv"
 
+	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -71,7 +72,7 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 		return nil, nil
 	}
 	dir := PkgDir(pass)
-	if dir == "" || !inScopes(dir, vocabScopes) {
+	if dir == "" || !archrules.UnderAny(dir, vocabScopes) {
 		return nil, nil
 	}
 	files := ProdFiles(pass)
@@ -136,8 +137,7 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 			})
 		}
 	}
-	reportStaleAllowlist(pass, vocabConversionAllowed, analyzedFiles(pass), seen, "vocabConversionAllowed",
-		"internal/shared/archlint/vocabulary.go")
+	reportStaleAllowlist(pass, vocabConversionAllowed, analyzedFiles(pass), seen, "archlint.vocabConversionAllowed")
 	return nil, nil
 }
 

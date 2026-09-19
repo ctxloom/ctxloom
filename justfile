@@ -144,7 +144,8 @@ release-snapshot: dev-image
 #
 # bin/archlint is built here, and that is not a convenience: lefthook's
 # pre-commit step REFUSES to commit when bin/archlint is missing or older than
-# the rules in internal/shared/archlint. A gate that cannot pass by not running is the
+# its sources (the rule tables in internal/shared/archrules, the analyzers in
+# internal/shared/archlint). A gate that cannot pass by not running is the
 # correct design, but it leaves a fresh checkout one `--no-verify` away from
 # never running the architectural rules at all. Building it on the path everyone
 # already takes is what keeps the gate armed by default rather than on purpose.

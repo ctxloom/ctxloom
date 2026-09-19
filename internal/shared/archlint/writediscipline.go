@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
 // writeDisciplineScopes are the subtrees this rule governs: production code
@@ -72,7 +74,7 @@ var forbiddenAferoMethodCalls = map[string]bool{
 // preference.
 //
 // This rule is a RATCHET: every site found at authoring time is grandfathered
-// into writeDisciplineAllowed with the fix required to remove it. What it buys
+// into archrules.WriteDisciplineAllowed with the fix required to remove it. What it buys
 // immediately is that the set cannot grow silently, and an entry that has
 // stopped being a violation is reported so the baseline can only shrink.
 var WriteDisciplineAnalyzer = &analysis.Analyzer{
@@ -86,13 +88,8 @@ func runWriteDiscipline(pass *analysis.Pass) (any, error) {
 		return nil, nil
 	}
 	dir := PkgDir(pass)
-	if dir == "" || !inScopes(dir, writeDisciplineScopes) {
+	if dir == "" || !archrules.UnderAny(dir, writeDisciplineScopes) || archrules.UnderAny(dir, writeDisciplineExemptDirs) {
 		return nil, nil
-	}
-	for _, ex := range writeDisciplineExemptDirs {
-		if UnderSubtree(dir, ex) {
-			return nil, nil
-		}
 	}
 
 	seen := map[string]bool{}
@@ -107,20 +104,19 @@ func runWriteDiscipline(pass *analysis.Pass) (any, error) {
 			key := rel + "#" + sym
 			collectRawWrites(fd.Body, func(pos token.Pos, call string) {
 				seen[key] = true
-				if _, ok := writeDisciplineAllowed[key]; ok {
+				if _, ok := archrules.WriteDisciplineAllowed[key]; ok {
 					return
 				}
 				pass.Reportf(pos,
 					"%s calls %s directly — raw filesystem writes must route through "+
 						"internal/shared/iox, which is where the atomic write-then-rename sequence and the "+
 						"ownership ledger live. If this is a deliberate, reviewed exception, add %q to "+
-						"writeDisciplineAllowed in internal/shared/archlint/writediscipline.go naming the fix "+
+						"archrules.WriteDisciplineAllowed naming the fix "+
 						"required to remove it.", sym, call, key)
 			})
 		}
 	}
-	reportStaleAllowlist(pass, writeDisciplineAllowed, analyzedFiles(pass), seen, "writeDisciplineAllowed",
-		"internal/shared/archlint/writediscipline.go")
+	reportStaleAllowlist(pass, archrules.WriteDisciplineAllowed, analyzedFiles(pass), seen, "archrules.WriteDisciplineAllowed")
 	return nil, nil
 }
 
@@ -205,66 +201,4 @@ func exprMentionsWriteFlag(expr ast.Expr) bool {
 		return true
 	})
 	return found
-}
-
-// inScopes reports whether dir lies under any of the named subtrees.
-func inScopes(dir string, scopes []string) bool {
-	for _, s := range scopes {
-		if UnderSubtree(dir, s) {
-			return true
-		}
-	}
-	return false
-}
-
-// writeDisciplineAllowed is the ratchet baseline: a durable symbol reference
-// ("file.go#Symbol") mapped to the fix required to remove the entry.
-var writeDisciplineAllowed = map[string]string{
-	"internal/adapters/operations/harp_artifacts.go#migrateOneHarp":          "the flagged call MOVES an existing file — os.Rename of one regular file from a harp's top level into its persist/ dir — and iox has no move primitive to delegate to: WriteFileAtomic, WriteFileAtomicFs and NewAtomicFile all write NEW BYTES to a destination path. Copy-then-delete would satisfy the gate and WEAKEN the guarantee this path exists to keep: rename(2) leaves the user's authored plan file at exactly one of src or dst, while a read-write-unlink pair has a window in which a crash leaves it at neither, and these are documents the user wrote. Removing this entry requires a rename/move primitive on iox (a public API addition), not a rewrite of this call site.",
-	"internal/core/coord/artifactstore.go#artifactStore.publish":             "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/coord/homeartifacts.go#Home.DownloadArtifact":             "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/coord/httpserver.go#coordServing.saveEndpointLocked":      "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/coord/journal.go#openStoreFromOffset":                     "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/coord/statedir.go#claimOwner":                             "advisory lock file's own O_EXCL create — mechanically parallel to the old filelock package's (deleted) exemption but never itself part of it (fs-consolidation plan C10 to decide: fold into a shared lock-file-create helper or exempt structurally)",
-	"internal/adapters/coordgrpc/mcpschema/gen/main.go#generateXmlLike":      "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/adapters/coordgrpc/mcpschema/gen/main.go#writeSpec":            "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/spool/ops.go#renameInto":                                  "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/spool/writer.go#Writer.Write":                             "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/spool/writer.go#writeAndSync":                             "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/bundles/skill_archive.go#ImportSkillArchive":              "C10 content/skill_archive sweep: fsys.Rename here is a WHOLE-DIRECTORY swap (staged tree -> final, and final -> aside on replace), not a single-file content write — outside iox's WriteFileAtomicFs API, which has no directory-rename surface. This is a deliberate, already-safe swap-never-clear-then-hope idiom (see the function's own doc) with its own aside/restore recovery; exempt, not a violation to migrate.",
-	"internal/adapters/cli/bundle_items.go#editInEditor":                     "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/adapters/cli/llm_turn.go#writeRunStartHandoff":                 "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/adapters/cli/run_terminal_ui.go#redirectDiagnosticsForTUI":     "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/adapters/contextmetrics/contextmetrics.go#Append":              "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/shared/docsgen/config.go#GenConfig":                            "pre-ratchet baseline, doc generator — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/shared/docsgen/mcp.go#GenMCPTools":                             "pre-ratchet baseline, doc generator — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/lm/backends/mock.go#writeMockRecord":                           "pre-ratchet baseline, test/mock backend — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/adapters/isolation/imagebuild.go#buildBaseImage":               "C10 isolation sweep: writes inside os.MkdirTemp(\"\", \"ctxloom-imgbase-\"), reaped by the same function's RemoveAll — temp-dir-scoped, verified. Migration deferred to a future slice (mechanical, low priority — no concurrent-writer risk).",
-	"internal/adapters/isolation/imagebuild.go#buildImage":                   "C10 isolation sweep: writes inside os.MkdirTemp(\"\", \"ctxloom-imgbuild-\"), reaped by the same function's RemoveAll — temp-dir-scoped, verified. Migration deferred to a future slice (mechanical, low priority — no concurrent-writer risk).",
-	"internal/adapters/isolation/sharedfs.go#probeOneRoot":                   "C10 isolation sweep: writes a marker file inside os.MkdirTemp(root, probeScratchPrefix), deferred RemoveAll in the same function — temp-dir-scoped, verified. Migration deferred to a future slice (mechanical, low priority).",
-	"internal/adapters/isolation/statemounts.go#ensureFile":                  "C10 isolation sweep: the plan's 'all ~26 seams are temp-dir-scoped' claim is WRONG for this one — ensureFile's caller passes the LIVE ~/.ctxloom/tasks/<project>.jsonl path (taskpaths.HomeTasksLogPath) and its advisory-lock sidecar, to stand up the container bind-mount SOURCE before `run`. Not a write-discipline risk in practice: O_CREATE|O_WRONLY with no O_TRUNC only creates-if-absent and immediately Closes, matching the doc's 'never truncating a log that already has tasks in it' — but it is not temp-scoped, and iox's whole-file-replace API is the wrong shape for a create-if-absent primitive anyway. Reported, not migrated.",
-	"internal/adapters/isolation/traceprobe.go#traceProbeFromEnv":            "C10 isolation sweep: writes into the probe's own trace dir, reaped by RemoveAll per the adjacent comment — temp-dir-scoped, verified. Migration deferred to a future slice (mechanical, low priority).",
-	"internal/ltk/tools/extract-defaults/main.go#main":                       "pre-ratchet baseline, standalone codegen tool under internal/ltk — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/engines/mock/runtime.go#Runtime.emitReport":                    "pre-ratchet baseline, mock engine test double — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/adapters/operations/bundles.go#reserveNewBundlePath":           "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/adapters/operations/delegate.go#copyUntrackedFile":             "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/adapters/operations/review_snapshots.go#moveTrustObjects":      "C10 operations sweep: fs.Rename(src, dst) here is a whole-DIRECTORY rename attempt (EXDEV-fallback pattern; falls back to copyTrustObjects, now migrated, + RemoveAll on cross-device failure) — not a single-file content write, outside iox's WriteFileAtomicFs API. Exempt, not a violation to migrate.",
-	"internal/adapters/operations/task_triggers_cache.go#saveTriggerCache":   "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/profiles/profiles.go#Loader.CommitUpgrade":                "pre-ratchet baseline — internal/core/profiles is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
-	"internal/core/profiles/profiles.go#Loader.Save":                         "pre-ratchet baseline — internal/core/profiles is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
-	"internal/shared/schemagen/schemagen.go#Generate":                        "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/sessions/transcript.go#linkEngineTranscript":              "per-vendor-log symlink create (fs-consolidation plan C12, Q2 RULED) — iox writes byte CONTENT and has no symlink primitive; the first-sighting os.Symlink here is the create-once path",
-	"internal/core/sessions/transcript.go#atomicSymlink":                     "per-vendor-log symlink ATOMIC replace, the session-id-reuse anomaly path only (fs-consolidation plan C12, Q2 RULED) — unique-temp-name+rename mirrors iox's own algorithm, hand-applied because iox's primitives write byte content and have no symlink surface to delegate to",
-	"internal/core/sessions/manager.go#Manager.Rename":                       "whole session-DIRECTORY move on harp rename — iox stages byte CONTENT and renames the staged file into place; a directory move has no content to stage and no iox primitive. rename(2) is the atomic move, and copy-then-delete would leave the only undo at exactly one of src/dst mid-way. Remove by adding a directory-move primitive to iox, if one is ever wanted",
-	"internal/core/agent/contextfile.go#WriteContextFile":                    "pre-ratchet baseline — internal/core/agent is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
-	"internal/core/agent/packagefiles.go#WriteManagedPackageFiles":           "C11's DELIBERATE render-to-temp-then-swap design (fs-consolidation plan D8), not un-swept legacy: afero.WriteFile renders each file into a sibling afero.TempDir tree, then fs.Rename swaps each into place as a single atomic per-file replace — this IS the fix humorless-factor/dutiful-water required, and the flagged calls are its two working parts, not a queued migration (fs-consolidation closing verification, stale-reason finding: the original baseline predates C11's rewrite of this function)",
-	"internal/core/agent/rendezvous.go#writeMarker":                          "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/agent/settings_io.go#RefuseCorrupt":                       "pre-ratchet baseline — internal/core/agent is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
-	"internal/shared/logsink/logsink.go#Open":                                "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/shared/logsink/logsink.go#rollIfOversized":                     "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/shared/tasks/taskstest/gitfixture.go#RealGitWorktreeFixture":   "test fixture package, not shipped production code — pre-ratchet baseline (fs-consolidation plan C10)",
-	"internal/testsupport/containercell/containercell.go#Runtime.buildImage": "test harness, never linked into a binary — pre-ratchet baseline (fs-consolidation plan C10)",
-	"internal/testsupport/containercell/containercell.go#buildBinary":        "test harness, never linked into a binary — pre-ratchet baseline (fs-consolidation plan C10)",
-	"internal/testsupport/containercell/containercell.go#buildProbeCat":      "test harness, never linked into a binary — pre-ratchet baseline (fs-consolidation plan C10)",
-	"internal/adapters/transcript/recorder.go#openAppendFile":                "the recorder holds ONE fd open across every Record call for a session's lifetime (opened lazily on the first captured event, closed by Close) and streams into it. WriteFileInPlace(AppendInPlace) is one-shot — it opens, writes and closes per call — so routing this through it would reopen the transcript per event and, more importantly, dissolve the `open func(path string) (io.WriteCloser, error)` seam the partial-write tests drive, which iox deliberately provides no twin for. The exemption is the HELD DESCRIPTOR; it lasts as long as the recorder streams rather than writes.",
 }

@@ -725,7 +725,7 @@ func TestArch_VocabularyAdoption_AllowlistsAreLive(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // vocabConversionAllowed is the RAW CONVERSION rule's shrinking allowlist, in
-// the same shape as write_discipline_test.go's writeDisciplineAllowed: a
+// the same shape as archrules.WriteDisciplineAllowed: a
 // durable key ("file.go#Symbol#owner.Vocabulary", where Symbol is
 // "Type.Method" for a method and the bare function name otherwise) mapped to
 // the fix required to remove the entry. Generated MECHANICALLY by running the

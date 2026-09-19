@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
 // renameMapPath is the slice-0b rename map: one row per package the rename
@@ -153,7 +155,7 @@ func TestArch_Rings_EveryPackageInsideARing(t *testing.T) {
 
 	var stray []string
 	for p := range pkgs {
-		if retired[p] || underAny(p, ringPrefixes) {
+		if retired[p] || archrules.UnderAny(p, ringPrefixes) {
 			continue
 		}
 		stray = append(stray, p)

@@ -69,7 +69,7 @@ func userApprovalsStore(t *testing.T) *countersign.Store {
 // production never writes.
 func countersignRefFor(t *testing.T, ref trust.Ref) string {
 	t.Helper()
-	refStr, err := operations.CountersignRef(ref)
+	refStr, err := countersign.CountersignRef(ref)
 	require.NoError(t, err)
 	return refStr
 }

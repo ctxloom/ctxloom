@@ -50,10 +50,11 @@ func emptyContextMaterializeFixture(t *testing.T) (*config.Config, string) {
 	rejectEveryBuiltinFragment(t)
 	// Re-seed the fixture's profile so it selects a tag no fragment carries.
 	// materializeFixture writes "reviewer"; overwriting it here is what makes
-	// the assembled context empty.
-	return withProfileDefs(t, cfg, map[string]config.Profile{
+	// the assembled context empty — under the gate that reads the real
+	// rejections just recorded.
+	return realGated(withProfileDefs(t, cfg, map[string]config.Profile{
 		"reviewer": {SelectTags: []string{"no-fragment-carries-this-tag"}},
-	}), target
+	})), target
 }
 
 // TestMaterializeProfile_RefusesEmptyAssembledContext pins this

@@ -5,7 +5,7 @@ package integration
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -30,7 +30,7 @@ import (
 // store where the test found them.
 func isolatedApprovals(t *testing.T) {
 	t.Helper()
-	t.Cleanup(operations.SetHomeApprovalsDirForTesting(t.TempDir()))
+	t.Cleanup(countersign.SetHomeDirForTesting(t.TempDir()))
 }
 
 // isolatedRecords points the §9.7 application-record store at a directory of

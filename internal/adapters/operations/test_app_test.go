@@ -64,6 +64,14 @@ func fixtureApp(t *testing.T, cfg *config.Config) *App {
 	return OpenedApp(owner)
 }
 
+// realGated binds the gate built over cfg's PRODUCTION adapters — the
+// on-disk approvals stores and lockfile — for a test that writes real
+// records and expects the gate to read them.
+func realGated(cfg *config.Config) *config.Config {
+	cfg.BindTrustForTesting(NewExecutableTrustGate(cfg).Trust())
+	return cfg
+}
+
 // gatedFixture is config.NewFixture with a gate bound that admits by
 // locality and withholds what travelled (compositetest.Trust): a fixture that
 // exercises an executable surface must state its gate, and this is what a

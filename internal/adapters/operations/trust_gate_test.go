@@ -315,13 +315,13 @@ fragments:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleContent), 0o644))
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := realGated(gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
 	if _, err := SetBlacklist(cfg, SetBlacklistRequest{Ref: "dev#fragments/blocked"}); err != nil {
 		t.Fatalf("SetBlacklist: %v", err)
 	}
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		return realGated(cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
 			"default": {Fragments: []config.FragmentRef{
 				{Name: "dev#fragments/keep"},
 				{Name: "dev#fragments/blocked"},
@@ -329,7 +329,7 @@ fragments:
 		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-		}), nil
+		})), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{

@@ -54,7 +54,7 @@ func TestApplyHooks_UnreadableApprovalsStore_IsNotReportedAsApplied(t *testing.T
 	t.Cleanup(countersign.SetHomeDirForTesting(t.TempDir()))
 	corruptApprovalsRecord(t, filepath.Join(tmpDir, ".ctxloom", paths.ApprovalsDirName))
 
-	cfg := fixtureConfig(tmpDir)
+	cfg := realGated(fixtureConfig(tmpDir))
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
@@ -79,7 +79,7 @@ func TestApplyHooks_ReadableApprovalsStore_StillApplies(t *testing.T) {
 	writeBundleFixture(t, tmpDir)
 	t.Cleanup(countersign.SetHomeDirForTesting(t.TempDir()))
 
-	cfg := fixtureConfig(tmpDir)
+	cfg := realGated(fixtureConfig(tmpDir))
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,

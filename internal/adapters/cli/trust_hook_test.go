@@ -133,8 +133,8 @@ func TestApplyItemTrustChoice_HookBlacklist(t *testing.T) {
 // answer flips on command. Nothing is ever Approved.
 type toggleRejectRecords struct{ rejected bool }
 
-func (r *toggleRejectRecords) Rejected(trust.Ref, []byte) bool         { return r.rejected }
-func (r *toggleRejectRecords) Approved(trust.Ref, []byte, string) bool { return false }
+func (r *toggleRejectRecords) Rejected(trust.Ref, []byte) bool                      { return r.rejected }
+func (r *toggleRejectRecords) Approved(trust.Ref, []byte, bundles.ContentForm) bool { return false }
 
 // TestPrintBundleHookTrust_ReflectsTrust proves the `bundle show -i` hook listing
 // renders the hook's effective trust + source: a project-authored local hook is

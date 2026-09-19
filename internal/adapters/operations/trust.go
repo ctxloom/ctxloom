@@ -680,10 +680,11 @@ func computeItemPayload(cfg *config.Config, cat bundles.Catalog, tRef trust.Ref,
 // fail-closed DENY (never "trusted"), so a listing can never crash and a hash
 // failure can never produce a trusted stamp. Not safe for concurrent use.
 type TrustStamper struct {
-	cfg    *config.Config
-	loader *bundles.Loader
-	gate   bundles.Authorizer
-	fs     afero.Fs
+	cfg     *config.Config
+	loader  *bundles.Loader
+	gate    bundles.Authorizer
+	records composite.ReviewRecords
+	fs      afero.Fs
 }
 
 // TrustStamperOption injects a pre-built dependency, mirroring the loader
@@ -695,7 +696,7 @@ type TrustStamperOption func(*TrustStamper)
 // generation's: the review records a caller just wrote (a mutation that
 // reports the decision it recorded), or a fixture over an in-memory fs.
 func WithStampRecords(r composite.ReviewRecords) TrustStamperOption {
-	return func(ts *TrustStamper) { ts.gate = trustOverRecords(ts.cfg, r, ts.fs).Authorizer() }
+	return func(ts *TrustStamper) { ts.records = r }
 }
 
 // WithStampLoader injects a pre-built bundle loader (it must resolve the same
@@ -721,6 +722,9 @@ func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamp
 	}
 	for _, o := range opts {
 		o(ts)
+	}
+	if ts.records != nil {
+		ts.gate = trustOverRecords(cfg, ts.records, ts.fs).Authorizer()
 	}
 	if ts.loader == nil && cfg != nil {
 		ts.loader = bundleLoader(cfg)

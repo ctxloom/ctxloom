@@ -183,7 +183,7 @@ func (c Records) Approved(ref trust.Ref, payload []byte, form bundles.ContentFor
 	if len(payload) == 0 || form == "" {
 		return false
 	}
-	attested, err := AttestationFormFor(ref.Kind, signing.Form(form))
+	attested, err := AttestationFormFor(ref.Kind, layoutOf(form))
 	if err != nil {
 		clidiag.Warn("ctxloom", "trust: %q cannot be approved (%v) — treating it as unapproved", ref.Key(), err)
 		return false
@@ -382,4 +382,18 @@ func (c Records) HadPriorApprove(refStr string, layout signing.Form) (bool, erro
 		}
 	}
 	return false, nil
+}
+
+// layoutOf maps the bundle layout vocabulary onto the signing layout form by
+// comparison, never by conversion: a form neither vocabulary names maps to
+// FormNone, which no attestation form is derived for.
+func layoutOf(form bundles.ContentForm) signing.Form {
+	switch form {
+	case bundles.FormRaw:
+		return signing.FormRaw
+	case bundles.FormDistilled:
+		return signing.FormDistilled
+	default:
+		return signing.FormNone
+	}
 }

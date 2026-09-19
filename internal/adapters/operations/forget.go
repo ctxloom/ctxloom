@@ -239,9 +239,23 @@ func remainingDecision(cfg *config.Config, req ForgetItemDecisionRequest, tRef t
 		}
 	}
 	for _, a := range attestations {
-		if records.Approved(tRef, a.Payload, bundles.ContentForm(a.Layout)) {
+		if records.Approved(tRef, a.Payload, contentFormOf(a.Layout)) {
 			return "approved"
 		}
 	}
 	return ""
+}
+
+// contentFormOf maps a stored record's layout form onto the bundle layout
+// vocabulary by comparison, never by conversion: a form neither vocabulary
+// names maps to the empty form, which no approval covers.
+func contentFormOf(layout signing.Form) bundles.ContentForm {
+	switch layout {
+	case signing.FormRaw:
+		return bundles.FormRaw
+	case signing.FormDistilled:
+		return bundles.FormDistilled
+	default:
+		return ""
+	}
 }

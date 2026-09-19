@@ -230,13 +230,19 @@ var LayeringRules = []LayeringRule{
 		},
 		Allowed: map[string]string{
 			"internal/adapters/configload -> internal/adapters/configload/layerscope": "sanctioned: a package's own subpackage",
-			"internal/adapters/companions -> internal/adapters/companions/loadout":    "sanctioned: a package's own subpackage",
-			"internal/adapters/companions/loadout -> internal/adapters/signing":       "slice 5: the loadout envelope is signed and verified through the trust ports",
-			"internal/adapters/configload -> internal/adapters/projectroot":           "slice 7: launch.HostFacts carries the project root from cmd/*",
-			"internal/adapters/operations -> internal/adapters/configload":            "slice 7: the process is composed at cmd/*; operations.App receives the Sources",
-			"internal/adapters/operations -> internal/adapters/companions":            "slice 7: the process is composed at cmd/*; the companion Prober is injected",
-			"internal/adapters/cli -> internal/adapters/configload":                   "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
-			"internal/adapters/cli -> internal/adapters/companions":                   "slice 7: the companion list/show/status commands drive the probe; composed at cmd/*",
+			// sanctioned (Part 1.1): the trust adapters compose each other at the
+			// root — config.Sources.TrustPorts builds the generation's three ports
+			// from the signer store, the countersignature stores and the lockfile.
+			"internal/adapters/configload -> internal/adapters/signing/allowedsigners": "sanctioned: Sources.TrustPorts builds the generation's trust root",
+			"internal/adapters/configload -> internal/adapters/signing/countersign":    "sanctioned: Sources.TrustPorts builds the generation's review records",
+			"internal/adapters/configload -> internal/adapters/remote":                 "sanctioned: Sources.TrustPorts reads the generation's retraction records from the lockfile",
+			"internal/adapters/companions -> internal/adapters/companions/loadout":     "sanctioned: a package's own subpackage",
+			"internal/adapters/companions/loadout -> internal/adapters/signing":        "slice 5: the loadout envelope is signed and verified through the trust ports",
+			"internal/adapters/configload -> internal/adapters/projectroot":            "slice 7: launch.HostFacts carries the project root from cmd/*",
+			"internal/adapters/operations -> internal/adapters/configload":             "slice 7: the process is composed at cmd/*; operations.App receives the Sources",
+			"internal/adapters/operations -> internal/adapters/companions":             "slice 7: the process is composed at cmd/*; the companion Prober is injected",
+			"internal/adapters/cli -> internal/adapters/configload":                    "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
+			"internal/adapters/cli -> internal/adapters/companions":                    "slice 7: the companion list/show/status commands drive the probe; composed at cmd/*",
 			// sanctioned (Part 1.1): the CLI is a frontend over operations; a
 			// package may import its own subpackage.
 			"internal/adapters/cli -> internal/adapters/operations":                                         "sanctioned: cli → operations is one of the two adapter-to-adapter edges Part 0 keeps",

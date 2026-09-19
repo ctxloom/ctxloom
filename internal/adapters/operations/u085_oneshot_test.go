@@ -94,7 +94,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 		trust.Ref{Bundle: "mcp-bundle", Kind: trust.KindMCP, Name: "noisy-server", IsLocal: true},
 		signing.FormRaw, mcpPayloadOf(bundles.BundleMCP{Command: "npx", Args: []string{"-y", "noisy"}}))
 
-	return gatedFixture(config.Fixture{
+	return realGated(gatedFixture(config.Fixture{
 		AppPaths:  []string{appDir},
 		Workspace: "worktree",
 		// bypass: this test is about the withheld-executable warning, not
@@ -104,7 +104,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 			Configs:  map[string]config.LLMConfig{config.DefaultLLM: {Type: config.DefaultLLM, Permissions: "bypass"}},
 			Defaults: config.RoleDefaults{Primary: config.DefaultLLM},
 		},
-	})
+	}))
 }
 
 // TestRunOneshot_SurfacesWithheldExecutable pins that RunOneshot builds an

@@ -3,6 +3,8 @@ package agent
 import (
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -90,11 +92,11 @@ func TestWireMode(t *testing.T) {
 // engine with the host stopgap, prompt-per-call for one without).
 func TestResolveDefault(t *testing.T) {
 	// First declared wins, in order.
-	mode, honoured := ResolveDefault([]string{"plan", "bypass"}, PermissionBypass)
+	mode, honoured := ResolveDefault(report.To(strictness.Sink("ctxloom")), []string{"plan", "bypass"}, PermissionBypass)
 	assert.Equal(t, PermissionPlan, mode)
 	assert.True(t, honoured)
 
-	mode, honoured = ResolveDefault([]string{"", "bypass", "plan"}, PermissionDefault)
+	mode, honoured = ResolveDefault(report.To(strictness.Sink("ctxloom")), []string{"", "bypass", "plan"}, PermissionDefault)
 	assert.Equal(t, PermissionBypass, mode)
 	assert.True(t, honoured)
 }
@@ -109,11 +111,11 @@ func TestResolveDefault_UnsetIsUnchanged(t *testing.T) {
 	strictness.Reset()
 
 	for _, sources := range [][]string{{"", ""}, nil, {}, {"   ", "\t"}} {
-		mode, honoured := ResolveDefault(sources, PermissionBypass)
+		mode, honoured := ResolveDefault(report.To(strictness.Sink("ctxloom")), sources, PermissionBypass)
 		assert.Equal(t, PermissionBypass, mode, "a bypass host default for %#v", sources)
 		assert.True(t, honoured, "unset is honoured for %#v", sources)
 
-		mode, honoured = ResolveDefault(sources, PermissionDefault)
+		mode, honoured = ResolveDefault(report.To(strictness.Sink("ctxloom")), sources, PermissionDefault)
 		assert.Equal(t, PermissionDefault, mode, "a prompting host default for %#v", sources)
 		assert.True(t, honoured, "unset is honoured for %#v", sources)
 	}
@@ -142,7 +144,7 @@ func TestResolveDefault_UnparseableFloorsAndFails(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			strictness.Reset()
 
-			mode, honoured := ResolveDefault(tc.sources, tc.hostDefault)
+			mode, honoured := ResolveDefault(report.To(strictness.Sink("ctxloom")), tc.sources, tc.hostDefault)
 
 			assert.Equal(t, PermissionFloor, mode, "an unhonourable declaration floors to the most restrictive posture")
 			assert.NotEqual(t, PermissionBypass, mode, "a typo must never resolve MORE privileged than what was typed")
@@ -165,7 +167,7 @@ func TestResolveDefault_UnparseableFloorsUnderDegraded(t *testing.T) {
 	strictness.SetDegraded(true)
 	defer strictness.SetDegraded(false)
 
-	mode, honoured := ResolveDefault([]string{"plann"}, PermissionBypass)
+	mode, honoured := ResolveDefault(report.To(strictness.Sink("ctxloom")), []string{"plann"}, PermissionBypass)
 	assert.Equal(t, PermissionFloor, mode, "degraded narrows, it never widens")
 	assert.False(t, honoured)
 	// Degraded suppresses FATALITY, not RECORDING: the finding is still

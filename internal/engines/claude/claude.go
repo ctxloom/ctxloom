@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
 	hew "github.com/benjaminabbitt/hew/go"
 	_ "github.com/benjaminabbitt/hew/go/ext/json"
 	"github.com/spf13/afero"
@@ -894,7 +897,7 @@ func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings, 
 
 // addUnifiedHooks translates unified hooks to Claude Code format and adds them.
 func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, unified wire.UnifiedHooks) {
-	agent.RouteUnifiedHooks(EngineName, []agent.HookRoute{
+	agent.RouteUnifiedHooks(report.To(strictness.Sink("ctxloom")), EngineName, []agent.HookRoute{
 		{Hooks: unified.PreTool, Event: "PreToolUse"},
 		{Hooks: unified.PostTool, Event: "PostToolUse"},
 		{Hooks: unified.SessionStart, Event: "SessionStart"},
@@ -1009,7 +1012,11 @@ const AppMCPServerName = agent.MCPServerName
 // ${CLAUDE_PROJECT_DIR} expands, see MCPConfigPath.
 func (w *ClaudeCodeHookWriter) mcpEntries(bundleMCP map[string]wire.MCPServer) (map[string]agent.ChatMCPConfigEntry, error) {
 	out := make(map[string]agent.ChatMCPConfigEntry)
-	for name, server := range agent.ResolveManagedMCPServers(bundleMCP) {
+	servers, found := agent.ResolveManagedMCPServers(bundleMCP)
+	for _, f := range found {
+		strictness.Sink("ctxloom").Report(f)
+	}
+	for name, server := range servers {
 		if err := server.Validate(); err != nil {
 			return nil, fmt.Errorf("mcp server %q: %w", name, err)
 		}

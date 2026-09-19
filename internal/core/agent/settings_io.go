@@ -11,8 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/spf13/afero"
 )
@@ -77,15 +80,19 @@ func CtxloomCommand() string {
 //
 // servers is never mutated: one resolved bundle set is shared across engines
 // and cells.
-func ResolveManagedMCPServers(servers map[string]wire.MCPServer) map[string]wire.MCPServer {
+//
+// The returned Findings say what a declared ctxloom entry carried that was
+// ignored; the caller renders them.
+func ResolveManagedMCPServers(servers map[string]wire.MCPServer) (map[string]wire.MCPServer, report.Findings) {
 	src, ok := servers[MCPServerName]
 	if !ok {
-		return servers
+		return servers, nil
 	}
 	out := make(map[string]wire.MCPServer, len(servers))
 	maps.Copy(out, servers)
-	out[MCPServerName] = ctxloomOwnMCPServer(src)
-	return out
+	var found report.Findings
+	out[MCPServerName] = ctxloomOwnMCPServer(report.To(&found), src)
+	return out, found
 }
 
 // ctxloomOwnMCPServer builds the entry for ctxloom's OWN MCP server from
@@ -120,14 +127,14 @@ func ResolveManagedMCPServers(servers map[string]wire.MCPServer) map[string]wire
 // abort a launch (or a read-only `ctxloom mcp` listing) over our own shipped
 // content. It is still never silent: a discarded Env is warned about, because
 // an operator who wrote one is entitled to know it did nothing.
-func ctxloomOwnMCPServer(src wire.MCPServer) wire.MCPServer {
+func ctxloomOwnMCPServer(rep report.Reporter, src wire.MCPServer) wire.MCPServer {
 	if len(src.Env) > 0 {
-		clidiag.WarnOnce(CtxloomBinary,
+		rep.WarnOncef(
 			"ignoring the env declared for the %q MCP server (%s): ctxloom's own MCP server runs with the environment ctxloom gives it, never one supplied by whatever declared the entry",
 			MCPServerName, strings.Join(slices.Sorted(maps.Keys(src.Env)), ", "))
 	}
 	if src.IsRemote() {
-		clidiag.WarnOnce(CtxloomBinary,
+		rep.WarnOncef(
 			"ignoring the url declared for the %q MCP server (%s): ctxloom's own MCP server is reached the way ctxloom decides, never at an endpoint supplied by whatever declared the entry",
 			MCPServerName, src.URL)
 	}
@@ -166,14 +173,6 @@ func GetFS(fs afero.Fs) afero.Fs {
 	return fs
 }
 
-// Warn prints a "ctxloom: warning:" line to stderr. Thin wrapper over
-// clidiag.Warn so the family's "<prog>: warning:" format lives in exactly one
-// place; the ctxloom-family callers here (the agent-engine libs, settings and
-// context internals) all warn under the ctxloom name.
-func Warn(format string, args ...any) {
-	clidiag.Warn("ctxloom", format, args...)
-}
-
 // ComputeHookHash returns a short, stable hash of a hook's defining fields.
 // ComputeCommandDigest is the ledger's identity for a hook: a short digest of
 // the command string.
@@ -184,6 +183,15 @@ func Warn(format string, args ...any) {
 // duplicate that content into a second file for no gain. A digest is enough to
 // recognise "ctxloom wrote this one" on the next reconcile, which is the only
 // question the ledger has to answer.
+// Warn is the engine base's remaining route to the process's diagnostic
+// channel. It stays until BaseLifecycle, LaunchBackend and the managed
+// package writers carry a report.Reporter the engines hand in; the sites
+// that already do (ResolveManagedMCPServers, RouteUnifiedHooks,
+// ResolveDefault) report findings instead.
+func Warn(format string, args ...any) {
+	clidiag.Warn("ctxloom", format, args...)
+}
+
 func ComputeCommandDigest(command string) string {
 	sum := sha256.Sum256([]byte(command))
 	return hex.EncodeToString(sum[:8])

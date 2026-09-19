@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // PermissionMode is engine.PermissionMode: the vocabulary is declared once,
@@ -55,7 +56,7 @@ func WireMode(s string) PermissionMode { return engine.WireMode(s) }
 // not apply any widening step (the ONESHOT floor, a backend collapse) to the
 // returned mode: nothing may lift a posture nobody successfully declared.
 // Degraded mode narrows here too — it never widens.
-func ResolveDefault(sources []string, hostDefault PermissionMode) (mode PermissionMode, honoured bool) {
+func ResolveDefault(rep report.Reporter, sources []string, hostDefault PermissionMode) (mode PermissionMode, honoured bool) {
 	fallback := hostDefault
 	if fallback == PermissionNotRequested {
 		fallback = PermissionDefault
@@ -66,7 +67,7 @@ func ResolveDefault(sources []string, hostDefault PermissionMode) (mode Permissi
 		}
 		m, ok := ParsePermissionMode(s)
 		if !ok {
-			strictness.FailOnce(strictness.ClassConfig,
+			rep.FailOncef(report.KindConfig,
 				fmt.Sprintf("set permissions: to one of %s (fix the typo in .ctxloom/config.yaml, the --permissions flag, or the --config-set override)", strings.Join(PermissionModeNames(), "|")),
 				"unknown permissions value %q (known: %s); an unrecognised posture is NOT treated as unset — it would otherwise resolve to %q, so this run is floored to %q (read-only)",
 				s, strings.Join(PermissionModeNames(), "|"), fallback, PermissionFloor)

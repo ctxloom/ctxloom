@@ -8,6 +8,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -693,7 +696,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	// An unhonourable declaration already reported itself as a fatal finding
 	// inside ResolveDefault and came back floored; this call reports what the
 	// launch would use, so it prints the floor rather than re-diagnosing it.
-	effectivePerm, _ := agent.ResolveDefault(
+	effectivePerm, _ := agent.ResolveDefault(report.To(strictness.Sink("ctxloom")),
 		[]string{sub.Permissions, labelEntry.Permissions, cfg.GetPermissions()},
 		backends.PermissionFactsFor(backend).HostDefault)
 

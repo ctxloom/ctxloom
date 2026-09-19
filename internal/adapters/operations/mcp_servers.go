@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -76,7 +78,11 @@ func resolveListConfig(cfg *config.Config) (*config.Config, error) {
 // showed the bundle's literal would disagree with every engine's settings file
 // and with `ctxloom doctor`'s MCP-invocation check.
 func registeredMCPServers(cfg *config.Config) map[string]wire.MCPServer {
-	return agent.ResolveManagedMCPServers(cfg.ResolveBundleMCPServers(nil))
+	servers, found := agent.ResolveManagedMCPServers(cfg.ResolveBundleMCPServers(nil))
+	for _, f := range found {
+		strictness.Sink("ctxloom").Report(f)
+	}
+	return servers
 }
 
 // mcpServerMatches reports whether a server matches the (already lower-cased)

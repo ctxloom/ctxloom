@@ -181,9 +181,8 @@ var LayeringRules = []LayeringRule{
 			// shared/agent → its contract half becomes core/engine. Part 1.0 also
 			// lists lockwait and iox, which Part 0 names as toolbox; the toolbox is
 			// excepted, so those two are not violations.
-			"internal/core/agent -> internal/shared/ledger":     "slice 12: shared/ledger is deleted",
-			"internal/core/agent -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports",
-			"internal/core/agent -> internal/shared/strictness": "slice 15: strictness becomes a value",
+			"internal/core/agent -> internal/shared/ledger":  "slice 12: shared/ledger is deleted",
+			"internal/core/agent -> internal/shared/clidiag": "slice 15: clidiag becomes typed reports",
 		},
 	},
 	{

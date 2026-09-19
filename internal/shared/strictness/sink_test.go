@@ -3,6 +3,7 @@ package strictness_test
 import (
 	"bytes"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -147,4 +148,33 @@ func TestSink_DistinctOnceFindingsAreDistinctLedgerEntries(t *testing.T) {
 	sink.Report(report.FailOncef(report.KindConfig, "", "yaml: did not parse"))
 	sink.Report(report.FailOncef(report.KindConfig, "", "yaml: unknown key foo"))
 	assert.Len(t, strictness.Since(mark), 2)
+}
+
+// Strictness is a VALUE per composition, not a process global: two modes in
+// one process, one degraded and one strict, judge the same findings
+// differently and neither leaks into the other — however they interleave.
+func TestMode_TwoModesInOneProcessDoNotInterfere(t *testing.T) {
+	found := []strictness.Finding{
+		{Class: strictness.ClassConfig, Message: "ordinary"},
+		{Class: strictness.ClassIsolation, Message: "hard", NonDegradable: true},
+	}
+	strict := strictness.Mode{Prog: "ctxloom"}
+	degraded := strictness.Mode{Prog: "taskloom", Degraded: true}
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			assert.Len(t, strict.Actionable(found), 2, "strict mode acts on every finding")
+		}()
+		go func() {
+			defer wg.Done()
+			got := degraded.Actionable(found)
+			if assert.Len(t, got, 1, "degraded mode waives the ordinary finding") {
+				assert.Equal(t, "hard", got[0].Message)
+			}
+		}()
+	}
+	wg.Wait()
 }

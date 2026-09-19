@@ -467,6 +467,22 @@ func Sink(prog string) report.Sink {
 	})
 }
 
+// Mode is the strictness posture ONE composition runs under: the program
+// that renders its findings and whether --degraded waives the ordinary ones.
+// It is a value the composition root builds from its flags and environment
+// and hands down; two compositions in one process may differ, and neither
+// can change the other's.
+type Mode struct {
+	Prog     string
+	Degraded bool
+}
+
+// Actionable filters found to what this mode's gate must act on: everything
+// in strict mode; under Degraded, only the NonDegradable findings.
+func (m Mode) Actionable(found []Finding) []Finding {
+	return Actionable(found)
+}
+
 // Fail reports a fatal-class fault at a choke. The warning line streams to
 // stderr in BOTH modes (identical to the clidiag call it replaces, so command
 // paths that never check findings keep today's diagnostics); in strict mode

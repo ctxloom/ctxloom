@@ -3281,10 +3281,10 @@ Principles: a slice names only types that exist at its start; deletions land aft
 
 **The test-determinism rule, applied per slice.** Every gate asserts something a machine computes — a file set, a field set, a process table, an exit code, an endpoint address, a journal fact — and NEVER the text an engine produced. Where a scenario drives a real engine (R3–R4), the assertion is a MARKER the harness planted (a harp echoed, a file written under a known path), read back deterministically; the model's prose is not compared.
 
-**The reach-back gate**, kept green by every slice, is the named set below. R1/R2 mean what they say only after slice 0 reworks them to stand up a real runner.
+**The reach-back gate**, kept green by every slice, is the named set below. R1/R2 already stand the child up under a real runner subprocess; slice 0's `@negative-probe` scenario in the same feature is what proves they depend on it (with the runner withheld, no result reaches the mailbox). The six are selectable by the `@reach-back` tag, each also by `@R1`..`@R6`.
 
-- **R1** `j002300_cross_engine_delegation.feature` — "A message the coordinator sends via agent_send reaches its child, verified in the child's own next reported turn" (host; real runner after slice 0).
-- **R2** `j002300` — "A delegated child's own turn result reaches the coordinator's mailbox over the bus" (host; real runner after slice 0).
+- **R1** `j002300_cross_engine_delegation.feature` — "A message the coordinator sends via agent_send reaches its child, verified in the child's own next reported turn" (host; real runner, dependency proven by the negative probe).
+- **R2** `j002300` — "A delegated child's own turn result reaches the coordinator's mailbox over the bus" (host; real runner, dependency proven by the negative probe).
 - **R3** `j002300` `@live @probe-p6-steer-echo` outline, Examples tagged `@claude-code @container-rootless @ws-none` — a containerized child echoes a harp steered into its live session: reach-back crosses the container boundary both ways.
 - **R4** `j002300` `@live @probe-p6-steer-echo` outline, Examples tagged `@claude-code @container-rootless @ws-worktree` — the same with a worktree cell.
 - **R5** `j002200_isolation.feature` `@container` — a containerized engine's write reaches the host through the session-dir bind mount (the mount that also carries mail and the claim-check store).

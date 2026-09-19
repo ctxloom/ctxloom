@@ -205,15 +205,13 @@ const (
 
 	// IndexFileName is the name the RETIRED global session index was kept
 	// under at the sessions root. Nothing reads or writes it any more; it is
-	// named only so the one-time migration into per-session sidecars can
-	// find it, and so the walkers over the sessions root know the file for
-	// what it is.
+	// named so the walkers over the sessions root know the file for what it
+	// is.
 	IndexFileName = "index.yaml"
 
-	// MigratedIndexFileName is what the migration renames a consumed
-	// index.yaml to. Its presence is the migration's done-marker: an
-	// index.yaml that appears beside it afterwards (an older binary wrote
-	// one) is ignored, never re-imported.
+	// MigratedIndexFileName is the name an older binary's index migration
+	// left a consumed index.yaml under. Nothing reads it; it is named for
+	// the same reason IndexFileName is.
 	MigratedIndexFileName = "index.yaml.migrated"
 
 	// SessionSidecarFileName is the per-session record at the top level of

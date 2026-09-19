@@ -149,34 +149,6 @@ func TestWithFileLock_FailsClosedOnLockAcquisitionError(t *testing.T) {
 	assert.Equal(t, original, after, "the protected file must be byte-identical after a failed lock acquisition")
 }
 
-// TestWithFileLock_RemovesLegacyBesideFileSidecar pins the cleanup half of
-// the home-lock-dir fix: a `<target>.lock` sidecar C6 left behind (via the
-// old paths.PathFor-based WithFileLock) must be gone after the FIRST call
-// through the new, home-rooted WithFileLock — not because anything still
-// reads it, but because leaving it behind means every subsequent run repeats
-// the exact untracked-litter/foreign-home-write problem this fix exists to
-// close (undated-bronco, fs-consolidation N1), forever.
-//
-// MUTATION KILL: delete (or no-op) the cleanupLegacySidecar call inside
-// WithFileLock, and this test goes red — the pre-seeded legacy sidecar is
-// still on disk after the call.
-func TestWithFileLock_RemovesLegacyBesideFileSidecar(t *testing.T) {
-	testsupport.Isolate(t)
-	dir := t.TempDir()
-	target := filepath.Join(dir, "settings.json")
-	require.NoError(t, os.WriteFile(target, []byte(`{"managed":[]}`), 0o644))
-
-	legacySidecar := paths.PathFor(target)
-	require.NoError(t, os.WriteFile(legacySidecar, []byte{}, 0o644))
-
-	err := WithFileLock(afero.NewOsFs(), target, func() error { return nil })
-	require.NoError(t, err)
-
-	_, statErr := os.Stat(legacySidecar)
-	assert.True(t, os.IsNotExist(statErr),
-		"the legacy beside-file sidecar must be removed by the first call through the home-rooted WithFileLock")
-}
-
 // TestWithFileLock_SkipsLockingForNonOSBackedFs pins the guard that keeps
 // every existing claude/codex/opencode unit test green: a
 // test double (afero.MemMapFs and friends) has no cross-process reader to

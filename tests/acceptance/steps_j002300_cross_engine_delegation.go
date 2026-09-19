@@ -16,31 +16,18 @@
 // base — not one of the features-draft/ placeholders j001000-j002400 reserve), so
 // this journey is numbered j002300.
 //
-// HARNESS/PRODUCT FINDING (reported, not routed around — see the feature
-// file's own header for the full account): the automatic "oneshot turn ->
-// parent mailbox" bridge (coord/children.go's onTurnBoundary ->
-// queueMail(...)) fires ONLY when the spawned backend does NOT implement
-// agent.StructuredChat (operations/delegate.go's PrepareAgentChat: `if _,
-// ok := backends.Get(rs.Backend).(agent.StructuredChat); !ok { p.oneshot =
-// true }`). Every currently registered backend — mock included
-// (internal/lm/backends/mock_chat.go) — implements StructuredChat, so that
-// branch's own doc comment already says it plainly: "today, no production
-// backend; only test doubles". In production, a delegated child's ONLY way
-// to report to its coordinator is to itself decide, inside its own
-// reasoning loop, to call `agent_send(to: "parent", ...)` through its
-// FORWARDER MCP server — nothing bridges a chat child's output
-// automatically. A scripted, non-reasoning backend (mock's Chat(), which
-// only emits ChatEvents — it is not an MCP client and has no path to invoke
-// the coordinator's own agent_send tool) structurally CANNOT do that. So the
-// child->coordinator direction of the bus is provable only against a REAL
-// reasoning engine — the @live scenario below — never hermetically. The
-// hermetic scenarios instead read the child's OWN canonical transcript
-// (internal/transcript/record.go's transcript.jsonl — a first-party ctxloom
-// artifact, not a scrape, and the SAME class of durable, external,
-// disk-backed observable j002100_delegation.feature already established for
-// runs.jsonl) to prove requirement 3 (distinct context) and the
-// coordinator->child half of requirement 4 (a real agent_send call, content
-// verified in the child's own recorded next turn).
+// Both hermetic observables are produced by the child's OWN runner process —
+// the coordinator writes neither: the child's canonical transcript
+// (internal/transcript/record.go's transcript.jsonl, a first-party ctxloom
+// artifact of the same durable, disk-backed class j002100_delegation.feature
+// established for runs.jsonl) proves requirement 3 (distinct context) and
+// the coordinator->child half of requirement 4 (a real agent_send call,
+// content verified in the child's own recorded next turn); the coordinator's
+// own mailbox, read through agent_recv, proves the child->coordinator half
+// through the runner's automatic turn report (coord.EngineHost,
+// spoolturnresult.go). The @negative-probe scenario is what makes that
+// dependency checkable rather than asserted: withhold the runner and neither
+// observable appears.
 package acceptance
 
 import (
@@ -324,12 +311,10 @@ func j002300ReadTranscriptEntries(w *World, harp string) (out []j002300Transcrip
 }
 
 // j002300TranscriptAssistantCount waits (bounded) for harp's transcript to carry
-// AT LEAST want assistant entries, returning them in order. A oneshot
-// tool-subprocess turn (mock spawns a real `ctxloom llm serve mock` process
-// per turn) completes in well under a second locally, but this box runs
-// other agents concurrently (see this session's own shared-state-hygiene
-// brief) — polling tolerates load-induced slack without a fixed sleep either
-// racing or over-waiting.
+// AT LEAST want assistant entries, returning them in order. A mock turn in
+// the child's runner completes in well under a second locally, but this box
+// runs other agents concurrently — polling tolerates load-induced slack
+// without a fixed sleep either racing or over-waiting.
 func j002300TranscriptAssistantCount(w *World, harp string, want int) ([]j002300TranscriptEntry, error) {
 	deadline := time.Now().Add(10 * time.Second)
 	var assistants []j002300TranscriptEntry

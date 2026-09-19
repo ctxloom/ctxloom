@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"path/filepath"
 
 	"github.com/spf13/afero"
@@ -22,7 +23,7 @@ func profileLoaderFS(cfg *config.Config, fs afero.Fs) *profiles.Loader {
 	for _, p := range cfg.GetAppPaths() {
 		dirs = append(dirs, paths.ProfilesPath(p))
 	}
-	return profiles.NewLoader(dirs, profiles.WithFS(fs))
+	return profiles.NewLoader(dirs, profiles.WithFS(fs), profiles.WithReporter(strictness.Sink("ctxloom")))
 }
 
 // loadLocalProfile loads a profile for the edit/export flow, which is

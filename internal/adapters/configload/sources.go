@@ -13,6 +13,7 @@ package configload
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"path/filepath"
 	"time"
 
@@ -135,7 +136,7 @@ func Load(opts ...Option) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	owner, err := config.Open(context.Background(), src)
+	owner, err := config.Open(context.Background(), src, config.WithReporter(strictness.Sink("ctxloom")))
 	if err != nil {
 		return nil, err
 	}

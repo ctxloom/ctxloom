@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"maps"
 	"os"
 	"path/filepath"
@@ -259,6 +260,12 @@ type Config struct {
 	// default), so a "c.fs == nil" check would skip the lock for every real
 	// on-disk config.
 	injectedFS bool
+
+	// rep receives what composing a generation reports about one item
+	// without failing the whole load — a bundle withheld, a profile that
+	// selects nothing, a trust file that cannot be read. The Owner sets it
+	// from the Sink the composition root gave it; the caller renders.
+	rep report.Reporter
 
 	// trust is the generation's gate holder (composite.Trust), bound by the
 	// Owner (bindGeneration) before the Snapshot carrying this Config is
@@ -882,7 +889,7 @@ func (c *Config) GetProfileLoader() *profiles.Loader {
 // (operations.profileLoader synthesizes one for a fresh install); the option set
 // is not a place for it to differ.
 func (c *Config) ProfileLoaderOptions() []profiles.LoaderOption {
-	var opts []profiles.LoaderOption
+	opts := []profiles.LoaderOption{profiles.WithReporter(c.rep.Sink)}
 	if c.fs != nil {
 		opts = append(opts, profiles.WithFS(c.fs))
 	}
@@ -1226,3 +1233,8 @@ func (c *Config) SetFS(fs afero.Fs) {
 	c.fs = fs
 	c.injectedFS = true
 }
+
+// SetReporter names the Sink this Config reports per-item findings to while
+// it composes a generation; nil discards them. The Owner calls it for every
+// generation it builds.
+func (c *Config) SetReporter(sink report.Sink) { c.rep = report.To(sink) }

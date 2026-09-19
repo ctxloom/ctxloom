@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"sync"
 
 	"github.com/spf13/pflag"
@@ -97,7 +98,7 @@ func (a *App) Owner(ctx context.Context) (*config.Owner, error) {
 		a.mu.Lock()
 		a.opened = true
 		a.mu.Unlock()
-		a.owner, a.err = config.Open(ctx, a.src, config.WithEngines(backends.Engines()))
+		a.owner, a.err = config.Open(ctx, a.src, config.WithEngines(backends.Engines()), config.WithReporter(strictness.Sink("ctxloom")))
 	})
 	return a.owner, a.err
 }

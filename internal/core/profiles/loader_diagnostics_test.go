@@ -1,16 +1,16 @@
 package profiles
 
 import (
-	"bytes"
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -113,16 +113,13 @@ func TestList_WarnsWhenAProfileDirectoryCannotBeRead(t *testing.T) {
 	require.NoError(t, base.MkdirAll("/profiles", 0o755))
 	fs := &faultyFs{Fs: base, statErr: map[string]error{"/profiles": errors.New("permission denied")}}
 
-	var warnings bytes.Buffer
-	restore := clidiag.SetSink(&warnings)
-	defer restore()
-
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+	var warnings report.Collector
+	loader := NewLoader([]string{"/profiles"}, WithFS(fs), WithReporter(&warnings))
 	list, err := loader.List()
 	require.NoError(t, err, "List still degrades rather than failing the whole command")
 	assert.Empty(t, list)
-	assert.Contains(t, warnings.String(), "/profiles",
-		"the unreadable profiles directory must be named on stderr")
+	assert.Contains(t, strings.Join(warnings.All().Texts(), "\n"), "/profiles",
+		"the unreadable profiles directory must be named in a finding")
 }
 
 // TestList_WarnsWhenASubdirectoryCannotBeWalked is the same invariant one level
@@ -135,11 +132,8 @@ func TestList_WarnsWhenASubdirectoryCannotBeWalked(t *testing.T) {
 	testsupport.WriteFileString(t, base, "/profiles/team/shared.yaml", "bundles:\n  - go\n", 0o644)
 	fs := &faultyFs{Fs: base, openErr: map[string]error{"/profiles/team": errors.New("permission denied")}}
 
-	var warnings bytes.Buffer
-	restore := clidiag.SetSink(&warnings)
-	defer restore()
-
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+	var warnings report.Collector
+	loader := NewLoader([]string{"/profiles"}, WithFS(fs), WithReporter(&warnings))
 	list, err := loader.List()
 	require.NoError(t, err)
 
@@ -148,8 +142,8 @@ func TestList_WarnsWhenASubdirectoryCannotBeWalked(t *testing.T) {
 		names = append(names, p.Name)
 	}
 	assert.Equal(t, []string{"solo"}, names, "the readable profile is still listed")
-	assert.Contains(t, warnings.String(), "/profiles/team",
-		"the unwalkable subdirectory must be named on stderr")
+	assert.Contains(t, strings.Join(warnings.All().Texts(), "\n"), "/profiles/team",
+		"the unwalkable subdirectory must be named in a finding")
 }
 
 // TestList_NamesAreDirRelativeAndNeverEmpty pins the invariant behind the

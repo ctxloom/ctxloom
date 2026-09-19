@@ -131,11 +131,9 @@ var LayeringRules = []LayeringRule{
 		Allowed: map[string]string{
 			// core/profiles — Part 1.0 lists remote; the other three were MEASURED,
 			// not listed.
-			"internal/core/profiles -> internal/adapters/remote":   "slice 5: the pull-walk reader moves to adapters/remote",
-			"internal/core/profiles -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports (measured; not in Part 1.0's profiles row)",
-			"internal/core/profiles -> internal/shared/strictness": "slice 15: strictness becomes a value (measured; not in Part 1.0's profiles row)",
-			"internal/core/profiles -> internal/shared/upgrade":    "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's profiles row)",
-			"internal/core/profiles -> resources":                  "slice 5: the embedded builtin profiles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
+			"internal/core/profiles -> internal/adapters/remote": "slice 5: the pull-walk reader moves to adapters/remote",
+			"internal/core/profiles -> internal/shared/upgrade":  "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's profiles row)",
+			"internal/core/profiles -> resources":                "slice 5: the embedded builtin profiles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
 
 			// core/bundles
 			"internal/core/bundles -> internal/adapters/content":            "slice 5: readers become adapters behind bundles.Reader",

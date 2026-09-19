@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"os"
 	"path/filepath"
 	"sync"
@@ -89,12 +90,19 @@ func WithEngines(reg engine.Registry) Option {
 	return func(o *Owner) { o.engines = &reg }
 }
 
+// WithReporter names the Sink every generation reports its per-item
+// findings to; without one they are discarded.
+func WithReporter(sink report.Sink) Option {
+	return func(o *Owner) { o.rep = report.To(sink) }
+}
+
 // Owner is the one owner of the loaded configuration in a process (the
 // originator; the runner has none). Exactly one exists, constructed at the
 // composition root by Open, reaching every consumer as a *Snapshot parameter.
 type Owner struct {
 	src     Sources
 	engines *engine.Registry // the engines each generation is validated against; nil = none composed
+	rep     report.Reporter  // where every generation's per-item findings go
 	current atomic.Pointer[Snapshot]
 	gen     atomic.Uint64
 	// writeMu serializes generation builds (Reload, Update): generation
@@ -145,6 +153,7 @@ func (o *Owner) reloadLocked(ctx context.Context) (*Snapshot, error) {
 // binds both to cfg, so a consumer that reaches this generation through its
 // *Config sees the same catalog and gate the Snapshot carries.
 func (o *Owner) build(ctx context.Context, cfg *Config, warnings []Warning) (*Snapshot, error) {
+	cfg.rep = o.rep
 	if o.engines != nil {
 		if err := cfg.Validate(*o.engines); err != nil {
 			warnings = append(warnings, Warning{Kind: WarnKindValidate, Text: err.Error()})

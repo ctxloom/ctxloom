@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
@@ -39,12 +40,14 @@ func WireVerbosity(count int) uint32 {
 	return uint32(count * VerbosityStep)
 }
 
-// ExecutionMode defines how the backend should execute.
-type ExecutionMode int32
+// ExecutionMode is engine.Mode under this package's established name: how
+// the backend should execute. ModeOneshot is the structured drive (a single
+// prompt/response over the engine's native protocol, exit after).
+type ExecutionMode = engine.Mode
 
 const (
-	ModeInteractive ExecutionMode = 0 // Full interactive session
-	ModeOneshot     ExecutionMode = 1 // Single prompt/response, exit after
+	ModeInteractive = engine.Interactive
+	ModeOneshot     = engine.Structured
 )
 
 // Fragment is one piece of context — a bundle fragment — with its metadata. It

@@ -56,8 +56,7 @@ const (
 
 // j001200State is this journey's fixture state.
 type j001200State struct {
-	entries []string // accumulated index entries, so multiple harps coexist
-	ready   bool
+	ready bool
 }
 
 func j001200Of(w *World) *j001200State {
@@ -67,24 +66,21 @@ func j001200Of(w *World) *j001200State {
 	return w.j001200
 }
 
-// j001200AddIndexEntry appends one session to the index and rewrites it. Shaped
-// like steps_j001000_transcript_capture.go's j001000AddIndexEntry (accumulating rather
-// than overwriting) because a recall journey is inherently multi-session: a
-// search that returns one hit proves nothing unless there was something else
-// it could have returned instead.
-func j001200AddIndexEntry(w *World, harp, summary, transcriptPath string) error {
-	st := j001200Of(w)
-	st.entries = append(st.entries, fmt.Sprintf(
-		"  - harp_name: %s\n"+
-			"    session_id: seeded-%s\n"+
-			"    backend: mock\n"+
-			"    engine_version: "+j001000SeededEngineVersion(config.BackendMock)+"\n"+
-			"    project_dir: %s\n"+
-			"    started_at: 2026-03-14T00:00:00Z\n"+
-			"    ended_at: 2026-03-14T02:00:00Z\n"+
-			"    transcript_path: %q\n"+
-			"    summary: %s\n", harp, harp, w.env.ProjectDir, transcriptPath, summary))
-	return w.env.WriteHomeFile(".ctxloom/sessions/index.yaml", "sessions:\n"+strings.Join(st.entries, ""))
+// j001200AddIndexEntry records one ended session for harp bound to
+// transcriptPath. A recall journey is inherently multi-session — a search
+// that returns one hit proves nothing unless there was something else it
+// could have returned — and each call plants its own session directory, so
+// earlier sessions survive later additions. The summary a listing shows
+// comes from the harp's essence, never from this record.
+func j001200AddIndexEntry(w *World, harp, _, transcriptPath string) error {
+	return seedSessionSidecar(w, harp, sessionSeed{
+		SessionID:      "seeded-" + harp,
+		Backend:        config.BackendMock,
+		EngineVersion:  j001000SeededEngineVersion(config.BackendMock),
+		StartedAt:      "2026-03-14T00:00:00Z",
+		EndedAt:        "2026-03-14T02:00:00Z",
+		TranscriptPath: transcriptPath,
+	})
 }
 
 // j001200HarpHome returns a harp's directory relative to the isolated HOME.

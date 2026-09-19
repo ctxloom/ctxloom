@@ -15,8 +15,7 @@
 //     0600 files / 0700 dirs); verification is constant-time per request;
 //     revocation at run end severs the credential's streams and parked polls;
 //   - the agentcoord.v1 gRPC server — RunnerChannel (Wave B1) and RunChannel
-//     (Wave C1/B1.6) are both live, and they are its whole surface; the
-//     PublishEvents fallback (publish.go) is in-process only — and the
+//     (Wave C1/B1.6) are both live, and they are its whole surface — and the
 //     streamable-HTTP MCP endpoint
 //     children and the parent harness dial with `CTXLOOM_COORD_URL` +
 //     `CTXLOOM_COORD_CRED`;

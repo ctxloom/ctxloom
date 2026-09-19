@@ -42,7 +42,7 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// The engine received the briefing with the composed context leading it
-	// (the leadContextIn contract, performed once coordinator-side).
+	// (joined once coordinator-side).
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
 		return sc != nil && len(sc.recordedTexts()) == 1

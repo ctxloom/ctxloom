@@ -34,16 +34,11 @@ import (
 )
 
 // j001000State accumulates this journey's fixture state across a scenario's
-// steps. steps_fixture.go's own "a recorded session" step writes a single
-// fresh index.yaml per call (fine for every OTHER journey, which only ever
-// seeds one session per scenario) — so this journey keeps its own running list
-// of raw YAML fragments and rewrites the whole file on each addition instead
-// of overwriting the previous entry.
+// steps.
 type j001000State struct {
-	indexEntries []string          // raw "  - harp_name: ...\n" YAML fragments, in the order they were added
-	backends     map[string]string // harp -> the backend registry name its index entry claims
-	saved        map[string]string // "remember/original" snapshots, keyed by name or "original:<harp>"
-	noted        map[string][]int  // harp -> the seq of every record its transcript held when noted
+	backends map[string]string // harp -> the backend registry name its session record claims
+	saved    map[string]string // "remember/original" snapshots, keyed by name or "original:<harp>"
+	noted    map[string][]int  // harp -> the seq of every record its transcript held when noted
 }
 
 func j001000From(w *World) *j001000State {
@@ -151,25 +146,18 @@ func enginePinFromLock(key string) string {
 // else in this suite.
 func j001000SessionID(harp string) string { return "seeded-" + harp }
 
-// j001000AddIndexEntry appends one session to the home index.yaml, preserving
-// every entry a prior call in this scenario already wrote (see j001000State's
-// doc comment). project_dir is the live project so current-project listing
-// finds it too, mirroring steps_fixture.go's "a recorded session" step.
+// j001000AddIndexEntry records one session for harp on backend, bound to
+// transcriptPath, and remembers the backend for the journey's later steps.
 func j001000AddIndexEntry(w *World, harp, backend, transcriptPath string) error {
 	st := j001000From(w)
-	entry := fmt.Sprintf("  - harp_name: %s\n"+
-		"    session_id: %s\n"+
-		"    backend: %s\n"+
-		"    project_dir: %s\n"+
-		"    started_at: 2026-01-01T00:00:00Z\n"+
-		"    transcript_path: %q\n"+
-		"    engine_version: %s\n"+
-		"    summary: seeded acceptance session\n",
-		harp, j001000SessionID(harp), backend, w.env.ProjectDir, transcriptPath, j001000SeededEngineVersion(backend))
-	st.indexEntries = append(st.indexEntries, entry)
 	st.backends[harp] = backend
-	body := "sessions:\n" + strings.Join(st.indexEntries, "")
-	return w.env.WriteHomeFile(".ctxloom/sessions/index.yaml", body)
+	return seedSessionSidecar(w, harp, sessionSeed{
+		SessionID:      j001000SessionID(harp),
+		Backend:        backend,
+		StartedAt:      "2026-01-01T00:00:00Z",
+		TranscriptPath: transcriptPath,
+		EngineVersion:  j001000SeededEngineVersion(backend),
+	})
 }
 
 // j001000RecallArgs builds the memory-tool arguments for harp. The engine is

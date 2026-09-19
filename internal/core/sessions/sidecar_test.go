@@ -149,10 +149,9 @@ purged_at: 2026-09-02T09:00:00Z
 func TestListAll_StaleIndexYAMLLeftBehindIsIgnored(t *testing.T) {
 	_, root := openSidecarRoot(t)
 	writeSidecar(t, root, "real-one", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
-	// The migration marker says the one-time import already happened. An
-	// index.yaml that appears after that — an older binary wrote one — is
-	// not a second source of sessions: its rows are neither listed nor
-	// re-imported as directories.
+	// An index.yaml at the root — an older binary wrote one, beside or
+	// without the marker its own migration left — is not a source of
+	// sessions: its rows are neither listed nor turned into directories.
 	require.NoError(t, os.WriteFile(filepath.Join(root, paths.IndexFileName+".migrated"), []byte("sessions: []\n"), 0o644))
 	stale := filepath.Join(root, paths.IndexFileName)
 	require.NoError(t, os.WriteFile(stale, []byte(`sessions:
@@ -162,8 +161,7 @@ func TestListAll_StaleIndexYAMLLeftBehindIsIgnored(t *testing.T) {
     started_at: 2026-08-01T10:00:00Z
 `), 0o644))
 
-	// Re-Open so the one-time migration runs again against the stale file:
-	// the marker must make it a no-op, never a re-import.
+	// Re-Open against the stale file: nothing may read it.
 	m2, err := Open()
 	require.NoError(t, err)
 	got, err := m2.ListAll()
@@ -177,67 +175,6 @@ func TestListAll_StaleIndexYAMLLeftBehindIsIgnored(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "ignored means ignored: no directory is minted for a stale row")
 	_, statErr = os.Stat(stale)
 	assert.NoError(t, statErr, "the stale file is left alone, not consumed")
-}
-
-func TestOpen_MigratesIndexYAMLToSidecarsOnceAndLosslessly(t *testing.T) {
-	requireIsolatedSessionRoot(t)
-	root, err := paths.HomeSessionsDir()
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "has-dir", paths.PersistDirName), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, paths.IndexFileName), []byte(`sessions:
-  - harp_name: has-dir
-    session_id: sess-1
-    backend: claude-code
-    project_dir: /proj/a
-    started_at: 2026-09-01T10:00:00Z
-    transcript_path: /vendor/one.jsonl
-    source_entries: 7
-    rotations:
-      - session_id: sess-0
-        transcript_path: /vendor/zero.jsonl
-        rotated_at: 2026-09-01T10:30:00Z
-  - harp_name: no-dir-yet
-    backend: codex
-    project_dir: /proj/b
-    started_at: 2026-09-03T10:00:00Z
-    purged_at: 2026-09-04T10:00:00Z
-`), 0o644))
-
-	m, err := Open()
-	require.NoError(t, err)
-	got, err := m.ListAll()
-	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"has-dir", "no-dir-yet"}, harpNames(got), "every index row becomes a session directory; none is lost")
-
-	byName := map[string]Entry{}
-	for _, e := range got {
-		byName[e.HarpName] = e
-	}
-	assert.Equal(t, 7, byName["has-dir"].SourceEntries)
-	require.Len(t, byName["has-dir"].Rotations, 1)
-	assert.Equal(t, "sess-0", byName["has-dir"].Rotations[0].SessionID)
-	assert.NotNil(t, byName["no-dir-yet"].PurgedAt, "a purged row stays purged across the migration")
-
-	rotated, err := m.FindBySessionID("sess-0")
-	require.NoError(t, err)
-	require.NotNil(t, rotated)
-	assert.Equal(t, "has-dir", rotated.HarpName)
-
-	_, statErr := os.Stat(filepath.Join(root, paths.IndexFileName))
-	assert.True(t, os.IsNotExist(statErr), "after the migration index.yaml is gone from its old name")
-
-	// Re-entry: every launch may run this again. Nothing is duplicated and
-	// state written SINCE the migration is never overwritten by it.
-	require.NoError(t, m.MarkEnded("has-dir", time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)))
-	m2, err := Open()
-	require.NoError(t, err)
-	again, err := m2.ListAll()
-	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"has-dir", "no-dir-yet"}, harpNames(again))
-	after, err := m2.Find("has-dir")
-	require.NoError(t, err)
-	require.NotNil(t, after)
-	assert.NotNil(t, after.EndedAt, "a second entry into the migration must not clobber a sidecar written after the first")
 }
 
 func TestListAll_SummaryAndDetailDerivedFromEssence(t *testing.T) {
@@ -332,4 +269,31 @@ func TestForget_RemovesTheSidecarAndLeavesTheDirectory(t *testing.T) {
 	assert.Empty(t, harpNames(all), "without its sidecar the directory is no longer a session")
 	_, statErr := os.Stat(authored)
 	assert.NoError(t, statErr, "forgetting drops the record, never the authored files beside it")
+}
+
+// TestIsSessionDir pins the one predicate every walker over the sessions
+// root answers "is this a session" through.
+func TestIsSessionDir(t *testing.T) {
+	requireIsolatedSessionRoot(t)
+	root, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(root, 0o755))
+
+	writeSidecar(t, root, "with-sidecar", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "bare-dir", paths.PersistDirName), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, paths.IndexFileName), []byte("sessions: []\n"), 0o644))
+	require.NoError(t, os.Symlink(filepath.Join(root, "with-sidecar"), filepath.Join(root, "link-to-session")))
+
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	got := map[string]bool{}
+	for _, e := range entries {
+		got[e.Name()] = IsSessionDir(root, e)
+	}
+	assert.Equal(t, map[string]bool{
+		"with-sidecar":      true,
+		"bare-dir":          false, // a directory without the sidecar is not a session: it is what `session remove` leaves
+		paths.IndexFileName: false, // a file at the root
+		"link-to-session":   false, // never follow a symlink into (or out of) the root
+	}, got)
 }

@@ -93,18 +93,16 @@ func startSessionAfter(w *World, source, transcript string) error {
 	return w.env.RunWithStdin(string(payload), "hook", "inject-context", "no-such-context")
 }
 
-// seedJ000900IndexBinding writes a session-index entry for j000900Harp,
-// bound to sessionID, and points CTXLOOM_SESSION_HARP at it — the fixture
-// shape currentSessionRecoverable actually reads.
+// seedJ000900IndexBinding records j000900Harp bound to sessionID and points
+// CTXLOOM_SESSION_HARP at it — the fixture shape currentSessionRecoverable
+// actually reads.
 func seedJ000900IndexBinding(w *World, sessionID string) error {
 	w.env.SetChildEnv("CTXLOOM_SESSION_HARP", j000900Harp)
-	entry := fmt.Sprintf("sessions:\n"+
-		"  - harp_name: %s\n"+
-		"    backend: mock\n"+
-		"    project_dir: %s\n"+
-		"    session_id: %s\n"+
-		"    started_at: 2026-03-14T00:00:00Z\n", j000900Harp, w.env.ProjectDir, sessionID)
-	return w.env.WriteHomeFile(".ctxloom/sessions/index.yaml", entry)
+	return seedSessionSidecar(w, j000900Harp, sessionSeed{
+		SessionID: sessionID,
+		Backend:   "mock",
+		StartedAt: "2026-03-14T00:00:00Z",
+	})
 }
 
 func registerJ000900RecoverSteps(ctx *godog.ScenarioContext) {

@@ -251,8 +251,7 @@ flowchart LR
 | `isolationGateErr` | `oneshot.go:286` | Turns `ClassIsolation` strictness findings into a member-fatal error unless degraded — the fail-loud isolation gate. |
 | `PrepareAgentChat` | `delegate.go:167` | Resolves the workspace axis, handles a dirty parent tree (commit / copy-snapshot / fail), prepares isolation, and picks the chat vs one-shot path. Callers: `coord/spawner.go:410,458`. |
 | `handleDirtyParentTree` / `commitDirtyTree` / `applyCopySnapshot` | `delegate.go:494,581,652` | The dirty-tree policy: a detached HEAD or a missing acknowledgement refuses to auto-commit; `copySnapshot` captures patch + untracked list once so there is no drift window. |
-| `PreparedAgentChat.Start` / `.StartEngine` / `.startOneshot` / `.Abort` | `delegate.go:831,734,965,689` | The three launch protocols and idempotent teardown. |
-| `leadContextIn` | `delegate.go:928` | Prepends the composed context to a delegated child's first turn. |
+| `PreparedAgentChat.StartEngine` / `.Abort` | `delegate.go` | The StartRun launch and idempotent teardown. |
 
 ## Sessions, feeds and transcripts
 
@@ -337,8 +336,6 @@ flowchart LR
   `init.go:84` are direct `afero.WriteFile` calls with no merge and no existence check, while the
   seed profile at `init.go:104-105` is write-if-absent. Preservation semantics are therefore not
   uniform within one function.
-- `doc.go` states that operations return JSON-serializable structs and do no output formatting;
-  `AgentChatLaunch` (`delegate.go:124`) carries live channels and closures.
 - `EffectiveTrust`'s `error` return is never non-nil, so `review.go:306`'s
   `err != nil || res == nil` guard is unreachable.
 - `AcceptReviewItems` (`review.go:464`) documents itself as backing review's "accept all"; the

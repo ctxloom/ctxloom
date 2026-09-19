@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -43,14 +44,14 @@ func fakeHostHome(t *testing.T, creds string) string {
 	return home
 }
 
-// mustClaudeInstance resolves one session's instance through the owning
-// engine package's OWN helper, so these assertions cannot drift from the
-// resolution the production path uses.
+// mustClaudeInstance resolves one session's instance the way the descriptor
+// does — the session home plus the engine's declared HomeVar.Subdir — so
+// these assertions cannot drift from the resolution the production path uses.
 func mustClaudeInstance(t *testing.T, workDir, harp string) string {
 	t.Helper()
-	dir, err := claude.SessionConfigDir(workDir, harp)
+	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harp)
 	require.NoError(t, err)
-	return dir
+	return filepath.Join(root, claude.HomeLeaf)
 }
 
 // The two session names every case here keys its instances by.

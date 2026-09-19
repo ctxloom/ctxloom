@@ -16,7 +16,7 @@ import (
 // TestListAllSessions_StaleIndexYAMLIsNotASource pins, at the operations
 // façade every frontend reads through, that the session listing is the set of
 // session directories and nothing else: an index.yaml sitting at the root
-// after the one-time migration contributes no rows.
+// contributes no rows.
 func TestListAllSessions_StaleIndexYAMLIsNotASource(t *testing.T) {
 	testsupport.Isolate(t)
 	mgr, err := sessions.Open()

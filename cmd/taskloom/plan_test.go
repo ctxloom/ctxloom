@@ -11,26 +11,28 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
-// seedPlanWorld lays down plan files plus the session index that attributes
-// them, inside an isolated home. Returns the home dir.
+// seedPlanWorld lays down plan files plus the session sidecars that attribute
+// them — the store's live on-disk shape: a directory per harp whose sidecar
+// carries project_dir — inside an isolated home. Orphan harps get a plan but
+// no sidecar, so no session claims them. Returns the home dir.
 func seedPlanWorld(t *testing.T, harpToDir map[string]string, orphanHarps ...string) string {
 	t.Helper()
 	home := taskstest.Isolate(t)
-	body := "sessions:\n"
 	for harp, dir := range harpToDir {
 		writePlanFile(t, home, harp)
-		body += "    - harp_name: " + harp + "\n      project_dir: " + dir + "\n"
+		writeFile(t, filepath.Join(home, ".ctxloom", "sessions", harp, paths.SessionSidecarFileName),
+			"project_dir: "+dir+"\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
 	}
 	for _, harp := range orphanHarps {
 		writePlanFile(t, home, harp)
 	}
-	writeFile(t, filepath.Join(home, ".ctxloom", "sessions", "index.yaml"), body)
 	return home
 }
 

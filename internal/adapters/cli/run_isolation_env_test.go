@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
@@ -139,8 +140,7 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
 
-		want, err := claude.SessionConfigDir(workDir, "test-harp")
-		require.NoError(t, err)
+		want := claudeInstanceDir(t, workDir, "test-harp")
 		assert.Equal(t, want, st.req.Options.Env[claude.ConfigDirEnv])
 		assert.Contains(t, want, "test-harp",
 			"prepareWorkspace must pass THIS SESSION's harp — st.activeHarp, assigned by openSession before this runs")
@@ -269,8 +269,7 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 
 		require.Equal(t, "worktree", st.policy.Name(), "the worktree axis must not have degraded — the orthogonality claim needs a real worktree")
 		require.NotEqual(t, repo, st.ws.Dir())
-		want, err := claude.SessionConfigDir(repo, "test-harp")
-		require.NoError(t, err)
+		want := claudeInstanceDir(t, repo, "test-harp")
 		assert.Equal(t, want, st.req.Options.Env[claude.ConfigDirEnv],
 			"the worktree cell's home is the session instance under the PROJECT root, exactly as on the live tree")
 		assert.NotContains(t, isolation.WorkspaceEnv(st.ws), claude.ConfigDirEnv,
@@ -304,4 +303,14 @@ func initIsolationTestRepo(t *testing.T) string {
 	run("add", "README.md")
 	run("commit", "-m", "seed")
 	return dir
+}
+
+// claudeInstanceDir is the CLAUDE_CONFIG_DIR a session-homed run is pointed
+// at: the session home plus the descriptor's declared leaf, resolved the way
+// the production path does so the assertion cannot drift from it.
+func claudeInstanceDir(t *testing.T, workDir, harp string) string {
+	t.Helper()
+	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harp)
+	require.NoError(t, err)
+	return filepath.Join(root, claude.HomeLeaf)
 }

@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 const (
@@ -76,9 +75,9 @@ func TestArch_LayoutHasNoHarpKeyedRows(t *testing.T) {
 // traversing one, returning no path at all, so there is no expression a
 // harpless caller could even write.
 //
-// The roster is every function that resolves an instance: the two shared joins
-// plus each engine's own leaf-owning helper. A new home-controlled engine adds
-// a row here.
+// The roster is every function that resolves an instance: the two shared
+// joins. An engine contributes only a leaf (its HomeVar.Subdir), never a
+// resolver of its own, so there is no per-engine row to add.
 func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
 	const workDir = "/proj"
 	app := filepath.Join(workDir, paths.AppDirName)
@@ -89,7 +88,6 @@ func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
 	}{
 		{"paths.SessionStatePath", func(h string) (string, error) { return paths.SessionStatePath(app, h) }},
 		{"paths.SessionHomePath", func(h string) (string, error) { return paths.SessionHomePath(app, h) }},
-		{"claude.SessionConfigDir", func(h string) (string, error) { return claude.SessionConfigDir(workDir, h) }},
 	}
 
 	for _, r := range resolvers {
@@ -116,13 +114,11 @@ func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
 }
 
 // pairwiseDistinctViolations reports one message per pair of engines whose
-// instance directories collide. It is the collision-detection half of
-// TestArch_EngineInstanceLeavesArePairwiseDistinct, pulled out to a pure
-// function so it can be driven by a synthetic fixture
-// (TestArch_EngineInstanceLeavesPairwiseDistinct_SyntheticFixture) as well as
-// by the real engine registry — the synthetic fixture is what proves this
-// logic actually catches a collision instead of only ever seeing the
-// one-element map today's single real engine produces.
+// instance directories collide: each engine's leaf (its HomeVar.Subdir)
+// hangs off the same <harp>/home directory, so two engines in one session
+// must never resolve to the same directory. A pure function so the
+// synthetic fixture below can drive its collision branch before a second
+// home-controlled engine exists.
 func pairwiseDistinctViolations(dirs map[string]string) []string {
 	var violations []string
 	seen := map[string]string{}
@@ -135,45 +131,9 @@ func pairwiseDistinctViolations(dirs map[string]string) []string {
 	return violations
 }
 
-// TestArch_EngineInstanceLeavesArePairwiseDistinct is what lets ONE session
-// root host every engine: each engine's own leaf hangs off the same
-// <harp>/home directory, so two engines in one session can never read each
-// other's config or credentials.
-//
-// NOTE ON REACH: only one home-controlled engine is registered today, so this
-// test's own map has one element and its call into pairwiseDistinctViolations
-// can find no pair to compare. That is a property of the real registry, not
-// of the collision-detection logic itself — see
-// TestArch_EngineInstanceLeavesPairwiseDistinct_SyntheticFixture, which drives
-// that same helper with synthetic engine leaves so the pairwise branch is
-// actually exercised, and demonstrably fails on a collision, before a second
-// real engine ever exists. Adding a second home-controlled engine here is what
-// lets THIS test's own map start exercising it too.
-func TestArch_EngineInstanceLeavesArePairwiseDistinct(t *testing.T) {
-	const workDir = "/proj"
-	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), archHarpA)
-	if err != nil {
-		t.Fatalf("paths.SessionHomePath() error = %v", err)
-	}
-
-	claudeDir, err := claude.SessionConfigDir(workDir, archHarpA)
-	if err != nil {
-		t.Fatalf("claude.SessionConfigDir() error = %v", err)
-	}
-	dirs := map[string]string{"claude-code": claudeDir}
-	for engine, dir := range dirs {
-		if filepath.Dir(dir) != root {
-			t.Errorf("%s's instance %q does not hang directly off the session home root %q", engine, dir, root)
-		}
-	}
-	for _, v := range pairwiseDistinctViolations(dirs) {
-		t.Error(v)
-	}
-}
-
 // TestArch_EngineInstanceLeavesPairwiseDistinct_SyntheticFixture exercises the
-// pairwise-collision branch of TestArch_EngineInstanceLeavesArePairwiseDistinct
-// without waiting for a second home-controlled engine to be registered. It
+// pairwise-collision branch without waiting for a second home-controlled
+// engine to be registered. It
 // drives pairwiseDistinctViolations directly with synthetic engine leaves:
 // one fixture with distinct leaves (must report nothing) and one with a
 // deliberate collision (must be caught). The collision case is the one that
@@ -207,31 +167,4 @@ func TestArch_EngineInstanceLeavesPairwiseDistinct_SyntheticFixture(t *testing.T
 			t.Errorf("violation message = %q, want substring %q", violations[0], wantSubstr)
 		}
 	})
-}
-
-// TestArch_SessionInstancesDoNotShareAcrossSessions is the per-session property
-// asserted across every home-controlled engine package at once: session A's instance and
-// session B's instance are different directories for every engine, so a
-// coordinator and a concurrent second session in the same checkout cannot
-// clobber each other's engine config or read each other's copied credentials.
-func TestArch_SessionInstancesDoNotShareAcrossSessions(t *testing.T) {
-	const workDir = "/proj"
-	for _, r := range []struct {
-		name string
-		fn   func(harp string) (string, error)
-	}{
-		{"claude.SessionConfigDir", func(h string) (string, error) { return claude.SessionConfigDir(workDir, h) }},
-	} {
-		a, err := r.fn(archHarpA)
-		if err != nil {
-			t.Fatalf("%s(A) error = %v", r.name, err)
-		}
-		b, err := r.fn(archHarpB)
-		if err != nil {
-			t.Fatalf("%s(B) error = %v", r.name, err)
-		}
-		if a == b {
-			t.Errorf("%s resolves ONE directory (%q) for two sessions; instances are per-session", r.name, a)
-		}
-	}
 }

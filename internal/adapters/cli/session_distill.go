@@ -63,7 +63,7 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 		// looked stale or title-less — never for every row in the sweep
 		// (RefreshVendorTranscript's own doc: "a sweep across an index must
 		// not" pay the heal unconditionally).
-		src, herr := operations.ResolveAndHeal(cmd.Context(), e.HarpName, operations.LivenessUnknown)
+		src, herr := operations.ResolveAndHeal(cmd.Context(), e.HarpName)
 		if herr != nil {
 			clidiag.Warn("ctxloom", "could not resolve %s: %v", e.HarpName, herr)
 			continue

@@ -23,7 +23,7 @@ func TestDescriptor_NameIsTheEnginePackagesOwn(t *testing.T) {
 }
 
 // The home declaration is built from the engine's own constants, so the
-// directory the seed lands in IS the directory SessionConfigDir names.
+// directory the seed lands in IS the directory CLAUDE_CONFIG_DIR names.
 func TestDescriptor_HomeIsBuiltFromClaudesOwnConstants(t *testing.T) {
 	home, ok := Descriptor().Home.Get()
 	require.True(t, ok)
@@ -40,21 +40,6 @@ func TestDescriptor_HomeIsBuiltFromClaudesOwnConstants(t *testing.T) {
 	assert.Equal(t, filepath.ToSlash(filepath.Join(claude.ConfigDirName, claude.CredentialsFileName)), seed.Files[0].HostRelHome)
 	assert.Equal(t, claude.CredentialsFileName, seed.Files[0].DestName)
 	assert.True(t, seed.Files[0].Required)
-}
-
-// The seed's destination leaf and the directory CLAUDE_CONFIG_DIR is pointed
-// at are decided by different code (the descriptor and SessionConfigDir);
-// they must be the same directory, or the engine reads a home nothing
-// prepared. Both sides are read here, neither is re-typed.
-func TestDescriptor_SeedLandsWhereSessionConfigDirPoints(t *testing.T) {
-	home, ok := Descriptor().Home.Get()
-	require.True(t, ok)
-	seed, ok := home.Credentials.Get()
-	require.True(t, ok)
-
-	dir, err := claude.SessionConfigDir(filepath.Join(string(filepath.Separator), "proj"), "ugly-icy-squid")
-	require.NoError(t, err)
-	assert.Equal(t, seed.Subdir, filepath.Base(dir), "the seed must land in the leaf CLAUDE_CONFIG_DIR names")
 }
 
 func TestDescriptor_ContainerAuthPrefersEnvAndMountsTheRealCredentialReadWrite(t *testing.T) {

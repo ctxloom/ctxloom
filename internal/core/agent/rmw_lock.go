@@ -104,24 +104,5 @@ func WithFileLock(fs afero.Fs, target string, fn func() error) error {
 		return fmt.Errorf("agent: acquiring settings lock for %s: %w", target, err)
 	}
 	defer func() { _ = fl.Unlock() }()
-	cleanupLegacySidecar(target)
 	return fn()
-}
-
-// cleanupLegacySidecar best-effort removes the beside-file sidecar
-// (paths.PathFor(target)) C6 left behind before this fix moved
-// cross-binary locking to the home lock dir (undated-bronco, fs-consolidation
-// N1). It runs AFTER the real lock is held, never before, so it cannot race
-// this call's own critical section.
-//
-// Best-effort and silent on purpose: removing litter must never fail a write
-// that would otherwise succeed, and a lock file carries no data — losing the
-// race with another process's identical cleanup, or finding nothing there at
-// all (the common case, once every process on the machine has run this once),
-// are both unremarkable. os.Remove on a path another process still has open
-// is safe on POSIX (unlink does not invalidate an open fd's flock); Windows'
-// mandatory locking may leave the legacy sidecar behind if something else
-// still holds it, which self-heals the next time nobody does.
-func cleanupLegacySidecar(target string) {
-	_ = os.Remove(paths.PathFor(target))
 }

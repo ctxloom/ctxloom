@@ -54,13 +54,11 @@ classDiagram
         +Distilled · EssencePath  «never written»
         +SourceStale() (bool, bool)
     }
-    class tsNormalizeUpgrade { +Name() string; +Apply(*yaml.Node) bool }
 
     Store <|.. Manager
     Store <|.. MemStore
     Manager ..> Index : yaml load/save under flock
     Index "1" o-- "*" Entry
-    Manager ..> tsNormalizeUpgrade : indexUpgrades pipeline
     Manager ..> paths : HarpDir · SessionIndexPath · HarpTranscriptStoreDir
     Manager ..> flock : Lock(path + ".lock")
     Manager ..> iox : WriteFileAtomic
@@ -89,7 +87,6 @@ flowchart LR
 | `Store` | `store.go:19` | The storage port; twelve methods, deliberately narrower than `*Manager` (`Path` and `SetSummary` stay off it). Compile-time assertions at `store.go:35-38` |
 | `Manager` | `index.go:102` | The filesystem adapter: `{path, mu, pendingUpgrade}` |
 | `MemStore` | `memstore.go:18` | The in-memory adapter (ADR 0026). 22 external test call sites of `NewMemStore`; `internal/adapters/transcript/history_test.go` and `internal/lm/grpc/canonical_source_test.go` both build against it |
-| `tsNormalizeUpgrade` | `index_upgrade.go:25` | The one registered index upgrade: rewrites `started_at`/`ended_at` scalars to canonical RFC3339Nano so Go's RFC3339-only decoder stops rejecting externally-written timestamps |
 
 ---
 
@@ -115,7 +112,6 @@ flowchart LR
 | `SetSummary` | `index.go:732` | Overwrites `Summary`, `Detail`, `SourceSize`. One production call site: `internal/adapters/memory/compactor.go:579` |
 | `saveLocked` | `index.go:758` | Marshal + `iox.WriteFileAtomic` + clear `pendingUpgrade` |
 | `generateUniqueHarp` | `index.go:775` | 100 tries against a used-set, then one unredeemed fallback — a verbatim reimplementation of the shared `harp.UniqueFrom` (`internal/shared/harp/harp.go:185-193`) |
-| `normalizeTimestampNode` / `parseTimestamp` | `index_upgrade.go:66`, `:91` | |
 
 ---
 
@@ -172,10 +168,6 @@ flowchart LR
   `ListAll` all funnel through `Load` → `loadLocked:142`, which unconditionally nils it. Benign
   only because `CommitUpgrade:208` re-stages from fresh bytes, so a lost staging degrades to "no
   prompt offered".
-- **An unparseable timestamp degrades to `time.Now()`** (`index_upgrade.go:71-78`). Because the
-  upgrade runs in memory on **every load** and persists only on `CommitUpgrade`, such an entry
-  gets a different value each invocation: its `session list` sort position drifts and `pendingUpgrade` is
-  permanently non-nil.
 - **`Entry.Distilled` and `Entry.EssencePath` are written by nothing, anywhere.** `Distilled` also
   carries `json:"distilled"` with no `omitempty`, so it is a constant `false` on any JSON marshal.
 - **`Entry`'s doc claims the json tags are a shared snake_case contract for

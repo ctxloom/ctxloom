@@ -164,10 +164,6 @@ func (s *liveTapSpawner) AssignSession(projectDir, backend string) (string, erro
 	return entry.HarpName, nil
 }
 
-func (s *liveTapSpawner) Launch(context.Context, *coord.SpawnPlan, string, string, map[string]string, map[string]string) (*operations.AgentChatLaunch, error) {
-	return nil, fmt.Errorf("liveTapSpawner: Launch is unused (this agent always routes ViaStartRun)")
-}
-
 // StartEngine bridges the coordinator's own RunChannel to liveTapChat,
 // mirroring fake_test.go's fakeSpawner.StartEngine (coord/fake_test.go:229)
 // via the SAME exported constructors it uses internally.

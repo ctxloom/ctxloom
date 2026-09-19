@@ -509,3 +509,35 @@ func TestLockfile_RemoveEntry_UnknownType(t *testing.T) {
 		t.Error("unknown type should not remove from bundles")
 	}
 }
+
+// TestLockfileManager_Load_IgnoresTheRetiredTreeField pins the on-disk
+// contract for a lockfile written before the per-pin `tree` shape flag was
+// retired: the key is IGNORED, not refused, and the entry it sat on loads
+// intact. Unlike the retired hold key (which carries a user decision and is
+// refused by name), `tree` recorded a fact every v2 pin now has by
+// construction, so dropping it silently loses nothing.
+func TestLockfileManager_Load_IgnoresTheRetiredTreeField(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", `version: 1
+locked_at: 2026-01-01T00:00:00Z
+bundles:
+  github.com/acme/tools:
+    sha: abc123
+    url: https://github.com/acme/tools
+    tree: true
+    held: true
+`, 0o644)
+
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+	lock, err := manager.Load()
+	if err != nil {
+		t.Fatalf("Load() with a retired tree key: %v — an old lockfile must still parse", err)
+	}
+	entry, ok := lock.GetEntry(ItemTypeBundle, "github.com/acme/tools")
+	if !ok {
+		t.Fatal("the entry carrying the retired key was dropped rather than loaded")
+	}
+	if entry.SHA != "abc123" || !entry.Held {
+		t.Errorf("entry = %+v; the fields beside the retired key must survive the load", entry)
+	}
+}

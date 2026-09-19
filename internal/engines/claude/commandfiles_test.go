@@ -12,7 +12,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func TestTransformMustacheToPositional(t *testing.T) {
@@ -267,46 +266,9 @@ func TestEscapeYAMLString(t *testing.T) {
 	}
 }
 
-// failRemoveAllFs fails RemoveAll for one path prefix. A missing path is NOT
-// an error on either afero.MemMapFs or the OS filesystem (both return nil), so
-// the only way this fires in production is a real one — a permission wall or an
-// I/O failure — which is exactly the case that must not be swallowed.
-type failRemoveAllFs struct {
-	afero.Fs
-	failFor string
-	err     error
-}
-
-func (f failRemoveAllFs) RemoveAll(path string) error {
-	if path == f.failFor {
-		return f.err
-	}
-	return f.Fs.RemoveAll(path)
-}
-
-// TestWriteCommandFiles_LegacyDirRemovalErrorIsLoud pins another discarded
-// error from the same bug class. The legacy .claude/commands/ctxloom/
-// subdirectory holds command files an older ctxloom wrote; every one of them still registers as a
-// slash command with claude. If the migration removal fails and the failure is
-// discarded, the write "succeeds" while the user is left with a duplicate of
-// every migrated command — the silent half-state the manifest rewrite exists to
-// end.
-func TestWriteCommandFiles_LegacyDirRemovalErrorIsLoud(t *testing.T) {
-	legacy := filepath.Join("/project", ".claude", "commands", "ctxloom")
-	base := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, base, filepath.Join(legacy, "save.md"), "old", 0644)
-	fs := failRemoveAllFs{Fs: base, failFor: legacy, err: os.ErrPermission}
-
-	err := WriteCommandFiles("/project", []agent.CommandExport{
-		{Name: "save", Content: "body", Enabled: true},
-	}, agent.WithCommandFS(fs))
-	require.Error(t, err, "a failed legacy-directory migration must be reported, not discarded")
-}
-
-// TestWriteCommandFiles_AbsentLegacyDirIsNotAnError keeps the above honest: the
-// overwhelmingly common case is that the legacy directory never existed, and
-// RemoveAll returns nil for a missing path on every filesystem this runs on.
-func TestWriteCommandFiles_AbsentLegacyDirIsNotAnError(t *testing.T) {
+// TestWriteCommandFiles_WritesTheCommandPayload pins the plain write: an
+// enabled export lands as a flat file under .claude/commands.
+func TestWriteCommandFiles_WritesTheCommandPayload(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, WriteCommandFiles("/project", []agent.CommandExport{
 		{Name: "save", Content: "body", Enabled: true},

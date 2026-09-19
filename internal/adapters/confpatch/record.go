@@ -3,7 +3,6 @@ package confpatch
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -124,13 +123,6 @@ func (s *Store) Last(target string) (Record, bool, error) {
 		// No record directory yet means no prior application — the first write
 		// to any target reaches here, so it is not an error.
 		return newest, false, nil
-	}
-	// The directory exists, so it may hold records named under the earlier,
-	// unbounded scheme. Rename them BEFORE matching by prefix, or a record
-	// written by an older ctxloom is invisible and the next apply stacks a
-	// second application on top of the first instead of reversing it.
-	if err := s.renameLegacyRecords(); err != nil {
-		return newest, false, err
 	}
 	entries, err := afero.ReadDir(s.fs, s.dir)
 	if err != nil {
@@ -349,95 +341,6 @@ const recordStampLayout = "20060102T150405.000000000Z"
 // what Last and pruneSuperseded match on, and what RecordFilename builds on.
 func recordPrefix(target string) string {
 	return paths.FlatName(target) + "__"
-}
-
-// legacyRecordPrefix is the prefix records carried before the name was
-// bounded: the target's WHOLE path, flattened. It exists only so
-// renameLegacyRecords can recognise a record written under that scheme;
-// nothing writes it.
-func legacyRecordPrefix(target string) string {
-	return strings.ReplaceAll(filepath.ToSlash(target), "/", "__") + "__"
-}
-
-// renameLegacyRecords moves every record under s.dir (and any store nested
-// below it — taskloom keeps its own in a subdirectory) from the unbounded
-// name to the bounded one. The record body carries the target's full path,
-// so the new name is computed from the file itself; the timestamp and any
-// collision counter after the target part are kept as they are.
-//
-// IDEMPOTENT, because every launch may run it: a record already carrying the
-// bounded prefix for its own target is left alone, and a rename whose
-// destination already exists is skipped rather than overwriting — losing a
-// record is the one thing a rename must never do. A file whose body names no
-// target, or whose name matches neither scheme, is not this migration's to
-// touch and stays where it is.
-//
-// Candidates are collected first and renamed after the walk, so the walk
-// never sees a directory changing under it.
-func (s *Store) renameLegacyRecords() error {
-	type move struct{ from, to string }
-	var moves []move
-	walkErr := afero.Walk(s.fs, s.dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() || !strings.HasSuffix(info.Name(), recordFileSuffix) {
-			return nil
-		}
-		target, ok := recordTarget(s.fs, path)
-		if !ok {
-			return nil
-		}
-		name := info.Name()
-		if strings.HasPrefix(name, recordPrefix(target)) {
-			return nil
-		}
-		legacy := legacyRecordPrefix(target)
-		if !strings.HasPrefix(name, legacy) {
-			return nil
-		}
-		to := filepath.Join(filepath.Dir(path), recordPrefix(target)+strings.TrimPrefix(name, legacy))
-		moves = append(moves, move{from: path, to: to})
-		return nil
-	})
-	if walkErr != nil {
-		return fmt.Errorf("confpatch: scan %s for records to rename: %w", s.dir, walkErr)
-	}
-	var errs []error
-	for _, m := range moves {
-		exists, err := afero.Exists(s.fs, m.to)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		if exists {
-			continue
-		}
-		if err := s.fs.Rename(m.from, m.to); err != nil {
-			errs = append(errs, fmt.Errorf("confpatch: rename record %s: %w", m.from, err))
-		}
-	}
-	return errors.Join(errs...)
-}
-
-// recordTarget reads the target a record on disk describes. Only the one
-// field is decoded: the rename needs the path and nothing else, and decoding
-// less is what lets a record this version cannot otherwise parse still be
-// renamed rather than stranded.
-func recordTarget(fs afero.Fs, path string) (string, bool) {
-	data, err := afero.ReadFile(fs, path)
-	if err != nil {
-		return "", false
-	}
-	var rec struct {
-		Targets []struct {
-			Target string `yaml:"target"`
-		} `yaml:"targets"`
-	}
-	if err := yamlv3.Unmarshal(data, &rec); err != nil || len(rec.Targets) == 0 || rec.Targets[0].Target == "" {
-		return "", false
-	}
-	return rec.Targets[0].Target, true
 }
 
 // ResolvedOpsToRecord adapts hew.ResolvedOp (the library's form) to RecordOp

@@ -68,15 +68,12 @@ func registerCLISessionSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^a recorded session "([^"]*)" for backend "([^"]*)"$`, func(c context.Context, harp, backend string) error {
 		w := worldFrom(c)
-		index := fmt.Sprintf("sessions:\n"+
-			"  - harp_name: %s\n"+
-			"    session_id: %s-live\n"+
-			"    backend: %s\n"+
-			"    project_dir: %s\n"+
-			"    started_at: 2026-01-01T00:00:00Z\n"+
-			"    transcript_path: %s\n",
-			harp, harp, backend, w.env.ProjectDir, filepath.Join(w.env.HomeDir, adoptVendorDirRel, harp+"-live.jsonl"))
-		return w.env.WriteHomeFile(filepath.Join(".ctxloom", "sessions", "index.yaml"), index)
+		return seedSessionSidecar(w, harp, sessionSeed{
+			SessionID:      harp + "-live",
+			Backend:        backend,
+			StartedAt:      "2026-01-01T00:00:00Z",
+			TranscriptPath: filepath.Join(w.env.HomeDir, adoptVendorDirRel, harp+"-live.jsonl"),
+		})
 	})
 }
 
@@ -102,28 +99,24 @@ func writeAdoptVendorHomeFile(c context.Context, sessionID, start, end string) e
 	return w.env.WriteHomeFile(filepath.Join(adoptVendorDirRel, sessionID+".jsonl"), content)
 }
 
-// seedAdoptHarp writes an index entry bound to a real vendor transcript
+// seedAdoptHarp records a session bound to a real vendor transcript
 // (sessionID.jsonl under adoptVendorDirRel) spanning start to end, so
 // `session adopt` has a live binding to scan alongside and a real directory
 // to scan for orphans.
 func seedAdoptHarp(c context.Context, harp, backend, sessionID, start, end string) error {
 	w := worldFrom(c)
-	transcriptPath := filepath.Join(w.env.HomeDir, adoptVendorDirRel, sessionID+".jsonl")
-	index := fmt.Sprintf("sessions:\n"+
-		"  - harp_name: %s\n"+
-		"    session_id: %s\n"+
-		"    backend: %s\n"+
-		"    project_dir: %s\n"+
-		"    started_at: 2026-01-01T00:00:00Z\n"+
-		"    transcript_path: %s\n",
-		harp, sessionID, backend, w.env.ProjectDir, transcriptPath)
-	if err := w.env.WriteHomeFile(filepath.Join(".ctxloom", "sessions", "index.yaml"), index); err != nil {
+	if err := seedSessionSidecar(w, harp, sessionSeed{
+		SessionID:      sessionID,
+		Backend:        backend,
+		StartedAt:      "2026-01-01T00:00:00Z",
+		TranscriptPath: filepath.Join(w.env.HomeDir, adoptVendorDirRel, sessionID+".jsonl"),
+	}); err != nil {
 		return err
 	}
 	return writeAdoptVendorHomeFile(c, sessionID, start, end)
 }
 
-// seedFinishedSession writes an ENDED index entry for harp plus a real
+// seedFinishedSession records an ENDED session for harp plus a real
 // canonical transcript, and (when distilled) an essence. The transcript
 // carries real bytes rather than an empty file: a purge reports the bytes it
 // freed, and a zero-byte fixture cannot tell "freed the file" from "freed
@@ -137,7 +130,7 @@ func seedFinishedSession(c context.Context, harp string, distilled bool) error {
 	return seedDeadSession(worldFrom(c), harp)
 }
 
-// seedFinishedSessionFiles is seedFinishedSession's index-and-files half,
+// seedFinishedSessionFiles is seedFinishedSession's record-and-files half,
 // with no word about liveness: the caller decides whether the harp gets a
 // free lock, a held one, or none.
 func seedFinishedSessionFiles(c context.Context, harp string, distilled bool) error {
@@ -146,17 +139,13 @@ func seedFinishedSessionFiles(c context.Context, harp string, distilled bool) er
 	harpRel := filepath.Join(sessionsRel, harp)
 	transcriptRel := filepath.Join(harpRel, "persist", "transcript.jsonl")
 
-	index := fmt.Sprintf("sessions:\n"+
-		"  - harp_name: %s\n"+
-		"    session_id: seeded-%s\n"+
-		"    backend: claude-code\n"+
-		"    project_dir: %s\n"+
-		"    started_at: 2026-01-01T00:00:00Z\n"+
-		"    ended_at: 2026-01-02T00:00:00Z\n"+
-		"    transcript_path: %s\n"+
-		"    summary: seeded acceptance session\n",
-		harp, harp, w.env.ProjectDir, filepath.Join(w.env.HomeDir, transcriptRel))
-	if err := w.env.WriteHomeFile(filepath.Join(sessionsRel, "index.yaml"), index); err != nil {
+	if err := seedSessionSidecar(w, harp, sessionSeed{
+		SessionID:      "seeded-" + harp,
+		Backend:        "claude-code",
+		StartedAt:      "2026-01-01T00:00:00Z",
+		EndedAt:        "2026-01-02T00:00:00Z",
+		TranscriptPath: filepath.Join(w.env.HomeDir, transcriptRel),
+	}); err != nil {
 		return err
 	}
 	if err := w.env.WriteHomeFile(transcriptRel, `{"type":"user","content":"hello"}`+"\n"); err != nil {

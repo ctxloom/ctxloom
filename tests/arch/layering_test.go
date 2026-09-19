@@ -158,7 +158,6 @@ var layeringRules = []layeringRule{
 			"internal/core/trust -> internal/adapters/remote": "slice 2: URL normalisation already lives in refuri; the remote import goes",
 
 			// core/sessions
-			"internal/core/sessions -> internal/shared/upgrade": "slice 1a: the index migrations are deleted",
 			"internal/core/sessions -> internal/shared/clidiag": "slice 15: clidiag becomes typed reports",
 
 			// core/profiles — Part 1.0 lists remote and shared/agent; shared/agent is a

@@ -378,6 +378,25 @@ var layeringRules = []layeringRule{
 		},
 	},
 	{
+		// THE GENERATED COORDINATION PROTO (today internal/agentcoord itself;
+		// adapters/coordgrpc/pb after the rename) is a wire codec's private
+		// vocabulary: only the packages that speak the wire may import it. The
+		// proto's sibling subpackages under internal/agentcoord are not the
+		// proto, hence the except list — after the rename the proto is a leaf
+		// and the list goes. from is the whole module so a new importer is
+		// caught wherever it appears.
+		name:   "proto-only-in-adapters",
+		from:   []string{"cmd", "internal", "pkg"},
+		forbid: []string{"internal/agentcoord"},
+		except: []string{
+			"internal/agentcoord/coord",
+			"internal/agentcoord/discover",
+			"internal/agentcoord/mcpschema",
+			"internal/agentcoord/spool",
+		},
+		allowed: map[string]string{},
+	},
+	{
 		// pkg/clifmt is the CLI output layer and SHIPS AS A STANDALONE
 		// LIBRARY independent of ctxloom (ruled 2026-08-22). It is the
 		// outermost edge: adapters import it, it imports nothing of ours.

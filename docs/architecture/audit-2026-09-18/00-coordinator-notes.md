@@ -217,3 +217,53 @@ routing, core purity, reach-back proof.
    design-by-test body pins both halves.
    -> All nine of C's open rulings are now closed; the skeleton, engine port,
    package/transport, launch, config+endpoint, bus and delivery are ratified.
+2e. FINAL on the engine port — Declared[T] IS ELIMINATED ENTIRELY; DRY by
+   construction:
+   - The engine registers []present.Approach (Kind, Name, Traits, Deliver) in its
+     constructor — the ONE source. Definition.Surfaces() and Carries(kind) are
+     DERIVED views over it; nothing is stored twice.
+   - delivery.Route picks, per item kind, an approach from Surfaces()[kind] that
+     matches the preference and can root in the cell. No approach for a kind the
+     run NEEDS -> ErrUncarried{Engine, Kind} (loud); an optional item -> routed to
+     nothing and listed in Plan.Losses.
+   - The other formerly-optional capabilities are SLICES, empty = none:
+     Drivers() []StructuredDriver, Transcripts() []TranscriptReader; the caller
+     that requires one refuses loudly (ErrUnsupported). Resume() is a real
+     implementation or ErrUnsupported. No capability flag anywhere in core.
+   - Mock registers observable no-op approaches for the same kinds (records what
+     it would have delivered — the conformance loop checks it).
+2f. NOTE, NOT A RULING (human, 2026-09-19 early): "I suspect we may want to use
+   the builder pattern for instancing an engine / declaring" — i.e. an engine
+   package's constructor may be a builder that accumulates approaches, specs and
+   session specifics and validates on Build() (one place to refuse an incoherent
+   declaration). Do not implement now; the engine slice's design-by-test body
+   should try it against the plain constructor and keep whichever reads better.
+2g. DECIDED: engine.Definition has ONE TYPED FIELD PER SURFACE KIND (Settings,
+   Hooks, Commands, Skills, Context, MCP — each its own approach interface type),
+   NOT a []present.Approach slice: a kind that does not exist cannot be declared
+   and a kind cannot be declared twice — compile-time, no runtime engine.Validate
+   for kinds. Surfaces() is derived by walking the typed fields; nil = not
+   carried. Requiredness (e.g. Context on an engine that must carry a system
+   prompt) is checked LOUDLY at Instance(), not at compile time. The typestate
+   builder (compile-time requiredness) is REJECTED as non-obvious machinery;
+   recorded only as the fallback if requiredness must ever move to compile time
+   (the spike-typestate worktree is prior art to read before that).
+2h. present.Approach is a MARKER interface (possibly carrying a few shared
+   parameters — Name(), Traits()); each per-kind approach interface extends it.
+   The typed field per kind permits EXACTLY ONE approach of each kind; for the
+   REQUIRED kinds that means one is present (nil is the refusal at Instance()).
+2i. Required kinds: exactly one approach each. OPTIONAL kinds exist (dynamic/MCP
+   among them) and may be nil. A constructed engine may DELINEATE how it
+   compounds static and dynamic delivery — e.g. static delivery for the
+   non-pretext items and dynamic (MCP-served) delivery for the pretext (the
+   assembled context) — and the dynamic half is OPTIONAL: an engine with no MCP
+   approach receives everything statically. delivery.Route reads that
+   delineation from the definition; it is not a core policy.
+2j. ENGINE ROOT TYPE: a base type every engine EMBEDS (engine.Base / the root)
+   owns the COMMON decisioning so it is written once. Example ruled: fragments
+   with a PREFACE (a premise; the conditional fragments) are WITHHELD from static
+   delivery when the engine has a dynamic approach, because dynamic delivery of
+   fragments exists; the root's delivery step DELEGATES — non-preface items to
+   the static approach types, preface items to the engine's provided dynamic
+   approach. With no dynamic approach, everything goes static. Per-engine
+   structs override nothing of this; they supply approaches.

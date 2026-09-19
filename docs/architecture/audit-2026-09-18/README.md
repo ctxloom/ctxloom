@@ -1,5 +1,11 @@
 # Architecture audit — 2026-09-18
 
+**THE DECIDED DESIGN IS `30-decided-architecture.md`.** Everything else in this
+directory is the record of how it was reached: the seven seams, the synthesis, the
+data-flow review, two independent designs (A, B), their adversarial reviews, the
+comparison, the reconciled draft (C), and the human's rulings (in
+`00-coordinator-notes.md`). Build from 30; read the rest to understand why.
+
 A seven-seam read-only audit of the codebase at release/0.7 `d42cc4229`, produced
 by delegated analysts and assembled by a synthesis pass. Each seam document carries
 mermaid call graphs, a delegation/layer graph, data-flow graphs, findings ranked by
@@ -33,6 +39,9 @@ References are by symbol and file, never line numbers.
   refutations closed or rejected by name, every ruling applied, port signatures
   type-checked acyclic, claim-check package transport, a 17-slice migration with the
   test-determinism rule and a reach-back scenario per slice, and the rulings still open
+- `30-decided-architecture.md` — THE DECIDED DESIGN: C with every ruling applied in
+  place; standalone; signatures type-checked; 21 migration slices, each with its gate,
+  reach-back scenario, stop conditions and the graphs its wrap-up must update
 - `briefs/` — what each analyst was asked, for scope
 
 These are a snapshot: they describe the tree they were read from. Findings that land

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // TestRegistryLookups_ResolveTheRegisteredName pins every lookup a caller can

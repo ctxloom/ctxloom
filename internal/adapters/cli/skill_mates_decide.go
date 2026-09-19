@@ -1,9 +1,9 @@
 package cli
 
 import (
-	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // buildSkillMatesOutput decides what one PostToolUse payload earns: the
@@ -14,8 +14,8 @@ import (
 // delivered is the skill set this run materialized for the engine (the same
 // set the listing came from), and prior is the session transcript up to now.
 //
-// It lives here, not in internal/claude, because it is typed on the bundle
-// model and the lean binaries (ltk, taskloom) link internal/claude for its
+// It lives here, not in internal/engines/claude, because it is typed on the bundle
+// model and the lean binaries (ltk, taskloom) link internal/engines/claude for its
 // wire types but must never link internal/core/bundles (tests/arch).
 func buildSkillMatesOutput(payload claude.PostToolUsePayload, delivered []*bundles.LoadedSkill, prior []agent.ChatEvent) claude.PostToolUseOutput {
 	completed, ok := claude.InvokedSkill(payload.ToolName, payload.ToolInput)

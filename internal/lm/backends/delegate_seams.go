@@ -31,7 +31,7 @@ import (
 
 // ResolveModelFor translates rs.Model through the named backend's own
 // resolveModel hook when it has one — the delegated-child launch path's
-// model resolution (internal/claude.ResolveModel today), generalized
+// model resolution (internal/engines/claude.ResolveModel today), generalized
 // off a hardcoded "is this claude-code" branch in operations. A backend with
 // no resolveModel hook (every backend but claude-code today) or an
 // unregistered name passes model through unchanged with ok=true: "nothing to

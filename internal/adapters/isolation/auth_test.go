@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // TestPresentEnvKeys_OnlyKnownSetVars: the scoped auth-env set carries ONLY the
@@ -334,7 +334,7 @@ func TestHostCredentialSeed_UnresolvableHostHome(t *testing.T) {
 // =============================================================================
 // CopyAmbient, claude arm — the same one mechanism against claude's allow-list,
 // on the IN-TREE AGENT axis where internal/adapters/operations points CLAUDE_CONFIG_DIR
-// at a per-session instance (internal/claude.SessionConfigDir).
+// at a per-session instance (internal/engines/claude.SessionConfigDir).
 // =============================================================================
 
 // TestCopyAmbient_Claude_CopiesCredentials is the PAYLOAD-asserting case: the

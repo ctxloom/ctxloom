@@ -352,7 +352,7 @@ which warnings you see on the console during a delegated run.
 
 ## The mock engine can now say "nothing was delivered"
 
-`internal/mockengine` is the stand-in vendor CLI the test suites launch in place
+`internal/engines/mock` is the stand-in vendor CLI the test suites launch in place
 of `claude`/`codex`, and its discovery report is how this project proves context
 actually reached a child. It affects no shipped command — but a test instrument
 that cannot fail is worse than no instrument, and several of its limbs could not.

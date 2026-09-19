@@ -259,7 +259,7 @@ CONFIRMED by hand-classifying every `rg` hit as declaration / doc / test / real 
 
 | tier | LOC | notes |
 |---|---|---|
-| safe | ~890 | `ContentCommands` ~165 (6 implementations, **0 invocations**); `internal/claude/agentfiles.go` whole file 162; lockfile 113; operations 150; launch-settlement 120; `Chroot` 50 |
+| safe | ~890 | `ContentCommands` ~165 (6 implementations, **0 invocations**); `internal/engines/claude/agentfiles.go` whole file 162; lockfile 113; operations 150; launch-settlement 120; `Chroot` 50 |
 | needs interface change | ~345 | incl. 5 `Kind()` methods + `SurfaceSet.Deliveries()` — implemented across 5 backends purely to satisfy an interface used only by tests |
 | breaks a public contract | ~440 | decide deliberately |
 

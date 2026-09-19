@@ -6,9 +6,9 @@ Status: COMPLETE — 7 sections, 8 mermaid graphs (6 call graphs, 1 layer graph,
 
 ## 1. Scope and entry points
 
-**Seam.** How a bundle item (fragment, skill, command/prompt, MCP server, hook, deny-tool) becomes bytes an engine reads on disk, and how the engine is told where those bytes are. Traced from `internal/core/bundles` → `internal/core/profiles` → `internal/adapters/operations` (assembly) → `internal/lm/backends` (managed-payload assembly, registry) → wire (`pb.ManagedConfig`) → `internal/core/agent` (the surface-delivery seam: declaration, selection, cells, writers, ledger, locks, hooks) → `internal/claude` (the one live engine's declaration + writers) → `internal/adapters/confpatch` / `internal/shared/ledger` / `internal/shared/iox` (record, ownership, atomic write) → `internal/core/paths` + `internal/core/present` (where).
+**Seam.** How a bundle item (fragment, skill, command/prompt, MCP server, hook, deny-tool) becomes bytes an engine reads on disk, and how the engine is told where those bytes are. Traced from `internal/core/bundles` → `internal/core/profiles` → `internal/adapters/operations` (assembly) → `internal/lm/backends` (managed-payload assembly, registry) → wire (`pb.ManagedConfig`) → `internal/core/agent` (the surface-delivery seam: declaration, selection, cells, writers, ledger, locks, hooks) → `internal/engines/claude` (the one live engine's declaration + writers) → `internal/adapters/confpatch` / `internal/shared/ledger` / `internal/shared/iox` (record, ownership, atomic write) → `internal/core/paths` + `internal/core/present` (where).
 
-**Packages read** (production files, not tests): `internal/core/agent` (cells.go, declaration.go, presentations.go, approach.go, approaches_generic.go, delivery.go, delivery_state.go, launchform.go, launch_backend.go, base_context.go, contextfile.go, managedcontext.go, packagefiles.go, commandfiles.go, managed_commands.go, managed_skill_packages.go, context_hooks.go, settings_io.go, rmw_lock.go, settings.go, skillexport.go, symlink.go, surface_loss.go), `internal/core/present`, `internal/claude` (surfaces.go, surfaces_hewrecord.go, surfacedelivery.go, contextdelivery.go, claude.go, commandfiles.go, skillfiles.go, skillmates.go, hooks_wire.go, instanceconfig.go, statehome.go, mcp_registrar.go), `internal/claude/engine`, `internal/lm/backends` (managed.go, managed_hooks.go, hooks.go, uninstall.go, registry.go, surfaces.go, commandfiles.go, skillfiles.go, premised_fragment_skills.go, mock_*.go), `internal/lm/engine`, `internal/adapters/operations` (context.go, profile_materialize.go, hooks.go, manage.go, agent_surfaces.go, oneshot.go, delegate.go), `internal/adapters/cli/run.go` (payload build only), `internal/adapters/confpatch`, `internal/shared/ledger`, `internal/core/paths`, `internal/core/bundles` (skill*, loader), `internal/core/profiles`, `internal/adapters/content/convert` (skill files).
+**Packages read** (production files, not tests): `internal/core/agent` (cells.go, declaration.go, presentations.go, approach.go, approaches_generic.go, delivery.go, delivery_state.go, launchform.go, launch_backend.go, base_context.go, contextfile.go, managedcontext.go, packagefiles.go, commandfiles.go, managed_commands.go, managed_skill_packages.go, context_hooks.go, settings_io.go, rmw_lock.go, settings.go, skillexport.go, symlink.go, surface_loss.go), `internal/core/present`, `internal/engines/claude` (surfaces.go, surfaces_hewrecord.go, surfacedelivery.go, contextdelivery.go, claude.go, commandfiles.go, skillfiles.go, skillmates.go, hooks_wire.go, instanceconfig.go, statehome.go, mcp_registrar.go), `internal/engines/claude/engine`, `internal/lm/backends` (managed.go, managed_hooks.go, hooks.go, uninstall.go, registry.go, surfaces.go, commandfiles.go, skillfiles.go, premised_fragment_skills.go, mock_*.go), `internal/lm/engine`, `internal/adapters/operations` (context.go, profile_materialize.go, hooks.go, manage.go, agent_surfaces.go, oneshot.go, delegate.go), `internal/adapters/cli/run.go` (payload build only), `internal/adapters/confpatch`, `internal/shared/ledger`, `internal/core/paths`, `internal/core/bundles` (skill*, loader), `internal/core/profiles`, `internal/adapters/content/convert` (skill files).
 
 **Stated architecture read first**: `docs/architecture/shared/agent-surface-delivery.md`, `agent-context-delivery.md`, `agent-managed-files.md`, `engines/claude.md`, `engines/backend-abstraction.md`, `core/paths.md`, `core/bundles.md`, `core/profiles.md`; gates `tests/arch/approach_vocabulary_arch_test.go`, `degrade_discipline_test.go`, `write_discipline_test.go`, `path_authority_test.go`, `ledger_discipline_test.go`, `lock_discipline_test.go`, `real_home_immutability_arch_test.go`, `session_home_arch_test.go`, `engine_layout_arch_test.go`, `layering_test.go`.
 
@@ -20,14 +20,14 @@ Status: COMPLETE — 7 sections, 8 mermaid graphs (6 call graphs, 1 layer graph,
 | E2 | Launch (delegated / fan-out member) | `operations.runResolvedAgent` builds `pb.RunStart{ManagedConfig, LaunchForm, CellKind}` | `internal/adapters/operations/oneshot.go` | same plugin path as E1 |
 | E3 | Plugin Setup (both launches land here) | `agent.LaunchBackend.Setup` → `setupViaCells` → `deliverSet` | `internal/core/agent/launch_backend.go` | `ResolvedSelection.deliverOneShared` (shared cell) / `IsolatedCell.Deliver` (isolated cell) / `presentExisting` (Present form) / nothing (Minimal form) |
 | E4 | Hook-carried context (a Rider selected for context) | `agent.LaunchBackend.installContextInjectionHook` → `BaseContextProvider.Provide` → `WriteContextFile` | `internal/core/agent/launch_backend.go`, `base_context.go`, `contextfile.go` | raw cache file `<hash>.md` under the ctxloom context dir + SessionStart hook appended to the merged hooks |
-| E5 | Engine argv | `claude.flagArgs(resolved)` reads each approach's `Path()` + `Present(noRoots).Args` | `internal/claude/surfaces.go` (consumed by `buildArgs`, claudecode.go) | exec of `claude --append-system-prompt-file/--mcp-config/--settings` |
+| E5 | Engine argv | `claude.flagArgs(resolved)` reads each approach's `Path()` + `Present(noRoots).Args` | `internal/engines/claude/surfaces.go` (consumed by `buildArgs`, claudecode.go) | exec of `claude --append-system-prompt-file/--mcp-config/--settings` |
 | E6 | At-rest materialize (`ctxloom profile materialize`) | `operations.MaterializeProfile` | `internal/adapters/operations/profile_materialize.go` | `SurfaceSelection.DeliverUnder` → `IsolatedCell` |
 | E7 | At-rest install (`ctxloom manage hooks install`) | `operations.ApplyHooks` → `applyHooksToBackend` | `internal/adapters/operations/hooks.go` | `SurfaceSelection.DeliverUnder`, plus `retractNativeContext`, plus `regenerateContext` → `WriteContextFile` |
 | E8 | At-rest remove (`ctxloom manage hooks uninstall`) | `backends.RemoveSettings` → `agent.SettingsWriter.RemoveSettings` | `internal/lm/backends/uninstall.go` → `claude.ClaudeCodeHookWriter.RemoveSettings` | `removeSettingsFile` + `removeMCPConfig`; NOT the surfaces seam |
 | E9 | At-rest status (`ctxloom manage check`) | `operations.surfaceCurrencies` + `backends.BackendStatus` | `internal/adapters/operations/manage.go`, `internal/lm/backends/uninstall.go` | read-only: `agent.StateReader.State`, `ClaudeCodeHookWriter.Status` |
-| E10 | Engine-home seeding (session `engine_home`) | `claude.NewInstanceConfigWriter` (`agent.InstanceConfigWriter`), registered from the descriptor into `isolation.RegisterInstanceConfigWriter` and called by `isolation.CopyAmbient` | `internal/claude/instanceconfig.go`, `internal/adapters/isolation/ambient.go` | `WriteInstanceConfig` into `<EngineHome>/.claude.json` (seeded from `~/.claude.json` allow-list) |
-| E11 | Skill-mates hook (PostToolUse, new) | `agent.NewSkillMatesHook` installs `ctxloom hook skill-mates` (matcher `Skill`); at fire time the `internal/adapters/cli` hook verb joins `claude.InvokedSkill`/`SkillsInvoked` (transcript-derived) with `bundles.UninvokedSkillMates` | `internal/core/agent/context_hooks.go`, `internal/claude/skillmates.go` | no delivery write — emits `additionalContext`; the HOOK STRING is delivered via the settings surface like every other managed hook |
-| E12 | Companion MCP registrar (taskloom) | `claude.RegisterMCPServer` → `applyMCPServers` | `internal/claude/mcp_registrar.go` | `confpatch.Store.Apply` on `.mcp.json` |
+| E10 | Engine-home seeding (session `engine_home`) | `claude.NewInstanceConfigWriter` (`agent.InstanceConfigWriter`), registered from the descriptor into `isolation.RegisterInstanceConfigWriter` and called by `isolation.CopyAmbient` | `internal/engines/claude/instanceconfig.go`, `internal/adapters/isolation/ambient.go` | `WriteInstanceConfig` into `<EngineHome>/.claude.json` (seeded from `~/.claude.json` allow-list) |
+| E11 | Skill-mates hook (PostToolUse, new) | `agent.NewSkillMatesHook` installs `ctxloom hook skill-mates` (matcher `Skill`); at fire time the `internal/adapters/cli` hook verb joins `claude.InvokedSkill`/`SkillsInvoked` (transcript-derived) with `bundles.UninvokedSkillMates` | `internal/core/agent/context_hooks.go`, `internal/engines/claude/skillmates.go` | no delivery write — emits `additionalContext`; the HOOK STRING is delivered via the settings surface like every other managed hook |
+| E12 | Companion MCP registrar (taskloom) | `claude.RegisterMCPServer` → `applyMCPServers` | `internal/engines/claude/mcp_registrar.go` | `confpatch.Store.Apply` on `.mcp.json` |
 | E13 | Uninstall of engine-wide managed hooks (ltk/taskloom companions) | `agent.WithFileLock` users in `cmd/ltk`, `cmd/taskloom` | out of seam scope; noted for handoff (seam 6/1) | `.claude/settings.json` |
 
 Removed engines (codex, kiro, opencode) no longer exist in the tree; their names survive in comments throughout the seam (see §4 STATED-VS-ACTUAL). The only registered production engine with a Declaration is `claude`; `internal/lm/backends/mock_surfaces.go` registers the test engine.
@@ -69,7 +69,7 @@ flowchart LR
     RP["ProfileLoader.ResolveProfile"]
     RBS["Config.ResolveBundleSkills"]
   end
-  subgraph ce["internal/claude/engine"]
+  subgraph ce["internal/engines/claude/engine"]
     CX["CommandExports (descriptor.go)"]
     SX["SkillExports (descriptor.go)"]
   end
@@ -192,7 +192,7 @@ Note the two construction passes: `preferOutOfCwd`/`ensureRootable` construct ev
 
 ```mermaid
 flowchart LR
-  subgraph decl["internal/claude/surfaces.go — Declaration"]
+  subgraph decl["internal/engines/claude/surfaces.go — Declaration"]
     NCF["NativeContextFile(&quot;claude/context&quot;, CLAUDE.md, claudeContextWriter) (context: unsafe-file, DEFAULT)"]
     SPC["systemPromptContext (context: system-prompt, LaunchOnly, Existing)"]
     HCC["agent.HookCarriedContext (context: hook, Rider→settings)"]
@@ -203,13 +203,13 @@ flowchart LR
     CMD["commandsSurface (commands: unsafe-file)"]
     SKL["newSkillsSurface → agent.ManagedSkillPackagesDelivery (skills: unsafe-file)"]
   end
-  subgraph adapt["internal/claude — adapter layer"]
+  subgraph adapt["internal/engines/claude — adapter layer"]
     FTD["fileTemplateDelivery{place, fs, selfContainedCommands, denyTools} (surfacedelivery.go)"]
     AFD["appendFlagDelivery{place, fs, path} (contextdelivery.go)"]
     GCD["GlobalCommandsDir() reads $HOME"]
     DESIRED["settingsRecord.desired(): runs writeSettingsFile into MemMapFs, parses back"]
   end
-  subgraph writer["internal/claude/claude.go — ClaudeCodeHookWriter"]
+  subgraph writer["internal/engines/claude/claude.go — ClaudeCodeHookWriter"]
     WSF["writeSettingsFile(hooks, denyTools, projectDir)"]
     WMC["writeMCPConfig(projectDir, bundleMCP)"]
     AMS["applyMCPServers(fs, store, path, desired, owned)"]
@@ -380,7 +380,7 @@ flowchart LR
     SR["StateReader.State(dir) → FileDeliveryState → Currency"]
     WCF["WriteContextFile"]
   end
-  subgraph claude["internal/claude"]
+  subgraph claude["internal/engines/claude"]
     SW["ClaudeCodeHookWriter.RemoveSettings → removeSettingsFile + removeMCPConfig"]
     ST["ClaudeCodeHookWriter.Status"]
   end
@@ -417,11 +417,11 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  subgraph cc["internal/claude/claudecode.go"]
+  subgraph cc["internal/engines/claude/claudecode.go"]
     BA["ClaudeCode.buildArgs(req *ExecuteRequest)"]
     PA["permissionArgs(req.Permissions, mcpServerNames)"]
   end
-  subgraph sf["internal/claude/surfaces.go"]
+  subgraph sf["internal/engines/claude/surfaces.go"]
     FA["flagArgs(resolved)"]
     MSN["mcpServerNames(resolved) — asserts anonymous interface{ servers() }"]
     P["Approach.Present(noRoots).Args&#91;0&#93; — flag NAME"]
@@ -456,8 +456,8 @@ flowchart TB
   OPS["internal/adapters/operations"]
   BE["internal/lm/backends"]
   ENG["internal/lm/engine (Descriptor)"]
-  CE["internal/claude/engine"]
-  CL["internal/claude"]
+  CE["internal/engines/claude/engine"]
+  CL["internal/engines/claude"]
   AG["internal/core/agent (seam + toolbox)"]
   PR["internal/core/present"]
   ISO["internal/adapters/isolation"]
@@ -626,7 +626,7 @@ The doc (`agent-surface-delivery.md` "Resolution: name in, approach out, no fall
 - Settles it: delete all three (re-init is the documented upgrade path).
 
 ### F15 — STATED-VS-ACTUAL: retired symbols and engines still cited as authority
-- `backends.BuildSurfaces` does not exist; cited as "the seam" in `backends/hooks.go`, `backends/mock.go`, `operations/profile_materialize.go`. `SharedCell` is not a type; named in 8 production comment sites in `cells.go`/`launch_backend.go`. codex/kiro/opencode are deleted; 122 comment lines across `internal/core/agent`, `internal/claude`, `internal/lm/backends`, `operations/profile_materialize.go`, `operations/hooks.go` still describe their behaviour (`SurfaceInputs.AgentName` "currently only kiro's"; `SurfaceKind` docs; `ClaudeCodeHookWriter.WriteSettings` "live callers (opencode's own writer …)"; `LaunchBackend.extraEnv` "codex's cell-scoped CODEX_HOME"). `lock_discipline_test.go`'s sole allowlist reason cites "CodexHookWriter.save above" (gone); `ledger_discipline_test.go` says the scope is "five packages" (it is two). `fileTemplateDelivery` doc: "Additive only: wiring into Setup/buildArgs is a later slice" (it is wired). `agent-context-delivery.md` cites `absOrSelf` (gone), line numbers throughout, and "swallows the read error" (now warns). `agent-surface-delivery.md` omits the `Existing` and `MinimalLaunch` capabilities and says `DeliverShared` is a live terminal (its own doc: "no PRODUCTION call site").
+- `backends.BuildSurfaces` does not exist; cited as "the seam" in `backends/hooks.go`, `backends/mock.go`, `operations/profile_materialize.go`. `SharedCell` is not a type; named in 8 production comment sites in `cells.go`/`launch_backend.go`. codex/kiro/opencode are deleted; 122 comment lines across `internal/core/agent`, `internal/engines/claude`, `internal/lm/backends`, `operations/profile_materialize.go`, `operations/hooks.go` still describe their behaviour (`SurfaceInputs.AgentName` "currently only kiro's"; `SurfaceKind` docs; `ClaudeCodeHookWriter.WriteSettings` "live callers (opencode's own writer …)"; `LaunchBackend.extraEnv` "codex's cell-scoped CODEX_HOME"). `lock_discipline_test.go`'s sole allowlist reason cites "CodexHookWriter.save above" (gone); `ledger_discipline_test.go` says the scope is "five packages" (it is two). `fileTemplateDelivery` doc: "Additive only: wiring into Setup/buildArgs is a later slice" (it is wired). `agent-context-delivery.md` cites `absOrSelf` (gone), line numbers throughout, and "swallows the read error" (now warns). `agent-surface-delivery.md` omits the `Existing` and `MinimalLaunch` capabilities and says `DeliverShared` is a live terminal (its own doc: "no PRODUCTION call site").
 - Settles it: delete the retired-engine prose; a doc-comment gate that fails on an identifier no package declares.
 
 ### F16 — STATED-VS-ACTUAL: install and uninstall run on different abstractions
@@ -689,7 +689,7 @@ flowchart TB
     ICIH["installContextInjectionHook: Fragments → WriteContextFile → hash → hooks.Unified.SessionStart += inject-context hook"]
     APP["Approach constructed from SurfaceInputs (Build) — picks 1–3 fields"]
   end
-  subgraph engine["TRANSFORMED — internal/claude"]
+  subgraph engine["TRANSFORMED — internal/engines/claude"]
     TCC["TransformToClaudeCommand(CommandExport) → frontmatter + body bytes"]
     ASK["acceptedSkills → checkSkillConstraints (drops with Warn)"]
     DSET["writeSettingsFile: hooks → claudeCodeHookMatcher; denyTools → permissions.deny; statusline"]
@@ -824,7 +824,7 @@ func New(m Mapped) Start
 func (s Start) UnderProjectRoot(rel string) Rooted; UnderEngineHome(rel string) Rooted; UnderScratch(rel string) Rooted; UnderCtxloomHome(rel string) Rooted
 func (r Rooted) AnnounceFlag(flag string) Rooted; AnnounceEnv(v string) Rooted; Build() Presentation
 
-// internal/claude
+// internal/engines/claude
 var Surfaces agent.Declaration
 const ApproachSystemPrompt = "system-prompt"; ApproachMCPConfig = "mcp-config"; ApproachHewRecord = "hew-record"
 func NewWriter(o agent.SettingsOptions) agent.SettingsWriter

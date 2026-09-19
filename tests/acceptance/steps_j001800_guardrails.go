@@ -211,7 +211,7 @@ func j001800LtkShippedPreToolMatcher() (string, error) {
 }
 
 // j001800ClaudeSettings is the minimal shape this journey needs to parse out of
-// the generated .claude/settings.json — matches internal/claude/claude.go's
+// the generated .claude/settings.json — matches internal/engines/claude/claude.go's
 // claudeCodeSettings/claudeCodeHookMatcher/claudeCodeHook exactly (only the
 // fields this journey asserts on), so scenario 1's hook-wiring assertion
 // PARSES the generated file rather than a bare substring/exists check.

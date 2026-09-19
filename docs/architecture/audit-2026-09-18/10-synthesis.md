@@ -46,7 +46,7 @@ flowchart TB
   subgraph L3["engines + lm layer"]
     GRPC["internal/lm/grpc (pb + wire)"]
     ISO["internal/adapters/isolation"]
-    CL["internal/claude (+ claude/engine)"]
+    CL["internal/engines/claude (+ claude/engine)"]
     VPIO["internal/adapters/vpio{,/goplugin,/dockerexec}"]
   end
   subgraph L4["agentcoord layer"]
@@ -194,7 +194,7 @@ flowchart TB
 1. **`operations` is the stated mediator and is bypassed from above by every frontend and from below by every domain package.** The SKIP edges out of `CLI` and `MCP` number twelve; `layering_test.go` enforces exactly one rule in this direction (`operations ↛ cli`) and none that says a frontend must go THROUGH operations (S6.F3). The AGAINST edges show the mirror: `backends`, `config`, `coord`, `memory` and `lm/grpc` each do a job (config load, trust decision, MCP composition, engine launch, transcript recording) that the stated architecture assigns a layer above them.
 2. **Three packages are "two programs in one import path".** `agentcoord/coord` compiles the coordinator AND the runner (S4 §3); `shared/agent` is the delivery SEAM and a filesystem TOOLBOX (S3.F20); `internal/adapters/mcp` is three server flavours plus coordinator lifecycle (S2.F2). Every AGAINST edge into `AG` and out of `COORD` is a symptom of one of these.
 3. **`internal/core/config` is the universal carrier.** It is imported by every layer, and three things travel THROUGH it that are not configuration: the executable trust gate (`Config.execGate`, S5.ML-1), the `--config-set` override funnel (a process global, S6.F7), and the bundle readers/trust root (re-parsed per call, S5.DF-1). That is why the gate can be `AdmitAll` in one process and a real gate in a sibling copy of the same config (S5.DP-1, S5.DF-3 ✔).
-4. **The only enforced rules that hold** are `operations ↛ cli`, `coord ↛ cli/tui`, `operations ↛ internal/claude`, `transcript ↛ lm/grpc`, and the two lean-binary gates. Everything drawn as SKIP or AGAINST above is ungated (S2 §1, S5 §3, S6 §1, S7 §3).
+4. **The only enforced rules that hold** are `operations ↛ cli`, `coord ↛ cli/tui`, `operations ↛ internal/engines/claude`, `transcript ↛ lm/grpc`, and the two lean-binary gates. Everything drawn as SKIP or AGAINST above is ungated (S2 §1, S5 §3, S6 §1, S7 §3).
 
 ### A2. Unified launch graph — every entry point that starts an engine, joined to what it does and does not run
 
@@ -626,7 +626,7 @@ Every doc / glossary / arch-test / load-bearing-comment statement the seams foun
 | "Every `ctxloom run` opens a FRESH harp (Decision 11)" | `runState.openSession` warns and continues harpless on `AssignSession` failure ✔ | S1.F3 |
 | `--label` "carried by one global `llmServeLabel`"; "three runner transports skip the config-warning and strictness gates" | `standUpRunner(cmd, backend, backendName, label)`; `runLLMHost`/`runLLMTurn` call `gates.close(PhaseStartup)`; `loadAndConfigureBackend` calls `config.RecordWarningsTo` | S1.F9, S6.F3 |
 | `readRunStartHandoff` "registers `defer os.Remove` BEFORE the decode, so a corrupt handoff file is deleted" | `os.Remove` runs after a successful `protojson.Unmarshal` | S1.F9 |
-| README: "no file in the package reaches past `operations`, `config`, `isolation`, or `resources`"; "call exactly one `operations` function" | `internal/adapters/cli` imports 60 in-repo packages incl. `internal/claude`; `run`, `doctor` (35 checks), `deps check` (no operations counterpart), `review`, `util config-write` are cli-resident orchestrators | S6.F2/F3 |
+| README: "no file in the package reaches past `operations`, `config`, `isolation`, or `resources`"; "call exactly one `operations` function" | `internal/adapters/cli` imports 60 in-repo packages incl. `internal/engines/claude`; `run`, `doctor` (35 checks), `deps check` (no operations counterpart), `review`, `util config-write` are cli-resident orchestrators | S6.F2/F3 |
 | README I1: "`operations` never loads config itself"; every command through `GetConfig()` | 22 direct `config.Load` in cli, 3 in operations (`SetLLM`, `resolveListConfig`, `WatchSessionFeed`) | S6.F6 |
 | README I3 violation "in `remote_discover.go`" (own `bufio.Reader`) | fixed — uses `stdinReader`; the README still cites it | S6.F3 |
 | "five MCP server flavours in cli"; files `mcp_runner.go`, `mcp_forward.go`, `coord_host.go`, `memory.go`, `item_helpers.go` | moved to `internal/adapters/mcp` or deleted | S6.F3 |
@@ -706,7 +706,7 @@ Every doc / glossary / arch-test / load-bearing-comment statement the seams foun
 | `tests/arch/layering_test.go` | preamble anticipates `cli/<flow> → operations/<flow> → domain`; enforces only `operations ↛ cli`; names none of `mcp`, `lm/*`, `coord`, `memory`, `sessions`, `remote`, `signing` | S1.F6, S2 §1, S5 §3, S6.F3, S7.F8 |
 | `tests/arch/degrade_discipline_test.go` | "a route to the mode that never spells `Degraded`" is its stated blind spot — and S3.F4's four substitution sites are exactly that | S3.F4 |
 | `tests/arch/path_authority_test.go` | empty allowlist reads as clean; `runstart.json`, `spool`, `context-metrics.jsonl` are joined onto a VARIABLE holding a `paths.*` result | S7.F14 |
-| `tests/arch/lean_binaries_arch_test.go` | gates `cmd/ltk`, `cmd/taskloom` against `lm/*`+`bundles`; both already link `internal/claude`; `harp`, `probe-mcp-server`, `validate`, `archlint` ungated; the front line is `internal/claude`'s own import list, which no rule pins | S6.F11 |
+| `tests/arch/lean_binaries_arch_test.go` | gates `cmd/ltk`, `cmd/taskloom` against `lm/*`+`bundles`; both already link `internal/engines/claude`; `harp`, `probe-mcp-server`, `validate`, `archlint` ungated; the front line is `internal/engines/claude`'s own import list, which no rule pins | S6.F11 |
 | `tests/arch/lock_discipline_test.go`, `ledger_discipline_test.go` | allowlist reason cites "CodexHookWriter.save" (gone); "five packages" (it is two); the ledger gate's "third signal" is a `json:"-"` field that records nothing | S3.F5, S3.F15 |
 | `tests/arch/credential_gitignore_test.go` | listed under trust in the brief; asserts engine credentials only — nothing about `state/trust/objects/`, `approvals`, `allowed_signers` | S5.SA-9 |
 | `internal/core/config/preimage_wire_parity_test.go` | proves `BundleHook → wire.Hook`; the REVERSE hand copy `backends.hookExecPayload` is unguarded | S5.SA-5 |
@@ -1014,10 +1014,10 @@ From A2 (launch) and A3 (bus). Each branch, what it skips, the USER-VISIBLE cons
 
 | Gate | Aimed at today | Re-aim | Would have caught |
 |---|---|---|---|
-| `tests/arch/layering_test.go` `layeringRules` | one rule: `operations ↛ cli` | add `from: internal/adapters/cli, forbid: [lm/isolation, lm/grpc, lm/backends, agentcoord/coord, memory, sessions, transcript, remote, signing, internal/claude, internal/adapters/mcp]` with today's files as a SHRINKING allowlist (the table already has an `IsLive` staleness test); add `internal/adapters/mcp` and `internal/adapters/memory` as `from` rows; add `internal/claude → forbid [bundles, config, lm, operations]` with ZERO allowlist | S1.F6, S2.F2, S3.F12, S5.LB-1/LB-2, S6.F3/F4/F11, S7.F8 — every SKIP edge in A1 |
+| `tests/arch/layering_test.go` `layeringRules` | one rule: `operations ↛ cli` | add `from: internal/adapters/cli, forbid: [lm/isolation, lm/grpc, lm/backends, agentcoord/coord, memory, sessions, transcript, remote, signing, internal/engines/claude, internal/adapters/mcp]` with today's files as a SHRINKING allowlist (the table already has an `IsLive` staleness test); add `internal/adapters/mcp` and `internal/adapters/memory` as `from` rows; add `internal/engines/claude → forbid [bundles, config, lm, operations]` with ZERO allowlist | S1.F6, S2.F2, S3.F12, S5.LB-1/LB-2, S6.F3/F4/F11, S7.F8 — every SKIP edge in A1 |
 | `tests/arch/degrade_discipline_test.go` | routes that spell `Degraded()` | ALSO flag `clidiag.Warn` followed by a return of a default/absent value inside `operations.ResolveAgent`, `ResolveInTreeAgentHome`, `InTreeAgentHomeFor`, `SurfaceSelection.reroot` (its own preamble names this blind spot) | S3.F4 (four silent substitutions) |
 | `tests/arch/path_authority_test.go` | `filepath.Join` calls that reference `paths.*` AND a literal in the SAME call | follow a local variable assigned from `paths.*`; or move `runstart.json`, `spool`, `context-metrics.jsonl` into `paths` | S7.F14 |
-| `tests/arch/lean_binaries_arch_test.go` | `cmd/ltk`, `cmd/taskloom` vs `lm/*`+`bundles` | pin `internal/claude`'s import list (the real front line); add `cmd/harp`, `probe-mcp-server`, `validate`, `archlint`, `gen-schemas` with their own forbidden sets | S6.F11 |
+| `tests/arch/lean_binaries_arch_test.go` | `cmd/ltk`, `cmd/taskloom` vs `lm/*`+`bundles` | pin `internal/engines/claude`'s import list (the real front line); add `cmd/harp`, `probe-mcp-server`, `validate`, `archlint`, `gen-schemas` with their own forbidden sets | S6.F11 |
 | `tests/arch/write_discipline_test.go` allowlist | grandfathers `WriteContextFile`, `writeRunStartHandoff`, `contextmetrics.Append`, `writeMarker` as "pre-ratchet baseline" | date the allowlist; the hook cache is the writer every gate documents as out of scope | S3.F19, S7.F15 |
 | `tests/arch/lock_discipline_test.go`, `ledger_discipline_test.go` | allowlist reason cites `CodexHookWriter.save` (gone); "five packages" (two); the ledger's "third signal" is a `json:"-"` field | delete the stale reasons; assert ONE ownership mechanism per target path | S3.F5, S3.F15 |
 | `tests/arch/session_bind_single_writer_arch_test.go` (ratchet shape) | `BindSession` writers | reuse the shape: `memory.NewCompactor(` callers allowlisted to `internal/adapters/operations`; `os.RemoveAll` under either harp tree in ≤2 named symbols; `os.ReadDir(HomeSessionsDir)` only via two predicates | S7.F2, F5, F6 |
@@ -1153,8 +1153,8 @@ Ordered by blast radius ÷ risk. **Risk** names the stop conditions a slice trip
 
 #### Slice 13 · Family binaries: trees out of `package main`, one `clifamily` scaffold, hardening everywhere (S6.F10/F11/F7) — **safe**
 - **Settles.** S6.F7 (globals → a `strictness.Mode` value threaded), F9 (`--json` shim deleted; registry→tree coverage), F10, F11; B2 #68; N17.
-- **Touches.** `cmd/taskloom/*` → `internal/taskloom/cli`; `cmd/ltk/*` → `internal/ltk/cli`; new `internal/shared/clifamily` (persistent flags, PreRun, error tail, docs mounting, `version`); `cmd/*/main.go` each call `procsec.HardenAtStartup`; `cliemit.Resolve` loses `--json`; `internal/claude`'s import list pinned (from slice 4).
-- **Net LOC.** −300. **Risk.** none (taskloom's `Error: <err>` vs ltk's `ltk: <err>` wording converges — cosmetic). **Prereq.** slice 4. **Gate.** N17; lean-binary gate with `internal/claude` pinned; `TestFormatCoverage` both directions.
+- **Touches.** `cmd/taskloom/*` → `internal/taskloom/cli`; `cmd/ltk/*` → `internal/ltk/cli`; new `internal/shared/clifamily` (persistent flags, PreRun, error tail, docs mounting, `version`); `cmd/*/main.go` each call `procsec.HardenAtStartup`; `cliemit.Resolve` loses `--json`; `internal/engines/claude`'s import list pinned (from slice 4).
+- **Net LOC.** −300. **Risk.** none (taskloom's `Error: <err>` vs ltk's `ltk: <err>` wording converges — cosmetic). **Prereq.** slice 4. **Gate.** N17; lean-binary gate with `internal/engines/claude` pinned; `TestFormatCoverage` both directions.
 
 #### Slice 14 · Runner MCP identity and the E3 keepalive — **wire**
 - **Settles.** the remainder of A4 `RR1`/`RR4` (`consumeCoordinatorReachBack` reads once, does not unset; the shim flow reads identity once), S1.F8 keepalive (the turn becomes the container's main process: no second runner, no file handoff, no `AwaitContainerRunning` poll — S7.F15 goes with it), S1.F7.3 (runner takes binary/args/model from the wire, not a second `config.Load`), B3 #2, #3, #7, #9, #10.

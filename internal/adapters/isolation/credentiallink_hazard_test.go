@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/claude"
-	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 )
 
 // WHY THIS FILE EXISTS.

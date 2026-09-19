@@ -26,7 +26,7 @@
 // conformance_test.go) so they never run in the default `go test ./...` that
 // concurrent work relies on. Run them explicitly:
 //
-//	go test -tags conformance ./internal/lm/conformance/...
+//	go test -tags conformance ./internal/engines/conformance/...
 //
 // This file is intentionally tag-free: it keeps the package present for default
 // builds so the tag-gated test file can't trip "build constraints exclude all Go

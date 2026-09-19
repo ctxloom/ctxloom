@@ -190,7 +190,7 @@ Since `40b49a7f` the proto also carries `runtime = 9` and `resume_session_id = 1
 |---|---|---|
 | `Runtime` | yes — **added `40b49a7f`** | Carries the agent binding's resolved runtime axis. |
 | `ResumeSessionID` | yes — **added `40b49a7f`** | Return half is `ChatSessionInfo.session_id = 5` / `resumable = 6`, added in the same change. |
-| `ModelQuirk` | **no, deliberately** | Set **plugin-side** by the backend (`internal/claude/chat.go`), never sent host→plugin. It is a written, tested exclusion in the parity sweep (`internal/lm/grpc/arch_test.go:65`), not a drop. |
+| `ModelQuirk` | **no, deliberately** | Set **plugin-side** by the backend (`internal/engines/claude/chat.go`), never sent host→plugin. It is a written, tested exclusion in the parity sweep (`internal/lm/grpc/arch_test.go:65`), not a drop. |
 
 > **Both used to be dropped, with consequences worth keeping on record.**
 > `Runtime` had no carrier of any kind — no proto field and no env var — so a

@@ -8,7 +8,7 @@ below is what the code **does**, with a `file:line`.
 Registered backend ids are what `backends.List()` returns: `claude-code`
 (`config.BackendClaudeCode`) and the test doubles (`config.BackendMock` and its
 `config.BackendMock*` siblings) — all in one `init()` in
-`internal/lm/backends/registry.go`. `internal/mockengine` is **not** a
+`internal/lm/backends/registry.go`. `internal/engines/mock` is **not** a
 registered backend; it is a fake vendor CLI (see [mockengine](mockengine.md)).
 Where a row below says "the doubles", the mock family behaves alike unless the
 cell says otherwise.
@@ -20,7 +20,7 @@ cell says otherwise.
 | Binary | `claude` |
 | Oneshot subcommand | none (`claude --print`) |
 | Prompt channel | **stdin** (oneshot); trailing positional (interactive) |
-| Prompt-channel decl | `internal/claude/enginecli.go:182`,`:194` |
+| Prompt-channel decl | `internal/engines/claude/enginecli.go:182`,`:194` |
 | Session name at launch | `--name <harp>` (interactive only) |
 
 `agent.EngineCLI` is the single declaration of a vendor's flags, prompt channel
@@ -38,7 +38,7 @@ vocabulary; an engine maps it to its own mechanism.
 | `acceptEdits` | `--permission-mode acceptEdits` |
 | `plan` | `--permission-mode plan` **+** `--disallowedTools "Bash,Edit,Write,NotebookEdit"` |
 | `bypass` | `--dangerously-skip-permissions` |
-| `buildArgs` | `internal/claude/claudecode.go:253-258` |
+| `buildArgs` | `internal/engines/claude/claudecode.go:253-258` |
 
 ### `EnforcesReadOnlyPlan` — where `plan` collapses
 
@@ -65,7 +65,7 @@ One further permission fact:
 
 | Backend | Native per-tool deny list? | Mechanism |
 |---|---|---|
-| `claude-code` | **yes** | (a) fixed plan-tier `--disallowedTools "Bash,Edit,Write,NotebookEdit"` (`claudecode.go:258`); (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` — `SurfaceInputs.DenyTools` → `internal/claude/surfaces.go:271` → `surfacedelivery.go:47` → `mergeDenyTools` (`internal/claude/claude.go:536`), monotonic union only |
+| `claude-code` | **yes** | (a) fixed plan-tier `--disallowedTools "Bash,Edit,Write,NotebookEdit"` (`claudecode.go:258`); (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` — `SurfaceInputs.DenyTools` → `internal/engines/claude/surfaces.go:271` → `surfacedelivery.go:47` → `mergeDenyTools` (`internal/engines/claude/claude.go:536`), monotonic union only |
 | the doubles | **no** | there are no tools; the double executes nothing |
 
 ### The deny-list reality check
@@ -100,11 +100,11 @@ never had.
 
 | Backend | Mechanism | Reads `AGENTS.md`? | Hook-mediated? | Site |
 |---|---|---|---|---|
-| `claude-code` | **two realizations of one surface**: isolated cell → marker-merge into `CLAUDE.md`; shared cell → out-of-cwd `<hash>.sysprompt.md` passed as `--append-system-prompt-file` | **no — deliberate** (`enginecli.go:34-38`) | no (apply path uses a SessionStart injection hook) | `internal/claude/surfaces.go:81`, `contextdelivery.go:50`, `claudecode.go:294-299` |
+| `claude-code` | **two realizations of one surface**: isolated cell → marker-merge into `CLAUDE.md`; shared cell → out-of-cwd `<hash>.sysprompt.md` passed as `--append-system-prompt-file` | **no — deliberate** (`enginecli.go:34-38`) | no (apply path uses a SessionStart injection hook) | `internal/engines/claude/surfaces.go:81`, `contextdelivery.go:50`, `claudecode.go:294-299` |
 | the doubles | a single project-root file (`mockContextPath`) whose bytes the mock engine hashes and reports | no | no | `internal/lm/backends/mock_surfaces.go` |
 
 **`agent.OutOfCwd` — the out-of-cwd form.** `claude-code`'s approaches carry
-one (`internal/claude/surfaces.go`): flag-pointed scratch files for context,
+one (`internal/engines/claude/surfaces.go`): flag-pointed scratch files for context,
 MCP and settings, so a live shared cwd is never written into. An engine whose
 approaches lack it gets the loudly-warned well-known write on a shared cell.
 **Consequence: for such an engine, concurrent per-agent isolation requires a
@@ -128,7 +128,7 @@ arm of every caller has a subject.
 
 | Backend | Hooks land in | Routed by |
 |---|---|---|
-| `claude-code` | `.claude/settings.json` | `internal/claude/claude.go:680` |
+| `claude-code` | `.claude/settings.json` | `internal/engines/claude/claude.go:680` |
 | the doubles | `.mock/settings.json` (`NewMockSettingsWriter`) | not routed — the unified `HooksConfig` is marshalled whole under `mockSettingsHooksKey` |
 
 A descriptor declares what it *cannot* carry in one of two fields:

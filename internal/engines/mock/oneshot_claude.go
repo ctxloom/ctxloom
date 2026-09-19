@@ -10,7 +10,7 @@ import (
 // renderClaudeOneshot is claude's per-personality oneshot WIRE adapter. It
 // renders the runtime's Outcome onto claude's oneshot format — two shapes,
 // exactly as the real claude -p produces and the driver consumes
-// (internal/claude/claudecode.go). It is one of two per-personality oneshot
+// (internal/engines/claude/claudecode.go). It is one of two per-personality oneshot
 // wire adapters, one per personality; the DISCOVERY walk and the
 // prompt extraction are shared and L1-driven, only this wire rendering is
 // claude-specific. See oneshot.go for the engine dispatch.

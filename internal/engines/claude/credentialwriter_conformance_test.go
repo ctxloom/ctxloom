@@ -6,7 +6,7 @@ package claude
 // TestClaudeCredentialWriter_FallsBackThroughEBUSY below for why this exists
 // and what it does and does not prove.
 //
-// Tag-gated like internal/lm/conformance (see its doc.go), for the same
+// Tag-gated like internal/engines/conformance (see its doc.go), for the same
 // reason: this probe depends on an INSTALLED, VERSIONED third-party binary
 // and on `node` being on PATH, neither of which the default `go test ./...`
 // may assume. It is deliberately absent from that package (a different
@@ -16,7 +16,7 @@ package claude
 // reading before shipping anything that depends on the assumption it
 // asserts. Run it explicitly:
 //
-//	go test -trimpath -tags conformance -run TestClaudeCredentialWriter ./internal/claude/...
+//	go test -trimpath -tags conformance -run TestClaudeCredentialWriter ./internal/engines/claude/...
 
 import (
 	"context"

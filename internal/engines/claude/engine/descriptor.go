@@ -1,10 +1,10 @@
 // Package claudeengine is claude-code's engine DESCRIPTOR: the one record the
 // engine authors about itself, for the backend registry to install. It is a
-// subpackage rather than part of internal/claude because the descriptor's
+// subpackage rather than part of internal/engines/claude because the descriptor's
 // export slots are typed on the bundle model, and the lean parent package is
 // linked by the ltk and taskloom binaries, which must not carry that model.
 //
-// Nothing outside this package and internal/claude names this engine; a fact
+// Nothing outside this package and internal/engines/claude names this engine; a fact
 // about claude that some other package needs is declared here and read back
 // through the registry.
 package claudeengine
@@ -15,9 +15,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
-	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
 )
 

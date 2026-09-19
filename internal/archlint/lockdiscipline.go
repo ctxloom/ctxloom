@@ -13,7 +13,7 @@ import (
 // lock and record primitives themselves are not scanned — their callers are
 // what must hold the lock.
 var lockDisciplineScopes = []string{
-	"internal/claude",
+	"internal/engines/claude",
 	"internal/core/agent",
 }
 

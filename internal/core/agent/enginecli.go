@@ -15,7 +15,7 @@ import (
 //
 //  1. the DRIVER side (this repo spawning the real vendor CLI): its buildArgs
 //     emits argv that must PARSE against the declared grammar — enforced by
-//     each backend's anti-drift test (see internal/claude's
+//     each backend's anti-drift test (see internal/engines/claude's
 //     TestEngineCLI_BuildArgsFlagsAreDeclared);
 //  2. the FAKE side (a future deterministic stand-in vendor binary): it PARSES
 //     argv with the same grammar and probes the same surface list, so a test

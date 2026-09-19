@@ -12,7 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 

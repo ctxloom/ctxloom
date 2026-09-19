@@ -69,8 +69,8 @@ each one contradicts what the surrounding code looks like it does.
 
 ## Scope
 
-Covered here: `internal/lm/backends`, `internal/lm/conformance`, `internal/lm/grpc`,
-`internal/adapters/isolation`, `internal/claude`, `internal/mockengine`.
+Covered here: `internal/lm/backends`, `internal/engines/conformance`, `internal/lm/grpc`,
+`internal/adapters/isolation`, `internal/engines/claude`, `internal/engines/mock`.
 
 Types shared with the rest of the system — `agent.Backend`, `agent.ManagedConfig`,
 `agent.PermissionMode`, `agent.SurfaceInputs`, `agent.CellKind` — live in

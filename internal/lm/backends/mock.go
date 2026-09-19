@@ -54,14 +54,14 @@ type Mock struct {
 // evidence of what the engine actually observed. It is deliberately additive: a
 // failure that replaced the response with a constant would render identically
 // whether or not ctxloom delivered anything, and the mock's class gate
-// (internal/mockengine/arch_test.go) forbids exactly that — "a limb that renders
+// (internal/engines/mock/arch_test.go) forbids exactly that — "a limb that renders
 // identically either way is not evidence". Prefixing instead of replacing is
 // what lets a NEGATIVE scenario assert positively: the run can only produce
 // "FAIL" followed by the observed context if the engine was actually reached and
 // the value actually flowed, where asserting the ABSENCE of something is
 // satisfied just as well by an engine that never launched.
 //
-// internal/mockengine references this constant rather than re-typing it, so the
+// internal/engines/mock references this constant rather than re-typing it, so the
 // two mock halves cannot drift to different markers.
 const MockFailPrefix = "FAIL"
 
@@ -535,7 +535,7 @@ func getEnvFromMap(env map[string]string, key string) string {
 // produces — exit 0, a success message, nothing written. A mock that cannot be
 // asked for one cannot be used to prove ctxloom surfaces it rather than
 // papering over it, so "set to empty" and "unset" have to be distinguishable.
-// internal/mockengine's Dispatch takes a two-value reader for the same reason.
+// internal/engines/mock's Dispatch takes a two-value reader for the same reason.
 //
 // The lookup ORDER lives here alone (exact key, then the lowercase the config
 // parser may produce, then the process environment) rather than being written

@@ -108,7 +108,7 @@ files, two fates:
   `TestChatArgv_EmitsOnlyDeclaredFlags` anti-drift gate. `release/0.7` still hardcodes
   `"--agent"`, `"--model"`, `"--agent-engine"` as string literals in `internal/acp/acp.go`
   (lines 330, 350, 354), and no `EmitsOnlyDeclaredFlags` test exists anywhere. The
-  per-backend half of the idea did land (`internal/claude/enginecli.go:83 flagModel =
+  per-backend half of the idea did land (`internal/engines/claude/enginecli.go:83 flagModel =
   "--model"`); the driver-side central grammar did not.
 
 The vendor-behaviour notes embedded in `argv.go` are measured facts worth keeping regardless

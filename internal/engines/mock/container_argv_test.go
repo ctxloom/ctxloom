@@ -44,7 +44,7 @@ func oneshotCLI(t *testing.T, backend string) agent.EngineCLI {
 // DECLARATION, not the DRIVER. The hand-writing is real. The consequence is
 // not: the driver is bound to the same declaration, in both
 // directions, by its own anti-drift gates (TestEngineCLI_BuildArgsFlagsAreDeclared
-// and TestEngineCLI_EveryDeclaredFlagIsEmitted in internal/claude), and the
+// and TestEngineCLI_EveryDeclaredFlagIsEmitted in internal/engines/claude), and the
 // mock refuses any argv the declaration cannot read.
 // Driver-versus-declaration drift therefore fails at the driver.
 //

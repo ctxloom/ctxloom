@@ -2,7 +2,7 @@
 // record an engine package authors, in its own package, for the backend
 // registry to install. Nothing here names an engine. The registry
 // (internal/lm/backends) reads descriptors; engine packages write them; the
-// composition root (internal/lm/engines) is the only production code that
+// composition root (internal/engines) is the only production code that
 // holds the list.
 //
 // Every optional capability is an agent.Declared slot, so absence is a stated

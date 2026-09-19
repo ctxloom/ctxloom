@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // payloadWithResponseBytes builds a PostToolUse payload whose tool_response

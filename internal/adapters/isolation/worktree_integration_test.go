@@ -119,7 +119,7 @@ func TestWorktreePolicy_RealGitPreservesInnerWIP(t *testing.T) {
 // red-first proof for a bug: a per-agent worktree's CLAUDE.md is a
 // TRACKED context surface the claude engine's WriteContext genuinely mutates —
 // and, per its own doc, DELETES outright when the merged content is empty and
-// the file was wholly ctxloom's (internal/claude/claude.go). Before
+// the file was wholly ctxloom's (internal/engines/claude/claude.go). Before
 // WorktreeArtifactPatterns covered "CLAUDE.md", skipTrackedConfig never set the
 // skip-worktree bit on it, so that deletion left `git status` showing
 // " D CLAUDE.md" — a real, correctly-detected dirty tree — and the WIP-safe

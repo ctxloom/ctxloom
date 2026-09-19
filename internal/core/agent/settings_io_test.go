@@ -135,7 +135,7 @@ func TestGetFS(t *testing.T) {
 
 // TestSettingsStatus_Wired pins SettingsStatus.Wired's definition (see the
 // method's own doc). All nine of its call sites are in _test.go, but the most
-// important of them is internal/lm/conformance, this repo's cross-agent
+// important of them is internal/engines/conformance, this repo's cross-agent
 // contract check, and nothing else pins what Wired actually MEANS.
 //
 // The load-bearing part is the omission: SettingsExists is NOT one of the

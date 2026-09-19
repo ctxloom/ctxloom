@@ -334,9 +334,9 @@ func TestArch_OneMintOneOwner_AllowlistIsLive(t *testing.T) {
 // be a string literal: the engine packages themselves (today's spellings;
 // internal/engines/* after the rename) and the mock engine's binary.
 var engineNameHomes = []string{
-	"internal/claude",
-	"internal/mockengine",
-	"internal/lm/engines",
+	"internal/engines/claude",
+	"internal/engines/mock",
+	"internal/engines",
 	"internal/lm/backends",
 	"cmd/mockengine",
 }
@@ -483,9 +483,9 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/adapters/cli/session_query.go":   "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 
 	// the engines: Home() is a HomeSpec the runner realises
-	"internal/claude/chat_run.go":                                "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
-	"internal/claude/claude.go":                                  "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
-	"internal/claude/mcp_registrar.go":                           "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
+	"internal/engines/claude/chat_run.go":                        "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
+	"internal/engines/claude/claude.go":                          "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
+	"internal/engines/claude/mcp_registrar.go":                   "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
 	"internal/lm/backends/mock.go":                               "slice 11b: lm/backends is deleted whole",
 	"internal/lm/backends/panelaunch.go":                         "slice 11b: lm/backends is deleted whole",
 	"internal/adapters/transcript/vendorreader/claude/locate.go": "slice 6b: the reader becomes an engine.TranscriptReader handed the home it reads",

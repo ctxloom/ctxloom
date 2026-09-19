@@ -505,7 +505,7 @@ flowchart TD
   MEM[internal/adapters/memory]
   SESS[internal/core/sessions]
   TRANS[internal/adapters/transcript]
-  CLAUDE[internal/claude]
+  CLAUDE[internal/engines/claude]
   TASKOPS[internal/shared/tasks/operations]
   DISC[internal/agentcoord/discover]
   GEN[scripts/gendocs]
@@ -661,7 +661,7 @@ flowchart TD
 **Settles it.** Put depth/oneshot into the `Identity` the runner builds (it has `reach.depth`, `reach.oneshot`) and derive leaf from `Identity` in one method; delete the `leaf` parameter chain.
 
 ### F8 — DUPLICATION: MCP config projection helpers
-**Sites.** `claude.ClaudeCodeHookWriter.mcpEntries` (`internal/claude/claude.go`) re-implements `agent.MCPServerJSONEntry` (`internal/core/agent/mcp_bytes.go`) step for step (Validate → `ChatMCPServerFromWire` → `ChatMCPConfigEntryOf` → `GenericMCPEntry`), differing only by `entry.Cwd = "${CLAUDE_PROJECT_DIR}"` on the ctxloom entry. `agent.ResolveManagedMCPServers` is applied independently at `claude.mcpEntries`, `agent.ComposeChatMCPServers`, and `operations.registeredMCPServers` rather than once inside `Config.ResolveBundleMCPServers`. `Config.ResolveBundleMCPServers` (full trust-gated resolve) is called from 8+ sites; a single `ctxloom run` with delegation resolves it in `operations.ApplyHooks`, `backends.managed`, `coord.childMCPServers`, and `Config.LinkGrant`.
+**Sites.** `claude.ClaudeCodeHookWriter.mcpEntries` (`internal/engines/claude/claude.go`) re-implements `agent.MCPServerJSONEntry` (`internal/core/agent/mcp_bytes.go`) step for step (Validate → `ChatMCPServerFromWire` → `ChatMCPConfigEntryOf` → `GenericMCPEntry`), differing only by `entry.Cwd = "${CLAUDE_PROJECT_DIR}"` on the ctxloom entry. `agent.ResolveManagedMCPServers` is applied independently at `claude.mcpEntries`, `agent.ComposeChatMCPServers`, and `operations.registeredMCPServers` rather than once inside `Config.ResolveBundleMCPServers`. `Config.ResolveBundleMCPServers` (full trust-gated resolve) is called from 8+ sites; a single `ctxloom run` with delegation resolves it in `operations.ApplyHooks`, `backends.managed`, `coord.childMCPServers`, and `Config.LinkGrant`.
 **Most complete.** `agent.MCPServerJSONEntry` + a `Cwd` option.
 **Settles it.** `mcpEntries` calls `MCPServerJSONEntry`; `ResolveBundleMCPServers` applies `ResolveManagedMCPServers` itself; `reprise check` should already flag the first.
 

@@ -1,6 +1,6 @@
-# `mockengine` — `internal/mockengine`
+# `mockengine` — `internal/engines/mock`
 
-`internal/mockengine` is the **backend-agnostic runtime of a fake vendor CLI**. It
+`internal/engines/mock` is the **backend-agnostic runtime of a fake vendor CLI**. It
 reads the prompt off the channel L1 (`agent.EngineCLI`) declares, walks L1's declared
 context-surface probes, hashes what it finds, and emits a machine-readable discovery
 report — so a test asserts on **evidence** ("here are the bytes I received, and
@@ -16,7 +16,7 @@ a different thing.
 ```mermaid
 flowchart LR
     L1["L1 — DECLARATION<br/>agent.EngineCLI<br/>flags · prompt channel · probes"]
-    L2["L2 — RUNTIME<br/>internal/mockengine<br/>parse · walk · hash · report"]
+    L2["L2 — RUNTIME<br/>internal/engines/mock<br/>parse · walk · hash · report"]
     L3["L3 — WIRE ADAPTER<br/>renderOneshotWire<br/>one wire shape per engine"]
     L4["L4 — BINARY<br/>cmd/mockengine<br/>installed under a vendor's name"]
     L1 --> L2 --> L3 --> L4
@@ -169,11 +169,11 @@ no constructor), and `EngineCLI.Validate()` having been run.
 These matter more than usual: a blind spot in the instrument is invisible in
 everything the instrument certifies.
 
-- **Flag NAMES are validated; values, required flags, and declared mutual exclusions are not.** `ParseArgv` checks only "is this name declared" plus "does a value token follow", so a nonsense value, or two flags the declaration marks `ConflictsWith` each other, both parse cleanly and run green — argv lines the real binary rejects with exit 2. The declarations state the constraints (`agent.EngineCLI` flag entries in `internal/claude/enginecli.go`).
+- **Flag NAMES are validated; values, required flags, and declared mutual exclusions are not.** `ParseArgv` checks only "is this name declared" plus "does a value token follow", so a nonsense value, or two flags the declaration marks `ConflictsWith` each other, both parse cleanly and run green — argv lines the real binary rejects with exit 2. The declarations state the constraints (`agent.EngineCLI` flag entries in `internal/engines/claude/enginecli.go`).
 - **A MISSING flag is invisible unless the declaration marks it `Required`.** The surface is chosen out-of-band (`--surface` / `MOCKENGINE_SURFACE`, oneshot by default), so a driver that stopped emitting a non-required flag produces an identical report; claude's oneshot grammar marks `--print` Required, which is what makes an interactive-shaped argv on the oneshot surface a parse refusal rather than a green run.
 - **`PromptSHA256` is never empty.** A nil prompt hashes to `e3b0c442…` (`report.go:144`), so "no prompt delivered" is indistinguishable from "prompt delivered" in the one field that exists to prove delivery. The neighbouring `ProbeRecord.SHA256` documents the opposite convention. `runtime_test.go:230` asserts `rep.PromptSHA256 != ""` — an assertion that can never fail.
 - **`ScopeEnvDir` falls back to the real `$HOME`** (`EnvHomeDefault` in `probeOne`), so a run where ctxloom never set the engine's home var reads the developer's own home and reports `present:true` for a surface ctxloom never delivered. The fallback is recorded in `Note` and revealed by `Root`, but both are deliberately excluded from the digest, so the digest cannot tell.
-- **The declared environment contract is never verified.** `rg 'SetEnv|StripEnv' internal/mockengine cmd/mockengine` returns **0 hits**, and `Report` has no env section. `SetEnv`/`StripEnv` exist precisely because "a strip that silently stopped happening is otherwise invisible" (`internal/core/agent/enginecli.go:236-238`). A run where ctxloom stopped setting `CTXLOOM_CONTEXT_FILE` reports identically to one where it did.
+- **The declared environment contract is never verified.** `rg 'SetEnv|StripEnv' internal/engines/mock cmd/mockengine` returns **0 hits**, and `Report` has no env section. `SetEnv`/`StripEnv` exist precisely because "a strip that silently stopped happening is otherwise invisible" (`internal/core/agent/enginecli.go:236-238`). A run where ctxloom stopped setting `CTXLOOM_CONTEXT_FILE` reports identically to one where it did.
 - **Every `os.Stat` error flattens to `Present=false`** (`discovery.go:131-134`) — EACCES, ENOTDIR and ELOOP read exactly like "not delivered" — while the sibling read-failure path twelve lines later *does* note the error (`:150`).
 - **`hashDir` discards the walk error and emits unreadable files as entries with an empty `SHA256`** (`discovery.go:166`, `:176-181`), so an unreadable file looks like a successfully observed one. `EntryRecord` has no error field.
 - **`canonicalRendering` excludes `Note`** (`report.go:125-135`), so "could not be resolved", "resolved and found nothing", and "unknown probe scope" collapse to one digest — the value tests are told to assert cannot distinguish them.
@@ -182,7 +182,7 @@ everything the instrument certifies.
 - **An intentionally EMPTY response cannot be requested** — `if v := getenv(EnvResponse); v != ""` (`sentinel.go:65-67`) makes "set to empty" indistinguishable from unset, and `Dispatch` always seeds `"mock-engine: ok"` (`:55`). The one knob that would let a test prove ctxloom surfaces a zero-byte reply is unreachable, in the codebase whose characteristic bug **is** the zero-byte reply.
 - **Two env readers with opposite nil policies**: `Runtime.getenv` falls back to `os.Getenv` (`runtime.go:36-41`) while `Resolver.getenv` returns `""` (`discovery.go:26-31`). A `Runtime` built with a nil `Res.Getenv` probes the `$HOME` fallback while the sentinel knobs read the real process env — from one struct literal, with no error.
 - **The interactive surface answers the positional prompt, reflects typed lines and reports resizes** (`renderInteractive`, `interactive.go`), ending on `quit` or EOF; `cmd/mockengine` feeds SIGWINCH into `Runtime.Resize`. Its pty test re-executes the test binary as the mock on a real go-pty. `render`'s `default` arm is a LOUD error for an unknown surface, matching `renderOneshotWire`. The mock writes no vendor session file, so ctxloom's interactive-pty capture regime (vendor-store conversion on exit) has nothing to convert from it.
-- **The container test hand-writes the vendor argv** (`container_docker_integration_test.go:136`, `:299`) under the comment "the argv mirrors what claude's buildArgs emits on the minimal form", so the mock constrains the **declaration**, not the **driver** — the very drift the package doc says a fake must never permit. `rg buildArgs internal/mockengine` → 0 hits.
+- **The container test hand-writes the vendor argv** (`container_docker_integration_test.go:136`, `:299`) under the comment "the argv mirrors what claude's buildArgs emits on the minimal form", so the mock constrains the **declaration**, not the **driver** — the very drift the package doc says a fake must never permit. `rg buildArgs internal/engines/mock` → 0 hits.
 - **Report-emission failure does not affect the exit code** (`runtime.go:87-99`, `:53`) — the instrument can exit 0 having delivered zero evidence. Both current readers do fail loudly, so this is latent.
 - **`ExtractReport`'s doc names a caller that does not exist** (`report.go:174-177`): it claims the container test shares it, but that test reads `report.json` and unmarshals directly (`:159-166`), so the marker channel is never exercised in a container.
 - **`head` is documented as a "printable prefix" but does no printability filtering and slices at a fixed byte offset** (`report.go:104-110`), so it can split a UTF-8 rune and carry raw control bytes; `json.Marshal` substitutes U+FFFD, making the corruption silent.

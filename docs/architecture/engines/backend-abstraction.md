@@ -189,10 +189,10 @@ zero-valued means "the producing backend didn't have one":
 Entry types (`:310-321`): `user`, `assistant`, `thinking`, `tool_use`,
 `tool_result`, `system`.
 
-## The cross-agent conformance suite — `internal/lm/conformance`
+## The cross-agent conformance suite — `internal/engines/conformance`
 
 A **tag-gated cross-agent equity suite**. Its only non-test file
-(`internal/lm/conformance/doc.go`) declares zero types, funcs, consts and vars;
+(`internal/engines/conformance/doc.go`) declares zero types, funcs, consts and vars;
 it exists purely so `go test ./...` does not fail with "build constraints
 exclude all Go files". The suite itself lives in `conformance_test.go` behind
 `//go:build conformance` and asserts that each listed agent's
@@ -210,7 +210,7 @@ cross-format; `agentCases`' own comment says not to read a green run as equity
 evidence until a second row restores the premise. The test doubles have a
 settings writer but are not listed, for the structural reason given there: a
 new row inherits the whole suite unconditionally. Note that its subject
-(`internal/claude`) is not under `internal/lm/`, despite where the suite lives.
+(`internal/engines/claude`) is not under `internal/lm/`, despite where the suite lives.
 
 `coveredEvents` names the unified hook events every listed agent must emit;
 `SessionEnd` is deliberately absent because not every engine CLI has such an

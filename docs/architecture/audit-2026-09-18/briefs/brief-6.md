@@ -44,7 +44,7 @@ internal/adapters/cli (30k lines) vs internal/adapters/operations (29k): the sta
 - For every CLI verb (cobra commands in internal/adapters/cli/*_cmd.go and friends), what it calls in operations vs what it does itself. Produce a TABLE: verb -> operations entry point(s) -> business logic that lives in cli instead (name the symbols). That table is the centrepiece; a mermaid delegation graph of cli -> operations -> lower packages accompanies it.
 - Output/formatting layers: cliemit.Emit, clifmt.Render, cli.SessionRow, --format json/yaml/text/markdown; row lively-revision describes inconsistency — map which verbs go through which emitter.
 - Hook verbs (`ctxloom hook hud|next-step|tool-reflect|skill-mates`): shared scaffolding or four copies of config.Load + transcript resolution? Diff them.
-- The three cmd binaries (cmd/ctxloom, cmd/taskloom, cmd/ltk, plus harp/archlint/mockengine/probe-mcp-server): what they share (internal/shared, internal/taskloom, internal/ltk), the lean-binaries gate (tests/arch/lean_binaries_arch_test.go) and what nearly violated it last night (internal/claude importing internal/core/bundles), and any duplicated scaffolding across cmd/*.
+- The three cmd binaries (cmd/ctxloom, cmd/taskloom, cmd/ltk, plus harp/archlint/mockengine/probe-mcp-server): what they share (internal/shared, internal/taskloom, internal/ltk), the lean-binaries gate (tests/arch/lean_binaries_arch_test.go) and what nearly violated it last night (internal/engines/claude importing internal/core/bundles), and any duplicated scaffolding across cmd/*.
 - Rows: lively-revision, agile-satin, legged-nuttiness, capable-rinse, reformed-scheme, urban-borough.
 
 ## DATA FLOW — required on every graph (added by the human)

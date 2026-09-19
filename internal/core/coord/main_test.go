@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/lm/engines"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 

@@ -82,12 +82,12 @@
 ./internal/core/bundles/skill_archive.go|ImportSkillArchive fsys afero . Fs , archive [ ] byte , destParent string , opts ExtractOptions , validate func afero . Fs , string error|1|14|ImportSkillArchive|684-763
 ./internal/core/bundles/skill_archive.go|symlinkEscapesRoot fsys afero . Fs , root , target string|1|12|symlinkEscapesRoot|574-607
 ./internal/core/bundles/strict.go|collectKeySites t reflect . Type , path string , out map [ string ] keySite|1|13|collectKeySites|120-158
-./internal/claude/claude.go||1|14||204-271
-./internal/claude/claude.go|(w*ClaudeCodeHookWriter)Status projectDir string|1|11|Status|1105-1148
-./internal/claude/claude.go|(w*ClaudeCodeHookWriter)mergeDenyTools settings * claudeCodeSettings , denyTools [ ] string , prev [ ] string|1|12|mergeDenyTools|756-801
-./internal/claude/claude_test.go|TestClaudeCodeHookWriter_MCPServerEnvPreserved t * testing . T|1|11|TestClaudeCodeHookWriter_MCPServerEnvPreserved|603-671
-./internal/claude/claude_test.go|TestClaudeCodeHookWriter_MCPServerInjection t * testing . T|1|12|TestClaudeCodeHookWriter_MCPServerInjection|503-566
-./internal/claude/claudecode.go|(b*ClaudeCode)Execute ctx context . Context , req * agent . ExecuteRequest , stdout , stderr io . Writer|1|14|Execute|112-170
+./internal/engines/claude/claude.go||1|14||204-271
+./internal/engines/claude/claude.go|(w*ClaudeCodeHookWriter)Status projectDir string|1|11|Status|1105-1148
+./internal/engines/claude/claude.go|(w*ClaudeCodeHookWriter)mergeDenyTools settings * claudeCodeSettings , denyTools [ ] string , prev [ ] string|1|12|mergeDenyTools|756-801
+./internal/engines/claude/claude_test.go|TestClaudeCodeHookWriter_MCPServerEnvPreserved t * testing . T|1|11|TestClaudeCodeHookWriter_MCPServerEnvPreserved|603-671
+./internal/engines/claude/claude_test.go|TestClaudeCodeHookWriter_MCPServerInjection t * testing . T|1|12|TestClaudeCodeHookWriter_MCPServerInjection|503-566
+./internal/engines/claude/claudecode.go|(b*ClaudeCode)Execute ctx context . Context , req * agent . ExecuteRequest , stdout , stderr io . Writer|1|14|Execute|112-170
 ./internal/adapters/cli/agent.go|buildSetAgentRequest cmd * cobra . Command , name string|1|11|buildSetAgentRequest|423-464
 ./internal/adapters/cli/bundle_distill.go|runBundleDistill cmd * cobra . Command , args [ ] string|1|12|runBundleDistill|81-170
 ./internal/adapters/cli/bundle_items.go|runBundleMCPEdit cmd * cobra . Command , args [ ] string|1|11|runBundleMCPEdit|33-100
@@ -194,9 +194,9 @@
 ./internal/adapters/memory/compactor.go|chunkText text string , targetTokens int|1|12|chunkText|968-1041
 ./internal/adapters/memory/compactor.go|(c*Compactor)loadSessionToCompact ctx context . Context|1|11|loadSessionToCompact|534-599
 ./internal/adapters/memory/stamp_test.go|TestStampPlanFile_PreservesFileMode t * testing . T|1|12|TestStampPlanFile_PreservesFileMode|236-280
-./internal/mockengine/container_docker_integration_test.go|TestMockEngineContainer_CodexDiscoversDeliveredSurfaces t * testing . T|1|18|TestMockEngineContainer_CodexDiscoversDeliveredSurfaces|303-403
-./internal/mockengine/container_docker_integration_test.go|TestMockEngineContainer_DiscoversDeliveredSurfaces t * testing . T|1|16|TestMockEngineContainer_DiscoversDeliveredSurfaces|121-220
-./internal/mockengine/discovery_unreadable_test.go|TestObservePath_UnreadableEntryIsMarked t * testing . T|1|11|TestObservePath_UnreadableEntryIsMarked|68-102
+./internal/engines/mock/container_docker_integration_test.go|TestMockEngineContainer_CodexDiscoversDeliveredSurfaces t * testing . T|1|18|TestMockEngineContainer_CodexDiscoversDeliveredSurfaces|303-403
+./internal/engines/mock/container_docker_integration_test.go|TestMockEngineContainer_DiscoversDeliveredSurfaces t * testing . T|1|16|TestMockEngineContainer_DiscoversDeliveredSurfaces|121-220
+./internal/engines/mock/discovery_unreadable_test.go|TestObservePath_UnreadableEntryIsMarked t * testing . T|1|11|TestObservePath_UnreadableEntryIsMarked|68-102
 ./internal/opencode/chat.go|(b*Opencode)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|17|Chat|60-153
 ./internal/opencode/interactive.go|(b*Opencode)launchInteractive ctx context . Context , req * agent . ExecuteRequest , modelInfo * agent . ModelInfo , stdout , stderr io . Writer|1|21|launchInteractive|38-130
 ./internal/opencode/settings.go||1|13||614-658

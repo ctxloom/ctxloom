@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
-	claudecli "github.com/ctxloom/ctxloom/internal/claude"
+	claudecli "github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // StoreRel is claude-code's transcript store, relative to HOME, in slash

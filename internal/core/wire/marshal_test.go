@@ -14,7 +14,7 @@ import (
 
 // TestLeafMarshalBytesArePinned pins the exact JSON a fully-populated leaf
 // value produces. The leaf tags are load-bearing — internal/core/agent's
-// mcpfile writer and internal/claude's settings writer marshal MCPServer and
+// mcpfile writer and internal/engines/claude's settings writer marshal MCPServer and
 // Hook straight into backend settings files, so a changed leaf name silently
 // changes a file some engine parses. Adding tags to the CONTAINER types must
 // not move these bytes; this test is what says so.

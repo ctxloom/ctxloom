@@ -1,6 +1,6 @@
 # agent — engine CLI declaration (anti-drift grammar)
 
-`EngineCLI` is a backend's declaration of ONE vendor-CLI process surface: the binary, subcommand, how the prompt is delivered, every flag with its value shape, the env it sets and strips, and the context surfaces (`CLIProbe`) the vendor CLI reads at startup. It is the single grammar that both the real driver and the deterministic fake (`internal/mockengine`, `cmd/mockengine`) parse against — that shared reading is the entire anti-drift mechanism in the launch path. Consumers: `internal/claude`, `internal/mockengine`, `cmd/mockengine`, `internal/lm/backends`.
+`EngineCLI` is a backend's declaration of ONE vendor-CLI process surface: the binary, subcommand, how the prompt is delivered, every flag with its value shape, the env it sets and strips, and the context surfaces (`CLIProbe`) the vendor CLI reads at startup. It is the single grammar that both the real driver and the deterministic fake (`internal/engines/mock`, `cmd/mockengine`) parse against — that shared reading is the entire anti-drift mechanism in the launch path. Consumers: `internal/engines/claude`, `internal/engines/mock`, `cmd/mockengine`, `internal/lm/backends`.
 
 ```mermaid
 classDiagram
@@ -97,13 +97,13 @@ classDiagram
 
 ## Invariants and contracts
 
-- **The declaration is the contract.** `EngineCLI` is read from both sides: the driver builds argv from it and `internal/mockengine` parses argv against it. Any drift between the two shows up as a typed error, not a silent divergence.
+- **The declaration is the contract.** `EngineCLI` is read from both sides: the driver builds argv from it and `internal/engines/mock` parses argv against it. Any drift between the two shows up as a typed error, not a silent divergence.
 - **`ParseArgv` treats any token starting with `-` as a flag.** A positional beginning with `-` (e.g. a user prompt `--fix this`) fails an otherwise-valid `PromptPositional` surface with `UndeclaredFlagError`, unless a `--` separator precedes it (`ParseArgv` honours `--` at `:435`). Claude's interactive surface is `PromptPositional`.
 - **`CLIProbe` is a tagged union keyed on `Scope`**, and the type cannot express it: `ScopeCwd`/`ScopeHome` use `Rel`; `ScopeEnvDir` uses `EnvVar` + `EnvHomeDefault` + `Rel`; `ScopeFlagValue` uses `Flag` and must leave `Rel` empty. `Validate` exists solely to check what the type cannot.
 - **`Validate` is never called in production.** It has eight call sites, all in tests — it is a declaration guard, not a runtime gate.
 - **`ProbeKind` and `SurfaceKind` are coupled by meaning, not by type.** `ProbeKindOf` is a raw string conversion and only `enginecli_test.go:26` keeps the two vocabularies in step.
-- **Fields read only outside this package:** `Binary`, `Prompt`, `SetEnv`, `StripEnv` on `EngineCLI` and everything but `Kind` on `CLIProbe` are inert here and consumed by `internal/mockengine/discovery.go`.
+- **Fields read only outside this package:** `Binary`, `Prompt`, `SetEnv`, `StripEnv` on `EngineCLI` and everything but `Kind` on `CLIProbe` are inert here and consumed by `internal/engines/mock/discovery.go`.
 - **`CLIFlag.Ignored` is read only by backend anti-drift tests**; `CLIFlag.Note` has no reader at all and is pure runtime-carried documentation.
-- **Typed errors are actionable by design** — `UndeclaredFlagError.Error()` names the flag *and* prints the whole argv. `internal/claude` and `internal/mockengine` both `errors.As` against these three types.
+- **Typed errors are actionable by design** — `UndeclaredFlagError.Error()` names the flag *and* prints the whole argv. `internal/engines/claude` and `internal/engines/mock` both `errors.As` against these three types.
 - **`EngineCLI.FlagNames` and `ParsedArgv.Values` have zero call sites** anywhere including tests; `ParsedArgv.Has` and `ProbeKindOf` are test-only.
 - **`PromptNone` is declared but never referenced.**

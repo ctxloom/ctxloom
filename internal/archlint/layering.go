@@ -44,7 +44,7 @@ var layeringRules = []layeringRule{
 	{
 		Name:   "shared/agent-must-not-import-engine-plugins",
 		From:   "internal/core/agent",
-		Forbid: []string{"internal/claude"},
+		Forbid: []string{"internal/engines/claude"},
 	},
 	{
 		// internal/adapters/operations is the frontend-agnostic layer both the CLI and
@@ -73,7 +73,7 @@ var layeringRules = []layeringRule{
 		// engine package, so backend identity cannot be branched on directly.
 		Name:   "operations-must-not-import-engine-plugins",
 		From:   "internal/adapters/operations",
-		Forbid: []string{"internal/claude"},
+		Forbid: []string{"internal/engines/claude"},
 	},
 }
 

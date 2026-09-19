@@ -451,7 +451,7 @@ test-coverage: cover
 # the shared agent.SettingsWriter contract). Tag-gated so it's excluded from the
 # default `go test ./...`; run it explicitly here.
 test-conformance:
-    go test -trimpath -race -tags conformance ./internal/lm/conformance/...
+    go test -trimpath -race -tags conformance ./internal/engines/conformance/...
 
 # Validate ONE vendor-transcript reader in isolation (its own package,
 # already part of `go test ./...`, but named here so a release-monitoring job
@@ -1194,8 +1194,8 @@ plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
 # under this invocation's own -tags, does the package have *_test.go sitting
 # in IgnoredGoFiles? None means the package really has no tests and it stays
 # green exactly as before; some means a tag hid them, and the run measured
-# nothing. Measured 2026-08-22: internal/lm/conformance was live in that
-# state — `just test-pkg ./internal/lm/conformance/` exited 0 in 1s having
+# nothing. Measured 2026-08-22: internal/engines/conformance was live in that
+# state — `just test-pkg ./internal/engines/conformance/` exited 0 in 1s having
 # compiled not one test.
 #
 # Symptom 2 — PART of the package is hidden, which is tests/acceptance, the

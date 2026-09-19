@@ -3,7 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/lm/engines"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"os"
 	"sync"
 

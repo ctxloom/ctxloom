@@ -72,7 +72,7 @@ import (
 // own family). Nothing else in the module's core may import them directly;
 // internal/adapters/operations doing so was T12's confirmed violation.
 var enginePluginImportPaths = []string{
-	modulePath + "/internal/claude",
+	modulePath + "/internal/engines/claude",
 }
 
 // TestArch_Operations_DoesNotImportEnginePlugins is the layering half of

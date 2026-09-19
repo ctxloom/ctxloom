@@ -10,8 +10,8 @@ Status: COMPLETE (see the tail for the section inventory).
 
 **Stated architecture read first.**
 - `tests/arch/layering_test.go` — `layeringRules` table. The rule governing this seam is `operations-must-not-import-cli` (zero allowlist entries) plus `clifmt-must-not-import-ctxloom` (`pkg/clifmt` is the outermost edge). Its doc comment records that T20's per-flow rule `cli/<flow> -> operations/<flow> -> domain` is FUTURE work "once the per-flow package split lands". **There is no rule that cli must go THROUGH operations** — only that operations may not import back.
-- `tests/arch/lean_binaries_arch_test.go` — `TestArch_LeanBinaries_DoNotLinkEngineDescriptors`: `go list -deps` of `./cmd/ltk` and `./cmd/taskloom` must not contain `internal/lm/engine`, `internal/lm/engines`, `internal/lm/backends`, `internal/core/bundles`. Only those two binaries are gated.
-- `tests/arch/engine_identity_arch_test.go` — `TestArch_Operations_DoesNotImportEnginePlugins` (operations must not import `internal/claude` etc.).
+- `tests/arch/lean_binaries_arch_test.go` — `TestArch_LeanBinaries_DoNotLinkEngineDescriptors`: `go list -deps` of `./cmd/ltk` and `./cmd/taskloom` must not contain `internal/lm/engine`, `internal/engines`, `internal/lm/backends`, `internal/core/bundles`. Only those two binaries are gated.
+- `tests/arch/engine_identity_arch_test.go` — `TestArch_Operations_DoesNotImportEnginePlugins` (operations must not import `internal/engines/claude` etc.).
 - `docs/architecture/cli/README.md` (+ 13 sibling pages). Pinned to commit `0f59fbae` with line numbers. States: "the intended direction is `cmd/ctxloom` → `internal/adapters/cli` → `internal/adapters/operations` → domain, and no file in the package reaches past `operations`, `config`, `isolation`, or `resources` into domain internals. Its contract to callers is: parse flags, load config, call exactly one `operations` function, and render the result through `emit()`." It admits six thick files and lists invariants I1–I10.
 - `GLOSSARY.md` — defines neither `operations`, `cliemit`, `clifmt` nor "thin surface"; the vocabulary doc is silent on this seam.
 
@@ -23,7 +23,7 @@ Status: COMPLETE (see the tail for the section inventory).
 | `internal/adapters/operations` production files / LOC | — | 85 / 28,969 |
 | Sub-packages under `internal/adapters/cli` | none | `internal/adapters/cli/tui` only |
 | Sub-packages under `internal/adapters/operations` (the T20 per-flow split) | none | none — not landed |
-| In-repo packages imported by `internal/adapters/cli` | "operations, config, isolation, resources" | **60**, incl. `bundles`, `profiles`, `sessions`, `remote`, `trust`, `signing`, `memory`, `transcript`, `git`, `mcp`, `agentcoord{,/coord,/discover,/spool}`, `lm/{engines,backends,grpc,isolation}`, `vpio{,/dockerexec,/goplugin}`, `termui`, `tmuxhost`, `turnchange`, `compression`, `confpatch`, `contextmetrics`, and the engine plugin `internal/claude{,/engine}` |
+| In-repo packages imported by `internal/adapters/cli` | "operations, config, isolation, resources" | **60**, incl. `bundles`, `profiles`, `sessions`, `remote`, `trust`, `signing`, `memory`, `transcript`, `git`, `mcp`, `agentcoord{,/coord,/discover,/spool}`, `lm/{engines,backends,grpc,isolation}`, `vpio{,/dockerexec,/goplugin}`, `termui`, `tmuxhost`, `turnchange`, `compression`, `confpatch`, `contextmetrics`, and the engine plugin `internal/engines/claude{,/engine}` |
 | In-repo packages imported by `internal/adapters/operations` | — | 47; none under `internal/adapters/cli` (rule holds); no engine plugin (rule holds) |
 | cobra `Use:` strings in `internal/adapters/cli` | — | 167 (≈150 leaf verbs in ~30 families) |
 | Files the README names that no longer exist | `mcp_runner.go`, `mcp_forward.go`, `coord_host.go`, `coord_*.go`, `mcp_tools_triggers.go`, `mcp_resources.go`, `memory.go` | moved/deleted |
@@ -87,7 +87,7 @@ flowchart LR
     LOADF["config.LoadFresh"]
     WARNS["config.RecordWarningsTo"]
   end
-  subgraph engines["internal/lm/engines + isolation + version"]
+  subgraph engines["internal/engines + isolation + version"]
     REG["engines.Register (sync.Once)"]
     ISOVER["isolation.SetBinaryVersion (global)"]
   end
@@ -274,7 +274,7 @@ flowchart LR
     HARP_CONST["os.Getenv(agent.SessionHarpEnv)"]
     RESUMED["CTXLOOM_RESUMED_FROM / _PARTS"]
   end
-  subgraph claude["internal/claude (engine plugin)"]
+  subgraph claude["internal/engines/claude (engine plugin)"]
     DSP["claude.DecodeStopPayload"]
     PTU["claude.PostToolUsePayload / PostToolUseOutput"]
     SSP["claude.SessionStartPayload / SessionStartOutput"]
@@ -455,7 +455,7 @@ flowchart LR
     TLE["internal/taskloom/{config,engine,workdir}"]
     LTKE["internal/ltk/{app,engine,ir,rules,scm,shellenv,state}"]
     TASKS["internal/shared/tasks/* (store, operations, tagschema…)"]
-    ENG["internal/lm/engines + backends"]
+    ENG["internal/engines + backends"]
     BUND["internal/core/bundles"]
     CONFP["internal/adapters/confpatch"]
   end
@@ -487,7 +487,7 @@ flowchart LR
   PROBE --> IOX
 ```
 
-`TestArch_LeanBinaries_DoNotLinkEngineDescriptors` gates only the `TL` and `LTK` nodes against `ENG` and `BUND`. `HARP`, `PROBE`, `ARCH`, `VAL`, `GENS` are ungated; `MOCK` legitimately links `ENG`. **Both lean binaries already link the engine plugin `internal/claude`** — measured with `go list -deps`: `cmd/ltk → internal/ltk/engine → internal/claude` and `cmd/taskloom → internal/taskloom/engine → internal/claude` (each companion's "install me into the engine's settings" adapter reuses claude's settings-file knowledge). So the near-miss the brief mentions was structural, not accidental: `f8403d65d` placed a `bundles`-typed decision in `internal/claude`, which would have dragged `internal/core/bundles` into ltk and taskloom through that chain; `439a5c6c4` moved it out to `cli/skill_mates_decide.go`. The gate's real front line is `internal/claude`'s own import list (today: `confpatch, paths, shared/agent{,/present}, clidiag, collections, ledger, wire`), and nothing pins that list (see F-11).
+`TestArch_LeanBinaries_DoNotLinkEngineDescriptors` gates only the `TL` and `LTK` nodes against `ENG` and `BUND`. `HARP`, `PROBE`, `ARCH`, `VAL`, `GENS` are ungated; `MOCK` legitimately links `ENG`. **Both lean binaries already link the engine plugin `internal/engines/claude`** — measured with `go list -deps`: `cmd/ltk → internal/ltk/engine → internal/engines/claude` and `cmd/taskloom → internal/taskloom/engine → internal/engines/claude` (each companion's "install me into the engine's settings" adapter reuses claude's settings-file knowledge). So the near-miss the brief mentions was structural, not accidental: `f8403d65d` placed a `bundles`-typed decision in `internal/engines/claude`, which would have dragged `internal/core/bundles` into ltk and taskloom through that chain; `439a5c6c4` moved it out to `cli/skill_mates_decide.go`. The gate's real front line is `internal/engines/claude`'s own import list (today: `confpatch, paths, shared/agent{,/present}, clidiag, collections, ledger, wire`), and nothing pins that list (see F-11).
 
 ## 3. Delegation / layer graph
 
@@ -518,7 +518,7 @@ flowchart TB
     COORD["agentcoord · coord · discover · spool"]
     ENG["lm/engines · lm/backends · lm/grpc"]
     VPIO["vpio · dockerexec · goplugin"]
-    CLAUDE["internal/claude (engine plugin)"]
+    CLAUDE["internal/engines/claude (engine plugin)"]
     MISC["compression · confpatch · contextmetrics · turnchange · termui · tmuxhost · selfexec"]
   end
 
@@ -665,7 +665,7 @@ Method: every production file in `internal/adapters/cli` was scanned for `operat
 | `completion` | `ListFragments`, `ListCommands`, `ListProfiles` | five direct `config.Load()` in completers | cobra |
 | `version` | — | `cliemit.EmitVersion` | cliemit |
 
-**Reading the table.** Of ~150 leaf verbs, roughly 90 fit the stated contract (flags → one or two operations calls → `emit`). The rest split into three shapes: (a) orchestrators that live in cli with no operations home — `run`, `llm serve/host/turn`, `init`, `doctor`, `util config-write`, `deps check`, `review`; (b) verbs whose DECISION logic is in cli beside a thin operations call — signing-key resolution (6 sites), permission and LLM ladders, trust offers, gitignore reconciliation, worktree classification; (c) the hook verbs, which are Claude-Code-specific and call `internal/claude` directly. An MCP or VS Code frontend gets none of (a) or (b): the operations layer does not contain them.
+**Reading the table.** Of ~150 leaf verbs, roughly 90 fit the stated contract (flags → one or two operations calls → `emit`). The rest split into three shapes: (a) orchestrators that live in cli with no operations home — `run`, `llm serve/host/turn`, `init`, `doctor`, `util config-write`, `deps check`, `review`; (b) verbs whose DECISION logic is in cli beside a thin operations call — signing-key resolution (6 sites), permission and LLM ladders, trust offers, gitignore reconciliation, worktree classification; (c) the hook verbs, which are Claude-Code-specific and call `internal/engines/claude` directly. An MCP or VS Code frontend gets none of (a) or (b): the operations layer does not contain them.
 
 ### 4.1 Ranked findings
 
@@ -750,7 +750,7 @@ flowchart TB
 
 #### F-3 · STATED-VS-ACTUAL — the README's layering sentence is false at 60 imports and nothing checks it
 
-`docs/architecture/cli/README.md`: *"no file in the package reaches past `operations`, `config`, `isolation`, or `resources` into domain internals."* Measured: `internal/adapters/cli` imports 60 in-repo packages (§1), including every domain package the sentence names as forbidden, and the engine plugin `internal/claude`. `tests/arch/layering_test.go` enforces only `operations-must-not-import-cli`; there is no `cli-must-not-import-<domain>` rule, and the T20 per-flow rule the test's comment anticipates cannot be written because neither package has flows (both are flat).
+`docs/architecture/cli/README.md`: *"no file in the package reaches past `operations`, `config`, `isolation`, or `resources` into domain internals."* Measured: `internal/adapters/cli` imports 60 in-repo packages (§1), including every domain package the sentence names as forbidden, and the engine plugin `internal/engines/claude`. `tests/arch/layering_test.go` enforces only `operations-must-not-import-cli`; there is no `cli-must-not-import-<domain>` rule, and the T20 per-flow rule the test's comment anticipates cannot be written because neither package has flows (both are flat).
 
 Also stale in the same README (pinned to `0f59fbae`, with line numbers): `cli.Execute` (now `cli.Run() int`), `failOnFindings` (now `cli.phaseGates.close`), "five MCP server flavours in cli" (moved to `internal/adapters/mcp`; `mcp_server.go` is 40 lines), the 930-line `RunE` closure (now `runRun` + `runState`), I3's cited violation in `remote_discover.go` (fixed — it uses `stdinReader` from `prompt.go`), I6's claim that `llm serve/host/turn` skip the strictness gate (they call `newPhaseGates`), the five "deprecated alias trees" (deleted), file/LOC counts, and the named files `mcp_runner.go`, `mcp_forward.go`, `coord_host.go`, `memory.go`, `item_helpers.go` (gone).
 
@@ -758,9 +758,9 @@ Also stale in the same README (pinned to `0f59fbae`, with line numbers): `cli.Ex
 
 ---
 
-#### F-4 · LAYER BYPASS — cli imports the engine plugin `internal/claude` that operations is gated from
+#### F-4 · LAYER BYPASS — cli imports the engine plugin `internal/engines/claude` that operations is gated from
 
-`TestArch_Operations_DoesNotImportEnginePlugins` (`tests/arch/engine_identity_arch_test.go`) keeps `internal/claude` out of operations. `internal/adapters/cli` imports `internal/claude` (and `internal/claude/engine`) in 8 production files — measured by import line, not by name: `hook_inject_context.go`, `hook_next_step.go`, `hook_skill_mates.go`, `hook_tool_reflect.go`, `hook_turn_changed.go`, `session_bind.go`, `skill_mates_decide.go`, `doctor_mcp_invocation.go`; `hook_stamp_plan.go` and `hook_hud.go` decode Claude-shaped payloads with local structs without importing the package. The hook verbs' types are all `claude.SessionStartOutput`, `claude.PostToolUseOutput`, `claude.StopPayload` — the hidden `hook` namespace is a Claude Code namespace in an engine-neutral binary, and adding a second engine's hooks would mean a second set of verbs or a `switch` on engine inside each.
+`TestArch_Operations_DoesNotImportEnginePlugins` (`tests/arch/engine_identity_arch_test.go`) keeps `internal/engines/claude` out of operations. `internal/adapters/cli` imports `internal/engines/claude` (and `internal/engines/claude/engine`) in 8 production files — measured by import line, not by name: `hook_inject_context.go`, `hook_next_step.go`, `hook_skill_mates.go`, `hook_tool_reflect.go`, `hook_turn_changed.go`, `session_bind.go`, `skill_mates_decide.go`, `doctor_mcp_invocation.go`; `hook_stamp_plan.go` and `hook_hud.go` decode Claude-shaped payloads with local structs without importing the package. The hook verbs' types are all `claude.SessionStartOutput`, `claude.PostToolUseOutput`, `claude.StopPayload` — the hidden `hook` namespace is a Claude Code namespace in an engine-neutral binary, and adding a second engine's hooks would mean a second set of verbs or a `switch` on engine inside each.
 
 **Settles it.** Extend the engine-plugin rule to `internal/adapters/cli` with an allowlist naming the hook files and the fix ("decode the vendor payload in the engine's own package behind an engine-neutral `operations.HookEvent`"), so the set cannot grow silently.
 
@@ -779,7 +779,7 @@ Also stale in the same README (pinned to `0f59fbae`, with line numbers): `cli.Ex
 
 The harp literal is not a cli-only problem: `"CTXLOOM_SESSION_HARP"` appears as a string in 12 production files across `cli`, `agentcoord/coord`, `lm/grpc`, `lm/isolation`, `mcp`, `memory` while `agent.SessionHarpEnv` exists (`internal/core/agent/launch_backend.go`) — the same value under two names along one path.
 
-**Settles it.** One `cli.hookInvocation(cmd) (raw []byte, harp string, cfg *config.Config, err)` helper plus per-kind decoders in `internal/claude`; a vocabulary-adoption-style test (the repo already has `tests/arch/vocabulary_adoption_test.go`) that fails on the literal outside its const.
+**Settles it.** One `cli.hookInvocation(cmd) (raw []byte, harp string, cfg *config.Config, err)` helper plus per-kind decoders in `internal/engines/claude`; a vocabulary-adoption-style test (the repo already has `tests/arch/vocabulary_adoption_test.go`) that fails on the literal outside its const.
 
 ---
 
@@ -843,11 +843,11 @@ The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRu
 
 #### F-11 · LEAN BINARIES — the gate watches the wrong door; both lean binaries already link the engine plugin; hardening runs in one binary of three
 
-- `TestArch_LeanBinaries_DoNotLinkEngineDescriptors` checks the transitive set of `cmd/ltk` and `cmd/taskloom` for `lm/engine`, `lm/engines`, `lm/backends`, `bundles`. Measured: both already link `internal/claude` via `cmd/ltk → internal/ltk/engine → internal/claude` and `cmd/taskloom → internal/taskloom/engine → internal/claude`. `internal/claude` today imports `confpatch, paths, shared/agent{,/present}, clidiag, collections, ledger, wire` — one `bundles` import there (which `f8403d65d` added and `439a5c6c4` reverted into `cli/skill_mates_decide.go`) trips the gate for both binaries at once. The gate is correct but its front line is `internal/claude`'s import list, which no rule pins.
+- `TestArch_LeanBinaries_DoNotLinkEngineDescriptors` checks the transitive set of `cmd/ltk` and `cmd/taskloom` for `lm/engine`, `lm/engines`, `lm/backends`, `bundles`. Measured: both already link `internal/engines/claude` via `cmd/ltk → internal/ltk/engine → internal/engines/claude` and `cmd/taskloom → internal/taskloom/engine → internal/engines/claude`. `internal/engines/claude` today imports `confpatch, paths, shared/agent{,/present}, clidiag, collections, ledger, wire` — one `bundles` import there (which `f8403d65d` added and `439a5c6c4` reverted into `cli/skill_mates_decide.go`) trips the gate for both binaries at once. The gate is correct but its front line is `internal/engines/claude`'s import list, which no rule pins.
 - `cmd/harp`, `cmd/probe-mcp-server`, `cmd/validate`, `cmd/gen-schemas`, `cmd/archlint` are not in the gate. `cmd/validate` links `internal/schema` + `internal/version`; harmless today, unchecked.
 - `procsec.HardenAtStartup` (`cmd/ctxloom/main.go`) says *"first and for every ctxloom process without exception … any ctxloom process can be the one holding the coordinator credential"*, but `cmd/taskloom` and `cmd/ltk` — spawned inside sessions as MCP servers and hooks with the session env — do not call it. Whether the coordinator credential reaches their environment is a seam-2/4 question (handoff §7); if it does, the exception the comment denies exists.
 
-**Settles it.** A `layeringRule{from: "internal/claude", forbid: ["internal/core/bundles", "internal/core/config", "internal/lm", "internal/adapters/operations"]}` (zero allowlist) so the leak is caught where it is introduced; add the remaining binaries to the lean list with their own forbidden sets; call `procsec.HardenAtStartup` from every family `main`.
+**Settles it.** A `layeringRule{from: "internal/engines/claude", forbid: ["internal/core/bundles", "internal/core/config", "internal/lm", "internal/adapters/operations"]}` (zero allowlist) so the leak is caught where it is introduced; add the remaining binaries to the lean list with their own forbidden sets; call `procsec.HardenAtStartup` from every family `main`.
 
 ---
 
@@ -1038,7 +1038,7 @@ func resolveFormat(cmd *cobra.Command) (clifmt.Format, error)   // == cliemit.Re
 | F-1 (three launch tails), F-13 God struct `runState` | **1 — launch form / resolved paths** | `runState` IS the launch form on the cli side; `resolvedRunRequest` is its operations twin. The ladders (label, permission) and `isolation.Prepare`'s no-error contract are seam 1's contract. |
 | F-1 branch C, §6 item 2 | **4 — delegation / mail / run record** | `PrepareAgentChat → runResolvedAgent` is the delegated child's launch; which startup steps a child skips is a seam-4 question. |
 | F-2 (`standUpRunner`), F-11 hardening, §6 item 3 | **2 — MCP tool request + session identity** | The runner-local MCP and credential scrub live in `cli.standUpRunner`; whether taskloom/ltk see the credential is decided there and in `internal/adapters/mcp`. |
-| F-4, F-5 (hook verbs, `internal/claude` in cli), F-11 lean chain | **2 and the engines seam** | The hook verbs are Claude Code's callback surface; `internal/claude`'s import list is the lean-binaries front line. |
+| F-4, F-5 (hook verbs, `internal/engines/claude` in cli), F-11 lean chain | **2 and the engines seam** | The hook verbs are Claude Code's callback surface; `internal/engines/claude`'s import list is the lean-binaries front line. |
 | F-5 harp literal ×12, F-13 project-id, §6 item 1 | **7 — session harp and transcript path** | `CTXLOOM_SESSION_HARP` under two names; `ResolveTurnTranscript(harp, path)`; the seed-task project-id round trip. |
 | F-8 (local signer ×6), F-2 review walk | **5 — preimage and approval** | Countersigning and signature minting decisions are in cli; seam 5 owns what they sign. |
 | F-6/F-7 (config globals, 25 loads) | **1 and 3** | `config.Load` inside operations (`SetLLM`, `resolveListConfig`, `WatchSessionFeed`) and the override funnel are read by bundle/launch code. |

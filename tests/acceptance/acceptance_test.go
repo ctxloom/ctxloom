@@ -5,7 +5,7 @@ package acceptance
 import (
 	"context"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/lm/engines"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"os"
 	"strings"
 	"sync"

@@ -748,7 +748,7 @@ func (r Registry) Names(keep func(Definition) bool) []Name {
 
 What the core PULLS: `Definition` fields (modes, permissions, resume, home, container, transcripts, version, surfaces, CLI, uncarried, model aliases, export schema, hook codec) and `Exports(items)`. What the core HANDS: one `Session` to `New`, then `[]present.Presentation` to `Exec`. The runner stamps `sessions.HookEnv(identity)` on top of `Exec.Env`; the engine never sees the identity constants.
 
-**Every site that branches on an engine NAME today, and the declaration it reads instead.** The review of B held that no core code branches on a name in B's signatures; the brief asks for the list of today's sites. Measured with `git grep '"claude-code"'` outside `internal/claude` and the tests:
+**Every site that branches on an engine NAME today, and the declaration it reads instead.** The review of B held that no core code branches on a name in B's signatures; the brief asks for the list of today's sites. Measured with `git grep '"claude-code"'` outside `internal/engines/claude` and the tests:
 
 | Today (site) | Reads instead |
 |---|---|

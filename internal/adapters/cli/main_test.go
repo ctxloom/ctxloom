@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"github.com/ctxloom/ctxloom/internal/lm/engines"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"os"
 	"os/exec"

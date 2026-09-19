@@ -20,7 +20,7 @@
 // =======================================================================
 //
 //	just test-docker-integration
-//	GOWORK=off just test-pkg ./internal/mockengine/... -tags docker_integration -run MockEngineContainer
+//	GOWORK=off just test-pkg ./internal/engines/mock/... -tags docker_integration -run MockEngineContainer
 package mockengine_test
 
 import (
@@ -38,8 +38,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/mockengine"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 

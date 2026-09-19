@@ -14,7 +14,7 @@ import "strings"
 // haiku/sonnet/opus at the same nominal budget).
 //
 // Each backend that has a real mechanism translates this same vocabulary to
-// its own knob (internal/claude: MAX_THINKING_TOKENS env var; internal/codex:
+// its own knob (internal/engines/claude: MAX_THINKING_TOKENS env var; internal/codex:
 // model_reasoning_effort config key). A backend with no mechanism (opencode)
 // treats an explicit setting as a documented, WARNED no-op rather than a
 // silent swallow — see their Configure methods.

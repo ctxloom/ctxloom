@@ -87,7 +87,7 @@ type corpusCounts struct {
 // They are counted separately because a rule scoped to a handful of packages
 // can be broken by a bad prefix while the module-wide count stays healthy.
 var engineScopes = []string{
-	"internal/claude",
+	"internal/engines/claude",
 	"internal/core/agent",
 }
 

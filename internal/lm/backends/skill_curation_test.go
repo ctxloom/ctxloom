@@ -12,7 +12,7 @@
 package backends
 
 import (
-	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
+	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"os"
 	"path/filepath"
 	"testing"

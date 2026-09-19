@@ -10,8 +10,8 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // doctorMCPInvocationSurfaces are the engine-native MCP registries a ctxloom

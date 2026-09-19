@@ -17,7 +17,7 @@ import (
 func TestArch_LeanBinaries_DoNotLinkEngineDescriptors(t *testing.T) {
 	forbidden := []string{
 		modulePath + "/internal/lm/engine",
-		modulePath + "/internal/lm/engines",
+		modulePath + "/internal/engines",
 		modulePath + "/internal/lm/backends",
 		modulePath + "/internal/core/bundles",
 	}

@@ -12,11 +12,11 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/turnchange"
-	"github.com/ctxloom/ctxloom/internal/claude"
-	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )

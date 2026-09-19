@@ -17,8 +17,8 @@
 //	internal/lm/grpc        -> internal/adapters/transcript           (production)
 //	internal/transcript_test -> internal/lm/grpc             (test-only)
 //
-//	internal/claude            -> internal/core/agent      (production)
-//	internal/shared/agent_test -> internal/claude            (test-only)
+//	internal/engines/claude            -> internal/core/agent      (production)
+//	internal/shared/agent_test -> internal/engines/claude            (test-only)
 //
 // The Go compiler already refuses a real cycle, but only once BOTH edges
 // exist in production code — which means the developer who adds the SECOND
@@ -99,7 +99,7 @@ var layeringRules = []layeringRule{
 	{
 		name:   "shared/agent-must-not-import-engine-plugins",
 		from:   []string{"internal/core/agent"},
-		forbid: []string{"internal/claude"},
+		forbid: []string{"internal/engines/claude"},
 	},
 	{
 		// The coarse ancestor of T20's future `cli/<flow> -> operations/<flow>
@@ -295,9 +295,9 @@ var layeringRules = []layeringRule{
 			"internal/adapters/confpatch",
 			"internal/adapters/mcp",
 			// the engines
-			"internal/claude",
-			"internal/mockengine",
-			"internal/lm/engines",
+			"internal/engines/claude",
+			"internal/engines/mock",
+			"internal/engines",
 			"internal/lm/backends",
 		},
 		allowed: map[string]string{
@@ -316,10 +316,10 @@ var layeringRules = []layeringRule{
 			"internal/vpio/goplugin -> internal/adapters/vpio":                                              "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
 
 			// cli reaching past operations
-			"internal/adapters/cli -> internal/claude":                           "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
-			"internal/adapters/cli -> internal/claude/engine":                    "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
+			"internal/adapters/cli -> internal/engines/claude":                   "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
+			"internal/adapters/cli -> internal/engines/claude/engine":            "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
 			"internal/adapters/cli -> internal/lm/backends":                      "slice 11b: lm/backends is deleted whole",
-			"internal/adapters/cli -> internal/lm/engines":                       "slice 11b: engines.Build() is called by the composition root, cmd/*",
+			"internal/adapters/cli -> internal/engines":                          "slice 11b: engines.Build() is called by the composition root, cmd/*",
 			"internal/adapters/cli -> internal/lm/grpc":                          "slice 13: the go-plugin protocol is deleted whole",
 			"internal/adapters/cli -> internal/adapters/isolation":               "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
 			"internal/adapters/cli -> internal/adapters/mcp":                     "slice 9: the stdio MCP server is deleted; the endpoint lives in runner/mcp",
@@ -367,14 +367,14 @@ var layeringRules = []layeringRule{
 			"internal/adapters/mcp -> internal/adapters/transcript":   "slice 14a: the engine-host half of the runner records the transcript",
 
 			// isolation, memory, and the leaf adapters
-			"internal/adapters/isolation -> internal/lm/grpc":                     "slice 13: the go-plugin protocol is deleted whole",
-			"internal/adapters/memory -> internal/lm/backends":                    "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
-			"internal/adapters/memory -> internal/lm/grpc":                        "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
-			"internal/vpio/dockerexec -> internal/adapters/isolation":             "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
-			"internal/vpio/goplugin -> internal/lm/grpc":                          "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
-			"internal/adapters/companions -> internal/adapters/signing":           "slice 4: adapters/companions probes; signing is reached through the trust ports",
-			"internal/adapters/content/attest -> internal/adapters/signing":       "slice 5: attest.VerifyBundle is the one verifier over the signing adapter — a `must never know: each other` edge Part 1.1 does not resolve; measured",
-			"internal/adapters/transcript/vendorreader/claude -> internal/claude": "slice 6b: the claude reader becomes an engine.TranscriptReader the engine package supplies",
+			"internal/adapters/isolation -> internal/lm/grpc":                             "slice 13: the go-plugin protocol is deleted whole",
+			"internal/adapters/memory -> internal/lm/backends":                            "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
+			"internal/adapters/memory -> internal/lm/grpc":                                "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
+			"internal/vpio/dockerexec -> internal/adapters/isolation":                     "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
+			"internal/vpio/goplugin -> internal/lm/grpc":                                  "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
+			"internal/adapters/companions -> internal/adapters/signing":                   "slice 4: adapters/companions probes; signing is reached through the trust ports",
+			"internal/adapters/content/attest -> internal/adapters/signing":               "slice 5: attest.VerifyBundle is the one verifier over the signing adapter — a `must never know: each other` edge Part 1.1 does not resolve; measured",
+			"internal/adapters/transcript/vendorreader/claude -> internal/engines/claude": "slice 6b: the claude reader becomes an engine.TranscriptReader the engine package supplies",
 		},
 	},
 	{

@@ -460,7 +460,7 @@ flowchart TB
     isolation[internal/adapters/isolation]
     coord[internal/core/coord]
     spool[internal/core/spool]
-    claudepkg[internal/claude]
+    claudepkg[internal/engines/claude]
   end
   subgraph base ["base"]
     paths[internal/core/paths]
@@ -971,7 +971,7 @@ func Inspect(harp string) Probe
 - `internal/lm/grpc`'s exact uses of `sessions.LocateTranscript` and `CanonicalHistory` were counted by grep, not read; seam 1 owns that file.
 - The `boned-monoxide` clock ruling and the `--include-persist`-takes-transcripts ruling are open per the row; nothing here decides them.
 - Row `zippy-tint` names `distillChunks`, which does not exist at HEAD; I attributed the per-launch handshake to `repairResults` by reading the code, not by measuring launches.
-- `SessionHomePath` writers (`internal/claude/statehome.go`, `operations/enginehome.go`, `lm/backends/delegate_seams.go`, `lm/isolation/ambient.go`) were located but not read; seam 1/6 territory.
+- `SessionHomePath` writers (`internal/engines/claude/statehome.go`, `operations/enginehome.go`, `lm/backends/delegate_seams.go`, `lm/isolation/ambient.go`) were located but not read; seam 1/6 territory.
 
 ## 7. Handoff
 

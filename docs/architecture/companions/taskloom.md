@@ -119,7 +119,7 @@ then validated against an embedded JSON Schema.
 **What it owns.** The list of agent MCP registrars `taskloom manage` can install into, and the
 server command line to register — **without depending on ctxloom**. 64 LOC; all engine-specific
 detail (config paths, on-disk format, merge semantics) lives in each agent module's own
-`MCPRegistrar` (`internal/claude`).
+`MCPRegistrar` (`internal/engines/claude`).
 
 | Symbol | file:line | Notes |
 |---|---|---|

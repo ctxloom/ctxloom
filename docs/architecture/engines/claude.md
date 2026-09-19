@@ -1,4 +1,4 @@
-# `claude-code` — `internal/claude`
+# `claude-code` — `internal/engines/claude`
 
 ctxloom's adapter for Anthropic's `claude` CLI. It declares the CLI's process
 contract (argv, flags, probes, env), builds its argv, materializes claude's native
@@ -100,7 +100,7 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 - **`agentfiles.go` — the entire sub-agent-roster writer (`ClaudeAgents`, `AgentExport`, `WriteAgentFiles`, `TransformToClaudeAgent`) plus a 219-line test suite — has zero production callers**; `enginecli.go:149` states it outright. It predates claude's own native `--agents <json>` flag.
 - **A `minimalSettings` marshal failure returns `"{}"`, dropping `permissions.defaultMode: bypassPermissions`** — the setting that keeps a headless distill run from blocking (`claudecode.go:375-378`).
 - **Four `exists, _ := afero.Exists(...)` sites treat an I/O error as "absent"** (`claude.go:759`, `:781`, `:803`, `:814`; `commandfiles.go:24`), so a permission-denied `settings.json` makes `RemoveSettings` a silent no-op and `Status` report "not installed".
-- **`internal/claude/docs/design/*.md` carries 357 lines describing deleted symbols** (`chat_stream.go`, `chat_run.go`, `ClaudeSessionHistory.parseEntries`) and the unwired `agentfiles.go`.
+- **`internal/engines/claude/docs/design/*.md` carries 357 lines describing deleted symbols** (`chat_stream.go`, `chat_run.go`, `ClaudeSessionHistory.parseEntries`) and the unwired `agentfiles.go`.
 
 ## See also
 

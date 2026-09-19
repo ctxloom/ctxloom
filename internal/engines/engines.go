@@ -11,7 +11,7 @@ package engines
 import (
 	"sync"
 
-	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
+	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 

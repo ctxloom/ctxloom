@@ -51,7 +51,7 @@ get no ctxloom HUD and global (cross-project) slash commands; codex behavior is
 unverified until smoke-tested on a machine with codex.
 
 Equity is locked in by the tag-gated conformance suite
-(`just test-conformance`, `internal/lm/conformance/`), which asserts the shared
+(`just test-conformance`, `internal/engines/conformance/`), which asserts the shared
 `agent.SettingsWriter` contract across all three agents so the *supported*
 capabilities can't silently drift.
 

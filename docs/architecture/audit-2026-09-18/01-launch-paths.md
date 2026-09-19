@@ -13,7 +13,7 @@ STATUS: COMPLETE.
 
 **Stated architecture read first.** `GLOSSARY.md` (pipeline: control-plane → wire → runner → engine; originator is the ONLY process that execs a container runtime; advice applied ONCE), `docs/architecture/cli/run.md`, `docs/architecture/cli/llm-runners.md`, `docs/architecture/shared/agent-launch-lifecycle.md`, `docs/architecture/engines/isolation.md`, `docs/architecture/agentcoord/child-lifecycle.md`, and rows `scant-undoing`, `boned-monoxide`, `concerned-levitator`, `dimmed-epidural`, `tranquil-mutiny`, `broken-jailbreak` (the last is self-corrected: its premise was false; `operations.ResolveInTreeAgentHome` resolves the home cell-orthogonally).
 
-**Packages read.** `internal/adapters/cli` (run.go, run_owned.go, init.go, init_launch.go, distiller.go, llm_host.go, llm_serve.go, llm_turn.go, llm_runner_common.go, mcp_runner.go), `internal/adapters/operations` (oneshot.go, delegate.go, agents.go, sessions.go, session_distill.go), `internal/adapters/isolation` (isolation.go, none.go, worktree.go, container.go, direct_runner.go), `internal/lm/backends` (managed.go, registry), `internal/lm/grpc` (server.go, client), `internal/core/agent` (launch_backend.go, base_backend.go, exec paths), `internal/claude` (chat_run.go, backend.go), `internal/core/coord` (spawner.go, children.go, owner_run.go, enginehost.go), `internal/adapters/vpio`, `internal/adapters/mcp` (coordinator hosting), `tests/arch/*`.
+**Packages read.** `internal/adapters/cli` (run.go, run_owned.go, init.go, init_launch.go, distiller.go, llm_host.go, llm_serve.go, llm_turn.go, llm_runner_common.go, mcp_runner.go), `internal/adapters/operations` (oneshot.go, delegate.go, agents.go, sessions.go, session_distill.go), `internal/adapters/isolation` (isolation.go, none.go, worktree.go, container.go, direct_runner.go), `internal/lm/backends` (managed.go, registry), `internal/lm/grpc` (server.go, client), `internal/core/agent` (launch_backend.go, base_backend.go, exec paths), `internal/engines/claude` (chat_run.go, backend.go), `internal/core/coord` (spawner.go, children.go, owner_run.go, enginehost.go), `internal/adapters/vpio`, `internal/adapters/mcp` (coordinator hosting), `tests/arch/*`.
 
 ### Entry points traced (each is a distinct way an engine gets started)
 
@@ -28,7 +28,7 @@ STATUS: COMPLETE.
 | E7 | distill / compact one-shots | `cli.newLLMDistiller` / `cli.newLLMDistillerForLabel` → `llmDistiller.Distill` → own `pb.Client` + `RunStart` | `internal/adapters/cli/distiller.go` | `ctxloom session distill`, run exit-time distill (`shellOutDistill` shells out to the CLI) |
 | E8 | delegated child (`agent_run`) | `coord.Coordinator.AgentRun` → `prodSpawner.StartEngine` → `operations.StartAgentEngine` → `isolation.Policy.StartRunner` (`ctxloom llm host`) | `internal/core/coord/children.go`, `spawner.go`, `internal/adapters/operations/delegate.go` | orchestrating agent over MCP |
 | E9 | runner processes (inside container or as child) | `ctxloom llm host|serve|turn <backend> --label` → `cli.standUpRunner` → `grpc` server → `LaunchBackend.Setup` → `ExecuteCLI` → engine exec | `internal/adapters/cli/llm_*.go`, `internal/lm/grpc/server.go`, `internal/core/agent/launch_backend.go` | E3, E4, E8 (host) / E1,E2,E5,E6,E7 (serve, via go-plugin) |
-| E10 | the actual exec | `agent.LaunchBackend.ExecuteCLI` → `RunInteractive`/`RunNonInteractive` → `exec.Cmd`; `claude.ChatRun` (stream-json chat) | `internal/core/agent/*`, `internal/claude/chat_run.go` | E9 |
+| E10 | the actual exec | `agent.LaunchBackend.ExecuteCLI` → `RunInteractive`/`RunNonInteractive` → `exec.Cmd`; `claude.ChatRun` (stream-json chat) | `internal/core/agent/*`, `internal/engines/claude/chat_run.go` | E9 |
 
 (Table extended below as tracing proceeds.)
 
@@ -70,7 +70,7 @@ Observed on the trunk itself (findings below): R10's `AssignSession` failure is 
 | E12 | bundle-item distill | `cli.distillWithLLM` (from `cli.distillWithModel` ← `llmDistiller.Distill`) | `internal/adapters/cli/bundle_distill.go` | own `pb.RunStart`, `pb.NewSelfInvokingClientForLabel`; `RunWithModelInfo` |
 | E13 | session distill / compaction + premise author | `memory.Distill` (← `memory.Compactor.runDistill` ← `operations.DistillSession`; ← `operations.premise_author`) | `internal/adapters/memory/distill.go` | own `pb.RunStart`; `defaultLLMPlugin = "claude-code"` hard-coded fallback engine |
 | E14 | `ctxloom llm turn` (inside container, E3's second process) | `cli.runLLMTurn` → `readRunStartHandoff` → `grpc.RunTurn` | `internal/adapters/cli/llm_turn.go` | the ONLY runner that gets its `RunStart` from a FILE |
-| — | mock engine | `cmd/mockengine` binary exec'd by the `Mock` backend | `internal/mockengine`, `internal/lm/backends/mock.go` | not a launch path; an engine stand-in reached through E10 |
+| — | mock engine | `cmd/mockengine` binary exec'd by the `Mock` backend | `internal/engines/mock`, `internal/lm/backends/mock.go` | not a launch path; an engine stand-in reached through E10 |
 | — | `PreparedAgentChat.Start` / `startOneshot` / `dialChat` | `operations.PreparedAgentChat.Start` | `internal/adapters/operations/delegate.go` | **NO production caller** (the coordinator's legacy chat driver is gone: `coord.runChild` only calls `runChildViaStartRun`, and `coord.Spawner` has no `Launch`). Dead launch orchestrator — see findings. |
 
 **Process-boundary sites (where a process is actually created)** — everything above funnels into one of these:
@@ -78,7 +78,7 @@ Observed on the trunk itself (findings below): R10's `AssignSession` failure is 
 | Site | Spawns | Symbol / file |
 |---|---|---|
 | X1 | engine CLI (host or in-container), pty or pipes | `backends.RunLaunchSpec` ← `agent.BaseBackend.run` ← `LaunchBackend.ExecuteCLI` — `internal/lm/backends/launcher.go`, `internal/core/agent/base.go` |
-| X2 | engine CLI, stream-json chat (StartRun path) | `claude.ClaudeCode.spawnChatTransport` ← `ClaudeCode.Chat` — `internal/claude/chat_run.go` |
+| X2 | engine CLI, stream-json chat (StartRun path) | `claude.ClaudeCode.spawnChatTransport` ← `ClaudeCode.Chat` — `internal/engines/claude/chat_run.go` |
 | X3 | `ctxloom llm serve` (go-plugin, host) | `grpc.dialLLMConnection` ← `grpc.NewSelfInvokingClientForLabelEnv` — `internal/lm/grpc/client.go` |
 | X4 | `ctxloom llm host` (host, transport-free) | `grpc.StartHostRunner` ← `isolation.None.StartRunner` — `internal/lm/grpc/host_runner.go`, `internal/adapters/isolation/none.go` |
 | X5 | `docker/podman run … ctxloom llm serve` (go-plugin over mounted socket) | `isolation.containerRunner` ← `Container.SpawnClient` — `internal/adapters/isolation/runner.go` |
@@ -231,7 +231,7 @@ flowchart LR
   subgraph backends["internal/lm/backends"]
     RunLaunchSpec["backends.RunLaunchSpec (exec.CommandContext / pty)"]
   end
-  subgraph claude["internal/claude"]
+  subgraph claude["internal/engines/claude"]
     Chat["ClaudeCode.Chat"]
     spawnChat["ClaudeCode.spawnChatTransport (exec.CommandContext)"]
     writeMCP["claude.writeChatMCPConfig (os.MkdirTemp)"]
@@ -303,7 +303,7 @@ flowchart LR
     issue["Coordinator.issueStartRun (RunnerRequest.StartRun over RunChannel)"]
     EH["EngineHost.startRun (IN CONTAINER)"]
   end
-  subgraph claude["internal/claude"]
+  subgraph claude["internal/engines/claude"]
     Chat["ClaudeCode.Chat → spawnChatTransport"]
   end
 
@@ -541,7 +541,7 @@ flowchart TB
   backends["internal/lm/backends"]
   grpc["internal/lm/grpc (pb + wire)"]
   agent["internal/core/agent (runner core)"]
-  claude["internal/claude"]
+  claude["internal/engines/claude"]
   memory["internal/adapters/memory"]
   vpio["internal/adapters/vpio{,/goplugin,/dockerexec}"]
 
@@ -738,7 +738,7 @@ flowchart LR
 
 ### F1 — DIVERGENT PATHS: surface delivery depends on the TRANSPORT ARM, not on the agent (highest blast radius)
 
-The runner has two exec tails. `grpc.RunTurn → LaunchBackend.Setup → setupViaCells → deliverSet → ExecuteCLI` (`internal/lm/grpc/server.go`, `internal/core/agent/launch_backend.go`) delivers the loadout: context surface, hooks, settings, MCP, commands, skills, statusline, deny-tools. `coord.EngineHost.startRun → decodeHarnessSpec → claude.ClaudeCode.Chat → spawnChatTransport` (`internal/core/coord/enginehost.go`, `internal/claude/chat_run.go`) delivers NOTHING: it execs the binary with `--print --input-format stream-json …`, an MCP config written to `os.MkdirTemp` (not the session home), `cmd.Env = os.Environ()` + `req.Env`, and never calls `Setup`.
+The runner has two exec tails. `grpc.RunTurn → LaunchBackend.Setup → setupViaCells → deliverSet → ExecuteCLI` (`internal/lm/grpc/server.go`, `internal/core/agent/launch_backend.go`) delivers the loadout: context surface, hooks, settings, MCP, commands, skills, statusline, deny-tools. `coord.EngineHost.startRun → decodeHarnessSpec → claude.ClaudeCode.Chat → spawnChatTransport` (`internal/core/coord/enginehost.go`, `internal/engines/claude/chat_run.go`) delivers NOTHING: it execs the binary with `--print --input-format stream-json …`, an MCP config written to `os.MkdirTemp` (not the session home), `cmd.Env = os.Environ()` + `req.Env`, and never calls `Setup`.
 
 Which tail a run gets is decided by `cli.runTransport(policyName, mode)` and by `coord.runChild`:
 - **E4** `ctxloom run --one-shot` under a container runtime: `runState.buildRunRequest` ASSEMBLES `st.managed` via `backends.AssembleManagedConfig`, then `cli.startContainerOwnedRun` forwards only `st.managed.ChatMCPServers()`; hooks/commands/skills/statusline/deny-tools/context-surface are discarded. The same command on the host (E2) delivers all of them.
@@ -925,7 +925,7 @@ func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, arg
 `Setup` INPUT: `SetupRequest{WorkDir, Fragments, Env, Verbosity, Managed, CellKind, Form, Model}`; HIDDEN: `req.Env[CTXLOOM_SESSION_HARP]` → scratch dir, `req.Env[engineHomeVar]` → engine-home root, `b.lifecycle` merged state, filesystem writes. `ExecuteCLI` HIDDEN: `os.Environ()` (via `BaseBackend.BuildEnv`), `b.BinaryPath`/`b.Args` from the RUNNER's config load.
 
 ```go
-// internal/claude/chat_run.go — the no-Setup tail
+// internal/engines/claude/chat_run.go — the no-Setup tail
 func (b *ClaudeCode) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error
 ```
 INPUT: `ChatRequest{Model, WorkDir, Env, MCPServers, Permissions, ResumeSessionID, TranscriptRawPolicy, ForwardTerminal, ModelQuirk}`. HIDDEN: `os.MkdirTemp` for `.mcp.json`, `os.Environ()`, `os.Stderr` as the child's stderr, `b.BinaryPath`/`b.Args`.

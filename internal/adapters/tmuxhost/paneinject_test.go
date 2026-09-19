@@ -305,7 +305,7 @@ func TestPaneInjector_StagingFileIsRemovedAfterThePaste(t *testing.T) {
 // The chain that decides the key: agent.BaseBackend.run stamps
 // LaunchSpec.Engine from b.name, the claude backend registers that name as
 // "claude-code" (agent.NewBaseBackend("claude-code", ...) in
-// internal/claude/claudecode.go), and backends.launchInPane copies
+// internal/engines/claude/claudecode.go), and backends.launchInPane copies
 // LaunchSpec.Engine into PaneSpec.Engine verbatim. So a real interactive
 // claude run arrives here as "claude-code", and that is the ONE spelling the
 // allowlist admits: an engine has one name and no alias resolves another

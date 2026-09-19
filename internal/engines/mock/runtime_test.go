@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/mockengine"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
 
 // writeFile writes rel (which may contain slashes) under dir, creating parents.
@@ -52,7 +52,7 @@ func runOneshot(t *testing.T, cwd string, vendorArgv []string, prompt string, en
 	return stdout.String(), rep, code
 }
 
-// envelope mirrors parseClaudeJSONResult's read (internal/claude): the driver
+// envelope mirrors parseClaudeJSONResult's read (internal/engines/claude): the driver
 // picks the model with the most outputTokens and returns result. This test
 // asserts the mock emits exactly what that decode expects on the minimal form.
 type envelope struct {

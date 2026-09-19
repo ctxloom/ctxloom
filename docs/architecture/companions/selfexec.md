@@ -54,7 +54,7 @@ flowchart TD
 | Symbol | file:line | Notes |
 |---|---|---|
 | `Path` | `selfexec.go:51` | The whole package. 4 production call sites: `internal/core/agent/settings_io.go:44`, `internal/adapters/cli/run.go:290`, `internal/lm/grpc/client.go:364`, `internal/lm/grpc/host_runner.go:60` |
-| `SetPathForTesting` | `selfexec.go:32` | Sets `override`, returns a closure restoring the *previous* value, so it nests correctly. **Zero production call sites**; 4 external test packages use it (`internal/adapters/operations`, `internal/claude`, `internal/lm/backends`, `internal/adapters/cli`) |
+| `SetPathForTesting` | `selfexec.go:32` | Sets `override`, returns a closure restoring the *previous* value, so it nests correctly. **Zero production call sites**; 4 external test packages use it (`internal/adapters/operations`, `internal/engines/claude`, `internal/lm/backends`, `internal/adapters/cli`) |
 | `override` / `osExecutable` / `osStat` | `selfexec.go:15`, `:20`, `:22` | Package-level state. `{osExecutable, osStat}` are the in-package seams over the two syscalls; `override` is the cross-package short-circuit that bypasses both — it exists *because* the syscall seams are unexported and therefore unreachable from the four packages that need a stable answer |
 
 ---

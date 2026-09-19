@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )

@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// registeredClaudeBackendName is the literal internal/claude/claudecode.go
+// registeredClaudeBackendName is the literal internal/engines/claude/claudecode.go
 // hands agent.NewBaseBackend, and therefore the literal that reaches
 // NewRecorder in production: GRPCClient.openRecorder passes the plugin's own
 // LLMInfo.Name (internal/lm/grpc/chat.go), and coord.EngineHost passes the

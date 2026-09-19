@@ -1368,7 +1368,7 @@ func (a marker) DeliverSkills(s present.Start, r present.RootKind, in engine.Ski
 
 What the core PULLS: `Root()` (the definition: modes, permissions, the typed approaches, the provided dynamic approach, CLI grammars, model aliases, export schema; the views; `Delegate`); `Home()`, `Container()`, `Transcripts()`, `Hooks()`; `Exports(items)`. What the core HANDS: one `Session` to `Instance`, then `[]present.Presentation` to `Exec`, then a `Turn` per delivery to one of `Drivers()`. The runner stamps `sessions.HookEnv(identity)` on top of `Exec.Env`; the engine never sees the identity constants.
 
-**Every site that branches on an engine NAME today, and the declaration it reads instead** (measured with `git grep '"claude-code"'` outside `internal/claude` and the tests):
+**Every site that branches on an engine NAME today, and the declaration it reads instead** (measured with `git grep '"claude-code"'` outside `internal/engines/claude` and the tests):
 
 | Today (site) | Reads instead |
 |---|---|

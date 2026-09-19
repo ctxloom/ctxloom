@@ -915,7 +915,7 @@ func tsAssertFragment(w *World, present bool) error {
 }
 
 // tsAssertCommand reads the exported slash-command file (claude flattens
-// "<bundle>/<item>" to "<bundle>-<item>.md" — internal/claude/commandfiles.go)
+// "<bundle>/<item>" to "<bundle>-<item>.md" — internal/engines/claude/commandfiles.go)
 // and asserts the command's body landed (or the export never happened at all —
 // a withheld command is never written, not written-then-emptied).
 func tsAssertCommand(w *World, present bool) error {

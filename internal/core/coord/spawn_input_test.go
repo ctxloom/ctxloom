@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 // spawnInput builds agent_run's free-form input Struct — the channel a MODEL
@@ -50,7 +50,7 @@ func TestServeSpawnAgent_DirtyTreeHandlerParsedAtTheVerb(t *testing.T) {
 		})
 		require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
-		assert.Equal(t, operations.DirtyTreeHandlerStale, sp.lastDirtyTreeHandler())
+		assert.Equal(t, launch.DirtyTreeHandlerStale, sp.lastDirtyTreeHandler())
 	})
 
 	t.Run("a typo is refused at the verb and spawns nothing", func(t *testing.T) {

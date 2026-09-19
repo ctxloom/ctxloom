@@ -416,7 +416,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// The registration ORDER below is the unwind order (LIFO) and is
 	// load-bearing; each defer's own doc says why it sits where it does.
 	if err := st.resolveLaunch(); err != nil {
-		return err
+		return st.refused(err)
 	}
 	// Mark the harp ended on whatever exit path we take — clean return,
 	// ctrl+c, or panic. The end timestamp lets the time-window fallback in
@@ -795,6 +795,25 @@ func (st *runState) gateStartup() error {
 	return st.gates.close(PhaseStartup)
 }
 
+// refused is the resolver's failure path. The cell is prepared INSIDE the
+// resolver, and the cell gate refuses by RECORDING a finding (a requested
+// container that could not be provided, a controlled home that cannot
+// authenticate) and returning launch.ErrRuntimeUnavailable over it — which
+// surfaces before the startup gate ever closes, as exit 1 with no class, no
+// fix and no "--degraded does NOT bypass" header. That refusal is the
+// finding's, so the gate reports it: the fatal-findings abort. Every other
+// refusal is its own message and returns as it came, findings or not — an
+// empty explicit selection records the fragment it missed AND refuses as
+// the empty-selection error, and that error is what the caller reads.
+func (st *runState) refused(err error) error {
+	if errors.Is(err, launch.ErrRuntimeUnavailable) {
+		if ferr := st.gateStartup(); ferr != nil {
+			return ferr
+		}
+	}
+	return err
+}
+
 // emitDryRun renders the launch this invocation would resolve and stops.
 // The SAME resolver runs, over stateless ports: an in-memory session store,
 // a cell that is the project root itself. Nothing is written and nothing is
@@ -810,9 +829,10 @@ func (st *runState) emitDryRun() error {
 	}
 	deps.Sessions = sessions.NewMemStore()
 	deps.Cells = dryCells{}
+	deps.Assembler = dryAssembler{deps.Assembler}
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
 	if err != nil {
-		return err
+		return st.refused(err)
 	}
 	if err := st.gateStartup(); err != nil {
 		return err
@@ -880,6 +900,20 @@ func (st *runState) emitDryRun() error {
 		fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(st.workDir, agent.SCMContextSubdir))
 		return nil
 	})
+}
+
+// dryAssembler is the --dry-run assembler: the real context composition
+// (what the preview shows) over a surfaces port that composes NOTHING. A
+// preview delivers no surfaces, so none are composed for it — and a bundle
+// the profile names that does not resolve stays the warning the context
+// assembly already gave it, rather than becoming the fatal "its MCP servers
+// and hooks are not applied" finding a real launch records over the same
+// profile. The preview must render the setup a user is diagnosing, not
+// refuse it.
+type dryAssembler struct{ launch.Assembler }
+
+func (dryAssembler) Surfaces(context.Context, *config.Snapshot, engine.Name, string, []string, map[string]string) (launch.Surfaces, error) {
+	return nil, nil
 }
 
 // dryCells is the --dry-run cell: the project root on the host and the

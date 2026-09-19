@@ -250,7 +250,7 @@ func agentRunInputSchema() *jsonschema.Schema {
 	if err != nil {
 		panic(fmt.Sprintf("agent_run: input schema: %v", err))
 	}
-	constrainToVocabulary(schema, "dirty_tree_handler", operations.DirtyTreeHandlerNames())
+	constrainToVocabulary(schema, "dirty_tree_handler", launch.DirtyTreeHandlerNames())
 	constrainToVocabulary(schema, "workspace", isolation.WorkspaceNames())
 	return schema
 }

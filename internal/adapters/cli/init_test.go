@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -399,15 +400,15 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 // The literal values stay pinned in TestPromptDirtyTreeHandler_EachOptionAndDefault
 // (they are what lands in config.yaml); this test pins the correspondence.
 func TestDirtyTreeHandlerOptions_AreTheOperationsHandlers(t *testing.T) {
-	values := make([]operations.DirtyTreeHandler, 0, len(dirtyTreeHandlerOptions))
+	values := make([]launch.DirtyTreeHandler, 0, len(dirtyTreeHandlerOptions))
 	for _, opt := range dirtyTreeHandlerOptions {
 		values = append(values, opt.value)
 	}
-	assert.Equal(t, []operations.DirtyTreeHandler{
-		operations.DirtyTreeHandlerCommit,
-		operations.DirtyTreeHandlerCopy,
-		operations.DirtyTreeHandlerStale,
-		operations.DirtyTreeHandlerFail,
+	assert.Equal(t, []launch.DirtyTreeHandler{
+		launch.DirtyTreeHandlerCommit,
+		launch.DirtyTreeHandlerCopy,
+		launch.DirtyTreeHandlerStale,
+		launch.DirtyTreeHandlerFail,
 	}, values, "the menu must offer exactly the handlers operations dispatches on, in display order")
 
 	// And the ack rule keys on the SAME commit handler, for every arm.
@@ -419,7 +420,7 @@ func TestDirtyTreeHandlerOptions_AreTheOperationsHandlers(t *testing.T) {
 		captureStdout(t, func() { handler, ack, err = p.promptDirtyTreeHandler() })
 		require.NoError(t, err)
 		assert.Equal(t, string(opt.value), handler)
-		assert.Equal(t, opt.value == operations.DirtyTreeHandlerCommit, ack,
+		assert.Equal(t, opt.value == launch.DirtyTreeHandlerCommit, ack,
 			"only the commit handler mutates the user's repo, so only it carries the ack")
 	}
 }

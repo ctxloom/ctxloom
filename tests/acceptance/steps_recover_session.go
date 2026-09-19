@@ -71,14 +71,20 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 
 	// Makes the mock backend the compaction LLM (llm.defaults.primary: mock in
 	// config.yaml) so distillation runs hermetically — no real credentials, no
-	// network — via the same SetupMockLM() fixture the rest of the suite uses.
-	// Deliberately does NOT call SetResponse: the default echo response is the
-	// point (see the doc comment above).
+	// network — via the same SetupMockLM() fixture the rest of the suite uses,
+	// switched to its ECHO: the engine's default reply is the point (see the
+	// doc comment above), and it only answers with it when no canned
+	// response reaches it. The distiller is a real launch, so the label's
+	// mock_control map reaches its engine exactly as it reaches a run's;
+	// the fixture has to actually leave the response knob out.
 	ctx.Step(`^the compaction LLM is a mock that never compresses$`, func(c context.Context) error {
 		w := worldFrom(c)
 		mock, err := w.env.SetupMockLM()
 		if err != nil {
 			return fmt.Errorf("setup mock LLM: %w", err)
+		}
+		if err := mock.Echo(); err != nil {
+			return fmt.Errorf("switch the mock LLM to its echo: %w", err)
 		}
 		w.mock = mock
 		return nil

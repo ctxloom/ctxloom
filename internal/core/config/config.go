@@ -110,7 +110,7 @@ type Config struct {
 	// agent_run spawn does when it resolves to worktree isolation while the
 	// PARENT tree (this project's own live checkout) is dirty: "commit" |
 	// "copy" | "stale" | "fail". Empty means "commit" (the built-in
-	// default — see operations.defaultDirtyTreeHandler). A per-call
+	// default — launch.Resolve settles it). A per-call
 	// agent_run "dirty_tree_handler" parameter overrides this default,
 	// mirroring workspace's own project-default/per-call split. See
 	// operations.handleDirtyParentTree for what each value does.

@@ -139,7 +139,7 @@ func (c *Config) GetWorkspace() string { return c.workspace }
 // GetDirtyTreeHandler returns the project-wide default for what a delegated
 // agent_run spawn does when it resolves to worktree isolation while the
 // parent tree is dirty (commit | copy | stale | fail). Empty means "commit"
-// (see operations.defaultDirtyTreeHandler).
+// (launch.Resolve settles it).
 func (c *Config) GetDirtyTreeHandler() string { return c.dirtyTreeHandler }
 
 // GetRuntime returns the project-wide default runtime axis (host |

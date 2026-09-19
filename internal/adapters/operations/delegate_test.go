@@ -192,12 +192,13 @@ func TestCellsPrepare_DirtyParentTree_DegradedDoesNotSoftenFail(t *testing.T) {
 	resetStrictness(t)
 	strictness.SetDegraded(true)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M internal/foo.go"}}
-	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(launch.DirtyTreeHandlerFail)})
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
 	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
-		Identity:    sessions.Identity{Harp: "coder"},
+		Identity:    delegatedChild("coder"),
 		ProjectRoot: "/proj",
+		DirtyTree:   launch.DirtyTreeHandlerFail,
 	})
 	require.Error(t, err, "--degraded must NOT soften the fail handler's refusal")
 	assert.Nil(t, p.Cleanup)
@@ -241,8 +242,9 @@ func TestCellsPrepare_CleanParentTree_WorktreeAllowed(t *testing.T) {
 	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
-		Identity:    sessions.Identity{Harp: "coder"},
+		Identity:    delegatedChild("coder"),
 		ProjectRoot: "/proj",
+		DirtyTree:   launch.DirtyTreeHandlerCommit,
 	})
 	require.NoError(t, err)
 	defer func() { _ = p.Cleanup() }()
@@ -337,7 +339,7 @@ func TestCellsPrepare_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *testing
 	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
-		Identity:    sessions.Identity{Harp: "coder"},
+		Identity:    delegatedChild("coder"),
 		ProjectRoot: parent,
 		DirtyTree:   launch.DirtyTreeHandlerCopy,
 	})
@@ -381,7 +383,7 @@ func TestCellsPrepare_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
 	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
-		Identity:    sessions.Identity{Harp: "coder"},
+		Identity:    delegatedChild("coder"),
 		ProjectRoot: parent,
 		DirtyTree:   launch.DirtyTreeHandlerCopy,
 	})
@@ -413,7 +415,7 @@ func TestCellsPrepare_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
 	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
-		Identity:    sessions.Identity{Harp: "coder"},
+		Identity:    delegatedChild("coder"),
 		ProjectRoot: parent,
 		DirtyTree:   launch.DirtyTreeHandlerCopy,
 	})
@@ -519,13 +521,10 @@ func TestHandleDirtyParentTree_Commit_PerCallHandlerCannotSupplyAck(t *testing.T
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
 	cfg := config.NewFixture(config.Fixture{}) // project has NOT acknowledged
-	// resolveDirtyTreeHandler is exactly what a per-call agent_run
+	// launch.DirtyTreeHandlerCommit is exactly what a per-call agent_run
 	// dirty_tree_handler: "commit" resolves to — there is no field anywhere
 	// in AgentChatRequest/agentRunInput that can also carry an ack.
-	handler, rerr := resolveDirtyTreeHandler(cfg, launch.DirtyTreeHandlerCommit)
-	require.NoError(t, rerr)
-	require.Equal(t, launch.DirtyTreeHandlerCommit, handler)
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", handler)
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerCommit)
 	require.Error(t, err, "an explicit per-call request for \"commit\" still refuses without the project's own ack")
 	assert.Contains(t, err.Error(), "dirty_tree_commit_ack")
 }
@@ -645,90 +644,21 @@ func TestCellsPrepare_Commit_ChildSeesCommittedContent(t *testing.T) {
 	assert.Equal(t, "package wip", string(got))
 }
 
-// ----- dirty_tree_handler precedence (config default / per-call override) -----
-
-// TestResolveDirtyTreeHandler_Precedence pins the three-tier precedence
-// (per-call > project config > built-in default), the identical shape
-// Workspace's own GAP 2 resolution uses.
-func TestResolveDirtyTreeHandler_Precedence(t *testing.T) {
-	t.Run("per-call wins over project config", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: string(launch.DirtyTreeHandlerFail)})
-		got, err := resolveDirtyTreeHandler(cfg, launch.DirtyTreeHandlerStale)
-		require.NoError(t, err)
-		assert.Equal(t, launch.DirtyTreeHandlerStale, got)
-	})
-	t.Run("empty per-call falls back to project config", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: string(launch.DirtyTreeHandlerFail)})
-		got, err := resolveDirtyTreeHandler(cfg, "")
-		require.NoError(t, err)
-		assert.Equal(t, launch.DirtyTreeHandlerFail, got)
-	})
-	// THE UNSET PATH, unchanged: saying nothing at either level is not an
-	// error and never has been — it is the one input that still resolves to
-	// the built-in default. Typing the vocabulary refused UNPARSEABLE values;
-	// it must not have promoted silence into one.
-	t.Run("both empty falls back to the built-in default (commit)", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{})
-		got, err := resolveDirtyTreeHandler(cfg, "")
-		require.NoError(t, err, "unset is not an error — only unparseable is")
-		assert.Equal(t, DirtyTreeHandler("commit"), got)
-		assert.Equal(t, defaultDirtyTreeHandler, got)
-	})
-	// The defect this vocabulary was typed to close: an unrecognized value
-	// resolved to the built-in default, which is the member that AUTO-COMMITS
-	// the user's working tree — so a typo'd per-call override beat a project
-	// that had explicitly pinned "fail", and committed on its behalf.
-	t.Run("an unrecognized per-call value REFUSES rather than falling back", func(t *testing.T) {
-		handler, err := ParseDirtyTreeHandler("fial")
-		require.Error(t, err, "the parse is where a typo stops — nothing downstream ever sees the spelling")
-		assert.Equal(t, DirtyTreeHandler(""), handler, "a refused parse yields no handler at all, least of all the default")
-		assert.NotEqual(t, defaultDirtyTreeHandler, handler)
-		assert.Contains(t, err.Error(), "commit|copy|stale|fail", "the refusal names the legal values")
-	})
-	t.Run("an unrecognized project config value REFUSES rather than falling back", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: "bogus-value-2"})
-		got, err := resolveDirtyTreeHandler(cfg, "")
-		require.Error(t, err)
-		assert.Equal(t, DirtyTreeHandler(""), got)
-		assert.NotEqual(t, defaultDirtyTreeHandler, got)
-	})
-}
-
-// TestParseDirtyTreeHandler is the vocabulary's own contract: the four
-// members round-trip, empty passes through as the zero value (the "this
-// level said nothing" input), and everything else is refused naming the
-// legal set.
-func TestParseDirtyTreeHandler(t *testing.T) {
-	for _, member := range DirtyTreeHandlerNames() {
-		got, err := ParseDirtyTreeHandler(member)
-		require.NoError(t, err, "%q is a declared member", member)
-		assert.Equal(t, DirtyTreeHandler(member), got)
-	}
-	require.Len(t, DirtyTreeHandlerNames(), 4, "the vocabulary is four members; a fifth needs a decision, not a silent admission")
-
-	got, err := ParseDirtyTreeHandler("")
-	require.NoError(t, err, "unset is not an error")
-	assert.Equal(t, DirtyTreeHandler(""), got, "empty stays empty — the caller applies its own precedence")
-
-	for _, bad := range []string{"fial", "COMMIT", " commit", "commit ", "true", "none"} {
-		got, err := ParseDirtyTreeHandler(bad)
-		require.Error(t, err, "%q is not a member", bad)
-		assert.Equal(t, DirtyTreeHandler(""), got)
-		assert.Contains(t, err.Error(), bad, "the refusal quotes what the caller actually typed")
-	}
-}
-
-// TestCellsPrepare_DirtyTreeHandler_TypoDoesNotCommit is the EFFECT
-// proof, at the seam that actually touches git: an unrecognized
-// dirty_tree_handler must leave the user's working tree alone.
+// TestCellsPrepare_DirtyTreeHandler_UnsettledDoesNotCommit is the EFFECT
+// proof, at the seam that actually touches git: a handler that reaches the
+// cell unsettled — a spelling no parse admitted, or none at all — must leave
+// the user's working tree alone. The resolver settles the handler before
+// the cell is prepared (TestResolve_DirtyTree_SettledOnce_...), so neither
+// value arrives through it; this pins that the cell refuses rather than
+// guesses if one ever does.
 //
-// Both subtests share one fixture — a project that has ACKNOWLEDGED
+// The subtests share one fixture — a project that has ACKNOWLEDGED
 // auto-commit and a dirty parent tree resolving to a worktree — so the only
-// difference between them is the spelling of the handler. The control
+// difference between them is the handler on the request. The control
 // subtest is the vacuity guard: it proves this fixture DOES commit when the
-// handler parses, so the refusal below cannot be passing because the commit
-// path was never reachable in the first place.
-func TestCellsPrepare_DirtyTreeHandler_TypoDoesNotCommit(t *testing.T) {
+// handler is the settled default, so the refusals below cannot be passing
+// because the commit path was never reachable in the first place.
+func TestCellsPrepare_DirtyTreeHandler_UnsettledDoesNotCommit(t *testing.T) {
 	newFake := func() *git.Fake {
 		return &git.Fake{
 			Dirty:              map[string]bool{"/proj": true},
@@ -738,77 +668,77 @@ func TestCellsPrepare_DirtyTreeHandler_TypoDoesNotCommit(t *testing.T) {
 			CommitAllChanged:   []string{"internal/foo.go"},
 		}
 	}
+	prepare := func(t *testing.T, fake *git.Fake, handler launch.DirtyTreeHandler) (launch.Cell, error) {
+		t.Helper()
+		cfg := ackedFixture(t, config.Fixture{Workspace: "worktree"})
+		return Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+			Axes:        launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost},
+			Engine:      mock.New(),
+			Identity:    delegatedChild("coder"),
+			ProjectRoot: "/proj",
+			DirtyTree:   handler,
+		})
+	}
 
-	t.Run("control: the well-spelled default DOES commit this fixture", func(t *testing.T) {
+	t.Run("control: the settled default DOES commit this fixture", func(t *testing.T) {
 		resetStrictness(t)
 		captureWarnings(t)
 		fake := newFake()
-		cfg := ackedFixture(t, config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(launch.DirtyTreeHandlerCommit)})
-		p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
-			Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
-			Engine:      mock.New(),
-			Identity:    sessions.Identity{Harp: "coder"},
-			ProjectRoot: "/proj",
-		})
+		p, err := prepare(t, fake, launch.DirtyTreeHandlerCommit)
 		require.NoError(t, err)
 		defer func() { _ = p.Cleanup() }()
-		require.Len(t, fake.CommitMessages, 1, "the fixture reaches the auto-commit — the refusal below is therefore meaningful")
+		require.Len(t, fake.CommitMessages, 1, "the fixture reaches the auto-commit — the refusals below are therefore meaningful")
 		assert.Contains(t, fake.Calls, "commit-all /proj")
 	})
 
-	t.Run("a typo'd project default refuses and commits NOTHING", func(t *testing.T) {
-		resetStrictness(t)
-		captureWarnings(t)
-		fake := newFake()
-		cfg := ackedFixture(t, config.Fixture{Workspace: "worktree", DirtyTreeHandler: "fial"})
-		p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
-			Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
-			Engine:      mock.New(),
-			Identity:    sessions.Identity{Harp: "coder"},
-			ProjectRoot: "/proj",
+	for _, unsettled := range []launch.DirtyTreeHandler{"fial", ""} {
+		t.Run(fmt.Sprintf("handler %q refuses and commits NOTHING", unsettled), func(t *testing.T) {
+			resetStrictness(t)
+			captureWarnings(t)
+			fake := newFake()
+			p, err := prepare(t, fake, unsettled)
+			require.Error(t, err, "an unsettled handler refuses the spawn")
+			assert.Contains(t, err.Error(), "reached the dirty-tree dispatch unparsed")
+			assert.Nil(t, p.Cleanup)
+			assert.Empty(t, fake.CommitMessages, "THE POINT: an unsettled handler must not commit the user's working tree")
+			assert.NotContains(t, fake.Calls, "commit-all /proj")
 		})
-		require.Error(t, err, "an unrecognized handler refuses the spawn")
-		assert.Nil(t, p.Cleanup)
-		assert.Empty(t, fake.CommitMessages, "THE POINT: a typo must not commit the user's working tree")
-		assert.NotContains(t, fake.Calls, "commit-all /proj", "handleDirtyParentTree was never reached")
-	})
+	}
 }
 
-// TestCellsPrepare_DirtyTreeHandler_PerCallOverridesProject proves the
-// precedence at the Cells.Prepare seam (not just the resolver in
-// isolation): a project default of "fail" is overridden by a per-call
-// "stale", so the spawn proceeds (with a warning) instead of refusing.
-func TestCellsPrepare_DirtyTreeHandler_PerCallOverridesProject(t *testing.T) {
+// TestCellsPrepare_DirtyTree_OriginatorIsNotGated: the dirty-tree handler
+// is a DELEGATED spawn's concern. The originator's own `--workspace
+// worktree` run proceeds on a dirty tree without the handler running at
+// all — no git probe, no refusal, no commit — because the human who asked
+// for the worktree is at the terminal with the tree in front of them,
+// while the handler's subject is a child an agent spawns without seeing
+// what it would hand over. This is what keeps `ctxloom run --workspace
+// worktree` launchable from a checkout with uncommitted work.
+func TestCellsPrepare_DirtyTree_OriginatorIsNotGated(t *testing.T) {
 	resetStrictness(t)
-	captureWarnings(t)
-	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(launch.DirtyTreeHandlerFail)})
-	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
-		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
-		Engine:      mock.New(),
-		Identity:    sessions.Identity{Harp: "coder"},
-		ProjectRoot: "/proj",
-		DirtyTree:   launch.DirtyTreeHandlerStale,
-	})
-	require.NoError(t, err, "the per-call override beats the project's \"fail\" default")
-	defer func() { _ = p.Cleanup() }()
+	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}, CurrentBranchValue: "main"}
+	stubPrepareIsolation(t, map[string]bool{}, func() pb.Client { return &stubClient{} })
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
+	for _, handler := range []launch.DirtyTreeHandler{launch.DirtyTreeHandlerCommit, launch.DirtyTreeHandlerFail} {
+		t.Run(string(handler), func(t *testing.T) {
+			p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+				Axes:        launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost},
+				Engine:      mock.New(),
+				Identity:    sessions.Identity{Harp: "originator"},
+				ProjectRoot: "/proj",
+				DirtyTree:   handler,
+			})
+			require.NoError(t, err, "the originator's worktree run is not the handler's subject")
+			defer func() { _ = p.Cleanup() }()
+			assert.Empty(t, fake.Calls, "the handler never ran: no git probe, no commit")
+		})
+	}
 }
 
-// TestCellsPrepare_DirtyTreeHandler_EmptyFallsBackToProjectDefault is
-// the other half: an agent_run call that never sets dirty_tree_handler
-// changes nothing — the project default still decides.
-func TestCellsPrepare_DirtyTreeHandler_EmptyFallsBackToProjectDefault(t *testing.T) {
-	resetStrictness(t)
-	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(launch.DirtyTreeHandlerFail)})
-	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
-		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
-		Engine:      mock.New(),
-		Identity:    sessions.Identity{Harp: "coder"},
-		ProjectRoot: "/proj",
-	})
-	require.Error(t, err, "the project's \"fail\" default still applies")
-	assert.Nil(t, p.Cleanup)
+// delegatedChild is the identity of a spawned child (depth > 0): the
+// dirty-tree handler's subject.
+func delegatedChild(harp string) sessions.Identity {
+	return sessions.Identity{Harp: harp, Depth: 1}
 }
 
 // TestApplyCopySnapshot_ReproducesUntrackedSymlink pins that "copy"

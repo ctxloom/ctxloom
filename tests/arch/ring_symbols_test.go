@@ -229,7 +229,46 @@ var pinnedCalls = []pinnedCall{
 
 // oneMintOneOwnerAllowed is the rule's shrinking allowlist: "file.go#Func"
 // mapped to the slice in which the site leaves.
-var oneMintOneOwnerAllowed = map[string]string{}
+var oneMintOneOwnerAllowed = map[string]string{
+	// the second mint: agent_run makes the child's harp itself instead of
+	// asking the store
+	"internal/mcp/mcp_tools_agents.go#selfIdentityFromEnv": "slice 2 introduces sessions.Mint; coord.Coordinator.AgentRun calls it and the MCP server stops minting",
+
+	// the coordinator is constructed by the MCP server, not the composition root
+	"internal/mcp/coord_host.go#NewHostedCoordinator": "Part 1.1 one-mint-one-owner: coord.New moves under cmd/*; Part 4.1 names no slice for the move (measured)",
+
+	// config.Load in the CLI: slice 4 gives operations.App the one
+	// config.Owner and the CLI stops opening the config itself
+	"internal/cli/agent.go#completeAgentNames":                  "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/clean_cmd.go#sessionReapCutoff":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/completion.go#completeFragmentNames":          "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/completion.go#completeLLMNames":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/completion.go#completeProfileNames":           "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/completion.go#completePromptNames":            "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/completion.go#completeTagNames":               "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/hook_hud.go#gatherCtxloomInfo":                "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/hook_inject_context.go#agentSetupNudge":       "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/hook_skill_mates.go#skillMatesOutput":         "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/init.go#addPersonalRemotes":                   "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/cli/init.go#applyInitHooks":                       "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/cli/init.go#cloneConfiguredRemotes":               "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/cli/init.go#engineForExistingDir":                 "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/cli/init.go#pullSeededDependencies":               "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/cli/init.go#setupNewCtxloomDir":                   "slice 4: init writes config data through a Draft; the Owner is operations.App's",
+	"internal/cli/llm_runner_common.go#loadAndConfigureBackend": "slice 4: one Reload per spawn, owned by operations.App",
+	"internal/cli/run.go#runState.loadConfig":                   "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/session_cmd.go#runSessionDistill":             "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/session_cmd.go#sessionAppDir":                 "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/session_distill.go#distillMissingOrStale":     "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+	"internal/cli/session_query.go#runSessionQuery":             "slice 4: operations.App holds the config.Owner; the CLI reads a Snapshot",
+
+	// config.Load inside operations: the memoized loader each service opens
+	// for itself becomes the one Owner the App is constructed with
+	"internal/operations/hooks.go#resolveHookConfig":       "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
+	"internal/operations/llm.go#SetLLM":                    "slice 4: operations.App is constructed with the one config.Owner; SetLLM writes a Draft",
+	"internal/operations/mcp_servers.go#resolveListConfig": "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
+	"internal/operations/sessionfeed.go#WatchSessionFeed":  "slice 4: operations.App is constructed with the one config.Owner; services read its Snapshot",
+}
 
 func scanOneMintOneOwner(t *testing.T) []ringSite {
 	t.Helper()

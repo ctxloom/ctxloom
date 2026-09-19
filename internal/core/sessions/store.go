@@ -1,8 +1,13 @@
 package sessions
 
 import (
+	"errors"
 	"time"
 )
+
+// ErrNotFound is every adapter's refusal of a harp the store does not hold;
+// callers match it with errors.Is.
+var ErrNotFound = errors.New("sessions: harp not found")
 
 // Store is the storage port for the harp-keyed session store (ADR 0026).
 // *Manager is the filesystem adapter (session directories and their sidecars
@@ -18,6 +23,8 @@ type Store interface {
 	FindBySessionID(sessionID string) (*Entry, error)
 	AssignHarp(projectDir, backend string) (Entry, error)
 	BindSession(harpName, sessionID, transcriptPath string) error
+	BindMCP(harpName string, ep Endpoint) error
+	BindEngine(harpName, engine string) error
 	AppendRotations(harpName string, rotations []Rotation) error
 	RecordEngineVersion(harpName, version string) error
 	MarkEnded(harpName string, at time.Time) error

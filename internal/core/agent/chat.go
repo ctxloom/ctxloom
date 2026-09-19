@@ -89,22 +89,13 @@ type ChatRequest struct {
 	// every current transcript keeps recording under the default policy
 	// exactly as before this field existed.
 	TranscriptRawPolicy string
-	// Runtime asks the backend to run the underlying engine SUBPROCESS inside
-	// a container instead of directly on the host: either of
-	// RuntimeContainerRootless / RuntimeContainerRootful containerizes it,
-	// RuntimeHost (the zero value) means host — today's behavior, unchanged.
-	// Ask IsContainerRuntimeAxis rather than comparing against one const. It
-	// carries the AGENT BINDING's resolved runtime axis (see
-	// ResolvedAgent.Runtime, parsed once in resolveAgentBinding) into a
-	// structured chat — this package is where RuntimeAxis itself is declared
-	// (isolation.RuntimeAxis is an alias of it), so the axis rides as the
-	// TYPED value all the way from resolution to here; only the gRPC wire
-	// crossing (chatStartToProto/chatStartFromProto, internal/lm/grpc/chat.go)
-	// converts to and parses from a string, since a proto field cannot carry
-	// a Go type. Only a backend whose StructuredChat transport actually
-	// implements container isolation consults it; every other backend ignores
-	// it — additive, host stays the default everywhere else.
-	Runtime RuntimeAxis
+	// Runtime is the AGENT BINDING's resolved runtime axis, as its spelling
+	// (launch.RuntimeAxis's vocabulary; parsed once where the binding is
+	// resolved). Empty is the host. It rides a structured chat to the one
+	// backend whose transport containerizes the engine subprocess; every
+	// other backend ignores it. A string here because the gRPC crossing
+	// carries it as one and this package sits below the axis vocabulary.
+	Runtime string
 	// ModelQuirk optionally names a per-engine escape hatch (see
 	// ModelDeliveryQuirk) that forces Model onto the session via a non-spec
 	// call the structured-chat driver makes right after setup,

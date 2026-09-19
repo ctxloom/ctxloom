@@ -8,9 +8,9 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
@@ -140,7 +140,7 @@ func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context
 // spool stamps) returned for injection at launch. A standup failure returns
 // the error for the caller's fail-loud gate; the caller decides degraded
 // behavior.
-func HostCoordinatorForSession(app *operations.App, projectDir, ownerHarp string, runtimeAxis agent.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
+func HostCoordinatorForSession(app *operations.App, projectDir, ownerHarp string, runtimeAxis launch.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
 	c, err := NewHostedCoordinator(app, projectDir, ownerHarp)
 	if err != nil {
 		return nil, nil, err
@@ -165,7 +165,7 @@ func HostCoordinatorForSession(app *operations.App, projectDir, ownerHarp string
 // producer of the runner env that silently omitted every stamp it had not been
 // told about (see OwnerRunnerEnv's doc for what that cost). Mint the
 // credential, resolve the endpoint, hand both to the one producer.
-func SessionOwnerEnv(c *coord.Coordinator, ownerHarp string, runtimeAxis agent.RuntimeAxis) (map[string]string, error) {
+func SessionOwnerEnv(c *coord.Coordinator, ownerHarp string, runtimeAxis launch.RuntimeAxis) (map[string]string, error) {
 	token, err := c.RegisterSessionOwner(ownerHarp)
 	if err != nil {
 		return nil, err

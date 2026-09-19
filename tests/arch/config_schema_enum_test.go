@@ -50,6 +50,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	agentaxis "github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -121,11 +122,11 @@ var schemaEnumBindings = []schemaEnumBinding{
 	// Project-default axes (top-level).
 	{path: "properties/workspace", goNames: isolation.WorkspaceNames},
 	{path: "properties/dirty_tree_handler", goNames: operations.DirtyTreeHandlerNames},
-	{path: "properties/runtime", goNames: agentaxis.RuntimeNames},
+	{path: "properties/runtime", goNames: launch.RuntimeNames},
 	{path: "properties/permissions", goNames: agentaxis.PermissionModeNames},
 
 	// Per-agent binding overrides of the same axes.
-	{path: "properties/agents/additionalProperties/properties/runtime", goNames: agentaxis.RuntimeNames},
+	{path: "properties/agents/additionalProperties/properties/runtime", goNames: launch.RuntimeNames},
 	{path: "properties/agents/additionalProperties/properties/permissions", goNames: agentaxis.PermissionModeNames},
 	{path: "properties/agents/additionalProperties/properties/driving", goNames: agents.DrivingModeNames},
 	{path: "properties/agents/additionalProperties/properties/engine_home", goNames: agents.HomeModeNames},

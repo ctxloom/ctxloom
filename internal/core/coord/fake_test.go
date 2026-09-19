@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -108,7 +109,7 @@ type fakeSpawner struct {
 
 type fakeAgent struct {
 	perm     string // headless permission enum; "" refuses (D3)
-	runtime  agent.RuntimeAxis
+	runtime  launch.RuntimeAxis
 	profiles []string
 	unknown  bool
 	// backend is the SpawnPlan.Backend this agent resolves to (rides into

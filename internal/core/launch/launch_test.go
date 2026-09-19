@@ -23,15 +23,15 @@ func TestResolve_EverySource_OneResolver(t *testing.T) {
 		want launchtest.Expect
 	}{
 		{"agent binding", launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Interactive, Prompt: "x", WorkDir: env.Project},
-			launchtest.Expect{Engine: "mock", Label: "primary", Permission: engine.PermissionPlan, Axes: launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost}}},
+			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: engine.PermissionPlan, Axes: launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost}}},
 		{"profile set", launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: engine.Interactive, Prompt: "x", WorkDir: env.Project},
-			launchtest.Expect{Engine: "mock", Label: "primary", Permission: engine.PermissionDefault}},
+			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: engine.PermissionDefault}},
 		{"label override", launch.Source{Identity: env.Identity, Agent: "dev", Label: "fast", Mode: engine.Interactive, Prompt: "x", WorkDir: env.Project},
-			launchtest.Expect{Engine: "mock", Label: "fast", Permission: engine.PermissionPlan}},
+			launchtest.Expect{Engine: launchtest.EngineName, Label: "fast", Permission: engine.PermissionPlan}},
 		{"init probe", launch.Source{Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Prompt: "ping", WorkDir: env.Project},
-			launchtest.Expect{Engine: "mock", Label: "primary", Permission: engine.PermissionBypass}}, // headless floor applied ONCE, here
+			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: engine.PermissionBypass}}, // headless floor applied ONCE, here
 		{"internal one-shot", launch.Source{Identity: env.Identity, Agent: "distiller", Mode: engine.Structured, Prompt: "payload", WorkDir: env.Project},
-			launchtest.Expect{Engine: "mock", Label: "fast", Permission: engine.PermissionBypass}},
+			launchtest.Expect{Engine: launchtest.EngineName, Label: "fast", Permission: engine.PermissionBypass}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

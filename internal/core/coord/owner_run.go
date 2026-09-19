@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -29,11 +30,11 @@ import (
 // container is launched host-side by the caller's OwnedRunStarter, so this
 // value is what the run is JOURNALED and REACHED-BACK as, not what decides the
 // daemon. Every consumer of it asks the any-container question
-// (agent.IsContainerRuntime — ReachURL, the stale-run reap), so either mode
+// (launch.IsContainerRuntime — ReachURL, the stale-run reap), so either mode
 // behaves identically today; the value stops being right the moment something
 // downstream branches on ownership, at which point it has to be plumbed
 // through OwnerRunSpec from the caller's resolved axis instead.
-const ownerRunRuntime = agent.RuntimeContainerRootless
+const ownerRunRuntime = launch.RuntimeRootless
 
 // OwnerRunSpec is everything StartOwnedRun needs beyond the prompt and the
 // runner-launch closure. Its harness-shaped fields (WorkDir/Env/MCPServers/

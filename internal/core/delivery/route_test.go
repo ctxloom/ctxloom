@@ -49,7 +49,7 @@ func TestRoute_CarriedKind_LandsAtTheBindingsRoot(t *testing.T) {
 	items := engine.Items{Fragments: []engine.FragmentItem{{Ref: "f", Body: []byte("x")}}}
 	plan, err := delivery.Route(items, r, delivery.Preference{Root: map[present.Kind]present.RootKind{present.Context: present.RootProjectRoot}}, hostRoots("/p", "/s"))
 	require.NoError(t, err)
-	require.Len(t, plan.Static, 2) // Context (items) and MCP (the session endpoint itself is an MCP entry)
+	require.Len(t, plan.Static, 1) // Context only: no MCP items and no dynamic approach, so Delegate lists nothing else
 	require.Equal(t, present.Context, plan.Static[0].Kind)
 	require.Equal(t, present.RootProjectRoot, plan.Static[0].Root, "the shared root is a SELECTION, never a fallback")
 	require.Equal(t, "file", plan.Static[0].Approach)
@@ -152,6 +152,6 @@ func (*ctxApproach) DeliverSkills(present.Start, present.RootKind, engine.Skills
 
 type dynApproach struct{ fileApproach }
 
-func (a *dynApproach) Name() string                              { return "endpoint" }
-func (a *dynApproach) Traits() present.Traits                    { return a.fileApproach.Traits() }
+func (a *dynApproach) Name() string                               { return "endpoint" }
+func (a *dynApproach) Traits() present.Traits                     { return a.fileApproach.Traits() }
 func (*dynApproach) Endpoint(ep sessions.Endpoint) wire.MCPServer { return engine.BearerEntry(ep) }

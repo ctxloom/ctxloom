@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -119,7 +119,7 @@ func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 	assert.Contains(t, res.Context, "FRAG-ONE")
 	assert.Contains(t, res.Context, "FRAG-TWO")
 	assert.Equal(t, "slow", res.Label)
-	assert.Equal(t, agent.RuntimeContainerRootless, res.Runtime, "the default agent's runtime rides the bare launch")
+	assert.Equal(t, launch.RuntimeRootless, res.Runtime, "the default agent's runtime rides the bare launch")
 	assert.Equal(t, "plan", res.Permissions, "the default agent's permissions ride the bare launch")
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -118,7 +119,7 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	// The runtime axis is a security boundary: an unrecognized `runtime:`
 	// spelling refuses the oneshot rather than reading as the host, which is
 	// what asserting it past the parser would silently mean.
-	runtime, err := agent.ParseRuntimeAxis(cfg.GetRuntime())
+	runtime, err := launch.ParseRuntimeAxis(cfg.GetRuntime())
 	if err != nil {
 		return nil, fmt.Errorf("oneshot: %w — fix `runtime:` in .ctxloom/config.yaml", err)
 	}

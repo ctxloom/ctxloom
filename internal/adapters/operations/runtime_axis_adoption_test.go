@@ -10,15 +10,15 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
 // =============================================================================
 // The runtime axis is a SECURITY BOUNDARY, so every string that becomes one is
-// parsed by agent.ParseRuntimeAxis and an unrecognized spelling is refused —
+// parsed by launch.ParseRuntimeAxis and an unrecognized spelling is refused —
 // never warned, never degraded. The tests below cover the three shapes that
 // matter at each boundary:
 //
@@ -231,7 +231,7 @@ func TestRunOneshot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 
 // TestPrepareAgentChat_RuntimeAxisArrivesAlreadyParsed pins where the
 // delegated child's runtime axis is decided. ResolvedAgent.Runtime is TYPED —
-// resolveAgentBinding produced it from agent.ParseRuntimeAxis over the two
+// resolveAgentBinding produced it from launch.ParseRuntimeAxis over the two
 // string sources (the binding, the project default) — so delegatedAxes carries
 // the typed value through rather than re-converting it. A typo on either
 // source is refused at resolution, before any child is prepared.
@@ -325,7 +325,7 @@ func TestAgentRuntimeOffer_MenuCanOnlyHoldDeclaredMembers(t *testing.T) {
 		offer := AgentRuntimeOffer(cfg, backend)
 		require.NotEmpty(t, offer.Runtimes, "%s: host is always offered", backend)
 		for _, r := range offer.Runtimes {
-			parsed, err := agent.ParseRuntimeAxis(string(r))
+			parsed, err := launch.ParseRuntimeAxis(string(r))
 			require.NoError(t, err, "%s: the menu offered %q, which the writer's own parser refuses", backend, r)
 			assert.Equal(t, r, parsed)
 			assert.NotEmpty(t, string(r), "an empty axis is not an offer — the menu names what to pick")

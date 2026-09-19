@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -139,7 +139,7 @@ type silentRunnerSpawner struct {
 
 func newSilentRunnerSpawner() *silentRunnerSpawner {
 	return &silentRunnerSpawner{
-		fakeSpawner: newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless}}, nil),
+		fakeSpawner: newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless}}, nil),
 	}
 }
 

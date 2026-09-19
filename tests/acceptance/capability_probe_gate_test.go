@@ -91,7 +91,7 @@ func TestProbeCellResolve_MalformedCellsAreHardErrorsNeverSkips(t *testing.T) {
 		// The retired undifferentiated "container" (task unwatched-discharge
 		// split it into container-rootless/container-rootful) is exactly as
 		// malformed as a typo now: probeCellResolve parses cell.Runtime via
-		// the same agent.ParseRuntimeAxis every production boundary uses, and
+		// the same launch.ParseRuntimeAxis every production boundary uses, and
 		// that function declares no "any container" value.
 		{"retired undifferentiated container axis", gateCell("claude-code", "container", "none"), "unknown runtime axis"},
 		{"unknown workspace axis", gateCell("claude-code", "host", "sandbox"), "unknown workspace axis"},
@@ -138,7 +138,7 @@ func TestProbeCellResolve_AcceptsEveryDeclaredAxisAndEngine(t *testing.T) {
 
 // TestProbeCellResolve_EmptyRuntimeAxisIsHost pins the one deliberate exception
 // to "every value not in the vocabulary is refused": an empty runtime string
-// parses as the host default, exactly like every other agent.ParseRuntimeAxis
+// parses as the host default, exactly like every other launch.ParseRuntimeAxis
 // boundary in production (an agent/project with no `runtime:` declared). This
 // is NOT a local default arm here — probeCellResolve makes no empty-string
 // special case of its own; it falls out of calling the shared parser once, the

@@ -7,10 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // Launch-retry gate.
@@ -67,7 +66,7 @@ func (s *failingLaunchSpawner) Resolve(ctx context.Context, agentName string) (*
 func newFailingLaunchSpawner() *failingLaunchSpawner {
 	return &failingLaunchSpawner{
 		fakeSpawner: newFakeSpawner(map[string]fakeAgent{
-			"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless},
+			"worker": {perm: "bypass", runtime: launch.RuntimeRootless},
 		}, nil),
 		delay: 10 * time.Millisecond,
 	}

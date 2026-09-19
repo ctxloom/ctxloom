@@ -16,8 +16,8 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -220,7 +220,7 @@ type RunOutcome struct {
 	RunID    string
 	Engine   string
 	Profiles []string
-	Runtime  agent.RuntimeAxis
+	Runtime  launch.RuntimeAxis
 	Queued   bool
 	Degraded []string
 }
@@ -754,7 +754,7 @@ func (c *Coordinator) OwnerRunnerEnv(harp, token, url string) map[string]string 
 // out/. The child would run, spend real quota, and produce work nobody ever
 // receives. That is lost work, so the spawn is refused and the message names
 // the way out.
-func (c *Coordinator) spawnReachURL(harp string, runtimeAxis agent.RuntimeAxis) (string, error) {
+func (c *Coordinator) spawnReachURL(harp string, runtimeAxis launch.RuntimeAxis) (string, error) {
 	url, err := c.ReachURL(runtimeAxis)
 	if err == nil {
 		return url, nil

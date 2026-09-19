@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -40,10 +39,8 @@ type Option func(*fixture)
 type AgentOption func(*agentDecl)
 
 type agentDecl struct {
-	binding        agents.Agent
-	noStructured   bool
-	engineWithout  bool
-	engineNameUsed engine.Name
+	binding      agents.Agent
+	noStructured bool
 }
 
 type fixture struct {
@@ -67,9 +64,6 @@ func WithAgent(name string, opts ...AgentOption) Option {
 		if d.noStructured {
 			f.noStructured = true
 		}
-		if d.engineWithout {
-			f.withoutContainer = true
-		}
 		f.agents[name] = d
 	}
 }
@@ -92,8 +86,8 @@ func NoStructuredDrive() AgentOption {
 
 // EngineWithoutContainer makes the engine refuse a container cell with its
 // own ErrUnsupported{Capability: "container"}.
-func EngineWithoutContainer() AgentOption {
-	return func(d *agentDecl) { d.engineWithout = true }
+func EngineWithoutContainer() Option {
+	return func(f *fixture) { f.withoutContainer = true }
 }
 
 // RuntimesAvailable names the container runtimes the fake Cells can reach;
@@ -197,8 +191,9 @@ func (m *StableMinter) MintMCP(_ context.Context, id sessions.Identity, _ launch
 	return sessions.Endpoint{URL: "http://127.0.0.1:" + strconv.Itoa(40000+m.n) + "/mcp", Credential: "bearer-" + id.Harp + "-" + strconv.Itoa(m.n)}, nil
 }
 
-// EngineName is the fixture engine's registry name.
-const EngineName engine.Name = "mock"
+// EngineName is the fixture engine's registry name: not a shipped engine's,
+// so no test can pass by naming one.
+const EngineName engine.Name = "fixture"
 
 // fixtureEngine is the kind the fixture registers: every surface carried by
 // a file approach rooted at the session home, both modes unless the option
@@ -263,9 +258,14 @@ func (assembler) Assemble(_ context.Context, _ *config.Snapshot, profiles []stri
 	return launch.Assembled{Context: fmt.Sprintf("context of %v", profiles), Profiles: profiles}, nil
 }
 
-func (assembler) Surfaces(_ context.Context, _ *config.Snapshot, _ engine.Name, _ string, _ []string) (*agent.ManagedConfig, error) {
-	return &agent.ManagedConfig{}, nil
+func (assembler) Surfaces(_ context.Context, _ *config.Snapshot, _ engine.Name, _ string, _ []string, _ map[string]string) (launch.Surfaces, error) {
+	return surfaces{}, nil
 }
+
+// surfaces is the empty managed payload.
+type surfaces struct{}
+
+func (surfaces) Counts() launch.SurfaceCounts { return launch.SurfaceCounts{} }
 
 // cells is the Cells double: the host cell is the project root; a container
 // axis is refused as an ownership mismatch when its runtime is not

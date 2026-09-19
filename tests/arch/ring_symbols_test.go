@@ -257,6 +257,10 @@ var oneMintOneOwnerAllowed = map[string]string{
 	// the test-only read opens a throwaway owner; its own pin (the
 	// configload.Load entry in pinnedCalls) keeps it out of production
 	"internal/adapters/configload/sources.go#Load": "sanctioned: configload.Load is the tests' one read; production opens the config through operations.App",
+
+	// the launch fixture plays the CALLER of launch.Resolve — the one that
+	// mints and hands the identity in — against an in-memory store
+	"internal/core/launch/launchtest/launchtest.go#Deps": "sanctioned: launchtest is the resolver's test composition root; it mints the identity the test's Source carries, as operations.StartRun does in production",
 }
 
 func scanOneMintOneOwner(t *testing.T) []ringSite {

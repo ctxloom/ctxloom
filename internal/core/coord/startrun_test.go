@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +22,7 @@ import (
 // "worker".
 func startRunSpawner(mk func() *scriptedChat) *fakeSpawner {
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}},
+		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}},
 	}, nil)
 	sp.nextChat = mk
 	return sp
@@ -165,7 +165,7 @@ func TestStartRun_BackendParity(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			resetStrictness(t)
 			sp := newFakeSpawner(map[string]fakeAgent{
-				"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, backend: backend},
+				"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}, backend: backend},
 			}, nil)
 			c := newTestCoordinator(t, sp, nil)
 

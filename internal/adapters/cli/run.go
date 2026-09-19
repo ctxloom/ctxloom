@@ -30,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -353,7 +354,7 @@ type runState struct {
 	// `runtime:` default for a classic run. Parsed once, in resolveLaunchSource
 	// (the classic-run default) or resolveAgentBinding (an agent binding's own
 	// runtime) — never a bare string past that point.
-	agentRuntime agent.RuntimeAxis
+	agentRuntime launch.RuntimeAxis
 	// boundAgent names the agent binding this run launched under (--agent or
 	// the default agent) — surround-bar identity only.
 	boundAgent string
@@ -709,7 +710,7 @@ func (st *runState) resolveLaunchSource() error {
 	// string an agent binding's own resolveAgentBinding parse would later
 	// have to re-interpret (or silently not, for a launch that never binds
 	// a named agent at all).
-	runtime, err := agent.ParseRuntimeAxis(st.cfg.GetRuntime())
+	runtime, err := launch.ParseRuntimeAxis(st.cfg.GetRuntime())
 	if err != nil {
 		return fmt.Errorf("project `runtime:` default: %w", err)
 	}
@@ -804,7 +805,7 @@ func (st *runState) resolveDefaultAgent(llmOverride string) error {
 		// thing that silently puts them on it. Only an explicit `host` — or no
 		// declaration at all — is safe to drop, because dropping it can only
 		// ever move the run toward MORE isolation, never less.
-		if r := strings.TrimSpace(decl.Runtime); r != "" && r != string(agent.RuntimeHost) {
+		if r := strings.TrimSpace(decl.Runtime); r != "" && r != string(launch.RuntimeHost) {
 			dropped = append(dropped, fmt.Sprintf("runtime: %s (this run would fall back to the project default and may NOT be sandboxed)", r))
 		}
 		if strings.TrimSpace(decl.Permissions) != "" {
@@ -832,7 +833,7 @@ func (st *runState) resolveDefaultAgent(llmOverride string) error {
 		return lerr
 	}
 	st.backendName, st.labelModel = operations.ResolveBackend(st.cfg, st.label)
-	runtime, rterr := agent.ParseRuntimeAxis(st.cfg.GetRuntime())
+	runtime, rterr := launch.ParseRuntimeAxis(st.cfg.GetRuntime())
 	if rterr != nil {
 		return fmt.Errorf("project `runtime:` default: %w", rterr)
 	}

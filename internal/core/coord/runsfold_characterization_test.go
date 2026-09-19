@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +32,7 @@ func TestRunsFold_Apply_EveryArm(t *testing.T) {
 	// factRunEnqueued mints the record, the harp index, and the credential.
 	f.apply(factAt(factRunEnqueued, at(1), runEnqueued{
 		RunID: "r1", Harp: "kid", Agent: "worker", ParentHarp: "owner", ParentRunID: "r0",
-		Runtime: agent.RuntimeContainerRootless, CredHash: "c1", Depth: 1, Prompt: "brief",
+		Runtime: launch.RuntimeRootless, CredHash: "c1", Depth: 1, Prompt: "brief",
 		Permission: "bypass", MCPServers: []string{"ctxloom"},
 	}))
 	r := f.run("r1")
@@ -42,7 +42,7 @@ func TestRunsFold_Apply_EveryArm(t *testing.T) {
 	assert.Equal(t, "worker", r.Agent)
 	assert.Equal(t, "owner", r.ParentHarp)
 	assert.Equal(t, "r0", r.ParentRunID)
-	assert.Equal(t, agent.RuntimeContainerRootless, r.Runtime)
+	assert.Equal(t, launch.RuntimeRootless, r.Runtime)
 	assert.Equal(t, 1, r.Depth)
 	assert.Equal(t, "brief", r.Prompt)
 	assert.Equal(t, "bypass", r.Permission)

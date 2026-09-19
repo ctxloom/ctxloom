@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 // engineDeathTail is the distinctive diagnostic a dying engine adapter writes
@@ -197,7 +197,7 @@ type deadRunnerSpawner struct {
 func newDeadRunnerSpawner(exitErr error) *deadRunnerSpawner {
 	return &deadRunnerSpawner{
 		fakeSpawner: newFakeSpawner(map[string]fakeAgent{
-			"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless},
+			"worker": {perm: "bypass", runtime: launch.RuntimeRootless},
 		}, nil),
 		exitErr: exitErr,
 		waited:  make(chan struct{}, 1),

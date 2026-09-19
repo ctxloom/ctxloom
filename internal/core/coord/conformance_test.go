@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -50,7 +51,7 @@ func TestAgentRun_HonorsAgentIntent(t *testing.T) {
 	assert.NotEmpty(t, out.Harp)
 	assert.Equal(t, "fast", out.Engine)
 	assert.Equal(t, []string{"p1"}, out.Profiles)
-	assert.Equal(t, agent.RuntimeHost, out.Runtime)
+	assert.Equal(t, launch.RuntimeHost, out.Runtime)
 	assert.False(t, out.Queued)
 
 	require.Eventually(t, func() bool {

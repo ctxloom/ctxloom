@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 // The application-layer DRAIN's admission half: BeginDrain stops every
@@ -26,7 +27,7 @@ import (
 func TestBeginDrain_AgentRunRefusesNewWorkOnceDraining(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}},
+		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}},
 	}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
@@ -106,7 +107,7 @@ func TestBeginDrain_RunnerChannelHelloRefusesFreshRunnerButAdmitsReconnect(t *te
 	gate := make(chan struct{})
 	defer close(gate)
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}},
+		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}},
 	}, func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 

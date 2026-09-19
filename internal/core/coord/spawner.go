@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -24,7 +25,7 @@ type SpawnPlan struct {
 	Backend   string
 	Label     string
 	Profiles  []string
-	Runtime   agent.RuntimeAxis
+	Runtime   launch.RuntimeAxis
 	Context   string
 	Perm      agent.PermissionMode
 	// Workspace is GAP 2's per-call workspace-axis override (none|worktree;

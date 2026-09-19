@@ -112,20 +112,6 @@ func TestStructuredChat_ContextCancelReturns(t *testing.T) {
 	}
 }
 
-// TestIsContainerRuntime pins the predicate every containerization gate in
-// this package funnels through: exactly the two container values, and nothing
-// else. "container" in particular is NOT one of them — the pre-split value was
-// renamed rather than aliased, deliberately, because an ownership mode is not
-// something a config may leave to whatever the host happens to offer.
-func TestIsContainerRuntime(t *testing.T) {
-	for _, v := range []string{string(RuntimeContainerRootless), string(RuntimeContainerRootful)} {
-		assert.True(t, IsContainerRuntime(v), "%q is a container runtime", v)
-	}
-	for _, v := range []string{"", "host", "container", "Container-Rootless", "rootless"} {
-		assert.False(t, IsContainerRuntime(v), "%q is not a container runtime", v)
-	}
-}
-
 // TestChatEvent_ExactlyOneVariant documents that a ChatEvent carries exactly one
 // of Entry / Complete / Session.
 func TestChatEvent_ExactlyOneVariant(t *testing.T) {

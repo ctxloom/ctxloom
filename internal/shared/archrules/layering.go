@@ -162,6 +162,11 @@ var LayeringRules = []LayeringRule{
 			"internal/core/config -> internal/adapters/agents":                 "measured: agents.Agent is the value type Config carries for an agent binding; Part 1.1 does not place agents, and no slice names this edge",
 			"internal/core/config -> internal/adapters/configload/layerscope":  "measured: the reader moved to configload in slice 4, but Save's write-side scope filter (DropLayerScopeViolations) still consults the layer policy; leaves when the policy is a value the reader hands the Config",
 
+			// core/launch/launchtest — the fixture declares agent bindings on a
+			// config.Fixture, whose Agents map is keyed by the same value type
+			// config carries (the edge above); it leaves with config's.
+			"internal/core/launch/launchtest -> internal/adapters/agents": "measured: config.Fixture.Agents is map[string]agents.Agent; leaves when config's own agents edge does",
+
 			// core/coord — Part 1.0 also lists shared/agent, a from-package here (see
 			// profiles). envswitch is listed there without a slice.
 			"internal/core/coord -> internal/adapters/coordgrpc/pb":        "slice 10: every generated-type reference re-typed on Go values; the proto goes to adapters/coordgrpc",

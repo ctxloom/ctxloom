@@ -17,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
@@ -658,7 +658,7 @@ func (c *Coordinator) adopt() {
 			// earns it is that the run's engine outlives the coordinator
 			// process, which is true of a container regardless of who owns
 			// its daemon.
-			stale = append(stale, pending{runID: id, credHash: r.CredHash, container: agent.IsContainerRuntimeAxis(r.Runtime)})
+			stale = append(stale, pending{runID: id, credHash: r.CredHash, container: launch.IsContainerRuntimeAxis(r.Runtime)})
 		}
 	})
 	for _, p := range stale {

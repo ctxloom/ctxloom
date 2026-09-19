@@ -171,7 +171,8 @@ func p4Prompt() string {
 // lane shares) plus a single agent binding carrying THE POSTURE UNDER TEST.
 //
 // The posture rides the binding rather than the --permissions flag on purpose.
-// Both are production surfaces and both resolve through resolvePermissionMode,
+// Both are production surfaces and both resolve through the launch resolver's
+// one floor (launch.Resolve),
 // but the binding is the one a project actually commits, it is the one the
 // matrix floor already exercises, and it is the rung of the precedence chain
 // that a user pinning `permissions: plan` on an agent is relying on. A flag

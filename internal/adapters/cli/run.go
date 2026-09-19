@@ -1078,9 +1078,9 @@ func (st *runState) seedTask() {
 // "safe to call once after the run's client is killed". Order is the whole
 // invariant here.
 //
-// Registration stays before prepareWorkspace and before startTransport can
-// return early — a defer only protects returns reached after it — which is why
-// cleanupWorkspace must tolerate a workspace that does not exist yet.
+// Registration stays before startTransport can return early — a defer only
+// protects returns reached after it — which is why the release must
+// tolerate a launch whose cell was never prepared (the zero Launch).
 func (st *runState) teardownAll() {
 	st.teardownTransport()
 	// The cell is released after the transport that ran in it is gone —

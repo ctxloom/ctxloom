@@ -23,7 +23,8 @@ const (
 	// harnessConfigKeySessionHarp is the C0/A8 Struct-key convention.
 	harnessConfigKeySessionHarp = "ctxloom.session_harp"
 	// harnessConfigKeyEnv holds the child engine's extra environment as a
-	// flat string->string object (mirrors operations.AgentChatRequest.Env).
+	// flat string->string object (the launch's env with the identity
+	// carriers, harnessSpecOf).
 	harnessConfigKeyEnv = "env"
 	// harnessConfigKeyMCPServers holds the composed managed MCP set as an
 	// array of {name, command, args, env} objects (mirrors

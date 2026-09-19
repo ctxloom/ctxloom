@@ -561,11 +561,11 @@ type ResolvedAgent struct {
 	// policy — always agents.HomeModeSession or agents.HomeModeHost,
 	// never empty, whatever the binding declared (agents.ParseHomeMode's
 	// undeclared/unresolvable → host default already applied). It is the
-	// ONE thing every invocation path (cli/run.go's prepareWorkspace,
-	// operations/delegate.go's bindIsolatedSpawn) threads into
-	// InTreeAgentHome.HomeMode — a run with NO resolved agent binding at
-	// all never has a ResolvedAgent to read this from, and so falls back to
-	// the real host home by construction, not by this field's value.
+	// value `agent show` reports; the launch resolver reads the same
+	// declaration off the binding itself (launch.HomeMode on the
+	// CellRequest) and the cells adapter threads it into
+	// InTreeAgentHome.HomeMode — a launch with NO binding keeps the real host
+	// home by construction, not by this field's value.
 	HomeMode agents.HomeMode `json:"engine_home,omitempty"`
 }
 

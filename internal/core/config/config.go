@@ -67,7 +67,7 @@ const (
 // "config was never loaded", which is a caller bug everywhere except where a
 // zero-valued answer is genuinely the right one (an unmarshaler handed a nil
 // pointer; the isolation-image accessors, whose composite
-// operations.IsolationImageConfig already guards nil one level up; the default
+// launch.ImageConfigFor reads them off a Config the resolver holds; the default
 // agent set, which is legitimately empty before any config exists). Making the
 // other 88 nil-tolerant would convert those caller bugs into silently empty
 // behaviour, which is this codebase's characteristic failure. The closed set is
@@ -141,8 +141,8 @@ type Config struct {
 	// binding's own `permissions` > the engine label's `permissions` > this) and
 	// ABOVE the engine fallback, so a narrower posture declared anywhere always
 	// wins and a declared project posture beats a silent engine default.
-	// Resolution lives in cli.resolvePermissionMode / operations.RunOneshot /
-	// operations.ResolveAgent.
+	// Resolution lives in the launch resolver's one floor (launch.Resolve)
+	// and, for `agent show`, operations.ResolveAgent.
 	//
 	// LAYER-SCOPED TO THE PROJECT FILE. layerscope assigns it ScopeShared, so a
 	// ~/.ctxloom/config.yaml carrying it is DROPPED with a warning rather than

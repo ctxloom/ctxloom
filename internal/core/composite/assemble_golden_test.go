@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
@@ -45,26 +46,25 @@ func goldenAppDir(t *testing.T) string {
 	t.Helper()
 	testsupport.Isolate(t)
 	root := repoRoot(t)
+	fs := afero.NewOsFs()
 	appDir := filepath.Join(t.TempDir(), config.AppDirName)
 	bundlesRoot := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
-	require.NoError(t, os.MkdirAll(bundlesRoot, 0o755))
 
-	copyTree(t, filepath.Join(root, ".ctxloom", "content", "bundles", "v2", "ctxloom-project"), filepath.Join(bundlesRoot, "ctxloom-project"))
+	copyTree(t, fs, filepath.Join(root, ".ctxloom", "content", "bundles", "v2", "ctxloom-project"), filepath.Join(bundlesRoot, "ctxloom-project"))
 	for _, name := range []string{"code-quality", "tooling"} {
 		dst := filepath.Join(bundlesRoot, name)
-		copyTree(t, filepath.Join(root, "internal", "adapters", "content", "testdata", "tree", name), dst)
-		require.NoError(t, os.WriteFile(filepath.Join(dst, "bundle.yaml"), []byte("version: 1.0.0\ndescription: golden corpus "+name+"\n"), 0o644))
+		copyTree(t, fs, filepath.Join(root, "internal", "adapters", "content", "testdata", "tree", name), dst)
+		testsupport.SeedTree(t, fs, dst, map[string]string{"bundle.yaml": "version: 1.0.0\ndescription: golden corpus " + name + "\n"})
 	}
 	// The skill sidecar declares its script executable; git does not carry
 	// the bit for this fixture, so the copy restores it.
-	require.NoError(t, os.Chmod(filepath.Join(bundlesRoot, "code-quality", "skills", "code-reviewer", "scripts", "run.sh"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesRoot, "premised.yaml"), []byte(premisedBundle), 0o644))
-
-	profilesDir := paths.ProfilesPath(appDir)
-	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "golden-auto.yaml"), []byte(goldenAutoProfile), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "golden-curated.yaml"), []byte(goldenCuratedProfile), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, config.ConfigFileName), []byte(goldenConfig), 0o644))
+	require.NoError(t, fs.Chmod(filepath.Join(bundlesRoot, "code-quality", "skills", "code-reviewer", "scripts", "run.sh"), 0o755))
+	testsupport.SeedTree(t, fs, bundlesRoot, map[string]string{"premised.yaml": premisedBundle})
+	testsupport.SeedTree(t, fs, paths.ProfilesPath(appDir), map[string]string{
+		"golden-auto.yaml":    goldenAutoProfile,
+		"golden-curated.yaml": goldenCuratedProfile,
+	})
+	testsupport.SeedTree(t, fs, appDir, map[string]string{config.ConfigFileName: goldenConfig})
 	return appDir
 }
 
@@ -243,7 +243,7 @@ func TestAssemble_Golden(t *testing.T) {
 	}
 	got := normalize(string(g.bytes()), appDir)
 	if update {
-		require.NoError(t, os.WriteFile(goldenPath, []byte(got), 0o644))
+		testsupport.WriteFileString(t, afero.NewOsFs(), goldenPath, got, 0o644)
 		t.Fatalf("golden %s rewritten; re-run without CTXLOOM_UPDATE_GOLDEN", goldenPath)
 	}
 	want, err := os.ReadFile(goldenPath)
@@ -263,17 +263,16 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(packageDirAtStart, "..", "..", ".."))
 }
 
-func copyTree(t *testing.T, src, dst string) {
+func copyTree(t *testing.T, fsys afero.Fs, src, dst string) {
 	t.Helper()
 	require.NoError(t, filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(src, p)
-		target := filepath.Join(dst, rel)
 		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
+			return nil
 		}
+		rel, _ := filepath.Rel(src, p)
 		info, err := d.Info()
 		if err != nil {
 			return err
@@ -282,6 +281,7 @@ func copyTree(t *testing.T, src, dst string) {
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(target, data, info.Mode().Perm())
+		testsupport.WriteFile(t, fsys, filepath.Join(dst, rel), data, info.Mode().Perm())
+		return nil
 	}))
 }

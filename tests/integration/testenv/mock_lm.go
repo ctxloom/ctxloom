@@ -22,6 +22,11 @@ type MockLM struct {
 	// ExitCode is what the mock LM will return
 	ExitCode int
 
+	// echo leaves CTXLOOM_MOCK_RESPONSE out of the control map, so the
+	// engine answers with its own default: the verbatim echo of what it
+	// received. Response is kept for the SetResponse that follows.
+	echo bool
+
 	// RecordedInputPath is where the mock records received input
 	RecordedInputPath string
 
@@ -43,10 +48,21 @@ func NewMockLM(dir string) (*MockLM, error) {
 	return m, nil
 }
 
-// SetResponse sets the response. Config will be updated on next SetupMockLM call.
+// SetResponse sets the canned reply and rewrites the config with it.
 func (m *MockLM) SetResponse(response string) error {
 	m.Response = response
-	// For the new gRPC-based mock, we need to update the config file
+	m.echo = false
+	return m.WriteConfig()
+}
+
+// Echo drops the canned reply and rewrites the config without it, so the
+// engine answers with its own default — the verbatim echo of the mode,
+// fragments, context and prompt it received (the mock backend's
+// buildMockResponse). The knob has to be ABSENT for that: a set-but-empty
+// value asks for an empty reply. This is how a scenario stands in a
+// distiller that never compresses — the payload comes back as the answer.
+func (m *MockLM) Echo() error {
+	m.echo = true
 	return m.WriteConfig()
 }
 
@@ -96,7 +112,9 @@ func (m *MockLM) WriteConfig() error {
 	upgrade.MapSet(mockNode, "type", upgrade.ScalarNode("mock"))
 	control := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	upgrade.MapSet(control, "CTXLOOM_MOCK_RECORD_FILE", quotedYAMLString(m.RecordedInputPath))
-	upgrade.MapSet(control, "CTXLOOM_MOCK_RESPONSE", quotedYAMLString(m.Response))
+	if !m.echo {
+		upgrade.MapSet(control, "CTXLOOM_MOCK_RESPONSE", quotedYAMLString(m.Response))
+	}
 	upgrade.MapSet(control, "CTXLOOM_MOCK_EXIT_CODE", quotedYAMLString(fmt.Sprint(m.ExitCode)))
 	upgrade.MapSet(mockNode, "mock_control", control)
 	// Only the mock entry is touched — any other engine's llm.configs entry

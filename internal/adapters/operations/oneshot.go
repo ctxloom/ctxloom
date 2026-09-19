@@ -92,7 +92,7 @@ func (o *OneShot) TurnWithModel(ctx context.Context, prompt string) (answer, mod
 		return "", "", fmt.Errorf("agent run: %w", err)
 	}
 	if result.ExitCode != 0 {
-		return "", "", fmt.Errorf("agent exited with code %d: %s", result.ExitCode, strings.TrimSpace(stderr.String()))
+		return "", "", fmt.Errorf("LLM exited with code %d: %s", result.ExitCode, strings.TrimSpace(stderr.String()))
 	}
 	out := strings.TrimSpace(stdout.String())
 	if out == "" {

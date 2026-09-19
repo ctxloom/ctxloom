@@ -463,3 +463,24 @@ func TestRunCharacterization_NonGitRootWarnsButProceeds(t *testing.T) {
 	require.NoError(t, res.err, res.all())
 	assert.Contains(t, res.stderr, "not in a git repository")
 }
+
+// A profile that references a bundle which does not resolve is a warning on
+// a --dry-run, never an abort: the preview composes the context (skipping
+// the unresolved bundle, warned) and delivers NOTHING, so the surfaces that
+// bundle would have shipped — the MCP servers and hooks whose absence is the
+// fatal finding on a real launch — are not composed for it either. A dry run
+// that aborted here would refuse to preview exactly the setup a user is
+// trying to diagnose (features/fault_tolerance.feature, "warns and
+// continues").
+func TestRunCharacterization_DryRunWarnsPastAMissingBundle(t *testing.T) {
+	dir := runCLIFixture(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "profiles", "broken.yaml"),
+		[]byte("description: references a missing bundle\nbundles:\n  - does-not-exist\n"), 0o644))
+	resetApp()
+
+	res := runCLI(t, "run", "--dry-run", "--format", "text", "--profile", "broken", "hello")
+	require.NoError(t, res.err, "a missing bundle warns; it does not abort the preview: %s", res.all())
+	assert.Contains(t, res.all(), "warning")
+	assert.Contains(t, res.all(), "does-not-exist")
+	assert.Contains(t, res.all(), "=== LLM ===", "the preview is rendered")
+}

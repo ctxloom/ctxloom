@@ -116,3 +116,48 @@ func TestMockLM_WriteConfig_FreshFile(t *testing.T) {
 		t.Errorf("the mock's knobs must not ride the retired env key; got:\n%s", out)
 	}
 }
+
+// TestMockLM_Echo_DropsTheCannedReply pins the echo mode: the mock engine
+// answers with its own default — the verbatim echo of what it received —
+// ONLY when CTXLOOM_MOCK_RESPONSE is absent from its control map (a SET but
+// empty value is a request for an empty reply). A scenario that stands in a
+// distiller which never compresses needs exactly that absence, so Echo
+// writes the config without the key, and a later SetResponse puts it back.
+func TestMockLM_Echo_DropsTheCannedReply(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectDir, ".ctxloom"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &MockLM{
+		Response:          "canned",
+		RecordedInputPath: filepath.Join(projectDir, "mock-lm-input.txt"),
+		ProjectDir:        projectDir,
+	}
+	read := func() string {
+		got, err := os.ReadFile(filepath.Join(projectDir, ".ctxloom", "config.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(got)
+	}
+
+	if err := m.Echo(); err != nil {
+		t.Fatalf("Echo: %v", err)
+	}
+	out := read()
+	if strings.Contains(out, "CTXLOOM_MOCK_RESPONSE") {
+		t.Errorf("Echo must leave the response knob UNSET so the engine echoes; got:\n%s", out)
+	}
+	for _, want := range []string{"mock_control:", "CTXLOOM_MOCK_EXIT_CODE", "CTXLOOM_MOCK_RECORD_FILE"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Echo dropped %q, which is not the response knob:\n%s", want, out)
+		}
+	}
+
+	if err := m.SetResponse("again"); err != nil {
+		t.Fatalf("SetResponse: %v", err)
+	}
+	if out := read(); !strings.Contains(out, `CTXLOOM_MOCK_RESPONSE: "again"`) {
+		t.Errorf("SetResponse after Echo must restore the canned reply; got:\n%s", out)
+	}
+}

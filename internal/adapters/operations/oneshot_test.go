@@ -24,6 +24,9 @@ import (
 type stubClient struct {
 	out  string
 	echo bool // when true, write the request prompt back as output
+	// exitCode and stderr are what a failing engine reports.
+	exitCode int32
+	stderr   string
 	// emitFragments writes the run's assembled context (its lead fragments)
 	// back as output, so a composed profile-context is observable in the
 	// answer. Wins over echo/out.
@@ -31,8 +34,12 @@ type stubClient struct {
 	gotReq        *pb.RunStart
 }
 
-func (s *stubClient) Run(_ context.Context, req *pb.RunStart, _ io.Reader, stdout, _ io.Writer, _ <-chan *pb.WindowSize) (int32, error) {
+func (s *stubClient) Run(_ context.Context, req *pb.RunStart, _ io.Reader, stdout, stderr io.Writer, _ <-chan *pb.WindowSize) (int32, error) {
 	s.gotReq = req
+	if s.exitCode != 0 {
+		_, _ = io.WriteString(stderr, s.stderr)
+		return s.exitCode, nil
+	}
 	switch {
 	case s.emitFragments:
 		var parts []string
@@ -163,6 +170,23 @@ func TestOneShot_TurnsShareOneSession(t *testing.T) {
 	assert.Equal(t, "two", second)
 	assert.Equal(t, firstHarp, stub.gotReq.Options.Env[sessions.EnvHarp], "one session, many turns")
 	assert.NotEmpty(t, o.Launch.MCP.URL, "the session endpoint was minted once for every turn")
+}
+
+// TestOneShot_FailedTurnNamesTheExitCodeAndStderr: an engine that exits
+// non-zero fails the turn with the code and whatever it said on stderr —
+// the "LLM exited with code N" a distill's caller reports (the content
+// distiller leaves the item raw over it, naming this) and never a
+// successful empty answer.
+func TestOneShot_FailedTurnNamesTheExitCodeAndStderr(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := oneshotTestConfig(t)
+	stub := &stubClient{exitCode: 1, stderr: "quota exhausted"}
+	o, err := testOneShot(t, cfg, opPipe(cfg, loader), stub, launch.Source{Profiles: []string{"rev"}})
+	require.NoError(t, err)
+	_, err = o.Turn(context.Background(), "distill this")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "LLM exited with code 1")
+	assert.Contains(t, err.Error(), "quota exhausted")
 }
 
 // TestOneShot_EndedSessionRefusesATurn: End releases the session; a turn

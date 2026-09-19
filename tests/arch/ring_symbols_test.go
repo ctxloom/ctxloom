@@ -112,7 +112,8 @@ func walkRingFiles(t *testing.T, fn func(ringFile)) {
 }
 
 // ringSite is one place a ring rule found: the file and enclosing function
-// (the durable key), what was found there, and the line for the message.
+// (the durable key — the file alone for a rule that keys by file), what
+// was found there, and the line for the message.
 type ringSite struct {
 	file   string
 	symbol string
@@ -120,7 +121,12 @@ type ringSite struct {
 	line   int
 }
 
-func (s ringSite) key() string { return s.file + "#" + s.symbol }
+func (s ringSite) key() string {
+	if s.symbol == "" {
+		return s.file
+	}
+	return s.file + "#" + s.symbol
+}
 
 // sortSites orders sites by file then line so failures read top to bottom.
 func sortSites(sites []ringSite) {
@@ -143,9 +149,9 @@ func checkRingAllowlist(t *testing.T, rule string, sites []ringSite, allowed map
 			t.Logf("allowed: %s:%d %s (%s)", s.file, s.line, s.what, why)
 			continue
 		}
-		t.Errorf("%s:%d (%s) %s — %s. If this is a deliberate, reviewed exception, add %q to the %s "+
+		t.Errorf("%s:%d %s — %s. If this is a deliberate, reviewed exception, add %q to the %s "+
 			"allowlist in tests/arch/ring_symbols_test.go naming the slice in which it leaves.",
-			s.file, s.line, s.symbol, s.what, remedy, s.key(), rule)
+			s.file, s.line, s.what, remedy, s.key(), rule)
 	}
 }
 
@@ -296,7 +302,7 @@ func scanOneMintOneOwner(t *testing.T) []ringSite {
 					if underAny(rf.dir, p.permitted) {
 						continue
 					}
-					out = append(out, ringSite{file: rf.rel, symbol: funcSymbol(fd), what: p.what, line: rf.fset.Position(call.Pos()).Line})
+					out = append(out, ringSite{file: rf.rel, symbol: funcSymbol(fd), what: "(" + funcSymbol(fd) + ") " + p.what, line: rf.fset.Position(call.Pos()).Line})
 				}
 				return true
 			})
@@ -346,7 +352,25 @@ func engineNameInitPrompt(rel string) bool {
 // FILE (the brief's granularity for a literal rule: a file either spells
 // the name or it does not), mapped to the slice in which the spelling
 // leaves.
-var noEngineNameInCoreAllowed = map[string]string{}
+var noEngineNameInCoreAllowed = map[string]string{
+	// core packages that name the default engine
+	"internal/config/config_types.go":            "slice 6b: Config.Validate(engine.Registry) checks a configured name against the registry; no default is a literal in core",
+	"internal/bundles/tree_read.go":              "slice 6: bundles.LLMExports become opaque map[string]json.RawMessage keyed by whatever the registry names; no engine key is spelled here",
+	"internal/memory/compactor.go":               "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
+	"internal/memory/distill.go":                 "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
+	"internal/operations/profile_materialize.go": "slice 12: materialize takes the engine from the Target; no default is a literal in the application services",
+
+	// adapters and the CLI choosing a default by name
+	"internal/cli/config.go":              "slice 6b: the CLI's default is engine.Registry.Names(default-distribution), not a literal",
+	"internal/cli/manage.go":              "slice 6b: the CLI's default is engine.Registry.Names(default-distribution), not a literal",
+	"internal/content/convert/convert.go": "slice 6: the per-engine export fields become opaque; the converter keys on the registry's names",
+	"internal/tmuxhost/paneinject.go":     "slice 13: hostpty spawns the runner; the pane-injection table keyed by engine name goes with tmuxhost",
+
+	// the retiring plugin wire and the vendor readers
+	"internal/lm/grpc/mock_client.go":                   "slice 13: the go-plugin protocol is deleted whole",
+	"internal/transcript/vendorreader/claude/locate.go": "slice 6b: the reader becomes an engine.TranscriptReader the engine package supplies, which knows its own name",
+	"internal/transcript/vendorreader/mock/mock.go":     "slice 6b: the reader becomes an engine.TranscriptReader the engine package supplies, which knows its own name",
+}
 
 // scanEngineNameLiterals finds every string literal equal to a registered
 // engine name outside the engine homes and the init prompts. The names are
@@ -383,7 +407,7 @@ func scanEngineNameLiterals(t *testing.T) []ringSite {
 				return true
 			}
 			seen[rf.rel] = true
-			out = append(out, ringSite{file: rf.rel, symbol: "", what: "spells the engine name " + strconv.Quote(v), line: rf.fset.Position(n.Pos()).Line})
+			out = append(out, ringSite{file: rf.rel, what: "spells the engine name " + strconv.Quote(v), line: rf.fset.Position(n.Pos()).Line})
 			return true
 		})
 	})

@@ -461,7 +461,56 @@ var envReadCalls = [][2]string{
 
 // envLiteralsOnceAllowed is the rule's shrinking allowlist, keyed by FILE,
 // mapped to the slice in which the site leaves.
-var envLiteralsOnceAllowed = map[string]string{}
+var envLiteralsOnceAllowed = map[string]string{
+	// re-spelled keys: the drift this rule exists to catch
+	"internal/lm/isolation/none.go":      "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
+	"internal/shared/procsec/procsec.go": "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
+
+	// core reading the environment for itself
+	"internal/paths/homeguard.go":         "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
+	"internal/paths/paths.go":             "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
+	"internal/config/config.go":           "slice 4: adapters/configload owns the file chain; core/config reads no environment",
+	"internal/shared/agent/rendezvous.go": "slice 14a: the rendezvous is the engine host's (adapters/runner), handed its temp root",
+
+	// the CLI: HostFacts are computed once by the composition root
+	"internal/cli/bundle_items.go":    "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/cli/clean_cmd.go":       "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/cli/doctor_cmd.go":      "slice 15: operations.Doctor takes the facts it checks as values",
+	"internal/cli/init.go":            "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/cli/mcp_server.go":      "slice 9: the stdio MCP server is deleted",
+	"internal/cli/session_cmd.go":     "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/cli/session_distill.go": "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/cli/session_query.go":   "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+
+	// the engines: Home() is a HomeSpec the runner realises
+	"internal/claude/chat_run.go":                       "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
+	"internal/claude/claude.go":                         "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
+	"internal/claude/mcp_registrar.go":                  "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
+	"internal/lm/backends/mock.go":                      "slice 11b: lm/backends is deleted whole",
+	"internal/lm/backends/panelaunch.go":                "slice 11b: lm/backends is deleted whole",
+	"internal/transcript/vendorreader/claude/locate.go": "slice 6b: the reader becomes an engine.TranscriptReader handed the home it reads",
+
+	// the runner's halves today
+	"internal/lm/grpc/client.go":         "slice 13: the go-plugin protocol is deleted whole",
+	"internal/mcp/mcp_resources.go":      "slice 9: runner/mcp serves Loadout.Index; the cwd is the launch's",
+	"internal/mcp/mcp_runner.go":         "slice 9: runner/mcp is bound by the runner, which holds the session home",
+	"internal/mcp/mcp_tools_agents.go":   "slice 8: agent_run is a Verbs.Host frame carrying the launch; no cwd is read",
+	"internal/mcp/mcp_tools_memory.go":   "slice 14a: memory.NewCompactor(entry, source, llm) is handed its paths",
+	"internal/mcp/mcp_tools_triggers.go": "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which holds the project root",
+
+	// isolation: handed HostFacts and a CellRequest
+	"internal/lm/isolation/container.go":       "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/lm/isolation/diagnose.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/lm/isolation/imagebuild.go":      "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/lm/isolation/provisionselect.go": "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/lm/isolation/sharedfs.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/lm/isolation/worktree.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+
+	// leaf adapters Part 1.1 does not permit and no slice names (measured)
+	"internal/remote/git_publisher.go":         "Part 1.1 permits temp reads in the fs adapters only; adapters/remote (slice 5) is not one — no slice names this read",
+	"internal/shared/mountns/mountns_linux.go": "Part 1.1 does not name mountns; its shim scratch dir is a temp read no slice removes — measured",
+	"internal/signing/agentkey/agentkey.go":    "slice 5: the signer's key path is a config.Sources fact, not a home lookup in the signing adapter",
+}
 
 // declaredEnvKeys collects the CTXLOOM_* string values of the package-level
 // consts declared in envKeysDeclaringDir.

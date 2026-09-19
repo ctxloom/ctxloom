@@ -5,9 +5,12 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -565,6 +568,24 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		}
 		if strings.Contains(recorded, marker) {
 			return fmt.Errorf("mock recorded input contains %q and must not; recorded:\n%s", marker, recorded)
+		}
+		return nil
+	})
+
+	// The session store is where every run mints its harp (sessions.Open
+	// under paths.HomeSessionsDir). A regular file at the store's root makes
+	// opening it fail on the first touch — the mint — rather than on some later
+	// read, so a scenario can ask what a run does when it cannot be named at
+	// all. The stale directory the fixture may have created is removed first;
+	// nothing in it belongs to the scenario.
+	ctx.Step(`^the session store cannot be opened$`, func(c context.Context) error {
+		w := worldFrom(c)
+		root := filepath.Join(w.env.HomeDir, paths.AppDirName, paths.SessionsDir)
+		if err := os.RemoveAll(root); err != nil {
+			return fmt.Errorf("clear sessions root %s: %w", root, err)
+		}
+		if err := os.WriteFile(root, []byte("not a directory\n"), 0o644); err != nil {
+			return fmt.Errorf("occupy sessions root %s with a file: %w", root, err)
 		}
 		return nil
 	})

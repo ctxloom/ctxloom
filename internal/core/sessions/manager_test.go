@@ -347,14 +347,12 @@ func TestActivityTime_PrefersCanonicalTranscriptPath(t *testing.T) {
 		"a dangling canonical path degrades to the legacy transcript mtime")
 }
 
-// TestFind_FillsCanonicalTranscript_FallsBackToLegacyFilename pins the
-// transcript.acp.jsonl -> transcript.jsonl rename's back-compat contract at
-// the sessions-index layer: a harp captured before the rename has ONLY the
-// legacy filename under persist/, and Find (via fillCanonicalTranscript ->
-// paths.ResolveHarpCanonicalTranscriptPath) must still resolve
-// CanonicalTranscriptPath to it, not report the session as having no
-// canonical transcript.
-func TestFind_FillsCanonicalTranscript_FallsBackToLegacyFilename(t *testing.T) {
+// TestFind_FillsCanonicalTranscript_IgnoresPreRenameFilename pins the
+// one-name contract on the read side: fillCanonicalTranscript looks for
+// paths.CanonicalTranscriptFileName only. A persist/ holding just the
+// pre-rename leaf (transcript.acp.jsonl) leaves CanonicalTranscriptPath
+// empty — the file is not read under the old name.
+func TestFind_FillsCanonicalTranscript_IgnoresPreRenameFilename(t *testing.T) {
 	testsupport.Isolate(t)
 	m := newManager(t)
 	e, err := m.AssignHarp("/proj", "claude-code")
@@ -363,14 +361,14 @@ func TestFind_FillsCanonicalTranscript_FallsBackToLegacyFilename(t *testing.T) {
 	persistDir, err := paths.HarpPersistDir(e.HarpName)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(persistDir, 0o755))
-	legacyPath := filepath.Join(persistDir, "transcript.acp.jsonl")
-	require.NoError(t, os.WriteFile(legacyPath, []byte("{}\n"), 0o644))
+	preRename := filepath.Join(persistDir, "transcript.acp.jsonl")
+	require.NoError(t, os.WriteFile(preRename, []byte("{}\n"), 0o644))
 
 	found, err := m.Find(e.HarpName)
 	require.NoError(t, err)
 	require.NotNil(t, found)
-	assert.Equal(t, legacyPath, found.CanonicalTranscriptPath,
-		"a pre-rename session's canonical transcript must still resolve via the legacy filename fallback")
+	assert.Empty(t, found.CanonicalTranscriptPath,
+		"a pre-rename leaf under persist/ is not the canonical transcript and must not be resolved as one")
 }
 
 func TestMarkEnded(t *testing.T) {

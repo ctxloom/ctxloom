@@ -178,14 +178,13 @@ func TestCanonicalHistory_GetSession_EmptyHarp_Errors(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestCanonicalHistory_GetSession_FallsBackToLegacyFilename pins the
-// transcript.acp.jsonl -> transcript.jsonl rename's back-compat contract: a
-// harp captured before the rename has ONLY the legacy filename on disk (no
-// writer ever produced the current-name file for it), and GetSession must
-// still resolve and parse it via paths.ResolveHarpCanonicalTranscriptPath —
-// not report "no canonical transcript captured" for a session that
-// genuinely has one.
-func TestCanonicalHistory_GetSession_FallsBackToLegacyFilename(t *testing.T) {
+// TestCanonicalHistory_GetSession_PreRenameFilenameIsNotATranscript pins
+// the one-name contract: the canonical transcript lives under
+// paths.CanonicalTranscriptFileName and nothing else. A harp whose persist/
+// holds only the pre-rename leaf (transcript.acp.jsonl) has NO canonical
+// transcript — GetSession reports that, and never silently reads the file
+// under the old name.
+func TestCanonicalHistory_GetSession_PreRenameFilenameIsNotATranscript(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "pre-rename-harp"
 
@@ -194,15 +193,14 @@ func TestCanonicalHistory_GetSession_FallsBackToLegacyFilename(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	data, err := os.ReadFile(fixturePath("claude-code.transcript.acp.jsonl"))
 	require.NoError(t, err)
-	legacyPath := filepath.Join(dir, "transcript.acp.jsonl")
-	require.NoError(t, os.WriteFile(legacyPath, data, 0o644))
+	preRename := filepath.Join(dir, "transcript.acp.jsonl")
+	require.NoError(t, os.WriteFile(preRename, data, 0o644))
 
 	h := NewCanonicalHistory("/proj/legacy", sessions.NewMemStore())
 	sess, err := h.GetSession(context.Background(), harp)
-	require.NoError(t, err)
-	require.NotNil(t, sess)
-	assert.Equal(t, harp, sess.ID)
-	assert.NotEmpty(t, sess.Entries, "the legacy-named file's real content must survive the fallback read")
+	var noTranscript *NoCanonicalTranscriptError
+	require.ErrorAs(t, err, &noTranscript, "a pre-rename leaf is not a canonical transcript; got %v", err)
+	assert.Nil(t, sess)
 }
 
 // TestParseTranscriptFile_TruncatedLine_DegradesToPartial pins the crash/

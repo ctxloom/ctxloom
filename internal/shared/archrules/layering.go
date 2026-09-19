@@ -153,8 +153,6 @@ var LayeringRules = []LayeringRule{
 			"internal/core/config -> internal/adapters/remote":                 "slice 5: trust ports behind Sources.TrustPorts",
 			"internal/core/config -> internal/shared/admission":                "slice 5: admission is decided by composite.Trust",
 			"internal/core/config -> internal/adapters/signing/allowedsigners": "slice 5: trust ports behind Sources.TrustPorts",
-			"internal/core/config -> internal/shared/clidiag":                  "slice 15: clidiag becomes typed reports",
-			"internal/core/config -> internal/shared/strictness":               "slice 15: strictness becomes a value (measured; not in Part 1.0's config row)",
 			"internal/core/config -> internal/adapters/agents":                 "measured: agents.Agent is the value type Config carries for an agent binding; Part 1.1 does not place agents, and no slice names this edge",
 			"internal/core/config -> internal/adapters/configload/layerscope":  "measured: the reader moved to configload in slice 4, but Save's write-side scope filter (DropLayerScopeViolations) still consults the layer policy; leaves when the policy is a value the reader hands the Config",
 

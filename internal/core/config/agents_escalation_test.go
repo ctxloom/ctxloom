@@ -26,6 +26,7 @@ func TestLoadAgents_RetiredEscalationKey_IsReported(t *testing.T) {
 			Escalation: []agents.EscalationRung{{Action: "relay"}},
 		}},
 	})
+	cfg.rep = ledgerReporter()
 
 	mark := strictness.Checkpoint()
 	got := cfg.LoadAgents()

@@ -1,6 +1,7 @@
 package configload
 
 import (
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,7 +37,7 @@ func TestLoad_EscalationPath1_EnvCannotGrantDirtyTreeCommitAck(t *testing.T) {
 
 	// MUTATION TARGET: if dirty_tree_commit_ack were still a live schema/
 	// struct field, this would be true.
-	assert.False(t, config.DirtyTreeCommitAcknowledged(fs, appDir),
+	assert.False(t, config.DirtyTreeCommitAcknowledged(report.Reporter{}, fs, appDir),
 		"an env override must never grant the dirty-tree-commit acknowledgement — it is not even a config key any longer")
 	// And the merged config must never have decoded a stray value onto
 	// anything an accessor could reach; config.GetDirtyTreeHandler is untouched,
@@ -54,7 +55,7 @@ func TestLoad_EscalationPath1_ConfigSetCannotGrantDirtyTreeCommitAck(t *testing.
 	_, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
-	assert.False(t, config.DirtyTreeCommitAcknowledged(fs, appDir),
+	assert.False(t, config.DirtyTreeCommitAcknowledged(report.Reporter{}, fs, appDir),
 		"--config-set must never grant the dirty-tree-commit acknowledgement either")
 }
 

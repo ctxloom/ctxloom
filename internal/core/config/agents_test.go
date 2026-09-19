@@ -174,6 +174,7 @@ func TestLoadAgents_RetiredDirectoryIsAFatalFinding(t *testing.T) {
 		Agents:   map[string]agents.Agent{"dev": {LLM: "claude-code", Profiles: []string{"go-developer"}}},
 	})
 	cfg.SetFS(mem)
+	cfg.SetReporter(strictness.Sink("ctxloom"))
 
 	mark := strictness.Checkpoint()
 	got := cfg.LoadAgents()
@@ -209,6 +210,7 @@ func TestLoadAgents_AbsentOrEmptyDirectoryIsSilent(t *testing.T) {
 		Agents:   map[string]agents.Agent{"dev": {Profiles: []string{"p"}}},
 	})
 	cfg.SetFS(mem)
+	cfg.SetReporter(strictness.Sink("ctxloom"))
 
 	mark := strictness.Checkpoint()
 	require.Len(t, cfg.LoadAgents(), 1)
@@ -276,6 +278,7 @@ func TestLoadAgents_RetiredDirectoryFindingIsRecordedOncePerWindow(t *testing.T)
 		Agents:   map[string]agents.Agent{"dev": {Profiles: []string{"from-config"}}},
 	})
 	cfg.SetFS(mem)
+	cfg.SetReporter(strictness.Sink("ctxloom"))
 
 	mark := strictness.Checkpoint()
 	for range 3 {

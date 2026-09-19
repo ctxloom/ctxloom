@@ -3,6 +3,8 @@ package config
 import (
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,10 +33,10 @@ func sentinelExecBundle() *bundles.Bundle {
 func TestExtractMCP_ForgottenGate_WithholdsTheServer(t *testing.T) {
 	read := bundles.ProjectAuthoredRead("fixture", sentinelExecBundle())
 
-	got := extractMCPFromBundle(read, mustLocalRef(t, "src"), nil)
+	got := extractMCPFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), nil)
 	assert.Empty(t, got, "a bundle MCP server reached settings with nothing having decided about it")
 
-	ungated := extractMCPFromBundle(read, mustLocalRef(t, "src"), composite.Ungated().Authorizer())
+	ungated := extractMCPFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), composite.Ungated().Authorizer())
 	require.Contains(t, ungated, "srv", "Ungated must admit exactly as the old nil did")
 }
 
@@ -43,10 +45,10 @@ func TestExtractMCP_ForgottenGate_WithholdsTheServer(t *testing.T) {
 func TestExtractHooks_ForgottenGate_WithholdsTheHook(t *testing.T) {
 	read := bundles.ProjectAuthoredRead("fixture", sentinelExecBundle())
 
-	got := extractHooksFromBundle(read, mustLocalRef(t, "src"), nil, bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), nil, bundles.LinksUnchecked())
 	assert.Empty(t, got.PreTool, "a bundle hook reached settings with nothing having decided about it")
 
-	ungated := extractHooksFromBundle(read, mustLocalRef(t, "src"), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
+	ungated := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
 	require.Len(t, ungated.PreTool, 1, "Ungated must admit exactly as the old nil did")
 }
 

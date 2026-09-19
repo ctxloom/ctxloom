@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"os"
 	"path/filepath"
 	"strings"
@@ -367,7 +369,7 @@ func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git,
 		return fmt.Errorf(`dirty_tree_handler "commit": %s is a detached-HEAD checkout (this looks like a delegated child's OWN isolated worktree, not a branch checkout — committing here would land on no branch and could be silently discarded when that worktree is later torn down) — pass dirty_tree_handler: "copy" or "stale" for this spawn instead, or "fail" to refuse it outright`, workDir)
 	}
 
-	if !config.DirtyTreeCommitAcknowledged(cfg.FS(), cfg.GetAppDir()) {
+	if !config.DirtyTreeCommitAcknowledged(report.To(strictness.Sink("ctxloom")), cfg.FS(), cfg.GetAppDir()) {
 		var b strings.Builder
 		fmt.Fprintf(&b, "agent_run: refusing to auto-commit for delegated agent %q on branch %q — %s has uncommitted changes, a worktree checkout only ever contains committed state, and dirty_tree_handler is configured to \"commit\" (the default), but this checkout has not acknowledged that ctxloom may commit on your behalf:\n", agentName, branch, workDir)
 		files.writeTo(&b)

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -69,7 +71,7 @@ func TestExtractMCPFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 		},
 	}
 	seen := map[string]string{}
-	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(seen, "#mcp/beta"))
+	got := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(seen, "#mcp/beta"))
 
 	require.Contains(t, got, "alpha", "trusted MCP server must survive the gate")
 	require.NotContains(t, got, "beta", "denied MCP server must be omitted from settings")
@@ -91,7 +93,7 @@ func TestExtractMCPFromBundle_FailClosed(t *testing.T) {
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
 	denyAll := testAuthorizer(false)
-	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), denyAll)
+	got := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), denyAll)
 	assert.Empty(t, got, "fail-closed: a deny-all gate withholds every MCP server")
 }
 
@@ -101,7 +103,7 @@ func TestExtractMCPFromBundle_NilGate_Ungated(t *testing.T) {
 	b := &bundles.Bundle{Name: "tools", MCP: map[string]bundles.BundleMCP{
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
-	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustBuiltinRef(t, "tools"), composite.Ungated().Authorizer())
+	got := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", b), mustBuiltinRef(t, "tools"), composite.Ungated().Authorizer())
 	assert.Len(t, got, 2, "nil gate must not gate anything")
 }
 
@@ -123,7 +125,7 @@ func TestExtractHooksFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	}
 	seen := map[string]string{}
 	// Deny the second pre_tool hook ("echo b", index 1).
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(seen, "#hooks/pre_tool/1"), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(seen, "#hooks/pre_tool/1"), bundles.LinksUnchecked())
 
 	require.Len(t, got.PreTool, 1, "the denied pre_tool hook must be omitted")
 	assert.Equal(t, "echo a", got.PreTool[0].Command, "the trusted sibling hook survives")
@@ -149,7 +151,7 @@ func TestExtractHooksFromBundle_FailClosed(t *testing.T) {
 		PostTool: []bundles.BundleHook{{Command: "echo b", Type: "command"}},
 	}}
 	denyAll := testAuthorizer(false)
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), denyAll, bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), denyAll, bundles.LinksUnchecked())
 	assert.Empty(t, got.PreTool, "fail-closed: deny-all withholds pre_tool hooks")
 	assert.Empty(t, got.PostTool, "fail-closed: deny-all withholds post_tool hooks")
 }

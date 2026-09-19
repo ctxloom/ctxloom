@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"context"
 	"os"
 	"path/filepath"
@@ -97,7 +98,7 @@ func TestWriteInitialConfig(t *testing.T) {
 	if strings.Contains(string(cfg), "dirty_tree_commit_ack") {
 		t.Errorf("dirty_tree_commit_ack must never appear in config.yaml at all — it moved to its own state-store file; got:\n%s", cfg)
 	}
-	if config.DirtyTreeCommitAcknowledged(nil, appDir) {
+	if config.DirtyTreeCommitAcknowledged(report.Reporter{}, nil, appDir) {
 		t.Error("no acknowledgement was granted (dirty-tree answer wasn't \"commit\"), so DirtyTreeCommitAcknowledged must report false")
 	}
 
@@ -131,7 +132,7 @@ func TestWriteInitialConfig_DirtyTreeCommitAnswerWritesAckTrue(t *testing.T) {
 	if strings.Contains(string(cfg), "dirty_tree_commit_ack") {
 		t.Errorf("dirty_tree_commit_ack must never appear in config.yaml, even for the commit answer; got:\n%s", cfg)
 	}
-	if !config.DirtyTreeCommitAcknowledged(nil, appDir) {
+	if !config.DirtyTreeCommitAcknowledged(report.Reporter{}, nil, appDir) {
 		t.Error("the commit answer should have recorded the acknowledgement in its own state store")
 	}
 	ackData, err := os.ReadFile(paths.DirtyTreeCommitAckPath(appDir))

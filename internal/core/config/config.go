@@ -20,7 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Re-export path constants for backwards compatibility
@@ -958,7 +957,7 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 			// a seed key built on an unparsed source would be a key nothing
 			// ever looks up, so the profiles would go missing either way —
 			// silently in the first case, diagnosably in this one.
-			clidiag.Warn("ctxloom", "bundle %q ships %d profile(s) that cannot be seeded: %v",
+			c.rep.Warnf("bundle %q ships %d profile(s) that cannot be seeded: %v",
 				read.DisplayName(), bundle.ProfileCount(), err)
 			continue
 		}

@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"context"
 	"path/filepath"
 	"testing"
@@ -158,7 +159,7 @@ func TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys(t *testing.T) {
 
 			// Independent read #3: the ack, from its OWN store, via the exact
 			// accessor operations.commitDirtyTree consults.
-			assert.Equal(t, tt.wantAcknowledged, config.DirtyTreeCommitAcknowledged(fs, appDir))
+			assert.Equal(t, tt.wantAcknowledged, config.DirtyTreeCommitAcknowledged(report.Reporter{}, fs, appDir))
 		})
 	}
 }

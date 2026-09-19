@@ -119,7 +119,7 @@ func GetConfig() (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
+	config.ReportWarnings(strictness.Sink("ctxloom"), cfg.GetWarnings())
 	return cfg, nil
 }
 

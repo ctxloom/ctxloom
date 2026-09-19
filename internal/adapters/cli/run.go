@@ -653,7 +653,7 @@ func (st *runState) loadConfig() error {
 	// The reader records schema-invalid keys and refused overrides as
 	// warnings — surface them so a degraded config.yaml never silently
 	// launches an empty-context session.
-	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
+	config.ReportWarnings(strictness.Sink("ctxloom"), cfg.GetWarnings())
 	// If loading upgraded an older config schema in memory, offer to persist
 	// it (interactive + consented only; never a silent rewrite).
 	confirmConfigUpgrade(cfg.GetPendingUpgrade(), cfg.CommitUpgrade)

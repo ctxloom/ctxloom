@@ -110,3 +110,41 @@ func TestDiagnosticSink_QuietRecordsWithoutRendering(t *testing.T) {
 	require.Len(t, strictness.All(), 1)
 	assert.Equal(t, "too big", strictness.All()[0].Message)
 }
+
+// A Once finding is one ledger entry per window however many times it is
+// reported — a long-lived server re-consults a loaded config from every
+// session, and one broken file must not become N copies of one finding
+// inside a single refusal — and it re-fires in the next window, so the next
+// session is refused over the same unfixed config rather than opened silently.
+func TestSink_OnceFindingLedgersOncePerWindowAndRefiresInTheNext(t *testing.T) {
+	restore := clidiag.SetSink(&bytes.Buffer{})
+	clidiag.ResetWarnOnce()
+	strictness.Reset()
+	t.Cleanup(func() { restore(); clidiag.ResetWarnOnce(); strictness.Reset() })
+
+	sink := strictness.Sink("ctxloom")
+	f := report.FailOncef(report.KindConfig, "fix the config file", "yaml: did not parse")
+
+	mark1 := strictness.Checkpoint()
+	sink.Report(f)
+	sink.Report(f)
+	sink.Report(f)
+	assert.Len(t, strictness.Since(mark1), 1, "one broken config file is one finding per window")
+
+	mark2 := strictness.Checkpoint()
+	sink.Report(f)
+	assert.Len(t, strictness.Since(mark2), 1, "the next window must see the finding again")
+}
+
+// Distinct texts are distinct findings even when both are Once.
+func TestSink_DistinctOnceFindingsAreDistinctLedgerEntries(t *testing.T) {
+	restore := clidiag.SetSink(&bytes.Buffer{})
+	strictness.Reset()
+	t.Cleanup(func() { restore(); strictness.Reset() })
+
+	sink := strictness.Sink("ctxloom")
+	mark := strictness.Checkpoint()
+	sink.Report(report.FailOncef(report.KindConfig, "", "yaml: did not parse"))
+	sink.Report(report.FailOncef(report.KindConfig, "", "yaml: unknown key foo"))
+	assert.Len(t, strictness.Since(mark), 2)
+}

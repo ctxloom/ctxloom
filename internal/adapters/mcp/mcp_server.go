@@ -250,7 +250,7 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
+	config.ReportWarnings(strictness.Sink("ctxloom"), cfg.GetWarnings())
 	s.cfg = cfg
 
 	// Hooks/statusline/MCP entries are written as bare `ctxloom` and

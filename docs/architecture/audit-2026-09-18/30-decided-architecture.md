@@ -60,6 +60,7 @@ The graph among the core packages (an edge is an import; every edge points towar
 flowchart RL
   classDef leaf fill:#dfe,stroke:#282
   classDef core fill:#eef,stroke:#228
+  classDef later fill:#fff,stroke:#888,stroke-dasharray:4 3
   HARP[shared/harp]:::leaf
   PATHS[core/paths]:::leaf
   TRUST[core/trust]:::leaf
@@ -67,13 +68,13 @@ flowchart RL
   PRES[core/present]:::leaf
   SPOOL[core/spool]:::leaf
   SESS[core/sessions]:::core
-  ENG[core/engine]:::core
+  ENG["core/engine (born 6b; today core/agent stands here)"]:::later
   BUN[core/bundles]:::core
   PROF[core/profiles]:::core
-  COMP[core/composite]:::core
+  COMP["core/composite (born 6)"]:::later
   CFG[core/config]:::core
-  DELIV[core/delivery]:::core
-  LAUNCH[core/launch]:::core
+  DELIV["core/delivery (born 12)"]:::later
+  LAUNCH["core/launch (born 7)"]:::later
   COORD[core/coord]:::core
   SESS --> PATHS & HARP
   ENG --> SESS & PRES & WIRE
@@ -87,20 +88,23 @@ flowchart RL
   SPOOL --> PATHS & HARP
 ```
 
+Solid nodes are directories in the tree since the rename slice; dashed nodes are born in the slice their label names. Today's engine base (`core/agent`, the former `shared/agent`) occupies `core/engine`'s place until slice 6b splits its contract half out.
+
 Two facts the graph makes checkable, measured with `go list -f '{{.Imports}}'` on the module: `core/engine` imports exactly `core/present`, `core/sessions`, `core/wire`; `engines/mock` and `engines/claude` import exactly `core/engine` and those same three leaves. That is the `engines-import-nothing-above-the-port` rule with a ZERO allowlist, satisfiable by construction because nothing an engine implements names a type above `core/engine`.
 
-**Core purity from day one — the ratchet.** The rule `core-imports-only-core` cannot be green on day one: today's packages, under their new paths, still import adapters. The allowlist is the MEASURED import list (from `go list` at `release/0.7`) with the slice in which each entry leaves. The mechanism exists: `tests/arch/layering_test.go` holds `layeringRule{name, from, forbid, except, allowed}` — `from` a list of prefixes, `except` the subtrees a `forbid` prefix nonetheless permits (core and the toolbox), `allowed` keyed by import EDGE (`"<from dir> -> <dep dir>"`) so each forbidden import ratchets out on its own — and `TestArch_LayeringAllowlist_IsLive`, which deletes an exhausted entry. The `clidiag` and `strictness` entries are process globals that become typed values in slice 15.
+**Core purity from day one — the ratchet.** The rule `core-imports-only-core` cannot be green on day one: today's packages, under their new paths, still import adapters. The allowlist is the MEASURED import list with the slice in which each entry leaves; the table below is the rule's `allowed` map as it stands after the rename, one edge per entry, regenerated from `tests/arch/layering_test.go` rather than written by hand. The mechanism exists: `tests/arch/layering_test.go` holds `layeringRule{name, from, forbid, except, allowed}` — `from` a list of prefixes, `except` the subtrees a `forbid` prefix nonetheless permits (core and the toolbox), `allowed` keyed by import EDGE (`"<from dir> -> <dep dir>"`) so each forbidden import ratchets out on its own — and `TestArch_LayeringAllowlist_IsLive`, which deletes an exhausted entry. The `clidiag` and `strictness` entries are process globals that become typed values in slice 15.
 
-| Core package (target path) | Forbidden imports it holds TODAY (measured) | Leaves in slice |
+| Core package (landed path) | Forbidden imports it holds TODAY (the rule's `allowed` map, one edge each) | Leaves in slice |
 |---|---|---|
-| `core/trust` | `remote` | 2 (URL normalisation already lives in `refuri`) |
-| `core/sessions` | `shared/upgrade`, `clidiag` | 1a (index migrations deleted), 15 (typed reports) |
-| `core/profiles` | `shared/agent`, `remote` | 2 (`MergeHooksConfig` → `core/wire`), 5 (the pull-walk reader → `adapters/remote`) |
-| `core/bundles` | `content`, `content/attest`, `content/remotetree`, `remote`, `signing`, `shared/admission`, `shared/upgrade`, `clidiag` | 5 (readers become adapters behind `bundles.Reader`; `attest.VerifyBundle` called by them), 1a (`upgrade`), 15 (`clidiag`) |
-| `core/config` | `agents`, `remote`, `signing`, `signing/allowedsigners`, `shared/companionloadout`, `projectroot`, `cliversion`, `content`, `content/remotetree`, `config/layerscope`, `shared/admission`, `clidiag` | 4 (`adapters/configload` split; companions probing → `adapters/companions`), 5 (trust ports behind `Sources.TrustPorts`), 15 |
-| `core/coord` | the generated proto, `discover`, `mcpschema`, `agents`, `lm/isolation`, `operations`, `transcript`, `shared/agent`, `envswitch`, `clidiag`, `strictness` | 8 (`harnessspec`/`SpawnPlan` → `core/launch` types; `operations.DirtyTreeHandler` → `core/launch`), 10 (`grpcserver`, `runchannel`, `runnerlink`, `httpserver`, `consumer`, `controlwire` → `adapters/coordgrpc`; `discover`, `mcpschema` with them; every remaining generated-type reference re-typed on Go values — the whole of `core/coord` is the allowlist until then), 14a (`transcript`, `enginehost*.go` → `adapters/runner`), 6b (`shared/agent` → `core/engine`) |
-| `shared/agent` → its contract half becomes `core/engine` | `ledger`, `lockwait`, `iox`, `clidiag`, `strictness` | 6b (the split), 12 (`ledger` deleted), 15 |
-| `lm/engine` → folded into `core/engine` | `bundles`, `engineversion`, `transcript/vendorreader` | 6b (`Descriptor` becomes `Definition`; the readers become `engine.TranscriptReader` values the adapter supplies) |
+| `core/trust` | `adapters/remote` | `adapters/remote`: slice 2: URL normalisation already lives in refuri; the remote import goes |
+| `core/sessions` | `shared/upgrade`, `shared/clidiag` | `shared/upgrade`: slice 1a: the index migrations are deleted; `shared/clidiag`: slice 15: clidiag becomes typed reports |
+| `core/profiles` | `adapters/remote`, `shared/clidiag`, `shared/strictness`, `shared/upgrade`, `resources` | `adapters/remote`: slice 5: the pull-walk reader moves to adapters/remote; `shared/clidiag`: slice 15: clidiag becomes typed reports (measured; not in Part 1.0's profiles row); `shared/strictness`: slice 15: strictness becomes a value (measured; not in Part 1.0's profiles row); `shared/upgrade`: slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's profiles row); `resources`: slice 5: the embedded builtin profiles are data a reader adapter supplies (measured; Part 1.0 does not classify resources) |
+| `core/bundles` | `adapters/content`, `adapters/content/attest`, `adapters/content/remotetree`, `adapters/remote`, `adapters/signing`, `shared/admission`, `shared/upgrade`, `shared/clidiag`, `shared/strictness`, `resources` | `adapters/content`: slice 5: readers become adapters behind bundles.Reader; `adapters/content/attest`: slice 5: attest.VerifyBundle is called by the reader adapters; `adapters/content/remotetree`: slice 5: readers become adapters behind bundles.Reader; `adapters/remote`: slice 5: readers become adapters behind bundles.Reader; `adapters/signing`: slice 5: one verifier, behind the trust ports; `shared/admission`: slice 5: admission is decided by composite.Trust, not by the bundle package; `shared/upgrade`: slice 1a: the permanent migrations are deleted; `shared/clidiag`: slice 15: clidiag becomes typed reports; `shared/strictness`: slice 15: strictness becomes a value (measured; not in Part 1.0's bundles row); `resources`: slice 5: the embedded builtin bundles are data a reader adapter supplies (measured; Part 1.0 does not classify resources) |
+| `core/config` | `adapters/agents`, `adapters/content`, `adapters/content/remotetree`, `adapters/projectroot`, `adapters/remote`, `shared/admission`, `shared/cliversion`, `adapters/configload/layerscope`, `adapters/companions`, `shared/confload`, `adapters/signing`, `adapters/signing/allowedsigners`, `shared/upgrade`, `shared/clidiag`, `shared/strictness`, `resources` | `adapters/agents`: slice 4: the adapters/configload split; `adapters/content`: slice 4: the adapters/configload split; `adapters/content/remotetree`: slice 4: the adapters/configload split; `adapters/projectroot`: slice 4: the adapters/configload split; config no longer finds its own root; `adapters/remote`: slice 5: trust ports behind Sources.TrustPorts; `shared/admission`: slice 5: admission is decided by composite.Trust; `shared/cliversion`: slice 4: the adapters/configload split; `adapters/configload/layerscope`: slice 4: the adapters/configload split; layerscope is configload's; `adapters/companions`: slice 4: companion probing moves to adapters/companions; `shared/confload`: slice 4: the file/env/flag chain is adapters/configload's (measured; not in Part 1.0's config row); `adapters/signing`: slice 5: trust ports behind Sources.TrustPorts; `adapters/signing/allowedsigners`: slice 5: trust ports behind Sources.TrustPorts; `shared/upgrade`: slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's config row); `shared/clidiag`: slice 15: clidiag becomes typed reports; `shared/strictness`: slice 15: strictness becomes a value (measured; not in Part 1.0's config row); `resources`: slice 4: the embedded default config is data adapters/configload supplies (measured; Part 1.0 does not classify resources) |
+| `core/coord` | `adapters/coordgrpc/pb`, `agentcoord/discover`, `adapters/coordgrpc/mcpschema`, `adapters/agents`, `adapters/isolation`, `adapters/operations`, `adapters/transcript`, `shared/envswitch`, `shared/clidiag`, `shared/strictness` | `adapters/coordgrpc/pb`: slice 10: every generated-type reference re-typed on Go values; the proto goes to adapters/coordgrpc; `agentcoord/discover`: slice 10: discover moves to adapters/coordgrpc; `adapters/coordgrpc/mcpschema`: slice 10: mcpschema moves to adapters/coordgrpc; `adapters/agents`: slice 8: harnessspec/SpawnPlan become core/launch types; `adapters/isolation`: slice 8: the isolation axes become core/launch value types; `adapters/operations`: slice 8: operations.DirtyTreeHandler becomes launch.DirtyTreeHandler; operations implements coord.HostApp; `adapters/transcript`: slice 14a: the engine-host files move to adapters/runner; `shared/envswitch`: Part 1.0 lists this edge without a slice; it leaves with the engine host (14a), which is what reads the switched env; `shared/clidiag`: slice 15: clidiag becomes typed reports; `shared/strictness`: slice 15: strictness becomes a value |
+| `core/coord/coordtest` | `lm/backends`, `adapters/isolation` | `lm/backends`: slice 14a: the double stands up adapters/runner instead of the backends seam (measured; Part 1.0 does not mention coordtest); `adapters/isolation`: slice 14a: the double stands up adapters/runner instead of reaching isolation (measured; Part 1.0 does not mention coordtest) |
+| `core/agent` (today's engine base; its contract half becomes `core/engine`) | `shared/ledger`, `shared/clidiag`, `shared/strictness` | `shared/ledger`: slice 12: shared/ledger is deleted; `shared/clidiag`: slice 15: clidiag becomes typed reports; `shared/strictness`: slice 15: strictness becomes a value |
+| `lm/engine` (retired in place; folded into `core/engine`) | `adapters/engineversion`, `adapters/transcript/vendorreader` | `adapters/engineversion`: slice 6b: Descriptor becomes Definition; the version command is the engine's own; `adapters/transcript/vendorreader`: slice 6b: the readers become engine.TranscriptReader values the adapter supplies |
 | `core/paths`, `core/wire`, `core/present`, `core/spool`, `shared/harp` | none | pure today |
 | `core/composite`, `core/delivery`, `core/launch` | do not exist | born pure in slices 6, 12, 7; zero allowlist from their first commit |
 
@@ -113,15 +117,16 @@ flowchart TB
   classDef core fill:#dfe,stroke:#282
   classDef port fill:#ffd,stroke:#a80,stroke-dasharray:4 3
   classDef adapter fill:#eef,stroke:#228
+  classDef later fill:#fff,stroke:#888,stroke-dasharray:4 3
   subgraph CORE["internal/core — imports only core + toolbox (ratchet: Part 1.0)"]
     L1["trust · wire · paths · present · spool"]:::core
     SESS["sessions"]:::core
-    ENG["engine (port + contract)"]:::core
+    ENG["engine (port + contract) — born 6b; today: agent, the engine base"]:::later
     BP["bundles · profiles"]:::core
-    COMP["composite"]:::core
+    COMP["composite — born 6"]:::later
     CFG["config"]:::core
-    DELIV["delivery"]:::core
-    LAUNCH["launch"]:::core
+    DELIV["delivery — born 12"]:::later
+    LAUNCH["launch — born 7"]:::later
     COORD["coord"]:::core
   end
   subgraph PORTS["PORTS declared in core"]
@@ -132,15 +137,17 @@ flowchart TB
     P5["coord.Spawner · coord.RunnerTransport · coord.HostApp · config.Sources"]:::port
   end
   subgraph ENGINES["internal/engines — import core/engine + core/present only"]
-    ENGS["claude · mock · (codex · opencode when re-added) · engines (registry build)"]:::adapter
+    ENGS["claude · mock · conformance · engines (registry build) · (codex · opencode when re-added)"]:::adapter
   end
   subgraph ADAPTERS["internal/adapters — import core; imported by no core package"]
-    RUNNER["runner (+ runner/mcp inside it)"]:::adapter
-    CGRPC["coordgrpc (codec, servers, client, reach address; holds the generated proto)"]:::adapter
-    CSPAWN["spawn (the only container exec)"]:::adapter
+    RUNNER["runner (+ runner/mcp inside it) — born 8; today: mcp, the stdio server"]:::later
+    CGRPC["coordgrpc (codec, servers, client, reach address) — born 8–10; today: coordgrpc/pb (the generated proto) · coordgrpc/mcpschema"]:::later
+    CSPAWN["spawn (the only container exec) — born 8"]:::later
     ISO["isolation (Cells: worktree · docker · podman · host)"]:::adapter
-    VPIO["hostpty · attach"]:::adapter
-    SRC["remote · companions · signing · attest · configload · fsstore · transcript · memory · fsstatic · confpatch"]:::adapter
+    VPIO["vpio (today) → hostpty · attach at 13"]:::adapter
+    SRC["remote · companions · signing · content (+attest · convert · remotetree · archive) · configload/layerscope · transcript · memory · confpatch"]:::adapter
+    SRC2["configload · fsstore · fsstatic · attest as a leaf — born 4, 5"]:::later
+    UNPLACED["landed under adapters by the rename map's judgment, retired or folded by later slices: agents · contextmetrics · engineversion · git · gitignore · projectroot · selfexec · tmuxhost · turnchange"]:::adapter
     OPS["operations (application services; implements coord.HostApp)"]:::adapter
     CLI["cli · cli/tui · termui"]:::adapter
   end
@@ -153,6 +160,7 @@ flowchart TB
   ENGS --> ENG
   ISO --> LAUNCH
   SRC --> BP & COMP & CFG & SESS & DELIV
+  SRC2 --> CFG & SESS & DELIV
   LAUNCH --> ENG & COMP & DELIV & SESS & CFG
   DELIV --> ENG & COMP & SESS
   COMP --> BP & ENG
@@ -195,7 +203,7 @@ Package table — what each ring member owns and what it must never know:
 Layering rules in `tests/arch/layering_test.go` (each a `layeringRule` row; prefixes, not package lists, once the rename has made the rings directories) and symbol rules in `tests/arch/ring_symbols_test.go` (each an AST walk over the module outside the family products and the test trees, allowlisted by file or by `file#function` with a `_AllowlistIsLive` twin):
 
 - `core-imports-only-core` — `from: internal/core/`, with the Part 1.0 allowlist keyed by edge; `TestArch_LayeringAllowlist_IsLive` deletes exhausted entries.
-- `engines-import-nothing-above-the-port` — `from: internal/engines/` forbids `internal/core/` except `core/engine`, `core/present`, `core/sessions`, `core/wire`, and all of `internal/adapters/`; zero allowlist from day one.
+- `engines-import-nothing-above-the-port` — `from: internal/engines/` forbids `internal/core/` except `core/engine` (today `core/agent`), `core/present`, `core/sessions`, `core/wire`, and all of `internal/adapters/`; the allowlist is the measured edges of `engines/claude` and the retired-in-place `lm/backends`, each leaving in slice 6, 6b, 11b or 12, and is empty from 11b on.
 - `adapters-import-core-not-each-other` — `from: internal/adapters/` forbids `internal/adapters/` and `internal/engines/`, allowed: `cli → operations`, `cli → cli/tui`, `runner → runner/mcp`, `cmd/* → *`.
 - `cli-through-operations`, `runner-owns-the-engine`, `one-launch-constructor` — the constructor rule matches `launch.Launch{`, `new(launch.Launch)` and `var l launch.Launch` outside `core/launch` and `adapters/coordgrpc` by an `ast` walk, not a `git grep`; the exec rule matches `exec.Command`, method values and interface assertions to a narrower type outside `adapters/runner`, `adapters/spawn`, `adapters/hostpty`, `adapters/attach`.
 - `proto-only-in-adapters` — `adapters/coordgrpc/pb` imported only by `adapters/coordgrpc`, `adapters/runner/mcp`, `adapters/cli/tui`, and (allowlisted until slice 13) `cli`, `operations`. Today the proto is `internal/adapters/coordgrpc/pb` itself and `internal/adapters/mcp` stands for `runner/mcp`; `coord` and `mcpschema` are allowlisted until slice 10.

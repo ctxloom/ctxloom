@@ -1,4 +1,4 @@
-# `internal/adapters/coordgrpc/pb` — architecture
+# Agent coordination — `internal/core/coord`, `internal/core/spool`, `internal/adapters/coordgrpc` — architecture
 
 Agent delegation. Written so a future session can reason
 about this subsystem's design without re-reading the source; every claim names

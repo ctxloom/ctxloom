@@ -47,8 +47,8 @@ const SandboxRootName = "ctxloom-test-sandbox"
 const maxOrphanAge = 2 * time.Hour
 
 // SandboxedMain is the TestMain body for any package whose tests drive code
-// that resolves ctxloom's app directory (config.Load / cli.GetConfig and every
-// operation reached through them). Use it as:
+// that resolves ctxloom's app directory (the configload reader, cli.GetConfig
+// and every operation reached through them). Use it as:
 //
 //	func TestMain(m *testing.M) { os.Exit(testsupport.SandboxedMain(m)) }
 //

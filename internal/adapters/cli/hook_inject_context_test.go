@@ -365,7 +365,7 @@ func TestInjectContextSystemMessageComposition(t *testing.T) {
 // exactly when the project rooted at workDir has profiles but no agents, once
 // (part<=1), and never blocks on a config it can't load.
 func TestAgentSetupNudge_Wiring(t *testing.T) {
-	// agentSetupNudge's config.Load is real-OS-fs (no config.WithFS): isolate
+	// agentSetupNudge's the config read is real-OS-fs (no injected fs): isolate
 	// HOME so the home-layer read (D2/D3 layering) never reaches this
 	// developer's real ~/.ctxloom — each subtest's writeRoot fixture must be
 	// the only source of profiles/agents it's asserting on.

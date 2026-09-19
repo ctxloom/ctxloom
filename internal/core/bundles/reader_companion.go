@@ -179,10 +179,10 @@ func companionCandidate(bin, path string, reason CandidateReason) (Candidate, bo
 // read turns one companion's loadout bytes into a read, establishing its
 // signature facts and saying out loud what they were when they are not clean.
 //
-// All three diagnostics dedup, for the reason the sibling readers do: the probe
-// behind them is memoized once per process, so every later loader build re-parses
-// the SAME loadout bytes and re-checks the SAME signature. Nothing it could say
-// differs between builds, and a process builds many loaders.
+// All three diagnostics dedup, for the reason the sibling readers do: a process
+// resolves the reader once per generation, and a later generation re-parses
+// the SAME loadout bytes and re-checks the SAME signature. Nothing it could
+// say differs between generations.
 func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 	b, err := ParseBundle(lo.Bundle)
 	if err != nil {

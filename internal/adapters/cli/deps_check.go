@@ -136,9 +136,9 @@ func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetch
 }
 
 // projectAppDir returns the project's .ctxloom dir for lockfile/cleanup paths.
-// cfg.AppPaths[0] is resolved by config.Load, which walks up from cwd to the
-// project root — so `deps check` works from subdirectories. The bare
-// relative name is only the last resort when config resolution found nothing.
+// cfg.AppPaths[0] is the directory the reader discovered by walking up from
+// cwd to the project root — so `deps check` works from subdirectories. The
+// bare relative name is only the last resort when discovery found nothing.
 func projectAppDir(cfg *config.Config) string {
 	if cfg != nil && len(cfg.GetAppPaths()) > 0 && cfg.GetAppPaths()[0] != "" {
 		return cfg.GetAppPaths()[0]
@@ -432,7 +432,7 @@ func reportMissingDefaults(out io.Writer, missing []string, err error) {
 // A config that will not load yields an error, never an empty slice: "nothing
 // is missing" and "nothing was checked" are different answers and the caller
 // renders them differently. loadConfig is seam'd for tests; production passes
-// config.Load.
+// GetConfig.
 func checkDefaultProfiles(loadConfig func() (*config.Config, error)) ([]string, error) {
 	cfg, err := loadConfig()
 	if err != nil {

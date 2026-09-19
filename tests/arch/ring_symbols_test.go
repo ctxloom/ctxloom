@@ -210,7 +210,7 @@ type pinnedCall struct {
 // session identity is minted by the sessions.Store's AssignHarp through the
 // harp allocator, so both are pinned; their sanctioned callers are the
 // store itself, operations (StartRun's home) and the harp CLI, which mints
-// names, not sessions. config.Open is today's config.Load. coord.New is
+// names, not sessions. config.Open is today's the config read. coord.New is
 // already the one constructor.
 var pinnedCalls = []pinnedCall{
 	{
@@ -230,7 +230,7 @@ var pinnedCalls = []pinnedCall{
 		permitted: []string{"cmd"},
 	},
 	{
-		what:      "opens the config (config.Load, today's config.Open)",
+		what:      "opens the config (the config read, today's config.Open)",
 		match:     func(c *ast.CallExpr) bool { return selectorCall(c, "config", "Load") },
 		permitted: []string{"cmd"},
 	},
@@ -246,10 +246,10 @@ var oneMintOneOwnerAllowed = map[string]string{
 	// the coordinator is constructed by the MCP server, not the composition root
 	"internal/adapters/mcp/coord_host.go#NewHostedCoordinator": "Part 1.1 one-mint-one-owner: coord.New moves under cmd/*; Part 4.1 names no slice for the move (measured)",
 
-	// config.Load in the CLI: slice 4 gives operations.App the one
+	// the config read in the CLI: slice 4 gives operations.App the one
 	// config.Owner and the CLI stops opening the config itself
 
-	// config.Load inside operations: the memoized loader each service opens
+	// the config read inside operations: the memoized loader each service opens
 	// for itself becomes the one Owner the App is constructed with
 }
 

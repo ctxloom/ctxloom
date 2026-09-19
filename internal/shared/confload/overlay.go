@@ -222,35 +222,6 @@ func (p Product) ReadOverrides(fs *pflag.FlagSet, environ []string) (Overrides, 
 	return Overrides{Env: envValues, Flags: flagValues}, errors.Join(errs...)
 }
 
-// Stamp returns a cheap, deterministic identity for o's raw content — changes
-// whenever any override name or value changes. It exists so a memoized
-// config load (internal/core/config's ambientStamp) can fold it in alongside a
-// config file's own mtime+size stat: an ambient memo built BEFORE overrides
-// were installed (or before they changed) must not be served forever just
-// because no file changed — see the package's consuming caller for the full
-// rationale. The zero Overrides{} stamps as "env:|cli:", a stable constant a
-// caller can compare against to detect "no overrides installed at all".
-func (o Overrides) Stamp() string {
-	return "env:" + stampFlat(o.Env) + "|cli:" + stampFlat(o.Flags)
-}
-
-// stampFlat renders a flat map deterministically (sorted keys) for Stamp.
-func stampFlat(m map[string]any) string {
-	if len(m) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for _, k := range keys {
-		fmt.Fprintf(&b, "%s=%v;", k, m[k])
-	}
-	return b.String()
-}
-
 // ApplyOverrides resolves o's Env then Flags layers against base (env first,
 // so a flag can still beat an env-set value — the documented precedence),
 // returning the fully-layered result. This is the resolution step Load

@@ -52,7 +52,7 @@ func TestFindAppDir_WorktreeSignpost(t *testing.T) {
 
 		mark := strictness.Checkpoint()
 		findAppDir(afero.NewOsFs())
-		findAppDir(afero.NewOsFs()) // config.Load runs several times per process
+		findAppDir(afero.NewOsFs()) // the config read runs several times per process
 
 		assert.Len(t, strictness.Since(mark), 1,
 			"FailOnce must collapse the same worktree finding within one startup window")
@@ -197,7 +197,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 // findAppDir's last resort — reached only when os.UserHomeDir()
 // fails — returned <pwd>/.ctxloom without creating it, or, when os.Getwd() had
 // ALSO failed, the bare RELATIVE string ".ctxloom" tagged config.SourceProject.
-// loadUncached then derives appRoot as filepath.Dir(appPath), so the relative
+// the reader then derives appRoot as filepath.Dir(appPath), so the relative
 // case resolves the whole project to "." and every path built from it —
 // bundles, agents, sessions, the config file itself — becomes relative to
 // whatever cwd the process happens to hold at the moment it is used. ctxloom

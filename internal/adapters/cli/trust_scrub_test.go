@@ -30,7 +30,7 @@ import (
 // project root (where .claude/.mcp.json lands).
 func scrubProjectRoot(t *testing.T) string {
 	t.Helper()
-	testsupport.Isolate(t)        // junk HOME so config.Load reads only this project
+	testsupport.Isolate(t)        // junk HOME so the config read reads only this project
 	t.Setenv("SSH_AUTH_SOCK", "") // no ssh-agent — trust/blacklist take the unsigned path deterministically
 	root := t.TempDir()
 	t.Setenv(projectroot.EnvVar, root)

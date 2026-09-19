@@ -112,7 +112,7 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 }
 
 // TestWithFileLock_FailsClosedOnLockAcquisitionError pins the fail-closed
-// stance WithFileLock shares with config.Manager.Update: a lock
+// stance WithFileLock shares with config.Owner.Update: a lock
 // ACQUISITION failure (as opposed to ordinary blocking on contention, which
 // flock.Flock.Lock already waits out) must propagate as an error, and fn must
 // NEVER run — degrading to an unlocked read-modify-write on that failure
@@ -155,7 +155,7 @@ func TestWithFileLock_FailsClosedOnLockAcquisitionError(t *testing.T) {
 // exclude, and composing a lock path from one of its often-bogus absolute
 // addresses and asking the REAL OS to create and flock it would touch
 // actual disk the test never intended — exactly the crosstalk
-// config.Manager.Update's injectedFS guard, and internal/shared/admission's
+// config.Owner.Update's injectedFS guard, and internal/shared/admission's
 // useLock (C5), both exist to avoid. Mirrors that idiom via isOSBackedFs.
 func TestWithFileLock_SkipsLockingForNonOSBackedFs(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -184,7 +184,7 @@ func TestWithFileLock_SkipsLockingForNonOSBackedFs(t *testing.T) {
 // bookkeeping had a bug, come back nil — a nil release panics the standard
 // `unlock, err := Lock(p); defer unlock()` caller shape immediately on the
 // error path. Every call site in this codebase now uses a *flock.Flock
-// value directly (WithFileLock, config.Manager.Update, eventLog.lock, ...),
+// value directly (WithFileLock, config.Owner.Update, eventLog.lock, ...),
 // and flock.Flock.Unlock() is a method on a struct that flock.New always
 // returns non-nil — there is no separate closure value that could be nil,
 // so that half of the old contract is now impossible BY CONSTRUCTION rather

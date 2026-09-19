@@ -400,7 +400,7 @@ type SetStatuslineResult struct {
 }
 
 // SetStatusline persists whether ctxloom manages its HUD statusline, inside
-// one Manager.Update transaction. The change takes effect on the next hook
+// one Owner.Update transaction. The change takes effect on the next hook
 // apply (`manage hooks install` / `ctxloom run`).
 func SetStatusline(ctx context.Context, app *App, req SetStatuslineRequest) (*SetStatuslineResult, error) {
 	if app == nil {

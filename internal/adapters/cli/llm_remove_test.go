@@ -56,7 +56,7 @@ func TestRunLLMRemove_UnknownLabelErrors_EvenBare(t *testing.T) {
 
 // TestRunLLMRemove_BareBackendNameIsNotRemovable proves a registered
 // backend name with no config.yaml entry (e.g. "claude-code" on a project
-// with no llm.configs at all — mergeDefaultConfig's whole-registry
+// with no llm.configs at all — the default-registry overlay's whole-registry
 // fallback merely fills the READ view, IsLLMUserAuthored sees through it)
 // is refused, never falsely reported as removed.
 func TestRunLLMRemove_BareBackendNameIsNotRemovable(t *testing.T) {

@@ -14,9 +14,9 @@ import (
 // Config's fields are unexported precisely so a loaded config cannot be
 // mutated or replaced from outside this package. Fixture is the deliberate
 // exception, and it does not reopen that hole: the hazard is a mutator
-// corrupting the ONE shared instance every Load/Current holder sees, and a
-// Fixture-built Config never enters the ambient memo and never aliases a
-// Load result. Every call yields a separately-owned value.
+// corrupting the ONE published generation every Current holder sees, and a
+// Fixture-built Config is never published by an Owner and never aliases a
+// generation's value. Every call yields a separately-owned value.
 //
 // "Separately owned" means the CONTAINERS too, not just the struct. Both
 // directions of the round trip clone every map and slice they carry, using

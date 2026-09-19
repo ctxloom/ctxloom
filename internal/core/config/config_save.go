@@ -74,7 +74,7 @@ func (c *Config) commitPendingUpgrade(p *PendingUpgrade) error {
 // saveLocked is the read-merge-write at the heart of persisting a Config: it
 // re-reads the on-disk file fresh, merges c's in-memory sections onto it
 // (preserving unknown keys), and writes back atomically so a crash can never
-// tear config.yaml. It takes no lock of its own — the caller (Manager.Update,
+// tear config.yaml. It takes no lock of its own — the caller (Owner.Update,
 // the only production writer) is responsible for holding the advisory
 // cross-process file lock for the whole read-modify-write, which is what
 // actually closes the lost-update window: two writers that each captured
@@ -103,7 +103,7 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 		return fmt.Errorf("failed to normalize config for save: %w", err)
 	}
 
-	// c is the FULLY MERGED view Manager.Update's loadUncached produced (home <
+	// c is the FULLY MERGED view Owner.Update's fresh Read produced (home <
 	// project < env < flag), so applyConfigSections wrote every section it
 	// carries regardless of which layer contributed it — a Machine-scoped value
 	// set ONLY in home (editor.command, llm.configs.*.binary_path, ...) included. Writing
@@ -265,7 +265,7 @@ func (c *Config) Marshal() ([]byte, error) {
 // with only the sections applyConfigSections emits: every key ctxloom does
 // not model, and every key it does model but this in-memory Config happens
 // not to carry, was destroyed by a command the user ran for an unrelated
-// reason (`ctxloom agent add`, `mcp add`, anything through Manager.Update).
+// reason (`ctxloom agent add`, `mcp add`, anything through Owner.Update).
 // The warning even said so — "unknown fields may be lost" — while proceeding
 // to lose them.
 //
@@ -289,7 +289,7 @@ func readExistingConfig(fs afero.Fs, configPath string) ([]byte, map[string]inte
 
 // userAuthoredLM returns the LM section with default-overlaid values stripped:
 // registry entries and role defaults that came verbatim from the embedded
-// default config (mergeDefaultConfig) are runtime fallbacks, not user
+// default config (Builder.OverlayDefaultRegistry) are runtime fallbacks, not user
 // configuration. Persisting them would pin the user to a snapshot of shipped
 // model defaults that stops tracking future releases. Anything the user added
 // or changed since the overlay survives.

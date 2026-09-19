@@ -219,7 +219,7 @@ type Store[K comparable, R comparable] struct {
 	// (often nonexistent, often unwritable-by-this-user) paths and asking
 	// the REAL OS to create and flock it would touch actual disk at an
 	// address the test never intended, exactly the crosstalk
-	// config.Manager's injectedFS guard exists to avoid. See isOSBackedFs.
+	// config.Owner.Update's injectedFS guard exists to avoid. See isOSBackedFs.
 	useLock bool
 	// misconfigured is the construction fault, held rather than panicked so
 	// construction stays total. Every method surfaces it; nothing reads or
@@ -519,8 +519,8 @@ func (s *Store[K, R]) Forget(k K) (int, error) {
 // BOTH a lock-path derivation failure and a lock ACQUISITION failure fail
 // closed: fn never runs unlocked as a fallback. Degrading to unlocked on
 // either would discard the serialization this method exists to provide,
-// silently, on every subsequent call — exactly the fix config.Manager.Update
-// made for the identical failure shape (see its doc).
+// silently, on every subsequent call — exactly the stance config.Owner.Update
+// takes for the identical failure shape (see its doc).
 func (s *Store[K, R]) lockedRMW(fn func() error) error {
 	if !s.useLock {
 		return fn()

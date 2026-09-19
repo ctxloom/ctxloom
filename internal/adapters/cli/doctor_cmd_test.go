@@ -59,12 +59,12 @@ func prependFakeBinToPath(t *testing.T, name string) {
 
 // setupProject scaffolds a real, hermetic (no network) .ctxloom project via
 // operations.InitializeProject — the same call `ctxloom manage install`
-// makes — under a fresh temp dir, and loads it back with config.Load. The
+// makes — under a fresh temp dir, and loads it back with the config read. The
 // scaffolded agent ("default") binds one profile ("default", the embedded
 // seed profile InitializeProject writes) to the given engine label.
 func setupProject(t *testing.T, engine string) (root string, cfg *config.Config) {
 	t.Helper()
-	// Real-OS-fs config.Load below (no config.WithFS): isolate HOME so the
+	// Real-OS-fs the config read below (no injected fs): isolate HOME so the
 	// home-layer read (D2/D3 layering) never reaches this developer's real
 	// ~/.ctxloom — this scaffolded project is meant to be the only source.
 	testsupport.Isolate(t)

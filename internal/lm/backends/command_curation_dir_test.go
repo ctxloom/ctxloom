@@ -32,7 +32,7 @@ import (
 // production. The only bundle source remains the seed/resolver passed to
 // LoadCommandExports.
 //
-// Built through config.Load (a written config.yaml + WithAppDir), not a
+// Built through the config read (a written config.yaml + WithAppDir), not a
 // struct literal: config.Config's fields are unexported outside the config
 // package (v0.7.0-pre1 config-manager rework) precisely so a caller can't
 // synthesize a Config that skips the loader's schema/upgrade/default-merge

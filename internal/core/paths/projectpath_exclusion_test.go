@@ -34,7 +34,7 @@ func TestProjectPathFor_LockTakenViaOneSpellingExcludesTheOther(t *testing.T) {
 
 	// flock.New does not create the lock's parent directory the way the old
 	// filelock.Lock's internal ensureDir used to — every real call site
-	// creates it itself before acquiring (see e.g. config.Manager.Update),
+	// creates it itself before acquiring (see e.g. config.Owner.Update),
 	// so the probe does the same here.
 	require.NoError(t, os.MkdirAll(filepath.Dir(held), 0o755))
 	heldLock := flock.New(held)

@@ -99,7 +99,7 @@ func TestLoad_HomeEnginelessAgentIsRefusedNamingHomePath(t *testing.T) {
 // TestManagerUpdate_ProjectWriteDoesNotFoldHomeAgentIntoProjectFile is the
 // row's third settling condition, end to end: a project-layer `agent create`
 // in a repo whose HOME config declares an extra agent must leave the project
-// file without that agent. Manager.Update saves the MERGED view, so the only
+// file without that agent. Owner.Update saves the MERGED view, so the only
 // way a home-only agent stays out of the committed file is for it never to
 // survive load in the first place.
 func TestManagerUpdate_ProjectWriteDoesNotFoldHomeAgentIntoProjectFile(t *testing.T) {

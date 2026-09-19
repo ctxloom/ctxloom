@@ -11,7 +11,7 @@ import (
 
 // =============================================================================
 // SetLLM / RemoveLLM: `llm create`/`llm edit`/`llm remove`'s shared write
-// core, on Manager.Update — mirrors agent_write_test.go's coverage for the
+// core, on Owner.Update — mirrors agent_write_test.go's coverage for the
 // agent CRUD sibling this closes the parity gap with.
 // =============================================================================
 
@@ -119,7 +119,7 @@ func TestRemoveLLM_DeletesAndPersists(t *testing.T) {
 
 // TestRemoveLLM_UnknownLabelErrors: removing a label config.yaml never
 // declared (including a bare backend name like "claude-code", which has no
-// config entry to delete — mergeDefaultConfig's whole-registry fallback
+// config entry to delete — the default-registry overlay's whole-registry fallback
 // fills an EMPTY llm.configs with it, but that is not a user declaration,
 // see IsLLMUserAuthored) is an error, never a silent zero-effect success.
 func TestRemoveLLM_UnknownLabelErrors(t *testing.T) {

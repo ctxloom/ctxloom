@@ -331,9 +331,10 @@ func validateContainerAuth(cfg *config.Config, name string, req SetAgentRequest)
 }
 
 // SetAgent adds or updates a LOCAL agent under the `agents:` config key,
-// inside one Manager.Update transaction — the write is a single locked,
-// freshly-reloaded read-modify-write rather than a Load, a mutation, and a
-// later Save that could race a concurrent writer. It is the write half the
+// inside one Owner.Update transaction — the write is a single locked,
+// freshly-reloaded read-modify-write that publishes the next generation,
+// rather than a read, a mutation, and a later Save that could race a
+// concurrent writer. It is the write half the
 // agent-assisted setup calls to record the engine↔profile binding the user
 // chose.
 //
@@ -446,7 +447,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 }
 
 // RemoveAgent deletes a LOCAL agent from the `agents:` config key, inside one
-// Manager.Update transaction: the existence check and the delete happen
+// Owner.Update transaction: the existence check and the delete happen
 // against the same locked, freshly-reloaded Draft, so a concurrent writer can
 // never resurrect the entry between the check and the save. An unknown name
 // errors.

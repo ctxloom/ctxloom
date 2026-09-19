@@ -330,7 +330,7 @@ func TestVerifyForwardTarget(t *testing.T) {
 
 // CAUTION FOR FUTURE TESTS: do not drive ServeStdio's real local-startup
 // path (a REFUSED or absent forward falling through into ctxServer.startup)
-// from this package. loadStartupConfig calls config.Load() directly with no
+// from this package. loadStartupConfig calls the config read directly with no
 // injectable-loader seam (unlike loadStartupConfigWith), so a test cannot
 // substitute a stub config — and a real resolved config here can enable
 // runStartupSync's remote-reference walk, a live, unbounded network call.

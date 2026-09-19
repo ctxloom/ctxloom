@@ -134,8 +134,8 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 }
 
 // interactiveAdd prompts the user to add a discovered repo as a remote. It
-// reuses the cfg already loaded by the caller — a second GetConfig() here would
-// re-run config.Load and re-print any config warnings to the user.
+// reuses the cfg the caller holds — a second GetConfig() here would re-print
+// the generation's config warnings to the user.
 //
 // Input comes from the process-wide stdinReader (run.go), never a fresh reader:
 // a second buffered reader over os.Stdin discards whatever the first one

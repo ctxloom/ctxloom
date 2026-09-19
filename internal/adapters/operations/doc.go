@@ -24,7 +24,7 @@
 // CLI commands parse flags and call the same operations:
 //
 //	func runRemoteList(cmd *cobra.Command, args []string) error {
-//	    cfg, _ := config.Load()
+//	    cfg, _ := GetConfig() // the process's published generation
 //	    result, _ := operations.ListRemotes(cmd.Context(), cfg, operations.ListRemotesRequest{})
 //	    // Format result for human output
 //	    for _, r := range result.Remotes {

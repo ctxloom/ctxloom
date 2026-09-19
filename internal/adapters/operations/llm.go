@@ -30,7 +30,7 @@ type SetDefaultLLMResult struct {
 }
 
 // SetDefaultLLM records the default LLM plugin in config, inside one
-// Manager.Update transaction: the "is this already the default" check reads
+// Owner.Update transaction: the "is this already the default" check reads
 // the same locked, freshly-reloaded Draft the write applies to, so the
 // answer is never a statement about a config another writer has since
 // replaced. Frontends validate that the name is a known plugin (a frontend
@@ -150,7 +150,7 @@ func warnLLMPermissionsTypo(label string, permissions *string) {
 }
 
 // SetLLM adds or updates a LOCAL LLM registry entry under the `llm.configs`
-// config key, inside one Manager.Update transaction — the same locked,
+// config key, inside one Owner.Update transaction — the same locked,
 // freshly-reloaded read-modify-write SetAgent uses, so a concurrent writer
 // cannot land between the read of the existing entry and the write of the
 // merged one.
@@ -214,7 +214,7 @@ func SetLLM(ctx context.Context, app *App, req SetLLMRequest) (*LLMEntry, error)
 // RemoveLLM deletes a LOCAL LLM registry entry from the `llm.configs`
 // config key, inside one Update transaction — mirroring
 // RemoveAgent. cfg is consulted (via IsLLMUserAuthored) to distinguish a
-// genuinely user-declared entry from one mergeDefaultConfig's
+// genuinely user-declared entry from one the shipped default registry's
 // whole-registry fallback merely filled in for a project that configured no
 // LLMs at all (e.g. "claude-code" on an empty llm.configs) — without that
 // check, removing a never-configured built-in would report success while

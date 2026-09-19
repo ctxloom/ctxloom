@@ -316,7 +316,7 @@ bundles:
 // TestRun_Agent_DryRun's doc above describes: `agent create dev --runtime
 // container` must exit non-zero AND write nothing — no config.yaml at all
 // (setupTestEnv's CreateProjectConfig scaffolds the .ctxloom directory but
-// never writes the file itself; SetAgent's Manager.Update, which is what
+// never writes the file itself; SetAgent's Owner.Update, which is what
 // would create it, never opens because validateAgentAxes refuses first), let
 // alone an agents.dev entry carrying the invalid value. Asserting only the
 // exit code (or only the error text) would pass even if the old

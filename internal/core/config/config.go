@@ -46,7 +46,7 @@ const (
 // the bug that motivated this rework (operations.SetAgent used to do
 // `cfg.agents[name] = ...` directly on the shared instance). Reads go through
 // the Get<Field> accessors in accessors.go (copy-on-read); writes go through
-// Manager.Update's Draft (see config_manager.go). This is a COMPILE ERROR,
+// Owner.Update's Draft (lifecycle.go). This is a COMPILE ERROR,
 // not a convention: nothing outside this package can even name these fields.
 //
 // yaml (de)serialization used to rely on encoding/yaml's reflection walking
@@ -242,23 +242,15 @@ type Config struct {
 
 	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)
 
-	// injectedFS records whether fs was EXPLICITLY provided (WithFS at Load
-	// time, or a later SetFS call) as opposed to defaulted. This exists
-	// SOLELY so Save/Manager.Update can tell "a real caller pointed this at a
-	// test filesystem, skip the cross-process advisory lock — there are no
-	// other processes reading an in-memory fs" apart from "this is the OS
-	// filesystem, take the lock" — a distinction c.fs itself can no longer
-	// make: loadUncached ALWAYS populates c.fs with a concrete value
-	// (afero.NewOsFs() by default), so a "c.fs == nil" check — Save's
-	// original guard — is false for EVERY Load()-produced Config, meaning
-	// the advisory lock this field exists to gate had never actually fired
-	// for a real, on-disk config (found while building Manager.Update's own
-	// lock guard: TestUpdate_SerializesConcurrentWritersInProcess lost 13 of
-	// 20 concurrent writes with the naive c.fs==nil check, because it always
-	// skipped locking). c.fs itself is untouched — every existing consumer
-	// that reads it directly (agents.GetAgentDirs, profiles.GetProfileDirs,
-	// bundles.WithFS, the remote registry/lockfile options, ...) keeps
-	// exactly the same value it always got.
+	// injectedFS records whether fs was EXPLICITLY provided (the reader's
+	// injected filesystem, or a later SetFS call) as opposed to defaulted.
+	// It exists SOLELY so Owner.Update can tell "a caller pointed this at a
+	// test filesystem, skip the cross-process advisory lock — no other
+	// process reads an in-memory fs" apart from "this is the OS filesystem,
+	// take the lock" — a distinction c.fs itself cannot make, because the
+	// Builder always populates it with a concrete value (afero.NewOsFs by
+	// default), so a "c.fs == nil" check would skip the lock for every real
+	// on-disk config.
 	injectedFS bool
 
 	// execGate gates the bundle EXECUTABLE surfaces (bundle MCP servers + bundle
@@ -332,7 +324,7 @@ type configDoc struct {
 // toDoc copies c's persisted fields into a configDoc for marshaling.
 //
 // Like its twin ToFixture (fixture.go), it clones every map and slice rather
-// than aliasing c's own. The strongest reason is Draft: Manager.Update hands
+// than aliasing c's own. The strongest reason is Draft: Owner.Update hands
 // the doc this builds to an arbitrary caller's fn as the package's documented
 // WRITE surface, and an fn that mutates a container in place must not be able
 // to reach back into the Config the draft was taken from. Cloning also keeps
@@ -421,7 +413,7 @@ func (c *Config) MarshalYAML() (any, error) {
 // doc is seeded from c's CURRENT state (c.toDoc()), not a zero value, before
 // decoding — reproducing yaml.v3's decode-into-existing-value semantics: a
 // key absent from the document leaves the corresponding field exactly as it
-// was, rather than resetting it to zero. loadUncached relies on this: it
+// was, rather than resetting it to zero. NewBuilder relies on this: it
 // pre-populates cfg's LM.Configs with a non-nil empty map before this
 // Unmarshal runs, specifically so a document that never mentions "llm" still
 // leaves that map non-nil for downstream
@@ -1173,12 +1165,10 @@ func (c *Config) GetBundleDirs() []string {
 //
 // GetBundleDirs filters, and that is right for its callers: they check a path is
 // safely under a real directory, or report which directories were searched. It
-// is wrong for the READER, because the loader is now built once per Config and
-// its readers keep whatever dirs they were handed. A project whose bundles
-// directory did not exist at first resolve — `bundle create` in a fresh project
-// is exactly that — would give the reader an empty search path that no
-// invalidation could repair, since invalidation drops the memoized READS and
-// never rebuilds the readers.
+// is wrong for the READER, whose readers are built once per generation and
+// keep whatever dirs they were handed: a project whose bundles directory did
+// not exist at Reload — `bundle create` in a fresh project is exactly that —
+// would give the generation an empty search path.
 //
 // Passing the configured dirs unconditionally costs nothing: localFSReader.Read
 // already skips a directory that is not there.
@@ -1225,9 +1215,9 @@ func (c *Config) getFS() afero.Fs {
 }
 
 // SetFS sets the filesystem for file operations (useful for testing). Also
-// marks the filesystem as injected (see injectedFS's doc), so Save/
-// Manager.Update skip the cross-process advisory lock for it exactly as they
-// would for a WithFS(...) load.
+// marks the filesystem as injected (see injectedFS's doc), so Owner.Update
+// skips the cross-process advisory lock for it exactly as it would for a
+// reader's injected filesystem.
 func (c *Config) SetFS(fs afero.Fs) {
 	c.fs = fs
 	c.injectedFS = true

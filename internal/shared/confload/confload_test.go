@@ -525,20 +525,6 @@ func TestConfload_SecondProductReusesPattern(t *testing.T) {
 	assert.Equal(t, "env-store", result["store"])
 }
 
-// TestOverrides_Stamp_ChangesWithContent proves Stamp is sensitive to both
-// the env and cli override content, and stable (equal) for identical content
-// -- the property internal/core/config's ambientStamp folding depends on.
-func TestOverrides_Stamp_ChangesWithContent(t *testing.T) {
-	empty := Overrides{}
-	withEnv := Overrides{Env: map[string]any{"FOO": "bar"}}
-	withEnvAgain := Overrides{Env: map[string]any{"FOO": "bar"}}
-	withDifferentEnv := Overrides{Env: map[string]any{"FOO": "baz"}}
-
-	assert.NotEqual(t, empty.Stamp(), withEnv.Stamp())
-	assert.Equal(t, withEnv.Stamp(), withEnvAgain.Stamp())
-	assert.NotEqual(t, withEnv.Stamp(), withDifferentEnv.Stamp())
-}
-
 // TestLoad_WarnsWhenAConfigFileExistsButDefinesNoKeys is the regression guard:
 // readYAMLFile used to collapse four distinct states -- layer not
 // configured (path ""), file missing, file empty, file comment-only -- into a

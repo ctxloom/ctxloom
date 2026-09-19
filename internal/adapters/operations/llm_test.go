@@ -54,13 +54,13 @@ func TestAvailableLLMNames_Sorted(t *testing.T) {
 }
 
 // =============================================================================
-// SetDefaultLLM: the write path, migrated onto Manager.Update
+// SetDefaultLLM: the write path, migrated onto Owner.Update
 // =============================================================================
 
 // TestSetDefaultLLM_SetsAndPersists proves the write survives a reload. The
 // seed names an explicit starting primary ("mock") rather than leaving
 // llm.defaults.primary absent — an absent primary is filled in-memory by the
-// shipped-default overlay (mergeDefaultConfig) at load time, which would make
+// shipped-default overlay (the default-registry overlay) at load time, which would make
 // "claude-code" look already-current and turn this into an unchanged-status
 // test instead of the set-status one it's named for.
 func TestSetDefaultLLM_SetsAndPersists(t *testing.T) {
@@ -96,7 +96,7 @@ func TestSetDefaultLLM_EmptyName(t *testing.T) {
 }
 
 // TestSetDefaultLLM_UnchangedCheckSeesConcurrentWrite proves the specific
-// race Manager.Update closes for this call: the "is this already the
+// race Owner.Update closes for this call: the "is this already the
 // default" check reads the SAME locked, freshly-reloaded Draft the write
 // applies to, so writer B's decision can never be a statement about a config
 // writer A has already replaced. This is a different concurrency property

@@ -206,7 +206,7 @@ func TestRunCharacterization_FlagValidationRejectsBeforeAnyWork(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 // `config create` writes a default profile whose parents are remote bundles that
-// are not installed. config.Load downgrades that to warnings; the run path
+// are not installed. the config read downgrades that to warnings; the run path
 // surfaces them AND records them as fatal findings, so the startup gate aborts
 // with the dedicated exit code rather than launching an empty-context session.
 // A dry run is gated too — previewing a broken setup must say so.

@@ -113,7 +113,7 @@ func agentBindingMergeFunc(src, dest map[string]any) error {
 //
 // It runs per LAYER, deliberately: checked on the MERGED map instead, the
 // finding could only name the project's path for a declaration that lives in
-// home, and the shell would already be in the view Manager.Update saves back
+// home, and the shell would already be in the view Owner.Update saves back
 // into the project file — which is how a home-only `help: {}` came to be
 // re-serialised into a committed config. The layer-scope check cannot catch
 // it: every per-agent FIELD is ScopeShared, so a home agent declaring any

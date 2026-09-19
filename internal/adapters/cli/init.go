@@ -354,22 +354,12 @@ func resolveSetupEngine(selected string, interactive bool) (engine string, repos
 }
 
 // writeInitialConfig delegates project bootstrap (the .ctxloom skeleton +
-// config.yaml + default remotes.yaml) to the operations core.
-//
-// It EXPLICITLY invalidates the ambient config memo on success, rather than
-// relying on the memo's own stat-based self-correction (config.Load's mtime
-// +size check). init's own post-scaffold steps (addPersonalRemotes,
-// cloneConfiguredRemotes, pullSeededDependencies, applyInitHooks) read the
-// config back appDir-SCOPED, which is never served from the memo at all — but
-// the AMBIENT readers that follow in the same process are (GetConfig in
-// launchDiscovery and launchEngineWithPrompt), and a stat check has only
-// mtime+size granularity to key on: theoretically indistinguishable from the
-// pre-write state on a filesystem coarse enough, or if a PRIOR config.Load in
-// this same init run (e.g. engineForExistingDir probing for a pre-existing
-// config before this write happens) already memoized a "missing" stamp whose
-// invalidation this write's own stat SHOULD, but need not provably, trigger.
-// Invalidate() removes that dependency: the very next Load anywhere in the
-// process re-reads from disk unconditionally.
+// config.yaml + default remotes.yaml) to the operations core, then publishes
+// the generation that holds the scaffold — the one Reload after a scaffold
+// (Part 1.8). Every post-scaffold step (addPersonalRemotes,
+// cloneConfiguredRemotes, pullSeededDependencies, applyInitHooks) and the
+// discovery launch read that generation; nothing in this process observes
+// the pre-scaffold state again.
 func writeInitialConfig(appDir, engine, dirtyTreeHandler string, dirtyTreeCommitAck bool) error {
 	_, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
 		AppDir:             appDir,

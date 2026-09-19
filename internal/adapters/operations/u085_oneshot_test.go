@@ -64,7 +64,7 @@ func stubIsolatedPrepare(t *testing.T, mk func() pb.Client) {
 
 // withheldOneshotProject seeds a loadable on-disk project whose `dev` profile
 // pulls a local bundle carrying two MCP servers, one of which is REJECTED in the
-// user's approval store. config.Load (which backends.AssembleManagedConfig calls
+// user's approval store. the config read (which backends.AssembleManagedConfig calls
 // on the isolated-member path) reads this tree, so the withhold happens for
 // real inside the run rather than being simulated.
 func withheldOneshotProject(t *testing.T) *config.Config {

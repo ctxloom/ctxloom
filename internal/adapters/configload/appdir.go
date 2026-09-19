@@ -117,7 +117,7 @@ func walkUpForAppDir(fs afero.Fs, dir, tempRoot string) (string, bool) {
 
 // lastResortAppDir answers when the home directory itself is unresolvable: the
 // cwd's .ctxloom, resolved ABSOLUTELY and created, matching both of findAppDir's
-// other returns. loadUncached derives appRoot as filepath.Dir of this, so a
+// other returns. config.NewBuilder derives appRoot as filepath.Dir of this, so a
 // relative result would resolve the whole project to "." and make every path
 // built from it — bundles, agents, sessions, the config file — depend on
 // whatever cwd the process holds when it is used. This is the branch reached
@@ -142,10 +142,10 @@ func lastResortAppDir(fs afero.Fs, pwd string) string {
 // a LINKED git worktree carrying no .ctxloom of its own — naming the resolved
 // main worktree root and both remediation paths (run from the main worktree,
 // or `ctxloom init` here to make this worktree a deliberately separate
-// project). FailOnce, because findAppDir runs on every config.Load and a
-// single process loads config several times — the finding must not stack up
-// in one startup window. No-op (walk continues to today's fallback) when dir
-// is not such a worktree root.
+// project). FailOnce, because findAppDir runs on every Read and a process
+// reads more than once (each Reload) — the finding must not stack up in one
+// startup window. No-op (walk continues to today's fallback) when dir is not
+// such a worktree root.
 //
 // A linked worktree WITH its own .ctxloom never reaches this call: the walk in
 // findAppDir already returned on the .ctxloom check for that same dir. That is

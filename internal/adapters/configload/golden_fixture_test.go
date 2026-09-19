@@ -86,7 +86,7 @@ func TestGoldenFixture_CurrentEffectiveConfig_D3Characterization(t *testing.T) {
 		"init-config.yaml deliberately carries no default_agent — init fills it in after engine selection")
 	assert.Empty(t, projectOnly.ToFixture().Agents)
 	assert.NotEmpty(t, projectOnly.ToFixture().LM.Configs,
-		"an empty user registry adopts ctxloom's EMBEDDED built-in default (mergeDefaultConfig) when nothing else fills it")
+		"an empty user registry adopts ctxloom's EMBEDDED built-in default (the default-registry overlay) when nothing else fills it")
 	_, hasBuiltinClaudeCode := projectOnly.ToFixture().LM.Configs["claude-code"]
 	assert.True(t, hasBuiltinClaudeCode, "the built-in default registry's label")
 

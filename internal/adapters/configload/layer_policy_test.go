@@ -161,7 +161,7 @@ agents:
 // agent wins" is not "a lower layer's agent is wiped just because a higher
 // layer exists".
 //
-// This is a merge-func-level test, not a full config.Load one, because
+// This is a merge-func-level test, not a full the config read one, because
 // EVERY per-agent leaf the schema declares is ScopeShared as of this change
 // (agents.*.runtime included -- see policy_default.go's divergence comment
 // on that rule): a real end-to-end Load can no longer demonstrate "an agent
@@ -283,8 +283,8 @@ agents:
 
 // TestManagerUpdate_DoesNotPersistHomeInheritedMachineValueIntoProjectFile
 // pins the SAVE-time half of the layer-scope closure, distinct from every
-// other test in this file (all LOAD-time): Manager.Update's draft is built
-// from loadUncached's FULLY MERGED view (home < project), so an unrelated
+// other test in this file (all LOAD-time): Owner.Update's draft is built
+// from the reader's FULLY MERGED view (home < project), so an unrelated
 // write (setting default_agent here) must not silently duplicate home's own
 // editor.command -- ScopeMachine, legitimate in home, never in a committed
 // project file -- into the persisted project config.yaml. Left unfixed, the

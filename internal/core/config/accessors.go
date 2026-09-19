@@ -17,9 +17,9 @@ package config
 // read-then-locally-mutate pattern this codebase actually uses is safe. This
 // does not recurse indefinitely — nothing in the tree reaches three levels
 // deep into a value obtained this way — and the real immutability guarantee
-// is the unexported fields plus the Manager/Draft write path (Manager.Update),
+// is the unexported fields plus the Owner/Draft write path (Owner.Update),
 // not these copies. A copy is a defense for well-behaved callers, not a
-// security boundary; see TestSnapshot_CannotBeMutatedByReaders for the actual
+// security boundary; see TestOwnerCurrent_AccessorsCopy for the actual
 // enforcement mechanism.
 
 import (
@@ -217,7 +217,8 @@ func (c *Config) GetLLMEntry(label string) (LLMConfig, bool) {
 
 // IsLLMUserAuthored reports whether label's llm.configs entry was actually
 // declared by the user (in config.yaml, any layer) rather than merged in by
-// mergeDefaultConfig's whole-registry fallback for a project that configured
+// the shipped default registry's whole-registry fallback
+// (Builder.OverlayDefaultRegistry) for a project that configured
 // no LLMs at all (LMConfig's own doc: "not a per-key overlay" — it is a
 // stand-in for the ENTIRE registry, not a per-label default). Without this
 // distinction, `llm remove claude-code` on a project that never wrote a
@@ -230,7 +231,7 @@ func (c *Config) IsLLMUserAuthored(label string) bool {
 	if !ok {
 		return false
 	}
-	// lmDefaultOverlay is nil whenever mergeDefaultConfig never ran (the
+	// lmDefaultOverlay is nil whenever the overlay never applied (the
 	// user's llm.configs was non-empty to begin with, so every entry is
 	// unambiguously theirs) OR the embedded default failed to parse — either
 	// way, nothing in cfg.lm.Configs could have come from the fallback.

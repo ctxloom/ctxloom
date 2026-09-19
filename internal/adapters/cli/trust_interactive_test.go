@@ -113,7 +113,7 @@ func TestShowItem_NonInteractiveStdoutUnchanged(t *testing.T) {
 	appDir := filepath.Join(root, ".ctxloom")
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalFragment(t, cfg, "demo", "x", "the fragment body")
-	chdir(t, root) // GetConfig() (config.Load) resolves <root>/.ctxloom
+	chdir(t, root) // GetConfig() (the config read) resolves <root>/.ctxloom
 
 	plain, outPlain := testCmd()
 	require.NoError(t, showItem(plain, "demo#fragments/x", ItemTypeFragment, false, false))

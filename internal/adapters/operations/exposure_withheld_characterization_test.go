@@ -476,7 +476,7 @@ func TestExposureWithheld_Characterization_RealPath_StoreErrorWithholds(t *testi
 }
 
 // realExposureProject materializes a project with one local bundle (two
-// fragments) on fs and returns a config.Load'ed cfg over it — the production
+// fragments) on fs and returns a the config read'ed cfg over it — the production
 // construction path, so AssembleContext builds its own reader and its own
 // gate from cfg alone.
 func realExposureProject(t *testing.T, fs afero.Fs) (*config.Config, string) {

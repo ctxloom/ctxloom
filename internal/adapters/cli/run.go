@@ -566,9 +566,9 @@ func (st *runState) loadConfig() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	st.cfg = cfg
-	// config.Load downgrades unreadable/malformed/schema-invalid files to
-	// warnings (CLAUDE.md fault tolerance) — surface them so a corrupted
-	// config.yaml never silently launches an empty-context session.
+	// The reader records schema-invalid keys and refused overrides as
+	// warnings — surface them so a degraded config.yaml never silently
+	// launches an empty-context session.
 	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
 	// If loading upgraded an older config schema in memory, offer to persist
 	// it (interactive + consented only; never a silent rewrite).

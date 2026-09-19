@@ -181,7 +181,7 @@ func TestRecordWarningsTo_NoWarningsIsSilent(t *testing.T) {
 }
 
 // RecordWarningsTo is called from multiple startup sites, one of which fires
-// on every one of ~80 GetConfig()/GetConfigForUpdate() call sites in cli — and
+// on every one of ~80 GetConfig()/GetConfig() call sites in cli — and
 // Load is MEMOIZED, so each of those calls hands back the same warnings
 // again. Recording with strictness.Record, which has no dedup, would therefore
 // turn ONE broken yaml into N identical fatal findings.

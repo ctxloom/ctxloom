@@ -44,7 +44,7 @@ func testConfig() *config.Config {
 func TestLlmServe_MalformedConfigAbortsInsteadOfLaunching(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
-	// Invalid YAML: config.Load degrades this to a WarnKindParse warning
+	// Invalid YAML: the config read degrades this to a WarnKindParse warning
 	// (CLAUDE.md fault tolerance — it does not become a Load() error), which
 	// is exactly the class printAndRecordConfigWarnings/failOnFindings must catch.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), []byte("invalid: ["), 0o644))
